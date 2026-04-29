@@ -113,6 +113,22 @@
 		balance: null,
 		roundCount: 0,
 		mockBaseUrl: 'http://localhost:7777',
+		manualMode: false,         // panel Bet uses null collect context (round stays open)
+		ourActiveGid: null,        // gid of a round WE opened from the panel — Collect targets only this
+		// Server returns integer credits (cents). UI dividend = display amount.
+		// 100 matches what we observed: server "9990" = game UI "99.90".
+		currencyDivisor: 100,
+		currencyDecimals: 2,
+		currencySymbol: '',        // could populate later from /authenticate response
+	};
+
+	const fmtMoney = (n) => {
+		if (typeof n !== 'number') return '—';
+		const v = (n / state.currencyDivisor).toLocaleString(undefined, {
+			minimumFractionDigits: state.currencyDecimals,
+			maximumFractionDigits: state.currencyDecimals,
+		});
+		return state.currencySymbol ? `${state.currencySymbol} ${v}` : v;
 	};
 
 	// ============================================================
@@ -213,6 +229,12 @@
 			font-family: ui-monospace, monospace;
 		}
 		.ie-input:focus { outline: none; border-color: #4f9eff; }
+		.ie-check {
+			display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+			color: #94a3b8; cursor: pointer; user-select: none;
+		}
+		.ie-check input { accent-color: #4f9eff; cursor: pointer; }
+		.ie-check:has(input:checked) { color: #4f9eff; }
 
 		.ie-viewswitch {
 			margin-left: auto; display: inline-flex; padding: 2px;
@@ -374,6 +396,9 @@
 			</div>
 			<button class="ie-btn primary" data-action="bet">Bet</button>
 			<input class="ie-input" data-input="betPerLine" type="number" value="2" min="1" title="bet per line" />
+			<label class="ie-check" title="Leave round open for separate Collect">
+				<input type="checkbox" data-input="manual" /> manual
+			</label>
 			<button class="ie-btn" data-action="heartbeat">Heartbeat</button>
 			<button class="ie-btn" data-action="collect" disabled>Collect</button>
 			<div class="ie-viewswitch">
@@ -564,11 +589,11 @@
 			if (responseClosedRound(entry.response)) state.session.endRound();
 		}
 
-		// Update collect button availability
-		$('[data-action="collect"]').disabled = !state.session.gid;
+		// Update collect button — only enabled for rounds the panel opened.
+		$('[data-action="collect"]').disabled = !state.ourActiveGid;
 	};
 
-	const fmtBalance = (n) => n == null ? '—' : n.toLocaleString();
+	const fmtBalance = (n) => fmtMoney(n);
 	const fmtTime = (ts) => new Date(ts).toLocaleTimeString();
 
 	const updateStatus = () => {
@@ -582,7 +607,7 @@
 
 	const summaryFor = (entry) => {
 		if (entry.kind === 'heartbeat') {
-			return `<span class="muted">Heartbeat —</span> balance ${fmtBalance(entry.response?.platform?.balance)}`;
+			return `<span class="muted">Heartbeat —</span> balance ${fmtMoney(entry.response?.platform?.balance)}`;
 		}
 		if (entry.kind === 'error') {
 			return `<span style="color:#ff5c5c">${entry.response?.error ?? entry.statusText ?? 'error'}</span>`;
@@ -590,13 +615,13 @@
 		if (entry.kind === 'bet') {
 			const bet = (entry.response?.events ?? []).find((e) => e.event === 'bet')?.context;
 			const win = (entry.response?.events ?? []).find((e) => e.event === 'gameEnd')?.context?.win ?? 0;
-			const total = bet?.total ?? '?';
+			const total = bet?.total;
 			const cls = win > 0 ? 'win' : 'loss';
-			return `<span class="bet">Bet ${total}</span> · <span class="${cls}">Win ${win}</span>`;
+			return `<span class="bet">Bet ${fmtMoney(total)}</span> · <span class="${cls}">Win ${fmtMoney(win)}</span>`;
 		}
 		if (entry.kind === 'collect') {
 			const win = (entry.response?.events ?? []).find((e) => e.event === 'gameRoundOver')?.context?.win ?? 0;
-			return `<span class="muted">Collect</span> · <span class="win">${win}</span>`;
+			return `<span class="muted">Collect</span> · <span class="win">${fmtMoney(win)}</span>`;
 		}
 		return '<span class="muted">unknown</span>';
 	};
@@ -611,14 +636,14 @@
 
 		lines.push(`<div class="ie-exec-row"><span class="label">Source</span><span class="value">${entry.source === 'panel' ? 'Panel button' : 'Game (Spin)'}</span></div>`);
 		lines.push(`<div class="ie-exec-row"><span class="label">Mode</span><span class="value">${state.mode === 'live' ? 'Live · ' + (location.host || 'same-origin') : 'Mock · localhost'}</span></div>`);
-		if (bet) lines.push(`<div class="ie-exec-row"><span class="label">Player bet</span><span class="value bet">${bet.total} (${bet.betPerLine}/line × ${bet.paylines?.length ?? '?'} lines)</span></div>`);
-		if (winEv) lines.push(`<div class="ie-exec-row"><span class="label">Server win</span><span class="value win">+${winEv.context.pay} on ${winEv.context.what} ×${winEv.context.occurs}</span></div>`);
+		if (bet) lines.push(`<div class="ie-exec-row"><span class="label">Player bet</span><span class="value bet">${fmtMoney(bet.total)} (${fmtMoney(bet.betPerLine)}/line × ${bet.paylines?.length ?? '?'} lines)</span></div>`);
+		if (winEv) lines.push(`<div class="ie-exec-row"><span class="label">Server win</span><span class="value win">+${fmtMoney(winEv.context.pay)} on ${winEv.context.what} ×${winEv.context.occurs}</span></div>`);
 		if (reels) lines.push(`<div class="ie-exec-row"><span class="label">Reels</span><span class="value">${reels.map((r) => r.join('·')).join(' | ')}</span></div>`);
 		if (t.round) {
 			lines.push(`<div class="ie-exec-row"><span class="label">Stake state</span><span class="value">${(t.round.state ?? []).length} book event(s)</span></div>`);
 			if (t.round.roundID) lines.push(`<div class="ie-exec-row"><span class="label">Round ID</span><span class="value">${t.round.roundID}</span></div>`);
 		}
-		if (t.balance) lines.push(`<div class="ie-exec-row"><span class="label">New balance</span><span class="value">${fmtBalance(t.balance.amount)}</span></div>`);
+		if (t.balance) lines.push(`<div class="ie-exec-row"><span class="label">New balance</span><span class="value">${fmtMoney(t.balance.amount)}</span></div>`);
 
 		return `<div class="ie-cols"><div class="ie-col"><div class="ie-col-head">Translated for the operator → engine</div>${lines.join('')}</div></div>`;
 	};
@@ -688,9 +713,15 @@
 	// ============================================================
 	const doBet = async () => {
 		const betPerLine = Math.max(1, Number($('[data-input="betPerLine"]').value) || 2);
+		const manual = $('[data-input="manual"]').checked;
 		state.session.startRound();
+		state.ourActiveGid = null;
 		try {
-			const entry = await post(buildBet({ betPerLine, lines: 5, autoCollect: true }));
+			const entry = await post(buildBet({ betPerLine, lines: 5, autoCollect: !manual }));
+			// If the round stayed open (manual + win > 0), remember that WE opened it.
+			const closed = responseClosedRound(entry.response);
+			const newGid = entry.response?.platform?.gameRound?.id;
+			if (manual && !closed && newGid) state.ourActiveGid = newGid;
 			ingest(entry);
 		} catch (err) {
 			ingest({ source: 'panel', method: 'POST', url: '(error)', status: 0, statusText: String(err),
@@ -707,10 +738,13 @@
 	};
 
 	const doCollect = async () => {
-		if (!state.session.gid) return toast('No active round to collect');
+		if (!state.ourActiveGid) return toast('No round we opened — Collect only targets panel-opened rounds');
 		try {
 			const entry = await post(buildCollect());
 			ingest(entry);
+			if (responseClosedRound(entry.response) || isError(entry.response)) {
+				state.ourActiveGid = null;
+			}
 		} catch (err) { toast('Collect failed: ' + err.message); }
 	};
 
@@ -719,6 +753,8 @@
 	$('[data-action="collect"]').addEventListener('click', doCollect);
 	$('[data-action="clear"]').addEventListener('click', () => {
 		state.entries = []; state.roundCount = 0; state.session.endRound();
+		state.ourActiveGid = null;
+		$('[data-action="collect"]').disabled = true;
 		updateStatus(); renderEntries(); toast('Cleared');
 	});
 	$('[data-action="export"]').addEventListener('click', () => {
