@@ -57,3 +57,9 @@ packages/e2e/math-testing/*/*.json
 packages/e2e/math-testing/*/*.png
 packages/e2e/math-testing/*/*.txt
 packages/e2e/math-testing/__pycache__/*
+
+# Claude Code worktrees / runtime state
+.claude/
+
+# EAGaming probe captures (may contain session data)
+probe-output/

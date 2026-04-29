@@ -33,6 +33,7 @@
 		"@lingui/core": "5.2.0",
 		"envs": "workspace:*",
 		"rgs-requests": "workspace:*",
+		"rgs-translator-eagaming": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"state-shared": "workspace:*",
 		"constants-shared": "workspace:*",
