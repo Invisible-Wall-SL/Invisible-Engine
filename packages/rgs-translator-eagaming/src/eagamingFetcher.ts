@@ -4,6 +4,7 @@ import type {
 	Play4FunTransportConfig,
 } from './types';
 import type { Play4FunSessionState } from './sessionState';
+import { responseClosedRound } from './translator';
 
 export interface Play4FunPostOptions {
 	body: Play4FunRequestBody;
@@ -75,6 +76,15 @@ export const createPlay4FunFetcher = (
 			const returnedGid = parsed?.platform?.gameRound?.id;
 			if (returnedGid && returnedGid !== session.gid) {
 				session.bindRound(returnedGid);
+			}
+
+			// If the response closed the round (gameRoundOver event present),
+			// reset the session so the next bet starts cleanly. The server
+			// auto-closes zero-win rounds regardless of play.context, so we
+			// can't rely on the request intent — only the response is
+			// authoritative.
+			if (responseClosedRound(parsed)) {
+				session.endRound();
 			}
 
 			return {

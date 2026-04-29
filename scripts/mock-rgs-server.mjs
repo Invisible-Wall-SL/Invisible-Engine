@@ -187,9 +187,10 @@ const handleEngine = async (req, res, url) => {
 				const total = linesOrConfig * betPerLine;
 				if (session.balance < total) {
 					return sendJson(res, 200, {
-						events: [],
+						result: 0,
+						error: 'insufficient balance',
+						errorCode: 200, // speculative — confirm if/when we capture a real one
 						platform: { balance: session.balance },
-						error: { code: 'ERR_IPB', message: 'insufficient balance' },
 					});
 				}
 				session.balance -= total;
@@ -211,10 +212,11 @@ const handleEngine = async (req, res, url) => {
 			}
 			case 'play': {
 				if (!pendingRound) {
-					return sendJson(res, 400, {
-						error: { code: 'ERR_VAL', message: 'play without bet' },
-						platform: { balance: session.balance },
-						events,
+					return sendJson(res, 200, {
+						result: 0,
+						error: 'error executing requested actions: play without bet',
+						errorCode: 110,
+						platform: {},
 					});
 				}
 				const reels = spinReels();
@@ -237,8 +239,14 @@ const handleEngine = async (req, res, url) => {
 				events.push({ event: 'playedSpin', context: reels });
 				events.push({ event: 'gameEnd', context: { win: totalWin } });
 
-				// '' means auto-collect; null means leave round open
-				if (a.context === '' || a.context === undefined) {
+				// Round-close rules (from real captures):
+				//   - play.context = '' (or undefined): auto-collect.
+				//   - play.context = null: leave round open IFF there's a win to collect.
+				//     If win = 0, the server auto-closes even with null context
+				//     (nothing to collect → no point keeping the round open).
+				const explicitAutoCollect = a.context === '' || a.context === undefined;
+				const zeroWinAutoClose = a.context === null && totalWin === 0;
+				if (explicitAutoCollect || zeroWinAutoClose) {
 					session.balance += totalWin;
 					events.push({ event: 'gameRoundOver', context: { win: totalWin } });
 					pendingRound.closed = true;
@@ -247,10 +255,11 @@ const handleEngine = async (req, res, url) => {
 			}
 			case 'collect': {
 				if (!pendingRound || pendingRound.id !== gid) {
-					return sendJson(res, 400, {
-						error: { code: 'ERR_VAL', message: 'collect: gid mismatch or no active round' },
-						platform: { balance: session.balance },
-						events,
+					return sendJson(res, 200, {
+						result: 0,
+						error: 'error executing requested actions: unexpected action: collect (was expecting: play)',
+						errorCode: 110,
+						platform: {},
 					});
 				}
 				if (!pendingRound.closed) {
@@ -261,10 +270,11 @@ const handleEngine = async (req, res, url) => {
 				break;
 			}
 			default:
-				return sendJson(res, 400, {
-					error: { code: 'ERR_VAL', message: `unknown action: ${a.action}` },
-					platform: { balance: session.balance },
-					events,
+				return sendJson(res, 200, {
+					result: 0,
+					error: `error executing requested actions: unknown action: ${a.action}`,
+					errorCode: 110,
+					platform: {},
 				});
 		}
 	}

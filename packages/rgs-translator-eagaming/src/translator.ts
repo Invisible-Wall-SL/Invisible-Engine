@@ -14,13 +14,14 @@
  * reshapes the platform/balance envelope.
  */
 
-import type {
-	BetContext,
-	PlayContext,
-	Play4FunActionEnvelope,
-	Play4FunBookEvent,
-	Play4FunRequestBody,
-	Play4FunResponse,
+import {
+	isPlay4FunError,
+	type BetContext,
+	type PlayContext,
+	type Play4FunActionEnvelope,
+	type Play4FunBookEvent,
+	type Play4FunRequestBody,
+	type Play4FunResponse,
 } from './types';
 
 /** API_AMOUNT_MULTIPLIER from constants-shared/bet — Stake Engine multiplies
@@ -108,13 +109,24 @@ const computeRoundFinancials = (events: Play4FunBookEvent[]): { amount?: number;
 
 /** Reshape a Play4Fun response into the Stake Engine `res_play` shape so the
  *  existing book-event pipeline can consume it. */
-export const translateBetResponse = (raw: Play4FunResponse, currency = 'USD'): StakeBetResponse => {
-	if (raw.error) {
+export const translateBetResponse = (
+	raw: Play4FunResponse | null | undefined,
+	currency = 'USD',
+): StakeBetResponse => {
+	if (!raw) {
+		return { status: { statusCode: 'ERR_UE', statusMessage: 'no response' } };
+	}
+
+	if (isPlay4FunError(raw)) {
 		return {
 			status: {
-				statusCode: raw.error.code ?? 'ERR_UE',
-				statusMessage: raw.error.message,
+				statusCode: `ERR_${raw.errorCode}`,
+				statusMessage: raw.error,
 			},
+			balance:
+				typeof raw.platform?.balance === 'number'
+					? { amount: raw.platform.balance, currency }
+					: undefined,
 			_raw: raw,
 		};
 	}
@@ -129,9 +141,20 @@ export const translateBetResponse = (raw: Play4FunResponse, currency = 'USD'): S
 			amount: fin.amount,
 			payout: fin.payout,
 			payoutMultiplier: fin.payoutMultiplier,
+			/** Active = server says round is updating AND we haven't seen
+			 *  gameRoundOver in the events. The server auto-closes rounds with
+			 *  zero win even when play.context=null, so this is the
+			 *  authoritative signal — don't trust the request intent. */
 			active: raw.platform.gameRound?.updating === true && fin.active,
 			state: raw.events ?? [],
 		},
 		_raw: raw,
 	};
+};
+
+/** Did the response close the round? Look for gameRoundOver in events. The
+ *  fetcher uses this to keep session.gid in sync with server-side state. */
+export const responseClosedRound = (raw: Play4FunResponse | null | undefined): boolean => {
+	if (!raw || isPlay4FunError(raw)) return false;
+	return (raw.events ?? []).some((e) => e.event === 'gameRoundOver');
 };

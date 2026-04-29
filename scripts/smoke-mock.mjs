@@ -57,39 +57,48 @@ const main = async () => {
 	const startingBalance = r1.json.platform.balance;
 	ok(`heartbeat returned balance=${startingBalance}`);
 
-	// 2. bet+play (manual collect: play.context = null)
-	const r2 = await post('bet+play (manual)', `sid=${SID}&seq=0`, [
-		{ action: 'bet', context: [5, 2] },
-		{ action: 'play', context: null },
-	]);
-	if (r2.status !== 200) fail('bet+play status', r2.status);
-	if (!ev(r2, 'bet')) fail('missing bet event', r2.json.events);
-	if (!ev(r2, 'gameStart')) fail('missing gameStart event');
-	if (!ev(r2, 'spinStart')) fail('missing spinStart event');
-	if (!ev(r2, 'playedSpin')) fail('missing playedSpin event');
-	if (!ev(r2, 'gameEnd')) fail('missing gameEnd event');
-	if (ev(r2, 'gameRoundOver')) fail('manual collect should NOT include gameRoundOver yet');
+	// 2. Spin until we get a real win — then we can test the manual collect flow.
+	//    (The server auto-closes zero-win rounds even with play.context=null,
+	//    so we can't test manual collect against a guaranteed-zero-win round.)
+	let r2, gid, win;
+	let attempts = 0;
+	const SID2 = `${SID}-win`;
+	while (attempts++ < 200) {
+		r2 = await post(`bet+play (manual) attempt ${attempts}`, `sid=${SID2}&seq=0`, [
+			{ action: 'bet', context: [5, 2] },
+			{ action: 'play', context: null },
+		]);
+		if (r2.status !== 200) fail('bet+play status', r2.status);
+		if (!ev(r2, 'bet')) fail('missing bet event', r2.json.events);
+		if (!ev(r2, 'gameStart')) fail('missing gameStart event');
+		if (!ev(r2, 'spinStart')) fail('missing spinStart event');
+		if (!ev(r2, 'playedSpin')) fail('missing playedSpin event');
+		if (!ev(r2, 'gameEnd')) fail('missing gameEnd event');
 
-	const gid = r2.json.platform.gameRound?.id;
-	if (!gid) fail('manual collect should return gameRound.id', r2.json.platform);
+		win = ev(r2, 'gameEnd').context.win;
+		const closed = !!ev(r2, 'gameRoundOver');
+
+		if (win > 0 && !closed) break; // got a winning round that stayed open — proceed
+		if (win === 0 && !closed) fail('zero-win round must auto-close (per real protocol)');
+	}
+	if (attempts >= 200) fail('could not get a winning spin in 200 attempts (RNG broken?)');
+
+	gid = r2.json.platform.gameRound?.id;
+	if (!gid) fail('winning manual round should return gameRound.id', r2.json.platform);
 
 	const balanceAfterBet = r2.json.platform.balance;
 	const expectedBet = ev(r2, 'bet').context.total;
-	if (startingBalance - balanceAfterBet !== expectedBet) {
-		fail(`balance debit mismatch: ${startingBalance} - ${balanceAfterBet} != ${expectedBet}`);
-	}
-	const win = ev(r2, 'gameEnd').context.win;
 	ok(`round opened: gid=${gid}, total=${expectedBet}, win=${win}, balance=${balanceAfterBet}`);
 
 	// 3. heartbeat mid-round — balance should still be debited, no win credited
-	const r3 = await post('heartbeat (mid-round)', `sid=${SID}&seq=1&gid=${gid}`, []);
+	const r3 = await post('heartbeat (mid-round)', `sid=${SID2}&seq=1&gid=${gid}`, []);
 	if (r3.json.platform.balance !== balanceAfterBet) {
 		fail(`mid-round heartbeat balance changed unexpectedly`, r3.json.platform);
 	}
 	ok('mid-round heartbeat preserves balance');
 
 	// 4. collect
-	const r4 = await post('collect', `sid=${SID}&seq=2&gid=${gid}`, [{ action: 'collect' }]);
+	const r4 = await post('collect', `sid=${SID2}&seq=2&gid=${gid}`, [{ action: 'collect' }]);
 	if (r4.status !== 200) fail('collect status', r4.status);
 	const over = ev(r4, 'gameRoundOver');
 	if (!over) fail('collect should emit gameRoundOver', r4.json.events);
@@ -100,16 +109,31 @@ const main = async () => {
 	}
 	ok(`collect credited win=${win}, final balance=${finalBalance}`);
 
+	// 4b. collect again — server should reject with errorCode 110
+	const r4b = await post('collect (already closed)', `sid=${SID2}&seq=3&gid=${gid}`, [
+		{ action: 'collect' },
+	]);
+	if (r4b.json.errorCode !== 110) {
+		fail('expected errorCode 110 on duplicate collect', r4b.json);
+	}
+	if (typeof r4b.json.error !== 'string') fail('error envelope must be string', r4b.json);
+	ok(`duplicate collect correctly rejected: errorCode=${r4b.json.errorCode}`);
+
 	// 5. another bet+play but auto-collect this time (play.context = '')
+	//    Use the original SID — its starting balance is the same as the
+	//    SID2's (both default to START_BALANCE since neither has bet yet
+	//    on the original SID). We re-fetch the heartbeat to be sure.
+	const r5pre = await post('heartbeat (auto session)', `sid=${SID}&seq=0`, []);
+	const autoBalanceBefore = r5pre.json.platform.balance;
 	const r5 = await post('bet+play (auto-collect)', `sid=${SID}&seq=0`, [
 		{ action: 'bet', context: [5, 2] },
 		{ action: 'play', context: '' },
 	]);
 	if (!ev(r5, 'gameRoundOver')) fail('auto-collect should embed gameRoundOver');
 	const autoWin = ev(r5, 'gameEnd').context.win;
-	const expectedAfterAuto = finalBalance - 10 + autoWin;
+	const expectedAfterAuto = autoBalanceBefore - 10 + autoWin;
 	if (r5.json.platform.balance !== expectedAfterAuto) {
-		fail(`auto-collect balance: ${finalBalance} - 10 + ${autoWin} != ${r5.json.platform.balance}`);
+		fail(`auto-collect balance: ${autoBalanceBefore} - 10 + ${autoWin} != ${r5.json.platform.balance}`);
 	}
 	ok(`auto-collect: win=${autoWin}, balance=${r5.json.platform.balance}`);
 

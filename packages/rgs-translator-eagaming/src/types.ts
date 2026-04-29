@@ -83,11 +83,33 @@ export interface Play4FunPlatformBlock {
 	};
 }
 
-export interface Play4FunResponse {
+/** Success response: events + platform are present, no error fields. */
+export interface Play4FunSuccessResponse {
 	events: Play4FunBookEvent[];
 	platform: Play4FunPlatformBlock;
-	error?: { code?: string; message?: string };
 }
+
+/** Error response: server returns this shape on a rejected request. Captured
+ *  example (errorCode 110): `{result:0, error:"...", errorCode:110, platform:{}}`.
+ *  Note: `platform` is present but typically empty, and `events` is omitted. */
+export interface Play4FunErrorResponse {
+	result: 0;
+	error: string;
+	errorCode: number;
+	platform: Partial<Play4FunPlatformBlock>;
+	events?: undefined;
+}
+
+export type Play4FunResponse = Play4FunSuccessResponse | Play4FunErrorResponse;
+
+/** Type guard: did the server return an error envelope? */
+export const isPlay4FunError = (r: Play4FunResponse | null | undefined): r is Play4FunErrorResponse =>
+	!!r && typeof (r as Play4FunErrorResponse).error === 'string' && typeof (r as Play4FunErrorResponse).errorCode === 'number';
+
+/** Known error codes (extend as we discover more). */
+export const Play4FunErrorCodes = {
+	UNEXPECTED_ACTION: 110, // e.g. "unexpected action: collect (was expecting: play)"
+} as const;
 
 // ---------- Transport config ----------
 
