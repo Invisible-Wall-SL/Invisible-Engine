@@ -93,31 +93,52 @@ At the start of each session:
 - Spine runtime: `@esotericsoftware/spine-pixi-v8` for PixiJS 8 compatibility
 - Avoid deprecated v7 APIs: `PIXI.Loader`, `PIXI.utils`, `PIXI.Container.sortableChildren` (use `sortChildren()`)
 
-## Comm Translator (rgs-translator-eagaming)
+## Comm Translator (rgs-translator-eagaming → Play4Fun protocol)
 
-Plug-and-play translator that maps the Stake Engine internal request shape to **EAGaming**'s batched-action protocol. Lives in [packages/rgs-translator-eagaming](packages/rgs-translator-eagaming) — kept separate so the original `rgs-fetcher`/`rgs-requests` path remains the default and can be swapped in/out.
+Plug-and-play translator package. Maps the Stake Engine internal request shape to the **Play4Fun** `/rgs/engine` batched-action protocol. Lives in [packages/rgs-translator-eagaming](packages/rgs-translator-eagaming) — kept separate so the original `rgs-fetcher`/`rgs-requests` path stays default and can be swapped per-app.
 
-### Wire format (observed from Hot Fruits at eagaming.com)
+> **Naming note:** the package is currently named `rgs-translator-eagaming` because the discovery target was `eagaming.com`. We've since confirmed the actual protocol belongs to **Play4Fun** (the EAGaming brand wrapper proxies to a Play4Fun RGS host, e.g. `www.best00qpin.com`). Will likely rename to `rgs-translator-play4fun` once we've verified the same protocol on another brand. Internal types/functions already use `Play4Fun*` names with `EAGaming*` back-compat aliases.
+
+### Wire format (verified from Hot Fruits)
 ```
-POST {baseUrl}/game/engine?sid={sid}&seq={n}
-Body: [{action: "bet", context: [5, 2]}, {action: "play", context: null}]
+POST {origin}/rgs/engine?sid={sid}&seq={n}[&gid={gameRoundId}]
+Body: [{action, context}, …]
 ```
-- Single endpoint, batched `{action, context}` envelopes
-- `seq` increments per request, scoped to the `sid`
-- Response shape: still being reverse-engineered
+
+**Actions:**
+- `bet` — `context: [a, betPerLine]` — total stake = `a * betPerLine`
+- `play` — `context: null` (round stays open, requires separate `collect`) or `''` (auto-collect)
+- `collect` — closes a round; needs `gid` query param
+- `[]` (empty body) — heartbeat, returns `{events:[], platform:{balance}}`
+
+**Response:**
+```ts
+{
+  events: [
+    { event: 'bet'|'gameStart'|'spinStart'|'spinWin'|'playedSpin'|'gameEnd'|'gameRoundOver', context: {…} },
+    …
+  ],
+  platform: { balance, gameRound?: { updating: true, id: 'G…' } }
+}
+```
+
+The `events` array IS the Stake-Engine book-event sequence — translation is mostly pass-through.
+
+**`seq` is NOT a monotonic counter:** resets to 0 each new round, increments only within an in-flight round. Owned by the session state (`startRound()` / `nextSeq()` / `bindRound(gid)` / `endRound()`).
+
+**Cloudflare:** the EAGaming edge is behind Cloudflare managed challenge. Server-side fetches (Node, curl) get bounced. Probing must run inside a real browser tab on the game origin.
 
 ### Files
-- `src/types.ts` — wire types (provisional)
-- `src/sessionState.ts` — sid + seq counter
-- `src/translator.ts` — `buildBetActions`, `buildSingleAction`, `translateBetResponse`
-- `src/eagamingFetcher.ts` — HTTP transport (`createEAGamingFetcher`)
+- `src/types.ts` — wire types + sample payloads in comments
+- `src/sessionState.ts` — sid + seq + gid lifecycle
+- `src/translator.ts` — `buildBetActions`, `buildHeartbeat`, `buildCollectAction`, `buildSingleAction`, `translateBetResponse`
+- `src/eagamingFetcher.ts` — HTTP transport (`createPlay4FunFetcher` / `createEAGamingFetcher` alias). Auto-binds gid from responses.
 
-### Test harnesses
-- **Storybook** (primary): `apps/lines/src/stories/EAGamingProbe.stories.svelte` — interactive UI under `COMM/EAGaming Probe`. Configure sid/cookie/baseUrl, fire actions, inspect raw + translated responses live.
-- **Node probe** (secondary): `scripts/probe-eagaming.ts` — terminal alternative for batch capture. Run with `pnpm tsx scripts/probe-eagaming.ts --sid=... --base=https://eagaming.com --cookie="..."`.
-
-### CORS note
-Hitting `eagaming.com` from the Storybook origin will be blocked by CORS. Either configure a Vite proxy in dev, or use the Node script for unrestricted requests.
+### Probe scripts
+- [scripts/console-sniffer.js](scripts/console-sniffer.js) — paste into the live game iframe console; monkey-patches fetch + XHR and logs every request to `window.eaSniffed`. Use to capture real network traffic during play.
+- [scripts/console-probe.js](scripts/console-probe.js) — paste into the iframe console; runs a sequence of probe POSTs against the discovered endpoint.
+- [scripts/probe.mjs](scripts/probe.mjs) — Node-based probe (will be bounced by Cloudflare for EAGaming-fronted hosts; useful for non-CF backends).
+- [apps/lines/src/stories/EAGamingProbe.stories.svelte](apps/lines/src/stories/EAGamingProbe.stories.svelte) — Storybook UI (works only when paired with same-origin proxy or a CF-free target).
 
 ## Svelte 5 Notes
 - Use **runes** (`$state`, `$derived`, `$effect`, `$props`) — not the legacy Options API

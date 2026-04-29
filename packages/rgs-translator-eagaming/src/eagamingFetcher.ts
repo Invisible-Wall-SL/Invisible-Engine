@@ -1,46 +1,61 @@
 import type {
-	EAGamingRequestBody,
-	EAGamingResponse,
-	EAGamingTransportConfig,
+	Play4FunRequestBody,
+	Play4FunResponse,
+	Play4FunTransportConfig,
 } from './types';
-import type { EAGamingSessionState } from './sessionState';
+import type { Play4FunSessionState } from './sessionState';
 
-export interface EAGamingPostOptions {
-	body: EAGamingRequestBody;
-	/** Override seq instead of pulling from the session counter. Probe-only. */
+export interface Play4FunPostOptions {
+	body: Play4FunRequestBody;
+	/** Override seq instead of pulling from the session counter. */
 	seqOverride?: number;
-	/** Extra headers (cookies, csrf, etc.) when reproducing a live session. */
+	/** Override gid (defaults to whatever the session state holds). Pass null
+	 *  to explicitly omit gid even when the session has one bound. */
+	gidOverride?: string | null;
+	/** Extra headers — usually unnecessary because cookies travel with
+	 *  same-origin fetches. */
 	headers?: Record<string, string>;
 }
 
-export interface EAGamingPostResult {
+export interface Play4FunPostResult {
 	status: number;
 	statusText: string;
 	url: string;
-	requestBody: EAGamingRequestBody;
+	requestBody: Play4FunRequestBody;
 	requestSeq: number;
-	response: EAGamingResponse | null;
+	requestGid: string | null;
+	response: Play4FunResponse | null;
 	rawText: string;
 }
 
 /**
- * Low-level fetcher that handles the EAGaming POST shape. Pairs with a
- * session-state instance so seq always increments correctly.
+ * Low-level HTTP transport for the Play4Fun `/rgs/engine` endpoint. Pairs
+ * with a session-state instance to manage seq/gid per round automatically.
  */
-export const createEAGamingFetcher = (
-	config: EAGamingTransportConfig,
-	session: EAGamingSessionState,
+export const createPlay4FunFetcher = (
+	config: Play4FunTransportConfig,
+	session: Play4FunSessionState,
 ) => {
 	const fetchImpl = config.fetchImpl ?? fetch;
-	const endpoint = config.endpoint ?? '/game/engine';
+	const endpoint = config.endpoint ?? '/rgs/engine';
 
 	return {
-		post: async (options: EAGamingPostOptions): Promise<EAGamingPostResult> => {
+		post: async (options: Play4FunPostOptions): Promise<Play4FunPostResult> => {
 			const seq = options.seqOverride ?? session.nextSeq();
-			const url = `${config.baseUrl}${endpoint}?sid=${encodeURIComponent(session.sid)}&seq=${seq}`;
+			const gid = options.gidOverride === null
+				? null
+				: options.gidOverride ?? session.gid;
+
+			const params = new URLSearchParams();
+			params.set('sid', session.sid);
+			params.set('seq', String(seq));
+			if (gid) params.set('gid', gid);
+
+			const url = `${config.baseUrl}${endpoint}?${params.toString()}`;
 
 			const response = await fetchImpl(url, {
 				method: 'POST',
+				credentials: 'include',
 				headers: {
 					'Content-Type': 'application/json',
 					...options.headers,
@@ -49,11 +64,17 @@ export const createEAGamingFetcher = (
 			});
 
 			const rawText = await response.text();
-			let parsed: EAGamingResponse | null = null;
+			let parsed: Play4FunResponse | null = null;
 			try {
-				parsed = rawText ? (JSON.parse(rawText) as EAGamingResponse) : null;
+				parsed = rawText ? (JSON.parse(rawText) as Play4FunResponse) : null;
 			} catch {
 				parsed = null;
+			}
+
+			// Auto-bind the gid if the server returned one.
+			const returnedGid = parsed?.platform?.gameRound?.id;
+			if (returnedGid && returnedGid !== session.gid) {
+				session.bindRound(returnedGid);
 			}
 
 			return {
@@ -62,9 +83,15 @@ export const createEAGamingFetcher = (
 				url,
 				requestBody: options.body,
 				requestSeq: seq,
+				requestGid: gid,
 				response: parsed,
 				rawText,
 			};
 		},
 	};
 };
+
+// ---------- Back-compat aliases ----------
+export const createEAGamingFetcher = createPlay4FunFetcher;
+export type EAGamingPostOptions = Play4FunPostOptions;
+export type EAGamingPostResult = Play4FunPostResult;

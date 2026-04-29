@@ -31,7 +31,10 @@
 		ts: number;
 	};
 
-	let baseUrl = $state('https://eagaming.com');
+	// Default to the Vite dev proxy ('/eag' → https://eagaming.com) configured in
+	// apps/lines/.storybook/main.ts. Switch to the absolute URL only if you've
+	// arranged CORS another way (or you're hitting a permissive endpoint).
+	let baseUrl = $state('/eag');
 	let sid = $state('');
 	let cookie = $state('');
 	let startSeq = $state(0);
