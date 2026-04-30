@@ -51,10 +51,11 @@ const main = async () => {
 	if (!auth.config?.jurisdiction) fail('authenticate missing config.jurisdiction', auth);
 	ok(`authenticate: balance=${auth.balance.amount}, ${auth.config.betLevels.length} bet levels`);
 
-	// 2. bet — amount in Stake API units. 10_000_000 = $10. The facade will
-	//    scale this down to 1000 cents internally before sending to Play4Fun.
+	// 2. bet — amount in user-display dollars (matches the engine's call site
+	//    in createPrimaryMachines.ts which passes stateBet.betAmount directly).
+	//    2 = $2 bet; the facade will multiply by 100 → 200 cents on the wire.
 	const bet = await facade.requestBet({
-		sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 10_000_000, mode: 'BASE',
+		sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 2, mode: 'BASE',
 	});
 	if (bet.status?.statusCode !== 'SUCCESS') fail('bet not SUCCESS', bet);
 	if (!Array.isArray(bet.round?.state)) fail('bet missing round.state', bet);
@@ -88,7 +89,7 @@ const main = async () => {
 	let prev = end.balance.amount;
 	for (let i = 0; i < 3; i++) {
 		const r = await facade.requestBet({
-			sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 10_000_000, mode: 'BASE',
+			sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 2, mode: 'BASE',
 		});
 		if (r.status?.statusCode !== 'SUCCESS') fail(`bet #${i + 2} not SUCCESS`, r);
 		if (typeof r.balance?.amount !== 'number') fail(`bet #${i + 2} missing balance`, r);

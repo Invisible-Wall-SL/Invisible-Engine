@@ -270,8 +270,15 @@ export const requestAuthenticate = async (options: {
 	};
 };
 
-/** `requestBet`: receive a Stake-units amount, convert to Play4Fun cents,
- *  send bet+play (auto-collect), translate + adapt the response. */
+/** `requestBet`: receive a user-display amount (e.g. 2 for $2.00) — same as
+ *  the original rgs-requests does. Convert to Play4Fun cents (×100), send
+ *  bet+play (auto-collect), translate + adapt the response.
+ *
+ *  IMPORTANT: amount is in user-display units, NOT Stake API millions.
+ *  The engine's createPrimaryMachines.ts passes stateBet.betAmount directly
+ *  (e.g. 2), and the original rgs-requests multiplies by API_AMOUNT_MULTIPLIER
+ *  internally before sending. Our facade does the equivalent: user-amount ×
+ *  PLAY4FUN_AMOUNT_MULTIPLIER (100) → cents. */
 export const requestBet = async (options: {
 	sessionID: string;
 	currency: string;
@@ -283,7 +290,8 @@ export const requestBet = async (options: {
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 	session.startRound();
 
-	const play4FunAmount = stakeToPlay4Fun(options.amount);
+	// User-display dollars → Play4Fun cents.
+	const play4FunAmount = Math.max(1, Math.round(options.amount * 100));
 	const result = await fetcher.post({
 		body: buildBetActions({
 			amount: play4FunAmount,
