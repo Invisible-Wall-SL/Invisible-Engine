@@ -118,23 +118,42 @@ const evaluatePaylines = (reels, betPerLine) => {
 
 // ---------- request handler ----------
 
-const sendJson = (res, status, body) => {
-	const text = JSON.stringify(body);
-	res.writeHead(status, {
-		'Content-Type': 'application/json',
+/** Build CORS headers compatible with credentials:'include'. The browser
+ *  rejects Access-Control-Allow-Origin: '*' when credentials are present —
+ *  the server must echo back the specific Origin and set
+ *  Access-Control-Allow-Credentials: true. Falls back to '*' if no Origin
+ *  header is present (e.g. curl from terminal). */
+const corsHeaders = (req) => {
+	const origin = req.headers.origin;
+	if (origin) {
+		return {
+			'Access-Control-Allow-Origin': origin,
+			'Access-Control-Allow-Credentials': 'true',
+			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type',
+			'Vary': 'Origin',
+		};
+	}
+	return {
 		'Access-Control-Allow-Origin': '*',
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 		'Access-Control-Allow-Headers': 'Content-Type',
+	};
+};
+
+const sendJson = (req, res, status, body) => {
+	const text = JSON.stringify(body);
+	res.writeHead(status, {
+		'Content-Type': 'application/json',
+		...corsHeaders(req),
 		'Content-Length': Buffer.byteLength(text),
 	});
 	res.end(text);
 };
 
-const sendCorsPreflight = (res) => {
+const sendCorsPreflight = (req, res) => {
 	res.writeHead(204, {
-		'Access-Control-Allow-Origin': '*',
-		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-		'Access-Control-Allow-Headers': 'Content-Type',
+		...corsHeaders(req),
 		'Access-Control-Max-Age': '86400',
 	});
 	res.end();
@@ -155,7 +174,7 @@ const handleEngine = async (req, res, url) => {
 	const seq = Number(url.searchParams.get('seq') ?? 0);
 	const gid = url.searchParams.get('gid');
 
-	if (!sid) return sendJson(res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
+	if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
 
 	const session = getSession(sid);
 	const bodyText = await readBody(req);
@@ -163,17 +182,17 @@ const handleEngine = async (req, res, url) => {
 	try {
 		actions = bodyText ? JSON.parse(bodyText) : [];
 	} catch {
-		return sendJson(res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
+		return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
 	}
 	if (!Array.isArray(actions)) {
-		return sendJson(res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
+		return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
 	}
 
 	console.log(`[mock] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
 
 	// Heartbeat: empty body returns balance only.
 	if (actions.length === 0) {
-		return sendJson(res, 200, { events: [], platform: { balance: session.balance } });
+		return sendJson(req, res, 200, { events: [], platform: { balance: session.balance } });
 	}
 
 	const events = [];
@@ -186,7 +205,7 @@ const handleEngine = async (req, res, url) => {
 				const [linesOrConfig, betPerLine] = [Number(ctx[0]) || 5, Number(ctx[1]) || 1];
 				const total = linesOrConfig * betPerLine;
 				if (session.balance < total) {
-					return sendJson(res, 200, {
+					return sendJson(req, res, 200, {
 						result: 0,
 						error: 'insufficient balance',
 						errorCode: 200, // speculative — confirm if/when we capture a real one
@@ -212,7 +231,7 @@ const handleEngine = async (req, res, url) => {
 			}
 			case 'play': {
 				if (!pendingRound) {
-					return sendJson(res, 200, {
+					return sendJson(req, res, 200, {
 						result: 0,
 						error: 'error executing requested actions: play without bet',
 						errorCode: 110,
@@ -255,7 +274,7 @@ const handleEngine = async (req, res, url) => {
 			}
 			case 'collect': {
 				if (!pendingRound || pendingRound.id !== gid) {
-					return sendJson(res, 200, {
+					return sendJson(req, res, 200, {
 						result: 0,
 						error: 'error executing requested actions: unexpected action: collect (was expecting: play)',
 						errorCode: 110,
@@ -270,7 +289,7 @@ const handleEngine = async (req, res, url) => {
 				break;
 			}
 			default:
-				return sendJson(res, 200, {
+				return sendJson(req, res, 200, {
 					result: 0,
 					error: `error executing requested actions: unknown action: ${a.action}`,
 					errorCode: 110,
@@ -291,7 +310,7 @@ const handleEngine = async (req, res, url) => {
 		platform.gameRound = { updating: true, id: pendingRound.id };
 	}
 
-	return sendJson(res, 200, { events, platform });
+	return sendJson(req, res, 200, { events, platform });
 };
 
 // ---------- server ----------
@@ -299,16 +318,16 @@ const handleEngine = async (req, res, url) => {
 const server = createServer(async (req, res) => {
 	const url = new URL(req.url, `http://${req.headers.host}`);
 
-	if (req.method === 'OPTIONS') return sendCorsPreflight(res);
+	if (req.method === 'OPTIONS') return sendCorsPreflight(req, res);
 
 	if (req.method === 'GET' && url.pathname === '/healthz') {
-		return sendJson(res, 200, { ok: true, sessions: sessions.size });
+		return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
 	}
 
 	if (req.method === 'GET' && url.pathname === '/state') {
 		const sid = url.searchParams.get('sid');
-		if (!sid) return sendJson(res, 400, { error: 'missing sid' });
-		return sendJson(res, 200, getSession(sid));
+		if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
+		return sendJson(req, res, 200, getSession(sid));
 	}
 
 	if (req.method === 'POST' && url.pathname === '/rgs/engine') {
@@ -316,11 +335,11 @@ const server = createServer(async (req, res) => {
 			return await handleEngine(req, res, url);
 		} catch (err) {
 			console.error('[mock] handler error:', err);
-			return sendJson(res, 500, { error: { code: 'ERR_UE', message: String(err) } });
+			return sendJson(req, res, 500, { error: { code: 'ERR_UE', message: String(err) } });
 		}
 	}
 
-	sendJson(res, 404, { error: 'not found' });
+	sendJson(req, res, 404, { error: 'not found' });
 });
 
 server.listen(PORT, () => {
