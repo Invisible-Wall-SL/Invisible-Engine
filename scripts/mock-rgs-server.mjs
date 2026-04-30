@@ -41,10 +41,11 @@ const getSession = (sid) => {
 
 // ---------- spin engine (deterministic-ish) ----------
 
-// Symbol names align with apps/lines/src/game/assets.ts so the renderer's
-// sprite map can find them. H1-H5 = high-pay, L1-L5 = low-pay, SCAT = scatter.
-const SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5', 'L1', 'L2', 'L3', 'L4', 'L5', 'SCAT'];
-const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
+// Symbol names align with apps/lines/src/game/config.ts so the renderer's
+// SYMBOL_INFO_MAP can resolve them: H1-H5 = high-pay, L1-L5 = low-pay,
+// S = scatter, W = wild. Mock omits W to keep payout math simple.
+const SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5', 'L1', 'L2', 'L3', 'L4', 'L5', 'S'];
+const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'S');
 const PAYLINES = [
 	[1, 1, 1, 1, 1],
 	[0, 0, 0, 0, 0],
@@ -81,7 +82,7 @@ function hashStr(s) {
 const pickSymbol = () => {
 	// Weighted draw favouring low-pay symbols, occasional scatter, rare H5.
 	const r = nextRand();
-	if (r < 0.04) return 'SCAT';
+	if (r < 0.04) return 'S';
 	if (r < 0.55) return 'L' + (1 + Math.floor(nextRand() * 5));   // L1..L5
 	if (r < 0.92) return 'H' + (1 + Math.floor(nextRand() * 4));   // H1..H4
 	return 'H5';

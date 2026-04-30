@@ -42,7 +42,6 @@ import type { Play4FunBookEvent } from './types';
  *  handling. Free-spin / scatter / bonus mappings will need per-game
  *  extension when we encounter them in real captures. */
 const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
-	const meta: Record<string, unknown>[] = []; // _bet/_gameStart/_spinStart pass-through
 	let revealEvent: Record<string, unknown> | null = null;
 	const wins: { context: unknown }[] = [];
 	let setTotalWinAmount: number | null = null;
@@ -54,7 +53,10 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 			case 'bet':
 			case 'gameStart':
 			case 'spinStart':
-				meta.push({ type: `_${e.event}`, raw: e.context });
+				// Server-side bookkeeping events with no Stake renderer
+				// equivalent — drop silently to avoid "Missing handler"
+				// warnings. The data is still in the raw response if a
+				// custom handler ever needs it.
 				break;
 			case 'playedSpin': {
 				const reels = (e.context as string[][]) ?? [];
@@ -92,7 +94,6 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 		ordered.push({ index: ordered.length, ...ev });
 	};
 
-	meta.forEach(push);
 	if (revealEvent) push(revealEvent);
 
 	let runningTotal = 0;
