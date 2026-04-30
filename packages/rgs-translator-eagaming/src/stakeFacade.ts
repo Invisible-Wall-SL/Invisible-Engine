@@ -217,6 +217,17 @@ const sessionFor = (sid: string) => {
 	return s;
 };
 
+/** Stake's createPrimaryMachines runs a two-step balance update on a winning
+ *  spin: requestBet returns the bet-debited (interim) balance, then
+ *  requestEndRound returns the final balance with the win credited.
+ *  The dramatic count-up animation rides between them.
+ *
+ *  Play4Fun auto-collects atomically in one round-trip, so the response
+ *  already contains the post-win balance. We synthesise the Stake flow by
+ *  stashing the final balance per-session and returning the interim
+ *  (= final − win) from requestBet. */
+const pendingFinalBalance = new Map<string, number>();
+
 // ---------- url helpers ----------
 
 const buildBaseUrl = (rgsUrl: string): string => {
@@ -333,9 +344,23 @@ export const requestBet = async (options: {
 
 	const stake = translateBetResponse(result.response, options.currency);
 
+	// Compute the interim balance (bet debited, win NOT yet credited) and
+	// stash the final balance for requestEndRound to return. The win amount
+	// in cents comes from the gameEnd event in the raw response.
+	const finalCents =
+		result.response && 'platform' in result.response
+			? result.response.platform?.balance ?? 0
+			: 0;
+	const winCents =
+		(result.response && 'events' in result.response
+			? result.response.events?.find((e) => e.event === 'gameEnd')?.context?.win
+			: undefined) ?? 0;
+	const interimCents = finalCents - winCents;
+	pendingFinalBalance.set(options.sessionID, finalCents);
+
 	// Scale balance + round amounts from Play4Fun cents to Stake API units.
 	if (stake.balance) {
-		stake.balance = { ...stake.balance, amount: play4FunToStake(stake.balance.amount) };
+		stake.balance = { ...stake.balance, amount: play4FunToStake(interimCents) };
 	}
 	if (stake.round) {
 		if (typeof stake.round.amount === 'number') {
@@ -356,6 +381,18 @@ export const requestBet = async (options: {
 export const requestEndRound = async (options: { sessionID: string; rgsUrl: string }) => {
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
+
+	// If we have a stashed final balance from the most recent winning bet,
+	// return it now (this is the moment the engine wants to credit the win
+	// to the player's displayed balance, after the count-up animation).
+	const stashed = pendingFinalBalance.get(options.sessionID);
+	if (stashed !== undefined) {
+		pendingFinalBalance.delete(options.sessionID);
+		return {
+			status: { statusCode: 'SUCCESS' as const },
+			balance: { amount: play4FunToStake(stashed), currency: 'USD' },
+		};
+	}
 
 	if (session.gid) {
 		const collectResult = await fetcher.post({ body: buildCollectAction() });
