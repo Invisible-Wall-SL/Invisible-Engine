@@ -22,7 +22,9 @@
 import { createServer } from 'node:http';
 
 const PORT = Number(process.env.PORT ?? 7777);
-const START_BALANCE = Number(process.env.START_BALANCE ?? 1300);
+/** Default in Stake API-amount convention (1,000,000 = $1.00). 100,000,000 = $100.
+ *  Override with START_BALANCE=N for a different starting amount. */
+const START_BALANCE = Number(process.env.START_BALANCE ?? 100_000_000);
 const SEED = process.env.SEED;
 
 // ---------- session store ----------
@@ -39,7 +41,9 @@ const getSession = (sid) => {
 
 // ---------- spin engine (deterministic-ish) ----------
 
-const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'PIC5', 'PIC6', 'PIC7', 'SCAT'];
+// Symbol names align with apps/lines/src/game/assets.ts so the renderer's
+// sprite map can find them. H1-H5 = high-pay, L1-L5 = low-pay, SCAT = scatter.
+const SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5', 'L1', 'L2', 'L3', 'L4', 'L5', 'SCAT'];
 const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
 const PAYLINES = [
 	[1, 1, 1, 1, 1],
@@ -49,13 +53,16 @@ const PAYLINES = [
 	[2, 1, 0, 1, 2],
 ];
 const PAY_TABLE = {
-	PIC1: { 3: 5, 4: 25, 5: 100 },
-	PIC2: { 3: 5, 4: 25, 5: 100 },
-	PIC3: { 3: 10, 4: 40, 5: 150 },
-	PIC4: { 3: 10, 4: 40, 5: 150 },
-	PIC5: { 3: 15, 4: 50, 5: 200 },
-	PIC6: { 3: 20, 4: 75, 5: 300 },
-	PIC7: { 3: 50, 4: 200, 5: 1000 },
+	L1: { 3: 5, 4: 25, 5: 100 },
+	L2: { 3: 5, 4: 25, 5: 100 },
+	L3: { 3: 10, 4: 40, 5: 150 },
+	L4: { 3: 10, 4: 40, 5: 150 },
+	L5: { 3: 15, 4: 50, 5: 200 },
+	H1: { 3: 20, 4: 75, 5: 300 },
+	H2: { 3: 25, 4: 100, 5: 400 },
+	H3: { 3: 30, 4: 125, 5: 500 },
+	H4: { 3: 40, 4: 175, 5: 750 },
+	H5: { 3: 50, 4: 200, 5: 1000 },
 };
 
 let rngState = SEED ? hashStr(SEED) : Date.now() >>> 0;
@@ -72,13 +79,12 @@ function hashStr(s) {
 	return h;
 }
 const pickSymbol = () => {
-	// Slightly favour low-pay symbols
+	// Weighted draw favouring low-pay symbols, occasional scatter, rare H5.
 	const r = nextRand();
-	if (r < 0.05) return 'SCAT';
-	if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)]; // PIC1/2/3
-	if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
-	if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
-	return 'PIC7';
+	if (r < 0.04) return 'SCAT';
+	if (r < 0.55) return 'L' + (1 + Math.floor(nextRand() * 5));   // L1..L5
+	if (r < 0.92) return 'H' + (1 + Math.floor(nextRand() * 4));   // H1..H4
+	return 'H5';
 };
 
 /** 5 reels × 3 visible rows */

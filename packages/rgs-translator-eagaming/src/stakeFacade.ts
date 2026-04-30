@@ -193,12 +193,25 @@ export const requestAuthenticate = async (options: {
 				? { amount: balance, currency: 'USD' }
 				: undefined,
 		// Play4Fun doesn't expose betLevels/betModes via this endpoint. Synthesize
-		// a reasonable default so the bet selector renders. Operators can
-		// override these via env if a per-game config endpoint is wired later.
+		// a reasonable default so the bet selector renders. Values are in Stake's
+		// API-amount convention (1,000,000 = $1.00); the engine divides by
+		// API_AMOUNT_MULTIPLIER for display.
+		// Operators can override these via env if a per-game config endpoint is
+		// wired later.
 		config: {
-			betLevels: [50, 100, 200, 400, 1000, 2000, 5000, 10000],
+			betLevels: [
+				100_000,    // $0.10
+				200_000,    // $0.20
+				500_000,    // $0.50
+				1_000_000,  // $1.00
+				2_000_000,  // $2.00
+				5_000_000,  // $5.00
+				10_000_000, // $10.00
+				50_000_000, // $50.00
+				100_000_000, // $100.00
+			],
 			betModes: { BASE: { mode: 'BASE', costMultiplier: 1, feature: false } },
-			defaultBetLevel: 10,
+			defaultBetLevel: 1_000_000, // $1.00
 			jurisdiction: {
 				socialCasino: false,
 				disabledFullscreen: false,
