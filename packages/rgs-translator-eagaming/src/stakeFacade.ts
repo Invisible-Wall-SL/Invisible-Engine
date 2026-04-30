@@ -81,13 +81,28 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 				break;
 			case 'playedSpin': {
 				const reels = (e.context as string[][]) ?? [];
+				// Stake's lines reveal expects 5 cells per reel: 3 visible +
+				// 1 padding above + 1 below for the spin-animation buffer.
+				// Play4Fun only sends the 3 visible cells, so we pad with
+				// the topmost / bottommost symbol from each reel as a
+				// neutral filler. Padding cells are outside the visible
+				// window during steady state, so reusing existing symbols
+				// is safe and matches the look of real Stake reveal data.
+				const padReel = (reel: string[]): string[] => {
+					if (reel.length === 0) return [];
+					const top = reel[0];
+					const bottom = reel[reel.length - 1];
+					return [top, ...reel, bottom];
+				};
 				revealEvent = {
 					type: 'reveal',
 					board: reels.map((reel) =>
-						reel.map((name) => ({ name: mapSymbol(activeMapping, name) })),
+						padReel(reel).map((name) => ({
+							name: mapSymbol(activeMapping, name),
+						})),
 					),
 					paddingPositions: reels.map(() => 0),
-					anticipation: [],
+					anticipation: reels.map(() => 0),
 					gameType: 'basegame',
 				};
 				break;
@@ -129,6 +144,10 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 		};
 		const winAmount = play4FunToStake(c.pay ?? 0);
 		runningTotal += winAmount;
+		// Row indices come from Play4Fun's payline (0-2 within the visible
+		// window). The reveal board is padded with 1 row on top, so the
+		// visible window starts at row 1 in the renderer's coordinate
+		// system — shift positions accordingly.
 		push({
 			type: 'winInfo',
 			totalWin: runningTotal,
@@ -137,7 +156,7 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 					symbol: mapSymbol(activeMapping, c.what),
 					kind: c.occurs,
 					win: winAmount,
-					positions: c.context?.payline?.map((row, reel) => ({ reel, row })) ?? [],
+					positions: c.context?.payline?.map((row, reel) => ({ reel, row: row + 1 })) ?? [],
 					meta: {
 						lineIndex: c.context?.paylineId ?? -1,
 						multiplier: 1,
