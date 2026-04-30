@@ -51,6 +51,20 @@ const activeMapping: GameMapping = linesMapping;
 
 // ---------- event-vocabulary adapter ----------
 
+/** Stake's BOOK_AMOUNT_MULTIPLIER (constants-shared/bet.ts). bookEvent amounts
+ *  (setTotalWin, finalWin, winInfo wins/totalWin) are NOT absolute money
+ *  amounts — they're fixed-point multipliers of the wagered bet. amount=100
+ *  means "1× bet", amount=300 means "3× bet". Display = amount/100 × bet. */
+const BOOK_AMOUNT_MULTIPLIER = 100;
+
+/** Convert a Play4Fun cents win + the round's bet (also in cents) to a Stake
+ *  bookEvent amount (the bet-multiplier in fixed-point hundredths). Returns 0
+ *  for a zero bet to avoid division by zero. */
+const toBookEventAmount = (winCents: number, betCents: number): number => {
+	if (!betCents || betCents <= 0) return 0;
+	return Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
+};
+
 /** Mapping from Play4Fun events to a Stake-engine-style book-event shape
  *  (`{ index, type, ...payload }`).
  *
@@ -61,18 +75,23 @@ const activeMapping: GameMapping = linesMapping;
  *    [reveal, winInfo×N, setTotalWin, finalWin, _<unknown>×N]
  *
  *  Symbols on the board and inside winInfo are passed through the active
- *  mapping (Play4Fun → game-specific names). Win amounts are scaled from
- *  Play4Fun cents to Stake API millions. */
+ *  mapping (Play4Fun → game-specific names). Win amounts on bookEvents are
+ *  emitted as bet-multipliers (NOT absolute amounts) per Stake convention. */
 const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 	let revealEvent: Record<string, unknown> | null = null;
 	const wins: { context: unknown }[] = [];
 	let setTotalWinAmount: number | null = null;
 	let finalWinAmount: number | null = null;
+	let betTotalCents = 0; // captured from the bet event for win-multiplier math
 	const passthrough: Record<string, unknown>[] = [];
 
 	for (const e of events) {
 		switch (e.event) {
 			case 'bet':
+				// Capture the round's total bet (in cents) so we can express
+				// subsequent win amounts as fixed-point bet multipliers.
+				betTotalCents = (e.context as { total?: number })?.total ?? 0;
+				break;
 			case 'gameStart':
 			case 'spinStart':
 				// Server-side bookkeeping events with no Stake renderer
@@ -112,11 +131,19 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 				break;
 			}
 			case 'gameEnd': {
-				setTotalWinAmount = play4FunToStake((e.context as { win?: number })?.win ?? 0);
+				// gameEnd.win is the round's total win in Play4Fun cents.
+				// Express as a bet-multiplier for Stake's setTotalWin handler.
+				setTotalWinAmount = toBookEventAmount(
+					(e.context as { win?: number })?.win ?? 0,
+					betTotalCents,
+				);
 				break;
 			}
 			case 'gameRoundOver': {
-				finalWinAmount = play4FunToStake((e.context as { win?: number })?.win ?? 0);
+				finalWinAmount = toBookEventAmount(
+					(e.context as { win?: number })?.win ?? 0,
+					betTotalCents,
+				);
 				break;
 			}
 			default:
@@ -142,7 +169,9 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 			pay: number;
 			context?: { paylineId?: number; payline?: number[] };
 		};
-		const winAmount = play4FunToStake(c.pay ?? 0);
+		// Per-win + cumulative totalWin are bet-multipliers in fixed-point
+		// hundredths (Stake's BOOK_AMOUNT_MULTIPLIER convention).
+		const winAmount = toBookEventAmount(c.pay ?? 0, betTotalCents);
 		runningTotal += winAmount;
 		// Row indices come from Play4Fun's payline (0-2 within the visible
 		// window). The reveal board is padded with 1 row on top, so the
