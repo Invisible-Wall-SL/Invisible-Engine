@@ -29,86 +29,105 @@ import type { Play4FunBookEvent } from './types';
 // ---------- event-vocabulary adapter ----------
 
 /** Minimal mapping from Play4Fun events to a Stake-engine-style book-event
- *  shape (`{ index, type, ...payload }`). The Stake `lines` game reads
- *  events of type 'reveal' / 'winInfo' / 'setTotalWin' / 'finalWin', so we
- *  produce those for the events we know how to translate, and pass through
- *  unknown ones with their raw context for any per-game handler that wants
- *  to opt in.
+ *  shape (`{ index, type, ...payload }`).
  *
- *  This is intentionally minimal — full fidelity (free spins, multiplier
- *  bonuses, scatter triggers, etc.) needs a per-game mapping table. */
+ *  Reordering note: Play4Fun emits `spinWin` events BEFORE `playedSpin`,
+ *  but Stake renderers expect `reveal` (the board) before `winInfo` (the
+ *  wins on that board). So we collect events into buckets by kind and
+ *  emit them in Stake-friendly order:
+ *
+ *    [_bet, _gameStart, _spinStart, reveal, winInfo×N, setTotalWin, finalWin]
+ *
+ *  Unknown events pass through with type=`_<name>` for opt-in per-game
+ *  handling. Free-spin / scatter / bonus mappings will need per-game
+ *  extension when we encounter them in real captures. */
 const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
-	const out: Record<string, unknown>[] = [];
-	let totalWin = 0;
-	events.forEach((e, i) => {
-		const index = i;
+	const meta: Record<string, unknown>[] = []; // _bet/_gameStart/_spinStart pass-through
+	let revealEvent: Record<string, unknown> | null = null;
+	const wins: { context: unknown }[] = [];
+	let setTotalWinAmount: number | null = null;
+	let finalWinAmount: number | null = null;
+	const passthrough: Record<string, unknown>[] = [];
+
+	for (const e of events) {
 		switch (e.event) {
 			case 'bet':
 			case 'gameStart':
 			case 'spinStart':
-				// Configuration / bookkeeping — no Stake equivalent at the
-				// renderer level. Pass through with type=raw_<name> so
-				// custom handlers can read them if needed.
-				out.push({ index, type: `_${e.event}`, raw: e.context });
+				meta.push({ type: `_${e.event}`, raw: e.context });
 				break;
 			case 'playedSpin': {
-				// Map reels (string[][]) → Stake `reveal` board (RawSymbol[][]).
 				const reels = (e.context as string[][]) ?? [];
-				const board = reels.map((reel) => reel.map((name) => ({ name })));
-				out.push({
-					index,
+				revealEvent = {
 					type: 'reveal',
-					board,
+					board: reels.map((reel) => reel.map((name) => ({ name }))),
 					paddingPositions: reels.map(() => 0),
 					anticipation: [],
 					gameType: 'basegame',
-				});
+				};
 				break;
 			}
 			case 'spinWin': {
-				const c = e.context as {
-					what: string; occurs: number; pay: number;
-					context?: { paylineId?: number; payline?: number[] };
-				};
-				totalWin += c.pay ?? 0;
-				out.push({
-					index,
-					type: 'winInfo',
-					totalWin,
-					wins: [
-						{
-							symbol: c.what,
-							kind: c.occurs,
-							win: c.pay,
-							positions:
-								c.context?.payline?.map((row, reel) => ({ reel, row })) ?? [],
-							meta: {
-								lineIndex: c.context?.paylineId ?? -1,
-								multiplier: 1,
-								winWithoutMult: c.pay,
-								globalMult: 1,
-								lineMultiplier: 1,
-							},
-						},
-					],
-				});
+				wins.push({ context: e.context });
 				break;
 			}
 			case 'gameEnd': {
-				const win = (e.context as { win?: number })?.win ?? 0;
-				out.push({ index, type: 'setTotalWin', amount: win });
+				setTotalWinAmount = (e.context as { win?: number })?.win ?? 0;
 				break;
 			}
 			case 'gameRoundOver': {
-				const win = (e.context as { win?: number })?.win ?? 0;
-				out.push({ index, type: 'finalWin', amount: win });
+				finalWinAmount = (e.context as { win?: number })?.win ?? 0;
 				break;
 			}
 			default:
-				out.push({ index, type: `_${e.event}`, raw: (e as { context?: unknown }).context });
+				passthrough.push({
+					type: `_${e.event}`,
+					raw: (e as { context?: unknown }).context,
+				});
 		}
-	});
-	return out;
+	}
+
+	const ordered: Record<string, unknown>[] = [];
+	const push = (ev: Record<string, unknown>) => {
+		ordered.push({ index: ordered.length, ...ev });
+	};
+
+	meta.forEach(push);
+	if (revealEvent) push(revealEvent);
+
+	let runningTotal = 0;
+	for (const w of wins) {
+		const c = w.context as {
+			what: string; occurs: number; pay: number;
+			context?: { paylineId?: number; payline?: number[] };
+		};
+		runningTotal += c.pay ?? 0;
+		push({
+			type: 'winInfo',
+			totalWin: runningTotal,
+			wins: [
+				{
+					symbol: c.what,
+					kind: c.occurs,
+					win: c.pay,
+					positions: c.context?.payline?.map((row, reel) => ({ reel, row })) ?? [],
+					meta: {
+						lineIndex: c.context?.paylineId ?? -1,
+						multiplier: 1,
+						winWithoutMult: c.pay,
+						globalMult: 1,
+						lineMultiplier: 1,
+					},
+				},
+			],
+		});
+	}
+
+	if (setTotalWinAmount !== null) push({ type: 'setTotalWin', amount: setTotalWinAmount });
+	if (finalWinAmount !== null) push({ type: 'finalWin', amount: finalWinAmount });
+	passthrough.forEach(push);
+
+	return ordered;
 };
 
 // ---------- session registry ----------
