@@ -344,6 +344,17 @@ export const requestBet = async (options: {
 
 	const stake = translateBetResponse(result.response, options.currency);
 
+	if (typeof globalThis !== 'undefined' && (globalThis as { __IE_DEBUG__?: boolean }).__IE_DEBUG__) {
+		const events = (result.response && 'events' in result.response ? result.response.events : []) ?? [];
+		const betCents = (events.find((e) => e.event === 'bet')?.context as { total?: number })?.total;
+		const winCents = (events.find((e) => e.event === 'gameEnd')?.context as { win?: number })?.win;
+		const stwAmount = (stake.round?.state as { type: string; amount?: number }[] | undefined)
+			?.find((e) => e?.type === 'setTotalWin')?.amount;
+		console.log(
+			`[IE facade] bet:${betCents}c win:${winCents}c → stake.round.amount=${stake.round?.amount} setTotalWin.amount=${stwAmount} (= ${(stwAmount ?? 0) / 100}× bet)`,
+		);
+	}
+
 	// Compute the interim balance (bet debited, win NOT yet credited) and
 	// stash the final balance for requestEndRound to return. The win amount
 	// in cents comes from the gameEnd event in the raw response.
