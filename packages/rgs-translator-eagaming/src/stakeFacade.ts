@@ -375,27 +375,6 @@ export const requestBet = async (options: {
 		}
 	}
 
-	if (typeof globalThis !== 'undefined' && (globalThis as { __IE_DEBUG__?: boolean }).__IE_DEBUG__) {
-		const evs = (result.response && 'events' in result.response ? result.response.events : []) ?? [];
-		const betC = (evs.find((e) => e.event === 'bet')?.context as { total?: number })?.total;
-		const winC = (evs.find((e) => e.event === 'gameEnd')?.context as { win?: number })?.win;
-		const state = (stake.round?.state ?? []) as { type: string; amount?: number; totalWin?: number; wins?: { win?: number }[] }[];
-		const stw = state.find((e) => e.type === 'setTotalWin');
-		const fw = state.find((e) => e.type === 'finalWin');
-		const winInfos = state.filter((e) => e.type === 'winInfo');
-		const reveal = state.find((e) => e.type === 'reveal');
-		console.log(
-			'[IE facade] WIRE bet:%dc win:%dc | STAKE round.amount=%d round.payout=%d balance.amount=%d',
-			betC, winC, stake.round?.amount, stake.round?.payout, stake.balance?.amount,
-		);
-		console.log(
-			'[IE facade] EVENTS state types: %o | setTotalWin.amount=%d | finalWin.amount=%d | winInfo last totalWin=%d wins[0].win=%d',
-			state.map((e) => e.type), stw?.amount, fw?.amount,
-			winInfos[winInfos.length - 1]?.totalWin, winInfos[0]?.wins?.[0]?.win,
-		);
-		console.log('[IE facade] reveal board (first reel):', reveal?.board?.[0]);
-	}
-
 	return stake;
 };
 

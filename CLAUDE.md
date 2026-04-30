@@ -93,6 +93,32 @@ At the start of each session:
 - Spine runtime: `@esotericsoftware/spine-pixi-v8` for PixiJS 8 compatibility
 - Avoid deprecated v7 APIs: `PIXI.Loader`, `PIXI.utils`, `PIXI.Container.sortableChildren` (use `sortChildren()`)
 
+## Project state (as of 2026-04-30)
+
+**Phase 1 — Translator + protocol verification:** ✅ done
+- `rgs-translator-eagaming` package: types, sessionState, translator, fetcher
+- Verified protocol from real Hot Fruits captures (Play4Fun on EAGaming brand)
+- Mock RGS server (Play4Fun-faithful)
+- Smoke tests for protocol round-trip
+- Demo overlay (paste-into-game-tab presentation panel)
+
+**Phase 2 — Stake game running on Play4Fun:** ✅ done
+- Stake-shaped facade (`stake-facade.ts`): drop-in replacement for `rgs-requests`
+- Vite alias in `apps/lines` enables it via `PUBLIC_RGS_TRANSPORT=play4fun`
+- `apps/lines` runs unmodified against the local mock through our facade:
+  - Symbol mapping (`PIC*` → `H*`/`L*`/`S`) in facade
+  - Amount scaling (Play4Fun cents ↔ Stake API millions) in facade
+  - Event-vocabulary adapter (`playedSpin` → `reveal`, `spinWin` → `winInfo`,
+    `gameEnd` → `setTotalWin`, `gameRoundOver` → `finalWin`)
+  - Reveal board padded 3 rows → 5 rows for Stake's animation buffer
+  - Two-step balance flow: `requestBet` returns interim, `requestEndRound`
+    returns final (wallet "fills up" in sync with the count-up animation)
+  - bookEvent amounts use Stake's `BOOK_AMOUNT_MULTIPLIER` (fixed-point
+    bet-multipliers), not absolute amounts
+- Verified end-to-end: correct symbols, correct math, correct round flow
+
+**Phase 3 — TBD.** See "Next steps" below.
+
 ## Comm Translator (rgs-translator-eagaming → Play4Fun protocol)
 
 Plug-and-play translator package. Maps the Stake Engine internal request shape to the **Play4Fun** `/rgs/engine` batched-action protocol. Lives in [packages/rgs-translator-eagaming](packages/rgs-translator-eagaming) — kept separate so the original `rgs-fetcher`/`rgs-requests` path stays default and can be swapped per-app.
