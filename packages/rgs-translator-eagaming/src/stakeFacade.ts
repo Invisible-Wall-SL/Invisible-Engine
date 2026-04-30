@@ -6,10 +6,20 @@
  * powered internally by the Play4Fun /rgs/engine protocol via this package's
  * own translator + fetcher.
  *
+ * All cross-protocol translation lives here so the upstream Play4Fun source
+ * (mock or real backend) can stay protocol-faithful:
+ *
+ *   - Symbol vocabulary: PIC1-PIC7/SCAT (Play4Fun) → H1-H5/L1-L5/S (Stake)
+ *     via gameMappings.linesMapping
+ *   - Amount scaling: integer cents (Play4Fun) ↔ millions (Stake API)
+ *     via stakeToPlay4Fun / play4FunToStake
+ *   - Event vocabulary: bet/play/spinWin/playedSpin/gameEnd → reveal/
+ *     winInfo/setTotalWin/finalWin via adaptEventsForStake
+ *
  * Use as a Vite alias drop-in to make any Stake Engine game speak Play4Fun
  * without touching the game code itself:
  *
- *   resolve.alias['rgs-requests'] = 'rgs-translator-eagaming/stake-facade'
+ *   resolve.alias['rgs-requests'] = '<absolute path to>/stake-facade.ts'
  *
  * Sessions are kept module-local and keyed by sessionID, so seq/gid lifecycle
  * is preserved across calls within the same playing session.
@@ -25,22 +35,34 @@ import {
 	responseClosedRound,
 } from './translator';
 import type { Play4FunBookEvent } from './types';
+import {
+	linesMapping,
+	mapSymbol,
+	stakeToPlay4Fun,
+	play4FunToStake,
+	type GameMapping,
+} from './gameMappings';
+
+// ---------- mapping selection ----------
+
+/** Currently hard-coded to the lines mapping. To target a different Stake
+ *  Engine game, swap this for a different mapping (or read from env). */
+const activeMapping: GameMapping = linesMapping;
 
 // ---------- event-vocabulary adapter ----------
 
-/** Minimal mapping from Play4Fun events to a Stake-engine-style book-event
- *  shape (`{ index, type, ...payload }`).
+/** Mapping from Play4Fun events to a Stake-engine-style book-event shape
+ *  (`{ index, type, ...payload }`).
  *
- *  Reordering note: Play4Fun emits `spinWin` events BEFORE `playedSpin`,
- *  but Stake renderers expect `reveal` (the board) before `winInfo` (the
- *  wins on that board). So we collect events into buckets by kind and
- *  emit them in Stake-friendly order:
+ *  Reordering: Play4Fun emits `spinWin` events BEFORE `playedSpin`, but
+ *  Stake renderers expect `reveal` (the board) before `winInfo` (the wins
+ *  on that board). Collect into buckets, emit in Stake-friendly order:
  *
- *    [_bet, _gameStart, _spinStart, reveal, winInfo×N, setTotalWin, finalWin]
+ *    [reveal, winInfo×N, setTotalWin, finalWin, _<unknown>×N]
  *
- *  Unknown events pass through with type=`_<name>` for opt-in per-game
- *  handling. Free-spin / scatter / bonus mappings will need per-game
- *  extension when we encounter them in real captures. */
+ *  Symbols on the board and inside winInfo are passed through the active
+ *  mapping (Play4Fun → game-specific names). Win amounts are scaled from
+ *  Play4Fun cents to Stake API millions. */
 const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 	let revealEvent: Record<string, unknown> | null = null;
 	const wins: { context: unknown }[] = [];
@@ -54,15 +76,16 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 			case 'gameStart':
 			case 'spinStart':
 				// Server-side bookkeeping events with no Stake renderer
-				// equivalent — drop silently to avoid "Missing handler"
-				// warnings. The data is still in the raw response if a
-				// custom handler ever needs it.
+				// equivalent — drop silently. Raw data is still in the
+				// response if a custom handler ever needs it.
 				break;
 			case 'playedSpin': {
 				const reels = (e.context as string[][]) ?? [];
 				revealEvent = {
 					type: 'reveal',
-					board: reels.map((reel) => reel.map((name) => ({ name }))),
+					board: reels.map((reel) =>
+						reel.map((name) => ({ name: mapSymbol(activeMapping, name) })),
+					),
 					paddingPositions: reels.map(() => 0),
 					anticipation: [],
 					gameType: 'basegame',
@@ -74,11 +97,11 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 				break;
 			}
 			case 'gameEnd': {
-				setTotalWinAmount = (e.context as { win?: number })?.win ?? 0;
+				setTotalWinAmount = play4FunToStake((e.context as { win?: number })?.win ?? 0);
 				break;
 			}
 			case 'gameRoundOver': {
-				finalWinAmount = (e.context as { win?: number })?.win ?? 0;
+				finalWinAmount = play4FunToStake((e.context as { win?: number })?.win ?? 0);
 				break;
 			}
 			default:
@@ -99,23 +122,26 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 	let runningTotal = 0;
 	for (const w of wins) {
 		const c = w.context as {
-			what: string; occurs: number; pay: number;
+			what: string;
+			occurs: number;
+			pay: number;
 			context?: { paylineId?: number; payline?: number[] };
 		};
-		runningTotal += c.pay ?? 0;
+		const winAmount = play4FunToStake(c.pay ?? 0);
+		runningTotal += winAmount;
 		push({
 			type: 'winInfo',
 			totalWin: runningTotal,
 			wins: [
 				{
-					symbol: c.what,
+					symbol: mapSymbol(activeMapping, c.what),
 					kind: c.occurs,
-					win: c.pay,
+					win: winAmount,
 					positions: c.context?.payline?.map((row, reel) => ({ reel, row })) ?? [],
 					meta: {
 						lineIndex: c.context?.paylineId ?? -1,
 						multiplier: 1,
-						winWithoutMult: c.pay,
+						winWithoutMult: winAmount,
 						globalMult: 1,
 						lineMultiplier: 1,
 					},
@@ -145,8 +171,6 @@ const sessionFor = (sid: string) => {
 
 // ---------- url helpers ----------
 
-/** Accept either bare hosts (e.g. 'engine.stake.com') or full URLs.
- *  When bare, default to https. Localhost is allowed for the mock. */
 const buildBaseUrl = (rgsUrl: string): string => {
 	if (!rgsUrl) return '';
 	if (rgsUrl.startsWith('http://') || rgsUrl.startsWith('https://')) return rgsUrl;
@@ -159,11 +183,17 @@ const buildBaseUrl = (rgsUrl: string): string => {
 const fetcherFor = (sid: string, rgsUrl: string) =>
 	createPlay4FunFetcher({ baseUrl: buildBaseUrl(rgsUrl), sid }, sessionFor(sid));
 
+// ---------- balance helpers ----------
+
+/** Pull the Play4Fun balance from a response and scale up to Stake units. */
+const balanceOf = (response: unknown): number | undefined => {
+	if (!response || typeof response !== 'object') return undefined;
+	const p4f = (response as { platform?: { balance?: number } }).platform?.balance;
+	return typeof p4f === 'number' ? play4FunToStake(p4f) : undefined;
+};
+
 // ---------- public API (matches rgs-requests) ----------
 
-/** Stake's `requestAuthenticate` returns balance, round, config, jurisdiction.
- *  Play4Fun has no equivalent endpoint — we send a heartbeat to get the
- *  balance and synthesize a sensible default config so the game UI boots. */
 export const requestAuthenticate = async (options: {
 	sessionID: string;
 	rgsUrl: string;
@@ -173,7 +203,6 @@ export const requestAuthenticate = async (options: {
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 	const result = await fetcher.post({ body: buildHeartbeat() });
 
-	// Surface server errors through the Stake-shaped envelope.
 	if (result.response && (result.response as { error?: unknown }).error) {
 		const raw = result.response as { error: string; errorCode?: number };
 		return {
@@ -182,23 +211,12 @@ export const requestAuthenticate = async (options: {
 		};
 	}
 
-	const balance =
-		result.response && 'platform' in result.response
-			? result.response.platform?.balance
-			: undefined;
+	const balance = balanceOf(result.response);
 
 	return {
 		status: { statusCode: 'SUCCESS' as const },
-		balance:
-			typeof balance === 'number'
-				? { amount: balance, currency: 'USD' }
-				: undefined,
-		// Play4Fun doesn't expose betLevels/betModes via this endpoint. Synthesize
-		// a reasonable default so the bet selector renders. Values are in Stake's
-		// API-amount convention (1,000,000 = $1.00); the engine divides by
-		// API_AMOUNT_MULTIPLIER for display.
-		// Operators can override these via env if a per-game config endpoint is
-		// wired later.
+		balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
+		// Synthesised config so the bet UI boots. Levels in Stake API units.
 		config: {
 			betLevels: [
 				100_000,    // $0.10
@@ -212,7 +230,7 @@ export const requestAuthenticate = async (options: {
 				100_000_000, // $100.00
 			],
 			betModes: { BASE: { mode: 'BASE', costMultiplier: 1, feature: false } },
-			defaultBetLevel: 1_000_000, // $1.00
+			defaultBetLevel: 1_000_000,
 			jurisdiction: {
 				socialCasino: false,
 				disabledFullscreen: false,
@@ -221,24 +239,20 @@ export const requestAuthenticate = async (options: {
 				disabledAutoplay: false,
 				disabledSlamstop: false,
 				disabledSpacebar: false,
-				disabledBuyFeature: true, // Play4Fun lacks feature-buy; safer to disable
+				disabledBuyFeature: true,
 				displayNetPosition: false,
 				displayRTP: false,
 				displaySessionTimer: false,
 				minimumRoundDuration: 0,
 			},
 		},
-		// No "in-flight bet to resume" concept on Play4Fun — auto-collect by
-		// default. If we later add manual-collect resumption, populate this.
 		round: undefined,
 		_session: session.snapshot(),
 	};
 };
 
-/** Stake's `requestBet` debits the player and returns the round events.
- *  We send a Play4Fun bet+play (auto-collect) and translate the response,
- *  then run the events through the Stake-vocabulary adapter so the game's
- *  renderers see `reveal` / `winInfo` / `setTotalWin` / `finalWin`. */
+/** `requestBet`: receive a Stake-units amount, convert to Play4Fun cents,
+ *  send bet+play (auto-collect), translate + adapt the response. */
 export const requestBet = async (options: {
 	sessionID: string;
 	currency: string;
@@ -250,86 +264,73 @@ export const requestBet = async (options: {
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 	session.startRound();
 
+	const play4FunAmount = stakeToPlay4Fun(options.amount);
 	const result = await fetcher.post({
 		body: buildBetActions({
-			amount: options.amount,
+			amount: play4FunAmount,
 			mode: options.mode,
 			currency: options.currency,
 			betLinesOrConfig: 5,
-			playContext: '', // auto-collect — round closes in one round-trip
+			playContext: '',
 		}),
 	});
 
 	const stake = translateBetResponse(result.response, options.currency);
-	if (stake.round?.state) {
-		// Replace the raw Play4Fun events with their Stake-vocab equivalents.
-		stake.round.state = adaptEventsForStake(stake.round.state) as never;
+
+	// Scale balance + round amounts from Play4Fun cents to Stake API units.
+	if (stake.balance) {
+		stake.balance = { ...stake.balance, amount: play4FunToStake(stake.balance.amount) };
 	}
+	if (stake.round) {
+		if (typeof stake.round.amount === 'number') {
+			stake.round.amount = play4FunToStake(stake.round.amount);
+		}
+		if (typeof stake.round.payout === 'number') {
+			stake.round.payout = play4FunToStake(stake.round.payout);
+		}
+		// payoutMultiplier is a ratio — unaffected by amount scaling.
+		if (stake.round.state) {
+			stake.round.state = adaptEventsForStake(stake.round.state) as never;
+		}
+	}
+
 	return stake;
 };
 
-/** Stake's `requestEndRound` closes a round and returns the new balance.
- *  Play4Fun auto-closes rounds with `play.context=''`, so we just heartbeat
- *  to fetch the current balance for the engine's bookkeeping. If the
- *  session somehow has an open round (manual mode), send `collect` first. */
-export const requestEndRound = async (options: {
-	sessionID: string;
-	rgsUrl: string;
-}) => {
+export const requestEndRound = async (options: { sessionID: string; rgsUrl: string }) => {
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 
 	if (session.gid) {
-		// Open round → close it explicitly.
 		const collectResult = await fetcher.post({ body: buildCollectAction() });
-		const collectBalance =
-			collectResult.response && 'platform' in collectResult.response
-				? collectResult.response.platform?.balance
-				: undefined;
 		if (responseClosedRound(collectResult.response)) session.endRound();
+		const balance = balanceOf(collectResult.response);
 		return {
 			status: { statusCode: 'SUCCESS' as const },
-			balance:
-				typeof collectBalance === 'number'
-					? { amount: collectBalance, currency: 'USD' }
-					: undefined,
+			balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
 		};
 	}
 
-	// No open round → heartbeat for the latest balance.
 	const result = await fetcher.post({ body: buildHeartbeat() });
-	const balance =
-		result.response && 'platform' in result.response
-			? result.response.platform?.balance
-			: undefined;
+	const balance = balanceOf(result.response);
 	return {
 		status: { statusCode: 'SUCCESS' as const },
-		balance:
-			typeof balance === 'number'
-				? { amount: balance, currency: 'USD' }
-				: undefined,
+		balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
 	};
 };
 
-/** Stake's `requestEndEvent` records progress server-side. Play4Fun has no
- *  equivalent — events are sent in the response, not tracked separately.
- *  No-op that returns SUCCESS so the engine's bookkeeping stays happy. */
 export const requestEndEvent = async (options: {
 	sessionID: string;
 	eventIndex: number;
 	rgsUrl: string;
 }) => {
-	void options; // unused — the call is a no-op against Play4Fun
+	void options;
 	return {
 		status: { statusCode: 'SUCCESS' as const },
 		event: String(options.eventIndex),
 	};
 };
 
-/** Stake's `requestReplay` returns a historical bet for read-only playback.
- *  Play4Fun doesn't expose replay through `/rgs/engine` — would require a
- *  separate endpoint we haven't observed. Stub for now; throws so the calling
- *  Authenticate.svelte falls through to the empty-state branch. */
 export const requestReplay = async (options: {
 	game: string;
 	version: string;
@@ -343,9 +344,5 @@ export const requestReplay = async (options: {
 	);
 };
 
-// ---------- escape hatch ----------
-
-/** Get the underlying session state for a sid (escape hatch for tests + the
- *  demo overlay). Returns undefined if no session has been created yet. */
 export const getSessionState = (sid: string): Play4FunSessionState | undefined =>
 	sessions.get(sid);

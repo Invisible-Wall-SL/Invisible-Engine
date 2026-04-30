@@ -51,9 +51,10 @@ const main = async () => {
 	if (!auth.config?.jurisdiction) fail('authenticate missing config.jurisdiction', auth);
 	ok(`authenticate: balance=${auth.balance.amount}, ${auth.config.betLevels.length} bet levels`);
 
-	// 2. bet (amount=10 keeps us solvent across many spins regardless of RNG)
+	// 2. bet — amount in Stake API units. 10_000_000 = $10. The facade will
+	//    scale this down to 1000 cents internally before sending to Play4Fun.
 	const bet = await facade.requestBet({
-		sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 10, mode: 'BASE',
+		sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 10_000_000, mode: 'BASE',
 	});
 	if (bet.status?.statusCode !== 'SUCCESS') fail('bet not SUCCESS', bet);
 	if (!Array.isArray(bet.round?.state)) fail('bet missing round.state', bet);
@@ -67,7 +68,15 @@ const main = async () => {
 	const types = bet.round.state.map((e) => e.type);
 	if (!types.some((t) => t === 'reveal')) fail('expected a reveal event after adapter', types);
 	if (!types.some((t) => t === 'setTotalWin' || t === 'finalWin')) fail('expected setTotalWin/finalWin', types);
-	ok(`bet: balance=${bet.balance?.amount}, ${bet.round.state.length} events: [${types.join(', ')}]`);
+
+	// Symbols on the reveal board should be Stake-vocab (H1-H5/L1-L5/S), not
+	// Play4Fun (PIC1-PIC7/SCAT) — the symbol map should have run.
+	const reveal = bet.round.state.find((e) => e.type === 'reveal');
+	const allSymbols = (reveal?.board ?? []).flat().map((c) => c.name);
+	const stakeNames = new Set(['H1','H2','H3','H4','H5','L1','L2','L3','L4','L5','S','W']);
+	const unmapped = allSymbols.filter((n) => !stakeNames.has(n));
+	if (unmapped.length > 0) fail(`unmapped Play4Fun symbols leaked through adapter: ${unmapped}`, allSymbols);
+	ok(`bet: balance=${bet.balance?.amount}, events=[${types.join(', ')}], symbols mapped`);
 
 	// 3. endRound
 	const end = await facade.requestEndRound({ sessionID: SID, rgsUrl: RGS_URL });
@@ -75,11 +84,11 @@ const main = async () => {
 	if (typeof end.balance?.amount !== 'number') fail('endRound missing balance.amount', end);
 	ok(`endRound: balance=${end.balance.amount}`);
 
-	// 4. Run a few more bets to verify session reuse + balance arithmetic
+	// 4. Run a few more bets to verify session reuse + balance arithmetic.
 	let prev = end.balance.amount;
 	for (let i = 0; i < 3; i++) {
 		const r = await facade.requestBet({
-			sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 10, mode: 'BASE',
+			sessionID: SID, rgsUrl: RGS_URL, currency: 'USD', amount: 10_000_000, mode: 'BASE',
 		});
 		if (r.status?.statusCode !== 'SUCCESS') fail(`bet #${i + 2} not SUCCESS`, r);
 		if (typeof r.balance?.amount !== 'number') fail(`bet #${i + 2} missing balance`, r);

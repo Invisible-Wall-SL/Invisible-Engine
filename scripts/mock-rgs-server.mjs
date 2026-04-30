@@ -22,9 +22,10 @@
 import { createServer } from 'node:http';
 
 const PORT = Number(process.env.PORT ?? 7777);
-/** Default in Stake API-amount convention (1,000,000 = $1.00). 100,000,000 = $100.
- *  Override with START_BALANCE=N for a different starting amount. */
-const START_BALANCE = Number(process.env.START_BALANCE ?? 100_000_000);
+/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
+ *  10000 = $100 — matches what we observed from the live Hot Fruits server.
+ *  Override with START_BALANCE=N. */
+const START_BALANCE = Number(process.env.START_BALANCE ?? 10_000);
 const SEED = process.env.SEED;
 
 // ---------- session store ----------
@@ -41,11 +42,11 @@ const getSession = (sid) => {
 
 // ---------- spin engine (deterministic-ish) ----------
 
-// Symbol names align with apps/lines/src/game/config.ts so the renderer's
-// SYMBOL_INFO_MAP can resolve them: H1-H5 = high-pay, L1-L5 = low-pay,
-// S = scatter, W = wild. Mock omits W to keep payout math simple.
-const SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5', 'L1', 'L2', 'L3', 'L4', 'L5', 'S'];
-const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'S');
+// Symbol vocabulary mirrors what the live Hot Fruits server sends. Translation
+// to per-game symbols (H1/L1/S/W for Stake's lines) happens in the facade,
+// not here — the mock stays faithful to real Play4Fun output.
+const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'PIC5', 'PIC6', 'PIC7', 'SCAT'];
+const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
 const PAYLINES = [
 	[1, 1, 1, 1, 1],
 	[0, 0, 0, 0, 0],
@@ -54,16 +55,13 @@ const PAYLINES = [
 	[2, 1, 0, 1, 2],
 ];
 const PAY_TABLE = {
-	L1: { 3: 5, 4: 25, 5: 100 },
-	L2: { 3: 5, 4: 25, 5: 100 },
-	L3: { 3: 10, 4: 40, 5: 150 },
-	L4: { 3: 10, 4: 40, 5: 150 },
-	L5: { 3: 15, 4: 50, 5: 200 },
-	H1: { 3: 20, 4: 75, 5: 300 },
-	H2: { 3: 25, 4: 100, 5: 400 },
-	H3: { 3: 30, 4: 125, 5: 500 },
-	H4: { 3: 40, 4: 175, 5: 750 },
-	H5: { 3: 50, 4: 200, 5: 1000 },
+	PIC1: { 3: 5, 4: 25, 5: 100 },
+	PIC2: { 3: 5, 4: 25, 5: 100 },
+	PIC3: { 3: 10, 4: 40, 5: 150 },
+	PIC4: { 3: 10, 4: 40, 5: 150 },
+	PIC5: { 3: 15, 4: 50, 5: 200 },
+	PIC6: { 3: 20, 4: 75, 5: 300 },
+	PIC7: { 3: 50, 4: 200, 5: 1000 },
 };
 
 let rngState = SEED ? hashStr(SEED) : Date.now() >>> 0;
@@ -80,12 +78,13 @@ function hashStr(s) {
 	return h;
 }
 const pickSymbol = () => {
-	// Weighted draw favouring low-pay symbols, occasional scatter, rare H5.
+	// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7.
 	const r = nextRand();
-	if (r < 0.04) return 'S';
-	if (r < 0.55) return 'L' + (1 + Math.floor(nextRand() * 5));   // L1..L5
-	if (r < 0.92) return 'H' + (1 + Math.floor(nextRand() * 4));   // H1..H4
-	return 'H5';
+	if (r < 0.04) return 'SCAT';
+	if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)];      // PIC1/2/3
+	if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
+	if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
+	return 'PIC7';
 };
 
 /** 5 reels × 3 visible rows */
