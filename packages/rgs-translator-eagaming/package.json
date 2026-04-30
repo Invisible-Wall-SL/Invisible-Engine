@@ -5,6 +5,16 @@
 	"types": "./index.ts",
 	"type": "module",
 	"license": "MIT",
+	"exports": {
+		".": {
+			"types": "./index.ts",
+			"default": "./index.ts"
+		},
+		"./stake-facade": {
+			"types": "./stake-facade.ts",
+			"default": "./stake-facade.ts"
+		}
+	},
 	"scripts": {
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint *.ts*"

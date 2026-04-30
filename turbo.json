@@ -1,7 +1,7 @@
 {
 	"$schema": "https://turbo.build/schema.json",
 	"globalDependencies": ["**/.env.*local", "**/.env"],
-	"globalEnv": ["NODE_ENV", "PUBLIC_CHROMATIC", "PUBLIC_SITE_MODE", "PUBLIC_SENTRY_DSN"],
+	"globalEnv": ["NODE_ENV", "PUBLIC_CHROMATIC", "PUBLIC_SITE_MODE", "PUBLIC_SENTRY_DSN", "PUBLIC_RGS_TRANSPORT"],
 	"tasks": {
 		"dev": {
 			"cache": false,
