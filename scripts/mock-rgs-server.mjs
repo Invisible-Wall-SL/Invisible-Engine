@@ -67,6 +67,15 @@ const PAY_TABLE = {
 	PIC7: { 2: 5, 3: 5, 4: 25, 5: 50 },
 };
 
+/** Scatter paytable — SCATs pay anywhere on the board, not on paylines.
+ *  Multiplied by TOTAL stake, not betPerLine. Values are placeholders;
+ *  real Hot Fruits values to be confirmed from a live session capture. */
+const SCATTER_PAY_TABLE = {
+	3: 2,    // 3 SCAT → 2× total stake
+	4: 10,   // 4 SCAT → 10× total stake
+	5: 100,  // 5 SCAT → 100× total stake
+};
+
 let rngState = SEED ? hashStr(SEED) : Date.now() >>> 0;
 function nextRand() {
 	rngState = (rngState * 1664525 + 1013904223) >>> 0;
@@ -123,6 +132,31 @@ const evaluatePaylines = (reels, betPerLine) => {
 		}
 	}
 	return wins;
+};
+
+/** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
+ *  payline). Returns at most one win event with all scatter positions. */
+const evaluateScatters = (reels, totalStake) => {
+	const positions = [];
+	for (let reel = 0; reel < reels.length; reel++) {
+		for (let row = 0; row < reels[reel].length; row++) {
+			if (reels[reel][row] === 'SCAT') {
+				positions.push({ reel, row });
+			}
+		}
+	}
+	const count = positions.length;
+	const mult = SCATTER_PAY_TABLE[count];
+	if (!mult) return null;
+	return {
+		what: 'SCAT',
+		occurs: count,
+		mode: 'scatter',
+		pay: mult * totalStake,
+		mpInfo: { mp: 1, replacements: 0 },
+		mpBonusInfo: null,
+		context: { positions },
+	};
 };
 
 // ---------- request handler ----------
@@ -278,7 +312,9 @@ const handleEngine = async (req, res, url) => {
 				}
 				const reels = spinReels();
 				pendingRound.reels = reels;
-				const wins = evaluatePaylines(reels, pendingRound.betPerLine);
+				const lineWins = evaluatePaylines(reels, pendingRound.betPerLine);
+				const scatterWin = evaluateScatters(reels, pendingRound.total);
+				const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 				const totalWin = wins.reduce((s, w) => s + w.pay, 0);
 				pendingRound.win = totalWin;
 

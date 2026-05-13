@@ -164,12 +164,42 @@ const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
  *  means "1× bet", amount=300 means "3× bet". Display = amount/100 × bet. */
 const BOOK_AMOUNT_MULTIPLIER = 100;
 
+/** Opt-in trace logger. Set `localStorage.IE_DEBUG = '1'` (or `globalThis.IE_DEBUG = true`
+ *  in Node) to see the cents-↔-bookEvent conversion in the browser console.
+ *  Useful when win amounts on screen don't match the expected dollar value. */
+const debugEnabled = (): boolean => {
+	const g = globalThis as { IE_DEBUG?: unknown; localStorage?: { getItem?: (k: string) => string | null } };
+	if (g.IE_DEBUG) return true;
+	try {
+		return g.localStorage?.getItem?.('IE_DEBUG') === '1';
+	} catch {
+		return false;
+	}
+};
+const ieLog = (...args: unknown[]) => {
+	if (debugEnabled()) console.log('[stake-facade]', ...args);
+};
+
 /** Convert a Play4Fun cents win + the round's bet (also in cents) to a Stake
  *  bookEvent amount (the bet-multiplier in fixed-point hundredths). Returns 0
- *  for a zero bet to avoid division by zero. */
+ *  for a zero bet to avoid division by zero.
+ *
+ *  Stake's display flow (see packages/utils-shared/amount.ts):
+ *    bookEventAmount / BOOK_AMOUNT_MULTIPLIER × wageredBetAmount = $-on-screen.
+ *  Worked example: $2 bet, win $0.40 → bookEventAmount 20 → display $0.40 ✓.
+ *  If the on-screen amount looks off by 100× or shows only decimals, the
+ *  most common causes are (a) wageredBetAmount in wrong unit (should be
+ *  user-display dollars), (b) betCents here = 0 so the multiplier collapses
+ *  to 0 and the engine falls back to a tiny default. Enable IE_DEBUG to
+ *  trace. */
 const toBookEventAmount = (winCents: number, betCents: number): number => {
-	if (!betCents || betCents <= 0) return 0;
-	return Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
+	if (!betCents || betCents <= 0) {
+		ieLog('toBookEventAmount: betCents is 0/negative → returning 0', { winCents, betCents });
+		return 0;
+	}
+	const result = Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
+	ieLog('toBookEventAmount', { winCents, betCents, result, displayMultiplier: result / BOOK_AMOUNT_MULTIPLIER });
+	return result;
 };
 
 /** Mapping from Play4Fun events to a Stake-engine-style book-event shape
@@ -202,6 +232,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				// Capture the round's total bet (in cents) so we can express
 				// subsequent win amounts as fixed-point bet multipliers.
 				betTotalCents = (e.context as { total?: number })?.total ?? 0;
+				ieLog('bet event captured', { betTotalCents, ctx: e.context });
 				break;
 			case 'gameStart':
 			case 'spinStart':
@@ -287,17 +318,28 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 		const c = w.context as {
 			what: string;
 			occurs: number;
+			mode?: 'line' | 'scatter' | string;
 			pay: number;
-			context?: { paylineId?: number; payline?: number[] };
+			context?: {
+				paylineId?: number;
+				payline?: number[];
+				positions?: { reel: number; row: number }[];
+			};
 		};
 		// Per-win + cumulative totalWin are bet-multipliers in fixed-point
 		// hundredths (Stake's BOOK_AMOUNT_MULTIPLIER convention).
 		const winAmount = toBookEventAmount(c.pay ?? 0, betTotalCents);
 		runningTotal += winAmount;
-		// Row indices come from Play4Fun's payline (0-2 within the visible
-		// window). The reveal board is padded with 1 row on top, so the
-		// visible window starts at row 1 in the renderer's coordinate
-		// system — shift positions accordingly.
+		// Row indices come from Play4Fun. For line wins they're in
+		// `context.payline` (one row per reel); for scatter wins
+		// `context.positions` is a list of {reel,row} pairs. The reveal
+		// board is padded with 1 row on top, so the visible window starts
+		// at row 1 — shift positions accordingly.
+		const linePositions =
+			c.context?.payline?.map((row, reel) => ({ reel, row: row + 1 })) ?? [];
+		const scatterPositions =
+			c.context?.positions?.map((p) => ({ reel: p.reel, row: p.row + 1 })) ?? [];
+		const positions = c.mode === 'scatter' ? scatterPositions : linePositions;
 		push({
 			type: 'winInfo',
 			totalWin: runningTotal,
@@ -306,7 +348,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 					symbol: mapSymbol(activeMapping, c.what),
 					kind: c.occurs,
 					win: winAmount,
-					positions: c.context?.payline?.map((row, reel) => ({ reel, row: row + 1 })) ?? [],
+					positions,
 					meta: {
 						lineIndex: c.context?.paylineId ?? -1,
 						multiplier: 1,
