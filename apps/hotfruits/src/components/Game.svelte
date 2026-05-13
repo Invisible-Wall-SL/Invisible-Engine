@@ -5,7 +5,7 @@
 	import { EnableHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Text, REM } from 'pixi-svelte';
-	import { stateModal } from 'state-shared';
+	import { stateModal, stateBet } from 'state-shared';
 
 	import { UI, UiGameName } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
@@ -30,6 +30,27 @@
 	const context = getContext();
 
 	onMount(() => (context.stateLayout.showLoadingScreen = true));
+
+	// IE_DEBUG: expose stateBet on window + log bet/win trio whenever
+	// winBookEventAmount changes. Enable with `localStorage.IE_DEBUG = '1'`
+	// and reload. Used to diagnose on-screen win amount conversions.
+	const ieDebugOn = typeof window !== 'undefined' && (() => {
+		try { return localStorage.getItem('IE_DEBUG') === '1'; } catch { return false; }
+	})();
+	if (ieDebugOn) {
+		(window as unknown as { __stateBet?: typeof stateBet }).__stateBet = stateBet;
+	}
+	$effect(() => {
+		if (!ieDebugOn) return;
+		const w = stateBet.winBookEventAmount;
+		console.log('[hotfruits] win state', {
+			winBookEventAmount: w,
+			wageredBetAmount: stateBet.wageredBetAmount,
+			betAmount: stateBet.betAmount,
+			balanceAmount: stateBet.balanceAmount,
+			expectedDisplay: stateBet.wageredBetAmount * (w / 100),
+		});
+	});
 
 	context.eventEmitter.subscribeOnMount({
 		buyBonusConfirm: () => {
