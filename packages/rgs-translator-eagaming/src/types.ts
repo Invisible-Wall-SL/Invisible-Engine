@@ -41,10 +41,40 @@ export interface Play4FunRequestQuery {
 
 // ---------- Inbound (response) ----------
 
+/** Per-symbol paytable entry. Play4Fun expresses payouts as parallel arrays:
+ *  `occurs[i]` matches `pay[i]`. Both are typically length 3 ([3,4,5] of-a-kind),
+ *  but lower-tier symbols may include `[2,3,4,5]` if they pay on 2-of-a-kind. */
+export interface Play4FunPaytableEntry {
+	occurs: number[];
+	pay: number[];
+}
+
+/** Boot-time game declaration. The real Play4Fun server emits this as the first
+ *  event of every session — symbols, grid, paylines, paytable, all in one
+ *  place. We use it for two purposes in the facade:
+ *    (a) build a whitelist to filter unknown symbols / out-of-grid positions
+ *    (b) cross-check against the consumer's static config and warn on drift. */
+export interface Play4FunConfigContext {
+	/** Closed vocabulary of symbols the server will ever emit. */
+	symbols: string[];
+	/** Visible grid dimensions. */
+	window: { reels: number; rows: number };
+	/** Active paylines. Each entry is one row-index per reel. */
+	paylines: number[][];
+	/** Wild-acting symbols. Hot Fruits sends []. */
+	wildSymbols: string[];
+	/** Per-symbol payout table. */
+	paytable: Record<string, Play4FunPaytableEntry>;
+	/** Open bag of additional fields the server may include (RTP, jurisdiction,
+	 *  freegame structure, etc.). We don't model them — they pass through. */
+	[extra: string]: unknown;
+}
+
 /** Each event mirrors the Stake Engine book-event shape: a tagged record with
  *  an `event` discriminator and a context payload whose shape depends on the
  *  tag. Listed below are the events we've observed; treat the union as open. */
 export type Play4FunBookEvent =
+	| { event: 'config'; context: Play4FunConfigContext }
 	| { event: 'bet'; context: { total: number; betPerLine: number; paylines: number[][]; maxWinCap: number } }
 	| { event: 'gameStart'; context: { totalBet: number; betPerLine: number } }
 	| {

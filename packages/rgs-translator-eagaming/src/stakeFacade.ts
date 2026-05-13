@@ -34,7 +34,7 @@ import {
 	translateBetResponse,
 	responseClosedRound,
 } from './translator';
-import type { Play4FunBookEvent } from './types';
+import type { Play4FunBookEvent, Play4FunConfigContext } from './types';
 import {
 	linesMapping,
 	mapSymbol,
@@ -48,6 +48,113 @@ import {
 /** Currently hard-coded to the lines mapping. To target a different Stake
  *  Engine game, swap this for a different mapping (or read from env). */
 const activeMapping: GameMapping = linesMapping;
+
+// ---------- boot-config capture & defence ----------
+
+/** Per-session snapshot of the boot `config` event the server sent. Used as
+ *  the runtime source of truth for symbol whitelist + grid bounds, so that
+ *  later events can be filtered/clamped instead of crashing the engine on
+ *  malformed input. Only the first config event per session is retained. */
+const capturedConfig = new Map<string, Play4FunConfigContext>();
+
+/** One-shot guard so we only log the cross-check report once per session. */
+const reportedSessions = new Set<string>();
+
+/** Track unknown symbols we've already warned about, keyed by `sid:symbol`, so
+ *  a malformed reveal doesn't spam the console. */
+const warnedUnknownSymbols = new Set<string>();
+
+/** Locate the `config` event in a raw Play4Fun response. */
+const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfigContext | null => {
+	if (!events) return null;
+	for (const e of events) {
+		if (e.event === 'config') return e.context as Play4FunConfigContext;
+	}
+	return null;
+};
+
+/** Capture the boot config (first one wins). Returns the captured config so
+ *  callers can immediately run the cross-check on the same data. */
+const captureConfig = (sid: string, events: Play4FunBookEvent[] | undefined): Play4FunConfigContext | null => {
+	if (capturedConfig.has(sid)) return capturedConfig.get(sid)!;
+	const cfg = findConfigEvent(events);
+	if (!cfg) return null;
+	capturedConfig.set(sid, cfg);
+	return cfg;
+};
+
+/** Compare the server's declared symbol vocabulary against what `activeMapping`
+ *  knows how to translate, and the declared grid against what the facade emits.
+ *  Logs once per session as a console.warn; never throws. */
+const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
+	if (reportedSessions.has(sid)) return;
+	reportedSessions.add(sid);
+
+	const declared = new Set(cfg.symbols ?? []);
+	const known = new Set(Object.keys(activeMapping.symbols));
+
+	const unmapped: string[] = [];
+	for (const s of declared) if (!known.has(s)) unmapped.push(s);
+
+	const orphaned: string[] = [];
+	for (const s of known) if (!declared.has(s)) orphaned.push(s);
+
+	const gridReels = cfg.window?.reels;
+	const gridRows = cfg.window?.rows;
+	const gridOk = gridReels === 5 && gridRows === 3;
+
+	const wildCount = cfg.wildSymbols?.length ?? 0;
+
+	const lines: string[] = [];
+	lines.push(`[stake-facade] config cross-check for sid=${sid}`);
+	lines.push(`  grid: ${gridReels}×${gridRows}${gridOk ? ' ✓' : ' ✗ (expected 5×3)'}`);
+	lines.push(`  paylines: ${cfg.paylines?.length ?? '?'} declared`);
+	lines.push(`  wilds: ${wildCount === 0 ? 'none ✓ (no wild substitution active)' : cfg.wildSymbols!.join(', ')}`);
+	if (unmapped.length) lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
+	if (orphaned.length) lines.push(`  mapping entries the server never declared: ${orphaned.join(', ')}`);
+
+	console.warn(lines.join('\n'));
+};
+
+/** Whitelist check + warn-once for a symbol coming back in a reveal/winInfo
+ *  event. Returns true if the symbol is in the server's declared vocabulary
+ *  (or no config has been captured yet — fail open). */
+const isKnownSymbol = (sid: string, name: string): boolean => {
+	const cfg = capturedConfig.get(sid);
+	if (!cfg) return true;
+	if (cfg.symbols.includes(name)) return true;
+	const key = `${sid}:${name}`;
+	if (!warnedUnknownSymbols.has(key)) {
+		warnedUnknownSymbols.add(key);
+		console.warn(`[stake-facade] reveal contained symbol "${name}" not declared in server config — passing through`);
+	}
+	return false;
+};
+
+/** Clamp a reveal board to the captured grid dimensions. Out-of-grid cells are
+ *  dropped with a one-time log. Returns the (possibly trimmed) board. */
+const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
+	const cfg = capturedConfig.get(sid);
+	if (!cfg?.window) return board;
+	const { reels, rows } = cfg.window;
+	let trimmed = false;
+	const out = board.slice(0, reels).map((reel) => {
+		if (reel.length > rows) {
+			trimmed = true;
+			return reel.slice(0, rows);
+		}
+		return reel;
+	});
+	if (board.length > reels) trimmed = true;
+	if (trimmed) {
+		const key = `${sid}:grid`;
+		if (!warnedUnknownSymbols.has(key)) {
+			warnedUnknownSymbols.add(key);
+			console.warn(`[stake-facade] reveal exceeded declared grid ${reels}×${rows}, trimmed`);
+		}
+	}
+	return out;
+};
 
 // ---------- event-vocabulary adapter ----------
 
@@ -77,7 +184,7 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
  *  Symbols on the board and inside winInfo are passed through the active
  *  mapping (Play4Fun → game-specific names). Win amounts on bookEvents are
  *  emitted as bet-multipliers (NOT absolute amounts) per Stake convention. */
-const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
+const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[] => {
 	let revealEvent: Record<string, unknown> | null = null;
 	const wins: { context: unknown }[] = [];
 	let setTotalWinAmount: number | null = null;
@@ -87,6 +194,10 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 
 	for (const e of events) {
 		switch (e.event) {
+			case 'config':
+				// Already captured at the request-boundary helper — drop here
+				// to keep the engine's book-event stream tidy.
+				break;
 			case 'bet':
 				// Capture the round's total bet (in cents) so we can express
 				// subsequent win amounts as fixed-point bet multipliers.
@@ -99,7 +210,17 @@ const adaptEventsForStake = (events: Play4FunBookEvent[]): unknown[] => {
 				// response if a custom handler ever needs it.
 				break;
 			case 'playedSpin': {
-				const reels = (e.context as string[][]) ?? [];
+				// Clamp to declared grid (no-op until a config is captured),
+				// then filter symbols not in the declared vocabulary. Unknown
+				// names still pass through so the engine doesn't render a
+				// blank cell — we just log them once via isKnownSymbol().
+				const raw = (e.context as string[][]) ?? [];
+				const reels = clampBoardToGrid(sid, raw).map((reel) =>
+					reel.map((name) => {
+						isKnownSymbol(sid, name); // warn-once side effect
+						return name;
+					}),
+				);
 				// Stake's lines reveal expects 5 cells per reel: 3 visible +
 				// 1 padding above + 1 below for the spin-animation buffer.
 				// Play4Fun only sends the 3 visible cells, so we pad with
@@ -270,6 +391,14 @@ export const requestAuthenticate = async (options: {
 		};
 	}
 
+	// If the server sent its config as part of the boot response, capture it
+	// once and run the cross-check against linesMapping + expected grid.
+	const cfg = captureConfig(
+		options.sessionID,
+		(result.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
+	);
+	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
+
 	const balance = balanceOf(result.response);
 
 	return {
@@ -342,6 +471,15 @@ export const requestBet = async (options: {
 		}),
 	});
 
+	// If the server emits config on first bet (rather than at auth), capture it
+	// here so subsequent reveal/win events are validated against the right
+	// vocabulary + grid.
+	const cfg = captureConfig(
+		options.sessionID,
+		(result.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
+	);
+	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
+
 	const stake = translateBetResponse(result.response, options.currency);
 
 	// Compute the interim balance (bet debited, win NOT yet credited) and
@@ -371,7 +509,7 @@ export const requestBet = async (options: {
 		}
 		// payoutMultiplier is a ratio — unaffected by amount scaling.
 		if (stake.round.state) {
-			stake.round.state = adaptEventsForStake(stake.round.state) as never;
+			stake.round.state = adaptEventsForStake(options.sessionID, stake.round.state) as never;
 		}
 	}
 

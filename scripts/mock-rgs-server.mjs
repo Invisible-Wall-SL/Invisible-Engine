@@ -30,12 +30,12 @@ const SEED = process.env.SEED;
 
 // ---------- session store ----------
 
-/** sid -> { balance, round | null } */
+/** sid -> { balance, round | null, configSent } */
 const sessions = new Map();
 
 const getSession = (sid) => {
 	if (!sessions.has(sid)) {
-		sessions.set(sid, { balance: START_BALANCE, round: null });
+		sessions.set(sid, { balance: START_BALANCE, round: null, configSent: false });
 	}
 	return sessions.get(sid);
 };
@@ -54,14 +54,17 @@ const PAYLINES = [
 	[0, 1, 2, 1, 0],
 	[2, 1, 0, 1, 2],
 ];
+/** Hot Fruits paytable — PIC1 is the TOP payer (5-of-a-kind = 5000), PIC7 the
+ *  lowest (also pays 2-of-a-kind = 5). Aligned with the real server config
+ *  captured during play (see Riassunto_Stato_Lavoro.pdf §"Aggiornamento"). */
 const PAY_TABLE = {
-	PIC1: { 3: 5, 4: 25, 5: 100 },
-	PIC2: { 3: 5, 4: 25, 5: 100 },
-	PIC3: { 3: 10, 4: 40, 5: 150 },
-	PIC4: { 3: 10, 4: 40, 5: 150 },
-	PIC5: { 3: 15, 4: 50, 5: 200 },
-	PIC6: { 3: 20, 4: 75, 5: 300 },
-	PIC7: { 3: 50, 4: 200, 5: 1000 },
+	PIC1: { 3: 200, 4: 1000, 5: 5000 },
+	PIC2: { 3: 100, 4: 500, 5: 2500 },
+	PIC3: { 3: 75, 4: 250, 5: 1000 },
+	PIC4: { 3: 20, 4: 100, 5: 500 },
+	PIC5: { 3: 15, 4: 75, 5: 200 },
+	PIC6: { 3: 10, 4: 40, 5: 100 },
+	PIC7: { 2: 5, 3: 5, 4: 25, 5: 50 },
 };
 
 let rngState = SEED ? hashStr(SEED) : Date.now() >>> 0;
@@ -196,12 +199,41 @@ const handleEngine = async (req, res, url) => {
 
 	console.log(`[mock] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
 
-	// Heartbeat: empty body returns balance only.
-	if (actions.length === 0) {
-		return sendJson(req, res, 200, { events: [], platform: { balance: session.balance } });
+	const events = [];
+
+	// Emit the boot `config` event once per session — first response gets it.
+	// Faithful to Play4Fun's wire format (symbols/window/paylines/wildSymbols/
+	// paytable). The facade captures it for cross-checks + reveal filtering.
+	if (!session.configSent) {
+		session.configSent = true;
+		events.push({
+			event: 'config',
+			context: {
+				symbols: SYMBOLS,
+				window: { reels: 5, rows: 3 },
+				paylines: PAYLINES,
+				wildSymbols: [],
+				paytable: Object.fromEntries(
+					Object.entries(PAY_TABLE).map(([sym, byCount]) => {
+						const counts = Object.keys(byCount).map(Number).sort((a, b) => a - b);
+						return [
+							sym,
+							{
+								occurs: counts,
+								pay: counts.map((c) => byCount[c]),
+							},
+						];
+					}),
+				),
+			},
+		});
 	}
 
-	const events = [];
+	// Heartbeat: empty body returns balance only (plus config if first call).
+	if (actions.length === 0) {
+		return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
+	}
+
 	let pendingRound = session.round; // copy reference; may mutate
 
 	for (const a of actions) {

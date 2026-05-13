@@ -22,25 +22,31 @@ export interface GameMapping {
 	wild?: string;
 }
 
-/** Default mapping suitable for apps/lines (and most lines-style slots that
- *  follow Stake's H1-H5 / L1-L5 / S / W naming convention).
+/** Default mapping suitable for apps/lines / apps/hotfruits (and most
+ *  lines-style slots that follow Stake's H1-H4 / L1-L5 / S / W naming).
  *
- *  Source: apps/lines/src/game/config.ts symbol keys.
+ *  Aligned by **paytable rank** — PIC1 is Play4Fun's TOP payer, so it maps to
+ *  H1 (Stake's top payer); descending from there. Verified against a captured
+ *  Hot Fruits spinWin (PIC4 × 3, pay 40, betPerLine 2 → matches paytable
+ *  PIC4 = 20 × 2 = 40), per scripts/mock + Riassunto_Stato_Lavoro.pdf.
  *
  *    Play4Fun (Hot Fruits) → Stake lines
- *    PIC1 (lowest pay)     → L1
- *    PIC2                  → L2
- *    PIC3                  → L3
- *    PIC4                  → L4
- *    PIC5                  → L5
- *    PIC6                  → H1
- *    PIC7 (highest pay)    → H2
- *    SCAT                  → S
- */
+ *    PIC1 (top pay,    5-of-a-kind = 5000) → H1
+ *    PIC2                                   → H2
+ *    PIC3                                   → H3
+ *    PIC4                                   → H4
+ *    PIC5                                   → L1
+ *    PIC6                                   → L2
+ *    PIC7 (lowest, also pays 2-of-a-kind=5) → L5
+ *    SCAT                                   → S
+ *
+ *  L3 and L4 are intentionally left unmapped — Stake `lines` has 9 line symbols
+ *  vs Hot Fruits' 7, so two L slots stay unused until apps/hotfruits trims its
+ *  static config in Fase 1. */
 export const linesMapping: GameMapping = {
 	symbols: {
-		PIC1: 'L1', PIC2: 'L2', PIC3: 'L3', PIC4: 'L4', PIC5: 'L5',
-		PIC6: 'H1', PIC7: 'H2',
+		PIC1: 'H1', PIC2: 'H2', PIC3: 'H3', PIC4: 'H4',
+		PIC5: 'L1', PIC6: 'L2', PIC7: 'L5',
 		SCAT: 'S',
 	},
 	scatter: 'S',
