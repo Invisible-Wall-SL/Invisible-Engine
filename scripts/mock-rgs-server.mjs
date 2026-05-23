@@ -417,6 +417,17 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+	// Standard Invisible Wall startup banner (compact corner bracket).
+	console.log([
+		'',
+		'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+		'   ┃   I N V I S I B L E   W A L L   S L',
+		'   ┃   ────────────────────────────────────────',
+		'   ┃   MOCK RGS   ·   Play4Fun',
+		'   ┃',
+		`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
+		'',
+	].join('\n'));
 	console.log(`[mock] Play4Fun RGS mock listening on http://localhost:${PORT}`);
 	console.log(`[mock] starting balance: ${START_BALANCE}, seed: ${SEED ?? '(time-based)'}`);
 	console.log(`[mock] try: curl -X POST http://localhost:${PORT}/rgs/engine?sid=test`);
