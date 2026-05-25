@@ -52,9 +52,67 @@ export const linesMapping: GameMapping = {
 	scatter: 'S',
 };
 
+/** Book-of-… mapping (Book of Borut / Book of Thermopylae). Verified against
+ *  the live Book of Thermopylae `config` event:
+ *
+ *    Play4Fun → Stake lines
+ *    PIC1 (top, 2-of-a-kind = 5000) → H1
+ *    PIC2                            → H2
+ *    PIC3                            → H3
+ *    PIC4                            → H4
+ *    ACE   (royals, 3-of-a-kind)    → L1
+ *    KING                           → L2
+ *    QUEEN                          → L3
+ *    JACK                           → L4
+ *    TEN                            → L5
+ *    SCAT  (the Book)               → S
+ *
+ *  SCAT is BOTH scatter and wild (`wildSymbols:['SCAT']`) — the defining Book
+ *  trait — so it is registered as both scatter and wild here. */
+export const bookMapping: GameMapping = {
+	symbols: {
+		PIC1: 'H1', PIC2: 'H2', PIC3: 'H3', PIC4: 'H4',
+		ACE: 'L1', KING: 'L2', QUEEN: 'L3', JACK: 'L4', TEN: 'L5',
+		SCAT: 'S',
+	},
+	scatter: 'S',
+	wild: 'S',
+};
+
 /** Identity mapping — symbols pass through unchanged. Useful for testing or
  *  when targeting a game that natively understands Play4Fun's vocabulary. */
 export const identityMapping: GameMapping = { symbols: {}, scatter: 'SCAT' };
+
+/** Registry of named mappings + a resolver. The active mapping is selected by
+ *  the consuming game via `PUBLIC_RGS_GAME` (Vite env) — e.g. `book` for a
+ *  Book-of game. Defaults to `lines` so existing games (Hot Fruits) are
+ *  unaffected. Add new games here as they are onboarded. */
+export const MAPPINGS: Record<string, GameMapping> = {
+	lines: linesMapping,
+	book: bookMapping,
+	identity: identityMapping,
+};
+
+/** Resolve the active game mapping from env, defaulting to `lines`. Reads
+ *  `import.meta.env.PUBLIC_RGS_GAME` (browser/Vite) and `process.env` (Node),
+ *  guarded so neither absence throws. */
+export const resolveActiveMapping = (): GameMapping => {
+	let key: string | undefined;
+	try {
+		key = (import.meta as { env?: Record<string, string | undefined> }).env?.PUBLIC_RGS_GAME;
+	} catch {
+		/* import.meta unavailable */
+	}
+	if (!key) {
+		try {
+			key = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+				?.PUBLIC_RGS_GAME;
+		} catch {
+			/* process unavailable */
+		}
+	}
+	return (key && MAPPINGS[key]) || linesMapping;
+};
 
 /** Resolve a symbol name through the mapping. Unmapped names pass through. */
 export const mapSymbol = (mapping: GameMapping, name: string): string =>

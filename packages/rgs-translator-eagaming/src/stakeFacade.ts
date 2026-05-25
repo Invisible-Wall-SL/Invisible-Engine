@@ -36,18 +36,19 @@ import {
 } from './translator';
 import type { Play4FunBookEvent, Play4FunConfigContext } from './types';
 import {
-	linesMapping,
 	mapSymbol,
 	stakeToPlay4Fun,
 	play4FunToStake,
+	resolveActiveMapping,
 	type GameMapping,
 } from './gameMappings';
 
 // ---------- mapping selection ----------
 
-/** Currently hard-coded to the lines mapping. To target a different Stake
- *  Engine game, swap this for a different mapping (or read from env). */
-const activeMapping: GameMapping = linesMapping;
+/** Active symbol mapping, selected per-game via `PUBLIC_RGS_GAME` (defaults to
+ *  the lines mapping → Hot Fruits). Set `PUBLIC_RGS_GAME=book` for a Book-of
+ *  game. See gameMappings.resolveActiveMapping. */
+const activeMapping: GameMapping = resolveActiveMapping();
 
 // ---------- boot-config capture & defence ----------
 
