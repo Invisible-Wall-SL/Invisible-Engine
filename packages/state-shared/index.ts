@@ -3,6 +3,7 @@ export * from './src/stateBet.svelte';
 export * from './src/stateConfig.svelte';
 export * from './src/stateMeta.svelte';
 export * from './src/stateModal.svelte';
+export * from './src/stateMessage.svelte';
 export * from './src/stateSound.svelte';
 export * from './src/stateUi.svelte';
 export * from './src/stateI18n.svelte';
