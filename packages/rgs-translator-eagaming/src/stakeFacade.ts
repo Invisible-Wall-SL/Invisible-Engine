@@ -34,7 +34,7 @@ import {
 	translateBetResponse,
 	responseClosedRound,
 } from './translator';
-import type { Play4FunBookEvent, Play4FunConfigContext } from './types';
+import type { Play4FunBookEvent, Play4FunConfigContext, Play4FunResponse } from './types';
 import {
 	mapSymbol,
 	stakeToPlay4Fun,
@@ -181,6 +181,10 @@ const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
  *  means "1× bet", amount=300 means "3× bet". Display = amount/100 × bet. */
 const BOOK_AMOUNT_MULTIPLIER = 100;
 
+/** Book-of games declare 10 paylines; the Play4Fun bet total = betPerLine ×
+ *  this. Used to derive betPerLine from the Stake bet amount. */
+const BOOK_NUM_LINES = 10;
+
 /** Opt-in trace logger. Set `localStorage.IE_DEBUG = '1'` (or `globalThis.IE_DEBUG = true`
  *  in Node) to see the cents-↔-bookEvent conversion in the browser console.
  *  Useful when win amounts on screen don't match the expected dollar value. */
@@ -219,168 +223,155 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
 	return result;
 };
 
-/** Mapping from Play4Fun events to a Stake-engine-style book-event shape
- *  (`{ index, type, ...payload }`).
+/** Pad a 3-row reel to 5 cells (1 above + 1 below) for Stake's spin buffer. */
+const padReel = (reel: string[]): string[] => {
+	if (reel.length === 0) return [];
+	return [reel[0], ...reel, reel[reel.length - 1]];
+};
+
+/** Normalise a spinWin's position payload into {reel,row} pairs shifted by the
+ *  1-row top padding the reveal adds. Line wins carry `context.payline` (one
+ *  row per reel); scatter/expanding wins carry an array of {reel,row}. */
+const winPositions = (c: {
+	mode?: string;
+	context?: unknown;
+}): { reel: number; row: number }[] => {
+	const ctx = c.context as
+		| { payline?: number[] }
+		| { reel: number; row: number }[]
+		| undefined;
+	if (Array.isArray(ctx)) return ctx.map((p) => ({ reel: p.reel, row: p.row + 1 }));
+	const payline = (ctx as { payline?: number[] })?.payline;
+	if (payline) return payline.map((row, reel) => ({ reel, row: row + 1 }));
+	return [];
+};
+
+/** Translate an ordered Play4Fun event stream — base game OR a full aggregated
+ *  free-spin round — into the Stake-engine book-event sequence. Processed
+ *  sequentially (not bucketed) so multi-spin bonus rounds keep their order:
  *
- *  Reordering: Play4Fun emits `spinWin` events BEFORE `playedSpin`, but
- *  Stake renderers expect `reveal` (the board) before `winInfo` (the wins
- *  on that board). Collect into buckets, emit in Stake-friendly order:
+ *    base:  reveal → winInfo×N → setTotalWin → finalWin
+ *    bonus: reveal → winInfo (scatters) → freeSpinTrigger → setExpandingSymbol
+ *           → [reveal → winInfo×N → updateFreeSpin]×spins
+ *           → freeSpinEnd → setTotalWin → finalWin
  *
- *    [reveal, winInfo×N, setTotalWin, finalWin, _<unknown>×N]
- *
- *  Symbols on the board and inside winInfo are passed through the active
- *  mapping (Play4Fun → game-specific names). Win amounts on bookEvents are
- *  emitted as bet-multipliers (NOT absolute amounts) per Stake convention. */
+ *  Within each spin, Play4Fun emits spinWin BEFORE playedSpin; we hold the wins
+ *  and flush them as winInfo right after the reveal (Stake wants board first). */
 const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[] => {
-	let revealEvent: Record<string, unknown> | null = null;
-	const wins: { context: unknown }[] = [];
-	let setTotalWinAmount: number | null = null;
-	let finalWinAmount: number | null = null;
-	let betTotalCents = 0; // captured from the bet event for win-multiplier math
-	const passthrough: Record<string, unknown>[] = [];
+	const ordered: Record<string, unknown>[] = [];
+	const push = (ev: Record<string, unknown>) => ordered.push({ index: ordered.length, ...ev });
+
+	let betTotalCents = 0;
+	let pendingWins: { what: string; occurs: number; mode?: string; pay: number; context?: unknown }[] = [];
+	let runningTotal = 0;
+	let gameType: 'basegame' | 'freegame' = 'basegame';
+	let totalFs = 0;
+	let scatterTriggerPositions: { reel: number; row: number }[] = [];
+
+	const flushWins = () => {
+		for (const c of pendingWins) {
+			const winAmount = toBookEventAmount(c.pay ?? 0, betTotalCents);
+			runningTotal += winAmount;
+			push({
+				type: 'winInfo',
+				totalWin: runningTotal,
+				wins: [
+					{
+						symbol: mapSymbol(activeMapping, c.what),
+						kind: c.occurs,
+						win: winAmount,
+						positions: winPositions(c),
+						meta: {
+							lineIndex: (c.context as { paylineId?: number })?.paylineId ?? -1,
+							multiplier: 1,
+							winWithoutMult: winAmount,
+							globalMult: 1,
+							lineMultiplier: 1,
+						},
+					},
+				],
+			});
+		}
+		pendingWins = [];
+	};
 
 	for (const e of events) {
 		switch (e.event) {
 			case 'config':
-				// Already captured at the request-boundary helper — drop here
-				// to keep the engine's book-event stream tidy.
-				break;
-			case 'bet':
-				// Capture the round's total bet (in cents) so we can express
-				// subsequent win amounts as fixed-point bet multipliers.
-				betTotalCents = (e.context as { total?: number })?.total ?? 0;
-				ieLog('bet event captured', { betTotalCents, ctx: e.context });
-				break;
 			case 'gameStart':
 			case 'spinStart':
-				// Server-side bookkeeping events with no Stake renderer
-				// equivalent — drop silently. Raw data is still in the
-				// response if a custom handler ever needs it.
+			case 'bonusWin': // wrapper around the following spinWin — pay comes from spinWin
 				break;
+			case 'bet':
+				betTotalCents = (e.context as { total?: number })?.total ?? 0;
+				break;
+			case 'spinWin': {
+				const c = e.context as { what: string; occurs: number; mode?: string; pay: number };
+				pendingWins.push(c);
+				if (c.mode === 'scatter' && c.what === 'SCAT') scatterTriggerPositions = winPositions(c);
+				break;
+			}
+			case 'spinTrigger': {
+				const spins = (e.context as { spins?: { spins?: number }[] | number })?.spins;
+				totalFs = Array.isArray(spins) ? spins[0]?.spins ?? 0 : spins ?? 0;
+				break;
+			}
 			case 'playedSpin': {
-				// Clamp to declared grid (no-op until a config is captured),
-				// then filter symbols not in the declared vocabulary. Unknown
-				// names still pass through so the engine doesn't render a
-				// blank cell — we just log them once via isKnownSymbol().
 				const raw = (e.context as string[][]) ?? [];
 				const reels = clampBoardToGrid(sid, raw).map((reel) =>
 					reel.map((name) => {
-						isKnownSymbol(sid, name); // warn-once side effect
+						isKnownSymbol(sid, name);
 						return name;
 					}),
 				);
-				// Stake's lines reveal expects 5 cells per reel: 3 visible +
-				// 1 padding above + 1 below for the spin-animation buffer.
-				// Play4Fun only sends the 3 visible cells, so we pad with
-				// the topmost / bottommost symbol from each reel as a
-				// neutral filler. Padding cells are outside the visible
-				// window during steady state, so reusing existing symbols
-				// is safe and matches the look of real Stake reveal data.
-				const padReel = (reel: string[]): string[] => {
-					if (reel.length === 0) return [];
-					const top = reel[0];
-					const bottom = reel[reel.length - 1];
-					return [top, ...reel, bottom];
-				};
-				revealEvent = {
+				push({
 					type: 'reveal',
-					board: reels.map((reel) =>
-						padReel(reel).map((name) => ({
-							name: mapSymbol(activeMapping, name),
-						})),
-					),
+					board: reels.map((reel) => padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) }))),
 					paddingPositions: reels.map(() => 0),
 					anticipation: reels.map(() => 0),
-					gameType: 'basegame',
-				};
-				break;
-			}
-			case 'spinWin': {
-				wins.push({ context: e.context });
-				break;
-			}
-			case 'gameEnd': {
-				// gameEnd.win is the round's total win in Play4Fun cents.
-				// Express as a bet-multiplier for Stake's setTotalWin handler.
-				setTotalWinAmount = toBookEventAmount(
-					(e.context as { win?: number })?.win ?? 0,
-					betTotalCents,
-				);
-				break;
-			}
-			case 'gameRoundOver': {
-				finalWinAmount = toBookEventAmount(
-					(e.context as { win?: number })?.win ?? 0,
-					betTotalCents,
-				);
-				break;
-			}
-			default:
-				passthrough.push({
-					type: `_${e.event}`,
-					raw: (e as { context?: unknown }).context,
+					gameType,
 				});
+				flushWins();
+				break;
+			}
+			case 'enterBonus': {
+				gameType = 'freegame';
+				push({
+					type: 'freeSpinTrigger',
+					totalFs: totalFs || (e.context as { left?: number })?.left || 0,
+					positions: scatterTriggerPositions,
+				});
+				break;
+			}
+			case 'pickRandomly': {
+				const special = (e.context as { item?: { state?: string } })?.item?.state;
+				if (special) push({ type: 'setExpandingSymbol', symbol: mapSymbol(activeMapping, special) });
+				break;
+			}
+			case 'playedBonusSpin': {
+				const played = (e.context as { played?: number })?.played ?? 0;
+				const left = (e.context as { left?: number })?.left ?? 0;
+				push({ type: 'updateFreeSpin', amount: Math.max(0, played - 1), total: played + left });
+				break;
+			}
+			case 'playedBonusSpins':
+				break;
+			case 'gameEnd': {
+				const amount = toBookEventAmount((e.context as { win?: number })?.win ?? 0, betTotalCents);
+				if (gameType === 'freegame') {
+					push({ type: 'freeSpinEnd', amount, winLevel: 0 });
+					gameType = 'basegame';
+				}
+				push({ type: 'setTotalWin', amount });
+				break;
+			}
+			case 'gameRoundOver':
+				push({ type: 'finalWin', amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betTotalCents) });
+				break;
+			default:
+				push({ type: `_${e.event}`, raw: (e as { context?: unknown }).context });
 		}
 	}
-
-	const ordered: Record<string, unknown>[] = [];
-	const push = (ev: Record<string, unknown>) => {
-		ordered.push({ index: ordered.length, ...ev });
-	};
-
-	if (revealEvent) push(revealEvent);
-
-	let runningTotal = 0;
-	for (const w of wins) {
-		const c = w.context as {
-			what: string;
-			occurs: number;
-			mode?: 'line' | 'scatter' | string;
-			pay: number;
-			context?: {
-				paylineId?: number;
-				payline?: number[];
-				positions?: { reel: number; row: number }[];
-			};
-		};
-		// Per-win + cumulative totalWin are bet-multipliers in fixed-point
-		// hundredths (Stake's BOOK_AMOUNT_MULTIPLIER convention).
-		const winAmount = toBookEventAmount(c.pay ?? 0, betTotalCents);
-		runningTotal += winAmount;
-		// Row indices come from Play4Fun. For line wins they're in
-		// `context.payline` (one row per reel); for scatter wins
-		// `context.positions` is a list of {reel,row} pairs. The reveal
-		// board is padded with 1 row on top, so the visible window starts
-		// at row 1 — shift positions accordingly.
-		const linePositions =
-			c.context?.payline?.map((row, reel) => ({ reel, row: row + 1 })) ?? [];
-		const scatterPositions =
-			c.context?.positions?.map((p) => ({ reel: p.reel, row: p.row + 1 })) ?? [];
-		const positions = c.mode === 'scatter' ? scatterPositions : linePositions;
-		push({
-			type: 'winInfo',
-			totalWin: runningTotal,
-			wins: [
-				{
-					symbol: mapSymbol(activeMapping, c.what),
-					kind: c.occurs,
-					win: winAmount,
-					positions,
-					meta: {
-						lineIndex: c.context?.paylineId ?? -1,
-						multiplier: 1,
-						winWithoutMult: winAmount,
-						globalMult: 1,
-						lineMultiplier: 1,
-					},
-				},
-			],
-		});
-	}
-
-	if (setTotalWinAmount !== null) push({ type: 'setTotalWin', amount: setTotalWinAmount });
-	if (finalWinAmount !== null) push({ type: 'finalWin', amount: finalWinAmount });
-	passthrough.forEach(push);
 
 	return ordered;
 };
@@ -520,42 +511,72 @@ export const requestBet = async (options: {
 
 	// User-display dollars → Play4Fun cents.
 	const play4FunAmount = Math.max(1, Math.round(options.amount * 100));
-	const result = await fetcher.post({
-		body: buildBetActions({
-			amount: play4FunAmount,
-			mode: options.mode,
-			currency: options.currency,
-			betLinesOrConfig: 5,
-			playContext: '',
-		}),
-	});
+	// A non-BASE bet mode means "buy the feature". Book-of games encode the bet
+	// as [buyFlag, betPerLine] (buyFlag 1 = buy); the lines/Hot-Fruits path
+	// keeps the legacy [5, betPerLine] encoding.
+	const isBuy = !!options.mode && options.mode.toUpperCase() !== 'BASE';
+	const betBody: ReturnType<typeof buildBetActions> =
+		activeMapping === bookMapping
+			? [
+					{ action: 'bet', context: [isBuy ? 1 : 0, Math.max(1, Math.round(play4FunAmount / BOOK_NUM_LINES))] },
+					{ action: 'play', context: '' },
+				]
+			: buildBetActions({
+					amount: play4FunAmount,
+					mode: options.mode,
+					currency: options.currency,
+					betLinesOrConfig: 5,
+					playContext: '',
+				});
+
+	const first = await fetcher.post({ body: betBody });
 
 	// If the server emits config on first bet (rather than at auth), capture it
 	// here so subsequent reveal/win events are validated against the right
 	// vocabulary + grid.
 	const cfg = captureConfig(
 		options.sessionID,
-		(result.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
+		(first.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
 	);
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
-	const stake = translateBetResponse(result.response, options.currency);
+	// Aggregate the whole round into one event stream. The Stake engine consumes
+	// a round as a single book; Play4Fun delivers free spins as separate `play`
+	// requests, so when a bet enters the bonus we drive the remaining spins +
+	// the closing `collect` here and concatenate every event.
+	const allEvents: Play4FunBookEvent[] = [
+		...(((first.response as { events?: Play4FunBookEvent[] } | undefined)?.events) ?? []),
+	];
+	let lastResponse: Play4FunResponse | null = first.response;
 
-	// Compute the interim balance (bet debited, win NOT yet credited) and
-	// stash the final balance for requestEndRound to return. The win amount
-	// in cents comes from the gameEnd event in the raw response.
-	const finalCents =
-		result.response && 'platform' in result.response
-			? result.response.platform?.balance ?? 0
-			: 0;
+	if (allEvents.some((e) => e.event === 'enterBonus')) {
+		let guard = 0;
+		while (guard++ < 200) {
+			const r = await fetcher.post({ body: [{ action: 'play' }] });
+			const evs = (r.response as { events?: Play4FunBookEvent[] } | undefined)?.events ?? [];
+			allEvents.push(...evs);
+			lastResponse = r.response ?? lastResponse;
+			if (evs.some((e) => e.event === 'gameEnd')) break;
+		}
+		const collect = await fetcher.post({ body: buildCollectAction() });
+		allEvents.push(...(((collect.response as { events?: Play4FunBookEvent[] } | undefined)?.events) ?? []));
+		lastResponse = collect.response ?? lastResponse;
+	}
+
+	const aggregated = {
+		events: allEvents,
+		platform: (lastResponse as { platform?: unknown } | null)?.platform,
+	} as Play4FunResponse;
+	const stake = translateBetResponse(aggregated, options.currency);
+
+	// Two-step balance: interim (bet debited, win NOT yet credited) now; final
+	// stashed for requestEndRound to return after the count-up animation.
+	const finalCents = (lastResponse as { platform?: { balance?: number } } | null)?.platform?.balance ?? 0;
 	const winCents =
-		(result.response && 'events' in result.response
-			? result.response.events?.find((e) => e.event === 'gameEnd')?.context?.win
-			: undefined) ?? 0;
+		(allEvents.find((e) => e.event === 'gameEnd')?.context as { win?: number } | undefined)?.win ?? 0;
 	const interimCents = finalCents - winCents;
 	pendingFinalBalance.set(options.sessionID, finalCents);
 
-	// Scale balance + round amounts from Play4Fun cents to Stake API units.
 	if (stake.balance) {
 		stake.balance = { ...stake.balance, amount: play4FunToStake(interimCents) };
 	}
@@ -566,7 +587,6 @@ export const requestBet = async (options: {
 		if (typeof stake.round.payout === 'number') {
 			stake.round.payout = play4FunToStake(stake.round.payout);
 		}
-		// payoutMultiplier is a ratio — unaffected by amount scaling.
 		if (stake.round.state) {
 			stake.round.state = adaptEventsForStake(options.sessionID, stake.round.state) as never;
 		}
