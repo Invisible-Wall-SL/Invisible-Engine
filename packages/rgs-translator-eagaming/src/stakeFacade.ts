@@ -285,6 +285,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 	let gameType: 'basegame' | 'freegame' = 'basegame';
 	let totalFs = 0;
 	let scatterTriggerPositions: { reel: number; row: number }[] = [];
+	let specialRaw: string | undefined; // the free-spin expanding symbol (raw Play4Fun name)
 
 	const flushWins = () => {
 		for (const c of pendingWins) {
@@ -342,11 +343,19 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 						return name;
 					}),
 				);
+				// Book-of expansion: during free spins the special symbol expands
+				// to fill every reel it lands on (it then pays scatter-style). Bake
+				// the filled reel straight into the reveal board so the existing
+				// renderer shows the expanded column — no extra component needed.
+				const expanded =
+					gameType === 'freegame' && specialRaw
+						? reels.map((reel) => (reel.includes(specialRaw!) ? reel.map(() => specialRaw!) : reel))
+						: reels;
 				push({
 					type: 'reveal',
-					board: reels.map((reel) => padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) }))),
-					paddingPositions: reels.map(() => 0),
-					anticipation: reels.map(() => 0),
+					board: expanded.map((reel) => padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) }))),
+					paddingPositions: expanded.map(() => 0),
+					anticipation: expanded.map(() => 0),
 					gameType,
 				});
 				flushWins();
@@ -363,7 +372,10 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 			}
 			case 'pickRandomly': {
 				const special = (e.context as { item?: { state?: string } })?.item?.state;
-				if (special) push({ type: 'setExpandingSymbol', symbol: mapSymbol(activeMapping, special) });
+				if (special) {
+					specialRaw = special;
+					push({ type: 'setExpandingSymbol', symbol: mapSymbol(activeMapping, special) });
+				}
 				break;
 			}
 			case 'playedBonusSpin': {
@@ -377,9 +389,14 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 			case 'gameEnd': {
 				const winCents = (e.context as { win?: number })?.win ?? 0;
 				const amount = toBookEventAmount(winCents, betTotalCents);
+				const winLevel = computeWinLevel(winCents, betTotalCents);
 				if (gameType === 'freegame') {
-					push({ type: 'freeSpinEnd', amount, winLevel: computeWinLevel(winCents, betTotalCents) });
+					push({ type: 'freeSpinEnd', amount, winLevel });
 					gameType = 'basegame';
+				} else if (winLevel >= 6) {
+					// Base-game big win (≥ BIG tier): trigger the big/mega/… win
+					// presentation (setWin → Win.svelte → bigwin spine).
+					push({ type: 'setWin', amount, winLevel });
 				}
 				push({ type: 'setTotalWin', amount });
 				break;
