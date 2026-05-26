@@ -359,6 +359,13 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 					gameType,
 				});
 				flushWins();
+				// Regulatory: surface the win after EACH free spin (not just the
+				// total at the end). Update the WIN meter to the running total so
+				// far on every bonus spin; the per-spin amount is also narrated by
+				// the winInfo toast.
+				if (gameType === 'freegame') {
+					push({ type: 'setTotalWin', amount: runningTotal });
+				}
 				break;
 			}
 			case 'enterBonus': {
