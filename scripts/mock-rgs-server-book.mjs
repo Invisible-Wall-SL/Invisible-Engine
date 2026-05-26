@@ -324,7 +324,12 @@ const handleEngine = async (req, res, url) => {
 	console.log(`[mock-book] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
 
 	const events = [];
-	if (!session.configSent) {
+	// Send the boot `config` on the first call AND on every heartbeat (empty
+	// body = the auth call). A real server sends it once per session, but the
+	// facade module resets on each browser reload while this mock keeps the
+	// session — re-sending on heartbeat ensures every (re)load re-captures it
+	// (and re-selects the book symbol mapping).
+	if (!session.configSent || actions.length === 0) {
 		session.configSent = true;
 		events.push({ event: 'config', context: buildConfigContext() });
 	}

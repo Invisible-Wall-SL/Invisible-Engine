@@ -40,15 +40,28 @@ import {
 	stakeToPlay4Fun,
 	play4FunToStake,
 	resolveActiveMapping,
+	linesMapping,
+	bookMapping,
 	type GameMapping,
 } from './gameMappings';
 
 // ---------- mapping selection ----------
 
-/** Active symbol mapping, selected per-game via `PUBLIC_RGS_GAME` (defaults to
- *  the lines mapping → Hot Fruits). Set `PUBLIC_RGS_GAME=book` for a Book-of
- *  game. See gameMappings.resolveActiveMapping. */
-const activeMapping: GameMapping = resolveActiveMapping();
+/** Active symbol mapping. Starts from the env hint (`PUBLIC_RGS_GAME`,
+ *  defaulting to lines), then auto-corrects from the captured boot `config`
+ *  event — the most reliable signal, since env exposure differs across build
+ *  setups (SvelteKit routes PUBLIC_* through $env, not import.meta.env). */
+let activeMapping: GameMapping = resolveActiveMapping();
+
+/** Detect the right mapping from the server's declared symbol vocabulary.
+ *  Book-of games declare royal symbols (ACE/KING/QUEEN); Hot-Fruits-style
+ *  lines games declare PIC5-PIC7. Returns null if undecidable. */
+const pickMappingForConfig = (cfg: Play4FunConfigContext): GameMapping | null => {
+	const syms = new Set(cfg.symbols ?? []);
+	if (syms.has('ACE') || syms.has('KING') || syms.has('QUEEN')) return bookMapping;
+	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
+	return null;
+};
 
 // ---------- boot-config capture & defence ----------
 
@@ -81,6 +94,9 @@ const captureConfig = (sid: string, events: Play4FunBookEvent[] | undefined): Pl
 	const cfg = findConfigEvent(events);
 	if (!cfg) return null;
 	capturedConfig.set(sid, cfg);
+	// Auto-select the symbol mapping from the declared vocabulary.
+	const detected = pickMappingForConfig(cfg);
+	if (detected) activeMapping = detected;
 	return cfg;
 };
 
