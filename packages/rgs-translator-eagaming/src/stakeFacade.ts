@@ -185,6 +185,24 @@ const BOOK_AMOUNT_MULTIPLIER = 100;
  *  this. Used to derive betPerLine from the Stake bet amount. */
 const BOOK_NUM_LINES = 10;
 
+/** Map a win (cents) + bet (cents) to a Stake winLevel (1-10). The engine's
+ *  winLevelMap is keyed 1..10 — emitting 0 would yield undefined winLevelData
+ *  and stall the win/outro presentation (leaving the UI hidden). 1 = zero win;
+ *  6+ are the "big win" tiers. Thresholds are the win-as-bet-multiplier. */
+const computeWinLevel = (winCents: number, betCents: number): number => {
+	if (!betCents || winCents <= 0) return 1;
+	const x = winCents / betCents;
+	if (x < 5) return 2;
+	if (x < 15) return 3;
+	if (x < 25) return 4;
+	if (x < 50) return 5;
+	if (x < 100) return 6;
+	if (x < 250) return 7;
+	if (x < 500) return 8;
+	if (x < 1000) return 9;
+	return 10;
+};
+
 /** Opt-in trace logger. Set `localStorage.IE_DEBUG = '1'` (or `globalThis.IE_DEBUG = true`
  *  in Node) to see the cents-↔-bookEvent conversion in the browser console.
  *  Useful when win amounts on screen don't match the expected dollar value. */
@@ -357,9 +375,10 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 			case 'playedBonusSpins':
 				break;
 			case 'gameEnd': {
-				const amount = toBookEventAmount((e.context as { win?: number })?.win ?? 0, betTotalCents);
+				const winCents = (e.context as { win?: number })?.win ?? 0;
+				const amount = toBookEventAmount(winCents, betTotalCents);
 				if (gameType === 'freegame') {
-					push({ type: 'freeSpinEnd', amount, winLevel: 0 });
+					push({ type: 'freeSpinEnd', amount, winLevel: computeWinLevel(winCents, betTotalCents) });
 					gameType = 'basegame';
 				}
 				push({ type: 'setTotalWin', amount });
