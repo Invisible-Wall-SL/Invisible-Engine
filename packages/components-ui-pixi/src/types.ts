@@ -1,6 +1,40 @@
 import type { Snippet } from 'svelte';
 
 import type { ButtonProps } from 'components-pixi';
+import type { ServerPayEntry } from 'utils-shared/paytable';
+
+// ---- Info page (paytable / paylines / rules) manifest ----
+// A game supplies this data-driven manifest; the shared <InfoOverlay> renders it
+// so the same component serves every game. No game-specific code is imported.
+export type InfoSymbolIcon = {
+	type: 'sprite' | 'spine';
+	assetKey: string;
+	animationName?: string;
+	sizeRatios: { width: number; height: number };
+};
+
+export type InfoRule = { heading: string; body: string };
+
+export type InfoTheme = {
+	fontFamily?: string;
+	titleColor?: number;
+	textColor?: number;
+	accentColor?: number;
+	dimColor?: number;
+	dimAlpha?: number;
+};
+
+export type InfoManifest = {
+	paytable: ServerPayEntry[];
+	numLines: number;
+	paylines: number[][];
+	numRows: number;
+	symbolSize: number;
+	// symbol id -> static icon descriptor (resolved from the game's getSymbolInfo)
+	symbols: Record<string, InfoSymbolIcon>;
+	rules: InfoRule[];
+	theme?: InfoTheme;
+};
 
 export type EmitterEventUi =
 	| { type: 'hotKeySpace' }
