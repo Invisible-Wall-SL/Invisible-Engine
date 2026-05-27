@@ -191,16 +191,16 @@ const BOOK_NUM_LINES = 10;
  *  6+ are the "big win" tiers. Thresholds are the win-as-bet-multiplier. */
 const computeWinLevel = (winCents: number, betCents: number): number => {
 	if (!betCents || winCents <= 0) return 1;
-	const x = winCents / betCents;
-	if (x < 5) return 2;
-	if (x < 15) return 3;
-	if (x < 25) return 4;
-	if (x < 50) return 5;
-	if (x < 100) return 6;
-	if (x < 250) return 7;
-	if (x < 500) return 8;
-	if (x < 1000) return 9;
-	return 10;
+	const x = winCents / betCents; // win as a multiple of total bet
+	if (x < 2) return 2; // standard
+	if (x < 5) return 3; // small
+	if (x < 10) return 4; // nice
+	if (x < 15) return 5; // substantial
+	if (x < 30) return 6; // BIG WIN
+	if (x < 60) return 7; // SUPER WIN
+	if (x < 120) return 8; // MEGA WIN
+	if (x < 250) return 9; // EPIC WIN
+	return 10; // MAX WIN
 };
 
 /** Opt-in trace logger. Set `localStorage.IE_DEBUG = '1'` (or `globalThis.IE_DEBUG = true`

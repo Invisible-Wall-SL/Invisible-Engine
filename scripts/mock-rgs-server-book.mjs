@@ -27,6 +27,10 @@ const PORT = Number(process.env.PORT ?? 7788);
 const START_BALANCE = Number(process.env.START_BALANCE ?? 500_000); // cents → $5000
 const SEED = process.env.SEED;
 const FORCE_TRIGGER = process.env.FORCE_TRIGGER === '1';
+// BIG_WIN=1 forces a full-screen PIC1 base spin (a top-tier win) so the
+// big/mega/max WIN presentation can be verified on demand. Ignored when a
+// bonus is triggered.
+const BIG_WIN = process.env.BIG_WIN === '1';
 
 // ---------- game data (verified from the live config event) ----------
 
@@ -386,7 +390,11 @@ const handleEngine = async (req, res, url) => {
 
 				// ----- BASE SPIN -----
 				const trigger = round.isBuy || FORCE_TRIGGER;
-				const reels = trigger ? spinReelsWithScatters(4) : spinReels();
+				const reels = trigger
+					? spinReelsWithScatters(4)
+					: BIG_WIN
+						? Array.from({ length: 5 }, () => ['PIC1', 'PIC1', 'PIC1'])
+						: spinReels();
 				events.push(spinStartEvent(round));
 				const lineWins = evaluatePaylines(reels, round.betPerLine);
 				const scat = evaluateScatterTrigger(reels, round.total);
