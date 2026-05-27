@@ -3,7 +3,7 @@
 	import { FadeContainer } from 'components-pixi';
 	import { MainContainer } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
-	import { stateModal } from 'state-shared';
+	import { stateModal, stateI18nDerived } from 'state-shared';
 	import { buildPayTableRows } from 'utils-shared/paytable';
 
 	import type { InfoManifest } from '../types';
@@ -11,6 +11,11 @@
 
 	type Props = { manifest: InfoManifest };
 	const props: Props = $props();
+
+	// Translate any string through the active locale catalog (falls back to the
+	// English key when no translation is loaded). Page titles live in the shared
+	// components-ui-pixi catalog; per-game rule strings live in the game catalog.
+	const tr = (value: string) => stateI18nDerived.translate(value);
 
 	const { stateLayoutDerived } = getContextLayout();
 
@@ -83,7 +88,7 @@
 				x={W * 0.5}
 				y={std.height * 0.05}
 				anchor={0.5}
-				text={current}
+				text={tr(current)}
 				style={{ fontFamily: font, fontSize: Math.min(W * 0.06, props.manifest.symbolSize * 0.6), fontWeight: '700', fill: titleColor }}
 			/>
 			{#if pages.length > 1}
@@ -157,12 +162,12 @@
 			<Container eventMode="none">
 				{#each props.manifest.rules as rule, i}
 					{@const by = contentTop + blockH * i}
-					<Text x={W * 0.1} y={by} anchor={{ x: 0, y: 0 }} text={rule.heading} style={{ fontFamily: font, fontSize: headSize, fontWeight: '700', fill: titleColor }} />
+					<Text x={W * 0.1} y={by} anchor={{ x: 0, y: 0 }} text={tr(rule.heading)} style={{ fontFamily: font, fontSize: headSize, fontWeight: '700', fill: titleColor }} />
 					<Text
 						x={W * 0.1}
 						y={by + headSize * 1.4}
 						anchor={{ x: 0, y: 0 }}
-						text={rule.body}
+						text={tr(rule.body)}
 						style={{ fontFamily: font, fontSize: bodySize, fontWeight: '500', fill: textColor, wordWrap: true, wordWrapWidth: W * 0.8, lineHeight: bodySize * 1.3 }}
 					/>
 				{/each}
