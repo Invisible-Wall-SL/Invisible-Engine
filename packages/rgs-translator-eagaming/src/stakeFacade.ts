@@ -192,14 +192,14 @@ const BOOK_NUM_LINES = 10;
 const computeWinLevel = (winCents: number, betCents: number): number => {
 	if (!betCents || winCents <= 0) return 1;
 	const x = winCents / betCents; // win as a multiple of total bet
-	if (x < 2) return 2; // standard
-	if (x < 5) return 3; // small
-	if (x < 10) return 4; // nice
-	if (x < 15) return 5; // substantial
-	if (x < 30) return 6; // BIG WIN
-	if (x < 60) return 7; // SUPER WIN
-	if (x < 120) return 8; // MEGA WIN
-	if (x < 250) return 9; // EPIC WIN
+	if (x < 1.5) return 2; // standard
+	if (x < 3) return 3; // small
+	if (x < 6) return 4; // nice
+	if (x < 10) return 5; // substantial
+	if (x < 20) return 6; // BIG WIN   (lowered: ~10x+)
+	if (x < 40) return 7; // SUPER WIN
+	if (x < 70) return 8; // MEGA WIN
+	if (x < 120) return 9; // EPIC WIN  (lowered: ~70x+)
 	return 10; // MAX WIN
 };
 
