@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ButtonProps } from 'components-pixi';
-	import { stateModal } from 'state-shared';
+	import { stateModal, stateUi } from 'state-shared';
 
 	import UiButton from './UiButton.svelte';
 	import { getContext } from '../context';
@@ -12,6 +12,7 @@
 
 	const onpress = () => {
 		context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+		stateUi.menuOpen = false;
 		stateModal.modal = { name: 'gameRules' };
 	};
 </script>
