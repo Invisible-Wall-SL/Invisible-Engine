@@ -390,10 +390,19 @@ const handleEngine = async (req, res, url) => {
 
 				// ----- BASE SPIN -----
 				const trigger = round.isBuy || FORCE_TRIGGER;
+				// BIG_WIN: PIC1 4-of-a-kind on the middle line (broken at reel 4) →
+				// a MEGA-tier win, enough to show the big-win banner without hitting
+				// the MAX special-case.
 				const reels = trigger
 					? spinReelsWithScatters(4)
 					: BIG_WIN
-						? Array.from({ length: 5 }, () => ['PIC1', 'PIC1', 'PIC1'])
+						? [
+								['TEN', 'PIC1', 'TEN'],
+								['TEN', 'PIC1', 'TEN'],
+								['TEN', 'PIC1', 'TEN'],
+								['TEN', 'PIC1', 'TEN'],
+								['TEN', 'KING', 'TEN'],
+							]
 						: spinReels();
 				events.push(spinStartEvent(round));
 				const lineWins = evaluatePaylines(reels, round.betPerLine);
