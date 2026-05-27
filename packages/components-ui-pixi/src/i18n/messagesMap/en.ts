@@ -1,3 +1,6 @@
 export default {
 	SETTINGS: 'SETTINGS',
+	PAYTABLE: 'PAYTABLE',
+	PAYLINES: 'PAYLINES',
+	'GAME RULES': 'GAME RULES',
 };
