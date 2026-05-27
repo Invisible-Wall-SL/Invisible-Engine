@@ -13,9 +13,13 @@
 
 	type Props = {
 		version: Snippet;
+		// Names of modals a game renders itself (e.g. an in-canvas Pixi paytable),
+		// so the shared HTML modal is suppressed for them. Defaults to none.
+		disabledModals?: string[];
 	};
 
 	const props: Props = $props();
+	const isDisabled = (name: string) => props.disabledModals?.includes(name) ?? false;
 </script>
 
 <ModalError />
@@ -24,12 +28,16 @@
 <ModalBuyBonusConfirm />
 <ModalAutoSpin />
 <ModalAutoSpinMessage />
-<ModalPayTable>
-	{@render props.version()}
-</ModalPayTable>
-<ModalGameRules>
-	{@render props.version()}
-</ModalGameRules>
+{#if !isDisabled('payTable')}
+	<ModalPayTable>
+		{@render props.version()}
+	</ModalPayTable>
+{/if}
+{#if !isDisabled('gameRules')}
+	<ModalGameRules>
+		{@render props.version()}
+	</ModalGameRules>
+{/if}
 <ModalSettings />
 
 <style lang="scss">
