@@ -17,6 +17,19 @@
 	// components-ui-pixi catalog; per-game rule strings live in the game catalog.
 	const tr = (value: string) => stateI18nDerived.translate(value);
 
+	// Screenshot mode (?screenshotLines=1): draw the red payline overlay and
+	// expose a deterministic hook for the automated screenshot pipeline. Never
+	// active in normal play.
+	const screenshotMode =
+		typeof location !== 'undefined' && new URLSearchParams(location.search).get('screenshotLines') === '1';
+	$effect(() => {
+		if (!screenshotMode || typeof window === 'undefined') return;
+		(window as unknown as { __info?: unknown }).__info = {
+			open: (name: string | null) => (stateModal.modal = name ? { name } : null),
+			page: (n: number) => (page = n),
+		};
+	});
+
 	const { stateLayoutDerived } = getContextLayout();
 
 	// Two entry points share this overlay:
@@ -150,7 +163,7 @@
 					{@const r = Math.floor(i / plCols)}
 					{@const gridX = col * colW + colW * 0.22}
 					{@const gridY = contentTop + r * rowH + (rowH - cell * props.manifest.numRows) / 2}
-					<InfoPaylineGrid {line} rows={props.manifest.numRows} x={gridX} y={gridY} {cell} label={`${i + 1}`} accentColor={accent} fontFamily={font} />
+					<InfoPaylineGrid {line} rows={props.manifest.numRows} x={gridX} y={gridY} {cell} label={`${i + 1}`} accentColor={accent} fontFamily={font} showLine={screenshotMode} />
 				{/each}
 			</Container>
 		{:else}
