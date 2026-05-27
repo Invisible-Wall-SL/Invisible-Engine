@@ -43,7 +43,7 @@ export const infoManifest: InfoManifest = {
 		},
 		{
 			heading: 'PAYLINES & BET',
-			body: `Line wins pay left to right on adjacent reels. Total bet = bet per line × ${NUM_LINES}.`,
+			body: 'Line wins pay left to right on adjacent reels. Total bet = bet per line × the number of lines.',
 		},
 		{
 			heading: 'MAX WIN',

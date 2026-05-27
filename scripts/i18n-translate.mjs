@@ -122,6 +122,30 @@ const writeIndex = (dir, locales) => {
 	fs.writeFileSync(indexPath, content, 'utf8');
 };
 
+/** Harvest static heading/body string literals from a game's infoManifest, so
+ *  per-game info-page rules become translatable without hand-editing en.ts.
+ *  Template literals with ${interpolation} can't be keyed and are skipped. */
+const harvestManifest = (catalogDir) => {
+	const srcRoot = path.resolve(catalogDir, '..', '..'); // src/i18n/messagesMap -> src
+	const manifest = path.join(srcRoot, 'game', 'infoManifest.ts');
+	if (!fs.existsSync(manifest)) return [];
+	const text = fs.readFileSync(manifest, 'utf8');
+	const out = [];
+	const re = /(?:heading|body)\s*:\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`([^`$]*)`)/g;
+	let m;
+	while ((m = re.exec(text))) {
+		const s = m[1] !== undefined ? unescape(m[1]) : m[2] !== undefined ? unescape(m[2]) : m[3];
+		if (s) out.push(s);
+	}
+	const interpolated = text.match(/(?:heading|body)\s*:\s*`[^`]*\$\{[^`]*`/g);
+	if (interpolated) {
+		console.warn(
+			`  ! ${interpolated.length} interpolated rule string(s) in infoManifest skipped — avoid \${} in translatable text`,
+		);
+	}
+	return out;
+};
+
 // ---- discovery ----
 const findCatalogDirs = (dir, found = []) => {
 	let entries;
@@ -213,9 +237,21 @@ const main = async () => {
 	}
 
 	for (const dir of dirs) {
-		const en = parseCatalog(path.join(dir, 'en.ts'));
+		const enPath = path.join(dir, 'en.ts');
+		const en = parseCatalog(enPath);
+		console.log(`\n[i18n] ${path.relative(root, dir)}`);
+
+		// Auto-register per-game info-page rule strings into the en catalog.
+		const harvested = harvestManifest(dir);
+		const newKeys = harvested.filter((s) => !(s in en));
+		if (newKeys.length) {
+			for (const s of newKeys) en[s] = s;
+			if (!dry) writeCatalog(enPath, en);
+			console.log(`  harvested ${newKeys.length} manifest string(s) into en.ts${dry ? ' (skipped)' : ''}`);
+		}
+
 		const sourceKeys = Object.keys(en);
-		console.log(`\n[i18n] ${path.relative(root, dir)} — ${sourceKeys.length} source keys`);
+		console.log(`  ${sourceKeys.length} source keys`);
 
 		for (const locale of targetLocales) {
 			const file = path.join(dir, `${locale}.ts`);
