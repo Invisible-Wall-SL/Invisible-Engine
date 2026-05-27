@@ -25,6 +25,7 @@
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import Transition from './Transition.svelte';
+	import PayTableOverlay from './PayTableOverlay.svelte';
 	import I18nTest from './I18nTest.svelte';
 
 	const context = getContext();
@@ -91,12 +92,13 @@
 		{/if}
 		<FreeSpinOutro />
 		<Transition />
+		<PayTableOverlay />
 
 		<I18nTest />
 	{/if}
 </App>
 
-<Modals>
+<Modals disabledModals={['payTable']}>
 	{#snippet version()}
 		<GameVersion version="0.0.0" />
 	{/snippet}
