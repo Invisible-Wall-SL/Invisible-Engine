@@ -99,7 +99,7 @@
 	{/if}
 </App>
 
-<Modals disabledModals={['payTable']}>
+<Modals disabledModals={['payTable', 'gameRules']}>
 	{#snippet version()}
 		<GameVersion version="0.0.0" />
 	{/snippet}

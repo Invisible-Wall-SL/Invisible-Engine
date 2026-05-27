@@ -14,16 +14,23 @@
 
 	const { stateLayoutDerived } = getContextLayout();
 
-	const show = $derived(stateModal.modal?.name === 'payTable');
-	const rows = $derived(buildPayTableRows(props.manifest.paytable, props.manifest.numLines));
+	// Two entry points share this overlay:
+	//  - the PAYTABLE button (modal 'payTable') -> the symbol pay table only
+	//  - the INFO button     (modal 'gameRules') -> paylines + game rules
+	const modalName = $derived(stateModal.modal?.name);
+	const show = $derived(modalName === 'payTable' || modalName === 'gameRules');
+	const isInfo = $derived(modalName === 'gameRules');
+	const pages = $derived(isInfo ? ['PAYLINES', 'GAME RULES'] : ['PAYTABLE']);
 
-	const PAGES = ['PAYTABLE', 'PAYLINES', 'GAME RULES'];
 	let page = $state(0);
+	// reset to the first page whenever the modal opens, closes, or switches button
 	$effect(() => {
-		if (!show) page = 0;
+		modalName;
+		page = 0;
 	});
 
-	// theme with defaults
+	const rows = $derived(buildPayTableRows(props.manifest.paytable, props.manifest.numLines));
+
 	const t = $derived(props.manifest.theme ?? {});
 	const font = $derived(t.fontFamily ?? 'proxima-nova');
 	const accent = $derived(t.accentColor ?? 0xffd24a);
@@ -69,25 +76,28 @@
 		{@const W = std.width}
 		{@const contentTop = std.height * 0.15}
 		{@const contentBottom = barTopStd - std.height * 0.01}
+		{@const current = pages[page] ?? pages[0]}
 
 		<Container eventMode="none">
 			<Text
 				x={W * 0.5}
 				y={std.height * 0.05}
 				anchor={0.5}
-				text={PAGES[page]}
+				text={current}
 				style={{ fontFamily: font, fontSize: Math.min(W * 0.06, props.manifest.symbolSize * 0.6), fontWeight: '700', fill: titleColor }}
 			/>
-			<Text
-				x={W * 0.5}
-				y={std.height * 0.095}
-				anchor={0.5}
-				text={`${page + 1} / ${PAGES.length}`}
-				style={{ fontFamily: font, fontSize: W * 0.02, fontWeight: '600', fill: 0xaaaaaa }}
-			/>
+			{#if pages.length > 1}
+				<Text
+					x={W * 0.5}
+					y={std.height * 0.095}
+					anchor={0.5}
+					text={`${page + 1} / ${pages.length}`}
+					style={{ fontFamily: font, fontSize: W * 0.02, fontWeight: '600', fill: 0xaaaaaa }}
+				/>
+			{/if}
 		</Container>
 
-		{#if page === 0}
+		{#if current === 'PAYTABLE'}
 			<!-- ===== PAYTABLE ===== -->
 			{@const nRows = Math.ceil(rows.length / symCols)}
 			{@const cellW = W / symCols}
@@ -109,14 +119,7 @@
 
 					{#if icon}
 						{#if icon.type === 'sprite'}
-							<Sprite
-								key={icon.assetKey}
-								anchor={0.5}
-								x={iconX}
-								y={cy}
-								width={iconBox * icon.sizeRatios.width}
-								height={iconBox * icon.sizeRatios.height}
-							/>
+							<Sprite key={icon.assetKey} anchor={0.5} x={iconX} y={cy} width={iconBox * icon.sizeRatios.width} height={iconBox * icon.sizeRatios.height} />
 						{:else}
 							<SpineProvider key={icon.assetKey} anchor={0.5} x={iconX} y={cy} height={props.manifest.symbolSize * icon.sizeRatios.height}>
 								<SpineTrack trackIndex={0} animationName={icon.animationName ?? ''} loop={true} />
@@ -125,17 +128,11 @@
 					{/if}
 
 					{#each row.payouts as p, j}
-						<Text
-							x={textX}
-							y={blockTop + j * lineH}
-							anchor={{ x: 0, y: 0.5 }}
-							text={`x${p.occurs}   ${p.amountText}`}
-							style={{ fontFamily: font, fontSize, fontWeight: '600', fill: textColor }}
-						/>
+						<Text x={textX} y={blockTop + j * lineH} anchor={{ x: 0, y: 0.5 }} text={`x${p.occurs}   ${p.amountText}`} style={{ fontFamily: font, fontSize, fontWeight: '600', fill: textColor }} />
 					{/each}
 				{/each}
 			</Container>
-		{:else if page === 1}
+		{:else if current === 'PAYLINES'}
 			<!-- ===== PAYLINES ===== -->
 			{@const nGridRows = Math.ceil(props.manifest.paylines.length / plCols)}
 			{@const colW = W / plCols}
@@ -188,8 +185,8 @@
 			{/if}
 
 			<!-- next -->
-			{#if page < PAGES.length - 1}
-				<Rectangle eventMode="static" cursor="pointer" onpointerup={() => (page = Math.min(PAGES.length - 1, page + 1))} x={W * 0.99 - navR} y={navY - navR} width={navR} height={navR * 2} borderRadius={navR * 0.3} backgroundColor={dimColor} backgroundAlpha={0.5} borderColor={accent} borderWidth={2} />
+			{#if page < pages.length - 1}
+				<Rectangle eventMode="static" cursor="pointer" onpointerup={() => (page = Math.min(pages.length - 1, page + 1))} x={W * 0.99 - navR} y={navY - navR} width={navR} height={navR * 2} borderRadius={navR * 0.3} backgroundColor={dimColor} backgroundAlpha={0.5} borderColor={accent} borderWidth={2} />
 				<Text eventMode="none" x={W * 0.99 - navR / 2} y={navY} anchor={0.5} text="›" style={{ fontFamily: font, fontSize: navR, fontWeight: '700', fill: textColor }} />
 			{/if}
 		{/if}
