@@ -7,8 +7,10 @@
 	import { App, Text, REM } from 'pixi-svelte';
 	import { stateModal } from 'state-shared';
 
-	import { UI, UiGameName } from 'components-ui-pixi';
+	import { UI, UiGameName, InfoOverlay } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
+
+	import { infoManifest } from '../game/infoManifest';
 
 	import { getContext } from '../game/context';
 	import EnableSound from './EnableSound.svelte';
@@ -25,7 +27,6 @@
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import Transition from './Transition.svelte';
-	import PayTableOverlay from './PayTableOverlay.svelte';
 	import I18nTest from './I18nTest.svelte';
 
 	const context = getContext();
@@ -92,13 +93,13 @@
 		{/if}
 		<FreeSpinOutro />
 		<Transition />
-		<PayTableOverlay />
+		<InfoOverlay manifest={infoManifest} />
 
 		<I18nTest />
 	{/if}
 </App>
 
-<Modals disabledModals={['payTable']}>
+<Modals disabledModals={['payTable', 'gameRules']}>
 	{#snippet version()}
 		<GameVersion version="0.0.0" />
 	{/snippet}
