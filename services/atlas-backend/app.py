@@ -35,6 +35,19 @@ def health() -> dict:
     return {"ok": True}
 
 
+@app.get("/debug/access")
+def debug_access() -> dict:
+    """Diagnostic: does this service see the CF Access / COMFY_URL env?
+    Returns presence + the (non-secret) Client ID tail only — never the secret."""
+    cid = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+    return {
+        "comfy_url_set": bool(os.environ.get("COMFY_URL")),
+        "has_cf_access_client_id": bool(cid),
+        "client_id_tail": cid[-12:] if cid else "",
+        "has_cf_access_client_secret": bool(os.environ.get("CF_ACCESS_CLIENT_SECRET")),
+    }
+
+
 @app.get("/comfy/stats")
 def comfy_stats(comfy_url: str | None = None) -> dict:
     try:
