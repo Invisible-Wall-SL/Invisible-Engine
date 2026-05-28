@@ -144,6 +144,29 @@ def fit_to_region(img: Image.Image, region: dict, padding_pct: float = 0.12) -> 
     return img
 
 
+def slice_atlas(atlas_text: str, source: Image.Image) -> dict[str, Image.Image]:
+    """Cut the source page image into per-region crops (port of
+    slice_atlas.slice_regions): on-page packed rect (swap w/h for rotated
+    regions), then un-rotate so the saved crop is upright. Returns
+    {region_name: cropped RGBA image}."""
+    data = parse_atlas_text(atlas_text)
+    src = source.convert("RGBA")
+    sw, sh = src.size
+    out: dict[str, Image.Image] = {}
+    for r in data["regions"]:
+        x, y, w, h = int(r["x"]), int(r["y"]), int(r["w"]), int(r["h"])
+        rotated = bool(r["rotated"])
+        pw, ph = (h, w) if rotated else (w, h)
+        box = (max(0, x), max(0, y), min(sw, x + pw), min(sh, y + ph))
+        if box[2] <= box[0] or box[3] <= box[1]:
+            continue
+        crop = src.crop(box)
+        if rotated:
+            crop = crop.rotate(-90, expand=True)
+        out[r["name"]] = crop
+    return out
+
+
 def compose(atlas_text: str, images: dict[str, Image.Image], padding_pct: float = 0.12):
     """Assemble the atlas: a transparent page-sized canvas with each provided
     region image fit + pasted at its .atlas (x, y). Returns (png_bytes,

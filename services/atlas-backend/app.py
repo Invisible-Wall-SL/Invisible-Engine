@@ -167,3 +167,31 @@ def compose_atlas(req: ComposeAtlas) -> dict:
         "png_key": f"{req.output_prefix}.png",
         "webp_key": f"{req.output_prefix}.webp",
     }
+
+
+class SliceAtlas(BaseModel):
+    atlas_key: str  # R2 key of the .atlas geometry
+    source_key: str  # R2 key of the source page image
+    output_prefix: str  # crops written to <prefix>/<region>.png
+
+
+@app.post("/slice")
+def slice_atlas(req: SliceAtlas) -> dict:
+    atlas_bytes = r2.get(req.atlas_key)
+    if atlas_bytes is None:
+        raise HTTPException(404, f"Atlas not found in R2: {req.atlas_key}")
+    source_bytes = r2.get(req.source_key)
+    if source_bytes is None:
+        raise HTTPException(404, f"Source image not in R2: {req.source_key}")
+
+    crops = compose_mod.slice_atlas(
+        atlas_bytes.decode("utf-8", "replace"), Image.open(io.BytesIO(source_bytes))
+    )
+    written: dict[str, str] = {}
+    for name, img in crops.items():
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        key = f"{req.output_prefix}/{name}.png"
+        r2.put(key, buf.getvalue(), "image/png")
+        written[name] = key
+    return {"ok": True, "count": len(written), "refs": written}
