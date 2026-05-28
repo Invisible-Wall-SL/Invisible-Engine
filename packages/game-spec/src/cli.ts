@@ -19,14 +19,16 @@ import { pathToFileURL } from 'node:url';
 
 import { parseGameSpec, type GameSpec } from './schema';
 import { generatePaytable, generateInfoManifest } from './generate';
+import { scaffold } from './scaffold';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 const specArg = args[1];
-const outArg = (() => {
-	const i = args.indexOf('--out');
+const flag = (name: string) => {
+	const i = args.indexOf(`--${name}`);
 	return i >= 0 ? args[i + 1] : undefined;
-})();
+};
+const outArg = flag('out');
 
 const die = (msg: string) => {
 	console.error(msg);
@@ -48,8 +50,8 @@ const validate = (raw: unknown): GameSpec => {
 };
 
 const main = async () => {
-	if (!cmd || !['validate', 'generate'].includes(cmd) || !specArg) {
-		die('usage: cli <validate|generate> <spec> [--out <gameSrcDir>]');
+	if (!cmd || !['validate', 'generate', 'scaffold'].includes(cmd) || !specArg) {
+		die('usage: cli <validate|generate|scaffold> <spec> [--out <dir>] [--template <dir> --root <dir> --launcher-config <path>]');
 	}
 
 	const raw = await loadSpec(specArg);
@@ -76,6 +78,21 @@ const main = async () => {
 			console.log(`  wrote ${path.relative(process.cwd(), dest)}`);
 		}
 		console.log('✓ generated');
+	}
+
+	if (cmd === 'scaffold') {
+		const templateDir = flag('template');
+		const root = flag('root');
+		const launcherConfigPath = flag('launcher-config');
+		if (!templateDir || !root) die('scaffold requires --template <dir> --root <targetRoot>');
+		scaffold({
+			spec,
+			templateDir: path.resolve(templateDir!),
+			targetRoot: path.resolve(root!),
+			launcherConfigPath: launcherConfigPath ? path.resolve(launcherConfigPath) : undefined,
+		});
+		console.log(`✓ scaffolded ${spec.meta.name} -> ${path.resolve(root!)}`);
+		if (launcherConfigPath) console.log(`  registered in launcher config: ${path.resolve(launcherConfigPath)}`);
 	}
 };
 
