@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Rectangle, Text } from 'pixi-svelte';
+	import { Rectangle, Text, Graphics } from 'pixi-svelte';
 
 	// One payline drawn as a mini grid with the line's cells highlighted.
 	type Props = {
@@ -11,6 +11,9 @@
 		label: string;
 		accentColor: number;
 		fontFamily: string;
+		// draws a red line through the line's cells (for marketing/spec screenshots)
+		showLine?: boolean;
+		lineColor?: number;
 	};
 
 	const props: Props = $props();
@@ -39,3 +42,19 @@
 		/>
 	{/each}
 {/each}
+
+{#if props.showLine}
+	<Graphics
+		eventMode="none"
+		draw={(g) => {
+			const c = props.cell;
+			const pts = props.line.map((row, reel) => ({
+				px: props.x + reel * c + c * 0.44,
+				py: props.y + row * c + c * 0.44,
+			}));
+			g.moveTo(pts[0].px, pts[0].py);
+			for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].px, pts[i].py);
+			g.stroke({ color: props.lineColor ?? 0xff2a2a, width: Math.max(c * 0.13, 2), cap: 'round', join: 'round' });
+		}}
+	/>
+{/if}
