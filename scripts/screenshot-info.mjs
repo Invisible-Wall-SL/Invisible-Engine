@@ -56,11 +56,11 @@ const run = async () => {
 			const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 			const url = `${baseUrl}/?sessionID=${sid}&rgs_url=${rgs}&lang=${lang}&device=${device}&screenshotLines=1`;
 			console.log(`[shot] ${game} ${lang}: ${url}`);
-			await page.goto(url, { waitUntil: 'load' });
+			await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
 			// wait for the canvas, then dismiss the loading/splash screen by
 			// clicking it until InfoOverlay mounts and exposes window.__info.
-			await page.waitForSelector('canvas', { timeout: 30000 });
+			await page.waitForSelector('canvas', { timeout: 120000 });
 			const canvas = await page.$('canvas');
 			let ready = false;
 			for (let i = 0; i < 30 && !ready; i++) {
