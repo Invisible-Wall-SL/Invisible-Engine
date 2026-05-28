@@ -6,14 +6,17 @@ This first slice exposes a minimal SDXL txt2img test to prove the chain.
 """
 from __future__ import annotations
 
+import io
 import os
 import time
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from PIL import Image
 from pydantic import BaseModel
 
 import comfy
+import compose as compose_mod
 import r2
 import workflows
 
@@ -132,3 +135,35 @@ def generate_region(req: GenerateRegion) -> dict:
     key = f"{req.prefix}/batch/{name}/{seed}_{uuid.uuid4().hex[:6]}.png"
     r2.put(key, img_bytes, "image/png")
     return {"ok": True, "region": name, "seed": seed, "r2_key": key, "images": len(images)}
+
+
+class ComposeAtlas(BaseModel):
+    atlas_key: str  # R2 key of the .atlas geometry file
+    images: dict[str, str]  # region_name -> R2 key of that region's image
+    output_prefix: str  # R2 prefix; writes <prefix>.png and <prefix>.webp
+    padding_pct: float = 0.12
+
+
+@app.post("/compose")
+def compose_atlas(req: ComposeAtlas) -> dict:
+    atlas_bytes = r2.get(req.atlas_key)
+    if atlas_bytes is None:
+        raise HTTPException(404, f"Atlas not found in R2: {req.atlas_key}")
+    atlas_text = atlas_bytes.decode("utf-8", "replace")
+
+    imgs: dict[str, Image.Image] = {}
+    for region_name, key in req.images.items():
+        data = r2.get(key)
+        if data is None:
+            raise HTTPException(404, f"Region image not in R2: {key}")
+        imgs[region_name] = Image.open(io.BytesIO(data))
+
+    png, webp, placed = compose_mod.compose(atlas_text, imgs, req.padding_pct)
+    r2.put(f"{req.output_prefix}.png", png, "image/png")
+    r2.put(f"{req.output_prefix}.webp", webp, "image/webp")
+    return {
+        "ok": True,
+        "placed": placed,
+        "png_key": f"{req.output_prefix}.png",
+        "webp_key": f"{req.output_prefix}.webp",
+    }
