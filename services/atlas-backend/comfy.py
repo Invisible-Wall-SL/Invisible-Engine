@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -66,8 +67,12 @@ def submit_prompt(base: str, graph: dict, extra_data: dict | None = None) -> str
     req = urllib.request.Request(
         base.rstrip("/") + "/prompt", data=data, headers=_headers(), method="POST"
     )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        body = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        raise ComfyError(f"ComfyUI rejected the workflow ({e.code}): {detail}")
     pid = body.get("prompt_id")
     if not pid:
         raise ComfyError(f"No prompt_id in response: {body}")
