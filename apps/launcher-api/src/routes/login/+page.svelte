@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import type { ActionData, PageData } from './$types';
+	import type { ActionData } from './$types';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { form }: { form: ActionData } = $props();
 </script>
 
 <svelte:head><title>Sign in — Invisible Wall</title></svelte:head>
@@ -11,26 +11,31 @@
 	<h1>Invisible Wall</h1>
 	<p class="muted">Sign in to the launcher.</p>
 
-	{#if form?.sent}
-		<p class="success">If <strong>{form.email}</strong> has access, a sign-in link is on its way. Check your inbox.</p>
-	{:else}
-		<form method="POST" use:enhance>
-			<input
-				type="email"
-				name="email"
-				placeholder="you@invisiblewall.org"
-				autocomplete="email"
-				required
-			/>
-			<button type="submit">Send sign-in link</button>
-		</form>
-		{#if form?.invalid}
-			<p class="error">Please enter a valid email address.</p>
-		{:else if data.error === 'invalid'}
-			<p class="error">That link is invalid or has expired. Request a new one.</p>
-		{:else if data.error === 'missing'}
-			<p class="error">No token in the link. Request a new one.</p>
-		{/if}
+	<form method="POST" use:enhance>
+		<input
+			type="email"
+			name="email"
+			placeholder="you@invisiblewall.org"
+			autocomplete="email"
+			value={form?.email ?? ''}
+			required
+		/>
+		<input
+			type="password"
+			name="password"
+			placeholder="Password"
+			autocomplete="current-password"
+			required
+		/>
+		<label class="remember">
+			<input type="checkbox" name="remember" checked />
+			Remember me
+		</label>
+		<button type="submit">Sign in</button>
+	</form>
+
+	{#if form?.error}
+		<p class="error">{form.error}</p>
 	{/if}
 </div>
 
@@ -58,13 +63,25 @@
 		gap: 12px;
 		margin-top: 20px;
 	}
-	input {
+	input[type='email'],
+	input[type='password'] {
 		padding: 12px;
 		border-radius: 8px;
 		border: 1px solid #333;
 		background: #0e0e12;
 		color: #eee;
 		font-size: 15px;
+	}
+	.remember {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 14px;
+		color: #aaa;
+	}
+	.remember input {
+		width: 16px;
+		height: 16px;
 	}
 	button {
 		padding: 12px;
@@ -74,9 +91,6 @@
 		color: #fff;
 		font-size: 15px;
 		cursor: pointer;
-	}
-	.success {
-		color: #7ee787;
 	}
 	.error {
 		color: #ff7b72;

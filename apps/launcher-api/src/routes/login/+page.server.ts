@@ -1,39 +1,47 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { dev } from '$app/environment';
-import { createLoginToken, findActiveUserByEmail } from '$lib/server/auth';
-import { sendMagicLink } from '$lib/server/email';
+import { SESSION_COOKIE, createSession, verifyCredentials } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals, url }) => {
-	return {
-		loggedIn: !!locals.user,
-		error: url.searchParams.get('error'),
-	};
+export const load: PageServerLoad = ({ locals }) => {
+	if (locals.user) throw redirect(303, '/');
+	return {};
 };
 
 export const actions: Actions = {
-	default: async ({ request }) => {
+	default: async ({ request, cookies }) => {
 		const data = await request.formData();
 		const email = String(data.get('email') ?? '')
 			.toLowerCase()
 			.trim();
+		const password = String(data.get('password') ?? '');
+		const remember = data.get('remember') === 'on';
 
-		if (!email || !email.includes('@')) {
-			return fail(400, { email, invalid: true });
+		if (!email || !password) {
+			return fail(400, { email, error: 'Enter your email and password.' });
 		}
 
-		const user = await findActiveUserByEmail(email);
-
-		// Invite-only: only send a link to known, active users. Always return the
-		// same response so the form can't be used to enumerate registered emails.
-		if (user) {
-			const token = await createLoginToken(user.id);
-			const link = `${ENV.ORIGIN}/auth/verify?token=${token}`;
-			if (dev) console.info(`[launcher-api] magic link for ${email}: ${link}`);
-			await sendMagicLink(email, link);
+		const user = await verifyCredentials(email, password);
+		if (!user) {
+			return fail(400, { email, error: 'Invalid email or password.' });
 		}
 
-		return { sent: true, email };
+		const ttlMs = remember
+			? ENV.REMEMBER_TTL_DAYS * 86_400_000
+			: ENV.SESSION_TTL_HOURS * 3_600_000;
+		const sessionToken = await createSession(user.id, ttlMs);
+
+		cookies.set(SESSION_COOKIE, sessionToken, {
+			path: '/',
+			httpOnly: true,
+			secure: !dev,
+			sameSite: 'lax',
+			// Persistent cookie when "remember me" is checked; otherwise a
+			// browser-session cookie (cleared when the browser closes).
+			...(remember ? { maxAge: ENV.REMEMBER_TTL_DAYS * 86_400 } : {}),
+		});
+
+		throw redirect(303, '/');
 	},
 };

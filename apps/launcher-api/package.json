@@ -29,7 +29,6 @@
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.17.3",
 		"drizzle-orm": "0.39.3",
-		"postgres": "3.4.5",
-		"resend": "4.1.2"
+		"postgres": "3.4.5"
 	}
 }
