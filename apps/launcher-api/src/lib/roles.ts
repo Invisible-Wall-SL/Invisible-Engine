@@ -76,3 +76,7 @@ const ROLE_TOOLS: Record<Role, string[]> = {
 export function manifestForRole(role: Role): ToolDef[] {
 	return (ROLE_TOOLS[role] ?? []).map((id) => TOOLS[id]).filter(Boolean);
 }
+
+export function roleHasTool(role: Role, id: string): boolean {
+	return (ROLE_TOOLS[role] ?? []).includes(id);
+}
