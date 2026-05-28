@@ -1,0 +1,35 @@
+{
+	"name": "launcher-api",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\"",
+		"dev": "vite dev --host --port 3010",
+		"build": "vite build",
+		"preview": "vite preview",
+		"start": "node build/index.js",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"db:push": "drizzle-kit push",
+		"db:seed": "node scripts/seed.mjs"
+	},
+	"devDependencies": {
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"config-ts": "workspace:*",
+		"@sveltejs/adapter-node": "5.2.12",
+		"@sveltejs/vite-plugin-svelte": "5.0.3",
+		"drizzle-kit": "0.30.5"
+	},
+	"dependencies": {
+		"svelte": "5.20.5",
+		"vite": "6.2.0",
+		"@sveltejs/kit": "2.17.3",
+		"drizzle-orm": "0.39.3",
+		"postgres": "3.4.5",
+		"resend": "4.1.2"
+	}
+}
