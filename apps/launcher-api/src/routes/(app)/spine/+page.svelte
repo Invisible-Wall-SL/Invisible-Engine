@@ -1,28 +1,32 @@
 <svelte:head><title>Spine Viewer — Invisible Wall</title></svelte:head>
 
-<div class="head">
-	<h1>Spine Viewer</h1>
-	<p class="muted">Assets served from the shared repository.</p>
-</div>
-
 <iframe title="Spine Viewer" src="/spine/view.html"></iframe>
+<a class="back" href="/" title="Back to launcher">‹ Launcher</a>
 
 <style>
-	.head h1 {
-		font-size: 22px;
-		margin-bottom: 4px;
-	}
-	.muted {
-		color: #888;
-		margin-top: 0;
-	}
 	iframe {
-		width: 100%;
-		height: calc(100vh - 200px);
-		min-height: 480px;
-		margin-top: 16px;
-		border: 1px solid #222;
-		border-radius: 12px;
+		position: fixed;
+		inset: 0;
+		width: 100vw;
+		height: 100vh;
+		border: none;
 		background: #1b1d22;
+	}
+	.back {
+		position: fixed;
+		top: 10px;
+		right: 12px;
+		z-index: 10;
+		background: rgba(16, 16, 22, 0.85);
+		border: 1px solid #363b45;
+		color: #9a9aa5;
+		padding: 5px 11px;
+		border-radius: 8px;
+		font: 12px system-ui, sans-serif;
+		text-decoration: none;
+	}
+	.back:hover {
+		color: #fff;
+		border-color: #5db0ff;
 	}
 </style>

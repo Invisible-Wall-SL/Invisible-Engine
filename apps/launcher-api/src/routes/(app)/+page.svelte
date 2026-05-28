@@ -9,57 +9,95 @@
 
 <svelte:head><title>Launcher — Invisible Wall</title></svelte:head>
 
-<h1>Welcome, {data.user.name ?? data.user.email}</h1>
-<p class="muted">Your tools for the <span class="role">{data.user.role}</span> role.</p>
+<div class="shell">
+	<header>
+		<div class="brand">INVISIBLE WALL</div>
+		<div class="user">
+			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
+			<form method="POST" action="/auth/logout">
+				<button class="ghost" type="submit">Sign out</button>
+			</form>
+		</div>
+	</header>
 
-<section>
-	<h2>Online tools</h2>
-	<div class="grid">
-		{#each online as tool (tool.id)}
-			<a class="tool" href={tool.url}>
-				<strong>{tool.name}</strong>
-				<span class="muted">{tool.description}</span>
-				<span class="tag online">open</span>
-			</a>
-		{:else}
-			<p class="muted">No online tools for your role.</p>
-		{/each}
-	</div>
-</section>
+	<section>
+		<h2>Online tools</h2>
+		<div class="grid">
+			{#each online as tool (tool.id)}
+				<a class="tool" href={tool.url}>
+					<strong>{tool.name}</strong>
+					<span class="muted">{tool.description}</span>
+					<span class="tag online">open</span>
+				</a>
+			{:else}
+				<p class="muted">No online tools for your role.</p>
+			{/each}
+		</div>
+	</section>
 
-<section>
-	<h2>Local tools</h2>
-	<div class="grid">
-		{#each local as tool (tool.id)}
-			<div class="tool">
-				<strong>{tool.name}</strong>
-				<span class="muted">{tool.description}</span>
-				<span class="tag local">install</span>
-			</div>
-		{:else}
-			<p class="muted">No local tools for your role.</p>
-		{/each}
-	</div>
-</section>
+	<section>
+		<h2>Local tools</h2>
+		<div class="grid">
+			{#each local as tool (tool.id)}
+				<div class="tool">
+					<strong>{tool.name}</strong>
+					<span class="muted">{tool.description}</span>
+					<span class="tag local">install</span>
+				</div>
+			{:else}
+				<p class="muted">No local tools for your role.</p>
+			{/each}
+		</div>
+	</section>
+</div>
 
 <style>
-	h1 {
-		font-size: 22px;
-		margin-bottom: 4px;
+	.shell {
+		max-width: 960px;
+		margin: 0 auto;
+		padding: 32px 24px;
 	}
-	.muted {
+	header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 32px;
+	}
+	.brand {
+		font-weight: 700;
+		letter-spacing: 0.14em;
+		color: #7ee0c0;
+		font-size: 15px;
+	}
+	.user {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		font-size: 13px;
 		color: #888;
 	}
 	.role {
 		color: #6b5bff;
 		text-transform: capitalize;
 	}
+	.ghost {
+		background: transparent;
+		border: 1px solid #333;
+		color: #aaa;
+		padding: 7px 13px;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 13px;
+	}
 	h2 {
 		font-size: 13px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: #888;
-		margin-top: 32px;
+		margin-top: 28px;
+	}
+	.muted {
+		color: #888;
 	}
 	.grid {
 		display: grid;
@@ -77,6 +115,9 @@
 		text-decoration: none;
 		color: inherit;
 		position: relative;
+	}
+	.tool:hover {
+		border-color: #6b5bff;
 	}
 	.tool strong {
 		font-size: 15px;
