@@ -1,121 +1,198 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import type { PageData } from './$types';
 
-	// The local Atlas Maker server (Invisible_Pipeline) serves its UI here and
-	// drives the local ComfyUI. The launcher runs it; we only frame it.
-	const LOCAL_URL = 'http://localhost:8765';
+	let { data }: { data: PageData } = $props();
 
-	let status = $state<'checking' | 'up' | 'down'>('checking');
+	let regionName = $state(data.regions[0]?.name ?? '');
+	let prompt = $state(data.regions[0]?.prompt ?? '');
+	let busy = $state(false);
+	let err = $state('');
+	let resultKey = $state('');
+	let resultSeed = $state<number | null>(null);
 
-	async function ping() {
-		status = 'checking';
-		try {
-			const ctrl = new AbortController();
-			const timer = setTimeout(() => ctrl.abort(), 2500);
-			await fetch(`${LOCAL_URL}/progress`, { mode: 'no-cors', signal: ctrl.signal });
-			clearTimeout(timer);
-			status = 'up';
-		} catch {
-			status = 'down';
-		}
+	function onRegionChange() {
+		const r = data.regions.find((x) => x.name === regionName);
+		prompt = r?.prompt ?? '';
 	}
 
-	onMount(ping);
+	async function generate() {
+		if (!prompt.trim()) {
+			err = 'Enter a prompt first.';
+			return;
+		}
+		busy = true;
+		err = '';
+		resultKey = '';
+		try {
+			const res = await fetch('/atlas/generate', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ regionName, prompt }),
+			});
+			const body = await res.json();
+			if (!res.ok) {
+				err = body.message ?? 'Generation failed.';
+			} else {
+				resultKey = body.r2_key;
+				resultSeed = body.seed ?? null;
+			}
+		} catch (e) {
+			err = String(e);
+		} finally {
+			busy = false;
+		}
+	}
 </script>
 
 <svelte:head><title>Atlas Maker — Invisible Wall</title></svelte:head>
 
-{#if status === 'up'}
-	<iframe title="Atlas Maker" src={LOCAL_URL}></iframe>
-	<a class="back" href="/" title="Back to launcher">‹ Launcher</a>
-{:else}
-	<div class="panel">
-		<h1>Atlas Maker</h1>
-		{#if status === 'checking'}
-			<p class="muted">Looking for the local Atlas Maker…</p>
-		{:else}
-			<p>The Atlas Maker isn't running on this machine (<code>{LOCAL_URL}</code>).</p>
-			<p class="muted">
-				Start ComfyUI and the Atlas Maker from the Invisible Launcher, then retry.
-			</p>
-			<div class="actions">
-				<button onclick={ping}>Retry</button>
-				<a class="ghost" href={LOCAL_URL} target="_blank" rel="noreferrer">Open directly</a>
-				<a class="ghost" href="/">‹ Launcher</a>
+<div class="shell">
+	<header>
+		<div class="brand">INVISIBLE WALL · ATLAS MAKER</div>
+		<a class="ghost" href="/">‹ Launcher</a>
+	</header>
+
+	{#if data.missing}
+		<p class="err">No manifest found in R2 at <code>{data.manifestKey}</code>.</p>
+	{:else}
+		<div class="grid">
+			<div class="controls">
+				<label>Region
+					<select bind:value={regionName} onchange={onRegionChange}>
+						{#each data.regions as r (r.name)}
+							<option value={r.name}>{r.name}</option>
+						{/each}
+					</select>
+				</label>
+
+				<label>Prompt
+					<textarea bind:value={prompt} rows="5" placeholder="e.g. a glossy golden gemstone, shiny game icon, isolated subject"></textarea>
+				</label>
+
+				<button onclick={generate} disabled={busy}>
+					{busy ? 'Generating…' : 'Generate'}
+				</button>
+
+				{#if err}<p class="err">{err}</p>{/if}
+				<p class="muted">{data.regions.length} regions · manifest <code>{data.manifestKey}</code></p>
 			</div>
-		{/if}
-	</div>
-{/if}
+
+			<div class="preview">
+				{#if busy}
+					<div class="placeholder">Generating on the local GPU via ComfyUI…</div>
+				{:else if resultKey}
+					<img src={`/atlas/image?key=${encodeURIComponent(resultKey)}`} alt="generated region" />
+					<p class="muted">seed {resultSeed} · <code>{resultKey}</code></p>
+				{:else}
+					<div class="placeholder">The generated region will appear here.</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+</div>
 
 <style>
-	iframe {
-		position: fixed;
-		inset: 0;
-		width: 100vw;
-		height: 100vh;
-		border: none;
-		background: #1b1d22;
+	.shell {
+		max-width: 1100px;
+		margin: 0 auto;
+		padding: 28px 24px;
 	}
-	.back {
-		position: fixed;
-		top: 10px;
-		right: 12px;
-		z-index: 10;
-		background: rgba(16, 16, 22, 0.85);
-		border: 1px solid #363b45;
-		color: #9a9aa5;
-		padding: 5px 11px;
-		border-radius: 8px;
-		font: 12px system-ui, sans-serif;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: #fff;
-		border-color: #5db0ff;
-	}
-	.panel {
-		max-width: 460px;
-		margin: 14vh auto;
-		padding: 28px;
-		border-radius: 14px;
-		background: #16161c;
-		border: 1px solid #222;
-	}
-	h1 {
-		font-size: 22px;
-		margin: 0 0 10px;
-	}
-	.muted {
-		color: #888;
-	}
-	code {
-		background: #0e0e12;
-		padding: 1px 6px;
-		border-radius: 4px;
-		font-size: 12px;
-	}
-	.actions {
+	header {
 		display: flex;
-		gap: 10px;
-		margin-top: 18px;
-		flex-wrap: wrap;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 24px;
+	}
+	.brand {
+		font-weight: 700;
+		letter-spacing: 0.12em;
+		color: #7ee0c0;
+		font-size: 14px;
+	}
+	.ghost {
+		border: 1px solid #333;
+		color: #aaa;
+		padding: 6px 12px;
+		border-radius: 8px;
+		text-decoration: none;
+		font-size: 13px;
+	}
+	.grid {
+		display: grid;
+		grid-template-columns: 340px 1fr;
+		gap: 20px;
+	}
+	.controls {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+	label {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		font-size: 13px;
+		color: #9a9aa5;
+	}
+	select,
+	textarea {
+		background: #0e0e12;
+		color: #eee;
+		border: 1px solid #333;
+		border-radius: 8px;
+		padding: 10px;
+		font-size: 14px;
+		font-family: inherit;
+		resize: vertical;
 	}
 	button {
 		background: #6b5bff;
 		color: #fff;
 		border: none;
-		padding: 9px 16px;
+		padding: 11px;
 		border-radius: 8px;
+		font-size: 15px;
 		cursor: pointer;
+	}
+	button:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.preview {
+		min-height: 60vh;
+		border: 1px solid #222;
+		border-radius: 12px;
+		background: #16161c;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		padding: 16px;
+	}
+	.preview img {
+		max-width: 100%;
+		max-height: 70vh;
+		border-radius: 8px;
+		background:
+			repeating-conic-gradient(#2a2a32 0% 25%, #20202700 0% 50%) 50% / 24px 24px;
+	}
+	.placeholder {
+		color: #6a6a76;
 		font-size: 14px;
 	}
-	.ghost {
-		background: transparent;
-		border: 1px solid #333;
-		color: #ccc;
-		padding: 9px 16px;
-		border-radius: 8px;
-		text-decoration: none;
-		font-size: 14px;
+	.muted {
+		color: #888;
+		font-size: 12px;
+	}
+	.err {
+		color: #ff7b72;
+		font-size: 13px;
+	}
+	code {
+		background: #1c1c24;
+		padding: 1px 5px;
+		border-radius: 4px;
+		font-size: 11px;
 	}
 </style>

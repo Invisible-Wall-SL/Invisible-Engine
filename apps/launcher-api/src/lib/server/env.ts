@@ -34,4 +34,14 @@ export const ENV = {
 	get R2_SECRET_ACCESS_KEY() {
 		return required('R2_SECRET_ACCESS_KEY');
 	},
+	// Atlas Maker (cloud) — the generation backend + default manifest/style ref.
+	get ATLAS_BACKEND_URL() {
+		return required('ATLAS_BACKEND_URL');
+	},
+	get ATLAS_MANIFEST_KEY() {
+		return env.ATLAS_MANIFEST_KEY ?? 'atlas/manifests/loader.json';
+	},
+	get ATLAS_STYLE_REF_KEY() {
+		return env.ATLAS_STYLE_REF_KEY ?? 'spines/hotfruits/loader/loader.png';
+	},
 };
