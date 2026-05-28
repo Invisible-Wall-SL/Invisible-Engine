@@ -14,14 +14,38 @@ class ComfyError(Exception):
     pass
 
 
-def _headers() -> dict[str, str]:
-    h = {"Content-Type": "application/json"}
+def _auth_headers() -> dict[str, str]:
+    h: dict[str, str] = {}
     cid = os.environ.get("CF_ACCESS_CLIENT_ID")
     csec = os.environ.get("CF_ACCESS_CLIENT_SECRET")
     if cid and csec:
         h["CF-Access-Client-Id"] = cid
         h["CF-Access-Client-Secret"] = csec
     return h
+
+
+def _headers() -> dict[str, str]:
+    return {"Content-Type": "application/json", **_auth_headers()}
+
+
+def upload_image(base: str, filename: str, data: bytes, image_type: str = "input") -> str:
+    """Upload bytes to ComfyUI's input dir (POST /upload/image, multipart) so a
+    LoadImage node can reference them. Returns the name to use in LoadImage."""
+    import requests  # local import; only needed for multipart
+
+    resp = requests.post(
+        base.rstrip("/") + "/upload/image",
+        files={"image": (filename, data, "application/octet-stream")},
+        data={"type": image_type, "overwrite": "true"},
+        headers=_auth_headers(),
+        timeout=60,
+    )
+    resp.raise_for_status()
+    j = resp.json()
+    name = j["name"]
+    if j.get("subfolder"):
+        name = f"{j['subfolder']}/{name}"
+    return name
 
 
 def _get(base: str, path: str, timeout: int = 30) -> bytes:

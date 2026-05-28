@@ -82,3 +82,53 @@ def generate_test(req: GenerateTest) -> dict:
     key = f"atlas/test/{int(time.time())}_{uuid.uuid4().hex[:8]}.png"
     r2.put(key, img_bytes, "image/png")
     return {"ok": True, "seed": seed, "ckpt": ckpt, "r2_key": key, "images": len(images)}
+
+
+class GenerateRegion(BaseModel):
+    config: dict  # the atlas_config (checkpoint, lora, controlnet, ksampler, …)
+    region: dict  # one manifest region (name, prompt, seed, overrides…)
+    style: dict = {}  # manifest "style" (positive_prefix/suffix, negative)
+    refs: dict = {}  # {"style_ref": "<r2_key>", "shape_ref": "<r2_key>"}
+    prefix: str = "atlas_maker/cloud"
+    comfy_url: str | None = None
+
+
+@app.post("/generate-region")
+def generate_region(req: GenerateRegion) -> dict:
+    base = _comfy_base(req.comfy_url)
+    region = dict(req.region)
+
+    # Upload each R2-stored reference to ComfyUI and point the region at the
+    # uploaded name, so the SDXL LoadImage nodes resolve them.
+    for ref_key in ("style_ref", "shape_ref"):
+        r2_key = req.refs.get(ref_key)
+        if not r2_key:
+            continue
+        try:
+            data = r2.get(r2_key)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(404, f"Reference '{r2_key}' not in R2: {e}")
+        fname = f"{uuid.uuid4().hex}_{os.path.basename(r2_key)}"
+        try:
+            region[ref_key] = comfy.upload_image(base, fname, data)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"Uploading reference to ComfyUI failed: {e}")
+
+    graph, seed = workflows.sdxl_region(req.config, region, req.style, req.prefix)
+
+    extra: dict = {}
+    org_key = os.environ.get("COMFY_ORG_API_KEY")
+    if org_key:
+        extra["api_key_comfy_org"] = org_key
+
+    try:
+        prompt_id = comfy.submit_prompt(base, graph, extra or None)
+        images = comfy.wait_images(base, prompt_id)
+        img_bytes = comfy.fetch_image(base, images[0])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Generation failed: {e}")
+
+    name = region.get("name", "region")
+    key = f"{req.prefix}/batch/{name}/{seed}_{uuid.uuid4().hex[:6]}.png"
+    r2.put(key, img_bytes, "image/png")
+    return {"ok": True, "region": name, "seed": seed, "r2_key": key, "images": len(images)}
