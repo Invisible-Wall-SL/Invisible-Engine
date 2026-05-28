@@ -21,4 +21,17 @@ export const ENV = {
 	get SESSION_TTL_HOURS() {
 		return Number(env.SESSION_TTL_HOURS ?? '12');
 	},
+	// Cloudflare R2 (S3-compatible) — shared asset/model repository.
+	get R2_ENDPOINT() {
+		return required('R2_ENDPOINT');
+	},
+	get R2_BUCKET() {
+		return required('R2_BUCKET');
+	},
+	get R2_ACCESS_KEY_ID() {
+		return required('R2_ACCESS_KEY_ID');
+	},
+	get R2_SECRET_ACCESS_KEY() {
+		return required('R2_SECRET_ACCESS_KEY');
+	},
 };

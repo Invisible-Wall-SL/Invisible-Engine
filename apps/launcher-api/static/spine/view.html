@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invisible Spine Viewer</title>
+<style>
+  :root {
+    --bg:#1b1d22; --panel:#23262d; --panel2:#2b2f38; --line:#363b45;
+    --txt:#d7dbe2; --dim:#8b93a1; --accent:#5db0ff; --accent2:#7ee0c0;
+    --danger:#ff7a7a;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font:13px/1.4 "Segoe UI",system-ui,sans-serif; }
+  #app { display:flex; height:100vh; }
+  /* sidebar */
+  #side { width:300px; flex:0 0 300px; background:var(--panel); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; }
+  #brand { padding:12px 14px; border-bottom:1px solid var(--line); }
+  #brand b { letter-spacing:.12em; font-size:12px; color:var(--accent2); }
+  #brand small { display:block; color:var(--dim); margin-top:2px; font-size:11px; }
+  .row { padding:8px 14px; border-bottom:1px solid var(--line); }
+  .row label { display:block; color:var(--dim); font-size:11px; margin-bottom:4px;
+    text-transform:uppercase; letter-spacing:.06em; }
+  select, input[type=text] { width:100%; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:12px; }
+  #filter { margin-bottom:6px; }
+  #list { flex:1; overflow:auto; }
+  .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
+  .item:hover { background:var(--panel2); }
+  .item.sel { background:#2f3a48; border-left:3px solid var(--accent); padding-left:11px; }
+  .item .nm { font-size:12px; word-break:break-all; }
+  .item .meta { color:var(--dim); font-size:10px; margin-top:2px; }
+  .badge { display:inline-block; background:#384150; color:var(--accent2);
+    border-radius:4px; padding:0 5px; font-size:10px; margin-left:4px; }
+  /* main */
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #stage { flex:1; position:relative; overflow:hidden; }
+  canvas { width:100%; height:100%; display:block; }
+  #hint { position:absolute; left:12px; top:10px; color:var(--dim); font-size:11px;
+    pointer-events:none; text-shadow:0 1px 2px #000; }
+  #err { position:absolute; left:12px; right:12px; top:10px; background:#3a2326;
+    border:1px solid var(--danger); color:#ffd4d4; padding:8px 10px; border-radius:6px;
+    font-size:12px; display:none; white-space:pre-wrap; }
+  /* controls bar */
+  #bar { background:var(--panel); border-top:1px solid var(--line); padding:8px 12px;
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  #bar .grp { display:flex; gap:6px; align-items:center; }
+  #bar label { color:var(--dim); font-size:11px; }
+  button { background:var(--panel2); color:var(--txt); border:1px solid var(--line);
+    border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:var(--accent); }
+  button.active { background:#2f3a48; border-color:var(--accent); color:#fff; }
+  #scrub { flex:1; min-width:140px; }
+  #speed { width:90px; }
+  .pill { color:var(--dim); font-size:11px; }
+  #cfgWrap { position:relative; }
+  #cfg { position:absolute; bottom:36px; left:0; width:260px; background:var(--panel2);
+    border:1px solid var(--line); border-radius:8px; padding:10px; display:none; z-index:5; }
+  #cfg.show { display:block; }
+  input[type=color] { width:34px; height:26px; padding:0; border:1px solid var(--line);
+    background:var(--panel2); border-radius:5px; }
+  a.note { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div id="brand">
+      <b>SPINE VIEWER</b>
+      <small id="sub">Invisible Wall SL</small>
+    </div>
+    <div class="row">
+      <label>Active project</label>
+      <select id="project"></select>
+      <div id="projNote" class="pill" style="margin-top:5px;"></div>
+    </div>
+    <div class="row">
+      <label>Skeletons <span id="count" class="pill"></span>
+        <button id="rescan" style="float:right;padding:1px 7px;font-size:11px;">rescan</button></label>
+      <input type="text" id="filter" placeholder="filter…">
+    </div>
+    <div id="list"></div>
+  </aside>
+
+  <main id="main">
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div id="hint">scroll = zoom · drag = pan</div>
+      <div id="err"></div>
+    </div>
+    <div id="bar">
+      <div class="grp">
+        <button id="play">▶ Play</button>
+        <button id="loop" class="active">↻ Loop</button>
+      </div>
+      <div class="grp">
+        <label>Anim</label>
+        <select id="anim" style="width:160px;"></select>
+      </div>
+      <div class="grp">
+        <label>Skin</label>
+        <select id="skin" style="width:120px;"></select>
+      </div>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+      <span id="time" class="pill">0.00s</span>
+      <div class="grp">
+        <label>Speed</label>
+        <input type="range" id="speed" min="0" max="200" value="100">
+        <span id="speedv" class="pill">1.0×</span>
+      </div>
+      <div id="cfgWrap" class="grp">
+        <button id="cfgBtn">⚙</button>
+        <div id="cfg">
+          <label style="color:var(--dim);font-size:11px;">Background</label>
+          <input type="color" id="bg" value="#1b1d22">
+          <label style="display:block;margin-top:8px;">
+            <input type="checkbox" id="preferPng" checked> Prefer PNG pages (avoid lossy WebP alpha)</label>
+          <label style="display:block;margin-top:6px;">
+            <input type="checkbox" id="pma" checked> Premultiply alpha (fixes additive halos)</label>
+          <label style="display:block;margin-top:6px;">
+            <input type="checkbox" id="bones"> Show bones</label>
+          <label style="display:block;margin-top:6px;">
+            <input type="checkbox" id="mesh"> Show mesh (hull + triangles)</label>
+          <label style="display:block;margin-top:6px;">
+            <input type="checkbox" id="clip"> Show clipping polygons</label>
+          <div style="margin-top:8px;"><button id="fit">Reset view</button></div>
+        </div>
+      </div>
+      <span id="rt" class="pill"></span>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let SPINE = null, loadedLine = null;
+let gl, renderer, assetMgr;
+let skeleton, animState, skeletonData, lastFrame = 0;
+let playing = true, looping = true, showBones = false, pma = true, preferPng = true;
+let showMesh = false, showClip = false;
+let curEntry = null, dragging = false, lastXY = null;
+let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
+
+// ---- runtime loading (one spine-webgl global at a time) -------------------
+function loadRuntime(line){
+  return new Promise((resolve, reject) => {
+    if (loadedLine === line && window.spine){ SPINE = window.spine; return resolve(); }
+    const s = document.createElement("script");
+    s.src = "/spine/vendor/spine-webgl-" + line + ".js";
+    s.onload = () => { SPINE = window.spine; loadedLine = line; resolve(); };
+    s.onerror = () => reject(new Error("Failed to load runtime " + line));
+    document.head.appendChild(s);
+  });
+}
+
+function showErr(msg){ const e = $("#err"); e.textContent = msg; e.style.display = "block"; }
+function clearErr(){ $("#err").style.display = "none"; }
+
+// ---- GL / renderer --------------------------------------------------------
+function initGL(){
+  const cv = $("#cv");
+  gl = cv.getContext("webgl", {alpha:true, premultipliedAlpha:false})
+    || cv.getContext("experimental-webgl");
+  renderer = new SPINE.SceneRenderer(cv, gl);
+  assetMgr = new SPINE.AssetManager(gl);
+}
+
+function resizeCanvas(){
+  const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
+  const w = Math.floor(cv.clientWidth * dpr), h = Math.floor(cv.clientHeight * dpr);
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+}
+
+function updateWorld(){
+  if (SPINE.Physics && SPINE.Physics.update !== undefined)
+    skeleton.updateWorldTransform(SPINE.Physics.update);
+  else
+    skeleton.updateWorldTransform();
+}
+
+// ---- load a skeleton ------------------------------------------------------
+async function selectSkeleton(entry){
+  selected = entry;
+  renderList();
+  clearErr();
+  $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · spine " + entry.version : "");
+
+  // Cross-version switch needs a clean global → reload the page with intent.
+  if (loadedLine && loadedLine !== entry.runtime){
+    location.hash = "id=" + entry.id + "&rt=" + entry.runtime;
+    location.reload();
+    return;
+  }
+  try {
+    await loadRuntime(entry.runtime);
+  } catch(e){ showErr(String(e.message || e)); return; }
+
+  if (!gl) initGL();
+
+  const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
+    + "&v=" + Date.now() + "&name=";  // cache-bust so freshly-deployed art shows
+  // Fresh AssetManager rooted at this skeleton's folder.
+  assetMgr = new SPINE.AssetManager(gl, base);
+  assetMgr.loadTextureAtlas(entry.atlas_file);
+  if (entry.format === "skel") assetMgr.loadBinary(entry.skeleton_file);
+  else assetMgr.loadJson(entry.skeleton_file);
+
+  await waitAssets();
+  try { buildSkeleton(entry); }
+  catch(e){ showErr("Build failed: " + (e.message || e)); }
+}
+
+function waitAssets(){
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      if (assetMgr.isLoadingComplete()){
+        const errs = assetMgr.getErrors && assetMgr.getErrors();
+        if (errs && Object.keys(errs).length){
+          reject(new Error("Asset load error:\n" + JSON.stringify(errs, null, 2)));
+        } else resolve();
+      } else requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
+// Spine exports here are straight-alpha PNGs whose transparent texels carry
+// white RGB. Additive attachments (glows/particles) then show a white box.
+// Premultiplying on upload zeroes RGB wherever alpha is 0, so additive (rendered
+// premultiplied) adds nothing in transparent areas and edge bilinear filtering
+// fades to black instead of white. The runtime forces UNPACK_PREMULTIPLY=false,
+// so we re-upload each page ourselves.
+function premultiplyAtlas(atlas){
+  if (!gl || !atlas || !atlas.pages) return;
+  atlas.pages.forEach(p => {
+    const tex = p.texture;
+    if (!tex || !tex._image || !tex.texture) return;
+    gl.bindTexture(gl.TEXTURE_2D, tex.texture);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex._image);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  });
+}
+
+function buildSkeleton(entry){
+  const atlas = assetMgr.require(entry.atlas_file);
+  if (pma) premultiplyAtlas(atlas);
+  const loader = new SPINE.AtlasAttachmentLoader(atlas);
+  if (entry.format === "skel"){
+    const bin = new SPINE.SkeletonBinary(loader);
+    skeletonData = bin.readSkeletonData(new Uint8Array(assetMgr.require(entry.skeleton_file)));
+  } else {
+    const sj = new SPINE.SkeletonJson(loader);
+    skeletonData = sj.readSkeletonData(assetMgr.require(entry.skeleton_file));
+  }
+  skeleton = new SPINE.Skeleton(skeletonData);
+  animState = new SPINE.AnimationState(new SPINE.AnimationStateData(skeletonData));
+
+  // populate anim + skin dropdowns
+  const aSel = $("#anim"); aSel.innerHTML = "";
+  skeletonData.animations.forEach(a => {
+    const o = document.createElement("option");
+    o.value = a.name; o.textContent = a.name + "  (" + a.duration.toFixed(2) + "s)";
+    aSel.appendChild(o);
+  });
+  const sSel = $("#skin"); sSel.innerHTML = "";
+  skeletonData.skins.forEach(sk => {
+    const o = document.createElement("option"); o.value = sk.name; o.textContent = sk.name;
+    sSel.appendChild(o);
+  });
+  if (skeletonData.skins.length){
+    const def = skeletonData.skins.find(s => s.name === "default") || skeletonData.skins[0];
+    skeleton.setSkinByName(def.name); sSel.value = def.name;
+  }
+  skeleton.setToSetupPose();
+  updateWorld();
+
+  if (skeletonData.animations.length){
+    aSel.value = skeletonData.animations[0].name;
+    setAnim(aSel.value);
+  } else { curEntry = null; }
+
+  fitView();
+}
+
+function setAnim(name){
+  curEntry = animState.setAnimation(0, name, looping);
+  playing = true; $("#play").textContent = "❚❚ Pause";
+}
+
+// ---- camera / fit ---------------------------------------------------------
+function fitView(){
+  if (!skeleton) return;
+  const off = new SPINE.Vector2(), size = new SPINE.Vector2();
+  skeleton.getBounds(off, size, []);
+  const cam = renderer.camera;
+  resizeCanvas();
+  if (size.x > 0 && size.y > 0){
+    cam.position.x = off.x + size.x/2;
+    cam.position.y = off.y + size.y/2;
+    const vw = $("#cv").width, vh = $("#cv").height;
+    cam.zoom = Math.max(size.x/vw, size.y/vh) * 1.25;
+  }
+  cam.update();
+}
+
+// ---- render loop ----------------------------------------------------------
+function frame(now){
+  requestAnimationFrame(frame);
+  const delta = lastFrame ? (now - lastFrame)/1000 : 0; lastFrame = now;
+  resizeCanvas();
+  if (!renderer){ return; }
+  const cv = $("#cv");
+  renderer.camera.viewportWidth = cv.width;
+  renderer.camera.viewportHeight = cv.height;
+  renderer.camera.update();
+  gl.clearColor(bgColor.r, bgColor.g, bgColor.b, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.viewport(0, 0, cv.width, cv.height);
+
+  if (skeleton && animState){
+    if (playing) animState.update(delta);
+    animState.apply(skeleton);
+    updateWorld();
+    renderer.begin();
+    renderer.drawSkeleton(skeleton, pma);
+    if (showBones || showMesh || showClip){
+      const d = renderer.skeletonDebugRenderer;
+      if (d){
+        d.drawBones = showBones;
+        d.drawRegionAttachments = false;
+        d.drawBoundingBoxes = false;
+        d.drawMeshHull = showMesh;
+        d.drawMeshTriangles = showMesh;
+        d.drawClipping = showClip;
+        d.drawPaths = false;
+      }
+      renderer.drawSkeletonDebug(skeleton, false);
+    }
+    renderer.end();
+    syncScrub();
+  }
+}
+
+function syncScrub(){
+  curEntry = animState.getCurrent(0) || curEntry;
+  if (!curEntry || !curEntry.animation) return;
+  const dur = curEntry.animation.duration || 0.0001;
+  const t = curEntry.trackTime % dur;
+  $("#scrub").value = Math.round((t/dur)*1000);
+  $("#time").textContent = t.toFixed(2) + "s / " + dur.toFixed(2) + "s";
+}
+
+// ---- UI wiring ------------------------------------------------------------
+function renderList(){
+  const q = $("#filter").value.toLowerCase();
+  const list = $("#list"); list.innerHTML = "";
+  let shown = 0;
+  skeletons.forEach(e => {
+    if (q && !e.name.toLowerCase().includes(q)) return;
+    shown++;
+    const d = document.createElement("div");
+    d.className = "item" + (selected && selected.id === e.id ? " sel" : "");
+    d.innerHTML = '<div class="nm">' + e.name + '</div>' +
+      '<div class="meta">' + e.format + (e.version ? ' · ' + e.version : '') +
+      '<span class="badge">rt ' + e.runtime + '</span></div>';
+    d.onclick = () => selectSkeleton(e);
+    list.appendChild(d);
+  });
+  $("#count").textContent = "(" + shown + ")";
+}
+
+async function loadState(){
+  // Hosted mode: single project, defaults inline (no local launcher config).
+  const st = { project: "HotFruits", projects: ["HotFruits"], background: "#1b1d22", premultiplied_alpha: true };
+  $("#sub").textContent = st.project;
+  bgColor = hexToRGB(st.background); $("#bg").value = st.background;
+  pma = st.premultiplied_alpha !== false; $("#pma").checked = pma;
+  const psel = $("#project"); psel.innerHTML = "";
+  st.projects.forEach(p => {
+    const o = document.createElement("option"); o.value = p; o.textContent = p;
+    if (p === st.project) o.selected = true; psel.appendChild(o);
+  });
+  $("#projNote").textContent = "";
+}
+
+async function loadSkeletons(refresh){
+  $("#count").textContent = "(scanning…)";
+  const r = await (await fetch("/spine/skeletons" + (refresh ? "?refresh=1" : ""))).json();
+  if (r.error){ showErr(r.error); skeletons = []; renderList(); return; }
+  skeletons = r.skeletons || [];
+  renderList();
+  // honour a reload-intent hash: #id= (cross-version switch) or
+  // #sel=<dir_b64>|<skeleton_file> (stable return link from the Atlas Maker)
+  const h = new URLSearchParams(location.hash.slice(1));
+  const id = h.get("id"), sel = h.get("sel");
+  let target = null;
+  if (sel){
+    const [dir, file] = sel.split("|");
+    target = skeletons.find(x => x.dir_b64 === dir && x.skeleton_file === file);
+  } else if (id !== null){
+    target = skeletons.find(x => x.id === parseInt(id, 10));
+  }
+  if (target){ history.replaceState(null, "", location.pathname); selectSkeleton(target); }
+}
+
+function hexToRGB(hex){
+  const n = parseInt(hex.replace("#",""), 16);
+  return { r:((n>>16)&255)/255, g:((n>>8)&255)/255, b:(n&255)/255, a:1 };
+}
+
+function wire(){
+  $("#play").onclick = () => {
+    playing = !playing; $("#play").textContent = playing ? "❚❚ Pause" : "▶ Play";
+  };
+  $("#loop").onclick = () => {
+    looping = !looping; $("#loop").classList.toggle("active", looping);
+    if (curEntry) curEntry.loop = looping;
+  };
+  $("#anim").onchange = e => setAnim(e.target.value);
+  $("#skin").onchange = e => {
+    skeleton.setSkinByName(e.target.value); skeleton.setSlotsToSetupPose(); updateWorld();
+  };
+  $("#speed").oninput = e => {
+    const v = e.target.value/100; if (animState) animState.timeScale = v;
+    $("#speedv").textContent = v.toFixed(1) + "×";
+  };
+  $("#scrub").oninput = e => {
+    if (!curEntry || !curEntry.animation) return;
+    playing = false; $("#play").textContent = "▶ Play";
+    const dur = curEntry.animation.duration;
+    curEntry.trackTime = (e.target.value/1000)*dur;
+    animState.apply(skeleton); updateWorld();
+  };
+  $("#filter").oninput = renderList;
+  $("#rescan").onclick = () => loadSkeletons(true);
+  $("#cfgBtn").onclick = () => $("#cfg").classList.toggle("show");
+  $("#bg").oninput = e => bgColor = hexToRGB(e.target.value);
+  $("#preferPng").onchange = e => { preferPng = e.target.checked; if (selected) selectSkeleton(selected); };
+  $("#pma").onchange = e => { pma = e.target.checked; if (selected) selectSkeleton(selected); };
+  $("#bones").onchange = e => showBones = e.target.checked;
+  $("#mesh").onchange = e => showMesh = e.target.checked;
+  $("#clip").onchange = e => showClip = e.target.checked;
+  $("#fit").onclick = fitView;
+  // (Atlas Maker round-trip and project switching are local-launcher features,
+  // omitted in the hosted viewer.)
+
+  // pan + zoom
+  const cv = $("#cv");
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    if (!renderer) return;
+    const f = e.deltaY > 0 ? 1.1 : 0.9;
+    renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
+  }, {passive:false});
+  cv.addEventListener("mousedown", e => { dragging = true; lastXY = [e.clientX, e.clientY]; });
+  window.addEventListener("mouseup", () => dragging = false);
+  window.addEventListener("mousemove", e => {
+    if (!dragging || !renderer) return;
+    const dpr = window.devicePixelRatio || 1;
+    const dx = (e.clientX - lastXY[0]) * dpr, dy = (e.clientY - lastXY[1]) * dpr;
+    renderer.camera.position.x -= dx * renderer.camera.zoom;
+    renderer.camera.position.y += dy * renderer.camera.zoom;
+    lastXY = [e.clientX, e.clientY];
+  });
+}
+
+async function boot(){
+  wire();
+  // a runtime hash means we just reloaded for a cross-version switch
+  const h = new URLSearchParams(location.hash.slice(1));
+  const rt = h.get("rt");
+  if (rt){ try { await loadRuntime(rt); initGL(); } catch(e){ showErr(String(e)); } }
+  await loadState();
+  await loadSkeletons(false);
+  requestAnimationFrame(frame);
+}
+boot();
+</script>
+</body>
+</html>
