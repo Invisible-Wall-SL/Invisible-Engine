@@ -34,8 +34,17 @@
 		updatedAt: data.doc.updatedAt,
 	});
 
+	function newId(): string {
+		// Prefer crypto.randomUUID, but fall back so a missing/blocked Web Crypto
+		// (non-secure context, older browser) can't break "Add row".
+		if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+			return crypto.randomUUID();
+		}
+		return `e_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+	}
+
 	function addEntry() {
-		entries.push({ id: crypto.randomUUID(), key: '', source: '', translations: {} });
+		entries.push({ id: newId(), key: '', source: '', translations: {} });
 		markDirty();
 	}
 
