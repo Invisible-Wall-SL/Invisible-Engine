@@ -40,11 +40,14 @@ def debug_access() -> dict:
     """Diagnostic: does this service see the CF Access / COMFY_URL env?
     Returns presence + the (non-secret) Client ID tail only — never the secret."""
     cid = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+    sec = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
     return {
         "comfy_url_set": bool(os.environ.get("COMFY_URL")),
-        "has_cf_access_client_id": bool(cid),
         "client_id_tail": cid[-12:] if cid else "",
-        "has_cf_access_client_secret": bool(os.environ.get("CF_ACCESS_CLIENT_SECRET")),
+        "client_id_len": len(cid),
+        "client_id_has_whitespace": cid != cid.strip(),
+        "secret_len": len(sec),
+        "secret_has_whitespace": sec != sec.strip(),
     }
 
 
