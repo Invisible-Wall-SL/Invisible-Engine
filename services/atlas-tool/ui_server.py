@@ -2319,33 +2319,30 @@ class Handler(BaseHTTPRequestHandler):
         return "✓ " + (tail or "sliced")
 
     def _deployatlas(self) -> str:
+        """Cloud deploy: copy the composed atlas (<stem>_new.png/webp/atlas in
+        the staging ATLAS_DIR) to an R2 deploy location. `deploy_path` in the
+        manifest is treated as an R2 key PREFIX (default
+        '<r2_project_prefix>/deploy'); `deploy_basename` overrides the name."""
         m = load_manifest()
-        dest = str(m.get("deploy_path", "")).strip()
-        if not dest:
-            return ("📦 No Deploy folder set — open Atlas settings, fill "
-                    "'Deploy folder' with the game's destination path, Save, then retry.")
-        dest_dir = Path(dest)
-        if not dest_dir.is_dir():
-            return f"📦 Deploy folder does not exist: {dest_dir}"
         stem = manifest_path().stem.replace("atlas_manifest_", "")
-        # Source is always <stem>_new.* in ATLAS_DIR; destination basename can
-        # be overridden so manifests whose name differs from the game's asset
-        # filename (e.g. manifest "mmBG" → game file "mm_bg") deploy cleanly.
         out_base = str(m.get("deploy_basename", "")).strip() or stem
+        dest_prefix = str(m.get("deploy_path", "")).strip().strip("/")
+        if not dest_prefix:
+            dest_prefix = f"{R2_PREFIX}/deploy" if R2_PREFIX else "deploy"
         sources = sorted(p for p in ATLAS_DIR.glob(f"{stem}_new.*")
                          if p.suffix.lower() in {".png", ".webp", ".atlas"})
         if not sources:
             return (f"📦 Nothing to deploy — no {stem}_new.(png|webp|atlas) in "
-                    f"{ATLAS_DIR}. Create Atlas first.")
+                    f"the composed output. Create Atlas first.")
         copied = []
         for src in sources:
-            dst = dest_dir / f"{out_base}{src.suffix}"
+            key = f"{dest_prefix}/{out_base}{src.suffix}"
             try:
-                shutil.copy2(src, dst)
-            except OSError as e:
-                return f"📦 Copy failed for {src.name} -> {dst}: {e}"
-            copied.append(dst.name)
-        return f"✓ Deployed {', '.join(copied)} -> {dest_dir}"
+                storage.put(key, src.read_bytes())
+            except Exception as e:  # noqa: BLE001
+                return f"📦 Deploy to R2 failed for {src.name} -> {key}: {e}"
+            copied.append(key)
+        return f"✓ Deployed to R2: {', '.join(copied)}"
 
     def _saveglobalstyle(self, payload: dict) -> str:
         m = load_manifest()
@@ -2446,58 +2443,20 @@ class Handler(BaseHTTPRequestHandler):
                    b'text-anchor="middle">IW</text></svg>')
 
     def _fsbrowse(self, path: str, key: str = "") -> bytes:
-        """Server-side file picker backend for the path fields. Lists drives
-        (Windows) / root, then folders + image files. Works with local and
-        UNC (\\\\server\\share) paths since it runs on the user's machine
-        (localhost-bound). Read-only; never writes or deletes.
-
-        `key` is the field being browsed: the atlas_file field needs to see
-        `.atlas` geometry files, not just images. `deploy_path` is a folder
-        picker — directories only, no files listed."""
-        folder_only = key == "deploy_path"
-        exts = _IMAGE_EXTS | {".atlas"} if key == "atlas_file" else _IMAGE_EXTS
-        path = (path or "").strip()
+        """Cloud file picker. There is no local filesystem to browse, so this
+        lists the manifests/.atlas files available in the R2-backed staging
+        manifest dir (the picker's primary use: choosing the active manifest).
+        Returns the same shape the UI's picker JS expects."""
         try:
-            if not path:
-                # Empty path → start at the active project's root so file
-                # pickers don't open at C:\. Falls back to drive letters
-                # when standalone (no project resolved).
-                proot = project_paths.project_root()
-                if proot and proot.is_dir():
-                    path = str(proot)
-                else:
-                    if os.name == "nt":
-                        dirs = [{"name": f"{c}:\\", "path": f"{c}:\\"}
-                                for c in string.ascii_uppercase
-                                if Path(f"{c}:\\").exists()]
-                    else:
-                        dirs = [{"name": "/", "path": "/"}]
-                    return json.dumps({"ok": True, "cur": "", "up": None,
-                                       "dirs": dirs, "files": []}).encode()
-            p = Path(path)
-            if not p.exists() or not p.is_dir():
-                return json.dumps({
-                    "ok": False,
-                    "error": f"Not a folder: {path}"}).encode()
-            dirs, files = [], []
-            try:
-                entries = sorted(p.iterdir(),
-                                 key=lambda e: e.name.lower())
-            except (PermissionError, OSError) as e:
-                return json.dumps({"ok": False,
-                                   "error": f"Can't open: {e}"}).encode()
-            for e in entries:
-                try:
-                    if e.is_dir():
-                        dirs.append({"name": e.name, "path": str(e)})
-                    elif not folder_only and e.suffix.lower() in exts:
-                        files.append({"name": e.name, "path": str(e)})
-                except OSError:
-                    continue  # unreadable entry — skip, don't break the list
-            parent = p.parent
-            up = "" if parent == p else str(parent)
-            return json.dumps({"ok": True, "cur": str(p), "up": up,
-                               "dirs": dirs, "files": files}).encode()
+            files = []
+            for name in list_manifests():
+                if key == "atlas_file" and not name.lower().endswith(".atlas"):
+                    continue
+                files.append({"name": name, "path": name})
+            return json.dumps({
+                "ok": True, "cur": "(R2 manifests)", "up": None,
+                "dirs": [], "files": files,
+            }).encode()
         except Exception as e:  # noqa: BLE001 — picker must never 500 the UI
             return json.dumps({"ok": False, "error": str(e)}).encode()
 
