@@ -14,6 +14,7 @@
 		<div class="brand">INVISIBLE WALL</div>
 		<div class="user">
 			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
+			<a class="ghost" href="/onboarding">Getting started</a>
 			<form method="POST" action="/auth/logout">
 				<button class="ghost" type="submit">Sign out</button>
 			</form>
@@ -88,6 +89,7 @@
 		border-radius: 8px;
 		cursor: pointer;
 		font-size: 13px;
+		text-decoration: none;
 	}
 	h2 {
 		font-size: 13px;
