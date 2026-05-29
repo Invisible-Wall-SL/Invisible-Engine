@@ -24,6 +24,25 @@ There are two tracks in this repo:
 - **atlas-backend** (`services/atlas-backend`, FastAPI) — Railway → Cloudflare tunnel → local ComfyUI → R2, **verified end-to-end**: `/generate-test`, `/generate-region` (SDXL + LoRA + IPAdapter + ControlNet + RMBG), `/compose`, `/slice`.
 - **atlas-tool** (`services/atlas-tool`) — the **local Python Atlas Maker re-hosted on Railway**. Drop-in `cloud_paths.py` (local staging mirrors an R2 prefix 1:1) + `storage.py` (R2). ComfyUI reached via tunnel; refs uploaded via `/upload/image`; variants fetched via `/view` → staging + R2. Config/manifests in R2 with write-through. Live and serving the UI.
 
+### 📋 Backlog — assigned to agents (added 2026-05-29)
+Pick these up in fresh sessions via the named subagent. Owner = the agent that should do it.
+
+| # | Task | Owner agent |
+|---|------|-------------|
+| B1 | **Port Invisible Sheet Maker** to the cloud (same pattern as atlas-tool: cloud_paths/storage/Comfy bridge, Railway service). | `atlas-python-tools` |
+| B2 | **Local launcher cleanup** — `C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py` should manage ONLY ComfyUI + cloudflared (tool UIs are online now); stop opening local tool web UIs. | `atlas-python-tools` |
+| B3 | **Cloud launcher/Postgres dedup** — confirm a single launcher behind `app.invisiblewall.org`; retire any duplicate service/DB so users/sessions aren't split. | `infra-railway` |
+| B4 | **Add the new CLIs** — the Studio game-spec CLI (validate/generate) + any pipeline CLIs: author/wire them, document usage. | `engine-pixi-svelte` |
+| B5 | **Tool download links + per-user install paths** — DB schema to persist each user's local-tool install path; download URLs for local tools (ComfyUI, Spine Editor, Test Server, Sheet Maker); surface in launcher so we always know the path. | `launcher-studio` |
+| B6 | **Full onboarding session in the launcher** — expand `/onboarding` into a complete guided walkthrough per role: each tool explained, install steps for local tools, download links (B5), links to docs. (Current `/onboarding` is a basic first version.) | `launcher-studio` |
+| B7 | **Per-tool docs** — create/update a doc for EVERY tool (Atlas Maker, Spine Viewer, Sheet Maker, Test Server, ComfyUI usage, the launcher itself) under `docs/tools/`; create the ones that don't exist yet. | each tool's owner agent; `code-reviewer` checks |
+| B8 | **Naming sweep** — ensure every one of OUR tools/pages reads "Invisible …" everywhere (cards, page titles, tool headers). (Spine viewer header fixed 2026-05-29.) | `launcher-studio` |
+| B9 | **Security cleanup** — rotate the secrets pasted during setup (R2 token incl. `a6f88a7d…`, Postgres pw, CF Access service-token secret) + scrub the committed `comfy_org_api_key` in the Invisible_Pipeline repo. | `infra-railway` |
+| B10 | **Atlas card "pick from R2"** — add an R2 ref picker to the region cards (template + set-style-ref-from-R2 endpoint); upload source image + `.atlas` geometry to R2 and repoint manifests (for Slice/Compose). | `atlas-python-tools` |
+| B11 | **Verify FLUX + gpt_image pipelines** in the cloud (only SDXL is proven). | `atlas-python-tools` |
+
+> When you complete a backlog item, move it out of this table into the "Done" list with a date + commit.
+
 ### ⚠️ Remaining work (the pipeline is NOT finished)
 
 **atlas-tool (immediate):**

@@ -6,7 +6,7 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 - **`docs/INFRA.md`** — cloud services, URLs, env vars, the ComfyUI tunnel, R2, DNS.
 - **`docs/STATUS.md`** — current state + roadmap (esp. the unfinished pipeline) + lessons learned.
 - Per-area guides: `apps/launcher-api/CLAUDE.md`, `services/atlas-tool/CLAUDE.md`.
-- Claude helpers: subagents in `.claude/agents/` (engine-pixi-svelte, atlas-python-tools, infra-railway, code-reviewer), skill `/deploy`.
+- Claude helpers: subagents in `.claude/agents/` (engine-pixi-svelte, launcher-studio, atlas-python-tools, infra-railway, code-reviewer), skill `/deploy`.
 
 ### Hard rules (non-negotiable)
 1. **Never commit secrets.** A pre-commit hook (`scripts/check-secrets.mjs`) blocks them; enable it once per clone: `git config core.hooksPath scripts/git-hooks`. Secrets live in env vars only.
