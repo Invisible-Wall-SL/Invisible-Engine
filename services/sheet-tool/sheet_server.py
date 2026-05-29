@@ -132,12 +132,15 @@ def parse_multipart(body: bytes, content_type: str) -> tuple[dict, list]:
     for part in body.split(delim):
         if not part or part in (b"--\r\n", b"--", b"\r\n"):
             continue
-        part = part.strip(b"\r\n")
-        if not part or part == b"--":
+        if part.startswith(b"\r\n"):  # the CRLF the spec puts before each part body
+            part = part[2:]
+        if not part or part.startswith(b"--"):  # closing boundary marker
             continue
         head, _, data = part.partition(b"\r\n\r\n")
         if not _:
             continue
+        if data.endswith(b"\r\n"):  # trailing CRLF before the next delimiter only
+            data = data[:-2]
         headers = head.decode("latin-1", "replace")
         disp = ""
         for line in headers.split("\r\n"):
@@ -466,7 +469,7 @@ def _parse_libgdx(path: Path) -> dict:
     return {"image": image, "width": W, "height": H, "regions": regions}
 
 
-def _resolve_image(coords_path: Path, image_ref: str, regions: list) -> Path | None:
+def _resolve_image(coords_path: Path, image_ref: str) -> Path | None:
     """Find the sheet image for a loaded coords file: try the stored path, then
     the same name beside the coords file, then a basename guess."""
     cands = []
@@ -493,7 +496,7 @@ def api_load(payload: dict) -> dict:
     except (OSError, json.JSONDecodeError, ValueError) as e:
         return {"error": f"Could not parse {path.name}: {e}"}
 
-    img_path = _resolve_image(path, parsed["image"], parsed["regions"])
+    img_path = _resolve_image(path, parsed["image"])
     if img_path is None:
         return {"error": f"Could not locate the sheet image for {path.name} "
                 f"(looked for {parsed['image'] or '?'} and siblings)."}

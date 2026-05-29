@@ -265,15 +265,20 @@ def compose(regions: list[dict], width: int, height: int,
         src = image_for.get(r["name"])
         if src is None:
             continue
-        img = src if isinstance(src, Image.Image) else Image.open(src)
-        if img.mode != "RGBA":
-            img = img.convert("RGBA")
-        w, h = int(r["w"]), int(r["h"])
-        if (img.width, img.height) != (w, h) and w > 0 and h > 0:
-            img = img.resize((w, h), Image.LANCZOS)
-        if r.get("rotated"):
-            img = img.rotate(-90, expand=True)  # clockwise
-        sheet.alpha_composite(img, (int(r["x"]), int(r["y"])))
+        opened = None if isinstance(src, Image.Image) else Image.open(src)
+        img = src if opened is None else opened
+        try:
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+            w, h = int(r["w"]), int(r["h"])
+            if (img.width, img.height) != (w, h) and w > 0 and h > 0:
+                img = img.resize((w, h), Image.LANCZOS)
+            if r.get("rotated"):
+                img = img.rotate(-90, expand=True)  # clockwise
+            sheet.alpha_composite(img, (int(r["x"]), int(r["y"])))
+        finally:
+            if opened is not None:
+                opened.close()
     return sheet
 
 

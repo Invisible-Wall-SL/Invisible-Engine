@@ -1951,7 +1951,6 @@ let _fsInputEl=null;   // explicit target (advanced popup ref pickers)
 function _fsInput(){{return _fsInputEl||document.querySelector('[data-cfg="'+_fsTarget+'"]');}}
 // Open the R2 picker against a specific input element (used by the per-region
 // style_ref / shape_ref pickers, whose inputs carry data-adv not data-cfg).
-function openFsFor(inputEl,key){{ openFs(key,inputEl); }}
 function openFs(key,inputEl){{
  _fsInputEl=inputEl||null;   // default: resolve target via data-cfg
  _fsTarget=key;
