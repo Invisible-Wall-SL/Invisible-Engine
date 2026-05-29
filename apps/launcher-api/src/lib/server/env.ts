@@ -49,7 +49,10 @@ export const ENV = {
 	// optional shared secret is appended as ?k= so the tool's gate lets the
 	// authenticated iframe through.
 	get ATLAS_TOOL_URL() {
-		return env.ATLAS_TOOL_URL ?? '';
+		// Defaults to the known atlas-tool Railway service so /atlas works
+		// without depending on a Railway env var being applied. Override via
+		// the ATLAS_TOOL_URL env when the tool moves.
+		return env.ATLAS_TOOL_URL ?? 'https://invisible-engine-production-0060.up.railway.app';
 	},
 	get ATLAS_TOOL_SECRET() {
 		return env.ATLAS_TOOL_SECRET ?? '';
