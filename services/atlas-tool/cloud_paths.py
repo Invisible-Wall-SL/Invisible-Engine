@@ -57,15 +57,37 @@ _HYDRATED: set[str] = set()
 
 
 def hydrate(proj_key: str, staging_root: Path) -> None:
-    """Pull this project's whole R2 subtree into staging once per process."""
+    """Pull this project's R2 subtree into staging once per process.
+
+    Manifests + config are pulled SYNCHRONOUSLY (a handful of small files — the
+    UI needs them to render regions). Refs/outputs (potentially thousands of
+    PNGs) are pulled in a BACKGROUND thread so the server starts listening
+    immediately instead of blocking boot for minutes (which would trip
+    Railway's healthcheck)."""
     if proj_key in _HYDRATED:
         return
     _HYDRATED.add(proj_key)
-    prefix = r2_project_prefix(proj_key)
-    try:
-        storage.pull_prefix(prefix + "/", staging_root, prefix + "/")
-    except Exception:  # noqa: BLE001 — first run / empty bucket is fine
-        pass
+    base = r2_project_prefix(proj_key)
+    kr = base + "/"
+
+    # Synchronous: manifests + config (small, needed for first render).
+    for sub in ("manifests/", "atlas_config.json"):
+        try:
+            storage.pull_prefix(base + "/" + sub, staging_root, kr)
+        except Exception:  # noqa: BLE001 — first run / empty bucket is fine
+            pass
+
+    # Background: refs + outputs (large; only needed for thumbnails/generation).
+    import threading
+
+    def _bg() -> None:
+        for sub in ("input/", "output/"):
+            try:
+                storage.pull_prefix(base + "/" + sub, staging_root, kr)
+            except Exception:  # noqa: BLE001
+                pass
+
+    threading.Thread(target=_bg, name="atlas-hydrate", daemon=True).start()
 
 
 def resolve() -> dict:
