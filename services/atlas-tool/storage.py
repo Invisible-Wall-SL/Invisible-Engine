@@ -98,22 +98,31 @@ def list_keys(prefix: str) -> list[dict]:
 
 def pull_prefix(prefix: str, dest_root: Path, key_root: str) -> int:
     """Download every object under `prefix` into `dest_root`, recreating the
-    relative path below `key_root`. Returns the number of files pulled."""
-    n = 0
+    relative path below `key_root`. Concurrent (boto3 clients are thread-safe
+    for calls) so large ref trees pull in seconds, not minutes. Returns the
+    number of files pulled."""
+    from concurrent.futures import ThreadPoolExecutor
+
     cli = _client()
-    for entry in list_keys(prefix):
-        key = entry["key"]
+    bucket = _bucket()
+
+    def _one(key: str) -> int:
         if key.endswith("/"):
-            continue
+            return 0
         rel = key[len(key_root):].lstrip("/") if key.startswith(key_root) else key
         dest = dest_root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            cli.download_file(_bucket(), key, str(dest))
-            n += 1
+            cli.download_file(bucket, key, str(dest))
+            return 1
         except Exception:  # noqa: BLE001
-            pass
-    return n
+            return 0
+
+    keys = [e["key"] for e in list_keys(prefix)]
+    if not keys:
+        return 0
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        return sum(pool.map(_one, keys))
 
 
 def push_dir(src_root: Path, key_root: str) -> int:
