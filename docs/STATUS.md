@@ -29,7 +29,9 @@ There are two tracks in this repo:
 **atlas-tool (immediate):**
 1. ✅ **Seed R2 — done (2026-05-29).** `seed_r2.py` uploaded 1158 objects to `atlas_maker/cloud/cloud/` (10 manifests, 1147 refs, config). Tool redeployed and hydrated — UI lists all manifests. Hydrate now pulls manifests/config synchronously + refs in a background thread (fast boot). ⚠️ The R2 creds used were pasted in chat → **rotate them** (security debt below). Open item: the loaded manifests reference `.atlas` geometry via local Windows paths (won't resolve in cloud) — fine for generate, needed for compose/slice (item 3).
 2. **Access gate** — `ATLAS_TOOL_SECRET` is currently unset (tool is open on its URL). When set, the launcher appends `?k=<secret>`; verify the cookie flow.
-3. **`.atlas` geometry for compose/slice** — manifest `atlas.atlas_file` still points at a local Windows path; compose/slice need the `.atlas` + source page uploaded to R2.
+3. **`.atlas` geometry + source image for compose/slice** — manifest `atlas.atlas_file` and `atlas.source_image` still point at local Windows paths (e.g. `apps/lines/static/assets/spines/symbols/symbols.png`); they need uploading to R2 and the manifest repointed to R2-relative paths. Needed for "Slice source → refs" and compose.
+   - **File pickers now browse R2 (done):** `/fsbrowse` browses the project's R2 asset repo via the staging mirror and returns R2-relative paths, so the SETTINGS file pickers (atlas source image, .atlas geometry) pick from R2 instead of the local disk.
+   - **Card "Choose file" is still local-upload only** — add an R2 "pick existing ref" option to the cards (needs card-template change + a set-style-ref-from-R2 endpoint). Local upload (uploadRef/useMyImage) still works.
 4. **FLUX + gpt_image pipelines** — only SDXL is verified; FLUX and gpt_image (comfy.org API node) workflows in `batch_atlas.py` are ported but untested in the cloud.
 5. **Third tool — Invisible Sheet Maker** — not yet explored/ported (same pattern as atlas-tool if wanted online).
 
