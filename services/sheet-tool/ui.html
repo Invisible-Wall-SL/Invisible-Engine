@@ -1,0 +1,478 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Invisible Sheet Maker</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font:14px/1.4 system-ui,Segoe UI,sans-serif;background:#16161a;color:#ddd;
+    display:flex;flex-direction:column;overflow:hidden}
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:#1d1d22;
+    border-bottom:1px solid #2a2a31;flex:none}
+  header h1{font-size:15px;margin:0;font-weight:600}
+  header .muted{color:#888;font-size:12px}
+  .pill{font-size:11px;padding:2px 7px;border-radius:10px;background:#26262d;color:#9ad}
+  .ok{color:#6c6}.err{color:#e66}.note{color:#cc9}
+  main{flex:1;min-height:0;display:flex}
+
+  /* LEFT: canvas window (most of the screen) */
+  #stage{flex:1;min-width:0;display:flex;flex-direction:column;background:#101013}
+  #toolbar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 12px;
+    border-bottom:1px solid #2a2a31;background:#17171b;font-size:12px;color:#aaa}
+  #toolbar button{padding:4px 9px;font-size:12px}
+  #viewport{flex:1;min-height:0;overflow:auto;padding:30px;display:flex;scrollbar-gutter:stable both-edges}
+  #viewport.dragging{overflow:hidden}
+  #canvas{position:relative;margin:auto;user-select:none;will-change:transform;
+    background-color:#1f1f24;
+    background-image:
+      linear-gradient(45deg,#2a2a30 25%,transparent 25%),
+      linear-gradient(-45deg,#2a2a30 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#2a2a30 75%),
+      linear-gradient(-45deg,transparent 75%,#2a2a30 75%);
+    background-size:20px 20px;
+    background-position:0 0,0 10px,10px -10px,-10px 0;
+    outline:1px solid #3a3a44;box-shadow:0 0 0 1px #000}
+  .sprite{position:absolute;overflow:visible;cursor:grab}
+  .sprite img{width:100%;height:100%;display:block;image-rendering:auto;pointer-events:none;
+    -webkit-user-drag:none;user-drag:none}
+  .sprite.locked{cursor:default}
+  .sprite.sel{outline:2px solid #4ad;outline-offset:0}
+  .sprite .lockbadge{position:absolute;top:2px;left:2px;font-size:11px;background:#000a;
+    border-radius:3px;padding:0 3px;color:#fc6;display:none}
+  .sprite.locked .lockbadge{display:block}
+  .sprite.unplaced{outline:2px dashed #e66}
+  .handle{position:absolute;width:12px;height:12px;right:-6px;bottom:-6px;background:#4ad;
+    border:1px solid #fff;border-radius:2px;cursor:nwse-resize}
+  .sprite.locked .handle{display:none}
+  .nlabel{position:absolute;top:-15px;left:0;font-size:10px;color:#9cf;background:#000b;
+    padding:0 3px;white-space:nowrap;pointer-events:none}
+  /* toolbar attached to the selection box */
+  .selbar{position:absolute;top:-32px;left:0;display:flex;gap:3px;align-items:center;
+    background:#0c0c0fee;border:1px solid #3a3a44;border-radius:5px;padding:3px 5px;
+    font-size:11px;color:#9ad;white-space:nowrap;z-index:10;cursor:default}
+  .selbar.below{top:auto;bottom:-32px}
+  .selbar .bn{color:#9cf;max-width:90px;overflow:hidden;text-overflow:ellipsis;margin-right:3px}
+  .selbar label{color:#778;font-size:10px;margin:0 0 0 2px}
+  .selbar input{width:42px;padding:2px 4px;font-size:11px}
+  .selbar input:disabled{opacity:.5}
+  .selbar button{padding:1px 6px;font-size:12px;background:#26262d;line-height:1.4}
+  .selbar button.locked{background:#7a5a1d}
+
+  /* RIGHT: options */
+  #panel{width:340px;flex:none;overflow:auto;padding:14px;background:#1a1a1f;border-left:1px solid #2a2a31}
+  .card{background:#1d1d22;border:1px solid #2a2a31;border-radius:8px;padding:12px;margin-bottom:12px}
+  .card h2{margin:0 0 9px;font-size:12px;color:#9ad;text-transform:uppercase;letter-spacing:.04em}
+  label{color:#aaa;font-size:12px}
+  input,select{background:#111;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px 7px;font-size:13px}
+  input[type=number]{width:74px}
+  button{background:#2d6cdf;color:#fff;border:0;border-radius:5px;padding:7px 12px;font-size:13px;cursor:pointer}
+  button:hover{background:#3b7af0}
+  button.sec{background:#33333c}button.sec:hover{background:#44444f}
+  button.danger{background:#7a2d2d}button.danger:hover{background:#9a3a3a}
+  button.wide{width:100%;margin-top:4px}
+  .field{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;gap:8px}
+  .field input[type=text],.field input:not([type]){flex:1;min-width:0}
+  .tabs{display:flex;gap:4px;margin-bottom:10px}
+  .tabs button{flex:1;background:#26262d;color:#bbb}
+  .tabs button.active{background:#2d6cdf;color:#fff}
+  .browser{font-size:12px;border:1px solid #2a2a31;border-radius:6px;max-height:240px;overflow:auto;background:#111}
+  .browser .it{padding:5px 8px;cursor:pointer;border-bottom:1px solid #1f1f25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .browser .it:hover{background:#23232b}
+  .browser .dir{color:#9cf}.browser .file{color:#cda}
+  .cwd{font-family:monospace;font-size:11px;color:#888;margin-bottom:6px;word-break:break-all}
+  .geo{color:#777;font-family:monospace;font-size:11px;white-space:nowrap}
+  .hint{font-size:11px;color:#777;margin:-2px 0 8px}
+</style></head>
+<body>
+<header>
+  <h1>Invisible Sheet Maker</h1>
+  <span class="pill" id="build"></span>
+  <span class="muted">project</span>
+  <select id="projsel" style="font-size:12px"></select>
+  <span class="muted" id="projnote"></span>
+  <span class="muted" id="amstatus"></span>
+</header>
+<main>
+  <section id="stage">
+    <div id="toolbar">
+      <button class="sec" onclick="zoomBy(0.8)">−</button>
+      <button class="sec" onclick="fitView()">Fit</button>
+      <button class="sec" onclick="zoomBy(1.25)">+</button>
+      <span id="zoomlbl">100%</span>
+      <span style="color:#555">|</span>
+      <span id="canvaslbl">—</span>
+      <span style="color:#555">|</span>
+      <button onclick="doArrange()">Auto-arrange unlocked ▦</button>
+      <span id="arrmsg"></span>
+    </div>
+    <div id="viewport"><div id="canvas"></div></div>
+  </section>
+
+  <aside id="panel">
+    <div class="card">
+      <div class="field"><label>Sheet name</label><input id="sheet" value="newsheet"></div>
+      <div class="tabs">
+        <button id="tab-upload" class="active" onclick="showTab('upload')">Upload</button>
+        <button id="tab-load" onclick="showTab('load')">Load existing</button>
+      </div>
+      <div id="pane-upload">
+        <input type="file" id="files" accept=".png,.webp" multiple style="width:100%;margin-bottom:8px">
+        <button class="wide" onclick="upload()">Upload sprites</button>
+        <button class="sec wide" onclick="newSheet()">New / clear canvas</button>
+        <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
+      </div>
+      <div id="pane-load" style="display:none">
+        <div class="hint">Pick an AI manifest, .atlas, or TexturePacker JSON. Defaults to the project root.</div>
+        <div class="cwd" id="cwd"></div>
+        <div class="browser" id="browser"></div>
+        <div id="loadmsg" class="muted" style="margin-top:6px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Canvas size</h2>
+      <div class="field"><label>Width</label><input type="number" id="cw" value="1024"></div>
+      <div class="field"><label>Height</label><input type="number" id="ch" value="1024"></div>
+      <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2"></div>
+      <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot"></div>
+      <button class="sec wide" onclick="applyCanvas()">Apply size</button>
+    </div>
+
+    <div class="card" id="inspector" style="display:none">
+      <h2>Selected sprite</h2>
+      <div class="field"><label>Name</label><input id="i_name" oninput="setField('name',this.value)"></div>
+      <div class="field">
+        <label>Size</label>
+        <span><input type="number" id="i_w" oninput="setSize('w',this.value)"> ×
+        <input type="number" id="i_h" oninput="setSize('h',this.value)"></span>
+      </div>
+      <div class="field"><label><input type="checkbox" id="i_aspect" checked> keep aspect</label>
+        <button class="sec" onclick="resetSize()">reset</button></div>
+      <div class="field"><label><input type="checkbox" id="i_lock" onchange="setField('locked',this.checked)"> Locked</label></div>
+      <div class="field"><label>Prompt</label></div>
+      <input id="i_prompt" style="width:100%;margin-bottom:7px" oninput="setField('prompt',this.value)">
+      <div class="field"><label>shape_ref</label><input id="i_shape" oninput="setField('shape_ref',this.value)"></div>
+      <div class="field"><label>seed</label><input id="i_seed" oninput="setField('seed',this.value)"></div>
+      <button class="danger wide" onclick="deleteSel()">Remove from sheet</button>
+    </div>
+
+    <div class="card">
+      <h2>Export</h2>
+      <div class="field"><label>Base filename</label><input id="basename"></div>
+      <div class="field"><label>AI manifest</label><input type="checkbox" id="f_manifest" checked></div>
+      <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
+      <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
+      <button class="wide" onclick="doExport()">Export</button>
+      <div id="exportmsg" style="margin-top:8px"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+let STATE=null;
+let regions=[];              // {src,name,x,y,w,h,ow,oh,rotated,locked,prompt,shape_ref,seed,unplaced?}
+let sel=null;                // selected src
+let zoom=1, canvasW=1024, canvasH=1024, sheetName='newsheet';
+let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused across renders)
+let activeSheet=null;        // which sheet the current canvas regions belong to
+
+const $=id=>document.getElementById(id);
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+async function jget(u){return (await fetch(u)).json();}
+async function jpost(u,b){return (await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();}
+const reg=src=>regions.find(r=>r.src===src);
+
+async function init(){
+  STATE=await jget('/api/state');
+  $('build').textContent=STATE.build;
+  $('amstatus').textContent=STATE.atlas_maker_found?'· Atlas Maker linked ✓':'· Atlas Maker not found';
+  $('amstatus').className=STATE.atlas_maker_found?'ok':'err';
+  // project dropdown
+  const ps=$('projsel'); ps.innerHTML='';
+  (STATE.projects||[]).forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;if(p===STATE.project)o.selected=true;ps.appendChild(o);});
+  if(!STATE.projects||!STATE.projects.length){const o=document.createElement('option');o.textContent=STATE.project||'(none)';ps.appendChild(o);}
+  if(STATE.project_locked){ps.disabled=true;$('projnote').textContent='(set by Launcher)';}
+  ps.onchange=async()=>{await jpost('/api/set-project',{project:ps.value});location.reload();};
+  const d=STATE.defaults;
+  canvasW=d.canvas_w; canvasH=d.canvas_h;
+  $('cw').value=canvasW; $('ch').value=canvasH; $('pad').value=d.padding; $('rot').checked=d.allow_rotation;
+  sheetName=$('sheet').value.trim()||'newsheet';
+  $('basename').value=sheetName;
+  fitView();
+}
+
+function showTab(t){
+  $('tab-upload').classList.toggle('active',t==='upload');
+  $('tab-load').classList.toggle('active',t==='load');
+  $('pane-upload').style.display=t==='upload'?'':'none';
+  $('pane-load').style.display=t==='load'?'':'none';
+  if(t==='load') browse('');
+}
+
+/* ---------- canvas render ---------- */
+function fitView(){
+  const vp=$('viewport');
+  const availW=vp.clientWidth-60, availH=vp.clientHeight-60;
+  zoom=Math.min(availW/canvasW, availH/canvasH, 2);
+  if(!isFinite(zoom)||zoom<=0) zoom=1;
+  render();
+}
+function zoomBy(f){ zoom=Math.max(0.05,Math.min(4,zoom*f)); render(); }
+
+function clearCanvasDom(){ spriteEls={}; const cv=$('canvas'); if(cv) cv.innerHTML=''; }
+
+function render(){
+  const cv=$('canvas');
+  cv.style.width=(canvasW*zoom)+'px';
+  cv.style.height=(canvasH*zoom)+'px';
+  $('zoomlbl').textContent=Math.round(zoom*100)+'%';
+  $('canvaslbl').textContent=canvasW+' × '+canvasH+' px · '+regions.length+' sprites';
+  // selection decorations are rebuilt each render; sprite divs/imgs are reused.
+  cv.querySelectorAll('.selbar,.handle').forEach(e=>e.remove());
+  const present=new Set();
+  regions.forEach(r=>{
+    present.add(r.src);
+    let s=spriteEls[r.src];
+    if(!s){
+      const wrap=document.createElement('div'); wrap.className='sprite';
+      const img=document.createElement('img'); img.draggable=false;
+      img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(r.src);
+      wrap.appendChild(img);
+      const lb=document.createElement('div'); lb.className='lockbadge'; lb.textContent='🔒'; wrap.appendChild(lb);
+      wrap.addEventListener('mousedown',e=>{ const rr=reg(wrap.dataset.src); if(rr) onSpriteDown(e,rr); });
+      cv.appendChild(wrap);
+      s=spriteEls[r.src]={wrap,img};
+    }
+    const wrap=s.wrap, img=s.img;
+    wrap.dataset.src=r.src;
+    const fw=r.rotated?r.h:r.w, fh=r.rotated?r.w:r.h;
+    wrap.style.left=(r.x*zoom)+'px'; wrap.style.top=(r.y*zoom)+'px';
+    wrap.style.width=(fw*zoom)+'px'; wrap.style.height=(fh*zoom)+'px';
+    wrap.style.transform='';
+    wrap.className='sprite'+(r.src===sel?' sel':'')+(r.locked?' locked':'')+(r.unplaced?' unplaced':'');
+    if(r.rotated){ img.style.cssText='position:absolute;display:block;width:'+(r.w*zoom)+'px;height:'+(r.h*zoom)
+      +'px;left:'+((fw-r.w)*zoom/2)+'px;top:'+((fh-r.h)*zoom/2)+'px;transform:rotate(90deg);transform-origin:center'; }
+    else { img.style.cssText=''; }
+    if(r.src===sel){
+      wrap.appendChild(makeSelBar(r));
+      const h=document.createElement('div'); h.className='handle'; wrap.appendChild(h);
+      h.addEventListener('mousedown',e=>startResize(e,r));
+    }
+  });
+  Object.keys(spriteEls).forEach(src=>{ if(!present.has(src)){ spriteEls[src].wrap.remove(); delete spriteEls[src]; } });
+}
+
+/* toolbar attached to the selection box: X/Y/W/H pixel inputs + lock toggle */
+function makeSelBar(r){
+  const bar=document.createElement('div');
+  bar.className='selbar'+((r.y*zoom<34)?' below':'');   // flip below if no room above
+  bar.addEventListener('mousedown',e=>e.stopPropagation());  // don't start a drag
+  const dis=r.locked?' disabled':'';
+  bar.innerHTML=
+    '<span class="bn" title="'+esc(r.name)+'">'+esc(r.name)+(r.unplaced?' ⚠':'')+'</span>'+
+    '<label>X</label><input type="number" data-k="x" value="'+r.x+'"'+dis+'>'+
+    '<label>Y</label><input type="number" data-k="y" value="'+r.y+'"'+dis+'>'+
+    '<label>W</label><input type="number" data-k="w" value="'+r.w+'"'+dis+'>'+
+    '<label>H</label><input type="number" data-k="h" value="'+r.h+'"'+dis+'>'+
+    '<button data-lock class="'+(r.locked?'locked':'')+'" title="lock position & size">'+
+      (r.locked?'🔒':'🔓')+'</button>';
+  bar.querySelectorAll('input').forEach(inp=>{
+    inp.onchange=()=>{
+      const k=inp.dataset.k, v=parseInt(inp.value)||0;
+      r[k]=(k==='w'||k==='h')?Math.max(8,v):Math.max(0,v);
+      r.unplaced=false; render(); syncInspector();
+    };
+  });
+  bar.querySelector('[data-lock]').onclick=()=>{ r.locked=!r.locked; render(); syncInspector(); };
+  return bar;
+}
+
+/* ---------- selection + drag + resize ----------
+   Dragging moves/scales the element via CSS transform only (compositor-only,
+   no layout/paint of the big canvas) and is throttled to one update per frame.
+   Real x/y/w/h are committed once on mouse-up, then a single render() runs. */
+let drag=null, raf=0, lastE=null;
+function onSpriteDown(e,r){
+  if(e.button!==0) return;
+  e.preventDefault();
+  select(r.src);
+  if(r.locked) return;
+  const el=e.currentTarget;
+  el.style.willChange='transform';
+  drag={mode:'move',r,sx:e.clientX,sy:e.clientY,ox:r.x,oy:r.y,el};
+  addDragListeners();
+}
+function startResize(e,r){
+  if(e.button!==0||r.locked) return;
+  e.preventDefault(); e.stopPropagation();
+  const el=e.currentTarget.parentElement;
+  el.style.willChange='transform'; el.style.transformOrigin='top left';
+  drag={mode:'resize',r,sx:e.clientX,sy:e.clientY,ow:r.w,oh:r.h,el};
+  addDragListeners();
+}
+function addDragListeners(){
+  $('viewport').classList.add('dragging');   // freeze scroll-overflow recalc during drag
+  window.addEventListener('mousemove',onMove);
+  window.addEventListener('mouseup',endDrag);
+}
+function onMove(e){ lastE=e; if(!raf) raf=requestAnimationFrame(applyDrag); }
+function applyDrag(){
+  raf=0; if(!drag||!lastE) return;
+  const dx=lastE.clientX-drag.sx, dy=lastE.clientY-drag.sy;
+  if(drag.mode==='move'){
+    const nx=Math.max(0,Math.round(drag.ox+dx/zoom)), ny=Math.max(0,Math.round(drag.oy+dy/zoom));
+    drag.nx=nx; drag.ny=ny;
+    drag.el.style.transform='translate('+((nx-drag.ox)*zoom)+'px,'+((ny-drag.oy)*zoom)+'px)';
+  }else{
+    const nw=Math.max(8,Math.round(drag.ow+dx/zoom));
+    const nh=$('i_aspect').checked ? Math.max(8,Math.round(nw*drag.oh/drag.ow))
+                                   : Math.max(8,Math.round(drag.oh+dy/zoom));
+    drag.nw=nw; drag.nh=nh;
+    drag.el.style.transform='scale('+(nw/drag.ow)+','+(nh/drag.oh)+')';
+    $('i_w').value=nw; $('i_h').value=nh;
+  }
+}
+function endDrag(){
+  window.removeEventListener('mousemove',onMove);
+  window.removeEventListener('mouseup',endDrag);
+  $('viewport').classList.remove('dragging');
+  if(raf){ cancelAnimationFrame(raf); raf=0; }
+  if(drag){
+    const r=drag.r;
+    drag.el.style.willChange=''; drag.el.style.transform='';
+    if(drag.mode==='move'){ if(drag.nx!=null){ r.x=drag.nx; r.y=drag.ny; } }
+    else if(drag.nw!=null){ r.w=drag.nw; r.h=drag.nh; r.unplaced=false; }
+    drag=null; lastE=null;
+    render(); syncInspector();
+  }
+}
+
+$('viewport').addEventListener('mousedown',e=>{ if(e.target===$('viewport')||e.target===$('canvas')) select(null); });
+
+/* mouse-wheel zoom, anchored to the point under the cursor */
+$('viewport').addEventListener('wheel',e=>{
+  e.preventDefault();
+  const vp=$('viewport'), cv=$('canvas');
+  const rb=cv.getBoundingClientRect();
+  const cx=(e.clientX-rb.left)/zoom, cy=(e.clientY-rb.top)/zoom;   // canvas-space point under cursor
+  const f=e.deltaY<0?1.1:1/1.1;
+  const nz=Math.max(0.05,Math.min(8,zoom*f));
+  if(nz===zoom) return;
+  zoom=nz; render();
+  const ra=cv.getBoundingClientRect();
+  vp.scrollLeft+=(ra.left+cx*zoom)-e.clientX;     // keep (cx,cy) under the cursor when scrollable
+  vp.scrollTop +=(ra.top +cy*zoom)-e.clientY;
+},{passive:false});
+
+function select(src){ sel=src; render(); syncInspector(); }
+function syncInspector(){
+  const r=reg(sel);
+  $('inspector').style.display=r?'':'none';
+  if(!r) return;
+  $('i_name').value=r.name; $('i_w').value=r.w; $('i_h').value=r.h;
+  $('i_lock').checked=!!r.locked; $('i_prompt').value=r.prompt||'';
+  $('i_shape').value=r.shape_ref||''; $('i_seed').value=r.seed||'';
+}
+function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked'||k==='name') render(); }
+function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(8,parseInt(v)||8);
+  if($('i_aspect').checked){ if(k==='w'){ r.w=n; r.h=Math.max(8,Math.round(n*r.oh/r.ow)); } else { r.h=n; r.w=Math.max(8,Math.round(n*r.ow/r.oh)); } }
+  else r[k]=n;
+  r.unplaced=false; render(); syncInspector(); }
+function resetSize(){ const r=reg(sel); if(!r) return; r.w=r.ow; r.h=r.oh; r.unplaced=false; render(); syncInspector(); }
+function deleteSel(){ const i=regions.findIndex(r=>r.src===sel); if(i<0) return; regions.splice(i,1); sel=null; render(); syncInspector(); }
+
+window.addEventListener('keydown',e=>{
+  if((e.key==='Delete'||e.key==='Backspace')&&sel&&document.activeElement.tagName!=='INPUT'){ deleteSel(); }
+  if(e.key==='l'&&sel&&document.activeElement.tagName!=='INPUT'){ const r=reg(sel); if(r){r.locked=!r.locked; render(); syncInspector();} }
+});
+
+/* ---------- canvas size ---------- */
+function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canvasH=Math.max(16,parseInt($('ch').value)||1024); fitView(); }
+
+/* ---------- upload ---------- */
+function newSheet(){ regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
+  $('uploadmsg').className='muted'; $('uploadmsg').textContent='Canvas cleared.'; }
+
+async function upload(){
+  const ns=$('sheet').value.trim()||'sheet';
+  if(ns!==activeSheet){ regions=[]; sel=null; clearCanvasDom(); activeSheet=ns; }  // new sheet => fresh canvas
+  sheetName=ns; if(!$('basename').value) $('basename').value=ns;
+  const files=$('files').files;
+  if(!files.length){ $('uploadmsg').textContent='Pick some PNG/WebP files first.'; return; }
+  const fd=new FormData(); fd.append('sheet',sheetName);
+  for(const f of files) fd.append('file',f,f.name);
+  $('uploadmsg').textContent='Uploading…';
+  const j=await (await fetch('/api/upload',{method:'POST',body:fd})).json();
+  if(j.error){ $('uploadmsg').className='err'; $('uploadmsg').textContent=j.error; return; }
+  // add ONLY the files just picked (j.saved), not the whole accumulated folder
+  let added=0;
+  (j.saved||[]).forEach(s=>{ if(!reg(s.file)){ regions.push({src:s.file,name:s.file.replace(/\.[^.]+$/,''),
+    x:0,y:0,w:s.w,h:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:''}); added++; } });
+  $('files').value='';
+  $('uploadmsg').className='ok'; $('uploadmsg').textContent=added+' added · '+regions.length+' on canvas';
+  await doArrange();
+}
+
+/* ---------- arrange ---------- */
+async function doArrange(){
+  if(!regions.length) return;
+  const m=$('arrmsg'); m.className='muted'; m.textContent=' arranging…';
+  const body={sheet:sheetName,canvas_w:canvasW,canvas_h:canvasH,padding:+$('pad').value,
+    allow_rotation:$('rot').checked,
+    regions:regions.map(r=>({src:r.src,w:r.w,h:r.h,locked:r.locked,x:r.x,y:r.y,rotated:r.rotated}))};
+  const j=await jpost('/api/arrange',body);
+  if(j.error){ m.className='err'; m.textContent=' '+j.error; return; }
+  const up=new Set(j.unplaced||[]);
+  j.placements.forEach(p=>{ const r=reg(p.src); if(r){ r.x=p.x;r.y=p.y;r.rotated=p.rotated; r.unplaced=up.has(p.src);} });
+  m.className=up.size?'err':'ok';
+  m.textContent=up.size?(' '+up.size+" didn't fit — enlarge canvas"):' arranged ✓';
+  render();
+}
+
+/* ---------- load existing ---------- */
+async function browse(path){
+  const j=await jget('/api/browse?path='+encodeURIComponent(path||''));
+  if(j.error){ $('browser').innerHTML='<div class="it err">'+esc(j.error)+'</div>'; return; }
+  $('cwd').textContent=j.cwd;
+  let h='';
+  if(j.parent) h+='<div class="it dir" data-d="'+esc(j.parent)+'">📁 ..</div>';
+  j.dirs.forEach(d=>h+='<div class="it dir" data-d="'+esc(d.path)+'">📁 '+esc(d.name)+'</div>');
+  j.files.forEach(f=>h+='<div class="it file" data-f="'+esc(f.path)+'">📄 '+esc(f.name)+'</div>');
+  $('browser').innerHTML=h||'<div class="it muted">(empty)</div>';
+  $('browser').querySelectorAll('.dir').forEach(el=>el.onclick=()=>browse(el.dataset.d));
+  $('browser').querySelectorAll('.file').forEach(el=>el.onclick=()=>loadFile(el.dataset.f));
+}
+async function loadFile(path){
+  if(/\.(png|webp)$/i.test(path)){ $('loadmsg').className='note'; $('loadmsg').textContent='Pick a coords file (.json/.atlas), not the image.'; return; }
+  sheetName=$('sheet').value.trim()||'loaded';
+  $('loadmsg').className='muted'; $('loadmsg').textContent='Loading & slicing…';
+  const j=await jpost('/api/load',{sheet:sheetName,path});
+  if(j.error){ $('loadmsg').className='err'; $('loadmsg').textContent=j.error; return; }
+  canvasW=j.canvas_w||canvasW; canvasH=j.canvas_h||canvasH;
+  $('cw').value=canvasW; $('ch').value=canvasH;
+  clearCanvasDom();                          // drop any cached sprites from the previous sheet
+  regions=j.regions.map(r=>({...r,ow:r.w,oh:r.h}));
+  sel=null; activeSheet=sheetName;
+  $('loadmsg').className='ok'; $('loadmsg').textContent='Loaded '+j.count+' regions from '+canvasW+'×'+canvasH+' sheet';
+  fitView();
+}
+
+/* ---------- export ---------- */
+async function doExport(){
+  const m=$('exportmsg'); m.className='muted'; m.textContent='Exporting…';
+  if(!regions.length){ m.className='err'; m.textContent='Nothing to export.'; return; }
+  const body={sheet:sheetName,basename:$('basename').value.trim()||sheetName,
+    canvas_w:canvasW,canvas_h:canvasH,
+    formats:{manifest:$('f_manifest').checked,libgdx:$('f_libgdx').checked,texturepacker:$('f_tp').checked},
+    regions:regions.map(r=>({src:r.src,name:r.name,x:r.x,y:r.y,w:r.w,h:r.h,rotated:r.rotated,
+      prompt:r.prompt,shape_ref:r.shape_ref,seed:r.seed}))};
+  const j=await jpost('/api/export',body);
+  if(j.error){ m.className='err'; m.textContent=j.error; return; }
+  let h='<div class="ok">Wrote '+j.written.length+' file(s) to:</div><div class="geo">'+esc(j.output_dir)+'</div>';
+  if(j.manifest_note) h+='<div class="note">'+esc(j.manifest_note)+'</div>';
+  m.className=''; m.innerHTML=h;
+}
+
+window.addEventListener('resize',()=>{ if(regions.length) render(); });
+init();
+</script>
+</body></html>
