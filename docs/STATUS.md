@@ -42,4 +42,5 @@ There are two tracks in this repo:
 - **Always `git push`** after committing — a Railway service can't deploy commits that are only local. (We lost time because 5 commits were committed but not pushed.)
 - **Railway staged vars** — adding a var only stages it; click "Apply changes / Deploy". A plain redeploy doesn't apply it. Prefer a **code default** for non-secret config (e.g. `ATLAS_TOOL_URL`) so deploys don't depend on the dashboard.
 - **Cloudflare blocks `Python-urllib` UA with 403** — always send a custom User-Agent to ComfyUI.
+- **Windows trailing-dot folders** — Windows silently strips a trailing `.` from directory names, so a folder named `symbols.` behaves as `symbols` locally but NOT on Linux/R2. Manifest ref paths like `refs/atlasslices/symbols./x.png` resolved locally but broke in the cloud ("no ref"). Fixed by normalizing path segments in the R2 manifests (`services/atlas-tool/fix_manifest_paths.py`). Watch for this on any Windows-sourced data.
 - When something "isn't working" on a deployed service, **verify what the runtime actually sees** (a throwaway diagnostic) instead of guessing or re-checking config.
