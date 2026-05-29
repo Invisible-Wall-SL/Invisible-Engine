@@ -44,4 +44,14 @@ export const ENV = {
 	get ATLAS_STYLE_REF_KEY() {
 		return env.ATLAS_STYLE_REF_KEY ?? 'spines/hotfruits/loader/loader.png';
 	},
+	// Atlas Maker (cloud Python tool) — the re-hosted ui_server, embedded in
+	// /atlas behind the launcher. URL of the atlas-tool Railway service; the
+	// optional shared secret is appended as ?k= so the tool's gate lets the
+	// authenticated iframe through.
+	get ATLAS_TOOL_URL() {
+		return env.ATLAS_TOOL_URL ?? '';
+	},
+	get ATLAS_TOOL_SECRET() {
+		return env.ATLAS_TOOL_SECRET ?? '';
+	},
 };
