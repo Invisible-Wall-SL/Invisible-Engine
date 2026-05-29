@@ -1,4 +1,9 @@
-import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+	GetObjectCommand,
+	HeadObjectCommand,
+	PutObjectCommand,
+	S3Client,
+} from '@aws-sdk/client-s3';
 import { ENV } from './env';
 
 let client: S3Client | null = null;
@@ -33,6 +38,21 @@ export async function getObjectBytes(
 export async function getObjectText(key: string): Promise<string | null> {
 	const obj = await getObjectBytes(key);
 	return obj ? new TextDecoder().decode(obj.body) : null;
+}
+
+export async function putObjectText(
+	key: string,
+	text: string,
+	contentType = 'application/octet-stream',
+): Promise<void> {
+	await s3().send(
+		new PutObjectCommand({
+			Bucket: ENV.R2_BUCKET,
+			Key: key,
+			Body: text,
+			ContentType: contentType,
+		}),
+	);
 }
 
 export async function objectExists(key: string): Promise<boolean> {

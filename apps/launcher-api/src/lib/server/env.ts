@@ -68,4 +68,10 @@ export const ENV = {
 	get SHEET_TOOL_SECRET() {
 		return env.SHEET_TOOL_SECRET ?? '';
 	},
+	// Invisible Localization — Claude (Anthropic) API key for auto-translation.
+	// Secret: no code default. When empty the tool still loads; the `translate`
+	// action returns a clear error instead of calling the API.
+	get ANTHROPIC_API_KEY() {
+		return env.ANTHROPIC_API_KEY ?? '';
+	},
 };
