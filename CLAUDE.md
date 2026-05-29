@@ -117,7 +117,14 @@ At the start of each session:
     bet-multipliers), not absolute amounts
 - Verified end-to-end: correct symbols, correct math, correct round flow
 
-**Phase 3 — TBD.** See "Next steps" below.
+**Phase 3 — Studio platform + cloud pipeline tools:** 🚧 in progress (as of 2026-05-29)
+- **`apps/launcher-api`** — SvelteKit (adapter-node) launcher/portal on Railway, live at **app.invisiblewall.org**. Invite-only email+password auth (scrypt) + sessions in Postgres/Drizzle, roles, per-role tool manifest, full-bleed tool pages (no nav menu). `/spine` = Spine Viewer hosted fully from R2 (DONE). `/atlas` = online Atlas Maker UI (minimal stub for now).
+- **`services/atlas-backend`** — FastAPI (Python) generation service on Railway. Drives the user's LOCAL ComfyUI over a Cloudflare named tunnel (`comfy.invisiblewall.org`, protected by Cloudflare Access service token). Ported from `Invisible_Pipeline/tools/Invisible Atlas Maker`: `/generate-region` (SDXL), `/slice`, `/compose`. Assets/manifests in Cloudflare R2 (bucket `invisibleassets`).
+- **Infra:** DNS on Cloudflare; Railway (launcher + atlas-backend + Postgres); R2 (shared asset repo); Cloudflare Tunnel → local ComfyUI (RTX 4070) — only ComfyUI stays local, everything else is cloud.
+
+> **For the full live state + exact next steps, read the memory file `project_invisible_pipeline_tools.md`** (auto-loaded). It has the current blocker, service URLs, and the ordered to-do (finish Access fix, remove /debug/access, build the full Atlas UI, port FLUX/gpt pipelines, security cleanup, launcher cleanup). Related memory: `project_pipeline_infra`, `project_studio_platform`, `feedback_launcher_ux`, `feedback_auth_password`.
+
+(Phase 1 & 2 below were the RGS-translator work; Phase 3 is the separate Studio/launcher initiative.)
 
 ## Comm Translator (rgs-translator-eagaming → Play4Fun protocol)
 
