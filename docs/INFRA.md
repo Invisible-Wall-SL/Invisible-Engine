@@ -44,6 +44,22 @@
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
 
+### B3 — Launcher / Postgres dedup verdict (2026-05-29)
+
+**Verdict: NOT a duplicate launcher or DB. It is ONE launcher service with multiple public domains.** Users/sessions are NOT split.
+
+Evidence (non-dashboard probes):
+- `app.invisiblewall.org` CNAMEs to `e6hl5cnp.up.railway.app` (the launcher service's generated domain) — *not* to either `invisible-engine-*` name.
+- `invisible-engine-production.up.railway.app` **and** `invisible-engine-atlas-tool.up.railway.app` both return byte-identical launcher HTML (`<title>Invisible Wall — Launcher</title>`), same `X-Railway-Edge: europe-west4-drams3a`. They are two domains attached to the **same** launcher service. The `…-atlas-tool` name is a historical artifact (the service/domain was named before the python tool got its own service); it does NOT serve the python atlas-tool.
+- The real python services answer on their own domains: atlas-backend = `…-50e8` (FastAPI, `{"detail":"Not Found"}` at `/`), atlas-tool = `…-0060` (`<title>Invisible Atlas Maker…`). So the confusingly-named launcher domain is unrelated to the actual atlas-tool service.
+- Code uses a **single** `DATABASE_URL` (one Postgres) everywhere (`apps/launcher-api/src/lib/server/db/index.ts`, `env.ts`, `drizzle.config.ts`, `scripts/seed.mjs`). There is no second DB reference. Sessions therefore cannot be split by a duplicate DB.
+
+**User confirm/retire steps (Railway dashboard):**
+1. Open the `Invisible launcher` project → the launcher service → **Settings → Networking / Domains**. Confirm BOTH `invisible-engine-production.up.railway.app` and `invisible-engine-atlas-tool.up.railway.app` are listed **under that one service** (expected). If so, there is no duplicate to retire — just an extra domain.
+2. Check **Services** list in the project: confirm there is exactly ONE launcher service (SvelteKit/Node) and ONE Postgres. (atlas-backend/atlas-tool live in their OWN Railway projects, not here.)
+3. To tidy the misleading domain: in the launcher service's Domains, **Remove** `invisible-engine-atlas-tool.up.railway.app`. Keep `app.invisiblewall.org` (the canonical public URL, set as `ORIGIN`) and optionally the `invisible-engine-production…` generated domain. Removing a generated domain is non-destructive (no redeploy of the other domains needed) — but first confirm nothing is hardcoded to point at it (grep the repo: only `docs/INFRA.md` mentions it).
+4. If step 1 ever shows the `…-atlas-tool` domain attached to a *different* service than the launcher, STOP and re-investigate before removing — but all observable evidence says it's the same service. **Do not delete any service.**
+
 > ⚠️ **Railway gotcha (cost us hours):** adding an env var only **stages** it; you must click the **"Apply changes / Deploy"** banner. A plain "Redeploy" does NOT apply staged vars. When a var "isn't working", verify what the *runtime* actually sees rather than re-checking the dashboard. For launcher tool URLs we now keep a **code default** (`env.ts`) so it works regardless.
 
 ## ComfyUI tunnel (the ONLY local piece)
@@ -73,7 +89,20 @@ All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **au
 - Zone `invisiblewall.org` on Cloudflare. `www`/`app` = CNAME → Railway, **DNS-only (grey cloud)** — proxying breaks Railway TLS.
 - `comfy` = the named tunnel (proxied/orange, behind Access).
 
-## Security debts (rotate / clean — see docs/STATUS.md)
+## Security / secret rotation
 
-- `comfy_org_api_key` is committed in the `Invisible_Pipeline` repo's `atlas_config.json` → **scrub + rotate**.
-- R2 token, Postgres password, and the CF Access service-token secret were pasted in chat during setup → **rotate**.
+All values below were exposed (committed and/or pasted in chat during setup) and **must be rotated**. Rotation is the real fix — it invalidates the leaked value. (History-scrubbing is optional and the user's call; do NOT force-push as part of this.) Never paste the new values into any doc or commit.
+
+### B9.1 — `comfy_org_api_key` (DONE in working tree, ROTATION still owed)
+- **What was changed (2026-05-29):** in the separate `Invisible_Pipeline` repo, `tools/Invisible Atlas Maker/atlas_config.json` had the live key value (a `comfyui-…` token, now removed). The value was replaced with `""` plus a `_comfy_org_api_key_note` pointing to the `COMFY_ORG_API_KEY` env var. Code already reads env-first (`batch_atlas.py:comfy_org_api_key()` → `os.environ.get("COMFY_ORG_API_KEY") or config`), so the empty value is safe. Added `.gitignore` entries (`atlas_config.local.json`, `*.secret.json`, `.env*`) in that repo for future local secret files. The scrubbed `atlas_config.json` stays tracked (it holds non-secret config) but now carries no secret.
+- **User must:** (a) **Rotate** at `platform.comfy.org` → API Keys → revoke the leaked key, create a new one. (b) Set the new key as `COMFY_ORG_API_KEY` env var wherever gpt_image runs: locally for the desktop Atlas Maker, and on Railway **atlas-backend** + **atlas-tool** services (Variables → add → Apply changes/Deploy). (c) Commit the scrubbed `atlas_config.json` + `.gitignore` in the `Invisible_Pipeline` repo. (d) Optional: history-scrub the old value (`git filter-repo`/BFG) — only the user should decide this.
+
+### B9.2 — Rotation checklist for setup-time secrets
+
+| Secret | Lives in | How to rotate | Redeploy after |
+|---|---|---|---|
+| **R2 access token** (Access Key ID + Secret; one ID started `a6f88a7d…`) | Cloudflare R2 → **Manage R2 API Tokens**. Used as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` on Railway **launcher**, **atlas-backend**, **atlas-tool**. | Cloudflare dashboard → R2 → API Tokens → create a NEW token (scoped to bucket `invisibleassets`, read+write) → delete the old token. | Update `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` on all three Railway services → click **Apply changes / Deploy** on each (a plain redeploy does NOT apply staged vars). |
+| **Postgres password** | Inside `DATABASE_URL` on the Railway **launcher** service (Postgres lives in the `Invisible launcher` project). | Easiest: Railway Postgres service → **Variables** → rotate `PGPASSWORD`/regenerate credentials (or via `psql`: `ALTER USER … WITH PASSWORD …`). Railway exposes a reference `DATABASE_URL`; if you set it manually, update it. | Redeploy the **launcher** so it reconnects with the new `DATABASE_URL` → **Apply changes / Deploy**. Re-run `scripts/seed.mjs` only if needed (data unaffected). |
+| **CF Access service-token secret** (`CF-Access-Client-Secret`; Client ID `bb044437409520caf86021625f8553e5.access` is non-secret) | Cloudflare **Zero Trust → Access → Service Auth** (the token in front of `comfy.invisiblewall.org`). Used as `CF_ACCESS_CLIENT_SECRET` on Railway **atlas-backend** + **atlas-tool**. | Zero Trust → Access → Service Auth → **Rotate/Regenerate** the service token (or create a new one and update the Access policy to allow it, then delete the old). | Update `CF_ACCESS_CLIENT_ID` (if it changed) + `CF_ACCESS_CLIENT_SECRET` on **atlas-backend** and **atlas-tool** → **Apply changes / Deploy** on each. Verify with `curl -H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …" https://comfy.invisiblewall.org/system_stats`. |
+
+> After every rotation, **verify the runtime** (not just the dashboard): probe the live URL / a no-secret diagnostic to confirm the new value took, then remove the diagnostic.
