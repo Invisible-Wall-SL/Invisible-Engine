@@ -58,8 +58,11 @@ packages/e2e/math-testing/*/*.png
 packages/e2e/math-testing/*/*.txt
 packages/e2e/math-testing/__pycache__/*
 
-# Claude Code worktrees / runtime state
-.claude/
+# Claude Code: ignore personal/runtime state, but SHARE agents/skills/commands.
+.claude/*
+!.claude/agents/
+!.claude/skills/
+!.claude/commands/
 
 # EAGaming probe captures (may contain session data)
 probe-output/

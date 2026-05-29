@@ -1,5 +1,21 @@
 # Invisible Engine — Claude Working Guide
 
+## ⭐ Start here (read these first)
+Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
+- **`docs/ONBOARDING.md`** — setup, how to run things, where code lives.
+- **`docs/INFRA.md`** — cloud services, URLs, env vars, the ComfyUI tunnel, R2, DNS.
+- **`docs/STATUS.md`** — current state + roadmap (esp. the unfinished pipeline) + lessons learned.
+- Per-area guides: `apps/launcher-api/CLAUDE.md`, `services/atlas-tool/CLAUDE.md`.
+- Claude helpers: subagents in `.claude/agents/` (engine-pixi-svelte, atlas-python-tools, infra-railway, code-reviewer), skill `/deploy`.
+
+### Hard rules (non-negotiable)
+1. **Never commit secrets.** A pre-commit hook (`scripts/check-secrets.mjs`) blocks them; enable it once per clone: `git config core.hooksPath scripts/git-hooks`. Secrets live in env vars only.
+2. **Always `git push` after committing** — Railway auto-deploys from `main`; an unpushed commit does nothing. (This wasted hours once.)
+3. **Tools are full-page — never iframes** (redirect or same-origin serve).
+4. **Engine changes go on `main`** via feature branches — never per-game engine branches. Don't dismantle the Turborepo/pnpm-workspace structure.
+5. **`pnpm` only** (10.5.0), Node ≥ 22.16.0. TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols. No dead code, no noise comments.
+6. **When you finish meaningful work, update `docs/STATUS.md`** so the next person/session inherits the context.
+
 ## Role
 You are a **Frontend Framework Developer** acting as the technical lead on this project.
 - Expert in **PixiJS 8** (rendering, filters, spine animations, particle emitters, WebGL)
@@ -83,8 +99,10 @@ pnpm storybook    # Storybook on port 6001
 At the start of each session:
 1. Run `git log --oneline -10` to orient on recent work
 2. Check `git status` for any in-progress changes
-3. Review memory files for project context
+3. Read **`docs/STATUS.md`** (shared, in-repo project state) for where things stand
 4. Summarise where things stand before starting new work
+
+When you finish meaningful work, **update `docs/STATUS.md`** (and `docs/INFRA.md` if infra changed) so the context persists for the team — these committed docs are the shared memory, not any personal/auto memory.
 
 ## PixiJS 8 Notes
 - Use `new Application()` with `await app.init({...})` (async init — breaking change from v7)

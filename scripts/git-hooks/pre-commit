@@ -1,0 +1,5 @@
+#!/bin/sh
+# Shared pre-commit hook. Enable once per clone:
+#   git config core.hooksPath scripts/git-hooks
+# Blocks commits that contain likely secrets.
+node scripts/check-secrets.mjs || exit 1
