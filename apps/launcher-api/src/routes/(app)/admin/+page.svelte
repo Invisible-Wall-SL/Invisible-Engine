@@ -67,15 +67,30 @@
 	}
 
 	// A user's project access for the UI: admins implicitly get every project;
-	// everyone always has the default; grants come from user_project_access.
+	// everyone always has the default; access comes from user_project_access OR
+	// an owning-client grant (user_client_access).
 	function projectState(
 		userId: string,
 		role: string,
 		projectKey: string,
-	): 'implicit' | 'granted' | 'none' {
+	): 'implicit' | 'granted' | 'via-client' | 'none' {
 		if (role === 'admin') return 'implicit';
 		if (projectKey === data.defaultProjectKey) return 'implicit';
-		return (data.projectAccess[userId] ?? []).includes(projectKey) ? 'granted' : 'none';
+		if ((data.projectAccess[userId] ?? []).includes(projectKey)) return 'granted';
+		const project = data.projects.find((p) => p.key === projectKey);
+		if (project?.clientKey && (data.clientAccess[userId] ?? []).includes(project.clientKey)) {
+			return 'via-client';
+		}
+		return 'none';
+	}
+
+	function clientGranted(userId: string, clientKey: string): boolean {
+		return (data.clientAccess[userId] ?? []).includes(clientKey);
+	}
+
+	function clientNameFor(clientKey: string | null): string {
+		if (!clientKey) return '—';
+		return data.clients.find((c) => c.key === clientKey)?.name ?? clientKey;
 	}
 </script>
 
@@ -127,6 +142,37 @@
 	</section>
 
 	<section>
+		<h2>Clients</h2>
+		<p class="muted hint">
+			Clients group projects. Granting a user a client (in the per-user panel below) grants access to
+			every project owned by that client.
+		</p>
+		<div class="projects">
+			{#each data.clients as c (c.key)}
+				<div class="project-row">
+					<span class="mono key">{c.key}</span>
+					<form method="POST" action="?/renameClient" use:enhance class="rename">
+						<input type="hidden" name="key" value={c.key} />
+						<input name="name" type="text" value={c.name} autocomplete="off" />
+						<button type="submit">Rename</button>
+					</form>
+					<form method="POST" action="?/deleteClient" use:enhance>
+						<input type="hidden" name="key" value={c.key} />
+						<button type="submit" class="danger small">Delete</button>
+					</form>
+				</div>
+			{:else}
+				<p class="muted">No clients yet.</p>
+			{/each}
+			<form method="POST" action="?/createClient" use:enhance class="project-row create">
+				<input name="key" type="text" placeholder="key (e.g. borut)" autocomplete="off" required />
+				<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
+				<button type="submit">Create client</button>
+			</form>
+		</div>
+	</section>
+
+	<section>
 		<h2>Projects</h2>
 		<div class="projects">
 			{#each data.projects as p (p.key)}
@@ -136,6 +182,19 @@
 						<input type="hidden" name="key" value={p.key} />
 						<input name="name" type="text" value={p.name} autocomplete="off" />
 						<button type="submit">Rename</button>
+					</form>
+					<form method="POST" action="?/assignProjectClient" use:enhance class="assign">
+						<input type="hidden" name="projectKey" value={p.key} />
+						<select
+							name="clientKey"
+							value={p.clientKey ?? ''}
+							onchange={(e) => e.currentTarget.form?.requestSubmit()}
+						>
+							<option value="">— no client —</option>
+							{#each data.clients as c (c.key)}
+								<option value={c.key}>{c.name}</option>
+							{/each}
+						</select>
 					</form>
 					{#if p.key === data.defaultProjectKey}
 						<span class="pill on">default</span>
@@ -320,6 +379,36 @@
 					</form>
 				{/if}
 
+				<h4>Client access</h4>
+				{#if selected.role === 'admin'}
+					<p class="muted">Admins can access every client and project.</p>
+				{:else if data.clients.length === 0}
+					<p class="muted">No clients yet.</p>
+				{:else}
+					<div class="tools">
+						{#each data.clients as c (c.key)}
+							{@const granted = clientGranted(selected.id, c.key)}
+							<div class="tool-row">
+								<span class="tool-name">
+									{c.name}
+									<em class="muted">{c.key}</em>
+								</span>
+								<span class={granted ? 'pill on' : 'muted'}>
+									{granted ? 'granted' : 'no access'}
+								</span>
+								<form method="POST" action="?/setClientAccess" use:enhance>
+									<input type="hidden" name="userId" value={selected.id} />
+									<input type="hidden" name="clientKey" value={c.key} />
+									<input type="hidden" name="grant" value={(!granted).toString()} />
+									<button type="submit" class={granted ? 'danger' : ''}>
+										{granted ? 'Revoke' : 'Grant'}
+									</button>
+								</form>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
 				<h4>Project access</h4>
 				{#if selected.role === 'admin'}
 					<p class="muted">Admins can access every project.</p>
@@ -330,10 +419,13 @@
 							<div class="tool-row">
 								<span class="tool-name">
 									{p.name}
-									<em class="muted">{p.key}</em>
+									<em class="muted">{p.key} · {clientNameFor(p.clientKey)}</em>
 								</span>
 								{#if state === 'implicit'}
 									<span class="muted">always available</span>
+									<span></span>
+								{:else if state === 'via-client'}
+									<span class="pill on">via client</span>
 									<span></span>
 								{:else}
 									<span class={state === 'granted' ? 'pill on' : 'muted'}>
@@ -680,6 +772,9 @@
 	}
 	.rename input {
 		flex: 1;
+	}
+	.assign select {
+		min-width: 160px;
 	}
 	.project-row.create {
 		border-top: 1px solid #1d1d24;

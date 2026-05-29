@@ -15,10 +15,19 @@ export const users = pgTable('users', {
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Client registry. A client groups projects (launcher-side organization only). */
+export const clients = pgTable('clients', {
+	key: text('key').primaryKey(),
+	name: text('name').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Project registry. `cloud` is the default project (seeded). */
 export const projects = pgTable('projects', {
 	key: text('key').primaryKey(),
 	name: text('name').notNull(),
+	/** Owning client; null = unassigned (the default `cloud` and legacy projects). */
+	clientKey: text('client_key').references(() => clients.key, { onDelete: 'set null' }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -50,6 +59,24 @@ export const userProjectAccess = pgTable(
 			.references(() => projects.key, { onDelete: 'cascade' }),
 	},
 	(table) => [primaryKey({ columns: [table.userId, table.projectKey] })],
+);
+
+/**
+ * Per-user client grants. A row grants `userId` access to every project owned by
+ * `clientKey`. Resolved as a union with the per-project `user_project_access`
+ * grants and the always-available default `cloud` project.
+ */
+export const userClientAccess = pgTable(
+	'user_client_access',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		clientKey: text('client_key')
+			.notNull()
+			.references(() => clients.key, { onDelete: 'cascade' }),
+	},
+	(table) => [primaryKey({ columns: [table.userId, table.clientKey] })],
 );
 
 /** Per-user local-tool install paths, keyed by (userId, toolKey). */
@@ -109,3 +136,5 @@ export type UserToolAccess = typeof userToolAccess.$inferSelect;
 export type RoleToolAccess = typeof roleToolAccess.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type UserProjectAccess = typeof userProjectAccess.$inferSelect;
+export type Client = typeof clients.$inferSelect;
+export type UserClientAccess = typeof userClientAccess.$inferSelect;

@@ -42,6 +42,18 @@ import {
 	renameProject,
 	revokeProjectAccess,
 } from '$lib/server/projects';
+import {
+	assignProjectToClient,
+	clientAccessFor,
+	clientExists,
+	createClient,
+	deleteClient,
+	grantClientAccess,
+	isValidClientKey,
+	listClients,
+	renameClient,
+	revokeClientAccess,
+} from '$lib/server/clients';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -76,6 +88,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const roleOverrides = await getAllRoleOverrides();
 	const projects = await listProjects();
 	const projectAccess = await projectAccessFor(userList.map((u) => u.id));
+	const clients = await listClients();
+	const clientAccess = await clientAccessFor(userList.map((u) => u.id));
 
 	return {
 		currentUserId: locals.user!.id,
@@ -89,6 +103,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		roleTools: ROLE_TOOLS,
 		projects,
 		projectAccess,
+		clients,
+		clientAccess,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 	};
 };
@@ -318,6 +334,93 @@ export const actions: Actions = {
 		if (grant) await grantProjectAccess(userId, projectKey);
 		else await revokeProjectAccess(userId, projectKey);
 		return { action: 'setProjectAccess', ok: 'Project access updated.' };
+	},
+
+	createClient: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '')
+			.toLowerCase()
+			.trim();
+		const name = String(data.get('name') ?? '').trim();
+
+		if (!isValidClientKey(key)) {
+			return fail(400, {
+				action: 'createClient',
+				error: 'Key must match a-z, 0-9, _ or - (max 64).',
+			});
+		}
+		if (!name) return fail(400, { action: 'createClient', error: 'Name is required.' });
+		if (await clientExists(key)) {
+			return fail(400, { action: 'createClient', error: 'A client with that key exists.' });
+		}
+
+		await createClient(key, name);
+		return { action: 'createClient', ok: `Created client ${key}.` };
+	},
+
+	renameClient: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const name = String(data.get('name') ?? '').trim();
+
+		if (!name) return fail(400, { action: 'renameClient', error: 'Name is required.' });
+		if (!(await clientExists(key))) {
+			return fail(400, { action: 'renameClient', error: 'Unknown client.' });
+		}
+
+		await renameClient(key, name);
+		return { action: 'renameClient', ok: 'Client renamed.' };
+	},
+
+	deleteClient: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+
+		if (!(await clientExists(key))) {
+			return fail(400, { action: 'deleteClient', error: 'Unknown client.' });
+		}
+
+		// Grants cascade; owned projects unassign via ON DELETE SET NULL.
+		await deleteClient(key);
+		return { action: 'deleteClient', ok: 'Client deleted.' };
+	},
+
+	assignProjectClient: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const projectKey = String(data.get('projectKey') ?? '');
+		const raw = String(data.get('clientKey') ?? '');
+		const clientKey = raw === '' ? null : raw;
+
+		if (!(await projectExists(projectKey))) {
+			return fail(400, { action: 'assignProjectClient', error: 'Unknown project.' });
+		}
+		if (clientKey !== null && !(await clientExists(clientKey))) {
+			return fail(400, { action: 'assignProjectClient', error: 'Unknown client.' });
+		}
+
+		await assignProjectToClient(projectKey, clientKey);
+		return { action: 'assignProjectClient', ok: 'Project client updated.' };
+	},
+
+	setClientAccess: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const clientKey = String(data.get('clientKey') ?? '');
+		const grant = data.get('grant') === 'true';
+
+		if (!userId) return fail(400, { action: 'setClientAccess', error: 'Missing user.' });
+		if (!(await clientExists(clientKey))) {
+			return fail(400, { action: 'setClientAccess', error: 'Unknown client.' });
+		}
+
+		if (grant) await grantClientAccess(userId, clientKey);
+		else await revokeClientAccess(userId, clientKey);
+		return { action: 'setClientAccess', ok: 'Client access updated.' };
 	},
 
 	revokeSession: async ({ request, locals }) => {

@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, manifestForRole, roleHasCapability } from '$lib/roles';
 import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
+import { listClients } from '$lib/server/clients';
 import {
 	DEFAULT_PROJECT_KEY,
 	accessibleProjects,
@@ -17,7 +18,18 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
-	const projects = await accessibleProjects(locals.user.id, locals.user.role);
+	const accessible = await accessibleProjects(locals.user.id, locals.user.role);
+	const clients = await listClients();
+	const clientNames = new Map(clients.map((c) => [c.key, c.name]));
+
+	// Annotate each accessible project with its client's display name so the
+	// header selector can group projects under <optgroup>s.
+	const projects = accessible.map((p) => ({
+		key: p.key,
+		name: p.name,
+		clientKey: p.clientKey,
+		clientName: p.clientKey ? (clientNames.get(p.clientKey) ?? null) : null,
+	}));
 
 	// Resolve the session's active project; fall back to the default when unset
 	// or no longer accessible (e.g. the project was deleted or access revoked).

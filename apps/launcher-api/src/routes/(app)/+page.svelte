@@ -7,6 +7,29 @@
 
 	const online = $derived(data.tools.filter((t) => t.kind === 'online'));
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
+
+	type SelectorProject = (typeof data.projects)[number];
+
+	// Group the project selector by client: a leading "Unassigned" group for
+	// projects with no client, then one <optgroup> per client (alphabetical).
+	const projectGroups = $derived.by(() => {
+		const unassigned: SelectorProject[] = [];
+		const byClient = new Map<string, { name: string; projects: SelectorProject[] }>();
+		for (const p of data.projects) {
+			if (!p.clientKey) {
+				unassigned.push(p);
+				continue;
+			}
+			const group = byClient.get(p.clientKey) ?? {
+				name: p.clientName ?? p.clientKey,
+				projects: [],
+			};
+			group.projects.push(p);
+			byClient.set(p.clientKey, group);
+		}
+		const grouped = [...byClient.values()].sort((a, b) => a.name.localeCompare(b.name));
+		return { unassigned, grouped };
+	});
 </script>
 
 {#snippet projectSelector()}
@@ -18,8 +41,15 @@
 			value={data.activeProjectKey}
 			onchange={(e) => e.currentTarget.form?.requestSubmit()}
 		>
-			{#each data.projects as p (p.key)}
+			{#each projectGroups.unassigned as p (p.key)}
 				<option value={p.key}>{p.name}</option>
+			{/each}
+			{#each projectGroups.grouped as group (group.name)}
+				<optgroup label={group.name}>
+					{#each group.projects as p (p.key)}
+						<option value={p.key}>{p.name}</option>
+					{/each}
+				</optgroup>
 			{/each}
 		</select>
 	</form>

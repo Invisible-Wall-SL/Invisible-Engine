@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
-import { projects, userProjectAccess } from './db/schema';
+import { projects, userClientAccess, userProjectAccess } from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 
@@ -25,20 +25,32 @@ export async function projectExists(key: string): Promise<boolean> {
 
 /**
  * Projects a user may switch to. Admins get every project; everyone else gets
- * their `user_project_access` grants plus the always-available default `cloud`.
+ * the union of their `user_client_access` grants (every project owned by a
+ * granted client) and their per-project `user_project_access` grants, plus the
+ * always-available default `cloud`.
  */
 export async function accessibleProjects(userId: string, role: Role): Promise<Project[]> {
 	const all = await listProjects();
 	if (role === 'admin') return all;
 
-	const grants = await getDb()
+	const db = getDb();
+	const projectGrants = await db
 		.select({ projectKey: userProjectAccess.projectKey })
 		.from(userProjectAccess)
 		.where(eq(userProjectAccess.userId, userId));
+	const clientGrants = await db
+		.select({ clientKey: userClientAccess.clientKey })
+		.from(userClientAccess)
+		.where(eq(userClientAccess.userId, userId));
 
-	const allowed = new Set(grants.map((g) => g.projectKey));
-	allowed.add(DEFAULT_PROJECT_KEY);
-	return all.filter((p) => allowed.has(p.key));
+	const allowedProjects = new Set(projectGrants.map((g) => g.projectKey));
+	allowedProjects.add(DEFAULT_PROJECT_KEY);
+	const allowedClients = new Set(clientGrants.map((g) => g.clientKey));
+
+	return all.filter(
+		(p) =>
+			allowedProjects.has(p.key) || (p.clientKey !== null && allowedClients.has(p.clientKey)),
+	);
 }
 
 /** True when the user may select/use the given project key. */
