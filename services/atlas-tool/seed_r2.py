@@ -79,7 +79,7 @@ def main() -> None:
         except (ValueError, OSError) as e:
             print(f"[seed] config skipped: {e}")
 
-    print(f"[seed] done → r2:{prefix}  (manifests/atlas={n_man}, refs={n_ref})")
+    print(f"[seed] done -> r2:{prefix}  (manifests/atlas={n_man}, refs={n_ref})")
     print(f"[seed] tool_dir={tool_dir}")
     print(f"[seed] local_input={local_input} (exists={local_input.exists()})")
 
