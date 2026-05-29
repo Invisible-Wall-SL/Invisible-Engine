@@ -57,6 +57,28 @@ MANIFEST_DIR = _PP["manifest_dir"]
 R2_PREFIX = _PP.get("r2_project_prefix")
 CONFIG_PATH = STAGING_ROOT / "atlas_config.json"
 
+# Project-centric mode: the launcher sends `?project=<key>` on the first
+# request. We remember it in a cookie and re-hydrate staging on a switch.
+# Serialised so an interleaved request can't observe half-hydrated staging.
+_project_lock = threading.Lock()
+
+
+def _apply_project_paths(pp: dict) -> None:
+    """Re-point every module-level path at the (possibly new) project. Other
+    functions read these via global lookup at call time, so reassigning the
+    module globals here genuinely redirects all file ops to the new project."""
+    global _PP, BATCH_DIR, ATLAS_DIR, INPUT_DIR, COMFY_HOST
+    global STAGING_ROOT, MANIFEST_DIR, R2_PREFIX, CONFIG_PATH
+    _PP = pp
+    BATCH_DIR = pp["batch_dir"]
+    ATLAS_DIR = pp["atlas_dir"]
+    INPUT_DIR = pp["input_dir"]
+    COMFY_HOST = pp["comfy_host"]
+    STAGING_ROOT = pp["staging_root"]
+    MANIFEST_DIR = pp["manifest_dir"]
+    R2_PREFIX = pp.get("r2_project_prefix")
+    CONFIG_PATH = STAGING_ROOT / "atlas_config.json"
+
 
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
@@ -895,7 +917,13 @@ def _run_cmd(cmd: list[str], total: int) -> None:
     with _render_lock:
         _render_state.update(running=True, log="", done=False, cur=0, total=total)
     try:
-        proc = subprocess.Popen(cmd, cwd=str(SELF), stdout=subprocess.PIPE,
+        # Generation runs as a subprocess that re-resolves the project from
+        # env at its own start — so pass the UI's *current* project through
+        # (IW_PROJECT_NAME wins in cloud_paths.env_project()), else a switched
+        # UI would generate into the env-default project.
+        env = dict(os.environ)
+        env["IW_PROJECT_NAME"] = project_paths.project_name()
+        proc = subprocess.Popen(cmd, cwd=str(SELF), env=env, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
         _render_proc = proc
         for line in proc.stdout:
@@ -2093,6 +2121,10 @@ class Handler(BaseHTTPRequestHandler):
         merged.update(extra_headers or {})
         for k, v in merged.items():
             self.send_header(k, v)
+        # Additional Set-Cookie headers (a dict can't hold two) — e.g. the
+        # project cookie set alongside the gate's secret cookie.
+        for c in getattr(self, "_extra_cookies", None) or ():
+            self.send_header("Set-Cookie", c)
         self.end_headers()
         self.wfile.write(body)
 
@@ -2116,11 +2148,40 @@ class Handler(BaseHTTPRequestHandler):
             }
         return False, None
 
+    def _resolve_project(self) -> None:
+        """Pick + apply the project for THIS request (project-centric mode).
+
+        Resolution order: `?project=` query param → `atlas_project` cookie →
+        env default. A valid `?project=` is remembered in a cookie so in-tool
+        navigation (which drops the param) stays in the same project. On a real
+        switch we re-resolve paths + re-hydrate staging under a lock so an
+        interleaved request never sees half-hydrated staging."""
+        self._extra_cookies = []
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        param = (q.get("project", [""])[0] or "").strip()
+        cookie = self.headers.get("Cookie", "") or ""
+        m = re.search(r"atlas_project=([^;]+)", cookie)
+        cookie_key = (m.group(1).strip() if m else "")
+
+        chosen = (project_paths.valid_project(param)
+                  or project_paths.valid_project(cookie_key)
+                  or project_paths.env_project())
+
+        if param:  # explicit selection → persist so navigation sticks
+            self._extra_cookies.append(
+                f"atlas_project={chosen}; Path=/; SameSite=None; Secure")
+
+        with _project_lock:
+            pp = project_paths.switch_project(chosen)
+            if pp is not None:
+                _apply_project_paths(pp)
+
     def do_GET(self):
         ok, self._set_cookie = self._gate()
         if not ok:
             self._send(403, "text/plain", b"forbidden")
             return
+        self._resolve_project()
         path = urllib.parse.urlparse(self.path).path
         if path == "/":
             # Splash is for the *first* visit (launcher → browser). Subsequent
@@ -2211,6 +2272,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             self._send(403, "text/plain", b"forbidden")
             return
+        self._resolve_project()
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode("utf-8")
         if self.path == "/save":

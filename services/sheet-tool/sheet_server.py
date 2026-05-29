@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,6 +44,24 @@ ATLAS_MANIFEST_PREFIX = _PP.get("atlas_maker_manifest_prefix")
 # Cloud: config lives in the R2-backed staging tree (not the app dir) so user
 # edits survive container restarts.
 CONFIG_PATH = STAGING_ROOT / "sheet_config.json"
+
+# Project-centric mode: the launcher sends `?project=<key>` on the first
+# request. We remember it in a cookie and re-hydrate staging on a switch.
+# Serialised so an interleaved request can't observe half-hydrated staging.
+_project_lock = threading.Lock()
+
+
+def _apply_project_paths(pp: dict) -> None:
+    """Re-point every module-level path at the (possibly new) project. Other
+    functions read these via global lookup at call time (and the path helpers
+    call resolve() fresh), so reassigning the module globals here genuinely
+    redirects all file ops to the new project."""
+    global _PP, STAGING_ROOT, R2_PREFIX, ATLAS_MANIFEST_PREFIX, CONFIG_PATH
+    _PP = pp
+    STAGING_ROOT = pp["staging_root"]
+    R2_PREFIX = pp.get("r2_project_prefix")
+    ATLAS_MANIFEST_PREFIX = pp.get("atlas_maker_manifest_prefix")
+    CONFIG_PATH = STAGING_ROOT / "sheet_config.json"
 
 PORT = int(os.environ.get("PORT", "8766"))
 HOST = os.environ.get("SHEET_BIND_HOST", "0.0.0.0")
@@ -581,6 +600,38 @@ class Handler(BaseHTTPRequestHandler):
         if cookie:
             for k, v in cookie.items():
                 self.send_header(k, v)
+        # Additional Set-Cookie headers (a dict can't hold two) — e.g. the
+        # project cookie set alongside the gate's secret cookie.
+        for c in getattr(self, "_extra_cookies", None) or ():
+            self.send_header("Set-Cookie", c)
+
+    def _resolve_project(self) -> None:
+        """Pick + apply the project for THIS request (project-centric mode).
+
+        Resolution order: `?project=` query param → `sheet_project` cookie →
+        env default. A valid `?project=` is remembered in a cookie so in-tool
+        navigation (which drops the param) stays in the same project. On a real
+        switch we re-resolve paths + re-hydrate staging under a lock so an
+        interleaved request never sees half-hydrated staging."""
+        self._extra_cookies = []
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        param = (q.get("project", [""])[0] or "").strip()
+        cookie = self.headers.get("Cookie", "") or ""
+        m = re.search(r"sheet_project=([^;]+)", cookie)
+        cookie_key = (m.group(1).strip() if m else "")
+
+        chosen = (project_paths.valid_project(param)
+                  or project_paths.valid_project(cookie_key)
+                  or project_paths.env_project())
+
+        if param:  # explicit selection → persist so navigation sticks
+            self._extra_cookies.append(
+                f"sheet_project={chosen}; Path=/; SameSite=None; Secure")
+
+        with _project_lock:
+            pp = project_paths.switch_project(chosen)
+            if pp is not None:
+                _apply_project_paths(pp)
 
     def _body(self) -> bytes:
         n = int(self.headers.get("Content-Length", 0) or 0)
@@ -591,6 +642,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             self._send_bytes(b"forbidden", "text/plain", 403)
             return
+        self._resolve_project()
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         q = urllib.parse.parse_qs(parsed.query)
@@ -630,6 +682,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             self._send_bytes(b"forbidden", "text/plain", 403)
             return
+        self._resolve_project()
         path = urllib.parse.urlparse(self.path).path
         ctype = self.headers.get("Content-Type", "")
         try:

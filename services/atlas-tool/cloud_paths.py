@@ -14,6 +14,7 @@ Extra keys added to resolve(): `comfy_url`, `cf_headers`, `manifest_dir`,
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import storage
@@ -22,15 +23,51 @@ STAGING_BASE = Path(os.environ.get("ATLAS_STAGING", "/tmp/atlas-tool"))
 TOOL_NAMESPACE = "atlas_maker"
 USER_AGENT = "InvisibleAtlas/1.0"  # Cloudflare blocks Python-urllib's default UA
 
+# Shared contract with the launcher: a project key is a slug; "cloud" is the
+# default / pre-existing key.
+PROJECT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def valid_project(key: str | None) -> str | None:
+    """Return the key if it matches the shared slug contract, else None."""
+    if key and PROJECT_SLUG_RE.match(key):
+        return key
+    return None
+
 
 def _safe_proj_name(name: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in (name or "default"))[:60]
 
 
-def project_name() -> str:
+def env_project() -> str:
+    """The default project from env (used until set_project() overrides it)."""
     return (os.environ.get("IW_PROJECT_NAME") or "").strip() or os.environ.get(
         "ATLAS_PROJECT", "cloud"
     )
+
+
+# Current project for this process. Defaults to env; set_project() switches it
+# at runtime (project-centric mode). Kept as module state so every resolve() —
+# and thus every path other modules read — reflects the switch.
+_CURRENT_PROJECT: str = env_project()
+
+
+def project_name() -> str:
+    return _CURRENT_PROJECT
+
+
+def set_project(key: str) -> bool:
+    """Switch the active project at runtime. Idempotent if unchanged.
+
+    Validates against the slug contract (falls back to the env default for an
+    invalid/empty key). Returns True if the project actually changed — the
+    caller should then re-resolve paths and re-hydrate staging."""
+    global _CURRENT_PROJECT
+    chosen = valid_project((key or "").strip()) or env_project()
+    if chosen == _CURRENT_PROJECT:
+        return False
+    _CURRENT_PROJECT = chosen
+    return True
 
 
 def comfy_url() -> str:
@@ -56,15 +93,19 @@ def r2_project_prefix(proj_key: str) -> str:
 _HYDRATED: set[str] = set()
 
 
-def hydrate(proj_key: str, staging_root: Path) -> None:
+def hydrate(proj_key: str, staging_root: Path, force: bool = False) -> None:
     """Pull this project's R2 subtree into staging once per process.
 
     Manifests + config are pulled SYNCHRONOUSLY (a handful of small files — the
     UI needs them to render regions). Refs/outputs (potentially thousands of
     PNGs) are pulled in a BACKGROUND thread so the server starts listening
     immediately instead of blocking boot for minutes (which would trip
-    Railway's healthcheck)."""
-    if proj_key in _HYDRATED:
+    Railway's healthcheck).
+
+    `force=True` (used on a runtime project SWITCH) re-pulls even a project
+    already hydrated this process, so the new project's freshest manifests are
+    in staging before it's served."""
+    if proj_key in _HYDRATED and not force:
         return
     _HYDRATED.add(proj_key)
     base = r2_project_prefix(proj_key)
@@ -128,6 +169,20 @@ def resolve() -> dict:
         "r2_project_prefix": r2_project_prefix(proj_key),
         "staging_root": staging_root,
     }
+
+
+def switch_project(key: str) -> dict | None:
+    """Set the active project and, if it changed, re-hydrate its staging from
+    R2. Returns the fresh resolve() dict on a real switch, else None.
+
+    Resolution/validation lives in set_project(); the caller (request handler)
+    should guard this with its own lock so an interleaved request can't observe
+    half-hydrated staging."""
+    if not set_project(key):
+        return None
+    pp = resolve()  # rebuilds paths/prefix for the new project + mkdir's them
+    hydrate(_safe_proj_name(project_name()), pp["staging_root"], force=True)
+    return pp
 
 
 # Compatibility no-ops for callers that import these from project_paths.
