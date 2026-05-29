@@ -299,17 +299,17 @@
 							<td class:unreviewed={isUnreviewed(entry, lang)}>
 								<div class="cell">
 									<textarea
-										value={cell(entry, lang).text}
+										value={entry.translations[lang]?.text ?? ''}
 										oninput={(e) => editTranslation(entry, lang, e.currentTarget.value)}
 										rows="1"
 										placeholder="—"
 									></textarea>
-									{#if cell(entry, lang).text}
+									{#if entry.translations[lang]?.text}
 										<button
 											class="dot"
-											class:on={cell(entry, lang).reviewed}
-											aria-label={cell(entry, lang).reviewed ? 'Reviewed' : 'Unreviewed'}
-											title={cell(entry, lang).reviewed
+											class:on={entry.translations[lang]?.reviewed}
+											aria-label={entry.translations[lang]?.reviewed ? 'Reviewed' : 'Unreviewed'}
+											title={entry.translations[lang]?.reviewed
 												? 'Reviewed (click to mark unreviewed)'
 												: 'Unreviewed (click to mark reviewed)'}
 											onclick={() => toggleReviewed(entry, lang)}
