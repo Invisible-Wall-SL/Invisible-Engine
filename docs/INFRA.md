@@ -35,30 +35,25 @@
 
 ## Services (Railway)
 
-| Service | Railway project | URL | Stack | Root dir |
-|---|---|---|---|---|
-| **Launcher** | `Invisible launcher` | `app.invisiblewall.org` (also `invisible-engine-production…` / `invisible-engine-atlas-tool…`) | SvelteKit / Node | repo root (`apps/launcher-api` build) |
-| **atlas-backend** | `atlas-backend` | `invisible-engine-production-50e8.up.railway.app` | FastAPI / Python | `/services/atlas-backend` |
-| **atlas-tool** | `atlas-tools` | `invisible-engine-production-0060.up.railway.app` | Python (http.server) | `/services/atlas-tool` |
-| Postgres | `Invisible launcher` | internal | Postgres | — |
+**Consolidated structure (2026-05-30):** ALL services now live in **ONE Railway project**, environment **`production`**, so they can share variables. Service names + domains were cleaned up.
+
+| Service | URL | Stack | Root dir |
+|---|---|---|---|
+| **launcher** (Invisible-Engine) | `app.invisiblewall.org` | SvelteKit / Node (pnpm monorepo) | repo root, build `pnpm --filter launcher-api build` |
+| **atlas-tool** | `atlas-tool-production.up.railway.app` | Python (http.server) | `/services/atlas-tool` (Dockerfile) |
+| **atlas-backend** | `atlas-backend-production-0a70.up.railway.app` | FastAPI / Python | `/services/atlas-backend` (Dockerfile) |
+| **sheet-tool** | `sheet-tool-production.up.railway.app` | Python (http.server) | `/services/sheet-tool` (Dockerfile) |
+| **Postgres** | internal (`postgres.railway.internal`); public proxy on `*.proxy.rlwy.net` | Postgres | — |
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
 
-### B3 — Launcher / Postgres dedup verdict (2026-05-29)
+**⚠️ Launcher build note (monorepo):** the launcher service's **Root Directory must be the repo root** (not `apps/launcher-api`) so Railpack sees `pnpm-lock.yaml` + `packageManager: pnpm@10.5.0` and uses pnpm; with a custom **Install Command** `pnpm install --frozen-lockfile`. If Root Directory is the subdir, Railpack falls back to `npm install` which chokes on `workspace:*`. The launcher's tool-URL env vars also have **code defaults** in `env.ts` pointing at the `*-production` domains, so the launcher works even if a Railway var doesn't apply.
 
-**Verdict: NOT a duplicate launcher or DB. It is ONE launcher service with multiple public domains.** Users/sessions are NOT split.
+### Shared Variables (define once per environment, reference with `${{shared.NAME}}`)
+Set at project → Settings → Shared Variables (environment `production`), referenced by each service. Shared: `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`. Per-service (not shared): launcher URLs (`ATLAS_TOOL_URL`/`ATLAS_BACKEND_URL`/`SHEET_TOOL_URL`/`ORIGIN`/`DATABASE_URL`), `ATLAS_PROJECT`/`ATLAS_OUTPUT_PREFIX`/`ATLAS_STAGING`, `SHEET_PROJECT`/`SHEET_STAGING`, `DEFAULT_CKPT`. `PORT` is injected by Railway — never set it.
 
-Evidence (non-dashboard probes):
-- `app.invisiblewall.org` CNAMEs to `e6hl5cnp.up.railway.app` (the launcher service's generated domain) — *not* to either `invisible-engine-*` name.
-- `invisible-engine-production.up.railway.app` **and** `invisible-engine-atlas-tool.up.railway.app` both return byte-identical launcher HTML (`<title>Invisible Wall — Launcher</title>`), same `X-Railway-Edge: europe-west4-drams3a`. They are two domains attached to the **same** launcher service. The `…-atlas-tool` name is a historical artifact (the service/domain was named before the python tool got its own service); it does NOT serve the python atlas-tool.
-- The real python services answer on their own domains: atlas-backend = `…-50e8` (FastAPI, `{"detail":"Not Found"}` at `/`), atlas-tool = `…-0060` (`<title>Invisible Atlas Maker…`). So the confusingly-named launcher domain is unrelated to the actual atlas-tool service.
-- Code uses a **single** `DATABASE_URL` (one Postgres) everywhere (`apps/launcher-api/src/lib/server/db/index.ts`, `env.ts`, `drizzle.config.ts`, `scripts/seed.mjs`). There is no second DB reference. Sessions therefore cannot be split by a duplicate DB.
-
-**User confirm/retire steps (Railway dashboard):**
-1. Open the `Invisible launcher` project → the launcher service → **Settings → Networking / Domains**. Confirm BOTH `invisible-engine-production.up.railway.app` and `invisible-engine-atlas-tool.up.railway.app` are listed **under that one service** (expected). If so, there is no duplicate to retire — just an extra domain.
-2. Check **Services** list in the project: confirm there is exactly ONE launcher service (SvelteKit/Node) and ONE Postgres. (atlas-backend/atlas-tool live in their OWN Railway projects, not here.)
-3. To tidy the misleading domain: in the launcher service's Domains, **Remove** `invisible-engine-atlas-tool.up.railway.app`. Keep `app.invisiblewall.org` (the canonical public URL, set as `ORIGIN`) and optionally the `invisible-engine-production…` generated domain. Removing a generated domain is non-destructive (no redeploy of the other domains needed) — but first confirm nothing is hardcoded to point at it (grep the repo: only `docs/INFRA.md` mentions it).
-4. If step 1 ever shows the `…-atlas-tool` domain attached to a *different* service than the launcher, STOP and re-investigate before removing — but all observable evidence says it's the same service. **Do not delete any service.**
+### Railway environments — history (resolved)
+There were briefly **two environments** (`production` + a stray `atlas`), each with its OWN Postgres — this caused a prod outage on 2026-05-30 when a migration was applied to the wrong env's DB, then a wrong-environment confusion. The stray `atlas` environment was **deleted**; only `production` remains. **LESSON:** a Railway *environment* is a full separate copy incl. its own Postgres → always confirm you're on `production` before migrating, and apply schema migrations to the production DB **before** deploying schema-dependent code (else authed requests 500).
 
 > ⚠️ **Railway gotcha (cost us hours):** adding an env var only **stages** it; you must click the **"Apply changes / Deploy"** banner. A plain "Redeploy" does NOT apply staged vars. When a var "isn't working", verify what the *runtime* actually sees rather than re-checking the dashboard. For launcher tool URLs we now keep a **code default** (`env.ts`) so it works regardless.
 
