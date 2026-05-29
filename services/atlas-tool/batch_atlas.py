@@ -797,10 +797,11 @@ def build_workflow_gpt(region: dict, style: dict) -> dict:
         background = "opaque"
         rembg = _truthy(region.get("gpt_rembg"), True)
     elif rembg and background == "transparent":
-        # GPT 'transparent' emits an RGBA image; the RMBG node only accepts
-        # RGB (3-channel) and dies with a 4-vs-3 tensor mismatch. RMBG makes
-        # the cutout anyway, so feed it an opaque RGB image.
-        background = "opaque"
+        # GPT 'transparent' (gpt-image-1) ALREADY returns an alpha-cut RGBA — the
+        # downstream RMBG pass is redundant, and it would need an extra
+        # 'Images to RGB' flatten node (custom pack) that isn't always installed.
+        # Skip rembg and let GPT's transparent output be the saved result.
+        rembg = False
 
     gpt_inputs = {
         "prompt": prompt,
