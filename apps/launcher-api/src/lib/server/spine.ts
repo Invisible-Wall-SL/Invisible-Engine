@@ -8,7 +8,7 @@ export const SPINE_PREFIX = 'spines/hotfruits';
 export function requireSpineAccess(locals: App.Locals): void {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	if (!roleHasTool(locals.user.role, 'spineViewer')) {
-		throw error(403, 'Your role does not have access to the Spine Viewer.');
+		throw error(403, 'Your role does not have access to the Invisible Spine Viewer.');
 	}
 }
 

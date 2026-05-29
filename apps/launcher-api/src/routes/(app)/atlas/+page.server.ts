@@ -6,7 +6,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	if (!roleHasTool(locals.user.role, 'atlasTool')) {
-		throw error(403, 'Your role does not have access to the Atlas Maker.');
+		throw error(403, 'Your role does not have access to the Invisible Atlas Maker.');
 	}
 
 	// Full-page, no iframe: send the authenticated user straight to the tool.

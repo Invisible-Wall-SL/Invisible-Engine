@@ -1,8 +1,11 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import { enhance } from '$app/forms';
+	import type { PageData, ActionData } from './$types';
+	import type { ToolDef } from '$lib/roles';
+	import { toolDocPath } from '$lib/roles';
 	import Emblem from '$lib/Emblem.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const online = $derived(data.tools.filter((t) => t.kind === 'online'));
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
@@ -13,7 +16,21 @@
 		artist: 'You create and refine game art with the Atlas tools and ComfyUI.',
 		animator: 'You work on Spine skeletons and animations.',
 	};
+
+	type Step = { n: number; label: string };
+	const steps: Step[] = $derived(
+		[
+			{ n: 1, label: 'How the studio works' },
+			online.length ? { n: 2, label: 'Your online tools' } : null,
+			local.length ? { n: 3, label: 'Install your local tools' } : null,
+			{ n: 4, label: 'Where to get help' },
+		].filter((s): s is Step => s !== null),
+	);
 </script>
+
+{#snippet docLink(tool: ToolDef)}
+	<a class="doc" href={`/${toolDocPath(tool.id)}`}>Read the {tool.name} guide</a>
+{/snippet}
 
 <svelte:head><title>Getting started — Invisible Wall</title></svelte:head>
 
@@ -23,57 +40,120 @@
 		<a class="ghost" href="/">‹ Launcher</a>
 	</header>
 
-	<h1>Welcome{data.user.name ? `, ${data.user.name}` : ''} 👋</h1>
+	<h1>Welcome{data.user.name ? `, ${data.user.name}` : ''}</h1>
 	<p class="lead">
 		You're signed in as <span class="role">{data.user.role}</span>.
 		{roleBlurb[data.user.role] ?? ''}
 	</p>
 
-	<section>
-		<h2>How it works</h2>
+	<nav class="toc">
+		<span class="toc-label">This walkthrough</span>
+		<ol>
+			{#each steps as step (step.n)}
+				<li><a href={`#step-${step.n}`}>{step.label}</a></li>
+			{/each}
+		</ol>
+	</nav>
+
+	<section id="step-1" class="step">
+		<span class="step-no">Step 1</span>
+		<h2>How the studio works</h2>
 		<ul class="how">
-			<li>Open a tool from the <a href="/">launcher</a> — it fills the whole window, no extra windows or installs.</li>
-			<li>Your work is saved to the shared cloud automatically, so it's there next time and visible to the team.</li>
-			<li>Heavy image generation runs on the studio GPU behind the scenes — just click Generate and wait.</li>
+			<li>
+				Open any <strong>online</strong> tool from the
+				<a href="/">launcher</a> — it fills the whole window, with nothing to install.
+			</li>
+			<li>
+				<strong>Local</strong> tools run on your own computer (they need your GPU or a licence).
+				You install them once and tell the launcher where they live.
+			</li>
+			<li>Your work saves to the shared cloud automatically, so it's there next time and visible to the team.</li>
+			<li>Heavy image generation runs on the studio GPU behind the scenes — click Generate and wait.</li>
 		</ul>
 	</section>
 
 	{#if online.length}
-		<section>
+		<section id="step-2" class="step">
+			<span class="step-no">Step 2</span>
 			<h2>Your online tools</h2>
-			<div class="grid">
+			<p class="muted">Nothing to install. Click to open — they run inside this portal.</p>
+			<div class="cards">
 				{#each online as tool (tool.id)}
-					<a class="tool" href={tool.url}>
+					<div class="card">
 						<strong>{tool.name}</strong>
 						<span class="muted">{tool.description}</span>
-						<span class="cta">Open →</span>
-					</a>
-				{/each}
-			</div>
-		</section>
-	{/if}
-
-	{#if local.length}
-		<section>
-			<h2>Tools you install on your computer</h2>
-			<p class="muted small">These run on your own machine. Ask an admin for the installer if you don't have them yet.</p>
-			<div class="grid">
-				{#each local as tool (tool.id)}
-					<div class="tool static">
-						<strong>{tool.name}</strong>
-						<span class="muted">{tool.description}</span>
-						<span class="tag">install</span>
+						<div class="actions">
+							<a class="open" href={tool.url}>Open →</a>
+							{@render docLink(tool)}
+						</div>
 					</div>
 				{/each}
 			</div>
 		</section>
 	{/if}
 
-	<section class="dev-note">
-		<h2>Developers</h2>
+	{#if local.length}
+		<section id="step-3" class="step">
+			<span class="step-no">Step 3</span>
+			<h2>Install your local tools</h2>
+			<p class="muted">
+				Download each one, install it on this machine, then save the install path so the launcher can find it.
+			</p>
+			<div class="cards">
+				{#each local as tool (tool.id)}
+					<div class="card">
+						<strong>{tool.name}</strong>
+						<span class="muted">{tool.description}</span>
+
+						<ol class="install-steps">
+							{#each tool.install?.steps ?? [] as line, i (i)}
+								<li>{line}</li>
+							{/each}
+						</ol>
+
+						{#if tool.install?.download}
+							<a class="download" href={tool.install.download} target="_blank" rel="noopener">
+								Download installer →
+							</a>
+						{:else}
+							<span class="download todo">Download link coming soon — ask an admin.</span>
+						{/if}
+
+						<form method="POST" action="?/saveInstallPath" use:enhance class="path">
+							<input type="hidden" name="toolKey" value={tool.id} />
+							<label for={`ob-path-${tool.id}`}>Install path on this machine</label>
+							<div class="row">
+								<input
+									id={`ob-path-${tool.id}`}
+									name="installPath"
+									type="text"
+									placeholder="e.g. C:\Tools\{tool.install?.package ?? tool.id}"
+									value={data.installPaths[tool.id] ?? ''}
+									autocomplete="off"
+									spellcheck="false"
+								/>
+								<button type="submit">Save</button>
+							</div>
+							{#if form?.saved === tool.id}
+								<span class="saved">Saved.</span>
+							{/if}
+						</form>
+
+						{@render docLink(tool)}
+					</div>
+				{/each}
+			</div>
+		</section>
+	{/if}
+
+	<section id="step-4" class="step">
+		<span class="step-no">Step 4</span>
+		<h2>Where to get help</h2>
 		<p class="muted">
-			Setup, architecture and the current roadmap live in the repository under
-			<code>docs/</code> (<code>ONBOARDING.md</code>, <code>INFRA.md</code>, <code>STATUS.md</code>).
+			Each tool has its own guide under <code>docs/tools/</code>. Engine setup, architecture and the
+			roadmap live in the repository under <code>docs/</code>
+			(<code>ONBOARDING.md</code>, <code>INFRA.md</code>, <code>STATUS.md</code>). Stuck on an
+			install or a download link that isn't live yet? Ask an admin.
 		</p>
 	</section>
 </div>
@@ -121,12 +201,45 @@
 		text-transform: capitalize;
 		font-weight: 600;
 	}
-	h2 {
-		font-size: 13px;
+	.toc {
+		margin: 24px 0 8px;
+		padding: 14px 18px;
+		border: 1px solid #222;
+		border-radius: 12px;
+		background: #14141a;
+	}
+	.toc-label {
+		font-size: 11px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: #888;
-		margin: 28px 0 12px;
+		color: #777;
+	}
+	.toc ol {
+		margin: 8px 0 0;
+		padding-left: 20px;
+		color: #cfcfd6;
+		line-height: 1.7;
+		font-size: 14px;
+	}
+	.toc a {
+		color: #5db0ff;
+		text-decoration: none;
+	}
+	.step {
+		margin-top: 36px;
+		padding-top: 8px;
+		border-top: 1px solid #1c1c24;
+	}
+	.step-no {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #6b5bff;
+		font-weight: 700;
+	}
+	h2 {
+		font-size: 18px;
+		margin: 4px 0 10px;
 	}
 	.how {
 		margin: 0;
@@ -135,16 +248,20 @@
 		line-height: 1.7;
 		font-size: 14px;
 	}
-	.how a,
-	.dev-note a {
+	.how a {
 		color: #5db0ff;
 	}
-	.grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-		gap: 12px;
+	.muted {
+		color: #888;
+		font-size: 13px;
 	}
-	.tool {
+	.cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+		gap: 12px;
+		margin-top: 12px;
+	}
+	.card {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
@@ -152,47 +269,90 @@
 		border-radius: 12px;
 		background: #16161c;
 		border: 1px solid #222;
-		text-decoration: none;
-		color: inherit;
-		position: relative;
 	}
-	a.tool:hover {
-		border-color: #6b5bff;
-	}
-	.tool strong {
+	.card strong {
 		font-size: 15px;
 	}
-	.muted {
-		color: #888;
+	.install-steps {
+		margin: 4px 0;
+		padding-left: 18px;
+		color: #cfcfd6;
 		font-size: 13px;
+		line-height: 1.6;
 	}
-	.small {
-		font-size: 12px;
-		margin-top: -4px;
-	}
-	.cta {
-		color: #7ee0c0;
-		font-size: 13px;
+	.actions {
+		display: flex;
+		gap: 14px;
+		align-items: center;
 		margin-top: 4px;
 	}
-	.tag {
-		position: absolute;
-		top: 14px;
-		right: 14px;
-		font-size: 11px;
-		padding: 2px 8px;
-		border-radius: 999px;
-		background: #2a2430;
+	.open {
+		color: #7ee0c0;
+		font-size: 13px;
+		text-decoration: none;
+	}
+	.download {
+		margin-top: 2px;
+		font-size: 13px;
+		color: #5db0ff;
+		text-decoration: none;
+	}
+	.download.todo {
+		color: #777;
+	}
+	.doc {
+		font-size: 13px;
 		color: #c8a3ff;
+		text-decoration: none;
+	}
+	.path {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.path label {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+	}
+	.path .row {
+		display: flex;
+		gap: 8px;
+	}
+	.path input {
+		flex: 1;
+		min-width: 0;
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		padding: 8px 10px;
+		color: #e8e8ee;
+		font-size: 13px;
+		font-family: ui-monospace, monospace;
+	}
+	.path input:focus {
+		outline: none;
+		border-color: #6b5bff;
+	}
+	.path button {
+		background: #6b5bff;
+		border: none;
+		border-radius: 8px;
+		padding: 8px 14px;
+		color: #fff;
+		font-size: 13px;
+		cursor: pointer;
+	}
+	.saved {
+		font-size: 12px;
+		color: #7ee0c0;
 	}
 	code {
 		background: #1c1c24;
 		padding: 1px 6px;
 		border-radius: 4px;
 		font-size: 12px;
-	}
-	.dev-note {
-		margin-top: 12px;
-		padding-top: 8px;
 	}
 </style>
