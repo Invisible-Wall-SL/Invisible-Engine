@@ -45,11 +45,20 @@
 	}
 
 	function addLang() {
-		const lang = newLang.trim().toLowerCase();
-		if (!lang || targetLangs.includes(lang)) return;
-		targetLangs.push(lang);
+		// Accept a single code or a comma/space-separated list (e.g. "es, fr, it").
+		const tokens = newLang
+			.split(/[\s,]+/)
+			.map((t) => t.trim().toLowerCase())
+			.filter(Boolean);
+		let added = false;
+		for (const lang of tokens) {
+			if (!targetLangs.includes(lang)) {
+				targetLangs.push(lang);
+				added = true;
+			}
+		}
 		newLang = '';
-		markDirty();
+		if (added) markDirty();
 	}
 
 	function removeLang(lang: string) {
@@ -131,7 +140,10 @@
 			return;
 		}
 		if (ids.length === 0) {
-			status = 'Nothing to translate.';
+			status =
+				entries.length === 0
+					? 'No strings yet — add a row and write the source text first.'
+					: 'Nothing to translate — every string already has all languages.';
 			return;
 		}
 		busy = true;
