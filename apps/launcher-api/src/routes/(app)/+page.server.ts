@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { GAMES, roleHasTool } from '$lib/roles';
+import { ENV } from '$lib/server/env';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
@@ -9,7 +10,11 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	return { installPaths: await getInstallPaths(locals.user.id) };
+	return {
+		installPaths: await getInstallPaths(locals.user.id),
+		games: GAMES,
+		gamesBaseUrl: ENV.GAMES_BASE_URL,
+	};
 };
 
 export const actions: Actions = {
