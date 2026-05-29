@@ -40,15 +40,77 @@ import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
+import storage  # noqa: E402  (R2 object storage + staging mirror)
+
 SELF = Path(__file__).resolve().parent
 TOOLS = SELF
-CONFIG_PATH = SELF / "atlas_config.json"
 
 _PP = project_paths.resolve()
 BATCH_DIR = _PP["batch_dir"]
 ATLAS_DIR = _PP["atlas_dir"]
 INPUT_DIR = _PP["input_dir"]
 COMFY_HOST = _PP["comfy_host"]
+# Cloud: config + manifests live in the R2-backed staging tree (not the app
+# dir), so user edits survive container restarts.
+STAGING_ROOT = _PP["staging_root"]
+MANIFEST_DIR = _PP["manifest_dir"]
+R2_PREFIX = _PP.get("r2_project_prefix")
+CONFIG_PATH = STAGING_ROOT / "atlas_config.json"
+
+
+def _mirror(p: Path) -> None:
+    """Write-through: mirror a staging file to its R2 key so it persists."""
+    if not (R2_PREFIX and STAGING_ROOT):
+        return
+    try:
+        rel = Path(p).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
+        storage.push_file(Path(p), f"{R2_PREFIX}/{rel}")
+    except Exception:  # noqa: BLE001 — best-effort mirror
+        pass
+
+
+def _unmirror(p: Path) -> None:
+    """Delete the R2 counterpart of a removed staging file."""
+    if not (R2_PREFIX and STAGING_ROOT):
+        return
+    try:
+        rel = Path(p).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
+        storage.delete(f"{R2_PREFIX}/{rel}")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# Shared-secret access gate (the tool runs behind the launcher). Unset = open.
+ATLAS_TOOL_SECRET = os.environ.get("ATLAS_TOOL_SECRET", "")
+
+# POST routes that write/remove ref images → mirror staging refs to R2 after.
+_REF_MUTATING_ROUTES = {
+    "/setref", "/setoutput", "/userefimg", "/shinefrom", "/shinemode",
+    "/fxbuild", "/clearref", "/clearoutput", "/setmode", "/delvariants",
+}
+
+
+# Minimal default config used when none exists yet in R2/staging (first run).
+# Secrets (comfy.org key) come from env, never persisted here.
+DEFAULT_CONFIG = {
+    "manifest_path": "atlas_manifest_symbols.json",
+    "comfy_host": COMFY_HOST,
+    "pipeline": "sdxl",
+    "checkpoint": "juggernautXL_ragnarokBy.safetensors",
+    "lora": "gameIconInstitute3d_v10.safetensors",
+    "lora_strength": 0.85,
+    "controlnet": "controlnet-union-sdxl-1.0-promax.safetensors",
+    "rmbg_model": "RMBG-2.0",
+    "ipadapter_weight": 0.35,
+    "ipadapter_weight_type": "style transfer",
+    "controlnet_strength": 0.7,
+    "controlnet_end_percent": 0.85,
+    "ksampler_steps": 30,
+    "ksampler_cfg": 8.5,
+    "padding_pct": 0.12,
+    "gen_width": 1024,
+    "gen_height": 1024,
+}
 LOGO_CANDIDATES = [
     Path(r"C:/Invisible Wall SL/Company Website/Images/iw-emblem.svg"),
     Path(r"C:/Invisible Wall SL/Company Website/Images/iw-emblem.png"),
@@ -621,11 +683,22 @@ def _shine_controls(name: str, saved: dict) -> str:
 
 
 def load_config() -> dict:
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    try:
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError, OSError):
+        # First run (empty R2/staging): seed a default so Settings works.
+        cfg = dict(DEFAULT_CONFIG)
+        try:
+            save_config(cfg)
+        except OSError:
+            pass
+        return cfg
 
 
 def save_config(cfg: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    _mirror(CONFIG_PATH)
 
 
 def creative_manifest_path() -> Path:
@@ -636,16 +709,18 @@ def creative_manifest_path() -> Path:
     so nothing the user types is lost."""
     name = load_config().get("manifest_path", "atlas_manifest_symbolsStatic.json")
     sel = Path(name).name  # tolerate legacy "tools/..." values
+    MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
     if sel.lower().endswith(".atlas"):
-        jp = SELF / f"atlas_manifest_{Path(sel).stem}.json"
+        jp = MANIFEST_DIR / f"atlas_manifest_{Path(sel).stem}.json"
         if not jp.exists():
             jp.write_text(json.dumps({
                 "atlas": {"atlas_file": sel},
                 "style": {"positive_prefix": "", "positive_suffix": "", "negative": ""},
                 "regions": [],
             }, indent=2, ensure_ascii=False), encoding="utf-8")
+            _mirror(jp)
         return jp
-    return SELF / sel
+    return MANIFEST_DIR / sel
 
 
 def manifest_path() -> Path:
@@ -653,8 +728,10 @@ def manifest_path() -> Path:
 
 
 def list_manifests() -> list[str]:
-    js = sorted(p.name for p in SELF.glob("atlas_manifest_*.json"))
-    at = sorted(p.name for p in SELF.glob("*.atlas"))
+    if not MANIFEST_DIR.exists():
+        return []
+    js = sorted(p.name for p in MANIFEST_DIR.glob("atlas_manifest_*.json"))
+    at = sorted(p.name for p in MANIFEST_DIR.glob("*.atlas"))
     return js + at
 
 
@@ -702,7 +779,10 @@ def load_manifest() -> dict:
 
 
 def save_manifest(data: dict) -> None:
-    manifest_path().write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    mp = manifest_path()
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    mp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    _mirror(mp)
 
 
 def all_regions(m: dict) -> list[dict]:
@@ -791,8 +871,10 @@ def stop_render() -> str:
         except subprocess.TimeoutExpired:
             proc.kill()
     try:  # best effort: tell ComfyUI to abort the current job
-        req = urllib.request.Request(f"http://{COMFY_HOST}/interrupt", data=b"", method="POST")
-        urllib.request.urlopen(req, timeout=3).read()
+        req = urllib.request.Request(
+            f"{batch_atlas.COMFY_BASE}/interrupt", data=b"", method="POST",
+            headers=batch_atlas.CF_HEADERS)
+        urllib.request.urlopen(req, timeout=5).read()
     except Exception:  # noqa: BLE001
         pass
     return "Stopping…"
@@ -1941,15 +2023,43 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, ctype, body: bytes):
+    def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        merged = dict(getattr(self, "_set_cookie", None) or {})
+        merged.update(extra_headers or {})
+        for k, v in merged.items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
+    def _gate(self) -> tuple[bool, dict | None]:
+        """Shared-secret access gate (the tool sits behind the launcher).
+        Open when ATLAS_TOOL_SECRET is unset. Accepts the secret via cookie,
+        `X-Atlas-Secret` header, or `?k=` query (which also sets the cookie so
+        the iframe's later asset/fetch requests pass)."""
+        if not ATLAS_TOOL_SECRET:
+            return True, None
+        cookie = self.headers.get("Cookie", "") or ""
+        if f"atlas_tool={ATLAS_TOOL_SECRET}" in cookie:
+            return True, None
+        if self.headers.get("X-Atlas-Secret") == ATLAS_TOOL_SECRET:
+            return True, None
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if q.get("k", [""])[0] == ATLAS_TOOL_SECRET:
+            return True, {
+                "Set-Cookie": f"atlas_tool={ATLAS_TOOL_SECRET}; Path=/; "
+                              f"HttpOnly; SameSite=None; Secure"
+            }
+        return False, None
+
     def do_GET(self):
+        ok, self._set_cookie = self._gate()
+        if not ok:
+            self._send(403, "text/plain", b"forbidden")
+            return
         path = urllib.parse.urlparse(self.path).path
         if path == "/":
             # Splash is for the *first* visit (launcher → browser). Subsequent
@@ -2036,6 +2146,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
+        ok, self._set_cookie = self._gate()
+        if not ok:
+            self._send(403, "text/plain", b"forbidden")
+            return
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode("utf-8")
         if self.path == "/save":
@@ -2088,6 +2202,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
         else:
             self._send(404, "text/plain", b"not found")
+            return
+        # Durability: mirror staging refs to R2 after handlers that write/remove
+        # ref images, so they survive container restarts (R2 is source of truth).
+        if self.path in _REF_MUTATING_ROUTES and R2_PREFIX:
+            try:
+                storage.push_dir(INPUT_DIR, f"{R2_PREFIX}/input")
+            except Exception:  # noqa: BLE001
+                pass
 
     # helpers ----------------------------------------------------------
     def _latest(self, path: str) -> Path | None:
