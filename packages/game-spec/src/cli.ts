@@ -2,12 +2,13 @@
 /**
  * Game Spec CLI.
  *
- *   pnpm --filter game-spec cli validate <spec.ts|spec.json>
- *   pnpm --filter game-spec cli generate <spec.ts|spec.json> --out <gameSrcDir>
+ *   game-spec validate <spec.ts|spec.json>
+ *   game-spec generate <spec.ts|spec.json> --out <outDir>
  *
- * `generate` writes the spec-owned frontend artifacts into <out>/game/:
- *   - paytable.ts      (display paytable + line count)
- *   - infoManifest.ts  (feeds the shared InfoOverlay; rules + theme from spec)
+ * `generate` first validates, then writes into <out>:
+ *   - <id>.normalized.json  (the validated spec with every default filled in)
+ *   - game/paytable.ts      (display paytable + line count)
+ *   - game/infoManifest.ts  (feeds the shared InfoOverlay; rules + theme from spec)
  *
  * config.ts generation is intentionally NOT done here yet: config.ts also holds
  * math data (reel strips / paddingReels) that is not part of the frontend spec.
@@ -16,6 +17,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+import { ZodError } from 'zod';
 
 import { parseGameSpec, type GameSpec } from './schema';
 import { generatePaytable, generateInfoManifest } from './generate';
@@ -45,13 +48,17 @@ const loadSpec = async (file: string): Promise<unknown> => {
 
 const validate = (raw: unknown): GameSpec => {
 	const result = parseGameSpec(raw);
-	console.log(`✓ valid spec: ${result.meta.name} (${result.meta.id}) — type=${result.type}, symbols=${result.symbols.length}`);
+	console.log(
+		`✓ valid spec: ${result.meta.name} (${result.meta.id}) — type=${result.type}, symbols=${result.symbols.length}`,
+	);
 	return result;
 };
 
 const main = async () => {
 	if (!cmd || !['validate', 'generate', 'scaffold'].includes(cmd) || !specArg) {
-		die('usage: cli <validate|generate|scaffold> <spec> [--out <dir>] [--template <dir> --root <dir> --launcher-config <path>]');
+		die(
+			'usage: game-spec <validate|generate|scaffold> <spec> [--out <dir>] [--template <dir> --root <dir> --launcher-config <path>]',
+		);
 	}
 
 	const raw = await loadSpec(specArg);
@@ -59,24 +66,35 @@ const main = async () => {
 	try {
 		spec = validate(raw);
 	} catch (err) {
+		if (err instanceof ZodError) {
+			const issues = err.issues
+				.map((i) => `  • ${i.path.length ? i.path.join('.') : '(root)'}: ${i.message}`)
+				.join('\n');
+			die(
+				`✗ invalid spec (${err.issues.length} issue${err.issues.length === 1 ? '' : 's'}):\n${issues}`,
+			);
+		}
 		die(`✗ invalid spec:\n${err instanceof Error ? err.message : String(err)}`);
 		return;
 	}
 
 	if (cmd === 'generate') {
-		if (!outArg) die('generate requires --out <gameSrcDir>');
-		const gameDir = path.join(path.resolve(outArg!), 'game');
+		if (!outArg) die('generate requires --out <outDir>');
+		const outDir = path.resolve(outArg!);
+		const gameDir = path.join(outDir, 'game');
 		fs.mkdirSync(gameDir, { recursive: true });
 
-		const files: Array<[string, string]> = [
-			['paytable.ts', generatePaytable(spec)],
-			['infoManifest.ts', generateInfoManifest(spec)],
-		];
-		for (const [name, content] of files) {
-			const dest = path.join(gameDir, name);
+		const write = (dest: string, content: string) => {
 			fs.writeFileSync(dest, content, 'utf8');
 			console.log(`  wrote ${path.relative(process.cwd(), dest)}`);
-		}
+		};
+
+		write(
+			path.join(outDir, `${spec.meta.id}.normalized.json`),
+			JSON.stringify(spec, null, 2) + '\n',
+		);
+		write(path.join(gameDir, 'paytable.ts'), generatePaytable(spec));
+		write(path.join(gameDir, 'infoManifest.ts'), generateInfoManifest(spec));
 		console.log('✓ generated');
 	}
 
@@ -92,8 +110,9 @@ const main = async () => {
 			launcherConfigPath: launcherConfigPath ? path.resolve(launcherConfigPath) : undefined,
 		});
 		console.log(`✓ scaffolded ${spec.meta.name} -> ${path.resolve(root!)}`);
-		if (launcherConfigPath) console.log(`  registered in launcher config: ${path.resolve(launcherConfigPath)}`);
+		if (launcherConfigPath)
+			console.log(`  registered in launcher config: ${path.resolve(launcherConfigPath)}`);
 	}
 };
 
-main().catch((err) => die(err instanceof Error ? err.stack ?? err.message : String(err)));
+main().catch((err) => die(err instanceof Error ? (err.stack ?? err.message) : String(err)));

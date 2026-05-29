@@ -3,13 +3,28 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"bin": {
+		"game-spec": "./src/cli.ts"
+	},
 	"scripts": {
-		"cli": "tsx src/cli.ts"
+		"build": "tsc -p tsconfig.json",
+		"cli": "tsx src/cli.ts",
+		"validate": "tsx src/cli.ts validate examples/book-of-thermopylae.spec.ts",
+		"generate": "tsx src/cli.ts generate examples/lines.spec.json --out dist/example",
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\""
 	},
 	"dependencies": {
 		"zod": "3.23.8"
 	},
 	"devDependencies": {
-		"tsx": "4.19.2"
+		"@types/node": "22.13.5",
+		"config-ts": "workspace:*",
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"tsx": "4.19.2",
+		"typescript": "5.7.3"
 	}
 }
