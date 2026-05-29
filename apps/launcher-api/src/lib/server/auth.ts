@@ -59,7 +59,9 @@ export async function verifyCredentials(
 export async function createSession(userId: string, ttlMs: number): Promise<string> {
 	const raw = token();
 	const expiresAt = new Date(Date.now() + ttlMs);
-	await getDb().insert(sessions).values({ id: await sha256(raw), userId, expiresAt });
+	await getDb()
+		.insert(sessions)
+		.values({ id: await sha256(raw), userId, expiresAt });
 	return raw;
 }
 
@@ -92,5 +94,7 @@ export async function validateSession(raw: string | undefined): Promise<SessionU
 
 export async function invalidateSession(raw: string | undefined): Promise<void> {
 	if (!raw) return;
-	await getDb().delete(sessions).where(eq(sessions.id, await sha256(raw)));
+	await getDb()
+		.delete(sessions)
+		.where(eq(sessions.id, await sha256(raw)));
 }

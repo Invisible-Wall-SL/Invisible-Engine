@@ -27,9 +27,7 @@ export const actions: Actions = {
 			return fail(400, { email, error: 'Invalid email or password.' });
 		}
 
-		const ttlMs = remember
-			? ENV.REMEMBER_TTL_DAYS * 86_400_000
-			: ENV.SESSION_TTL_HOURS * 3_600_000;
+		const ttlMs = remember ? ENV.REMEMBER_TTL_DAYS * 86_400_000 : ENV.SESSION_TTL_HOURS * 3_600_000;
 		const sessionToken = await createSession(user.id, ttlMs);
 
 		cookies.set(SESSION_COOKIE, sessionToken, {

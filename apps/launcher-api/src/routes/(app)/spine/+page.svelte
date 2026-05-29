@@ -1,32 +1,7 @@
 <svelte:head><title>Spine Viewer — Invisible Wall</title></svelte:head>
 
-<iframe title="Spine Viewer" src="/spine/view.html"></iframe>
-<a class="back" href="/" title="Back to launcher">‹ Launcher</a>
-
-<style>
-	iframe {
-		position: fixed;
-		inset: 0;
-		width: 100vw;
-		height: 100vh;
-		border: none;
-		background: #1b1d22;
-	}
-	.back {
-		position: fixed;
-		top: 10px;
-		right: 12px;
-		z-index: 10;
-		background: rgba(16, 16, 22, 0.85);
-		border: 1px solid #363b45;
-		color: #9a9aa5;
-		padding: 5px 11px;
-		border-radius: 8px;
-		font: 12px system-ui, sans-serif;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: #fff;
-		border-color: #5db0ff;
-	}
-</style>
+<!-- The load fn always redirects to /spine/view.html (full-page, no iframe);
+	 this renders only if a redirect somehow doesn't occur. -->
+<p style="font-family: system-ui, sans-serif; color: #cfcfd6; text-align: center; margin-top: 16vh;">
+	Opening the Spine Viewer… <a href="/spine/view.html" style="color: #5db0ff;">continue</a>
+</p>

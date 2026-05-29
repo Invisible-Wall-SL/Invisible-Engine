@@ -35,13 +35,6 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/spine',
 	},
-	pipelineUI: {
-		id: 'pipelineUI',
-		name: 'Pipeline',
-		description: 'Online pipeline dashboard: jobs, assets, game specs.',
-		kind: 'online',
-		url: '/pipeline',
-	},
 	comfyui: {
 		id: 'comfyui',
 		name: 'ComfyUI',
@@ -68,9 +61,9 @@ export const TOOLS: Record<string, ToolDef> = {
 /** Which tool ids each role is entitled to. */
 const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
-	developer: ['pipelineUI', 'atlasTool', 'spineViewer', 'testServer', 'comfyui'],
-	artist: ['pipelineUI', 'atlasTool', 'comfyui'],
-	animator: ['pipelineUI', 'spineViewer', 'spine'],
+	developer: ['atlasTool', 'spineViewer', 'testServer', 'comfyui'],
+	artist: ['atlasTool', 'comfyui'],
+	animator: ['spineViewer', 'spine'],
 };
 
 export function manifestForRole(role: Role): ToolDef[] {
