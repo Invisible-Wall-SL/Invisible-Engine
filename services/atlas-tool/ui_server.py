@@ -2445,20 +2445,44 @@ class Handler(BaseHTTPRequestHandler):
                    b'text-anchor="middle">IW</text></svg>')
 
     def _fsbrowse(self, path: str, key: str = "") -> bytes:
-        """Cloud file picker. There is no local filesystem to browse, so this
-        lists the manifests/.atlas files available in the R2-backed staging
-        manifest dir (the picker's primary use: choosing the active manifest).
-        Returns the same shape the UI's picker JS expects."""
+        """R2 file picker. Browses the project's R2 asset repo (mirrored into the
+        local staging INPUT_DIR) as a folder tree, returning INPUT_DIR-relative
+        paths — which is exactly what region `style_ref`/`source_image` fields
+        expect. `path` is the relative subfolder ("" = repo root). Read-only.
+
+        `key` tunes the filter: `atlas_file` also lists `.atlas` geometry;
+        `deploy_path` lists folders only. Everything else lists images."""
+        img_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+        exts = img_exts | {".atlas"} if key == "atlas_file" else img_exts
+        folder_only = key == "deploy_path"
         try:
-            files = []
-            for name in list_manifests():
-                if key == "atlas_file" and not name.lower().endswith(".atlas"):
+            root = INPUT_DIR.resolve()
+            root.mkdir(parents=True, exist_ok=True)
+            rel = (path or "").strip().replace("\\", "/").strip("/")
+            cur = (root / rel).resolve()
+            # Never escape the repo root.
+            if root != cur and root not in cur.parents:
+                cur, rel = root, ""
+            if not cur.is_dir():
+                cur, rel = root, ""
+            dirs, files = [], []
+            for e in sorted(cur.iterdir(), key=lambda p: p.name.lower()):
+                try:
+                    rp = e.relative_to(root).as_posix()
+                    if e.is_dir():
+                        dirs.append({"name": e.name, "path": rp})
+                    elif not folder_only and e.suffix.lower() in exts:
+                        files.append({"name": e.name, "path": rp})
+                except (OSError, ValueError):
                     continue
-                files.append({"name": name, "path": name})
-            return json.dumps({
-                "ok": True, "cur": "(R2 manifests)", "up": None,
-                "dirs": [], "files": files,
-            }).encode()
+            if rel == "":
+                up = None
+            else:
+                parent = Path(rel).parent.as_posix()
+                up = "" if parent == "." else parent
+            cur_label = "R2 repo: " + (rel or "(root)")
+            return json.dumps({"ok": True, "cur": cur_label, "up": up,
+                               "dirs": dirs, "files": files}).encode()
         except Exception as e:  # noqa: BLE001 — picker must never 500 the UI
             return json.dumps({"ok": False, "error": str(e)}).encode()
 
