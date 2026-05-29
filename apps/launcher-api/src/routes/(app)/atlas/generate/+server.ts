@@ -1,21 +1,26 @@
 import { error, json } from '@sveltejs/kit';
-import { requireAtlasAccess, DEFAULT_ATLAS_CONFIG } from '$lib/server/atlas';
+import { requireAtlasAccess, parseManifest, effectiveConfig } from '$lib/server/atlas';
+import { getObjectText } from '$lib/server/r2';
 import { ENV } from '$lib/server/env';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	requireAtlasAccess(locals);
 
-	const { regionName, prompt } = await request.json();
-	if (!regionName || !prompt) throw error(400, 'regionName and prompt are required.');
+	const { region } = await request.json();
+	if (!region?.name) throw error(400, 'region.name is required.');
+	if (!region.prompt?.trim()) throw error(400, 'A prompt is required to generate.');
 
-	const payload = {
-		config: DEFAULT_ATLAS_CONFIG,
-		region: { name: regionName, prompt },
-		style: {},
-		refs: { style_ref: ENV.ATLAS_STYLE_REF_KEY },
-		prefix: 'atlas_maker/cloud',
-	};
+	const manifest = parseManifest(await getObjectText(ENV.ATLAS_MANIFEST_KEY));
+	const config = effectiveConfig(manifest);
+	const style = manifest?.style ?? {};
+
+	const refs: Record<string, string> = {};
+	const styleRef = region.style_ref || ENV.ATLAS_STYLE_REF_KEY;
+	if (styleRef) refs.style_ref = styleRef;
+	if (region.shape_ref) refs.shape_ref = region.shape_ref;
+
+	const payload = { config, region, style, refs, prefix: 'atlas_maker/cloud' };
 
 	let res: Response;
 	try {

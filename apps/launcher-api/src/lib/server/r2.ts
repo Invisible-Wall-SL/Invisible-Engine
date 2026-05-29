@@ -1,4 +1,10 @@
-import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+	GetObjectCommand,
+	HeadObjectCommand,
+	ListObjectsV2Command,
+	PutObjectCommand,
+	S3Client,
+} from '@aws-sdk/client-s3';
 import { ENV } from './env';
 
 let client: S3Client | null = null;
@@ -35,6 +41,47 @@ export async function getObjectText(key: string): Promise<string | null> {
 	return obj ? new TextDecoder().decode(obj.body) : null;
 }
 
+export async function putObjectText(
+	key: string,
+	text: string,
+	contentType = 'application/json',
+): Promise<void> {
+	await s3().send(
+		new PutObjectCommand({
+			Bucket: ENV.R2_BUCKET,
+			Key: key,
+			Body: text,
+			ContentType: contentType,
+		}),
+	);
+}
+
+export type R2Entry = { key: string; size: number; lastModified: number };
+
+export async function listObjects(prefix: string): Promise<R2Entry[]> {
+	const out: R2Entry[] = [];
+	let token: string | undefined;
+	do {
+		const res = await s3().send(
+			new ListObjectsV2Command({
+				Bucket: ENV.R2_BUCKET,
+				Prefix: prefix,
+				ContinuationToken: token,
+			}),
+		);
+		for (const o of res.Contents ?? []) {
+			if (!o.Key) continue;
+			out.push({
+				key: o.Key,
+				size: o.Size ?? 0,
+				lastModified: o.LastModified ? o.LastModified.getTime() : 0,
+			});
+		}
+		token = res.IsTruncated ? res.NextContinuationToken : undefined;
+	} while (token);
+	return out;
+}
+
 export async function objectExists(key: string): Promise<boolean> {
 	try {
 		await s3().send(new HeadObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
@@ -47,5 +94,7 @@ export async function objectExists(key: string): Promise<boolean> {
 
 function isNotFound(e: unknown): boolean {
 	const meta = (e as { $metadata?: { httpStatusCode?: number }; name?: string }) ?? {};
-	return meta.$metadata?.httpStatusCode === 404 || meta.name === 'NoSuchKey' || meta.name === 'NotFound';
+	return (
+		meta.$metadata?.httpStatusCode === 404 || meta.name === 'NoSuchKey' || meta.name === 'NotFound'
+	);
 }
