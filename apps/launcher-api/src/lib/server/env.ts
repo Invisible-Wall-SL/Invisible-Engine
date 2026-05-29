@@ -36,7 +36,9 @@ export const ENV = {
 	},
 	// Atlas Maker (cloud) — the generation backend + default manifest/style ref.
 	get ATLAS_BACKEND_URL() {
-		return required('ATLAS_BACKEND_URL');
+		// Code default to the current Railway service so the launcher works even
+		// if the env var isn't applied (Railway vars stage); env overrides.
+		return env.ATLAS_BACKEND_URL ?? 'https://atlas-backend-production-0a70.up.railway.app';
 	},
 	get ATLAS_MANIFEST_KEY() {
 		return env.ATLAS_MANIFEST_KEY ?? 'atlas/manifests/loader.json';
@@ -52,17 +54,16 @@ export const ENV = {
 		// Defaults to the known atlas-tool Railway service so /atlas works
 		// without depending on a Railway env var being applied. Override via
 		// the ATLAS_TOOL_URL env when the tool moves.
-		return env.ATLAS_TOOL_URL ?? 'https://invisible-engine-production-0060.up.railway.app';
+		return env.ATLAS_TOOL_URL ?? 'https://atlas-tool-production.up.railway.app';
 	},
 	get ATLAS_TOOL_SECRET() {
 		return env.ATLAS_TOOL_SECRET ?? '';
 	},
 	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
 	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
-	// No code default yet: set SHEET_TOOL_URL once the Railway service exists;
-	// until then /sheet shows a "not configured" page.
+	// Code default to the current Railway service; env overrides.
 	get SHEET_TOOL_URL() {
-		return env.SHEET_TOOL_URL ?? '';
+		return env.SHEET_TOOL_URL ?? 'https://sheet-tool-production.up.railway.app';
 	},
 	get SHEET_TOOL_SECRET() {
 		return env.SHEET_TOOL_SECRET ?? '';
