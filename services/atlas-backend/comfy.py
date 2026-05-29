@@ -15,8 +15,13 @@ class ComfyError(Exception):
     pass
 
 
+# Cloudflare (Bot Fight Mode / managed WAF) in front of the tunnel returns 403
+# to the default "Python-urllib/x" User-Agent. Send a plain custom UA instead.
+USER_AGENT = "InvisibleAtlas/1.0"
+
+
 def _auth_headers() -> dict[str, str]:
-    h: dict[str, str] = {}
+    h: dict[str, str] = {"User-Agent": USER_AGENT}
     cid = os.environ.get("CF_ACCESS_CLIENT_ID")
     csec = os.environ.get("CF_ACCESS_CLIENT_SECRET")
     if cid and csec:
