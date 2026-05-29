@@ -27,7 +27,7 @@ There are two tracks in this repo:
 ### ⚠️ Remaining work (the pipeline is NOT finished)
 
 **atlas-tool (immediate):**
-1. **Seed R2** — run `services/atlas-tool/seed_r2.py` (with R2 creds) to upload the local manifests/refs/config into `atlas_maker/cloud/cloud/…`, **then restart the atlas-tool service** (it hydrates staging from R2 only at container start). Until then the tool UI shows no regions.
+1. ✅ **Seed R2 — done (2026-05-29).** `seed_r2.py` uploaded 1158 objects to `atlas_maker/cloud/cloud/` (10 manifests, 1147 refs, config). Tool redeployed and hydrated — UI lists all manifests. Hydrate now pulls manifests/config synchronously + refs in a background thread (fast boot). ⚠️ The R2 creds used were pasted in chat → **rotate them** (security debt below). Open item: the loaded manifests reference `.atlas` geometry via local Windows paths (won't resolve in cloud) — fine for generate, needed for compose/slice (item 3).
 2. **Access gate** — `ATLAS_TOOL_SECRET` is currently unset (tool is open on its URL). When set, the launcher appends `?k=<secret>`; verify the cookie flow.
 3. **`.atlas` geometry for compose/slice** — manifest `atlas.atlas_file` still points at a local Windows path; compose/slice need the `.atlas` + source page uploaded to R2.
 4. **FLUX + gpt_image pipelines** — only SDXL is verified; FLUX and gpt_image (comfy.org API node) workflows in `batch_atlas.py` are ported but untested in the cloud.
