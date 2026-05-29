@@ -137,6 +137,10 @@ import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
 _PP = project_paths.resolve()
 COMFY_HOST = _PP["comfy_host"]
+# Cloud: full tunnel base URL (https) + Cloudflare Access headers + non-blocked
+# User-Agent. comfy_post/get/view all target COMFY_BASE with CF_HEADERS.
+COMFY_BASE = (_PP.get("comfy_url") or f"http://{COMFY_HOST}").rstrip("/")
+CF_HEADERS = dict(_PP.get("cf_headers") or {})
 BATCH_DIR = _PP["batch_dir"]
 ATLAS_DIR = _PP["atlas_dir"]
 INPUT_DIR = _PP["input_dir"]
@@ -344,9 +348,9 @@ def merge_atlas_regions(manifest: dict, atlas_data: dict) -> list[dict]:
 
 def comfy_post(path: str, payload: dict) -> dict:
     req = Request(
-        f"http://{COMFY_HOST}{path}",
+        f"{COMFY_BASE}{path}",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **CF_HEADERS},
     )
     try:
         return json.loads(urlopen(req).read())
@@ -360,10 +364,10 @@ def comfy_post(path: str, payload: dict) -> dict:
         raise
     except (URLError, ConnectionError) as e:
         print("\n=== Cannot reach ComfyUI ===")
-        print(f"No server responding at http://{COMFY_HOST}")
+        print(f"No server responding at {COMFY_BASE}")
         print(f"Reason: {e}")
-        print("Fix: make sure ComfyUI is running on that host:port "
-              "(launch it via the Invisible Launcher, then retry).")
+        print("Fix: make sure ComfyUI is running and reachable over the tunnel "
+              "(COMFY_URL), then retry.")
         raise SystemExit(2)
 
 
@@ -379,8 +383,8 @@ _COMFY_HTTP_TIMEOUT = 5.0
 
 
 def comfy_get(path: str) -> dict:
-    return json.loads(urlopen(f"http://{COMFY_HOST}{path}",
-                              timeout=_COMFY_HTTP_TIMEOUT).read())
+    req = Request(f"{COMFY_BASE}{path}", headers=CF_HEADERS)
+    return json.loads(urlopen(req, timeout=_COMFY_HTTP_TIMEOUT).read())
 
 
 # `_available()` is called ~14× when the UI renders the Settings panel
@@ -398,7 +402,7 @@ def comfy_get(path: str) -> dict:
 # Comfy "alive" when its HTTP is actually answering.
 _AVAIL_TTL = 30.0          # model lists rarely change mid-session
 _COMFY_PROBE_TTL = 10.0    # cache the up/down verdict this long
-_COMFY_PROBE_HTTP_TIMEOUT = 0.6
+_COMFY_PROBE_HTTP_TIMEOUT = 3.0  # tunnel + Cloudflare Access adds latency
 _avail_cache: dict[tuple[str, str], tuple[float, list[str] | None]] = {}
 _comfy_alive_cache: dict[str, float | bool] = {"t": 0.0, "ok": False}
 
@@ -416,18 +420,11 @@ def _comfy_alive() -> bool:
         return bool(_comfy_alive_cache["ok"])
     _comfy_alive_cache["t"] = now
     _comfy_alive_cache["ok"] = False
+    # Cloud: a single tight HTTP GET to /system_stats over the tunnel (TCP
+    # probing host:port doesn't apply to an https tunnel behind Access).
     try:
-        host, port = COMFY_HOST.split(":", 1)
-    except ValueError:
-        return False
-    try:
-        with _socket.create_connection((host, int(port)), timeout=0.2):
-            pass
-    except (OSError, ValueError):
-        return False
-    try:
-        urlopen(f"http://{COMFY_HOST}/system_stats",
-                timeout=_COMFY_PROBE_HTTP_TIMEOUT).read()
+        req = Request(f"{COMFY_BASE}/system_stats", headers=CF_HEADERS)
+        urlopen(req, timeout=_COMFY_PROBE_HTTP_TIMEOUT).read()
         _comfy_alive_cache["ok"] = True
     except (HTTPError, URLError, ConnectionError, OSError):
         _comfy_alive_cache["ok"] = False
@@ -530,7 +527,62 @@ def comfy_view(filename: str, subfolder: str, type_: str) -> bytes:
     qs = urllib.parse.urlencode(
         {"filename": filename, "subfolder": subfolder, "type": type_}
     )
-    return urlopen(f"http://{COMFY_HOST}/view?{qs}").read()
+    req = Request(f"{COMFY_BASE}/view?{qs}", headers=CF_HEADERS)
+    return urlopen(req, timeout=120).read()
+
+
+import uuid as _uuid
+
+
+def comfy_upload_image(filename: str, data: bytes) -> str:
+    """Upload bytes to ComfyUI's input dir (POST /upload/image, multipart) and
+    return the name to reference in a LoadImage node. Cloud-only: the remote
+    ComfyUI can't see our staging refs, so every LoadImage source is uploaded
+    first. Pure stdlib multipart so we keep deps to Pillow + boto3."""
+    boundary = f"----InvisibleAtlas{_uuid.uuid4().hex}"
+    safe = os.path.basename(filename) or "ref.png"
+    parts: list[bytes] = []
+    parts.append(f"--{boundary}\r\n".encode())
+    parts.append(
+        f'Content-Disposition: form-data; name="image"; filename="{safe}"\r\n'.encode()
+    )
+    parts.append(b"Content-Type: application/octet-stream\r\n\r\n")
+    parts.append(data)
+    parts.append(f"\r\n--{boundary}\r\n".encode())
+    parts.append(b'Content-Disposition: form-data; name="type"\r\n\r\ninput')
+    parts.append(f"\r\n--{boundary}\r\n".encode())
+    parts.append(b'Content-Disposition: form-data; name="overwrite"\r\n\r\ntrue')
+    parts.append(f"\r\n--{boundary}--\r\n".encode())
+    body = b"".join(parts)
+    req = Request(
+        f"{COMFY_BASE}/upload/image",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", **CF_HEADERS},
+        method="POST",
+    )
+    resp = json.loads(urlopen(req, timeout=120).read())
+    name = resp.get("name", safe)
+    sub = resp.get("subfolder")
+    return f"{sub}/{name}" if sub else name
+
+
+def _upload_workflow_refs(wf: dict) -> None:
+    """Rewrite every LoadImage node's `image` from a staging-relative ref path
+    to a name uploaded to the remote ComfyUI. Mutates wf in place."""
+    for node in wf.values():
+        if not isinstance(node, dict) or node.get("class_type") != "LoadImage":
+            continue
+        relpath = (node.get("inputs") or {}).get("image")
+        if not relpath or not isinstance(relpath, str):
+            continue
+        src = INPUT_DIR / relpath
+        if not src.exists():
+            print(f"[upload] ref not in staging, leaving as-is: {relpath}", flush=True)
+            continue
+        try:
+            node["inputs"]["image"] = comfy_upload_image(src.name, src.read_bytes())
+        except Exception as e:  # noqa: BLE001
+            print(f"[upload] failed for {relpath}: {e}", flush=True)
 
 
 def normalize_shape_ref(shape_ref_relpath: str) -> str:
@@ -1164,6 +1216,9 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
 
 def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Image.Image:
     wf = build_workflow(region, style, atlas_path)
+    # Cloud: the remote ComfyUI can't read our staging refs — upload each
+    # LoadImage source first and rewrite the node to the uploaded name.
+    _upload_workflow_refs(wf)
     payload = {"prompt": wf, "client_id": client_id}
     # API nodes (OpenAIGPTImage1, …) authenticate via the comfy.org key in
     # extra_data — the browser login doesn't apply to headless /prompt jobs.
@@ -1225,8 +1280,34 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
             if saves:
                 meta = saves[0]
                 blob = comfy_view(meta["filename"], meta["subfolder"], meta["type"])
+                # Cloud: ComfyUI saved the variant to ITS OWN disk (remote), so it
+                # won't appear in our staging BATCH_DIR the way the shared-FS local
+                # setup assumed. Persist the fetched bytes (PNG keeps its embedded
+                # seed metadata) into staging BATCH_DIR — so the gallery's variant
+                # globbing/seed-reading works unchanged — and mirror to R2.
+                _persist_variant(region["name"], meta["filename"], blob)
                 return Image.open(io.BytesIO(blob)).convert("RGBA")
     raise TimeoutError(f"Region {region['name']} timed out after 20 min")
+
+
+def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
+    try:
+        BATCH_DIR.mkdir(parents=True, exist_ok=True)
+        fname = os.path.basename(filename) or f"{region_name}_view.png"
+        dest = BATCH_DIR / fname
+        dest.write_bytes(blob)
+        r2_prefix = _PP.get("r2_project_prefix")
+        out_prefix = _PP.get("output_prefix")
+        if r2_prefix and out_prefix:
+            try:
+                import storage
+                storage.put(
+                    f"{r2_prefix}/output/{out_prefix}/batch/{fname}", blob, "image/png"
+                )
+            except Exception:  # noqa: BLE001 — R2 mirror is best-effort
+                pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[persist] variant write failed: {e}", flush=True)
 
 
 # PADDING_PCT and SHAPE_REF_FILL_PCT are loaded from atlas_config.json at top.
