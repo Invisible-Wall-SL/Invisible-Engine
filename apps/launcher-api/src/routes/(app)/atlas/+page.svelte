@@ -1,50 +1,15 @@
-<script lang="ts">
-	import type { PageData } from './$types';
-	let { data }: { data: PageData } = $props();
-</script>
-
 <svelte:head><title>Atlas Maker — Invisible Wall</title></svelte:head>
 
-{#if data.toolUrl}
-	<iframe title="Atlas Maker" src={data.toolUrl}></iframe>
-	<a class="back" href="/" title="Back to launcher">‹ Launcher</a>
-{:else}
-	<div class="empty">
-		<h1>Atlas Maker</h1>
-		<p>The Atlas Maker service URL is not configured.</p>
-		<p class="muted">Set <code>ATLAS_TOOL_URL</code> in the launcher environment.</p>
-		<a class="ghost" href="/">‹ Launcher</a>
-	</div>
-{/if}
+<!-- Shown only when ATLAS_TOOL_URL is unset; otherwise the load fn redirects
+	 straight to the full-page tool. -->
+<div class="empty">
+	<h1>Atlas Maker</h1>
+	<p>The Atlas Maker service URL is not configured.</p>
+	<p class="muted">Set <code>ATLAS_TOOL_URL</code> in the launcher environment.</p>
+	<a class="ghost" href="/">‹ Launcher</a>
+</div>
 
 <style>
-	iframe {
-		position: fixed;
-		inset: 0;
-		width: 100vw;
-		height: 100vh;
-		border: none;
-		background: #1b1d22;
-	}
-	.back {
-		position: fixed;
-		top: 10px;
-		right: 12px;
-		z-index: 10;
-		background: rgba(16, 16, 22, 0.85);
-		border: 1px solid #363b45;
-		color: #9a9aa5;
-		padding: 5px 11px;
-		border-radius: 8px;
-		font:
-			12px system-ui,
-			sans-serif;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: #fff;
-		border-color: #5db0ff;
-	}
 	.empty {
 		max-width: 540px;
 		margin: 16vh auto 0;

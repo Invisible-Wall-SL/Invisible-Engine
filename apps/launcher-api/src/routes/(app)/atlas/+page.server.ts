@@ -9,11 +9,15 @@ export const load: PageServerLoad = ({ locals }) => {
 		throw error(403, 'Your role does not have access to the Atlas Maker.');
 	}
 
+	// Full-page, no iframe: send the authenticated user straight to the tool.
+	// The role check above gates it; the optional shared secret (?k=) only the
+	// launcher knows is appended server-side so the tool's gate lets them in.
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
-	const toolUrl = base
-		? ENV.ATLAS_TOOL_SECRET
+	if (base) {
+		const dest = ENV.ATLAS_TOOL_SECRET
 			? `${base}/?k=${encodeURIComponent(ENV.ATLAS_TOOL_SECRET)}`
-			: `${base}/`
-		: '';
-	return { toolUrl };
+			: `${base}/`;
+		throw redirect(303, dest);
+	}
+	return { configured: false };
 };
