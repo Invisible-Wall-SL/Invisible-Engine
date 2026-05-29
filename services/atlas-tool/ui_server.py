@@ -87,6 +87,7 @@ ATLAS_TOOL_SECRET = os.environ.get("ATLAS_TOOL_SECRET", "")
 _REF_MUTATING_ROUTES = {
     "/setref", "/setoutput", "/userefimg", "/shinefrom", "/shinemode",
     "/fxbuild", "/clearref", "/clearoutput", "/setmode", "/delvariants",
+    "/uploadatlas",
 }
 
 
@@ -144,6 +145,7 @@ ADV_FIELDS = [
     ("controlnet_end_percent", "ControlNet end %", "controlnet_end_percent"),
     ("checkpoint", "Checkpoint override", "checkpoint"),
     ("style_ref", "Style ref (IPAdapter / Redux image)", "mockup_image"),
+    ("shape_ref", "Shape ref (ControlNet silhouette)", ""),
     ("fit_mode", "Fit mode — how the art maps into the slot", ""),
     ("gpt_rembg", "GPT: cut background (RMBG)", ""),
 ]
@@ -159,6 +161,7 @@ ADV_PIPE = {
     "controlnet_strength": "both",   # ComfyUI local only, hidden for gpt
     "controlnet_end_percent": "both",
     "style_ref": "all",      # the slot's reference image — used by gpt too
+    "shape_ref": "both",     # ControlNet silhouette — local pipelines only
     "fit_mode": "all",       # slot mapping — applies to every pipeline
     "gpt_rembg": "gpt_image",
 }
@@ -187,6 +190,10 @@ ADV_TIPS = {
         "match the slot (e.g. a wide wordmark inside a square-ish GPT "
         "image).  Blank = default: fill for Spine .atlas slots, contain "
         "for legacy cell grids.",
+    "shape_ref":
+        "A silhouette image (this slot's own) fed to ControlNet so the "
+        "generated art follows its outline. Pick from R2 to point at a ref "
+        "already in the asset repo. Blank = no ControlNet for this slot.",
     "gpt_rembg":
         "GPT-Image-1 almost always returns an OPAQUE image, which composes "
         "as a solid rectangle over the scene. ON runs the same RMBG cutout "
@@ -1296,6 +1303,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <button onclick="selAll(false)" class="alt">Select none</button>
   <button onclick="createAtlas()" id="abtn" style="background:#629432">🧩 Create Atlas</button>
   <button onclick="sliceAtlas()" class="alt" title="Cut the Atlas source image into per-region crops and set them as each region's IPAdapter style ref">✂ Slice source → refs</button>
+  <button onclick="uploadAtlas()" class="alt" title="Upload a .atlas geometry file (and its source page image) into R2 and repoint this manifest, so Slice/Compose resolve in the cloud">⬆ Upload .atlas</button>
+  <input type="file" id="uplAtlasFile" accept=".atlas" style="display:none" onchange="onAtlasFilePicked()">
+  <input type="file" id="uplAtlasImg" accept="image/*" style="display:none" onchange="onAtlasImgPicked()">
   <button onclick="viewAtlas()" class="alt">🖼 View atlas</button>
   <button onclick="deployAtlas()" class="alt" title="Copy the built atlas (.png/.webp) to this manifest's Deploy folder, overwriting <stem>.png/.webp there. Set the folder in Atlas settings.">📦 Deploy atlas</button>
   {spine_link}
@@ -1478,6 +1488,38 @@ async function saveGlobalStyle(){{
   negative:document.getElementById('gneg').value}};
  let r=await fetch('/saveglobalstyle',{{method:'POST',body:JSON.stringify(body)}});
  document.getElementById('gnegstat').textContent=await r.text();
+}}
+let _uplAtlas=null;   // {{name,text}} held between the two file pickers
+function uploadAtlas(){{ _uplAtlas=null; document.getElementById('uplAtlasFile').value=''; document.getElementById('uplAtlasFile').click(); }}
+function onAtlasFilePicked(){{
+ let f=document.getElementById('uplAtlasFile').files[0]; if(!f)return;
+ let rd=new FileReader();
+ rd.onload=()=>{{ _uplAtlas={{name:f.name,text:rd.result}};
+  if(confirm('Also upload the source page image for '+f.name+'? (needed for Slice / Compose to resolve the atlas page in the cloud)')){{
+   let im=document.getElementById('uplAtlasImg'); im.value=''; im.click();
+  }} else {{ sendAtlasUpload(null); }}
+ }};
+ rd.readAsText(f);
+}}
+function onAtlasImgPicked(){{
+ let f=document.getElementById('uplAtlasImg').files[0];
+ if(!f){{ sendAtlasUpload(null); return; }}
+ let rd=new FileReader();
+ rd.onload=()=>{{ let b64=String(rd.result).split(',')[1]||''; sendAtlasUpload({{name:f.name,data:b64}}); }};
+ rd.readAsDataURL(f);
+}}
+async function sendAtlasUpload(img){{
+ if(!_uplAtlas)return;
+ let st=document.getElementById('stat'); if(st)st.textContent='⬆ Uploading .atlas…';
+ let body={{atlas_name:_uplAtlas.name,atlas_text:_uplAtlas.text}};
+ if(img){{ body.image_name=img.name; body.image_data=img.data; }}
+ let msg;
+ try{{ let r=await fetch('/uploadatlas',{{method:'POST',body:JSON.stringify(body)}});
+  msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Upload failed: '+e; }}
+ if(st)st.textContent=msg;
+ _uplAtlas=null;
+ if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),2200);
 }}
 async function sliceAtlas(){{
  if(!confirm('Cut the Atlas source image into per-region crops and set each as its IPAdapter style ref? Existing prompts/seeds are kept.'))return;
@@ -1747,6 +1789,19 @@ async function openAdv(name){{
     else{{inp.step='any';}}
   }}
   lab.appendChild(document.createTextNode(labelText(fd)));
+  // Reference-image fields get a "Pick from R2" button that opens the same
+  // /fsbrowse picker and writes the chosen R2-relative path into the input.
+  if(fd.key==='style_ref'||fd.key==='shape_ref'){{
+   let row=document.createElement('div');
+   row.style.cssText='display:flex;gap:6px;align-items:center';
+   inp.style.flex='1';
+   let btn=document.createElement('button');
+   btn.type='button'; btn.className='mini'; btn.textContent='📁 Pick from R2';
+   btn.title='Browse the R2 asset repo and use the selected image as this slot\\'s '+fd.key;
+   btn.onclick=()=>openFs(fd.key,inp);
+   row.appendChild(inp); row.appendChild(btn);
+   lab.appendChild(row); f.appendChild(lab); return;
+  }}
   lab.appendChild(inp); f.appendChild(lab);
  }});
  applyAdvPipe();
@@ -1892,8 +1947,13 @@ async function refreshCredits(){{
 let _fsTarget=null;
 let _fsFolderMode=false;
 let _fsCurDir='';
-function _fsInput(){{return document.querySelector('[data-cfg="'+_fsTarget+'"]');}}
-function openFs(key){{
+let _fsInputEl=null;   // explicit target (advanced popup ref pickers)
+function _fsInput(){{return _fsInputEl||document.querySelector('[data-cfg="'+_fsTarget+'"]');}}
+// Open the R2 picker against a specific input element (used by the per-region
+// style_ref / shape_ref pickers, whose inputs carry data-adv not data-cfg).
+function openFsFor(inputEl,key){{ openFs(key,inputEl); }}
+function openFs(key,inputEl){{
+ _fsInputEl=inputEl||null;   // default: resolve target via data-cfg
  _fsTarget=key;
  _fsFolderMode=(key==='deploy_path');
  document.getElementById('fstitle').textContent=
@@ -2178,6 +2238,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._saveadv(json.loads(raw)).encode())
         elif self.path == "/saveglobalstyle":
             self._send(200, "text/plain", self._saveglobalstyle(json.loads(raw)).encode())
+        elif self.path == "/uploadatlas":
+            self._send(200, "text/plain", self._uploadatlas(json.loads(raw)).encode())
         elif self.path == "/sliceatlas":
             self._send(200, "text/plain", self._sliceatlas().encode())
         elif self.path == "/deployatlas":
@@ -2305,6 +2367,64 @@ class Handler(BaseHTTPRequestHandler):
             })
         return json.dumps({"name": name, "fields": fields,
                            "effective": effective}).encode()
+
+    def _uploadatlas(self, payload: dict) -> str:
+        """Upload a `.atlas` geometry file (+ optional source page image) into
+        the project's R2-backed staging tree and repoint the active manifest's
+        atlas block at staging-relative paths, so Slice/Compose resolve in the
+        cloud (local Windows paths never would).
+
+        payload: {atlas_name, atlas_text, image_name?, image_data(b64)?}.
+        Files land under refs/atlas/ (mirrored to R2 by the post-route push),
+        and atlas.atlas_file / atlas.source_image are rewritten to that
+        INPUT_DIR-relative form — the same form batch_atlas resolves."""
+        atlas_name = Path(str(payload.get("atlas_name", "")).strip()).name
+        atlas_text = payload.get("atlas_text", "")
+        if not atlas_name or not atlas_name.lower().endswith(".atlas"):
+            return "Pick a .atlas file to upload."
+        if not atlas_text:
+            return "The .atlas file was empty."
+        dest_dir = INPUT_DIR / "refs" / "atlas"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        atlas_rel = f"refs/atlas/{atlas_name}"
+        try:
+            (INPUT_DIR / atlas_rel).write_text(atlas_text, encoding="utf-8")
+        except OSError as e:
+            return f"Could not write {atlas_name}: {e}"
+        # Parse the page image name the .atlas references (line 2 of a libGDX
+        # atlas), so we can default source_image to the uploaded page.
+        page_image = ""
+        try:
+            page_image = atlas_format.parse_atlas(INPUT_DIR / atlas_rel)["page"]["image"]
+        except Exception:  # noqa: BLE001 — keep the upload even if parse is odd
+            page_image = ""
+        img_rel = ""
+        img_name = Path(str(payload.get("image_name", "")).strip()).name
+        img_b64 = payload.get("image_data", "")
+        if img_name and img_b64:
+            try:
+                raw = base64.b64decode(img_b64)
+                Image.open(io.BytesIO(raw))  # validate it's an image
+            except Exception as e:  # noqa: BLE001
+                return f"Invalid source image: {e}"
+            img_rel = f"refs/atlas/{img_name}"
+            try:
+                (INPUT_DIR / img_rel).write_bytes(raw)
+            except OSError as e:
+                return f"Could not write {img_name}: {e}"
+        m = load_manifest()
+        atlas = m.setdefault("atlas", {})
+        atlas["atlas_file"] = atlas_rel
+        if img_rel:
+            atlas["source_image"] = img_rel
+        elif page_image:
+            # No image uploaded: point source_image at the page name so a
+            # later upload / R2 pick under refs/atlas resolves it.
+            atlas.setdefault("source_image", f"refs/atlas/{Path(page_image).name}")
+        save_manifest(m)
+        tail = f" + source {img_rel}" if img_rel else ""
+        return (f"✓ Uploaded {atlas_rel}{tail} and repointed "
+                f"{manifest_path().name} — reload to see regions.")
 
     def _sliceatlas(self) -> str:
         cmd = [PY, str(TOOLS / "slice_atlas.py"),

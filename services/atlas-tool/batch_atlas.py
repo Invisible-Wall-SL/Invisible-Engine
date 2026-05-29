@@ -91,13 +91,20 @@ _DEFAULTS = {
     # authenticates through ComfyUI; sign in to comfy.org in ComfyUI once).
     # The IMAGE output goes through SaveImage like every other pipeline, so
     # variants / lock / Create Atlas work unchanged.
-    "gpt_image_model": "gpt-image-2",     # gpt-image-1 | gpt-image-1.5 | gpt-image-2
-    # "match_ref" (default) = Custom size at the ORIGINAL REFERENCE's aspect
-    # ratio so GPT returns the right shape (gpt-image-2 only; older models
-    # fall back to 1024x1024). Or a fixed preset: 1024x1024 | 1024x1536 |
-    # 1536x1024 | auto | (gpt-image-2 also) 2048x2048 | 2048x1152 | 1152x2048
-    # | 3840x2160 | 2160x3840. fit_to_region still does the final exact-slot
-    # resize, so this only controls the SHAPE GPT generates in.
+    # The shipped ComfyUI first-party node is "OpenAIGPTImage1" → model
+    # "gpt-image-1" (the only value its 'model' widget accepts today). The
+    # gpt-image-1.5 / gpt-image-2 strings + the Custom/2K/4K size path below
+    # are kept for forward-compat but are OPT-IN: with an unreleased model the
+    # node rejects the /prompt (HTTP 400), so the default must be the real one.
+    "gpt_image_model": "gpt-image-1",     # gpt-image-1 (real) | gpt-image-1.5/2 (future)
+    # "match_ref" (default) = pick the closest REAL preset to the original
+    # reference's aspect ratio so GPT returns roughly the right shape:
+    # 1024x1024 (square) | 1536x1024 (landscape) | 1024x1536 (portrait).
+    # Or set a fixed preset verbatim: 1024x1024 | 1024x1536 | 1536x1024 | auto.
+    # (gpt-image-2 ONLY, if/when it ships, also accepts a Custom size at the
+    # exact ref aspect + 2K/4K presets — used automatically when that model is
+    # selected.) fit_to_region still does the final exact-slot resize, so this
+    # only controls the SHAPE GPT generates in.
     "gpt_image_size": "match_ref",        # match_ref | <preset WxH> | auto
     "gpt_image_quality": "low",           # low | medium | high  (low = cheapest)
     "gpt_image_background": "transparent",  # transparent | auto | opaque
@@ -311,8 +318,13 @@ def region_trim(region: dict) -> tuple[int, int, int, int]:
 def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
     """Resolve the bound `.atlas` for this manifest, or None for the legacy
     cell-grid path. Either the selected file IS a `.atlas`, or the JSON
-    manifest's atlas block names one via `atlas_file` (absolute, or a name
-    resolved next to the manifests)."""
+    manifest's atlas block names one via `atlas_file` (absolute, or a path
+    resolved inside the R2-backed staging tree).
+
+    A relative `atlas_file` is resolved against the staging locations the
+    cloud port writes to — alongside the manifest, and the INPUT_DIR mirror
+    of the R2 asset repo (the form `/fsbrowse` returns) — falling back to a
+    bare name next to the app dir for legacy/local manifests."""
     if manifest_path.suffix.lower() == ".atlas":
         return manifest_path
     ref = (manifest.get("atlas") or {}).get("atlas_file")
@@ -321,7 +333,14 @@ def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
     p = Path(ref)
     if p.is_absolute():
         return p
-    return SELF / p.name
+    rel = ref.replace("\\", "/").lstrip("/")
+    for cand in (manifest_path.parent / rel, INPUT_DIR / rel,
+                 manifest_path.parent / p.name, SELF / p.name):
+        if cand.exists():
+            return cand
+    # Nothing on disk yet — return the staging path so callers report a
+    # clear "not found" against the location the cloud actually reads.
+    return INPUT_DIR / rel
 
 
 def merge_atlas_regions(manifest: dict, atlas_data: dict) -> list[dict]:
@@ -707,6 +726,22 @@ def _gpt_custom_dims(w: int, h: int) -> tuple[int, int]:
     return cw, ch
 
 
+def _gpt_preset_for_ref(w: int, h: int) -> str:
+    """Closest REAL OpenAIGPTImage1 preset to the reference's aspect ratio —
+    the only sizes gpt-image-1 actually accepts. Square -> 1024x1024,
+    clearly landscape -> 1536x1024, clearly portrait -> 1024x1536. Used so
+    'match_ref' returns the right SHAPE without the (gpt-image-2-only) Custom
+    size that the shipped node rejects. fit_to_region does the exact resize."""
+    w = max(1, int(w))
+    h = max(1, int(h))
+    ratio = w / h
+    if ratio >= 1.2:
+        return "1536x1024"
+    if ratio <= 1 / 1.2:
+        return "1024x1536"
+    return "1024x1024"
+
+
 def _gpt_ref_dims(ref: str, region: dict) -> tuple[int, int]:
     """Pixel dimensions of the region's original reference image (what GPT
     edits), falling back to the region's authored slot box if it can't be
@@ -785,22 +820,26 @@ def build_workflow_gpt(region: dict, style: dict) -> dict:
     # Size resolution:
     #   - an explicit preset string ("1536x1024", "auto", …)  -> sent as-is
     #   - "WxH" the user typed                                 -> sent as-is
-    #   - blank / "match_ref" (the new default)                -> Custom size
-    #     matching the ORIGINAL REFERENCE's aspect ratio so GPT returns the
-    #     right shape instead of a forced square that fit_to_region then has
-    #     to crop/squash. Custom requires gpt-image-2; older models fall back
-    #     to the cheapest square.
+    #   - blank / "match_ref" (the default)                    -> the closest
+    #     REAL preset to the ORIGINAL REFERENCE's aspect (gpt-image-1), so GPT
+    #     returns the right SHAPE without a forced square that fit_to_region
+    #     then has to crop. gpt-image-2 (if/when it ships) instead gets a
+    #     Custom size at the exact ref aspect.
     size_cfg = str(region.get("gpt_image_size") or GPT_IMAGE_SIZE or "").strip()
     if size_cfg in _GPT_PRESET_SIZES or size_cfg == "Custom":
         gpt_inputs["size"] = size_cfg
     elif size_cfg.lower() in _GPT_MATCH_REF:
         if model == "gpt-image-2":
+            # gpt-image-2 (future) accepts a Custom size at the exact ref
+            # aspect; only used when that model is explicitly selected.
             cw, ch = _gpt_custom_dims(*_gpt_ref_dims(ref, region))
             gpt_inputs["size"] = "Custom"
             gpt_inputs["custom_width"] = cw
             gpt_inputs["custom_height"] = ch
         else:
-            gpt_inputs["size"] = "1024x1024"
+            # gpt-image-1 (shipped): pick the closest REAL preset to the ref
+            # aspect instead of a forced square the slot then has to crop.
+            gpt_inputs["size"] = _gpt_preset_for_ref(*_gpt_ref_dims(ref, region))
     else:
         gpt_inputs["size"] = size_cfg  # pass through (e.g. a literal "WxH")
 
