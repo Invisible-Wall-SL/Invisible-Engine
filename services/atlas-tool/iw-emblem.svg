@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Invisible Wall S.L. — emblem (vector reconstruction).
+  Traced from Brand/03_Icon/IW_Icon_AlphaWhite_1024x1024.png (366x304 native).
+  Two tapered strokes meeting at upper-left, forming a wall-corner mark.
+  Use `currentColor` so the colour follows surrounding text/CSS.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 366 304" preserveAspectRatio="xMidYMid meet">
+  <g fill="currentColor">
+    <!-- Horizontal arm: tapers from thick at left (corner) to a point at upper-right -->
+    <polygon points="20,50 40,73 336,9 336,5"/>
+    <!-- Vertical arm: tapers from thick at top (corner) to a point at bottom -->
+    <polygon points="13,55 28,80 21,278 17,278"/>
+  </g>
+</svg>

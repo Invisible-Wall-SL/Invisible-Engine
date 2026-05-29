@@ -112,9 +112,11 @@ DEFAULT_CONFIG = {
     "gen_height": 1024,
 }
 LOGO_CANDIDATES = [
+    # Bundled with the service (works in the container). The local Windows
+    # paths below are kept as fallbacks for running the tool on the dev box.
+    Path(__file__).resolve().parent / "iw-emblem.svg",
     Path(r"C:/Invisible Wall SL/Company Website/Images/iw-emblem.svg"),
     Path(r"C:/Invisible Wall SL/Company Website/Images/iw-emblem.png"),
-    Path(r"C:/Invisible Wall SL/ComfyUI/iw-emblem-square.png"),
 ]
 PY = sys.executable
 PORT = int(os.environ.get("PORT", "8765"))

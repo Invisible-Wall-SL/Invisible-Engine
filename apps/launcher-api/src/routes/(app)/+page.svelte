@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import Emblem from '$lib/Emblem.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -11,7 +12,7 @@
 
 <div class="shell">
 	<header>
-		<div class="brand">INVISIBLE WALL</div>
+		<div class="brand"><Emblem height={18} /> INVISIBLE WALL</div>
 		<div class="user">
 			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
 			<a class="ghost" href="/onboarding">Getting started</a>
@@ -65,6 +66,9 @@
 		margin-bottom: 32px;
 	}
 	.brand {
+		display: flex;
+		align-items: center;
+		gap: 9px;
 		font-weight: 700;
 		letter-spacing: 0.14em;
 		color: #7ee0c0;

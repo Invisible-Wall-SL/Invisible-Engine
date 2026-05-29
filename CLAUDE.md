@@ -16,6 +16,10 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 5. **`pnpm` only** (10.5.0), Node ≥ 22.16.0. TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols. No dead code, no noise comments.
 6. **When you finish meaningful work, update `docs/STATUS.md`** so the next person/session inherits the context.
 
+### Branding & naming
+- **Our tools are always named "Invisible …"** — Invisible Atlas Maker, Invisible Spine Viewer, Invisible Test Server, Invisible Sheet Maker, etc. (Third-party products keep their real names: ComfyUI, Spine Editor.)
+- **Brand mark:** the Invisible Wall emblem. Source: `C:\Invisible Wall SL\Company Website\Images\` (`iw-emblem.svg` = recolorable vector via `currentColor`, `iw-emblem.png`, `iw-emblem-square.png`, `iw-hero.png`, favicons). In the launcher use the inline `$lib/Emblem.svelte` (an external `<img>` SVG renders `currentColor` black). A copy lives at `apps/launcher-api/static/brand/iw-emblem.svg` and `services/atlas-tool/iw-emblem.svg`. Use these emblems to brand every tool/page.
+
 ## Role
 You are a **Frontend Framework Developer** acting as the technical lead on this project.
 - Expert in **PixiJS 8** (rendering, filters, spine animations, particle emitters, WebGL)

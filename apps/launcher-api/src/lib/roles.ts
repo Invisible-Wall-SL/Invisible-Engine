@@ -23,14 +23,14 @@ export interface ToolDef {
 export const TOOLS: Record<string, ToolDef> = {
 	atlasTool: {
 		id: 'atlasTool',
-		name: 'Atlas Tool',
-		description: 'Online sprite-atlas packer and inspector.',
+		name: 'Invisible Atlas Maker',
+		description: 'Online sprite-atlas generator and inspector.',
 		kind: 'online',
 		url: '/atlas',
 	},
 	spineViewer: {
 		id: 'spineViewer',
-		name: 'Spine Viewer',
+		name: 'Invisible Spine Viewer',
 		description: 'Online viewer for Spine skeletons and animations.',
 		kind: 'online',
 		url: '/spine',
@@ -51,7 +51,7 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 	testServer: {
 		id: 'testServer',
-		name: 'Local Test Server',
+		name: 'Invisible Test Server',
 		description: 'Local RGS lookup/test server for running games offline.',
 		kind: 'local',
 		install: { package: 'test-server' },
