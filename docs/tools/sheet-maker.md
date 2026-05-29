@@ -20,15 +20,18 @@ ComfyUI** is involved.
 
 - **Source:** `services/sheet-tool/` (stdlib `http.server` + Pillow; UI in
   `ui.html`, packing in `packer.py`, export in `atlas_writers.py`).
-- **Where it runs:** cloud-ready — a port that mirrors the Atlas Maker (R2-backed
-  staging + write-through). **TODO: confirm** — the Railway service and the
-  launcher `/sheet` route are not created yet (backlog B1 leftover).
+- **Where it runs:** cloud, on Railway — a port that mirrors the Atlas Maker
+  (R2-backed staging + write-through). Opened full-page from the launcher at
+  `/sheet` (no iframe), behind the auth + role gate, like `/atlas`.
 
 ## How to access it
 
-Once the Railway service + launcher route exist, you'll open it from the
-launcher like the other online tools (planned route `/sheet`). For now it runs
-directly: `python sheet_server.py` binds `0.0.0.0:$PORT` (default **8766**).
+Sign in to the launcher (`app.invisiblewall.org`) and open **Invisible Sheet
+Maker** → it full-page-redirects to the tool at `SHEET_TOOL_URL` with the
+active **project** forwarded (`?project=<key>`, project-centric like the Atlas
+Maker). The launcher must have `SHEET_TOOL_URL` set (and optional
+`SHEET_TOOL_SECRET`). To run it standalone for dev: `python sheet_server.py`
+binds `0.0.0.0:$PORT` (default **8766**).
 
 ## Typical workflow
 
@@ -60,9 +63,9 @@ exports) so it survives container restarts; writes mirror to R2.
 
 ## Known limitations / TODOs
 
-- **Not yet deployed:** code is deploy-ready (Dockerfile, requirements, R2
-  write-through) but the Railway service and launcher `/sheet` route still need
-  to be created (B1 leftover). Until then it only runs locally.
-- Not yet run live against R2 (no local R2 creds at port time).
+- The launcher `/sheet` route exists; the **Railway service still needs to be
+  created** from `services/sheet-tool/` and `SHEET_TOOL_URL` set on the launcher.
+  Until then `/sheet` shows a "not configured" page.
+- Not yet run live against R2 / smoke-tested in the browser.
 - The handoff to the Atlas Maker requires an Atlas Maker **restart** to pick up
   a newly authored manifest, because that tool hydrates from R2 only at boot.

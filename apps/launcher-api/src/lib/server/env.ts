@@ -57,4 +57,14 @@ export const ENV = {
 	get ATLAS_TOOL_SECRET() {
 		return env.ATLAS_TOOL_SECRET ?? '';
 	},
+	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
+	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
+	// No code default yet: set SHEET_TOOL_URL once the Railway service exists;
+	// until then /sheet shows a "not configured" page.
+	get SHEET_TOOL_URL() {
+		return env.SHEET_TOOL_URL ?? '';
+	},
+	get SHEET_TOOL_SECRET() {
+		return env.SHEET_TOOL_SECRET ?? '';
+	},
 };

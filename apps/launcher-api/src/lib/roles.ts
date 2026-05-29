@@ -4,14 +4,6 @@ export const ROLES: Role[] = ['admin', 'developer', 'artist', 'animator'];
 
 export type ToolKind = 'online' | 'local';
 
-/**
- * Placeholder used where a real download URL for a local tool is not yet known.
- * TODO(owner): replace each `download: DOWNLOAD_TODO` below with the real
- * installer/download URL. The UI renders these as "coming soon" rather than a
- * live link, so we never ship a fabricated URL.
- */
-export const DOWNLOAD_TODO = '';
-
 export interface ToolDef {
 	id: string;
 	name: string;
@@ -24,7 +16,7 @@ export interface ToolDef {
 		/** Identifier the launcher knows how to fetch/install (resolved against the shared repo). */
 		package: string;
 		version?: string;
-		/** Public download/installer URL. Empty (`DOWNLOAD_TODO`) until the owner supplies it. */
+		/** Public download/installer URL. */
 		download: string;
 		/** Short, human-readable install steps shown in onboarding. */
 		steps: string[];
@@ -77,42 +69,19 @@ export const TOOLS: Record<string, ToolDef> = {
 			],
 		},
 	},
-	testServer: {
-		id: 'testServer',
-		name: 'Invisible Test Server',
-		description: 'Local RGS lookup/test server for running games offline.',
-		kind: 'local',
-		install: {
-			package: 'test-server',
-			download: DOWNLOAD_TODO,
-			steps: [
-				'Download the Invisible Test Server bundle (ask an admin until the link is live).',
-				'Unzip it somewhere stable on your machine.',
-				'Save the folder path below so the launcher can start it.',
-			],
-		},
-	},
 	sheetMaker: {
 		id: 'sheetMaker',
 		name: 'Invisible Sheet Maker',
-		description: 'Local sprite-sheet packer for game-ready atlases.',
-		kind: 'local',
-		install: {
-			package: 'sheet-maker',
-			download: DOWNLOAD_TODO,
-			steps: [
-				'Download the Invisible Sheet Maker bundle (ask an admin until the link is live).',
-				'Unzip it somewhere stable on your machine.',
-				'Save the folder path below.',
-			],
-		},
+		description: 'Online sprite-sheet packer for game-ready atlases.',
+		kind: 'online',
+		url: '/sheet',
 	},
 };
 
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
-	developer: ['atlasTool', 'spineViewer', 'testServer', 'comfyui'],
+	developer: ['atlasTool', 'spineViewer', 'comfyui'],
 	artist: ['atlasTool', 'comfyui', 'sheetMaker'],
 	animator: ['spineViewer', 'spine'],
 };
@@ -155,7 +124,6 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	spineViewer: 'spine-viewer',
 	comfyui: 'comfyui',
 	spine: 'spine-editor',
-	testServer: 'test-server',
 	sheetMaker: 'sheet-maker',
 };
 

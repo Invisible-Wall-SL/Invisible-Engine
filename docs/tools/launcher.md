@@ -35,8 +35,8 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 | Role | Tools |
 |---|---|
 | **admin** | all tools |
-| **developer** | Invisible Atlas Maker, Invisible Spine Viewer, Invisible Test Server, ComfyUI |
-| **artist** | Invisible Atlas Maker, ComfyUI |
+| **developer** | Invisible Atlas Maker, Invisible Spine Viewer, ComfyUI |
+| **artist** | Invisible Atlas Maker, ComfyUI, Invisible Sheet Maker |
 | **animator** | Invisible Spine Viewer, Spine Editor |
 
 Tools are typed `online` (opened in the browser) or `local` (installed on your

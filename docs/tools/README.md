@@ -12,8 +12,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **The Launcher** | Cloud (Railway) | `app.invisiblewall.org` | [launcher.md](launcher.md) |
 | **Invisible Atlas Maker** | Cloud (Railway) + your local ComfyUI | launcher → `/atlas` | [atlas-maker.md](atlas-maker.md) |
 | **Invisible Spine Viewer** | Cloud (launcher static) | launcher → `/spine` | [spine-viewer.md](spine-viewer.md) |
-| **Invisible Sheet Maker** | Cloud (Railway) | launcher → `/sheet` (route pending) | [sheet-maker.md](sheet-maker.md) |
-| **Invisible Test Server** | Local | install via launcher | [test-server.md](test-server.md) |
+| **Invisible Sheet Maker** | Cloud (Railway) | launcher → `/sheet` | [sheet-maker.md](sheet-maker.md) |
 | **ComfyUI** (third-party) | Local (your GPU) | runs locally, exposed via tunnel | [comfyui.md](comfyui.md) |
 
 For the authoritative live state, deploy details and env vars see
