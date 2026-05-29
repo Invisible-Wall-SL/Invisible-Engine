@@ -85,20 +85,6 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 };
 
-/**
- * The engine games the launcher can open for quick testing. `id` is the path
- * segment on the games server; the launcher opens `<GAMES_BASE_URL>/<id>/?project=<key>`.
- * Not hosted here yet — future = a dedicated game server.
- */
-export const GAMES: { id: string; name: string }[] = [
-	{ id: 'lines', name: 'Lines' },
-	{ id: 'cluster', name: 'Cluster' },
-	{ id: 'scatter', name: 'Scatter' },
-	{ id: 'ways', name: 'Ways' },
-	{ id: 'number-picker', name: 'Number Picker' },
-	{ id: 'price', name: 'Price' },
-];
-
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),

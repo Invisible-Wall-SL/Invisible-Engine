@@ -31,6 +31,18 @@ export const projects = pgTable('projects', {
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Game registry. Each game has its own display name + launch URL, editable in
+ * `/admin`. Games live on a future dedicated game server; the registry is editable
+ * now so the home Games grid can open each at its configured URL.
+ */
+export const games = pgTable('games', {
+	key: text('key').primaryKey(),
+	name: text('name').notNull(),
+	url: text('url').notNull().default(''),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const sessions = pgTable('sessions', {
 	id: text('id').primaryKey(),
 	userId: text('user_id')
@@ -138,3 +150,4 @@ export type Project = typeof projects.$inferSelect;
 export type UserProjectAccess = typeof userProjectAccess.$inferSelect;
 export type Client = typeof clients.$inferSelect;
 export type UserClientAccess = typeof userClientAccess.$inferSelect;
+export type Game = typeof games.$inferSelect;

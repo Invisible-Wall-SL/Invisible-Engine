@@ -74,10 +74,4 @@ export const ENV = {
 	get ANTHROPIC_API_KEY() {
 		return env.ANTHROPIC_API_KEY ?? '';
 	},
-	// Games — the Games section opens `<GAMES_BASE_URL>/<gameId>/?project=<key>`.
-	// Games aren't hosted here yet; future = a dedicated game server. Default empty
-	// so the home page shows a hint until this is set to the current test server.
-	get GAMES_BASE_URL() {
-		return env.GAMES_BASE_URL ?? '';
-	},
 };

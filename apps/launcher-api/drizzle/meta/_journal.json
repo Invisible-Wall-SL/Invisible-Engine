@@ -36,6 +36,13 @@
       "when": 1780148400000,
       "tag": "0004_silent_clients",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780234800000,
+      "tag": "0005_lucky_games",
+      "breakpoints": true
     }
   ]
 }

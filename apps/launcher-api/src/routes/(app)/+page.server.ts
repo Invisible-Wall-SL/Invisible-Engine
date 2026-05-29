@@ -1,8 +1,8 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { GAMES, roleHasTool } from '$lib/roles';
-import { ENV } from '$lib/server/env';
+import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
+import { listGames } from '$lib/server/games';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -12,8 +12,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	return {
 		installPaths: await getInstallPaths(locals.user.id),
-		games: GAMES,
-		gamesBaseUrl: ENV.GAMES_BASE_URL,
+		games: await listGames(),
 	};
 };
 

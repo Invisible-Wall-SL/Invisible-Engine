@@ -215,6 +215,45 @@
 	</section>
 
 	<section>
+		<h2>Games</h2>
+		<p class="muted hint">
+			Each game has its own name + launch URL. The home Games grid opens each at its URL with the
+			active project appended (<code>?project=…</code>). Games will live on a future dedicated game
+			server.
+			<!-- TODO: direct-deploy button per game (future game server) -->
+		</p>
+		<div class="projects">
+			{#each data.games as g (g.key)}
+				<div class="project-row">
+					<span class="mono key">{g.key}</span>
+					<form method="POST" action="?/renameGame" use:enhance class="rename">
+						<input type="hidden" name="key" value={g.key} />
+						<input name="name" type="text" value={g.name} autocomplete="off" />
+						<button type="submit">Rename</button>
+					</form>
+					<form method="POST" action="?/setGameUrl" use:enhance class="rename">
+						<input type="hidden" name="key" value={g.key} />
+						<input name="url" type="text" value={g.url} placeholder="https://…" autocomplete="off" />
+						<button type="submit">Save URL</button>
+					</form>
+					<form method="POST" action="?/deleteGame" use:enhance>
+						<input type="hidden" name="key" value={g.key} />
+						<button type="submit" class="danger small">Delete</button>
+					</form>
+				</div>
+			{:else}
+				<p class="muted">No games yet.</p>
+			{/each}
+			<form method="POST" action="?/createGame" use:enhance class="project-row create">
+				<input name="key" type="text" placeholder="key (e.g. lines)" autocomplete="off" required />
+				<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
+				<input name="url" type="text" placeholder="https://… (optional)" autocomplete="off" />
+				<button type="submit">Create game</button>
+			</form>
+		</div>
+	</section>
+
+	<section>
 		<h2>Roles</h2>
 		<p class="muted hint">
 			Per-role defaults from the tool registry, overridable here. <strong>Grant</strong> forces a

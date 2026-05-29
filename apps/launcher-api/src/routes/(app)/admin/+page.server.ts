@@ -54,6 +54,15 @@ import {
 	renameClient,
 	revokeClientAccess,
 } from '$lib/server/clients';
+import {
+	createGame,
+	deleteGame,
+	gameExists,
+	isValidGameKey,
+	listGames,
+	renameGame,
+	setGameUrl,
+} from '$lib/server/games';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -90,6 +99,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const projectAccess = await projectAccessFor(userList.map((u) => u.id));
 	const clients = await listClients();
 	const clientAccess = await clientAccessFor(userList.map((u) => u.id));
+	const games = await listGames();
 
 	return {
 		currentUserId: locals.user!.id,
@@ -105,6 +115,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		projectAccess,
 		clients,
 		clientAccess,
+		games,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 	};
 };
@@ -421,6 +432,69 @@ export const actions: Actions = {
 		if (grant) await grantClientAccess(userId, clientKey);
 		else await revokeClientAccess(userId, clientKey);
 		return { action: 'setClientAccess', ok: 'Client access updated.' };
+	},
+
+	createGame: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '')
+			.toLowerCase()
+			.trim();
+		const name = String(data.get('name') ?? '').trim();
+		const url = String(data.get('url') ?? '').trim();
+
+		if (!isValidGameKey(key)) {
+			return fail(400, { action: 'createGame', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
+		}
+		if (!name) return fail(400, { action: 'createGame', error: 'Name is required.' });
+		if (await gameExists(key)) {
+			return fail(400, { action: 'createGame', error: 'A game with that key exists.' });
+		}
+
+		await createGame(key, name, url);
+		return { action: 'createGame', ok: `Created game ${key}.` };
+	},
+
+	renameGame: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const name = String(data.get('name') ?? '').trim();
+
+		if (!name) return fail(400, { action: 'renameGame', error: 'Name is required.' });
+		if (!(await gameExists(key))) {
+			return fail(400, { action: 'renameGame', error: 'Unknown game.' });
+		}
+
+		await renameGame(key, name);
+		return { action: 'renameGame', ok: 'Game renamed.' };
+	},
+
+	setGameUrl: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const url = String(data.get('url') ?? '').trim();
+
+		if (!(await gameExists(key))) {
+			return fail(400, { action: 'setGameUrl', error: 'Unknown game.' });
+		}
+
+		await setGameUrl(key, url);
+		return { action: 'setGameUrl', ok: 'Game URL updated.' };
+	},
+
+	deleteGame: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+
+		if (!(await gameExists(key))) {
+			return fail(400, { action: 'deleteGame', error: 'Unknown game.' });
+		}
+
+		await deleteGame(key);
+		return { action: 'deleteGame', ok: 'Game deleted.' };
 	},
 
 	revokeSession: async ({ request, locals }) => {

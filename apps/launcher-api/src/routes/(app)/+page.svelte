@@ -8,13 +8,14 @@
 	const online = $derived(data.tools.filter((t) => t.kind === 'online'));
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
 
-	// Games launch against an external test server (not hosted here yet): the
-	// active project is passed as `?project=<key>`. Shown to every authed user for
-	// now — could be gated by a `games` capability later.
-	const gamesBase = $derived(data.gamesBaseUrl.replace(/\/$/, ''));
+	// Games launch against their configured URL (managed in /admin; games live on a
+	// future dedicated server). The active project rides along as `?project=<key>`.
+	// Shown to every authed user for now — could be gated by a `games` capability later.
 	const projectKey = $derived(data.activeProjectKey ?? 'cloud');
-	const gameUrl = (id: string) =>
-		`${gamesBase}/${id}/?project=${encodeURIComponent(projectKey)}`;
+	const gameUrl = (url: string) => {
+		const sep = url.includes('?') ? '&' : '?';
+		return `${url}${sep}project=${encodeURIComponent(projectKey)}`;
+	};
 
 	type SelectorProject = (typeof data.projects)[number];
 
@@ -141,19 +142,25 @@
 
 	<section>
 		<h2>Games</h2>
-		{#if gamesBase}
-			<div class="grid">
-				{#each data.games as game (game.id)}
-					<a class="tool" href={gameUrl(game.id)} target="_blank" rel="noopener">
+		<div class="grid">
+			{#each data.games as game (game.key)}
+				{#if game.url}
+					<a class="tool" href={gameUrl(game.url)} target="_blank" rel="noopener">
 						<strong>{game.name}</strong>
 						<span class="muted">Launch for project '{projectKey}'</span>
 						<span class="tag online">launch</span>
 					</a>
-				{/each}
-			</div>
-		{:else}
-			<p class="muted">Set <code>GAMES_BASE_URL</code> to enable launching.</p>
-		{/if}
+				{:else}
+					<div class="tool disabled">
+						<strong>{game.name}</strong>
+						<span class="muted">No URL set — configure in Admin.</span>
+						<span class="tag online">launch</span>
+					</div>
+				{/if}
+			{:else}
+				<p class="muted">No games yet — add them in Admin.</p>
+			{/each}
+		</div>
 	</section>
 </div>
 
@@ -254,6 +261,9 @@
 	}
 	a.tool:hover {
 		border-color: #6b5bff;
+	}
+	.tool.disabled {
+		opacity: 0.55;
 	}
 	.tool strong {
 		font-size: 15px;
