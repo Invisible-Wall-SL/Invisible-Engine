@@ -3,13 +3,15 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import { DEFAULT_PROJECT_KEY } from '$lib/server/projects';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
 	if (!locals.user) throw redirect(303, '/login');
+	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'sheetMaker', overrides)) {
+	if (!roleHasTool(locals.user.role, 'sheetMaker', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to the Invisible Sheet Maker.');
 	}
 

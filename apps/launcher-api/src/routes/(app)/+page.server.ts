@@ -3,6 +3,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -20,8 +21,9 @@ export const actions: Actions = {
 		const installPath = String(data.get('installPath') ?? '');
 
 		if (!toolKey) return fail(400, { error: 'Missing tool.' });
+		const roleOverrides = await getRoleOverrides(locals.user.role);
 		const overrides = await getToolOverrides(locals.user.id);
-		if (!roleHasTool(locals.user.role, toolKey, overrides)) {
+		if (!roleHasTool(locals.user.role, toolKey, roleOverrides, overrides)) {
 			throw error(403, 'Your role does not have access to that tool.');
 		}
 

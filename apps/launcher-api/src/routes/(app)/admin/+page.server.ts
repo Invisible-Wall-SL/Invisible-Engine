@@ -1,6 +1,13 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
-import { ROLES, TOOLS, ROLE_TOOLS } from '$lib/roles';
+import {
+	ADMIN_PANEL_CAPABILITY,
+	CAPABILITIES,
+	ROLES,
+	TOOLS,
+	ROLE_TOOLS,
+	roleHasCapability,
+} from '$lib/roles';
 import { hashPassword } from '$lib/server/auth';
 import { getDb } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
@@ -12,6 +19,12 @@ import {
 	sessionsForUser,
 	wouldRemoveLastAdmin,
 } from '$lib/server/admin';
+import {
+	clearRoleOverride,
+	getAllRoleOverrides,
+	getRoleOverrides,
+	setRoleOverride,
+} from '$lib/server/roleToolAccess';
 import {
 	clearToolOverride,
 	getToolOverridesFor,
@@ -31,10 +44,15 @@ import {
 } from '$lib/server/projects';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Admin gate reused by the load and every action. Throws 403 for non-admins. */
-function requireAdmin(locals: App.Locals) {
+/**
+ * Admin gate reused by the load and every action. Allows access when the user's
+ * role is the built-in `admin` OR the role matrix grants the `adminPanel`
+ * capability to their role. Throws 403 otherwise.
+ */
+async function requireAdmin(locals: App.Locals) {
 	if (!locals.user) throw redirect(303, '/login');
-	if (locals.user.role !== 'admin') {
+	const roleOverrides = await getRoleOverrides(locals.user.role);
+	if (!roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides)) {
 		throw error(403, 'Admins only.');
 	}
 	return locals.user;
@@ -51,10 +69,11 @@ function parseExpiry(raw: string): Date | null | undefined {
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
-	requireAdmin(locals);
+	await requireAdmin(locals);
 
 	const userList = await listUsers();
 	const overrides = await getToolOverridesFor(userList.map((u) => u.id));
+	const roleOverrides = await getAllRoleOverrides();
 	const projects = await listProjects();
 	const projectAccess = await projectAccessFor(userList.map((u) => u.id));
 
@@ -63,7 +82,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		users: userList,
 		roles: ROLES,
 		overrides,
+		roleOverrides,
 		tools: Object.values(TOOLS).map((t) => ({ id: t.id, name: t.name, kind: t.kind })),
+		capabilities: CAPABILITIES,
+		adminPanelCapability: ADMIN_PANEL_CAPABILITY,
 		roleTools: ROLE_TOOLS,
 		projects,
 		projectAccess,
@@ -73,7 +95,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	createUser: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const email = normalizeEmail(String(data.get('email') ?? ''));
 		const name = String(data.get('name') ?? '').trim() || null;
@@ -100,7 +122,7 @@ export const actions: Actions = {
 	},
 
 	setRole: async ({ request, locals }) => {
-		const admin = requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const role = String(data.get('role') ?? '');
@@ -118,7 +140,7 @@ export const actions: Actions = {
 	},
 
 	setActive: async ({ request, locals }) => {
-		const admin = requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const active = data.get('active') === 'true';
@@ -137,7 +159,7 @@ export const actions: Actions = {
 	},
 
 	setExpiry: async ({ request, locals }) => {
-		const admin = requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const expiresAt = parseExpiry(String(data.get('expiresAt') ?? ''));
@@ -158,7 +180,7 @@ export const actions: Actions = {
 	},
 
 	resetPassword: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const password = String(data.get('password') ?? '');
@@ -178,7 +200,7 @@ export const actions: Actions = {
 	},
 
 	setToolAccess: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const toolKey = String(data.get('toolKey') ?? '');
@@ -195,8 +217,39 @@ export const actions: Actions = {
 		return { action: 'setToolAccess', ok: 'Tool access updated.' };
 	},
 
+	setRoleToolAccess: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const role = String(data.get('role') ?? '');
+		const toolKey = String(data.get('toolKey') ?? '');
+		// 'grant' | 'revoke' | 'default'
+		const mode = String(data.get('mode') ?? '');
+
+		if (!isValidRole(role)) return fail(400, { action: 'setRoleToolAccess', error: 'Invalid role.' });
+
+		const isCapability = toolKey === ADMIN_PANEL_CAPABILITY;
+		if (!isCapability && !TOOLS[toolKey]) {
+			return fail(400, { action: 'setRoleToolAccess', error: 'Unknown tool.' });
+		}
+
+		// Lockout safety: the built-in admin role always keeps the admin panel.
+		if (toolKey === ADMIN_PANEL_CAPABILITY && role === 'admin' && mode === 'revoke') {
+			return fail(400, {
+				action: 'setRoleToolAccess',
+				error: 'The admin role always has admin-panel access.',
+			});
+		}
+
+		if (mode === 'default') await clearRoleOverride(role, toolKey);
+		else if (mode === 'grant') await setRoleOverride(role, toolKey, true);
+		else if (mode === 'revoke') await setRoleOverride(role, toolKey, false);
+		else return fail(400, { action: 'setRoleToolAccess', error: 'Invalid mode.' });
+
+		return { action: 'setRoleToolAccess', ok: 'Role access updated.' };
+	},
+
 	createProject: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '')
 			.toLowerCase()
@@ -219,7 +272,7 @@ export const actions: Actions = {
 	},
 
 	renameProject: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const name = String(data.get('name') ?? '').trim();
@@ -234,7 +287,7 @@ export const actions: Actions = {
 	},
 
 	deleteProject: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
@@ -251,7 +304,7 @@ export const actions: Actions = {
 	},
 
 	setProjectAccess: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const projectKey = String(data.get('projectKey') ?? '');
@@ -268,7 +321,7 @@ export const actions: Actions = {
 	},
 
 	revokeSession: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const sessionId = String(data.get('sessionId') ?? '');
 		if (!sessionId) return fail(400, { action: 'revokeSession', error: 'Missing session.' });
@@ -278,7 +331,7 @@ export const actions: Actions = {
 	},
 
 	revokeAllSessions: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		if (!userId) return fail(400, { action: 'revokeAllSessions', error: 'Missing user.' });
@@ -288,7 +341,7 @@ export const actions: Actions = {
 	},
 
 	deleteUser: async ({ request, locals }) => {
-		const admin = requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 
@@ -305,7 +358,7 @@ export const actions: Actions = {
 	},
 
 	loadSessions: async ({ request, locals }) => {
-		requireAdmin(locals);
+		await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		if (!userId) return fail(400, { action: 'loadSessions', error: 'Missing user.' });

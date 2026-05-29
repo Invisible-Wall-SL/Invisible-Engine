@@ -84,9 +84,28 @@ export const userToolAccess = pgTable(
 	(table) => [primaryKey({ columns: [table.userId, table.toolKey] })],
 );
 
+/**
+ * Per-role capability overrides layered on top of the role defaults (`ROLE_TOOLS`).
+ * `granted = true` grants a role a tool/capability it lacks by default; `granted =
+ * false` revokes a default. Absent rows fall back to `ROLE_TOOLS`. Resolved BEFORE
+ * the per-user `user_tool_access` layer. `toolKey` may also be a managed capability
+ * key (e.g. `adminPanel`) in addition to a real tool id.
+ */
+export const roleToolAccess = pgTable(
+	'role_tool_access',
+	{
+		role: text('role').$type<Role>().notNull(),
+		toolKey: text('tool_key').notNull(),
+		granted: boolean('granted').notNull(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [primaryKey({ columns: [table.role, table.toolKey] })],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
 export type UserToolAccess = typeof userToolAccess.$inferSelect;
+export type RoleToolAccess = typeof roleToolAccess.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type UserProjectAccess = typeof userProjectAccess.$inferSelect;

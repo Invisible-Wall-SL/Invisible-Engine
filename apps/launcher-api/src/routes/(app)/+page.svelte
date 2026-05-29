@@ -33,7 +33,7 @@
 		<div class="user">
 			{@render projectSelector()}
 			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
-			{#if data.isAdmin}
+			{#if data.canAdmin}
 				<a class="ghost" href="/admin">Admin</a>
 			{/if}
 			<a class="ghost" href="/onboarding">Getting started</a>

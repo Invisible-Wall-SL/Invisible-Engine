@@ -41,6 +41,31 @@
 		return (data.roleTools[role as keyof typeof data.roleTools] ?? []).includes(toolId);
 	}
 
+	// --- Roles matrix (role × tool/capability overrides) ---
+
+	function capDefault(role: string, key: string): boolean {
+		if (key === data.adminPanelCapability) return role === 'admin';
+		return false;
+	}
+
+	/** Baseline (no overrides) for a role + tool/capability column. */
+	function cellDefault(role: string, key: string): boolean {
+		const tool = data.tools.find((t) => t.id === key);
+		return tool ? roleHasByDefault(role, key) : capDefault(role, key);
+	}
+
+	/** Current override mode for a role × column cell. */
+	function roleOverrideMode(role: string, key: string): 'grant' | 'revoke' | 'default' {
+		const ov = data.roleOverrides[role as keyof typeof data.roleOverrides];
+		if (!ov || !(key in ov)) return 'default';
+		return ov[key] ? 'grant' : 'revoke';
+	}
+
+	/** The admin role's admin-panel cell is locked on (can never be revoked). */
+	function isLocked(role: string, key: string): boolean {
+		return role === 'admin' && key === data.adminPanelCapability;
+	}
+
 	// A user's project access for the UI: admins implicitly get every project;
 	// everyone always has the default; grants come from user_project_access.
 	function projectState(
@@ -127,6 +152,55 @@
 				<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
 				<button type="submit">Create project</button>
 			</form>
+		</div>
+	</section>
+
+	<section>
+		<h2>Roles</h2>
+		<p class="muted hint">
+			Per-role defaults from the tool registry, overridable here. <strong>Grant</strong> forces a
+			column on, <strong>Revoke</strong> forces it off, <strong>Default</strong> reverts to the
+			baseline. User-level overrides (per user above) still win on top of these.
+		</p>
+		<div class="matrix">
+			<div class="matrix-row head">
+				<span>Role</span>
+				{#each data.tools as tool (tool.id)}
+					<span class="col-name">{tool.name}</span>
+				{/each}
+				{#each data.capabilities as cap (cap.key)}
+					<span class="col-name cap">{cap.name}</span>
+				{/each}
+			</div>
+			{#each data.roles as role (role)}
+				<div class="matrix-row">
+					<span class="role">{role}</span>
+					{#each [...data.tools.map((t) => t.id), ...data.capabilities.map((c) => c.key)] as key (key)}
+						{@const def = cellDefault(role, key)}
+						{@const mode = roleOverrideMode(role, key)}
+						{@const locked = isLocked(role, key)}
+						<span class="cell">
+							{#if locked}
+								<span class="pill on locked">always on</span>
+							{:else}
+								<form method="POST" action="?/setRoleToolAccess" use:enhance>
+									<input type="hidden" name="role" value={role} />
+									<input type="hidden" name="toolKey" value={key} />
+									<select
+										name="mode"
+										value={mode}
+										onchange={(e) => e.currentTarget.form?.requestSubmit()}
+									>
+										<option value="default">Default ({def ? 'on' : 'off'})</option>
+										<option value="grant">Grant</option>
+										<option value="revoke">Revoke</option>
+									</select>
+								</form>
+							{/if}
+						</span>
+					{/each}
+				</div>
+			{/each}
 		</div>
 	</section>
 
@@ -532,6 +606,54 @@
 		padding: 8px 10px;
 		background: #0f0f14;
 		border-radius: 8px;
+	}
+	.hint {
+		font-size: 12px;
+		margin: 0 0 12px;
+	}
+	.matrix {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid #222;
+		border-radius: 10px;
+		overflow: hidden;
+		background: #121218;
+	}
+	.matrix-row {
+		display: grid;
+		grid-template-columns: 120px repeat(auto-fit, minmax(150px, 1fr));
+		gap: 10px;
+		align-items: center;
+		padding: 10px 14px;
+		border-top: 1px solid #1d1d24;
+	}
+	.matrix-row.head {
+		background: #0e0e13;
+		color: #777;
+		text-transform: uppercase;
+		font-size: 11px;
+		letter-spacing: 0.04em;
+		border-top: none;
+	}
+	.matrix-row .col-name {
+		font-size: 12px;
+		text-transform: none;
+		letter-spacing: normal;
+		color: #aaa;
+	}
+	.matrix-row .col-name.cap {
+		color: #c8a3ff;
+	}
+	.matrix .cell form {
+		margin: 0;
+	}
+	.matrix .cell select {
+		width: 100%;
+	}
+	.pill.locked {
+		justify-self: stretch;
+		text-align: center;
+		padding: 6px 8px;
 	}
 	.projects {
 		display: flex;

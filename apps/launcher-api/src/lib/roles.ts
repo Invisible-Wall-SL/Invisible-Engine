@@ -87,35 +87,99 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 };
 
 /**
- * Per-user tool overrides: `toolKey -> granted`. A `true` grants a tool the role
- * lacks; a `false` revokes a role default. Missing keys defer to the role.
+ * Managed capability key for access to the `/admin` panel. It is NOT a tool in
+ * `TOOLS` — it never appears in a tool manifest — but it lives in the same
+ * override matrix so admins can grant `/admin` access per role. The built-in
+ * `admin` role always has it (see `roleHasCapability`) and it can never be revoked.
+ */
+export const ADMIN_PANEL_CAPABILITY = 'adminPanel';
+
+/** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
+export const CAPABILITIES: { key: string; name: string }[] = [
+	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
+];
+
+/** `ROLE_TOOLS` baseline for a capability key (only `admin` gets `adminPanel`). */
+function capabilityDefault(role: Role, key: string): boolean {
+	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
+	return false;
+}
+
+/**
+ * Tool/capability overrides: `key -> granted`. A `true` grants something the
+ * baseline lacks; a `false` revokes a default. Missing keys defer to the next
+ * layer down (role overrides defer to `ROLE_TOOLS`; user overrides defer to role).
  */
 export type ToolOverrides = Record<string, boolean>;
 
-/** The effective set of tool ids for a role + per-user overrides. */
-export function effectiveToolIds(role: Role, overrides: ToolOverrides = {}): string[] {
-	const ids = new Set(ROLE_TOOLS[role] ?? []);
+/** Apply an override map onto a working id set, ignoring unknown keys. */
+function applyOverrides(ids: Set<string>, overrides: ToolOverrides): void {
 	for (const [id, granted] of Object.entries(overrides)) {
 		if (!TOOLS[id]) continue;
 		if (granted) ids.add(id);
 		else ids.delete(id);
 	}
+}
+
+/**
+ * The effective set of tool ids for a role, resolved in three layers:
+ * `ROLE_TOOLS[role]` defaults → role-level overrides → user-level overrides.
+ */
+export function effectiveToolIds(
+	role: Role,
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): string[] {
+	const ids = new Set(ROLE_TOOLS[role] ?? []);
+	applyOverrides(ids, roleOverrides);
+	applyOverrides(ids, userOverrides);
 	return Object.keys(TOOLS).filter((id) => ids.has(id));
 }
 
-export function manifestForRole(role: Role, overrides: ToolOverrides = {}): ToolDef[] {
-	return effectiveToolIds(role, overrides)
+export function manifestForRole(
+	role: Role,
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): ToolDef[] {
+	return effectiveToolIds(role, roleOverrides, userOverrides)
 		.map((id) => TOOLS[id])
 		.filter(Boolean);
 }
 
-export function roleHasTool(role: Role, id: string, overrides: ToolOverrides = {}): boolean {
-	return effectiveToolIds(role, overrides).includes(id);
+export function roleHasTool(
+	role: Role,
+	id: string,
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): boolean {
+	return effectiveToolIds(role, roleOverrides, userOverrides).includes(id);
+}
+
+/**
+ * Effective state of a managed capability (e.g. `adminPanel`) for a role + its
+ * role/user overrides. The `admin` role always keeps `adminPanel` — a revoke row
+ * is ignored — so admins can never be locked out of `/admin`.
+ */
+export function roleHasCapability(
+	role: Role,
+	key: string,
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): boolean {
+	if (key === ADMIN_PANEL_CAPABILITY && role === 'admin') return true;
+	let granted = capabilityDefault(role, key);
+	if (key in roleOverrides) granted = roleOverrides[key];
+	if (key in userOverrides) granted = userOverrides[key];
+	return granted;
 }
 
 /** Local tools the given role is entitled to (those with an install path). */
-export function localToolsForRole(role: Role, overrides: ToolOverrides = {}): ToolDef[] {
-	return manifestForRole(role, overrides).filter((t) => t.kind === 'local');
+export function localToolsForRole(
+	role: Role,
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): ToolDef[] {
+	return manifestForRole(role, roleOverrides, userOverrides).filter((t) => t.kind === 'local');
 }
 
 /** Doc slug per tool. Docs live in-repo under `docs/tools/<slug>.md`. */
