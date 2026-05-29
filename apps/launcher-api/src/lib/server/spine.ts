@@ -1,13 +1,15 @@
 import { error } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { objectExists } from './r2';
+import { getToolOverrides } from './userToolAccess';
 
 /** R2 key prefix where the HotFruits spine assets + skeletons.json live. */
 export const SPINE_PREFIX = 'spines/hotfruits';
 
-export function requireSpineAccess(locals: App.Locals): void {
+export async function requireSpineAccess(locals: App.Locals): Promise<void> {
 	if (!locals.user) throw error(401, 'Not authenticated');
-	if (!roleHasTool(locals.user.role, 'spineViewer')) {
+	const overrides = await getToolOverrides(locals.user.id);
+	if (!roleHasTool(locals.user.role, 'spineViewer', overrides)) {
 		throw error(403, 'Your role does not have access to the Invisible Spine Viewer.');
 	}
 }

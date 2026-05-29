@@ -4,7 +4,7 @@ import { SPINE_PREFIX, requireSpineAccess } from '$lib/server/spine';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ locals }) => {
-	requireSpineAccess(locals);
+	await requireSpineAccess(locals);
 	const text = await getObjectText(`${SPINE_PREFIX}/skeletons.json`);
 	if (!text) return json({ error: 'No skeletons index in R2.', skeletons: [] });
 	const data = JSON.parse(text);

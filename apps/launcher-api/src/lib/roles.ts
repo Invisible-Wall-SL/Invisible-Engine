@@ -110,24 +110,43 @@ export const TOOLS: Record<string, ToolDef> = {
 };
 
 /** Which tool ids each role is entitled to. */
-const ROLE_TOOLS: Record<Role, string[]> = {
+export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
 	developer: ['atlasTool', 'spineViewer', 'testServer', 'comfyui'],
 	artist: ['atlasTool', 'comfyui', 'sheetMaker'],
 	animator: ['spineViewer', 'spine'],
 };
 
-export function manifestForRole(role: Role): ToolDef[] {
-	return (ROLE_TOOLS[role] ?? []).map((id) => TOOLS[id]).filter(Boolean);
+/**
+ * Per-user tool overrides: `toolKey -> granted`. A `true` grants a tool the role
+ * lacks; a `false` revokes a role default. Missing keys defer to the role.
+ */
+export type ToolOverrides = Record<string, boolean>;
+
+/** The effective set of tool ids for a role + per-user overrides. */
+export function effectiveToolIds(role: Role, overrides: ToolOverrides = {}): string[] {
+	const ids = new Set(ROLE_TOOLS[role] ?? []);
+	for (const [id, granted] of Object.entries(overrides)) {
+		if (!TOOLS[id]) continue;
+		if (granted) ids.add(id);
+		else ids.delete(id);
+	}
+	return Object.keys(TOOLS).filter((id) => ids.has(id));
 }
 
-export function roleHasTool(role: Role, id: string): boolean {
-	return (ROLE_TOOLS[role] ?? []).includes(id);
+export function manifestForRole(role: Role, overrides: ToolOverrides = {}): ToolDef[] {
+	return effectiveToolIds(role, overrides)
+		.map((id) => TOOLS[id])
+		.filter(Boolean);
+}
+
+export function roleHasTool(role: Role, id: string, overrides: ToolOverrides = {}): boolean {
+	return effectiveToolIds(role, overrides).includes(id);
 }
 
 /** Local tools the given role is entitled to (those with an install path). */
-export function localToolsForRole(role: Role): ToolDef[] {
-	return manifestForRole(role).filter((t) => t.kind === 'local');
+export function localToolsForRole(role: Role, overrides: ToolOverrides = {}): ToolDef[] {
+	return manifestForRole(role, overrides).filter((t) => t.kind === 'local');
 }
 
 /** Doc slug per tool. Docs live in-repo under `docs/tools/<slug>.md`. */

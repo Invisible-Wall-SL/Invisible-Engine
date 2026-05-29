@@ -4,7 +4,7 @@ import { SPINE_PREFIX, atlasPreferPng, requireSpineAccess } from '$lib/server/sp
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
-	requireSpineAccess(locals);
+	await requireSpineAccess(locals);
 
 	const dirB64 = url.searchParams.get('dir') ?? '';
 	const name = url.searchParams.get('name') ?? '';

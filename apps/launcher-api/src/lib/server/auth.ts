@@ -39,7 +39,12 @@ export async function verifyPassword(password: string, stored: string): Promise<
 	return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
 }
 
-/** Verify email + password against an active user. Returns the user, or null. */
+/** True when an account's login window has lapsed (expiry set and in the past). */
+function isExpired(expiresAt: Date | null): boolean {
+	return expiresAt !== null && expiresAt.getTime() < Date.now();
+}
+
+/** Verify email + password against an active, unexpired user. Returns the user, or null. */
 export async function verifyCredentials(
 	email: string,
 	password: string,
@@ -50,6 +55,7 @@ export async function verifyCredentials(
 		.where(and(eq(users.email, email.toLowerCase().trim()), eq(users.active, true)));
 
 	if (!row || !row.passwordHash) return null;
+	if (isExpired(row.expiresAt)) return null;
 	if (!(await verifyPassword(password, row.passwordHash))) return null;
 
 	return { id: row.id, email: row.email, name: row.name, role: row.role };
@@ -78,13 +84,16 @@ export async function validateSession(raw: string | undefined): Promise<SessionU
 			name: users.name,
 			role: users.role,
 			active: users.active,
+			userExpiresAt: users.expiresAt,
 		})
 		.from(sessions)
 		.innerJoin(users, eq(sessions.userId, users.id))
 		.where(eq(sessions.id, id));
 
 	if (!row) return null;
-	if (row.expiresAt.getTime() < Date.now() || !row.active) {
+	// Deny if the session lapsed, the user is disabled, or the account's login
+	// window has expired. In all cases drop the session so it can't be reused.
+	if (row.expiresAt.getTime() < Date.now() || !row.active || isExpired(row.userExpiresAt)) {
 		await getDb().delete(sessions).where(eq(sessions.id, id));
 		return null;
 	}

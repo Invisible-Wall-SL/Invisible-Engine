@@ -8,6 +8,13 @@
       "when": 1780053475908,
       "tag": "0000_wise_whirlwind",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780054265145,
+      "tag": "0001_foamy_firestar",
+      "breakpoints": true
     }
   ]
 }

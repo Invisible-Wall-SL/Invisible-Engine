@@ -1,0 +1,479 @@
+<script lang="ts">
+	import { enhance } from '$app/forms';
+	import Emblem from '$lib/Emblem.svelte';
+	import type { PageData, ActionData } from './$types';
+
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	let selectedId = $state<string | null>(null);
+	const selected = $derived(data.users.find((u) => u.id === selectedId) ?? null);
+
+	const loadedSessions = $derived(
+		form?.action === 'loadSessions' && form.userId === selectedId ? form.sessions : null,
+	);
+
+	function fmtDate(d: string | Date | null): string {
+		if (!d) return '—';
+		const date = typeof d === 'string' ? new Date(d) : d;
+		return date.toLocaleString();
+	}
+
+	function fmtDatetimeLocal(d: string | Date | null): string {
+		if (!d) return '';
+		const date = typeof d === 'string' ? new Date(d) : d;
+		const off = date.getTimezoneOffset() * 60_000;
+		return new Date(date.getTime() - off).toISOString().slice(0, 16);
+	}
+
+	function isExpired(d: string | Date | null): boolean {
+		if (!d) return false;
+		const date = typeof d === 'string' ? new Date(d) : d;
+		return date.getTime() < Date.now();
+	}
+
+	function overrideMode(userId: string, toolId: string): 'grant' | 'revoke' | 'default' {
+		const ov = data.overrides[userId];
+		if (!ov || !(toolId in ov)) return 'default';
+		return ov[toolId] ? 'grant' : 'revoke';
+	}
+
+	function roleHasByDefault(role: string, toolId: string): boolean {
+		return (data.roleTools[role as keyof typeof data.roleTools] ?? []).includes(toolId);
+	}
+</script>
+
+<svelte:head><title>Admin — Invisible Wall</title></svelte:head>
+
+<div class="shell">
+	<header>
+		<div class="brand"><Emblem height={18} /> INVISIBLE WALL · ADMIN</div>
+		<a class="ghost" href="/">← Launcher</a>
+	</header>
+
+	{#if form?.error}
+		<p class="banner error">{form.error}</p>
+	{:else if form?.ok}
+		<p class="banner ok">{form.ok}</p>
+	{/if}
+
+	<section>
+		<h2>Users</h2>
+		<div class="table">
+			<div class="row head">
+				<span>Email</span>
+				<span>Role</span>
+				<span>Status</span>
+				<span>Login expiry</span>
+				<span>Created</span>
+				<span>Last activity</span>
+				<span>Sessions</span>
+			</div>
+			{#each data.users as u (u.id)}
+				<button
+					class="row"
+					class:selected={u.id === selectedId}
+					onclick={() => (selectedId = u.id === selectedId ? null : u.id)}
+				>
+					<span class="email">
+						{u.email}
+						{#if u.id === data.currentUserId}<em class="you">you</em>{/if}
+					</span>
+					<span class="role">{u.role}</span>
+					<span class={u.active ? 'pill on' : 'pill off'}>{u.active ? 'enabled' : 'disabled'}</span>
+					<span class={isExpired(u.expiresAt) ? 'warn' : ''}>{fmtDate(u.expiresAt)}</span>
+					<span>{fmtDate(u.createdAt)}</span>
+					<span>{fmtDate(u.lastSeenAt)}</span>
+					<span>{u.sessionCount}</span>
+				</button>
+			{/each}
+		</div>
+	</section>
+
+	<section class="cols">
+		<div class="card">
+			<h3>Create user</h3>
+			<form method="POST" action="?/createUser" use:enhance class="stack">
+				<label>Email<input name="email" type="email" autocomplete="off" required /></label>
+				<label>Name (optional)<input name="name" type="text" autocomplete="off" /></label>
+				<label>
+					Role
+					<select name="role">
+						{#each data.roles as r (r)}<option value={r}>{r}</option>{/each}
+					</select>
+				</label>
+				<label>
+					Initial password
+					<input name="password" type="password" autocomplete="new-password" required />
+				</label>
+				<button type="submit">Create</button>
+			</form>
+		</div>
+
+		{#if selected}
+			<div class="card">
+				<h3>Manage <span class="mono">{selected.email}</span></h3>
+
+				<form method="POST" action="?/setRole" use:enhance class="inline">
+					<input type="hidden" name="userId" value={selected.id} />
+					<label class="grow">
+						Role
+						<select name="role" value={selected.role}>
+							{#each data.roles as r (r)}<option value={r}>{r}</option>{/each}
+						</select>
+					</label>
+					<button type="submit">Save role</button>
+				</form>
+
+				<form method="POST" action="?/setActive" use:enhance class="inline">
+					<input type="hidden" name="userId" value={selected.id} />
+					<input type="hidden" name="active" value={(!selected.active).toString()} />
+					<button type="submit" class={selected.active ? 'danger' : ''}>
+						{selected.active ? 'Disable user' : 'Enable user'}
+					</button>
+				</form>
+
+				<form method="POST" action="?/setExpiry" use:enhance class="inline">
+					<input type="hidden" name="userId" value={selected.id} />
+					<label class="grow">
+						Login expires at
+						<input
+							name="expiresAt"
+							type="datetime-local"
+							value={fmtDatetimeLocal(selected.expiresAt)}
+						/>
+					</label>
+					<button type="submit">Set / clear</button>
+				</form>
+
+				<form method="POST" action="?/resetPassword" use:enhance class="inline">
+					<input type="hidden" name="userId" value={selected.id} />
+					<label class="grow">
+						New password
+						<input name="password" type="password" autocomplete="new-password" />
+					</label>
+					<button type="submit">Reset</button>
+				</form>
+
+				<h4>Tool access</h4>
+				<div class="tools">
+					{#each data.tools as tool (tool.id)}
+						{@const mode = overrideMode(selected.id, tool.id)}
+						{@const def = roleHasByDefault(selected.role, tool.id)}
+						<form method="POST" action="?/setToolAccess" use:enhance class="tool-row">
+							<input type="hidden" name="userId" value={selected.id} />
+							<input type="hidden" name="toolKey" value={tool.id} />
+							<span class="tool-name">
+								{tool.name}
+								<em class="muted">{def ? 'role: granted' : 'role: none'}</em>
+							</span>
+							<select name="mode" value={mode}>
+								<option value="default">Role default ({def ? 'on' : 'off'})</option>
+								<option value="grant">Force grant</option>
+								<option value="revoke">Force revoke</option>
+							</select>
+							<button type="submit">Apply</button>
+						</form>
+					{/each}
+				</div>
+
+				<h4>Sessions</h4>
+				<form method="POST" action="?/loadSessions" use:enhance class="inline">
+					<input type="hidden" name="userId" value={selected.id} />
+					<button type="submit">Load active sessions</button>
+				</form>
+				{#if loadedSessions}
+					{#if loadedSessions.length === 0}
+						<p class="muted">No active sessions.</p>
+					{:else}
+						<div class="sessions">
+							{#each loadedSessions as s (s.id)}
+								<div class="session">
+									<span class="mono">{s.id.slice(0, 12)}…</span>
+									<span class="muted">created {fmtDate(s.createdAt)}</span>
+									<span class="muted">expires {fmtDate(s.expiresAt)}</span>
+									<form method="POST" action="?/revokeSession" use:enhance>
+										<input type="hidden" name="sessionId" value={s.id} />
+										<button type="submit" class="danger small">Revoke</button>
+									</form>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<form method="POST" action="?/revokeAllSessions" use:enhance class="inline">
+						<input type="hidden" name="userId" value={selected.id} />
+						<button type="submit" class="danger">Revoke all sessions</button>
+					</form>
+				{/if}
+
+				<h4>Project access</h4>
+				<!-- TODO(B12): per-user project access plugs in here once the projects
+				     registry (backlog B12) exists. No projects schema yet — do not invent one. -->
+				<div class="placeholder">
+					<p class="muted">Project access (coming with B12)</p>
+					<select disabled><option>No projects registry yet</option></select>
+				</div>
+
+				{#if selected.id !== data.currentUserId}
+					<h4>Danger zone</h4>
+					<form method="POST" action="?/deleteUser" use:enhance class="inline">
+						<input type="hidden" name="userId" value={selected.id} />
+						<button type="submit" class="danger">Delete user (cascades sessions + access)</button>
+					</form>
+				{/if}
+			</div>
+		{:else}
+			<div class="card muted center">Select a user above to manage them.</div>
+		{/if}
+	</section>
+</div>
+
+<style>
+	.shell {
+		max-width: 1100px;
+		margin: 0 auto;
+		padding: 32px 24px 64px;
+	}
+	header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 24px;
+	}
+	.brand {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		font-weight: 700;
+		letter-spacing: 0.14em;
+		color: #7ee0c0;
+		font-size: 15px;
+	}
+	.ghost {
+		background: transparent;
+		border: 1px solid #333;
+		color: #aaa;
+		padding: 7px 13px;
+		border-radius: 8px;
+		text-decoration: none;
+		font-size: 13px;
+	}
+	h2 {
+		font-size: 13px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #888;
+	}
+	h3 {
+		font-size: 15px;
+		margin: 0 0 14px;
+	}
+	h4 {
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #888;
+		margin: 20px 0 8px;
+	}
+	.banner {
+		padding: 10px 14px;
+		border-radius: 8px;
+		font-size: 13px;
+	}
+	.banner.error {
+		background: #2c1618;
+		color: #ff9d9d;
+	}
+	.banner.ok {
+		background: #16291f;
+		color: #7ee0c0;
+	}
+	.muted {
+		color: #888;
+	}
+	.center {
+		text-align: center;
+		padding: 40px;
+	}
+	.mono {
+		font-family: ui-monospace, monospace;
+	}
+	.table {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid #222;
+		border-radius: 10px;
+		overflow: hidden;
+		font-size: 13px;
+	}
+	.row {
+		display: grid;
+		grid-template-columns: 2fr 1fr 1fr 1.6fr 1.6fr 1.6fr 0.7fr;
+		gap: 8px;
+		align-items: center;
+		padding: 10px 14px;
+		text-align: left;
+		background: #121218;
+		border: none;
+		border-top: 1px solid #1d1d24;
+		color: #ddd;
+		cursor: pointer;
+		font: inherit;
+	}
+	.row.head {
+		background: #0e0e13;
+		color: #777;
+		text-transform: uppercase;
+		font-size: 11px;
+		letter-spacing: 0.04em;
+		cursor: default;
+	}
+	.row:not(.head):hover {
+		background: #181820;
+	}
+	.row.selected {
+		background: #1c1830;
+	}
+	.email {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+	.you {
+		font-style: normal;
+		font-size: 10px;
+		background: #2a2440;
+		color: #c8a3ff;
+		padding: 1px 6px;
+		border-radius: 999px;
+	}
+	.role {
+		text-transform: capitalize;
+		color: #c8a3ff;
+	}
+	.pill {
+		justify-self: start;
+		padding: 1px 8px;
+		border-radius: 999px;
+		font-size: 11px;
+	}
+	.pill.on {
+		background: #16291f;
+		color: #7ee787;
+	}
+	.pill.off {
+		background: #2c1618;
+		color: #ff9d9d;
+	}
+	.warn {
+		color: #ffb86b;
+	}
+	.cols {
+		display: grid;
+		grid-template-columns: 320px 1fr;
+		gap: 16px;
+		margin-top: 24px;
+		align-items: start;
+	}
+	.card {
+		background: #16161c;
+		border: 1px solid #222;
+		border-radius: 12px;
+		padding: 18px;
+	}
+	.stack {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+	label {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #888;
+	}
+	input,
+	select {
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		padding: 8px 10px;
+		color: #e8e8ee;
+		font-size: 13px;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+	input:focus,
+	select:focus {
+		outline: none;
+		border-color: #6b5bff;
+	}
+	button {
+		background: #6b5bff;
+		border: none;
+		border-radius: 8px;
+		padding: 9px 14px;
+		color: #fff;
+		font-size: 13px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	button.danger {
+		background: #7a2230;
+	}
+	button.small {
+		padding: 5px 10px;
+		font-size: 12px;
+	}
+	.inline {
+		display: flex;
+		gap: 10px;
+		align-items: flex-end;
+		margin-bottom: 12px;
+	}
+	.grow {
+		flex: 1;
+	}
+	.tools,
+	.sessions {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.tool-row {
+		display: grid;
+		grid-template-columns: 1fr 180px auto;
+		gap: 10px;
+		align-items: center;
+	}
+	.tool-name {
+		display: flex;
+		flex-direction: column;
+		font-size: 13px;
+	}
+	.tool-name em {
+		font-style: normal;
+		font-size: 11px;
+	}
+	.session {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1.4fr auto;
+		gap: 10px;
+		align-items: center;
+		font-size: 12px;
+		padding: 8px 10px;
+		background: #0f0f14;
+		border-radius: 8px;
+	}
+	.placeholder {
+		display: flex;
+		gap: 10px;
+		align-items: center;
+		opacity: 0.55;
+	}
+	.placeholder select {
+		flex: 1;
+	}
+</style>

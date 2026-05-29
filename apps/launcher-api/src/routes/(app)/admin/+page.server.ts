@@ -1,0 +1,227 @@
+import { error, fail, redirect } from '@sveltejs/kit';
+import { eq } from 'drizzle-orm';
+import { ROLES, TOOLS, ROLE_TOOLS } from '$lib/roles';
+import { hashPassword } from '$lib/server/auth';
+import { getDb } from '$lib/server/db';
+import { sessions, users } from '$lib/server/db/schema';
+import {
+	isValidEmail,
+	isValidRole,
+	listUsers,
+	normalizeEmail,
+	sessionsForUser,
+	wouldRemoveLastAdmin,
+} from '$lib/server/admin';
+import {
+	clearToolOverride,
+	getToolOverridesFor,
+	setToolOverride,
+} from '$lib/server/userToolAccess';
+import type { Actions, PageServerLoad } from './$types';
+
+/** Admin gate reused by the load and every action. Throws 403 for non-admins. */
+function requireAdmin(locals: App.Locals) {
+	if (!locals.user) throw redirect(303, '/login');
+	if (locals.user.role !== 'admin') {
+		throw error(403, 'Admins only.');
+	}
+	return locals.user;
+}
+
+const MIN_PASSWORD = 8;
+
+function parseExpiry(raw: string): Date | null | undefined {
+	const value = raw.trim();
+	if (!value) return null; // cleared
+	const d = new Date(value);
+	if (Number.isNaN(d.getTime())) return undefined; // invalid
+	return d;
+}
+
+export const load: PageServerLoad = async ({ locals }) => {
+	requireAdmin(locals);
+
+	const userList = await listUsers();
+	const overrides = await getToolOverridesFor(userList.map((u) => u.id));
+
+	return {
+		currentUserId: locals.user!.id,
+		users: userList,
+		roles: ROLES,
+		overrides,
+		tools: Object.values(TOOLS).map((t) => ({ id: t.id, name: t.name, kind: t.kind })),
+		roleTools: ROLE_TOOLS,
+	};
+};
+
+export const actions: Actions = {
+	createUser: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const email = normalizeEmail(String(data.get('email') ?? ''));
+		const name = String(data.get('name') ?? '').trim() || null;
+		const role = String(data.get('role') ?? '');
+		const password = String(data.get('password') ?? '');
+
+		if (!isValidEmail(email)) return fail(400, { action: 'createUser', error: 'Invalid email.' });
+		if (!isValidRole(role)) return fail(400, { action: 'createUser', error: 'Invalid role.' });
+		if (password.length < MIN_PASSWORD) {
+			return fail(400, {
+				action: 'createUser',
+				error: `Password must be at least ${MIN_PASSWORD} characters.`,
+			});
+		}
+
+		const db = getDb();
+		const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+		if (existing) return fail(400, { action: 'createUser', error: 'Email already in use.' });
+
+		await db
+			.insert(users)
+			.values({ email, name, role, passwordHash: await hashPassword(password) });
+		return { action: 'createUser', ok: `Created ${email}.` };
+	},
+
+	setRole: async ({ request, locals }) => {
+		const admin = requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const role = String(data.get('role') ?? '');
+
+		if (!isValidRole(role)) return fail(400, { action: 'setRole', error: 'Invalid role.' });
+		if (userId === admin.id && role !== 'admin') {
+			return fail(400, { action: 'setRole', error: 'You cannot demote your own account.' });
+		}
+		if (role !== 'admin' && (await wouldRemoveLastAdmin(userId))) {
+			return fail(400, { action: 'setRole', error: 'Cannot demote the last admin.' });
+		}
+
+		await getDb().update(users).set({ role }).where(eq(users.id, userId));
+		return { action: 'setRole', ok: 'Role updated.' };
+	},
+
+	setActive: async ({ request, locals }) => {
+		const admin = requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const active = data.get('active') === 'true';
+
+		if (userId === admin.id && !active) {
+			return fail(400, { action: 'setActive', error: 'You cannot disable your own account.' });
+		}
+		if (!active && (await wouldRemoveLastAdmin(userId))) {
+			return fail(400, { action: 'setActive', error: 'Cannot disable the last admin.' });
+		}
+
+		await getDb().update(users).set({ active }).where(eq(users.id, userId));
+		// Disabling kills the user's sessions immediately.
+		if (!active) await getDb().delete(sessions).where(eq(sessions.userId, userId));
+		return { action: 'setActive', ok: active ? 'User enabled.' : 'User disabled.' };
+	},
+
+	setExpiry: async ({ request, locals }) => {
+		const admin = requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const expiresAt = parseExpiry(String(data.get('expiresAt') ?? ''));
+
+		if (expiresAt === undefined) {
+			return fail(400, { action: 'setExpiry', error: 'Invalid date.' });
+		}
+		const expiringInPast = expiresAt !== null && expiresAt.getTime() < Date.now();
+		if (userId === admin.id && expiringInPast) {
+			return fail(400, { action: 'setExpiry', error: 'You cannot expire your own account.' });
+		}
+		if (expiringInPast && (await wouldRemoveLastAdmin(userId))) {
+			return fail(400, { action: 'setExpiry', error: 'Cannot expire the last admin.' });
+		}
+
+		await getDb().update(users).set({ expiresAt }).where(eq(users.id, userId));
+		return { action: 'setExpiry', ok: expiresAt ? 'Expiry set.' : 'Expiry cleared.' };
+	},
+
+	resetPassword: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const password = String(data.get('password') ?? '');
+
+		if (password.length < MIN_PASSWORD) {
+			return fail(400, {
+				action: 'resetPassword',
+				error: `Password must be at least ${MIN_PASSWORD} characters.`,
+			});
+		}
+
+		await getDb()
+			.update(users)
+			.set({ passwordHash: await hashPassword(password) })
+			.where(eq(users.id, userId));
+		return { action: 'resetPassword', ok: 'Password reset.' };
+	},
+
+	setToolAccess: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const toolKey = String(data.get('toolKey') ?? '');
+		// 'grant' | 'revoke' | 'default'
+		const mode = String(data.get('mode') ?? '');
+
+		if (!TOOLS[toolKey]) return fail(400, { action: 'setToolAccess', error: 'Unknown tool.' });
+
+		if (mode === 'default') await clearToolOverride(userId, toolKey);
+		else if (mode === 'grant') await setToolOverride(userId, toolKey, true);
+		else if (mode === 'revoke') await setToolOverride(userId, toolKey, false);
+		else return fail(400, { action: 'setToolAccess', error: 'Invalid mode.' });
+
+		return { action: 'setToolAccess', ok: 'Tool access updated.' };
+	},
+
+	revokeSession: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const sessionId = String(data.get('sessionId') ?? '');
+		if (!sessionId) return fail(400, { action: 'revokeSession', error: 'Missing session.' });
+
+		await getDb().delete(sessions).where(eq(sessions.id, sessionId));
+		return { action: 'revokeSession', ok: 'Session revoked.' };
+	},
+
+	revokeAllSessions: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		if (!userId) return fail(400, { action: 'revokeAllSessions', error: 'Missing user.' });
+
+		await getDb().delete(sessions).where(eq(sessions.userId, userId));
+		return { action: 'revokeAllSessions', ok: 'All sessions revoked.' };
+	},
+
+	deleteUser: async ({ request, locals }) => {
+		const admin = requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+
+		if (userId === admin.id) {
+			return fail(400, { action: 'deleteUser', error: 'You cannot delete your own account.' });
+		}
+		if (await wouldRemoveLastAdmin(userId)) {
+			return fail(400, { action: 'deleteUser', error: 'Cannot delete the last admin.' });
+		}
+
+		// sessions + tool_installs + user_tool_access cascade via FK ON DELETE CASCADE.
+		await getDb().delete(users).where(eq(users.id, userId));
+		return { action: 'deleteUser', ok: 'User deleted.' };
+	},
+
+	loadSessions: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		if (!userId) return fail(400, { action: 'loadSessions', error: 'Missing user.' });
+
+		const rows = await sessionsForUser(userId);
+		return { action: 'loadSessions', userId, sessions: rows };
+	},
+};

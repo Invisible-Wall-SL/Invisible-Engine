@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -17,7 +18,8 @@ export const actions: Actions = {
 		const installPath = String(data.get('installPath') ?? '');
 
 		if (!toolKey) return fail(400, { error: 'Missing tool.' });
-		if (!roleHasTool(locals.user.role, toolKey)) {
+		const overrides = await getToolOverrides(locals.user.id);
+		if (!roleHasTool(locals.user.role, toolKey, overrides)) {
 			throw error(403, 'Your role does not have access to that tool.');
 		}
 

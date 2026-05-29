@@ -1,11 +1,13 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { ENV } from '$lib/server/env';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	if (!roleHasTool(locals.user.role, 'atlasTool')) {
+	const overrides = await getToolOverrides(locals.user.id);
+	if (!roleHasTool(locals.user.role, 'atlasTool', overrides)) {
 		throw error(403, 'Your role does not have access to the Invisible Atlas Maker.');
 	}
 

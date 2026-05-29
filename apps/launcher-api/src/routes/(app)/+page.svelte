@@ -16,6 +16,9 @@
 		<div class="brand"><Emblem height={18} /> INVISIBLE WALL</div>
 		<div class="user">
 			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
+			{#if data.isAdmin}
+				<a class="ghost" href="/admin">Admin</a>
+			{/if}
 			<a class="ghost" href="/onboarding">Getting started</a>
 			<form method="POST" action="/auth/logout">
 				<button class="ghost" type="submit">Sign out</button>
