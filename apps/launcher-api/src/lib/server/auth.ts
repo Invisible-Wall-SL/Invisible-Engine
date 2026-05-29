@@ -101,6 +101,28 @@ export async function validateSession(raw: string | undefined): Promise<SessionU
 	return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
+/** The session's active project key (null = the default project). */
+export async function getActiveProjectKey(raw: string | undefined): Promise<string | null> {
+	if (!raw) return null;
+	const [row] = await getDb()
+		.select({ activeProjectKey: sessions.activeProjectKey })
+		.from(sessions)
+		.where(eq(sessions.id, await sha256(raw)));
+	return row?.activeProjectKey ?? null;
+}
+
+/** Set (or clear with null) the active project for the current session. */
+export async function setActiveProjectKey(
+	raw: string | undefined,
+	projectKey: string | null,
+): Promise<void> {
+	if (!raw) return;
+	await getDb()
+		.update(sessions)
+		.set({ activeProjectKey: projectKey })
+		.where(eq(sessions.id, await sha256(raw)));
+}
+
 export async function invalidateSession(raw: string | undefined): Promise<void> {
 	if (!raw) return;
 	await getDb()

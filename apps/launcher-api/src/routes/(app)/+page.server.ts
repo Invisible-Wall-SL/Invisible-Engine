@@ -1,5 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
+import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
+import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
@@ -25,5 +27,21 @@ export const actions: Actions = {
 
 		await setInstallPath(locals.user.id, toolKey, installPath);
 		return { saved: toolKey };
+	},
+
+	setProject: async ({ request, locals, cookies }) => {
+		if (!locals.user) throw redirect(303, '/login');
+
+		const data = await request.formData();
+		const projectKey = String(data.get('projectKey') ?? '');
+
+		if (!(await canAccessProject(locals.user.id, locals.user.role, projectKey))) {
+			return fail(400, { action: 'setProject', error: 'No access to that project.' });
+		}
+
+		// Store null for the default so an unset session resolves to it naturally.
+		const stored = projectKey === DEFAULT_PROJECT_KEY ? null : projectKey;
+		await setActiveProjectKey(cookies.get(SESSION_COOKIE), stored);
+		return { action: 'setProject', activeProjectKey: projectKey };
 	},
 };

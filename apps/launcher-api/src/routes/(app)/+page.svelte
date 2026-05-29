@@ -9,12 +9,29 @@
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
 </script>
 
+{#snippet projectSelector()}
+	<form method="POST" action="?/setProject" use:enhance class="project">
+		<label for="active-project">Project</label>
+		<select
+			id="active-project"
+			name="projectKey"
+			value={data.activeProjectKey}
+			onchange={(e) => e.currentTarget.form?.requestSubmit()}
+		>
+			{#each data.projects as p (p.key)}
+				<option value={p.key}>{p.name}</option>
+			{/each}
+		</select>
+	</form>
+{/snippet}
+
 <svelte:head><title>Launcher — Invisible Wall</title></svelte:head>
 
 <div class="shell">
 	<header>
 		<div class="brand"><Emblem height={18} /> INVISIBLE WALL</div>
 		<div class="user">
+			{@render projectSelector()}
 			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
 			{#if data.isAdmin}
 				<a class="ghost" href="/admin">Admin</a>
@@ -116,6 +133,29 @@
 	.role {
 		color: #6b5bff;
 		text-transform: capitalize;
+	}
+	.project {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.project label {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+	}
+	.project select {
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		padding: 6px 9px;
+		color: #e8e8ee;
+		font-size: 13px;
+	}
+	.project select:focus {
+		outline: none;
+		border-color: #6b5bff;
 	}
 	.ghost {
 		background: transparent;

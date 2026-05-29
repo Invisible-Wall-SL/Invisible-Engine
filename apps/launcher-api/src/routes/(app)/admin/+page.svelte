@@ -40,6 +40,18 @@
 	function roleHasByDefault(role: string, toolId: string): boolean {
 		return (data.roleTools[role as keyof typeof data.roleTools] ?? []).includes(toolId);
 	}
+
+	// A user's project access for the UI: admins implicitly get every project;
+	// everyone always has the default; grants come from user_project_access.
+	function projectState(
+		userId: string,
+		role: string,
+		projectKey: string,
+	): 'implicit' | 'granted' | 'none' {
+		if (role === 'admin') return 'implicit';
+		if (projectKey === data.defaultProjectKey) return 'implicit';
+		return (data.projectAccess[userId] ?? []).includes(projectKey) ? 'granted' : 'none';
+	}
 </script>
 
 <svelte:head><title>Admin — Invisible Wall</title></svelte:head>
@@ -86,6 +98,35 @@
 					<span>{u.sessionCount}</span>
 				</button>
 			{/each}
+		</div>
+	</section>
+
+	<section>
+		<h2>Projects</h2>
+		<div class="projects">
+			{#each data.projects as p (p.key)}
+				<div class="project-row">
+					<span class="mono key">{p.key}</span>
+					<form method="POST" action="?/renameProject" use:enhance class="rename">
+						<input type="hidden" name="key" value={p.key} />
+						<input name="name" type="text" value={p.name} autocomplete="off" />
+						<button type="submit">Rename</button>
+					</form>
+					{#if p.key === data.defaultProjectKey}
+						<span class="pill on">default</span>
+					{:else}
+						<form method="POST" action="?/deleteProject" use:enhance>
+							<input type="hidden" name="key" value={p.key} />
+							<button type="submit" class="danger small">Delete</button>
+						</form>
+					{/if}
+				</div>
+			{/each}
+			<form method="POST" action="?/createProject" use:enhance class="project-row create">
+				<input name="key" type="text" placeholder="key (e.g. borut)" autocomplete="off" required />
+				<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
+				<button type="submit">Create project</button>
+			</form>
 		</div>
 	</section>
 
@@ -206,12 +247,37 @@
 				{/if}
 
 				<h4>Project access</h4>
-				<!-- TODO(B12): per-user project access plugs in here once the projects
-				     registry (backlog B12) exists. No projects schema yet — do not invent one. -->
-				<div class="placeholder">
-					<p class="muted">Project access (coming with B12)</p>
-					<select disabled><option>No projects registry yet</option></select>
-				</div>
+				{#if selected.role === 'admin'}
+					<p class="muted">Admins can access every project.</p>
+				{:else}
+					<div class="tools">
+						{#each data.projects as p (p.key)}
+							{@const state = projectState(selected.id, selected.role, p.key)}
+							<div class="tool-row">
+								<span class="tool-name">
+									{p.name}
+									<em class="muted">{p.key}</em>
+								</span>
+								{#if state === 'implicit'}
+									<span class="muted">always available</span>
+									<span></span>
+								{:else}
+									<span class={state === 'granted' ? 'pill on' : 'muted'}>
+										{state === 'granted' ? 'granted' : 'no access'}
+									</span>
+									<form method="POST" action="?/setProjectAccess" use:enhance>
+										<input type="hidden" name="userId" value={selected.id} />
+										<input type="hidden" name="projectKey" value={p.key} />
+										<input type="hidden" name="grant" value={(state !== 'granted').toString()} />
+										<button type="submit" class={state === 'granted' ? 'danger' : ''}>
+											{state === 'granted' ? 'Revoke' : 'Grant'}
+										</button>
+									</form>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
 
 				{#if selected.id !== data.currentUserId}
 					<h4>Danger zone</h4>
@@ -467,13 +533,38 @@
 		background: #0f0f14;
 		border-radius: 8px;
 	}
-	.placeholder {
+	.projects {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		border: 1px solid #222;
+		border-radius: 10px;
+		padding: 12px;
+		background: #121218;
+	}
+	.project-row {
 		display: flex;
 		gap: 10px;
 		align-items: center;
-		opacity: 0.55;
 	}
-	.placeholder select {
+	.project-row .key {
+		min-width: 120px;
+		color: #c8a3ff;
+	}
+	.rename {
+		display: flex;
+		gap: 8px;
+		flex: 1;
+	}
+	.rename input {
+		flex: 1;
+	}
+	.project-row.create {
+		border-top: 1px solid #1d1d24;
+		padding-top: 12px;
+		margin-top: 4px;
+	}
+	.project-row.create input {
 		flex: 1;
 	}
 </style>

@@ -17,6 +17,18 @@ import {
 	getToolOverridesFor,
 	setToolOverride,
 } from '$lib/server/userToolAccess';
+import {
+	DEFAULT_PROJECT_KEY,
+	createProject,
+	deleteProject,
+	grantProjectAccess,
+	isValidProjectKey,
+	listProjects,
+	projectAccessFor,
+	projectExists,
+	renameProject,
+	revokeProjectAccess,
+} from '$lib/server/projects';
 import type { Actions, PageServerLoad } from './$types';
 
 /** Admin gate reused by the load and every action. Throws 403 for non-admins. */
@@ -43,6 +55,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const userList = await listUsers();
 	const overrides = await getToolOverridesFor(userList.map((u) => u.id));
+	const projects = await listProjects();
+	const projectAccess = await projectAccessFor(userList.map((u) => u.id));
 
 	return {
 		currentUserId: locals.user!.id,
@@ -51,6 +65,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		overrides,
 		tools: Object.values(TOOLS).map((t) => ({ id: t.id, name: t.name, kind: t.kind })),
 		roleTools: ROLE_TOOLS,
+		projects,
+		projectAccess,
+		defaultProjectKey: DEFAULT_PROJECT_KEY,
 	};
 };
 
@@ -176,6 +193,78 @@ export const actions: Actions = {
 		else return fail(400, { action: 'setToolAccess', error: 'Invalid mode.' });
 
 		return { action: 'setToolAccess', ok: 'Tool access updated.' };
+	},
+
+	createProject: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '')
+			.toLowerCase()
+			.trim();
+		const name = String(data.get('name') ?? '').trim();
+
+		if (!isValidProjectKey(key)) {
+			return fail(400, {
+				action: 'createProject',
+				error: 'Key must match a-z, 0-9, _ or - (max 64).',
+			});
+		}
+		if (!name) return fail(400, { action: 'createProject', error: 'Name is required.' });
+		if (await projectExists(key)) {
+			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
+		}
+
+		await createProject(key, name);
+		return { action: 'createProject', ok: `Created project ${key}.` };
+	},
+
+	renameProject: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const name = String(data.get('name') ?? '').trim();
+
+		if (!name) return fail(400, { action: 'renameProject', error: 'Name is required.' });
+		if (!(await projectExists(key))) {
+			return fail(400, { action: 'renameProject', error: 'Unknown project.' });
+		}
+
+		await renameProject(key, name);
+		return { action: 'renameProject', ok: 'Project renamed.' };
+	},
+
+	deleteProject: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+
+		if (key === DEFAULT_PROJECT_KEY) {
+			return fail(400, { action: 'deleteProject', error: 'The default project cannot be deleted.' });
+		}
+		if (!(await projectExists(key))) {
+			return fail(400, { action: 'deleteProject', error: 'Unknown project.' });
+		}
+
+		// Grants cascade; sessions pointing here reset to the default via ON DELETE SET NULL.
+		await deleteProject(key);
+		return { action: 'deleteProject', ok: 'Project deleted.' };
+	},
+
+	setProjectAccess: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const data = await request.formData();
+		const userId = String(data.get('userId') ?? '');
+		const projectKey = String(data.get('projectKey') ?? '');
+		const grant = data.get('grant') === 'true';
+
+		if (!userId) return fail(400, { action: 'setProjectAccess', error: 'Missing user.' });
+		if (!(await projectExists(projectKey))) {
+			return fail(400, { action: 'setProjectAccess', error: 'Unknown project.' });
+		}
+
+		if (grant) await grantProjectAccess(userId, projectKey);
+		else await revokeProjectAccess(userId, projectKey);
+		return { action: 'setProjectAccess', ok: 'Project access updated.' };
 	},
 
 	revokeSession: async ({ request, locals }) => {

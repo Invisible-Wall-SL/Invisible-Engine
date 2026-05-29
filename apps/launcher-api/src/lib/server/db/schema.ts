@@ -15,14 +15,42 @@ export const users = pgTable('users', {
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Project registry. `cloud` is the default project (seeded). */
+export const projects = pgTable('projects', {
+	key: text('key').primaryKey(),
+	name: text('name').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const sessions = pgTable('sessions', {
 	id: text('id').primaryKey(),
 	userId: text('user_id')
 		.notNull()
 		.references(() => users.id, { onDelete: 'cascade' }),
+	/** Active project for this session; null = the default project (`cloud`). */
+	activeProjectKey: text('active_project_key').references(() => projects.key, {
+		onDelete: 'set null',
+	}),
 	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Per-user project grants. A row grants `userId` access to `projectKey`. Admins
+ * implicitly get every project; everyone always gets the default `cloud` project.
+ */
+export const userProjectAccess = pgTable(
+	'user_project_access',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+	},
+	(table) => [primaryKey({ columns: [table.userId, table.projectKey] })],
+);
 
 /** Per-user local-tool install paths, keyed by (userId, toolKey). */
 export const toolInstalls = pgTable(
@@ -60,3 +88,5 @@ export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
 export type UserToolAccess = typeof userToolAccess.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type UserProjectAccess = typeof userProjectAccess.$inferSelect;
