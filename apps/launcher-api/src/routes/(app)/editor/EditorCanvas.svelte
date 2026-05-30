@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { resolveTransform, type LayoutNode, type Scene } from 'engine-layout';
+	import { resolveTransform, type LayoutNode, type LayoutType, type Scene } from 'engine-layout';
 	import { onMount } from 'svelte';
 	import {
 		nodeBox,
@@ -21,8 +21,10 @@
 		scene: Scene;
 		frameWidth: number;
 		frameHeight: number;
+		/** Active authoring layoutType; non-`desktop` puts edits into override mode. */
+		layoutType: LayoutType;
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
-		/** Hoisted selection — bound from the page so the properties panel (step 7) can read it. */
+		/** Hoisted selection — bound from the page so the properties panel can read it. */
 		selectedId?: string | null;
 	}
 
@@ -30,9 +32,52 @@
 		scene,
 		frameWidth,
 		frameHeight,
+		layoutType,
 		onSpawn,
 		selectedId = $bindable(null),
 	}: Props = $props();
+
+	function getOverride(node: LayoutNode) {
+		if (!node.overrides) node.overrides = {};
+		let o = node.overrides[layoutType];
+		if (!o) {
+			o = {};
+			node.overrides[layoutType] = o;
+		}
+		return o;
+	}
+	/** Write `x`/`y` for the active layoutType (base when desktop, sparse override otherwise). */
+	function writeXY(node: LayoutNode, x: number, y: number): void {
+		if (layoutType === 'desktop') {
+			node.x = x;
+			node.y = y;
+		} else {
+			const o = getOverride(node);
+			o.x = x;
+			o.y = y;
+		}
+	}
+	function writeScale(node: LayoutNode, sx: number, sy: number): void {
+		if (layoutType === 'desktop') {
+			node.scale = { x: sx, y: sy };
+		} else {
+			const o = getOverride(node);
+			o.scale = { x: sx, y: sy };
+		}
+	}
+	function writeRotation(node: LayoutNode, r: number): void {
+		if (layoutType === 'desktop') {
+			node.rotation = r;
+		} else {
+			const o = getOverride(node);
+			o.rotation = r;
+		}
+	}
+	/** Resolved (base + override) start translate value used when initiating a drag. */
+	function effectiveXY(node: LayoutNode): Vec2 {
+		const t = resolveTransform(node, layoutType);
+		return { x: t.x, y: t.y };
+	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let wrap: HTMLDivElement | null = $state(null);
@@ -137,7 +182,7 @@
 	}
 
 	function visibleSceneNodes(): LayoutNode[] {
-		return scene.nodes.filter((n) => resolveTransform(n, 'desktop').visible);
+		return scene.nodes.filter((n) => resolveTransform(n, layoutType).visible);
 	}
 
 	function findNodeById(id: string): LayoutNode | null {
@@ -198,7 +243,7 @@
 	}
 
 	function drawNode(ctx: CanvasRenderingContext2D, node: LayoutNode): void {
-		const t = resolveTransform(node, 'desktop');
+		const t = resolveTransform(node, layoutType);
 		if (!t.visible) return;
 
 		ctx.save();
@@ -261,7 +306,7 @@
 		if (!selectedId) return;
 		const node = findNodeById(selectedId);
 		if (!node) return;
-		const t = resolveTransform(node, 'desktop');
+		const t = resolveTransform(node, layoutType);
 		if (!t.visible) return;
 		const box = nodeBox(node, t, naturalSize);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -308,7 +353,7 @@
 		if (!selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node) return null;
-		const t = resolveTransform(node, 'desktop');
+		const t = resolveTransform(node, layoutType);
 		if (!t.visible) return null;
 		const box = nodeBox(node, t, naturalSize);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -341,7 +386,7 @@
 		const list = visibleSceneNodes();
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
-			const t = resolveTransform(node, 'desktop');
+			const t = resolveTransform(node, layoutType);
 			const box = nodeBox(node, t, naturalSize);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
@@ -352,15 +397,16 @@
 	// ---------- drag handlers ----------
 
 	function startTranslate(node: LayoutNode, world: Vec2): void {
+		const start = effectiveXY(node);
 		dragMode = {
 			kind: 'translate',
 			nodeId: node.id,
 			startWorld: world,
-			startNode: { x: node.x, y: node.y },
+			startNode: start,
 		};
 	}
 	function startScale(node: LayoutNode, cornerIdx: number, world: Vec2): void {
-		const t = resolveTransform(node, 'desktop');
+		const t = resolveTransform(node, layoutType);
 		const box = nodeBox(node, t, naturalSize);
 		dragMode = {
 			kind: 'scale',
@@ -369,19 +415,20 @@
 			startWorld: world,
 			startScale: { x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 },
 			startBox: box,
-			startTx: node.x,
-			startTy: node.y,
+			startTx: t.x,
+			startTy: t.y,
 			startRot: t.rotation ?? 0,
 		};
 	}
 	function startRotate(node: LayoutNode, world: Vec2): void {
-		const center = { x: node.x, y: node.y };
+		const t = resolveTransform(node, layoutType);
+		const center = { x: t.x, y: t.y };
 		const startAngle = Math.atan2(world.y - center.y, world.x - center.x);
 		dragMode = {
 			kind: 'rotate',
 			nodeId: node.id,
 			startAngle,
-			startRot: resolveTransform(node, 'desktop').rotation ?? 0,
+			startRot: t.rotation ?? 0,
 			center,
 		};
 	}
@@ -399,8 +446,7 @@
 		const snapped = snapTranslate(node, nx, ny);
 		nx = snapped.x;
 		ny = snapped.y;
-		node.x = nx;
-		node.y = ny;
+		writeXY(node, nx, ny);
 	}
 
 	function applyScale(node: LayoutNode, world: Vec2, shift: boolean): void {
@@ -443,7 +489,7 @@
 		let newSy = d.startScale.y * syRatio;
 		if (Math.abs(newSx) < MIN) newSx = Math.sign(newSx || 1) * MIN;
 		if (Math.abs(newSy) < MIN) newSy = Math.sign(newSy || 1) * MIN;
-		node.scale = { x: newSx, y: newSy };
+		writeScale(node, newSx, newSy);
 	}
 
 	function applyRotate(node: LayoutNode, world: Vec2, shift: boolean): void {
@@ -455,12 +501,12 @@
 			const step = (15 * Math.PI) / 180;
 			rot = Math.round(rot / step) * step;
 		}
-		node.rotation = rot;
+		writeRotation(node, rot);
 	}
 
 	function snapTranslate(node: LayoutNode, nx: number, ny: number): Vec2 {
 		const tol = SNAP_PX / zoom;
-		const t = resolveTransform(node, 'desktop');
+		const t = resolveTransform(node, layoutType);
 		const box = nodeBox(node, t, naturalSize);
 		// Compute candidate moving-node points using nx, ny.
 		const moved: typeof t = { ...t, x: nx, y: ny };
@@ -472,7 +518,7 @@
 		const yCandidates: number[] = [0, frameHeight / 2, frameHeight];
 		for (const other of visibleSceneNodes()) {
 			if (other.id === node.id) continue;
-			const ot = resolveTransform(other, 'desktop');
+			const ot = resolveTransform(other, layoutType);
 			const ob = nodeBox(other, ot, naturalSize);
 			const oc = nodeCornersWorld(ot, ob);
 			let minX = Infinity,
@@ -769,6 +815,7 @@
 		void frameHeight;
 		void selectedId;
 		void snapLines.length;
+		void layoutType;
 		schedule();
 	});
 </script>

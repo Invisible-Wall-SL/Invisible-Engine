@@ -1,7 +1,9 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import type { LayoutNode, Scene } from 'engine-layout';
+	import type { LayoutNode, LayoutType, Scene } from 'engine-layout';
 	import EditorCanvas from './EditorCanvas.svelte';
+	import EditorOutline from './EditorOutline.svelte';
+	import EditorProperties from './EditorProperties.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -14,20 +16,37 @@
 			: [{ id: 's_main', name: 'main', nodes: [] }],
 	);
 	let activeSceneIdx = $state(0);
-	/** Hoisted so step 7's properties panel can read the active selection.
+	/** Hoisted so the properties panel can read the active selection.
 	 * `<EditorCanvas>` binds this via `bind:selectedId`. */
 	let selectedId = $state<string | null>(null);
+	/** Hoisted active layoutType. `'desktop'` is the base; anything else routes edits
+	 * into `node.overrides[layoutType]` (override mode). */
+	let currentLayoutType = $state<LayoutType>('desktop');
+	/** Left sidebar tab: which panel is shown. */
+	let leftTab = $state<'library' | 'outline'>('library');
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
-	const frameSize = $derived(data.doc.mainSizesMap.desktop);
+	const frameSize = $derived(data.doc.mainSizesMap[currentLayoutType]);
+	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
+		for (const n of nodes) {
+			if (n.id === id) return n;
+			if (n.kind === 'container') {
+				const found = findById(n.children, id);
+				if (found) return found;
+			}
+		}
+		return null;
+	}
 	const selectedNode = $derived(
-		selectedId ? (activeScene?.nodes.find((n) => n.id === selectedId) ?? null) : null,
+		selectedId && activeScene ? findById(activeScene.nodes, selectedId) : null,
 	);
 
 	const sceneCount = $derived(scenes.length);
 	const atlasCount = $derived(data.assets.atlases.length);
 	const spineCount = $derived(data.assets.spines.length);
 	const sheetCount = $derived(data.assets.sheets.length);
+
+	const layoutTypes: LayoutType[] = ['desktop', 'tablet', 'landscape', 'portrait'];
 
 	function onAssetDragStart(
 		e: DragEvent,
@@ -40,7 +59,6 @@
 	}
 
 	function onSpawn(node: LayoutNode): void {
-		// Append to active scene; reassign to trigger reactivity.
 		const next = scenes.slice();
 		const sc = next[activeSceneIdx];
 		next[activeSceneIdx] = { ...sc, nodes: [...sc.nodes, node] };
@@ -56,6 +74,20 @@
 			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE EDITOR</a>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
+		<div class="layout-pills" role="tablist" aria-label="Authoring layoutType">
+			{#each layoutTypes as lt (lt)}
+				<button
+					role="tab"
+					aria-selected={currentLayoutType === lt}
+					class="pill"
+					class:active={currentLayoutType === lt}
+					class:override={currentLayoutType === lt && lt !== 'desktop'}
+					onclick={() => (currentLayoutType = lt)}
+				>
+					{lt}
+				</button>
+			{/each}
+		</div>
 		<div class="meta">
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
 			<span class="dot-sep">·</span>
@@ -66,69 +98,98 @@
 	</header>
 
 	<div class="layout">
-		<aside class="library">
-			<h2>Assets</h2>
+		<aside class="left">
+			<div class="tabs" role="tablist" aria-label="Left panel">
+				<button
+					role="tab"
+					aria-selected={leftTab === 'library'}
+					class="tab"
+					class:active={leftTab === 'library'}
+					onclick={() => (leftTab = 'library')}
+				>
+					Library
+				</button>
+				<button
+					role="tab"
+					aria-selected={leftTab === 'outline'}
+					class="tab"
+					class:active={leftTab === 'outline'}
+					onclick={() => (leftTab = 'outline')}
+				>
+					Outline
+				</button>
+			</div>
 
-			<section>
-				<h3>Atlases <span class="count">{atlasCount}</span></h3>
-				<ul>
-					{#each data.assets.atlases as a (a.key)}
-						<li
-							draggable="true"
-							data-asset-kind={a.kind}
-							data-asset-key={a.key}
-							data-asset-name={a.name}
-							ondragstart={(e) => onAssetDragStart(e, a)}
-						>
-							<span class="name">{a.name}</span>
-							<span class="tag">{a.kind === 'atlas-manifest' ? 'manifest' : 'page'}</span>
-						</li>
-					{:else}
-						<li class="muted">No atlases yet.</li>
-					{/each}
-				</ul>
-			</section>
+			<div class="tab-body">
+				{#if leftTab === 'library'}
+					<section>
+						<h3>Atlases <span class="count">{atlasCount}</span></h3>
+						<ul>
+							{#each data.assets.atlases as a (a.key)}
+								<li
+									draggable="true"
+									data-asset-kind={a.kind}
+									data-asset-key={a.key}
+									data-asset-name={a.name}
+									ondragstart={(e) => onAssetDragStart(e, a)}
+								>
+									<span class="name">{a.name}</span>
+									<span class="tag">{a.kind === 'atlas-manifest' ? 'manifest' : 'page'}</span>
+								</li>
+							{:else}
+								<li class="muted">No atlases yet.</li>
+							{/each}
+						</ul>
+					</section>
 
-			<section>
-				<h3>Spines <span class="count">{spineCount}</span></h3>
-				<ul>
-					{#each data.assets.spines as s (s.key)}
-						<li
-							draggable="true"
-							data-asset-kind={s.kind}
-							data-asset-key={s.key}
-							data-asset-name={s.name}
-							ondragstart={(e) => onAssetDragStart(e, s)}
-						>
-							<span class="name">{s.name}</span>
-							<span class="tag">spine</span>
-							{#if s.shared}<span class="badge">shared</span>{/if}
-						</li>
-					{:else}
-						<li class="muted">No spines yet.</li>
-					{/each}
-				</ul>
-			</section>
+					<section>
+						<h3>Spines <span class="count">{spineCount}</span></h3>
+						<ul>
+							{#each data.assets.spines as s (s.key)}
+								<li
+									draggable="true"
+									data-asset-kind={s.kind}
+									data-asset-key={s.key}
+									data-asset-name={s.name}
+									ondragstart={(e) => onAssetDragStart(e, s)}
+								>
+									<span class="name">{s.name}</span>
+									<span class="tag">spine</span>
+									{#if s.shared}<span class="badge">shared</span>{/if}
+								</li>
+							{:else}
+								<li class="muted">No spines yet.</li>
+							{/each}
+						</ul>
+					</section>
 
-			<section>
-				<h3>Sheets <span class="count">{sheetCount}</span></h3>
-				<ul>
-					{#each data.assets.sheets as sh (sh.key)}
-						<li
-							draggable="true"
-							data-asset-kind={sh.kind}
-							data-asset-key={sh.key}
-							data-asset-name={sh.name}
-							ondragstart={(e) => onAssetDragStart(e, sh)}
-						>
-							<span class="name">{sh.name}</span>
-							<span class="tag">sheet</span>
-						</li>
-					{:else}
-						<li class="muted">No sheets yet.</li>
-					{/each}
-				</ul>
-			</section>
+					<section>
+						<h3>Sheets <span class="count">{sheetCount}</span></h3>
+						<ul>
+							{#each data.assets.sheets as sh (sh.key)}
+								<li
+									draggable="true"
+									data-asset-kind={sh.kind}
+									data-asset-key={sh.key}
+									data-asset-name={sh.name}
+									ondragstart={(e) => onAssetDragStart(e, sh)}
+								>
+									<span class="name">{sh.name}</span>
+									<span class="tag">sheet</span>
+								</li>
+							{:else}
+								<li class="muted">No sheets yet.</li>
+							{/each}
+						</ul>
+					</section>
+				{:else}
+					<EditorOutline
+						scene={activeScene}
+						{selectedId}
+						onSelect={(id) => (selectedId = id)}
+					/>
+				{/if}
+			</div>
 		</aside>
 
 		<main class="canvas-area">
@@ -136,6 +197,7 @@
 				scene={activeScene}
 				frameWidth={frameSize.width}
 				frameHeight={frameSize.height}
+				layoutType={currentLayoutType}
 				{onSpawn}
 				bind:selectedId
 			/>
@@ -143,15 +205,7 @@
 
 		<aside class="properties">
 			<h2>Properties</h2>
-			{#if selectedNode}
-				<p class="muted">
-					Selected: <strong>{selectedNode.label ?? selectedNode.id}</strong>
-					<span class="tag">{selectedNode.kind}</span>
-				</p>
-				<p class="muted">Full editor wiring lands in step 7.</p>
-			{:else}
-				<p class="muted">Select a node to edit its properties.</p>
-			{/if}
+			<EditorProperties node={selectedNode} layoutType={currentLayoutType} />
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
 				{activeScene?.nodes.length ?? 0} nodes
@@ -179,6 +233,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: 16px;
 		padding: 14px 24px;
 		border-bottom: 1px solid #1c1c24;
 		background: #0f0f14;
@@ -206,6 +261,36 @@
 		color: #c8a3ff;
 		font-weight: 600;
 	}
+	.layout-pills {
+		display: flex;
+		gap: 4px;
+		background: #16161c;
+		border: 1px solid #1f1f28;
+		border-radius: 999px;
+		padding: 3px;
+	}
+	.pill {
+		background: transparent;
+		border: none;
+		color: #888;
+		padding: 4px 12px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		border-radius: 999px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.pill:hover {
+		color: #ccc;
+	}
+	.pill.active {
+		background: #1a1a22;
+		color: #7ee0c0;
+	}
+	.pill.active.override {
+		color: #c8a3ff;
+	}
 	.meta {
 		display: flex;
 		align-items: center;
@@ -221,16 +306,50 @@
 		grid-template-columns: 280px 1fr 320px;
 		min-height: 0;
 	}
-	.library,
+	.left,
 	.properties {
 		background: #0f0f14;
 		border-right: 1px solid #1c1c24;
-		padding: 16px;
-		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
 	}
 	.properties {
 		border-right: none;
 		border-left: 1px solid #1c1c24;
+		padding: 16px;
+		overflow-y: auto;
+	}
+	.tabs {
+		display: flex;
+		gap: 4px;
+		padding: 12px 12px 0;
+	}
+	.tab {
+		flex: 1;
+		background: transparent;
+		border: 1px solid #1f1f28;
+		color: #888;
+		padding: 6px 10px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		border-radius: 6px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.tab:hover {
+		color: #ccc;
+	}
+	.tab.active {
+		background: #1a1a22;
+		color: #7ee0c0;
+		border-color: #2a2a33;
+	}
+	.tab-body {
+		padding: 12px 16px 16px;
+		overflow-y: auto;
+		flex: 1;
 	}
 	h2 {
 		font-size: 11px;
@@ -254,7 +373,7 @@
 		font-weight: 400;
 		font-size: 11px;
 	}
-	.library section:first-of-type h3 {
+	.tab-body section:first-of-type h3 {
 		margin-top: 0;
 	}
 	ul {
@@ -314,6 +433,11 @@
 	.muted {
 		color: #666;
 		font-size: 12px;
+	}
+	.muted.hint {
+		margin-top: 14px;
+		padding-top: 12px;
+		border-top: 1px solid #1c1c24;
 	}
 	.muted.hint strong {
 		color: #c8a3ff;
