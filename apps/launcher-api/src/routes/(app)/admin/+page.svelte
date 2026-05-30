@@ -196,6 +196,10 @@
 							{/each}
 						</select>
 					</form>
+					<form method="POST" action="?/rescaffoldProject" use:enhance>
+						<input type="hidden" name="key" value={p.key} />
+						<button type="submit" class="small">Rescaffold</button>
+					</form>
 					{#if p.key === data.defaultProjectKey}
 						<span class="pill on">default</span>
 					{:else}
@@ -209,6 +213,12 @@
 			<form method="POST" action="?/createProject" use:enhance class="project-row create">
 				<input name="key" type="text" placeholder="key (e.g. borut)" autocomplete="off" required />
 				<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
+				<select name="clientKey">
+					<option value="">— unassigned —</option>
+					{#each data.clients as c (c.key)}
+						<option value={c.key}>{c.name}</option>
+					{/each}
+				</select>
 				<button type="submit">Create project</button>
 			</form>
 		</div>

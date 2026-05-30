@@ -1,3 +1,4 @@
+import { localizationDocKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 
 /** One translated value for a target language; `reviewed` gates it for export. */
@@ -27,14 +28,9 @@ function emptyDoc(): LocalizationDoc {
 	return { sourceLang: 'en', targetLangs: [], context: '', entries: [], updatedAt: '' };
 }
 
-/** R2 key for a project's localization document. */
-function docKey(projectKey: string): string {
-	return `localization/${projectKey}/strings.json`;
-}
-
 /** Load a project's document, or a sensible empty default when none exists. */
-export async function loadDoc(projectKey: string): Promise<LocalizationDoc> {
-	const raw = await getObjectText(docKey(projectKey));
+export async function loadDoc(clientKey: string, projectKey: string): Promise<LocalizationDoc> {
+	const raw = await getObjectText(localizationDocKey(clientKey, projectKey));
 	if (!raw) return emptyDoc();
 	try {
 		return normalizeDoc(JSON.parse(raw));
@@ -44,10 +40,18 @@ export async function loadDoc(projectKey: string): Promise<LocalizationDoc> {
 }
 
 /** Persist a project's document to R2 (stamps `updatedAt`). */
-export async function saveDoc(projectKey: string, doc: LocalizationDoc): Promise<LocalizationDoc> {
+export async function saveDoc(
+	clientKey: string,
+	projectKey: string,
+	doc: LocalizationDoc,
+): Promise<LocalizationDoc> {
 	const next = normalizeDoc(doc);
 	next.updatedAt = new Date().toISOString();
-	await putObjectText(docKey(projectKey), JSON.stringify(next, null, 2), 'application/json');
+	await putObjectText(
+		localizationDocKey(clientKey, projectKey),
+		JSON.stringify(next, null, 2),
+		'application/json',
+	);
 	return next;
 }
 

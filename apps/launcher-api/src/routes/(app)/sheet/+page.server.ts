@@ -2,7 +2,8 @@ import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
-import { DEFAULT_PROJECT_KEY } from '$lib/server/projects';
+import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
@@ -18,13 +19,16 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 	// Full-page, no iframe: send the authenticated user straight to the tool.
 	// The role check above gates it; the optional shared secret (?k=) only the
 	// launcher knows is appended server-side so the tool's gate lets them in.
-	// Sheet Maker is project-scoped, so the active project is forwarded as
-	// `&project=` (defaulting to `cloud`) per the shared launcher↔tool contract.
+	// Sheet Maker is project-scoped, so the active `(client, project)` pair is
+	// forwarded — the launcher is the source of truth, so the tool never needs
+	// to look the client up itself.
 	const base = ENV.SHEET_TOOL_URL.replace(/\/$/, '');
 	if (base) {
 		const project = (await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
+		const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
 		const params = new URLSearchParams();
 		if (ENV.SHEET_TOOL_SECRET) params.set('k', ENV.SHEET_TOOL_SECRET);
+		params.set('client', client);
 		params.set('project', project);
 		throw redirect(303, `${base}/?${params.toString()}`);
 	}

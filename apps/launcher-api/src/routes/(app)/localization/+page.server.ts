@@ -3,21 +3,28 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
 import { loadDoc, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
-import { DEFAULT_PROJECT_KEY } from '$lib/server/projects';
+import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { TranslateError, translateBatch } from '$lib/server/translate';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Auth + role gate shared by the loader and every action. Returns the project. */
-async function gate(locals: App.Locals, cookies: import('@sveltejs/kit').Cookies): Promise<string> {
+/** Auth + role gate shared by the loader and every action. Returns `(client, project)`. */
+async function gate(
+	locals: App.Locals,
+	cookies: import('@sveltejs/kit').Cookies,
+): Promise<{ clientKey: string; projectKey: string }> {
 	if (!locals.user) throw redirect(303, '/login');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
 	if (!roleHasTool(locals.user.role, 'localization', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Localization.');
 	}
-	return (await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
+	const projectKey =
+		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
+	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	return { clientKey, projectKey };
 }
 
 /** Parse the `doc` form field (JSON) into a normalized document. */
@@ -27,20 +34,20 @@ function parseDocField(raw: FormDataEntryValue | null): LocalizationDoc {
 }
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
-	const projectKey = await gate(locals, cookies);
-	return { projectKey, doc: await loadDoc(projectKey) };
+	const { clientKey, projectKey } = await gate(locals, cookies);
+	return { projectKey, doc: await loadDoc(clientKey, projectKey) };
 };
 
 export const actions: Actions = {
 	save: async ({ request, locals, cookies }) => {
-		const projectKey = await gate(locals, cookies);
+		const { clientKey, projectKey } = await gate(locals, cookies);
 		let doc: LocalizationDoc;
 		try {
 			doc = parseDocField((await request.formData()).get('doc'));
 		} catch {
 			return fail(400, { error: 'Invalid document.' });
 		}
-		const saved = await saveDoc(projectKey, doc);
+		const saved = await saveDoc(clientKey, projectKey, doc);
 		return { saved: true, updatedAt: saved.updatedAt };
 	},
 

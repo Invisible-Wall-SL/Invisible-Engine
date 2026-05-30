@@ -38,10 +38,13 @@ import {
 	isValidProjectKey,
 	listProjects,
 	projectAccessFor,
+	projectClientKey,
 	projectExists,
 	renameProject,
 	revokeProjectAccess,
 } from '$lib/server/projects';
+import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	assignProjectToClient,
 	clientAccessFor,
@@ -282,6 +285,8 @@ export const actions: Actions = {
 			.toLowerCase()
 			.trim();
 		const name = String(data.get('name') ?? '').trim();
+		const rawClient = String(data.get('clientKey') ?? '').trim();
+		const clientKey = rawClient === '' ? null : rawClient;
 
 		if (!isValidProjectKey(key)) {
 			return fail(400, {
@@ -293,9 +298,26 @@ export const actions: Actions = {
 		if (await projectExists(key)) {
 			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
 		}
+		if (clientKey !== null && !(await clientExists(clientKey))) {
+			return fail(400, { action: 'createProject', error: 'Unknown client.' });
+		}
 
-		await createProject(key, name);
+		await createProject(key, name, clientKey);
+		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
 		return { action: 'createProject', ok: `Created project ${key}.` };
+	},
+
+	rescaffoldProject: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+
+		if (!(await projectExists(key))) {
+			return fail(400, { action: 'rescaffoldProject', error: 'Unknown project.' });
+		}
+		const clientKey = (await projectClientKey(key)) ?? UNASSIGNED_CLIENT;
+		await scaffoldProject(clientKey, key);
+		return { action: 'rescaffoldProject', ok: `Rescaffolded ${key}.` };
 	},
 
 	renameProject: async ({ request, locals }) => {

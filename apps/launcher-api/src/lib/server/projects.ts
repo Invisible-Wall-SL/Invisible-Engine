@@ -23,6 +23,15 @@ export async function projectExists(key: string): Promise<boolean> {
 	return Boolean(row);
 }
 
+/** Owning client key for a project, or `null` when unassigned / unknown. */
+export async function projectClientKey(key: string): Promise<string | null> {
+	const [row] = await getDb()
+		.select({ clientKey: projects.clientKey })
+		.from(projects)
+		.where(eq(projects.key, key));
+	return row?.clientKey ?? null;
+}
+
 /**
  * Projects a user may switch to. Admins get every project; everyone else gets
  * the union of their `user_client_access` grants (every project owned by a
@@ -94,8 +103,12 @@ export async function revokeProjectAccess(userId: string, projectKey: string): P
 		);
 }
 
-export async function createProject(key: string, name: string): Promise<void> {
-	await getDb().insert(projects).values({ key, name });
+export async function createProject(
+	key: string,
+	name: string,
+	clientKey: string | null = null,
+): Promise<void> {
+	await getDb().insert(projects).values({ key, name, clientKey });
 }
 
 export async function renameProject(key: string, name: string): Promise<void> {
