@@ -9,8 +9,14 @@
 	interface Props {
 		node: LayoutNode | null;
 		layoutType: LayoutType;
+		/** Called after any user-driven mutation to the selected node. */
+		onDirty?: () => void;
 	}
-	let { node, layoutType }: Props = $props();
+	let { node, layoutType, onDirty }: Props = $props();
+
+	function markDirty(): void {
+		onDirty?.();
+	}
 
 	const overrideKeys = [
 		'x',
@@ -53,11 +59,13 @@
 		if (Object.keys(o).length === 0 && n.overrides) {
 			delete n.overrides[layoutType];
 		}
+		markDirty();
 	}
 
 	function resetAllOverrides(n: LayoutNode): void {
 		if (!n.overrides) return;
 		delete n.overrides[layoutType];
+		markDirty();
 	}
 
 	function setNumber(n: LayoutNode, key: OverrideKey, value: number): void {
@@ -68,6 +76,7 @@
 		} else {
 			(n as unknown as Record<string, unknown>)[key] = value;
 		}
+		markDirty();
 	}
 
 	function setBool(n: LayoutNode, key: OverrideKey, value: boolean): void {
@@ -77,6 +86,7 @@
 		} else {
 			(n as unknown as Record<string, unknown>)[key] = value;
 		}
+		markDirty();
 	}
 
 	function setAnchor(n: LayoutNode, axis: 'x' | 'y', value: number): void {
@@ -90,6 +100,7 @@
 			const cur = n.anchor ?? { x: 0.5, y: 0.5 };
 			n.anchor = { ...cur, [axis]: value };
 		}
+		markDirty();
 	}
 
 	function setScale(n: LayoutNode, axis: 'x' | 'y', value: number): void {
@@ -103,6 +114,7 @@
 			const cur = n.scale ?? { x: 1, y: 1 };
 			n.scale = { ...cur, [axis]: value };
 		}
+		markDirty();
 	}
 
 	function setTintHex(n: LayoutNode, hex: string): void {
@@ -114,6 +126,7 @@
 		} else if (n.kind === 'sprite') {
 			n.tint = value;
 		}
+		markDirty();
 	}
 
 	function setSpriteSize(n: LayoutNode, axis: 'width' | 'height', value: number): void {
@@ -123,6 +136,7 @@
 		} else if (n.kind === 'sprite' || n.kind === 'spine') {
 			(n as Record<string, unknown>)[axis] = value;
 		}
+		markDirty();
 	}
 
 	function hexFrom(value: number | undefined): string {
@@ -370,6 +384,7 @@
 						value={node.defaultAnimation ?? ''}
 						oninput={(e) => {
 							node.defaultAnimation = e.currentTarget.value;
+							markDirty();
 						}}
 					/>
 				</label>
@@ -381,6 +396,7 @@
 						checked={node.loop ?? false}
 						onchange={(e) => {
 							node.loop = e.currentTarget.checked;
+							markDirty();
 						}}
 					/>
 					<span>loop</span>
@@ -397,6 +413,7 @@
 						value={node.text}
 						oninput={(e) => {
 							node.text = e.currentTarget.value;
+							markDirty();
 						}}
 					></textarea>
 				</label>
@@ -411,6 +428,7 @@
 						oninput={(e) => {
 							if (!node.style) node.style = {};
 							node.style.fontSize = e.currentTarget.valueAsNumber;
+							markDirty();
 						}}
 					/>
 				</label>
@@ -425,6 +443,7 @@
 							if (!/^[0-9a-fA-F]{6}$/.test(clean)) return;
 							if (!node.style) node.style = {};
 							node.style.fill = parseInt(clean, 16);
+							markDirty();
 						}}
 					/>
 				</label>

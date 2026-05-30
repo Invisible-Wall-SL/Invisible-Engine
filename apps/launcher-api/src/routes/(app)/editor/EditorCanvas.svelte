@@ -26,6 +26,8 @@
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
 		/** Hoisted selection — bound from the page so the properties panel can read it. */
 		selectedId?: string | null;
+		/** Called once after any doc-mutating gesture (drag-spawn, translate/scale/rotate end). */
+		onDirty?: () => void;
 	}
 
 	let {
@@ -35,6 +37,7 @@
 		layoutType,
 		onSpawn,
 		selectedId = $bindable(null),
+		onDirty,
 	}: Props = $props();
 
 	function getOverride(node: LayoutNode) {
@@ -690,6 +693,7 @@
 			dragMode = null;
 			snapLines = [];
 			schedule();
+			onDirty?.();
 		}
 	}
 
@@ -725,7 +729,10 @@
 		if (!payload || !payload.key || !payload.kind) return;
 		const pos = clientToWorld(e.clientX, e.clientY);
 		const node = spawnNode(payload, pos);
-		if (node) onSpawn(node, pos);
+		if (node) {
+			onSpawn(node, pos);
+			onDirty?.();
+		}
 	}
 
 	function genId(): string {

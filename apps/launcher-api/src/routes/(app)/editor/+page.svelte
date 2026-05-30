@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
 	import type { LayoutNode, LayoutType, Scene } from 'engine-layout';
+	import { onMount } from 'svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
@@ -9,7 +10,7 @@
 	let { data }: { data: PageData } = $props();
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
-	 * doc has none — only kept in client state (autosave is step 8). */
+	 * doc has none — persistence is handled by the debounced autosave below. */
 	let scenes: Scene[] = $state(
 		data.doc.scenes.length > 0
 			? structuredClone(data.doc.scenes)
@@ -63,7 +64,131 @@
 		const sc = next[activeSceneIdx];
 		next[activeSceneIdx] = { ...sc, nodes: [...sc.nodes, node] };
 		scenes = next;
+		markDirty();
 	}
+
+	// ---------- persistence ----------
+
+	const AUTOSAVE_MS = 1200;
+	const RELATIVE_TICK_MS = 15_000;
+
+	let dirty = $state(false);
+	let busy = $state(false);
+	let lastError = $state('');
+	let lastSavedAt = $state(data.doc.updatedAt || '');
+	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
+	let nowTick = $state(Date.now());
+
+	function markDirty(): void {
+		dirty = true;
+		lastError = '';
+	}
+
+	function buildDocPayload() {
+		return {
+			version: data.doc.version,
+			projectKey: data.projectKey,
+			mainSizesMap: data.doc.mainSizesMap,
+			scenes,
+			updatedAt: lastSavedAt,
+		};
+	}
+
+	async function postAction(action: string, body: Record<string, string>): Promise<unknown> {
+		const fd = new FormData();
+		for (const [k, v] of Object.entries(body)) fd.set(k, v);
+		const res = await fetch(`?/${action}`, { method: 'POST', body: fd });
+		const json = (await res.json()) as { type: string; data?: string };
+		if (!json.data) return {};
+		const parsed = JSON.parse(json.data) as unknown[];
+		const root = parsed[0] as Record<string, number>;
+		const out: Record<string, unknown> = {};
+		for (const [key, idx] of Object.entries(root)) out[key] = parsed[idx];
+		return out;
+	}
+
+	let pendingSave = false;
+	async function save(): Promise<void> {
+		if (busy) {
+			// Coalesce: the in-flight save's `finally` will re-trigger.
+			pendingSave = true;
+			return;
+		}
+		busy = true;
+		try {
+			const payload = JSON.stringify(buildDocPayload());
+			const out = (await postAction('save', { doc: payload })) as {
+				saved?: boolean;
+				updatedAt?: string;
+				error?: string;
+			};
+			if (out.error) {
+				lastError = out.error;
+			} else {
+				lastSavedAt = out.updatedAt ?? new Date().toISOString();
+				lastError = '';
+				dirty = false;
+			}
+		} catch (e) {
+			lastError = e instanceof Error ? e.message : 'Save failed.';
+		} finally {
+			busy = false;
+			if (pendingSave) {
+				pendingSave = false;
+				if (dirty) void save();
+			}
+		}
+	}
+
+	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+	$effect(() => {
+		// Re-running this effect when `dirty` flips true starts/restarts the
+		// autosave timer. Mutations bump `dirty` again -> debounce resets.
+		if (!dirty) return;
+		if (autosaveTimer) clearTimeout(autosaveTimer);
+		autosaveTimer = setTimeout(() => {
+			autosaveTimer = null;
+			void save();
+		}, AUTOSAVE_MS);
+		return () => {
+			if (autosaveTimer) {
+				clearTimeout(autosaveTimer);
+				autosaveTimer = null;
+			}
+		};
+	});
+
+	function onBeforeUnload(e: BeforeUnloadEvent): void {
+		if (!dirty) return;
+		e.preventDefault();
+		e.returnValue = '';
+	}
+
+	onMount(() => {
+		window.addEventListener('beforeunload', onBeforeUnload);
+		const id = window.setInterval(() => (nowTick = Date.now()), RELATIVE_TICK_MS);
+		return () => {
+			window.removeEventListener('beforeunload', onBeforeUnload);
+			window.clearInterval(id);
+			if (autosaveTimer) clearTimeout(autosaveTimer);
+		};
+	});
+
+	function relativeTime(iso: string, now: number): string {
+		if (!iso) return 'never';
+		const t = Date.parse(iso);
+		if (Number.isNaN(t)) return 'just now';
+		const diff = Math.max(0, Math.floor((now - t) / 1000));
+		if (diff < 5) return 'just now';
+		if (diff < 60) return `${diff}s ago`;
+		const m = Math.floor(diff / 60);
+		if (m < 60) return `${m}m ago`;
+		const h = Math.floor(m / 60);
+		if (h < 24) return `${h}h ago`;
+		const d = Math.floor(h / 24);
+		return `${d}d ago`;
+	}
+	const savedAgo = $derived(relativeTime(lastSavedAt, nowTick));
 </script>
 
 <svelte:head><title>Invisible Editor — Invisible Wall</title></svelte:head>
@@ -94,6 +219,18 @@
 			<span class="counter">
 				{atlasCount} atlases · {spineCount} spines · {sheetCount} sheets
 			</span>
+			<span class="dot-sep">·</span>
+			{#if busy}
+				<span class="save-pill busy">Saving…</span>
+			{:else if lastError}
+				<span class="save-pill error" title={lastError}>Save failed</span>
+				<button class="save-btn" type="button" onclick={() => void save()}>Retry</button>
+			{:else if dirty}
+				<span class="save-pill dirty">Unsaved changes</span>
+				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
+			{:else}
+				<span class="save-pill ok" title={lastSavedAt || ''}>Saved {savedAgo}</span>
+			{/if}
 		</div>
 	</header>
 
@@ -200,12 +337,17 @@
 				layoutType={currentLayoutType}
 				{onSpawn}
 				bind:selectedId
+				onDirty={markDirty}
 			/>
 		</main>
 
 		<aside class="properties">
 			<h2>Properties</h2>
-			<EditorProperties node={selectedNode} layoutType={currentLayoutType} />
+			<EditorProperties
+				node={selectedNode}
+				layoutType={currentLayoutType}
+				onDirty={markDirty}
+			/>
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
 				{activeScene?.nodes.length ?? 0} nodes
@@ -215,7 +357,7 @@
 
 	<footer class="help-strip">
 		<span class="muted">
-			Doc updatedAt: <code>{data.doc.updatedAt || '—'}</code>
+			Doc updatedAt: <code>{lastSavedAt || '—'}</code>
 		</span>
 		<span class="muted">version {data.doc.version}</span>
 	</footer>
@@ -300,6 +442,44 @@
 	}
 	.dot-sep {
 		color: #444;
+	}
+	.save-pill {
+		font-size: 11px;
+		padding: 3px 9px;
+		border-radius: 999px;
+		border: 1px solid #1f1f28;
+		background: #16161c;
+		color: #888;
+		letter-spacing: 0.02em;
+	}
+	.save-pill.busy {
+		color: #7ee0c0;
+		border-color: #234038;
+	}
+	.save-pill.dirty {
+		color: #f0c878;
+		border-color: #3a3020;
+	}
+	.save-pill.error {
+		color: #ff9a9a;
+		border-color: #4a2a30;
+	}
+	.save-pill.ok {
+		color: #888;
+	}
+	.save-btn {
+		background: transparent;
+		border: 1px solid #2a2a33;
+		color: #c8a3ff;
+		padding: 3px 10px;
+		font-size: 11px;
+		border-radius: 999px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.save-btn:hover {
+		border-color: #7ee0c0;
+		color: #7ee0c0;
 	}
 	.layout {
 		display: grid;
