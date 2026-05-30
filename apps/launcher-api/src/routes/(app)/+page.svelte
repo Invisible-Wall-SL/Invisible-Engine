@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { tick } from 'svelte';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
 
@@ -69,7 +70,7 @@
 	// Switching client re-points the active project to that client's first
 	// project (so the forwarded `&project=` stays valid for the new client) and
 	// submits when it actually changes.
-	function onClientChange(form: HTMLFormElement | null, next: string) {
+	async function onClientChange(form: HTMLFormElement | null, next: string) {
 		selectedClient = next;
 		const wantUnassigned = next === UNASSIGNED;
 		const first = data.projects.find((p) =>
@@ -77,11 +78,16 @@
 		);
 		if (!first) return;
 		selectedProject = first.key;
+		// Wait for the project <select> (value + the new client's options) to
+		// flush to the DOM before submitting — otherwise requestSubmit() reads
+		// the stale `projectKey` and the active project snaps back.
+		await tick();
 		if (first.key !== data.activeProjectKey) form?.requestSubmit();
 	}
 
-	function onProjectChange(form: HTMLFormElement | null, next: string) {
+	async function onProjectChange(form: HTMLFormElement | null, next: string) {
 		selectedProject = next;
+		await tick();
 		if (next !== data.activeProjectKey) form?.requestSubmit();
 	}
 </script>
