@@ -1,13 +1,45 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
+	import type { LayoutNode, Scene } from 'engine-layout';
+	import EditorCanvas from './EditorCanvas.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	const sceneCount = $derived(data.doc.scenes.length);
+	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
+	 * doc has none — only kept in client state (autosave is step 8). */
+	let scenes: Scene[] = $state(
+		data.doc.scenes.length > 0
+			? structuredClone(data.doc.scenes)
+			: [{ id: 's_main', name: 'main', nodes: [] }],
+	);
+	let activeSceneIdx = $state(0);
+
+	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
+	const frameSize = $derived(data.doc.mainSizesMap.desktop);
+
+	const sceneCount = $derived(scenes.length);
 	const atlasCount = $derived(data.assets.atlases.length);
 	const spineCount = $derived(data.assets.spines.length);
 	const sheetCount = $derived(data.assets.sheets.length);
+
+	function onAssetDragStart(
+		e: DragEvent,
+		asset: { kind: string; key: string; name: string },
+	): void {
+		if (!e.dataTransfer) return;
+		const payload = { kind: asset.kind, key: asset.key, name: asset.name };
+		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
+		e.dataTransfer.effectAllowed = 'copy';
+	}
+
+	function onSpawn(node: LayoutNode): void {
+		// Append to active scene; reassign to trigger reactivity.
+		const next = scenes.slice();
+		const sc = next[activeSceneIdx];
+		next[activeSceneIdx] = { ...sc, nodes: [...sc.nodes, node] };
+		scenes = next;
+	}
 </script>
 
 <svelte:head><title>Invisible Editor — Invisible Wall</title></svelte:head>
@@ -35,7 +67,13 @@
 				<h3>Atlases <span class="count">{atlasCount}</span></h3>
 				<ul>
 					{#each data.assets.atlases as a (a.key)}
-						<li>
+						<li
+							draggable="true"
+							data-asset-kind={a.kind}
+							data-asset-key={a.key}
+							data-asset-name={a.name}
+							ondragstart={(e) => onAssetDragStart(e, a)}
+						>
 							<span class="name">{a.name}</span>
 							<span class="tag">{a.kind === 'atlas-manifest' ? 'manifest' : 'page'}</span>
 						</li>
@@ -49,7 +87,13 @@
 				<h3>Spines <span class="count">{spineCount}</span></h3>
 				<ul>
 					{#each data.assets.spines as s (s.key)}
-						<li>
+						<li
+							draggable="true"
+							data-asset-kind={s.kind}
+							data-asset-key={s.key}
+							data-asset-name={s.name}
+							ondragstart={(e) => onAssetDragStart(e, s)}
+						>
 							<span class="name">{s.name}</span>
 							<span class="tag">spine</span>
 							{#if s.shared}<span class="badge">shared</span>{/if}
@@ -64,7 +108,13 @@
 				<h3>Sheets <span class="count">{sheetCount}</span></h3>
 				<ul>
 					{#each data.assets.sheets as sh (sh.key)}
-						<li>
+						<li
+							draggable="true"
+							data-asset-kind={sh.kind}
+							data-asset-key={sh.key}
+							data-asset-name={sh.name}
+							ondragstart={(e) => onAssetDragStart(e, sh)}
+						>
 							<span class="name">{sh.name}</span>
 							<span class="tag">sheet</span>
 						</li>
@@ -76,18 +126,21 @@
 		</aside>
 
 		<main class="canvas-area">
-			<div class="canvas-placeholder">
-				<Emblem height={48} />
-				<p class="canvas-title">Canvas will land here in step 5</p>
-				<p class="canvas-hint">
-					Scenes ({sceneCount}) will render here. Drag assets in from the left.
-				</p>
-			</div>
+			<EditorCanvas
+				scene={activeScene}
+				frameWidth={frameSize.width}
+				frameHeight={frameSize.height}
+				{onSpawn}
+			/>
 		</main>
 
 		<aside class="properties">
 			<h2>Properties</h2>
 			<p class="muted">Selection properties will appear here.</p>
+			<p class="muted hint">
+				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
+				{activeScene?.nodes.length ?? 0} nodes
+			</p>
 		</aside>
 	</div>
 
@@ -207,6 +260,16 @@
 		background: #16161c;
 		border: 1px solid #1f1f28;
 	}
+	li[draggable='true'] {
+		cursor: grab;
+	}
+	li[draggable='true']:hover {
+		border-color: #2f3a48;
+		background: #1a1a22;
+	}
+	li[draggable='true']:active {
+		cursor: grabbing;
+	}
 	.name {
 		flex: 1;
 		overflow: hidden;
@@ -237,33 +300,14 @@
 		color: #666;
 		font-size: 12px;
 	}
-	.canvas-area {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background:
-			radial-gradient(circle at 50% 40%, #14141c 0%, #0b0b10 70%);
-		padding: 24px;
-	}
-	.canvas-placeholder {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
+	.muted.hint strong {
 		color: #c8a3ff;
-		opacity: 0.6;
+		font-weight: 600;
 	}
-	.canvas-title {
-		margin: 0;
-		font-size: 14px;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		color: #888;
-	}
-	.canvas-hint {
-		margin: 0;
-		font-size: 12px;
-		color: #555;
+	.canvas-area {
+		min-width: 0;
+		min-height: 0;
+		background: #0b0b10;
 	}
 	.help-strip {
 		display: flex;
