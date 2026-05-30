@@ -14,9 +14,15 @@
 			: [{ id: 's_main', name: 'main', nodes: [] }],
 	);
 	let activeSceneIdx = $state(0);
+	/** Hoisted so step 7's properties panel can read the active selection.
+	 * `<EditorCanvas>` binds this via `bind:selectedId`. */
+	let selectedId = $state<string | null>(null);
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
 	const frameSize = $derived(data.doc.mainSizesMap.desktop);
+	const selectedNode = $derived(
+		selectedId ? (activeScene?.nodes.find((n) => n.id === selectedId) ?? null) : null,
+	);
 
 	const sceneCount = $derived(scenes.length);
 	const atlasCount = $derived(data.assets.atlases.length);
@@ -131,12 +137,21 @@
 				frameWidth={frameSize.width}
 				frameHeight={frameSize.height}
 				{onSpawn}
+				bind:selectedId
 			/>
 		</main>
 
 		<aside class="properties">
 			<h2>Properties</h2>
-			<p class="muted">Selection properties will appear here.</p>
+			{#if selectedNode}
+				<p class="muted">
+					Selected: <strong>{selectedNode.label ?? selectedNode.id}</strong>
+					<span class="tag">{selectedNode.kind}</span>
+				</p>
+				<p class="muted">Full editor wiring lands in step 7.</p>
+			{:else}
+				<p class="muted">Select a node to edit its properties.</p>
+			{/if}
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
 				{activeScene?.nodes.length ?? 0} nodes
