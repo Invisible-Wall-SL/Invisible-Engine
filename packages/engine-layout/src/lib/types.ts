@@ -48,6 +48,11 @@ interface BaseNode {
 	overrides?: Partial<Record<LayoutType, NodeOverride>>;
 	visibleFor?: LayoutType[];
 	/**
+	 * Editor-only: when true the editor disables selection/drag/transform of this
+	 * node. The engine ignores it (purely an authoring affordance).
+	 */
+	locked?: boolean;
+	/**
 	 * Escape hatch: mount a coded Svelte component registered via
 	 * `registerBoundComponents()` at this node's transform. The component
 	 * receives the resolved transform plus `props`.
@@ -62,7 +67,22 @@ export interface ContainerNode extends BaseNode {
 
 export interface SpriteNode extends BaseNode {
 	kind: 'sprite';
+	/**
+	 * The asset the game loads. Without `region` this IS the texture key looked
+	 * up in `loadedAssets` (a standalone `type: 'sprite'` texture). With `region`
+	 * set it instead names the atlas/spritesheet (`type: 'sprites'`) the game must
+	 * load so the frame is present at runtime — the render lookup then happens by
+	 * `region`, not `assetKey`.
+	 */
 	assetKey: string;
+	/**
+	 * A single packed frame WITHIN the `assetKey` atlas/spritesheet. When set, the
+	 * engine renders that frame: pixi-svelte's `sprites` loader flattens an atlas
+	 * into `loadedAssets` keyed by frame name, so the frame texture is resolved by
+	 * `<Sprite key={region}>` (same path `apps/lines` uses for `frame_bg.png`).
+	 * When absent, behaviour is unchanged — `assetKey` is a standalone texture.
+	 */
+	region?: string;
 	width?: number;
 	height?: number;
 	tint?: number;

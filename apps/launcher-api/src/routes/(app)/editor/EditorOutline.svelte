@@ -33,6 +33,7 @@
 		>
 			<span class="glyph">{kindGlyph(node.kind)}</span>
 			<span class="label">{node.label ?? node.id}</span>
+			{#if node.locked}<span class="lock" title="Locked">🔒</span>{/if}
 			<span class="kind">{node.kind}</span>
 		</button>
 		{#if node.kind === 'container' && node.children.length > 0}
@@ -106,6 +107,10 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #666;
+	}
+	.lock {
+		font-size: 10px;
+		line-height: 1;
 	}
 	.muted {
 		color: #666;

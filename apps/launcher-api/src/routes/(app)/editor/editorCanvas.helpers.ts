@@ -17,12 +17,12 @@ export interface NodeBox {
 export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
-	naturalSize: (key: string) => { w: number; h: number } | null,
+	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
 ): NodeBox {
 	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
 	if (node.kind === 'sprite') {
-		const nat = naturalSize(node.assetKey);
+		const nat = naturalSize(node);
 		const w = t.width ?? nat?.w ?? 100;
 		const h = t.height ?? nat?.h ?? 100;
 		return { w, h, ax, ay };

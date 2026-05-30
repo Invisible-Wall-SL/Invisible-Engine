@@ -6,16 +6,24 @@
 		nodeCornersWorld,
 		topMidWorld,
 		pointInQuad,
-		expandedAABBContains,
 		type Vec2,
 		type NodeBox,
 	} from './editorCanvas.helpers';
+	import {
+		fetchRegions,
+		regionNaturalSize,
+		type EditorRegion,
+		type RegionDragPayload,
+		type RegionSet,
+	} from './editorRegions.client';
+	import EditorItemOverlay from './EditorItemOverlay.svelte';
 
-	interface DragPayload {
-		kind: string;
+	interface AssetDragPayload {
+		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine';
 		key: string;
 		name: string;
 	}
+	type DragPayload = AssetDragPayload | RegionDragPayload;
 
 	interface Props {
 		scene: Scene;
@@ -28,6 +36,8 @@
 		selectedId?: string | null;
 		/** Called once after any doc-mutating gesture (drag-spawn, translate/scale/rotate end). */
 		onDirty?: () => void;
+		/** Remove the node with this id from the active scene + clear selection. */
+		onDelete?: (id: string) => void;
 	}
 
 	let {
@@ -38,6 +48,7 @@
 		onSpawn,
 		selectedId = $bindable(null),
 		onDirty,
+		onDelete,
 	}: Props = $props();
 
 	function getOverride(node: LayoutNode) {
@@ -122,10 +133,7 @@
 		/** World-space coordinate (x for vertical, y for horizontal). */
 		v: number;
 	}
-	type HandleHit =
-		| { kind: 'corner'; idx: number }
-		| { kind: 'rotate' }
-		| { kind: 'body' };
+	type HandleHit = { kind: 'corner'; idx: number } | { kind: 'rotate' } | { kind: 'body' };
 
 	const HANDLE_PX = 7;
 	const ROTATE_PX = 6;
@@ -147,9 +155,71 @@
 		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}`;
 		return null;
 	}
-	function naturalSize(key: string): { w: number; h: number } | null {
-		const img = images.get(key);
-		if (img && img.naturalWidth > 0) return { w: img.naturalWidth, h: img.naturalHeight };
+
+	// ---------- region (atlas/sheet frame) resolution ----------
+	// A region sprite stores `{ assetKey, region }`. Preview data (the packed page
+	// key + per-frame rects) is editor-side only — resolved here, never saved.
+	// Keyed by `assetKey` so a reopened doc re-fetches automatically.
+	const regionSets = new Map<string, RegionSet | null>();
+	function ensureRegionSet(assetKey: string): RegionSet | null {
+		if (regionSets.has(assetKey)) return regionSets.get(assetKey) ?? null;
+		regionSets.set(assetKey, null);
+		void fetchRegions(assetKey).then((set) => {
+			regionSets.set(assetKey, set);
+			if (set.pageKey) ensureImage(set.pageKey);
+			schedule();
+		});
+		return null;
+	}
+	/** Seed the cache from a drag payload so the dropped sprite renders instantly. */
+	function seedRegionSet(p: RegionDragPayload): void {
+		const existing = regionSets.get(p.key);
+		const region: EditorRegion = {
+			name: p.region,
+			x: p.rect.x,
+			y: p.rect.y,
+			w: p.rect.w,
+			h: p.rect.h,
+			rotated: p.rotated,
+			offX: p.offX,
+			offY: p.offY,
+			origW: p.origW,
+			origH: p.origH,
+		};
+		if (existing) {
+			if (!existing.regions.some((r) => r.name === region.name)) existing.regions.push(region);
+		} else {
+			regionSets.set(p.key, {
+				assetKey: p.key,
+				pageKey: p.pageKey,
+				pageWidth: 0,
+				pageHeight: 0,
+				regions: [region],
+			});
+		}
+		if (p.pageKey) ensureImage(p.pageKey);
+	}
+	function findRegion(
+		assetKey: string,
+		regionName: string,
+	): { set: RegionSet; region: EditorRegion } | null {
+		const set = ensureRegionSet(assetKey);
+		if (!set) return null;
+		const region = set.regions.find((r) => r.name === regionName);
+		return region ? { set, region } : null;
+	}
+
+	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
+	function naturalSize(node: LayoutNode): { w: number; h: number } | null {
+		if (node.kind === 'sprite' && node.region) {
+			const found = findRegion(node.assetKey, node.region);
+			if (found) return regionNaturalSize(found.region);
+			return null;
+		}
+		if (node.kind === 'sprite' || node.kind === 'spine') {
+			const img = images.get(node.assetKey);
+			if (img && img.naturalWidth > 0) return { w: img.naturalWidth, h: img.naturalHeight };
+		}
 		return null;
 	}
 
@@ -257,7 +327,9 @@
 		if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
 		if (t.alpha !== undefined) ctx.globalAlpha = t.alpha;
 
-		if (node.kind === 'sprite') {
+		if (node.kind === 'sprite' && node.region) {
+			drawRegionSprite(ctx, node, t);
+		} else if (node.kind === 'sprite') {
 			const img = ensureImage(node.assetKey);
 			if (img && img.complete && img.naturalWidth > 0) {
 				const w = t.width ?? img.naturalWidth;
@@ -289,6 +361,44 @@
 		ctx.restore();
 	}
 
+	function drawRegionSprite(
+		ctx: CanvasRenderingContext2D,
+		node: Extract<LayoutNode, { kind: 'sprite' }>,
+		t: import('engine-layout').ResolvedTransform,
+	): void {
+		const found = node.region ? findRegion(node.assetKey, node.region) : null;
+		const ax = t.anchor?.x ?? 0;
+		const ay = t.anchor?.y ?? 0;
+		if (!found || !found.set.pageKey) {
+			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? node.region ?? '…');
+			return;
+		}
+		const img = ensureImage(found.set.pageKey);
+		const { region } = found;
+		const nat = regionNaturalSize(region);
+		// Destination box: respect explicit width/height, else the region's native size.
+		const dw = t.width ?? nat.w;
+		const dh = t.height ?? nat.h;
+		if (!img || !img.complete || img.naturalWidth === 0) {
+			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? region.name);
+			return;
+		}
+		// Trim offset: the packed frame may be a tight crop of a larger original
+		// (origW/origH). Place the trimmed crop at its offset inside the dest box,
+		// scaled to match the dest/native ratio.
+		const scaleX = dw / nat.w;
+		const scaleY = dh / nat.h;
+		const offX = (region.offX ?? 0) * scaleX;
+		const offY = (region.offY ?? 0) * scaleY;
+		const cropW = region.w * scaleX;
+		const cropH = region.h * scaleY;
+		const baseX = -dw * ax + offX;
+		const baseY = -dh * ay + offY;
+		// Rotation note: packed `rotated` frames (90° in the atlas) are drawn
+		// upright here (best-effort) — the geometry is correct, orientation isn't.
+		ctx.drawImage(img, region.x, region.y, region.w, region.h, baseX, baseY, cropW, cropH);
+	}
+
 	function drawPlaceholder(
 		ctx: CanvasRenderingContext2D,
 		ax: number,
@@ -314,6 +424,20 @@
 		const box = nodeBox(node, t, naturalSize);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		const top = worldToScreen(topMidWorld(t, box));
+
+		// Locked: outline only (amber), no transform handles.
+		if (node.locked) {
+			ctx.lineWidth = 1.5;
+			ctx.strokeStyle = '#f0c878';
+			ctx.setLineDash([5, 4]);
+			ctx.beginPath();
+			ctx.moveTo(corners[0].x, corners[0].y);
+			for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+			ctx.closePath();
+			ctx.stroke();
+			ctx.setLineDash([]);
+			return;
+		}
 
 		const accent = '#5db0ff';
 		ctx.lineWidth = 1.5;
@@ -355,7 +479,7 @@
 	function hitTestHandle(screen: Vec2): HandleHit | null {
 		if (!selectedId) return null;
 		const node = findNodeById(selectedId);
-		if (!node) return null;
+		if (!node || node.locked) return null;
 		const t = resolveTransform(node, layoutType);
 		if (!t.visible) return null;
 		const box = nodeBox(node, t, naturalSize);
@@ -389,6 +513,7 @@
 		const list = visibleSceneNodes();
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
+			if (node.locked) continue;
 			const t = resolveTransform(node, layoutType);
 			const box = nodeBox(node, t, naturalSize);
 			const corners = nodeCornersWorld(t, box);
@@ -664,6 +789,7 @@
 			if (dragMode.kind === 'translate') applyTranslate(node, world, e.shiftKey);
 			else if (dragMode.kind === 'scale') applyScale(node, world, e.shiftKey);
 			else if (dragMode.kind === 'rotate') applyRotate(node, world, e.shiftKey);
+			bumpFrame();
 			schedule();
 			return;
 		}
@@ -698,9 +824,27 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent): void {
+		// Don't hijack typing in form fields (properties panel inputs etc.).
+		const tgt = e.target as HTMLElement | null;
+		const typing =
+			tgt &&
+			(tgt.tagName === 'INPUT' ||
+				tgt.tagName === 'TEXTAREA' ||
+				tgt.tagName === 'SELECT' ||
+				tgt.isContentEditable);
+		if (typing) return;
+
 		if (e.key === 'Escape' && selectedId !== null) {
 			selectedId = null;
 			schedule();
+			return;
+		}
+		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId !== null) {
+			const node = findNodeById(selectedId);
+			if (node && !node.locked) {
+				e.preventDefault();
+				onDelete?.(selectedId);
+			}
 		}
 	}
 
@@ -748,10 +892,22 @@
 			anchor: { x: 0.5, y: 0.5 },
 			scale: { x: 1, y: 1 },
 		};
+		if (p.kind === 'region') {
+			// Seed preview data so the dropped sprite renders immediately, then
+			// spawn sized to the region's native art size.
+			seedRegionSet(p);
+			const nat = { w: p.origW ?? p.rect.w, h: p.origH ?? p.rect.h };
+			return {
+				...base,
+				kind: 'sprite',
+				assetKey: p.key,
+				region: p.region,
+				width: nat.w,
+				height: nat.h,
+			};
+		}
 		switch (p.kind) {
 			case 'atlas-page':
-			case 'atlas-manifest':
-			case 'sheet':
 				return { ...base, kind: 'sprite', assetKey: p.key };
 			case 'spine':
 				return {
@@ -761,6 +917,8 @@
 					defaultAnimation: '',
 					loop: false,
 				};
+			// `atlas-manifest` / `sheet` are CONTAINERS — they are never dropped
+			// whole (the Library expands them into draggable regions instead).
 			default:
 				return null;
 		}
@@ -776,6 +934,97 @@
 		panX = (w - frameWidth * zoom) / 2;
 		panY = (h - frameHeight * zoom) / 2;
 		schedule();
+	}
+
+	// ---------- attached item overlay ----------
+	// Screen-space bounding box of the selected node, tracking pan/zoom so the
+	// HTML overlay stays glued to the node. Recomputed whenever the node's
+	// transform or the viewport changes (the `frameTick` bump forces it after a
+	// drag mutates the node in place).
+	let frameTick = $state(0);
+	const overlayInfo = $derived.by(() => {
+		void frameTick;
+		void panX;
+		void panY;
+		void zoom;
+		void layoutType;
+		if (!selectedId) return null;
+		const node = findNodeById(selectedId);
+		if (!node) return null;
+		const t = resolveTransform(node, layoutType);
+		if (!t.visible) return null;
+		const box = nodeBox(node, t, naturalSize);
+		const corners = nodeCornersWorld(t, box).map(worldToScreen);
+		let minX = Infinity,
+			minY = Infinity,
+			maxX = -Infinity,
+			maxY = -Infinity;
+		for (const c of corners) {
+			if (c.x < minX) minX = c.x;
+			if (c.y < minY) minY = c.y;
+			if (c.x > maxX) maxX = c.x;
+			if (c.y > maxY) maxY = c.y;
+		}
+		// Live post-scale size in px (region/native box × scale).
+		const w = Math.round(box.w * (t.scale?.x ?? 1));
+		const h = Math.round(box.h * (t.scale?.y ?? 1));
+		return {
+			node,
+			left: minX,
+			top: minY,
+			right: maxX,
+			bottom: maxY,
+			width: w,
+			height: h,
+		};
+	});
+
+	function bumpFrame(): void {
+		frameTick = frameTick + 1;
+	}
+
+	function setAnchorPreset(node: LayoutNode, ax: number, ay: number): void {
+		if (layoutType === 'desktop') {
+			node.anchor = { x: ax, y: ay };
+		} else {
+			getOverride(node).anchor = { x: ax, y: ay };
+		}
+		bumpFrame();
+		schedule();
+		onDirty?.();
+	}
+	function nudgeScale(node: LayoutNode, factor: number): void {
+		const t = resolveTransform(node, layoutType);
+		const sx = (t.scale?.x ?? 1) * factor;
+		const sy = (t.scale?.y ?? 1) * factor;
+		writeScale(node, sx, sy);
+		bumpFrame();
+		schedule();
+		onDirty?.();
+	}
+	function bringForward(node: LayoutNode): void {
+		const i = scene.nodes.findIndex((n) => n.id === node.id);
+		if (i === -1 || i === scene.nodes.length - 1) return;
+		const arr = scene.nodes;
+		[arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+		bumpFrame();
+		schedule();
+		onDirty?.();
+	}
+	function sendBack(node: LayoutNode): void {
+		const i = scene.nodes.findIndex((n) => n.id === node.id);
+		if (i <= 0) return;
+		const arr = scene.nodes;
+		[arr[i], arr[i - 1]] = [arr[i - 1], arr[i]];
+		bumpFrame();
+		schedule();
+		onDirty?.();
+	}
+	function toggleLock(node: LayoutNode): void {
+		node.locked = !node.locked;
+		bumpFrame();
+		schedule();
+		onDirty?.();
 	}
 
 	const cursorClass = $derived.by(() => {
@@ -839,6 +1088,17 @@
 	aria-label="Editor canvas"
 >
 	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown}></canvas>
+	{#if overlayInfo}
+		<EditorItemOverlay
+			info={overlayInfo}
+			onDelete={(n) => onDelete?.(n.id)}
+			onToggleLock={toggleLock}
+			onAnchor={setAnchorPreset}
+			onScale={nudgeScale}
+			onForward={bringForward}
+			onBack={sendBack}
+		/>
+	{/if}
 	<div class="hint">
 		click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
 		(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect

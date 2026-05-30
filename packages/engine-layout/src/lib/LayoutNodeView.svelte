@@ -46,7 +46,7 @@
 		</Container>
 	{:else if node.kind === 'sprite'}
 		<Sprite
-			key={node.assetKey}
+			key={node.region ?? node.assetKey}
 			x={transform.x}
 			y={transform.y}
 			anchor={transform.anchor}

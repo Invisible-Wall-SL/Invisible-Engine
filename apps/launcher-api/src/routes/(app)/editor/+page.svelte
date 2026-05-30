@@ -5,6 +5,13 @@
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
+	import RegionThumb from './RegionThumb.svelte';
+	import {
+		fetchRegions,
+		regionNaturalSize,
+		type RegionDragPayload,
+		type RegionSet,
+	} from './editorRegions.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -59,11 +66,74 @@
 		e.dataTransfer.effectAllowed = 'copy';
 	}
 
+	// ---------- expandable sheet/atlas region lists ----------
+
+	/** Which sheet/atlas keys are currently expanded in the Library. */
+	let expanded = $state<Record<string, boolean>>({});
+	/** Per-key region set (loaded lazily on first expand; `null` while loading). */
+	let regionSets = $state<Record<string, RegionSet | null>>({});
+
+	async function toggleExpand(key: string): Promise<void> {
+		const open = !expanded[key];
+		expanded = { ...expanded, [key]: open };
+		if (open && regionSets[key] === undefined) {
+			regionSets = { ...regionSets, [key]: null };
+			const set = await fetchRegions(key);
+			regionSets = { ...regionSets, [key]: set };
+		}
+	}
+
+	function onRegionDragStart(
+		e: DragEvent,
+		set: RegionSet,
+		region: RegionSet['regions'][number],
+	): void {
+		if (!e.dataTransfer) return;
+		const payload: RegionDragPayload = {
+			kind: 'region',
+			key: set.assetKey,
+			name: region.name,
+			region: region.name,
+			pageKey: set.pageKey,
+			rect: { x: region.x, y: region.y, w: region.w, h: region.h },
+			rotated: region.rotated,
+			offX: region.offX,
+			offY: region.offY,
+			origW: region.origW,
+			origH: region.origH,
+		};
+		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
+		e.dataTransfer.effectAllowed = 'copy';
+	}
+
 	function onSpawn(node: LayoutNode): void {
 		const next = scenes.slice();
 		const sc = next[activeSceneIdx];
 		next[activeSceneIdx] = { ...sc, nodes: [...sc.nodes, node] };
 		scenes = next;
+		markDirty();
+	}
+
+	function removeNode(nodes: LayoutNode[], id: string): boolean {
+		const i = nodes.findIndex((n) => n.id === id);
+		if (i !== -1) {
+			nodes.splice(i, 1);
+			return true;
+		}
+		for (const n of nodes) {
+			if (n.kind === 'container' && removeNode(n.children, id)) return true;
+		}
+		return false;
+	}
+
+	function onDeleteNode(id: string): void {
+		const next = scenes.slice();
+		const sc = next[activeSceneIdx];
+		const nodes = sc.nodes.slice();
+		if (!removeNode(nodes, id)) return;
+		next[activeSceneIdx] = { ...sc, nodes };
+		scenes = next;
+		if (selectedId === id) selectedId = null;
 		markDirty();
 	}
 
@@ -193,6 +263,42 @@
 
 <svelte:head><title>Invisible Editor — Invisible Wall</title></svelte:head>
 
+{#snippet expandable(key: string, name: string, tag: string)}
+	<li class="group" class:open={expanded[key]}>
+		<button type="button" class="grouprow" onclick={() => void toggleExpand(key)}>
+			<span class="caret">{expanded[key] ? '▾' : '▸'}</span>
+			<span class="name">{name}</span>
+			<span class="tag">{tag}</span>
+		</button>
+		{#if expanded[key]}
+			{@const set = regionSets[key]}
+			{#if set === null}
+				<p class="region-note">Loading regions…</p>
+			{:else if !set || set.regions.length === 0}
+				<p class="region-note">No regions found in this {tag}.</p>
+			{:else}
+				<div class="region-grid">
+					{#each set.regions as r (r.name)}
+						{@const ns = regionNaturalSize(r)}
+						<div
+							class="region"
+							draggable="true"
+							role="button"
+							tabindex="0"
+							aria-label={`Drag region ${r.name} (${ns.w}×${ns.h})`}
+							title={`${r.name} · ${ns.w}×${ns.h}`}
+							ondragstart={(e) => onRegionDragStart(e, set, r)}
+						>
+							<RegionThumb {set} region={r} size={48} />
+							<span class="region-name">{r.name}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+	</li>
+{/snippet}
+
 <div class="shell">
 	<header>
 		<div class="brand-wrap">
@@ -263,16 +369,20 @@
 						<h3>Atlases <span class="count">{atlasCount}</span></h3>
 						<ul>
 							{#each data.assets.atlases as a (a.key)}
-								<li
-									draggable="true"
-									data-asset-kind={a.kind}
-									data-asset-key={a.key}
-									data-asset-name={a.name}
-									ondragstart={(e) => onAssetDragStart(e, a)}
-								>
-									<span class="name">{a.name}</span>
-									<span class="tag">{a.kind === 'atlas-manifest' ? 'manifest' : 'page'}</span>
-								</li>
+								{#if a.kind === 'atlas-manifest'}
+									{@render expandable(a.key, a.name, 'manifest')}
+								{:else}
+									<li
+										draggable="true"
+										data-asset-kind={a.kind}
+										data-asset-key={a.key}
+										data-asset-name={a.name}
+										ondragstart={(e) => onAssetDragStart(e, a)}
+									>
+										<span class="name">{a.name}</span>
+										<span class="tag">page</span>
+									</li>
+								{/if}
 							{:else}
 								<li class="muted">No atlases yet.</li>
 							{/each}
@@ -304,27 +414,14 @@
 						<h3>Sheets <span class="count">{sheetCount}</span></h3>
 						<ul>
 							{#each data.assets.sheets as sh (sh.key)}
-								<li
-									draggable="true"
-									data-asset-kind={sh.kind}
-									data-asset-key={sh.key}
-									data-asset-name={sh.name}
-									ondragstart={(e) => onAssetDragStart(e, sh)}
-								>
-									<span class="name">{sh.name}</span>
-									<span class="tag">sheet</span>
-								</li>
+								{@render expandable(sh.key, sh.name, 'sheet')}
 							{:else}
 								<li class="muted">No sheets yet.</li>
 							{/each}
 						</ul>
 					</section>
 				{:else}
-					<EditorOutline
-						scene={activeScene}
-						{selectedId}
-						onSelect={(id) => (selectedId = id)}
-					/>
+					<EditorOutline scene={activeScene} {selectedId} onSelect={(id) => (selectedId = id)} />
 				{/if}
 			</div>
 		</aside>
@@ -338,16 +435,13 @@
 				{onSpawn}
 				bind:selectedId
 				onDirty={markDirty}
+				onDelete={onDeleteNode}
 			/>
 		</main>
 
 		<aside class="properties">
 			<h2>Properties</h2>
-			<EditorProperties
-				node={selectedNode}
-				layoutType={currentLayoutType}
-				onDirty={markDirty}
-			/>
+			<EditorProperties node={selectedNode} layoutType={currentLayoutType} onDirty={markDirty} />
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
 				{activeScene?.nodes.length ?? 0} nodes
@@ -609,6 +703,75 @@
 		color: #666;
 		justify-content: center;
 		padding: 10px;
+	}
+	li.group {
+		display: block;
+		padding: 0;
+		background: #16161c;
+		border: 1px solid #1f1f28;
+		overflow: hidden;
+	}
+	li.group.open {
+		border-color: #2a2a33;
+	}
+	.grouprow {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
+		padding: 6px 8px;
+		background: transparent;
+		border: none;
+		color: #e8e8ee;
+		font-size: 12px;
+		text-align: left;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.grouprow:hover {
+		background: #1a1a22;
+	}
+	.caret {
+		color: #777;
+		width: 10px;
+		font-size: 10px;
+	}
+	.region-note {
+		margin: 0;
+		padding: 6px 10px 8px 24px;
+		color: #666;
+		font-size: 11px;
+	}
+	.region-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+		gap: 6px;
+		padding: 6px 8px 10px;
+	}
+	.region {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		padding: 4px;
+		border-radius: 6px;
+		border: 1px solid transparent;
+		cursor: grab;
+	}
+	.region:hover {
+		border-color: #2f3a48;
+		background: #1a1a22;
+	}
+	.region:active {
+		cursor: grabbing;
+	}
+	.region-name {
+		font-size: 9px;
+		color: #888;
+		max-width: 52px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.muted {
 		color: #666;

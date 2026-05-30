@@ -145,7 +145,7 @@
 	}
 
 	function rad2deg(r: number | undefined): number {
-		return Math.round(((r ?? 0) * 180) / Math.PI * 100) / 100;
+		return Math.round((((r ?? 0) * 180) / Math.PI) * 100) / 100;
 	}
 	function deg2rad(d: number): number {
 		return (d * Math.PI) / 180;
@@ -161,7 +161,13 @@
 		<div class="title">
 			<strong>{node.label ?? node.id}</strong>
 			<span class="kind">{node.kind}</span>
+			{#if node.locked}<span class="kind locked">locked</span>{/if}
 		</div>
+		{#if node.kind === 'sprite' && node.region}
+			<div class="ctx">
+				Region <strong>{node.region}</strong> of <code>{node.assetKey.split('/').pop()}</code>
+			</div>
+		{/if}
 		<div class="ctx" class:override={isOverrideMode}>
 			{#if isOverrideMode}
 				Override: <strong>{layoutType}</strong>
@@ -478,6 +484,15 @@
 		padding: 1px 6px;
 		border: 1px solid #2a2a33;
 		border-radius: 4px;
+	}
+	.kind.locked {
+		color: #f0c878;
+		border-color: #3a3020;
+	}
+	.ctx code {
+		color: #c8a3ff;
+		font-family: ui-monospace, monospace;
+		font-size: 11px;
 	}
 	.ctx {
 		font-size: 11px;
