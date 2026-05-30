@@ -22,48 +22,97 @@
 
 	type SelectorProject = (typeof data.projects)[number];
 
-	// Group the project selector by client: a leading "Unassigned" group for
-	// projects with no client, then one <optgroup> per client (alphabetical).
-	const projectGroups = $derived.by(() => {
-		const unassigned: SelectorProject[] = [];
-		const byClient = new Map<string, { name: string; projects: SelectorProject[] }>();
+	// Sentinel for "projects with no owning client" — the Client step always has
+	// an entry to reach unassigned projects (e.g. the default `cloud`).
+	const UNASSIGNED = '__unassigned__';
+
+	// Distinct clients (alphabetical) plus the Unassigned bucket when any
+	// accessible project has no client. Built from the projects the user can see.
+	const clientOptions = $derived.by(() => {
+		const byKey = new Map<string, string>();
+		let hasUnassigned = false;
 		for (const p of data.projects) {
 			if (!p.clientKey) {
-				unassigned.push(p);
+				hasUnassigned = true;
 				continue;
 			}
-			const group = byClient.get(p.clientKey) ?? {
-				name: p.clientName ?? p.clientKey,
-				projects: [],
-			};
-			group.projects.push(p);
-			byClient.set(p.clientKey, group);
+			byKey.set(p.clientKey, p.clientName ?? p.clientKey);
 		}
-		const grouped = [...byClient.values()].sort((a, b) => a.name.localeCompare(b.name));
-		return { unassigned, grouped };
+		const clients = [...byKey.entries()]
+			.map(([key, name]) => ({ key, name }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+		if (hasUnassigned) clients.unshift({ key: UNASSIGNED, name: 'Unassigned' });
+		return clients;
 	});
+
+	// Two-step selection state. The active project (from the session) seeds both
+	// the Client and Project steps; user edits then submit `selectedProject`.
+	const activeProject = $derived(
+		data.projects.find((p) => p.key === data.activeProjectKey) ?? null,
+	);
+	let selectedClient = $state('');
+	let selectedProject = $state('');
+	$effect(() => {
+		selectedClient = activeProject?.clientKey ?? UNASSIGNED;
+		selectedProject = data.activeProjectKey ?? '';
+	});
+
+	// Projects shown in the second step: those owned by the selected client (or
+	// the unassigned bucket), alphabetical.
+	const clientProjects = $derived.by(() => {
+		const wantUnassigned = selectedClient === UNASSIGNED;
+		return data.projects
+			.filter((p) => (wantUnassigned ? !p.clientKey : p.clientKey === selectedClient))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	});
+
+	// Switching client re-points the active project to that client's first
+	// project (so the forwarded `&project=` stays valid for the new client) and
+	// submits when it actually changes.
+	function onClientChange(form: HTMLFormElement | null, next: string) {
+		selectedClient = next;
+		const wantUnassigned = next === UNASSIGNED;
+		const first = data.projects.find((p) =>
+			wantUnassigned ? !p.clientKey : p.clientKey === next,
+		);
+		if (!first) return;
+		selectedProject = first.key;
+		if (first.key !== data.activeProjectKey) form?.requestSubmit();
+	}
+
+	function onProjectChange(form: HTMLFormElement | null, next: string) {
+		selectedProject = next;
+		if (next !== data.activeProjectKey) form?.requestSubmit();
+	}
 </script>
 
 {#snippet projectSelector()}
 	<form method="POST" action="?/setProject" use:enhance class="project">
-		<label for="active-project">Project</label>
-		<select
-			id="active-project"
-			name="projectKey"
-			value={data.activeProjectKey}
-			onchange={(e) => e.currentTarget.form?.requestSubmit()}
-		>
-			{#each projectGroups.unassigned as p (p.key)}
-				<option value={p.key}>{p.name}</option>
-			{/each}
-			{#each projectGroups.grouped as group (group.name)}
-				<optgroup label={group.name}>
-					{#each group.projects as p (p.key)}
-						<option value={p.key}>{p.name}</option>
-					{/each}
-				</optgroup>
-			{/each}
-		</select>
+		<div class="field">
+			<label for="active-client">Client</label>
+			<select
+				id="active-client"
+				value={selectedClient}
+				onchange={(e) => onClientChange(e.currentTarget.form, e.currentTarget.value)}
+			>
+				{#each clientOptions as c (c.key)}
+					<option value={c.key}>{c.name}</option>
+				{/each}
+			</select>
+		</div>
+		<div class="field">
+			<label for="active-project">Project</label>
+			<select
+				id="active-project"
+				name="projectKey"
+				value={selectedProject}
+				onchange={(e) => onProjectChange(e.currentTarget.form, e.currentTarget.value)}
+			>
+				{#each clientProjects as p (p.key)}
+					<option value={p.key}>{p.name}</option>
+				{/each}
+			</select>
+		</div>
 	</form>
 {/snippet}
 
@@ -169,9 +218,9 @@
 
 <style>
 	.shell {
-		max-width: 960px;
-		margin: 0 auto;
-		padding: 32px 24px;
+		width: 100%;
+		box-sizing: border-box;
+		padding: 32px clamp(24px, 4vw, 64px);
 	}
 	header {
 		display: flex;
@@ -200,6 +249,11 @@
 		text-transform: capitalize;
 	}
 	.project {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.project .field {
 		display: flex;
 		align-items: center;
 		gap: 6px;

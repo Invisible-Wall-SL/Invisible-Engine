@@ -31,6 +31,30 @@
 		return date.getTime() < Date.now();
 	}
 
+	// Visual state of a session, scannable by colour + icon + label (never
+	// colour-only, for accessibility). Revoked sessions are deleted server-side
+	// so they don't appear in this list, but the state is mapped for parity with
+	// any future revoked-but-retained display.
+	type SessionState = 'active' | 'expiring' | 'expired' | 'revoked';
+	const SESSION_STATE_META: Record<
+		SessionState,
+		{ label: string; icon: string; className: string }
+	> = {
+		active: { label: 'Active', icon: '●', className: 'active' },
+		expiring: { label: 'Expiring soon', icon: '◐', className: 'expiring' },
+		expired: { label: 'Expired', icon: '◷', className: 'expired' },
+		revoked: { label: 'Revoked', icon: '⊘', className: 'revoked' },
+	};
+	const EXPIRING_SOON_MS = 24 * 60 * 60 * 1000;
+	function sessionState(expiresAt: string | Date | null): SessionState {
+		if (!expiresAt) return 'active';
+		const ms = (typeof expiresAt === 'string' ? new Date(expiresAt) : expiresAt).getTime();
+		const remaining = ms - Date.now();
+		if (remaining <= 0) return 'expired';
+		if (remaining <= EXPIRING_SOON_MS) return 'expiring';
+		return 'active';
+	}
+
 	function overrideMode(userId: string, toolId: string): 'grant' | 'revoke' | 'default' {
 		const ov = data.overrides[userId];
 		if (!ov || !(toolId in ov)) return 'default';
@@ -410,7 +434,13 @@
 					{:else}
 						<div class="sessions">
 							{#each loadedSessions as s (s.id)}
+								{@const state = sessionState(s.expiresAt)}
+								{@const meta = SESSION_STATE_META[state]}
 								<div class="session">
+									<span class={`status ${meta.className}`}>
+										<span class="dot" aria-hidden="true">{meta.icon}</span>
+										{meta.label}
+									</span>
 									<span class="mono">{s.id.slice(0, 12)}…</span>
 									<span class="muted">created {fmtDate(s.createdAt)}</span>
 									<span class="muted">expires {fmtDate(s.expiresAt)}</span>
@@ -740,13 +770,43 @@
 	}
 	.session {
 		display: grid;
-		grid-template-columns: 1fr 1.4fr 1.4fr auto;
+		grid-template-columns: 130px 1fr 1.4fr 1.4fr auto;
 		gap: 10px;
 		align-items: center;
 		font-size: 12px;
 		padding: 8px 10px;
 		background: #0f0f14;
 		border-radius: 8px;
+	}
+	.status {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		font-weight: 600;
+		padding: 3px 9px;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+	.status .dot {
+		font-size: 10px;
+		line-height: 1;
+	}
+	.status.active {
+		background: #16271c;
+		color: #7ee787;
+	}
+	.status.expiring {
+		background: #2c2614;
+		color: #ffd479;
+	}
+	.status.expired {
+		background: #2a2117;
+		color: #f0a868;
+	}
+	.status.revoked {
+		background: #2c1719;
+		color: #ff8b8b;
 	}
 	.hint {
 		font-size: 12px;
