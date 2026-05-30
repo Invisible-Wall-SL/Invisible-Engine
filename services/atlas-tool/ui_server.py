@@ -1460,6 +1460,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-title">Session</span>
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
+ <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
  <span class="ssn-note">switching reloads the page</span>
 </div>
 <details class="settings">
@@ -1660,6 +1661,21 @@ async function sliceAtlas(){{
  }}catch(e){{ msg='Slice request failed: '+e; }}
  t.textContent=msg; if(st)st.textContent=msg;
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),2500);
+}}
+async function refreshR2(btn){{
+ // Re-pull manifests/config for the active project from R2, then reload so the
+ // manifest dropdown picks up anything exported since this page loaded.
+ let t=document.getElementById('toast');
+ if(t){{ t.style.display='inline-block'; t.textContent='↻ Refreshing…'; }}
+ let st=document.getElementById('stat'); if(st)st.textContent='↻ Refreshing…';
+ if(btn) btn.disabled=true;
+ let msg;
+ try{{ let r=await fetch('/refresh',{{method:'POST',body:'{{}}'}});
+  msg=(r.status===404)?'Refresh endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Refresh request failed: '+e; }}
+ if(t)t.textContent=msg; if(st)st.textContent=msg;
+ if(btn) btn.disabled=false;
+ if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),900);
 }}
 function updateLock(c){{
  let slot=c.querySelector('.lockslot'); if(!slot)return;
@@ -2421,6 +2437,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._saveglobalstyle(json.loads(raw)).encode())
         elif self.path == "/uploadatlas":
             self._send(200, "text/plain", self._uploadatlas(json.loads(raw)).encode())
+        elif self.path == "/refresh":
+            self._send(200, "text/plain", self._refresh().encode())
         elif self.path == "/sliceatlas":
             self._send(200, "text/plain", self._sliceatlas().encode())
         elif self.path == "/deployatlas":
@@ -2628,6 +2646,34 @@ class Handler(BaseHTTPRequestHandler):
             err = (p.stderr or p.stdout or "").strip().splitlines()
             return "✂ Slice failed: " + (err[-1] if err else "see console")
         return "✓ " + (tail or "sliced")
+
+    def _refresh(self) -> str:
+        """Re-pull the ACTIVE (client, project) subtree from R2 into staging on
+        demand, so manifests another tool just exported (e.g. a Sheet Maker
+        handoff landing under atlas_maker/<c>/<p>/manifests/) show up without a
+        service restart or a project switch.
+
+        The active context is already applied to the module globals by
+        do_POST -> _resolve_context(); we re-derive the same (client_key,
+        proj_key, staging_root) cloud_paths would for it and force-hydrate.
+        hydrate() pulls manifests + config SYNCHRONOUSLY (so list_manifests()
+        is fresh by the time we return) and backgrounds the heavy refs/outputs
+        pull — same split as boot. We guard with _project_lock so an interleaved
+        request can't observe half-hydrated staging. Never 500s on an R2 hiccup:
+        a transient failure returns an actionable message instead."""
+        try:
+            with _project_lock:
+                client_key = project_paths._safe_proj_name(
+                    project_paths.client_name())
+                proj_key = project_paths._safe_proj_name(
+                    project_paths.project_name())
+                project_paths.hydrate(client_key, proj_key, STAGING_ROOT,
+                                      force=True)
+            n = len(list_manifests())
+        except Exception as e:  # noqa: BLE001 — transient R2 issue, not fatal
+            return ("↻ Refresh from R2 hit a snag — try again in a moment "
+                    f"({type(e).__name__}: {e})")
+        return f"✓ Refreshed from R2 — {n} manifest(s) available"
 
     def _deployatlas(self) -> str:
         """Cloud deploy: copy the composed atlas (<stem>_new.png/webp/atlas in
