@@ -785,6 +785,91 @@ def _empty_manifest() -> dict:
 # _index() turns it into a visible banner instead of letting the page 500.
 _load_warning: str = ""
 
+# Manifests already ingested this process (keyed by file path) so the B14
+# self-contained resolve runs once, not on every load_manifest() call.
+_ingested_manifests: set[str] = set()
+
+
+def _fetch_r2_into_input(r2_key: str, dest_rel: str) -> bool:
+    """Copy an R2 object into the staging INPUT_DIR at `dest_rel`, mirroring it
+    to THIS project's R2 prefix too (so it survives the next hydrate). Returns
+    True if the file now exists in staging. Best-effort: a miss leaves the
+    existing resolver to surface a clear 'not found' later."""
+    dest = INPUT_DIR / dest_rel
+    if dest.exists():
+        return True
+    body = storage.get(r2_key)
+    if body is None:
+        return False
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+    except OSError:
+        return False
+    _mirror(dest)
+    return True
+
+
+def _ingest_self_contained(m: dict, mp: Path) -> bool:
+    """B14 — make a Sheet-Maker manifest self-resolving inside the Atlas Maker.
+
+    A self-contained manifest carries R2 keys for the sibling files it was
+    exported with (`atlas.source_image_path`, `atlas.atlas_file`,
+    `atlas.texturepacker_json`, per-region `shape_ref`, all under
+    `export_prefix`). Those keys point into the Sheet Maker's R2 tree, NOT the
+    Atlas Maker's INPUT_DIR, so we copy each one into `refs/atlas/` (sheet page
+    + `.atlas`) or `refs/` (shape refs) and repoint the manifest at the
+    INPUT_DIR-relative paths `batch_atlas.atlas_file_path()` /
+    `source_image_candidates()` already resolve.
+
+    Runs once per manifest per process and only when there's something to do;
+    OLD manifests (no new fields) are untouched — today's manual-pick behaviour
+    is preserved. Returns True if the manifest was modified (caller saves)."""
+    atlas = m.get("atlas") or {}
+    changed = False
+
+    def _looks_like_r2_key(v: str) -> bool:
+        # A full R2 key from the Sheet Maker (sheet_maker/<c>/<p>/...); never an
+        # absolute local path or an already-INPUT_DIR-relative refs/ path.
+        v = (v or "").replace("\\", "/")
+        return bool(v) and "/" in v and not v.startswith("refs/") \
+            and not Path(v).is_absolute()
+
+    # .atlas geometry — only if the manifest doesn't already resolve one.
+    atlas_key = atlas.get("atlas_file")
+    if _looks_like_r2_key(atlas_key):
+        ap = batch_atlas.atlas_file_path(m, mp)
+        if ap is None or not ap.exists():
+            name = Path(atlas_key.replace("\\", "/")).name
+            if _fetch_r2_into_input(atlas_key, f"refs/atlas/{name}"):
+                atlas["atlas_file"] = f"refs/atlas/{name}"
+                changed = True
+
+    # Packed sheet page — repoint source_image at the staged copy so
+    # source_image_candidates() finds it under refs/atlas/.
+    page_key = atlas.get("source_image_path") or ""
+    if _looks_like_r2_key(page_key):
+        name = Path(page_key.replace("\\", "/")).name
+        if _fetch_r2_into_input(page_key, f"refs/atlas/{name}"):
+            atlas["source_image"] = f"refs/atlas/{name}"
+            atlas.pop("source_image_path", None)
+            changed = True
+
+    # Per-region shape refs (loose trims). Pull each into refs/ and repoint to
+    # the INPUT_DIR-relative path the region card / generate already resolves.
+    for r in m.get("regions") or []:
+        sk = r.get("shape_ref")
+        if _looks_like_r2_key(sk):
+            name = Path(sk.replace("\\", "/")).name
+            dest_rel = f"refs/{name}"
+            if _fetch_r2_into_input(sk, dest_rel):
+                r["shape_ref"] = dest_rel
+                changed = True
+
+    if changed:
+        m["atlas"] = atlas
+    return changed
+
 
 def load_manifest() -> dict:
     """The active manifest, or an empty in-memory instance if the configured
@@ -796,6 +881,14 @@ def load_manifest() -> dict:
     try:
         m = json.loads(mp.read_text(encoding="utf-8"))
         _load_warning = ""
+        key = str(mp)
+        if key not in _ingested_manifests:
+            _ingested_manifests.add(key)
+            try:
+                if _ingest_self_contained(m, mp):
+                    save_manifest(m)
+            except Exception:  # noqa: BLE001 — ingest is best-effort, never fatal
+                pass
         return m
     except FileNotFoundError:
         _load_warning = (f"Manifest \"{mp.name}\" was not found (renamed or "

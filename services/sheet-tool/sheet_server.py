@@ -305,22 +305,47 @@ def api_export(payload: dict) -> dict:
     _mirror(sheet_png)
     written = [str(sheet_png)]
 
+    # B14 — self-contained manifest. Compute the R2 keys of everything this
+    # export emits so the manifest can back-reference them (the Atlas Maker
+    # ingests them instead of forcing a manual re-pick). The export landed in
+    # the staging `output/<sheet>/` dir, which mirrors `{R2_PREFIX}/output/<sheet>`;
+    # the loose trims (per-region sprites) live under `{R2_PREFIX}/input/<sheet>`.
+    sheet_key = safe_name(sheet)
+    export_prefix = f"{R2_PREFIX}/output/{sheet_key}" if R2_PREFIX else ""
+    source_image_key = f"{export_prefix}/{sheet_png.name}" if export_prefix else ""
+    input_prefix = f"{R2_PREFIX}/input/{sheet_key}" if R2_PREFIX else ""
+    region_shape_keys = {
+        r["name"]: f"{input_prefix}/{r['src']}"
+        for r in regions if input_prefix and r.get("src")
+    }
+
+    atlas_file_key = ""
     if fmts.get("libgdx"):
         ap = out / f"{basename}.atlas"
         atlas_writers.write_libgdx_atlas(ap, sheet_png.name, width, height, regions)
         _mirror(ap)
         written.append(str(ap))
+        if export_prefix:
+            atlas_file_key = f"{export_prefix}/{ap.name}"
+    tp_json_key = ""
     if fmts.get("texturepacker"):
         jp = out / f"{basename}.json"
         atlas_writers.write_texturepacker_json(jp, sheet_png.name, width, height, regions)
         _mirror(jp)
         written.append(str(jp))
+        if export_prefix:
+            tp_json_key = f"{export_prefix}/{jp.name}"
 
     manifest_note = ""
     if fmts.get("manifest"):
         manifest = atlas_writers.build_manifest(
             sheet_image=str(sheet_png), width=width, height=height,
-            regions=regions, deploy_basename=basename)
+            regions=regions, deploy_basename=basename,
+            export_prefix=export_prefix,
+            source_image_path=source_image_key,
+            atlas_file=atlas_file_key,
+            texturepacker_json=tp_json_key,
+            region_shape_keys=region_shape_keys)
         man_name = f"atlas_manifest_{basename}.json"
         mp = out / man_name
         atlas_writers.write_manifest(mp, manifest)

@@ -89,40 +89,75 @@ def build_manifest(sheet_image: str, width: int, height: int,
                    regions: list[dict], *,
                    deploy_basename: str = "",
                    deploy_path: str = "",
-                   style: dict | None = None) -> dict:
+                   style: dict | None = None,
+                   export_prefix: str = "",
+                   source_image_path: str = "",
+                   atlas_file: str = "",
+                   texturepacker_json: str = "",
+                   region_shape_keys: dict[str, str] | None = None) -> dict:
     """Build the enriched manifest the Atlas Maker consumes.
 
     Regions are emitted FLAT in `regions` (the Atlas Maker includes
     `rotated_regions` only with --include-rotated, so a split would silently
     drop rotated sprites by default). Each region gets blank AI fields ready
-    to fill in (prompt / shape_ref / seed)."""
+    to fill in (prompt / shape_ref / seed).
+
+    B14 — self-contained manifest. So loading this into the Atlas Maker
+    doesn't force the user to re-pick the sheet PNG / `.atlas` / shape refs,
+    we back-reference every sibling the export just emitted as R2 keys:
+
+      * `export_prefix`            — the R2 prefix this export landed under
+                                     (e.g. `sheet_maker/<c>/<p>/output/<sheet>`).
+      * `atlas.source_image_path`  — R2 key of the packed sheet PNG.
+      * `atlas.atlas_file`         — R2 key of the sibling `.atlas`, if emitted.
+      * `atlas.texturepacker_json` — R2 key of the TexturePacker JSON, if emitted.
+      * each region's `shape_ref`  — defaults to that region's per-region trim
+                                     image R2 key (the loose sprite that was
+                                     packed), unless one was set by hand.
+
+    The legacy bare `atlas.source_image` is kept for back-compat with old
+    consumers; the new `*_path` / `atlas_file` keys are the resolvable ones."""
     style = style or {"positive_prefix": "", "positive_suffix": "", "negative": ""}
+    shape_keys = region_shape_keys or {}
     man_regions = []
     for r in regions:
+        # Default shape_ref to the region's own trim (loose sprite) R2 key so
+        # the Atlas Maker can ingest the silhouette without a manual re-pick.
+        shape_ref = r.get("shape_ref") or shape_keys.get(r["name"], "")
         man_regions.append({
             "name": r["name"],
             "x": int(r["x"]), "y": int(r["y"]),
             "w": int(r["w"]), "h": int(r["h"]),
             "rotated": bool(r.get("rotated")),
             "prompt": r.get("prompt", ""),
-            "shape_ref": r.get("shape_ref", ""),
+            "shape_ref": shape_ref,
             "seed": r.get("seed", ""),
         })
-    return {
+    atlas: dict = {
+        "source_image": sheet_image,
+        "width": int(width),
+        "height": int(height),
+        "format": "RGBA",
+    }
+    if source_image_path:
+        atlas["source_image_path"] = source_image_path
+    if atlas_file:
+        atlas["atlas_file"] = atlas_file
+    if texturepacker_json:
+        atlas["texturepacker_json"] = texturepacker_json
+    man = {
         "_comment": "Authored by the Invisible Sheet Maker. 'atlas' geometry is "
                     "the packed sheet; fill per-region 'prompt'/'shape_ref'/'seed' "
                     "then regenerate in the Invisible Atlas Maker.",
-        "atlas": {
-            "source_image": sheet_image,
-            "width": int(width),
-            "height": int(height),
-            "format": "RGBA",
-        },
+        "atlas": atlas,
         "style": style,
         "regions": man_regions,
         "deploy_path": deploy_path,
         "deploy_basename": deploy_basename,
     }
+    if export_prefix:
+        man["export_prefix"] = export_prefix
+    return man
 
 
 def write_manifest(path: str | Path, manifest: dict) -> None:
