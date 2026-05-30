@@ -5,13 +5,12 @@
 </script>
 
 <script lang="ts">
-	import { Sprite, SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { SpineProvider, SpineTrack } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
 
 	const context = getContext();
 	const SPINE_SCALE = { width: 0.62, height: 0.66 };
-	const SPRITE_SCALE = { width: 1.25, height: 0.72 };
 	const POSITION_ADJUSTMENT = 1.01;
 
 	type AnimationName = 'reelhouse_glow_start' | 'reelhouse_glow_idle' | 'reelhouse_glow_exit';
@@ -61,21 +60,3 @@
 		/>
 	</SpineProvider>
 {/if}
-
-<Sprite
-	key="frame_bg.png"
-	anchor={0.5}
-	x={context.stateGameDerived.boardLayout().x * POSITION_ADJUSTMENT}
-	y={context.stateGameDerived.boardLayout().y * POSITION_ADJUSTMENT}
-	width={context.stateGameDerived.boardLayout().width * SPRITE_SCALE.width}
-	height={context.stateGameDerived.boardLayout().width * SPRITE_SCALE.height}
-/>
-
-<Sprite
-	key="frame_edge.png"
-	anchor={0.5}
-	x={context.stateGameDerived.boardLayout().x * POSITION_ADJUSTMENT}
-	y={context.stateGameDerived.boardLayout().y * POSITION_ADJUSTMENT}
-	width={context.stateGameDerived.boardLayout().width * SPRITE_SCALE.width}
-	height={context.stateGameDerived.boardLayout().width * SPRITE_SCALE.height}
-/>

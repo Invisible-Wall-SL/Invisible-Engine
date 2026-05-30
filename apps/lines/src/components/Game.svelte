@@ -13,7 +13,7 @@
 	import { registerBoundComponents } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
-	import { sampleLayout } from '../sample-layout';
+	import { editorScenes } from '../editor-scenes';
 
 	import { getContext } from '../game/context';
 	import EnableSound from './EnableSound.svelte';
@@ -33,6 +33,11 @@
 	import I18nTest from './I18nTest.svelte';
 
 	registerBoundComponents({ Win, Transition });
+
+	const basegameScene = editorScenes.scenes.find((scene) => scene.id === 'basegame')!;
+	const basegameOverlaysScene = editorScenes.scenes.find(
+		(scene) => scene.id === 'basegameOverlays',
+	)!;
 
 	const context = getContext();
 
@@ -65,16 +70,13 @@
 		<Sound />
 
 		<MainContainer>
+			<LayoutScene scene={basegameScene} />
 			<BoardFrame />
 		</MainContainer>
 
 		<MainContainer>
 			<Board />
 			<Anticipations />
-		</MainContainer>
-
-		<MainContainer>
-			<LayoutScene scene={sampleLayout.scenes[0]} />
 		</MainContainer>
 
 		<UI>
@@ -95,13 +97,12 @@
 				/>
 			{/snippet}
 		</UI>
-		<Win />
+		<LayoutScene scene={basegameOverlaysScene} />
 		<FreeSpinIntro />
 		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
 			<FreeSpinCounter />
 		{/if}
 		<FreeSpinOutro />
-		<Transition />
 		<InfoOverlay manifest={infoManifest} />
 
 		<I18nTest />
