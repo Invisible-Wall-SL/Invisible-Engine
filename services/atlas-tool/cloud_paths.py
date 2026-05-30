@@ -10,6 +10,10 @@ Same `resolve()` dict shape the tool already consumes, but:
 
 Extra keys added to resolve(): `comfy_url`, `cf_headers`, `manifest_dir`,
 `r2_project_prefix`, plus key-root helpers.
+
+**Client isolation (Option B):** R2 layout is `<tool>/<client>/<project>/...`.
+Module state carries BOTH the active client and active project; `set_context`
+/ `switch_context` swap them atomically.
 """
 from __future__ import annotations
 
@@ -23,8 +27,10 @@ STAGING_BASE = Path(os.environ.get("ATLAS_STAGING", "/tmp/atlas-tool"))
 TOOL_NAMESPACE = "atlas_maker"
 USER_AGENT = "InvisibleAtlas/1.0"  # Cloudflare blocks Python-urllib's default UA
 
-# Shared contract with the launcher: a project key is a slug; "cloud" is the
-# default / pre-existing key.
+# Reserved client key for legacy / NULL clientKey rows.
+UNASSIGNED_CLIENT = "unassigned"
+
+# Shared contract with the launcher: a project/client key is a slug.
 PROJECT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
@@ -35,20 +41,39 @@ def valid_project(key: str | None) -> str | None:
     return None
 
 
+def valid_client(key: str | None) -> str | None:
+    """Same slug rule as projects; kept as a separate alias so calling code
+    reads clearly at the call site."""
+    if key and PROJECT_SLUG_RE.match(key):
+        return key
+    return None
+
+
 def _safe_proj_name(name: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in (name or "default"))[:60]
 
 
 def env_project() -> str:
-    """The default project from env (used until set_project() overrides it)."""
+    """The default project from env (used until set_context() overrides it)."""
     return (os.environ.get("IW_PROJECT_NAME") or "").strip() or os.environ.get(
         "ATLAS_PROJECT", "cloud"
     )
 
 
-# Current project for this process. Defaults to env; set_project() switches it
-# at runtime (project-centric mode). Kept as module state so every resolve() —
-# and thus every path other modules read — reflects the switch.
+def env_client() -> str:
+    """The default client from env (used until set_context() overrides it).
+
+    Order: `IW_CLIENT_NAME` (launcher-pinned) -> `ATLAS_CLIENT` -> `unassigned`.
+    """
+    return (os.environ.get("IW_CLIENT_NAME") or "").strip() or os.environ.get(
+        "ATLAS_CLIENT", UNASSIGNED_CLIENT
+    )
+
+
+# Current (client, project) for this process. Defaults from env; set_context()
+# switches them at runtime. Kept as module state so every resolve() — and thus
+# every path other modules read — reflects the switch.
+_CURRENT_CLIENT: str = env_client()
 _CURRENT_PROJECT: str = env_project()
 
 
@@ -56,18 +81,29 @@ def project_name() -> str:
     return _CURRENT_PROJECT
 
 
-def set_project(key: str) -> bool:
-    """Switch the active project at runtime. Idempotent if unchanged.
+def client_name() -> str:
+    return _CURRENT_CLIENT
 
-    Validates against the slug contract (falls back to the env default for an
-    invalid/empty key). Returns True if the project actually changed — the
+
+def set_context(client: str | None, project: str | None) -> bool:
+    """Switch the active (client, project) at runtime. Idempotent if unchanged.
+
+    Validates both keys against the slug contract; invalid/empty falls back to
+    the env default for that key. Returns True if EITHER actually changed — the
     caller should then re-resolve paths and re-hydrate staging."""
-    global _CURRENT_PROJECT
-    chosen = valid_project((key or "").strip()) or env_project()
-    if chosen == _CURRENT_PROJECT:
+    global _CURRENT_CLIENT, _CURRENT_PROJECT
+    new_client = valid_client((client or "").strip()) or env_client()
+    new_project = valid_project((project or "").strip()) or env_project()
+    if new_client == _CURRENT_CLIENT and new_project == _CURRENT_PROJECT:
         return False
-    _CURRENT_PROJECT = chosen
+    _CURRENT_CLIENT = new_client
+    _CURRENT_PROJECT = new_project
     return True
+
+
+# Back-compat alias for code that still calls the old single-key entry point.
+def set_project(key: str) -> bool:
+    return set_context(_CURRENT_CLIENT, key)
 
 
 def comfy_url() -> str:
@@ -86,15 +122,21 @@ def cf_headers() -> dict[str, str]:
     return h
 
 
-def r2_project_prefix(proj_key: str) -> str:
-    return f"{TOOL_NAMESPACE}/cloud/{proj_key}"
+def prefix_for_tool(tool: str, client: str, project: str) -> str:
+    """Canonical R2 prefix for any tool. Single source of truth used both
+    internally and by handoff callers (e.g. Sheet->Atlas manifest writes)."""
+    return f"{tool}/{client}/{project}"
 
 
-_HYDRATED: set[str] = set()
+def r2_project_prefix(client_key: str, proj_key: str) -> str:
+    return prefix_for_tool(TOOL_NAMESPACE, client_key, proj_key)
 
 
-def hydrate(proj_key: str, staging_root: Path, force: bool = False) -> None:
-    """Pull this project's R2 subtree into staging once per process.
+_HYDRATED: set[tuple[str, str]] = set()
+
+
+def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = False) -> None:
+    """Pull this (client, project)'s R2 subtree into staging once per process.
 
     Manifests + config are pulled SYNCHRONOUSLY (a handful of small files — the
     UI needs them to render regions). Refs/outputs (potentially thousands of
@@ -102,13 +144,14 @@ def hydrate(proj_key: str, staging_root: Path, force: bool = False) -> None:
     immediately instead of blocking boot for minutes (which would trip
     Railway's healthcheck).
 
-    `force=True` (used on a runtime project SWITCH) re-pulls even a project
-    already hydrated this process, so the new project's freshest manifests are
+    `force=True` (used on a runtime context SWITCH) re-pulls even a (c,p)
+    already hydrated this process, so the new context's freshest manifests are
     in staging before it's served."""
-    if proj_key in _HYDRATED and not force:
+    key = (client_key, proj_key)
+    if key in _HYDRATED and not force:
         return
-    _HYDRATED.add(proj_key)
-    base = r2_project_prefix(proj_key)
+    _HYDRATED.add(key)
+    base = r2_project_prefix(client_key, proj_key)
     kr = base + "/"
 
     # Synchronous: manifests + config (small, needed for first render).
@@ -132,11 +175,16 @@ def hydrate(proj_key: str, staging_root: Path, force: bool = False) -> None:
 
 
 def resolve() -> dict:
-    prefix_name = os.environ.get("ATLAS_OUTPUT_PREFIX", "HotFruits")
     proj = project_name()
+    client = client_name()
     proj_key = _safe_proj_name(proj)
+    client_key = _safe_proj_name(client)
+    # Output sub-prefix is now ALWAYS the project key (was a separate env).
+    prefix_name = proj_key
 
-    staging_root = STAGING_BASE / proj_key
+    # Staging is keyed by (client, project) so two contexts don't collide on
+    # disk if a session ever switches between them mid-process.
+    staging_root = STAGING_BASE / client_key / proj_key
     input_dir = staging_root / "input"
     output_root = staging_root / "output"
     batch_dir = output_root / prefix_name / "batch"
@@ -144,7 +192,7 @@ def resolve() -> dict:
     manifest_dir = staging_root / "manifests"
 
     # Pull existing state from R2 before the tool reads it.
-    hydrate(proj_key, staging_root)
+    hydrate(client_key, proj_key, staging_root)
 
     for d in (input_dir, batch_dir, atlas_dir, manifest_dir):
         try:
@@ -154,6 +202,7 @@ def resolve() -> dict:
 
     return {
         "project": proj,
+        "client": client,
         "project_root": None,
         # legacy field kept for compatibility; cloud code should use comfy_url.
         "comfy_host": (comfy_url() or "127.0.0.1:8188").replace("https://", "").replace("http://", ""),
@@ -165,24 +214,34 @@ def resolve() -> dict:
         "atlas_dir": atlas_dir,
         "manifest_dir": manifest_dir,
         "output_prefix": prefix_name,
-        "comfy_filename_prefix_base": f"{TOOL_NAMESPACE}/cloud/{proj_key}/{prefix_name}",
-        "r2_project_prefix": r2_project_prefix(proj_key),
+        "comfy_filename_prefix_base": f"{TOOL_NAMESPACE}/{client_key}/{proj_key}/{prefix_name}",
+        "r2_project_prefix": r2_project_prefix(client_key, proj_key),
         "staging_root": staging_root,
     }
 
 
-def switch_project(key: str) -> dict | None:
-    """Set the active project and, if it changed, re-hydrate its staging from
-    R2. Returns the fresh resolve() dict on a real switch, else None.
+def switch_context(client: str | None, project: str | None) -> dict | None:
+    """Set the active (client, project) and, if changed, re-hydrate its staging
+    from R2. Returns the fresh resolve() dict on a real switch, else None.
 
-    Resolution/validation lives in set_project(); the caller (request handler)
+    Resolution/validation lives in set_context(); the caller (request handler)
     should guard this with its own lock so an interleaved request can't observe
     half-hydrated staging."""
-    if not set_project(key):
+    if not set_context(client, project):
         return None
-    pp = resolve()  # rebuilds paths/prefix for the new project + mkdir's them
-    hydrate(_safe_proj_name(project_name()), pp["staging_root"], force=True)
+    pp = resolve()  # rebuilds paths/prefix for the new (c,p) + mkdir's them
+    hydrate(
+        _safe_proj_name(client_name()),
+        _safe_proj_name(project_name()),
+        pp["staging_root"],
+        force=True,
+    )
     return pp
+
+
+# Back-compat: old single-key entrypoint maps onto the current client.
+def switch_project(key: str) -> dict | None:
+    return switch_context(_CURRENT_CLIENT, key)
 
 
 # Compatibility no-ops for callers that import these from project_paths.

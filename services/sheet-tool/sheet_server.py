@@ -605,33 +605,52 @@ class Handler(BaseHTTPRequestHandler):
         for c in getattr(self, "_extra_cookies", None) or ():
             self.send_header("Set-Cookie", c)
 
-    def _resolve_project(self) -> None:
-        """Pick + apply the project for THIS request (project-centric mode).
+    def _resolve_context(self) -> None:
+        """Pick + apply the (client, project) for THIS request.
 
-        Resolution order: `?project=` query param → `sheet_project` cookie →
-        env default. A valid `?project=` is remembered in a cookie so in-tool
-        navigation (which drops the param) stays in the same project. On a real
-        switch we re-resolve paths + re-hydrate staging under a lock so an
-        interleaved request never sees half-hydrated staging."""
+        Resolution order for EACH key (independently):
+          1. `?client=` / `?project=` query param (slug-validated)
+          2. `iw_client` / `iw_project` cookie
+          3. env default (`SHEET_CLIENT` / `SHEET_PROJECT`)
+
+        A valid query param sticks into the matching cookie so in-tool
+        navigation (which drops the param) stays in the same context. Legacy
+        single-`?project=` requests fall back to the env-default client.
+
+        On a real switch we re-resolve paths + re-hydrate staging under a lock
+        so an interleaved request never sees half-hydrated staging."""
         self._extra_cookies = []
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        param = (q.get("project", [""])[0] or "").strip()
+        p_param = (q.get("project", [""])[0] or "").strip()
+        c_param = (q.get("client", [""])[0] or "").strip()
         cookie = self.headers.get("Cookie", "") or ""
-        m = re.search(r"sheet_project=([^;]+)", cookie)
-        cookie_key = (m.group(1).strip() if m else "")
+        mp = re.search(r"iw_project=([^;]+)", cookie)
+        mc = re.search(r"iw_client=([^;]+)", cookie)
+        cookie_project = (mp.group(1).strip() if mp else "")
+        cookie_client = (mc.group(1).strip() if mc else "")
 
-        chosen = (project_paths.valid_project(param)
-                  or project_paths.valid_project(cookie_key)
-                  or project_paths.env_project())
+        chosen_project = (project_paths.valid_project(p_param)
+                          or project_paths.valid_project(cookie_project)
+                          or project_paths.env_project())
+        chosen_client = (project_paths.valid_client(c_param)
+                         or project_paths.valid_client(cookie_client)
+                         or project_paths.env_client())
 
-        if param:  # explicit selection → persist so navigation sticks
+        if p_param:
             self._extra_cookies.append(
-                f"sheet_project={chosen}; Path=/; SameSite=None; Secure")
+                f"iw_project={chosen_project}; Path=/; SameSite=None; Secure")
+        if c_param:
+            self._extra_cookies.append(
+                f"iw_client={chosen_client}; Path=/; SameSite=None; Secure")
 
         with _project_lock:
-            pp = project_paths.switch_project(chosen)
+            pp = project_paths.switch_context(chosen_client, chosen_project)
             if pp is not None:
                 _apply_project_paths(pp)
+
+    # Back-compat alias — kept so any legacy in-process call still works.
+    def _resolve_project(self) -> None:
+        self._resolve_context()
 
     def _body(self) -> bytes:
         n = int(self.headers.get("Content-Length", 0) or 0)
@@ -642,7 +661,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             self._send_bytes(b"forbidden", "text/plain", 403)
             return
-        self._resolve_project()
+        self._resolve_context()
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         q = urllib.parse.parse_qs(parsed.query)
@@ -682,7 +701,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             self._send_bytes(b"forbidden", "text/plain", 403)
             return
-        self._resolve_project()
+        self._resolve_context()
         path = urllib.parse.urlparse(self.path).path
         ctype = self.headers.get("Content-Type", "")
         try:

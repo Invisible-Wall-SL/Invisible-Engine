@@ -142,6 +142,9 @@ CFG = load_config()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
+# Subprocess context: ui_server passes the active (client, project) through
+# IW_CLIENT_NAME + IW_PROJECT_NAME so resolve() below builds paths under the
+# right atlas_maker/<client>/<project>/ prefix instead of the env default.
 _PP = project_paths.resolve()
 COMFY_HOST = _PP["comfy_host"]
 # Cloud: full tunnel base URL (https) + Cloudflare Access headers + non-blocked
