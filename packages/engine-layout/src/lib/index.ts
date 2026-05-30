@@ -1,9 +1,7 @@
-import LayoutScene, { type Props as LayoutSceneProps } from './LayoutScene.svelte';
-import LayoutNodeView, { type Props as LayoutNodeViewProps } from './LayoutNodeView.svelte';
-
-export { LayoutScene, LayoutNodeView };
-export type { LayoutSceneProps, LayoutNodeViewProps };
-
+// Type-only entry: layout schema + pure TS helpers, no Svelte imports here, so
+// consumers that only need the contract (e.g. launcher-api) don't drag in
+// pixi-svelte. For the runtime `<LayoutScene>` component, use the
+// `engine-layout/svelte` subpath.
 export * from './types';
 export * from './resolveTransform';
 export * from './registerBoundComponents';

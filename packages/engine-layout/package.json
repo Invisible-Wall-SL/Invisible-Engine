@@ -17,8 +17,12 @@
 	"exports": {
 		".": {
 			"types": "./src/lib/index.ts",
-			"svelte": "./src/lib/index.ts",
 			"default": "./src/lib/index.ts"
+		},
+		"./svelte": {
+			"types": "./src/lib/svelte.ts",
+			"svelte": "./src/lib/svelte.ts",
+			"default": "./src/lib/svelte.ts"
 		}
 	},
 	"devDependencies": {
