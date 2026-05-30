@@ -68,6 +68,13 @@ export const ENV = {
 	get SHEET_TOOL_SECRET() {
 		return env.SHEET_TOOL_SECRET ?? '';
 	},
+	// Invisible Editor — shared read token for the public layout-doc endpoint
+	// (`GET /api/editor/doc`). Standalone games (own origin, no launcher session)
+	// pass it as `?k=`. Secret: no code default. When EMPTY the endpoint refuses
+	// to serve (503) so the layout docs are never exposed unauthenticated.
+	get EDITOR_DOC_SECRET() {
+		return env.EDITOR_DOC_SECRET ?? '';
+	},
 	// Invisible Localization — Claude (Anthropic) API key for auto-translation.
 	// Secret: no code default. When empty the tool still loads; the `translate`
 	// action returns a clear error instead of calling the API.

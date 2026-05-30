@@ -14,7 +14,10 @@
 	const projectKey = $derived(data.activeProjectKey ?? 'cloud');
 	const gameUrl = (url: string) => {
 		const sep = url.includes('?') ? '&' : '?';
-		return `${url}${sep}project=${encodeURIComponent(projectKey)}`;
+		let out = `${url}${sep}project=${encodeURIComponent(projectKey)}`;
+		// Layout-doc read token, so the game can fetch its editor scenes at boot.
+		if (data.editorDocSecret) out += `&k=${encodeURIComponent(data.editorDocSecret)}`;
+		return out;
 	};
 
 	type SelectorProject = (typeof data.projects)[number];

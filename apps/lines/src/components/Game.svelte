@@ -13,7 +13,7 @@
 	import { registerBoundComponents } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
-	import { editorScenes } from '../editor-scenes';
+	import { fallbackEditorScenes, loadEditorScenes } from '../editor-scenes';
 
 	import { getContext } from '../game/context';
 	import EnableSound from './EnableSound.svelte';
@@ -34,14 +34,27 @@
 
 	registerBoundComponents({ Win, Transition });
 
-	const basegameScene = editorScenes.scenes.find((scene) => scene.id === 'basegame')!;
-	const basegameOverlaysScene = editorScenes.scenes.find(
+	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
+	const fallbackOverlays = fallbackEditorScenes.scenes.find(
 		(scene) => scene.id === 'basegameOverlays',
 	)!;
 
+	/** Fetched at boot from the launcher; seeded with the bundled fallback so the
+	 * game renders immediately and degrades gracefully when offline. */
+	let editorDoc = $state(fallbackEditorScenes);
+	const basegameScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'basegame') ?? fallbackBasegame,
+	);
+	const basegameOverlaysScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
+	);
+
 	const context = getContext();
 
-	onMount(() => (context.stateLayout.showLoadingScreen = true));
+	onMount(() => {
+		context.stateLayout.showLoadingScreen = true;
+		void loadEditorScenes().then((doc) => (editorDoc = doc));
+	});
 
 	context.eventEmitter.subscribeOnMount({
 		buyBonusConfirm: () => {
