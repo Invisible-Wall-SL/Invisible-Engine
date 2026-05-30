@@ -211,6 +211,9 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../../packages/constants-shared
+      engine-layout:
+        specifier: workspace:*
+        version: link:../../packages/engine-layout
       envs:
         specifier: workspace:*
         version: link:../../packages/envs

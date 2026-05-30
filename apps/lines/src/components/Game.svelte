@@ -9,8 +9,11 @@
 
 	import { UI, UiGameName, InfoOverlay } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
+	import { LayoutScene } from 'engine-layout/svelte';
+	import { registerBoundComponents } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
+	import { sampleLayout } from '../sample-layout';
 
 	import { getContext } from '../game/context';
 	import EnableSound from './EnableSound.svelte';
@@ -28,6 +31,8 @@
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
+
+	registerBoundComponents({ Win, Transition });
 
 	const context = getContext();
 
@@ -66,6 +71,10 @@
 		<MainContainer>
 			<Board />
 			<Anticipations />
+		</MainContainer>
+
+		<MainContainer>
+			<LayoutScene scene={sampleLayout.scenes[0]} />
 		</MainContainer>
 
 		<UI>
