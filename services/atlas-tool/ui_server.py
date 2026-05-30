@@ -950,13 +950,18 @@ def _run_cmd(cmd: list[str], total: int) -> None:
 
 def run_render(names: list[str], variants: int = 1) -> None:
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
+           "--manifest", str(manifest_path()),
            "--only", ",".join(names), "--include-rotated",
            "--variants", str(max(1, variants))]
     _run_cmd(cmd, len(names) * max(1, variants))
 
 
 def run_compose() -> None:
+    # Pass the active manifest explicitly (full staging path) so compose reads
+    # the same creative manifest the UI shows — not whatever the subprocess's
+    # config default would resolve against the script dir.
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
+           "--manifest", str(manifest_path()),
            "--include-rotated", "--include-hidden", "--compose-only"]
     _run_cmd(cmd, 1)
 
@@ -2510,10 +2515,18 @@ class Handler(BaseHTTPRequestHandler):
                 f"{manifest_path().name} — reload to see regions.")
 
     def _sliceatlas(self) -> str:
+        # Pass the FULL staging manifest path (not just .name) so the subprocess
+        # reads the right file even if its own context resolution differs; and
+        # hand off the UI's active (client, project) via IW_* so it resolves
+        # MANIFEST_DIR/INPUT_DIR under the same prefix (mirrors _run_cmd).
         cmd = [PY, str(TOOLS / "slice_atlas.py"),
-               "--manifest", manifest_path().name, "--as", "style_ref"]
+               "--manifest", str(manifest_path()), "--as", "style_ref"]
+        env = dict(os.environ)
+        env["IW_PROJECT_NAME"] = project_paths.project_name()
+        env["IW_CLIENT_NAME"] = project_paths.client_name()
         try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                               cwd=str(SELF), env=env)
         except subprocess.TimeoutExpired:
             return "✂ Slice timed out"
         out = (p.stdout or "").strip().splitlines()

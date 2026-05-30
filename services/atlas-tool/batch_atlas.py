@@ -154,6 +154,10 @@ CF_HEADERS = dict(_PP.get("cf_headers") or {})
 BATCH_DIR = _PP["batch_dir"]
 ATLAS_DIR = _PP["atlas_dir"]
 INPUT_DIR = _PP["input_dir"]
+# Where manifests (and `.atlas` files picked into the tool) live in the
+# R2-backed staging mirror — NOT the script dir. A bare `--manifest` name must
+# resolve here, else compose/slice hit /app/<name> and FileNotFoundError.
+MANIFEST_DIR = _PP["manifest_dir"]
 OUTPUT_PREFIX = _PP["output_prefix"]
 # Phase 2: ComfyUI's output root is the SHARED workspace, so the
 # filename_prefix we hand it must include the per-tool + per-project
@@ -344,6 +348,56 @@ def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
     # Nothing on disk yet — return the staging path so callers report a
     # clear "not found" against the location the cloud actually reads.
     return INPUT_DIR / rel
+
+
+def resolve_manifest_arg(arg: str) -> Path:
+    """Resolve a `--manifest` CLI arg to a path in the R2-backed staging tree.
+
+    The original tool ran on a local checkout, so a bare manifest name (or a
+    legacy `tools/...` value) resolved against the script dir. In the cloud the
+    manifests live in the staging mirror (`MANIFEST_DIR`), NOT next to the
+    script, so a bare/relative name must resolve there — otherwise compose/slice
+    hit `/app/<name>` and raise FileNotFoundError (the B15 bug class).
+
+    An absolute path is honoured as-is; otherwise we strip any directory part
+    (Windows or POSIX) and resolve the bare filename against MANIFEST_DIR."""
+    p = Path(arg)
+    if p.is_absolute():
+        return p
+    name = Path(arg.replace("\\", "/")).name
+    return MANIFEST_DIR / name
+
+
+def source_image_candidates(manifest: dict, atlas_path: Path | None,
+                            page_image: str) -> list[Path]:
+    """Ordered candidate paths for the atlas source page image, normalising
+    Windows separators and stripping absolute local prefixes that won't exist
+    in the Linux container. Shared by slice (per-region crops) and any caller
+    that needs the original page bitmap.
+
+    Resolution order:
+      1. manifest atlas.source_image — absolute (honoured), else resolved
+         against the staging INPUT_DIR mirror by its full relative path AND by
+         its bare name under `refs/atlas/` (where B10's /uploadatlas writes it);
+      2. the bound `.atlas`'s page image, next to the `.atlas` file;
+      3. <input>/<page>,  <input>/refs/<page>,  <input>/refs/atlas/<page>."""
+    cands: list[Path] = []
+    si = (manifest.get("atlas") or {}).get("source_image")
+    if si:
+        p = Path(si)
+        if p.is_absolute():
+            cands.append(p)
+        else:
+            rel = si.replace("\\", "/").lstrip("/")
+            name = Path(rel).name
+            cands += [INPUT_DIR / rel, INPUT_DIR / "refs" / "atlas" / name]
+    if page_image:
+        pg = Path(page_image.replace("\\", "/")).name
+        if atlas_path is not None:
+            cands.append(atlas_path.parent / pg)
+        cands += [INPUT_DIR / pg, INPUT_DIR / "refs" / pg,
+                  INPUT_DIR / "refs" / "atlas" / pg]
+    return cands
 
 
 def merge_atlas_regions(manifest: dict, atlas_data: dict) -> list[dict]:
@@ -1566,7 +1620,7 @@ def main() -> None:
                          "matching variant (default: skip them).")
     args = ap.parse_args()
 
-    manifest_path = SELF / Path(args.manifest).name  # tolerate legacy "tools/..."
+    manifest_path = resolve_manifest_arg(args.manifest)
     if manifest_path.suffix.lower() == ".atlas":
         # A `.atlas` was selected directly: pure geometry, no creative manifest.
         manifest = {"atlas": {}, "style": {"positive_prefix": "",
@@ -1579,9 +1633,15 @@ def main() -> None:
     atlas_path = atlas_file_path(manifest, manifest_path)
     atlas_bound = atlas_path is not None
     if atlas_bound and not atlas_path.exists():
-        print(f"Bound .atlas not found: {atlas_path}\n"
-              "Fix the manifest's atlas.atlas_file (absolute path, or a name "
-              "next to the manifests).")
+        ref = (manifest.get("atlas") or {}).get("atlas_file") or atlas_path.name
+        print(f"Atlas geometry not found in R2: {ref}\n"
+              f"  (looked under the project's staging mirror at {atlas_path})\n"
+              "The manifest's atlas.atlas_file points at a file that isn't in "
+              "R2 — most likely a local/Windows path from when this manifest "
+              "was authored offline. Upload the .atlas (and its source page) "
+              "via the region card's 'Pick from R2' / Upload .atlas button "
+              "(POST /uploadatlas), which repoints the manifest to a staging-"
+              "relative path, then retry.")
         raise SystemExit(2)
 
     if atlas_bound:

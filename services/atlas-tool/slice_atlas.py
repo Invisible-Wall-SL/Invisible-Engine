@@ -44,16 +44,12 @@ INPUT_DIR = B.INPUT_DIR
 
 
 def resolve_source_image(manifest: dict, atlas_path: Path, page_image: str) -> Path | None:
-    si = (manifest.get("atlas") or {}).get("source_image")
-    cands: list[Path] = []
-    if si:
-        p = Path(si)
-        cands.append(p if p.is_absolute() else INPUT_DIR / si)
-    if page_image:
-        cands.append(atlas_path.parent / page_image)
-        cands.append(INPUT_DIR / page_image)
-        cands.append(INPUT_DIR / "refs" / page_image)
-    for c in cands:
+    """Find the atlas source page in the R2-backed staging mirror.
+
+    Delegates candidate construction to batch_atlas.source_image_candidates so
+    slice and compose share one resolution order (Windows separators normalised,
+    bare names also tried under refs/atlas/ where /uploadatlas writes them)."""
+    for c in B.source_image_candidates(manifest, atlas_path, page_image):
         if c.exists():
             return c
     return None
@@ -125,11 +121,14 @@ def main() -> None:
                     help="Only write crop PNGs; do not bind them in the manifest.")
     args = ap.parse_args()
 
-    manifest_path = SELF / Path(args.manifest).name
+    # Resolve against the R2-backed staging MANIFEST_DIR, not the script dir —
+    # a bare name hitting /app/<name> was the B15 FileNotFoundError.
+    manifest_path = B.resolve_manifest_arg(args.manifest)
     if manifest_path.suffix.lower() == ".atlas":
-        manifest = {"atlas": {"atlas_file": manifest_path.name},
+        atlas_name = manifest_path.name
+        manifest = {"atlas": {"atlas_file": atlas_name},
                     "style": {}, "regions": []}
-        manifest_path = SELF / f"atlas_manifest_{manifest_path.stem}.json"
+        manifest_path = manifest_path.with_name(f"atlas_manifest_{manifest_path.stem}.json")
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     else:
@@ -165,10 +164,17 @@ def main() -> None:
 
     src_path = resolve_source_image(manifest, atlas_path, page_image)
     if not src_path:
-        print("Could not find the atlas source image. Set 'Atlas source "
-              f"image' (manifest atlas.source_image) — looked for page "
-              f"'{data['page']['image']}' next to {atlas_path.name}, and in "
-              f"{INPUT_DIR} and {INPUT_DIR / 'refs'}.")
+        si = (manifest.get("atlas") or {}).get("source_image") or "(unset)"
+        looked = [str(c) for c in
+                  B.source_image_candidates(manifest, atlas_path, page_image)]
+        print("Atlas source image not in R2 — cannot slice.\n"
+              f"  manifest atlas.source_image = {si}; page = '{page_image}'.\n"
+              "  Most likely it points at a local/Windows path from when this "
+              "manifest was authored offline. Upload the source page (and the "
+              ".atlas) via the region card's 'Pick from R2' / Upload .atlas "
+              "button (POST /uploadatlas), which repoints the manifest to a "
+              "staging-relative path, then retry.\n"
+              "  Looked under: " + ", ".join(looked))
         raise SystemExit(2)
 
     out_dir = INPUT_DIR / "refs" / "atlasslices" / manifest_path.stem.replace(
