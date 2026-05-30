@@ -81,7 +81,7 @@ All assigned items (B1–B13) are done — see the Done list above. Add new item
 **Infra / cleanup:**
 6. **Security** — rotate the secrets pasted during setup (R2 token, Postgres pw, CF Access service-token secret) and scrub the committed `comfy_org_api_key` in the `Invisible_Pipeline` repo. See docs/INFRA.md.
 7. **cloudflared as a service** — install it so the tunnel survives reboots. (Partial: B2 added Start/Stop tunnel buttons to the local launcher GUI, but it's not yet a persistent Windows service via `cloudflared service install`.)
-8. **Local launcher cleanup** — `Invisible_Launcher.py` should manage only ComfyUI + cloudflared (tool UIs are online now).
+8. ✅ **Local launcher cleanup — done (2026-05-30).** Stripped all dead "local tools" code from `Invisible_Launcher.py` (the Tools tab was already hidden; this removed the leftover plumbing): the `tools`/`tools_install_dir`/`tools_server_url` config, all `*_tool` module functions, the `ToolCard`/`ToolDialog` classes, `_build_tools` + its handlers, and the Settings "Tools install folder / server URL" fields. Now manages only ComfyUI + cloudflared + projects. 2711 → 1929 lines (−782); `py_compile` clean; no residual refs. Backup at `Invisible_Launcher.py.bak-pre-toolcleanup`. (File is outside the repo — owner should run it once to confirm the GUI still opens.)
 
 ### Key lessons from the 2026-05-29 session (don't repeat)
 - **Always `git push`** after committing — a Railway service can't deploy commits that are only local. (We lost time because 5 commits were committed but not pushed.)
