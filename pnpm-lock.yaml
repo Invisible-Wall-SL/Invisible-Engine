@@ -147,6 +147,9 @@ importers:
       drizzle-orm:
         specifier: 0.39.3
         version: 0.39.3(postgres@3.4.5)
+      engine-layout:
+        specifier: workspace:*
+        version: link:../../packages/engine-layout
       postgres:
         specifier: 3.4.5
         version: 3.4.5
