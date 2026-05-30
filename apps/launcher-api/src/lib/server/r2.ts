@@ -1,6 +1,7 @@
 import {
 	GetObjectCommand,
 	HeadObjectCommand,
+	ListObjectsV2Command,
 	PutObjectCommand,
 	S3Client,
 } from '@aws-sdk/client-s3';
@@ -63,6 +64,35 @@ export async function objectExists(key: string): Promise<boolean> {
 		if (isNotFound(e)) return false;
 		throw e;
 	}
+}
+
+export interface ListResult {
+	/** Object keys directly under the prefix (delimited listing excludes sub-prefixes). */
+	keys: string[];
+	/** Sub-prefixes (folder-like groupings) directly under the prefix, each with a trailing `/`. */
+	prefixes: string[];
+}
+
+/**
+ * List objects under a prefix using `/` as a delimiter (folder-like). Result is
+ * truncated to a single page (`maxKeys`, default 1000) — callers cap as needed.
+ */
+export async function listObjects(prefix: string, maxKeys = 1000): Promise<ListResult> {
+	const res = await s3().send(
+		new ListObjectsV2Command({
+			Bucket: ENV.R2_BUCKET,
+			Prefix: prefix,
+			Delimiter: '/',
+			MaxKeys: maxKeys,
+		}),
+	);
+	const keys = (res.Contents ?? [])
+		.map((o) => o.Key)
+		.filter((k): k is string => typeof k === 'string');
+	const prefixes = (res.CommonPrefixes ?? [])
+		.map((p) => p.Prefix)
+		.filter((p): p is string => typeof p === 'string');
+	return { keys, prefixes };
 }
 
 function isNotFound(e: unknown): boolean {

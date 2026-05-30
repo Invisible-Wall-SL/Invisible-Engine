@@ -83,13 +83,20 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/localization',
 	},
+	editor: {
+		id: 'editor',
+		name: 'Invisible Editor',
+		description: 'Place images/spine on game screens and export the layout the engine renders.',
+		kind: 'online',
+		url: '/editor',
+	},
 };
 
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
-	developer: ['atlasTool', 'spineViewer', 'comfyui', 'localization'],
-	artist: ['atlasTool', 'comfyui', 'sheetMaker', 'localization'],
+	developer: ['atlasTool', 'spineViewer', 'comfyui', 'localization', 'editor'],
+	artist: ['atlasTool', 'comfyui', 'sheetMaker', 'localization', 'editor'],
 	animator: ['spineViewer', 'spine'],
 };
 
@@ -197,6 +204,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	spine: 'spine-editor',
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',
+	editor: 'invisible-editor',
 };
 
 /** Repo-relative path to a tool's documentation (authored by the docs effort). */
