@@ -15,6 +15,7 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 4. **Engine changes go on `main`** via feature branches — never per-game engine branches. Don't dismantle the Turborepo/pnpm-workspace structure.
 5. **`pnpm` only** (10.5.0), Node ≥ 22.16.0. TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols. No dead code, no noise comments.
 6. **When you finish meaningful work, update `docs/STATUS.md`** so the next person/session inherits the context.
+7. **Always use the agents and skills.** Multi-step or domain work goes through the subagents in `.claude/agents/` (engine-pixi-svelte, launcher-studio, atlas-python-tools, infra-railway, code-reviewer) and the registered skills (e.g. `/deploy`, `/code-review`) — don't hand-roll what they already encode. **The plan/state is in the files, not in your memory of a past session:** before acting, read the registered design/plan docs (`docs/design/*.md`, esp. the numbered build plans like `docs/design/invisible-editor.md` §"Build plan") and `docs/STATUS.md`. Find the registered next step there first.
 
 ### Branding & naming
 - **Our tools are always named "Invisible …"** — Invisible Atlas Maker, Invisible Spine Viewer, Invisible Test Server, Invisible Sheet Maker, etc. (Third-party products keep their real names: ComfyUI, Spine Editor.)
