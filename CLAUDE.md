@@ -10,7 +10,7 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 
 ### Hard rules (non-negotiable)
 1. **Never commit secrets.** A pre-commit hook (`scripts/check-secrets.mjs`) blocks them; enable it once per clone: `git config core.hooksPath scripts/git-hooks`. Secrets live in env vars only.
-2. **Always `git push` after committing** — Railway auto-deploys from `main`; an unpushed commit does nothing. (This wasted hours once.)
+2. **Always `git push` after committing** — Railway auto-deploys from `main`; an unpushed commit does nothing. (This wasted hours once.) **Push to `origin` (our fork), never `upstream`** — see GitHub Workflow below.
 3. **Tools are full-page — never iframes** (redirect or same-origin serve).
 4. **Engine changes go on `main`** via feature branches — never per-game engine branches. Don't dismantle the Turborepo/pnpm-workspace structure.
 5. **`pnpm` only** (10.5.0), Node ≥ 22.16.0. TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols. No dead code, no noise comments.
@@ -95,9 +95,20 @@ pnpm storybook    # Storybook on port 6001
 ```
 
 ## GitHub Workflow
+
+### Remotes (important — get this right)
+- **`origin` = `Invisible-Wall-SL/Invisible-Engine`** — OUR fork. **All commits + pushes go here.** This is what Railway auto-deploys from.
+- **`upstream` = `StakeEngine/web-sdk`** — the original Stake Engine SDK. **Read-only** (fetch to pull in upstream changes; the owner's account CANNOT push here — it 403s).
+- ⚠️ The local `main` branch may be set to *track* `upstream/main` (a clone artifact). That makes a bare `git push` / `git status` ahead-behind compare against the wrong remote and a bare push 403. **Always push explicitly with `git push origin main`**, or fix tracking once with `git branch --set-upstream-to=origin/main main`.
+
+### One unified repo (no more per-area split)
+- Everything — **engine + pipeline, the cloud tools (`services/*`, `apps/launcher-api`), and the games** — now lives in this ONE repo on `main`. It used to be split across separate engine / tools / games repos; that split is **retired** and we are NOT going back (too much has changed). Don't try to re-separate or push pieces to old per-area remotes.
+- Games that ship standalone (e.g. Book of Borut) live in their own repos with **this engine as a submodule** — that's the only "separation" that remains.
+
+### Conventions
 - Branch: `main` is the base — create feature branches from it
 - Commit style: imperative present tense, concise (`add spin replay support`)
-- Push to origin freely when the user asks for it
+- Push to `origin` freely when the user asks for it
 - PRs target `main`; use `gh pr create` for pull requests
 
 ## Session Tracking
