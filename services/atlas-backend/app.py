@@ -15,11 +15,11 @@ from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel
 
-import comfy
 import compose as compose_mod
 import paths
-import r2
 import workflows
+from iw_common import comfy
+from iw_common import storage as r2
 
 app = FastAPI(title="Invisible Atlas Backend")
 
@@ -56,20 +56,6 @@ def comfy_stats(comfy_url: str | None = None) -> dict:
         return comfy.system_stats(_comfy_base(comfy_url))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"ComfyUI unreachable: {e}")
-
-
-class GenerateTest(BaseModel):
-    prompt: str
-    negative: str = ""
-    ckpt: str | None = None
-    width: int = 1024
-    height: int = 1024
-    steps: int = 30
-    cfg: float = 7.0
-    seed: int | None = None
-    comfy_url: str | None = None
-    client: str | None = None
-    project: str | None = None
 
 
 class GenerateTest(BaseModel):
