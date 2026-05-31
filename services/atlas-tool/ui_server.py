@@ -1504,6 +1504,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  #log{{white-space:pre-wrap;background:#111;color:#9c9;padding:10px;border-radius:6px;font-family:monospace;font-size:12px;max-height:220px;overflow:auto;margin-top:14px;display:none}}
 </style></head><body>
 <header>
+ <a id="homelink" class="alt" href="#" title="Back to the Launcher" style="display:none;padding:9px 14px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">← Launcher</a>
  <img class="logo" src="/logo" alt="IW">
  <div><div class="t">Invisible Atlas Maker</div>
  <div class="s">by Invisible Wall SL &nbsp;·&nbsp; Manifest: {manifest_name} &nbsp;·&nbsp; <b style="color:#6a9">build {build}</b></div></div>
@@ -1534,6 +1535,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <div class="bargrp" title="Reference & account links">
   <span class="glbl">Docs/credits</span>
   <a class="alt" href="/docs" target="_blank" title="What every control does — opens a self-contained reference page" style="display:inline-block;padding:9px 16px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">📖 Docs</a>
+  <a id="siblinglink" class="alt" href="#" title="Open the Sheet Maker (same project)" style="display:none;padding:9px 16px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">Sheet Maker →</a>
   <a id="credits" class="credits" href="https://platform.comfy.org" target="_blank" title="comfy.org API-node credit balance (click to top up). Refreshes automatically.">◆ credits …</a>
  </div>
  <div class="barstatus">
@@ -2174,6 +2176,15 @@ async function refreshCredits(){{
   }}
  }}catch(e){{ el.textContent='◆ credits: n/a'; el.classList.add('err'); }}
 }}
+// Cross-tool nav (B24): the launcher appends ?home= (its origin) and ?sibling=
+// (a full Sheet Maker URL). Reveal the matching header links when present.
+(function(){{
+ var qp=new URLSearchParams(location.search);
+ var h=qp.get('home'); var e=document.getElementById('homelink');
+ if(e){{ e.href=h||'https://app.invisiblewall.org'; e.style.display=''; }}
+ var s=qp.get('sibling'); var f=document.getElementById('siblinglink');
+ if(s&&f){{ f.href=s; f.style.display=''; }}
+}})();
 let _fsTarget=null;
 let _fsFolderMode=false;
 let _fsCurDir='';

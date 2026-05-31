@@ -27,6 +27,20 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 		if (ENV.ATLAS_TOOL_SECRET) params.set('k', ENV.ATLAS_TOOL_SECRET);
 		params.set('client', client);
 		params.set('project', project);
+		// B24 — cross-tool navigation. `home` points the tool's "← Launcher"
+		// back-link at us; `sibling` is a ready-to-use URL to the OTHER tool
+		// (carrying its own secret + the same client/project). Only emitted when
+		// the user actually has the sibling tool, so the link can't bypass the
+		// role gate (the tools' own gate is just the shared secret).
+		params.set('home', ENV.ORIGIN);
+		const sheetBase = ENV.SHEET_TOOL_URL.replace(/\/$/, '');
+		if (sheetBase && tools.some((t) => t.id === 'sheetMaker')) {
+			const sib = new URLSearchParams();
+			if (ENV.SHEET_TOOL_SECRET) sib.set('k', ENV.SHEET_TOOL_SECRET);
+			sib.set('client', client);
+			sib.set('project', project);
+			params.set('sibling', `${sheetBase}/?${sib.toString()}`);
+		}
 		throw redirect(303, `${base}/?${params.toString()}`);
 	}
 	return { configured: false };

@@ -94,6 +94,7 @@
   <select id="projsel" style="font-size:12px"></select>
   <span class="muted" id="projnote"></span>
   <span class="muted" id="amstatus"></span>
+  <a id="siblinglink" class="homelink" style="display:none" title="Open the Atlas Maker (same project)">Atlas Maker →</a>
 </header>
 <main>
   <section id="stage">
@@ -196,8 +197,12 @@ const reg=src=>regions.find(r=>r.src===src);
 async function init(){
   STATE=await jget('/api/state');
   $('build').textContent=STATE.build;
-  const home=new URLSearchParams(location.search).get('home')||STATE.launcher_url;
+  const qp=new URLSearchParams(location.search);
+  const home=qp.get('home')||STATE.launcher_url;
   if(home) $('homelink').href=home;
+  // B24 — sibling tool link (Atlas Maker), passed ready-to-use by the launcher.
+  const sibling=qp.get('sibling');
+  if(sibling){ const s=$('siblinglink'); s.href=sibling; s.style.display=''; }
   $('amstatus').textContent=STATE.atlas_maker_found?'· Atlas Maker linked ✓':'· Atlas Maker not found';
   $('amstatus').className=STATE.atlas_maker_found?'ok':'err';
   // project dropdown
