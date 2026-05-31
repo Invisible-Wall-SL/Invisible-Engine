@@ -373,22 +373,29 @@ function renderList(){
 }
 
 async function loadState(){
-  // Hosted mode: single project, defaults inline (no local launcher config).
-  const st = { project: "HotFruits", projects: ["HotFruits"], background: "#1b1d22", premultiplied_alpha: true };
-  $("#sub").textContent = st.project;
-  bgColor = hexToRGB(st.background); $("#bg").value = st.background;
-  pma = st.premultiplied_alpha !== false; $("#pma").checked = pma;
-  const psel = $("#project"); psel.innerHTML = "";
-  st.projects.forEach(p => {
-    const o = document.createElement("option"); o.value = p; o.textContent = p;
-    if (p === st.project) o.selected = true; psel.appendChild(o);
-  });
+  // Viewer-only display prefs. The active (client, project) is owned by the
+  // launcher and comes back from /spine/skeletons → setActiveProject().
+  bgColor = hexToRGB("#1b1d22"); $("#bg").value = "#1b1d22";
+  pma = true; $("#pma").checked = pma;
   $("#projNote").textContent = "";
+}
+
+// Reflect the launcher's real active project (resolved server-side) in the
+// header + the (read-only) project select. The launcher owns project switching.
+function setActiveProject(client, project){
+  if (!project) return;
+  $("#sub").textContent = project;
+  const label = client ? client + " / " + project : project;
+  const psel = $("#project"); psel.innerHTML = "";
+  const o = document.createElement("option");
+  o.value = project; o.textContent = label; o.selected = true;
+  psel.appendChild(o);
 }
 
 async function loadSkeletons(refresh){
   $("#count").textContent = "(scanning…)";
   const r = await (await fetch("/spine/skeletons" + (refresh ? "?refresh=1" : ""))).json();
+  setActiveProject(r.client, r.project);
   if (r.error){ showErr(r.error); skeletons = []; renderList(); return; }
   skeletons = r.skeletons || [];
   renderList();

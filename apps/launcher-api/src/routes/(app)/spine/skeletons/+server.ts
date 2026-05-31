@@ -12,10 +12,24 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
+	// Name the resolved prefix so "wrong project" vs "just empty" is unambiguous,
+	// and echo the resolved (client, project) so the viewer can show the real
+	// active project instead of a hardcoded placeholder.
+	const empty = {
+		client: clientKey,
+		project: projectKey,
+		error: `No skeletons synced for spines/${clientKey}/${projectKey} yet.`,
+		skeletons: [],
+	};
 	const hit = await resolveSkeletonsRoot(clientKey, projectKey);
-	if (!hit) return json({ error: 'No skeletons index in R2.', skeletons: [] });
+	if (!hit) return json(empty);
 	const text = await getObjectText(hit.key);
-	if (!text) return json({ error: 'No skeletons index in R2.', skeletons: [] });
+	if (!text) return json(empty);
 	const data = JSON.parse(text);
-	return json({ root: data.prefix ?? hit.root, skeletons: data.skeletons ?? [] });
+	return json({
+		client: clientKey,
+		project: projectKey,
+		root: data.prefix ?? hit.root,
+		skeletons: data.skeletons ?? [],
+	});
 };
