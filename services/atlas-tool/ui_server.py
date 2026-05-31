@@ -247,6 +247,7 @@ CONFIG_FIELDS = [
     ("lora_strength", "LoRA strength", "number"),
     ("controlnet", "ControlNet model", "text"),
     ("rmbg_model", "RMBG model", "text"),
+    ("rembg", "Remove background (cutout)", "text"),
     ("ipadapter_weight", "IPAdapter weight", "number"),
     ("ipadapter_weight_type", "IPAdapter weight type", "text"),
     ("controlnet_strength", "ControlNet strength", "number"),
@@ -343,7 +344,7 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif",
 # Everything else (comfy_host, mockup_image, manifest_path, project) stays
 # truly global.
 PER_ATLAS_KEYS = {
-    "checkpoint", "lora", "lora_strength", "controlnet", "rmbg_model",
+    "checkpoint", "lora", "lora_strength", "controlnet", "rmbg_model", "rembg",
     "ipadapter_weight", "ipadapter_weight_type", "controlnet_strength",
     "controlnet_end_percent", "ksampler_steps", "ksampler_cfg",
     "padding_pct", "shape_ref_fill_pct", "gen_width", "gen_height",
@@ -372,6 +373,11 @@ SETTING_HELP = {
         "Where ComfyUI is listening (host:port). The launcher derives this "
         "from the active project — only change it if ComfyUI runs elsewhere. "
         "Generation fails fast with a clear message if nothing answers here.",
+    "rembg":
+        "Remove the background after generating (subject cutout → transparent "
+        "PNG). Keep ON for game icons/symbols. Turn OFF for a full-bleed image "
+        "that must keep its background — e.g. a game BACKGROUND scene — so the "
+        "saved PNG is the opaque render. Per-atlas: blank = inherit global.",
     "mockup_image":
         "Optional default IPAdapter style image, used for any region that has "
         "no own style_ref / atlas slice. It transfers overall look (palette, "
@@ -599,6 +605,16 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
     if key == "pipeline":
         return (f'<select{common}>'
                 f'{_opt_html(PIPELINE_OPTIONS, cur or "sdxl")}</select>')
+    if key == "rembg":
+        # on/off cutout toggle. Per-atlas keeps a blank "(inherit global)"
+        # choice; the global config picks a concrete on/off (default on).
+        norm = "" if cur == "" else ("on" if batch_atlas._truthy(cur, True)
+                                     else "off")
+        if allow_blank:
+            return (f'<select{common}>'
+                    f'{_opt_html(["on", "off"], norm, blank_label)}</select>')
+        return (f'<select{common}>'
+                f'{_opt_html(["on", "off"], norm or "on")}</select>')
     nf = MODEL_FIELDS.get(key)
     if nf is not None:
         if nf not in cache:

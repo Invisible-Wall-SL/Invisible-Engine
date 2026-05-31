@@ -47,6 +47,11 @@ _DEFAULTS = {
     "lora_strength": 0.85,
     "controlnet": "controlnet-union-sdxl-1.0-promax.safetensors",
     "rmbg_model": "RMBG-2.0",
+    # Whether to run the RMBG background cutout after VAE decode. ON (default)
+    # = transparent-background game icons/symbols. Turn OFF for full-bleed
+    # images that should keep their background (e.g. a game BACKGROUND scene),
+    # so the saved PNG is the opaque render straight from the VAE.
+    "rembg": True,
     "ipadapter_weight": 0.35,
     "ipadapter_weight_type": "style transfer",
     "controlnet_strength": 0.7,
@@ -171,6 +176,9 @@ LORA = CFG["lora"]
 LORA_STRENGTH = CFG["lora_strength"]
 CONTROLNET = CFG["controlnet"]
 RMBG_MODEL = CFG["rmbg_model"]
+# Normalize to a real bool at load: the UI saves "on"/"off" strings, the
+# default is a bool. Anything not explicitly falsy means cutout ON.
+REMBG = str(CFG["rembg"]).strip().lower() not in ("0", "false", "no", "off")
 IPADAPTER_WEIGHT = CFG["ipadapter_weight"]
 IPADAPTER_WEIGHT_TYPE = CFG["ipadapter_weight_type"]
 CONTROLNET_STRENGTH = CFG["controlnet_strength"]
@@ -229,6 +237,7 @@ _SETTINGS_GLOBALS = {
     "lora_strength": "LORA_STRENGTH",
     "controlnet": "CONTROLNET",
     "rmbg_model": "RMBG_MODEL",
+    "rembg": "REMBG",
     "ipadapter_weight": "IPADAPTER_WEIGHT",
     "ipadapter_weight_type": "IPADAPTER_WEIGHT_TYPE",
     "controlnet_strength": "CONTROLNET_STRENGTH",
@@ -1078,7 +1087,21 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
             "class_type": "VAEDecode",
             "inputs": {"samples": ["13", 0], "vae": ["1", 2]},
         },
-        "16": {
+        "17": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "images": ["14", 0],
+                "filename_prefix": f"{COMFY_PREFIX_BASE}/batch/{region['name']}",
+            },
+        },
+    }
+
+    # RMBG cutout is opt-out: ON (default) for transparent icons; OFF keeps the
+    # opaque render for full-bleed backgrounds. When on, the save reads the
+    # cutout (node 16) instead of the raw VAE decode (node 14). _truthy on both
+    # levels so a per-atlas override stored as "on"/"off" is read correctly.
+    if _truthy(region.get("rembg"), _truthy(REMBG, True)):
+        wf["16"] = {
             "class_type": "RMBG",
             "inputs": {
                 "image": ["14", 0],
@@ -1090,15 +1113,8 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
                 "invert_output": False,
                 "background": "Alpha",
             },
-        },
-        "17": {
-            "class_type": "SaveImage",
-            "inputs": {
-                "images": ["16", 0],
-                "filename_prefix": f"{COMFY_PREFIX_BASE}/batch/{region['name']}",
-            },
-        },
-    }
+        }
+        wf["17"]["inputs"]["images"] = ["16", 0]
 
     if use_ipa:
         # IPAdapterAdvanced only accepts weight in [-1, 5]; an out-of-range
@@ -1334,19 +1350,23 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
         "class_type": "VAEDecode",
         "inputs": {"samples": ["13", 0], "vae": vae_ref},
     }
-    wf["16"] = {
-        "class_type": "RMBG",
-        "inputs": {
-            "image": ["14", 0], "model": RMBG_MODEL, "sensitivity": 1.0,
-            "process_res": 1024, "mask_blur": 0, "mask_offset": 0,
-            "invert_output": False, "background": "Alpha",
-        },
-    }
     wf["17"] = {
         "class_type": "SaveImage",
-        "inputs": {"images": ["16", 0],
+        "inputs": {"images": ["14", 0],
                    "filename_prefix": f"{COMFY_PREFIX_BASE}/batch/{region['name']}"},
     }
+    # RMBG cutout is opt-out (see build_workflow): OFF keeps the opaque render
+    # for full-bleed backgrounds; ON (default) saves the transparent cutout.
+    if _truthy(region.get("rembg"), _truthy(REMBG, True)):
+        wf["16"] = {
+            "class_type": "RMBG",
+            "inputs": {
+                "image": ["14", 0], "model": RMBG_MODEL, "sensitivity": 1.0,
+                "process_res": 1024, "mask_blur": 0, "mask_offset": 0,
+                "invert_output": False, "background": "Alpha",
+            },
+        }
+        wf["17"]["inputs"]["images"] = ["16", 0]
     return wf
 
 
