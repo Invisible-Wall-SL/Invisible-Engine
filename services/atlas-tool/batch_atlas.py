@@ -642,6 +642,35 @@ def comfy_upload_image(filename: str, data: bytes) -> str:
     return f"{sub}/{name}" if sub else name
 
 
+def _locate_ref_in_staging(relpath: str) -> Path | None:
+    """Resolve a LoadImage `image` value to a real file in the R2-backed
+    staging mirror. Region refs are normally INPUT_DIR-relative (e.g.
+    `refs/foo.png`), but the global `mockup_image` style fallback is a
+    free-text path that may be a bare filename (`hotFruits_MockUp.png`), an
+    absolute/UNC path, or a stale value. Try, in order: an absolute path as
+    given; INPUT_DIR/<relpath>; then a basename search of the known ref dirs
+    (INPUT_DIR root + refs/ tree). Returns the first hit, else None."""
+    p = Path(relpath)
+    if p.is_absolute():
+        return p if p.exists() else None
+    direct = INPUT_DIR / relpath
+    if direct.exists():
+        return direct
+    # Bare-filename fallback: find it by basename anywhere under refs/, then
+    # at the INPUT_DIR root. Mirrors how the UI tolerates loosely-stored refs.
+    base = os.path.basename(relpath)
+    if base:
+        refs_dir = INPUT_DIR / "refs"
+        if refs_dir.is_dir():
+            hit = next(iter(sorted(refs_dir.rglob(base))), None)
+            if hit and hit.is_file():
+                return hit
+        root_hit = INPUT_DIR / base
+        if root_hit.is_file():
+            return root_hit
+    return None
+
+
 def _upload_workflow_refs(wf: dict) -> None:
     """Rewrite every LoadImage node's `image` from a staging-relative ref path
     to a name uploaded to the remote ComfyUI. Mutates wf in place."""
@@ -651,8 +680,8 @@ def _upload_workflow_refs(wf: dict) -> None:
         relpath = (node.get("inputs") or {}).get("image")
         if not relpath or not isinstance(relpath, str):
             continue
-        src = INPUT_DIR / relpath
-        if not src.exists():
+        src = _locate_ref_in_staging(relpath)
+        if src is None:
             print(f"[upload] ref not in staging, leaving as-is: {relpath}", flush=True)
             continue
         try:
