@@ -916,10 +916,14 @@ def _ingest_self_contained(m: dict, mp: Path) -> bool:
 
     def _looks_like_r2_key(v: str) -> bool:
         # A full R2 key from the Sheet Maker (sheet_maker/<c>/<p>/...); never an
-        # absolute local path or an already-INPUT_DIR-relative refs/ path.
+        # absolute local path, a Windows drive path, or an already-INPUT_DIR-
+        # relative refs/ path. (A Windows path like "C:\\..." is NOT
+        # Path.is_absolute() on Linux, so guard it explicitly — else ingest
+        # wastes an R2 fetch on a local path that can never be a key.)
         v = (v or "").replace("\\", "/")
-        return bool(v) and "/" in v and not v.startswith("refs/") \
-            and not Path(v).is_absolute()
+        if not v or "/" not in v or v.startswith("refs/") or Path(v).is_absolute():
+            return False
+        return not re.match(r"^[A-Za-z]:/", v)  # not a Windows drive path
 
     # .atlas geometry — only if the manifest doesn't already resolve one.
     atlas_key = atlas.get("atlas_file")

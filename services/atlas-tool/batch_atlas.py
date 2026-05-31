@@ -436,16 +436,25 @@ def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
     if not ref:
         return None
     p = Path(ref)
-    if p.is_absolute():
+    # A genuine container-absolute path that exists wins (legacy/local runs).
+    # A Windows-authored absolute path (e.g. "C:\\...\\symbols.atlas") is NOT
+    # is_absolute() on Linux, so it must NOT be joined onto INPUT_DIR verbatim
+    # (that's the B27 bug: /data/.../input/C:/.../symbols.atlas). Instead we
+    # normalise separators + derive a real bare name (POSIX-aware) and try the
+    # `refs/atlas/` upload location — the same robustness source_image_candidates
+    # already has for the page image.
+    if p.is_absolute() and p.exists():
         return p
     rel = ref.replace("\\", "/").lstrip("/")
+    name = Path(rel).name  # rel uses '/', so this is the true basename
     for cand in (manifest_path.parent / rel, INPUT_DIR / rel,
-                 manifest_path.parent / p.name, SELF / p.name):
+                 manifest_path.parent / name, INPUT_DIR / "refs" / "atlas" / name,
+                 INPUT_DIR / name, SELF / name):
         if cand.exists():
             return cand
-    # Nothing on disk yet — return the staging path so callers report a
-    # clear "not found" against the location the cloud actually reads.
-    return INPUT_DIR / rel
+    # Nothing on disk yet — report against the location an Upload .atlas / the
+    # B14 self-contained ingest writes to, so the message names a real R2 path.
+    return INPUT_DIR / "refs" / "atlas" / name
 
 
 def resolve_manifest_arg(arg: str) -> Path:
