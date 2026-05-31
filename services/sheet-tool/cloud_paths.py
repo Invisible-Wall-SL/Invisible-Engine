@@ -25,87 +25,69 @@ cloud (no sibling folder); handoff happens over R2 instead.
 thread's state (env defaults if unset). Two concurrent requests for different
 projects each see their own context; reads are lock-free. The staging tree is
 keyed by (client, project) so their local-disk trees never collide.
+
+This module is now a THIN tool-specific layer: the thread-local context base,
+R2 storage and slug validation all live in `iw_common`. The full public API
+(every name the tool imports) is preserved here as wrappers.
 """
 from __future__ import annotations
 
 import os
-import re
 import threading
 from pathlib import Path
 
 import storage
+
+from iw_common.context import (
+    PROJECT_SLUG_RE,
+    UNASSIGNED_CLIENT,
+    ToolContext,
+    prefix_for_tool,
+    safe_proj_name as _safe_proj_name,
+    valid_client,
+    valid_project,
+)
 
 STAGING_BASE = Path(os.environ.get("SHEET_STAGING", "/tmp/sheet-tool"))
 TOOL_NAMESPACE = "sheet_maker"
 # The cloud Atlas Maker's R2 prefix (so an authored manifest can be handed off).
 ATLAS_NAMESPACE = "atlas_maker"
 
-# Reserved client key for legacy / NULL clientKey rows.
-UNASSIGNED_CLIENT = "unassigned"
-
-# Shared contract with the launcher: a project/client key is a slug.
-PROJECT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-
-
-def valid_project(key: str | None) -> str | None:
-    """Return the key if it matches the shared slug contract, else None."""
-    if key and PROJECT_SLUG_RE.match(key):
-        return key
-    return None
+# One per-tool thread-local context (env names + defaults supplied here).
+_CTX = ToolContext(
+    tool_namespace=TOOL_NAMESPACE,
+    project_env_var="SHEET_PROJECT",
+    client_env_var="SHEET_CLIENT",
+    project_default="cloud",
+    client_default=UNASSIGNED_CLIENT,
+)
 
 
-def valid_client(key: str | None) -> str | None:
-    """Same slug rule as projects; alias kept for caller clarity."""
-    if key and PROJECT_SLUG_RE.match(key):
-        return key
-    return None
-
-
-def _safe_proj_name(name: str) -> str:
-    return "".join(c if c.isalnum() else "_" for c in (name or "default"))[:60]
-
+# --- env defaults (public API; delegate to the shared context) ---------------
 
 def env_project() -> str:
     """The default project from env (used until set_context() overrides it)."""
-    return (os.environ.get("IW_PROJECT_NAME") or "").strip() or os.environ.get(
-        "SHEET_PROJECT", "cloud"
-    )
+    return _CTX.env_project()
 
 
 def env_client() -> str:
-    """The default client from env (used until set_context() overrides it).
-
-    Order: `IW_CLIENT_NAME` (launcher-pinned) -> `SHEET_CLIENT` -> `unassigned`.
-    """
-    return (os.environ.get("IW_CLIENT_NAME") or "").strip() or os.environ.get(
-        "SHEET_CLIENT", UNASSIGNED_CLIENT
-    )
+    """The default client from env (used until set_context() overrides it)."""
+    return _CTX.env_client()
 
 
-# Request-local context. Under ThreadingHTTPServer each request runs on its own
-# thread, so a thread-local store is effectively a per-request store. A thread
-# that has not set a context falls back to the env defaults (see _ctx_get()).
-_ctx = threading.local()
-
+# --- request-local context (public API; delegate to the shared context) ------
 
 def _ctx_get() -> tuple[str, str]:
     """The calling thread's (client, project), env defaults if unset."""
-    client = getattr(_ctx, "client", None)
-    project = getattr(_ctx, "project", None)
-    if client is None or project is None:
-        client = env_client()
-        project = env_project()
-        _ctx.client = client
-        _ctx.project = project
-    return client, project
+    return _CTX.ctx_get()
 
 
 def project_name() -> str:
-    return _ctx_get()[1]
+    return _CTX.project_name()
 
 
 def client_name() -> str:
-    return _ctx_get()[0]
+    return _CTX.client_name()
 
 
 def set_context(client: str | None, project: str | None) -> bool:
@@ -114,14 +96,7 @@ def set_context(client: str | None, project: str | None) -> bool:
     Validates both keys against the slug contract; invalid/empty falls back to
     the env default for that key. Returns True if EITHER actually changed for
     this thread."""
-    cur_client, cur_project = _ctx_get()
-    new_client = valid_client((client or "").strip()) or env_client()
-    new_project = valid_project((project or "").strip()) or env_project()
-    if new_client == cur_client and new_project == cur_project:
-        return False
-    _ctx.client = new_client
-    _ctx.project = new_project
-    return True
+    return _CTX.set_context(client, project)
 
 
 # Back-compat alias.
@@ -129,14 +104,8 @@ def set_project(key: str) -> bool:
     return set_context(client_name(), key)
 
 
-def prefix_for_tool(tool: str, client: str, project: str) -> str:
-    """Canonical R2 prefix for any tool. Single source of truth used both
-    internally and for the Sheet->Atlas manifest handoff."""
-    return f"{tool}/{client}/{project}"
-
-
 def r2_project_prefix(client_key: str, proj_key: str) -> str:
-    return prefix_for_tool(TOOL_NAMESPACE, client_key, proj_key)
+    return _CTX.r2_project_prefix(client_key, proj_key)
 
 
 def atlas_maker_manifest_prefix(client_key: str, proj_key: str) -> str:
@@ -144,10 +113,10 @@ def atlas_maker_manifest_prefix(client_key: str, proj_key: str) -> str:
     return f"{prefix_for_tool(ATLAS_NAMESPACE, client_key, proj_key)}/manifests"
 
 
-# (client, project) pairs already hydrated this process. Shared across threads,
-# so a tiny lock guards the set; the actual pull is best-effort.
-_HYDRATED: set[tuple[str, str]] = set()
-_HYDRATE_LOCK = threading.Lock()
+# (client, project) pairs already hydrated this process. Aliased to the shared
+# context's set/lock so the race-fix invariant (per-instance state) is intact.
+_HYDRATED: set[tuple[str, str]] = _CTX.hydrated
+_HYDRATE_LOCK: threading.Lock = _CTX.hydrate_lock
 
 
 def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = False) -> None:
@@ -158,10 +127,10 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
     background thread so the server starts listening straight away instead of
     blocking boot (which would trip Railway's healthcheck)."""
     key = (client_key, proj_key)
-    with _HYDRATE_LOCK:
-        if key in _HYDRATED and not force:
+    with _CTX.hydrate_lock:
+        if key in _CTX.hydrated and not force:
             return
-        _HYDRATED.add(key)
+        _CTX.hydrated.add(key)
     base = r2_project_prefix(client_key, proj_key)
     kr = base + "/"
 
@@ -248,3 +217,34 @@ def project_root() -> Path | None:
 
 def atlas_maker_dir() -> Path | None:
     return None
+
+
+__all__ = [
+    "STAGING_BASE",
+    "TOOL_NAMESPACE",
+    "ATLAS_NAMESPACE",
+    "UNASSIGNED_CLIENT",
+    "PROJECT_SLUG_RE",
+    "valid_project",
+    "valid_client",
+    "_safe_proj_name",
+    "env_project",
+    "env_client",
+    "_ctx_get",
+    "project_name",
+    "client_name",
+    "set_context",
+    "set_project",
+    "prefix_for_tool",
+    "r2_project_prefix",
+    "atlas_maker_manifest_prefix",
+    "_HYDRATED",
+    "_HYDRATE_LOCK",
+    "hydrate",
+    "resolve",
+    "switch_context",
+    "switch_project",
+    "list_projects",
+    "project_root",
+    "atlas_maker_dir",
+]

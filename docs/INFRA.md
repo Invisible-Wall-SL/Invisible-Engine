@@ -40,12 +40,14 @@
 | Service | URL | Stack | Root dir |
 |---|---|---|---|
 | **launcher** (Invisible-Engine) | `app.invisiblewall.org` | SvelteKit / Node (pnpm monorepo) | repo root, build `pnpm --filter launcher-api build` |
-| **atlas-tool** | `atlas-tool-production.up.railway.app` | Python (http.server) | `/services/atlas-tool` (Dockerfile) |
+| **atlas-tool** | `atlas-tool-production.up.railway.app` | Python (http.server) | **repo root**, Dockerfile Path `services/atlas-tool/Dockerfile` |
 | **atlas-backend** | `atlas-backend-production-0a70.up.railway.app` | FastAPI / Python | `/services/atlas-backend` (Dockerfile) |
-| **sheet-tool** | `sheet-tool-production.up.railway.app` | Python (http.server) | `/services/sheet-tool` (Dockerfile) |
+| **sheet-tool** | `sheet-tool-production.up.railway.app` | Python (http.server) | **repo root**, Dockerfile Path `services/sheet-tool/Dockerfile` |
 | **Postgres** | internal (`postgres.railway.internal`); public proxy on `*.proxy.rlwy.net` | Postgres | — |
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
+
+**⚠️ atlas-tool + sheet-tool build from the REPO ROOT (since 2026-05-31, fix #3).** Both Python tools now share `services/_shared/iw_common/` (storage, banner, ComfyUI client, thread-local context base — see each tool's `cloud_paths.py` thin layer). For the Dockerfile to `COPY services/_shared/iw_common`, the build **context must be the repo root**, so each service's Railway **Root Directory = repo root** and **Dockerfile Path = `services/<svc>/Dockerfile`** (Settings → Build). The Dockerfiles `COPY services/<svc>/requirements.txt`, `COPY services/_shared/iw_common ./iw_common`, then `COPY services/<svc>/ .` with `ENV PYTHONPATH=/app`. **This is a COUPLED change:** the new Dockerfiles only work once the Root Directory is flipped, and the old subdir setting only works with the old Dockerfiles — flip the setting and deploy the new commit together (Railway keeps the last good deploy live if a build fails, so there's no outage, just a failed build until both sides match).
 
 **⚠️ Launcher build note (monorepo):** the launcher service's **Root Directory must be the repo root** (not `apps/launcher-api`) so Railpack sees `pnpm-lock.yaml` + `packageManager: pnpm@10.5.0` and uses pnpm; with a custom **Install Command** `pnpm install --frozen-lockfile`. If Root Directory is the subdir, Railpack falls back to `npm install` which chokes on `workspace:*`. The launcher's tool-URL env vars also have **code defaults** in `env.ts` pointing at the `*-production` domains, so the launcher works even if a Railway var doesn't apply.
 
