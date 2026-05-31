@@ -41,7 +41,7 @@ CONFIG_PATH = SELF / "atlas_config.json"
 _DEFAULTS = {
     "comfy_host": "127.0.0.1:8189",
     "manifest_path": "tools/atlas_manifest_symbolsStatic.json",
-    "mockup_image": "hotFruits_MockUp.png",
+    "mockup_image": "",
     "checkpoint": "juggernautXL_ragnarokBy.safetensors",
     "lora": "gameIconInstitute3d_v10.safetensors",
     "lora_strength": 0.85,
@@ -1023,15 +1023,14 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
         positive_link = ["10", 0]
         negative_link = ["11", 0]
 
-    # IPAdapterAdvanced only accepts weight in [-1, 5]; an out-of-range value
-    # makes ComfyUI reject the whole prompt (HTTP 400). Clamp + warn instead.
-    ipa_weight = float(region.get("ipadapter_weight", IPADAPTER_WEIGHT))
-    if not -1.0 <= ipa_weight <= 5.0:
-        clamped = max(-1.0, min(5.0, ipa_weight))
-        print(f"  ! ipadapter_weight {ipa_weight} for region "
-              f"'{region.get('name', '?')}' is out of range [-1, 5]; "
-              f"clamped to {clamped}", flush=True)
-        ipa_weight = clamped
+    # IPAdapter style transfer is opt-in: a region's own style_ref, else the
+    # global mockup_image if one is configured. With neither set there is no
+    # style reference, so we skip the IPAdapter chain entirely (nodes 3/5/6)
+    # and the KSampler reads the model straight from the LoRA loader — mirrors
+    # how the FLUX builder treats Redux. No hardcoded mockup default.
+    style_ref = region.get("style_ref") or (MOCKUP_IMAGE if MOCKUP_IMAGE else None)
+    use_ipa = bool(style_ref)
+    model_link = ["6", 0] if use_ipa else ["2", 0]
 
     wf: dict = {
         "1": {
@@ -1048,28 +1047,9 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
                 "strength_clip": LORA_STRENGTH,
             },
         },
-        "3": {"class_type": "LoadImage", "inputs": {"image": region.get("style_ref", MOCKUP_IMAGE)}},
         "12": {
             "class_type": "EmptyLatentImage",
             "inputs": {"width": GEN_WIDTH, "height": GEN_HEIGHT, "batch_size": 1},
-        },
-        "5": {
-            "class_type": "IPAdapterUnifiedLoader",
-            "inputs": {"model": ["2", 0], "preset": "PLUS (high strength)"},
-        },
-        "6": {
-            "class_type": "IPAdapterAdvanced",
-            "inputs": {
-                "model": ["5", 0],
-                "ipadapter": ["5", 1],
-                "image": ["3", 0],
-                "weight": ipa_weight,
-                "weight_type": IPADAPTER_WEIGHT_TYPE,
-                "combine_embeds": "concat",
-                "start_at": 0.0,
-                "end_at": 1.0,
-                "embeds_scaling": "V only",
-            },
         },
         "10": {
             "class_type": "CLIPTextEncode",
@@ -1082,7 +1062,7 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
         "13": {
             "class_type": "KSampler",
             "inputs": {
-                "model": ["6", 0],
+                "model": model_link,
                 "positive": positive_link,
                 "negative": negative_link,
                 "latent_image": ["12", 0],
@@ -1119,6 +1099,36 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
             },
         },
     }
+
+    if use_ipa:
+        # IPAdapterAdvanced only accepts weight in [-1, 5]; an out-of-range
+        # value makes ComfyUI reject the whole prompt (HTTP 400). Clamp + warn.
+        ipa_weight = float(region.get("ipadapter_weight", IPADAPTER_WEIGHT))
+        if not -1.0 <= ipa_weight <= 5.0:
+            clamped = max(-1.0, min(5.0, ipa_weight))
+            print(f"  ! ipadapter_weight {ipa_weight} for region "
+                  f"'{region.get('name', '?')}' is out of range [-1, 5]; "
+                  f"clamped to {clamped}", flush=True)
+            ipa_weight = clamped
+        wf["3"] = {"class_type": "LoadImage", "inputs": {"image": style_ref}}
+        wf["5"] = {
+            "class_type": "IPAdapterUnifiedLoader",
+            "inputs": {"model": ["2", 0], "preset": "PLUS (high strength)"},
+        }
+        wf["6"] = {
+            "class_type": "IPAdapterAdvanced",
+            "inputs": {
+                "model": ["5", 0],
+                "ipadapter": ["5", 1],
+                "image": ["3", 0],
+                "weight": ipa_weight,
+                "weight_type": IPADAPTER_WEIGHT_TYPE,
+                "combine_embeds": "concat",
+                "start_at": 0.0,
+                "end_at": 1.0,
+                "embeds_scaling": "V only",
+            },
+        }
 
     if use_cn:
         wf["4"] = {"class_type": "LoadImage", "inputs": {"image": shape_ref}}

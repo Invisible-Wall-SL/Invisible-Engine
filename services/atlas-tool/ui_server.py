@@ -373,9 +373,10 @@ SETTING_HELP = {
         "from the active project — only change it if ComfyUI runs elsewhere. "
         "Generation fails fast with a clear message if nothing answers here.",
     "mockup_image":
-        "Default IPAdapter style image, used for any region that has no own "
-        "style_ref / atlas slice. It transfers overall look (palette, "
-        "shading, finish) — not shape. Per-region slices override it.",
+        "Optional default IPAdapter style image, used for any region that has "
+        "no own style_ref / atlas slice. It transfers overall look (palette, "
+        "shading, finish) — not shape. Per-region slices override it. Leave "
+        "blank to skip style transfer entirely (prompt + ControlNet only).",
     "checkpoint":
         "The SDXL base model ('{ckpt}') that actually draws every symbol. "
         "Biggest single lever on overall art style; changing it re-bases the "
