@@ -149,7 +149,7 @@
 
     <div class="card" id="inspector" style="display:none">
       <h2>Selected sprite</h2>
-      <div class="field"><label>Name</label><input id="i_name" oninput="setField('name',this.value)"></div>
+      <div class="field"><label>Name</label><input id="i_name" oninput="renameSel(this.value)"></div>
       <div class="field">
         <label>Size</label>
         <span><input type="number" id="i_w" oninput="setSize('w',this.value)"> ×
@@ -412,8 +412,21 @@ function syncInspector(){
   $('i_name').value=r.name; $('i_w').value=r.w; $('i_h').value=r.h;
   $('i_lock').checked=!!r.locked; $('i_prompt').value=r.prompt||'';
   $('i_shape').value=r.shape_ref||''; $('i_seed').value=r.seed||'';
+  flagName();
 }
-function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked'||k==='name') render(); }
+/* Region names are the recorded identity (manifest + .atlas + TP region keys),
+   so they must be non-empty and unique within the sheet. safeNm mirrors the
+   server's safe_name so the in-editor check matches what gets persisted. */
+function safeNm(s){ return (s||'').trim().replace(/[^A-Za-z0-9_.-]+/g,'_').replace(/^[_.]+|[_.]+$/g,''); }
+function flagName(){
+  const r=reg(sel), el=$('i_name'); if(!r) return;
+  const nm=safeNm(r.name);
+  const dup=nm && regions.some(o=>o!==r && safeNm(o.name)===nm);
+  el.style.borderColor=(!nm||dup)?'#e66':'';
+  el.title=!nm?'Name cannot be empty':(dup?'Another region already uses this name':'');
+}
+function renameSel(v){ const r=reg(sel); if(!r) return; r.name=v; flagName(); render(); }
+function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked') render(); }
 function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(8,parseInt(v)||8);
   if($('i_aspect').checked){ if(k==='w'){ r.w=n; r.h=Math.max(8,Math.round(n*r.oh/r.ow)); } else { r.h=n; r.w=Math.max(8,Math.round(n*r.ow/r.oh)); } }
   else r[k]=n;
@@ -508,6 +521,13 @@ async function loadFile(path){
 async function runExport(destDir){
   const m=$('exportmsg'); m.className='muted'; m.textContent='Saving…';
   if(!regions.length){ m.className='err'; m.textContent='Nothing to save.'; return false; }
+  // Region names are the persisted identity — block blanks/dupes before the
+  // round-trip (server safe_name rejects dupes too; this is the friendly check).
+  const rnames=regions.map(r=>safeNm(r.name));
+  const blank=rnames.indexOf('');
+  if(blank>=0){ m.className='err'; m.textContent='Every region needs a name (region '+(blank+1)+' is blank).'; return false; }
+  const seen={}; const dupName=rnames.find(n=>seen[n]?true:!(seen[n]=1));
+  if(dupName){ m.className='err'; m.textContent='Duplicate region name: "'+dupName+'". Names must be unique.'; return false; }
   const name=currentName();
   const body={sheet:sheetName,basename:name,
     canvas_w:canvasW,canvas_h:canvasH,
