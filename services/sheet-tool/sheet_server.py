@@ -78,19 +78,6 @@ def _mirror(p: Path) -> None:
         pass
 
 
-def _mirror_dir(d: Path) -> None:
-    """Mirror every file under a staging dir to R2 (used after upload/load)."""
-    ctx = _ctx()
-    r2_prefix, staging_root = ctx["r2_prefix"], ctx["staging_root"]
-    if not (r2_prefix and staging_root):
-        return
-    try:
-        rel = Path(d).resolve().relative_to(Path(staging_root).resolve()).as_posix()
-        storage.push_dir(Path(d), f"{r2_prefix}/{rel}")
-    except Exception:  # noqa: BLE001
-        pass
-
-
 # ---------------------------------------------------------------------------
 # config + helpers
 # ---------------------------------------------------------------------------
@@ -576,6 +563,7 @@ def api_load(payload: dict) -> dict:
     sheet_img = Image.open(img_path).convert("RGBA")
     regions_out = []
     used = set()
+    written = []   # exactly the region PNGs sliced here → mirror only these
     for r in parsed["regions"]:
         nm = safe_name(r["name"], "region")
         base_nm = nm
@@ -590,13 +578,17 @@ def api_load(payload: dict) -> dict:
             crop = crop.rotate(90, expand=True)        # back to upright
         src = f"{nm}.png"
         crop.save(up / src)
+        written.append(up / src)
         regions_out.append({
             "src": src, "name": nm, "x": r["x"], "y": r["y"],
             "w": w, "h": h, "rotated": r["rotated"], "locked": False,
             "prompt": r["prompt"], "shape_ref": r["shape_ref"], "seed": r["seed"],
         })
 
-    _mirror_dir(up)
+    # Mirror exactly the files this load just sliced (not a whole-dir re-push):
+    # the set is provably {up/<nm>.png for each region} written in the loop.
+    for p in written:
+        _mirror(p)
     is_project = path.name.startswith("atlas_manifest_") and path.suffix.lower() == ".json"
     if is_project:
         name = path.name[len("atlas_manifest_"):-len(".json")]

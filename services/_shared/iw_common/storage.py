@@ -16,19 +16,33 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import threading
 from pathlib import Path
 
 import boto3
 
+_CLIENT = None
+_CLIENT_LOCK = threading.Lock()
+
 
 def _client():
-    return boto3.client(
-        "s3",
-        region_name="auto",
-        endpoint_url=os.environ["R2_ENDPOINT"],
-        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
-    )
+    """Lazily-created, shared boto3 client (built once, reused).
+
+    boto3 clients are thread-safe for method calls, so a single instance is
+    correct under the ThreadingHTTPServer and avoids rebuilding the client on
+    every storage op. Lazy + double-checked lock so import never touches env."""
+    global _CLIENT
+    if _CLIENT is None:
+        with _CLIENT_LOCK:
+            if _CLIENT is None:
+                _CLIENT = boto3.client(
+                    "s3",
+                    region_name="auto",
+                    endpoint_url=os.environ["R2_ENDPOINT"],
+                    aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                    aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+                )
+    return _CLIENT
 
 
 def _bucket() -> str:
@@ -97,32 +111,41 @@ def list_keys(prefix: str) -> list[dict]:
 # --- staging <-> R2 sync -----------------------------------------------------
 
 def pull_prefix(prefix: str, dest_root: Path, key_root: str) -> int:
-    """Download every object under `prefix` into `dest_root`, recreating the
+    """Download objects under `prefix` into `dest_root`, recreating the
     relative path below `key_root`. Concurrent (boto3 clients are thread-safe
-    for calls) so large trees pull in seconds, not minutes. Returns the
-    number of files pulled."""
+    for calls) so large trees pull in seconds, not minutes.
+
+    Incremental hydrate: a key is SKIPPED when the local destination already
+    exists with a matching size (write-once / replace-whole assets, no cheap
+    content hash in R2 → size is the heuristic). A 0 / missing size never
+    skips (downloads to be safe). Returns the number of files ACTUALLY
+    downloaded (skips don't count). Best-effort: any per-file error counts as
+    not-downloaded, never raises."""
     from concurrent.futures import ThreadPoolExecutor
 
     cli = _client()
     bucket = _bucket()
 
-    def _one(key: str) -> int:
+    def _one(item) -> int:
+        key, size = item
         if key.endswith("/"):
             return 0
         rel = key[len(key_root):].lstrip("/") if key.startswith(key_root) else key
         dest = dest_root / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
         try:
+            if size and dest.exists() and dest.stat().st_size == size:
+                return 0
+            dest.parent.mkdir(parents=True, exist_ok=True)
             cli.download_file(bucket, key, str(dest))
             return 1
         except Exception:  # noqa: BLE001
             return 0
 
-    keys = [e["key"] for e in list_keys(prefix)]
-    if not keys:
+    entries = [(e["key"], e.get("size")) for e in list_keys(prefix)]
+    if not entries:
         return 0
     with ThreadPoolExecutor(max_workers=16) as pool:
-        return sum(pool.map(_one, keys))
+        return sum(pool.map(_one, entries))
 
 
 def push_dir(src_root: Path, key_root: str) -> int:
