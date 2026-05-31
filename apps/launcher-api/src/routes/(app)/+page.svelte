@@ -9,6 +9,17 @@
 	const online = $derived(data.tools.filter((t) => t.kind === 'online'));
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
 
+	// A local tool is "configured" once the user has saved an install path for it.
+	// The launcher can't see the user's disk, so a saved path is the best proxy —
+	// the UI wording stays honest about that (it's a personal bookmark, not a probe).
+	const isConfigured = (id: string) => !!data.installPaths[id]?.trim();
+
+	// Games are DB rows without a ToolDef icon — a single launch/triangle mark.
+	const GAME_ICON =
+		'<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" ' +
+		'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+		'<path d="M8 5.5v13l11-6.5z"/></svg>';
+
 	// Games launch against their configured URL (managed in /admin; games live on a
 	// future dedicated server). The active project rides along as `?project=<key>`.
 	// Shown to every authed user for now — could be gated by a `games` capability later.
@@ -140,11 +151,12 @@
 		</div>
 	</header>
 
-	<section>
+	<section class="sec sec-online">
 		<h2>Online tools</h2>
 		<div class="grid">
 			{#each online as tool (tool.id)}
 				<a class="tool" href={tool.url}>
+					<span class="ico">{@html tool.icon ?? ''}</span>
 					<strong>{tool.name}</strong>
 					<span class="muted">{tool.description}</span>
 					<span class="tag online">open</span>
@@ -155,16 +167,34 @@
 		</div>
 	</section>
 
-	<section>
+	<section class="sec sec-local">
 		<h2>Local tools</h2>
+		<p class="sechelp">
+			Installed on <em>your</em> machine. The launcher can't see your disk — the path below
+			is a personal bookmark of where you put the tool (for your own reference + the
+			download flow), not something it verifies or runs.
+		</p>
 		<div class="grid wide">
 			{#each local as tool (tool.id)}
-				<div class="tool">
+				{@const configured = isConfigured(tool.id)}
+				<div class="tool" class:configured>
+					<span class="ico">{@html tool.icon ?? ''}</span>
 					<strong>{tool.name}</strong>
 					<span class="muted">{tool.description}</span>
-					<span class="tag local">install</span>
+					<span class="tag local">{configured ? 'configured' : 'install'}</span>
 
-					{#if tool.install?.download}
+					{#if configured}
+						<div class="pathline">
+							<span class="pathval" title={data.installPaths[tool.id]}>
+								{data.installPaths[tool.id]}
+							</span>
+						</div>
+						{#if tool.install?.download}
+							<a class="download muted-link" href={tool.install.download} target="_blank" rel="noopener">
+								Re-download installer →
+							</a>
+						{/if}
+					{:else if tool.install?.download}
 						<a class="download" href={tool.install.download} target="_blank" rel="noopener">
 							Download installer →
 						</a>
@@ -174,7 +204,9 @@
 
 					<form method="POST" action="?/saveInstallPath" use:enhance class="path">
 						<input type="hidden" name="toolKey" value={tool.id} />
-						<label for={`path-${tool.id}`}>Install path on this machine</label>
+						<label for={`path-${tool.id}`}>
+							{configured ? 'Edit install path on this machine' : 'Install path on this machine'}
+						</label>
 						<div class="row">
 							<input
 								id={`path-${tool.id}`}
@@ -198,21 +230,23 @@
 		</div>
 	</section>
 
-	<section>
+	<section class="sec sec-games">
 		<h2>Games</h2>
 		<div class="grid">
 			{#each data.games as game (game.key)}
 				{#if game.url}
 					<a class="tool" href={gameUrl(game.url)} target="_blank" rel="noopener">
+						<span class="ico">{@html GAME_ICON}</span>
 						<strong>{game.name}</strong>
 						<span class="muted">Launch for project '{projectKey}'</span>
-						<span class="tag online">launch</span>
+						<span class="tag games">launch</span>
 					</a>
 				{:else}
 					<div class="tool disabled">
+						<span class="ico">{@html GAME_ICON}</span>
 						<strong>{game.name}</strong>
 						<span class="muted">No URL set — configure in Admin.</span>
-						<span class="tag online">launch</span>
+						<span class="tag games">launch</span>
 					</div>
 				{/if}
 			{:else}
@@ -297,7 +331,46 @@
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: #888;
-		margin-top: 28px;
+		margin: 0 0 12px;
+	}
+	/* Card-wrapped sections, each with a colour-coded accent (reusing the existing
+	   palette: online=green, local=purple, games=teal). The accent drives the left
+	   border, the header, and the per-card icon tint via currentColor. */
+	.sec {
+		margin-top: 20px;
+		padding: 16px 18px 20px;
+		border: 1px solid #1d1d24;
+		border-left: 3px solid var(--accent);
+		border-radius: 14px;
+		background: #131318;
+	}
+	.sec-online {
+		--accent: #7ee787;
+	}
+	.sec-local {
+		--accent: #c8a3ff;
+	}
+	.sec-games {
+		--accent: #7ee0c0;
+	}
+	.sec h2 {
+		color: var(--accent);
+	}
+	.sechelp {
+		margin: -4px 0 14px;
+		font-size: 12px;
+		color: #8a8a93;
+		max-width: 70ch;
+		line-height: 1.5;
+	}
+	.sechelp em {
+		font-style: normal;
+		color: #c8a3ff;
+	}
+	.ico {
+		color: var(--accent);
+		display: flex;
+		margin-bottom: 2px;
 	}
 	.muted {
 		color: #888;
@@ -350,11 +423,38 @@
 		background: #2a2430;
 		color: #c8a3ff;
 	}
+	.tag.games {
+		background: #16302a;
+		color: #7ee0c0;
+	}
+	/* Configured local tool: a saved install path exists. Greener badge + the saved
+	   path promoted to the primary line; download de-emphasized to "re-download". */
+	.tool.configured .tag.local {
+		background: #1f2d23;
+		color: #7ee787;
+	}
+	.tool.configured {
+		border-color: #2b3a30;
+	}
+	.pathline {
+		margin-top: 4px;
+	}
+	.pathval {
+		display: block;
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
+		color: #cfcfd6;
+		word-break: break-all;
+	}
 	.download {
 		margin-top: 4px;
 		font-size: 13px;
 		color: #5db0ff;
 		text-decoration: none;
+	}
+	.download.muted-link {
+		color: #6b6b73;
+		font-size: 12px;
 	}
 	.download.todo {
 		color: #777;

@@ -11,6 +11,8 @@ export interface ToolDef {
 	kind: ToolKind;
 	/** Online tools: the private-area URL the launcher opens with the session token. */
 	url?: string;
+	/** Inline, stroke-based SVG (currentColor) shown on the tool card + onboarding. */
+	icon?: string;
 	/** Local tools: metadata the launcher uses to download + install on the machine. */
 	install?: {
 		/** Identifier the launcher knows how to fetch/install (resolved against the shared repo). */
@@ -23,6 +25,56 @@ export interface ToolDef {
 	};
 }
 
+/**
+ * Per-tool icons: minimal, stroke-based SVG using `currentColor` so they inherit
+ * the card's accent. ~22px, single colour, no fills. Keyed by tool id so the home
+ * grid and `/onboarding` render the same mark.
+ */
+const I = (body: string): string =>
+	`<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" ` +
+	`stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+export const TOOL_ICONS: Record<string, string> = {
+	// square grid
+	atlasTool: I(
+		'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>' +
+			'<rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+	),
+	// jointed armature segment
+	spineViewer: I(
+		'<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/>' +
+			'<line x1="7.6" y1="16.4" x2="16.4" y2="7.6"/><circle cx="12" cy="12" r="1.3"/>',
+	),
+	// node graph: two nodes + edge
+	comfyui: I(
+		'<rect x="3" y="5" width="7" height="5" rx="1"/><rect x="14" y="14" width="7" height="5" rx="1"/>' +
+			'<path d="M10 7.5h2.5a2 2 0 0 1 2 2v4"/>',
+	),
+	// bone (two lobes each end)
+	spine: I(
+		'<circle cx="6" cy="9" r="1.9"/><circle cx="9" cy="6" r="1.9"/>' +
+			'<circle cx="18" cy="15" r="1.9"/><circle cx="15" cy="18" r="1.9"/><line x1="8" y1="8" x2="16" y2="16"/>',
+	),
+	// packed rectangles
+	sheetMaker: I(
+		'<rect x="3" y="3" width="9" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/>' +
+			'<rect x="14" y="10" width="7" height="4" rx="1"/><rect x="3" y="14" width="13" height="7" rx="1"/>',
+	),
+	// globe
+	localization: I(
+		'<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/>' +
+			'<path d="M12 3c2.6 2.6 2.6 15.4 0 18"/><path d="M12 3c-2.6 2.6-2.6 15.4 0 18"/>',
+	),
+	// overlapping shapes (place/arrange)
+	editor: I('<rect x="4" y="4" width="11" height="11" rx="1"/><rect x="9" y="9" width="11" height="11" rx="1"/>'),
+	// browse list (bulleted rows)
+	ftpBrowser: I(
+		'<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/>' +
+			'<circle cx="5" cy="12" r="1"/><line x1="9" y1="12" x2="20" y2="12"/>' +
+			'<circle cx="5" cy="18" r="1"/><line x1="9" y1="18" x2="20" y2="18"/>',
+	),
+};
+
 /** Registry of every tool the platform knows about. */
 export const TOOLS: Record<string, ToolDef> = {
 	atlasTool: {
@@ -31,6 +83,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Online sprite-atlas generator and inspector.',
 		kind: 'online',
 		url: '/atlas',
+		icon: TOOL_ICONS.atlasTool,
 	},
 	spineViewer: {
 		id: 'spineViewer',
@@ -38,12 +91,14 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Online viewer for Spine skeletons and animations.',
 		kind: 'online',
 		url: '/spine',
+		icon: TOOL_ICONS.spineViewer,
 	},
 	comfyui: {
 		id: 'comfyui',
 		name: 'ComfyUI',
 		description: 'Local node-based image generation/processing (runs on your GPU).',
 		kind: 'local',
+		icon: TOOL_ICONS.comfyui,
 		install: {
 			package: 'comfyui',
 			download: 'https://www.comfy.org/download',
@@ -59,6 +114,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Spine Editor',
 		description: 'Local Esoteric Spine editor for skeletal animation.',
 		kind: 'local',
+		icon: TOOL_ICONS.spine,
 		install: {
 			package: 'spine',
 			download: 'https://esotericsoftware.com/spine-download',
@@ -75,6 +131,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Online sprite-sheet packer for game-ready atlases.',
 		kind: 'online',
 		url: '/sheet',
+		icon: TOOL_ICONS.sheetMaker,
 	},
 	localization: {
 		id: 'localization',
@@ -82,6 +139,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Write game text and auto-translate it into many languages (Claude).',
 		kind: 'online',
 		url: '/localization',
+		icon: TOOL_ICONS.localization,
 	},
 	editor: {
 		id: 'editor',
@@ -89,6 +147,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Place images/spine on game screens and export the layout the engine renders.',
 		kind: 'online',
 		url: '/editor',
+		icon: TOOL_ICONS.editor,
 	},
 	ftpBrowser: {
 		id: 'ftpBrowser',
@@ -96,6 +155,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: "Browse and manage the project's cloud asset storage (upload, move, delete).",
 		kind: 'online',
 		url: '/files',
+		icon: TOOL_ICONS.ftpBrowser,
 	},
 };
 
