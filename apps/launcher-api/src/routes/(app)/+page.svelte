@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { tick } from 'svelte';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
 
@@ -57,20 +56,26 @@
 		return clients;
 	});
 
-	// Two-step selection state. The active project (from the session) seeds both
-	// the Client and Project steps; user edits then submit `selectedProject`.
-	const activeProject = $derived(
-		data.projects.find((p) => p.key === data.activeProjectKey) ?? null,
-	);
-	let selectedClient = $state('');
+	// --- Two-step selection (B23 rebuild) -------------------------------------
+	// The COMMITTED active project is owned by the server (the session). Local
+	// state here is purely the UI: CLIENT is a *filter* that never persists on its
+	// own; only changing PROJECT commits (submits `?/setProject`). We re-seed from
+	// the server ONLY when the active project actually changes (login / a committed
+	// switch / another tab) — gated by `syncedActive` so an `invalidateAll` (which
+	// re-runs `load` after every enhanced submit) can't clobber an in-progress pick.
+	let selectedClient = $state(UNASSIGNED);
 	let selectedProject = $state('');
+	let syncedActive: string | null | undefined = undefined;
+
 	$effect(() => {
-		selectedClient = activeProject?.clientKey ?? UNASSIGNED;
+		if (data.activeProjectKey === syncedActive) return;
+		syncedActive = data.activeProjectKey;
+		const active = data.projects.find((p) => p.key === data.activeProjectKey) ?? null;
+		selectedClient = active?.clientKey ?? UNASSIGNED;
 		selectedProject = data.activeProjectKey ?? '';
 	});
 
-	// Projects shown in the second step: those owned by the selected client (or
-	// the unassigned bucket), alphabetical.
+	// Projects under the selected client (or the unassigned bucket), alphabetical.
 	const clientProjects = $derived.by(() => {
 		const wantUnassigned = selectedClient === UNASSIGNED;
 		return data.projects
@@ -78,28 +83,22 @@
 			.sort((a, b) => a.name.localeCompare(b.name));
 	});
 
-	// Switching client re-points the active project to that client's first
-	// project (so the forwarded `&project=` stays valid for the new client) and
-	// submits when it actually changes.
-	async function onClientChange(form: HTMLFormElement | null, next: string) {
+	// Changing CLIENT only re-filters the PROJECT list — it NEVER commits. Keep the
+	// active project selected if it belongs to the chosen client; otherwise blank
+	// the PROJECT select so the user must explicitly pick (and commit) one.
+	function onClientChange(next: string) {
 		selectedClient = next;
 		const wantUnassigned = next === UNASSIGNED;
-		const first = data.projects.find((p) =>
-			wantUnassigned ? !p.clientKey : p.clientKey === next,
+		const stillValid = data.projects.some(
+			(p) => p.key === selectedProject && (wantUnassigned ? !p.clientKey : p.clientKey === next),
 		);
-		if (!first) return;
-		selectedProject = first.key;
-		// Wait for the project <select> (value + the new client's options) to
-		// flush to the DOM before submitting — otherwise requestSubmit() reads
-		// the stale `projectKey` and the active project snaps back.
-		await tick();
-		if (first.key !== data.activeProjectKey) form?.requestSubmit();
+		if (!stillValid) selectedProject = '';
 	}
 
-	async function onProjectChange(form: HTMLFormElement | null, next: string) {
+	// Changing PROJECT is the only commit. Submit on a real change.
+	function onProjectChange(form: HTMLFormElement | null, next: string) {
 		selectedProject = next;
-		await tick();
-		if (next !== data.activeProjectKey) form?.requestSubmit();
+		if (next && next !== data.activeProjectKey) form?.requestSubmit();
 	}
 </script>
 
@@ -110,7 +109,7 @@
 			<select
 				id="active-client"
 				value={selectedClient}
-				onchange={(e) => onClientChange(e.currentTarget.form, e.currentTarget.value)}
+				onchange={(e) => onClientChange(e.currentTarget.value)}
 			>
 				{#each clientOptions as c (c.key)}
 					<option value={c.key}>{c.name}</option>
@@ -125,6 +124,9 @@
 				value={selectedProject}
 				onchange={(e) => onProjectChange(e.currentTarget.form, e.currentTarget.value)}
 			>
+				{#if !selectedProject}
+					<option value="" disabled selected>— choose a project —</option>
+				{/if}
 				{#each clientProjects as p (p.key)}
 					<option value={p.key}>{p.name}</option>
 				{/each}
