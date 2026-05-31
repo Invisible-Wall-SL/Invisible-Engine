@@ -90,12 +90,19 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/editor',
 	},
+	ftpBrowser: {
+		id: 'ftpBrowser',
+		name: 'Invisible FTP Browser',
+		description: "Browse and manage the project's cloud asset storage (upload, move, delete).",
+		kind: 'online',
+		url: '/files',
+	},
 };
 
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
-	developer: ['atlasTool', 'spineViewer', 'comfyui', 'localization', 'editor'],
+	developer: ['atlasTool', 'spineViewer', 'comfyui', 'localization', 'editor', 'ftpBrowser'],
 	artist: ['atlasTool', 'comfyui', 'sheetMaker', 'localization', 'editor'],
 	animator: ['spineViewer', 'spine'],
 };
@@ -205,6 +212,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',
 	editor: 'invisible-editor',
+	ftpBrowser: 'ftp-browser',
 };
 
 /** Repo-relative path to a tool's documentation (authored by the docs effort). */

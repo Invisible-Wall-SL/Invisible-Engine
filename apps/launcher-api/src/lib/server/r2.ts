@@ -1,4 +1,7 @@
 import {
+	CopyObjectCommand,
+	DeleteObjectCommand,
+	DeleteObjectsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
@@ -56,6 +59,50 @@ export async function putObjectText(
 	);
 }
 
+export async function putObjectBytes(
+	key: string,
+	body: Uint8Array,
+	contentType = 'application/octet-stream',
+): Promise<void> {
+	await s3().send(
+		new PutObjectCommand({
+			Bucket: ENV.R2_BUCKET,
+			Key: key,
+			Body: body,
+			ContentType: contentType,
+		}),
+	);
+}
+
+export async function deleteObject(key: string): Promise<void> {
+	await s3().send(new DeleteObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
+}
+
+/** Delete many keys in batches of ≤1000 (the S3/R2 per-request limit). No-op on empty. */
+export async function deleteObjects(keys: string[]): Promise<void> {
+	if (keys.length === 0) return;
+	for (let i = 0; i < keys.length; i += 1000) {
+		const batch = keys.slice(i, i + 1000);
+		await s3().send(
+			new DeleteObjectsCommand({
+				Bucket: ENV.R2_BUCKET,
+				Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+			}),
+		);
+	}
+}
+
+/** Server-side copy of one object to another key (R2 has no native move). */
+export async function copyObject(srcKey: string, destKey: string): Promise<void> {
+	await s3().send(
+		new CopyObjectCommand({
+			Bucket: ENV.R2_BUCKET,
+			CopySource: encodeURIComponent(`${ENV.R2_BUCKET}/${srcKey}`),
+			Key: destKey,
+		}),
+	);
+}
+
 export async function objectExists(key: string): Promise<boolean> {
 	try {
 		await s3().send(new HeadObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
@@ -93,6 +140,71 @@ export async function listObjects(prefix: string, maxKeys = 1000): Promise<ListR
 		.map((p) => p.Prefix)
 		.filter((p): p is string => typeof p === 'string');
 	return { keys, prefixes };
+}
+
+/**
+ * NON-delimited recursive listing: every object key under `prefix`, paginating
+ * through all `ContinuationToken` pages. Used for recursive folder delete/move.
+ */
+export async function listAllKeys(prefix: string): Promise<string[]> {
+	const out: string[] = [];
+	let token: string | undefined;
+	do {
+		const res = await s3().send(
+			new ListObjectsV2Command({
+				Bucket: ENV.R2_BUCKET,
+				Prefix: prefix,
+				ContinuationToken: token,
+			}),
+		);
+		for (const o of res.Contents ?? []) {
+			if (typeof o.Key === 'string') out.push(o.Key);
+		}
+		token = res.IsTruncated ? res.NextContinuationToken : undefined;
+	} while (token);
+	return out;
+}
+
+export interface FolderEntry {
+	key: string;
+	size: number;
+	lastModified: string | null;
+}
+
+export interface FolderListing {
+	files: FolderEntry[];
+	folders: string[];
+	nextToken?: string;
+}
+
+/**
+ * Delimited (folder-like) listing for the FTP browser: direct files (with size
+ * + lastModified) and sub-folder prefixes under `prefix`, one page at a time.
+ */
+export async function listFolder(prefix: string, token?: string): Promise<FolderListing> {
+	const res = await s3().send(
+		new ListObjectsV2Command({
+			Bucket: ENV.R2_BUCKET,
+			Prefix: prefix,
+			Delimiter: '/',
+			MaxKeys: 1000,
+			ContinuationToken: token,
+		}),
+	);
+	const files: FolderEntry[] = (res.Contents ?? [])
+		.filter((o): o is typeof o & { Key: string } => typeof o.Key === 'string')
+		// Drop the placeholder object for the folder itself (key === prefix).
+		.filter((o) => o.Key !== prefix)
+		.map((o) => ({
+			key: o.Key,
+			size: o.Size ?? 0,
+			lastModified: o.LastModified ? o.LastModified.toISOString() : null,
+		}));
+	const folders = (res.CommonPrefixes ?? [])
+		.map((p) => p.Prefix)
+		.filter((p): p is string => typeof p === 'string');
+	const nextToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+	return { files, folders, nextToken };
 }
 
 function isNotFound(e: unknown): boolean {
