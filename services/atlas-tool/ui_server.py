@@ -45,48 +45,117 @@ import storage  # noqa: E402  (R2 object storage + staging mirror)
 SELF = Path(__file__).resolve().parent
 TOOLS = SELF
 
-_PP = project_paths.resolve()
-BATCH_DIR = _PP["batch_dir"]
-ATLAS_DIR = _PP["atlas_dir"]
-INPUT_DIR = _PP["input_dir"]
-COMFY_HOST = _PP["comfy_host"]
+# ---------------------------------------------------------------------------
+# Request-local path resolution.
+#
+# The server is a ThreadingHTTPServer (one thread per request). The active
+# (client, project) lives in project_paths' thread-local context, so every
+# path must be resolved PER REQUEST, on the request's own thread — never copied
+# into a module global that another concurrent request could overwrite.
+#
+# To keep the original ~130 call sites (BATCH_DIR / INPUT_DIR / ...) unchanged
+# while making each read thread-local, these names are bound to tiny proxies
+# that resolve the live value from project_paths.resolve() on EVERY access.
+# A `BATCH_DIR / "x"`, `INPUT_DIR.exists()`, `f"{R2_PREFIX}/..."`,
+# `Path(STAGING_ROOT)` etc. all hit the calling thread's current context.
+# ---------------------------------------------------------------------------
+
+
+class _PathProxy:
+    """A Path that always reflects the calling thread's resolved context.
+
+    `_key` indexes project_paths.resolve(); `_sub` is an optional child path
+    appended to it (used for CONFIG_PATH = staging_root / 'atlas_config.json').
+    Delegates every attribute/operator to a freshly-resolved Path, so existing
+    pathlib usage works unchanged and is request-local."""
+
+    __slots__ = ("_key", "_sub")
+
+    def __init__(self, key: str, sub: str | None = None):
+        self._key = key
+        self._sub = sub
+
+    def _live(self) -> Path:
+        p = Path(project_paths.resolve()[self._key])
+        return p / self._sub if self._sub else p
+
+    def __fspath__(self) -> str:
+        return str(self._live())
+
+    def __str__(self) -> str:
+        return str(self._live())
+
+    def __repr__(self) -> str:
+        return repr(self._live())
+
+    def __truediv__(self, other):
+        return self._live() / other
+
+    def __rtruediv__(self, other):
+        return other / self._live()
+
+    def __eq__(self, other):
+        return self._live() == other
+
+    def __hash__(self):
+        return hash(self._live())
+
+    def __getattr__(self, name):
+        return getattr(self._live(), name)
+
+
+class _StrProxy:
+    """A str that always reflects the calling thread's resolved context (used
+    for R2_PREFIX / COMFY_HOST). `.get()`-style miss returns ''."""
+
+    __slots__ = ("_key",)
+
+    def __init__(self, key: str):
+        self._key = key
+
+    def _live(self) -> str:
+        return project_paths.resolve().get(self._key) or ""
+
+    def __str__(self) -> str:
+        return self._live()
+
+    def __bool__(self) -> bool:
+        return bool(self._live())
+
+    def __format__(self, spec) -> str:
+        return format(self._live(), spec)
+
+    def __eq__(self, other):
+        return self._live() == other
+
+    def __hash__(self):
+        return hash(self._live())
+
+    def __getattr__(self, name):
+        return getattr(self._live(), name)
+
+
+BATCH_DIR = _PathProxy("batch_dir")
+ATLAS_DIR = _PathProxy("atlas_dir")
+INPUT_DIR = _PathProxy("input_dir")
 # Cloud: config + manifests live in the R2-backed staging tree (not the app
 # dir), so user edits survive container restarts.
-STAGING_ROOT = _PP["staging_root"]
-MANIFEST_DIR = _PP["manifest_dir"]
-R2_PREFIX = _PP.get("r2_project_prefix")
-CONFIG_PATH = STAGING_ROOT / "atlas_config.json"
-
-# Project-centric mode: the launcher sends `?project=<key>` on the first
-# request. We remember it in a cookie and re-hydrate staging on a switch.
-# Serialised so an interleaved request can't observe half-hydrated staging.
-_project_lock = threading.Lock()
-
-
-def _apply_project_paths(pp: dict) -> None:
-    """Re-point every module-level path at the (possibly new) project. Other
-    functions read these via global lookup at call time, so reassigning the
-    module globals here genuinely redirects all file ops to the new project."""
-    global _PP, BATCH_DIR, ATLAS_DIR, INPUT_DIR, COMFY_HOST
-    global STAGING_ROOT, MANIFEST_DIR, R2_PREFIX, CONFIG_PATH
-    _PP = pp
-    BATCH_DIR = pp["batch_dir"]
-    ATLAS_DIR = pp["atlas_dir"]
-    INPUT_DIR = pp["input_dir"]
-    COMFY_HOST = pp["comfy_host"]
-    STAGING_ROOT = pp["staging_root"]
-    MANIFEST_DIR = pp["manifest_dir"]
-    R2_PREFIX = pp.get("r2_project_prefix")
-    CONFIG_PATH = STAGING_ROOT / "atlas_config.json"
+STAGING_ROOT = _PathProxy("staging_root")
+MANIFEST_DIR = _PathProxy("manifest_dir")
+CONFIG_PATH = _PathProxy("staging_root", "atlas_config.json")
+R2_PREFIX = _StrProxy("r2_project_prefix")
+COMFY_HOST = _StrProxy("comfy_host")
 
 
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
-    if not (R2_PREFIX and STAGING_ROOT):
+    r2_prefix = str(R2_PREFIX)
+    staging_root = Path(STAGING_ROOT)
+    if not r2_prefix:
         return
     try:
-        rel = Path(p).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
-        storage.push_file(Path(p), f"{R2_PREFIX}/{rel}")
+        rel = Path(p).resolve().relative_to(staging_root.resolve()).as_posix()
+        storage.push_file(Path(p), f"{r2_prefix}/{rel}")
     except Exception:  # noqa: BLE001 — best-effort mirror
         pass
 
@@ -117,7 +186,7 @@ _REF_MUTATING_ROUTES = {
 # Secrets (comfy.org key) come from env, never persisted here.
 DEFAULT_CONFIG = {
     "manifest_path": "atlas_manifest_symbols.json",
-    "comfy_host": COMFY_HOST,
+    "comfy_host": str(COMFY_HOST),
     "pipeline": "sdxl",
     "checkpoint": "juggernautXL_ragnarokBy.safetensors",
     "lora": "gameIconInstitute3d_v10.safetensors",
@@ -2294,8 +2363,11 @@ class Handler(BaseHTTPRequestHandler):
         single-`?project=` requests fall back to the env-default client (no
         cross-tool client lookup — the launcher always passes both now).
 
-        On a real switch we re-resolve paths + re-hydrate staging under a lock
-        so an interleaved request never sees half-hydrated staging."""
+        The chosen context is set on THIS request thread (thread-local), so a
+        concurrent request for a different project is fully isolated. The path
+        proxies (BATCH_DIR / INPUT_DIR / ...) and project_paths.resolve() both
+        read this thread's context, so no module-global copy and no global lock
+        are needed."""
         self._extra_cookies = []
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         p_param = (q.get("project", [""])[0] or "").strip()
@@ -2320,10 +2392,11 @@ class Handler(BaseHTTPRequestHandler):
             self._extra_cookies.append(
                 f"iw_client={chosen_client}; Path=/; SameSite=None; Secure")
 
-        with _project_lock:
-            pp = project_paths.switch_context(chosen_client, chosen_project)
-            if pp is not None:
-                _apply_project_paths(pp)
+        # Thread-local: switch_context sets THIS request thread's context and
+        # (on a real switch) hydrates its staging. The path proxies pick the
+        # new context up automatically on their next access — no module-global
+        # copy to refresh, no lock.
+        project_paths.switch_context(chosen_client, chosen_project)
 
     # Back-compat alias — kept so any legacy in-process call still works.
     def _resolve_project(self) -> None:
@@ -2670,22 +2743,22 @@ class Handler(BaseHTTPRequestHandler):
         handoff landing under atlas_maker/<c>/<p>/manifests/) show up without a
         service restart or a project switch.
 
-        The active context is already applied to the module globals by
+        The active context is already set on this request thread by
         do_POST -> _resolve_context(); we re-derive the same (client_key,
         proj_key, staging_root) cloud_paths would for it and force-hydrate.
         hydrate() pulls manifests + config SYNCHRONOUSLY (so list_manifests()
         is fresh by the time we return) and backgrounds the heavy refs/outputs
-        pull — same split as boot. We guard with _project_lock so an interleaved
-        request can't observe half-hydrated staging. Never 500s on an R2 hiccup:
-        a transient failure returns an actionable message instead."""
+        pull — same split as boot. The hydrate targets THIS request thread's own
+        per-(client, project) staging tree (thread-local context), so concurrent
+        different-project refreshes can't collide — no lock. Never 500s on an R2
+        hiccup: a transient failure returns an actionable message instead."""
         try:
-            with _project_lock:
-                client_key = project_paths._safe_proj_name(
-                    project_paths.client_name())
-                proj_key = project_paths._safe_proj_name(
-                    project_paths.project_name())
-                project_paths.hydrate(client_key, proj_key, STAGING_ROOT,
-                                      force=True)
+            client_key = project_paths._safe_proj_name(
+                project_paths.client_name())
+            proj_key = project_paths._safe_proj_name(
+                project_paths.project_name())
+            project_paths.hydrate(client_key, proj_key, Path(STAGING_ROOT),
+                                  force=True)
             n = len(list_manifests())
         except Exception as e:  # noqa: BLE001 — transient R2 issue, not fatal
             return ("↻ Refresh from R2 hit a snag — try again in a moment "

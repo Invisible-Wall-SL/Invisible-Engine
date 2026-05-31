@@ -147,28 +147,117 @@ CFG = load_config()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
-# Subprocess context: ui_server passes the active (client, project) through
-# IW_CLIENT_NAME + IW_PROJECT_NAME so resolve() below builds paths under the
-# right atlas_maker/<client>/<project>/ prefix instead of the env default.
+
+# Context handoff:
+#   - As a SUBPROCESS (generation), ui_server passes the active (client,
+#     project) via IW_CLIENT_NAME + IW_PROJECT_NAME, so this process has a
+#     single, correct env context.
+#   - When IMPORTED BY ui_server, helper functions here (atlas_file_path,
+#     normalize_shape_ref, source_image_candidates, resolve_manifest_arg, …)
+#     run on a REQUEST THREAD whose (client, project) is thread-local. So the
+#     per-(client, project) path globals below must resolve LIVE per access,
+#     never freeze the import-time env-default context — otherwise a non-default
+#     project's refs/manifests would resolve into the env-default staging tree
+#     (cross-tenant corruption). They are bound to tiny proxies that re-resolve
+#     project_paths.resolve() on every use; existing `INPUT_DIR / x`,
+#     `BATCH_DIR.mkdir()`, f"{COMFY_PREFIX_BASE}/…" usage is unchanged.
+
+
+class _PathProxy:
+    """A Path that always reflects the calling thread's resolved context.
+
+    `_key` indexes project_paths.resolve(). Delegates every attribute/operator
+    to a freshly-resolved Path, so all pathlib usage works unchanged and is
+    request-local under ui_server's ThreadingHTTPServer."""
+
+    __slots__ = ("_key",)
+
+    def __init__(self, key: str):
+        self._key = key
+
+    def _live(self) -> Path:
+        return Path(project_paths.resolve()[self._key])
+
+    def __fspath__(self) -> str:
+        return str(self._live())
+
+    def __str__(self) -> str:
+        return str(self._live())
+
+    def __repr__(self) -> str:
+        return repr(self._live())
+
+    def __truediv__(self, other):
+        return self._live() / other
+
+    def __rtruediv__(self, other):
+        return other / self._live()
+
+    def __eq__(self, other):
+        return self._live() == other
+
+    def __hash__(self):
+        return hash(self._live())
+
+    def __getattr__(self, name):
+        return getattr(self._live(), name)
+
+
+class _StrProxy:
+    """A str that always reflects the calling thread's resolved context (used
+    for OUTPUT_PREFIX / COMFY_PREFIX_BASE)."""
+
+    __slots__ = ("_key",)
+
+    def __init__(self, key: str):
+        self._key = key
+
+    def _live(self) -> str:
+        return str(project_paths.resolve().get(self._key) or "")
+
+    def __str__(self) -> str:
+        return self._live()
+
+    def __bool__(self) -> bool:
+        return bool(self._live())
+
+    def __format__(self, spec) -> str:
+        return format(self._live(), spec)
+
+    def __eq__(self, other):
+        return self._live() == other
+
+    def __hash__(self):
+        return hash(self._live())
+
+    def __getattr__(self, name):
+        return getattr(self._live(), name)
+
+
+# ComfyUI endpoint + headers come from env (COMFY_URL / CF Access), identical
+# for every project, so a one-time snapshot is fine and not a race surface.
 _PP = project_paths.resolve()
 COMFY_HOST = _PP["comfy_host"]
 # Cloud: full tunnel base URL (https) + Cloudflare Access headers + non-blocked
 # User-Agent. comfy_post/get/view all target COMFY_BASE with CF_HEADERS.
 COMFY_BASE = (_PP.get("comfy_url") or f"http://{COMFY_HOST}").rstrip("/")
 CF_HEADERS = dict(_PP.get("cf_headers") or {})
-BATCH_DIR = _PP["batch_dir"]
-ATLAS_DIR = _PP["atlas_dir"]
-INPUT_DIR = _PP["input_dir"]
+
+# Per-(client, project) — MUST be live (thread-local) for the imported-by-UI
+# path; in the subprocess they resolve the single env context, unchanged.
+BATCH_DIR = _PathProxy("batch_dir")
+ATLAS_DIR = _PathProxy("atlas_dir")
+INPUT_DIR = _PathProxy("input_dir")
 # Where manifests (and `.atlas` files picked into the tool) live in the
 # R2-backed staging mirror — NOT the script dir. A bare `--manifest` name must
 # resolve here, else compose/slice hit /app/<name> and FileNotFoundError.
-MANIFEST_DIR = _PP["manifest_dir"]
-OUTPUT_PREFIX = _PP["output_prefix"]
+MANIFEST_DIR = _PathProxy("manifest_dir")
+OUTPUT_PREFIX = _StrProxy("output_prefix")
 # Phase 2: ComfyUI's output root is the SHARED workspace, so the
 # filename_prefix we hand it must include the per-tool + per-project
 # namespace (e.g. "atlas_maker/Borut_Hotfruits/HotFruits/batch/h3") or
 # variants land in the wrong project's folder.
-COMFY_PREFIX_BASE = _PP["comfy_filename_prefix_base"]
+COMFY_PREFIX_BASE = _StrProxy("comfy_filename_prefix_base")
 
 MOCKUP_IMAGE = CFG["mockup_image"]
 CHECKPOINT = CFG["checkpoint"]
@@ -1452,8 +1541,12 @@ def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
         fname = os.path.basename(filename) or f"{region_name}_view.png"
         dest = BATCH_DIR / fname
         dest.write_bytes(blob)
-        r2_prefix = _PP.get("r2_project_prefix")
-        out_prefix = _PP.get("output_prefix")
+        # Resolve the prefixes live (thread-local context) rather than the
+        # import-time _PP snapshot, so a UI-process call reflects the calling
+        # thread's project (the generate subprocess has a single env context).
+        _pp = project_paths.resolve()
+        r2_prefix = _pp.get("r2_project_prefix")
+        out_prefix = _pp.get("output_prefix")
         if r2_prefix and out_prefix:
             try:
                 import storage

@@ -12,13 +12,21 @@ Extra keys added to resolve(): `comfy_url`, `cf_headers`, `manifest_dir`,
 `r2_project_prefix`, plus key-root helpers.
 
 **Client isolation (Option B):** R2 layout is `<tool>/<client>/<project>/...`.
-Module state carries BOTH the active client and active project; `set_context`
-/ `switch_context` swap them atomically.
+
+**Concurrency (request-local context):** the server is a ThreadingHTTPServer
+(one thread per request), so the active (client, project) is held in a
+`threading.local()` — thread-local == request-local. `set_context` /
+`switch_context` write the CALLING thread's local; `resolve()` reads the calling
+thread's state (falling back to env defaults if this thread hasn't set one).
+Two concurrent requests for different projects each see their own context;
+reads are lock-free. The staging tree is keyed by (client, project) too, so
+their local-disk trees never collide.
 """
 from __future__ import annotations
 
 import os
 import re
+import threading
 from pathlib import Path
 
 import storage
@@ -70,40 +78,52 @@ def env_client() -> str:
     )
 
 
-# Current (client, project) for this process. Defaults from env; set_context()
-# switches them at runtime. Kept as module state so every resolve() — and thus
-# every path other modules read — reflects the switch.
-_CURRENT_CLIENT: str = env_client()
-_CURRENT_PROJECT: str = env_project()
+# Request-local context. Under ThreadingHTTPServer each request runs on its own
+# thread, so a thread-local store is effectively a per-request store. A thread
+# that has not set a context falls back to the env defaults (see _ctx()).
+_ctx = threading.local()
+
+
+def _ctx_get() -> tuple[str, str]:
+    """The calling thread's (client, project), env defaults if unset."""
+    client = getattr(_ctx, "client", None)
+    project = getattr(_ctx, "project", None)
+    if client is None or project is None:
+        client = env_client()
+        project = env_project()
+        _ctx.client = client
+        _ctx.project = project
+    return client, project
 
 
 def project_name() -> str:
-    return _CURRENT_PROJECT
+    return _ctx_get()[1]
 
 
 def client_name() -> str:
-    return _CURRENT_CLIENT
+    return _ctx_get()[0]
 
 
 def set_context(client: str | None, project: str | None) -> bool:
-    """Switch the active (client, project) at runtime. Idempotent if unchanged.
+    """Switch THIS thread's active (client, project). Idempotent if unchanged.
 
     Validates both keys against the slug contract; invalid/empty falls back to
-    the env default for that key. Returns True if EITHER actually changed — the
-    caller should then re-resolve paths and re-hydrate staging."""
-    global _CURRENT_CLIENT, _CURRENT_PROJECT
+    the env default for that key. Returns True if EITHER actually changed for
+    this thread — the caller should then re-resolve paths and re-hydrate
+    staging."""
+    cur_client, cur_project = _ctx_get()
     new_client = valid_client((client or "").strip()) or env_client()
     new_project = valid_project((project or "").strip()) or env_project()
-    if new_client == _CURRENT_CLIENT and new_project == _CURRENT_PROJECT:
+    if new_client == cur_client and new_project == cur_project:
         return False
-    _CURRENT_CLIENT = new_client
-    _CURRENT_PROJECT = new_project
+    _ctx.client = new_client
+    _ctx.project = new_project
     return True
 
 
 # Back-compat alias for code that still calls the old single-key entry point.
 def set_project(key: str) -> bool:
-    return set_context(_CURRENT_CLIENT, key)
+    return set_context(client_name(), key)
 
 
 def comfy_url() -> str:
@@ -132,7 +152,10 @@ def r2_project_prefix(client_key: str, proj_key: str) -> str:
     return prefix_for_tool(TOOL_NAMESPACE, client_key, proj_key)
 
 
+# (client, project) pairs already hydrated this process. Shared across threads,
+# so a tiny lock guards the set; the actual pull is best-effort.
 _HYDRATED: set[tuple[str, str]] = set()
+_HYDRATE_LOCK = threading.Lock()
 
 
 def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = False) -> None:
@@ -148,9 +171,10 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
     already hydrated this process, so the new context's freshest manifests are
     in staging before it's served."""
     key = (client_key, proj_key)
-    if key in _HYDRATED and not force:
-        return
-    _HYDRATED.add(key)
+    with _HYDRATE_LOCK:
+        if key in _HYDRATED and not force:
+            return
+        _HYDRATED.add(key)
     base = r2_project_prefix(client_key, proj_key)
     kr = base + "/"
 
@@ -162,8 +186,6 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
             pass
 
     # Background: refs + outputs (large; only needed for thumbnails/generation).
-    import threading
-
     def _bg() -> None:
         for sub in ("input/", "output/"):
             try:
@@ -182,8 +204,8 @@ def resolve() -> dict:
     # Output sub-prefix is now ALWAYS the project key (was a separate env).
     prefix_name = proj_key
 
-    # Staging is keyed by (client, project) so two contexts don't collide on
-    # disk if a session ever switches between them mid-process.
+    # Staging is keyed by (client, project) so two contexts (e.g. two
+    # concurrent requests on different threads) never collide on local disk.
     staging_root = STAGING_BASE / client_key / proj_key
     input_dir = staging_root / "input"
     output_root = staging_root / "output"
@@ -221,12 +243,13 @@ def resolve() -> dict:
 
 
 def switch_context(client: str | None, project: str | None) -> dict | None:
-    """Set the active (client, project) and, if changed, re-hydrate its staging
-    from R2. Returns the fresh resolve() dict on a real switch, else None.
+    """Set THIS thread's active (client, project) and, if changed, re-hydrate
+    its staging from R2. Returns the fresh resolve() dict on a real switch, else
+    None.
 
-    Resolution/validation lives in set_context(); the caller (request handler)
-    should guard this with its own lock so an interleaved request can't observe
-    half-hydrated staging."""
+    Resolution/validation lives in set_context(); because the context is
+    thread-local, a concurrent request on another thread can't observe this
+    thread's switch — no global lock is needed around the switch itself."""
     if not set_context(client, project):
         return None
     pp = resolve()  # rebuilds paths/prefix for the new (c,p) + mkdir's them
@@ -241,7 +264,7 @@ def switch_context(client: str | None, project: str | None) -> dict | None:
 
 # Back-compat: old single-key entrypoint maps onto the current client.
 def switch_project(key: str) -> dict | None:
-    return switch_context(_CURRENT_CLIENT, key)
+    return switch_context(client_name(), key)
 
 
 # Compatibility no-ops for callers that import these from project_paths.

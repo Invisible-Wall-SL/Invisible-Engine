@@ -21,7 +21,6 @@ import json
 import os
 import re
 import sys
-import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,32 +35,23 @@ import storage             # noqa: E402  (R2 object storage + staging mirror)
 
 SELF = Path(__file__).resolve().parent
 
-_PP = project_paths.resolve()
-STAGING_ROOT = _PP["staging_root"]
-R2_PREFIX = _PP.get("r2_project_prefix")
-ATLAS_MANIFEST_PREFIX = _PP.get("atlas_maker_manifest_prefix")
 
-# Cloud: config lives in the R2-backed staging tree (not the app dir) so user
-# edits survive container restarts.
-CONFIG_PATH = STAGING_ROOT / "sheet_config.json"
+# Per-request path resolution. There is NO module-level copy of the active
+# (client, project): each handler/helper resolves the paths it needs from
+# project_paths.resolve() at call time, on the request's own thread. This is
+# what makes the service safe under concurrent different-project requests — a
+# global set by one request's thread can never be read by another's.
+def _ctx() -> dict:
+    """Resolve this request thread's paths from the thread-local context."""
+    pp = project_paths.resolve()
+    return {
+        "pp": pp,
+        "staging_root": pp["staging_root"],
+        "r2_prefix": pp.get("r2_project_prefix"),
+        "atlas_manifest_prefix": pp.get("atlas_maker_manifest_prefix"),
+        "config_path": pp["staging_root"] / "sheet_config.json",
+    }
 
-# Project-centric mode: the launcher sends `?project=<key>` on the first
-# request. We remember it in a cookie and re-hydrate staging on a switch.
-# Serialised so an interleaved request can't observe half-hydrated staging.
-_project_lock = threading.Lock()
-
-
-def _apply_project_paths(pp: dict) -> None:
-    """Re-point every module-level path at the (possibly new) project. Other
-    functions read these via global lookup at call time (and the path helpers
-    call resolve() fresh), so reassigning the module globals here genuinely
-    redirects all file ops to the new project."""
-    global _PP, STAGING_ROOT, R2_PREFIX, ATLAS_MANIFEST_PREFIX, CONFIG_PATH
-    _PP = pp
-    STAGING_ROOT = pp["staging_root"]
-    R2_PREFIX = pp.get("r2_project_prefix")
-    ATLAS_MANIFEST_PREFIX = pp.get("atlas_maker_manifest_prefix")
-    CONFIG_PATH = STAGING_ROOT / "sheet_config.json"
 
 PORT = int(os.environ.get("PORT", "8766"))
 HOST = os.environ.get("SHEET_BIND_HOST", "0.0.0.0")
@@ -77,22 +67,26 @@ SHEET_TOOL_SECRET = os.environ.get("SHEET_TOOL_SECRET", "")
 
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
-    if not (R2_PREFIX and STAGING_ROOT):
+    ctx = _ctx()
+    r2_prefix, staging_root = ctx["r2_prefix"], ctx["staging_root"]
+    if not (r2_prefix and staging_root):
         return
     try:
-        rel = Path(p).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
-        storage.push_file(Path(p), f"{R2_PREFIX}/{rel}")
+        rel = Path(p).resolve().relative_to(Path(staging_root).resolve()).as_posix()
+        storage.push_file(Path(p), f"{r2_prefix}/{rel}")
     except Exception:  # noqa: BLE001 — best-effort mirror
         pass
 
 
 def _mirror_dir(d: Path) -> None:
     """Mirror every file under a staging dir to R2 (used after upload/load)."""
-    if not (R2_PREFIX and STAGING_ROOT):
+    ctx = _ctx()
+    r2_prefix, staging_root = ctx["r2_prefix"], ctx["staging_root"]
+    if not (r2_prefix and staging_root):
         return
     try:
-        rel = Path(d).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
-        storage.push_dir(Path(d), f"{R2_PREFIX}/{rel}")
+        rel = Path(d).resolve().relative_to(Path(staging_root).resolve()).as_posix()
+        storage.push_dir(Path(d), f"{r2_prefix}/{rel}")
     except Exception:  # noqa: BLE001
         pass
 
@@ -102,15 +96,18 @@ def _mirror_dir(d: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
+    config_path = _ctx()["config_path"]
     try:
-        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
 def save_config(cfg: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    _mirror(CONFIG_PATH)
+    config_path = _ctx()["config_path"]
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    _mirror(config_path)
 
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -216,7 +213,7 @@ def api_state() -> dict:
         "project_locked": bool((os.environ.get("IW_PROJECT_NAME") or "").strip()),
         # In the cloud the Atlas Maker is always reachable over R2 (no sibling
         # folder); the authored manifest is handed off to its R2 prefix.
-        "atlas_maker_found": bool(ATLAS_MANIFEST_PREFIX),
+        "atlas_maker_found": bool(_ctx()["atlas_manifest_prefix"]),
         "sheets": sheets,
         "defaults": {
             "canvas_w": cfg.get("width", 1024),
@@ -330,10 +327,12 @@ def api_export(payload: dict) -> dict:
     # ingests them instead of forcing a manual re-pick). The export landed in
     # the staging `output/<sheet>/` dir, which mirrors `{R2_PREFIX}/output/<sheet>`;
     # the loose trims (per-region sprites) live under `{R2_PREFIX}/input/<sheet>`.
+    ctx = _ctx()
+    r2_prefix = ctx["r2_prefix"]
     sheet_key = safe_name(sheet)
-    export_prefix = f"{R2_PREFIX}/output/{sheet_key}" if R2_PREFIX else ""
+    export_prefix = f"{r2_prefix}/output/{sheet_key}" if r2_prefix else ""
     source_image_key = f"{export_prefix}/{sheet_png.name}" if export_prefix else ""
-    input_prefix = f"{R2_PREFIX}/input/{sheet_key}" if R2_PREFIX else ""
+    input_prefix = f"{r2_prefix}/input/{sheet_key}" if r2_prefix else ""
     region_shape_keys = {
         r["name"]: f"{input_prefix}/{r['src']}"
         for r in regions if input_prefix and r.get("src")
@@ -373,9 +372,10 @@ def api_export(payload: dict) -> dict:
         written.append(str(mp))
         # Cloud handoff: drop the manifest into the Atlas Maker's R2 prefix so
         # its manifest list picks it up (after that service restarts/hydrates).
-        if ATLAS_MANIFEST_PREFIX:
+        atlas_manifest_prefix = ctx["atlas_manifest_prefix"]
+        if atlas_manifest_prefix:
             try:
-                storage.put(f"{ATLAS_MANIFEST_PREFIX}/{man_name}",
+                storage.put(f"{atlas_manifest_prefix}/{man_name}",
                             mp.read_bytes(), "application/json")
                 manifest_note = ("Manifest handed off to Atlas Maker (R2) -> "
                                  f"{man_name}. Restart the Atlas Maker to list it.")
@@ -676,8 +676,9 @@ class Handler(BaseHTTPRequestHandler):
         navigation (which drops the param) stays in the same context. Legacy
         single-`?project=` requests fall back to the env-default client.
 
-        On a real switch we re-resolve paths + re-hydrate staging under a lock
-        so an interleaved request never sees half-hydrated staging."""
+        The chosen context is set on THIS request thread (thread-local), so a
+        concurrent request for a different project is fully isolated — no shared
+        module state, no lock needed."""
         self._extra_cookies = []
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         p_param = (q.get("project", [""])[0] or "").strip()
@@ -702,10 +703,11 @@ class Handler(BaseHTTPRequestHandler):
             self._extra_cookies.append(
                 f"iw_client={chosen_client}; Path=/; SameSite=None; Secure")
 
-        with _project_lock:
-            pp = project_paths.switch_context(chosen_client, chosen_project)
-            if pp is not None:
-                _apply_project_paths(pp)
+        # Thread-local context: switch_context writes THIS request thread's
+        # state and (on a real switch) hydrates its staging. No global lock and
+        # no module-global copy — every handler reads paths via _ctx() at call
+        # time, so concurrent requests for different projects can't interfere.
+        project_paths.switch_context(chosen_client, chosen_project)
 
     # Back-compat alias — kept so any legacy in-process call still works.
     def _resolve_project(self) -> None:
