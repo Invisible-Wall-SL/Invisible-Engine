@@ -1,0 +1,99 @@
+import { error, type Cookies } from '@sveltejs/kit';
+import { roleHasTool } from '$lib/roles';
+import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
+import { type ToolNs, UNASSIGNED_CLIENT, projectPrefix } from '$lib/server/projectPaths';
+import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { getToolOverrides } from '$lib/server/userToolAccess';
+
+/**
+ * Single source of truth for tool access scoping in the launcher: the auth+role
+ * gate, the session-bound `(client, project)` resolution, and the R2-key prefix
+ * allow-list. The FTP browser (`ftpScope.ts`) and the editor endpoints both build
+ * on this, so the prefix layout and gate sequence live in exactly ONE place.
+ */
+
+/** The tool id accepted by `roleHasTool` (kept in sync via its signature). */
+type ToolId = Parameters<typeof roleHasTool>[1];
+
+/**
+ * The tool namespaces a project owns under R2. A project may only ever touch
+ * keys under its OWN `<ns>/<client>/<project>/` prefixes — never another
+ * client/project, and (unless explicitly opted-in) never `spines/_shared/`.
+ */
+export const PROJECT_TOOL_NS: ToolNs[] = [
+	'atlas_maker',
+	'sheet_maker',
+	'localization',
+	'editor',
+	'spines',
+];
+
+export interface ScopeOptions {
+	/** Editor-only: also allow the cross-project `spines/_shared/` bundles. */
+	includeSharedSpines?: boolean;
+}
+
+/** Every R2-key prefix (trailing `/`) the active `(client, project)` may touch. */
+export function allowedPrefixes(
+	clientKey: string,
+	projectKey: string,
+	opts: ScopeOptions = {},
+): string[] {
+	const prefixes = PROJECT_TOOL_NS.map((ns) => `${projectPrefix(ns, clientKey, projectKey)}/`);
+	if (opts.includeSharedSpines) prefixes.push('spines/_shared/');
+	return prefixes;
+}
+
+/** True when `key` is non-empty, escape-free, and inside an allowed prefix. */
+export function isKeyAllowed(key: string, prefixes: string[]): boolean {
+	if (!key || key.includes('..') || key.startsWith('/')) return false;
+	return prefixes.some((p) => key.startsWith(p));
+}
+
+/** Throw 403 unless `key` is allowed for the given prefix set. */
+export function assertAllowed(key: string, prefixes: string[], message = 'forbidden'): void {
+	if (!isKeyAllowed(key, prefixes)) throw error(403, message);
+}
+
+export interface GateOptions {
+	/** Tool id the caller's role/user must be entitled to. */
+	tool: ToolId;
+	/** 403 message when the entitlement check fails. */
+	forbiddenMessage: string;
+	/** Pass through to `allowedPrefixes` (editor opts into `spines/_shared/`). */
+	includeSharedSpines?: boolean;
+}
+
+export interface ToolScope {
+	clientKey: string;
+	projectKey: string;
+	/** The allow-list for this scope (already honours `includeSharedSpines`). */
+	prefixes: string[];
+}
+
+/**
+ * Auth + role gate shared by every scoped tool route. Throws 401 when not logged
+ * in, 403 when the role/user lacks the tool, then resolves the SESSION-BOUND
+ * active project to its `(client, project)` (never a request param) and returns
+ * the matching prefix allow-list.
+ */
+export async function gate(
+	locals: App.Locals,
+	cookies: Cookies,
+	opts: GateOptions,
+): Promise<ToolScope> {
+	if (!locals.user) throw error(401, 'Not authenticated');
+	const roleOverrides = await getRoleOverrides(locals.user.role);
+	const overrides = await getToolOverrides(locals.user.id);
+	if (!roleHasTool(locals.user.role, opts.tool, roleOverrides, overrides)) {
+		throw error(403, opts.forbiddenMessage);
+	}
+	const projectKey =
+		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
+	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const prefixes = allowedPrefixes(clientKey, projectKey, {
+		includeSharedSpines: opts.includeSharedSpines,
+	});
+	return { clientKey, projectKey, prefixes };
+}
