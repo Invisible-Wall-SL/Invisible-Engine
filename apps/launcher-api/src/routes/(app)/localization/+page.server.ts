@@ -1,16 +1,18 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
-import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
+import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { loadDoc, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { TranslateError, translateBatch } from '$lib/server/translate';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Auth + role gate shared by the loader and every action. Returns `(client, project)`. */
+/**
+ * Auth + role gate for actions, where `await parent()` is unavailable so the
+ * effective tool manifest must be recomputed. The loader instead reuses the
+ * parent layout's already-resolved `tools` (see `load`). Returns `(client, project)`.
+ */
 async function gate(
 	locals: App.Locals,
 	cookies: import('@sveltejs/kit').Cookies,
@@ -21,10 +23,7 @@ async function gate(
 	if (!roleHasTool(locals.user.role, 'localization', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Localization.');
 	}
-	const projectKey =
-		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	return { clientKey, projectKey };
+	return getActiveScope(cookies.get(SESSION_COOKIE));
 }
 
 /** Parse the `doc` form field (JSON) into a normalized document. */
@@ -33,8 +32,13 @@ function parseDocField(raw: FormDataEntryValue | null): LocalizationDoc {
 	return normalizeDoc(JSON.parse(raw));
 }
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies);
+export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
+	if (!locals.user) throw redirect(303, '/login');
+	const { tools } = await parent();
+	if (!tools.some((t) => t.id === 'localization')) {
+		throw error(403, 'Your role does not have access to Invisible Localization.');
+	}
+	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
 	return { projectKey, doc: await loadDoc(clientKey, projectKey) };
 };
 

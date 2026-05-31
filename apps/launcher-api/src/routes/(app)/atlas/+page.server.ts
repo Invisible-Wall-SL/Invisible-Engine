@@ -1,18 +1,14 @@
 import { error, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
-import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
+import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
+export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'atlasTool', roleOverrides, overrides)) {
+	// The parent layout already resolved the effective tool manifest; reuse it
+	// instead of re-querying the role/user overrides (same gate, fewer queries).
+	const { tools } = await parent();
+	if (!tools.some((t) => t.id === 'atlasTool')) {
 		throw error(403, 'Your role does not have access to the Invisible Atlas Maker.');
 	}
 
@@ -24,8 +20,9 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 	// to look the client up itself.
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
 	if (base) {
-		const project = (await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
-		const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
+		const { projectKey: project, clientKey: client } = await getActiveScope(
+			cookies.get(SESSION_COOKIE),
+		);
 		const params = new URLSearchParams();
 		if (ENV.ATLAS_TOOL_SECRET) params.set('k', ENV.ATLAS_TOOL_SECRET);
 		params.set('client', client);

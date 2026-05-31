@@ -2,7 +2,9 @@ import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
-import { sessions, users } from './db/schema';
+import { projects, sessions, users } from './db/schema';
+import { UNASSIGNED_CLIENT } from './projectPaths';
+import { DEFAULT_PROJECT_KEY, projectClientKey } from './projects';
 import type { Role } from '$lib/roles';
 
 const scrypt = promisify(_scrypt);
@@ -109,6 +111,33 @@ export async function getActiveProjectKey(raw: string | undefined): Promise<stri
 		.from(sessions)
 		.where(eq(sessions.id, await sha256(raw)));
 	return row?.activeProjectKey ?? null;
+}
+
+/**
+ * Resolve the session's active `(project, client)` scope in one query. Mirrors
+ * the old `(getActiveProjectKey(token) ?? DEFAULT_PROJECT_KEY)` +
+ * `(projectClientKey(key) ?? UNASSIGNED_CLIENT)` pair exactly: the join carries
+ * the owning client when the active project exists; the fallback second query
+ * only runs when the join yields no client (no session, active unset, the active
+ * project was deleted, or its `clientKey` is null) — the common path is one query.
+ */
+export async function getActiveScope(
+	raw: string | undefined,
+): Promise<{ projectKey: string; clientKey: string }> {
+	let row: { projectKey: string | null; clientKey: string | null } | undefined;
+	if (raw) {
+		[row] = await getDb()
+			.select({ projectKey: sessions.activeProjectKey, clientKey: projects.clientKey })
+			.from(sessions)
+			.leftJoin(projects, eq(sessions.activeProjectKey, projects.key))
+			.where(eq(sessions.id, await sha256(raw)))
+			.limit(1);
+	}
+
+	const projectKey = row?.projectKey ?? DEFAULT_PROJECT_KEY;
+	let clientKey = row?.clientKey ?? null;
+	if (!clientKey) clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	return { projectKey, clientKey };
 }
 
 /** Set (or clear with null) the active project for the current session. */
