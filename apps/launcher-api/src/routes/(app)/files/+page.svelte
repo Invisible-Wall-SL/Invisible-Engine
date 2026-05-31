@@ -43,6 +43,27 @@
 		return trimmed.slice(trimmed.lastIndexOf('/') + 1);
 	}
 
+	/** Friendly names for the top-level tool-namespace folders shown at root. */
+	const NS_LABELS: Record<string, string> = {
+		atlas_maker: 'Atlas Maker',
+		sheet_maker: 'Sheet Maker',
+		localization: 'Localization',
+		editor: 'Editor',
+		spines: 'Spines',
+	};
+
+	/**
+	 * Folder display label. At root the five entries share the same final segment
+	 * (`<project>`), so label them by their tool namespace (first segment) instead.
+	 */
+	function folderLabel(key: string): string {
+		if (atRoot) {
+			const ns = key.split('/')[0];
+			return NS_LABELS[ns] ?? ns;
+		}
+		return `${basename(key)}/`;
+	}
+
 	function humanSize(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`;
 		const units = ['KB', 'MB', 'GB', 'TB'];
@@ -228,7 +249,7 @@
 			<div class="row folder">
 				<span class="cell name">
 					<button type="button" class="namebtn" onclick={() => openFolder(f)}>
-						📁 {basename(f)}/
+						📁 {folderLabel(f)}
 					</button>
 				</span>
 				<span class="cell size"></span>
