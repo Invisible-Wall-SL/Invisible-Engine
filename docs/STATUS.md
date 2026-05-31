@@ -1,7 +1,7 @@
 # Project status & roadmap
 
 > Where things stand and what's left. Update this at the end of meaningful work.
-> Last updated: 2026-05-29.
+> Last updated: 2026-05-31.
 
 There are two tracks in this repo:
 1. **Engine & games** — the Stake-Engine fork (pixi-svelte, Svelte 5, PixiJS 8) + the games.
@@ -18,6 +18,7 @@ There are two tracks in this repo:
 ## Track 2 — Studio / pipeline tools
 
 ### Done
+- **Invisible Sheet Maker (`services/sheet-tool`) — project-file workflow** ✅ code (2026-05-31). Added a project-file model to the Sheet Maker. The single editable **Sheet name** is now the project identity (removed the separate "Base filename" field) and drives both the output folder and the `atlas_manifest_<name>.json` filename. **Load existing** now lists only sheet projects (`atlas_manifest_*.json`) + folders; raw `.atlas`/TexturePacker/PNG moved behind an **Import…** toggle (`api_browse ?mode=import`). `api_load` now returns `source_path`/`source_dir`/`name`/`is_project` so the loaded file identity persists. UI shows an always-visible "Editing: …" line + a live "Saves to: …" destination readout. Replaced the single Export button with **Save** (overwrites the loaded manifest in place via `dest_dir`) and **Save As** (writes a new project under the current name) — editing the name before Save forks via Save As rather than clobbering the original. Manifest JSON schema + the exported file set are unchanged (still compatible with Atlas Maker / Spine / engine).
 - **Invisible FTP Browser — project-scoped R2 file manager** ✅ code (2026-05-31). New online launcher tool (`ftpBrowser`, `/files`) — an in-launcher full-page UI (NOT a redirect) to browse + manage the R2 bucket: navigate folders, download, upload, overwrite, delete (single file + recursive folder), and move/rename (copy-then-delete; R2 has no native move). **Strictly scoped to the active client/project** — the same security model as the editor asset endpoint: a shared `gate()` (`src/lib/server/ftpScope.ts`) requires login + the `ftpBrowser` tool entitlement and resolves `(client, project)` from the **session-bound** active project (never a request param); `assertAllowed()` rejects `..`/leading-`/`/empty and requires every key to start with one of `allowedPrefixes(c,p)` = the project's OWN `atlas_maker|sheet_maker|localization|editor|spines/<client>/<project>/` prefixes (no `spines/_shared/`, no cross-project). Delete/move on a folder re-validate every server-enumerated key + computed destination (defense in depth); upload sanitizes each filename to a bare basename + caps the request at 200 MB. **Files:** `src/lib/server/ftpScope.ts`; `src/routes/api/files/{list,download,upload,delete,move}/+server.ts` (each self-gates); `src/routes/(app)/files/+page.{server.ts,svelte}` (client-driven via fetch); extended `src/lib/server/r2.ts` (`putObjectBytes`, `deleteObject`, `deleteObjects` ≤1000 batches, `copyObject`, `listAllKeys` recursive-paginated, `listFolder` with size+lastModified — `listObjects` left untouched). Registry: `ftpBrowser` added to `TOOLS`, to `developer` in `ROLE_TOOLS` (admin gets all), + doc slug. Doc: `docs/tools/ftp-browser.md`. Default roles admin + developer (configurable via the live role matrix). `pnpm --filter launcher-api build` GREEN. **NOT browser-tested against live R2:** verify binary upload, recursive delete/move + `Load more` pagination, and that R2 decodes the `%2F`-encoded `CopySource` (move/rename) correctly.
 - **atlas-tool — `rembg` on/off toggle for full-bleed backgrounds** ✅ live (2026-05-31). SDXL + FLUX builders always ran the RMBG subject-cutout, so a full-image background got alpha-erased. New `rembg` setting (default ON = transparent icons, unchanged): OFF saves the raw VAE decode (node 14) and drops the RMBG node → opaque full-bleed render. Per-atlas overridable (on/off select, blank = inherit) + per-region. `REMBG` normalized to bool at load; both builder call sites coerce via `_truthy`. Runtime-verified (rembg=off → no node 16, save from 14). For a Ghibli background: pipeline=sdxl (not the unverified FLUX), rembg=off, LoRA off, ControlNet off unless a real composition sketch is supplied.
 - **atlas-tool — SDXL style transfer is now opt-in (no hardcoded mockup)** ✅ live (2026-05-31). `mockup_image` defaulted to the Hot Fruits leftover `hotFruits_MockUp.png`, so every SDXL region without its own `style_ref` silently fed that file through the IPAdapter — and HTTP 400'd when the file wasn't in staging. Two commits: (1) `_locate_ref_in_staging()` resolves a bare/abs/`refs/`-relative LoadImage ref before giving up (replaces the `INPUT_DIR/<relpath>`-only check in `_upload_workflow_refs`); (2) emptied the `mockup_image` default + `build_workflow` now resolves `style_ref` like the FLUX builder (`region.style_ref` → `mockup_image` if set → none) and only adds the IPAdapter chain (nodes 3/5/6) when a style ref exists — KSampler reads its model straight from the LoRA loader otherwise. UI help updated (blank mockup = skip style transfer). py_compile clean; pushed to `main`.
@@ -89,6 +90,42 @@ All assigned items (B1–B13) are done — see the Done list above. Add new item
 6. **Security** — rotate the secrets pasted during setup (R2 token, Postgres pw, CF Access service-token secret) and scrub the committed `comfy_org_api_key` in the `Invisible_Pipeline` repo. See docs/INFRA.md.
 7. **cloudflared as a service** — install it so the tunnel survives reboots. (Partial: B2 added Start/Stop tunnel buttons to the local launcher GUI, but it's not yet a persistent Windows service via `cloudflared service install`.)
 8. ✅ **Local launcher cleanup — done (2026-05-30).** Stripped all dead "local tools" code from `Invisible_Launcher.py` (the Tools tab was already hidden; this removed the leftover plumbing): the `tools`/`tools_install_dir`/`tools_server_url` config, all `*_tool` module functions, the `ToolCard`/`ToolDialog` classes, `_build_tools` + its handlers, and the Settings "Tools install folder / server URL" fields. Now manages only ComfyUI + cloudflared + projects. 2711 → 1929 lines (−782); `py_compile` clean; no residual refs. Backup at `Invisible_Launcher.py.bak-pre-toolcleanup`. (File is outside the repo — owner should run it once to confirm the GUI still opens.)
+
+### 🔍 Pipeline health evaluation (2026-05-31)
+
+Full read-only architecture/health review of the whole pipeline (Python tools + launcher + infra), run via the area subagents. The topology is sound (cloud-stateless Railway services + shared R2 system-of-record + only the GPU local); the issues are **drift, one concurrency bug, and security/process debt** — not architecture. Findings + ranked fixes (none applied yet — this is the to-do):
+
+**Cross-cutting theme — duplication by copy-paste, not sharing (fragile, drifts silently):**
+- `atlas-tool/storage.py` ≡ `sheet-tool/storage.py` (**byte-identical**); `iw_banner.py` identical too; `cloud_paths.py` ~85% identical (only env-prefix + hydrate plan differ).
+- The ComfyUI client (UA `InvisibleAtlas/1.0` + CF-Access headers — the 403 gotcha) is re-implemented **three times**: `atlas-tool/cloud_paths.py`, `atlas-tool/batch_atlas.py`, `atlas-backend/comfy.py`.
+- Launcher: the gate + "resolve active (client,project)" prelude is copy-pasted across ~9 routes (editor/localization redefine an identical `gate()` inline; only `/files` uses shared `ftpScope.ts`). **Two divergent `allowedPrefixes()`** exist (editor asset/regions allow `spines/_shared/`; ftpScope doesn't) — code even comments that they must be kept "in lockstep" by hand.
+- Odd-one-out: **atlas-backend** has no client/project context (writes flat `atlas/test/...` instead of `<tool>/<client>/<project>/`) and is the only Python service with **no Dockerfile** (Procfile/Railpack → Python 3.13 vs the others' pinned 3.12).
+
+**Real bug (not a nit) — cross-tenant race in atlas-tool + sheet-tool:** `ThreadingHTTPServer` + per-request mutation of **module-global** path state (`switch_context()` rewrites globals `INPUT_DIR`/`R2_PREFIX`/etc., `_project_lock` guards only the switch, not the handler body). Two concurrent requests for different projects interleave → one project's assets written into another's R2 prefix. Masked by single-user use; multi-user (the launcher's whole point) will hit it. Fix = request-local path resolution.
+
+**Security (live exposure):**
+- atlas-tool + sheet-tool are **anonymously reachable right now** — `ATLAS_TOOL_SECRET`/`SHEET_TOOL_SECRET` unset → code returns "allowed", so the public Railway URLs are an unauthed path to R2 read/write/delete + GPU/comfy.org spend.
+- Three leaked secrets still owe rotation (R2 token = read+write whole bucket, shared by 4 services; Postgres pw; CF Access secret).
+
+**Performance:**
+- Boot hydrate re-downloads **everything** unconditionally (~1150 ref objects, no etag/size skip); no `railway.json` in repo confirming `/data` is a persistent volume (if not, every redeploy/sleep re-pays egress).
+- atlas-tool re-uploads the **entire** INPUT_DIR serially (`push_dir`) after *any* ref edit (O(N)); `storage._client()` rebuilds a fresh boto3 client per op.
+- Launcher per-request DB fan-out: ~4 sequential queries per tool load; layout + page **both** resolve overrides + active project (fetched twice/navigation); admin `…For` helpers do full-table scans.
+
+**Ranked fixes (the working to-do):**
+1. **Set `ATLAS_TOOL_SECRET` + `SHEET_TOOL_SECRET`, rotate R2 token** — closes live anonymous-access + bucket-leak. Owner-side (Railway/CF dashboards). ~30 min. **Do first.**
+2. **Fix the threaded-server global-context race** (request-local paths) — only bug that can silently corrupt cross-tenant data. ~1–2 days.
+3. **Extract shared `iw_pipeline_common` Python pkg** (storage/r2, banner, one ComfyUI client, cloud_paths base) — kills ~300 lines of identical copy + triple-maintained UA/CF logic. ~1 day.
+4. **One shared launcher `gate()` + `resolveScope()` + single `allowedPrefixes`** — kills ~150 lines of dup; ends the "keep in lockstep" drift risk. ~half day.
+5. **Incremental hydrate + targeted single-file push + cached boto3 client + pin a `/data` volume** — removes O(N) upload per edit + full re-download per boot; unlocks scale-to-zero. ~1 day.
+6. **Collapse launcher per-request DB fan-out** (join active-project+client; resolve once in layout via `locals`). ~half day.
+7. **Bring atlas-backend into line** (client/project context, Dockerfile pinning 3.12, write under `<tool>/<client>/<project>/`). ~half day.
+8. **cloudflared as a Windows service** — removes the most likely generation outage (PC reboot drops tunnel). Low.
+
+**Process notes (project-size hygiene, not new subagents — the 5 area agents map cleanly to the seams):**
+- Big backlog of "✅ code … ⏳ live-verify owed / NOT browser-tested" — treat "code green" and "verified live" as two separate states; use the `/verify` skill as a standing discipline so the verify column doesn't grow unbounded.
+- This STATUS.md is now an append-only changelog (~B1–B18 history) — split into a short *current state + open items* doc + an archived `docs/history.md` for the done-work narrative.
+- For big sweeps (the shared-pkg refactor across 3 services; reconciling the gate across 9 routes) use multi-agent workflow orchestration rather than a new persistent agent.
 
 ### Key lessons from the 2026-05-29 session (don't repeat)
 - **Always `git push`** after committing — a Railway service can't deploy commits that are only local. (We lost time because 5 commits were committed but not pushed.)
