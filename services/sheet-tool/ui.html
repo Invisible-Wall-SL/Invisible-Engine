@@ -10,6 +10,9 @@
     border-bottom:1px solid #2a2a31;flex:none}
   header h1{font-size:15px;margin:0;font-weight:600}
   header .muted{color:#888;font-size:12px}
+  header a.homelink{color:#9ad;text-decoration:none;font-size:12px;padding:3px 9px;
+    border:1px solid #2a2a31;border-radius:6px;background:#22222a;white-space:nowrap}
+  header a.homelink:hover{background:#2a2a33;color:#bcd}
   .pill{font-size:11px;padding:2px 7px;border-radius:10px;background:#26262d;color:#9ad}
   .ok{color:#6c6}.err{color:#e66}.note{color:#cc9}
   main{flex:1;min-height:0;display:flex}
@@ -84,6 +87,7 @@
 </style></head>
 <body>
 <header>
+  <a id="homelink" href="https://app.invisiblewall.org" class="homelink" title="Back to the Launcher">← Launcher</a>
   <h1>Invisible Sheet Maker</h1>
   <span class="pill" id="build"></span>
   <span class="muted">project</span>
@@ -109,7 +113,9 @@
 
   <aside id="panel">
     <div class="card">
-      <div class="field"><label>Sheet name</label><input id="sheet" value="newsheet"></div>
+      <div class="field"><label>Sheet name</label><input id="sheet" value="newsheet" oninput="onNameInput()"></div>
+      <div class="hint" id="identity">New sheet (unsaved)</div>
+      <div class="hint" id="dest"></div>
       <div class="tabs">
         <button id="tab-upload" class="active" onclick="showTab('upload')">Upload</button>
         <button id="tab-load" onclick="showTab('load')">Load existing</button>
@@ -121,7 +127,11 @@
         <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
       </div>
       <div id="pane-load" style="display:none">
-        <div class="hint">Pick an AI manifest, .atlas, or TexturePacker JSON. Defaults to the project root.</div>
+        <div class="tabs">
+          <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
+          <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
+        </div>
+        <div class="hint" id="browsehint"></div>
         <div class="cwd" id="cwd"></div>
         <div class="browser" id="browser"></div>
         <div id="loadmsg" class="muted" style="margin-top:6px"></div>
@@ -156,12 +166,12 @@
     </div>
 
     <div class="card">
-      <h2>Export</h2>
-      <div class="field"><label>Base filename</label><input id="basename"></div>
+      <h2>Save</h2>
       <div class="field"><label>AI manifest</label><input type="checkbox" id="f_manifest" checked></div>
       <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
       <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
-      <button class="wide" onclick="doExport()">Export</button>
+      <button class="wide" onclick="doSave()">Save</button>
+      <button class="sec wide" onclick="doSaveAs()">Save As (new copy)</button>
       <div id="exportmsg" style="margin-top:8px"></div>
     </div>
   </aside>
@@ -174,6 +184,8 @@ let sel=null;                // selected src
 let zoom=1, canvasW=1024, canvasH=1024, sheetName='newsheet';
 let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused across renders)
 let activeSheet=null;        // which sheet the current canvas regions belong to
+let loadedPath=null, loadedDir=null, loadedName=null, isProject=false;  // loaded project identity
+let browseMode='projects';   // 'projects' (manifests only) | 'import' (any coords/image)
 
 const $=id=>document.getElementById(id);
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
@@ -184,6 +196,8 @@ const reg=src=>regions.find(r=>r.src===src);
 async function init(){
   STATE=await jget('/api/state');
   $('build').textContent=STATE.build;
+  const home=new URLSearchParams(location.search).get('home')||STATE.launcher_url;
+  if(home) $('homelink').href=home;
   $('amstatus').textContent=STATE.atlas_maker_found?'· Atlas Maker linked ✓':'· Atlas Maker not found';
   $('amstatus').className=STATE.atlas_maker_found?'ok':'err';
   // project dropdown
@@ -196,8 +210,22 @@ async function init(){
   canvasW=d.canvas_w; canvasH=d.canvas_h;
   $('cw').value=canvasW; $('ch').value=canvasH; $('pad').value=d.padding; $('rot').checked=d.allow_rotation;
   sheetName=$('sheet').value.trim()||'newsheet';
-  $('basename').value=sheetName;
+  updateReadouts();
   fitView();
+}
+
+/* ---------- save identity readouts ---------- */
+function currentName(){ return $('sheet').value.trim()||'newsheet'; }
+function onNameInput(){ sheetName=currentName(); updateReadouts(); }
+function updateReadouts(){
+  const name=currentName();
+  if(isProject && loadedPath){
+    $('identity').textContent='Editing: atlas_manifest_'+loadedName+'.json @ '+loadedDir;
+  }else{
+    $('identity').textContent='New sheet (unsaved)';
+  }
+  const destDir=(isProject && loadedDir && name===loadedName) ? loadedDir : ('output/'+name);
+  $('dest').textContent='Saves to: '+destDir+'/atlas_manifest_'+name+'.json';
 }
 
 function showTab(t){
@@ -205,7 +233,20 @@ function showTab(t){
   $('tab-load').classList.toggle('active',t==='load');
   $('pane-upload').style.display=t==='upload'?'':'none';
   $('pane-load').style.display=t==='load'?'':'none';
-  if(t==='load') browse('');
+  if(t==='load'){ updateBrowseHint(); browse(''); }
+}
+
+function setBrowseMode(m){
+  browseMode=m;
+  $('bm-projects').classList.toggle('active',m==='projects');
+  $('bm-import').classList.toggle('active',m==='import');
+  updateBrowseHint();
+  browse('');
+}
+function updateBrowseHint(){
+  $('browsehint').textContent = browseMode==='import'
+    ? 'Import a foreign atlas: any .atlas, TexturePacker JSON, or sheet image. Save As to keep it as a project.'
+    : 'Open a saved project (atlas_manifest_*.json). Defaults to the project root.';
 }
 
 /* ---------- canvas render ---------- */
@@ -390,12 +431,13 @@ function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canv
 
 /* ---------- upload ---------- */
 function newSheet(){ regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
+  loadedPath=null; loadedDir=null; loadedName=null; isProject=false; updateReadouts();
   $('uploadmsg').className='muted'; $('uploadmsg').textContent='Canvas cleared.'; }
 
 async function upload(){
   const ns=$('sheet').value.trim()||'sheet';
   if(ns!==activeSheet){ regions=[]; sel=null; clearCanvasDom(); activeSheet=ns; }  // new sheet => fresh canvas
-  sheetName=ns; if(!$('basename').value) $('basename').value=ns;
+  sheetName=ns;
   const files=$('files').files;
   if(!files.length){ $('uploadmsg').textContent='Pick some PNG/WebP files first.'; return; }
   const fd=new FormData(); fd.append('sheet',sheetName);
@@ -430,7 +472,7 @@ async function doArrange(){
 
 /* ---------- load existing ---------- */
 async function browse(path){
-  const j=await jget('/api/browse?path='+encodeURIComponent(path||''));
+  const j=await jget('/api/browse?path='+encodeURIComponent(path||'')+'&mode='+encodeURIComponent(browseMode));
   if(j.error){ $('browser').innerHTML='<div class="it err">'+esc(j.error)+'</div>'; return; }
   $('cwd').textContent=j.cwd;
   let h='';
@@ -443,33 +485,52 @@ async function browse(path){
 }
 async function loadFile(path){
   if(/\.(png|webp)$/i.test(path)){ $('loadmsg').className='note'; $('loadmsg').textContent='Pick a coords file (.json/.atlas), not the image.'; return; }
-  sheetName=$('sheet').value.trim()||'loaded';
+  const workingSheet=$('sheet').value.trim()||'loaded';
   $('loadmsg').className='muted'; $('loadmsg').textContent='Loading & slicing…';
-  const j=await jpost('/api/load',{sheet:sheetName,path});
+  const j=await jpost('/api/load',{sheet:workingSheet,path});
   if(j.error){ $('loadmsg').className='err'; $('loadmsg').textContent=j.error; return; }
+  sheetName=j.sheet;                          // slices live under the working sheet key
   canvasW=j.canvas_w||canvasW; canvasH=j.canvas_h||canvasH;
   $('cw').value=canvasW; $('ch').value=canvasH;
   clearCanvasDom();                          // drop any cached sprites from the previous sheet
   regions=j.regions.map(r=>({...r,ow:r.w,oh:r.h}));
   sel=null; activeSheet=sheetName;
-  $('loadmsg').className='ok'; $('loadmsg').textContent='Loaded '+j.count+' regions from '+canvasW+'×'+canvasH+' sheet';
+  $('sheet').value=j.name||j.sheet;
+  loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
+  updateReadouts();
+  let msg='Loaded '+j.count+' regions from '+canvasW+'×'+canvasH+' sheet';
+  if(!j.is_project) msg+=' (import — Save As to keep)';
+  $('loadmsg').className='ok'; $('loadmsg').textContent=msg;
   fitView();
 }
 
-/* ---------- export ---------- */
-async function doExport(){
-  const m=$('exportmsg'); m.className='muted'; m.textContent='Exporting…';
-  if(!regions.length){ m.className='err'; m.textContent='Nothing to export.'; return; }
-  const body={sheet:sheetName,basename:$('basename').value.trim()||sheetName,
+/* ---------- save ---------- */
+async function runExport(destDir){
+  const m=$('exportmsg'); m.className='muted'; m.textContent='Saving…';
+  if(!regions.length){ m.className='err'; m.textContent='Nothing to save.'; return false; }
+  const name=currentName();
+  const body={sheet:sheetName,basename:name,
     canvas_w:canvasW,canvas_h:canvasH,
     formats:{manifest:$('f_manifest').checked,libgdx:$('f_libgdx').checked,texturepacker:$('f_tp').checked},
     regions:regions.map(r=>({src:r.src,name:r.name,x:r.x,y:r.y,w:r.w,h:r.h,rotated:r.rotated,
       prompt:r.prompt,shape_ref:r.shape_ref,seed:r.seed}))};
+  if(destDir) body.dest_dir=destDir;
   const j=await jpost('/api/export',body);
-  if(j.error){ m.className='err'; m.textContent=j.error; return; }
-  let h='<div class="ok">Wrote '+j.written.length+' file(s) to:</div><div class="geo">'+esc(j.output_dir)+'</div>';
+  if(j.error){ m.className='err'; m.textContent=j.error; return false; }
+  loadedPath=j.manifest_path; loadedDir=j.output_dir; loadedName=j.name; isProject=true;
+  updateReadouts();
+  let h='<div class="ok">Wrote '+j.written.length+' file(s) to:</div><div class="geo">'+esc(j.dir||j.output_dir)+'</div>';
   if(j.manifest_note) h+='<div class="note">'+esc(j.manifest_note)+'</div>';
   m.className=''; m.innerHTML=h;
+  return true;
+}
+function doSave(){
+  if(loadedPath && isProject && currentName()===loadedName) return runExport(loadedDir);
+  return doSaveAs();
+}
+async function doSaveAs(){
+  const ok=await runExport(null);
+  if(ok && $('pane-load').style.display!=='none') browse('');
 }
 
 window.addEventListener('resize',()=>{ if(regions.length) render(); });

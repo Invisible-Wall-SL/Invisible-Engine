@@ -135,6 +135,24 @@ def output_dir(sheet: str) -> Path:
     return d
 
 
+def _dest_output_dir(sheet: str, dest_dir: str) -> Path:
+    """Resolve the export destination. Empty `dest_dir` -> the sheet's default
+    output dir. Otherwise resolve the requested dir and CONFINE it to the staging
+    root (any path outside falls back to the default output dir). Created if
+    missing."""
+    if not dest_dir:
+        return output_dir(sheet)
+    root = Path(project_paths.resolve()["staging_root"]).resolve()
+    try:
+        d = Path(dest_dir).resolve()
+    except (OSError, ValueError):
+        return output_dir(sheet)
+    if root not in d.parents and d != root:
+        return output_dir(sheet)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # ---------------------------------------------------------------------------
 # minimal multipart/form-data parser (py3.13 has no cgi module)
 # ---------------------------------------------------------------------------
@@ -191,6 +209,7 @@ def api_state() -> dict:
         sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir())
     return {
         "build": BUILD,
+        "launcher_url": os.environ.get("LAUNCHER_URL", "https://app.invisiblewall.org"),
         "project": pp["project"],
         "projects": project_paths.list_projects(),
         "project_root": "",
@@ -268,7 +287,8 @@ def api_export(payload: dict) -> dict:
     """Compose the sheet from the client's current canvas geometry and write
     the selected formats. Stateless: geometry comes entirely from the payload."""
     sheet = safe_name(payload.get("sheet", "sheet"))
-    basename = safe_name(payload.get("basename") or sheet, sheet)
+    basename = sheet
+    dest_dir = (payload.get("dest_dir") or "").strip()
     fmts = payload.get("formats", {})
     width = int(payload.get("canvas_w", 1024))
     height = int(payload.get("canvas_h", 1024))
@@ -297,7 +317,7 @@ def api_export(payload: dict) -> dict:
     if dupes:
         return {"error": f"Duplicate region names: {', '.join(dupes)}. Names must be unique."}
 
-    out = output_dir(sheet)
+    out = _dest_output_dir(sheet, dest_dir)
     image_for = {r["name"]: (up / r["src"]) for r in regions}
     sheet_img = packer.compose(regions, width, height, image_for)
     sheet_png = out / f"{basename}.png"
@@ -364,7 +384,10 @@ def api_export(payload: dict) -> dict:
         else:
             manifest_note = "Atlas Maker prefix not configured; manifest written to output only."
 
-    return {"written": written, "manifest_note": manifest_note, "output_dir": str(out)}
+    manifest_path = str(out / f"atlas_manifest_{basename}.json")
+    return {"written": written, "manifest_note": manifest_note,
+            "output_dir": str(out), "dir": str(out),
+            "manifest_path": manifest_path, "name": basename}
 
 
 def api_set_project(payload: dict) -> dict:
@@ -379,10 +402,11 @@ def api_set_project(payload: dict) -> dict:
 # R2-backed file browser (mirrors the staging tree, which mirrors R2)
 # ---------------------------------------------------------------------------
 
-def api_browse(path: str) -> dict:
+def api_browse(path: str, mode: str = "") -> dict:
     """List a directory inside the staging tree (which mirrors the project's R2
-    subtree). Empty path defaults to the project output root. Returns dirs +
-    coords/image files for loading. Paths are confined to the staging root."""
+    subtree). Empty path defaults to the project output root. Paths are confined
+    to the staging root. Default mode lists only project manifests
+    (atlas_manifest_*.json); `mode == "import"` lists any coords/image file."""
     pp = project_paths.resolve()
     root = Path(pp["staging_root"]).resolve()
     out_root = Path(pp["output_root"]).resolve()
@@ -403,13 +427,16 @@ def api_browse(path: str) -> dict:
                 continue
             if p.is_dir():
                 dirs.append({"name": p.name, "path": str(p)})
-            elif p.suffix.lower() in (".json", ".atlas", ".png", ".webp"):
+            elif mode == "import":
+                if p.suffix.lower() in (".json", ".atlas", ".png", ".webp"):
+                    files.append({"name": p.name, "path": str(p)})
+            elif p.name.startswith("atlas_manifest_") and p.suffix.lower() == ".json":
                 files.append({"name": p.name, "path": str(p)})
     except OSError as e:
         return {"error": str(e)}
 
     parent = str(base.parent) if base != root and base.parent != base else ""
-    return {"cwd": str(base), "parent": parent, "dirs": dirs, "files": files}
+    return {"cwd": str(base), "parent": parent, "dirs": dirs, "files": files, "mode": mode}
 
 
 # ---------------------------------------------------------------------------
@@ -570,8 +597,15 @@ def api_load(payload: dict) -> dict:
         })
 
     _mirror_dir(up)
+    is_project = path.name.startswith("atlas_manifest_") and path.suffix.lower() == ".json"
+    if is_project:
+        name = path.name[len("atlas_manifest_"):-len(".json")]
+    else:
+        name = path.stem
     return {"sheet": sheet, "canvas_w": parsed["width"], "canvas_h": parsed["height"],
-            "regions": regions_out, "count": len(regions_out)}
+            "regions": regions_out, "count": len(regions_out),
+            "source_path": str(path.resolve()), "source_dir": str(path.resolve().parent),
+            "name": name, "is_project": is_project}
 
 
 # ---------------------------------------------------------------------------
@@ -707,7 +741,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_bytes(b"", "image/png", 404)
             return
         if path == "/api/browse":
-            self._send_json(api_browse((q.get("path") or [""])[0]))
+            self._send_json(api_browse((q.get("path") or [""])[0],
+                                       (q.get("mode") or [""])[0]))
             return
         if path in ("/logo", "/favicon.ico"):
             self._serve_logo()
