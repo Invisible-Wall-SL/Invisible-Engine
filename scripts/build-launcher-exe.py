@@ -41,8 +41,8 @@ def _pip(*pkgs: str) -> None:
 
 def build(launcher: Path, emblem: Path, work: Path) -> Path:
     dist = work / "dist"
-    print("== Ensuring PyInstaller + Pillow + py7zr + customtkinter ==")
-    _pip("pyinstaller", "pillow", "py7zr", "customtkinter")
+    print("== Ensuring PyInstaller + Pillow + customtkinter ==")
+    _pip("pyinstaller", "pillow", "customtkinter")
 
     args = [
         "--onefile",
@@ -52,7 +52,6 @@ def build(launcher: Path, emblem: Path, work: Path) -> Path:
         "--workpath", str(work / "build"),
         "--specpath", str(work),
         "--collect-all", "customtkinter",
-        "--collect-submodules", "py7zr",
         "--noconfirm",
     ]
 

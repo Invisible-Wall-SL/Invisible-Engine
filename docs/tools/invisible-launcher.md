@@ -13,7 +13,8 @@ pipeline.
 
 - **Install / Update ComfyUI** — downloads the official **Windows portable**
   build (`ComfyUI_windows_portable_nvidia.7z`) straight from GitHub, extracts it
-  (no 7-Zip needed — extraction is built in), and wires up the config paths
+  (no manual 7-Zip step — the launcher uses an installed 7-Zip if present, else
+  auto-fetches the tiny standalone `7zr.exe`), and wires up the config paths
   (`comfyui_dir` / `python_exe`). Installs to
   `C:\Invisible Wall SL\ComfyUI\ComfyUI_windows_portable\`.
 - **Start ComfyUI** — launches the shared ComfyUI service on `localhost:8188`.
