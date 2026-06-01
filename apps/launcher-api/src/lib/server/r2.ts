@@ -8,6 +8,7 @@ import {
 	PutObjectCommand,
 	S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ENV } from './env';
 
 let client: S3Client | null = null;
@@ -37,6 +38,18 @@ export async function getObjectBytes(
 		if (isNotFound(e)) return null;
 		throw e;
 	}
+}
+
+/**
+ * Presigned GET URL for a single object, valid for `ttlSeconds`. Lets a desktop
+ * client download large objects straight from R2 (no portal bandwidth). The URL
+ * embeds a signature and must never be logged. Callers MUST validate the key
+ * against an allowed prefix before presigning — this helper signs whatever it gets.
+ */
+export async function presignGet(key: string, ttlSeconds: number): Promise<string> {
+	return getSignedUrl(s3(), new GetObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }), {
+		expiresIn: ttlSeconds,
+	});
 }
 
 export async function getObjectText(key: string): Promise<string | null> {
