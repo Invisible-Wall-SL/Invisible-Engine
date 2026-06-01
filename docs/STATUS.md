@@ -90,6 +90,7 @@ Full list (+ the 2026-05-29 session lessons) in `docs/history.md#key-lessons`. T
 - **Railway staged vars** — adding a var only stages it; click "Apply changes / Deploy". Prefer a **code default** for non-secret config so deploys don't depend on the dashboard.
 - **Cloudflare blocks `Python-urllib` UA with 403** — always send a custom User-Agent to ComfyUI.
 - **Windows trailing-dot folders** — Windows silently strips a trailing `.` (`symbols.` → `symbols` locally but NOT on Linux/R2); normalize path segments in R2 manifests. Watch on any Windows-sourced data.
+- **The desktop `Invisible_Launcher.py` runs from source under Python 3.9** (VS `Python39_64`) — so **no PEP 604 `X | None`** or other 3.10+ runtime syntax in annotations (the built exe uses a newer Python and hides it). The file now carries `from __future__ import annotations` (lazy annotations) to neutralize this; keep it.
 
 ---
 
