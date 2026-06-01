@@ -1,0 +1,13 @@
+{
+	"name": "test-server",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Invisible Test Server — serves built game bundles + a mock Play4Fun RGS so games are playable from any machine.",
+	"scripts": {
+		"start": "node server.mjs"
+	},
+	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1055.0"
+	}
+}

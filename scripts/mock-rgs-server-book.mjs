@@ -14,25 +14,21 @@
  *
  * Kept separate from mock-rgs-server.mjs so the Hot Fruits mock stays untouched.
  *
- * Run from the repo root:
- *   node scripts/mock-rgs-server-book.mjs           # PORT 7788
+ * Two ways to use it:
+ *   1. Standalone CLI (local dev):  node scripts/mock-rgs-server-book.mjs   # PORT 7788
+ *   2. In-process: `import { createMockRgs }` and mount its `handle` under a
+ *      path prefix (the Invisible Test Server — `services/test-server`). `handle`
+ *      matches routes by path SUFFIX, so it works at root or under `/api/<gameKey>`.
  *
- * Env: PORT=7788, START_BALANCE=500000 (cents = $5000), SEED=anything,
- *      FORCE_TRIGGER=1 (every base play triggers the bonus — handy for testing).
+ * Env (CLI): PORT=7788, START_BALANCE=500000 (cents = $5000), SEED=anything,
+ *      FORCE_TRIGGER=1 (every base play triggers the bonus — handy for testing),
+ *      BIG_WIN=1 (force a top-tier base win to verify the win presentation).
  */
 
 import { createServer } from 'node:http';
+import { pathToFileURL } from 'node:url';
 
-const PORT = Number(process.env.PORT ?? 7788);
-const START_BALANCE = Number(process.env.START_BALANCE ?? 500_000); // cents → $5000
-const SEED = process.env.SEED;
-const FORCE_TRIGGER = process.env.FORCE_TRIGGER === '1';
-// BIG_WIN=1 forces a full-screen PIC1 base spin (a top-tier win) so the
-// big/mega/max WIN presentation can be verified on demand. Ignored when a
-// bonus is triggered.
-const BIG_WIN = process.env.BIG_WIN === '1';
-
-// ---------- game data (verified from the live config event) ----------
+// ---------- pure game data (verified from the live config event) ----------
 
 const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JACK', 'TEN', 'SCAT'];
 /** Paying symbols eligible to become the free-spin special expanding symbol. */
@@ -72,6 +68,15 @@ const SPECIAL_WEIGHTS = {
 };
 const TOTAL_FS = 10;
 
+function hashStr(s) {
+	let h = 2166136261 >>> 0;
+	for (let i = 0; i < s.length; i++) {
+		h ^= s.charCodeAt(i);
+		h = Math.imul(h, 16777619) >>> 0;
+	}
+	return h;
+}
+
 /** Build the boot `config` event faithful to the live Book of Thermopylae wire
  *  shape (availablePayLines + nested paytable {line,scatter}). */
 const buildConfigContext = () => ({
@@ -96,49 +101,7 @@ const buildConfigContext = () => ({
 	window: { reels: 5, rows: 3 },
 });
 
-// ---------- rng ----------
-
-let rngState = SEED ? hashStr(SEED) : Date.now() >>> 0;
-function nextRand() {
-	rngState = (rngState * 1664525 + 1013904223) >>> 0;
-	return rngState / 0x100000000;
-}
-function hashStr(s) {
-	let h = 2166136261 >>> 0;
-	for (let i = 0; i < s.length; i++) {
-		h ^= s.charCodeAt(i);
-		h = Math.imul(h, 16777619) >>> 0;
-	}
-	return h;
-}
-
-const pickSymbol = () => {
-	const r = nextRand();
-	if (r < 0.05) return 'SCAT';
-	return PAY_SYMBOLS[Math.floor(nextRand() * PAY_SYMBOLS.length)];
-};
-/** Force ≥3 SCAT for a guaranteed trigger (buy / FORCE_TRIGGER). */
-const spinReelsWithScatters = (n = 4) => {
-	const reels = Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
-	let placed = 0;
-	for (let reel = 0; reel < 5 && placed < n; reel++) {
-		reels[reel][Math.floor(nextRand() * 3)] = 'SCAT';
-		placed++;
-	}
-	return reels;
-};
-const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
-
-const pickSpecialSymbol = () => {
-	const total = Object.values(SPECIAL_WEIGHTS).reduce((s, w) => s + w, 0);
-	let r = nextRand() * total;
-	for (const [sym, w] of Object.entries(SPECIAL_WEIGHTS)) {
-		if ((r -= w) <= 0) return sym;
-	}
-	return 'TEN';
-};
-
-// ---------- win evaluation ----------
+// ---------- pure win evaluation ----------
 
 const evaluatePaylines = (reels, betPerLine) => {
 	const wins = [];
@@ -224,15 +187,6 @@ const evaluateSpecial = (reels, special, betPerLine) => {
 	};
 };
 
-// ---------- session store ----------
-
-const sessions = new Map();
-const getSession = (sid) => {
-	if (!sessions.has(sid)) sessions.set(sid, { balance: START_BALANCE, round: null, configSent: false });
-	return sessions.get(sid);
-};
-const makeRoundId = () => 'G' + Math.random().toString(36).slice(2, 14);
-
 // ---------- bonus state snapshot helpers (faithful to capture shape) ----------
 
 const bonusSnapshot = (round, extra = {}) => ({
@@ -253,7 +207,25 @@ const bonusSnapshot = (round, extra = {}) => ({
 	...extra,
 });
 
-// ---------- http plumbing ----------
+const spinStartEvent = (round) => ({
+	event: 'spinStart',
+	context: {
+		symbols: SYMBOLS,
+		symbolsPay: {
+			line: ['PIC1', 'SCAT', ...PAY_SYMBOLS.filter((s) => s !== 'PIC1')],
+			// During the bonus the special symbol pays scatter-style too.
+			scatter: round.bonus?.active ? ['SCAT', round.bonus.special] : ['SCAT'],
+		},
+		wildSymbols: ['SCAT'],
+		lineAlign: 'left',
+		lineCoinciding: false,
+		gameCost: 10,
+		betOptions: [10, 1000],
+		maxWinMp: [10000],
+	},
+});
+
+// ---------- pure HTTP plumbing ----------
 
 const corsHeaders = (req) => {
 	const origin = req.headers.origin;
@@ -289,224 +261,281 @@ const readBody = (req) =>
 		req.on('error', reject);
 	});
 
-const spinStartEvent = (round) => ({
-	event: 'spinStart',
-	context: {
-		symbols: SYMBOLS,
-		symbolsPay: {
-			line: ['PIC1', 'SCAT', ...PAY_SYMBOLS.filter((s) => s !== 'PIC1')],
-			// During the bonus the special symbol pays scatter-style too.
-			scatter: round.bonus?.active ? ['SCAT', round.bonus.special] : ['SCAT'],
-		},
-		wildSymbols: ['SCAT'],
-		lineAlign: 'left',
-		lineCoinciding: false,
-		gameCost: 10,
-		betOptions: [10, 1000],
-		maxWinMp: [10000],
-	},
-});
+const makeRoundId = () => 'G' + Math.random().toString(36).slice(2, 14);
 
-// ---------- request handler ----------
+/** A path matches a route if it equals or ends with the route (so the same
+ *  handler works at the root or mounted under `/api/<gameKey>`). */
+const pathEndsWith = (pathname, route) => {
+	const p = pathname.replace(/\/+$/, '') || '/';
+	return p === route || p.endsWith(route);
+};
 
-const handleEngine = async (req, res, url) => {
-	const sid = url.searchParams.get('sid');
-	const seq = Number(url.searchParams.get('seq') ?? 0);
-	const gid = url.searchParams.get('gid');
-	if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
+// ---------- factory: one stateful mock instance ----------
 
-	const session = getSession(sid);
-	const bodyText = await readBody(req);
-	let actions;
-	try {
-		actions = bodyText ? JSON.parse(bodyText) : [];
-	} catch {
-		return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
-	}
-	if (!Array.isArray(actions)) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
+/**
+ * Create a Book-of Play4Fun RGS mock instance. Each instance owns its own
+ * session store + RNG.
+ *
+ * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean,
+ *           bigWin?: boolean, label?: string }} [opts]
+ */
+export function createMockRgs(opts = {}) {
+	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 500_000); // cents → $5000
+	const seed = opts.seed ?? process.env.SEED;
+	const forceTrigger = opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1';
+	// BIG_WIN forces a full-screen PIC1 base spin (a top-tier win) so the
+	// big/mega/max WIN presentation can be verified on demand. Ignored when a
+	// bonus is triggered.
+	const bigWin = opts.bigWin ?? process.env.BIG_WIN === '1';
+	const label = opts.label ?? 'mock-book';
 
-	console.log(`[mock-book] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
+	const sessions = new Map();
+	const getSession = (sid) => {
+		if (!sessions.has(sid)) sessions.set(sid, { balance: startBalance, round: null, configSent: false });
+		return sessions.get(sid);
+	};
 
-	const events = [];
-	// Send the boot `config` on the first call AND on every heartbeat (empty
-	// body = the auth call). A real server sends it once per session, but the
-	// facade module resets on each browser reload while this mock keeps the
-	// session — re-sending on heartbeat ensures every (re)load re-captures it
-	// (and re-selects the book symbol mapping).
-	if (!session.configSent || actions.length === 0) {
-		session.configSent = true;
-		events.push({ event: 'config', context: buildConfigContext() });
-	}
-	if (actions.length === 0) {
-		return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
-	}
+	let rngState = seed ? hashStr(seed) : Date.now() >>> 0;
+	const nextRand = () => {
+		rngState = (rngState * 1664525 + 1013904223) >>> 0;
+		return rngState / 0x100000000;
+	};
+	const pickSymbol = () => {
+		const r = nextRand();
+		if (r < 0.05) return 'SCAT';
+		return PAY_SYMBOLS[Math.floor(nextRand() * PAY_SYMBOLS.length)];
+	};
+	/** Force ≥3 SCAT for a guaranteed trigger (buy / forceTrigger). */
+	const spinReelsWithScatters = (n = 4) => {
+		const reels = Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
+		let placed = 0;
+		for (let reel = 0; reel < 5 && placed < n; reel++) {
+			reels[reel][Math.floor(nextRand() * 3)] = 'SCAT';
+			placed++;
+		}
+		return reels;
+	};
+	const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
+	const pickSpecialSymbol = () => {
+		const total = Object.values(SPECIAL_WEIGHTS).reduce((s, w) => s + w, 0);
+		let r = nextRand() * total;
+		for (const [sym, w] of Object.entries(SPECIAL_WEIGHTS)) {
+			if ((r -= w) <= 0) return sym;
+		}
+		return 'TEN';
+	};
 
-	let round = session.round;
+	const handleEngine = async (req, res, url) => {
+		const sid = url.searchParams.get('sid');
+		const seq = Number(url.searchParams.get('seq') ?? 0);
+		const gid = url.searchParams.get('gid');
+		if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
 
-	for (const a of actions) {
-		switch (a.action) {
-			case 'bet': {
-				const ctx = Array.isArray(a.context) ? a.context : [0, 1];
-				const isBuy = Number(ctx[0]) === 1;
-				const betPerLine = Number(ctx[1]) || 1;
-				const total = betPerLine * NUM_LINES * (isBuy ? 100 : 1);
-				if (session.balance < total) {
-					return sendJson(req, res, 200, { result: 0, error: 'insufficient balance', errorCode: 200, platform: { balance: session.balance } });
+		const session = getSession(sid);
+		const bodyText = await readBody(req);
+		let actions;
+		try {
+			actions = bodyText ? JSON.parse(bodyText) : [];
+		} catch {
+			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
+		}
+		if (!Array.isArray(actions)) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
+
+		console.log(`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
+
+		const events = [];
+		// Send the boot `config` on the first call AND on every heartbeat (empty
+		// body = the auth call). A real server sends it once per session, but the
+		// facade module resets on each browser reload while this mock keeps the
+		// session — re-sending on heartbeat ensures every (re)load re-captures it
+		// (and re-selects the book symbol mapping).
+		if (!session.configSent || actions.length === 0) {
+			session.configSent = true;
+			events.push({ event: 'config', context: buildConfigContext() });
+		}
+		if (actions.length === 0) {
+			return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
+		}
+
+		let round = session.round;
+
+		for (const a of actions) {
+			switch (a.action) {
+				case 'bet': {
+					const ctx = Array.isArray(a.context) ? a.context : [0, 1];
+					const isBuy = Number(ctx[0]) === 1;
+					const betPerLine = Number(ctx[1]) || 1;
+					const total = betPerLine * NUM_LINES * (isBuy ? 100 : 1);
+					if (session.balance < total) {
+						return sendJson(req, res, 200, { result: 0, error: 'insufficient balance', errorCode: 200, platform: { balance: session.balance } });
+					}
+					session.balance -= total;
+					round = { id: makeRoundId(), betPerLine, total, baseBet: betPerLine * NUM_LINES, isBuy, win: 0, bonus: null, closed: false };
+					events.push({ event: 'bet', context: { total, betPerLine, paylines: PAYLINES } });
+					events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
+					break;
 				}
-				session.balance -= total;
-				round = { id: makeRoundId(), betPerLine, total, baseBet: betPerLine * NUM_LINES, isBuy, win: 0, bonus: null, closed: false };
-				events.push({ event: 'bet', context: { total, betPerLine, paylines: PAYLINES } });
-				events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
-				break;
-			}
-			case 'play': {
-				if (!round) {
-					return sendJson(req, res, 200, { result: 0, error: 'play without bet', errorCode: 110, platform: {} });
-				}
+				case 'play': {
+					if (!round) {
+						return sendJson(req, res, 200, { result: 0, error: 'play without bet', errorCode: 110, platform: {} });
+					}
 
-				// ----- FREE SPIN (round already in bonus) -----
-				if (round.bonus?.active) {
-					const reels = spinReels();
+					// ----- FREE SPIN (round already in bonus) -----
+					if (round.bonus?.active) {
+						const reels = spinReels();
+						events.push(spinStartEvent(round));
+						const lineWins = evaluatePaylines(reels, round.betPerLine);
+						const specialWin = evaluateSpecial(reels, round.bonus.special, round.betPerLine);
+						const wins = specialWin ? [...lineWins, specialWin] : lineWins;
+						for (const w of wins) {
+							events.push({ event: 'bonusWin', context: { bonus: 'feature', pay: w.pay, isSpinWin: true } });
+							events.push({ event: 'spinWin', context: w });
+							round.win += w.pay;
+						}
+						events.push({ event: 'playedSpin', context: reels });
+						round.bonus.played += 1;
+						round.bonus.left -= 1;
+						events.push({ event: 'playedBonusSpin', context: bonusSnapshot(round) });
+						if (round.bonus.left <= 0) {
+							round.bonus.active = false;
+							events.push({ event: 'playedBonusSpins', context: bonusSnapshot(round) });
+							events.push({ event: 'gameEnd', context: { win: round.win } });
+						}
+						break;
+					}
+
+					// ----- BASE SPIN -----
+					const trigger = round.isBuy || forceTrigger;
+					// bigWin: PIC1 4-of-a-kind on the middle line (broken at reel 4) →
+					// a MEGA-tier win, enough to show the big-win banner without hitting
+					// the MAX special-case.
+					const reels = trigger
+						? spinReelsWithScatters(4)
+						: bigWin
+							? [
+									['TEN', 'PIC1', 'TEN'],
+									['TEN', 'PIC1', 'TEN'],
+									['TEN', 'PIC1', 'TEN'],
+									['TEN', 'PIC1', 'TEN'],
+									['TEN', 'KING', 'TEN'],
+								]
+							: spinReels();
 					events.push(spinStartEvent(round));
 					const lineWins = evaluatePaylines(reels, round.betPerLine);
-					const specialWin = evaluateSpecial(reels, round.bonus.special, round.betPerLine);
-					const wins = specialWin ? [...lineWins, specialWin] : lineWins;
+					const scat = evaluateScatterTrigger(reels, round.total);
+					const wins = scat ? [...lineWins, scat.win] : lineWins;
 					for (const w of wins) {
-						events.push({ event: 'bonusWin', context: { bonus: 'feature', pay: w.pay, isSpinWin: true } });
 						events.push({ event: 'spinWin', context: w });
 						round.win += w.pay;
 					}
+					const triggered = (scat && scat.count >= 3) || trigger;
+
+					if (triggered) {
+						// Enter the bonus: round STAYS OPEN. Draw the special symbol.
+						const special = pickSpecialSymbol();
+						round.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS, special };
+						events.push({
+							event: 'spinTrigger',
+							context: { spins: [{ prob: 1, spins: TOTAL_FS }], occurs: scat?.count ?? 4, bonus: 'feature', trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' } },
+						});
+						events.push({ event: 'playedSpin', context: reels });
+						events.push({ event: 'enterBonus', context: bonusSnapshot(round, { played: 0, left: TOTAL_FS }) });
+						events.push({
+							event: 'pickRandomly',
+							context: {
+								items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
+								state: bonusSnapshot(round, { played: 0, left: TOTAL_FS, playing: 'feature' }),
+								scope: 'enterState',
+								item: { state: special, prob: SPECIAL_WEIGHTS[special] },
+							},
+						});
+						// Do NOT credit yet, do NOT close — free spins + collect follow.
+						break;
+					}
+
+					// No trigger → base round resolves now.
 					events.push({ event: 'playedSpin', context: reels });
-					round.bonus.played += 1;
-					round.bonus.left -= 1;
-					events.push({ event: 'playedBonusSpin', context: bonusSnapshot(round) });
-					if (round.bonus.left <= 0) {
-						round.bonus.active = false;
-						events.push({ event: 'playedBonusSpins', context: bonusSnapshot(round) });
-						events.push({ event: 'gameEnd', context: { win: round.win } });
+					events.push({ event: 'gameEnd', context: { win: round.win } });
+					const autoCollect = a.context === '' || a.context === undefined;
+					if (autoCollect || round.win === 0) {
+						session.balance += round.win;
+						events.push({ event: 'gameRoundOver', context: { win: round.win } });
+						round.closed = true;
 					}
 					break;
 				}
-
-				// ----- BASE SPIN -----
-				const trigger = round.isBuy || FORCE_TRIGGER;
-				// BIG_WIN: PIC1 4-of-a-kind on the middle line (broken at reel 4) →
-				// a MEGA-tier win, enough to show the big-win banner without hitting
-				// the MAX special-case.
-				const reels = trigger
-					? spinReelsWithScatters(4)
-					: BIG_WIN
-						? [
-								['TEN', 'PIC1', 'TEN'],
-								['TEN', 'PIC1', 'TEN'],
-								['TEN', 'PIC1', 'TEN'],
-								['TEN', 'PIC1', 'TEN'],
-								['TEN', 'KING', 'TEN'],
-							]
-						: spinReels();
-				events.push(spinStartEvent(round));
-				const lineWins = evaluatePaylines(reels, round.betPerLine);
-				const scat = evaluateScatterTrigger(reels, round.total);
-				const wins = scat ? [...lineWins, scat.win] : lineWins;
-				for (const w of wins) {
-					events.push({ event: 'spinWin', context: w });
-					round.win += w.pay;
-				}
-				const triggered = (scat && scat.count >= 3) || trigger;
-
-				if (triggered) {
-					// Enter the bonus: round STAYS OPEN. Draw the special symbol.
-					const special = pickSpecialSymbol();
-					round.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS, special };
-					events.push({
-						event: 'spinTrigger',
-						context: { spins: [{ prob: 1, spins: TOTAL_FS }], occurs: scat?.count ?? 4, bonus: 'feature', trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' } },
-					});
-					events.push({ event: 'playedSpin', context: reels });
-					events.push({ event: 'enterBonus', context: bonusSnapshot(round, { played: 0, left: TOTAL_FS }) });
-					events.push({
-						event: 'pickRandomly',
-						context: {
-							items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
-							state: bonusSnapshot(round, { played: 0, left: TOTAL_FS, playing: 'feature' }),
-							scope: 'enterState',
-							item: { state: special, prob: SPECIAL_WEIGHTS[special] },
-						},
-					});
-					// Do NOT credit yet, do NOT close — free spins + collect follow.
+				case 'collect': {
+					if (!round || round.id !== gid) {
+						return sendJson(req, res, 200, { result: 0, error: 'unexpected action: collect', errorCode: 110, platform: {} });
+					}
+					if (!round.closed) {
+						session.balance += round.win;
+						round.closed = true;
+					}
+					events.push({ event: 'gameRoundOver', context: { win: round.win } });
 					break;
 				}
-
-				// No trigger → base round resolves now.
-				events.push({ event: 'playedSpin', context: reels });
-				events.push({ event: 'gameEnd', context: { win: round.win } });
-				const autoCollect = a.context === '' || a.context === undefined;
-				if (autoCollect || round.win === 0) {
-					session.balance += round.win;
-					events.push({ event: 'gameRoundOver', context: { win: round.win } });
-					round.closed = true;
-				}
-				break;
+				default:
+					return sendJson(req, res, 200, { result: 0, error: `unknown action: ${a.action}`, errorCode: 110, platform: {} });
 			}
-			case 'collect': {
-				if (!round || round.id !== gid) {
-					return sendJson(req, res, 200, { result: 0, error: 'unexpected action: collect', errorCode: 110, platform: {} });
-				}
-				if (!round.closed) {
-					session.balance += round.win;
-					round.closed = true;
-				}
-				events.push({ event: 'gameRoundOver', context: { win: round.win } });
-				break;
+		}
+
+		session.round = round && round.closed ? null : round;
+
+		const platform = { balance: session.balance };
+		if (round && !round.closed) {
+			platform.gameRound = { updating: true, id: round.id };
+			if (round.bonus) platform.gameRound.outcome = 'bonus';
+			if (round.bonus) platform.gameRound.inGameBet = round.baseBet;
+		}
+		return sendJson(req, res, 200, { events, platform });
+	};
+
+	/** Path-agnostic dispatcher. `url` is a parsed URL; routes match by suffix. */
+	const handle = async (req, res, url) => {
+		if (req.method === 'OPTIONS') return sendCorsPreflight(req, res);
+		if (req.method === 'GET' && pathEndsWith(url.pathname, '/healthz')) return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
+		if (req.method === 'GET' && pathEndsWith(url.pathname, '/state')) {
+			const sid = url.searchParams.get('sid');
+			if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
+			return sendJson(req, res, 200, getSession(sid));
+		}
+		if (req.method === 'POST' && pathEndsWith(url.pathname, '/rgs/engine')) {
+			try {
+				return await handleEngine(req, res, url);
+			} catch (err) {
+				console.error(`[${label}] handler error:`, err);
+				return sendJson(req, res, 500, { error: { code: 'ERR_UE', message: String(err) } });
 			}
-			default:
-				return sendJson(req, res, 200, { result: 0, error: `unknown action: ${a.action}`, errorCode: 110, platform: {} });
 		}
-	}
+		return sendJson(req, res, 404, { error: 'not found' });
+	};
 
-	session.round = round && round.closed ? null : round;
+	return { handle, sessions, startBalance, seed, forceTrigger };
+}
 
-	const platform = { balance: session.balance };
-	if (round && !round.closed) {
-		platform.gameRound = { updating: true, id: round.id };
-		if (round.bonus) platform.gameRound.outcome = 'bonus';
-		if (round.bonus) platform.gameRound.inGameBet = round.baseBet;
-	}
-	return sendJson(req, res, 200, { events, platform });
-};
+// ---------- standalone CLI entry (local dev) ----------
 
-// ---------- server ----------
+const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').href;
 
-const server = createServer(async (req, res) => {
-	const url = new URL(req.url, `http://${req.headers.host}`);
-	if (req.method === 'OPTIONS') return sendCorsPreflight(req, res);
-	if (req.method === 'GET' && url.pathname === '/healthz') return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
-	if (req.method === 'GET' && url.pathname === '/state') {
-		const sid = url.searchParams.get('sid');
-		if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
-		return sendJson(req, res, 200, getSession(sid));
-	}
-	if (req.method === 'POST' && url.pathname === '/rgs/engine') {
-		try {
-			return await handleEngine(req, res, url);
-		} catch (err) {
-			console.error('[mock-book] handler error:', err);
-			return sendJson(req, res, 500, { error: { code: 'ERR_UE', message: String(err) } });
-		}
-	}
-	sendJson(req, res, 404, { error: 'not found' });
-});
-
-server.listen(PORT, () => {
-	console.log([
-		'',
-		'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-		'   ┃   I N V I S I B L E   W A L L   S L',
-		'   ┃   ────────────────────────────────────────',
-		'   ┃   MOCK RGS   ·   Play4Fun   ·   BOOK-OF',
-		'   ┃',
-		`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
-		'',
-	].join('\n'));
-	console.log(`[mock-book] listening on http://localhost:${PORT}  balance=${START_BALANCE} seed=${SEED ?? '(time)'} forceTrigger=${FORCE_TRIGGER}`);
-});
+if (isMainModule) {
+	const PORT = Number(process.env.PORT ?? 7788);
+	const mock = createMockRgs({ label: 'mock-book' });
+	const server = createServer((req, res) => {
+		const url = new URL(req.url, `http://${req.headers.host}`);
+		return mock.handle(req, res, url);
+	});
+	server.listen(PORT, () => {
+		console.log([
+			'',
+			'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+			'   ┃   I N V I S I B L E   W A L L   S L',
+			'   ┃   ────────────────────────────────────────',
+			'   ┃   MOCK RGS   ·   Play4Fun   ·   BOOK-OF',
+			'   ┃',
+			`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
+			'',
+		].join('\n'));
+		console.log(`[mock-book] listening on http://localhost:${PORT}  balance=${mock.startBalance} seed=${mock.seed ?? '(time)'} forceTrigger=${mock.forceTrigger}`);
+	});
+}
