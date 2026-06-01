@@ -66,3 +66,9 @@ packages/e2e/math-testing/__pycache__/*
 
 # EAGaming probe captures (may contain session data)
 probe-output/
+
+# Scratch / working files (not shared)
+tmp/
+
+# Python bytecode
+__pycache__/

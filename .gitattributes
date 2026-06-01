@@ -1,0 +1,11 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Binary assets — never line-ending normalize (prevents corruption)
+*.pdf binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.7z binary
+*.exe binary
+*.ico binary
