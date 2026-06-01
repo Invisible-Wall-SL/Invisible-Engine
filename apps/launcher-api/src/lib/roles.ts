@@ -45,11 +45,8 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/>' +
 			'<line x1="7.6" y1="16.4" x2="16.4" y2="7.6"/><circle cx="12" cy="12" r="1.3"/>',
 	),
-	// node graph: two nodes + edge
-	comfyui: I(
-		'<rect x="3" y="5" width="7" height="5" rx="1"/><rect x="14" y="14" width="7" height="5" rx="1"/>' +
-			'<path d="M10 7.5h2.5a2 2 0 0 1 2 2v4"/>',
-	),
+	// rocket / launch glyph
+	invisibleLauncher: I('<path d="M12 3l4 6h-3v7h-2v-7H8z"/><line x1="7" y1="20" x2="17" y2="20"/>'),
 	// bone (two lobes each end)
 	spine: I(
 		'<circle cx="6" cy="9" r="1.9"/><circle cx="9" cy="6" r="1.9"/>' +
@@ -93,20 +90,20 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/spine',
 		icon: TOOL_ICONS.spineViewer,
 	},
-	comfyui: {
-		id: 'comfyui',
-		name: 'ComfyUI',
-		description: 'Local node-based image generation/processing (runs on your GPU).',
+	invisibleLauncher: {
+		id: 'invisibleLauncher',
+		name: 'Invisible Launcher',
+		description:
+			'Desktop app that installs/updates ComfyUI + starts the Cloudflare tunnel for the cloud pipeline.',
 		kind: 'local',
-		icon: TOOL_ICONS.comfyui,
+		icon: TOOL_ICONS.invisibleLauncher,
 		install: {
-			package: 'comfyui',
-			download: 'https://github.com/comfyanonymous/ComfyUI/releases/latest',
+			package: 'invisible-launcher',
+			download: '/download/launcher',
 			steps: [
-				'Download the Windows portable build (ComfyUI_windows_portable_nvidia.7z) from the latest release — this is the build the Invisible pipeline uses, not the ComfyUI Desktop app.',
-				'Extract the .7z with 7-Zip (https://www.7-zip.org) — Windows cannot open .7z archives on its own.',
-				'Run it once so it sets up its embedded Python environment.',
-				'Save the path to the extracted ComfyUI folder below (e.g. C:\\…\\ComfyUI_windows_portable\\ComfyUI) so it can be wired up later.',
+				'Download and run the Invisible Launcher (Windows .exe — no install needed).',
+				'In the launcher, click “Install / Update ComfyUI” to fetch the correct portable ComfyUI build automatically.',
+				'Click “Start tunnel” so the cloud Atlas Maker can reach your GPU.',
 			],
 		},
 	},
@@ -163,8 +160,8 @@ export const TOOLS: Record<string, ToolDef> = {
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
-	developer: ['atlasTool', 'spineViewer', 'comfyui', 'localization', 'editor', 'ftpBrowser'],
-	artist: ['atlasTool', 'comfyui', 'sheetMaker', 'localization', 'editor'],
+	developer: ['atlasTool', 'spineViewer', 'invisibleLauncher', 'localization', 'editor', 'ftpBrowser'],
+	artist: ['atlasTool', 'invisibleLauncher', 'sheetMaker', 'localization', 'editor'],
 	animator: ['spineViewer', 'spine'],
 };
 
@@ -268,7 +265,7 @@ export function localToolsForRole(
 const TOOL_DOC_SLUG: Record<string, string> = {
 	atlasTool: 'atlas-maker',
 	spineViewer: 'spine-viewer',
-	comfyui: 'comfyui',
+	invisibleLauncher: 'invisible-launcher',
 	spine: 'spine-editor',
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',

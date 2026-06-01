@@ -26,8 +26,10 @@ your local ComfyUI :8188  (RTX 4070, 8GB)
 ## Where it runs
 
 - **Local**, on `localhost:8188`, on the workstation with the **RTX 4070 (8GB)**.
-- It's listed in the launcher as a **local tool** (`comfyui`) for the admin,
-  developer and artist roles.
+- It is **installed and started by the [Invisible Launcher](invisible-launcher.md)**
+  desktop app — that's the local tool the portal hands out now (ComfyUI is no
+  longer a separate "download it yourself" card). The launcher's **Install /
+  Update ComfyUI** button fetches the correct portable build automatically.
 
 ## How it's exposed to the cloud
 
@@ -53,13 +55,19 @@ ComfyUI **cannot see the cloud's filesystem**, so the Atlas Maker:
 3. fetches results via `/view`;
 4. persists them to staging + R2.
 
-## Starting it (locally)
+## Installing & starting it (locally)
 
-A local launcher GUI manages ComfyUI **and** the cloudflared tunnel:
-`C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py` — it has been trimmed to
-manage only ComfyUI + the tunnel (Start/Stop/Status for the
-`comfy-gualtiero` tunnel; ComfyUI/project management). Run it once and start
-ComfyUI + the tunnel before using the cloud Atlas Maker.
+The [Invisible Launcher](invisible-launcher.md) desktop app manages ComfyUI
+**and** the cloudflared tunnel (source:
+`C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py`). On a fresh machine:
+
+1. **Install / Update ComfyUI** — downloads the portable build from GitHub and
+   extracts it to `…\ComfyUI_windows_portable\` (no manual 7-Zip / path setup).
+2. **Start** — launches ComfyUI on `localhost:8188`.
+3. **Start tunnel** — brings up the `comfy-gualtiero` tunnel so the cloud Atlas
+   Maker can reach it.
+
+Do all three before using the cloud Atlas Maker.
 
 ## Prerequisites / models
 

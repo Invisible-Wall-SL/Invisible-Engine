@@ -1,0 +1,128 @@
+"""Build the Invisible Launcher desktop app into a single Windows .exe and
+optionally upload it to R2 so the web launcher's /download/launcher route can
+serve it.
+
+The launcher source lives OUTSIDE this repo (it manages the local ComfyUI), so
+this script points at it by absolute path. It:
+  1. ensures PyInstaller + Pillow + py7zr + customtkinter are installed,
+  2. renders an .ico from the IW emblem PNG,
+  3. runs PyInstaller --onefile (no console window), bundling the emblem +
+     customtkinter assets + py7zr,
+  4. with --upload, pushes the .exe to R2 at
+     tools/invisible-launcher/Invisible_Launcher.exe (needs R2_* env vars).
+
+The .exe is a build artifact — it is NOT committed; it lives only in R2.
+
+Usage (this box uses the `py` launcher):
+    py scripts/build-launcher-exe.py            # build only
+    py scripts/build-launcher-exe.py --upload   # build + upload to R2
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+DEFAULT_LAUNCHER = r"C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py"
+DEFAULT_EMBLEM = r"C:\Invisible Wall SL\ComfyUI\iw-emblem-square.png"
+R2_KEY = "tools/invisible-launcher/Invisible_Launcher.exe"
+EXE_CONTENT_TYPE = "application/vnd.microsoft.portable-executable"
+
+
+def _pip(*pkgs: str) -> None:
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--quiet",
+         "--disable-pip-version-check", *pkgs]
+    )
+
+
+def build(launcher: Path, emblem: Path, work: Path) -> Path:
+    dist = work / "dist"
+    print("== Ensuring PyInstaller + Pillow + py7zr + customtkinter ==")
+    _pip("pyinstaller", "pillow", "py7zr", "customtkinter")
+
+    args = [
+        "--onefile",
+        "--noconsole",
+        "--name", "Invisible_Launcher",
+        "--distpath", str(dist),
+        "--workpath", str(work / "build"),
+        "--specpath", str(work),
+        "--collect-all", "customtkinter",
+        "--collect-submodules", "py7zr",
+        "--noconfirm",
+    ]
+
+    if emblem.exists():
+        print("== Rendering app icon ==")
+        from PIL import Image
+
+        ico = work / "Invisible_Launcher.ico"
+        Image.open(emblem).convert("RGBA").save(
+            ico, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
+        )
+        args += ["--icon", str(ico), "--add-data", f"{emblem};."]
+    else:
+        print(f"Emblem not found ({emblem}) — building without a custom icon.")
+
+    args.append(str(launcher))
+
+    print("== Building one-file .exe (this takes a few minutes) ==")
+    import PyInstaller.__main__
+
+    PyInstaller.__main__.run(args)
+
+    exe = dist / "Invisible_Launcher.exe"
+    if not exe.exists():
+        raise SystemExit("Build failed: Invisible_Launcher.exe was not produced.")
+    print(f"== Built: {exe} ({exe.stat().st_size / 1e6:.1f} MB) ==")
+    return exe
+
+
+def upload(exe: Path) -> None:
+    missing = [v for v in ("R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID",
+                           "R2_SECRET_ACCESS_KEY") if not os.environ.get(v)]
+    if missing:
+        raise SystemExit(f"Missing env var(s) {', '.join(missing)} — set R2 creds before --upload.")
+    _pip("boto3")
+    import boto3
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["R2_ENDPOINT"],
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+    )
+    print(f"== Uploading to R2 ({os.environ['R2_BUCKET']}/{R2_KEY}) ==")
+    s3.upload_file(str(exe), os.environ["R2_BUCKET"], R2_KEY,
+                   ExtraArgs={"ContentType": EXE_CONTENT_TYPE})
+    print("== Upload complete ==")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Build (and optionally upload) the Invisible Launcher .exe")
+    ap.add_argument("--launcher", default=DEFAULT_LAUNCHER, help="path to Invisible_Launcher.py")
+    ap.add_argument("--emblem", default=DEFAULT_EMBLEM, help="path to the IW emblem PNG (for the icon)")
+    ap.add_argument("--upload", action="store_true", help="upload the built .exe to R2")
+    args = ap.parse_args()
+
+    launcher = Path(args.launcher)
+    if not launcher.exists():
+        raise SystemExit(f"Launcher source not found: {launcher}")
+
+    work = Path(tempfile.gettempdir()) / "iw-launcher-build"
+    work.mkdir(parents=True, exist_ok=True)
+
+    exe = build(launcher, Path(args.emblem), work)
+    if args.upload:
+        upload(exe)
+    else:
+        print("Skipping upload (pass --upload with R2_* env vars set to publish).")
+
+
+if __name__ == "__main__":
+    main()
