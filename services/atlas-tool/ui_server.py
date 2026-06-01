@@ -1131,7 +1131,15 @@ def _run_cmd(cmd: list[str], total: int) -> None:
             _render_state.update(running=False, done=True)
 
 
-def run_render(names: list[str], variants: int = 1) -> None:
+def run_render(names: list[str], variants: int = 1,
+               ctx: tuple[str, str] | None = None) -> None:
+    # These run on a NEW worker thread, so the request thread's thread-local
+    # (client, project) is NOT inherited — re-apply it here before resolving the
+    # manifest path / subprocess env, else everything falls back to the env
+    # default context (unassigned/cloud) and the subprocess resolves the wrong
+    # tree (geometry "not found in R2").
+    if ctx:
+        project_paths.set_context(*ctx)
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
            "--manifest", str(manifest_path()),
            "--only", ",".join(names), "--include-rotated",
@@ -1139,7 +1147,10 @@ def run_render(names: list[str], variants: int = 1) -> None:
     _run_cmd(cmd, len(names) * max(1, variants))
 
 
-def run_compose() -> None:
+def run_compose(ctx: tuple[str, str] | None = None) -> None:
+    # See run_render: re-apply the request thread's context on this worker.
+    if ctx:
+        project_paths.set_context(*ctx)
     # Pass the active manifest explicitly (full staging path) so compose reads
     # the same creative manifest the UI shows — not whatever the subprocess's
     # config default would resolve against the script dir.
@@ -2525,12 +2536,15 @@ class Handler(BaseHTTPRequestHandler):
             names = payload.get("names", [])
             variants = int(payload.get("variants", 1))
             if not _render_state["running"]:
-                threading.Thread(target=run_render, args=(names, variants),
+                ctx = (project_paths.client_name(), project_paths.project_name())
+                threading.Thread(target=run_render, args=(names, variants, ctx),
                                  daemon=True).start()
             self._send(200, "text/plain", b"started")
         elif self.path == "/createatlas":
             if not _render_state["running"]:
-                threading.Thread(target=run_compose, daemon=True).start()
+                ctx = (project_paths.client_name(), project_paths.project_name())
+                threading.Thread(target=run_compose, args=(ctx,),
+                                 daemon=True).start()
             self._send(200, "text/plain", b"composing")
         elif self.path == "/stop":
             self._send(200, "text/plain", stop_render().encode())

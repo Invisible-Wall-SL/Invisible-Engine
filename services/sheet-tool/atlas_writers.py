@@ -115,8 +115,9 @@ def build_manifest(sheet_image: str, width: int, height: int,
                                      image R2 key (the loose sprite that was
                                      packed), unless one was set by hand.
 
-    The legacy bare `atlas.source_image` is kept for back-compat with old
-    consumers; the new `*_path` / `atlas_file` keys are the resolvable ones."""
+    The legacy `atlas.source_image` is kept (basename only — never a local path)
+    for back-compat; the new `*_path` / `atlas_file` keys are the resolvable
+    R2 ones."""
     style = style or {"positive_prefix": "", "positive_suffix": "", "negative": ""}
     shape_keys = region_shape_keys or {}
     man_regions = []
@@ -134,7 +135,11 @@ def build_manifest(sheet_image: str, width: int, height: int,
             "seed": r.get("seed", ""),
         })
     atlas: dict = {
-        "source_image": sheet_image,
+        # Bare name only — NEVER a local OS/Windows staging path. The resolvable
+        # location is `source_image_path` (an R2 key); a local absolute path here
+        # would resolve to a non-existent file in the cloud ("Atlas geometry not
+        # found in R2"). The Atlas Maker resolves this basename under refs/atlas/.
+        "source_image": Path(str(sheet_image).replace("\\", "/")).name,
         "width": int(width),
         "height": int(height),
         "format": "RGBA",

@@ -147,6 +147,7 @@ CFG = load_config()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
+import storage  # noqa: E402
 
 # Context handoff:
 #   - As a SUBPROCESS (generation), ui_server passes the active (client,
@@ -420,6 +421,38 @@ def region_trim(region: dict) -> tuple[int, int, int, int]:
     return ox, oy, ow, oh
 
 
+def _hydrate_from_r2_by_name(name: str) -> Path | None:
+    """Pull a geometry/page file into staging by its bare basename when it isn't
+    on local disk yet. A legacy/Windows-authored manifest names an atlas/page
+    that lives in R2 (seeded by seed_r2.py) but was never hydrated into this
+    container's staging — so resolve it from the active project's R2 tree at the
+    two locations seed_r2 writes to (`input/refs/atlas/<name>` and
+    `manifests/<name>`), drop it into `INPUT_DIR/refs/atlas/<name>` and return
+    that local path. Best-effort; returns None if R2 has nothing or is down."""
+    if not name:
+        return None
+    try:
+        r2_prefix = project_paths.resolve().get("r2_project_prefix")
+    except Exception:  # noqa: BLE001
+        return None
+    if not r2_prefix:
+        return None
+    for key in (f"{r2_prefix}/input/refs/atlas/{name}", f"{r2_prefix}/manifests/{name}"):
+        try:
+            blob = storage.get(key)
+        except Exception:  # noqa: BLE001
+            blob = None
+        if blob:
+            dest = INPUT_DIR / "refs" / "atlas" / name
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(blob)
+                return dest
+            except OSError:
+                return None
+    return None
+
+
 def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
     """Resolve the bound `.atlas` for this manifest, or None for the legacy
     cell-grid path. Either the selected file IS a `.atlas`, or the JSON
@@ -452,7 +485,13 @@ def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
                  INPUT_DIR / name, SELF / name):
         if cand.exists():
             return cand
-    # Nothing on disk yet — report against the location an Upload .atlas / the
+    # Nothing on disk yet — the manifest was likely authored offline with a
+    # local/Windows `atlas_file`, but seed_r2 placed the geometry in R2. Pull it
+    # into staging by basename so resolution succeeds without a manual upload.
+    pulled = _hydrate_from_r2_by_name(name)
+    if pulled is not None:
+        return pulled
+    # Still nothing — report against the location an Upload .atlas / the
     # B14 self-contained ingest writes to, so the message names a real R2 path.
     return INPUT_DIR / "refs" / "atlas" / name
 
@@ -504,6 +543,14 @@ def source_image_candidates(manifest: dict, atlas_path: Path | None,
             cands.append(atlas_path.parent / pg)
         cands += [INPUT_DIR / pg, INPUT_DIR / "refs" / pg,
                   INPUT_DIR / "refs" / "atlas" / pg]
+    # Legacy/offline manifest: the page lives in R2 (seeded under refs/atlas/)
+    # but isn't in staging yet. If nothing on disk matches, pull it by basename
+    # so compose/slice find it — same auto-hydrate atlas_file_path does.
+    if not any(c.exists() for c in cands):
+        name = Path((si or page_image or "").replace("\\", "/")).name
+        pulled = _hydrate_from_r2_by_name(name)
+        if pulled is not None:
+            cands.append(pulled)
     return cands
 
 
