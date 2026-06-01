@@ -21,13 +21,16 @@ pipeline.
 - **Start tunnel** — brings up the `comfy-gualtiero` Cloudflare named tunnel so
   the cloud Atlas Maker can reach this machine's GPU at
   `comfy.invisiblewall.org`.
+- **Check for updates** (header) — compares the running `LAUNCHER_VERSION`
+  against the published manifest and, if a newer build exists, downloads it and
+  updates itself in place (see *Self-update* below).
 
 ## Getting it
 
 1. Sign in to the portal at **app.invisiblewall.org** (invite-only).
 2. On the launcher home, find **Invisible Launcher** under *Local tools* and
-   click **Download** — this serves the `.exe` from R2 (auth-gated route
-   `/download/launcher`).
+   click **Download** — this serves the `.exe` from R2 (open route
+   `/api/launcher/download`).
 3. Run the `.exe` (no install step — it's a single file). On first run it
    self-installs its few Python UI dependencies.
 4. Click **Install / Update ComfyUI**, then **Start tunnel**.
@@ -40,15 +43,32 @@ pipeline.
 - It's packaged into a one-file Windows `.exe` with
   [`scripts/build-launcher-exe.py`](../../scripts/build-launcher-exe.py)
   (PyInstaller `--onefile`), then uploaded to R2 at
-  `tools/invisible-launcher/Invisible_Launcher.exe`.
-- The web launcher's `/download/launcher` route (under the authed `(app)` group)
-  streams that object back as a download. Re-run the build script with
-  `--upload` whenever the launcher changes to publish a new build.
+  `tools/invisible-launcher/Invisible_Launcher.exe` together with a manifest
+  `tools/invisible-launcher/latest.json` (`{version, size, sha256, notes}`).
+- The web launcher serves both over **open** routes (no portal login, since the
+  desktop app has no session): `/api/launcher/download` (the exe, also what the
+  portal card links to) and `/api/launcher/latest` (the manifest, polled by the
+  self-update check).
 
 ```
-py scripts/build-launcher-exe.py            # build only (artifact in %TEMP%)
-py scripts/build-launcher-exe.py --upload   # build + push to R2 (needs R2_* env)
+py scripts/build-launcher-exe.py                       # build only (artifact in %TEMP%)
+py scripts/build-launcher-exe.py --upload              # build + push exe + manifest to R2
+py scripts/build-launcher-exe.py --upload --notes "…"  # include release notes in the prompt
 ```
+
+## Self-update
+
+`LAUNCHER_VERSION` is embedded in the launcher source and stamped into the R2
+manifest at build time. **Check for updates** (header button) fetches
+`/api/launcher/latest`, and if its `version` is greater it offers to update.
+
+Windows can't overwrite a running `.exe`, so the update is a *swap-on-restart*:
+the launcher downloads the new exe to `%TEMP%`, verifies its `sha256`, relaunches
+it with `--apply-update <old-path>`, then exits; the new exe copies itself over
+the old path (retrying until the lock releases) and relaunches. **To release a
+new version:** bump `LAUNCHER_VERSION`, then run the build with `--upload`.
+(Self-update only runs from the frozen `.exe`; from source it tells you to
+`git pull` instead.)
 
 ## Related
 

@@ -99,7 +99,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		icon: TOOL_ICONS.invisibleLauncher,
 		install: {
 			package: 'invisible-launcher',
-			download: '/download/launcher',
+			download: '/api/launcher/download',
 			steps: [
 				'Download and run the Invisible Launcher (Windows .exe — no install needed).',
 				'In the launcher, click “Install / Update ComfyUI” to fetch the correct portable ComfyUI build automatically.',

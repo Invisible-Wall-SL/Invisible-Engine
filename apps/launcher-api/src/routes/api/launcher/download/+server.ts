@@ -5,9 +5,8 @@ import type { RequestHandler } from './$types';
 const LAUNCHER_KEY = 'tools/invisible-launcher/Invisible_Launcher.exe';
 const LAUNCHER_FILENAME = 'Invisible_Launcher.exe';
 
-export const GET: RequestHandler = async ({ locals }) => {
-	if (!locals.user) throw error(401, 'Not authenticated');
-
+// Unauthenticated: the desktop launcher binary isn't sensitive and the launcher has no portal session.
+export const GET: RequestHandler = async () => {
 	const obj = await getObjectBytes(LAUNCHER_KEY);
 	if (!obj) throw error(404, 'Launcher build not available yet');
 

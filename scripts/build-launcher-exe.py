@@ -29,7 +29,30 @@ from pathlib import Path
 DEFAULT_LAUNCHER = r"C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py"
 DEFAULT_EMBLEM = r"C:\Invisible Wall SL\ComfyUI\iw-emblem-square.png"
 R2_KEY = "tools/invisible-launcher/Invisible_Launcher.exe"
+R2_MANIFEST_KEY = "tools/invisible-launcher/latest.json"
 EXE_CONTENT_TYPE = "application/vnd.microsoft.portable-executable"
+
+
+def read_version(launcher: Path) -> str:
+    """Pull LAUNCHER_VERSION out of the launcher source so the published manifest
+    matches the embedded version."""
+    import re
+
+    m = re.search(r'^LAUNCHER_VERSION\s*=\s*["\']([^"\']+)["\']',
+                  launcher.read_text(encoding="utf-8"), re.MULTILINE)
+    if not m:
+        raise SystemExit("Could not find LAUNCHER_VERSION in the launcher source.")
+    return m.group(1)
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _pip(*pkgs: str) -> None:
@@ -81,7 +104,9 @@ def build(launcher: Path, emblem: Path, work: Path) -> Path:
     return exe
 
 
-def upload(exe: Path) -> None:
+def upload(exe: Path, version: str, notes: str) -> None:
+    import json
+
     missing = [v for v in ("R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID",
                            "R2_SECRET_ACCESS_KEY") if not os.environ.get(v)]
     if missing:
@@ -89,6 +114,7 @@ def upload(exe: Path) -> None:
     _pip("boto3")
     import boto3
 
+    bucket = os.environ["R2_BUCKET"]
     s3 = boto3.client(
         "s3",
         endpoint_url=os.environ["R2_ENDPOINT"],
@@ -96,9 +122,20 @@ def upload(exe: Path) -> None:
         aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
         region_name="auto",
     )
-    print(f"== Uploading to R2 ({os.environ['R2_BUCKET']}/{R2_KEY}) ==")
-    s3.upload_file(str(exe), os.environ["R2_BUCKET"], R2_KEY,
-                   ExtraArgs={"ContentType": EXE_CONTENT_TYPE})
+
+    print(f"== Uploading exe to R2 ({bucket}/{R2_KEY}) ==")
+    s3.upload_file(str(exe), bucket, R2_KEY, ExtraArgs={"ContentType": EXE_CONTENT_TYPE})
+
+    manifest = {
+        "version": version,
+        "size": exe.stat().st_size,
+        "sha256": _sha256(exe),
+        "notes": notes,
+    }
+    print(f"== Uploading manifest ({bucket}/{R2_MANIFEST_KEY}) v{version} ==")
+    s3.put_object(Bucket=bucket, Key=R2_MANIFEST_KEY,
+                  Body=json.dumps(manifest, indent=2).encode("utf-8"),
+                  ContentType="application/json")
     print("== Upload complete ==")
 
 
@@ -106,19 +143,23 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Build (and optionally upload) the Invisible Launcher .exe")
     ap.add_argument("--launcher", default=DEFAULT_LAUNCHER, help="path to Invisible_Launcher.py")
     ap.add_argument("--emblem", default=DEFAULT_EMBLEM, help="path to the IW emblem PNG (for the icon)")
-    ap.add_argument("--upload", action="store_true", help="upload the built .exe to R2")
+    ap.add_argument("--upload", action="store_true", help="upload the built .exe + manifest to R2")
+    ap.add_argument("--notes", default="", help="release notes shown in the update prompt")
     args = ap.parse_args()
 
     launcher = Path(args.launcher)
     if not launcher.exists():
         raise SystemExit(f"Launcher source not found: {launcher}")
 
+    version = read_version(launcher)
+    print(f"== Launcher version: v{version} ==")
+
     work = Path(tempfile.gettempdir()) / "iw-launcher-build"
     work.mkdir(parents=True, exist_ok=True)
 
     exe = build(launcher, Path(args.emblem), work)
     if args.upload:
-        upload(exe)
+        upload(exe, version, args.notes)
     else:
         print("Skipping upload (pass --upload with R2_* env vars set to publish).")
 
