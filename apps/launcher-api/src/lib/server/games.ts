@@ -10,6 +10,16 @@ export function isValidGameKey(value: string): boolean {
 	return GAME_KEY_RE.test(value);
 }
 
+/** A launchable game URL must be a well-formed absolute https:// URL. The launcher
+ *  renders it as an `<a href>` Launch tile, so reject anything that isn't plainly https. */
+export function isValidGameUrl(value: string): boolean {
+	try {
+		return new URL(value).protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
 export async function listGames(): Promise<Game[]> {
 	return getDb().select().from(games).orderBy(games.name);
 }

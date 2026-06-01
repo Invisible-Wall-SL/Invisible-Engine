@@ -125,7 +125,10 @@ for await (const file of walk(buildDir)) {
 }
 console.info(`Uploaded ${uploaded} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB to ${bucket}/${PREFIX}`);
 
-// Update the manifest (read-modify-write).
+// Update the manifest (read-modify-write — MERGE so other games aren't dropped).
+// Canonical shape (see docs/tools/test-server.md "Manifest contract"); the desktop
+// launcher's publish_game() and services/test-server/server.mjs share it:
+//   { "games": { "<key>": { "protocol": "lines"|"book", "name": str, "updatedAt": iso } } }
 const MANIFEST_KEY = 'test_server/games.json';
 let manifest = { games: {} };
 try {
