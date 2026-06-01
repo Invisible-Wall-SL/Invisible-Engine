@@ -101,11 +101,12 @@ export const TOOLS: Record<string, ToolDef> = {
 		icon: TOOL_ICONS.comfyui,
 		install: {
 			package: 'comfyui',
-			download: 'https://www.comfy.org/download',
+			download: 'https://github.com/comfyanonymous/ComfyUI/releases/latest',
 			steps: [
-				'Download the ComfyUI desktop installer for your OS.',
-				'Install and launch it once so it sets up its Python environment.',
-				'Note the install folder and save it below so the launcher can find it.',
+				'Download the Windows portable build (ComfyUI_windows_portable_nvidia.7z) from the latest release — this is the build the Invisible pipeline uses, not the ComfyUI Desktop app.',
+				'Extract the .7z with 7-Zip (https://www.7-zip.org) — Windows cannot open .7z archives on its own.',
+				'Run it once so it sets up its embedded Python environment.',
+				'Save the path to the extracted ComfyUI folder below (e.g. C:\\…\\ComfyUI_windows_portable\\ComfyUI) so it can be wired up later.',
 			],
 		},
 	},
