@@ -52,6 +52,31 @@ export async function presignGet(key: string, ttlSeconds: number): Promise<strin
 	});
 }
 
+/**
+ * Presign a list of manifest entries, adding a short-lived `url` to each. The R2
+ * object key is read from `entry[keyField]`; entries whose key is missing or does
+ * not start with `${basePrefix}/` are DROPPED (never presigned), so a manifest can
+ * only ever mint signed URLs for objects under its own prefix. Order is preserved.
+ */
+export async function presignManifestEntries<T extends Record<string, unknown>>(
+	entries: T[],
+	keyField: keyof T,
+	basePrefix: string,
+	ttlSeconds: number,
+): Promise<(T & { url: string })[]> {
+	const allowedPrefix = `${basePrefix}/`;
+	const signed: (T & { url: string })[] = [];
+	for (const entry of entries) {
+		const key = entry[keyField];
+		if (typeof key !== 'string' || !key.startsWith(allowedPrefix)) {
+			continue;
+		}
+		const url = await presignGet(key, ttlSeconds);
+		signed.push({ ...entry, url });
+	}
+	return signed;
+}
+
 export async function getObjectText(key: string): Promise<string | null> {
 	const obj = await getObjectBytes(key);
 	return obj ? new TextDecoder().decode(obj.body) : null;
