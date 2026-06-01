@@ -14,9 +14,12 @@ pipeline.
 - **Install / Update ComfyUI** — downloads the official **Windows portable**
   build (`ComfyUI_windows_portable_nvidia.7z`) straight from GitHub, extracts it
   (no manual 7-Zip step — the launcher uses an installed 7-Zip if present, else
-  auto-fetches the tiny standalone `7zr.exe`), and wires up the config paths
+  auto-fetches the tiny standalone `7zr.exe`), installs the ComfyUI-Manager
+  requirements (so `--enable-manager` works), and wires up the config paths
   (`comfyui_dir` / `python_exe`). Installs to
-  `C:\Invisible Wall SL\ComfyUI\ComfyUI_windows_portable\`.
+  `C:\Invisible Wall SL\ComfyUI\ComfyUI_windows_portable\`. A **progress bar**
+  (determinate during the download %, indeterminate while extracting) shows
+  feedback throughout.
 - **Start ComfyUI** — launches the shared ComfyUI service on `localhost:8188`.
 - **Start tunnel** — brings up the `comfy-gualtiero` Cloudflare named tunnel so
   the cloud Atlas Maker can reach this machine's GPU at
