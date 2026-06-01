@@ -41,10 +41,26 @@ Bundles live in R2 under `test_server/<gameKey>/...`, with a manifest
 The service hydrates the manifest + every game's files from R2 **on boot** (and
 on `POST /refresh`, secret-gated when `TEST_SERVER_SECRET` is set).
 
-### Publishing a game (owner)
+### Publishing a game — one-click from the desktop launcher (preferred)
+
+The desktop **Invisible Launcher** has a **☁ Build & publish** button on the Projects
+toolbar. Select a project whose `game.publish` block is filled in (cloud key, display
+name, protocol `lines`/`book`, build cwd/cmd/out, build env), click it, and it:
+1. **builds** the game (`pnpm …`, with the play4fun env),
+2. **uploads** the `build/` bundle to R2 `test_server/<key>/` + merges the manifest,
+3. **refreshes** the test server (`POST /refresh`),
+4. **registers** the game in the portal's `/admin → Games` (via
+   `POST /api/launcher/register-game`, owner login) — so it appears in the portal with
+   no manual step.
+
+> The build step needs Node + pnpm + the game's repo on that machine, so it's an
+> owner/dev action. Artist boxes that only sync ComfyUI won't build.
+
+### Publishing a game — CLI (equivalent)
 
 Build the game with the Play4Fun transport, then run the publish script (R2
-write creds in env):
+write creds in env). This does steps 1–2 above; add the `/admin` row by hand
+(or use the launcher button, which also does steps 3–4):
 
 ```bash
 # Hot Fruits (in-repo `lines` game), from the engine repo root:
@@ -91,6 +107,20 @@ params. After that, every logged-in user can launch from any machine.
 | `GET /<gameKey>/[path]` | serve the game bundle (path defaults to `index.html`) |
 | `* /api/<gameKey>/rgs/engine` | mock RGS for that game |
 | `POST /refresh[?secret=]` | re-hydrate bundles from R2 |
+
+## Manifest contract (`test_server/games.json`)
+
+Canonical shape — **producers must MERGE (read-modify-write)** so publishing one game
+never drops the others:
+
+```json
+{ "games": { "<gameKey>": { "protocol": "lines" | "book", "name": "Display Name", "updatedAt": "<iso>" } } }
+```
+
+Three places share this shape; keep them in lockstep:
+- **producer** — `apps/launcher-api/scripts/publish-game-bundle.mjs` (CLI)
+- **producer** — the desktop launcher's `publish_game()` (`Invisible_Launcher.py`)
+- **consumer** — `services/test-server/server.mjs` (`protocol` → which mock; `name` → index page)
 
 ## Local dev
 
