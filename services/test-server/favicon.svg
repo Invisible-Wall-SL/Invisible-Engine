@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#080C10"/>
+  <!-- Diamond shape -->
+  <polygon points="32,4 50,22 32,60 14,22" fill="#1a3a5c"/>
+  <!-- Left face -->
+  <polygon points="32,4 14,22 32,36" fill="#2a5a8c"/>
+  <!-- Right face -->
+  <polygon points="32,4 50,22 32,36" fill="#3AB8FF"/>
+  <!-- Center highlight -->
+  <polygon points="32,4 38,18 32,28 26,18" fill="#7FD4FF" opacity="0.7"/>
+  <!-- Bottom left -->
+  <polygon points="14,22 32,36 32,60" fill="#1a4a6c"/>
+  <!-- Bottom right -->
+  <polygon points="50,22 32,60 32,36" fill="#0d2a4a"/>
+  <!-- Glow line -->
+  <line x1="32" y1="4" x2="32" y2="36" stroke="#ffffff" stroke-width="0.8" opacity="0.5"/>
+</svg>

@@ -27,11 +27,32 @@
  */
 
 import { createServer } from 'node:http';
-import { extname, join, relative, sep } from 'node:path';
+import { extname, join, relative, sep, dirname } from 'node:path';
 import { readdir, readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
+
+// Invisible Wall favicon — served for EVERY favicon request (the root page and every
+// game), so all tabs are IW-branded (overriding the games' own bundled favicons).
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FAVICONS = (() => {
+	const load = (name, contentType) => {
+		try {
+			return { body: readFileSync(join(HERE, name)), contentType };
+		} catch {
+			return null;
+		}
+	};
+	return {
+		'favicon.ico': load('favicon.ico', 'image/x-icon'),
+		'favicon.svg': load('favicon.svg', 'image/svg+xml'),
+		'favicon.png': load('favicon-32.png', 'image/png'),
+	};
+})();
+const FAVICON_DEFAULT = FAVICONS['favicon.svg'] ?? FAVICONS['favicon.png'] ?? FAVICONS['favicon.ico'];
 
 const PORT = Number(process.env.PORT ?? 8080);
 const MANIFEST_KEY = 'test_server/games.json';
@@ -201,6 +222,7 @@ const indexPage = () => {
 		.map(([key, m]) => `<li><a href="/${key}/">${m.name}</a> <small>(${m.protocol})</small></li>`)
 		.join('\n');
 	return `<!doctype html><meta charset="utf-8"><title>Invisible Test Server</title>
+<link rel="icon" href="/favicon.svg">
 <style>body{font:16px system-ui;background:#15121a;color:#eee;margin:40px}a{color:#7ee0c0}h1{font-weight:600}small{color:#888}</style>
 <h1>Invisible Test Server</h1>
 <p>Games hosted here (launch via the portal, or click below):</p>
@@ -223,6 +245,24 @@ const handleRequest = async (req, res) => {
 	// health
 	if (req.method === 'GET' && pathname === '/healthz') {
 		return sendJson(res, 200, { ok: true, games: Object.keys(registry) });
+	}
+
+	// Invisible Wall favicon for ANY favicon request — the root page and every game
+	// (e.g. /favicon.ico, /hotfruits/favicon.svg). Overrides games' bundled favicons
+	// so every tab is IW-branded, and kills the stray /favicon.ico 404.
+	if ((req.method === 'GET' || req.method === 'HEAD') && FAVICON_DEFAULT) {
+		const baseName = (pathname.split('/').pop() || '').toLowerCase();
+		if (/^(favicon\.(ico|svg|png)|apple-touch-icon[\w-]*\.png)$/.test(baseName)) {
+			const fav = own(FAVICONS, baseName)
+				?? (baseName.endsWith('.png') ? FAVICONS['favicon.png'] : FAVICON_DEFAULT)
+				?? FAVICON_DEFAULT;
+			res.writeHead(200, {
+				'Content-Type': fav.contentType,
+				'Content-Length': fav.body.length,
+				'Cache-Control': 'public, max-age=86400',
+			});
+			return req.method === 'HEAD' ? res.end() : res.end(fav.body);
+		}
 	}
 
 	// re-hydrate from R2 (secret-gated when TEST_SERVER_SECRET is set)
