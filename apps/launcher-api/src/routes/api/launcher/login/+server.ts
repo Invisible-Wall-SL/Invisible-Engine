@@ -1,5 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { createSession, verifyCredentials } from '$lib/server/auth';
+import {
+	checkLoginThrottle,
+	recordLoginFailure,
+	recordLoginSuccess,
+} from '$lib/server/loginThrottle';
 import type { RequestHandler } from './$types';
 
 // OPEN route: the desktop launcher has no portal session yet, so it logs in here
@@ -12,7 +17,7 @@ import type { RequestHandler } from './$types';
 // brute-force prize + sessions-table churn. It is a real session row, validated
 // the same way as the web session cookie.
 const SETUP_TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 	let body: unknown;
 	try {
 		body = await request.json();
@@ -25,16 +30,32 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ error: 'Invalid email or password.' }, { status: 401 });
 	}
 
+	// Brute-force throttle (shared with the web /login form). Reject early when the
+	// client IP or this email is locked out, before spending a scrypt verify.
+	const ip = getClientAddress();
+	const throttle = await checkLoginThrottle(ip, email);
+	if (throttle.blocked) {
+		return json(
+			{ error: 'Too many attempts. Try again later.' },
+			{
+				status: 429,
+				headers: {
+					'retry-after': String(throttle.retryAfterSeconds),
+					'cache-control': 'no-store',
+				},
+			},
+		);
+	}
+
 	const user = await verifyCredentials(email, password);
 	if (!user) {
+		await recordLoginFailure(ip, email);
 		return json({ error: 'Invalid email or password.' }, { status: 401 });
 	}
+	await recordLoginSuccess(ip, email);
 
 	const token = await createSession(user.id, SETUP_TOKEN_TTL_MS);
 	const expiresAt = new Date(Date.now() + SETUP_TOKEN_TTL_MS).toISOString();
 
-	return json(
-		{ token, expiresAt, role: user.role },
-		{ headers: { 'cache-control': 'no-store' } },
-	);
+	return json({ token, expiresAt, role: user.role }, { headers: { 'cache-control': 'no-store' } });
 };

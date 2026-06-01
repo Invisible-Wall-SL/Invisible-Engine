@@ -79,7 +79,9 @@ There were briefly **two environments** (`production` + a stray `atlas`), each w
 
 ## Environment variables (names only)
 
-**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`.
+**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`, `ADDRESS_HEADER`, `XFF_DEPTH`.
+
+> ⚠️ **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` are required for the login brute-force throttle (B38) to see real client IPs.** These are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses Railway's `X-Forwarded-For` instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted proxy hop (Railway's edge); raise only if you add more proxies in front. **If unset, every request looks like one shared IP** — the per-IP bucket collapses to a single global counter (the per-email bucket is unaffected), which both weakens the IP throttle and risks collateral lockout. Set on the launcher service → **Apply changes / Deploy**.
 
 **atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SECRET` (optional), `ATLAS_STAGING`.
 

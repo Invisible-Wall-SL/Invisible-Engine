@@ -1,4 +1,4 @@
-import { boolean, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -141,6 +141,21 @@ export const roleToolAccess = pgTable(
 	(table) => [primaryKey({ columns: [table.role, table.toolKey] })],
 );
 
+/**
+ * Brute-force throttle counters for the password-login surfaces (the web `/login`
+ * form and the open `POST /api/launcher/login` endpoint). One row per scope `key`
+ * — either `ip:<addr>` or `email:<addr>`. `failures` accumulates while the scope
+ * stays active; once it crosses the free-attempt threshold, `lockedUntil` carries
+ * an exponential-backoff lockout. A successful login clears the scope's row. See
+ * `src/lib/server/loginThrottle.ts` for the policy.
+ */
+export const loginAttempts = pgTable('login_attempts', {
+	key: text('key').primaryKey(),
+	failures: integer('failures').notNull().default(0),
+	lockedUntil: timestamp('locked_until', { withTimezone: true }),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -151,3 +166,4 @@ export type UserProjectAccess = typeof userProjectAccess.$inferSelect;
 export type Client = typeof clients.$inferSelect;
 export type UserClientAccess = typeof userClientAccess.$inferSelect;
 export type Game = typeof games.$inferSelect;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;

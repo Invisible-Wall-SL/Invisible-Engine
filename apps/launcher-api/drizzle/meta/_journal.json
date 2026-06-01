@@ -43,6 +43,13 @@
       "when": 1780234800000,
       "tag": "0005_lucky_games",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780322623626,
+      "tag": "0006_blushing_snowbird",
+      "breakpoints": true
     }
   ]
 }
