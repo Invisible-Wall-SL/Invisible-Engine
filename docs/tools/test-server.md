@@ -62,14 +62,19 @@ Build the game with the Play4Fun transport, then run the publish script (R2
 write creds in env). This does steps 1–2 above; add the `/admin` row by hand
 (or use the launcher button, which also does steps 3–4):
 
+Each game is its **own standalone repo** (with the engine as a submodule under
+`engine/`), built with `pnpm build` → `build/`. (The engine's `apps/lines` is a
+**stale copy** — don't build from there.) First build per repo needs the engine's
+`pixi-svelte` dist once: `pnpm --filter pixi-svelte build`.
+
 ```bash
-# Hot Fruits (in-repo `lines` game), from the engine repo root:
-PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=lines pnpm --filter lines build
-node apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits apps/lines/build \
+# Hot Fruits — from C:\…\Projects\iGaming\Borut\HotFruits:
+PUBLIC_RGS_TRANSPORT=play4fun pnpm build
+node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits <HotFruits>/build \
   --protocol lines --name "Hot Fruits"
 
-# Book of Borut (built in its OWN repo — engine is a submodule there):
-PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build      # in the Book-of-Borut repo
+# Book of Borut — from C:\…\Projects\iGaming\Borut\Book of Borut:
+PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build
 node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs book_of_borut <repo>/build \
   --protocol book --name "Book of Borut"
 ```

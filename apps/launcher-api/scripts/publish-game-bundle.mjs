@@ -7,14 +7,16 @@
 //     node apps/launcher-api/scripts/publish-game-bundle.mjs <gameKey> <buildDir> \
 //       [--protocol lines|book] [--name "Display Name"]
 //
-// Examples (from the engine repo root):
-//   # Hot Fruits (in-repo `lines` game):
-//   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=lines pnpm --filter lines build
-//   node apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits apps/lines/build \
+// Examples (each game is its OWN standalone repo with the engine as a submodule;
+// build with `pnpm build` → build/. The engine's apps/lines is a stale copy.):
+//   # Hot Fruits (C:\…\Projects\iGaming\Borut\HotFruits):
+//   PUBLIC_RGS_TRANSPORT=play4fun pnpm build
+//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits <HotFruits>/build \
 //     --protocol lines --name "Hot Fruits"
 //
-//   # Book of Borut (built in its own repo, then point at that build dir):
-//   node apps/launcher-api/scripts/publish-game-bundle.mjs book_of_borut <path>/build \
+//   # Book of Borut (its own repo):
+//   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build
+//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs book_of_borut <repo>/build \
 //     --protocol book --name "Book of Borut"
 //
 // The mock protocol selects which mock RGS the test server mounts for the game:
