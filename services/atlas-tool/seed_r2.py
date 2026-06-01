@@ -13,9 +13,10 @@ Run on the machine that has the local tool, with R2 creds in the environment:
     py seed_r2.py
 
 Source locations (override via env if different):
-  TOOL_DIR    = the local "Invisible Atlas Maker" folder (manifests live here)
-  LOCAL_INPUT = Shared/input/atlas_maker/<LOCAL_PROJECT>  (refs live here)
-  LOCAL_PROJECT = the LOCAL project key (default "Borut_Hotfruits")
+  ATLAS_TOOL_DIR      = the local "Invisible Atlas Maker" folder (manifests live here)
+  ATLAS_LOCAL_PROJECT = the LOCAL input project key (default "Borut_Hotfruits")
+  ATLAS_LOCAL_INPUT   = Shared/input/atlas_maker/<ATLAS_LOCAL_PROJECT> (refs live here;
+                        overrides the whole path if set)
 
 Uploads to R2 (matching the launcher's <tool>/<client>/<project>/ layout):
   atlas_maker/<CLIENT>/<PROJECT>/manifests/<atlas_manifest_*.json | *.atlas>
