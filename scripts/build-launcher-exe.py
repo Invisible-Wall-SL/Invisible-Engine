@@ -64,8 +64,10 @@ def _pip(*pkgs: str) -> None:
 
 def build(launcher: Path, emblem: Path, work: Path) -> Path:
     dist = work / "dist"
-    print("== Ensuring PyInstaller + Pillow + customtkinter ==")
-    _pip("pyinstaller", "pillow", "customtkinter")
+    print("== Ensuring PyInstaller + Pillow + customtkinter + boto3 ==")
+    # boto3 powers the owner "Publish to cloud" upload; PyInstaller's bundled
+    # hooks collect botocore's data files once boto3 is importable at build time.
+    _pip("pyinstaller", "pillow", "customtkinter", "boto3")
 
     args = [
         "--onefile",
@@ -75,6 +77,11 @@ def build(launcher: Path, emblem: Path, work: Path) -> Path:
         "--workpath", str(work / "build"),
         "--specpath", str(work),
         "--collect-all", "customtkinter",
+        # boto3/botocore load service models + endpoints.json as DATA at runtime;
+        # collect-all grabs those + metadata so the frozen exe can do S3 PUTs
+        # (collect-submodules alone misses the data files → DataNotFoundError).
+        "--collect-all", "boto3",
+        "--collect-all", "botocore",
         "--noconfirm",
     ]
 
