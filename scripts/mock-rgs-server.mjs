@@ -5,42 +5,28 @@
  * Hot Fruits session. No auth, no Cloudflare, CORS-permissive — meant for
  * local development of the translator and engine wiring.
  *
- * Run from the repo root:
- *   node scripts/mock-rgs-server.mjs
+ * Two ways to use it:
+ *   1. Standalone CLI (local dev):  node scripts/mock-rgs-server.mjs
+ *   2. In-process: `import { createMockRgs }` and mount its `handle` under a
+ *      path prefix (the Invisible Test Server does this — `services/test-server`).
+ *      `handle` matches /rgs/engine, /healthz, /state by path SUFFIX, so it works
+ *      whether mounted at the root or under `/api/<gameKey>`.
  *
- * Optional env vars:
+ * Optional env vars (CLI):
  *   PORT=7777                 (default)
- *   START_BALANCE=1300        (default — credits, integer)
+ *   START_BALANCE=10000       (default — credits in cents, 100 = $1.00)
  *   SEED=anything             (deterministic spin outcomes)
  *
  * Endpoints:
- *   POST /rgs/engine?sid=&seq=&gid=    — main batched-action endpoint
- *   GET  /healthz                       — { ok: true }
- *   GET  /state?sid=                    — debug: dump session state
+ *   POST …/rgs/engine?sid=&seq=&gid=    — main batched-action endpoint
+ *   GET  …/healthz                       — { ok: true }
+ *   GET  …/state?sid=                    — debug: dump session state
  */
 
 import { createServer } from 'node:http';
+import { pathToFileURL } from 'node:url';
 
-const PORT = Number(process.env.PORT ?? 7777);
-/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
- *  10000 = $100 — matches what we observed from the live Hot Fruits server.
- *  Override with START_BALANCE=N. */
-const START_BALANCE = Number(process.env.START_BALANCE ?? 10_000);
-const SEED = process.env.SEED;
-
-// ---------- session store ----------
-
-/** sid -> { balance, round | null, configSent } */
-const sessions = new Map();
-
-const getSession = (sid) => {
-	if (!sessions.has(sid)) {
-		sessions.set(sid, { balance: START_BALANCE, round: null, configSent: false });
-	}
-	return sessions.get(sid);
-};
-
-// ---------- spin engine (deterministic-ish) ----------
+// ---------- pure game data (read-only, shared across instances) ----------
 
 // Symbol vocabulary mirrors what the live Hot Fruits server sends. Translation
 // to per-game symbols (H1/L1/S/W for Stake's lines) happens in the facade,
@@ -76,11 +62,6 @@ const SCATTER_PAY_TABLE = {
 	5: 100,  // 5 SCAT → 100× total stake
 };
 
-let rngState = SEED ? hashStr(SEED) : Date.now() >>> 0;
-function nextRand() {
-	rngState = (rngState * 1664525 + 1013904223) >>> 0;
-	return rngState / 0x100000000;
-}
 function hashStr(s) {
 	let h = 2166136261 >>> 0;
 	for (let i = 0; i < s.length; i++) {
@@ -89,18 +70,6 @@ function hashStr(s) {
 	}
 	return h;
 }
-const pickSymbol = () => {
-	// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7.
-	const r = nextRand();
-	if (r < 0.04) return 'SCAT';
-	if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)];      // PIC1/2/3
-	if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
-	if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
-	return 'PIC7';
-};
-
-/** 5 reels × 3 visible rows */
-const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
 
 /** Evaluate paylines. Each payline is 5 row-indices (one per reel).
  *  A win occurs when the leftmost N matching symbols form a run. */
@@ -159,7 +128,7 @@ const evaluateScatters = (reels, totalStake) => {
 	};
 };
 
-// ---------- request handler ----------
+// ---------- pure HTTP plumbing ----------
 
 /** Build CORS headers compatible with credentials:'include'. The browser
  *  rejects Access-Control-Allow-Origin: '*' when credentials are present —
@@ -212,223 +181,284 @@ const readBody = (req) =>
 
 const makeRoundId = () => 'G' + Math.random().toString(36).slice(2, 14);
 
-const handleEngine = async (req, res, url) => {
-	const sid = url.searchParams.get('sid');
-	const seq = Number(url.searchParams.get('seq') ?? 0);
-	const gid = url.searchParams.get('gid');
-
-	if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
-
-	const session = getSession(sid);
-	const bodyText = await readBody(req);
-	let actions;
-	try {
-		actions = bodyText ? JSON.parse(bodyText) : [];
-	} catch {
-		return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
-	}
-	if (!Array.isArray(actions)) {
-		return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
-	}
-
-	console.log(`[mock] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
-
-	const events = [];
-
-	// Emit the boot `config` event once per session — first response gets it.
-	// Faithful to Play4Fun's wire format (symbols/window/paylines/wildSymbols/
-	// paytable). The facade captures it for cross-checks + reveal filtering.
-	if (!session.configSent) {
-		session.configSent = true;
-		events.push({
-			event: 'config',
-			context: {
-				symbols: SYMBOLS,
-				window: { reels: 5, rows: 3 },
-				paylines: PAYLINES,
-				wildSymbols: [],
-				paytable: Object.fromEntries(
-					Object.entries(PAY_TABLE).map(([sym, byCount]) => {
-						const counts = Object.keys(byCount).map(Number).sort((a, b) => a - b);
-						return [
-							sym,
-							{
-								occurs: counts,
-								pay: counts.map((c) => byCount[c]),
-							},
-						];
-					}),
-				),
-			},
-		});
-	}
-
-	// Heartbeat: empty body returns balance only (plus config if first call).
-	if (actions.length === 0) {
-		return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
-	}
-
-	let pendingRound = session.round; // copy reference; may mutate
-
-	for (const a of actions) {
-		switch (a.action) {
-			case 'bet': {
-				const ctx = Array.isArray(a.context) ? a.context : [5, 1];
-				const [linesOrConfig, betPerLine] = [Number(ctx[0]) || 5, Number(ctx[1]) || 1];
-				const total = linesOrConfig * betPerLine;
-				if (session.balance < total) {
-					return sendJson(req, res, 200, {
-						result: 0,
-						error: 'insufficient balance',
-						errorCode: 200, // speculative — confirm if/when we capture a real one
-						platform: { balance: session.balance },
-					});
-				}
-				session.balance -= total;
-				pendingRound = {
-					id: makeRoundId(),
-					betPerLine,
-					linesOrConfig,
-					total,
-					win: 0,
-					reels: null,
-					closed: false,
-				};
-				events.push({
-					event: 'bet',
-					context: { total, betPerLine, paylines: PAYLINES, maxWinCap: 0 },
-				});
-				events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
-				break;
-			}
-			case 'play': {
-				if (!pendingRound) {
-					return sendJson(req, res, 200, {
-						result: 0,
-						error: 'error executing requested actions: play without bet',
-						errorCode: 110,
-						platform: {},
-					});
-				}
-				const reels = spinReels();
-				pendingRound.reels = reels;
-				const lineWins = evaluatePaylines(reels, pendingRound.betPerLine);
-				const scatterWin = evaluateScatters(reels, pendingRound.total);
-				const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
-				const totalWin = wins.reduce((s, w) => s + w.pay, 0);
-				pendingRound.win = totalWin;
-
-				events.push({
-					event: 'spinStart',
-					context: {
-						symbols: SYMBOLS,
-						symbolsPay: { line: LINE_SYMBOLS, scatter: ['SCAT'] },
-						wildSymbols: [],
-						lineAlign: 'left',
-						lineCoinciding: false,
-					},
-				});
-				for (const w of wins) events.push({ event: 'spinWin', context: w });
-				events.push({ event: 'playedSpin', context: reels });
-				events.push({ event: 'gameEnd', context: { win: totalWin } });
-
-				// Round-close rules (from real captures):
-				//   - play.context = '' (or undefined): auto-collect.
-				//   - play.context = null: leave round open IFF there's a win to collect.
-				//     If win = 0, the server auto-closes even with null context
-				//     (nothing to collect → no point keeping the round open).
-				const explicitAutoCollect = a.context === '' || a.context === undefined;
-				const zeroWinAutoClose = a.context === null && totalWin === 0;
-				if (explicitAutoCollect || zeroWinAutoClose) {
-					session.balance += totalWin;
-					events.push({ event: 'gameRoundOver', context: { win: totalWin } });
-					pendingRound.closed = true;
-				}
-				break;
-			}
-			case 'collect': {
-				if (!pendingRound || pendingRound.id !== gid) {
-					return sendJson(req, res, 200, {
-						result: 0,
-						error: 'error executing requested actions: unexpected action: collect (was expecting: play)',
-						errorCode: 110,
-						platform: {},
-					});
-				}
-				if (!pendingRound.closed) {
-					session.balance += pendingRound.win;
-					pendingRound.closed = true;
-				}
-				events.push({ event: 'gameRoundOver', context: { win: pendingRound.win } });
-				break;
-			}
-			default:
-				return sendJson(req, res, 200, {
-					result: 0,
-					error: `error executing requested actions: unknown action: ${a.action}`,
-					errorCode: 110,
-					platform: {},
-				});
-		}
-	}
-
-	// Settle session.round state
-	if (pendingRound && pendingRound.closed) {
-		session.round = null;
-	} else if (pendingRound) {
-		session.round = pendingRound;
-	}
-
-	const platform = { balance: session.balance };
-	if (pendingRound) {
-		platform.gameRound = { updating: true, id: pendingRound.id };
-	}
-
-	return sendJson(req, res, 200, { events, platform });
+/** A path matches a route if it equals or ends with the route (so the same
+ *  handler works at the root or mounted under `/api/<gameKey>`). */
+const pathEndsWith = (pathname, route) => {
+	const p = pathname.replace(/\/+$/, '') || '/';
+	return p === route || p.endsWith(route);
 };
 
-// ---------- server ----------
+// ---------- factory: one stateful mock instance ----------
 
-const server = createServer(async (req, res) => {
-	const url = new URL(req.url, `http://${req.headers.host}`);
+/**
+ * Create a Play4Fun RGS mock instance. Each instance owns its own session store
+ * and RNG, so mounting several instances side-by-side (e.g. one per game) keeps
+ * their balances independent.
+ *
+ * @param {{ startBalance?: number, seed?: string, label?: string }} [opts]
+ */
+export function createMockRgs(opts = {}) {
+	/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
+	 *  10000 = $100 — matches what we observed from the live Hot Fruits server. */
+	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 10_000);
+	const seed = opts.seed ?? process.env.SEED;
+	const label = opts.label ?? 'mock';
 
-	if (req.method === 'OPTIONS') return sendCorsPreflight(req, res);
-
-	if (req.method === 'GET' && url.pathname === '/healthz') {
-		return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
-	}
-
-	if (req.method === 'GET' && url.pathname === '/state') {
-		const sid = url.searchParams.get('sid');
-		if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
-		return sendJson(req, res, 200, getSession(sid));
-	}
-
-	if (req.method === 'POST' && url.pathname === '/rgs/engine') {
-		try {
-			return await handleEngine(req, res, url);
-		} catch (err) {
-			console.error('[mock] handler error:', err);
-			return sendJson(req, res, 500, { error: { code: 'ERR_UE', message: String(err) } });
+	/** sid -> { balance, round | null, configSent } */
+	const sessions = new Map();
+	const getSession = (sid) => {
+		if (!sessions.has(sid)) {
+			sessions.set(sid, { balance: startBalance, round: null, configSent: false });
 		}
-	}
+		return sessions.get(sid);
+	};
 
-	sendJson(req, res, 404, { error: 'not found' });
-});
+	let rngState = seed ? hashStr(seed) : Date.now() >>> 0;
+	const nextRand = () => {
+		rngState = (rngState * 1664525 + 1013904223) >>> 0;
+		return rngState / 0x100000000;
+	};
+	const pickSymbol = () => {
+		// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7.
+		const r = nextRand();
+		if (r < 0.04) return 'SCAT';
+		if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)];      // PIC1/2/3
+		if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
+		if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
+		return 'PIC7';
+	};
+	/** 5 reels × 3 visible rows */
+	const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
 
-server.listen(PORT, () => {
-	// Standard Invisible Wall startup banner (compact corner bracket).
-	console.log([
-		'',
-		'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-		'   ┃   I N V I S I B L E   W A L L   S L',
-		'   ┃   ────────────────────────────────────────',
-		'   ┃   MOCK RGS   ·   Play4Fun',
-		'   ┃',
-		`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
-		'',
-	].join('\n'));
-	console.log(`[mock] Play4Fun RGS mock listening on http://localhost:${PORT}`);
-	console.log(`[mock] starting balance: ${START_BALANCE}, seed: ${SEED ?? '(time-based)'}`);
-	console.log(`[mock] try: curl -X POST http://localhost:${PORT}/rgs/engine?sid=test`);
-});
+	const handleEngine = async (req, res, url) => {
+		const sid = url.searchParams.get('sid');
+		const seq = Number(url.searchParams.get('seq') ?? 0);
+		const gid = url.searchParams.get('gid');
+
+		if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
+
+		const session = getSession(sid);
+		const bodyText = await readBody(req);
+		let actions;
+		try {
+			actions = bodyText ? JSON.parse(bodyText) : [];
+		} catch {
+			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
+		}
+		if (!Array.isArray(actions)) {
+			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
+		}
+
+		console.log(`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
+
+		const events = [];
+
+		// Emit the boot `config` event once per session — first response gets it.
+		// Faithful to Play4Fun's wire format (symbols/window/paylines/wildSymbols/
+		// paytable). The facade captures it for cross-checks + reveal filtering.
+		if (!session.configSent) {
+			session.configSent = true;
+			events.push({
+				event: 'config',
+				context: {
+					symbols: SYMBOLS,
+					window: { reels: 5, rows: 3 },
+					paylines: PAYLINES,
+					wildSymbols: [],
+					paytable: Object.fromEntries(
+						Object.entries(PAY_TABLE).map(([sym, byCount]) => {
+							const counts = Object.keys(byCount).map(Number).sort((a, b) => a - b);
+							return [
+								sym,
+								{
+									occurs: counts,
+									pay: counts.map((c) => byCount[c]),
+								},
+							];
+						}),
+					),
+				},
+			});
+		}
+
+		// Heartbeat: empty body returns balance only (plus config if first call).
+		if (actions.length === 0) {
+			return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
+		}
+
+		let pendingRound = session.round; // copy reference; may mutate
+
+		for (const a of actions) {
+			switch (a.action) {
+				case 'bet': {
+					const ctx = Array.isArray(a.context) ? a.context : [5, 1];
+					const [linesOrConfig, betPerLine] = [Number(ctx[0]) || 5, Number(ctx[1]) || 1];
+					const total = linesOrConfig * betPerLine;
+					if (session.balance < total) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'insufficient balance',
+							errorCode: 200, // speculative — confirm if/when we capture a real one
+							platform: { balance: session.balance },
+						});
+					}
+					session.balance -= total;
+					pendingRound = {
+						id: makeRoundId(),
+						betPerLine,
+						linesOrConfig,
+						total,
+						win: 0,
+						reels: null,
+						closed: false,
+					};
+					events.push({
+						event: 'bet',
+						context: { total, betPerLine, paylines: PAYLINES, maxWinCap: 0 },
+					});
+					events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
+					break;
+				}
+				case 'play': {
+					if (!pendingRound) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'error executing requested actions: play without bet',
+							errorCode: 110,
+							platform: {},
+						});
+					}
+					const reels = spinReels();
+					pendingRound.reels = reels;
+					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine);
+					const scatterWin = evaluateScatters(reels, pendingRound.total);
+					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
+					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
+					pendingRound.win = totalWin;
+
+					events.push({
+						event: 'spinStart',
+						context: {
+							symbols: SYMBOLS,
+							symbolsPay: { line: LINE_SYMBOLS, scatter: ['SCAT'] },
+							wildSymbols: [],
+							lineAlign: 'left',
+							lineCoinciding: false,
+						},
+					});
+					for (const w of wins) events.push({ event: 'spinWin', context: w });
+					events.push({ event: 'playedSpin', context: reels });
+					events.push({ event: 'gameEnd', context: { win: totalWin } });
+
+					// Round-close rules (from real captures):
+					//   - play.context = '' (or undefined): auto-collect.
+					//   - play.context = null: leave round open IFF there's a win to collect.
+					//     If win = 0, the server auto-closes even with null context
+					//     (nothing to collect → no point keeping the round open).
+					const explicitAutoCollect = a.context === '' || a.context === undefined;
+					const zeroWinAutoClose = a.context === null && totalWin === 0;
+					if (explicitAutoCollect || zeroWinAutoClose) {
+						session.balance += totalWin;
+						events.push({ event: 'gameRoundOver', context: { win: totalWin } });
+						pendingRound.closed = true;
+					}
+					break;
+				}
+				case 'collect': {
+					if (!pendingRound || pendingRound.id !== gid) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'error executing requested actions: unexpected action: collect (was expecting: play)',
+							errorCode: 110,
+							platform: {},
+						});
+					}
+					if (!pendingRound.closed) {
+						session.balance += pendingRound.win;
+						pendingRound.closed = true;
+					}
+					events.push({ event: 'gameRoundOver', context: { win: pendingRound.win } });
+					break;
+				}
+				default:
+					return sendJson(req, res, 200, {
+						result: 0,
+						error: `error executing requested actions: unknown action: ${a.action}`,
+						errorCode: 110,
+						platform: {},
+					});
+			}
+		}
+
+		// Settle session.round state
+		if (pendingRound && pendingRound.closed) {
+			session.round = null;
+		} else if (pendingRound) {
+			session.round = pendingRound;
+		}
+
+		const platform = { balance: session.balance };
+		if (pendingRound) {
+			platform.gameRound = { updating: true, id: pendingRound.id };
+		}
+
+		return sendJson(req, res, 200, { events, platform });
+	};
+
+	/** Path-agnostic dispatcher. `url` is a parsed URL; routes match by suffix. */
+	const handle = async (req, res, url) => {
+		if (req.method === 'OPTIONS') return sendCorsPreflight(req, res);
+
+		if (req.method === 'GET' && pathEndsWith(url.pathname, '/healthz')) {
+			return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
+		}
+
+		if (req.method === 'GET' && pathEndsWith(url.pathname, '/state')) {
+			const sid = url.searchParams.get('sid');
+			if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
+			return sendJson(req, res, 200, getSession(sid));
+		}
+
+		if (req.method === 'POST' && pathEndsWith(url.pathname, '/rgs/engine')) {
+			try {
+				return await handleEngine(req, res, url);
+			} catch (err) {
+				console.error(`[${label}] handler error:`, err);
+				return sendJson(req, res, 500, { error: { code: 'ERR_UE', message: String(err) } });
+			}
+		}
+
+		return sendJson(req, res, 404, { error: 'not found' });
+	};
+
+	return { handle, sessions, startBalance, seed };
+}
+
+// ---------- standalone CLI entry (local dev) ----------
+
+const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').href;
+
+if (isMainModule) {
+	const PORT = Number(process.env.PORT ?? 7777);
+	const mock = createMockRgs({ label: 'mock' });
+	const server = createServer((req, res) => {
+		const url = new URL(req.url, `http://${req.headers.host}`);
+		return mock.handle(req, res, url);
+	});
+	server.listen(PORT, () => {
+		// Standard Invisible Wall startup banner (compact corner bracket).
+		console.log([
+			'',
+			'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+			'   ┃   I N V I S I B L E   W A L L   S L',
+			'   ┃   ────────────────────────────────────────',
+			'   ┃   MOCK RGS   ·   Play4Fun',
+			'   ┃',
+			`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
+			'',
+		].join('\n'));
+		console.log(`[mock] Play4Fun RGS mock listening on http://localhost:${PORT}`);
+		console.log(`[mock] starting balance: ${mock.startBalance}, seed: ${mock.seed ?? '(time-based)'}`);
+		console.log(`[mock] try: curl -X POST http://localhost:${PORT}/rgs/engine?sid=test`);
+	});
+}
