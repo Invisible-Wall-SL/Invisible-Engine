@@ -13,6 +13,7 @@
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
+	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
 	import RegionThumb from './RegionThumb.svelte';
 	import {
 		fetchRegions,
@@ -39,7 +40,7 @@
 	 * into `node.overrides[layoutType]` (override mode). */
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Left sidebar tab: which panel is shown. */
-	let leftTab = $state<'library' | 'outline'>('library');
+	let leftTab = $state<'library' | 'outline' | 'template'>('library');
 	/** The template currently being viewed/edited — starts as the project's
 	 * resolved template and is swapped by the game-type selector so you can load
 	 * and see any game type's template (e.g. `bookOf`). Drives the slot panel. */
@@ -471,7 +472,10 @@
 				class:active-mode={templateMode}
 				aria-pressed={templateMode}
 				title="Author the game-type template (tag nodes as slots, export a GameTemplate)"
-				onclick={() => (templateMode = !templateMode)}
+				onclick={() => {
+					templateMode = !templateMode;
+					leftTab = templateMode ? 'template' : 'library';
+				}}
 			>
 				Template mode
 			</button>
@@ -521,6 +525,15 @@
 					onclick={() => (leftTab = 'outline')}
 				>
 					Outline
+				</button>
+				<button
+					role="tab"
+					aria-selected={leftTab === 'template'}
+					class="tab"
+					class:active={leftTab === 'template'}
+					onclick={() => (leftTab = 'template')}
+				>
+					Template
 				</button>
 			</div>
 
@@ -581,6 +594,8 @@
 							{/each}
 						</ul>
 					</section>
+				{:else if leftTab === 'template'}
+					<EditorTemplatePanel template={activeTemplate} {scenes} />
 				{:else}
 					<EditorOutline
 						scene={activeScene}
