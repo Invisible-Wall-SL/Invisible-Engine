@@ -41,7 +41,9 @@
 	<section class="tpl">
 		<h3>{template.gameType} <span class="count">template</span></h3>
 		<p class="hint">
-			Click a scene to edit it on the canvas, then drag assets in and tag their slot.
+			To fill a slot: <strong>1.</strong> click its scene below · <strong>2.</strong> open the
+			<strong>Library</strong> tab and drag an asset onto the canvas · <strong>3.</strong> select it
+			and choose the slot in <strong>Properties</strong>.
 		</p>
 		{#each template.scenes as scene (scene.id)}
 			{@const filled = filledFor(scene.id)}
