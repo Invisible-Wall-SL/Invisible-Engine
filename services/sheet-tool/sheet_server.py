@@ -682,6 +682,166 @@ def _resolve_image(coords_path: Path, image_ref: str) -> Path | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# generation-manifest support: gather a region's GENERATED cutout (in batch/)
+# as a loose sprite. Ported self-contained from the Atlas Maker's batch_atlas
+# (which imports ComfyUI deps we must not pull in) — the resolution priority
+# here MUST mirror that tool's compose exactly so both pick the same variant.
+# ---------------------------------------------------------------------------
+
+def _variant_id(path: Path) -> str | None:
+    """ComfyUI writes '<region>_<NNNNN>_.png'; region names can contain
+    underscores, so match the final digit group, not split('_')[1]."""
+    m = re.search(r"_(\d+)_?$", path.stem)
+    return m.group(1) if m else None
+
+
+def _variant_files(batch_dir: Path, name: str) -> list[Path]:
+    """All variant PNGs for EXACTLY this region, sorted ascending by name.
+    Require the region name to be followed immediately by the numeric variant
+    id so region '10x' never picks up '10x_shine_*.png' (and since 's' > '0'
+    those would otherwise sort last and steal 'latest')."""
+    pat = re.compile(rf"^{re.escape(name)}_\d+_?\.png$", re.IGNORECASE)
+    return sorted((p for p in batch_dir.glob(f"{name}_*.png") if pat.match(p.name)),
+                  key=lambda p: p.name)
+
+
+def _seed_in_png(path: Path) -> int | None:
+    """The ComfyUI KSampler seed embedded in a generated PNG's text metadata
+    (info['prompt'] is a JSON workflow). Best-effort: None on any error."""
+    try:
+        prompt = Image.open(path).info.get("prompt")
+        if not prompt:
+            return None
+        for node in json.loads(prompt).values():
+            if node.get("class_type") == "KSampler":
+                return node["inputs"].get("seed")
+    except Exception:  # noqa: BLE001 — best-effort metadata read
+        return None
+    return None
+
+
+def _override_image_path(region: dict, input_dir: Path) -> Path | None:
+    """A region's user-supplied output image (output_override), if set+present.
+    Absolute path, or relative to the project's input dir."""
+    ov = region.get("output_override")
+    if not ov:
+        return None
+    p = Path(ov) if Path(ov).is_absolute() else input_dir / ov
+    return p if p.exists() else None
+
+
+def _pick_variant_png(batch_dir: Path, region: dict) -> Path | None:
+    """Pick a region's generated variant, mirroring the Atlas Maker's priority:
+    1. the committed 'variant' id (authoritative — a locked seed is reused
+       across renders so many variants share one seed);
+    2. else the variant whose embedded KSampler seed matches a locked 'seed';
+    3. else the latest (lexically-last) variant."""
+    files = _variant_files(batch_dir, region.get("name", ""))
+    if not files:
+        return None
+    picked = str(region.get("variant", "")).strip()
+    if picked:
+        for p in files:
+            if _variant_id(p) == picked:
+                return p
+    locked = region.get("seed")
+    if locked is not None:
+        try:
+            locked_i = int(locked)
+        except (TypeError, ValueError):
+            locked_i = None
+        if locked_i is not None:
+            for p in files:
+                if _seed_in_png(p) == locked_i:
+                    return p
+    return files[-1]
+
+
+def _is_generation_manifest(path: Path, parsed: dict, raw: dict) -> bool:
+    """True iff this is an Atlas-Maker GENERATION manifest: our AI manifest
+    (has 'regions', not a TexturePacker 'frames' file, not a .atlas) whose
+    atlas has no positive size AND no region has positive geometry — i.e.
+    prompts exist but nothing has been packed yet."""
+    if path.suffix.lower() == ".atlas":
+        return False
+    if "frames" in raw or "regions" not in raw:
+        return False
+    atlas = raw.get("atlas", {}) or {}
+    if int(atlas.get("width", 0) or 0) > 0 and int(atlas.get("height", 0) or 0) > 0:
+        return False
+    for r in parsed.get("regions", []):
+        if int(r.get("w", 0) or 0) > 0 and int(r.get("h", 0) or 0) > 0:
+            return False
+    return True
+
+
+def _load_generation_manifest(path: Path, sheet: str, raw: dict) -> dict:
+    """Gather each region's GENERATED cutout (already RMBG-transparent) from the
+    project's batch/ pile as a LOOSE, unplaced sprite for the user to arrange."""
+    ctx = _ctx()
+    r2_prefix = ctx["r2_prefix"]
+    staging_root = Path(ctx["staging_root"])
+    input_dir = project_paths.resolve()["input_dir"]
+    batch_dir = staging_root / "batch"
+
+    # batch/ is heavy and not in the eager hydrate; pull it on this explicit
+    # load so the variant globbing below sees the generated PNGs.
+    if r2_prefix:
+        try:
+            storage.pull_prefix(f"{r2_prefix}/batch/", staging_root, f"{r2_prefix}/")
+        except Exception:  # noqa: BLE001 — best-effort; glob what's local
+            pass
+
+    up = uploads_dir(sheet)
+    regions_out = []
+    written = []
+    missing = []
+    used = set()
+    for region in raw.get("regions", []):
+        name = region.get("name", "") or ""
+        img = _override_image_path(region, input_dir) or _pick_variant_png(batch_dir, region)
+        if img is None:
+            missing.append(name or "(unnamed)")
+            continue
+        nm = safe_name(name, "region")
+        base_nm = nm
+        k = 2
+        while nm in used:
+            nm = f"{base_nm}_{k}"; k += 1
+        used.add(nm)
+        try:
+            cutout = Image.open(img).convert("RGBA")
+        except Exception:  # noqa: BLE001 — unreadable generated image
+            missing.append(name or "(unnamed)")
+            continue
+        src = f"{nm}.png"
+        cutout.save(up / src)
+        written.append(up / src)
+        regions_out.append({
+            "src": src, "name": nm, "x": 0, "y": 0,
+            "w": cutout.width, "h": cutout.height,
+            "rotated": False, "locked": False,
+            "prompt": region.get("prompt", ""),
+            "shape_ref": region.get("shape_ref", ""),
+            "seed": str(region.get("seed", "") or ""),
+        })
+
+    for p in written:
+        _mirror(p)
+
+    atlas = raw.get("atlas", {}) or {}
+    canvas_w = int(atlas.get("width", 0) or 0) or 1024
+    canvas_h = int(atlas.get("height", 0) or 0) or 1024
+    name = path.name[len("atlas_manifest_"):-len(".json")] \
+        if path.name.startswith("atlas_manifest_") else path.stem
+    return {"sheet": sheet, "canvas_w": canvas_w, "canvas_h": canvas_h,
+            "regions": regions_out, "count": len(regions_out),
+            "skipped": [], "missing": missing, "packed": False,
+            "source_path": str(path.resolve()), "source_dir": str(path.resolve().parent),
+            "name": name, "is_project": True}
+
+
 def api_load(payload: dict) -> dict:
     """Load an existing coords file, slice its sheet into per-region PNGs in the
     uploads dir, and return canvas dims + region list for the editor."""
@@ -693,6 +853,16 @@ def api_load(payload: dict) -> dict:
         parsed = _parse_coords_file(path)
     except (OSError, json.JSONDecodeError, ValueError) as e:
         return {"error": f"Could not parse {path.name}: {e}"}
+
+    # A generation manifest (prompts, no geometry yet) gathers each region's
+    # generated cutout as a loose sprite instead of slicing a packed sheet.
+    if path.suffix.lower() == ".json":
+        try:
+            raw_manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raw_manifest = {}
+        if _is_generation_manifest(path, parsed, raw_manifest):
+            return _load_generation_manifest(path, sheet, raw_manifest)
 
     img_path = _resolve_image(path, parsed["image"])
     if img_path is None:

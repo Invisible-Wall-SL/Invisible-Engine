@@ -544,10 +544,17 @@ async function loadFile(path){
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
   updateReadouts();
-  let msg='Loaded '+j.count+' regions from '+canvasW+'×'+canvasH+' sheet';
-  if(!j.is_project) msg+=' (import — Save As to keep)';
-  if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
-  $('loadmsg').className=(j.skipped&&j.skipped.length)?'note':'ok'; $('loadmsg').textContent=msg;
+  let msg;
+  if(j.packed===false){
+    msg='Loaded '+j.count+' generated symbols as loose sprites — Auto-arrange to pack.';
+  } else {
+    msg='Loaded '+j.count+' regions from '+canvasW+'×'+canvasH+' sheet';
+    if(!j.is_project) msg+=' (import — Save As to keep)';
+    if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
+  }
+  if(j.missing && j.missing.length) msg+=' · '+j.missing.length+' region(s) not generated yet: '+j.missing.slice(0,5).join(', ')+(j.missing.length>5?'…':'');
+  const noted=(j.packed===false)||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
+  $('loadmsg').className=noted?'note':'ok'; $('loadmsg').textContent=msg;
   fitView();
 }
 
