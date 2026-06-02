@@ -19,7 +19,10 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function projectExists(key: string): Promise<boolean> {
-	const [row] = await getDb().select({ key: projects.key }).from(projects).where(eq(projects.key, key));
+	const [row] = await getDb()
+		.select({ key: projects.key })
+		.from(projects)
+		.where(eq(projects.key, key));
 	return Boolean(row);
 }
 
@@ -30,6 +33,19 @@ export async function projectClientKey(key: string): Promise<string | null> {
 		.from(projects)
 		.where(eq(projects.key, key));
 	return row?.clientKey ?? null;
+}
+
+/**
+ * The game type a project targets — used to pick its Invisible Editor template
+ * (see `docs/design/invisible-editor.md` §7.4).
+ *
+ * TODO: the `projects` table has no `game_type` column yet, so there is nowhere
+ * to record this per-project. Until that schema lands (a deliberate migration,
+ * not invented here) every project falls back to the only built-in template,
+ * `'lines'`. When the column exists, read it here and only fall back when unset.
+ */
+export async function projectGameType(_key: string): Promise<string> {
+	return 'lines';
 }
 
 /**
@@ -57,17 +73,12 @@ export async function accessibleProjects(userId: string, role: Role): Promise<Pr
 	const allowedClients = new Set(clientGrants.map((g) => g.clientKey));
 
 	return all.filter(
-		(p) =>
-			allowedProjects.has(p.key) || (p.clientKey !== null && allowedClients.has(p.clientKey)),
+		(p) => allowedProjects.has(p.key) || (p.clientKey !== null && allowedClients.has(p.clientKey)),
 	);
 }
 
 /** True when the user may select/use the given project key. */
-export async function canAccessProject(
-	userId: string,
-	role: Role,
-	key: string,
-): Promise<boolean> {
+export async function canAccessProject(userId: string, role: Role, key: string): Promise<boolean> {
 	return (await accessibleProjects(userId, role)).some((p) => p.key === key);
 }
 
@@ -98,9 +109,7 @@ export async function grantProjectAccess(userId: string, projectKey: string): Pr
 export async function revokeProjectAccess(userId: string, projectKey: string): Promise<void> {
 	await getDb()
 		.delete(userProjectAccess)
-		.where(
-			and(eq(userProjectAccess.userId, userId), eq(userProjectAccess.projectKey, projectKey)),
-		);
+		.where(and(eq(userProjectAccess.userId, userId), eq(userProjectAccess.projectKey, projectKey)));
 }
 
 export async function createProject(
