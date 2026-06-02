@@ -220,6 +220,7 @@ DEFAULT_CONFIG = {
     "padding_pct": 0.12,
     "gen_width": 1024,
     "gen_height": 1024,
+    "auto_fx_rebuild": "on",
 }
 LOGO_CANDIDATES = [
     # Bundled with the service (works in the container). The local Windows
@@ -336,6 +337,7 @@ CONFIG_FIELDS = [
     ("controlnet", "ControlNet model", "text"),
     ("rmbg_model", "RMBG model", "text"),
     ("rembg", "Remove background (cutout)", "text"),
+    ("auto_fx_rebuild", "Auto-rebuild FX layers on render/compose", "text"),
     ("ipadapter_weight", "IPAdapter weight", "number"),
     ("ipadapter_weight_type", "IPAdapter weight type", "text"),
     ("controlnet_strength", "ControlNet strength", "number"),
@@ -703,6 +705,11 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
                     f'{_opt_html(["on", "off"], norm, blank_label)}</select>')
         return (f'<select{common}>'
                 f'{_opt_html(["on", "off"], norm or "on")}</select>')
+    if key == "auto_fx_rebuild":
+        # Global on/off; a missing/blank value means ON (default).
+        norm = "on" if batch_atlas._truthy(cur, True) else "off"
+        return (f'<select{common}>'
+                f'{_opt_html(["on", "off"], norm)}</select>')
     nf = MODEL_FIELDS.get(key)
     if nf is not None:
         if nf not in cache:
@@ -1097,6 +1104,235 @@ def thumb_bytes(path: Path, box: int = 240) -> bytes:
     return buf.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# Local FX build core (shared by the manual ⚙ endpoint and the automated
+# rebuild on render/compose). One code path — see Handler._fxbuild (thin
+# wrapper) and rebuild_fx_layers (batch wrapper).
+# ---------------------------------------------------------------------------
+
+def fx_source(m: dict, name: str) -> Path | None:
+    """Source image for a local FX build. If the region is an FX layer of a
+    base element (`<base>_shine`/`_glow`/`_shadow`/`_blur`/`_zoom`) and that
+    base has a committed image, derive from it (so the FX matches the
+    regenerated base). Otherwise, in order: the frozen FX-source snapshot (so
+    rebuilds stay idempotent and never stack FX-on-FX); the region's committed
+    user image (the picture shown on the card); its picked/latest generated
+    variant; finally its own reference (style_ref / shape_ref / atlas slice)."""
+    project_paths.ensure_lazy("batch/")  # variant pile hydrates on demand
+    regions = all_regions(m)
+    _info = shine.fx_layer_info(name)  # canonical FX-suffix classifier
+    if _info:
+        base = next((r for r in regions if r["name"] == _info["base"]), None)
+        if base is not None:
+            s = (batch_atlas.override_image_path(base)
+                 or batch_atlas._pick_variant_png(BATCH_DIR, base))
+            if s and s.exists():
+                return s
+    region = next((r for r in regions if r["name"] == name), None) or {}
+    # 1. Frozen original captured at the first FX build (see build_fx_region).
+    #    Always wins so re-tuning params re-derives from the SAME source
+    #    instead of recolouring an already-recoloured image.
+    snap = INPUT_DIR / f"refs/fxsrc_{name}.png"
+    if snap.exists():
+        return snap
+    # 2. The user's committed image (what's shown on the card).
+    up = batch_atlas.override_image_path(region)
+    if up and up.exists():
+        return up
+    # 3. Picked / locked / latest generated variant.
+    s = batch_atlas._pick_variant_png(BATCH_DIR, region)
+    if s and s.exists():
+        return s
+    # 4. The region's own reference (original atlas slice, etc.).
+    for key in ("style_ref", "shape_ref"):
+        ref = region.get(key)
+        if ref:
+            p = Path(ref) if Path(ref).is_absolute() else INPUT_DIR / ref
+            if p.exists():
+                return p
+    return None
+
+
+def build_fx_region(m: dict, name: str, mode: str | None = None,
+                    payload: dict | None = None) -> tuple[bool, str]:
+    """Build a region locally (shine/shadow/colour/glow/blur/zoom) from its
+    source, bind the result as output_override, and persist the params under
+    region['fx'][mode]. No ComfyUI / no credits. Operates on the passed `m`;
+    the CALLER is responsible for save_manifest(m). `mode` defaults to the
+    region's stored mode; `payload` (None → stored params only) supplies
+    overriding numeric/string params for a manual tune. Mirrors the result PNG
+    to R2 so it persists. Returns (True, success_msg) or (False, diag_msg)."""
+    src = fx_source(m, name)
+    if not src:
+        return (False, _diag("NO_REFERENCE_IMAGE", name=name))
+    # Freeze the resolved source the first time FX is built for this region.
+    # The FX result is written to useroutput_<name>.png, which is ALSO where a
+    # user "use my image" picture lives — without this frozen copy a second
+    # build (e.g. tweaking the colour) would recolour the already-recoloured
+    # output. fx_source returns this snapshot first, so every rebuild derives
+    # from the original. Invalidated on new image / revert / switch to AI.
+    snap = INPUT_DIR / f"refs/fxsrc_{name}.png"
+    if not snap.exists():
+        try:
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            snap.write_bytes(Path(src).read_bytes())
+            src = snap
+        except OSError:
+            pass  # snapshot is an optimisation; build from src regardless
+    # Ensure the region exists (creating a name-only stub for .atlas-bound
+    # manifests, same as Handler._ensure_region).
+    r = None
+    for bucket in ("regions", "rotated_regions"):
+        for cand in m.get(bucket, []):
+            if cand.get("name") == name:
+                r = cand
+                break
+        if r is not None:
+            break
+    if r is None:
+        if any(x["name"] == name for x in all_regions(m)):
+            r = {"name": name}
+            m.setdefault("regions", []).append(r)
+        else:
+            return (False, _diag("REGION_NOT_FOUND", name=name))
+    if mode is None:
+        mode = r.get("mode")
+    if mode not in shine.FX_PRESETS:
+        return (False, _diag("FX_BUILD_FAILED", mode=mode or "?",
+                             err=f"unknown FX mode '{mode}'"))
+    defaults, ranges = shine.FX_PRESETS[mode]
+    # Legacy r["shine"] dict held the OLD halo params (now `glow`).
+    prev = (r.get("fx") or {}).get(mode) or (
+        r.get("shine") if mode == "glow" else {}) or {}
+    p = dict(defaults)
+    p.update({k: v for k, v in prev.items() if v not in ("", None)})
+    p.update({k: v for k, v in (payload or {}).items()
+              if k in defaults and v not in ("", None)})
+
+    def _clampnum(key):
+        dv = defaults[key]
+        try:
+            v = float(p[key])
+        except (TypeError, ValueError):
+            return dv
+        lo, hi = ranges.get(key, (None, None))
+        if lo is not None:
+            v = max(lo, min(hi, v))
+        return int(round(v)) if isinstance(dv, int) else v
+
+    params = {}
+    for key, dv in defaults.items():
+        # String params (color, blend mode) pass through; numerics clamp.
+        params[key] = (str(p.get(key) or dv)
+                       if isinstance(dv, str) else _clampnum(key))
+    try:
+        base_img = Image.open(src)
+        if mode == "shine":
+            img = shine.make_shine(
+                base_img,
+                threshold=params["threshold"],
+                softness=params["softness"],
+                boost=params["boost"],
+                overlay=params["overlay"],
+                base_alpha_floor=params["base_alpha_floor"],
+                blur=params["blur"])
+        elif mode == "glow":
+            img = shine.make_glow(
+                base_img, color=shine.hex_to_rgb(params["color"]),
+                blur=params["blur"], intensity=params["intensity"],
+                layers=params["layers"])
+        elif mode == "shadow":
+            img = shine.make_shadow(
+                base_img, color=shine.hex_to_rgb(params["color"]),
+                blur=params["blur"], opacity=params["opacity"],
+                offset_x=params["offset_x"], offset_y=params["offset_y"])
+        elif mode == "blur":
+            img = shine.make_blur(
+                base_img, kind=params.get("kind", "gaussian"),
+                radius=params["radius"],
+                preserve_alpha=params["preserve_alpha"])
+        elif mode == "zoom":
+            img = shine.make_zoom(
+                base_img, amount=params["amount"],
+                steps=params["steps"], cx=params["cx"], cy=params["cy"],
+                preserve_alpha=params["preserve_alpha"])
+        else:  # colour
+            img = shine.make_recolour(
+                base_img, color=shine.hex_to_rgb(params["color"]),
+                amount=params["amount"],
+                blend=params.get("blend", "overlay"))
+    except Exception as e:  # noqa: BLE001
+        return (False, _diag("FX_BUILD_FAILED", mode=mode,
+                             err=f"{type(e).__name__}: {e}"))
+    (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
+    rel = f"refs/useroutput_{name}.png"
+    img.save(INPUT_DIR / rel)
+    _mirror(INPUT_DIR / rel)  # persist the FX result to R2
+    r["output_override"] = rel
+    r["mode"] = mode
+    fx = r.setdefault("fx", {})
+    fx[mode] = params
+    if mode == "glow":
+        r["shine"] = params  # legacy key — old halo params lived here
+    ps = ", ".join(f"{k} {v}" for k, v in params.items())
+    return (True, f"{name}: built {mode} from {src.name} ({ps}). "
+            f"Create Atlas to apply; switch mode to AI gen to undo.")
+
+
+def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
+    """Automatically rebuild configured FX layers from their (current) bases.
+
+    Global toggle: config['auto_fx_rebuild'] — a MISSING key reads as ON.
+    Candidates: regions whose name is a canonical FX layer (shine.fx_layer_info
+    returns truthy), whose base region exists in the manifest, and whose stored
+    mode is a known FX preset. When `base_names` is given (render case) keep
+    only candidates whose base is in that set; when None (compose case) keep
+    all. Layers are ordered by suffix depth so a layer whose base is ITSELF an
+    FX layer rebuilds after its base. Each build is best-effort (one failure
+    never aborts the rest). The CALLER saves the manifest. Returns the names
+    that rebuilt successfully."""
+    if not batch_atlas._truthy(load_config().get("auto_fx_rebuild"), True):
+        return []
+    regions = all_regions(m)
+    existing = {r["name"] for r in regions}
+    candidates = []
+    for r in regions:
+        name = r.get("name", "")
+        info = shine.fx_layer_info(name)
+        if not info:
+            continue
+        if info["base"] not in existing:
+            continue
+        if r.get("mode") not in shine.FX_PRESETS:
+            continue
+        if base_names is not None and info["base"] not in base_names:
+            continue
+        candidates.append(name)
+
+    def _depth(nm: str) -> int:
+        # Count how many FX suffixes a name carries (FX-on-FX nesting), so a
+        # deeper layer builds AFTER the shallower one it derives from.
+        depth, cur = 0, nm
+        while True:
+            inf = shine.fx_layer_info(cur)
+            if not inf:
+                break
+            depth += 1
+            cur = inf["base"]
+        return depth
+
+    candidates.sort(key=_depth)
+    rebuilt: list[str] = []
+    for name in candidates:
+        try:
+            ok, _ = build_fx_region(m, name)
+            if ok:
+                rebuilt.append(name)
+        except Exception as e:  # noqa: BLE001
+            print(f"[FX rebuild skipped] {name}: {e}")
+    return rebuilt
+
+
 def stop_render() -> str:
     """Terminate the running batch_atlas subprocess and best-effort interrupt
     the in-flight ComfyUI generation."""
@@ -1119,12 +1355,14 @@ def stop_render() -> str:
     return "Stopping…"
 
 
-def _run_cmd(cmd: list[str], total: int) -> None:
+def _run_cmd(cmd: list[str], total: int, post_hook=None,
+             pre_note: str | None = None) -> None:
     global _render_proc, _stopped
     _stopped = False
     with _render_lock:
-        _render_state.update(running=True, log="", done=False, cur=0,
-                             total=total, diagnostics=[])
+        _render_state.update(running=True,
+                             log=(f"{pre_note}\n" if pre_note else ""),
+                             done=False, cur=0, total=total, diagnostics=[])
     try:
         # Generation runs as a subprocess that re-resolves the (client,
         # project) from env at its own start — so pass the UI's *current*
@@ -1156,6 +1394,15 @@ def _run_cmd(cmd: list[str], total: int) -> None:
         with _render_lock:
             tag = "[STOPPED by user]" if _stopped else f"[exit {proc.returncode}]"
             _render_state["log"] += f"\n{tag}\n"
+        if post_hook and not _stopped:
+            try:
+                note = post_hook()
+                if note:
+                    with _render_lock:
+                        _render_state["log"] += f"\n{note}\n"
+            except Exception as e:  # noqa: BLE001
+                with _render_lock:
+                    _render_state["log"] += f"\n[FX auto-rebuild skipped] {e}\n"
     except Exception as e:  # noqa: BLE001
         with _render_lock:
             _render_state["log"] += f"\n[ERROR] {e}\n"
@@ -1182,7 +1429,17 @@ def run_render(names: list[str], variants: int = 1,
            "--manifest", str(manifest_path()),
            "--only", ",".join(names), "--include-rotated",
            "--variants", str(max(1, variants))]
-    _run_cmd(cmd, len(names) * max(1, variants))
+
+    def _post():
+        m = load_manifest()
+        rebuilt = rebuild_fx_layers(m, base_names=set(names))
+        if rebuilt:
+            save_manifest(m)
+            return ("Auto-rebuilt %d FX layer(s) from regenerated base(s): %s"
+                    % (len(rebuilt), ", ".join(rebuilt)))
+        return None
+
+    _run_cmd(cmd, len(names) * max(1, variants), post_hook=_post)
 
 
 def run_compose(ctx: tuple[str, str] | None = None) -> None:
@@ -1192,13 +1449,25 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # Compose picks each region's variant PNG from batch/ in the subprocess, so
     # the variant pile must be on local disk first (it hydrates lazily).
     project_paths.ensure_lazy("batch/")
+    # Refresh ALL FX layers from their current bases before composing, so the
+    # atlas reflects the latest art. Best-effort: never block compose.
+    pre_note = None
+    try:
+        m = load_manifest()
+        rebuilt = rebuild_fx_layers(m, base_names=None)
+        if rebuilt:
+            save_manifest(m)
+            pre_note = ("Auto-rebuilt %d FX layer(s) before compose: %s"
+                        % (len(rebuilt), ", ".join(rebuilt)))
+    except Exception as e:  # noqa: BLE001
+        pre_note = f"[FX auto-rebuild skipped] {e}"
     # Pass the active manifest explicitly (full staging path) so compose reads
     # the same creative manifest the UI shows — not whatever the subprocess's
     # config default would resolve against the script dir.
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
            "--manifest", str(manifest_path()),
            "--include-rotated", "--include-hidden", "--compose-only"]
-    _run_cmd(cmd, 1)
+    _run_cmd(cmd, 1, pre_note=pre_note)
 
 
 SPLASH = """<!doctype html><html><head><meta charset="utf-8">
@@ -3825,53 +4094,9 @@ class Handler(BaseHTTPRequestHandler):
                 f"Create Atlas to apply; ✕ revert to undo.")
 
     def _fx_source(self, m: dict, name: str) -> Path | None:
-        """Source image for a local FX build. If the region is an FX layer of
-        a base element (`<base>_shine` / `<base>_glow` / `<base>_shadow`) and
-        that base has a committed image, derive from it (so the FX matches
-        the regenerated base). Otherwise, in order: the frozen FX-source
-        snapshot (so rebuilds stay idempotent and never stack FX-on-FX); the
-        region's committed user image (the picture shown on the card); its
-        picked/latest generated variant; finally its own reference
-        (style_ref / shape_ref / atlas slice)."""
-        project_paths.ensure_lazy("batch/")  # variant pile hydrates on demand
-        regions = all_regions(m)
-        for suf in ("_shine", "_glow", "_shadow", "_blur", "_zoom"):
-            if name.endswith(suf):
-                base = next((r for r in regions
-                             if r["name"] == name[: -len(suf)]), None)
-                if base is not None:
-                    s = (batch_atlas.override_image_path(base)
-                         or batch_atlas._pick_variant_png(BATCH_DIR, base))
-                    if s and s.exists():
-                        return s
-        region = next((r for r in regions if r["name"] == name), None) or {}
-        # 1. Frozen original captured at the first FX build (see _fxbuild).
-        #    Always wins so re-tuning params re-derives from the SAME source
-        #    instead of recolouring an already-recoloured image.
-        snap = INPUT_DIR / f"refs/fxsrc_{name}.png"
-        if snap.exists():
-            return snap
-        # 2. The user's committed image (what's shown on the card). Safe to
-        #    use unconditionally: FX writes its result to the same
-        #    useroutput_<name>.png, but it ALWAYS snapshots first, so once an
-        #    FX has run step 1 returns the frozen original and we never reach
-        #    here with an FX result. No snapshot => this file can only be the
-        #    user's own picked/ref image.
-        up = batch_atlas.override_image_path(region)
-        if up and up.exists():
-            return up
-        # 3. Picked / locked / latest generated variant.
-        s = batch_atlas._pick_variant_png(BATCH_DIR, region)
-        if s and s.exists():
-            return s
-        # 4. The region's own reference (original atlas slice, etc.).
-        for key in ("style_ref", "shape_ref"):
-            ref = region.get(key)
-            if ref:
-                p = Path(ref) if Path(ref).is_absolute() else INPUT_DIR / ref
-                if p.exists():
-                    return p
-        return None
+        """Thin delegate to the module-level fx_source (shared with the
+        automated rebuild). See fx_source for the resolution order."""
+        return fx_source(m, name)
 
     def _setmode(self, payload: dict) -> str:
         """Persist a region's card mode: ai | colour | shadow | shine | glow
@@ -3906,113 +4131,21 @@ class Handler(BaseHTTPRequestHandler):
                 f"then Create Atlas")
 
     def _fxbuild(self, payload: dict) -> str:
-        """Build a region locally (shine/shadow/colour) from its source,
-        bind the result as output_override, and persist the params under
-        region['fx'][mode]. No ComfyUI / no credits."""
+        """Build a region locally (shine/shadow/colour/glow/blur/zoom) from
+        its source, bind the result as output_override, and persist the params
+        under region['fx'][mode]. No ComfyUI / no credits. A manual build
+        ALWAYS runs (ignores the auto-rebuild toggle) and shares the build core
+        with the automated rebuild via build_fx_region."""
         name = payload.get("name", "")
         mode = str(payload.get("mode", "")).strip().lower()
         if mode not in shine.FX_PRESETS:
             return _diag("FX_BUILD_FAILED", mode=mode or "?",
                          err=f"unknown FX mode '{mode}'")
         m = load_manifest()
-        src = self._fx_source(m, name)
-        if not src:
-            return _diag("NO_REFERENCE_IMAGE", name=name)
-        # Freeze the resolved source the first time FX is built for this
-        # region. The FX result is written to useroutput_<name>.png, which is
-        # ALSO where a user "use my image" picture lives — without this frozen
-        # copy a second build (e.g. tweaking the colour) would recolour the
-        # already-recoloured output. _fx_source returns this snapshot first,
-        # so every rebuild derives from the original. Invalidated when the
-        # user supplies a new image / reverts / switches back to AI.
-        snap = INPUT_DIR / f"refs/fxsrc_{name}.png"
-        if not snap.exists():
-            try:
-                snap.parent.mkdir(parents=True, exist_ok=True)
-                snap.write_bytes(Path(src).read_bytes())
-                src = snap
-            except OSError:
-                pass  # snapshot is an optimisation; build from src regardless
-        defaults, ranges = shine.FX_PRESETS[mode]
-        r = self._ensure_region(m, name)
-        if r is None:
-            return _diag("REGION_NOT_FOUND", name=name)
-        # Legacy r["shine"] dict held the OLD halo params (now `glow`).
-        prev = (r.get("fx") or {}).get(mode) or (
-            r.get("shine") if mode == "glow" else {}) or {}
-        p = dict(defaults)
-        p.update({k: v for k, v in prev.items() if v not in ("", None)})
-        p.update({k: v for k, v in (payload or {}).items()
-                  if k in defaults and v not in ("", None)})
-
-        def _clampnum(key):
-            dv = defaults[key]
-            try:
-                v = float(p[key])
-            except (TypeError, ValueError):
-                return dv
-            lo, hi = ranges.get(key, (None, None))
-            if lo is not None:
-                v = max(lo, min(hi, v))
-            return int(round(v)) if isinstance(dv, int) else v
-
-        params = {}
-        for key, dv in defaults.items():
-            # String params (color, blend mode) pass through; numerics clamp.
-            params[key] = (str(p.get(key) or dv)
-                           if isinstance(dv, str) else _clampnum(key))
-        try:
-            base_img = Image.open(src)
-            if mode == "shine":
-                img = shine.make_shine(
-                    base_img,
-                    threshold=params["threshold"],
-                    softness=params["softness"],
-                    boost=params["boost"],
-                    overlay=params["overlay"],
-                    base_alpha_floor=params["base_alpha_floor"],
-                    blur=params["blur"])
-            elif mode == "glow":
-                img = shine.make_glow(
-                    base_img, color=shine.hex_to_rgb(params["color"]),
-                    blur=params["blur"], intensity=params["intensity"],
-                    layers=params["layers"])
-            elif mode == "shadow":
-                img = shine.make_shadow(
-                    base_img, color=shine.hex_to_rgb(params["color"]),
-                    blur=params["blur"], opacity=params["opacity"],
-                    offset_x=params["offset_x"], offset_y=params["offset_y"])
-            elif mode == "blur":
-                img = shine.make_blur(
-                    base_img, kind=params.get("kind", "gaussian"),
-                    radius=params["radius"],
-                    preserve_alpha=params["preserve_alpha"])
-            elif mode == "zoom":
-                img = shine.make_zoom(
-                    base_img, amount=params["amount"],
-                    steps=params["steps"], cx=params["cx"], cy=params["cy"],
-                    preserve_alpha=params["preserve_alpha"])
-            else:  # colour
-                img = shine.make_recolour(
-                    base_img, color=shine.hex_to_rgb(params["color"]),
-                    amount=params["amount"],
-                    blend=params.get("blend", "overlay"))
-        except Exception as e:  # noqa: BLE001
-            return _diag("FX_BUILD_FAILED", mode=mode,
-                         err=f"{type(e).__name__}: {e}")
-        (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
-        rel = f"refs/useroutput_{name}.png"
-        img.save(INPUT_DIR / rel)
-        r["output_override"] = rel
-        r["mode"] = mode
-        fx = r.setdefault("fx", {})
-        fx[mode] = params
-        if mode == "glow":
-            r["shine"] = params  # legacy key — old halo params lived here
-        save_manifest(m)
-        ps = ", ".join(f"{k} {v}" for k, v in params.items())
-        return (f"{name}: built {mode} from {src.name} ({ps}). "
-                f"Create Atlas to apply; switch mode to AI gen to undo.")
+        ok, msg = build_fx_region(m, name, mode, payload)
+        if ok:
+            save_manifest(m)
+        return msg
 
     def _saveconfig(self, edits: dict) -> str:
         cfg = load_config()
