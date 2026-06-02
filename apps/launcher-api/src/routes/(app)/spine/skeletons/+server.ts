@@ -18,7 +18,7 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const empty = {
 		client: clientKey,
 		project: projectKey,
-		error: `No skeletons synced for spines/${clientKey}/${projectKey} yet.`,
+		error: `No skeletons synced for ${clientKey}/${projectKey}/spines yet.`,
 		skeletons: [],
 	};
 	const hit = await resolveSkeletonsRoot(clientKey, projectKey);

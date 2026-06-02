@@ -24,7 +24,7 @@ function contentTypeFor(key: string, fallback: string): string {
 
 /**
  * Auth-gated streamer for arbitrary R2 keys inside the active project's editor
- * namespaces (incl. the cross-project `spines/_shared/` bundles). The key must
+ * tree (incl. the cross-project `_shared/spines/` bundles). The key must
  * start with one of the scope's allowed prefixes — which mirrors what
  * `listProjectAssets()` walks — so a user can never read outside the project
  * (the active project is bound to the session, never a request param).

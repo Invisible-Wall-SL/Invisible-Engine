@@ -2,68 +2,92 @@
  * Canonical R2 layout for per-project storage. One source of truth for every
  * tool/area key, so the launcher, the tools, and the migration agree.
  *
- * Layout: `<toolNs>/<client>/<project>/…` (Option B client isolation). The
- * reserved client key `unassigned` covers projects with `client_key IS NULL`.
+ * Layout: one unified project repo `<client>/<project>/…` organized by asset
+ * type (NOT by tool) — see `docs/design/unified-project-repo.md`. The reserved
+ * client key `unassigned` covers projects with `client_key IS NULL`.
+ *
+ * The R2 prefix is built from `r2Slug(client)`/`r2Slug(project)`, the exact same
+ * normalization the Python tools apply (`[^a-z0-9] → _`, lowercased, 60 chars).
+ * The DB project/client KEYS stay as-is; only the R2 prefix is normalized. This
+ * keeps the launcher and the Python tools byte-identical and fixes the historic
+ * hyphen/underscore mismatch (`book-of-borut` → `book_of_borut`).
  */
-
-export type ToolNs = 'atlas_maker' | 'sheet_maker' | 'localization' | 'editor' | 'spines';
 
 export const UNASSIGNED_CLIENT = 'unassigned';
 
-/** Slug rule shared by `clients.ts` / `projects.ts` (`^[a-z0-9][a-z0-9_-]{0,63}$`). */
-const SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
-function assertSlug(value: string, label: string): void {
-	if (!SLUG_RE.test(value)) {
-		throw new Error(`Invalid ${label} key: ${JSON.stringify(value)}`);
-	}
+/**
+ * Normalize a client/project name into the R2 path segment both the launcher
+ * and the Python tools use. MUST stay byte-identical to the Python side.
+ */
+export function r2Slug(name: string): string {
+	return name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'default';
 }
 
-/** Canonical per-project prefix for a tool namespace (no trailing slash). */
-export function projectPrefix(tool: ToolNs, client: string, project: string): string {
-	assertSlug(client, 'client');
-	assertSlug(project, 'project');
-	return `${tool}/${client}/${project}`;
+/** Root of one project's R2 repository: `<client>/<project>` (no trailing slash). */
+export function projectPrefix(client: string, project: string): string {
+	return `${r2Slug(client)}/${r2Slug(project)}`;
 }
+
+/**
+ * Asset-type subfolders — the one place each path lives. Producers write and
+ * consumers read these; `manifests/` is shared by Atlas + Sheet.
+ */
+export const SUB = {
+	manifests: (c: string, p: string) => `${projectPrefix(c, p)}/manifests`,
+	// Atlas Maker inputs: reference images + `input/refs/atlas/<name>` geometry.
+	input: (c: string, p: string) => `${projectPrefix(c, p)}/input`,
+	atlas: (c: string, p: string) => `${projectPrefix(c, p)}/atlas`,
+	sheets: (c: string, p: string) => `${projectPrefix(c, p)}/sheets`,
+	deploy: (c: string, p: string) => `${projectPrefix(c, p)}/deploy`,
+	spines: (c: string, p: string) => `${projectPrefix(c, p)}/spines`,
+	localization: (c: string, p: string) => `${projectPrefix(c, p)}/localization`,
+	editor: (c: string, p: string) => `${projectPrefix(c, p)}/editor`,
+} as const;
+
+/** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
+export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
 
 export function localizationDocKey(client: string, project: string): string {
-	return `${projectPrefix('localization', client, project)}/strings.json`;
+	return `${SUB.localization(client, project)}/strings.json`;
 }
 
 export function editorDocKey(client: string, project: string): string {
-	return `${projectPrefix('editor', client, project)}/scenes.json`;
+	return `${SUB.editor(client, project)}/scenes.json`;
 }
 
 export function atlasConfigKey(client: string, project: string): string {
-	return `${projectPrefix('atlas_maker', client, project)}/atlas_config.json`;
+	return `${projectPrefix(client, project)}/atlas_config.json`;
 }
 
 export function atlasManifestsPrefix(client: string, project: string): string {
-	return `${projectPrefix('atlas_maker', client, project)}/manifests`;
+	return SUB.manifests(client, project);
 }
 
 export function sheetConfigKey(client: string, project: string): string {
-	return `${projectPrefix('sheet_maker', client, project)}/sheet_config.json`;
+	return `${projectPrefix(client, project)}/sheet_config.json`;
 }
 
 /** Bundles can be nested folders (e.g. `loader/sub`); reject parent escapes only. */
+const BUNDLE_SEG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 function assertBundle(value: string): void {
 	if (!value || value.includes('..') || value.startsWith('/') || value.endsWith('/')) {
 		throw new Error(`Invalid spine bundle: ${JSON.stringify(value)}`);
 	}
 	for (const seg of value.split('/')) {
-		if (!SLUG_RE.test(seg)) throw new Error(`Invalid spine bundle segment: ${JSON.stringify(seg)}`);
+		if (!BUNDLE_SEG_RE.test(seg)) {
+			throw new Error(`Invalid spine bundle segment: ${JSON.stringify(seg)}`);
+		}
 	}
 }
 
-/** Per-project spine bundle prefix, e.g. `spines/borut/book-of-borut/loader`. */
+/** Per-project spine bundle prefix, e.g. `borut/book_of_borut/spines/loader`. */
 export function spineBundlePath(client: string, project: string, bundle: string): string {
 	assertBundle(bundle);
-	return `${projectPrefix('spines', client, project)}/${bundle}`;
+	return `${SUB.spines(client, project)}/${bundle}`;
 }
 
-/** Cross-project fallback for shared bundles: `spines/_shared/<bundle>`. */
+/** Cross-project fallback for shared bundles: `_shared/spines/<bundle>`. */
 export function spineBundleSharedPath(bundle: string): string {
 	assertBundle(bundle);
-	return `spines/_shared/${bundle}`;
+	return sharedSpinesPrefix(bundle);
 }

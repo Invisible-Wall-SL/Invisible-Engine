@@ -2,9 +2,14 @@
 // skeletons.json index (the same data the Spine Viewer's scan produces), so the
 // hosted viewer only has to serve files — no scanning at runtime.
 //
-//   node scripts/r2-sync-spines.mjs [spinesDir] [prefix] [--dry-run]
+//   node scripts/r2-sync-spines.mjs [spinesDir] [client] [project] [--dry-run]
 //
-// Defaults: spinesDir = HotFruits cluster spines, prefix = spines/hotfruits
+// With the unified project repo the target is `<client>/<project>/spines/` —
+// client/project are slug-normalized the SAME way as the launcher + Python tools
+// (`[^a-z0-9] → _`, lowercased, 60 chars). Bundle subfolders nest under it.
+//
+// Defaults: spinesDir = HotFruits cluster spines, client = borut, project = hotfruits
+//   → prefix = borut/hotfruits/spines
 // Env for the real upload (NOT --dry-run):
 //   R2_ENDPOINT          https://<accountid>.r2.cloudflarestorage.com   (account-level, no bucket)
 //   R2_BUCKET            invisibleassets
@@ -16,11 +21,16 @@ import { join, relative, basename, extname, sep } from 'node:path';
 const DEFAULT_DIR =
 	'C:/Invisible Wall SL/Projects/iGaming/Borut/HotFruits/engine/apps/cluster/static/assets/spines';
 
+/** Slug rule — byte-identical to `r2Slug` in the launcher + the Python tools. */
+const r2Slug = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'default';
+
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const positional = args.filter((a) => !a.startsWith('--'));
 const SPINES_DIR = positional[0] ?? DEFAULT_DIR;
-const PREFIX = (positional[1] ?? 'spines/hotfruits').replace(/\/+$/, '');
+const CLIENT = positional[1] ?? process.env.IW_CLIENT ?? 'borut';
+const PROJECT = positional[2] ?? process.env.IW_PROJECT ?? 'hotfruits';
+const PREFIX = `${r2Slug(CLIENT)}/${r2Slug(PROJECT)}/spines`;
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__', 'ComfyUI']);
 const ASSET_EXT = new Set(['.atlas', '.json', '.skel', '.png', '.webp', '.jpg', '.jpeg']);

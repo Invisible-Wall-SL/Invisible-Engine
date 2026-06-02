@@ -3,7 +3,7 @@
  * canvas (later step) reads this manifest to populate its asset palette. We
  * only return keys + names — never object contents.
  */
-import { projectPrefix } from './projectPaths';
+import { SUB } from './projectPaths';
 import { listObjects } from './r2';
 
 export type AtlasKind = 'atlas-manifest' | 'atlas-page';
@@ -18,7 +18,7 @@ export interface SpineAsset {
 	name: string;
 	key: string;
 	kind: 'spine';
-	/** `true` when the bundle comes from the cross-project `spines/_shared/` root. */
+	/** `true` when the bundle comes from the cross-project `_shared/spines/` root. */
 	shared: boolean;
 }
 
@@ -51,9 +51,8 @@ function isPlaceholder(name: string): boolean {
 }
 
 async function listAtlases(client: string, project: string): Promise<AtlasAsset[]> {
-	const root = projectPrefix('atlas_maker', client, project);
-	const manifestsPrefix = `${root}/manifests/`;
-	const pagesPrefix = `${root}/output/${project}/atlas/`;
+	const manifestsPrefix = `${SUB.manifests(client, project)}/`;
+	const pagesPrefix = `${SUB.atlas(client, project)}/`;
 
 	const [manifests, pages] = await Promise.all([
 		listObjects(manifestsPrefix, MAX_PER_KIND),
@@ -75,8 +74,8 @@ async function listAtlases(client: string, project: string): Promise<AtlasAsset[
 }
 
 async function listSpines(client: string, project: string): Promise<SpineAsset[]> {
-	const projectRoot = `${projectPrefix('spines', client, project)}/`;
-	const sharedRoot = 'spines/_shared/';
+	const projectRoot = `${SUB.spines(client, project)}/`;
+	const sharedRoot = '_shared/spines/';
 
 	const [project_, shared_] = await Promise.all([
 		listObjects(projectRoot, MAX_PER_KIND),
@@ -100,7 +99,7 @@ async function listSpines(client: string, project: string): Promise<SpineAsset[]
 }
 
 async function listSheets(client: string, project: string): Promise<SheetAsset[]> {
-	const root = `${projectPrefix('sheet_maker', client, project)}/output/`;
+	const root = `${SUB.sheets(client, project)}/`;
 	const res = await listObjects(root, MAX_PER_KIND);
 	return res.prefixes
 		.map((p) => ({ name: bundleName(p, root), key: p, kind: 'sheet' as const }))

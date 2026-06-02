@@ -6,12 +6,11 @@
  */
 import { normalizeDoc } from './localization';
 import {
+	SUB,
 	atlasConfigKey,
-	atlasManifestsPrefix,
 	editorDocKey,
 	localizationDocKey,
 	sheetConfigKey,
-	projectPrefix,
 } from './projectPaths';
 import { objectExists, putObjectText } from './r2';
 
@@ -34,12 +33,12 @@ function buildSeeds(client: string, project: string): Seed[] {
 			contentType: 'application/json',
 		},
 		{
-			key: `${atlasManifestsPrefix(client, project)}/.keep`,
+			key: `${SUB.manifests(client, project)}/.keep`,
 			body: '',
 			contentType: 'text/plain; charset=utf-8',
 		},
 		{
-			key: `${projectPrefix('atlas_maker', client, project)}/input/refs/.keep`,
+			key: `${SUB.input(client, project)}/refs/.keep`,
 			body: '',
 			contentType: 'text/plain; charset=utf-8',
 		},

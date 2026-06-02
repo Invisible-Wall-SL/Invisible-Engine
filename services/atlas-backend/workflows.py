@@ -76,7 +76,7 @@ def _resolve_text(region: dict, style: dict) -> tuple[str, str, int]:
     return prompt, negative, seed
 
 
-def sdxl_region(cfg: dict, region: dict, style: dict, prefix: str = "atlas_maker/cloud") -> tuple[dict, int]:
+def sdxl_region(cfg: dict, region: dict, style: dict, prefix: str = "unassigned/cloud") -> tuple[dict, int]:
     """Port of batch_atlas.build_workflow (SDXL branch): checkpoint -> LoRA ->
     IPAdapter(style_ref) -> CLIP -> optional ControlNet(shape_ref Canny) ->
     KSampler -> VAEDecode -> RMBG -> SaveImage.

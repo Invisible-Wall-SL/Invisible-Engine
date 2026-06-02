@@ -613,17 +613,72 @@ def _parse_libgdx(path: Path) -> dict:
 
 
 def _resolve_image(coords_path: Path, image_ref: str) -> Path | None:
-    """Find the sheet image for a loaded coords file: try the stored path, then
-    the same name beside the coords file, then a basename guess."""
-    cands = []
+    """Find the sheet/atlas image for a loaded coords file.
+
+    A manifest authored by the SHEET Maker keeps its page beside it (in
+    sheets/<sheet>/). A manifest authored by the ATLAS Maker — now visible here
+    via the SHARED manifests/ folder — references a page that lives elsewhere in
+    the unified project tree (atlas/, input/refs/atlas/, input/). So search the
+    stored ref, the coords dir, then those sibling folders, trying the ref
+    basename, the manifest stem, and the atlas `<stem>_new` naming as .png/.webp;
+    finally fall back to a recursive search for the ref basename."""
+    # The exact stored ref (absolute or cwd-relative) wins if it resolves.
+    if image_ref and Path(image_ref).exists():
+        return Path(image_ref)
+
+    names: list[str] = []
     if image_ref:
-        cands.append(Path(image_ref))
-        cands.append(coords_path.parent / Path(image_ref).name)
+        names.append(Path(image_ref).name)
     stem = coords_path.stem.replace("atlas_manifest_", "")
-    cands += [coords_path.parent / f"{stem}.png", coords_path.parent / f"{stem}.webp"]
-    for c in cands:
-        if c.exists():
-            return c
+    for base in (stem, f"{stem}_new"):
+        names += [f"{base}.png", f"{base}.webp"]
+
+    dirs = [coords_path.parent]
+    root: Path | None = None
+    try:
+        root = Path(project_paths.resolve()["staging_root"])
+        dirs += [root / "atlas", root / "input" / "refs" / "atlas",
+                 root / "input", root / "sheets"]
+    except Exception:  # noqa: BLE001 — fall back to coords-dir only
+        pass
+
+    for d in dirs:
+        for nm in names:
+            c = d / nm
+            if c.exists():
+                return c
+
+    # The ref's basename anywhere already in local staging.
+    if root is not None and image_ref:
+        try:
+            for found in root.rglob(Path(image_ref).name):
+                if found.is_file():
+                    return found
+        except OSError:
+            pass
+
+    # Cross-tool fetch: an Atlas-authored manifest's page lives in a sibling
+    # folder the Sheet Maker doesn't hydrate (e.g. the Atlas Maker's input/), so
+    # it isn't on local disk. Pull it from R2 by basename into staging on demand.
+    if root is not None and image_ref:
+        try:
+            r2_prefix = _ctx()["r2_prefix"]
+        except Exception:  # noqa: BLE001
+            r2_prefix = None
+        if r2_prefix:
+            base = Path(image_ref).name
+            try:
+                for entry in storage.list_keys(r2_prefix + "/"):
+                    key = entry["key"]
+                    if key.rsplit("/", 1)[-1] == base and key.lower().endswith((".png", ".webp")):
+                        dest = root / key[len(r2_prefix) + 1:]
+                        blob = storage.get(key)
+                        if blob:
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest.write_bytes(blob)
+                            return dest
+            except OSError:
+                pass
     return None
 
 

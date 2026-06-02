@@ -3,9 +3,10 @@
 Standalone (no iw_common import) so this dormant service stays self-contained.
 Mirrors the rest of the platform's path scheme:
 
-  - tool namespace fixed to `atlas_maker`
-  - R2 layout: `atlas_maker/<client>/<project>/...` (Option B client isolation)
-  - slug contract: `^[a-z0-9][a-z0-9_-]{0,63}$`
+  - R2 layout: `<client>/<project>/...` (unified single-project repo — no
+    `<tool>/` segment; client/project isolation preserved at the root)
+  - slug: `r2_slug` (lowercase, non-alphanumerics -> `_`, 60-char cap) — byte-
+    identical to `iw_common.context.r2_slug`, the tools, and the launcher
   - env precedence (same as atlas-tool/cloud_paths):
       IW_CLIENT_NAME / IW_PROJECT_NAME  (launcher-pinned, win first)
       ATLAS_CLIENT   / ATLAS_PROJECT    (service defaults)
@@ -16,11 +17,15 @@ from __future__ import annotations
 import os
 import re
 
-TOOL_NAMESPACE = "atlas_maker"
 UNASSIGNED_CLIENT = "unassigned"
 PROJECT_DEFAULT = "cloud"
 
 PROJECT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def r2_slug(name: str | None) -> str:
+    """Canonical R2 slug, identical to iw_common.context.r2_slug."""
+    return re.sub(r"[^a-z0-9]", "_", (name or "default").lower())[:60] or "default"
 
 
 def _valid_slug(value: str | None) -> str | None:
@@ -57,9 +62,10 @@ def resolve_project(project: str | None) -> str:
 
 
 def project_prefix(client: str | None, project: str | None) -> str:
-    """`atlas_maker/<client>/<project>` — mirrors the launcher's projectPrefix
-    and the tools' prefix_for_tool('atlas_maker', client, project)."""
-    return f"{TOOL_NAMESPACE}/{resolve_client(client)}/{resolve_project(project)}"
+    """`<client>/<project>` (unified repo) — mirrors the launcher's projectPrefix
+    and the tools' project_prefix. Slugged via r2_slug so hyphenated keys map to
+    the same prefix everywhere."""
+    return f"{r2_slug(resolve_client(client))}/{r2_slug(resolve_project(project))}"
 
 
 def safe_key(key: str) -> str:
@@ -71,10 +77,9 @@ def safe_key(key: str) -> str:
 
 
 def safe_output_prefix(prefix: str) -> str:
-    """Constrain a caller-chosen output prefix to the atlas_maker namespace and
-    reject traversal / absolute prefixes. Returns it unchanged when safe."""
+    """Constrain a caller-chosen output prefix: reject traversal / absolute
+    prefixes. Returns it unchanged when safe. (No tool-namespace constraint in
+    the unified layout — callers scope to their `<client>/<project>/` tree.)"""
     if not prefix or prefix.startswith("/") or ".." in prefix.split("/"):
         raise ValueError(f"Unsafe output prefix: {prefix!r}")
-    if not (prefix == TOOL_NAMESPACE or prefix.startswith(TOOL_NAMESPACE + "/")):
-        raise ValueError(f"Output prefix must be under '{TOOL_NAMESPACE}/': {prefix!r}")
     return prefix

@@ -1,7 +1,7 @@
 import { error, type Cookies } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
-import { type ToolNs, UNASSIGNED_CLIENT, projectPrefix } from '$lib/server/projectPaths';
+import { UNASSIGNED_CLIENT, projectPrefix } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -11,26 +11,17 @@ import { getToolOverrides } from '$lib/server/userToolAccess';
  * gate, the session-bound `(client, project)` resolution, and the R2-key prefix
  * allow-list. The FTP browser (`ftpScope.ts`) and the editor endpoints both build
  * on this, so the prefix layout and gate sequence live in exactly ONE place.
+ *
+ * With the unified project repo, a project owns a SINGLE prefix `<client>/<project>/`
+ * (the whole asset-typed tree); the FTP browser then exposes that whole tree. The
+ * only cross-project read is the shared `_shared/spines/` bundles, opt-in.
  */
 
 /** The tool id accepted by `roleHasTool` (kept in sync via its signature). */
 type ToolId = Parameters<typeof roleHasTool>[1];
 
-/**
- * The tool namespaces a project owns under R2. A project may only ever touch
- * keys under its OWN `<ns>/<client>/<project>/` prefixes — never another
- * client/project, and (unless explicitly opted-in) never `spines/_shared/`.
- */
-export const PROJECT_TOOL_NS: ToolNs[] = [
-	'atlas_maker',
-	'sheet_maker',
-	'localization',
-	'editor',
-	'spines',
-];
-
 export interface ScopeOptions {
-	/** Editor-only: also allow the cross-project `spines/_shared/` bundles. */
+	/** Editor-only: also allow the cross-project `_shared/spines/` bundles. */
 	includeSharedSpines?: boolean;
 }
 
@@ -40,8 +31,8 @@ export function allowedPrefixes(
 	projectKey: string,
 	opts: ScopeOptions = {},
 ): string[] {
-	const prefixes = PROJECT_TOOL_NS.map((ns) => `${projectPrefix(ns, clientKey, projectKey)}/`);
-	if (opts.includeSharedSpines) prefixes.push('spines/_shared/');
+	const prefixes = [`${projectPrefix(clientKey, projectKey)}/`];
+	if (opts.includeSharedSpines) prefixes.push('_shared/spines/');
 	return prefixes;
 }
 

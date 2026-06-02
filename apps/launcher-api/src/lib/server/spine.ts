@@ -1,10 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
-import {
-	projectPrefix,
-	spineBundlePath,
-	spineBundleSharedPath,
-} from './projectPaths';
+import { SUB, spineBundlePath, spineBundleSharedPath } from './projectPaths';
 import { getObjectBytes, getObjectText, objectExists } from './r2';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
@@ -23,11 +19,11 @@ export async function resolveSkeletonsRoot(
 	clientKey: string,
 	projectKey: string,
 ): Promise<{ root: string; key: string } | null> {
-	const projectRoot = projectPrefix('spines', clientKey, projectKey);
+	const projectRoot = SUB.spines(clientKey, projectKey);
 	if (await objectExists(`${projectRoot}/skeletons.json`)) {
 		return { root: projectRoot, key: `${projectRoot}/skeletons.json` };
 	}
-	const sharedRoot = 'spines/_shared';
+	const sharedRoot = '_shared/spines';
 	if (await objectExists(`${sharedRoot}/skeletons.json`)) {
 		return { root: sharedRoot, key: `${sharedRoot}/skeletons.json` };
 	}

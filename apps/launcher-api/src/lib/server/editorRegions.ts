@@ -13,7 +13,7 @@
  * `assetKey` — for a `sheet` we resolve the manifest key under its output prefix
  * here, then hand the resolved manifest key back to the client as `assetKey`.
  */
-import { projectPrefix } from './projectPaths';
+import { SUB } from './projectPaths';
 import { getObjectText, listObjects, objectExists } from './r2';
 
 export interface EditorRegion {
@@ -123,7 +123,7 @@ async function resolvePageKey(
 	const stem = base.replace(/\.[^.]+$/, '');
 
 	const manifestDir = manifestKey.slice(0, manifestKey.lastIndexOf('/') + 1);
-	const atlasOut = `${projectPrefix('atlas_maker', client, project)}/output/${project}/atlas/`;
+	const atlasOut = `${SUB.atlas(client, project)}/`;
 	const sheetExport = str(man.export_prefix);
 	const candidateDirs = [manifestDir, sheetExport ? `${sheetExport}/` : '', atlasOut].filter(
 		(d) => d.length > 0,
