@@ -103,7 +103,22 @@
 </script>
 
 {#snippet projectSelector()}
-	<form method="POST" action="?/setProject" use:enhance class="project">
+	<!-- This is a selector, not a data-entry form: never let `enhance`'s default
+	     success-reset fire. A native form reset reverts the <select>s to their
+	     default DOM option, and Svelte only re-applies `value={…}` when the value
+	     CHANGES — so switching to a project under the same client (client value
+	     unchanged) would leave the Client dropdown stuck on the reset option.
+	     `reset: false` keeps the UI; `update()` still invalidates so the $effect
+	     re-seeds from the freshly committed active project. -->
+	<form
+		method="POST"
+		action="?/setProject"
+		use:enhance={() =>
+			async ({ update }) => {
+				await update({ reset: false });
+			}}
+		class="project"
+	>
 		<div class="field">
 			<label for="active-client">Client</label>
 			<select
