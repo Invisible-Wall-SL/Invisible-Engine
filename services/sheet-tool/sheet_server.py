@@ -389,6 +389,25 @@ def api_set_project(payload: dict) -> dict:
 # R2-backed file browser (mirrors the staging tree, which mirrors R2)
 # ---------------------------------------------------------------------------
 
+def api_refresh() -> dict:
+    """Re-pull this project's R2 subtree into staging (force), so the file
+    browser surfaces sheets/manifests exported by other tools (e.g. the Atlas
+    Maker) without restarting or switching projects. Outputs pull synchronously
+    in hydrate(), so the browser shows fresh manifests as soon as this returns."""
+    try:
+        pp = project_paths.resolve()
+        project_paths.hydrate(
+            project_paths._safe_proj_name(project_paths.client_name()),
+            project_paths._safe_proj_name(project_paths.project_name()),
+            Path(pp["staging_root"]),
+            force=True,
+        )
+    except Exception as e:  # noqa: BLE001 — transient R2 issue, not fatal
+        return {"error": f"Refresh from R2 hit a snag — try again in a moment "
+                f"({type(e).__name__}: {e})"}
+    return {"ok": True}
+
+
 def api_browse(path: str, mode: str = "") -> dict:
     """List a directory inside the staging tree (which mirrors the project's R2
     subtree). Empty path defaults to the project output root. Paths are confined
@@ -775,6 +794,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_load(payload))
             elif path == "/api/set-project":
                 self._send_json(api_set_project(payload))
+            elif path == "/api/refresh":
+                self._send_json(api_refresh())
             else:
                 self._send_bytes(b"Not found", "text/plain", 404)
         except Exception as e:  # noqa: BLE001 — surface errors to the UI

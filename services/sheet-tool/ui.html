@@ -131,6 +131,7 @@
         <div class="tabs">
           <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
           <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
+          <button id="bm-refresh" style="flex:0 0 auto" onclick="refreshR2(this)" title="Re-pull this project's files from R2 (e.g. after exporting a sheet to the Atlas Maker, or saving from another machine) without restarting or switching projects">↻ Refresh from R2</button>
         </div>
         <div class="hint" id="browsehint"></div>
         <div class="cwd" id="cwd"></div>
@@ -489,6 +490,18 @@ async function doArrange(){
 }
 
 /* ---------- load existing ---------- */
+async function refreshR2(btn){
+  const m=$('loadmsg');
+  if(btn) btn.disabled=true;
+  if(m){ m.className='muted'; m.textContent='↻ Refreshing from R2…'; }
+  try{
+    const j=await jpost('/api/refresh',{});
+    if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
+    await browse('');                         // re-list now that staging is fresh
+    if(m){ m.className='ok'; m.textContent='✓ Refreshed from R2'; }
+  }catch(e){ if(m){ m.className='err'; m.textContent='Refresh request failed: '+e; } }
+  finally{ if(btn) btn.disabled=false; }
+}
 async function browse(path){
   const j=await jget('/api/browse?path='+encodeURIComponent(path||'')+'&mode='+encodeURIComponent(browseMode));
   if(j.error){ $('browser').innerHTML='<div class="it err">'+esc(j.error)+'</div>'; return; }
