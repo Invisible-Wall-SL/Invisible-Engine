@@ -148,6 +148,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
 import storage  # noqa: E402
+import shine  # noqa: E402
+from iw_common.diagnostics import diag, emit  # noqa: E402
+from diag_catalog import CATALOG  # noqa: E402
 
 # Context handoff:
 #   - As a SUBPROCESS (generation), ui_server passes the active (client,
@@ -254,10 +257,9 @@ INPUT_DIR = _PathProxy("input_dir")
 # resolve here, else compose/slice hit /app/<name> and FileNotFoundError.
 MANIFEST_DIR = _PathProxy("manifest_dir")
 OUTPUT_PREFIX = _StrProxy("output_prefix")
-# Phase 2: ComfyUI's output root is the SHARED workspace, so the
-# filename_prefix we hand it must include the per-tool + per-project
-# namespace (e.g. "atlas_maker/Borut_Hotfruits/HotFruits/batch/h3") or
-# variants land in the wrong project's folder.
+# ComfyUI's output root is the SHARED workspace, so the filename_prefix we hand
+# it must include the per-project unified prefix (e.g. "borut/hotfruits/batch/h3")
+# or variants land in the wrong project's folder.
 COMFY_PREFIX_BASE = _StrProxy("comfy_filename_prefix_base")
 
 MOCKUP_IMAGE = CFG["mockup_image"]
@@ -426,9 +428,9 @@ def _hydrate_from_r2_by_name(name: str) -> Path | None:
     on local disk yet. A legacy/Windows-authored manifest names an atlas/page
     that lives in R2 (seeded by seed_r2.py) but was never hydrated into this
     container's staging — so resolve it from the active project's R2 tree at the
-    two locations seed_r2 writes to (`input/refs/atlas/<name>` and
-    `manifests/<name>`), drop it into `INPUT_DIR/refs/atlas/<name>` and return
-    that local path. Best-effort; returns None if R2 has nothing or is down."""
+    two locations it can live (`input/refs/atlas/<name>` — the INPUT_DIR mirror —
+    and the shared `manifests/<name>`), drop it into `INPUT_DIR/refs/atlas/<name>`
+    and return that local path. Best-effort; returns None if R2 is empty/down."""
     if not name:
         return None
     try:
@@ -1554,29 +1556,21 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                         node = info.get("node_type") or info.get("node_id")
                         msg = (info.get("exception_message") or "").strip()
                         break
-                hint = ""
                 ml = (msg or "").lower()
                 if msg and ("login" in ml or "unauthor" in ml):
-                    hint = ("\n   Fix: the ComfyUI browser login does NOT "
-                            "apply to this tool's headless jobs. Generate a "
-                            "comfy.org API key (platform.comfy.org -> API "
-                            "Keys) and set it as 'comfy.org API key' in "
-                            "Settings (or the COMFY_ORG_API_KEY env var). "
-                            "No credits were charged.")
+                    emit(diag("COMFY_AUTH", CATALOG))
                 elif msg and ("payment required" in ml
                               or "add credits" in ml
                               or "insufficient" in ml
                               or "quota" in ml):
-                    hint = ("\n   Fix: the paid image API (e.g. OpenAI "
-                            "GPT-Image) for this node has no credit balance. "
-                            "Either top up that account, or switch region "
-                            f"'{region['name']}' off the paid pipeline "
-                            "(set its manifest 'pipeline' to sdxl/flux to "
-                            "render locally for free). No credits were "
-                            "charged for this attempt.")
+                    emit(diag("COMFY_PAYMENT", CATALOG, name=region["name"]))
+                else:
+                    emit(diag("COMFY_NODE_FAILED", CATALOG,
+                              name=region["name"], node=node,
+                              msg=msg or "unknown error"))
                 raise RuntimeError(
                     f"ComfyUI failed on region '{region['name']}' at node "
-                    f"{node}: {msg or 'unknown error'}{hint}")
+                    f"{node}: {msg or 'unknown error'}")
             saves = entry.get("outputs", {}).get("17", {}).get("images", [])
             if saves:
                 meta = saves[0]
@@ -1588,6 +1582,7 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 # globbing/seed-reading works unchanged — and mirror to R2.
                 _persist_variant(region["name"], meta["filename"], blob)
                 return Image.open(io.BytesIO(blob)).convert("RGBA")
+    emit(diag("COMFY_TIMEOUT", CATALOG, name=region["name"]))
     raise TimeoutError(f"Region {region['name']} timed out after 20 min")
 
 
@@ -1602,12 +1597,13 @@ def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
         # thread's project (the generate subprocess has a single env context).
         _pp = project_paths.resolve()
         r2_prefix = _pp.get("r2_project_prefix")
-        out_prefix = _pp.get("output_prefix")
-        if r2_prefix and out_prefix:
+        if r2_prefix:
             try:
                 import storage
+                # Unified layout: variants live at <C>/<P>/batch (the old
+                # output/<P> nesting is gone — matches cloud_paths batch_dir).
                 storage.put(
-                    f"{r2_prefix}/output/{out_prefix}/batch/{fname}", blob, "image/png"
+                    f"{r2_prefix}/batch/{fname}", blob, "image/png"
                 )
             except Exception:  # noqa: BLE001 — R2 mirror is best-effort
                 pass
@@ -1842,14 +1838,7 @@ def main() -> None:
     atlas_bound = atlas_path is not None
     if atlas_bound and not atlas_path.exists():
         ref = (manifest.get("atlas") or {}).get("atlas_file") or atlas_path.name
-        print(f"Atlas geometry not found in R2: {ref}\n"
-              f"  (looked under the project's staging mirror at {atlas_path})\n"
-              "The manifest's atlas.atlas_file points at a file that isn't in "
-              "R2 — most likely a local/Windows path from when this manifest "
-              "was authored offline. Upload the .atlas (and its source page) "
-              "via the region card's 'Pick from R2' / Upload .atlas button "
-              "(POST /uploadatlas), which repoints the manifest to a staging-"
-              "relative path, then retry.")
+        emit(diag("ATLAS_GEOMETRY_MISSING", CATALOG, ref=ref))
         raise SystemExit(2)
 
     if atlas_bound:
@@ -1890,7 +1879,7 @@ def main() -> None:
         regions = [r for r in regions if not r.get("skip_unless_explicit")]
 
     if not regions:
-        print("No regions selected. Aborting.")
+        emit(diag("NO_REGIONS_SELECTED", CATALOG))
         return
 
     batch_dir = BATCH_DIR
@@ -1911,9 +1900,9 @@ def main() -> None:
                       f"(user image — not processed)")
                 continue
             if region.get("output_override"):
-                print(f"  ! {region['name']}: output_override set but file "
-                      f"missing ({region['output_override']}) — "
-                      f"falling back to generated variant")
+                emit(diag("OUTPUT_OVERRIDE_FILE_MISSING", CATALOG,
+                          name=region["name"],
+                          path=region["output_override"]))
             src = _pick_variant_png(batch_dir, region)
             if not src:
                 print(f"  skip {region['name']}: no generated variant found")
@@ -1939,11 +1928,48 @@ def main() -> None:
     client_id = str(uuid.uuid4())
     variants = max(1, args.variants)
     jobs: list[dict] = []
-    overridden = [r["name"] for r in regions if r.get("output_override")]
-    gen_regions = [r for r in regions if not r.get("output_override")]
-    if overridden:
-        print(f"Skipping {len(overridden)} region(s) with a user output image "
-              f"(not processed): {', '.join(overridden)}")
+    # A region is only treated as "use my own image" (skipped from
+    # generation) when its override file actually EXISTS. A region flagged
+    # output_override whose file is gone is NOT skipped — we warn and let it
+    # fall through to normal generation, so a missing image never silently
+    # leaves the region blank.
+    overridden = []
+    gen_regions = []
+    for r in regions:
+        if not r.get("output_override"):
+            gen_regions.append(r)
+        elif override_image_path(r) is not None:
+            overridden.append(r["name"])
+        else:
+            emit(diag("OUTPUT_OVERRIDE_FILE_MISSING", CATALOG,
+                      name=r["name"], path=r["output_override"]))
+            gen_regions.append(r)
+    # Split the overridden set into FX layers (derived locally from a base —
+    # skipped BY DESIGN) vs genuine "use my own image" regions. A name only
+    # counts as an FX layer when shine.fx_layer_info() recognises its suffix
+    # AND the base it derives from is actually present in the selection (so a
+    # coincidental '_zoom'-named region with no matching base isn't
+    # misclassified as FX).
+    region_names = {r["name"] for r in regions}
+    fx_over = []
+    fx_details = []
+    plain_over = []
+    for name in overridden:
+        info = shine.fx_layer_info(name)
+        if info is not None and info["base"] in region_names:
+            fx_over.append(name)
+            fx_details.append(f"{name} ← {info['base']} ({info['mode']})")
+        else:
+            plain_over.append(name)
+    if fx_over:
+        emit(diag("FX_LAYERS_SKIPPED", CATALOG,
+                  count=len(fx_over), names="; ".join(fx_details)))
+    if plain_over:
+        if gen_regions or fx_over:
+            emit(diag("SOME_REGIONS_OVERRIDDEN", CATALOG,
+                      count=len(plain_over), names=", ".join(plain_over)))
+        else:
+            emit(diag("ALL_REGIONS_OVERRIDDEN", CATALOG))
     # Locked + already generated => don't re-process (unless --force).
     done = []
     if not args.force:
@@ -1956,8 +1982,8 @@ def main() -> None:
                 kept.append(r)
         gen_regions = kept
         if done:
-            print(f"Skipping {len(done)} locked region(s) already generated "
-                  f"(use --force to regenerate): {', '.join(done)}")
+            emit(diag("LOCKED_ALREADY_GENERATED", CATALOG,
+                      count=len(done), names=", ".join(done)))
     gpt_capped = []
     for region in gen_regions:
         if region_pipeline(region) == "gpt_image":
@@ -1978,7 +2004,16 @@ def main() -> None:
           f"total jobs {len(jobs)}  (atlas NOT composed — use Create Atlas)")
 
     if not jobs:
-        print("Nothing to generate (all selected regions use a user image).")
+        # The genuinely all-overridden case is already reported precisely at
+        # the override partition above (before the locked-skip). We must NOT
+        # re-emit ALL_REGIONS_OVERRIDDEN here: by this point gen_regions has
+        # been reduced by the locked/already-generated filter, so a mixed case
+        # (e.g. 1 override + 2 locked) would falsely claim "every region uses
+        # your own image". The accurate cards (SOME_REGIONS_OVERRIDDEN +
+        # LOCKED_ALREADY_GENERATED, or ALL_REGIONS_OVERRIDDEN) have already
+        # been emitted upstream — just state plainly that there is no work.
+        print("Nothing to generate (all selected regions already done or "
+              "use a user image).")
         return
 
     preflight_models(gen_regions)

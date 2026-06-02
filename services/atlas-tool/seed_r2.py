@@ -18,13 +18,14 @@ Source locations (override via env if different):
   ATLAS_LOCAL_INPUT   = Shared/input/atlas_maker/<ATLAS_LOCAL_PROJECT> (refs live here;
                         overrides the whole path if set)
 
-Uploads to R2 (matching the launcher's <tool>/<client>/<project>/ layout):
-  atlas_maker/<CLIENT>/<PROJECT>/manifests/<atlas_manifest_*.json | *.atlas>
-  atlas_maker/<CLIENT>/<PROJECT>/input/<refs...>
-  atlas_maker/<CLIENT>/<PROJECT>/atlas_config.json   (comfy_org_api_key stripped)
+Uploads to R2 (unified single-project-repo layout — no `<tool>/` segment):
+  <CLIENT>/<PROJECT>/manifests/<atlas_manifest_*.json | *.atlas>
+  <CLIENT>/<PROJECT>/input/<refs...>
+  <CLIENT>/<PROJECT>/atlas_config.json   (comfy_org_api_key stripped)
 
-NOTE: a valid launcher slug key (incl. hyphens) is used VERBATIM so it matches
-what the launcher scaffolded; only a non-slug value is filesystem-sanitised.
+NOTE: client/project keys pass through `r2_slug` (lowercase, non-alphanumerics
+-> `_`, 60-char cap) — byte-identical to the tools + launcher — so a hyphenated
+launcher key like `book-of-borut` maps to the same `book_of_borut` everywhere.
 """
 from __future__ import annotations
 
@@ -38,17 +39,13 @@ DEFAULT_TOOL_DIR = r"C:\Invisible Wall SL\Projects\Invisible_Pipeline\tools\Invi
 DEFAULT_SHARED = r"C:\Invisible Wall SL\ComfyUI\Shared"
 
 
-def _safe(name: str) -> str:
-    return "".join(c if c.isalnum() else "_" for c in (name or "default"))[:60]
-
-
 def _key(val: str, default: str) -> str:
-    """A launcher key is a slug (`^[a-z0-9][a-z0-9_-]{0,63}$`). Keep a valid one
-    VERBATIM so it matches what the launcher scaffolded/authorized; only fall
-    back to filesystem-sanitising a non-slug. (Mirrors the tool's cloud_paths.)"""
+    """Canonical R2 slug — byte-identical to `iw_common.context.r2_slug` and the
+    launcher's `r2Slug`: lowercase, non-alphanumerics -> `_`, 60-char cap. So a
+    hyphenated launcher key (`book-of-borut`) maps to the same `book_of_borut`
+    the tools read."""
     import re
-    v = (val or "").strip()
-    return v if re.match(r"^[a-z0-9][a-z0-9_-]{0,63}$", v) else _safe(v or default)
+    return re.sub(r"[^a-z0-9]", "_", (val or default).lower())[:60] or "default"
 
 
 def _is_abs_local(v: str) -> bool:
@@ -111,11 +108,11 @@ def _localize_atlas_refs(m: dict, extra_refs: dict[str, bytes]) -> None:
 
 
 def main() -> None:
-    # Target (client, project) under R2: <tool>/<client>/<project>/...
+    # Target (client, project) under R2: <client>/<project>/... (unified repo).
     # Defaults to the Borut/HotFruits launcher project; override via env.
     client = _key(os.environ.get("ATLAS_CLIENT", "borut"), "borut")
     proj = _key(os.environ.get("ATLAS_PROJECT", "hotfruits"), "hotfruits")
-    prefix = f"atlas_maker/{client}/{proj}"
+    prefix = f"{client}/{proj}"
     tool_dir = Path(os.environ.get("ATLAS_TOOL_DIR", DEFAULT_TOOL_DIR))
     shared = Path(os.environ.get("ATLAS_SHARED", DEFAULT_SHARED))
     local_proj = os.environ.get("ATLAS_LOCAL_PROJECT", "Borut_Hotfruits")

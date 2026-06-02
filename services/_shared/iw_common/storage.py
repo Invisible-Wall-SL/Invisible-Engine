@@ -7,10 +7,11 @@ directory (see each service's cloud_paths.py). This module is the bridge that:
   - lists/reads/writes/deletes individual R2 objects.
 
 R2 keys mirror the staging layout exactly under a single project prefix, e.g.
-    <tool>/<client>/<project>/input/...
-    <tool>/<client>/<project>/output/...
-    <tool>/<client>/<project>/manifests/...
-so push/pull is a straight prefix<->dir mapping.
+    <client>/<project>/input/...
+    <client>/<project>/atlas/...
+    <client>/<project>/manifests/...
+so push/pull is a straight prefix<->dir mapping. (Unified single-project repo —
+the old `<tool>/` segment is retired; see docs/design/unified-project-repo.md.)
 """
 from __future__ import annotations
 
@@ -174,3 +175,29 @@ def push_file(local_path: Path, key: str) -> None:
             put(key, local_path.read_bytes())
     except Exception:  # noqa: BLE001
         pass
+
+
+# --- local-disk helpers (shared by the cache-pruning endpoints) --------------
+
+def dir_size(root: Path) -> int:
+    """Total bytes of every file under `root` (du-style). 0 if root is absent."""
+    total = 0
+    root = Path(root)
+    if not root.exists():
+        return 0
+    for p in root.rglob("*"):
+        try:
+            if p.is_file():
+                total += p.stat().st_size
+        except OSError:
+            pass
+    return total
+
+
+def human_bytes(n: int) -> str:
+    """Human-readable byte size (e.g. 1536 -> '1.5 KB'). Caps at TB."""
+    f = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if f < 1024 or unit == "TB":
+            return f"{f:.0f} {unit}" if unit == "B" else f"{f:.1f} {unit}"
+        f /= 1024

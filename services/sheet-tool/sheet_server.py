@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -48,7 +49,8 @@ def _ctx() -> dict:
         "pp": pp,
         "staging_root": pp["staging_root"],
         "r2_prefix": pp.get("r2_project_prefix"),
-        "atlas_manifest_prefix": pp.get("atlas_maker_manifest_prefix"),
+        # Shared project manifest folder (staging mirror of <C>/<P>/manifests).
+        "manifest_dir": pp.get("manifest_dir"),
         "config_path": pp["staging_root"] / "sheet_config.json",
     }
 
@@ -64,6 +66,13 @@ SHEET_TOOL_SECRET = os.environ.get("SHEET_TOOL_SECRET", "")
 # ---------------------------------------------------------------------------
 # R2 write-through helpers
 # ---------------------------------------------------------------------------
+
+# Local-disk size/format helpers live in iw_common.storage (shared with the
+# Atlas Maker); re-exposed under the original private names so the call sites
+# below stay unchanged.
+_dir_size = storage.dir_size
+_human_bytes = storage.human_bytes
+
 
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
@@ -106,6 +115,12 @@ def safe_name(s: str, default: str = "sheet") -> str:
 
 
 def uploads_dir(sheet: str) -> Path:
+    # The uploaded sprite pile hydrates lazily (cloud_paths excludes sheet_src/
+    # from the eager pull). Pull it on first access for this (client, project)
+    # so a sheet's existing sprites are present for serve/export — never an
+    # empty local dir. ensure_lazy is idempotent + incremental: cheap no-op
+    # after the first call.
+    project_paths.ensure_lazy("sheet_src/")
     pp = project_paths.resolve()
     d = pp["input_dir"] / safe_name(sheet)
     d.mkdir(parents=True, exist_ok=True)
@@ -198,9 +213,9 @@ def api_state() -> dict:
         "projects": project_paths.list_projects(),
         "project_root": "",
         "project_locked": bool((os.environ.get("IW_PROJECT_NAME") or "").strip()),
-        # In the cloud the Atlas Maker is always reachable over R2 (no sibling
-        # folder); the authored manifest is handed off to its R2 prefix.
-        "atlas_maker_found": bool(_ctx()["atlas_manifest_prefix"]),
+        # In the cloud the Atlas Maker shares this project's R2 tree; manifests
+        # land in the shared manifests/ folder both tools read.
+        "atlas_maker_found": bool(_ctx()["r2_prefix"]),
         "sheets": sheets,
         "defaults": {
             "canvas_w": cfg.get("width", 1024),
@@ -311,15 +326,15 @@ def api_export(payload: dict) -> dict:
 
     # B14 — self-contained manifest. Compute the R2 keys of everything this
     # export emits so the manifest can back-reference them (the Atlas Maker
-    # ingests them instead of forcing a manual re-pick). The export landed in
-    # the staging `output/<sheet>/` dir, which mirrors `{R2_PREFIX}/output/<sheet>`;
-    # the loose trims (per-region sprites) live under `{R2_PREFIX}/input/<sheet>`.
+    # ingests them instead of forcing a manual re-pick). The packed sheet landed
+    # in the staging `sheets/<sheet>/` dir, which mirrors `{R2_PREFIX}/sheets/<sheet>`;
+    # the loose trims (per-region sprites) live under `{R2_PREFIX}/sheet_src/<sheet>`.
     ctx = _ctx()
     r2_prefix = ctx["r2_prefix"]
     sheet_key = safe_name(sheet)
-    export_prefix = f"{r2_prefix}/output/{sheet_key}" if r2_prefix else ""
+    export_prefix = f"{r2_prefix}/sheets/{sheet_key}" if r2_prefix else ""
     source_image_key = f"{export_prefix}/{sheet_png.name}" if export_prefix else ""
-    input_prefix = f"{r2_prefix}/input/{sheet_key}" if r2_prefix else ""
+    input_prefix = f"{r2_prefix}/sheet_src/{sheet_key}" if r2_prefix else ""
     region_shape_keys = {
         r["name"]: f"{input_prefix}/{r['src']}"
         for r in regions if input_prefix and r.get("src")
@@ -353,25 +368,20 @@ def api_export(payload: dict) -> dict:
             texturepacker_json=tp_json_key,
             region_shape_keys=region_shape_keys)
         man_name = f"atlas_manifest_{basename}.json"
-        mp = out / man_name
+        # The manifest lands in the SHARED manifests/ folder (mirrored to
+        # <C>/<P>/manifests) — the single source of truth both tools read. No
+        # cross-tool copy: the Atlas Maker hydrates the same manifests/ key.
+        man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
+        man_dir.mkdir(parents=True, exist_ok=True)
+        mp = man_dir / man_name
         atlas_writers.write_manifest(mp, manifest)
         _mirror(mp)
         written.append(str(mp))
-        # Cloud handoff: drop the manifest into the Atlas Maker's R2 prefix so
-        # its manifest list picks it up (after that service restarts/hydrates).
-        atlas_manifest_prefix = ctx["atlas_manifest_prefix"]
-        if atlas_manifest_prefix:
-            try:
-                storage.put(f"{atlas_manifest_prefix}/{man_name}",
-                            mp.read_bytes(), "application/json")
-                manifest_note = ("Manifest handed off to Atlas Maker (R2) -> "
-                                 f"{man_name}. Restart the Atlas Maker to list it.")
-            except Exception as e:  # noqa: BLE001 — R2 hiccup, report it
-                manifest_note = f"Could not hand manifest to Atlas Maker: {e}"
-        else:
-            manifest_note = "Atlas Maker prefix not configured; manifest written to output only."
+        manifest_note = (f"Manifest saved to the shared project folder -> {man_name}. "
+                         "The Atlas Maker lists it after a Refresh (or restart).")
 
-    manifest_path = str(out / f"atlas_manifest_{basename}.json")
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
+    manifest_path = str(man_dir / f"atlas_manifest_{basename}.json")
     return {"written": written, "manifest_note": manifest_note,
             "output_dir": str(out), "dir": str(out),
             "manifest_path": manifest_path, "name": basename}
@@ -397,8 +407,8 @@ def api_refresh() -> dict:
     try:
         pp = project_paths.resolve()
         project_paths.hydrate(
-            project_paths._safe_proj_name(project_paths.client_name()),
-            project_paths._safe_proj_name(project_paths.project_name()),
+            project_paths.r2_slug(project_paths.client_name()),
+            project_paths.r2_slug(project_paths.project_name()),
             Path(pp["staging_root"]),
             force=True,
         )
@@ -408,14 +418,70 @@ def api_refresh() -> dict:
     return {"ok": True}
 
 
+def api_clearcache() -> dict:
+    """Prune the local staging tree to bound disk growth. R2 is canonical, so
+    this is always safe — nothing here is unique. Inactive project trees are
+    deleted whole; the ACTIVE project's regenerable subtree (sheet_src/, the
+    uploaded sprite pile) is cleared but its manifests/packed sheets/config are
+    kept so it stays usable (sprites re-fetch on demand via ensure_lazy, which
+    we reset so the next access re-pulls). Local-disk only — never touches R2.
+    Returns the bytes freed.
+
+    Serialized against the lazy-hydrate lock so the rmtree can't interleave with
+    an in-flight `ensure_lazy` pull (which would otherwise leave a half-populated
+    sheet_src/ behind its still-set guard). Active lazy guards are discarded
+    BEFORE the rmtree (under the lazy lock), not relying solely on the
+    post-rmtree force-hydrate."""
+    base = Path(project_paths.STAGING_BASE).resolve()
+    before = _dir_size(base)
+    pp = project_paths.resolve()
+    active = Path(pp["staging_root"]).resolve()
+    with project_paths.lazy_lock():
+        # Discard the active guards first so a concurrent ensure_lazy parked on
+        # the lazy lock re-pulls after us instead of trusting a stale guard over
+        # the tree we are about to delete.
+        project_paths.discard_active_lazy_guards()
+        if base.exists():
+            for client_dir in base.iterdir():
+                if not client_dir.is_dir():
+                    continue
+                for proj_dir in client_dir.iterdir():
+                    if proj_dir.is_dir() and proj_dir.resolve() != active:
+                        shutil.rmtree(proj_dir, ignore_errors=True)
+                if not any(client_dir.iterdir()):
+                    shutil.rmtree(client_dir, ignore_errors=True)
+        # Clear the active project's regenerable subtree (uploaded sprites) only.
+        shutil.rmtree(active / "sheet_src", ignore_errors=True)
+        # Re-ensure the active project's essential dirs exist + its small assets
+        # are back on disk (cheap — already in R2).
+        for d in (pp["input_dir"], pp["output_root"], pp["manifest_dir"]):
+            try:
+                Path(d).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+        try:
+            project_paths.hydrate(
+                project_paths.r2_slug(project_paths.client_name()),
+                project_paths.r2_slug(project_paths.project_name()),
+                active,
+                force=True,
+            )
+        except Exception:  # noqa: BLE001 — best-effort re-hydrate of essentials
+            pass
+    freed = max(0, before - _dir_size(base))
+    return {"ok": True, "freed": freed, "freed_human": _human_bytes(freed),
+            "note": f"Cleared local cache — freed {_human_bytes(freed)}"}
+
+
 def api_browse(path: str, mode: str = "") -> dict:
     """List a directory inside the staging tree (which mirrors the project's R2
-    subtree). Empty path defaults to the project output root. Paths are confined
-    to the staging root. Default mode lists only project manifests
+    subtree). Empty path defaults to the SHARED manifests/ folder so the
+    "projects" view lists every project manifest (both tools'). Paths are
+    confined to the staging root. Default mode lists only project manifests
     (atlas_manifest_*.json); `mode == "import"` lists any coords/image file."""
     pp = project_paths.resolve()
     root = Path(pp["staging_root"]).resolve()
-    out_root = Path(pp["output_root"]).resolve()
+    out_root = Path(pp["manifest_dir"]).resolve()
 
     base = Path(path).resolve() if path else out_root
     # Confine browsing to the staging tree.
@@ -796,6 +862,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_set_project(payload))
             elif path == "/api/refresh":
                 self._send_json(api_refresh())
+            elif path == "/api/clearcache":
+                self._send_json(api_clearcache())
             else:
                 self._send_bytes(b"Not found", "text/plain", 404)
         except Exception as e:  # noqa: BLE001 — surface errors to the UI

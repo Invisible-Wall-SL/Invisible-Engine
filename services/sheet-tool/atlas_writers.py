@@ -107,7 +107,7 @@ def build_manifest(sheet_image: str, width: int, height: int,
     we back-reference every sibling the export just emitted as R2 keys:
 
       * `export_prefix`            — the R2 prefix this export landed under
-                                     (e.g. `sheet_maker/<c>/<p>/output/<sheet>`).
+                                     (e.g. `<c>/<p>/sheets/<sheet>`).
       * `atlas.source_image_path`  — R2 key of the packed sheet PNG.
       * `atlas.atlas_file`         — R2 key of the sibling `.atlas`, if emitted.
       * `atlas.texturepacker_json` — R2 key of the TexturePacker JSON, if emitted.

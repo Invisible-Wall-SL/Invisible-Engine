@@ -136,6 +136,38 @@ FX_PRESETS = {
     "zoom": (ZOOM_DEFAULTS, ZOOM_RANGES),
 }
 
+# Canonical FX-naming convention: a region named `<base><suffix>` is an FX
+# layer DERIVED LOCALLY from its base region (not AI-generated). This map is
+# exactly the suffix set ui_server._fx_source already loops over — keep the two
+# in sync (TODO: have _fx_source iterate FX_SUFFIX_MODE instead of its own
+# hard-coded tuple).
+FX_SUFFIX_MODE = {
+    "_shine": "shine",
+    "_glow": "glow",
+    "_shadow": "shadow",
+    "_blur": "blur",
+    "_zoom": "zoom",
+}
+
+
+def fx_layer_info(name: str) -> "dict | None":
+    """Canonical FX-naming classifier.
+
+    If ``name`` ends in one of the FX suffixes (see FX_SUFFIX_MODE), return
+    ``{"suffix": <suffix>, "base": <name minus suffix>, "mode": <fx mode>}``;
+    otherwise ``None``. The suffixes don't overlap, so longest-match isn't a
+    concern — we iterate deterministically over the map.
+
+    This is the single source of truth for "is this region an FX layer of a
+    base element?", reused by the diagnostics today and intended for future
+    automated-FX features (e.g. auto-rebuilding FX layers when their base is
+    regenerated). Pure string ops; no PIL / IO.
+    """
+    for suffix, mode in FX_SUFFIX_MODE.items():
+        if name.endswith(suffix):
+            return {"suffix": suffix, "base": name[: -len(suffix)], "mode": mode}
+    return None
+
 
 def hex_to_rgb(s: str) -> tuple[int, int, int]:
     s = str(s).strip().lstrip("#")

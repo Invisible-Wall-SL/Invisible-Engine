@@ -48,9 +48,25 @@ def safe_proj_name(name: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in (name or "default"))[:60]
 
 
+def r2_slug(name: str | None) -> str:
+    """Canonical R2 slug for a client/project key. Byte-identical to the
+    launcher's slug rule so both halves build the SAME `<C>/<P>` prefix — this
+    also resolves the hyphen/underscore divergence (e.g. `book-of-borut` ->
+    `book_of_borut`)."""
+    s = re.sub(r"[^a-z0-9]", "_", (name or "default").lower())[:60]
+    return s or "default"
+
+
+def project_prefix(client: str, project: str) -> str:
+    """Root of one project's R2 repo (`<client>/<project>`). All tools read and
+    write under this shared, asset-typed tree. Replaces prefix_for_tool()."""
+    return f"{client}/{project}"
+
+
 def prefix_for_tool(tool: str, client: str, project: str) -> str:
-    """Canonical R2 prefix for any tool. Single source of truth used both
-    internally and by handoff callers (e.g. Sheet->Atlas manifest writes)."""
+    """DEPRECATED shim — the per-tool `<tool>/` segment is retired (the unified
+    project repo keys are `<client>/<project>/...`). Kept only so nothing breaks
+    mid-refactor; do NOT use it to build live keys."""
     return f"{tool}/{client}/{project}"
 
 
@@ -140,4 +156,6 @@ class ToolContext:
     # --- R2 prefix helpers ---------------------------------------------------
 
     def r2_project_prefix(self, client_key: str, proj_key: str) -> str:
-        return prefix_for_tool(self.tool_namespace, client_key, proj_key)
+        # Unified project repo: the `<tool>/` segment is dropped. `tool_namespace`
+        # still names the staging dir + banner but no longer prefixes R2 keys.
+        return project_prefix(client_key, proj_key)

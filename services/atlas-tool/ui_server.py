@@ -41,6 +41,17 @@ import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
 import storage  # noqa: E402  (R2 object storage + staging mirror)
+from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
+from diag_catalog import CATALOG  # noqa: E402
+
+
+def _diag(code: str, **ctx) -> str:
+    """Canonical (what/why/fix) string for a sync-handler failure return.
+
+    The returned text is shown in the toast; the UI promotes any string that
+    starts with a severity glyph (✖/⚠/ℹ) into a colored diagnostic card.
+    """
+    return canonical(diag(code, CATALOG, **ctx))
 
 SELF = Path(__file__).resolve().parent
 TOOLS = SELF
@@ -147,6 +158,13 @@ R2_PREFIX = _StrProxy("r2_project_prefix")
 COMFY_HOST = _StrProxy("comfy_host")
 
 
+# Local-disk size/format helpers live in iw_common.storage (shared with the
+# Sheet Maker); re-exposed under the original private names so the call sites
+# below stay unchanged.
+_dir_size = storage.dir_size
+_human_bytes = storage.human_bytes
+
+
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
     r2_prefix = str(R2_PREFIX)
@@ -215,7 +233,8 @@ PORT = int(os.environ.get("PORT", "8765"))
 HOST = os.environ.get("ATLAS_BIND_HOST", "0.0.0.0")
 BUILD = "v15-extra-prompts"  # shown in the header so you can verify the live code
 
-_render_state = {"running": False, "log": "", "done": False, "cur": 0, "total": 0}
+_render_state = {"running": False, "log": "", "done": False, "cur": 0,
+                 "total": 0, "diagnostics": []}
 _render_lock = threading.Lock()
 _render_proc: subprocess.Popen | None = None
 _stopped = False
@@ -1018,6 +1037,12 @@ def atlas_file() -> Path:
 
 
 def variant_files(name: str) -> list[Path]:
+    # The variant pile hydrates lazily (cloud_paths excludes batch/ from the
+    # eager pull). Pull it on first access for this (client, project) so the
+    # gallery / compose see every variant that exists in R2 — never an empty
+    # local dir. ensure_lazy is idempotent + incremental, so this is a cheap
+    # no-op after the first call.
+    project_paths.ensure_lazy("batch/")
     if not BATCH_DIR.exists():
         return []
     # Exact-region match only. A plain glob('<name>_*.png') also matches
@@ -1098,7 +1123,8 @@ def _run_cmd(cmd: list[str], total: int) -> None:
     global _render_proc, _stopped
     _stopped = False
     with _render_lock:
-        _render_state.update(running=True, log="", done=False, cur=0, total=total)
+        _render_state.update(running=True, log="", done=False, cur=0,
+                             total=total, diagnostics=[])
     try:
         # Generation runs as a subprocess that re-resolves the (client,
         # project) from env at its own start — so pass the UI's *current*
@@ -1112,7 +1138,15 @@ def _run_cmd(cmd: list[str], total: int) -> None:
                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
         _render_proc = proc
         for line in proc.stdout:
+            # A structured diagnostic marker line (@@DIAG@@{json}) becomes a
+            # card and is hidden from the visible log — its human-readable
+            # canonical form was already printed on the preceding line, so the
+            # log stays readable.
+            d = parse_diag_line(line)
             with _render_lock:
+                if d is not None:
+                    _render_state["diagnostics"].append(d)
+                    continue
                 _render_state["log"] += line
                 mt = _PROG_RE.search(line)
                 if mt:
@@ -1140,6 +1174,10 @@ def run_render(names: list[str], variants: int = 1,
     # tree (geometry "not found in R2").
     if ctx:
         project_paths.set_context(*ctx)
+    # The subprocess reads batch/ from local disk (already_generated seed-match
+    # skips re-rendering pinned variants). It hydrates lazily, so pull it here
+    # before spawning, else the subprocess sees an empty pile.
+    project_paths.ensure_lazy("batch/")
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
            "--manifest", str(manifest_path()),
            "--only", ",".join(names), "--include-rotated",
@@ -1151,6 +1189,9 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # See run_render: re-apply the request thread's context on this worker.
     if ctx:
         project_paths.set_context(*ctx)
+    # Compose picks each region's variant PNG from batch/ in the subprocess, so
+    # the variant pile must be on local disk first (it hydrates lazily).
+    project_paths.ensure_lazy("batch/")
     # Pass the active manifest explicitly (full staging path) so compose reads
     # the same creative manifest the UI shows — not whatever the subprocess's
     # config default would resolve against the script dir.
@@ -1517,6 +1558,20 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .usedseed{{font-size:12px;color:#9bb;font-family:monospace}}
  .mini{{font-size:11px;padding:4px 8px}}
  #log{{white-space:pre-wrap;background:#111;color:#9c9;padding:10px;border-radius:6px;font-family:monospace;font-size:12px;max-height:220px;overflow:auto;margin-top:14px;display:none}}
+ #diags{{margin-top:14px;display:flex;flex-direction:column;gap:8px}}
+ #diags:empty{{display:none}}
+ .diag{{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:7px;border:1px solid #333;background:#1b1b1f;font-size:13px;line-height:1.4}}
+ .diag-ic{{flex:0 0 auto;font-size:15px;line-height:1.3}}
+ .diag-body{{flex:1 1 auto;min-width:0}}
+ .diag-title{{font-weight:700;color:#eee;margin-bottom:3px}}
+ .diag-explain{{color:#c7c7cf;white-space:pre-wrap}}
+ .diag-fix{{color:#9fb6d6;margin-top:5px}}
+ .diag-error{{border-color:#7a2b2b;background:#241616}}
+ .diag-error .diag-ic{{color:#ff6b6b}}
+ .diag-warn{{border-color:#7a5a1f;background:#241f12}}
+ .diag-warn .diag-ic{{color:#ffc14d}}
+ .diag-info{{border-color:#2b557a;background:#141d24}}
+ .diag-info .diag-ic{{color:#5db0ff}}
 </style></head><body>
 <header>
  <a id="homelink" class="alt" href="#" title="Back to the Launcher" style="display:none;padding:9px 14px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">← Launcher</a>
@@ -1564,6 +1619,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
  <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
+ <button onclick="clearCache(this)" class="alt" title="Free local disk: delete cached project trees and this project's regenerable variant pile. R2 is the source of truth, so nothing is lost — the active project re-fetches on demand.">🧹 Clear local cache</button>
  <span class="ssn-note">switching reloads the page</span>
 </div>
 <details class="settings">
@@ -1631,8 +1687,55 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <div id="fslist" style="padding:10px 18px 18px;max-height:55vh;overflow:auto;font-size:13px"></div>
  </div>
 </div>
+<div id="diags"></div>
 <pre id="log"></pre>
 <script>
+// --- Diagnostics (what / why / how-to-fix cards) -------------------------
+var DIAG_GLYPHS={{'✖':'error','⚠':'warn','ℹ':'info'}};
+function _diagCard(sev,title,explain,fix){{
+ var card=document.createElement('div');
+ card.className='diag diag-'+sev;
+ var ic=document.createElement('span'); ic.className='diag-ic';
+ ic.textContent=(sev==='error'?'✖':(sev==='warn'?'⚠':'ℹ'));
+ var body=document.createElement('div'); body.className='diag-body';
+ var h=document.createElement('div'); h.className='diag-title';
+ h.textContent=title||''; body.appendChild(h);
+ if(explain){{var p=document.createElement('div'); p.className='diag-explain';
+  p.textContent=explain; body.appendChild(p);}}
+ if(fix){{var f=document.createElement('div'); f.className='diag-fix';
+  f.textContent='How to fix: '+fix; body.appendChild(f);}}
+ card.appendChild(ic); card.appendChild(body);
+ return card;
+}}
+function renderDiagnostics(list){{
+ var box=document.getElementById('diags'); if(!box)return;
+ box.innerHTML='';
+ (list||[]).forEach(function(d){{
+  if(!d)return;
+  box.appendChild(_diagCard(d.severity||'error',d.title||d.code||'',
+   d.explain||'',d.fix||''));
+ }});
+}}
+// A sync handler may return a canonical string ("<glyph> Title\\nexplain\\n
+// → Fix: ...") in the toast. If it starts with a severity glyph, promote it
+// to a colored card in #diags and return true (caller should NOT reload, so
+// the card stays visible).
+function flashDiag(msg){{
+ var box=document.getElementById('diags'); if(!box||!msg)return false;
+ var sev=DIAG_GLYPHS[msg.charAt(0)];
+ if(!sev)return false;
+ var lines=msg.split('\\n');
+ var title=lines[0].slice(1).trim();
+ var fix=''; var explainLines=[];
+ for(var i=1;i<lines.length;i++){{
+  var ln=lines[i];
+  var fm=ln.replace(/^\\s*→?\\s*Fix:\\s*/,'');
+  if(fm!==ln){{ fix=fm.trim(); }} else {{ explainLines.push(ln); }}
+ }}
+ box.innerHTML='';
+ box.appendChild(_diagCard(sev,title,explainLines.join('\\n').trim(),fix));
+ return true;
+}}
 function selAll(v){{document.querySelectorAll('.sel').forEach(c=>c.checked=v);}}
 function collect(){{
  let regs=[];
@@ -1762,7 +1865,7 @@ async function sliceAtlas(){{
  try{{ let r=await fetch('/sliceatlas',{{method:'POST',body:'{{}}'}});
   msg=(r.status===404)?'Slice endpoint missing — restart run_ui.bat':await r.text();
  }}catch(e){{ msg='Slice request failed: '+e; }}
- t.textContent=msg; if(st)st.textContent=msg;
+ t.textContent=msg; if(st)st.textContent=msg; flashDiag(msg);
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),2500);
 }}
 async function refreshR2(btn){{
@@ -1779,6 +1882,21 @@ async function refreshR2(btn){{
  if(t)t.textContent=msg; if(st)st.textContent=msg;
  if(btn) btn.disabled=false;
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),900);
+}}
+async function clearCache(btn){{
+ if(!confirm('Clear the local disk cache?\\n\\nR2 is the source of truth, so '
+  +'nothing is lost. Other projects drop entirely; this project keeps its '
+  +'manifests and re-fetches variants on demand.')) return;
+ let t=document.getElementById('toast');
+ if(t){{ t.style.display='inline-block'; t.textContent='🧹 Clearing…'; }}
+ let st=document.getElementById('stat'); if(st)st.textContent='🧹 Clearing…';
+ if(btn) btn.disabled=true;
+ let msg;
+ try{{ let r=await fetch('/clearcache',{{method:'POST',body:'{{}}'}});
+  msg=(r.status===404)?'Clear-cache endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Clear-cache request failed: '+e; }}
+ if(t)t.textContent=msg; if(st)st.textContent=msg;
+ if(btn) btn.disabled=false;
 }}
 function updateLock(c){{
  let slot=c.querySelector('.lockslot'); if(!slot)return;
@@ -1851,20 +1969,20 @@ function useMyImage(name){{
  rd.onload=async()=>{{
   let b64=rd.result.split(',')[1];
   let r=await fetch('/setoutput',{{method:'POST',body:JSON.stringify({{name:name,data:b64}})}});
-  document.getElementById('stat').textContent=await r.text();
-  setTimeout(()=>location.reload(),700);
+  let msg=await r.text(); document.getElementById('stat').textContent=msg;
+  if(!flashDiag(msg)) setTimeout(()=>location.reload(),700);
  }};
  rd.readAsDataURL(f);
 }}
 async function useRefImg(name){{
  let r=await fetch('/userefimg',{{method:'POST',body:JSON.stringify({{name:name}})}});
- document.getElementById('stat').textContent=await r.text();
- setTimeout(()=>location.reload(),700);
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),700);
 }}
 async function revertImage(name){{
  let r=await fetch('/clearoutput',{{method:'POST',body:JSON.stringify({{name:name}})}});
- document.getElementById('stat').textContent=await r.text();
- setTimeout(()=>location.reload(),700);
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),700);
 }}
 async function shineMode(name,on){{
  let r=await fetch('/shinemode',{{method:'POST',body:JSON.stringify({{name:name,on:on}})}});
@@ -1893,8 +2011,8 @@ async function pasteCfg(n){{
  if(!s){{alert('Copy a region first with ⧉');return;}}
  if(s===n){{document.getElementById('stat').textContent='Source and target are the same';return;}}
  let r=await fetch('/copyfrom',{{method:'POST',body:JSON.stringify({{src:s,dsts:[n]}})}});
- document.getElementById('stat').textContent=await r.text();
- setTimeout(()=>location.reload(),500);
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),500);
 }}
 async function pasteSel(e){{
  if(e)e.preventDefault();
@@ -1905,8 +2023,8 @@ async function pasteSel(e){{
  if(!dsts.length){{alert('Tick the target cards first (the selection checkboxes)');return;}}
  if(!confirm('Paste settings from '+s+' into '+dsts.length+' selected region(s)? (reference image, seed and lock are kept per-region)'))return;
  let r=await fetch('/copyfrom',{{method:'POST',body:JSON.stringify({{src:s,dsts:dsts}})}});
- document.getElementById('stat').textContent=await r.text();
- setTimeout(()=>location.reload(),600);
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),600);
 }}
 document.addEventListener('DOMContentLoaded',cpRefresh);
 async function shineFrom(name){{
@@ -1919,8 +2037,8 @@ async function shineFrom(name){{
   layers:g('.sh-layers')?g('.sh-layers').value:undefined}};
  document.getElementById('stat').textContent='✨ building shine…';
  let r=await fetch('/shinefrom',{{method:'POST',body:JSON.stringify(body)}});
- document.getElementById('stat').textContent=await r.text();
- setTimeout(()=>location.reload(),800);
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),800);
 }}
 async function setMode(name,mode){{
  await saveAll();   // don't lose card edits across the reload
@@ -1939,8 +2057,8 @@ async function fxBuild(name){{
  }});
  document.getElementById('stat').textContent='⚙ building '+body.mode+'…';
  let r=await fetch('/fxbuild',{{method:'POST',body:JSON.stringify(body)}});
- document.getElementById('stat').textContent=await r.text();
- setTimeout(()=>location.reload(),800);
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),800);
 }}
 let _modalName=null;
 function selectVariant(name,id,seed){{
@@ -2144,7 +2262,7 @@ async function deployAtlas(){{
  try{{ let r=await fetch('/deployatlas',{{method:'POST',body:'{{}}'}});
   msg=(r.status===404)?'Deploy endpoint missing — restart run_ui.bat':await r.text();
  }}catch(e){{ msg='Deploy failed: '+e; }}
- t.textContent=msg; if(st)st.textContent=msg;
+ t.textContent=msg; if(st)st.textContent=msg; flashDiag(msg);
 }}
 async function stopRender(){{
  let sb=document.getElementById('sbtn'); sb.disabled=true; sb.textContent='■ Stopping…';
@@ -2152,6 +2270,7 @@ async function stopRender(){{
 }}
 async function poll(){{
  let r=await fetch('/progress'); let j=await r.json();
+ renderDiagnostics(j.diagnostics||[]);
  document.getElementById('log').textContent=j.log;
  document.getElementById('log').scrollTop=1e9;
  let b=document.getElementById('rbtn');
@@ -2558,6 +2677,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._uploadatlas(json.loads(raw)).encode())
         elif self.path == "/refresh":
             self._send(200, "text/plain", self._refresh().encode())
+        elif self.path == "/clearcache":
+            self._send(200, "text/plain", self._clearcache().encode())
         elif self.path == "/sliceatlas":
             self._send(200, "text/plain", self._sliceatlas().encode())
         elif self.path == "/deployatlas":
@@ -2758,18 +2879,18 @@ class Handler(BaseHTTPRequestHandler):
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
                                cwd=str(SELF), env=env)
         except subprocess.TimeoutExpired:
-            return "✂ Slice timed out"
+            return _diag("SLICE_FAILED", err="timed out after 300s")
         out = (p.stdout or "").strip().splitlines()
         tail = out[-1] if out else ""
         if p.returncode != 0:
             err = (p.stderr or p.stdout or "").strip().splitlines()
-            return "✂ Slice failed: " + (err[-1] if err else "see console")
+            return _diag("SLICE_FAILED", err=(err[-1] if err else "see console"))
         return "✓ " + (tail or "sliced")
 
     def _refresh(self) -> str:
         """Re-pull the ACTIVE (client, project) subtree from R2 into staging on
         demand, so manifests another tool just exported (e.g. a Sheet Maker
-        handoff landing under atlas_maker/<c>/<p>/manifests/) show up without a
+        save landing in the SHARED <c>/<p>/manifests/) show up without a
         service restart or a project switch.
 
         The active context is already set on this request thread by
@@ -2782,9 +2903,9 @@ class Handler(BaseHTTPRequestHandler):
         different-project refreshes can't collide — no lock. Never 500s on an R2
         hiccup: a transient failure returns an actionable message instead."""
         try:
-            client_key = project_paths._safe_proj_name(
+            client_key = project_paths.r2_slug(
                 project_paths.client_name())
-            proj_key = project_paths._safe_proj_name(
+            proj_key = project_paths.r2_slug(
                 project_paths.project_name())
             project_paths.hydrate(client_key, proj_key, Path(STAGING_ROOT),
                                   force=True)
@@ -2793,6 +2914,61 @@ class Handler(BaseHTTPRequestHandler):
             return ("↻ Refresh from R2 hit a snag — try again in a moment "
                     f"({type(e).__name__}: {e})")
         return f"✓ Refreshed from R2 — {n} manifest(s) available"
+
+    def _clearcache(self) -> str:
+        """Prune the local staging tree to bound disk growth. R2 is canonical,
+        so this is always safe — nothing here is unique. Inactive project trees
+        are deleted whole; the ACTIVE project's regenerable subtrees (batch/ the
+        variant pile, deploy/) are cleared but its manifests/refs/composed atlas
+        are kept so it stays usable (variants re-fetch on demand via ensure_lazy,
+        which we reset so the next access re-pulls). Local-disk only — never
+        touches R2 (no _unmirror). Returns the bytes freed.
+
+        Serialized against the render lock and the lazy-hydrate lock so the
+        rmtree can't interleave with an in-flight generation or `ensure_lazy`
+        pull (which would otherwise leave a half-populated `batch/` behind its
+        still-set guard). Active lazy guards are discarded BEFORE the rmtree
+        (under the lazy lock), not relying solely on the post-rmtree
+        force-hydrate."""
+        base = Path(project_paths.STAGING_BASE).resolve()
+        active = Path(STAGING_ROOT).resolve()
+        client_key = project_paths.r2_slug(project_paths.client_name())
+        proj_key = project_paths.r2_slug(project_paths.project_name())
+        before = _dir_size(base)
+        # _render_lock: no generation may be writing variants into batch/ while
+        # we prune. _lazy_lock: no ensure_lazy pull may be populating a lazy
+        # subtree. Both are coarse but cheap (clearcache is rare).
+        with _render_lock, project_paths.lazy_lock():
+            # Discard the active guards first so a concurrent ensure_lazy parked
+            # on the lazy lock re-pulls after us instead of trusting a stale
+            # guard over the tree we are about to delete.
+            project_paths.discard_active_lazy_guards()
+            # Drop every other (client, project) tree entirely.
+            if base.exists():
+                for client_dir in base.iterdir():
+                    if not client_dir.is_dir():
+                        continue
+                    for proj_dir in client_dir.iterdir():
+                        if proj_dir.is_dir() and proj_dir.resolve() != active:
+                            shutil.rmtree(proj_dir, ignore_errors=True)
+                    if not any(client_dir.iterdir()):
+                        shutil.rmtree(client_dir, ignore_errors=True)
+            # Clear the active project's regenerable subtrees only.
+            for sub in ("batch", "deploy"):
+                shutil.rmtree(active / sub, ignore_errors=True)
+            # Re-ensure the active project's essential dirs exist + its manifests
+            # are back on disk (cheap — they're small and already in R2).
+            for d in (INPUT_DIR, BATCH_DIR, ATLAS_DIR, MANIFEST_DIR):
+                try:
+                    Path(d).mkdir(parents=True, exist_ok=True)
+                except OSError:
+                    pass
+            try:
+                project_paths.hydrate(client_key, proj_key, active, force=True)
+            except Exception:  # noqa: BLE001 — best-effort re-hydrate
+                pass
+        freed = max(0, before - _dir_size(base))
+        return f"✓ Cleared local cache — freed {_human_bytes(freed)}"
 
     def _deployatlas(self) -> str:
         """Cloud deploy: copy the composed atlas (<stem>_new.png/webp/atlas in
@@ -2803,7 +2979,7 @@ class Handler(BaseHTTPRequestHandler):
         stem = manifest_path().stem.replace("atlas_manifest_", "")
         out_base = str(m.get("deploy_basename", "")).strip() or stem
         # `deploy_path` is an R2 KEY PREFIX, always INSIDE this project's R2 space
-        # (R2_PREFIX = atlas_maker/<client>/<project>). Legacy/local manifests — and
+        # (R2_PREFIX = <client>/<project>). Legacy/local manifests — and
         # the old placeholder text — may hold a Windows path like "C:/..." or an
         # absolute path; used verbatim those create a junk object keyed off a drive
         # letter at the bucket root (the "deploying to C:/" bug). Normalize: drop
@@ -2830,7 +3006,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 storage.put(key, src.read_bytes())
             except Exception as e:  # noqa: BLE001
-                return f"📦 Deploy to R2 failed for {src.name} -> {key}: {e}"
+                return _diag("DEPLOY_FAILED", src=src.name, key=key,
+                             err=f"{type(e).__name__}: {e}")
             copied.append(key)
         return f"✓ Deployed to R2: {', '.join(copied)}"
 
@@ -3444,12 +3621,12 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "")
         b64 = payload.get("data", "")
         if not name or not b64:
-            return "Missing name or image data"
+            return _diag("MISSING_IMAGE_DATA")
         try:
             raw = base64.b64decode(b64)
             img = Image.open(io.BytesIO(raw))
         except Exception as e:  # noqa: BLE001
-            return f"Invalid image: {e}"
+            return _diag("SOURCE_IMAGE_INVALID", err=f"{type(e).__name__}: {e}")
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.convert("RGBA").save(INPUT_DIR / rel)
@@ -3457,7 +3634,7 @@ class Handler(BaseHTTPRequestHandler):
         m = load_manifest()
         r = self._ensure_region(m, name)
         if r is None:
-            return f"Region {name} not found"
+            return _diag("REGION_NOT_FOUND", name=name)
         r["output_override"] = rel
         save_manifest(m)
         return (f"Using your image for {name} (not processed). "
@@ -3471,11 +3648,11 @@ class Handler(BaseHTTPRequestHandler):
         committed tile and ✕ revert restores generation."""
         name = payload.get("name", "")
         if not name:
-            return "Missing region name"
+            return _diag("REGION_NOT_FOUND", name=name)
         m = load_manifest()
         region = next((r for r in all_regions(m) if r["name"] == name), None)
         if region is None:
-            return f"Region {name} not found"
+            return _diag("REGION_NOT_FOUND", name=name)
         src = None
         for key in ("shape_ref", "style_ref"):
             ref = region.get(key)
@@ -3485,19 +3662,18 @@ class Handler(BaseHTTPRequestHandler):
                     src = p
                     break
         if src is None:
-            return (f"{name} has no reference image yet — set one (⬆ set "
-                    f"ref) or slice the atlas first")
+            return _diag("NO_REFERENCE_IMAGE", name=name)
         try:
             img = Image.open(src).convert("RGBA")
         except Exception as e:  # noqa: BLE001
-            return f"Can't read reference: {e}"
+            return _diag("SOURCE_IMAGE_INVALID", err=f"{type(e).__name__}: {e}")
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.save(INPUT_DIR / rel)
         _drop_fx_snapshot(name)
         r = self._ensure_region(m, name)
         if r is None:
-            return f"Region {name} not found"
+            return _diag("REGION_NOT_FOUND", name=name)
         r["output_override"] = rel
         save_manifest(m)
         return (f"{name}: using its reference image ({src.name}) as the "
@@ -3539,12 +3715,12 @@ class Handler(BaseHTTPRequestHandler):
         src = payload.get("src", "")
         dsts = [d for d in (payload.get("dsts") or []) if d and d != src]
         if not src or not dsts:
-            return "Nothing to paste"
+            return _diag("NOTHING_TO_PASTE")
         m = load_manifest()
         srcr = next((r for b in ("regions", "rotated_regions")
                      for r in m.get(b, []) if r.get("name") == src), None)
         if srcr is None:
-            return f"'{src}' has no saved settings to copy yet"
+            return _diag("NOTHING_TO_PASTE")
         keys = [k for k in srcr if k not in self._COPY_BLOCK]
         import copy as _copy
         n = 0
@@ -3589,18 +3765,18 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "")
         suf = next((s for s in ("_glow", "_shine") if name.endswith(s)), None)
         if not suf:
-            return f"{name} is not a *_shine / *_glow region"
+            return _diag("HALO_BAD_SUFFIX", name=name)
+        project_paths.ensure_lazy("batch/")  # variant pile hydrates on demand
         base_name = name[: -len(suf)]
         m = load_manifest()
         regions = all_regions(m)
         base = next((r for r in regions if r["name"] == base_name), None)
         if base is None:
-            return f"No base region '{base_name}' for {name}"
+            return _diag("NO_BASE_REGION", name=name, base_name=base_name)
         src = (batch_atlas.override_image_path(base)
                or batch_atlas._pick_variant_png(BATCH_DIR, base))
         if not src or not src.exists():
-            return (f"Base '{base_name}' has no generated image yet — "
-                    f"generate/lock it first, then make the glow")
+            return _diag("NO_REFERENCE_IMAGE", name=base_name)
         rgn_for_params = next((r for b in ("regions", "rotated_regions")
                                for r in m.get(b, []) if r.get("name") == name),
                               None) or {}
@@ -3633,13 +3809,13 @@ class Handler(BaseHTTPRequestHandler):
                 layers=params["layers"],
             )
         except Exception as e:  # noqa: BLE001
-            return f"Glow failed: {e}"
+            return _diag("GLOW_FAILED", err=f"{type(e).__name__}: {e}")
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.save(INPUT_DIR / rel)
         r = self._ensure_region(m, name)
         if r is None:
-            return f"Region {name} not found"
+            return _diag("REGION_NOT_FOUND", name=name)
         r["output_override"] = rel
         r["shine"] = params  # remember settings for next time / re-runs
         save_manifest(m)
@@ -3657,6 +3833,7 @@ class Handler(BaseHTTPRequestHandler):
         region's committed user image (the picture shown on the card); its
         picked/latest generated variant; finally its own reference
         (style_ref / shape_ref / atlas slice)."""
+        project_paths.ensure_lazy("batch/")  # variant pile hydrates on demand
         regions = all_regions(m)
         for suf in ("_shine", "_glow", "_shadow", "_blur", "_zoom"):
             if name.endswith(suf):
@@ -3735,12 +3912,12 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "")
         mode = str(payload.get("mode", "")).strip().lower()
         if mode not in shine.FX_PRESETS:
-            return f"Unknown FX mode '{mode}'"
+            return _diag("FX_BUILD_FAILED", mode=mode or "?",
+                         err=f"unknown FX mode '{mode}'")
         m = load_manifest()
         src = self._fx_source(m, name)
         if not src:
-            return (f"{name}: no source image yet — set a reference / slice "
-                    f"the atlas (or generate the base) first")
+            return _diag("NO_REFERENCE_IMAGE", name=name)
         # Freeze the resolved source the first time FX is built for this
         # region. The FX result is written to useroutput_<name>.png, which is
         # ALSO where a user "use my image" picture lives — without this frozen
@@ -3759,7 +3936,7 @@ class Handler(BaseHTTPRequestHandler):
         defaults, ranges = shine.FX_PRESETS[mode]
         r = self._ensure_region(m, name)
         if r is None:
-            return f"Region {name} not found"
+            return _diag("REGION_NOT_FOUND", name=name)
         # Legacy r["shine"] dict held the OLD halo params (now `glow`).
         prev = (r.get("fx") or {}).get(mode) or (
             r.get("shine") if mode == "glow" else {}) or {}
@@ -3821,7 +3998,8 @@ class Handler(BaseHTTPRequestHandler):
                     amount=params["amount"],
                     blend=params.get("blend", "overlay"))
         except Exception as e:  # noqa: BLE001
-            return f"{mode} build failed: {e}"
+            return _diag("FX_BUILD_FAILED", mode=mode,
+                         err=f"{type(e).__name__}: {e}")
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.save(INPUT_DIR / rel)

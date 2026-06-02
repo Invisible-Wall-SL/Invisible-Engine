@@ -132,6 +132,7 @@
           <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
           <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
           <button id="bm-refresh" style="flex:0 0 auto" onclick="refreshR2(this)" title="Re-pull this project's files from R2 (e.g. after exporting a sheet to the Atlas Maker, or saving from another machine) without restarting or switching projects">↻ Refresh from R2</button>
+          <button id="bm-clearcache" style="flex:0 0 auto" onclick="clearCache(this)" title="Free local disk: delete cached project trees and this project's uploaded sprite pile. R2 is the source of truth, so nothing is lost — the active project re-fetches on demand.">🧹 Clear local cache</button>
         </div>
         <div class="hint" id="browsehint"></div>
         <div class="cwd" id="cwd"></div>
@@ -230,7 +231,7 @@ function updateReadouts(){
   }else{
     $('identity').textContent='New sheet (unsaved)';
   }
-  const destDir=(isProject && loadedDir && name===loadedName) ? loadedDir : ('output/'+name);
+  const destDir=(isProject && loadedDir && name===loadedName) ? loadedDir : ('sheets/'+name);
   $('dest').textContent='Saves to: '+destDir+'/atlas_manifest_'+name+'.json';
 }
 
@@ -500,6 +501,20 @@ async function refreshR2(btn){
     await browse('');                         // re-list now that staging is fresh
     if(m){ m.className='ok'; m.textContent='✓ Refreshed from R2'; }
   }catch(e){ if(m){ m.className='err'; m.textContent='Refresh request failed: '+e; } }
+  finally{ if(btn) btn.disabled=false; }
+}
+async function clearCache(btn){
+  if(!confirm('Clear the local disk cache?\n\nR2 is the source of truth, so '
+    +'nothing is lost. Other projects drop entirely; this project keeps its '
+    +'manifests and packed sheets and re-fetches sprites on demand.')) return;
+  const m=$('loadmsg');
+  if(btn) btn.disabled=true;
+  if(m){ m.className='muted'; m.textContent='🧹 Clearing local cache…'; }
+  try{
+    const j=await jpost('/api/clearcache',{});
+    if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
+    if(m){ m.className='ok'; m.textContent='✓ '+(j.note||('Freed '+(j.freed_human||'0 B'))); }
+  }catch(e){ if(m){ m.className='err'; m.textContent='Clear-cache request failed: '+e; } }
   finally{ if(btn) btn.disabled=false; }
 }
 async function browse(path){
