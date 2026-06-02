@@ -17,6 +17,8 @@
 		slotMeta?: Record<string, { required: boolean }>;
 		/** Lift a `required` change back to the parent's `slotMeta` map. */
 		onSlotRequiredChange?: (slotId: string, required: boolean) => void;
+		/** The active scene's template slots — offered as the slot dropdown. */
+		sceneSlots?: { slotId: string; name: string; kind: string }[];
 	}
 	let {
 		node,
@@ -25,6 +27,7 @@
 		templateMode = false,
 		slotMeta = {},
 		onSlotRequiredChange,
+		sceneSlots = [],
 	}: Props = $props();
 
 	function setSlotId(n: LayoutNode, value: string): void {
@@ -212,13 +215,19 @@
 			<h3>Slot</h3>
 			<div class="row">
 				<label class="field wide">
-					<span>slotId</span>
-					<input
-						type="text"
-						placeholder="e.g. boardFrame"
+					<span>fills slot</span>
+					<select
 						value={node.slotId ?? ''}
-						oninput={(e) => setSlotId(node, e.currentTarget.value)}
-					/>
+						onchange={(e) => setSlotId(node, e.currentTarget.value)}
+					>
+						<option value="">— none (free scenery) —</option>
+						{#each sceneSlots as s (s.slotId)}
+							<option value={s.slotId}>{s.name} ({s.kind})</option>
+						{/each}
+						{#if node.slotId && !sceneSlots.some((s) => s.slotId === node.slotId)}
+							<option value={node.slotId}>{node.slotId} (other scene)</option>
+						{/if}
+					</select>
 				</label>
 			</div>
 			{#if node.slotId}

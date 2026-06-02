@@ -69,6 +69,10 @@
 	}
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
+	/** Template slots of the active scene — offered as the Properties slot dropdown. */
+	const activeSceneSlots = $derived(
+		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
+	);
 	const frameSize = $derived(data.doc.mainSizesMap[currentLayoutType]);
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
@@ -647,6 +651,7 @@
 				onDirty={markDirty}
 				{templateMode}
 				{slotMeta}
+				sceneSlots={activeSceneSlots}
 				onSlotRequiredChange={(slotId, required) => {
 					slotMeta = { ...slotMeta, [slotId]: { required } };
 				}}
