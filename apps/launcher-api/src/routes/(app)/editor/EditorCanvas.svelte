@@ -17,6 +17,7 @@
 		type RegionSet,
 	} from './editorRegions.client';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
+	import EditorSpineLayer from './EditorSpineLayer.svelte';
 
 	interface AssetDragPayload {
 		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine';
@@ -127,6 +128,17 @@
 	let hoverNodeId = $state<string | null>(null);
 	let hoverHandle = $state<HandleHit | null>(null);
 	let snapLines = $state<SnapLine[]>([]);
+	/** Spine node ids whose preview animation is playing (static otherwise). */
+	let playingSpines = $state<Set<string>>(new Set());
+	/** `assetKey`s the spine overlay renders as real skeletons — the 2D canvas
+	 * skips their placeholder box so only the live preview shows. */
+	let readySpineKeys = $state<Set<string>>(new Set());
+	function toggleSpinePlay(node: LayoutNode): void {
+		const next = new Set(playingSpines);
+		if (next.has(node.id)) next.delete(node.id);
+		else next.add(node.id);
+		playingSpines = next;
+	}
 
 	interface SnapLine {
 		axis: 'x' | 'y';
@@ -341,13 +353,17 @@
 				drawPlaceholder(ctx, t.anchor?.x ?? 0.5, t.anchor?.y ?? 0.5, '#3a4a5a', node.label ?? '…');
 			}
 		} else if (node.kind === 'spine') {
-			drawPlaceholder(
-				ctx,
-				t.anchor?.x ?? 0.5,
-				t.anchor?.y ?? 0.5,
-				'#4a3a5a',
-				`spine: ${node.label ?? node.assetKey}`,
-			);
+			// The WebGL overlay draws the real skeleton once loaded; until then (or on
+			// load error) the placeholder box stands in.
+			if (!readySpineKeys.has(node.assetKey)) {
+				drawPlaceholder(
+					ctx,
+					t.anchor?.x ?? 0.5,
+					t.anchor?.y ?? 0.5,
+					'#4a3a5a',
+					`spine: ${node.label ?? node.assetKey}`,
+				);
+			}
 		} else if (node.kind === 'text') {
 			ctx.fillStyle = `#${(node.style?.fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
 			ctx.font = `${node.style?.fontWeight ?? 'normal'} ${node.style?.fontSize ?? 24}px ${
@@ -1088,6 +1104,18 @@
 	aria-label="Editor canvas"
 >
 	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown}></canvas>
+	<EditorSpineLayer
+		{scene}
+		{layoutType}
+		{panX}
+		{panY}
+		{zoom}
+		playing={playingSpines}
+		onReadyKeysChange={(keys) => {
+			readySpineKeys = keys;
+			schedule();
+		}}
+	/>
 	{#if overlayInfo}
 		<EditorItemOverlay
 			info={overlayInfo}
@@ -1097,6 +1125,8 @@
 			onScale={nudgeScale}
 			onForward={bringForward}
 			onBack={sendBack}
+			spinePlaying={playingSpines.has(overlayInfo.node.id)}
+			onToggleSpinePlay={toggleSpinePlay}
 		/>
 	{/if}
 	<div class="hint">

@@ -19,11 +19,26 @@
 		onScale: (node: LayoutNode, factor: number) => void;
 		onForward: (node: LayoutNode) => void;
 		onBack: (node: LayoutNode) => void;
+		/** Whether the selected spine node's preview animation is playing. */
+		spinePlaying?: boolean;
+		/** Toggle the spine preview animation (only wired for `kind: 'spine'`). */
+		onToggleSpinePlay?: (node: LayoutNode) => void;
 	}
-	let { info, onDelete, onToggleLock, onAnchor, onScale, onForward, onBack }: Props = $props();
+	let {
+		info,
+		onDelete,
+		onToggleLock,
+		onAnchor,
+		onScale,
+		onForward,
+		onBack,
+		spinePlaying = false,
+		onToggleSpinePlay,
+	}: Props = $props();
 
 	const node = $derived(info.node);
 	const locked = $derived(node.locked === true);
+	const isSpine = $derived(node.kind === 'spine');
 
 	const subtitle = $derived.by(() => {
 		if (node.kind === 'sprite' && node.region)
@@ -69,6 +84,18 @@
 	<span class="bn" title={node.label ?? node.id}>{node.label ?? node.id}</span>
 	<span class="sub" title={subtitle}>{subtitle}</span>
 	<span class="size">{info.width} × {info.height} px</span>
+
+	{#if isSpine && onToggleSpinePlay}
+		<button
+			type="button"
+			class="ic play"
+			class:active={spinePlaying}
+			title={spinePlaying ? 'Pause animation' : 'Play animation'}
+			onclick={() => onToggleSpinePlay(node)}
+		>
+			{spinePlaying ? '❚❚' : '▶'}
+		</button>
+	{/if}
 
 	{#if !locked}
 		<div class="anchorgrid" title="Anchor preset">
@@ -186,6 +213,11 @@
 	.ic.lock.active {
 		background: #7a5a1d;
 		border-color: #9a7a2d;
+	}
+	.ic.play.active {
+		background: #234038;
+		border-color: #2f6a58;
+		color: #7ee0c0;
 	}
 	.ic.danger {
 		color: #ff9a9a;
