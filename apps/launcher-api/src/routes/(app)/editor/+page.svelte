@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import Emblem from '$lib/Emblem.svelte';
 	import { findUnfilledRequiredSlots } from 'engine-layout';
 	import type {
@@ -368,6 +369,107 @@
 		}
 	}
 
+	// ---------- spine upload (sync a folder of Spine assets to R2) ----------
+
+	/** Allowed spine asset extensions — mirrors the server's SPINE_ASSET_EXT. */
+	const SPINE_EXT = ['.atlas', '.json', '.skel', '.png', '.webp', '.jpg', '.jpeg'];
+
+	let spineFileInput = $state<HTMLInputElement | null>(null);
+	let spineUploadBusy = $state(false);
+	let spineUploadStatus = $state<{ kind: 'ok' | 'error' | 'busy'; message: string } | null>(null);
+
+	function hasSpineExt(name: string): boolean {
+		const lower = name.toLowerCase();
+		return SPINE_EXT.some((ext) => lower.endsWith(ext));
+	}
+
+	/** Strip the top picked-folder segment so paths are relative to the spines root
+	 * (e.g. `mySpines/foregroundAnimation/mm_bg.atlas` -> `foregroundAnimation/mm_bg.atlas`). */
+	function relpathFor(file: File): string {
+		const raw = file.webkitRelativePath || file.name;
+		const slash = raw.indexOf('/');
+		return slash === -1 ? raw : raw.slice(slash + 1);
+	}
+
+	async function onSpinesPicked(e: Event): Promise<void> {
+		const input = e.currentTarget as HTMLInputElement;
+		const picked = input.files ? Array.from(input.files) : [];
+		input.value = '';
+		if (spineUploadBusy) return;
+
+		const files = picked
+			.map((f) => ({ file: f, relpath: relpathFor(f) }))
+			.filter((f) => f.relpath && hasSpineExt(f.relpath));
+		if (files.length === 0) {
+			spineUploadStatus = { kind: 'error', message: 'No spine asset files in that folder.' };
+			return;
+		}
+
+		spineUploadBusy = true;
+		spineUploadStatus = { kind: 'busy', message: `Uploading 0/${files.length}…` };
+		try {
+			const presignRes = await fetch('/api/editor/spines/upload', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ files: files.map((f) => f.relpath) }),
+			});
+			if (!presignRes.ok)
+				throw new Error(await readApiError(presignRes, 'Could not prepare upload'));
+			const { uploads } = (await presignRes.json()) as {
+				uploads: { relpath: string; url: string; contentType: string }[];
+			};
+			const byRelpath = new Map(uploads.map((u) => [u.relpath, u]));
+
+			let done = 0;
+			for (const { file, relpath } of files) {
+				const target = byRelpath.get(relpath);
+				if (!target) throw new Error(`Server did not sign ${relpath}`);
+				const put = await fetch(target.url, {
+					method: 'PUT',
+					headers: { 'content-type': target.contentType },
+					body: file,
+				});
+				if (!put.ok) throw new Error(`Upload failed for ${relpath} (${put.status})`);
+				done += 1;
+				spineUploadStatus = { kind: 'busy', message: `Uploading ${done}/${files.length}…` };
+			}
+
+			spineUploadStatus = { kind: 'busy', message: 'Building skeletons.json…' };
+			const reindexRes = await fetch('/api/editor/spines/reindex', { method: 'POST' });
+			if (!reindexRes.ok) throw new Error(await readApiError(reindexRes, 'Reindex failed'));
+			const reindex = (await reindexRes.json()) as { count: number };
+
+			spineUploadStatus = {
+				kind: 'ok',
+				message: `Uploaded ${files.length} files · ${reindex.count} skeletons`,
+			};
+			await refreshAssets();
+		} catch (err) {
+			spineUploadStatus = {
+				kind: 'error',
+				message: err instanceof Error ? err.message : 'Spine upload failed.',
+			};
+		} finally {
+			spineUploadBusy = false;
+		}
+	}
+
+	/** API routes return `{ message }` for thrown `error(...)`; fall back to a label. */
+	async function readApiError(res: Response, fallback: string): Promise<string> {
+		try {
+			const body = (await res.json()) as { message?: string };
+			if (body?.message) return body.message;
+		} catch {
+			/* non-JSON error body */
+		}
+		return `${fallback} (${res.status})`;
+	}
+
+	/** Re-pull the editor route data so the freshly synced spines appear in the list. */
+	async function refreshAssets(): Promise<void> {
+		await invalidateAll();
+	}
+
 	function onBeforeUnload(e: BeforeUnloadEvent): void {
 		if (!dirty) return;
 		e.preventDefault();
@@ -582,7 +684,31 @@
 					</section>
 
 					<section>
-						<h3>Spines <span class="count">{spineCount}</span></h3>
+						<h3>
+							Spines <span class="count">{spineCount}</span>
+							<button
+								type="button"
+								class="upload-btn"
+								disabled={spineUploadBusy}
+								title="Pick a folder of Spine bundles to sync to this project (R2)"
+								onclick={() => spineFileInput?.click()}
+							>
+								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
+							</button>
+						</h3>
+						<input
+							bind:this={spineFileInput}
+							type="file"
+							multiple
+							webkitdirectory
+							class="hidden-input"
+							onchange={(e) => void onSpinesPicked(e)}
+						/>
+						{#if spineUploadStatus}
+							<p class="upload-status" class:error={spineUploadStatus.kind === 'error'}>
+								{spineUploadStatus.message}
+							</p>
+						{/if}
 						<ul>
 							{#each data.assets.spines as s (s.key)}
 								<li
@@ -880,6 +1006,41 @@
 		color: #555;
 		font-weight: 400;
 		font-size: 11px;
+	}
+	.upload-btn {
+		margin-left: auto;
+		background: transparent;
+		border: 1px solid #2a2a33;
+		color: #c8a3ff;
+		padding: 2px 9px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border-radius: 999px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.upload-btn:hover:not(:disabled) {
+		border-color: #7ee0c0;
+		color: #7ee0c0;
+	}
+	.upload-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.hidden-input {
+		display: none;
+	}
+	.upload-status {
+		margin: 4px 0 2px;
+		font-size: 10px;
+		color: #7ee0c0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.upload-status.error {
+		color: #ff9a9a;
 	}
 	.tab-body section:first-of-type h3 {
 		margin-top: 0;
