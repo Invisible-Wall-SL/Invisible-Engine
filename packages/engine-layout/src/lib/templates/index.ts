@@ -1,5 +1,6 @@
 import type { GameTemplate } from '../types';
 
+import { bookofTemplate } from './bookof';
 import { linesTemplate } from './lines';
 
 /**
@@ -10,6 +11,7 @@ import { linesTemplate } from './lines';
  */
 const TEMPLATES: Record<string, GameTemplate> = {
 	lines: linesTemplate,
+	bookOf: bookofTemplate,
 };
 
 /** The built-in template for a game type, or `undefined` if none is registered. */
@@ -22,4 +24,4 @@ export function listTemplateGameTypes(): string[] {
 	return Object.keys(TEMPLATES);
 }
 
-export { linesTemplate };
+export { linesTemplate, bookofTemplate };

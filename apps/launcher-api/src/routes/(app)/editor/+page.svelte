@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
+	import { findUnfilledRequiredSlots } from 'engine-layout';
 	import type {
 		GameTemplate,
 		LayoutNode,
@@ -7,7 +8,6 @@
 		Scene,
 		SlotKind,
 		TemplateSlot,
-		UnfilledSlot,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
@@ -40,9 +40,15 @@
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline'>('library');
-	/** Required template slots left unfilled — seeded from the loader, refreshed
-	 * by each `save` response (§7.1). Read-only status this pass. */
-	let warnings = $state<UnfilledSlot[]>(data.warnings);
+	/** The template currently being viewed/edited — starts as the project's
+	 * resolved template and is swapped by the game-type selector so you can load
+	 * and see any game type's template (e.g. `bookOf`). Drives the slot panel. */
+	let activeTemplate = $state<GameTemplate | undefined>(data.template);
+	/** Required slots of {@link activeTemplate} left unfilled by the current
+	 * scenes (§7.1) — derived live so it tracks both edits and template switches. */
+	const warnings = $derived(
+		activeTemplate ? findUnfilledRequiredSlots({ ...data.doc, scenes }, activeTemplate) : [],
+	);
 	/** Template-authoring mode (§7.5): tag nodes as slots + export a `GameTemplate`
 	 * instead of just filling one. Normal mode is unchanged when this is off. */
 	let templateMode = $state(false);
@@ -219,7 +225,6 @@
 				saved?: boolean;
 				updatedAt?: string;
 				error?: string;
-				warnings?: UnfilledSlot[];
 			};
 			if (out.error) {
 				lastError = out.error;
@@ -227,7 +232,6 @@
 				lastSavedAt = out.updatedAt ?? new Date().toISOString();
 				lastError = '';
 				dirty = false;
-				if (out.warnings) warnings = out.warnings;
 			}
 		} catch (e) {
 			lastError = e instanceof Error ? e.message : 'Save failed.';
@@ -266,6 +270,19 @@
 	const GAME_TYPES = ['lines', 'ways', 'cluster', 'scatter', 'bookOf'] as const;
 	/** The game type the authored template is saved under (§7.5). */
 	let authoringGameType = $state<string>(data.template?.gameType ?? 'lines');
+
+	/** Load (and display) the chosen game type's template — R2 override or
+	 * built-in fallback, via the GET endpoint. 404 = no template for that type,
+	 * so we clear the slot panel. Reseeds slotMeta so `required` flags show. */
+	async function loadTemplateFor(gameType: string): Promise<void> {
+		try {
+			const res = await fetch(`/api/editor/template?gameType=${encodeURIComponent(gameType)}`);
+			activeTemplate = res.ok ? ((await res.json()) as GameTemplate) : undefined;
+		} catch {
+			activeTemplate = undefined;
+		}
+		slotMeta = seedSlotMeta(activeTemplate);
+	}
 
 	let templateBusy = $state(false);
 	/** Last template save outcome shown via the save-pill styling near the action. */
@@ -459,9 +476,12 @@
 				Template mode
 			</button>
 			{#if templateMode}
-				<label class="gametype" title="Game type this template is saved under">
+				<label class="gametype" title="Game type — loads that template and saves under it">
 					<span>type</span>
-					<select bind:value={authoringGameType}>
+					<select
+						bind:value={authoringGameType}
+						onchange={() => void loadTemplateFor(authoringGameType)}
+					>
 						{#each GAME_TYPES as gt (gt)}
 							<option value={gt}>{gt}</option>
 						{/each}
@@ -564,7 +584,7 @@
 				{:else}
 					<EditorOutline
 						scene={activeScene}
-						template={data.template}
+						template={activeTemplate}
 						{selectedId}
 						onSelect={(id) => (selectedId = id)}
 					/>
