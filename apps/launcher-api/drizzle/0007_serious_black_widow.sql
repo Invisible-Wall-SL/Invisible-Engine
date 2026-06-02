@@ -1,0 +1,2 @@
+ALTER TABLE "games" ADD COLUMN "project_key" text;--> statement-breakpoint
+ALTER TABLE "games" ADD CONSTRAINT "games_project_key_projects_key_fk" FOREIGN KEY ("project_key") REFERENCES "public"."projects"("key") ON DELETE set null ON UPDATE no action;

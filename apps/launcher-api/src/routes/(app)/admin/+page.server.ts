@@ -64,6 +64,7 @@ import {
 	isValidGameKey,
 	listGames,
 	renameGame,
+	setGameProject,
 	setGameUrl,
 } from '$lib/server/games';
 import type { Actions, PageServerLoad } from './$types';
@@ -464,6 +465,7 @@ export const actions: Actions = {
 			.trim();
 		const name = String(data.get('name') ?? '').trim();
 		const url = String(data.get('url') ?? '').trim();
+		const project = String(data.get('project') ?? '').trim();
 
 		if (!isValidGameKey(key)) {
 			return fail(400, { action: 'createGame', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
@@ -472,9 +474,29 @@ export const actions: Actions = {
 		if (await gameExists(key)) {
 			return fail(400, { action: 'createGame', error: 'A game with that key exists.' });
 		}
+		if (project && !(await projectExists(project))) {
+			return fail(400, { action: 'createGame', error: 'Unknown project.' });
+		}
 
-		await createGame(key, name, url);
+		await createGame(key, name, url, project || null);
 		return { action: 'createGame', ok: `Created game ${key}.` };
+	},
+
+	setGameProject: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const project = String(data.get('project') ?? '').trim();
+
+		if (!(await gameExists(key))) {
+			return fail(400, { action: 'setGameProject', error: 'Unknown game.' });
+		}
+		if (project && !(await projectExists(project))) {
+			return fail(400, { action: 'setGameProject', error: 'Unknown project.' });
+		}
+
+		await setGameProject(key, project || null);
+		return { action: 'setGameProject', ok: 'Game scope updated.' };
 	},
 
 	renameGame: async ({ request, locals }) => {

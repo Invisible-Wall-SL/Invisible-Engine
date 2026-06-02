@@ -6,8 +6,10 @@ import {
 	isValidGameKey,
 	isValidGameUrl,
 	renameGame,
+	setGameProject,
 	setGameUrl,
 } from '$lib/server/games';
+import { projectExists } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
 // Same gate as the other desktop-launcher bearer endpoints (models/nodes): only the
@@ -38,7 +40,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
-	let body: { key?: unknown; name?: unknown; url?: unknown };
+	let body: { key?: unknown; name?: unknown; url?: unknown; project?: unknown };
 	try {
 		body = await request.json();
 	} catch {
@@ -48,6 +50,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	const key = typeof body.key === 'string' ? body.key.trim() : '';
 	const name = typeof body.name === 'string' ? body.name.trim() : '';
 	const url = typeof body.url === 'string' ? body.url.trim() : '';
+	// Optional: scope the game to a project. Omitted/empty = global (shows everywhere).
+	const project = typeof body.project === 'string' ? body.project.trim() : '';
 
 	if (!isValidGameKey(key)) {
 		return json({ error: 'Invalid game key' }, { status: 400, headers: NO_STORE });
@@ -58,13 +62,18 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!isValidGameUrl(url)) {
 		return json({ error: 'url must be a valid https:// URL' }, { status: 400, headers: NO_STORE });
 	}
+	if (project && !(await projectExists(project))) {
+		return json({ error: 'Unknown project' }, { status: 400, headers: NO_STORE });
+	}
+	const projectKey = project || null;
 
-	// Upsert: update an existing game's name + url, else create it.
+	// Upsert: update an existing game's name + url (+ scope), else create it.
 	if (await gameExists(key)) {
 		await setGameUrl(key, url);
 		await renameGame(key, name);
+		await setGameProject(key, projectKey);
 	} else {
-		await createGame(key, name, url);
+		await createGame(key, name, url, projectKey);
 	}
 
 	return json({ ok: true, key }, { headers: NO_STORE });

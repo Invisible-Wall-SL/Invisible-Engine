@@ -40,6 +40,8 @@ export const games = pgTable('games', {
 	key: text('key').primaryKey(),
 	name: text('name').notNull(),
 	url: text('url').notNull().default(''),
+	/** Owning project; null = global (the game shows on every project selection). */
+	projectKey: text('project_key').references(() => projects.key, { onDelete: 'set null' }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

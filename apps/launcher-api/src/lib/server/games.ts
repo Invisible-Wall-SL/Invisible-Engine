@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, isNull, or } from 'drizzle-orm';
 import { getDb } from './db';
 import { games } from './db/schema';
 import type { Game } from './db/schema';
@@ -24,13 +24,32 @@ export async function listGames(): Promise<Game[]> {
 	return getDb().select().from(games).orderBy(games.name);
 }
 
+/** Games visible for a given project: those scoped to it, plus global (null) games. */
+export async function listGamesForProject(projectKey: string): Promise<Game[]> {
+	return getDb()
+		.select()
+		.from(games)
+		.where(or(isNull(games.projectKey), eq(games.projectKey, projectKey)))
+		.orderBy(games.name);
+}
+
 export async function gameExists(key: string): Promise<boolean> {
 	const [row] = await getDb().select({ key: games.key }).from(games).where(eq(games.key, key));
 	return Boolean(row);
 }
 
-export async function createGame(key: string, name: string, url: string): Promise<void> {
-	await getDb().insert(games).values({ key, name, url });
+export async function createGame(
+	key: string,
+	name: string,
+	url: string,
+	projectKey: string | null = null,
+): Promise<void> {
+	await getDb().insert(games).values({ key, name, url, projectKey });
+}
+
+/** Scope a game to a project (or `null` to make it global). */
+export async function setGameProject(key: string, projectKey: string | null): Promise<void> {
+	await getDb().update(games).set({ projectKey }).where(eq(games.key, key));
 }
 
 export async function renameGame(key: string, name: string): Promise<void> {

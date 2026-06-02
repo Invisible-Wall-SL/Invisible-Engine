@@ -2,18 +2,20 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
-import { listGames } from '$lib/server/games';
+import { listGamesForProject } from '$lib/server/games';
 import { ENV } from '$lib/server/env';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, parent }) => {
 	if (!locals.user) throw redirect(303, '/login');
+	// Reuse the layout's resolved + access-checked active project to scope games.
+	const { activeProjectKey } = await parent();
 	return {
 		installPaths: await getInstallPaths(locals.user.id),
-		games: await listGames(),
+		games: await listGamesForProject(activeProjectKey),
 		// Shared read token for the layout-doc endpoint; ridden along on game
 		// URLs (`&k=`) so the game can fetch its scenes. Empty when unconfigured.
 		editorDocSecret: ENV.EDITOR_DOC_SECRET,

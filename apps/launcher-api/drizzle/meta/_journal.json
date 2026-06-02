@@ -50,6 +50,13 @@
       "when": 1780322623626,
       "tag": "0006_blushing_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780389626112,
+      "tag": "0007_serious_black_widow",
+      "breakpoints": true
     }
   ]
 }

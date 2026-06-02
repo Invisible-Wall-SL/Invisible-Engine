@@ -708,9 +708,10 @@
 		<section>
 			<h2>Games</h2>
 			<p class="muted hint">
-				Each game has its own name + launch URL. The home Games grid opens each at its URL with the
-				active project appended (<code>?project=…</code>). Games will live on a future dedicated game
-				server.
+				Each game has its own name + launch URL, and is scoped to a project: it appears on the home
+				Games grid only when that project (or its client) is selected. Leave the project as
+				<em>Global</em> to show it on every selection. The launch URL gets the active project appended
+				(<code>?project=…</code>). Games will live on a future dedicated game server.
 			</p>
 			<div class="projects">
 				{#each data.games as g (g.key)}
@@ -726,6 +727,16 @@
 							<input name="url" type="text" value={g.url} placeholder="https://…" autocomplete="off" />
 							<button type="submit">Save URL</button>
 						</form>
+						<form method="POST" action="?/setGameProject" use:enhance class="rename">
+							<input type="hidden" name="key" value={g.key} />
+							<select name="project">
+								<option value="" selected={!g.projectKey}>Global (all projects)</option>
+								{#each data.projects as p (p.key)}
+									<option value={p.key} selected={g.projectKey === p.key}>{p.name}</option>
+								{/each}
+							</select>
+							<button type="submit">Save scope</button>
+						</form>
 						<form method="POST" action="?/deleteGame" use:enhance>
 							<input type="hidden" name="key" value={g.key} />
 							<button type="submit" class="danger small">Delete</button>
@@ -738,6 +749,12 @@
 					<input name="key" type="text" placeholder="key (e.g. lines)" autocomplete="off" required />
 					<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
 					<input name="url" type="text" placeholder="https://… (optional)" autocomplete="off" />
+					<select name="project">
+						<option value="">Global (all projects)</option>
+						{#each data.projects as p (p.key)}
+							<option value={p.key}>{p.name}</option>
+						{/each}
+					</select>
 					<button type="submit">Create game</button>
 				</form>
 			</div>
