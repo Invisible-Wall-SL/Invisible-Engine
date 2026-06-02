@@ -473,12 +473,80 @@ def api_clearcache() -> dict:
             "note": f"Cleared local cache — freed {_human_bytes(freed)}"}
 
 
+def _safe_rel(path: str) -> str:
+    """Normalise a project-relative R2 prefix/key from the client: strip leading
+    slashes, reject absolute paths and any `..` escape. Returns "" for the
+    project root. The result is always confined to the active project prefix."""
+    rel = (path or "").strip().replace("\\", "/").strip("/")
+    if not rel:
+        return ""
+    if Path(rel).is_absolute() or any(seg in ("..", "") for seg in rel.split("/")):
+        return ""
+    return rel
+
+
+_IMPORT_SUFFIXES = (".json", ".atlas", ".png", ".webp")
+
+
+def _browse_r2_import(rel: str) -> dict:
+    """One-level folder view of the project's R2 tree under `rel` (a
+    project-relative prefix; "" = project root). The R2 keystore is flat, so we
+    list the whole project prefix once and derive the immediate level: distinct
+    next path segments become dirs, terminal files (by suffix) become files.
+    `path` values returned are project-relative keys/prefixes, which api_load
+    fetches from R2 on demand."""
+    ctx = _ctx()
+    r2_prefix = ctx["r2_prefix"]
+    if not r2_prefix:
+        # No project prefix bound (first run / misconfig) — nothing to browse.
+        return {"cwd": "/", "parent": "", "dirs": [], "files": [], "mode": "import"}
+
+    # The R2 prefix under which we enumerate this level. `level` is the number of
+    # path segments already consumed, so the "next segment" is at index `level`.
+    sub = f"{rel}/" if rel else ""
+    list_prefix = f"{r2_prefix}/{sub}"
+    level = len([s for s in rel.split("/") if s]) if rel else 0
+
+    dir_names: set[str] = set()
+    files: list[dict] = []
+    seen_files: set[str] = set()
+    try:
+        for entry in storage.list_keys(list_prefix):
+            key = entry["key"]
+            # Path of this key relative to the active project prefix.
+            proj_rel = key[len(r2_prefix) + 1:]
+            segs = [s for s in proj_rel.split("/") if s]
+            if len(segs) <= level:
+                continue
+            seg = segs[level]
+            if len(segs) > level + 1:
+                dir_names.add(seg)            # deeper key → `seg` is a subfolder
+            elif Path(seg).suffix.lower() in _IMPORT_SUFFIXES:
+                child_rel = f"{rel}/{seg}" if rel else seg
+                if child_rel not in seen_files:
+                    seen_files.add(child_rel)
+                    files.append({"name": seg, "path": child_rel})
+    except Exception as e:  # noqa: BLE001 — transient R2 issue, surface it
+        return {"error": f"R2 list failed: {type(e).__name__}: {e}"}
+
+    dirs = [{"name": n, "path": (f"{rel}/{n}" if rel else n)}
+            for n in sorted(dir_names, key=str.lower)]
+    files.sort(key=lambda f: f["name"].lower())
+    parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
+    return {"cwd": rel or "/", "parent": parent if rel else "",
+            "dirs": dirs, "files": files, "mode": "import"}
+
+
 def api_browse(path: str, mode: str = "") -> dict:
-    """List a directory inside the staging tree (which mirrors the project's R2
-    subtree). Empty path defaults to the SHARED manifests/ folder so the
-    "projects" view lists every project manifest (both tools'). Paths are
-    confined to the staging root. Default mode lists only project manifests
-    (atlas_manifest_*.json); `mode == "import"` lists any coords/image file."""
+    """Default ("projects") mode lists the SHARED manifests/ folder in local
+    staging (atlas_manifest_*.json from both tools). `mode == "import"` browses
+    the ENTIRE project's R2 tree (not just hydrated staging), so the real packed
+    spine sheets under input/originals/spines/<name>/ are reachable; there `path`
+    is a project-RELATIVE R2 prefix and the returned dir/file `path` values are
+    project-relative R2 keys that api_load fetches on demand."""
+    if mode == "import":
+        return _browse_r2_import(_safe_rel(path))
+
     pp = project_paths.resolve()
     root = Path(pp["staging_root"]).resolve()
     out_root = Path(pp["manifest_dir"]).resolve()
@@ -499,9 +567,6 @@ def api_browse(path: str, mode: str = "") -> dict:
                 continue
             if p.is_dir():
                 dirs.append({"name": p.name, "path": str(p)})
-            elif mode == "import":
-                if p.suffix.lower() in (".json", ".atlas", ".png", ".webp"):
-                    files.append({"name": p.name, "path": str(p)})
             elif p.name.startswith("atlas_manifest_") and p.suffix.lower() == ".json":
                 files.append({"name": p.name, "path": str(p)})
     except OSError as e:
@@ -846,9 +911,28 @@ def api_load(payload: dict) -> dict:
     """Load an existing coords file, slice its sheet into per-region PNGs in the
     uploads dir, and return canvas dims + region list for the editor."""
     sheet = safe_name(payload.get("sheet", "loaded"))
-    path = Path(payload.get("path", ""))
+    raw_path = payload.get("path", "") or ""
+    path = Path(raw_path)
     if not path.exists():
-        return {"error": f"File not found: {path}"}
+        # Not an already-hydrated local file → treat it as a project-relative R2
+        # key (from import-mode browse). Fetch {r2_prefix}/<key> into staging so
+        # the existing parse + _resolve_image flow runs against a real local
+        # file. _resolve_image then pulls the page image from R2 by basename, so
+        # a .atlas whose page (e.g. symbols3.png) was never hydrated still loads.
+        rel = _safe_rel(raw_path)
+        ctx = _ctx()
+        r2_prefix, staging_root = ctx["r2_prefix"], ctx["staging_root"]
+        fetched = None
+        if rel and r2_prefix and staging_root:
+            blob = storage.get(f"{r2_prefix}/{rel}")
+            if blob is not None:
+                dest = Path(staging_root) / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(blob)
+                fetched = dest
+        if fetched is None:
+            return {"error": f"File not found: {raw_path}"}
+        path = fetched
     try:
         parsed = _parse_coords_file(path)
     except (OSError, json.JSONDecodeError, ValueError) as e:
