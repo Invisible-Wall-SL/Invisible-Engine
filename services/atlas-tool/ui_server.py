@@ -2802,9 +2802,23 @@ class Handler(BaseHTTPRequestHandler):
         m = load_manifest()
         stem = manifest_path().stem.replace("atlas_manifest_", "")
         out_base = str(m.get("deploy_basename", "")).strip() or stem
-        dest_prefix = str(m.get("deploy_path", "")).strip().strip("/")
-        if not dest_prefix:
-            dest_prefix = f"{R2_PREFIX}/deploy" if R2_PREFIX else "deploy"
+        # `deploy_path` is an R2 KEY PREFIX, always INSIDE this project's R2 space
+        # (R2_PREFIX = atlas_maker/<client>/<project>). Legacy/local manifests — and
+        # the old placeholder text — may hold a Windows path like "C:/..." or an
+        # absolute path; used verbatim those create a junk object keyed off a drive
+        # letter at the bucket root (the "deploying to C:/" bug). Normalize: drop
+        # drive/absolute paths, and nest any other relative value under the project
+        # prefix so Deploy can never escape the game's space.
+        raw = str(m.get("deploy_path", "")).replace("\\", "/").strip().strip("/")
+        if raw and (re.match(r"^[A-Za-z]:/", raw) or raw.startswith("/")):
+            raw = ""
+        base = f"{R2_PREFIX}/deploy" if R2_PREFIX else "deploy"
+        if not raw:
+            dest_prefix = base
+        elif R2_PREFIX and (raw == R2_PREFIX or raw.startswith(R2_PREFIX + "/")):
+            dest_prefix = raw  # already an absolute key inside the project space
+        else:
+            dest_prefix = f"{R2_PREFIX}/{raw}" if R2_PREFIX else raw
         sources = sorted(p for p in ATLAS_DIR.glob(f"{stem}_new.*")
                          if p.suffix.lower() in {".png", ".webp", ".atlas"})
         if not sources:
@@ -3176,21 +3190,23 @@ class Handler(BaseHTTPRequestHandler):
             )
         deploy_val = html.escape(str(m.get("deploy_path", "")))
         deploy_tip = html.escape(
-            "Destination folder for the 📦 Deploy atlas button. The tool "
-            "copies <manifest-stem>_new.(png|webp|atlas) here as "
-            "<manifest-stem>.(png|webp|atlas), overwriting existing files. "
-            "Leave blank to disable the button for this atlas.",
+            "R2 destination prefix (inside this project's space) for the "
+            "📦 Deploy atlas button. The tool uploads "
+            "<manifest-stem>_new.(png|webp|atlas) here as "
+            "<manifest-stem>.(png|webp|atlas), overwriting existing keys. "
+            "Blank = the project's default 'deploy/' prefix. A relative value "
+            "(e.g. 'deploy/symbols') is nested under the project; local paths "
+            "like C:/… are ignored and fall back to the default.",
             quote=True)
         atlas_fields.append(
-            f'<label><span class="lblrow">Deploy folder '
+            f'<label><span class="lblrow">Deploy prefix (R2) '
             f'<span style="color:#888;font-size:10px">· this atlas</span>'
             f'<span class="qm" title="{deploy_tip}">&#9432;</span></span>'
             f'<span class="filefld">'
             f'<input data-cfg="deploy_path" type="text" value="{deploy_val}"'
-            f' title="{deploy_tip}" placeholder="e.g. C:/Invisible Wall SL/'
-            f'iGaming/Borut/HotFruits/static/assets/symbols">'
-            f'<button type="button" class="fbtn" title="Browse for a folder '
-            f'(local or \\\\server\\share)" onclick="openFs(\'deploy_path\')"'
+            f' title="{deploy_tip}" placeholder="blank = deploy/  ·  e.g. deploy/symbols">'
+            f'<button type="button" class="fbtn" title="Browse R2 folders in '
+            f'this project" onclick="openFs(\'deploy_path\')"'
             f'>📁</button></span></label>'
         )
         deploy_base_val = html.escape(str(m.get("deploy_basename", "")))

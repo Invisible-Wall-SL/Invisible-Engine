@@ -172,8 +172,8 @@
       <div class="field"><label>AI manifest</label><input type="checkbox" id="f_manifest" checked></div>
       <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
       <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
-      <button class="wide" onclick="doSave()">Save</button>
-      <button class="sec wide" onclick="doSaveAs()">Save As (new copy)</button>
+      <button class="wide" onclick="doSave()" title="Overwrites the loaded sheet in place (PNG/.atlas/JSON/manifest, incl. R2) — asks first. New sheets save as a new copy.">Save</button>
+      <button class="sec wide" onclick="doSaveAs()" title="Always writes a new copy — never overwrites an existing sheet.">Save As (new copy)</button>
       <div id="exportmsg" style="margin-top:8px"></div>
     </div>
   </aside>
@@ -563,7 +563,17 @@ async function runExport(destDir){
   return true;
 }
 function doSave(){
-  if(loadedPath && isProject && currentName()===loadedName) return runExport(loadedDir);
+  // Save over a loaded project sheet overwrites its PNG/.atlas/JSON/manifest in
+  // place (and mirrors the overwrite to R2). Confirm first — it's destructive and
+  // has no undo; "Save As" is the safe, non-destructive path.
+  if(loadedPath && isProject && currentName()===loadedName){
+    const ok=confirm('Overwrite the existing sheet "'+loadedName+'" in place?\n\n'
+      +'This replaces its PNG, .atlas, JSON and manifest in the project output — '
+      +'and on R2 — with no undo.\n\nCancel and use "Save As (new copy)" to keep '
+      +'the original untouched.');
+    if(!ok){ const m=$('exportmsg'); m.className='note'; m.textContent='Save cancelled — original left untouched.'; return false; }
+    return runExport(loadedDir);
+  }
   return doSaveAs();
 }
 async function doSaveAs(){
