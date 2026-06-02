@@ -4,7 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
-import { getTemplate, type GameTemplate, type Scene } from 'engine-layout';
+import { type GameTemplate, type Scene } from 'engine-layout';
 import { normalizeDoc } from './localization';
 import {
 	SUB,
@@ -15,6 +15,7 @@ import {
 } from './projectPaths';
 import { projectGameType } from './projects';
 import { objectExists, putObjectText } from './r2';
+import { loadTemplate } from './templateStorage';
 
 interface Seed {
 	key: string;
@@ -74,7 +75,7 @@ function buildSeeds(client: string, project: string, template: GameTemplate | un
 
 /** Write any missing seed files for `(client, project)` into R2. */
 export async function scaffoldProject(client: string, project: string): Promise<void> {
-	const template = getTemplate(await projectGameType(project));
+	const template = await loadTemplate(await projectGameType(project));
 	for (const seed of buildSeeds(client, project, template)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
