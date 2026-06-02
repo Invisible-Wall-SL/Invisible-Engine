@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
-import { SUB, spineBundlePath, spineBundleSharedPath } from './projectPaths';
+import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
 import { getObjectBytes, getObjectText, objectExists } from './r2';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
@@ -92,4 +92,114 @@ export async function fetchSpineBundleFile(
 	const obj = await getObjectBytes(key);
 	if (!obj) return null;
 	return { body: obj.body, contentType: obj.contentType };
+}
+
+/** One skeleton's index entry, as written into `skeletons.json` by the sync. */
+interface SkeletonIndexEntry {
+	name: string;
+	folder: string;
+	skeleton_file: string;
+	atlas_file: string;
+	format: 'skel' | 'json';
+	version?: string;
+	runtime: string;
+	pma?: boolean;
+	dir_b64: string;
+}
+
+/** Bundle name (`folder` in the index) implied by a spine node's `assetKey`. The
+ * `assetKey` is the R2 prefix the asset list hands out — either per-project
+ * `<client>/<project>/spines/<bundle>/` or the shared `_shared/spines/<bundle>/`. */
+function bundleFromAssetKey(
+	clientKey: string,
+	projectKey: string,
+	assetKey: string,
+): string | null {
+	const trimmed = assetKey.endsWith('/') ? assetKey.slice(0, -1) : assetKey;
+	const projectRoot = SUB.spines(clientKey, projectKey);
+	const sharedRoot = sharedSpinesPrefix('').replace(/\/$/, '');
+	for (const root of [projectRoot, sharedRoot]) {
+		if (trimmed === root) return '';
+		if (trimmed.startsWith(`${root}/`)) return trimmed.slice(root.length + 1);
+	}
+	return null;
+}
+
+/** Page-image filenames referenced by an atlas (lines with an image extension). */
+const ATLAS_PAGE_LINE = /^(\S.*\.(?:png|webp|jpg|jpeg))\s*$/i;
+function atlasPageNames(atlasText: string): string[] {
+	const out: string[] = [];
+	for (const line of atlasText.split(/\r?\n/)) {
+		const m = line.match(ATLAS_PAGE_LINE);
+		if (m && !line.includes(':')) out.push(m[1].trim());
+	}
+	return out;
+}
+
+/** The editor needs the skeleton stream URL, the (PNG-preferred) atlas text, and
+ * each page image URL — all routed through the editor-gated `/api/editor/asset`
+ * streamer so no extra tool grant is required. */
+export interface EditorSpineDescriptor {
+	folder: string;
+	format: 'skel' | 'json';
+	runtime: string;
+	pma: boolean;
+	atlasText: string;
+	skeletonKey: string;
+	pageKeys: string[];
+	pageNames: string[];
+}
+
+/**
+ * Resolve a spine node's `assetKey` to everything the editor canvas needs to build
+ * the skeleton: the index entry (from the per-project or `_shared` `skeletons.json`),
+ * the PNG-preferred atlas text, and the R2 keys for the skeleton + page images.
+ * Returns `null` when the project has no skeleton index or no matching bundle.
+ */
+export async function resolveEditorSpine(
+	clientKey: string,
+	projectKey: string,
+	assetKey: string,
+	preferPng: boolean,
+): Promise<EditorSpineDescriptor | null> {
+	const bundle = bundleFromAssetKey(clientKey, projectKey, assetKey);
+	if (bundle === null) return null;
+
+	const root = await resolveSkeletonsRoot(clientKey, projectKey);
+	if (!root) return null;
+	const indexText = await getObjectText(root.key);
+	if (!indexText) return null;
+
+	let entries: SkeletonIndexEntry[];
+	try {
+		entries = (JSON.parse(indexText).skeletons ?? []) as SkeletonIndexEntry[];
+	} catch {
+		return null;
+	}
+	const entry = entries.find((e) => e.folder === bundle);
+	if (!entry) return null;
+
+	const atlas = await fetchSpineBundleFile(
+		clientKey,
+		projectKey,
+		entry.folder,
+		entry.atlas_file,
+		preferPng,
+	);
+	if (!atlas || typeof atlas.body !== 'string') return null;
+
+	const prefix = await resolveBundlePrefix(clientKey, projectKey, entry.folder, entry.atlas_file);
+	if (!prefix) return null;
+
+	const pageNames = atlasPageNames(atlas.body);
+	return {
+		folder: entry.folder,
+		format: entry.format,
+		runtime: entry.runtime,
+		pma: Boolean(entry.pma),
+		atlasText: atlas.body,
+		skeletonKey: `${prefix}/${entry.skeleton_file}`,
+		pageKeys: pageNames.map((n) => `${prefix}/${n}`),
+		pageNames,
+	};
 }
