@@ -38,7 +38,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 		loadDoc(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
 	]);
-	return { clientKey, projectKey, doc, assets };
+	// Template + initial slot warnings, so the UI shows slot state on first load
+	// (§7.1) — not only after a save round-trip.
+	const template = getTemplate(await projectGameType(projectKey));
+	const warnings = template ? findUnfilledRequiredSlots(doc, template) : [];
+	return { clientKey, projectKey, doc, assets, template, warnings };
 };
 
 export const actions: Actions = {

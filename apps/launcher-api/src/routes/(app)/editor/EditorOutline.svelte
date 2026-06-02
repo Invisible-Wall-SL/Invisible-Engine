@@ -1,12 +1,13 @@
 <script lang="ts">
-	import type { LayoutNode, Scene } from 'engine-layout';
+	import type { GameTemplate, LayoutNode, Scene } from 'engine-layout';
 
 	interface Props {
 		scene: Scene | undefined;
+		template: GameTemplate | undefined;
 		selectedId: string | null;
 		onSelect: (id: string) => void;
 	}
-	let { scene, selectedId, onSelect }: Props = $props();
+	let { scene, template, selectedId, onSelect }: Props = $props();
 
 	function kindGlyph(kind: LayoutNode['kind']): string {
 		switch (kind) {
@@ -20,6 +21,18 @@
 				return '▦';
 		}
 	}
+
+	/** `slotId`s any node in the active scene fills (recursing into containers). */
+	function filledSlotIds(nodes: LayoutNode[], into: Set<string>): Set<string> {
+		for (const node of nodes) {
+			if (node.slotId) into.add(node.slotId);
+			if (node.kind === 'container') filledSlotIds(node.children, into);
+		}
+		return into;
+	}
+
+	const slots = $derived(template?.scenes.find((s) => s.id === scene?.id)?.slots ?? []);
+	const filled = $derived(scene ? filledSlotIds(scene.nodes, new Set()) : new Set<string>());
 </script>
 
 {#snippet row(node: LayoutNode, depth: number)}
@@ -45,6 +58,24 @@
 		{/if}
 	</li>
 {/snippet}
+
+{#if slots.length > 0}
+	<section class="slots">
+		<h4>Slots</h4>
+		<ul class="slot-list">
+			{#each slots as slot (slot.slotId)}
+				{@const isFilled = filled.has(slot.slotId)}
+				{@const missing = !isFilled && slot.required}
+				<li class="slot" class:missing>
+					<span class="dot" class:filled={isFilled}></span>
+					<span class="label">{slot.name}</span>
+					<span class="kind">{slot.kind}</span>
+					<span class="status" class:missing>{isFilled ? 'filled' : 'empty'}</span>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
 
 {#if !scene || scene.nodes.length === 0}
 	<p class="muted">No nodes yet. Drag assets from the Library into the canvas.</p>
@@ -120,5 +151,60 @@
 		color: #666;
 		font-size: 11px;
 		margin: 0 0 10px;
+	}
+	.slots {
+		margin: 0 0 14px;
+		padding: 0 0 12px;
+		border-bottom: 1px solid #1c1c24;
+	}
+	h4 {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #aaa;
+		margin: 0 0 6px;
+	}
+	.slot-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.slot {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 8px;
+		font-size: 12px;
+		border-radius: 6px;
+		border: 1px solid transparent;
+		color: #c8c8d0;
+	}
+	.slot.missing {
+		border-color: #4a2a30;
+		background: #1f1418;
+		color: #ff9a9a;
+	}
+	.dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 999px;
+		border: 1px solid #444;
+		flex: none;
+	}
+	.dot.filled {
+		background: #7ee0c0;
+		border-color: #234038;
+	}
+	.status {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #666;
+	}
+	.status.missing {
+		color: #ff9a9a;
 	}
 </style>
