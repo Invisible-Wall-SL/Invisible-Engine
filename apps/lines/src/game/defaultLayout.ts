@@ -1,6 +1,4 @@
-import type { LayoutDoc, LayoutType, NodeOverride } from 'engine-layout';
-
-import { linesTemplate } from './template';
+import { type LayoutDoc, type LayoutType, type NodeOverride, linesTemplate } from 'engine-layout';
 
 /**
  * Template-shaped generator for the `lines` LayoutDoc — the engine-truth
