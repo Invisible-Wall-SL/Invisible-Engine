@@ -18,4 +18,6 @@ full-page — never in an iframe). Local tools you install on your own machine.
 
 For the authoritative live state, deploy details and env vars see
 [`../STATUS.md`](../STATUS.md) and [`../INFRA.md`](../INFRA.md). New-starter
-setup is in [`../ONBOARDING.md`](../ONBOARDING.md).
+setup is in [`../ONBOARDING.md`](../ONBOARDING.md). Cross-cutting naming rules
+(e.g. [symbol naming](../conventions/symbol-naming.md)) live in
+[`../conventions/`](../conventions/).
