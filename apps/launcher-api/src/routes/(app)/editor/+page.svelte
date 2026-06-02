@@ -1,6 +1,14 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import type { LayoutNode, LayoutType, Scene, UnfilledSlot } from 'engine-layout';
+	import type {
+		GameTemplate,
+		LayoutNode,
+		LayoutType,
+		Scene,
+		SlotKind,
+		TemplateSlot,
+		UnfilledSlot,
+	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorOutline from './EditorOutline.svelte';
@@ -35,6 +43,23 @@
 	/** Required template slots left unfilled — seeded from the loader, refreshed
 	 * by each `save` response (§7.1). Read-only status this pass. */
 	let warnings = $state<UnfilledSlot[]>(data.warnings);
+	/** Template-authoring mode (§7.5): tag nodes as slots + export a `GameTemplate`
+	 * instead of just filling one. Normal mode is unchanged when this is off. */
+	let templateMode = $state(false);
+	/** Per-slot authoring metadata not carried on `LayoutNode` (which has no
+	 * `required` field). Keyed by `slotId`; only read when exporting the template.
+	 * Seeded from the resolved template so existing `required` flags round-trip
+	 * (re-saving the template preserves them instead of dropping them). */
+	let slotMeta = $state<Record<string, { required: boolean }>>(seedSlotMeta(data.template));
+
+	function seedSlotMeta(template: GameTemplate | undefined): Record<string, { required: boolean }> {
+		const out: Record<string, { required: boolean }> = {};
+		if (!template) return out;
+		for (const scene of template.scenes) {
+			for (const slot of scene.slots) out[slot.slotId] = { required: Boolean(slot.required) };
+		}
+		return out;
+	}
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
 	const frameSize = $derived(data.doc.mainSizesMap[currentLayoutType]);
@@ -233,6 +258,73 @@
 		};
 	});
 
+	// ---------- template authoring (§7.5) ----------
+
+	let templateBusy = $state(false);
+	/** Last template save outcome shown via the save-pill styling near the action. */
+	let templateStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+
+	/** Map every node carrying a `slotId` (recursing containers) to a `TemplateSlot`. */
+	function collectSlots(nodes: LayoutNode[], into: TemplateSlot[]): TemplateSlot[] {
+		for (const n of nodes) {
+			const slotId = n.slotId?.trim();
+			if (slotId) {
+				const kind: SlotKind = n.bind || n.kind === 'container' ? 'mount' : (n.kind as SlotKind);
+				const slot: TemplateSlot = { slotId, name: n.label || slotId, kind };
+				if (n.bind?.component) slot.mountComponent = n.bind.component;
+				if (slotMeta[slotId]?.required) slot.required = true;
+				into.push(slot);
+			}
+			if (n.kind === 'container') collectSlots(n.children, into);
+		}
+		return into;
+	}
+
+	function buildTemplate(): GameTemplate {
+		return {
+			gameType: data.template?.gameType ?? 'lines',
+			version: 1,
+			scenes: scenes.map((s) => ({
+				id: s.id,
+				name: s.name,
+				slots: collectSlots(s.nodes, []),
+			})),
+		};
+	}
+
+	async function saveTemplate(): Promise<void> {
+		if (templateBusy) return;
+		templateBusy = true;
+		templateStatus = null;
+		try {
+			const res = await fetch('/api/editor/template', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(buildTemplate()),
+			});
+			if (res.ok) {
+				templateStatus = { kind: 'ok', message: 'Template saved' };
+			} else {
+				// API routes return `{ message }` for thrown `error(...)`; fall back to text.
+				let message = 'Template save failed';
+				try {
+					const body = (await res.json()) as { message?: string };
+					if (body?.message) message = body.message;
+				} catch {
+					/* non-JSON error body */
+				}
+				templateStatus = { kind: 'error', message };
+			}
+		} catch (e) {
+			templateStatus = {
+				kind: 'error',
+				message: e instanceof Error ? e.message : 'Template save failed',
+			};
+		} finally {
+			templateBusy = false;
+		}
+	}
+
 	function onBeforeUnload(e: BeforeUnloadEvent): void {
 		if (!dirty) return;
 		e.preventDefault();
@@ -348,6 +440,29 @@
 					{warnings.length === 1 ? 'slot' : 'slots'} empty
 				</span>
 			{/if}
+			<span class="dot-sep">·</span>
+			<button
+				type="button"
+				class="save-btn"
+				class:active-mode={templateMode}
+				aria-pressed={templateMode}
+				title="Author the game-type template (tag nodes as slots, export a GameTemplate)"
+				onclick={() => (templateMode = !templateMode)}
+			>
+				Template mode
+			</button>
+			{#if templateMode}
+				{#if templateBusy}
+					<span class="save-pill busy">Saving template…</span>
+				{:else if templateStatus?.kind === 'error'}
+					<span class="save-pill error" title={templateStatus.message}>Template failed</span>
+				{:else if templateStatus?.kind === 'ok'}
+					<span class="save-pill ok">{templateStatus.message}</span>
+				{/if}
+				<button class="save-btn" type="button" onclick={() => void saveTemplate()}>
+					Save template
+				</button>
+			{/if}
 		</div>
 	</header>
 
@@ -457,7 +572,16 @@
 
 		<aside class="properties">
 			<h2>Properties</h2>
-			<EditorProperties node={selectedNode} layoutType={currentLayoutType} onDirty={markDirty} />
+			<EditorProperties
+				node={selectedNode}
+				layoutType={currentLayoutType}
+				onDirty={markDirty}
+				{templateMode}
+				{slotMeta}
+				onSlotRequiredChange={(slotId, required) => {
+					slotMeta = { ...slotMeta, [slotId]: { required } };
+				}}
+			/>
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
 				{activeScene?.nodes.length ?? 0} nodes
@@ -590,6 +714,11 @@
 	.save-btn:hover {
 		border-color: #7ee0c0;
 		color: #7ee0c0;
+	}
+	.save-btn.active-mode {
+		background: #1a1a22;
+		border-color: #6b5bff;
+		color: #c8a3ff;
 	}
 	.layout {
 		display: grid;

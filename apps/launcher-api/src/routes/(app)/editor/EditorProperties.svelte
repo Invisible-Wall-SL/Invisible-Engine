@@ -11,8 +11,28 @@
 		layoutType: LayoutType;
 		/** Called after any user-driven mutation to the selected node. */
 		onDirty?: () => void;
+		/** Template-authoring mode (§7.5): reveal the per-node slot tagging UI. */
+		templateMode?: boolean;
+		/** Slot metadata not stored on the node (keyed by `slotId`). */
+		slotMeta?: Record<string, { required: boolean }>;
+		/** Lift a `required` change back to the parent's `slotMeta` map. */
+		onSlotRequiredChange?: (slotId: string, required: boolean) => void;
 	}
-	let { node, layoutType, onDirty }: Props = $props();
+	let {
+		node,
+		layoutType,
+		onDirty,
+		templateMode = false,
+		slotMeta = {},
+		onSlotRequiredChange,
+	}: Props = $props();
+
+	function setSlotId(n: LayoutNode, value: string): void {
+		const trimmed = value.trim();
+		if (trimmed) n.slotId = trimmed;
+		else delete n.slotId;
+		markDirty();
+	}
 
 	function markDirty(): void {
 		onDirty?.();
@@ -186,6 +206,40 @@
 			</button>
 		{/if}
 	</div>
+
+	{#if templateMode}
+		<section class="slot-section">
+			<h3>Slot</h3>
+			<div class="row">
+				<label class="field wide">
+					<span>slotId</span>
+					<input
+						type="text"
+						placeholder="e.g. boardFrame"
+						value={node.slotId ?? ''}
+						oninput={(e) => setSlotId(node, e.currentTarget.value)}
+					/>
+				</label>
+			</div>
+			{#if node.slotId}
+				<div class="row">
+					<label class="field check">
+						<input
+							type="checkbox"
+							checked={slotMeta[node.slotId]?.required ?? false}
+							onchange={(e) => onSlotRequiredChange?.(node.slotId!, e.currentTarget.checked)}
+						/>
+						<span>required</span>
+					</label>
+				</div>
+				<p class="slot-hint">
+					{node.bind || node.kind === 'container' ? 'mount' : node.kind} slot
+				</p>
+			{:else}
+				<p class="slot-hint">Untagged — free scenery, not part of the template.</p>
+			{/if}
+		</section>
+	{/if}
 
 	<section>
 		<h3>Transform</h3>
@@ -616,5 +670,19 @@
 	.ghost-sm.danger {
 		color: #ff9a9a;
 		border-color: #4a2a30;
+	}
+	.slot-section {
+		padding: 10px;
+		border: 1px solid #2a2433;
+		border-radius: 8px;
+		background: #16131c;
+	}
+	.slot-section h3 {
+		color: #c8a3ff;
+	}
+	.slot-hint {
+		margin: 4px 0 0;
+		font-size: 11px;
+		color: #777;
 	}
 </style>
