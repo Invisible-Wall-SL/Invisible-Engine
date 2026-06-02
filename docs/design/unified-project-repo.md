@@ -248,3 +248,14 @@ the deploy and unset the flag; data is untouched.
 - Migration: `scripts/migrate-r2-unified-repo.py` (dry-run default; `--apply`, `--verify`, `--phase-b --i-verified-cutover`).
 
 **Remaining (needs R2 creds + a deploy window):** run Phase A dry-run → `--apply` → deploy code + restart tools → smoke-test → `--phase-b`. See §6.
+
+## 10. Cutover — COMPLETE (2026-06-02)
+
+Shipped to `main` and executed end-to-end:
+- Phase A copied **3731** objects into the unified layout (+ stragglers re-synced as the tools kept being used); verified.
+- Code deployed: Python tools (committed alongside the lazy-hydrate/FX work) + launcher (`d839f62`) both on the unified layout; the launcher's hyphen/underscore slug bug fixed.
+- Smoke-tested on Borut/HotFruits + bookofborut: Sheet Maker loads shared manifests, packs generation manifests, and opens packed `.atlas` via the R2 Import browser.
+- **Phase B deleted 4902 old objects** — `atlas_maker/ sheet_maker/ localization/ editor/ spines/` (per-tool namespaces), the stale `book_of_borut` dupe, and the `cloud/batch`+`cloudtest/batch` strays. New layout intact (borut/hotfruits 1255, bookofborut 1292, unassigned/cloud 1158, invisible_wall/test1 42, salmons 11, borut/cloud 6).
+- One deliberate orphan left untouched: `localization/cloud/strings.json` (old client-less default; nothing reads it).
+
+Decisions captured: kept the active `bookofborut`, dropped the stale `book_of_borut`; `spines/hotfruits/*` legacy folded into `borut/hotfruits/spines/`.
