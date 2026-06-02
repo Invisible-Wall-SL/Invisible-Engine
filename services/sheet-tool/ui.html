@@ -546,7 +546,8 @@ async function loadFile(path){
   updateReadouts();
   let msg='Loaded '+j.count+' regions from '+canvasW+'×'+canvasH+' sheet';
   if(!j.is_project) msg+=' (import — Save As to keep)';
-  $('loadmsg').className='ok'; $('loadmsg').textContent=msg;
+  if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
+  $('loadmsg').className=(j.skipped&&j.skipped.length)?'note':'ok'; $('loadmsg').textContent=msg;
   fitView();
 }
 
