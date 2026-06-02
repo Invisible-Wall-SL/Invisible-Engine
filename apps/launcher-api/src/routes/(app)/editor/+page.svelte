@@ -260,6 +260,13 @@
 
 	// ---------- template authoring (§7.5) ----------
 
+	/** Known game types (mirrors game-spec's GameTypeSchema) — what a saved
+	 * template is keyed by in R2. Lets you author e.g. a `bookOf` template even
+	 * though a project's resolved game type defaults to `lines` for now. */
+	const GAME_TYPES = ['lines', 'ways', 'cluster', 'scatter', 'bookOf'] as const;
+	/** The game type the authored template is saved under (§7.5). */
+	let authoringGameType = $state<string>(data.template?.gameType ?? 'lines');
+
 	let templateBusy = $state(false);
 	/** Last template save outcome shown via the save-pill styling near the action. */
 	let templateStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
@@ -282,7 +289,7 @@
 
 	function buildTemplate(): GameTemplate {
 		return {
-			gameType: data.template?.gameType ?? 'lines',
+			gameType: authoringGameType,
 			version: 1,
 			scenes: scenes.map((s) => ({
 				id: s.id,
@@ -452,6 +459,14 @@
 				Template mode
 			</button>
 			{#if templateMode}
+				<label class="gametype" title="Game type this template is saved under">
+					<span>type</span>
+					<select bind:value={authoringGameType}>
+						{#each GAME_TYPES as gt (gt)}
+							<option value={gt}>{gt}</option>
+						{/each}
+					</select>
+				</label>
 				{#if templateBusy}
 					<span class="save-pill busy">Saving template…</span>
 				{:else if templateStatus?.kind === 'error'}
@@ -719,6 +734,21 @@
 		background: #1a1a22;
 		border-color: #6b5bff;
 		color: #c8a3ff;
+	}
+	.gametype {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		color: #999;
+	}
+	.gametype select {
+		background: #16131c;
+		color: #c8a3ff;
+		border: 1px solid #2a2433;
+		border-radius: 6px;
+		padding: 3px 6px;
+		font-size: 12px;
 	}
 	.layout {
 		display: grid;
