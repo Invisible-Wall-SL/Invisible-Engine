@@ -185,20 +185,21 @@ def resolve() -> dict:
 
 
 def switch_context(client: str | None, project: str | None) -> dict | None:
-    """Set THIS thread's active (client, project) and, if changed, re-hydrate
-    its staging from R2. Returns the fresh resolve() dict on a real switch, else
-    None. Thread-local context means no global lock is needed around the
-    switch."""
+    """Set THIS thread's active (client, project) and, if it changed, re-resolve
+    its staging paths. Returns the fresh resolve() dict on a real switch, else
+    None. Thread-local context means no global lock is needed around the switch.
+
+    resolve() already hydrates this (client, project) ONCE per process (guarded
+    by the _HYDRATED dedup set). We deliberately do NOT force a re-pull here:
+    under the ThreadingHTTPServer every request runs on a FRESH thread whose
+    thread-local context starts empty, so set_context() reports a "change" on
+    essentially every request — forcing a re-hydrate here spawned a full
+    input/+output/ R2 pull per request, exhausting threads/memory (RuntimeError:
+    can't start new thread). On-demand refresh is the explicit "Refresh from R2"
+    button, which force-hydrates when asked."""
     if not set_context(client, project):
         return None
-    pp = resolve()  # rebuilds paths/prefix for the new (c,p) + mkdir's them
-    hydrate(
-        _safe_proj_name(client_name()),
-        _safe_proj_name(project_name()),
-        pp["staging_root"],
-        force=True,
-    )
-    return pp
+    return resolve()  # rebuilds paths/prefix + hydrates once per (c,p)
 
 
 # Back-compat: old single-key entrypoint maps onto the current client.
