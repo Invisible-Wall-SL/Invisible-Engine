@@ -704,16 +704,28 @@ def api_load(payload: dict) -> dict:
     regions_out = []
     used = set()
     written = []   # exactly the region PNGs sliced here → mirror only these
+    skipped = []   # regions with no positive area (would crash PIL on save)
     for r in parsed["regions"]:
+        w, h = r["w"], r["h"]
+        fw, fh = (h, w) if r["rotated"] else (w, h)   # footprint on sheet
+        # A zero/negative-area region produces an empty crop — PIL raises
+        # "cannot write empty image" on save. Skip it (and clamp to the sheet
+        # so an off-sheet box never yields an empty crop) rather than abort the
+        # whole load over one bad region in the manifest.
+        x0 = max(0, min(int(r["x"]), sheet_img.width))
+        y0 = max(0, min(int(r["y"]), sheet_img.height))
+        x1 = max(x0, min(r["x"] + fw, sheet_img.width))
+        y1 = max(y0, min(r["y"] + fh, sheet_img.height))
+        if w <= 0 or h <= 0 or x1 <= x0 or y1 <= y0:
+            skipped.append(r["name"] or "(unnamed)")
+            continue
         nm = safe_name(r["name"], "region")
         base_nm = nm
         k = 2
         while nm in used:
             nm = f"{base_nm}_{k}"; k += 1
         used.add(nm)
-        w, h = r["w"], r["h"]
-        fw, fh = (h, w) if r["rotated"] else (w, h)   # footprint on sheet
-        crop = sheet_img.crop((r["x"], r["y"], r["x"] + fw, r["y"] + fh))
+        crop = sheet_img.crop((x0, y0, x1, y1))
         if r["rotated"]:
             crop = crop.rotate(90, expand=True)        # back to upright
         src = f"{nm}.png"
@@ -736,6 +748,7 @@ def api_load(payload: dict) -> dict:
         name = path.stem
     return {"sheet": sheet, "canvas_w": parsed["width"], "canvas_h": parsed["height"],
             "regions": regions_out, "count": len(regions_out),
+            "skipped": skipped,
             "source_path": str(path.resolve()), "source_dir": str(path.resolve().parent),
             "name": name, "is_project": is_project}
 
