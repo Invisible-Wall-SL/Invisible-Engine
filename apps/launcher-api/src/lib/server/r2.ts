@@ -53,6 +53,26 @@ export async function presignGet(key: string, ttlSeconds: number): Promise<strin
 }
 
 /**
+ * Presigned PUT URL for a single object, valid for `ttlSeconds`. Lets the browser
+ * upload large objects straight to R2 (bypassing the launcher's tiny adapter-node
+ * `BODY_SIZE_LIMIT`). The URL embeds a signature and must never be logged. Callers
+ * MUST validate the key against an allowed prefix before presigning — this helper
+ * signs whatever it gets. `contentType` is baked into the signature, so the browser
+ * MUST send the SAME `Content-Type` header on its PUT or R2 rejects the request.
+ */
+export async function presignPut(
+	key: string,
+	contentType: string,
+	ttlSeconds: number,
+): Promise<string> {
+	return getSignedUrl(
+		s3(),
+		new PutObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key, ContentType: contentType }),
+		{ expiresIn: ttlSeconds },
+	);
+}
+
+/**
  * Presign a list of manifest entries, adding a short-lived `url` to each. The R2
  * object key is read from `entry[keyField]`; entries whose key is missing or does
  * not start with `${basePrefix}/` are DROPPED (never presigned), so a manifest can
