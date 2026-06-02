@@ -383,12 +383,15 @@
 		return SPINE_EXT.some((ext) => lower.endsWith(ext));
 	}
 
-	/** Strip the top picked-folder segment so paths are relative to the spines root
-	 * (e.g. `mySpines/foregroundAnimation/mm_bg.atlas` -> `foregroundAnimation/mm_bg.atlas`). */
+	/** Map a picked file to its `spines/<bundle>/<file>` relpath. If a `spines`
+	 * folder is anywhere in the picked tree, take everything after it; otherwise
+	 * keep the full relative path — so picking the `spines` folder, a parent of it,
+	 * OR a single bundle folder all nest correctly (instead of flattening files to
+	 * the spines root, where the bundle-folder listing can't see them). */
 	function relpathFor(file: File): string {
-		const raw = file.webkitRelativePath || file.name;
-		const slash = raw.indexOf('/');
-		return slash === -1 ? raw : raw.slice(slash + 1);
+		const raw = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
+		const afterSpines = raw.match(/(?:^|\/)spines\/(.+)$/i);
+		return afterSpines ? afterSpines[1] : raw;
 	}
 
 	async function onSpinesPicked(e: Event): Promise<void> {
