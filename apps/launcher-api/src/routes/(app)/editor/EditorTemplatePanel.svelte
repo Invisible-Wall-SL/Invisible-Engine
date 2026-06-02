@@ -4,10 +4,15 @@
 	interface Props {
 		/** The loaded template (R2 override or built-in fallback), or undefined. */
 		template: GameTemplate | undefined;
-		/** Current editor scenes — used to mark which slots are filled. */
+		/** Current editor scenes — used to mark which slots are filled + which
+		 * template scenes already exist in the document. */
 		scenes: Scene[];
+		/** id of the editor's active scene (highlights the matching template scene). */
+		activeSceneId?: string;
+		/** Switch the editor to a template scene, creating it in the doc if missing. */
+		onPickScene?: (sceneId: string, sceneName: string) => void;
 	}
-	let { template, scenes }: Props = $props();
+	let { template, scenes, activeSceneId, onPickScene }: Props = $props();
 
 	function collectFilled(nodes: LayoutNode[], into: Set<string>): Set<string> {
 		for (const n of nodes) {
@@ -21,6 +26,10 @@
 		const sc = scenes.find((s) => s.id === sceneId);
 		return sc ? collectFilled(sc.nodes, new Set()) : new Set<string>();
 	}
+
+	function sceneInDoc(sceneId: string): boolean {
+		return scenes.some((s) => s.id === sceneId);
+	}
 </script>
 
 {#if !template}
@@ -31,21 +40,41 @@
 {:else}
 	<section class="tpl">
 		<h3>{template.gameType} <span class="count">template</span></h3>
+		<p class="hint">
+			Click a scene to edit it on the canvas, then drag assets in and tag their slot.
+		</p>
 		{#each template.scenes as scene (scene.id)}
 			{@const filled = filledFor(scene.id)}
 			<div class="scene">
-				<h4>{scene.name} <span class="count">{scene.slots.length}</span></h4>
+				<button
+					type="button"
+					class="scene-head"
+					class:active={scene.id === activeSceneId}
+					onclick={() => onPickScene?.(scene.id, scene.name)}
+				>
+					<span class="scene-name">{scene.name}</span>
+					<span class="count">{scene.slots.length}</span>
+					{#if !sceneInDoc(scene.id)}<span class="add">+ add</span>{/if}
+				</button>
 				<ul class="slot-list">
 					{#each scene.slots as slot (slot.slotId)}
 						{@const isFilled = filled.has(slot.slotId)}
-						<li class="slot" class:missing={!isFilled && slot.required}>
-							<span class="dot" class:filled={isFilled}></span>
-							<span class="label">{slot.name}</span>
-							<span class="kind">{slot.kind}</span>
-							{#if slot.required}<span class="req">required</span>{/if}
-							<span class="status" class:missing={!isFilled && slot.required}>
-								{isFilled ? 'filled' : 'empty'}
-							</span>
+						<li>
+							<button
+								type="button"
+								class="slot"
+								class:missing={!isFilled && slot.required}
+								title="Edit {scene.name} to fill this slot"
+								onclick={() => onPickScene?.(scene.id, scene.name)}
+							>
+								<span class="dot" class:filled={isFilled}></span>
+								<span class="label">{slot.name}</span>
+								<span class="kind">{slot.kind}</span>
+								{#if slot.required}<span class="req">required</span>{/if}
+								<span class="status" class:missing={!isFilled && slot.required}>
+									{isFilled ? 'filled' : 'empty'}
+								</span>
+							</button>
 						</li>
 					{:else}
 						<li class="muted">No slots in this scene.</li>
@@ -65,16 +94,15 @@
 	}
 	h3 {
 		font-size: 13px;
-		margin: 0 0 10px;
+		margin: 0 0 4px;
 		color: #c8a3ff;
 		text-transform: capitalize;
 	}
-	h4 {
+	.hint {
+		color: #777;
 		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #aaa;
-		margin: 0 0 6px;
+		margin: 0 0 12px;
+		line-height: 1.4;
 	}
 	.count {
 		color: #666;
@@ -82,6 +110,41 @@
 	}
 	.scene {
 		margin: 0 0 14px;
+	}
+	.scene-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		text-align: left;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		padding: 5px 8px;
+		margin: 0 0 4px;
+		cursor: pointer;
+		color: #aaa;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.scene-head:hover {
+		background: #16131c;
+	}
+	.scene-head.active {
+		border-color: #6b5bff;
+		color: #c8a3ff;
+		background: #1a1622;
+	}
+	.scene-name {
+		font-weight: 600;
+	}
+	.add {
+		margin-left: auto;
+		color: #7ee0c0;
+		font-size: 10px;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 	.slot-list {
 		list-style: none;
@@ -95,11 +158,18 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		width: 100%;
+		text-align: left;
 		padding: 5px 8px;
 		font-size: 12px;
 		border-radius: 6px;
 		border: 1px solid transparent;
+		background: transparent;
 		color: #c8c8d0;
+		cursor: pointer;
+	}
+	.slot:hover {
+		background: #16131c;
 	}
 	.slot.missing {
 		border-color: #4a2a30;

@@ -149,6 +149,20 @@
 		markDirty();
 	}
 
+	/** Switch the editor to a template scene so its slots can be filled — creating
+	 * the scene in the doc on first visit (the document may predate the template,
+	 * e.g. a generic `main` scene). */
+	function goToTemplateScene(sceneId: string, sceneName: string): void {
+		let idx = scenes.findIndex((s) => s.id === sceneId);
+		if (idx === -1) {
+			scenes = [...scenes, { id: sceneId, name: sceneName, nodes: [] }];
+			idx = scenes.length - 1;
+			markDirty();
+		}
+		activeSceneIdx = idx;
+		selectedId = null;
+	}
+
 	function removeNode(nodes: LayoutNode[], id: string): boolean {
 		const i = nodes.findIndex((n) => n.id === id);
 		if (i !== -1) {
@@ -595,7 +609,12 @@
 						</ul>
 					</section>
 				{:else if leftTab === 'template'}
-					<EditorTemplatePanel template={activeTemplate} {scenes} />
+					<EditorTemplatePanel
+						template={activeTemplate}
+						{scenes}
+						activeSceneId={activeScene?.id}
+						onPickScene={goToTemplateScene}
+					/>
 				{:else}
 					<EditorOutline
 						scene={activeScene}
