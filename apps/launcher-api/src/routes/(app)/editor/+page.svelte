@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import type { LayoutNode, LayoutType, Scene } from 'engine-layout';
+	import type { LayoutNode, LayoutType, Scene, UnfilledSlot } from 'engine-layout';
 	import { onMount } from 'svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorOutline from './EditorOutline.svelte';
@@ -32,6 +32,9 @@
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline'>('library');
+	/** Required template slots left unfilled — seeded from the loader, refreshed
+	 * by each `save` response (§7.1). Read-only status this pass. */
+	let warnings = $state<UnfilledSlot[]>(data.warnings);
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
 	const frameSize = $derived(data.doc.mainSizesMap[currentLayoutType]);
@@ -191,6 +194,7 @@
 				saved?: boolean;
 				updatedAt?: string;
 				error?: string;
+				warnings?: UnfilledSlot[];
 			};
 			if (out.error) {
 				lastError = out.error;
@@ -198,6 +202,7 @@
 				lastSavedAt = out.updatedAt ?? new Date().toISOString();
 				lastError = '';
 				dirty = false;
+				if (out.warnings) warnings = out.warnings;
 			}
 		} catch (e) {
 			lastError = e instanceof Error ? e.message : 'Save failed.';
@@ -337,6 +342,12 @@
 			{:else}
 				<span class="save-pill ok" title={lastSavedAt || ''}>Saved {savedAgo}</span>
 			{/if}
+			{#if warnings.length > 0}
+				<span class="save-pill error" title="Required template slots with no node filling them">
+					{warnings.length}
+					{warnings.length === 1 ? 'slot' : 'slots'} empty
+				</span>
+			{/if}
 		</div>
 	</header>
 
@@ -421,7 +432,12 @@
 						</ul>
 					</section>
 				{:else}
-					<EditorOutline scene={activeScene} {selectedId} onSelect={(id) => (selectedId = id)} />
+					<EditorOutline
+						scene={activeScene}
+						template={data.template}
+						{selectedId}
+						onSelect={(id) => (selectedId = id)}
+					/>
 				{/if}
 			</div>
 		</aside>

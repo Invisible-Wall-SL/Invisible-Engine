@@ -148,3 +148,142 @@ Friction: `<Symbol>`, win-line draws, and anything coordinate-derived from runti
 - **`bind.component` discovery** — global string registry vs per-game `registerBoundComponents()`. Per-game is safer; confirm.
 - **`<MainContainer>` standard mode** — should `LayoutDoc.mainSizesMap` always equal the game's `stateLayout` map, or do we allow editor-only overrides? Recommend: must match, validated on save.
 - **Per-layoutType authoring** — base = `desktop` everywhere, or per-project base? Recommend desktop fixed for v1.
+
+---
+
+## 7. Addendum — Templates + Import (owner direction 2026-06-02)
+
+v1 (§1–6) proved the pipe physically works: editor → `scenes.json` → `<LayoutScene>` → engine, with the runtime R2 fetch shipped and `editor-scenes.ts` as the checked-in fixture. Two follow-on capabilities are now in scope and are **designed together** because they reinforce each other:
+
+1. **Template/slot contract** — make a placement *mean* something to the engine instead of being free scenery.
+2. **Import an existing game** — open a shipped game (`lines`/Borut) in the editor with its current layout already populated, instead of authoring from a blank canvas.
+
+The link: **the template is the target schema; import is the first-fill of that schema from the engine's own truth.** New game = pick a template, slots empty. Existing game = same template, slots auto-filled by the importer. The editor is the human-refinement layer over whichever start you got.
+
+### 7.1 Template/slot model
+
+Each **game type** (`lines`, `cluster`, `ways`, `book-of`, …) ships a **template manifest**: the scenes it has, and within each scene the named **slots** an author may fill.
+
+```ts
+// packages/engine-layout/src/lib/types.ts (additions)
+
+export type SlotKind = 'sprite' | 'spine' | 'text' | 'mount';
+
+export interface TemplateSlot {
+  slotId: string;            // stable, unique within the template (e.g. 'boardFrame', 'logo', 'reelGrid')
+  name: string;              // human label shown in the editor
+  kind: SlotKind;
+  required?: boolean;        // save-time validation: a required slot must be filled
+  // 'mount' slots are engine-owned: the editor only places the anchor transform;
+  // the game fills the content at runtime (reel grid, win-lines, symbols…).
+  // It resolves through the existing bind/registry path, keyed by slotId.
+  mountComponent?: string;   // for kind:'mount' — registered component name (see registerBoundComponents)
+  // Optional authoring hint: which asset kinds the editor offers for this slot.
+  accepts?: ('sprite' | 'spine' | 'text')[];
+}
+
+export interface TemplateScene {
+  id: string;                // 'loading' | 'basegame' | 'freegame' | …
+  name: string;
+  slots: TemplateSlot[];
+}
+
+export interface GameTemplate {
+  gameType: string;          // 'lines' | 'cluster' | 'book-of' | …
+  version: 1;
+  scenes: TemplateScene[];
+}
+```
+
+**Schema change to the existing node types:** add an optional `slotId?: string` to `BaseNode`. A node with a `slotId` is "filling that slot"; a node without one is free scenery (still allowed — slots constrain, they don't forbid). This is purely additive; existing `scenes.json` docs and the `editor-scenes.ts` fixture stay valid.
+
+**Slot kinds:**
+- `sprite` / `spine` / `text` — **artist-owned static scenery**: background, board frame, logo, buy button, free-spin intro pose. The editor places a real `SpriteNode`/`SpineNode`/`TextNode` and the author owns its transform.
+- `mount` — **engine-owned**: the editor only places the *anchor* (a `ContainerNode` carrying the `slotId`); at runtime the game fills it via the registry, keyed by `slotId`. This is the typed replacement for today's freeform `bind: { component }` escape hatch. `reelGrid` (filled by `boardLayout()` + symbols) is the canonical example. The `bind` hatch stays for one-offs not worth templating.
+
+**Consumption:** `<LayoutScene>` already walks nodes. It gains: resolve `mount` nodes through the same registry `registerBoundComponents()` uses, keyed by `slotId` (falling back to `bind.component` when present). No new render path.
+
+**Validation:** `editorStorage.normalizeDoc` (launcher) gains a template-aware pass — given the project's `gameType`, flag any `required` slot with no filling node ("slot `boardFrame` empty"). Surfaced in the editor's save/dirty UI, non-blocking save but visibly warned.
+
+**New-project seeding:** the scaffold (`docs/design/r2-client-isolation-and-scaffold.md`) already seeds an empty `scenes.json`. It instead seeds **from the chosen template**: one empty scene per `TemplateScene`, no nodes, slots advertised as drop targets. "Start a new game" becomes *pick template → fill its slots → engine builds it.*
+
+### 7.2 Import — first-fill a template from the engine's own truth
+
+Goal: point the importer at `lines` (or Borut) and get a `scenes.json` whose slots are already placed with the game's current resolved coordinates, ready to open in the editor.
+
+**Mechanism — derive from the engine's layout helpers, do NOT scrape source or capture at runtime.** The `editor-scenes.ts` fixture is the proof of concept: it reconstructs `BoardFrame.svelte` by computing from `boardLayout()`, `mainSizesMap`, and the component's `SPRITE_SCALE` / `POSITION_ADJUSTMENT` constants — all statically computable, all the real source of truth.
+
+- ❌ **AST scrape of `.svelte`/`.ts`** — coords are derived (`boardLayout()`, responsive `mainSizesMap`, per-layoutType uniform scale), not literals. Cannot resolve statically.
+- ❌ **Runtime scene-graph capture** — brittle; needs a funded Play4Fun RGS mock just to render the board (see Borut step-10b blank-basegame note), and mixes dynamic state into static scenery.
+- ✅ **Per-game `defaultLayout()` builder** — promote `editor-scenes.ts` from a hand-written one-off into a **template-shaped generator** living next to each game's template. It calls the same layout functions the game uses and emits a `LayoutDoc` with each static slot filled (base + sparse per-layoutType overrides, exactly as the fixture does).
+
+**Import flow:**
+1. `defaultLayout(gameType)` runs (server-side or a small CLI) → `LayoutDoc` filling the template's `sprite`/`spine`/`text` slots, and dropping anchor `ContainerNode`s for `mount` slots.
+2. Upload to `editor/<projectKey>/scenes.json` in R2 (idempotent; only when no author-edited doc exists, or behind an explicit "re-import / reset to engine defaults" action — never silently overwrite hand edits).
+3. Author opens `/editor`, sees the game already laid out, refines.
+
+`mount` slots need no import data — the importer just places the anchor; the game fills them at runtime. This is why combining 1+3 makes import tractable: the template tells the importer *exactly which slots are static (must be filled) vs engine-owned (anchor only)*, so it never tries to reverse-engineer dynamic content.
+
+### 7.3 Build order (addendum)
+
+1. Types: add `SlotKind`/`TemplateSlot`/`TemplateScene`/`GameTemplate` + `slotId?` on `BaseNode` in `engine-layout`. Additive, no behaviour change.
+2. `<LayoutScene>`: resolve `mount` nodes via the registry keyed by `slotId` (keep `bind` fallback).
+3. First template: `apps/lines` `template.ts` (scenes: `loading`/`basegame`/`freegame`/…; slots: `boardFrame` sprite, `reelGrid` mount, `logo`, …).
+4. `defaultLayout('lines')` — refactor `editor-scenes.ts` into the template-shaped generator; assert it round-trips through `normalizeDoc` and renders identically to today (visual parity gate, same as step 9/10).
+5. Launcher: template registry + template-aware `normalizeDoc` validation; scaffold seeds `scenes.json` from template.
+6. Editor UI: slots as labelled drop targets in the outliner/canvas; required-slot warnings; "re-import from engine defaults" action.
+7. Prove on **Book of Borut** (engine submodule): import → refine → run against the RGS mock; confirm `reelGrid` + animated overlays still mount.
+
+### 7.4 Open decisions (addendum)
+
+- **Where `defaultLayout()` runs** — server-side launcher function vs a `engine-layout` CLI vs a dev-only route in the game app. Recommend: a pure function in each game's `src/game/` (re-using its own layout consts) that a thin launcher endpoint *or* CLI calls — keeps the engine truth co-located with the game.
+- **Re-import semantics** — never overwrite an author-edited doc silently. Recommend an explicit, confirmed "reset scene to engine defaults" per-scene action, plus auto-import only when no doc exists.
+- **`gameType` source** — the project/client model needs to know each project's `gameType` to pick its template. Confirm where that's stored (launcher project record vs `scenes.json` header vs template inferred from a manifest).
+- **Slot vs free scenery strictness** — v1 recommendation: slots are advisory drop targets + validation, free nodes still allowed. Revisit if we want strict template conformance later.
+
+### 7.5 Authoring templates in the editor (owner direction 2026-06-02)
+
+The same tool that *fills* a template should also *create* one. A `GameTemplate` is structurally a `LayoutDoc` with two differences — its nodes carry **slot metadata** (`slotId`/`name`/`kind`/`required`) instead of binding concrete assets, and `mount` slots are bare anchors. So template authoring is **a mode on the existing canvas**, not a new surface: place nodes, tag each as a slot, export a `GameTemplate` instead of a filled doc. All the drag/transform/outliner/override machinery is reused.
+
+**The hard boundary — declare ≠ implement.** The editor can fully author the *skeleton + static slots* (`sprite`/`spine`/`text` placements, anchors, required flags). It can *declare* `mount` slots (drop an anchor, set `kind:'mount'` + `mountComponent`), but what fills a mount at runtime is engine code. So a mount slot is a **contract the game must satisfy** via `registerBoundComponents()` — exactly the validation shape of a missing localization key or an unknown `bind.component` today: warned at editor save-time, logged + safely skipped at game boot.
+
+**Templates become data, with a code fallback — symmetric with `scenes.json`:**
+
+| | Source of truth (R2) | Checked-in fallback |
+|---|---|---|
+| Layout | `editor/<projectKey>/scenes.json` | `editor-scenes.ts` |
+| Template | `editor/templates/<gameType>.json` | per-game `template.ts` |
+
+R2 template is authored visually and is the source of truth; `template.ts` is the offline/boot fallback — the same R2-doc-with-code-fallback model §7.2 / `loadEditorScenes()` already use. This lets a designer create a new game type's template without a deploy, while the engine still validates mount components at boot. New-project seeding (§7.1) reads the R2 template when present, the code fallback otherwise.
+
+**Authoring affordances (additive to the editor UI):** a "template mode" toggle; per-node "convert to slot" (set `slotId`/`name`/`kind`/`required`); a mount-component picker populated from the game's registered names (so you can only name a mount that exists, or are warned if you type a new one); export/save to `editor/templates/<gameType>.json`. Filling mode then surfaces those slots as the drop targets from §7.1.
+
+**Build order impact:** this is a follow-on to §7.3 — land the template *schema + filling + import* first (so the contract is proven against `lines`), then add the authoring mode. Don't build authoring before the engine honours templates, or you can author slots nothing consumes.
+
+**Added open decision:** template *versioning/migration* — when a designer edits a template that existing projects already filled, how do their `scenes.json` docs reconcile (orphaned slots, newly-required slots)? Defer to post-v1, but note it: a template edit is a schema change to every project on that template.
+
+### 7.6 Symbol naming convention as a shared contract (owner direction 2026-06-02)
+
+Companion to the slot contract: a **slot** says *where + what role* (boardFrame, reelGrid); a **symbol name** says *what the asset is* (`H1` is a high-pay symbol). The engine already speaks this language, but the rule is implicit and the classification is duplicated. Make it an explicit, shared contract.
+
+**It already exists — wire it, don't reinvent.** `packages/game-spec/src/schema.ts` already models it:
+- `SymbolKindSchema = 'high' | 'low' | 'wild' | 'scatter' | 'wildScatter' | 'bonus' | 'multiplier'` — "drives engine behaviour AND info-page rendering".
+- `SymbolSpec = { id: 'H1'|'L1'|'W'|'S'…, kind, name?, pay?, asset?, trigger? }`. `id` is the symbol's canonical name; `kind` is its pay-class; `asset.key` (`'h1.webp'`, `'M'`) is the loaded texture, which may differ from `id`.
+
+Today's gap is purely wiring + enforcement:
+- The engine hardcodes `HIGH_SYMBOLS = ['H1'…'H5']` (`apps/lines/src/game/constants.ts`) and infers scatter/wild by ad-hoc prefix checks. Nothing reads `SymbolSpec`.
+- `id` and `kind` are independent fields — `{ id:'H1', kind:'low' }` is structurally valid. The name is not yet authoritative.
+- The editor doesn't read the spec at all.
+
+**The contract (make the name authoritative):**
+- A canonical prefix convention, owned by `game-spec`: `H{n}` → `high`, `L{n}` → `low`, `W` → `wild`, and `S` → `scatter` **or** `wildScatter` (the special symbol can be both — Book-of uses `S` as the Book). Reserved tokens for `bonus`/`multiplier`. (No `mid` tier today — `multiplier` is its own kind, and `M` currently appears only as an *asset filename*, not a symbol id. Adding an `M{n}` mid-pay tier is a deliberate `SymbolKindSchema` extension, not an existing fact.)
+- **Built** (`packages/game-spec/src/symbols.ts`): `classifySymbol(id)` for the unambiguous prefixes + `isKindConsistentWithId(id, kind)` — the *compatibility* check, since `S` is legitimately `scatter` or `wildScatter`. The editor / spec validation call these so `H1` cannot be declared anything but high-pay, without rejecting a valid `{ id:'S', kind:'wildScatter' }`. A hard `SymbolSpec` schema refinement is **deferred** (it would have to encode the same compatibility rule and risks breaking existing specs); the helper is the contract for now.
+- The RGS/protocol vocabulary (`PIC1`, `SCAT` — see `packages/utils-shared/paytable.ts`) is a **separate space** translated into engine names at the RGS adapter/facade boundary. The editor and templates only ever speak engine names; adapters own the mapping.
+
+**Two readers, one source:**
+- **Engine** derives `HIGH_SYMBOLS`, scatter/wild handling, and paytable `mode` from the project's `SymbolSpec[]` via `classifySymbol`, instead of hardcoding.
+- **Editor** reads the same `SymbolSpec[]` to (a) group the asset library by kind ("High / Low / Scatter / Wild"), and (b) validate `mount` slots: a `reelGrid` slot declares its symbol-set requirement in `SymbolKind`s ("requires ≥1 scatter, ≥1 wild"), and the editor warns if the project's atlas provides no matching-named frames. This is the asset-identity layer beneath the slot/position layer — together they are the full "declare ≠ implement" contract: the editor declares + validates against names; the engine implements behaviour keyed off the same names.
+
+**Build order impact:** independent of, but complementary to, §7.3. The `classifySymbol` + refinement can land in `game-spec` early (small, self-contained); engine-side consumption (replace `HIGH_SYMBOLS`) and editor-side grouping/validation follow when their respective surfaces are touched. Don't block the template work on it.
+
+**Decision (owner 2026-06-02):** keep high/low only for now — **no `mid` tier**. Add `'mid'` + an `M{n}` prefix only when a game needs it. The human-readable tier list is published at [`docs/conventions/symbol-naming.md`](../conventions/symbol-naming.md) (mirrors `SymbolKindSchema`; code stays source of truth), linked from the Sheet Maker / Atlas Maker tool docs where regions are named.

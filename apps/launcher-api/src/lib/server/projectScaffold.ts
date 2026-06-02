@@ -4,6 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
+import { getTemplate, type GameTemplate, type Scene } from 'engine-layout';
 import { normalizeDoc } from './localization';
 import {
 	SUB,
@@ -12,6 +13,7 @@ import {
 	localizationDocKey,
 	sheetConfigKey,
 } from './projectPaths';
+import { projectGameType } from './projects';
 import { objectExists, putObjectText } from './r2';
 
 interface Seed {
@@ -20,11 +22,21 @@ interface Seed {
 	contentType: string;
 }
 
-function buildSeeds(client: string, project: string): Seed[] {
+/**
+ * Seed the editor doc's scenes from the game type's template (§7.1): one empty
+ * `Scene` per `TemplateScene`, slots advertised as drop targets but unfilled.
+ * Without a template the doc starts blank, matching prior behaviour.
+ */
+function seedScenes(template: GameTemplate | undefined): Scene[] {
+	if (!template) return [];
+	return template.scenes.map((s) => ({ id: s.id, name: s.name, nodes: [] }));
+}
+
+function buildSeeds(client: string, project: string, template: GameTemplate | undefined): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
-	const scenes = { version: 1, projectKey: project, scenes: [] };
+	const scenes = { version: 1, projectKey: project, scenes: seedScenes(template) };
 
 	return [
 		{
@@ -62,7 +74,8 @@ function buildSeeds(client: string, project: string): Seed[] {
 
 /** Write any missing seed files for `(client, project)` into R2. */
 export async function scaffoldProject(client: string, project: string): Promise<void> {
-	for (const seed of buildSeeds(client, project)) {
+	const template = getTemplate(await projectGameType(project));
+	for (const seed of buildSeeds(client, project, template)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
 	}

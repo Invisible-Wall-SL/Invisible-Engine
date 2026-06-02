@@ -9,6 +9,11 @@ A web tool that takes a folder of individual sprite PNGs, arranges them into one
 packed sheet, lets you edit each region's name and per-region **AI fields**, then
 exports any of:
 
+> **Naming matters:** a symbol region's name encodes its pay-class (`H1` = high,
+> `S` = scatter, …). Follow [the symbol naming convention](../conventions/symbol-naming.md)
+> when naming regions — the engine keys behaviour off these names.
+
+
 - a **libGDX / Spine `.atlas`** (used by Spine + game runtimes),
 - a **TexturePacker JSON** sheet descriptor,
 - the **Invisible AI manifest** (`atlas_manifest_<name>.json`) that the

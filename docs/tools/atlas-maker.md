@@ -14,6 +14,9 @@ with one click. A Settings panel edits the global `atlas_config.json`.
 The actual image generation happens on **your local ComfyUI** (see
 [comfyui.md](comfyui.md)) — the cloud tool drives it over the Cloudflare tunnel.
 
+> Region names follow [the symbol naming convention](../conventions/symbol-naming.md)
+> (`H1` = high-pay, `S` = scatter, …) — the name encodes the pay-class.
+
 - **Source:** `services/atlas-tool/` (stdlib `http.server` + Pillow, no
   framework; UI is one embedded HTML page in `ui_server.py`).
 - **Where it runs:** cloud — Railway project `atlas-tools`

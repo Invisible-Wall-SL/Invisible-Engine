@@ -1,9 +1,10 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import type { LayoutDoc } from 'engine-layout';
+import { findUnfilledRequiredSlots, getTemplate, type LayoutDoc } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { loadDoc, saveDoc } from '$lib/server/editorStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
+import { projectGameType } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
@@ -37,7 +38,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 		loadDoc(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
 	]);
-	return { clientKey, projectKey, doc, assets };
+	// Template + initial slot warnings, so the UI shows slot state on first load
+	// (§7.1) — not only after a save round-trip.
+	const template = getTemplate(await projectGameType(projectKey));
+	const warnings = template ? findUnfilledRequiredSlots(doc, template) : [];
+	return { clientKey, projectKey, doc, assets, template, warnings };
 };
 
 export const actions: Actions = {
@@ -56,6 +61,10 @@ export const actions: Actions = {
 		// `saveDoc` normalizes + stamps `updatedAt`, so the wire payload is the
 		// only validation barrier we need.
 		const saved = await saveDoc(clientKey, projectKey, parsed as LayoutDoc);
-		return { action: 'save' as const, saved: true, updatedAt: saved.updatedAt };
+		// Non-blocking template validation (§7.1): flag any required slot the
+		// saved doc leaves unfilled, surfaced to the editor without rejecting.
+		const template = getTemplate(await projectGameType(projectKey));
+		const warnings = template ? findUnfilledRequiredSlots(saved, template) : [];
+		return { action: 'save' as const, saved: true, updatedAt: saved.updatedAt, warnings };
 	},
 };
