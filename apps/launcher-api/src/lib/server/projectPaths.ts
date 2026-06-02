@@ -20,7 +20,12 @@ export const UNASSIGNED_CLIENT = 'unassigned';
  * and the Python tools use. MUST stay byte-identical to the Python side.
  */
 export function r2Slug(name: string): string {
-	return name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'default';
+	return (
+		name
+			.toLowerCase()
+			.replace(/[^a-z0-9]/g, '_')
+			.slice(0, 60) || 'default'
+	);
 }
 
 /** Root of one project's R2 repository: `<client>/<project>` (no trailing slash). */
@@ -46,6 +51,15 @@ export const SUB = {
 
 /** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
 export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
+
+/**
+ * Editor game-type templates are GLOBAL (per game type, not per project), so they
+ * live under the shared `_shared/editor-templates/<gameType>.json` prefix (§7.5).
+ * This is the R2 override that takes precedence over the built-in code fallback.
+ */
+export function editorTemplateKey(gameType: string): string {
+	return `_shared/editor-templates/${r2Slug(gameType)}.json`;
+}
 
 export function localizationDocKey(client: string, project: string): string {
 	return `${SUB.localization(client, project)}/strings.json`;
