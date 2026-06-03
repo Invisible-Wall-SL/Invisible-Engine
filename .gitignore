@@ -72,3 +72,6 @@ tmp/
 
 # Python bytecode
 __pycache__/
+
+# Generated dry-run artifacts (e.g. scripts that emit *.dryrun.json)
+*.dryrun.json

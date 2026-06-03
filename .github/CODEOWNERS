@@ -1,0 +1,35 @@
+# CODEOWNERS — maps each area of the unified repo to an owner.
+#
+# Purpose here is twofold:
+#   1. Auto-request review from the right owner when a PR touches an area.
+#   2. Serve as the canonical "which path = which area" map. Keep the area
+#      names in sync with the commit scopes in scripts/check-commit-scope.mjs.
+#
+# Syntax: <path glob>  <owner...>   (last matching line wins)
+
+# Default owner for everything not matched below.
+*                                   @GuiltyForever
+
+# ── Engine + games (Track 1) ───────────────────────────────────────────────
+/packages/                          @GuiltyForever   # engine: shared libraries
+/apps/lines/                        @GuiltyForever   # games: template game
+/apps/cluster/                      @GuiltyForever   # games
+/apps/scatter/                      @GuiltyForever   # games
+/apps/ways/                         @GuiltyForever   # games
+/apps/number-picker/                @GuiltyForever   # games
+/apps/price/                        @GuiltyForever   # games
+
+# ── Launcher / Studio (Track 2) ────────────────────────────────────────────
+/apps/launcher-api/                 @GuiltyForever   # launcher + editor + admin
+
+# ── Python pipeline tools (Track 2) ────────────────────────────────────────
+/services/atlas-tool/               @GuiltyForever   # atlas-tool
+/services/atlas-backend/            @GuiltyForever   # atlas-backend
+/services/sheet-tool/               @GuiltyForever   # sheet-tool
+/services/test-server/              @GuiltyForever   # test-server
+/services/_shared/                  @GuiltyForever   # pipeline: iw_common
+
+# ── Cross-cutting ──────────────────────────────────────────────────────────
+/docs/                              @GuiltyForever   # docs
+/scripts/                          @GuiltyForever   # scripts / ci / build
+/.github/                           @GuiltyForever   # ci

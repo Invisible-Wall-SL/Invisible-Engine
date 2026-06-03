@@ -1,0 +1,5 @@
+#!/bin/sh
+# Shared commit-msg hook. Enable once per clone:
+#   git config core.hooksPath scripts/git-hooks
+# Requires a recognized scope prefix on the subject line.
+node scripts/check-commit-scope.mjs "$1" || exit 1
