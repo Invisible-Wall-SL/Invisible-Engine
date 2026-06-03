@@ -256,6 +256,6 @@ Shipped to `main` and executed end-to-end:
 - Code deployed: Python tools (committed alongside the lazy-hydrate/FX work) + launcher (`d839f62`) both on the unified layout; the launcher's hyphen/underscore slug bug fixed.
 - Smoke-tested on Borut/HotFruits + bookofborut: Sheet Maker loads shared manifests, packs generation manifests, and opens packed `.atlas` via the R2 Import browser.
 - **Phase B deleted 4902 old objects** — `atlas_maker/ sheet_maker/ localization/ editor/ spines/` (per-tool namespaces), the stale `book_of_borut` dupe, and the `cloud/batch`+`cloudtest/batch` strays. New layout intact (borut/hotfruits 1255, bookofborut 1292, unassigned/cloud 1158, invisible_wall/test1 42, salmons 11, borut/cloud 6).
-- One deliberate orphan left untouched: `localization/cloud/strings.json` (old client-less default; nothing reads it).
+- The lone `localization/cloud/strings.json` orphan (old client-less default) was deleted afterward — R2 is now fully clean (every old per-tool namespace lists 0 objects).
 
 Decisions captured: kept the active `bookofborut`, dropped the stale `book_of_borut`; `spines/hotfruits/*` legacy folded into `borut/hotfruits/spines/`.
