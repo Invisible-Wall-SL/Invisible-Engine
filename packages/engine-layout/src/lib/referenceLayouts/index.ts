@@ -1,7 +1,9 @@
 import type { LayoutDoc } from '../types';
+import { bookofReferenceLayout } from './bookof';
 import { defaultLayout } from './lines';
 
 export { defaultLayout } from './lines';
+export { bookofReferenceLayout } from './bookof';
 
 /**
  * A built-in, fully-placed reference layout for a game type — the engine-truth
@@ -18,6 +20,7 @@ export interface ReferenceLayout {
 
 const REFERENCE_LAYOUTS: ReferenceLayout[] = [
 	{ gameType: 'lines', name: 'Lines — base game', build: () => defaultLayout('lines') },
+	{ gameType: 'bookOf', name: 'Book of Borut — base game', build: bookofReferenceLayout },
 ];
 
 /** The game types that have a built-in placed layout (for a load picker). */
