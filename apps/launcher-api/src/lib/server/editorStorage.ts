@@ -51,12 +51,16 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	const obj = isRecord(input) ? input : {};
 	const projectKey =
 		typeof obj.projectKey === 'string' && obj.projectKey ? obj.projectKey : fallbackProjectKey;
+	const gameType =
+		typeof obj.gameType === 'string' && obj.gameType.trim() ? obj.gameType.trim() : undefined;
 	const mainSizesMap = normalizeMainSizesMap(obj.mainSizesMap);
 	const scenes = Array.isArray(obj.scenes)
 		? obj.scenes.map(normalizeScene).filter((s): s is Scene => s !== null)
 		: [];
 	const updatedAt = typeof obj.updatedAt === 'string' ? obj.updatedAt : '';
-	return { version: 1, projectKey, mainSizesMap, scenes, updatedAt };
+	const doc: LayoutDoc = { version: 1, projectKey, mainSizesMap, scenes, updatedAt };
+	if (gameType) doc.gameType = gameType;
+	return doc;
 }
 
 function normalizeMainSizesMap(

@@ -11,8 +11,10 @@
 		activeSceneId?: string;
 		/** Switch the editor to a template scene, creating it in the doc if missing. */
 		onPickScene?: (sceneId: string, sceneName: string) => void;
+		/** Fill a slot by dropping a Library asset onto its row (drag-to-slot). */
+		onFillSlot?: (sceneId: string, sceneName: string, slotId: string, payload: unknown) => void;
 	}
-	let { template, scenes, activeSceneId, onPickScene }: Props = $props();
+	let { template, scenes, activeSceneId, onPickScene, onFillSlot }: Props = $props();
 
 	function collectFilled(nodes: LayoutNode[], into: Set<string>): Set<string> {
 		for (const n of nodes) {
@@ -30,6 +32,41 @@
 	function sceneInDoc(sceneId: string): boolean {
 		return scenes.some((s) => s.id === sceneId);
 	}
+
+	/** `${sceneId}:${slotId}` of the slot row a Library asset is hovering over. */
+	let dragSlotKey = $state<string | null>(null);
+
+	/** `mount` slots are engine-owned anchors, not asset targets — not droppable. */
+	function isDroppable(kind: string): boolean {
+		return kind !== 'mount';
+	}
+
+	function onSlotDragOver(e: DragEvent, key: string, kind: string): void {
+		if (!e.dataTransfer || !isDroppable(kind)) return;
+		if (!Array.from(e.dataTransfer.types).includes('application/x-iw-asset')) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+		dragSlotKey = key;
+	}
+
+	function onSlotDrop(
+		e: DragEvent,
+		scene: { id: string; name: string },
+		slot: { slotId: string; kind: string },
+	): void {
+		dragSlotKey = null;
+		if (!e.dataTransfer || !isDroppable(slot.kind)) return;
+		const raw = e.dataTransfer.getData('application/x-iw-asset');
+		if (!raw) return;
+		e.preventDefault();
+		let payload: unknown;
+		try {
+			payload = JSON.parse(raw);
+		} catch {
+			return;
+		}
+		onFillSlot?.(scene.id, scene.name, slot.slotId, payload);
+	}
 </script>
 
 {#if !template}
@@ -41,9 +78,10 @@
 	<section class="tpl">
 		<h3>{template.gameType} <span class="count">template</span></h3>
 		<p class="hint">
-			To fill a slot: <strong>1.</strong> click its scene below · <strong>2.</strong> open the
-			<strong>Library</strong> tab and drag an asset onto the canvas · <strong>3.</strong> select it
-			and choose the slot in <strong>Properties</strong>.
+			To fill a slot: open the <strong>Library</strong> tab and <strong>drag an asset onto a
+			slot below</strong>. It's placed on the canvas, tagged to that slot. (Or drop it on the
+			canvas and pick the slot in <strong>Properties</strong>.) <span class="mount-note">Mount
+			slots are engine-owned anchors — no asset needed.</span>
 		</p>
 		{#each template.scenes as scene (scene.id)}
 			{@const filled = filledFor(scene.id)}
@@ -61,13 +99,21 @@
 				<ul class="slot-list">
 					{#each scene.slots as slot (slot.slotId)}
 						{@const isFilled = filled.has(slot.slotId)}
+						{@const slotKey = `${scene.id}:${slot.slotId}`}
 						<li>
 							<button
 								type="button"
 								class="slot"
 								class:missing={!isFilled && slot.required}
-								title="Edit {scene.name} to fill this slot"
+								class:dropping={dragSlotKey === slotKey}
+								class:droppable={isDroppable(slot.kind)}
+								title={isDroppable(slot.kind)
+									? `Drag a Library asset here to fill ${slot.name}`
+									: `${slot.name} is a mount slot (engine-owned anchor)`}
 								onclick={() => onPickScene?.(scene.id, scene.name)}
+								ondragover={(e) => onSlotDragOver(e, slotKey, slot.kind)}
+								ondragleave={() => (dragSlotKey = null)}
+								ondrop={(e) => onSlotDrop(e, scene, slot)}
 							>
 								<span class="dot" class:filled={isFilled}></span>
 								<span class="label">{slot.name}</span>
@@ -173,10 +219,18 @@
 	.slot:hover {
 		background: #16131c;
 	}
+	.slot.dropping {
+		border-color: #7ee0c0;
+		background: #14201c;
+		color: #cffaec;
+	}
 	.slot.missing {
 		border-color: #4a2a30;
 		background: #1f1418;
 		color: #ff9a9a;
+	}
+	.mount-note {
+		color: #666;
 	}
 	.dot {
 		width: 7px;

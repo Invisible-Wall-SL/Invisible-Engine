@@ -6,4 +6,5 @@ export * from './types';
 export * from './resolveTransform';
 export * from './registerBoundComponents';
 export * from './validateTemplate';
+export * from './seedScenes';
 export * from './templates';

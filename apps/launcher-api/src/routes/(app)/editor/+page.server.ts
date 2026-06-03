@@ -40,8 +40,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 		listProjectAssets(clientKey, projectKey),
 	]);
 	// Template + initial slot warnings, so the UI shows slot state on first load
-	// (§7.1) — not only after a save round-trip.
-	const template = await loadTemplate(await projectGameType(projectKey));
+	// (§7.1) — not only after a save round-trip. Resolve from the doc's persisted
+	// `gameType` first (the author's choice sticks across sessions), falling back
+	// to the project's resolved game type when the doc predates that field.
+	const template = await loadTemplate(doc.gameType ?? (await projectGameType(projectKey)));
 	const warnings = template ? findUnfilledRequiredSlots(doc, template) : [];
 	return { clientKey, projectKey, doc, assets, template, warnings };
 };
@@ -64,7 +66,7 @@ export const actions: Actions = {
 		const saved = await saveDoc(clientKey, projectKey, parsed as LayoutDoc);
 		// Non-blocking template validation (§7.1): flag any required slot the
 		// saved doc leaves unfilled, surfaced to the editor without rejecting.
-		const template = await loadTemplate(await projectGameType(projectKey));
+		const template = await loadTemplate(saved.gameType ?? (await projectGameType(projectKey)));
 		const warnings = template ? findUnfilledRequiredSlots(saved, template) : [];
 		return { action: 'save' as const, saved: true, updatedAt: saved.updatedAt, warnings };
 	},

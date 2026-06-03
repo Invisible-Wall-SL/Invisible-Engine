@@ -4,7 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
-import { type GameTemplate, type Scene } from 'engine-layout';
+import { type GameTemplate } from 'engine-layout';
 import { normalizeDoc } from './localization';
 import {
 	SUB,
@@ -15,7 +15,7 @@ import {
 } from './projectPaths';
 import { projectGameType } from './projects';
 import { objectExists, putObjectText } from './r2';
-import { loadTemplate } from './templateStorage';
+import { loadTemplate, seedScenesFromTemplate } from './templateStorage';
 
 interface Seed {
 	key: string;
@@ -23,21 +23,16 @@ interface Seed {
 	contentType: string;
 }
 
-/**
- * Seed the editor doc's scenes from the game type's template (§7.1): one empty
- * `Scene` per `TemplateScene`, slots advertised as drop targets but unfilled.
- * Without a template the doc starts blank, matching prior behaviour.
- */
-function seedScenes(template: GameTemplate | undefined): Scene[] {
-	if (!template) return [];
-	return template.scenes.map((s) => ({ id: s.id, name: s.name, nodes: [] }));
-}
-
 function buildSeeds(client: string, project: string, template: GameTemplate | undefined): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
-	const scenes = { version: 1, projectKey: project, scenes: seedScenes(template) };
+	const scenes = {
+		version: 1,
+		projectKey: project,
+		gameType: template?.gameType,
+		scenes: seedScenesFromTemplate(template),
+	};
 
 	return [
 		{

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import Emblem from '$lib/Emblem.svelte';
-	import { findUnfilledRequiredSlots } from 'engine-layout';
+	import { findUnfilledRequiredSlots, seedScenesFromTemplate } from 'engine-layout';
 	import type {
 		GameTemplate,
 		LayoutNode,
@@ -168,6 +168,48 @@
 		selectedId = null;
 	}
 
+	/** Bumped each drag-onto-a-slot so the canvas spawns the asset exactly once. */
+	let fillRequest = $state<{ payload: unknown; slotId: string; seq: number } | null>(null);
+	let fillSeq = 0;
+
+	/** Drag-to-slot: switch to the slot's scene, then ask the canvas to spawn the
+	 * dropped Library asset at frame centre, tagged with `slotId` (so it fills the
+	 * slot). The canvas owns spawning so region-preview seeding still happens. */
+	function onFillSlot(
+		sceneId: string,
+		sceneName: string,
+		slotId: string,
+		payload: unknown,
+	): void {
+		goToTemplateScene(sceneId, sceneName);
+		fillSeq += 1;
+		fillRequest = { payload, slotId, seq: fillSeq };
+	}
+
+	/** Replace the current scenes with the game type's template scaffold (§7.1/§7.2):
+	 * one scene per template scene, with `mount`-slot anchors placed and artist
+	 * slots advertised empty — the "open the existing game" starting point. Confirms
+	 * before discarding placed nodes. */
+	function loadGameStructure(): void {
+		if (!activeTemplate) return;
+		const seeded = seedScenesFromTemplate(activeTemplate);
+		if (seeded.length === 0) return;
+		const hasContent = scenes.some((s) => s.nodes.length > 0);
+		if (
+			hasContent &&
+			!confirm(
+				`Replace the current layout with the empty ${activeTemplate.gameType} game structure? ` +
+					'Nodes you have placed will be removed.',
+			)
+		) {
+			return;
+		}
+		scenes = seeded;
+		activeSceneIdx = 0;
+		selectedId = null;
+		markDirty();
+	}
+
 	function removeNode(nodes: LayoutNode[], id: string): boolean {
 		const i = nodes.findIndex((n) => n.id === id);
 		if (i !== -1) {
@@ -212,6 +254,7 @@
 		return {
 			version: data.doc.version,
 			projectKey: data.projectKey,
+			gameType: authoringGameType,
 			mainSizesMap: data.doc.mainSizesMap,
 			scenes,
 			updatedAt: lastSavedAt,
@@ -302,6 +345,14 @@
 			activeTemplate = undefined;
 		}
 		slotMeta = seedSlotMeta(activeTemplate);
+	}
+
+	/** Pick the project's game type: load that template's slots AND persist the
+	 * choice into the doc (autosave writes `gameType`), so it sticks across reloads
+	 * instead of resetting to the resolved default each session. */
+	async function onGameTypeChange(): Promise<void> {
+		await loadTemplateFor(authoringGameType);
+		markDirty();
 	}
 
 	let templateBusy = $state(false);
@@ -589,31 +640,53 @@
 				</span>
 			{/if}
 			<span class="dot-sep">·</span>
+			<label class="gametype" title="Game type — loads its slots; saved with the project">
+				<span>type</span>
+				<select bind:value={authoringGameType} onchange={() => void onGameTypeChange()}>
+					{#each GAME_TYPES as gt (gt)}
+						<option value={gt}>{gt}</option>
+					{/each}
+				</select>
+			</label>
 			<button
 				type="button"
 				class="save-btn"
-				class:active-mode={templateMode}
-				aria-pressed={templateMode}
-				title="Author the game-type template (tag nodes as slots, export a GameTemplate)"
-				onclick={() => {
-					templateMode = !templateMode;
-					leftTab = templateMode ? 'template' : 'library';
-				}}
+				disabled={!activeTemplate}
+				title="Replace the layout with this game type's scenes + slot scaffold (mount anchors placed, artist slots left empty for your assets)"
+				onclick={loadGameStructure}
 			>
-				Template mode
+				Load game structure
 			</button>
+			<span class="dot-sep">·</span>
+			<div class="mode-toggle" role="tablist" aria-label="Editor mode">
+				<button
+					role="tab"
+					aria-selected={!templateMode}
+					class="mode-btn"
+					class:active={!templateMode}
+					title="Fill mode — place your assets into the game's slots"
+					onclick={() => {
+						templateMode = false;
+						if (leftTab === 'template') leftTab = 'library';
+					}}
+				>
+					Fill
+				</button>
+				<button
+					role="tab"
+					aria-selected={templateMode}
+					class="mode-btn"
+					class:active={templateMode}
+					title="Template mode — define which slots this game type has"
+					onclick={() => {
+						templateMode = true;
+						leftTab = 'template';
+					}}
+				>
+					Template
+				</button>
+			</div>
 			{#if templateMode}
-				<label class="gametype" title="Game type — loads that template and saves under it">
-					<span>type</span>
-					<select
-						bind:value={authoringGameType}
-						onchange={() => void loadTemplateFor(authoringGameType)}
-					>
-						{#each GAME_TYPES as gt (gt)}
-							<option value={gt}>{gt}</option>
-						{/each}
-					</select>
-				</label>
 				{#if templateBusy}
 					<span class="save-pill busy">Saving template…</span>
 				{:else if templateStatus?.kind === 'error'}
@@ -627,6 +700,19 @@
 			{/if}
 		</div>
 	</header>
+
+	<div class="mode-banner" class:template={templateMode}>
+		{#if templateMode}
+			<strong>TEMPLATE MODE</strong> — define which slots the
+			<code>{authoringGameType}</code> game type has: tag nodes as slots in Properties, set
+			<em>required</em>, then <strong>Save template</strong>. (This authors the schema, it doesn't
+			place your art.)
+		{:else}
+			<strong>FILL MODE</strong> — build this game: open the <strong>Template</strong> tab and
+			<strong>drag a Library asset onto a slot</strong> (or onto the canvas, then pick its slot in
+			Properties). Use <strong>Load game structure</strong> to start from the game's scenes.
+		{/if}
+	</div>
 
 	<div class="layout">
 		<aside class="left">
@@ -747,6 +833,7 @@
 						{scenes}
 						activeSceneId={activeScene?.id}
 						onPickScene={goToTemplateScene}
+						{onFillSlot}
 					/>
 				{:else}
 					<EditorOutline
@@ -754,6 +841,7 @@
 						template={activeTemplate}
 						{selectedId}
 						onSelect={(id) => (selectedId = id)}
+						{onFillSlot}
 					/>
 				{/if}
 			</div>
@@ -769,6 +857,7 @@
 				bind:selectedId
 				onDirty={markDirty}
 				onDelete={onDeleteNode}
+				{fillRequest}
 			/>
 		</main>
 
@@ -803,7 +892,7 @@
 <style>
 	.shell {
 		display: grid;
-		grid-template-rows: auto 1fr auto;
+		grid-template-rows: auto auto 1fr auto;
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
@@ -918,10 +1007,61 @@
 		border-color: #7ee0c0;
 		color: #7ee0c0;
 	}
-	.save-btn.active-mode {
-		background: #1a1a22;
-		border-color: #6b5bff;
+	.save-btn:disabled {
+		opacity: 0.4;
+		cursor: default;
+		border-color: #2a2a33;
+		color: #555;
+	}
+	.mode-toggle {
+		display: inline-flex;
+		gap: 2px;
+		background: #16161c;
+		border: 1px solid #1f1f28;
+		border-radius: 999px;
+		padding: 3px;
+	}
+	.mode-btn {
+		background: transparent;
+		border: none;
+		color: #888;
+		padding: 3px 12px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		border-radius: 999px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.mode-btn:hover {
+		color: #ccc;
+	}
+	.mode-btn.active {
+		background: #1a1622;
 		color: #c8a3ff;
+	}
+	.mode-banner {
+		padding: 7px 24px;
+		border-bottom: 1px solid #1c1c24;
+		background: #0c1512;
+		color: #9fb8ad;
+		font-size: 12px;
+		line-height: 1.4;
+	}
+	.mode-banner.template {
+		background: #130f1a;
+		color: #b6a3cf;
+	}
+	.mode-banner strong {
+		color: #7ee0c0;
+		letter-spacing: 0.04em;
+	}
+	.mode-banner.template strong {
+		color: #c8a3ff;
+	}
+	.mode-banner code {
+		color: #c8a3ff;
+		font-family: ui-monospace, monospace;
 	}
 	.gametype {
 		display: inline-flex;

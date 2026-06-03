@@ -39,6 +39,13 @@
 		onDirty?: () => void;
 		/** Remove the node with this id from the active scene + clear selection. */
 		onDelete?: (id: string) => void;
+		/**
+		 * Drag-onto-a-slot request from the page: spawn `payload` at frame centre,
+		 * tagged with `slotId`. `seq` dedupes (bump it to fire a new fill); a null
+		 * request is a no-op. Routed through a prop rather than a method call so the
+		 * page never needs the canvas's internal payload type.
+		 */
+		fillRequest?: { payload: unknown; slotId: string; seq: number } | null;
 	}
 
 	let {
@@ -50,6 +57,7 @@
 		selectedId = $bindable(null),
 		onDirty,
 		onDelete,
+		fillRequest = null,
 	}: Props = $props();
 
 	function getOverride(node: LayoutNode) {
@@ -939,6 +947,32 @@
 				return null;
 		}
 	}
+
+	/**
+	 * Programmatic fill (drag-onto-a-slot): spawn a node from a Library drag
+	 * payload at the frame centre and tag it with `slotId`. Reuses the same
+	 * `spawnNode` (region-preview seeding included) + `onSpawn` callback as a
+	 * canvas drop, so panel/outline slot drops and canvas drops share one spawn
+	 * code path.
+	 */
+	function fillSlotFromPayload(p: DragPayload, slotId: string): void {
+		const pos: Vec2 = { x: frameWidth / 2, y: frameHeight / 2 };
+		const node = spawnNode(p, pos);
+		if (!node) return;
+		node.slotId = slotId;
+		onSpawn(node, pos);
+		onDirty?.();
+	}
+
+	// Drag-onto-a-slot arrives as a `fillRequest` prop bumped by the page; the
+	// `seq` dedupes so the same request fires the spawn exactly once.
+	let handledFillSeq = -1;
+	$effect(() => {
+		const req = fillRequest;
+		if (!req || req.seq === handledFillSeq) return;
+		handledFillSeq = req.seq;
+		fillSlotFromPayload(req.payload as DragPayload, req.slotId);
+	});
 
 	function fitView(): void {
 		if (!wrap) return;

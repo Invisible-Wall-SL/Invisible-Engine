@@ -6,8 +6,41 @@
 		template: GameTemplate | undefined;
 		selectedId: string | null;
 		onSelect: (id: string) => void;
+		/** Fill a slot by dropping a Library asset onto its row (drag-to-slot). */
+		onFillSlot?: (sceneId: string, sceneName: string, slotId: string, payload: unknown) => void;
 	}
-	let { scene, template, selectedId, onSelect }: Props = $props();
+	let { scene, template, selectedId, onSelect, onFillSlot }: Props = $props();
+
+	/** `slotId` of the slot row a Library asset is hovering over. */
+	let dragSlotId = $state<string | null>(null);
+
+	/** `mount` slots are engine-owned anchors, not asset targets — not droppable. */
+	function isDroppable(kind: string): boolean {
+		return kind !== 'mount';
+	}
+
+	function onSlotDragOver(e: DragEvent, slotId: string, kind: string): void {
+		if (!e.dataTransfer || !isDroppable(kind)) return;
+		if (!Array.from(e.dataTransfer.types).includes('application/x-iw-asset')) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+		dragSlotId = slotId;
+	}
+
+	function onSlotDrop(e: DragEvent, slotId: string, kind: string): void {
+		dragSlotId = null;
+		if (!scene || !e.dataTransfer || !isDroppable(kind)) return;
+		const raw = e.dataTransfer.getData('application/x-iw-asset');
+		if (!raw) return;
+		e.preventDefault();
+		let payload: unknown;
+		try {
+			payload = JSON.parse(raw);
+		} catch {
+			return;
+		}
+		onFillSlot?.(scene.id, scene.name, slotId, payload);
+	}
 
 	function kindGlyph(kind: LayoutNode['kind']): string {
 		switch (kind) {
@@ -66,11 +99,25 @@
 			{#each slots as slot (slot.slotId)}
 				{@const isFilled = filled.has(slot.slotId)}
 				{@const missing = !isFilled && slot.required}
-				<li class="slot" class:missing>
-					<span class="dot" class:filled={isFilled}></span>
-					<span class="label">{slot.name}</span>
-					<span class="kind">{slot.kind}</span>
-					<span class="status" class:missing>{isFilled ? 'filled' : 'empty'}</span>
+				<li>
+					<button
+						type="button"
+						class="slot"
+						class:missing
+						class:dropping={dragSlotId === slot.slotId}
+						class:droppable={isDroppable(slot.kind)}
+						title={isDroppable(slot.kind)
+							? `Drag a Library asset here to fill ${slot.name}`
+							: `${slot.name} is a mount slot (engine-owned anchor)`}
+						ondragover={(e) => onSlotDragOver(e, slot.slotId, slot.kind)}
+						ondragleave={() => (dragSlotId = null)}
+						ondrop={(e) => onSlotDrop(e, slot.slotId, slot.kind)}
+					>
+						<span class="dot" class:filled={isFilled}></span>
+						<span class="label">{slot.name}</span>
+						<span class="kind">{slot.kind}</span>
+						<span class="status" class:missing>{isFilled ? 'filled' : 'empty'}</span>
+					</button>
 				</li>
 			{/each}
 		</ul>
@@ -176,11 +223,24 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		width: 100%;
+		text-align: left;
 		padding: 5px 8px;
 		font-size: 12px;
 		border-radius: 6px;
 		border: 1px solid transparent;
+		background: transparent;
 		color: #c8c8d0;
+		font-family: inherit;
+		cursor: default;
+	}
+	.slot.droppable {
+		cursor: copy;
+	}
+	.slot.dropping {
+		border-color: #7ee0c0;
+		background: #14201c;
+		color: #cffaec;
 	}
 	.slot.missing {
 		border-color: #4a2a30;

@@ -8,6 +8,9 @@ import {
 import { editorTemplateKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 
+// Re-exported so server callers (projectScaffold) keep importing it from here.
+export { seedScenesFromTemplate } from 'engine-layout';
+
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
 
 /**
