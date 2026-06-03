@@ -1,41 +1,70 @@
-import { type Cookies } from '@sveltejs/kit';
+import { error, type Cookies } from '@sveltejs/kit';
 import * as toolScope from '$lib/server/toolScope';
 
 /**
- * FTP-browser scope — a thin wrapper over the shared `toolScope`. The browser
- * exposes the project's OWN namespaces only (no `spines/_shared/`, no other
- * client/project), so a user can never see or touch files outside the active
- * repository. The prefix layout + gate sequence live in `toolScope` (single
- * source); this module just binds them to the `ftpBrowser` tool and keeps the
- * `(key, clientKey, projectKey)` call shape the `/api/files/*` endpoints use.
+ * FTP-browser scope. Two modes, decided by role:
+ *
+ * - **Scoped** (developers): a thin wrapper over the shared `toolScope` — the
+ *   browser exposes the active project's OWN namespaces only, so a developer can
+ *   never see or touch files outside the active (client, project).
+ * - **Full** (admins): the whole R2 bucket is browsable from the root; the only
+ *   constraint left is that keys stay escape-free. This powers the admin-only
+ *   "full server" view (R2 + Railway/Postgres tabs).
+ *
+ * The prefix layout + scoped gate sequence live in `toolScope` (single source);
+ * this module binds them to the `ftpBrowser` tool and folds the admin mode in.
  */
 
-/** Every R2-key prefix (trailing `/`) the active (client, project) may touch. */
-export function allowedPrefixes(clientKey: string, projectKey: string): string[] {
-	return toolScope.allowedPrefixes(clientKey, projectKey);
+export interface FtpScope {
+	/** Admin full-bucket mode: browse the entire bucket, no project scoping. */
+	full: boolean;
+	clientKey: string;
+	projectKey: string;
 }
 
-/** True when `key` is non-empty, escape-free, and inside an allowed prefix. */
-export function isKeyAllowed(key: string, clientKey: string, projectKey: string): boolean {
-	return toolScope.isKeyAllowed(key, allowedPrefixes(clientKey, projectKey));
+/** A non-empty, escape-free R2 key (no `..`, no leading `/`). */
+function isSafeKey(key: string): boolean {
+	return Boolean(key) && !key.includes('..') && !key.startsWith('/');
 }
 
-/** Throw 403 unless `key` is allowed for the active (client, project). */
-export function assertAllowed(key: string, clientKey: string, projectKey: string): void {
-	toolScope.assertAllowed(key, allowedPrefixes(clientKey, projectKey));
+/**
+ * The top-level folders to seed the browser root with. Scoped mode returns the
+ * project's tool namespaces; full mode returns `[]` (the page lists the live
+ * bucket root via `/api/files/list` instead).
+ */
+export function rootPrefixes(scope: FtpScope): string[] {
+	return scope.full ? [] : toolScope.allowedPrefixes(scope.clientKey, scope.projectKey);
+}
+
+/** True when `key` is safe and inside the scope (any safe key in full mode). */
+export function isKeyAllowed(key: string, scope: FtpScope): boolean {
+	if (!isSafeKey(key)) return false;
+	if (scope.full) return true;
+	return toolScope.isKeyAllowed(key, toolScope.allowedPrefixes(scope.clientKey, scope.projectKey));
+}
+
+/** Throw 403 unless `key` is allowed for the given scope. */
+export function assertAllowed(key: string, scope: FtpScope): void {
+	if (!isKeyAllowed(key, scope)) throw error(403, 'forbidden');
 }
 
 /**
  * Auth + role gate for the page loader and every `/api/files/*` endpoint. Gates
- * on `ftpBrowser` and resolves the session-bound active project. Throws 401/403.
+ * on `ftpBrowser` and resolves the session-bound active project, then flags
+ * `full` for the built-in `admin` role. Throws 401/403.
  */
-export async function gate(
-	locals: App.Locals,
-	cookies: Cookies,
-): Promise<{ clientKey: string; projectKey: string }> {
+export async function gate(locals: App.Locals, cookies: Cookies): Promise<FtpScope> {
 	const { clientKey, projectKey } = await toolScope.gate(locals, cookies, {
 		tool: 'ftpBrowser',
 		forbiddenMessage: 'Your role does not have access to the Invisible FTP Browser.',
 	});
-	return { clientKey, projectKey };
+	const full = locals.user?.role === 'admin';
+	return { full, clientKey, projectKey };
+}
+
+/** Like `gate`, but requires full (admin) mode — used by the Railway/Postgres tab. */
+export async function gateFull(locals: App.Locals, cookies: Cookies): Promise<FtpScope> {
+	const scope = await gate(locals, cookies);
+	if (!scope.full) throw error(403, 'Admins only.');
+	return scope;
 }

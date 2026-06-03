@@ -15,7 +15,7 @@ interface MoveBody {
  * prefixes before any write.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies);
+	const scope = await gate(locals, cookies);
 
 	let body: MoveBody;
 	try {
@@ -30,8 +30,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		throw error(400, 'from and to are required');
 	}
 	if (from === to) throw error(400, 'from and to are identical');
-	assertAllowed(from, clientKey, projectKey);
-	assertAllowed(to, clientKey, projectKey);
+	assertAllowed(from, scope);
+	assertAllowed(to, scope);
 
 	if (from.endsWith('/')) {
 		if (!to.endsWith('/')) throw error(400, 'folder destination must end with /');
@@ -39,7 +39,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const toDelete: string[] = [];
 		for (const key of keys) {
 			const dest = to + key.slice(from.length);
-			assertAllowed(dest, clientKey, projectKey);
+			assertAllowed(dest, scope);
 			await copyObject(key, dest);
 			toDelete.push(key);
 		}
