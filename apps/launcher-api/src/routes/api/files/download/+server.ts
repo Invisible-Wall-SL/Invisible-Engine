@@ -30,13 +30,13 @@ function attachmentName(key: string): string {
 	return base.replace(/["\\]/g, '_');
 }
 
-/** Auth-gated, project-scoped streamer that forces a download (attachment). */
+/** Auth-gated, scope-validated streamer that forces a download (attachment). */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies);
+	const scope = await gate(locals, cookies);
 
 	const key = url.searchParams.get('key');
 	if (!key) throw error(400, 'missing key');
-	assertAllowed(key, clientKey, projectKey);
+	assertAllowed(key, scope);
 
 	const obj = await getObjectBytes(key);
 	if (!obj) throw error(404, 'not found');

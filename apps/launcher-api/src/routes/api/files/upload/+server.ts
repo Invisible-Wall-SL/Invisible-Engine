@@ -20,13 +20,13 @@ function safeName(name: string): string | null {
  * against the project's allowed prefixes before any write.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies);
+	const scope = await gate(locals, cookies);
 
 	const form = await request.formData();
 	const prefix = form.get('prefix');
 	if (typeof prefix !== 'string' || !prefix) throw error(400, 'missing prefix');
 	if (!prefix.endsWith('/')) throw error(400, 'prefix must end with /');
-	assertAllowed(prefix, clientKey, projectKey);
+	assertAllowed(prefix, scope);
 
 	const files = form.getAll('file').filter((f): f is File => f instanceof File);
 	if (files.length === 0) throw error(400, 'no files');
@@ -40,7 +40,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const name = safeName(file.name);
 		if (!name) throw error(400, `invalid file name: ${file.name}`);
 		const destKey = prefix + name;
-		assertAllowed(destKey, clientKey, projectKey);
+		assertAllowed(destKey, scope);
 		const bytes = new Uint8Array(await file.arrayBuffer());
 		await putObjectBytes(destKey, bytes, file.type || 'application/octet-stream');
 		uploaded.push(destKey);

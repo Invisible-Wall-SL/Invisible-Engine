@@ -14,7 +14,7 @@ interface DeleteBody {
  * the project's allowed prefixes before deletion.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies);
+	const scope = await gate(locals, cookies);
 
 	let body: DeleteBody;
 	try {
@@ -27,12 +27,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (Array.isArray(body.keys)) {
 		const keys = body.keys.filter((k): k is string => typeof k === 'string');
 		if (keys.length === 0) throw error(400, 'no keys');
-		for (const k of keys) assertAllowed(k, clientKey, projectKey);
+		for (const k of keys) assertAllowed(k, scope);
 		targets = keys;
 	} else if (typeof body.prefix === 'string' && body.prefix) {
-		assertAllowed(body.prefix, clientKey, projectKey);
+		assertAllowed(body.prefix, scope);
 		targets = await listAllKeys(body.prefix);
-		for (const k of targets) assertAllowed(k, clientKey, projectKey);
+		for (const k of targets) assertAllowed(k, scope);
 	} else {
 		throw error(400, 'provide keys[] or prefix');
 	}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Emblem from '$lib/Emblem.svelte';
 	import type { PageData } from './$types';
 
@@ -10,7 +11,11 @@
 		lastModified: string | null;
 	}
 
-	/** Current folder prefix (`''` = root namespace list). */
+	/** Admin "full server" mode: browse the whole bucket + the Railway/Postgres tab. */
+	const full = data.full;
+	let tab = $state<'r2' | 'db'>('r2');
+
+	/** Current folder prefix (`''` = root). */
 	let prefix = $state('');
 	let folders = $state<string[]>(data.rootFolders);
 	let files = $state<FileEntry[]>([]);
@@ -24,6 +29,11 @@
 
 	const atRoot = $derived(prefix === '');
 	const selectedKeys = $derived(Object.keys(selected).filter((k) => selected[k]));
+
+	// Full mode seeds an empty root, so fetch the live bucket root on mount.
+	onMount(() => {
+		if (full) void load('');
+	});
 
 	/** Breadcrumb segments from the current prefix, each with the prefix to jump to. */
 	const crumbs = $derived.by(() => {
@@ -43,7 +53,7 @@
 		return trimmed.slice(trimmed.lastIndexOf('/') + 1);
 	}
 
-	/** Friendly names for the top-level tool-namespace folders shown at root. */
+	/** Friendly names for the project tool-namespace folders shown at a scoped root. */
 	const NS_LABELS: Record<string, string> = {
 		atlas_maker: 'Atlas Maker',
 		sheet_maker: 'Sheet Maker',
@@ -53,11 +63,12 @@
 	};
 
 	/**
-	 * Folder display label. At root the five entries share the same final segment
-	 * (`<project>`), so label them by their tool namespace (first segment) instead.
+	 * Folder display label. At a scoped root the entries share the same final
+	 * segment (`<project>`), so label them by their tool namespace; everywhere else
+	 * (and the whole full-mode tree) just show the folder's own name.
 	 */
 	function folderLabel(key: string): string {
-		if (atRoot) {
+		if (atRoot && !full) {
 			const ns = key.split('/')[0];
 			return NS_LABELS[ns] ?? ns;
 		}
@@ -194,6 +205,79 @@
 			busy = false;
 		}
 	}
+
+	// ── Railway / Postgres browser ──────────────────────────────────────────────
+	const DB_PAGE = 50;
+	let dbTables = $state<string[]>([]);
+	let dbTablesLoaded = $state(false);
+	let dbTable = $state('');
+	let dbColumns = $state<string[]>([]);
+	let dbRows = $state<Record<string, unknown>[]>([]);
+	let dbTotal = $state(0);
+	let dbOffset = $state(0);
+	let dbLoading = $state(false);
+	let dbError = $state('');
+
+	function openDbTab(): void {
+		tab = 'db';
+		if (!dbTablesLoaded) void loadTables();
+	}
+
+	async function loadTables(): Promise<void> {
+		dbError = '';
+		dbLoading = true;
+		try {
+			const res = await fetch('/api/db/tables');
+			if (!res.ok) throw new Error(await errText(res));
+			const body = (await res.json()) as { tables: string[] };
+			dbTables = body.tables;
+			dbTablesLoaded = true;
+		} catch (e) {
+			dbError = e instanceof Error ? e.message : 'Failed to load tables.';
+		} finally {
+			dbLoading = false;
+		}
+	}
+
+	async function openTable(table: string, offset = 0): Promise<void> {
+		dbError = '';
+		dbLoading = true;
+		try {
+			const params = new URLSearchParams({
+				table,
+				limit: String(DB_PAGE),
+				offset: String(offset),
+			});
+			const res = await fetch(`/api/db/rows?${params}`);
+			if (!res.ok) throw new Error(await errText(res));
+			const body = (await res.json()) as {
+				columns: string[];
+				rows: Record<string, unknown>[];
+				total: number;
+			};
+			dbTable = table;
+			dbColumns = body.columns;
+			dbRows = body.rows;
+			dbTotal = body.total;
+			dbOffset = offset;
+		} catch (e) {
+			dbError = e instanceof Error ? e.message : 'Failed to load rows.';
+		} finally {
+			dbLoading = false;
+		}
+	}
+
+	function cellText(v: unknown): string {
+		if (v === null || v === undefined) return '';
+		if (typeof v === 'object') return JSON.stringify(v);
+		return String(v);
+	}
+
+	const dbRangeLabel = $derived(
+		dbTotal === 0
+			? '0 rows'
+			: `${dbOffset + 1}–${dbOffset + dbRows.length} of ${dbTotal}`,
+	);
 </script>
 
 <svelte:head><title>Invisible FTP Browser — Invisible Wall</title></svelte:head>
@@ -202,95 +286,183 @@
 	<header>
 		<a class="brand" href="/"><Emblem height={18} /> INVISIBLE FTP BROWSER</a>
 		<div class="meta">
-			<span class="project">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
-			{#if busy || loading}<span class="status">Working…</span>{/if}
+			{#if full}
+				<span class="project">Full server <strong>(admin)</strong></span>
+			{:else}
+				<span class="project">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
+			{/if}
+			{#if busy || loading || dbLoading}<span class="status">Working…</span>{/if}
 		</div>
 	</header>
 
-	<nav class="crumbs">
-		<button class="crumb" type="button" onclick={() => openFolder('')}>root</button>
-		{#each crumbs as c (c.target)}
-			<span class="sep">/</span>
-			<button class="crumb" type="button" onclick={() => openFolder(c.target)}>{c.label}</button>
-		{/each}
-	</nav>
+	{#if full}
+		<nav class="tabs">
+			<button class="tab" class:active={tab === 'r2'} type="button" onclick={() => (tab = 'r2')}>
+				R2 Storage
+			</button>
+			<button class="tab" class:active={tab === 'db'} type="button" onclick={openDbTab}>
+				Railway (Postgres)
+			</button>
+		</nav>
+	{/if}
 
-	<div class="toolbar">
-		{#if !atRoot}
-			<input
-				type="file"
-				multiple
-				bind:this={fileInput}
-				onchange={(e) => void uploadFiles(e.currentTarget.files)}
-				disabled={busy}
-			/>
-			<button type="button" onclick={() => fileInput?.click()} disabled={busy}>Upload here</button>
-			{#if selectedKeys.length > 0}
-				<button class="danger" type="button" onclick={() => void deleteKeys(selectedKeys)} disabled={busy}>
-					Delete selected ({selectedKeys.length})
-				</button>
-			{/if}
-		{:else}
-			<span class="muted">Pick a tool folder to browse this project's files.</span>
-		{/if}
-		<button class="ghost" type="button" onclick={() => void refresh()} disabled={busy || loading}>
-			Refresh
-		</button>
-	</div>
+	{#if tab === 'r2'}
+		<nav class="crumbs">
+			<button class="crumb" type="button" onclick={() => openFolder('')}>
+				{full ? 'bucket' : 'root'}
+			</button>
+			{#each crumbs as c (c.target)}
+				<span class="sep">/</span>
+				<button class="crumb" type="button" onclick={() => openFolder(c.target)}>{c.label}</button>
+			{/each}
+		</nav>
 
-	{#if errorMsg}<p class="error">{errorMsg}</p>{/if}
-
-	<div class="listing">
-		{#if folders.length === 0 && files.length === 0 && !loading}
-			<p class="muted empty">This folder is empty.</p>
-		{/if}
-
-		{#each folders as f (f)}
-			<div class="row folder">
-				<span class="cell name">
-					<button type="button" class="namebtn" onclick={() => openFolder(f)}>
-						📁 {folderLabel(f)}
+		<div class="toolbar">
+			{#if !atRoot}
+				<input
+					type="file"
+					multiple
+					bind:this={fileInput}
+					onchange={(e) => void uploadFiles(e.currentTarget.files)}
+					disabled={busy}
+				/>
+				<button type="button" onclick={() => fileInput?.click()} disabled={busy}>Upload here</button>
+				{#if selectedKeys.length > 0}
+					<button class="danger" type="button" onclick={() => void deleteKeys(selectedKeys)} disabled={busy}>
+						Delete selected ({selectedKeys.length})
 					</button>
+				{/if}
+			{:else}
+				<span class="muted">
+					{full ? 'Open a folder to browse the bucket.' : "Pick a tool folder to browse this project's files."}
 				</span>
-				<span class="cell size"></span>
-				<span class="cell date"></span>
-				<span class="cell actions">
-					{#if !atRoot}
-						<button type="button" onclick={() => void rename(f, true)} disabled={busy}>Move</button>
-						<button class="danger" type="button" onclick={() => void deleteFolder(f)} disabled={busy}>
+			{/if}
+			<button class="ghost" type="button" onclick={() => void refresh()} disabled={busy || loading}>
+				Refresh
+			</button>
+		</div>
+
+		{#if errorMsg}<p class="error">{errorMsg}</p>{/if}
+
+		<div class="listing">
+			{#if folders.length === 0 && files.length === 0 && !loading}
+				<p class="muted empty">This folder is empty.</p>
+			{/if}
+
+			{#each folders as f (f)}
+				<div class="row folder">
+					<span class="cell name">
+						<button type="button" class="namebtn" onclick={() => openFolder(f)}>
+							📁 {folderLabel(f)}
+						</button>
+					</span>
+					<span class="cell size"></span>
+					<span class="cell date"></span>
+					<span class="cell actions">
+						{#if !atRoot}
+							<button type="button" onclick={() => void rename(f, true)} disabled={busy}>Move</button>
+							<button class="danger" type="button" onclick={() => void deleteFolder(f)} disabled={busy}>
+								Delete
+							</button>
+						{/if}
+					</span>
+				</div>
+			{/each}
+
+			{#each files as file (file.key)}
+				<div class="row">
+					<span class="cell name">
+						<input type="checkbox" bind:checked={selected[file.key]} />
+						<span class="fname" title={file.key}>{basename(file.key)}</span>
+					</span>
+					<span class="cell size">{humanSize(file.size)}</span>
+					<span class="cell date">{humanDate(file.lastModified)}</span>
+					<span class="cell actions">
+						<a href={downloadUrl(file.key)}>Download</a>
+						<button type="button" onclick={() => void rename(file.key, false)} disabled={busy}>
+							Move
+						</button>
+						<button class="danger" type="button" onclick={() => void deleteKeys([file.key])} disabled={busy}>
 							Delete
 						</button>
-					{/if}
-				</span>
-			</div>
-		{/each}
+					</span>
+				</div>
+			{/each}
+		</div>
 
-		{#each files as file (file.key)}
-			<div class="row">
-				<span class="cell name">
-					<input type="checkbox" bind:checked={selected[file.key]} />
-					<span class="fname" title={file.key}>{basename(file.key)}</span>
-				</span>
-				<span class="cell size">{humanSize(file.size)}</span>
-				<span class="cell date">{humanDate(file.lastModified)}</span>
-				<span class="cell actions">
-					<a href={downloadUrl(file.key)}>Download</a>
-					<button type="button" onclick={() => void rename(file.key, false)} disabled={busy}>
-						Move
-					</button>
-					<button class="danger" type="button" onclick={() => void deleteKeys([file.key])} disabled={busy}>
-						Delete
-					</button>
-				</span>
+		{#if nextToken}
+			<div class="loadmore">
+				<button type="button" onclick={() => void load(prefix, true)} disabled={loading}>
+					Load more
+				</button>
 			</div>
-		{/each}
-	</div>
+		{/if}
+	{:else}
+		<div class="db">
+			<aside class="db-tables">
+				{#if dbError}<p class="error">{dbError}</p>{/if}
+				{#if dbTables.length === 0 && !dbLoading}
+					<p class="muted">No tables.</p>
+				{/if}
+				{#each dbTables as t (t)}
+					<button
+						class="db-table"
+						class:active={t === dbTable}
+						type="button"
+						onclick={() => void openTable(t)}
+					>
+						{t}
+					</button>
+				{/each}
+			</aside>
 
-	{#if nextToken}
-		<div class="loadmore">
-			<button type="button" onclick={() => void load(prefix, true)} disabled={loading}>
-				Load more
-			</button>
+			<section class="db-rows">
+				{#if !dbTable}
+					<p class="muted empty">Select a table to view its rows.</p>
+				{:else}
+					<div class="db-bar">
+						<strong>{dbTable}</strong>
+						<span class="muted">{dbRangeLabel}</span>
+						<span class="db-pager">
+							<button
+								type="button"
+								onclick={() => void openTable(dbTable, Math.max(0, dbOffset - DB_PAGE))}
+								disabled={dbLoading || dbOffset === 0}
+							>
+								Prev
+							</button>
+							<button
+								type="button"
+								onclick={() => void openTable(dbTable, dbOffset + DB_PAGE)}
+								disabled={dbLoading || dbOffset + dbRows.length >= dbTotal}
+							>
+								Next
+							</button>
+						</span>
+					</div>
+					<div class="db-grid-wrap">
+						<table class="db-grid">
+							<thead>
+								<tr>
+									{#each dbColumns as col (col)}<th>{col}</th>{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each dbRows as row, i (i)}
+									<tr>
+										{#each dbColumns as col (col)}
+											<td title={cellText(row[col])}>{cellText(row[col])}</td>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if dbRows.length === 0 && !dbLoading}
+							<p class="muted empty">This table is empty.</p>
+						{/if}
+					</div>
+				{/if}
+			</section>
 		</div>
 	{/if}
 </div>
@@ -331,6 +503,29 @@
 	}
 	.status {
 		color: #7ee0c0;
+	}
+	.tabs {
+		display: flex;
+		gap: 4px;
+		border-bottom: 1px solid #222;
+		margin-bottom: 16px;
+	}
+	.tab {
+		background: transparent;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: #999;
+		cursor: pointer;
+		padding: 8px 14px;
+		font-size: 13px;
+		font-family: inherit;
+	}
+	.tab:hover {
+		color: #e8e8ee;
+	}
+	.tab.active {
+		color: #7ee0c0;
+		border-bottom-color: #7ee0c0;
 	}
 	.crumbs {
 		display: flex;
@@ -463,5 +658,88 @@
 	.loadmore {
 		margin-top: 14px;
 		text-align: center;
+	}
+
+	/* Railway / Postgres browser */
+	.db {
+		display: grid;
+		grid-template-columns: 200px minmax(0, 1fr);
+		gap: 16px;
+		align-items: start;
+	}
+	.db-tables {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		border: 1px solid #222;
+		border-radius: 12px;
+		background: #16161c;
+		padding: 8px;
+	}
+	.db-table {
+		background: transparent;
+		border: none;
+		border-radius: 6px;
+		color: #cfe9ff;
+		cursor: pointer;
+		padding: 6px 10px;
+		font-size: 13px;
+		font-family: inherit;
+		text-align: left;
+	}
+	.db-table:hover {
+		background: #20202a;
+	}
+	.db-table.active {
+		background: #2a2430;
+		color: #7ee0c0;
+	}
+	.db-bar {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 10px;
+	}
+	.db-pager {
+		display: flex;
+		gap: 6px;
+		margin-left: auto;
+	}
+	.db-pager button {
+		padding: 4px 10px;
+	}
+	.db-grid-wrap {
+		border: 1px solid #222;
+		border-radius: 12px;
+		background: #16161c;
+		overflow: auto;
+		max-height: 70vh;
+	}
+	.db-grid {
+		border-collapse: collapse;
+		font-size: 12px;
+		width: max-content;
+		min-width: 100%;
+	}
+	.db-grid th,
+	.db-grid td {
+		border-bottom: 1px solid #1f1f26;
+		border-right: 1px solid #1f1f26;
+		padding: 6px 10px;
+		text-align: left;
+		max-width: 320px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.db-grid th {
+		position: sticky;
+		top: 0;
+		background: #1c1c24;
+		color: #b8b8c4;
+		font-weight: 600;
+	}
+	.db-grid td {
+		color: #d8d8e0;
 	}
 </style>
