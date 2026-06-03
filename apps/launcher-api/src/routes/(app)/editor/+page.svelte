@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import Emblem from '$lib/Emblem.svelte';
-	import { findUnfilledRequiredSlots, seedScenesFromTemplate } from 'engine-layout';
+	import {
+		findUnfilledRequiredSlots,
+		getReferenceLayout,
+		listReferenceLayouts,
+		seedScenesFromTemplate,
+	} from 'engine-layout';
 	import type {
 		GameTemplate,
 		LayoutNode,
@@ -34,6 +39,13 @@
 			: [{ id: 's_main', name: 'main', nodes: [] }],
 	);
 	let activeSceneIdx = $state(0);
+	/** Canvas frame sizes per layoutType — `$state` (not `data.doc`) so loading a
+	 * game scene that ships its own `mainSizesMap` resizes the canvas. */
+	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
+	/** Which built-in game layout to load — bound to the scene-bar picker. */
+	let loadChoice = $state('');
+	/** Built-in placed layouts the picker offers ("Lines — base game", …). */
+	const referenceLayouts = listReferenceLayouts();
 	/** Hoisted so the properties panel can read the active selection.
 	 * `<EditorCanvas>` binds this via `bind:selectedId`. */
 	let selectedId = $state<string | null>(null);
@@ -74,7 +86,7 @@
 	const activeSceneSlots = $derived(
 		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
 	);
-	const frameSize = $derived(data.doc.mainSizesMap[currentLayoutType]);
+	const frameSize = $derived(mainSizesMap[currentLayoutType]);
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
 			if (n.id === id) return n;
@@ -186,28 +198,53 @@
 		fillRequest = { payload, slotId, seq: fillSeq };
 	}
 
-	/** Replace the current scenes with the game type's template scaffold (§7.1/§7.2):
-	 * one scene per template scene, with `mount`-slot anchors placed and artist
-	 * slots advertised empty — the "open the existing game" starting point. Confirms
-	 * before discarding placed nodes. */
-	function loadGameStructure(): void {
-		if (!activeTemplate) return;
-		const seeded = seedScenesFromTemplate(activeTemplate);
-		if (seeded.length === 0) return;
+	/** Switch the canvas to a screen (scene) by index — the screen list picker. */
+	function selectScene(idx: number): void {
+		if (idx < 0 || idx >= scenes.length) return;
+		activeSceneIdx = idx;
+		selectedId = null;
+	}
+
+	/** Adopt a loaded `LayoutDoc`'s scenes (+ its game type and frame sizes) as the
+	 * project's layout, after confirming if it would discard placed nodes. */
+	function adoptScenes(doc: { scenes: Scene[]; gameType?: string; mainSizesMap?: typeof mainSizesMap }, gameType: string): void {
+		if (doc.scenes.length === 0) return;
 		const hasContent = scenes.some((s) => s.nodes.length > 0);
 		if (
 			hasContent &&
 			!confirm(
-				`Replace the current layout with the empty ${activeTemplate.gameType} game structure? ` +
-					'Nodes you have placed will be removed.',
+				`Load the ${gameType} scenes? This replaces the current layout — nodes you have placed will be removed.`,
 			)
 		) {
 			return;
 		}
-		scenes = seeded;
+		scenes = structuredClone(doc.scenes);
+		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
+		authoringGameType = gameType;
 		activeSceneIdx = 0;
 		selectedId = null;
+		void loadTemplateFor(gameType);
 		markDirty();
+	}
+
+	/** Load the game scene chosen in the scene-bar picker. `ref:<type>` loads a
+	 * built-in PLACED layout (sprites positioned + layered); `skel:<type>` loads
+	 * that type's blank scenes from its template. */
+	async function loadChosen(): Promise<void> {
+		const choice = loadChoice;
+		if (!choice) return;
+		const [kind, gameType] = choice.split(':');
+		if (kind === 'ref') {
+			const doc = getReferenceLayout(gameType);
+			if (doc) adoptScenes(doc, gameType);
+		} else if (kind === 'skel') {
+			// Resolve the template first (R2 override or built-in) so the skeleton
+			// matches the saved template, then seed blank scenes from it.
+			const res = await fetch(`/api/editor/template?gameType=${encodeURIComponent(gameType)}`);
+			const template = res.ok ? ((await res.json()) as GameTemplate) : undefined;
+			adoptScenes({ scenes: seedScenesFromTemplate(template), gameType }, gameType);
+		}
+		loadChoice = '';
 	}
 
 	function removeNode(nodes: LayoutNode[], id: string): boolean {
@@ -255,7 +292,7 @@
 			version: data.doc.version,
 			projectKey: data.projectKey,
 			gameType: authoringGameType,
-			mainSizesMap: data.doc.mainSizesMap,
+			mainSizesMap,
 			scenes,
 			updatedAt: lastSavedAt,
 		};
@@ -640,53 +677,28 @@
 				</span>
 			{/if}
 			<span class="dot-sep">·</span>
-			<label class="gametype" title="Game type — loads its slots; saved with the project">
-				<span>type</span>
-				<select bind:value={authoringGameType} onchange={() => void onGameTypeChange()}>
-					{#each GAME_TYPES as gt (gt)}
-						<option value={gt}>{gt}</option>
-					{/each}
-				</select>
-			</label>
 			<button
 				type="button"
 				class="save-btn"
-				disabled={!activeTemplate}
-				title="Replace the layout with this game type's scenes + slot scaffold (mount anchors placed, artist slots left empty for your assets)"
-				onclick={loadGameStructure}
+				class:active-mode={templateMode}
+				aria-pressed={templateMode}
+				title="Template editor — a separate, advanced mode for defining a game type's slot schema. Not needed to lay out scenes."
+				onclick={() => {
+					templateMode = !templateMode;
+					leftTab = templateMode ? 'template' : 'library';
+				}}
 			>
-				Load game structure
+				{templateMode ? '✕ Close template editor' : 'Template editor'}
 			</button>
-			<span class="dot-sep">·</span>
-			<div class="mode-toggle" role="tablist" aria-label="Editor mode">
-				<button
-					role="tab"
-					aria-selected={!templateMode}
-					class="mode-btn"
-					class:active={!templateMode}
-					title="Fill mode — place your assets into the game's slots"
-					onclick={() => {
-						templateMode = false;
-						if (leftTab === 'template') leftTab = 'library';
-					}}
-				>
-					Fill
-				</button>
-				<button
-					role="tab"
-					aria-selected={templateMode}
-					class="mode-btn"
-					class:active={templateMode}
-					title="Template mode — define which slots this game type has"
-					onclick={() => {
-						templateMode = true;
-						leftTab = 'template';
-					}}
-				>
-					Template
-				</button>
-			</div>
 			{#if templateMode}
+				<label class="gametype" title="Game type the template is saved under">
+					<span>type</span>
+					<select bind:value={authoringGameType} onchange={() => void onGameTypeChange()}>
+						{#each GAME_TYPES as gt (gt)}
+							<option value={gt}>{gt}</option>
+						{/each}
+					</select>
+				</label>
 				{#if templateBusy}
 					<span class="save-pill busy">Saving template…</span>
 				{:else if templateStatus?.kind === 'error'}
@@ -701,21 +713,54 @@
 		</div>
 	</header>
 
-	<div class="mode-banner" class:template={templateMode}>
-		{#if templateMode}
-			<strong>TEMPLATE MODE</strong> — define which slots the
-			<code>{authoringGameType}</code> game type has: tag nodes as slots in Properties, set
-			<em>required</em>, then <strong>Save template</strong>. (This authors the schema, it doesn't
-			place your art.)
-		{:else}
-			<strong>FILL MODE</strong> — build this game: open the <strong>Template</strong> tab and
-			<strong>drag a Library asset onto a slot</strong> (or onto the canvas, then pick its slot in
-			Properties). Use <strong>Load game structure</strong> to start from the game's scenes.
-		{/if}
-	</div>
-
 	<div class="layout">
 		<aside class="left">
+			<div class="scene-bar">
+				<div class="load-row">
+					<select class="load-select" bind:value={loadChoice} aria-label="Load a game scene">
+						<option value="">＋ Load a game scene…</option>
+						{#if referenceLayouts.length > 0}
+							<optgroup label="Placed game layouts">
+								{#each referenceLayouts as r (r.gameType)}
+									<option value={`ref:${r.gameType}`}>{r.name}</option>
+								{/each}
+							</optgroup>
+						{/if}
+						<optgroup label="Blank scenes (from template)">
+							{#each GAME_TYPES as gt (gt)}
+								<option value={`skel:${gt}`}>{gt} — blank scenes</option>
+							{/each}
+						</optgroup>
+					</select>
+					<button
+						class="load-btn"
+						type="button"
+						disabled={!loadChoice}
+						onclick={() => void loadChosen()}
+					>
+						Load
+					</button>
+				</div>
+				<h3 class="screens-h">Screens <span class="count">{sceneCount}</span></h3>
+				<ul class="screens">
+					{#each scenes as s, i (s.id)}
+						<li>
+							<button
+								type="button"
+								class="screen"
+								class:active={i === activeSceneIdx}
+								onclick={() => selectScene(i)}
+							>
+								<span class="screen-name">{s.name || s.id}</span>
+								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
+							</button>
+						</li>
+					{:else}
+						<li class="muted">No scenes yet — load a game scene above.</li>
+					{/each}
+				</ul>
+			</div>
+
 			<div class="tabs" role="tablist" aria-label="Left panel">
 				<button
 					role="tab"
@@ -735,15 +780,17 @@
 				>
 					Outline
 				</button>
-				<button
-					role="tab"
-					aria-selected={leftTab === 'template'}
-					class="tab"
-					class:active={leftTab === 'template'}
-					onclick={() => (leftTab = 'template')}
-				>
-					Template
-				</button>
+				{#if templateMode}
+					<button
+						role="tab"
+						aria-selected={leftTab === 'template'}
+						class="tab"
+						class:active={leftTab === 'template'}
+						onclick={() => (leftTab = 'template')}
+					>
+						Template
+					</button>
+				{/if}
 			</div>
 
 			<div class="tab-body">
@@ -892,7 +939,7 @@
 <style>
 	.shell {
 		display: grid;
-		grid-template-rows: auto auto 1fr auto;
+		grid-template-rows: auto 1fr auto;
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
@@ -1013,55 +1060,105 @@
 		border-color: #2a2a33;
 		color: #555;
 	}
-	.mode-toggle {
-		display: inline-flex;
-		gap: 2px;
-		background: #16161c;
-		border: 1px solid #1f1f28;
-		border-radius: 999px;
-		padding: 3px;
+	.save-btn.active-mode {
+		background: #1a1622;
+		border-color: #6b5bff;
+		color: #c8a3ff;
 	}
-	.mode-btn {
-		background: transparent;
-		border: none;
-		color: #888;
-		padding: 3px 12px;
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		border-radius: 999px;
+	.scene-bar {
+		padding: 12px 16px;
+		border-bottom: 1px solid #1c1c24;
+		background: #0d0d12;
+	}
+	.load-row {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 12px;
+	}
+	.load-select {
+		flex: 1;
+		min-width: 0;
+		background: #16131c;
+		color: #c8a3ff;
+		border: 1px solid #2a2433;
+		border-radius: 6px;
+		padding: 6px 8px;
+		font-size: 12px;
+		font-family: inherit;
+	}
+	.load-btn {
+		background: #1a1622;
+		border: 1px solid #6b5bff;
+		color: #c8a3ff;
+		padding: 6px 14px;
+		font-size: 12px;
+		border-radius: 6px;
 		cursor: pointer;
 		font-family: inherit;
 	}
-	.mode-btn:hover {
-		color: #ccc;
-	}
-	.mode-btn.active {
-		background: #1a1622;
-		color: #c8a3ff;
-	}
-	.mode-banner {
-		padding: 7px 24px;
-		border-bottom: 1px solid #1c1c24;
-		background: #0c1512;
-		color: #9fb8ad;
-		font-size: 12px;
-		line-height: 1.4;
-	}
-	.mode-banner.template {
-		background: #130f1a;
-		color: #b6a3cf;
-	}
-	.mode-banner strong {
+	.load-btn:hover:not(:disabled) {
+		border-color: #7ee0c0;
 		color: #7ee0c0;
-		letter-spacing: 0.04em;
 	}
-	.mode-banner.template strong {
-		color: #c8a3ff;
+	.load-btn:disabled {
+		opacity: 0.4;
+		cursor: default;
+		border-color: #2a2a33;
+		color: #555;
 	}
-	.mode-banner code {
-		color: #c8a3ff;
-		font-family: ui-monospace, monospace;
+	.screens-h {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #aaa;
+		margin: 0 0 6px;
+		display: flex;
+		justify-content: space-between;
+	}
+	.screens {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.screen {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		text-align: left;
+		padding: 7px 9px;
+		font-size: 12px;
+		border-radius: 6px;
+		border: 1px solid #1f1f28;
+		background: #16161c;
+		color: #c8c8d0;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.screen:hover {
+		border-color: #2f3a48;
+		background: #1a1a22;
+	}
+	.screen.active {
+		border-color: #5db0ff;
+		background: #14202c;
+		color: #e8e8ee;
+	}
+	.screen-name {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.screen-count {
+		font-size: 10px;
+		color: #666;
+		background: #0d0d12;
+		border-radius: 999px;
+		padding: 1px 7px;
 	}
 	.gametype {
 		display: inline-flex;

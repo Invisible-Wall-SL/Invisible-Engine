@@ -210,7 +210,7 @@
 		{/if}
 	</div>
 
-	{#if sceneSlots.length > 0 || node.slotId}
+	{#if templateMode}
 		<section class="slot-section">
 			<h3>Slot</h3>
 			<div class="row">
@@ -231,18 +231,16 @@
 				</label>
 			</div>
 			{#if node.slotId}
-				{#if templateMode}
-					<div class="row">
-						<label class="field check">
-							<input
-								type="checkbox"
-								checked={slotMeta[node.slotId]?.required ?? false}
-								onchange={(e) => onSlotRequiredChange?.(node.slotId!, e.currentTarget.checked)}
-							/>
-							<span>required</span>
-						</label>
-					</div>
-				{/if}
+				<div class="row">
+					<label class="field check">
+						<input
+							type="checkbox"
+							checked={slotMeta[node.slotId]?.required ?? false}
+							onchange={(e) => onSlotRequiredChange?.(node.slotId!, e.currentTarget.checked)}
+						/>
+						<span>required</span>
+					</label>
+				</div>
 				<p class="slot-hint">
 					{node.bind || node.kind === 'container' ? 'mount' : node.kind} slot
 				</p>
