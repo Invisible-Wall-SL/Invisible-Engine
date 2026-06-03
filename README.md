@@ -1,8 +1,15 @@
-# Web SDK
+# Invisible Engine
 
-This is a web sdk that is convenient for you to develop a game in a declarative way. It is an optional way to build and launch your games on with [Stake Engine](https://engine.stake.com/) with some easy steps. It is powered by Svelte 5, PixiJS 8 and TurboRepo.
+**Invisible Engine** is the in-house game engine and Studio platform built by Invisible Wall SL. It started as a fork of the Stake Engine web SDK and has grown into our own branch of the platform — a declarative way to build casino games, plus a cloud Studio (launcher + asset pipeline tools) for producing them.
 
-- How to use: To have 100% freedom to any source code from this repo, start your own codebase based on this repo. You can change any source code as you need.
+It is powered by **Svelte 5**, **PixiJS 8** and **TurboRepo**, and is organised as a single Turborepo + pnpm monorepo: the engine (`packages/*`), the reference/dev games (`apps/*`), the Studio launcher (`apps/launcher-api`), and the cloud pipeline services (`services/*`).
+
+> **New here?** Start with the in-repo guides, not this file:
+> - [`docs/ONBOARDING.md`](docs/ONBOARDING.md) — setup and how to run things
+> - [`docs/INFRA.md`](docs/INFRA.md) — cloud services, URLs, env vars
+> - [`docs/STATUS.md`](docs/STATUS.md) — current state + roadmap
+>
+> The rest of this README documents the **engine internals** (book events, the event emitter, the file structure) — still accurate, since they're inherited from the SDK this fork is based on.
 
 
 # Table of Contents
@@ -76,8 +83,8 @@ pnpm -v
 - Clone the repo to your local in VS Code terminal or others.
 
 ```
-git clone https://github.com/StakeEngine/web-sdk.git
-cd web-sdk
+git clone https://github.com/Invisible-Wall-SL/Invisible-Engine.git
+cd Invisible-Engine
 ```
 
 - Install dependencies.
