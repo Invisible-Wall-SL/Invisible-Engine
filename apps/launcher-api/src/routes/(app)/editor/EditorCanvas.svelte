@@ -407,20 +407,31 @@
 			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? region.name);
 			return;
 		}
-		// Trim offset: the packed frame may be a tight crop of a larger original
-		// (origW/origH). Place the trimmed crop at its offset inside the dest box,
-		// scaled to match the dest/native ratio.
+		// All destination geometry is in UPRIGHT space: `w/h` are the unrotated
+		// trimmed size, `offX/offY` the trim offset inside the original
+		// `origW/origH`. The trimmed content occupies (cw × ch) at (cx, cy).
 		const scaleX = dw / nat.w;
 		const scaleY = dh / nat.h;
-		const offX = (region.offX ?? 0) * scaleX;
-		const offY = (region.offY ?? 0) * scaleY;
-		const cropW = region.w * scaleX;
-		const cropH = region.h * scaleY;
-		const baseX = -dw * ax + offX;
-		const baseY = -dh * ay + offY;
-		// Rotation note: packed `rotated` frames (90° in the atlas) are drawn
-		// upright here (best-effort) — the geometry is correct, orientation isn't.
-		ctx.drawImage(img, region.x, region.y, region.w, region.h, baseX, baseY, cropW, cropH);
+		const cw = region.w * scaleX;
+		const ch = region.h * scaleY;
+		const cx = -dw * ax + (region.offX ?? 0) * scaleX;
+		const cy = -dh * ay + (region.offY ?? 0) * scaleY;
+		// On-page packed rect: a `rotated` frame is stored (h × w) — swap.
+		const pw = region.rotated ? region.h : region.w;
+		const ph = region.rotated ? region.w : region.h;
+		if (region.rotated) {
+			// Page pixels are packed rotated; restore upright. The slicer
+			// (`slice_atlas`) un-rotates with PIL `rotate(-90)` = 90° clockwise, so
+			// drawing under a +90° (clockwise, canvas y-down) rotation into a
+			// (ch × cw) local box lands the content in the upright (cw × ch) box.
+			ctx.save();
+			ctx.translate(cx + cw, cy);
+			ctx.rotate(Math.PI / 2);
+			ctx.drawImage(img, region.x, region.y, pw, ph, 0, 0, ch, cw);
+			ctx.restore();
+		} else {
+			ctx.drawImage(img, region.x, region.y, pw, ph, cx, cy, cw, ch);
+		}
 	}
 
 	function drawPlaceholder(

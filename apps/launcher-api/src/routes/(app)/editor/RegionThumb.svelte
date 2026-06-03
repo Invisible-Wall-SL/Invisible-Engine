@@ -34,12 +34,26 @@
 			const c = canvas.getContext('2d');
 			if (!c) return;
 			c.clearRect(0, 0, canvas.width, canvas.height);
+			// `w/h` are the upright (unrotated) size; fit that into the square.
 			const scale = Math.min(size / region.w, size / region.h);
 			const dw = region.w * scale;
 			const dh = region.h * scale;
 			const dx = (size - dw) / 2;
 			const dy = (size - dh) / 2;
-			c.drawImage(img, region.x, region.y, region.w, region.h, dx, dy, dw, dh);
+			// On-page packed rect: a `rotated` frame is stored (h × w) — swap, then
+			// un-rotate (+90° clockwise) so the thumbnail shows it upright, matching
+			// the slicer's PIL rotate(-90).
+			const pw = region.rotated ? region.h : region.w;
+			const ph = region.rotated ? region.w : region.h;
+			if (region.rotated) {
+				c.save();
+				c.translate(dx + dw, dy);
+				c.rotate(Math.PI / 2);
+				c.drawImage(img, region.x, region.y, pw, ph, 0, 0, dh, dw);
+				c.restore();
+			} else {
+				c.drawImage(img, region.x, region.y, pw, ph, dx, dy, dw, dh);
+			}
 		};
 		if (img.complete && img.naturalWidth > 0) draw();
 		else img.addEventListener('load', draw, { once: true });
