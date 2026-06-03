@@ -22,6 +22,15 @@ import storage
 PATH_FIELDS = ("style_ref", "shape_ref", "output_override")
 
 
+def _key(val: str, default: str) -> str:
+    """Canonical R2 slug — byte-identical to `iw_common.context.r2_slug`,
+    `seed_r2.py._key` and the launcher's `r2Slug`: lowercase, non-alphanumerics
+    -> `_`, 60-char cap. So a hyphenated launcher key (`book-of-borut`) maps to
+    the same `book_of_borut` everywhere."""
+    import re
+    return re.sub(r"[^a-z0-9]", "_", (val or default).lower())[:60] or "default"
+
+
 def _norm(path: str) -> str:
     if not isinstance(path, str) or "/" not in path:
         return path
@@ -29,8 +38,12 @@ def _norm(path: str) -> str:
 
 
 def main() -> None:
-    proj = "".join(c if c.isalnum() else "_" for c in os.environ.get("ATLAS_PROJECT", "cloud"))[:60]
-    prefix = f"atlas_maker/cloud/{proj}/manifests/"
+    # Target (client, project) under R2: <client>/<project>/manifests/ (unified
+    # single-project repo — no `atlas_maker/` tool segment). IW_* (from the
+    # launcher) overrides ATLAS_*; mirrors seed_r2.py's env handling.
+    client = _key(os.environ.get("IW_CLIENT_NAME") or os.environ.get("ATLAS_CLIENT", "borut"), "borut")
+    proj = _key(os.environ.get("IW_PROJECT_NAME") or os.environ.get("ATLAS_PROJECT", "hotfruits"), "hotfruits")
+    prefix = f"{client}/{proj}/manifests/"
     fixed_files = 0
     fixed_fields = 0
     for entry in storage.list_keys(prefix):
