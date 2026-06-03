@@ -21,6 +21,18 @@
 
 {#if transform.visible}
 	{#if Bound}
+		<!--
+			Bound-component contract (read before migrating a coded component to a
+			`bind` node — see docs/design/invisible-editor.md §7.1):
+			this wrapping <Container> already applies POSITION x/y + scale/rotation/
+			alpha/zIndex. The bound component is therefore mounted at the node's
+			placement and MUST render its art at LOCAL origin — do NOT re-apply
+			transform.x/y (that double-positions it). It SHOULD read transform.anchor
+			+ transform.width/height for its own sprite/spine (Containers carry no
+			anchor/size), and leave scale at 1 (the container scales). With the
+			generator's transform == the component's current placement, a no-doc boot
+			renders byte-for-byte as before.
+		-->
 		<Container
 			x={transform.x}
 			y={transform.y}
