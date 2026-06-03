@@ -101,15 +101,15 @@ pnpm storybook    # Storybook on port 6001
 - **`upstream` = `StakeEngine/web-sdk`** — the original Stake Engine SDK. **Read-only** (fetch to pull in upstream changes; the owner's account CANNOT push here — it 403s).
 - ⚠️ The local `main` branch may be set to *track* `upstream/main` (a clone artifact). That makes a bare `git push` / `git status` ahead-behind compare against the wrong remote and a bare push 403. **Always push explicitly with `git push origin main`**, or fix tracking once with `git branch --set-upstream-to=origin/main main`.
 
-### One unified repo (no more per-area split)
-- Everything — **engine + pipeline, the cloud tools (`services/*`, `apps/launcher-api`), and the games** — now lives in this ONE repo on `main`. It used to be split across separate engine / tools / games repos; that split is **retired** and we are NOT going back (too much has changed). Don't try to re-separate or push pieces to old per-area remotes.
-- Games that ship standalone (e.g. Book of Borut) live in their own repos with **this engine as a submodule** — that's the only "separation" that remains.
+### One unified repo + games as submodules (see `docs/design/games-deploy.md`)
+- **Engine + pipeline + cloud tools + launcher stay in this ONE repo** (`apps/*`, `packages/*`, `services/*`). They share `packages/*` via `workspace:*`, so splitting them back into separate repos re-introduces version-coordination hell — the reason the old engine/tools/launcher split was retired. Don't re-separate them or push pieces to old per-area remotes.
+- **Shipped games get their OWN repo**, each vendoring this engine as a **git submodule** pinned to a `main` commit, deploying on its own cadence (e.g. Book of Borut). The `apps/{lines,cluster,…}` here are **dev/reference** games, not shipped artifacts. Spin a new one up with `node scripts/new-game.mjs --name "…"`.
+- The single `main` is kept **filterable per area** by scoped commit subjects (enforced) + squash-merge + CODEOWNERS — NOT by splitting repos. See "History hygiene" in the design doc.
 
 ### Conventions
 - Branch: `main` is the base — create feature branches from it
-- Commit style: imperative present tense, concise (`add spin replay support`)
-- Push to `origin` freely when the user asks for it
-- PRs target `main`; use `gh pr create` for pull requests
+- **Commit subjects need an area scope** (`launcher: …`, `editor: …`, `atlas-tool: …`, `docs: …`) — enforced by the `commit-msg` hook (`scripts/check-commit-scope.mjs`). Enable hooks once per clone: `git config core.hooksPath scripts/git-hooks` (also turns on the secret scanner). One-off bypass: `git commit --no-verify`.
+- PRs are **squash-merged** — the PR title becomes the single commit on `main`, so give the title a scope. Push to `origin` freely when the user asks; use `gh pr create`.
 
 ## Session Tracking
 At the start of each session:
