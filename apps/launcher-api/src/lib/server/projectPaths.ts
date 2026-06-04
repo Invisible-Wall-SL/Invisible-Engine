@@ -81,8 +81,10 @@ export function sheetConfigKey(client: string, project: string): string {
 	return `${projectPrefix(client, project)}/sheet_config.json`;
 }
 
-/** Bundles can be nested folders (e.g. `loader/sub`); reject parent escapes only. */
-const BUNDLE_SEG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** Bundles can be nested folders (e.g. `loader/sub`); reject parent escapes only.
+ * Spine folder names are legitimately camelCase (`foregroundAnimation`, `fsIntro`),
+ * so allow upper + lower case — the safety is the no-`..`/no-`/` checks, not case. */
+const BUNDLE_SEG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 function assertBundle(value: string): void {
 	if (!value || value.includes('..') || value.startsWith('/') || value.endsWith('/')) {
 		throw new Error(`Invalid spine bundle: ${JSON.stringify(value)}`);
