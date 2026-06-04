@@ -5,7 +5,7 @@
 	import { Container, Rectangle } from 'pixi-svelte';
 	import type { LayoutType, Scene } from 'engine-layout';
 
-	import { DESKTOP_BASE_SIZE } from '../constants';
+	import { DESKTOP_BASE_SIZE, LANDSCAPE_BASE_SIZE } from '../constants';
 	import { getContext } from '../context';
 	import { hudPos } from '../hudPositions';
 	import type { LayoutUiProps } from '../types';
@@ -139,7 +139,7 @@
 	{/if}
 </MainContainer>
 
-<!-- Menu drawer (coded — not editor-driven in v1; mirrors LayoutDesktop) -->
+<!-- Menu drawer (coded — not editor-driven in v1; mirrors the per-layout Layout*) -->
 {#if stateUi.menuOpen}
 	<Rectangle
 		eventMode="static"
@@ -154,30 +154,74 @@
 		onpointerup={() => (stateUi.menuOpen = false)}
 	/>
 
-	<MainContainer standard alignVertical="bottom">
-		<Container
-			x={298}
-			y={context.stateLayoutDerived.mainLayoutStandard().height - DESKTOP_BASE_SIZE - 10}
-		>
-			<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150 - 170 * 3}>
-				{@render props.buttonPayTable({ anchor: 0.5 })}
+	{#if layoutType === 'landscape'}
+		<MainContainer standard alignVertical="bottom">
+			<Container
+				x={165}
+				y={context.stateLayoutDerived.mainLayoutStandard().height - LANDSCAPE_BASE_SIZE - 130}
+			>
+				<Container scale={0.8} y={LANDSCAPE_BASE_SIZE * 0.5 - 150 - 170 * 3}>
+					{@render props.buttonPayTable({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={LANDSCAPE_BASE_SIZE * 0.5 - 150 - 170 * 2}>
+					{@render props.buttonGameRules({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={LANDSCAPE_BASE_SIZE * 0.5 - 150 - 170 * 1}>
+					{@render props.buttonSettings({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={LANDSCAPE_BASE_SIZE * 0.5 - 150}>
+					{@render props.buttonSoundSwitch({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={LANDSCAPE_BASE_SIZE * 0.5}>
+					{@render props.buttonMenuClose({ anchor: 0.5 })}
+				</Container>
 			</Container>
-
-			<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150 - 170 * 2}>
-				{@render props.buttonGameRules({ anchor: 0.5 })}
+		</MainContainer>
+	{:else if layoutType === 'tablet'}
+		<MainContainer standard alignVertical="bottom">
+			<Container
+				x={100}
+				y={context.stateLayoutDerived.mainLayoutStandard().height - DESKTOP_BASE_SIZE - 30}
+			>
+				<Container y={DESKTOP_BASE_SIZE * 0.5 - 185 - 210 * 3}>
+					{@render props.buttonPayTable({ anchor: 0.5 })}
+				</Container>
+				<Container y={DESKTOP_BASE_SIZE * 0.5 - 185 - 210 * 2}>
+					{@render props.buttonGameRules({ anchor: 0.5 })}
+				</Container>
+				<Container y={DESKTOP_BASE_SIZE * 0.5 - 185 - 210 * 1}>
+					{@render props.buttonSettings({ anchor: 0.5 })}
+				</Container>
+				<Container y={DESKTOP_BASE_SIZE * 0.5 - 185}>
+					{@render props.buttonSoundSwitch({ anchor: 0.5 })}
+				</Container>
+				<Container y={DESKTOP_BASE_SIZE * 0.5}>
+					{@render props.buttonMenuClose({ anchor: 0.5 })}
+				</Container>
 			</Container>
-
-			<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150 - 170 * 1}>
-				{@render props.buttonSettings({ anchor: 0.5 })}
+		</MainContainer>
+	{:else}
+		<MainContainer standard alignVertical="bottom">
+			<Container
+				x={298}
+				y={context.stateLayoutDerived.mainLayoutStandard().height - DESKTOP_BASE_SIZE - 10}
+			>
+				<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150 - 170 * 3}>
+					{@render props.buttonPayTable({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150 - 170 * 2}>
+					{@render props.buttonGameRules({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150 - 170 * 1}>
+					{@render props.buttonSettings({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150}>
+					{@render props.buttonSoundSwitch({ anchor: 0.5 })}
+				</Container>
+				<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5}>
+					{@render props.buttonMenuClose({ anchor: 0.5 })}
+				</Container>
 			</Container>
-
-			<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5 - 150}>
-				{@render props.buttonSoundSwitch({ anchor: 0.5 })}
-			</Container>
-
-			<Container scale={0.8} y={DESKTOP_BASE_SIZE * 0.5}>
-				{@render props.buttonMenuClose({ anchor: 0.5 })}
-			</Container>
-		</Container>
-	</MainContainer>
+		</MainContainer>
+	{/if}
 {/if}

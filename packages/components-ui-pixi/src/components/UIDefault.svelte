@@ -48,7 +48,11 @@
 
 	const LayoutComponent = $derived(LAYOUT_COMPONENT_MAP[stateLayoutDerived.layoutType()]);
 	// Opt-in: a game that passes `hud` scenes drives the HUD from editor data.
-	const useEditable = $derived(Boolean(props.hud?.bar || props.hud?.corners));
+	// Portrait keeps the coded layout — its bar is an animated fold-out drawer
+	// (behaviour, not static placement), so it's out of the data-driven path.
+	const useEditable = $derived(
+		Boolean(props.hud?.bar || props.hud?.corners) && stateLayoutDerived.layoutType() !== 'portrait',
+	);
 </script>
 
 <EnableSpaceHold />
