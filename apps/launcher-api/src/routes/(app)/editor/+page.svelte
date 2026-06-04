@@ -6,6 +6,7 @@
 		getReferenceLayout,
 		listReferenceLayouts,
 		seedScenesFromTemplate,
+		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
 	import type {
 		GameTemplate,
@@ -86,7 +87,13 @@
 	const activeSceneSlots = $derived(
 		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
 	);
-	const frameSize = $derived(mainSizesMap[currentLayoutType]);
+	/** HUD scenes author into the fixed standard box (and canvas-space uses it as
+	 * the reference window); gameplay scenes use the project's own `mainSizesMap`. */
+	const frameSize = $derived(
+		activeScene?.space === 'standard' || activeScene?.space === 'canvas'
+			? STANDARD_MAIN_SIZES_MAP[currentLayoutType]
+			: mainSizesMap[currentLayoutType],
+	);
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
 			if (n.id === id) return n;

@@ -1,4 +1,5 @@
 import { innerWidth, innerHeight } from 'svelte/reactivity/window';
+import { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
 
 type Sizes = { width: number; height: number };
 
@@ -15,13 +16,6 @@ const CANVAS_SIZE_TYPE_BREAK_POINTS = {
 };
 
 const getRatio = (value: Sizes) => value.width / (value.height || 1);
-
-const STANDARD_MAIN_SIZES_MAP = {
-	desktop: { width: 1920, height: 1080 },
-	tablet: { width: 1920, height: 1920 },
-	landscape: { width: 1920, height: 1080 },
-	portrait: { width: 1080, height: 1920 },
-};
 
 type MainSizesMap = typeof STANDARD_MAIN_SIZES_MAP;
 

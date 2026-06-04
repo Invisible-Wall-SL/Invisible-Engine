@@ -29,6 +29,7 @@ export interface NodeOverride {
 	zIndex?: number;
 	tint?: number;
 	visible?: boolean;
+	screenAnchor?: Point2D;
 }
 
 /**
@@ -69,6 +70,16 @@ interface BaseNode {
 	 * receives the resolved transform plus `props`.
 	 */
 	bind?: { component: string; props?: Record<string, unknown> };
+	/**
+	 * Window-edge anchor for `canvas`-space scenes (see {@link Scene.space}).
+	 * When set, the runtime/editor place the node at
+	 * `screenAnchor * canvasSize + (x, y)` — i.e. `x`/`y` become an offset from
+	 * the chosen window edge/point (0 = left/top, 0.5 = centre, 1 = right/bottom).
+	 * This generalises the HUD corners' current literals
+	 * (`x = canvasSizes().width - 20` ⇒ `screenAnchor {x:1, y:0}` + `x:-20`).
+	 * Ignored for `game`/`standard` scenes (additive — absent = today's behaviour).
+	 */
+	screenAnchor?: Point2D;
 }
 
 export interface ContainerNode extends BaseNode {
@@ -126,6 +137,18 @@ export interface Scene {
 	id: string;
 	name: string;
 	nodes: LayoutNode[];
+	/**
+	 * Which coordinate space this scene authors into — decides the box the editor
+	 * frames the scene against and the wrapper the game mounts `<LayoutScene>` in.
+	 * - `game` (default) — the doc's `mainSizesMap` box, plain `<MainContainer>`
+	 *   (every existing scene).
+	 * - `standard` — the fixed `STANDARD_MAIN_SIZES_MAP` box, `<MainContainer standard>`
+	 *   (the HUD bottom bar).
+	 * - `canvas` — raw window; nodes use {@link BaseNode.screenAnchor}, mounted at
+	 *   the `<App>` root (the HUD corners — logo / game name).
+	 * Additive — absent = `game`.
+	 */
+	space?: 'game' | 'standard' | 'canvas';
 }
 
 export interface LayoutDoc {
@@ -204,4 +227,6 @@ export interface ResolvedTransform {
 	height?: number;
 	tint?: number;
 	visible: boolean;
+	/** Window-edge anchor for `canvas`-space scenes — see {@link BaseNode.screenAnchor}. */
+	screenAnchor?: Point2D;
 }

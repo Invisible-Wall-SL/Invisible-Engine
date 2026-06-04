@@ -17,6 +17,17 @@
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
+
+	// `canvas`-space nodes pin to a window edge: effective position is
+	// `screenAnchor * canvasSize + (x, y)` (x/y act as an offset from that edge).
+	// Absent screenAnchor → x/y are used verbatim (game/standard scenes).
+	const canvas = $derived(layoutContext.stateLayoutDerived.canvasSizes());
+	const posX = $derived(
+		transform.screenAnchor ? transform.screenAnchor.x * canvas.width + transform.x : transform.x,
+	);
+	const posY = $derived(
+		transform.screenAnchor ? transform.screenAnchor.y * canvas.height + transform.y : transform.y,
+	);
 </script>
 
 {#if transform.visible}
@@ -34,8 +45,8 @@
 			renders byte-for-byte as before.
 		-->
 		<Container
-			x={transform.x}
-			y={transform.y}
+			x={posX}
+			y={posY}
 			scale={transform.scale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
@@ -45,8 +56,8 @@
 		</Container>
 	{:else if node.kind === 'container'}
 		<Container
-			x={transform.x}
-			y={transform.y}
+			x={posX}
+			y={posY}
 			scale={transform.scale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
@@ -59,8 +70,8 @@
 	{:else if node.kind === 'sprite'}
 		<Sprite
 			key={node.region ?? node.assetKey}
-			x={transform.x}
-			y={transform.y}
+			x={posX}
+			y={posY}
 			anchor={transform.anchor}
 			scale={transform.scale}
 			rotation={transform.rotation}
@@ -73,8 +84,8 @@
 	{:else if node.kind === 'spine'}
 		<SpineProvider
 			key={node.assetKey}
-			x={transform.x}
-			y={transform.y}
+			x={posX}
+			y={posY}
 			anchor={transform.anchor}
 			scale={transform.scale}
 			rotation={transform.rotation}
@@ -94,8 +105,8 @@
 	{:else if node.kind === 'text'}
 		<Text
 			text={node.text}
-			x={transform.x}
-			y={transform.y}
+			x={posX}
+			y={posY}
 			anchor={transform.anchor}
 			scale={transform.scale}
 			rotation={transform.rotation}

@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { resolveTransform, type LayoutNode, type LayoutType, type Scene } from 'engine-layout';
+	import {
+		resolveTransform,
+		type LayoutNode,
+		type LayoutType,
+		type ResolvedTransform,
+		type Scene,
+	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import {
 		nodeBox,
@@ -69,8 +75,32 @@
 		}
 		return o;
 	}
+	/**
+	 * Resolve a node's transform with `screenAnchor` baked into x/y for `canvas`-
+	 * space scenes (HUD corners), so every geometry/draw/hit-test path can treat
+	 * x/y as plain world coords. Other scenes pass through unchanged.
+	 */
+	function nodeTransform(node: LayoutNode): ResolvedTransform {
+		const t = resolveTransform(node, layoutType);
+		if (scene.space === 'canvas' && t.screenAnchor) {
+			return {
+				...t,
+				x: t.screenAnchor.x * frameWidth + t.x,
+				y: t.screenAnchor.y * frameHeight + t.y,
+			};
+		}
+		return t;
+	}
+
 	/** Write `x`/`y` for the active layoutType (base when desktop, sparse override otherwise). */
 	function writeXY(node: LayoutNode, x: number, y: number): void {
+		// Canvas-space (HUD corners): x/y arrive as effective world coords; store the
+		// offset from the screen-anchored edge so the node stays edge-pinned at runtime.
+		const sa = resolveTransform(node, layoutType).screenAnchor;
+		if (scene.space === 'canvas' && sa) {
+			x -= sa.x * frameWidth;
+			y -= sa.y * frameHeight;
+		}
 		if (layoutType === 'desktop') {
 			node.x = x;
 			node.y = y;
@@ -98,7 +128,7 @@
 	}
 	/** Resolved (base + override) start translate value used when initiating a drag. */
 	function effectiveXY(node: LayoutNode): Vec2 {
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		return { x: t.x, y: t.y };
 	}
 
@@ -391,7 +421,7 @@
 	}
 
 	function drawNode(ctx: CanvasRenderingContext2D, node: LayoutNode): void {
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		if (!t.visible) return;
 
 		ctx.save();
@@ -402,7 +432,18 @@
 		if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
 		if (t.alpha !== undefined) ctx.globalAlpha = t.alpha;
 
-		if (node.kind === 'sprite' && node.region) {
+		if (node.bind) {
+			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
+			// editor-renderable art — the game mounts the real component at runtime.
+			// Draw a labeled placeholder so they're visible + positionable here.
+			drawPlaceholder(
+				ctx,
+				t.anchor?.x ?? 0.5,
+				t.anchor?.y ?? 0.5,
+				'#2f5d57',
+				node.label ?? node.bind.component,
+			);
+		} else if (node.kind === 'sprite' && node.region) {
 			drawRegionSprite(ctx, node, t);
 		} else if (node.kind === 'sprite') {
 			const img = ensureImage(node.assetKey);
@@ -509,7 +550,7 @@
 		if (!selectedId) return;
 		const node = findNodeById(selectedId);
 		if (!node) return;
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		if (!t.visible) return;
 		const box = nodeBox(node, t, naturalSize);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -570,7 +611,7 @@
 		if (!selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node || node.locked) return null;
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		if (!t.visible) return null;
 		const box = nodeBox(node, t, naturalSize);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -604,7 +645,7 @@
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
 			if (node.locked) continue;
-			const t = resolveTransform(node, layoutType);
+			const t = nodeTransform(node);
 			const box = nodeBox(node, t, naturalSize);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
@@ -624,7 +665,7 @@
 		};
 	}
 	function startScale(node: LayoutNode, cornerIdx: number, world: Vec2): void {
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		const box = nodeBox(node, t, naturalSize);
 		dragMode = {
 			kind: 'scale',
@@ -639,7 +680,7 @@
 		};
 	}
 	function startRotate(node: LayoutNode, world: Vec2): void {
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		const center = { x: t.x, y: t.y };
 		const startAngle = Math.atan2(world.y - center.y, world.x - center.x);
 		dragMode = {
@@ -724,7 +765,7 @@
 
 	function snapTranslate(node: LayoutNode, nx: number, ny: number): Vec2 {
 		const tol = SNAP_PX / zoom;
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		const box = nodeBox(node, t, naturalSize);
 		// Compute candidate moving-node points using nx, ny.
 		const moved: typeof t = { ...t, x: nx, y: ny };
@@ -736,7 +777,7 @@
 		const yCandidates: number[] = [0, frameHeight / 2, frameHeight];
 		for (const other of visibleSceneNodes()) {
 			if (other.id === node.id) continue;
-			const ot = resolveTransform(other, layoutType);
+			const ot = nodeTransform(other);
 			const ob = nodeBox(other, ot, naturalSize);
 			const oc = nodeCornersWorld(ot, ob);
 			let minX = Infinity,
@@ -1067,7 +1108,7 @@
 		if (!selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node) return null;
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		if (!t.visible) return null;
 		const box = nodeBox(node, t, naturalSize);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -1110,7 +1151,7 @@
 		onDirty?.();
 	}
 	function nudgeScale(node: LayoutNode, factor: number): void {
-		const t = resolveTransform(node, layoutType);
+		const t = nodeTransform(node);
 		const sx = (t.scale?.x ?? 1) * factor;
 		const sy = (t.scale?.y ?? 1) * factor;
 		writeScale(node, sx, sy);

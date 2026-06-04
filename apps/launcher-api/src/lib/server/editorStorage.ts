@@ -87,7 +87,10 @@ function normalizeScene(input: unknown): Scene | null {
 	const nodes = Array.isArray(input.nodes)
 		? input.nodes.map(normalizeNode).filter((n): n is LayoutNode => n !== null)
 		: [];
-	return { id, name, nodes };
+	const scene: Scene = { id, name, nodes };
+	// Preserve the HUD coordinate-space tag; 'game' is the default so it's omitted.
+	if (input.space === 'standard' || input.space === 'canvas') scene.space = input.space;
+	return scene;
 }
 
 function normalizeNode(input: unknown): LayoutNode | null {
