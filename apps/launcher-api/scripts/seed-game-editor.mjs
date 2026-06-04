@@ -133,15 +133,104 @@ const anchor = (id, slotId, label, component, extra = {}) => ({
 	children: [],
 	...extra,
 });
+const spineNode = (id, label, slotId, key, t) => ({
+	id,
+	label,
+	slotId,
+	kind: 'spine',
+	assetKey: key,
+	anchor: t.anchor ?? { x: 0.5, y: 0.5 },
+	x: t.x,
+	y: t.y,
+	width: t.width,
+	height: t.height,
+	defaultAnimation: t.anim ?? '',
+	loop: true,
+	...(t.zIndex !== undefined ? { zIndex: t.zIndex } : {}),
+});
+const regionNode = (id, label, slotId, region, t) => ({
+	id,
+	label,
+	slotId,
+	kind: 'sprite',
+	assetKey: manifestKey,
+	region,
+	anchor: t.anchor ?? { x: 0, y: 0 },
+	x: t.x,
+	y: t.y,
+	width: t.width,
+	height: t.height,
+});
+const textNode = (id, label, text, t) => ({
+	id,
+	label,
+	kind: 'text',
+	text,
+	anchor: { x: 0.5, y: 0.5 },
+	x: t.x,
+	y: t.y,
+	style: { fontFamily: t.font ?? 'gold', fontSize: t.size ?? 30, fontWeight: '600', fill: 0xffffff },
+});
 
-function buildDoc(updatedAt) {
+// `spineKeys` maps a bundle name → its R2 key (from listSpineKeys). When a bundle
+// isn't present we fall back to the no-op bind anchor (still positionable).
+function buildDoc(updatedAt, spineKeys = {}) {
+	const ms = MAIN_SIZES_MAP.desktop;
+	// Background: foregroundAnimation spine, sized to fill the frame (preview).
+	const backgroundNodes = spineKeys.foregroundAnimation
+		? [
+				spineNode('bg-art', 'Background', 'background', spineKeys.foregroundAnimation, {
+					x: ms.width / 2,
+					y: ms.height / 2,
+					width: ms.width,
+					height: ms.height,
+					anim: 'idle',
+					zIndex: -10,
+				}),
+			]
+		: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10 })];
+
+	// Free-spin counter: the panel frame (a reels_frame region) + a static label.
+	const fsCounterNodes = [
+		regionNode('fs-frame', 'Free-spin counter frame', 'freeSpinCounter', 'Frame_FSCounter.png', {
+			x: 87,
+			y: 220,
+			width: 240,
+			height: 290,
+		}),
+		textNode('fs-text', 'Free-spin label', 'FREE SPIN\n1 OF 10', { x: 207, y: 365, size: 33 }),
+	];
+
+	const introNodes = spineKeys.fsIntro
+		? [
+				spineNode('fs-intro-art', 'Free-spin intro', 'freeSpinIntro', spineKeys.fsIntro, {
+					x: ms.width / 2,
+					y: ms.height / 2,
+					width: 520,
+					height: 420,
+				}),
+			]
+		: [anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro')];
+
+	const outroKey = spineKeys.fsOutro ?? spineKeys.fsOutroNumber;
+	const outroNodes = outroKey
+		? [
+				spineNode('fs-outro-art', 'Free-spin outro', 'freeSpinOutro', outroKey, {
+					x: ms.width / 2,
+					y: ms.height / 2,
+					width: 520,
+					height: 420,
+				}),
+			]
+		: [anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro')];
+
 	return {
 		version: 1,
 		projectKey: r2Slug(PROJECT),
 		gameType: 'bookOf',
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
-			{ id: 'background', name: 'Background', nodes: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10 })] },
+			{ id: 'background', name: 'Background', nodes: backgroundNodes },
 			{
 				id: 'basegame',
 				name: 'Base game',
@@ -158,29 +247,50 @@ function buildDoc(updatedAt) {
 					anchor('bound-transition', 'Transition', 'Transition overlay (coded)', 'Transition'),
 				],
 			},
-			{ id: 'freeSpinCounter', name: 'Free-spin counter', nodes: [anchor('fs-counter', 'freeSpinCounter', 'Free-spin counter', 'FreeSpinCounter')] },
-			{ id: 'freeSpinIntro', name: 'Free-spin intro', nodes: [anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro')] },
-			{ id: 'freeSpinOutro', name: 'Free-spin outro', nodes: [anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro')] },
+			{ id: 'freeSpinCounter', name: 'Free-spin counter', nodes: fsCounterNodes },
+			{ id: 'freeSpinIntro', name: 'Free-spin intro', nodes: introNodes },
+			{ id: 'freeSpinOutro', name: 'Free-spin outro', nodes: outroNodes },
 		],
 		updatedAt,
 	};
 }
 
+/** List the project's spine bundles in R2 → `{ bundleName: r2Key }`. The editor
+ * renders a spine node whose `assetKey` is the bundle prefix (same value the
+ * Library drag uses). */
+async function listSpineKeys(s3, bucket) {
+	const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+	const out = {};
+	const prefix = `${PREFIX}/spines/`;
+	let token;
+	do {
+		const r = await s3.send(
+			new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token }),
+		);
+		for (const cp of r.CommonPrefixes ?? []) {
+			const p = cp.Prefix;
+			const name = p.slice(prefix.length).replace(/\/$/, '');
+			if (name) out[name] = p;
+		}
+		token = r.IsTruncated ? r.NextContinuationToken : undefined;
+	} while (token);
+	return out;
+}
+
 async function main() {
 	const manifest = await buildManifest();
-	const doc = buildDoc(new Date().toISOString());
-
 	console.info(`\nTarget project prefix: ${PREFIX}`);
 	console.info(`  manifest → ${manifestKey}  (${manifest.regions.length} regions, ${manifest.width}×${manifest.height})`);
 	console.info(`  page     → ${pageKey}  (from ${PAGE_PATH})`);
-	console.info(`  doc      → ${editorDocKey}  (${doc.scenes.length} scenes)`);
 	const fb = manifest.regions.find((r) => r.name === 'frame_bg.png');
 	if (fb) console.info(`  frame_bg.png: rect ${fb.x},${fb.y} ${fb.w}×${fb.h} rotated=${fb.rotated} off ${fb.offX},${fb.offY} orig ${fb.origW}×${fb.origH}`);
 
 	if (dryRun) {
-		console.info('\n--dry-run: no uploads. Manifest + doc previews:\n');
-		console.info('MANIFEST', JSON.stringify(manifest, null, 2).slice(0, 1200), '…');
-		console.info('\nDOC basegame', JSON.stringify(doc.scenes.find((s) => s.id === 'basegame'), null, 2));
+		const doc = buildDoc(new Date().toISOString(), {});
+		console.info('\n--dry-run: no uploads (spine bundles not listed without creds). Doc previews:\n');
+		console.info('MANIFEST', JSON.stringify(manifest, null, 2).slice(0, 800), '…');
+		console.info('\nDOC scenes', doc.scenes.map((s) => `${s.id}(${s.nodes.length})`).join(' '));
+		console.info('DOC basegame', JSON.stringify(doc.scenes.find((s) => s.id === 'basegame'), null, 2));
 		return;
 	}
 
@@ -195,6 +305,14 @@ async function main() {
 	const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
 	const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } });
 	const put = (Key, Body, ContentType) => s3.send(new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType }));
+
+	const spineKeys = await listSpineKeys(s3, bucket);
+	console.info(`  spines   → ${Object.keys(spineKeys).length} bundle(s): ${Object.keys(spineKeys).join(', ') || '(none)'}`);
+	for (const want of ['foregroundAnimation', 'fsIntro', 'fsOutro']) {
+		if (!spineKeys[want]) console.warn(`  ⚠ spine "${want}" not found in R2 — that screen falls back to an anchor.`);
+	}
+	const doc = buildDoc(new Date().toISOString(), spineKeys);
+	console.info(`  doc      → ${editorDocKey}  (${doc.scenes.map((s) => `${s.id}:${s.nodes.length}`).join(' ')})`);
 
 	await put(pageKey, await readFile(PAGE_PATH), pageName.endsWith('.webp') ? 'image/webp' : 'image/png');
 	await put(manifestKey, JSON.stringify(manifest, null, 2), 'application/json');
