@@ -49,7 +49,7 @@ Per-project layout (C = client key, P = project key):
 | `<C>/<P>/atlas/`              | Atlas Maker            | composed atlas pages (`<stem>_new.{png,webp,atlas}`)            |
 | `<C>/<P>/batch/`             | Atlas Maker            | ComfyUI-generated variants                                      |
 | `<C>/<P>/sheets/<sheet>/`     | Sheet Maker            | packed `<basename>.{png,atlas,json}` (manifest goes to `manifests/`) |
-| `<C>/<P>/deploy/`             | Atlas Maker            | deploy-ready final assets (game pulls from here — see live-assets work) |
+| `<C>/<P>/deploy/`             | Atlas Maker            | deploy-ready final assets in the game's `static/assets/` shape — **the game asset contract; builds pull from here** (see `docs/design/live-assets.md`) |
 | `<C>/<P>/spines/<bundle>/`    | Spine sync             | spine atlas/png/skeleton per bundle                             |
 | `<C>/<P>/localization/strings.json` | Localization     | translated strings                                              |
 | `<C>/<P>/editor/scenes.json` | Editor                 | scene layout doc                                                |

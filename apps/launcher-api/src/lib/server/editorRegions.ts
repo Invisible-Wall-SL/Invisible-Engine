@@ -74,6 +74,10 @@ function str(v: unknown): string | undefined {
 	return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+	return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 function basename(key: string): string {
 	const i = key.lastIndexOf('/');
 	return i === -1 ? key : key.slice(i + 1);
@@ -170,6 +174,59 @@ function parseRegions(raw: unknown): EditorRegion[] {
 }
 
 /**
+ * Detect + normalize a **TexturePacker** (json-hash or json-array) manifest into
+ * the Invisible shape this module already parses, so a game's own atlas (e.g.
+ * Book of Borut's `reels_frame.json`) renders in the editor with NO conversion
+ * step — drop the `.json` + page image in R2 and the editor reads it directly.
+ *
+ * TexturePacker per-frame: `{ frame:{x,y,w,h}, rotated, spriteSourceSize:{x,y,w,h},
+ * sourceSize:{w,h} }`. Maps to the Invisible region: `frame` → on-page rect; the
+ * unrotated `w/h` (the editor swaps to `(h×w)` on-page for rotated frames);
+ * `spriteSourceSize.x/y` → trim `offX/offY`; `sourceSize` → `origW/origH`. Page +
+ * size come from `meta.image` / `meta.size`. Returns `null` if not TexturePacker.
+ */
+function texturePackerToInvisible(raw: unknown): RawManifest | null {
+	if (!isRecord(raw)) return null;
+	const frames = raw.frames;
+	const meta = isRecord(raw.meta) ? raw.meta : null;
+	if (!meta || (!isRecord(frames) && !Array.isArray(frames))) return null;
+
+	const entries: [string, unknown][] = Array.isArray(frames)
+		? frames.map((f) => [isRecord(f) ? str(f.filename) ?? '' : '', f])
+		: Object.entries(frames as Record<string, unknown>);
+
+	const regions: RawRegion[] = [];
+	for (const [name, f] of entries) {
+		if (!name || !isRecord(f)) continue;
+		const fr = isRecord(f.frame) ? f.frame : {};
+		const sss = isRecord(f.spriteSourceSize) ? f.spriteSourceSize : {};
+		const src = isRecord(f.sourceSize) ? f.sourceSize : {};
+		regions.push({
+			name,
+			x: num(fr.x) ?? 0,
+			y: num(fr.y) ?? 0,
+			w: num(fr.w) ?? 0,
+			h: num(fr.h) ?? 0,
+			rotated: f.rotated === true,
+			offX: num(sss.x) ?? 0,
+			offY: num(sss.y) ?? 0,
+			origW: num(src.w) ?? num(fr.w) ?? 0,
+			origH: num(src.h) ?? num(fr.h) ?? 0,
+		});
+	}
+
+	const size = isRecord(meta.size) ? meta.size : {};
+	const w = num(size.w) ?? 0;
+	const h = num(size.h) ?? 0;
+	return {
+		atlas: { source_image: str(meta.image), width: w, height: h },
+		width: w,
+		height: h,
+		regions,
+	};
+}
+
+/**
  * Locate, parse and resolve a sheet/atlas into its region set. Returns an empty
  * set (never null/throws) when nothing usable is found, so the endpoint can
  * always answer `{ regions: [] }` with a clear shape instead of 500-ing.
@@ -193,12 +250,15 @@ export async function loadRegionSet(
 	const text = await getObjectText(manifestKey);
 	if (!text) return { ...empty, assetKey: manifestKey };
 
-	let man: RawManifest;
+	let parsed: unknown;
 	try {
-		man = JSON.parse(text) as RawManifest;
+		parsed = JSON.parse(text);
 	} catch {
 		return { ...empty, assetKey: manifestKey };
 	}
+	// A game's own TexturePacker atlas (json-hash/array) is read directly — no
+	// conversion step. Falls through to the Invisible manifest shape otherwise.
+	const man: RawManifest = texturePackerToInvisible(parsed) ?? (parsed as RawManifest);
 
 	const regions = parseRegions(man.regions);
 	const pageKey = await resolvePageKey(man, manifestKey, client, project);

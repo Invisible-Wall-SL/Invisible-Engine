@@ -35,6 +35,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
+import atlas_writers  # noqa: E402  (TexturePacker JSON for game-loadable deploy)
 import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 
@@ -3269,7 +3270,16 @@ class Handler(BaseHTTPRequestHandler):
         if not sources:
             return (f"📦 Nothing to deploy — no {stem}_new.(png|webp|atlas) in "
                     f"the composed output. Create Atlas first.")
+        # `deploy_path` carries the MIRRORED subpath (live-assets.md step 1):
+        # when it nests under the game's `static/assets/` layout (e.g.
+        # `sprites/symbolsStatic`) the deploy lands at
+        # `<C>/<P>/deploy/sprites/symbolsStatic/<base>.{json,webp,png,atlas}`,
+        # mirroring `static/assets/sprites/symbolsStatic/...` verbatim. When no
+        # subpath is configured we fall back to the flat `deploy/<base>.*` and
+        # note it (no mirrored layout was set on this manifest).
+        mirrored = bool(raw)
         copied = []
+        page_src = None  # the deployed page image the .json should point at
         for src in sources:
             key = f"{dest_prefix}/{out_base}{src.suffix}"
             try:
@@ -3278,7 +3288,47 @@ class Handler(BaseHTTPRequestHandler):
                 return _diag("DEPLOY_FAILED", src=src.name, key=key,
                              err=f"{type(e).__name__}: {e}")
             copied.append(key)
-        return f"✓ Deployed to R2: {', '.join(copied)}"
+            suf = src.suffix.lower()
+            if suf == ".webp":
+                page_src = src  # prefer the .webp the game loads
+            elif suf == ".png" and page_src is None:
+                page_src = src
+        # Additionally emit the game-loadable TexturePacker spritesheet
+        # (<base>.json), so deploy/ holds exactly the frames+meta format the
+        # engine loads (live-assets.md step 1). Geometry comes from the BOUND
+        # `.atlas` (the manifest's authoritative region map) — NOT a `_new.atlas`,
+        # which compose doesn't produce — parsed to the same normalized regions.
+        # Additive: never blocks the .png/.webp deploy above.
+        json_note = ""
+        atlas_path = batch_atlas.atlas_file_path(m, manifest_path())
+        if atlas_path is not None and atlas_path.exists() and page_src is not None:
+            try:
+                parsed = atlas_format.parse_atlas(atlas_path)
+                pg = parsed["page"]
+                page_image = f"{out_base}{page_src.suffix}"
+                tp_path = ATLAS_DIR / f"{stem}_new.json"
+                atlas_writers.write_texturepacker_json(
+                    tp_path, page_image, pg["width"], pg["height"], parsed["regions"])
+                json_key = f"{dest_prefix}/{out_base}.json"
+                storage.put(json_key, tp_path.read_bytes())
+                copied.append(json_key)
+            except Exception as e:  # noqa: BLE001
+                json_note = (f"  ⚠ Spritesheet JSON not written "
+                             f"({type(e).__name__}: {e}) — page image deployed.")
+        elif atlas_path is None or not atlas_path.exists():
+            json_note = ("  ⚠ No bound .atlas geometry for this manifest → no "
+                         "TexturePacker .json emitted (legacy cell-grid project, "
+                         "or .atlas not in R2/staging). Game spritesheet not "
+                         "produced; only the page image was deployed.")
+        elif page_src is None:
+            json_note = ("  ⚠ No .webp/.png page in composed output → "
+                         "TexturePacker .json skipped (meta.image would dangle).")
+        if not mirrored:
+            json_note += ("  ℹ No mirrored deploy subpath set (manifest "
+                          "`deploy_path` empty) — deployed flat to deploy/. Set "
+                          "`deploy_path` to e.g. sprites/<name> to mirror the "
+                          "game's static/assets/ layout.")
+        return f"✓ Deployed to R2: {', '.join(copied)}{json_note}"
 
     def _saveglobalstyle(self, payload: dict) -> str:
         m = load_manifest()

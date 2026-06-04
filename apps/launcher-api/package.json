@@ -15,7 +15,8 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
 		"db:seed": "node scripts/seed.mjs",
-		"r2:sync-spines": "node scripts/r2-sync-spines.mjs"
+		"r2:sync-spines": "node scripts/r2-sync-spines.mjs",
+		"pull:assets": "node scripts/pull-project-assets.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "5.2.12",
