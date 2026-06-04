@@ -11,6 +11,15 @@ import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
+ * The editor is a client-only canvas/WebGL app (pixi-like 2D canvas + a spine
+ * WebGL preview). Server-rendering it is pointless AND fragile — certain saved
+ * docs made the SSR render throw a 500 even though the `load` data was fine.
+ * Disable SSR: `load` still runs server-side (data flows to the client), only
+ * the component render is client-only. Fixes the 500 + is the right call here.
+ */
+export const ssr = false;
+
+/**
  * Auth + role gate for actions, where `await parent()` is unavailable so the
  * effective tool manifest must be recomputed. The loader instead reuses the
  * parent layout's already-resolved `tools` (see `load`). Returns `(client, project)`.

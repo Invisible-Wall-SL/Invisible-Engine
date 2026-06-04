@@ -25,8 +25,12 @@ const opt = (name, fallback) => {
 	return i !== -1 && args[i + 1] ? args[i + 1] : fallback;
 };
 
+// NOTE: --project is the project's KEY (as stored in the launcher DB / shown in
+// the R2 path), NOT the display name. Book of Borut's key is `bookofborut`
+// (r2Slug of the key is itself). Passing the display name `book_of_borut` writes
+// to the wrong prefix and the editor won't see it.
 const CLIENT = opt('client', 'borut');
-const PROJECT = opt('project', 'book_of_borut');
+const PROJECT = opt('project', 'bookofborut');
 const TP_PATH = opt('tp', null);
 const PAGE_PATH = opt('page', null);
 if (!TP_PATH || !PAGE_PATH) {
