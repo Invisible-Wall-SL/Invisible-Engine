@@ -95,7 +95,16 @@ const files = {
 				type: 'module',
 				scripts: {
 					dev: `vite dev --host --port ${port}`,
-					build: 'vite build',
+					// Engine packages (pixi-svelte, engine-layout) are consumed via their
+					// gitignored, pre-built dist/, which `vite build` never rebuilds — so
+					// engine SOURCE changes wouldn't reach this game's bundle. build:engine
+					// recompiles the game's workspace deps (topological; only the ~2 that
+					// emit a dist) first. See docs/design/live-assets.md + the
+					// gotcha-game-build-stale-engine-dist memo.
+					// To wire live-assets, add a `pull:assets` script (see Book of Borut)
+					// and chain it: `pnpm build:engine && pnpm pull:assets --optional && vite build`.
+					'build:engine': `pnpm --filter "${slug}^..." run build`,
+					build: 'pnpm build:engine && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',
