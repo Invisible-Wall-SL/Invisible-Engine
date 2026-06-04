@@ -1,5 +1,6 @@
 import { linesTemplate } from '../templates/lines';
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
+import { hudScenes } from './hud';
 
 /**
  * Template-shaped generator for the `lines` LayoutDoc — the engine-truth
@@ -133,6 +134,11 @@ export function defaultLayout(gameType: string): LayoutDoc {
 					},
 				],
 			},
+			// The HUD layer (logo/name corners + bottom bar) as editor scenes. The
+			// game still renders `<UI>` from code today; these become live once the
+			// HUD render path (phase 2) consumes them. Shown in the editor now so the
+			// HUD is visible + positionable.
+			...hudScenes(),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};
