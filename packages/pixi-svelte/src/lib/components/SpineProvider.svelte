@@ -19,7 +19,17 @@
 
 	const { debug, key, anchor, children, scale: scaleProp, ...baseSpineProps }: Props = $props();
 	const context = getContextApp();
-	const spineData = $derived(context.stateApp.loadedAssets?.[key] as SPINE_PIXI.SkeletonData);
+	const spineData = $derived.by(() => {
+		const assets = context.stateApp.loadedAssets;
+		const direct = assets?.[key] as SPINE_PIXI.SkeletonData | undefined;
+		if (direct) return direct;
+		// Editor scene docs store a spine key as its R2 bundle PREFIX
+		// (`<client>/<project>/spines/<bundle>/`) so the editor can preview it from
+		// R2; games register the spine under the plain `<bundle>` key. Fall back to
+		// that so doc-driven spine nodes resolve in-game.
+		const bundle = key.match(/(?:^|\/)spines\/(.+?)\/?$/)?.[1];
+		return bundle ? (assets?.[bundle] as SPINE_PIXI.SkeletonData | undefined) : undefined;
+	});
 
 	const SCALE_BASE = { x: 1, y: 1 };
 
@@ -70,7 +80,9 @@
 {/if}
 
 {#key spineData}
-	<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData}>
-		{@render children()}
-	</BaseSpineProvider>
+	{#if spineData}
+		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData}>
+			{@render children()}
+		</BaseSpineProvider>
+	{/if}
 {/key}
