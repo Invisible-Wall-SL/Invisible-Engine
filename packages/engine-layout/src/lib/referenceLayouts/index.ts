@@ -1,5 +1,4 @@
 import type { LayoutDoc } from '../types';
-import { bookofReferenceLayout } from './bookof';
 import { defaultLayout } from './lines';
 
 export { defaultLayout } from './lines';
@@ -20,7 +19,13 @@ export interface ReferenceLayout {
 
 const REFERENCE_LAYOUTS: ReferenceLayout[] = [
 	{ gameType: 'lines', name: 'Lines — base game', build: () => defaultLayout('lines') },
-	{ gameType: 'bookOf', name: 'Book of Borut — base game', build: bookofReferenceLayout },
+	// NOTE: `bookOf` is intentionally NOT offered in the picker. Its board frame
+	// is an atlas FRAME (`frame_bg.png` lives inside the `reels_frame` atlas), so a
+	// generic standalone-key layout can't render it in the editor AND loading it
+	// would autosave over a project's real seeded doc. The canonical path for a
+	// real game is the per-project seed (`scripts/seed-game-editor.mjs`), which
+	// emits region sprites pointing at the project's manifest. `bookofReferenceLayout`
+	// stays exported for that seed/tooling.
 ];
 
 /** The game types that have a built-in placed layout (for a load picker). */
