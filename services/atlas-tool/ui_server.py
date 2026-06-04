@@ -3258,13 +3258,17 @@ class Handler(BaseHTTPRequestHandler):
         raw = str(m.get("deploy_path", "")).replace("\\", "/").strip().strip("/")
         if raw and (re.match(r"^[A-Za-z]:/", raw) or raw.startswith("/")):
             raw = ""
-        base = f"{R2_PREFIX}/deploy" if R2_PREFIX else "deploy"
+        # Resolve the thread-local proxy to a plain str once — it supports
+        # f-strings but NOT `+` (it's a _StrProxy), so concatenation below must
+        # use the resolved value.
+        prefix = str(R2_PREFIX) if R2_PREFIX else ""
+        base = f"{prefix}/deploy" if prefix else "deploy"
         if not raw:
             dest_prefix = base
-        elif R2_PREFIX and (raw == R2_PREFIX or raw.startswith(R2_PREFIX + "/")):
+        elif prefix and (raw == prefix or raw.startswith(prefix + "/")):
             dest_prefix = raw  # already an absolute key inside the project space
         else:
-            dest_prefix = f"{R2_PREFIX}/{raw}" if R2_PREFIX else raw
+            dest_prefix = f"{prefix}/{raw}" if prefix else raw
         sources = sorted(p for p in ATLAS_DIR.glob(f"{stem}_new.*")
                          if p.suffix.lower() in {".png", ".webp", ".atlas"})
         if not sources:
