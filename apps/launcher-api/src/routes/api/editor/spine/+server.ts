@@ -21,7 +21,15 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	if (!key) throw error(400, 'missing key');
 	const preferPng = url.searchParams.get('pp') !== '0';
 
-	const descriptor = await resolveEditorSpine(clientKey, projectKey, key, preferPng);
+	// Defensive: a bad bundle/index must degrade to a placeholder, never 500 the
+	// canvas. Surface the message so a resolution bug stays diagnosable in-browser.
+	let descriptor;
+	try {
+		descriptor = await resolveEditorSpine(clientKey, projectKey, key, preferPng);
+	} catch (e) {
+		console.error('[editor/spine] resolve failed', key, e);
+		return json({ found: false, error: e instanceof Error ? e.message : String(e) });
+	}
 	if (!descriptor) return json({ found: false });
 
 	return json({
