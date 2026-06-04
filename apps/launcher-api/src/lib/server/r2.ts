@@ -223,6 +223,30 @@ export async function listAllKeys(prefix: string): Promise<string[]> {
 	return out;
 }
 
+/**
+ * NON-delimited recursive listing returning each object's key + byte size,
+ * paginating through all pages. Like `listAllKeys` but carries `Size` so
+ * callers (e.g. the deploy listing) can report file sizes without a HEAD.
+ */
+export async function listAllObjects(prefix: string): Promise<{ key: string; size: number }[]> {
+	const out: { key: string; size: number }[] = [];
+	let token: string | undefined;
+	do {
+		const res = await s3().send(
+			new ListObjectsV2Command({
+				Bucket: ENV.R2_BUCKET,
+				Prefix: prefix,
+				ContinuationToken: token,
+			}),
+		);
+		for (const o of res.Contents ?? []) {
+			if (typeof o.Key === 'string') out.push({ key: o.Key, size: o.Size ?? 0 });
+		}
+		token = res.IsTruncated ? res.NextContinuationToken : undefined;
+	} while (token);
+	return out;
+}
+
 export interface FolderEntry {
 	key: string;
 	size: number;
