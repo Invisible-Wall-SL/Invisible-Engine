@@ -435,14 +435,19 @@
 		if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
 			// editor-renderable art — the game mounts the real component at runtime.
-			// Draw a labeled placeholder so they're visible + positionable here.
-			drawPlaceholder(
-				ctx,
-				t.anchor?.x ?? 0.5,
-				t.anchor?.y ?? 0.5,
-				'#2f5d57',
-				node.label ?? node.bind.component,
-			);
+			// HUD elements carry a `preview` so we draw a faithful chip (rounded rect
+			// + label, like the real button/label); others get a plain placeholder.
+			if (node.preview) {
+				drawHudChip(ctx, t, node.preview, node.label ?? node.bind.component);
+			} else {
+				drawPlaceholder(
+					ctx,
+					t.anchor?.x ?? 0.5,
+					t.anchor?.y ?? 0.5,
+					'#2f5d57',
+					node.label ?? node.bind.component,
+				);
+			}
 		} else if (node.kind === 'sprite' && node.region) {
 			drawRegionSprite(ctx, node, t);
 		} else if (node.kind === 'sprite') {
@@ -528,6 +533,56 @@
 		} else {
 			ctx.drawImage(img, region.x, region.y, pw, ph, cx, cy, cw, ch);
 		}
+	}
+
+	/** Faithful 2D preview of a HUD `bind` element (the real component is a shape +
+	 * text, so this is close to what the game renders): buttons = dark rounded
+	 * square + centered icon label; labels = ticker + label + value; logo/name =
+	 * text. Drawn in the node's already-scaled space (drawNode applied scale). */
+	function drawHudChip(
+		ctx: CanvasRenderingContext2D,
+		t: ResolvedTransform,
+		preview: NonNullable<LayoutNode['preview']>,
+		label: string,
+	): void {
+		const ax = t.anchor?.x ?? 0.5;
+		const ay = t.anchor?.y ?? 0.5;
+		const w = preview.w;
+		const h = preview.h;
+		const x = -w * ax;
+		const y = -h * ay;
+		const isText = preview.style === 'text';
+		if (!isText) {
+			const r = Math.min(preview.style === 'button' ? 36 : 26, h / 2);
+			ctx.beginPath();
+			ctx.roundRect(x, y, w, h, r);
+			ctx.fillStyle = 'rgba(8,8,10,0.92)';
+			ctx.fill();
+			ctx.lineWidth = 2;
+			ctx.strokeStyle = '#3a3a46';
+			ctx.stroke();
+		}
+		ctx.save();
+		ctx.textAlign = 'center';
+		if (preview.style === 'label') {
+			ctx.textBaseline = 'top';
+			ctx.font = '600 30px sans-serif';
+			ctx.fillStyle = '#e8e8ee';
+			ctx.fillText(label, x + w / 2, y + 14);
+			ctx.fillStyle = '#7ee0c0';
+			ctx.fillText('0.00', x + w / 2, y + 14 + 38);
+		} else if (preview.style === 'button') {
+			ctx.textBaseline = 'middle';
+			ctx.font = '600 28px sans-serif';
+			ctx.fillStyle = '#e8e8ee';
+			ctx.fillText(label, x + w / 2, y + h / 2);
+		} else {
+			ctx.textBaseline = 'middle';
+			ctx.font = '600 30px sans-serif';
+			ctx.fillStyle = '#c8a3ff';
+			ctx.fillText(label, x + w / 2, y + h / 2);
+		}
+		ctx.restore();
 	}
 
 	function drawPlaceholder(

@@ -80,6 +80,14 @@ interface BaseNode {
 	 * Ignored for `game`/`standard` scenes (additive — absent = today's behaviour).
 	 */
 	screenAnchor?: Point2D;
+	/**
+	 * Editor-only render hint for `bind` nodes whose real component is a simple
+	 * shape+text (the HUD: buttons = rounded square + icon label; labels = ticker
+	 * + text). Lets the 2D editor draw a faithful chip at this size/style instead
+	 * of a generic placeholder box, so an author sees roughly the real HUD. The
+	 * game ignores it (it mounts the real Pixi component).
+	 */
+	preview?: { w: number; h: number; style: 'button' | 'label' | 'text' };
 }
 
 export interface ContainerNode extends BaseNode {

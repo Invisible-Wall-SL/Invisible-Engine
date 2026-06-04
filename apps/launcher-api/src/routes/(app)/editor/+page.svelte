@@ -259,13 +259,28 @@
 	/** Whether the HUD scenes (logo/name corners + bottom bar) are present. */
 	const hasHud = $derived(scenes.some((s) => s.id === 'hudBar' || s.id === 'hudCorners'));
 
-	/** Append the game HUD as editor scenes (non-destructive — keeps existing
-	 * scenes). Lets a project opt its `<UI>` HUD into editor control without the
-	 * clobber-prone "load a game scene" path. */
+	/** Add the game HUD as editor scenes (non-destructive — keeps other scenes), or
+	 * refresh existing HUD scenes to the latest engine version (e.g. to pick up the
+	 * preview chips / positions). Lets a project opt its `<UI>` HUD into editor
+	 * control without the clobber-prone "load a game scene" path. */
 	function addHudLayer(): void {
-		if (hasHud) return;
-		scenes = [...scenes, ...hudScenes()];
-		activeSceneIdx = scenes.length - hudScenes().length; // focus the first HUD screen
+		const fresh = hudScenes();
+		if (hasHud) {
+			if (
+				!confirm(
+					'Refresh the HUD layer to the latest version? Any position edits you made to the HUD elements will be reset to defaults.',
+				)
+			) {
+				return;
+			}
+			scenes = [
+				...scenes.filter((s) => s.id !== 'hudBar' && s.id !== 'hudCorners'),
+				...fresh,
+			];
+		} else {
+			scenes = [...scenes, ...fresh];
+		}
+		activeSceneIdx = scenes.length - fresh.length; // focus the first HUD screen
 		selectedId = null;
 		markDirty();
 	}
@@ -792,16 +807,16 @@
 						<li class="muted">No scenes yet — load a game scene above.</li>
 					{/each}
 				</ul>
-				{#if !hasHud}
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything"
-						onclick={addHudLayer}
-					>
-						＋ Add HUD layer
-					</button>
-				{/if}
+				<button
+					class="add-hud-btn"
+					type="button"
+					title={hasHud
+						? 'Refresh the HUD scenes to the latest version (resets HUD positions)'
+						: 'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything'}
+					onclick={addHudLayer}
+				>
+					{hasHud ? '↻ Refresh HUD layer' : '＋ Add HUD layer'}
+				</button>
 			</div>
 
 			<div class="tabs" role="tablist" aria-label="Left panel">

@@ -60,6 +60,11 @@ const t = (lx: number, y: number): XY => ({ x: tOX + lx, y });
 const DESKTOP_SCALE = { x: 0.8, y: 0.8 };
 const TABLET_SCALE = { x: 1, y: 1 };
 
+// Real element sizes (unscaled) for the editor preview chips:
+const BTN_SIZE = 150; // UI_BASE_SIZE — buttons are 150×150 rounded squares
+const LABEL_W = D * 0.3 * 3 * (326 / 73); // UiLabel `base_ticker` width (≈603)
+const LABEL_H = D * 0.3 * 3; // ≈135
+
 /** A bottom-bar element with its desktop base + landscape/tablet overrides. */
 function barNode(
 	id: string,
@@ -70,6 +75,7 @@ function barNode(
 	landscape: XY,
 	tablet: XY,
 ): LayoutNode {
+	const isLabel = props === LABEL;
 	const overrides: Partial<Record<'landscape' | 'tablet', NodeOverride>> = {
 		landscape: { x: landscape.x, y: landscape.y }, // scale inherits desktop 0.8
 		tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },
@@ -80,9 +86,15 @@ function barNode(
 		kind: 'container',
 		x: desktop.x,
 		y: desktop.y,
+		// Anchor matches how the real snippet renders at the node origin: labels
+		// are top-centred (UiLabel stacked), buttons centred.
+		anchor: isLabel ? { x: 0.5, y: 0 } : { x: 0.5, y: 0.5 },
 		scale: DESKTOP_SCALE,
 		bind: { component, props },
 		overrides,
+		preview: isLabel
+			? { w: LABEL_W, h: LABEL_H, style: 'label' }
+			: { w: BTN_SIZE, h: BTN_SIZE, style: 'button' },
 		children: [],
 	};
 }
@@ -137,7 +149,9 @@ export function hudCornersScene(): Scene {
 				screenAnchor: { x: 0, y: 0 },
 				x: 20,
 				y: 0,
+				anchor: { x: 0, y: 0 },
 				bind: { component: 'HudGameName' },
+				preview: { w: 260, h: 56, style: 'text' },
 				children: [],
 			},
 			{
@@ -147,7 +161,9 @@ export function hudCornersScene(): Scene {
 				screenAnchor: { x: 1, y: 0 },
 				x: -20,
 				y: 0,
+				anchor: { x: 1, y: 0 },
 				bind: { component: 'HudLogo' },
+				preview: { w: 220, h: 56, style: 'text' },
 				children: [],
 			},
 		],
