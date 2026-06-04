@@ -3263,12 +3263,19 @@ class Handler(BaseHTTPRequestHandler):
         # use the resolved value.
         prefix = str(R2_PREFIX) if R2_PREFIX else ""
         base = f"{prefix}/deploy" if prefix else "deploy"
+        # `deploy_path` is the subpath UNDER deploy/ that mirrors the game's
+        # static/assets/ layout (e.g. `sprites/symbolsStatic`). Strip a redundant
+        # leading `deploy/` if the user included it, so it never double-nests.
+        if raw == "deploy":
+            raw = ""
+        elif raw.startswith("deploy/"):
+            raw = raw[len("deploy/") :]
         if not raw:
             dest_prefix = base
         elif prefix and (raw == prefix or raw.startswith(prefix + "/")):
-            dest_prefix = raw  # already an absolute key inside the project space
+            dest_prefix = raw  # caller gave a fully-qualified key inside the project
         else:
-            dest_prefix = f"{prefix}/{raw}" if prefix else raw
+            dest_prefix = f"{base}/{raw}"  # nest the mirrored subpath under deploy/
         sources = sorted(p for p in ATLAS_DIR.glob(f"{stem}_new.*")
                          if p.suffix.lower() in {".png", ".webp", ".atlas"})
         if not sources:
