@@ -217,21 +217,22 @@
 	function adoptScenes(doc: { scenes: Scene[]; gameType?: string; mainSizesMap?: typeof mainSizesMap }, gameType: string): void {
 		if (doc.scenes.length === 0) return;
 		const hasContent = scenes.some((s) => s.nodes.length > 0);
-		if (
-			hasContent &&
-			!confirm(
-				`Load the ${gameType} scenes? This replaces the current layout — nodes you have placed will be removed.`,
-			)
-		) {
-			return;
-		}
+		// Always confirm — loading replaces what's on the canvas. Be explicit that
+		// it's a non-destructive preview until the first edit.
+		const warn = hasContent
+			? `Load the ${gameType} scenes? This replaces the current layout on screen.\n\nNothing is saved until you make an edit, so your project's saved layout is safe — but if you then edit, the load is what gets saved.`
+			: `Load the ${gameType} scenes onto the canvas?\n\nNothing is saved until you make an edit.`;
+		if (!confirm(warn)) return;
 		scenes = structuredClone(doc.scenes);
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
 		authoringGameType = gameType;
 		activeSceneIdx = 0;
 		selectedId = null;
 		void loadTemplateFor(gameType);
-		markDirty();
+		// Deliberately NO markDirty(): loading a reference is a non-destructive
+		// preview. Autosave only kicks in once the user actually edits something,
+		// so merely viewing a reference can't clobber the project's saved doc.
+		loadedPreview = true;
 	}
 
 	/** Load the game scene chosen in the scene-bar picker. `ref:<type>` loads a
@@ -284,6 +285,9 @@
 
 	let dirty = $state(false);
 	let busy = $state(false);
+	/** True after loading a reference layout, until the first edit — signals the
+	 * on-screen layout is an unsaved preview (autosave hasn't touched the doc). */
+	let loadedPreview = $state(false);
 	let lastError = $state('');
 	let lastSavedAt = $state(data.doc.updatedAt || '');
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
@@ -291,6 +295,7 @@
 
 	function markDirty(): void {
 		dirty = true;
+		loadedPreview = false; // a real edit commits the (possibly loaded) layout
 		lastError = '';
 	}
 
@@ -339,6 +344,7 @@
 				lastSavedAt = out.updatedAt ?? new Date().toISOString();
 				lastError = '';
 				dirty = false;
+				loadedPreview = false;
 			}
 		} catch (e) {
 			lastError = e instanceof Error ? e.message : 'Save failed.';
@@ -673,6 +679,11 @@
 				<button class="save-btn" type="button" onclick={() => void save()}>Retry</button>
 			{:else if dirty}
 				<span class="save-pill dirty">Unsaved changes</span>
+				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
+			{:else if loadedPreview}
+				<span class="save-pill dirty" title="A loaded reference layout is on screen but not saved — edit anything, or click Save, to keep it.">
+					Preview — not saved
+				</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
 			{:else}
 				<span class="save-pill ok" title={lastSavedAt || ''}>Saved {savedAgo}</span>
