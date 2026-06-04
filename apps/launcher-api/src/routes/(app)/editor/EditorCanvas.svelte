@@ -167,10 +167,11 @@
 		const img = new Image();
 		img.onload = () => {
 			images.set(key, img);
-			schedule();
+			draw(); // force a redraw (schedule() can be swallowed mid-load on doc open)
 		};
 		img.onerror = () => {
 			images.set(key, null);
+			console.warn('[editor] image load failed', key);
 		};
 		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}`;
 		return null;
@@ -187,7 +188,7 @@
 		void fetchRegions(assetKey).then((set) => {
 			regionSets.set(assetKey, set);
 			if (set.pageKey) ensureImage(set.pageKey);
-			schedule();
+			draw(); // force a redraw once regions resolve (don't rely on raf dedup)
 		});
 		return null;
 	}
@@ -394,6 +395,12 @@
 		const ax = t.anchor?.x ?? 0;
 		const ay = t.anchor?.y ?? 0;
 		if (!found || !found.set.pageKey) {
+			console.debug('[editor] region miss', {
+				assetKey: node.assetKey,
+				region: node.region,
+				foundRegion: !!found,
+				pageKey: found?.set.pageKey,
+			});
 			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? node.region ?? '…');
 			return;
 		}
@@ -404,6 +411,12 @@
 		const dw = t.width ?? nat.w;
 		const dh = t.height ?? nat.h;
 		if (!img || !img.complete || img.naturalWidth === 0) {
+			console.debug('[editor] img not ready', {
+				pageKey: found.set.pageKey,
+				hasImg: !!img,
+				complete: img?.complete,
+				naturalWidth: img?.naturalWidth,
+			});
 			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? region.name);
 			return;
 		}
