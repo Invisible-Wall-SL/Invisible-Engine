@@ -110,7 +110,7 @@ interface SkeletonIndexEntry {
 /** Bundle name (`folder` in the index) implied by a spine node's `assetKey`. The
  * `assetKey` is the R2 prefix the asset list hands out — either per-project
  * `<client>/<project>/spines/<bundle>/` or the shared `_shared/spines/<bundle>/`. */
-function bundleFromAssetKey(
+export function bundleFromAssetKey(
 	clientKey: string,
 	projectKey: string,
 	assetKey: string,
