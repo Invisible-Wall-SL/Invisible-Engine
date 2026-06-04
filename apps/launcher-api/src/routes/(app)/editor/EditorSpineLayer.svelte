@@ -24,9 +24,20 @@
 		/** Reports which `assetKey`s now render a real skeleton, so the 2D canvas
 		 * can drop their placeholder. Loading/errored keys stay placeholdered. */
 		onReadyKeysChange?: (keys: Set<string>) => void;
+		/** Monotonic spine-bundle load tally, so the 2D canvas can fold spine loads
+		 * into its global progress overlay. `started`/`settled` only ever grow. */
+		onLoadingChange?: (counts: { started: number; settled: number }) => void;
 	}
 
-	let { scene, layoutType, panX, panY, zoom, playing, onReadyKeysChange }: Props = $props();
+	let { scene, layoutType, panX, panY, zoom, playing, onReadyKeysChange, onLoadingChange }: Props =
+		$props();
+
+	// Monotonic counters: one bundle load = one started + (eventually) one settled.
+	let loadStarted = 0;
+	let loadSettled = 0;
+	function reportLoading(): void {
+		onLoadingChange?.({ started: loadStarted, settled: loadSettled });
+	}
 
 	let readyKeys = new Set<string>();
 	function publishReady(): void {
@@ -65,8 +76,18 @@
 	async function ensureInstance(assetKey: string): Promise<void> {
 		if (entries.has(assetKey)) return;
 		entries.set(assetKey, { state: 'loading' });
+		loadStarted++;
+		reportLoading();
+		let settled = false;
+		const settle = (): void => {
+			if (settled) return;
+			settled = true;
+			loadSettled++;
+			reportLoading();
+		};
 		if (!ensureGl() || !gl) {
 			entries.set(assetKey, { state: 'error' });
+			settle();
 			return;
 		}
 		try {
@@ -80,6 +101,7 @@
 		} catch {
 			entries.set(assetKey, { state: 'error' });
 		} finally {
+			settle();
 			publishReady();
 		}
 	}

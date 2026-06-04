@@ -148,6 +148,50 @@
 		playingSpines = next;
 	}
 
+	// ---------- asset-load progress (drives the loading overlay) ----------
+	// Monotonic counters across the three asset sources: images + atlas/sheet
+	// regions (this canvas) and spine bundles (the overlay child, via callback).
+	// `started`/`settled` only grow; `pending` is the live in-flight count.
+	let imgStarted = $state(0);
+	let imgSettled = $state(0);
+	let regStarted = $state(0);
+	let regSettled = $state(0);
+	let spineStarted = $state(0);
+	let spineSettled = $state(0);
+	const loadPending = $derived(
+		imgStarted - imgSettled + (regStarted - regSettled) + (spineStarted - spineSettled),
+	);
+	// High-water mark for the current load burst: grows as new refs are
+	// discovered, resets to 0 once everything settles. Gives a real progress
+	// fraction per burst without the totals drifting up across many doc opens.
+	let batchTotal = $state(0);
+	let showOverlay = $state(false);
+	let overlayTimer = 0;
+	$effect(() => {
+		const pending = loadPending;
+		if (pending === 0) batchTotal = 0;
+		else if (pending > batchTotal) batchTotal = pending;
+
+		if (pending > 0) {
+			// Defer the overlay so quick single loads (e.g. one drag-dropped
+			// sprite) don't flash it — only sustained bursts show feedback.
+			if (!showOverlay && !overlayTimer) {
+				overlayTimer = window.setTimeout(() => {
+					overlayTimer = 0;
+					showOverlay = true;
+				}, 250);
+			}
+		} else {
+			if (overlayTimer) {
+				clearTimeout(overlayTimer);
+				overlayTimer = 0;
+			}
+			showOverlay = false;
+		}
+	});
+	const loadDone = $derived(Math.max(0, batchTotal - loadPending));
+	const loadPct = $derived(batchTotal > 0 ? Math.round((loadDone / batchTotal) * 100) : 0);
+
 	interface SnapLine {
 		axis: 'x' | 'y';
 		/** World-space coordinate (x for vertical, y for horizontal). */
@@ -164,13 +208,16 @@
 	function ensureImage(key: string): HTMLImageElement | null {
 		if (images.has(key)) return images.get(key) ?? null;
 		images.set(key, null);
+		imgStarted++;
 		const img = new Image();
 		img.onload = () => {
 			images.set(key, img);
+			imgSettled++;
 			draw(); // force a redraw (schedule() can be swallowed mid-load on doc open)
 		};
 		img.onerror = () => {
 			images.set(key, null);
+			imgSettled++;
 			console.warn('[editor] image load failed', key);
 		};
 		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}`;
@@ -185,11 +232,18 @@
 	function ensureRegionSet(assetKey: string): RegionSet | null {
 		if (regionSets.has(assetKey)) return regionSets.get(assetKey) ?? null;
 		regionSets.set(assetKey, null);
-		void fetchRegions(assetKey).then((set) => {
-			regionSets.set(assetKey, set);
-			if (set.pageKey) ensureImage(set.pageKey);
-			draw(); // force a redraw once regions resolve (don't rely on raf dedup)
-		});
+		regStarted++;
+		void fetchRegions(assetKey)
+			.then((set) => {
+				regionSets.set(assetKey, set);
+				regSettled++;
+				if (set.pageKey) ensureImage(set.pageKey);
+				draw(); // force a redraw once regions resolve (don't rely on raf dedup)
+			})
+			.catch((err) => {
+				regSettled++;
+				console.warn('[editor] region load failed', assetKey, err);
+			});
 		return null;
 	}
 	/** Seed the cache from a drag payload so the dropped sprite renders instantly. */
@@ -1161,7 +1215,23 @@
 			readySpineKeys = keys;
 			schedule();
 		}}
+		onLoadingChange={(c) => {
+			spineStarted = c.started;
+			spineSettled = c.settled;
+		}}
 	/>
+	{#if showOverlay}
+		<div class="load-overlay" role="status" aria-live="polite">
+			<div class="load-card">
+				<div class="spinner"></div>
+				<div class="load-text">
+					<span class="load-title">Loading assets…</span>
+					<span class="load-count">{loadDone} / {batchTotal}</span>
+				</div>
+				<div class="load-bar"><div class="load-bar-fill" style="width:{loadPct}%"></div></div>
+			</div>
+		</div>
+	{/if}
 	{#if overlayInfo}
 		<EditorItemOverlay
 			info={overlayInfo}
@@ -1240,5 +1310,68 @@
 	}
 	.fit:hover {
 		border-color: #7ee0c0;
+	}
+	.load-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+		background: rgba(11, 11, 16, 0.55);
+		backdrop-filter: blur(1px);
+	}
+	.load-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		padding: 22px 28px;
+		min-width: 220px;
+		background: #14141c;
+		border: 1px solid #2a2430;
+		border-radius: 12px;
+		box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+	}
+	.spinner {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		border: 3px solid #2a2a36;
+		border-top-color: #7ee0c0;
+		animation: spin 0.8s linear infinite;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	.load-text {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+	}
+	.load-title {
+		color: #e8e8ee;
+		font-size: 13px;
+		letter-spacing: 0.02em;
+	}
+	.load-count {
+		color: #888;
+		font-size: 12px;
+		font-family: ui-monospace, monospace;
+	}
+	.load-bar {
+		width: 100%;
+		height: 4px;
+		border-radius: 999px;
+		background: #2a2a36;
+		overflow: hidden;
+	}
+	.load-bar-fill {
+		height: 100%;
+		background: #7ee0c0;
+		border-radius: 999px;
+		transition: width 0.2s ease;
 	}
 </style>
