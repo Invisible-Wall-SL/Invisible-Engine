@@ -47,6 +47,16 @@ export function bookofReferenceLayout(): LayoutDoc {
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
 			{
+				// Mirrors the game's generator (Book of Borut/src/game/defaultLayout.ts).
+				// Bind anchors (background, FS counter, intro, outro) show as
+				// positionable anchors in the editor; their art renders in-game.
+				id: 'background',
+				name: 'Background',
+				nodes: [
+					{ id: 'bg', label: 'Background', kind: 'container', x: 0, y: 0, zIndex: -10, bind: { component: 'Background' }, children: [] },
+				],
+			},
+			{
 				id: 'basegame',
 				name: 'Base game',
 				nodes: [
@@ -102,6 +112,27 @@ export function bookofReferenceLayout(): LayoutDoc {
 						bind: { component: 'Transition' },
 						children: [],
 					},
+				],
+			},
+			{
+				id: 'freeSpinCounter',
+				name: 'Free-spin counter',
+				nodes: [
+					{ id: 'fs-counter', label: 'Free-spin counter', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinCounter' }, children: [] },
+				],
+			},
+			{
+				id: 'freeSpinIntro',
+				name: 'Free-spin intro',
+				nodes: [
+					{ id: 'fs-intro', label: 'Free-spin intro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinIntro' }, children: [] },
+				],
+			},
+			{
+				id: 'freeSpinOutro',
+				name: 'Free-spin outro',
+				nodes: [
+					{ id: 'fs-outro', label: 'Free-spin outro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinOutro' }, children: [] },
 				],
 			},
 		],
