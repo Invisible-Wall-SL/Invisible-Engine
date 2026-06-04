@@ -395,12 +395,6 @@
 		const ax = t.anchor?.x ?? 0;
 		const ay = t.anchor?.y ?? 0;
 		if (!found || !found.set.pageKey) {
-			console.debug('[editor] region miss', {
-				assetKey: node.assetKey,
-				region: node.region,
-				foundRegion: !!found,
-				pageKey: found?.set.pageKey,
-			});
 			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? node.region ?? '…');
 			return;
 		}
@@ -411,12 +405,6 @@
 		const dw = t.width ?? nat.w;
 		const dh = t.height ?? nat.h;
 		if (!img || !img.complete || img.naturalWidth === 0) {
-			console.debug('[editor] img not ready', {
-				pageKey: found.set.pageKey,
-				hasImg: !!img,
-				complete: img?.complete,
-				naturalWidth: img?.naturalWidth,
-			});
 			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? region.name);
 			return;
 		}
