@@ -4,6 +4,7 @@
 	import {
 		findUnfilledRequiredSlots,
 		getReferenceLayout,
+		hudScenes,
 		listReferenceLayouts,
 		seedScenesFromTemplate,
 		STANDARD_MAIN_SIZES_MAP,
@@ -253,6 +254,20 @@
 			adoptScenes({ scenes: seedScenesFromTemplate(template), gameType }, gameType);
 		}
 		loadChoice = '';
+	}
+
+	/** Whether the HUD scenes (logo/name corners + bottom bar) are present. */
+	const hasHud = $derived(scenes.some((s) => s.id === 'hudBar' || s.id === 'hudCorners'));
+
+	/** Append the game HUD as editor scenes (non-destructive — keeps existing
+	 * scenes). Lets a project opt its `<UI>` HUD into editor control without the
+	 * clobber-prone "load a game scene" path. */
+	function addHudLayer(): void {
+		if (hasHud) return;
+		scenes = [...scenes, ...hudScenes()];
+		activeSceneIdx = scenes.length - hudScenes().length; // focus the first HUD screen
+		selectedId = null;
+		markDirty();
 	}
 
 	function removeNode(nodes: LayoutNode[], id: string): boolean {
@@ -777,6 +792,16 @@
 						<li class="muted">No scenes yet — load a game scene above.</li>
 					{/each}
 				</ul>
+				{#if !hasHud}
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything"
+						onclick={addHudLayer}
+					>
+						＋ Add HUD layer
+					</button>
+				{/if}
 			</div>
 
 			<div class="tabs" role="tablist" aria-label="Left panel">
@@ -1123,6 +1148,22 @@
 		cursor: default;
 		border-color: #2a2a33;
 		color: #555;
+	}
+	.add-hud-btn {
+		width: 100%;
+		margin-top: 8px;
+		background: #14201c;
+		border: 1px dashed #2f5d57;
+		color: #7ee0c0;
+		padding: 6px 10px;
+		font-size: 11px;
+		border-radius: 6px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.add-hud-btn:hover {
+		border-color: #7ee0c0;
+		background: #16241f;
 	}
 	.screens-h {
 		font-size: 11px;
