@@ -3296,33 +3296,96 @@ class Handler(BaseHTTPRequestHandler):
         # Additionally emit the game-loadable TexturePacker spritesheet
         # (<base>.json), so deploy/ holds exactly the frames+meta format the
         # engine loads (live-assets.md step 1). Geometry comes from the BOUND
-        # `.atlas` (the manifest's authoritative region map) — NOT a `_new.atlas`,
-        # which compose doesn't produce — parsed to the same normalized regions.
-        # Additive: never blocks the .png/.webp deploy above.
+        # `.atlas` (the manifest's authoritative region map) when available —
+        # NOT a `_new.atlas`, which compose doesn't produce — parsed to the same
+        # normalized regions; otherwise it falls back to the manifest's own
+        # `regions[]` (cell-grid / region manifests have NO sibling `.atlas`, but
+        # they already carry per-region geometry). Additive: never blocks the
+        # .png/.webp deploy above.
         json_note = ""
+        tp_regions: list[dict] | None = None  # normalized region dicts for the writer
+        page_w = page_h = 0
         atlas_path = batch_atlas.atlas_file_path(m, manifest_path())
-        if atlas_path is not None and atlas_path.exists() and page_src is not None:
+        if atlas_path is not None and atlas_path.exists():
+            # First choice: the bound `.atlas` is the authoritative region map.
             try:
                 parsed = atlas_format.parse_atlas(atlas_path)
-                pg = parsed["page"]
+                tp_regions = parsed["regions"]
+                page_w, page_h = parsed["page"]["width"], parsed["page"]["height"]
+            except Exception as e:  # noqa: BLE001
+                json_note = (f"  ⚠ Bound .atlas could not be parsed "
+                             f"({type(e).__name__}: {e}); ")
+                atlas_path = None  # fall through to the manifest-regions fallback
+        if tp_regions is None:
+            # Fallback: build the spritesheet from the manifest's own regions[].
+            # Manifest regions in this tool are snake_case ({name,x,y,w,h,rotated}
+            # plus optional off_x/off_y/orig_w/orig_h when atlas-bound); a region
+            # manifest authored elsewhere may use camelCase (offX/origW/…) — read
+            # BOTH defensively. Missing offset/orig => a non-trimmed full frame.
+            man_regions = [r for r in (m.get("regions") or []) if isinstance(r, dict)]
+            normed: list[dict] = []
+            for r in man_regions:
+                name = r.get("name")
+                if not name:
+                    continue
+                try:
+                    rx, ry = int(r["x"]), int(r["y"])
+                    rw, rh = int(r["w"]), int(r["h"])
+                except (KeyError, TypeError, ValueError):
+                    continue  # a region without a complete rect can't be a frame
+                def _pick(*keys, default=None):
+                    for k in keys:
+                        if r.get(k) is not None:
+                            return r[k]
+                    return default
+                normed.append({
+                    "name": name,
+                    "x": rx, "y": ry, "w": rw, "h": rh,
+                    "rotated": bool(r.get("rotated")),
+                    "off_x": int(_pick("off_x", "offX", default=0)),
+                    "off_y": int(_pick("off_y", "offY", default=0)),
+                    "orig_w": int(_pick("orig_w", "origW", default=rw)),
+                    "orig_h": int(_pick("orig_h", "origH", default=rh)),
+                })
+            if normed:
+                tp_regions = normed
+                # Page size: prefer the manifest's atlas block, else the actual
+                # deployed page image's pixel size (always correct).
+                atl = m.get("atlas") or {}
+                try:
+                    page_w = int(atl["width"])
+                    page_h = int(atl["height"])
+                except (KeyError, TypeError, ValueError):
+                    page_w = page_h = 0
+                if (page_w <= 0 or page_h <= 0) and page_src is not None:
+                    try:
+                        with Image.open(page_src) as _pg:
+                            page_w, page_h = _pg.size
+                    except Exception:  # noqa: BLE001
+                        page_w = page_h = 0
+        if tp_regions and page_src is not None and page_w > 0 and page_h > 0:
+            try:
                 page_image = f"{out_base}{page_src.suffix}"
                 tp_path = ATLAS_DIR / f"{stem}_new.json"
                 atlas_writers.write_texturepacker_json(
-                    tp_path, page_image, pg["width"], pg["height"], parsed["regions"])
+                    tp_path, page_image, page_w, page_h, tp_regions)
                 json_key = f"{dest_prefix}/{out_base}.json"
                 storage.put(json_key, tp_path.read_bytes())
                 copied.append(json_key)
             except Exception as e:  # noqa: BLE001
-                json_note = (f"  ⚠ Spritesheet JSON not written "
-                             f"({type(e).__name__}: {e}) — page image deployed.")
-        elif atlas_path is None or not atlas_path.exists():
-            json_note = ("  ⚠ No bound .atlas geometry for this manifest → no "
-                         "TexturePacker .json emitted (legacy cell-grid project, "
-                         "or .atlas not in R2/staging). Game spritesheet not "
-                         "produced; only the page image was deployed.")
+                json_note += (f"  ⚠ Spritesheet JSON not written "
+                              f"({type(e).__name__}: {e}) — page image deployed.")
         elif page_src is None:
-            json_note = ("  ⚠ No .webp/.png page in composed output → "
-                         "TexturePacker .json skipped (meta.image would dangle).")
+            json_note += ("  ⚠ No .webp/.png page in composed output → "
+                          "TexturePacker .json skipped (meta.image would dangle).")
+        elif not tp_regions:
+            json_note += ("  ⚠ No bound .atlas AND no manifest regions[] for this "
+                          "manifest → no TexturePacker .json emitted. Game "
+                          "spritesheet not produced; only the page image was "
+                          "deployed.")
+        else:
+            json_note += ("  ⚠ Could not determine page image size → "
+                          "TexturePacker .json skipped (meta.size would be 0).")
         if not mirrored:
             json_note += ("  ℹ No mirrored deploy subpath set (manifest "
                           "`deploy_path` empty) — deployed flat to deploy/. Set "
