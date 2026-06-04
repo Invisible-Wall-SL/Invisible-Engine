@@ -48,6 +48,10 @@
 	const basegameOverlaysScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
 	);
+	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
+	// them (editable in the Invisible Editor); absent → coded layout.
+	const hudBarScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudBar'));
+	const hudCornersScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudCorners'));
 
 	const context = getContext();
 
@@ -92,7 +96,7 @@
 			<Anticipations />
 		</MainContainer>
 
-		<UI>
+		<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
 			{#snippet gameName()}
 				<UiGameName name="LINES GAME" />
 			{/snippet}

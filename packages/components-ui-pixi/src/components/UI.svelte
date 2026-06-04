@@ -5,10 +5,14 @@
 
 	import UIDefault from './UIDefault.svelte';
 	import UIReplay from './UIReplay.svelte';
+	import type { UiHud } from '../types';
 
 	type Props = {
 		gameName: Snippet;
 		logo: Snippet;
+		/** Editor-authored HUD scenes — when provided the default UI renders its
+		 * HUD from them (positionable in the editor). Omit for the coded layout. */
+		hud?: UiHud;
 	};
 
 	const props: Props = $props();
@@ -21,7 +25,7 @@
 	const UIComponent = $derived(UI_COMPONENT_MAP[stateUi.config.mode]);
 </script>
 
-<UIComponent>
+<UIComponent hud={props.hud}>
 	{#snippet gameName()}
 		{@render props.gameName()}
 	{/snippet}

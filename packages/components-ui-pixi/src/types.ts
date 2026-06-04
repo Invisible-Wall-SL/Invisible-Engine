@@ -1,7 +1,16 @@
 import type { Snippet } from 'svelte';
 
 import type { ButtonProps } from 'components-pixi';
+import type { Scene } from 'engine-layout';
 import type { ServerPayEntry } from 'utils-shared/paytable';
+
+/**
+ * Optional editor-authored HUD scenes a game may pass to `<UI>` to make the HUD
+ * positionable in the Invisible Editor. `bar` = the standard-space bottom bar,
+ * `corners` = the canvas-space logo / game name. When omitted, `<UI>` renders
+ * the hardcoded `Layout*` components unchanged.
+ */
+export type UiHud = { bar?: Scene; corners?: Scene };
 
 // ---- Info page (paytable / paylines / rules) manifest ----
 // A game supplies this data-driven manifest; the shared <InfoOverlay> renders it

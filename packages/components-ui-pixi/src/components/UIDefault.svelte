@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
+	import type { ButtonProps } from 'components-pixi';
 	import { getContextLayout } from 'utils-layout';
 	import { EnableSpaceHold } from 'components-shared';
 
@@ -9,6 +10,7 @@
 	import LayoutPortrait from './LayoutPortrait.svelte';
 	import LayoutLandscape from './LayoutLandscape.svelte';
 	import LayoutTablet from './LayoutTablet.svelte';
+	import LayoutEditable from './LayoutEditable.svelte';
 	import LabelBalance from './LabelBalance.svelte';
 	import LabelWin from './LabelWin.svelte';
 	import LabelBet from './LabelBet.svelte';
@@ -28,6 +30,9 @@
 	type Props = {
 		gameName: Snippet;
 		logo: Snippet;
+		/** When provided, the HUD is positioned from these editor scenes (and is
+		 * editable in the Invisible Editor); otherwise the coded `Layout*` renders. */
+		hud?: import('../types').UiHud;
 	};
 
 	const props: Props = $props();
@@ -42,78 +47,121 @@
 	};
 
 	const LayoutComponent = $derived(LAYOUT_COMPONENT_MAP[stateLayoutDerived.layoutType()]);
+	// Opt-in: a game that passes `hud` scenes drives the HUD from editor data.
+	const useEditable = $derived(Boolean(props.hud?.bar || props.hud?.corners));
 </script>
 
 <EnableSpaceHold />
 
+{#snippet gameName()}
+	{@render props.gameName()}
+{/snippet}
+
+{#snippet logo()}
+	{@render props.logo()}
+{/snippet}
+
+{#snippet amountBalance(labelProps: { stacked?: boolean })}
+	<LabelBalance {...labelProps} />
+{/snippet}
+
+{#snippet amountWin(labelProps: { stacked?: boolean })}
+	<LabelWin {...labelProps} />
+{/snippet}
+
+{#snippet amountBet(labelProps: { stacked?: boolean })}
+	<LabelBet {...labelProps} />
+{/snippet}
+
+{#snippet buttonBuyBonus(buttonProps: Partial<ButtonProps>)}
+	<ButtonBuyBonus {...buttonProps} />
+{/snippet}
+
+{#snippet buttonBet(buttonProps: Partial<ButtonProps>)}
+	<ButtonBet {...buttonProps} />
+{/snippet}
+
+{#snippet buttonTurbo(buttonProps: Partial<ButtonProps>)}
+	<ButtonTurbo {...buttonProps} />
+{/snippet}
+
+{#snippet buttonAutoSpin(buttonProps: Partial<ButtonProps>)}
+	<ButtonAutoSpin {...buttonProps} />
+{/snippet}
+
+{#snippet buttonIncrease(buttonProps: Partial<ButtonProps>)}
+	<ButtonIncrease {...buttonProps} />
+{/snippet}
+
+{#snippet buttonDecrease(buttonProps: Partial<ButtonProps>)}
+	<ButtonDecrease {...buttonProps} />
+{/snippet}
+
+{#snippet buttonMenu(buttonProps: Partial<ButtonProps>)}
+	<ButtonMenu {...buttonProps} />
+{/snippet}
+
+{#snippet buttonMenuClose(buttonProps: Partial<ButtonProps>)}
+	<ButtonMenuClose {...buttonProps} />
+{/snippet}
+
+{#snippet buttonPayTable(buttonProps: Partial<ButtonProps>)}
+	<ButtonPayTable {...buttonProps} />
+{/snippet}
+
+{#snippet buttonGameRules(buttonProps: Partial<ButtonProps>)}
+	<ButtonGameRules {...buttonProps} />
+{/snippet}
+
+{#snippet buttonSettings(buttonProps: Partial<ButtonProps>)}
+	<ButtonSettings {...buttonProps} />
+{/snippet}
+
+{#snippet buttonSoundSwitch(buttonProps: Partial<ButtonProps>)}
+	<ButtonSoundSwitch {...buttonProps} />
+{/snippet}
+
 <UiFadeContainer>
-	<LayoutComponent>
-		{#snippet gameName()}
-			{@render props.gameName()}
-		{/snippet}
-
-		{#snippet logo()}
-			{@render props.logo()}
-		{/snippet}
-
-		{#snippet amountBalance(labelProps)}
-			<LabelBalance {...labelProps} />
-		{/snippet}
-
-		{#snippet amountWin(labelProps)}
-			<LabelWin {...labelProps} />
-		{/snippet}
-
-		{#snippet amountBet(labelProps)}
-			<LabelBet {...labelProps} />
-		{/snippet}
-
-		{#snippet buttonBuyBonus(buttonProps)}
-			<ButtonBuyBonus {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonBet(buttonProps)}
-			<ButtonBet {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonTurbo(buttonProps)}
-			<ButtonTurbo {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonAutoSpin(buttonProps)}
-			<ButtonAutoSpin {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonIncrease(buttonProps)}
-			<ButtonIncrease {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonDecrease(buttonProps)}
-			<ButtonDecrease {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonMenu(buttonProps)}
-			<ButtonMenu {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonMenuClose(buttonProps)}
-			<ButtonMenuClose {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonPayTable(buttonProps)}
-			<ButtonPayTable {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonGameRules(buttonProps)}
-			<ButtonGameRules {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonSettings(buttonProps)}
-			<ButtonSettings {...buttonProps} />
-		{/snippet}
-
-		{#snippet buttonSoundSwitch(buttonProps)}
-			<ButtonSoundSwitch {...buttonProps} />
-		{/snippet}
-	</LayoutComponent>
+	{#if useEditable}
+		<LayoutEditable
+			hud={props.hud ?? {}}
+			{gameName}
+			{logo}
+			{amountBalance}
+			{amountWin}
+			{amountBet}
+			{buttonBuyBonus}
+			{buttonBet}
+			{buttonTurbo}
+			{buttonAutoSpin}
+			{buttonIncrease}
+			{buttonDecrease}
+			{buttonMenu}
+			{buttonMenuClose}
+			{buttonPayTable}
+			{buttonGameRules}
+			{buttonSettings}
+			{buttonSoundSwitch}
+		/>
+	{:else}
+		<LayoutComponent
+			{gameName}
+			{logo}
+			{amountBalance}
+			{amountWin}
+			{amountBet}
+			{buttonBuyBonus}
+			{buttonBet}
+			{buttonTurbo}
+			{buttonAutoSpin}
+			{buttonIncrease}
+			{buttonDecrease}
+			{buttonMenu}
+			{buttonMenuClose}
+			{buttonPayTable}
+			{buttonGameRules}
+			{buttonSettings}
+			{buttonSoundSwitch}
+		/>
+	{/if}
 </UiFadeContainer>

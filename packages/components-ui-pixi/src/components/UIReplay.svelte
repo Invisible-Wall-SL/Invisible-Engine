@@ -22,6 +22,8 @@
 	type Props = {
 		gameName: LayoutUiProps['gameName'];
 		logo: LayoutUiProps['logo'];
+		/** Accepted (and ignored) so `<UI>` can pass it to either mode uniformly. */
+		hud?: import('../types').UiHud;
 	};
 
 	const props: Props = $props();

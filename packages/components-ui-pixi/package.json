@@ -29,6 +29,7 @@
 		"@lingui/core": "5.2.0",
 		"pixi-svelte": "workspace:*",
 		"constants-shared": "workspace:*",
+		"engine-layout": "workspace:*",
 		"state-shared": "workspace:*",
 		"utils-shared": "workspace:*",
 		"utils-xstate": "workspace:*",
