@@ -287,3 +287,155 @@ Today's gap is purely wiring + enforcement:
 **Build order impact:** independent of, but complementary to, §7.3. The `classifySymbol` + refinement can land in `game-spec` early (small, self-contained); engine-side consumption (replace `HIGH_SYMBOLS`) and editor-side grouping/validation follow when their respective surfaces are touched. Don't block the template work on it.
 
 **Decision (owner 2026-06-02):** keep high/low only for now — **no `mid` tier**. Add `'mid'` + an `M{n}` prefix only when a game needs it. The human-readable tier list is published at [`docs/conventions/symbol-naming.md`](../conventions/symbol-naming.md) (mirrors `SymbolKindSchema`; code stays source of truth), linked from the Sheet Maker / Atlas Maker tool docs where regions are named.
+
+---
+
+## 8. Addendum — Components (prefabs) + authored behavior (owner direction 2026-06-05)
+
+§1–7 give the editor four tiers: **node** (sprite/spine/text/container) → **scene** (a screen's nodes) → **template** (the typed slots a scene must fill) → the `mount`/`bind` escape hatch for engine-owned content. The missing tier is a **reusable composite between node and scene**: a named object that bundles several nodes (and their mount anchors) into one thing the editor can open, display, place, and reuse. The owner calls these **components**; "Base game overlays" is the canonical example. Today that overlay group is opaque code (`Win.svelte` + `Transition.svelte` mounted via `bind`), so the editor can't show it — making it a component is what lets the editor "display everything," which is the locked-in end-goal (open a project and *see* the real game composed).
+
+**Owner decisions (2026-06-05), all the ambitious branch:**
+1. **Core intent = both, one mechanism** — the same `ComponentDef` both *data-fies today's coded pieces* (so they're visible/composable) and *serves as a reusable prefab* across scenes/games.
+2. **Contents = layout + authored behavior** — a component carries static placements, mount anchors, **and** authored animation/behavior, not just bindings to coded behavior. This is the large, novel layer; §8.5 bounds it so it doesn't break `declare ≠ implement`.
+3. **Scope = both tiers** — a shared global library **and** per-project components (project shadows shared).
+
+### 8.1 The component tier (where it fits)
+
+A **component** is structurally a **mini `LayoutDoc`**: a reusable node sub-tree with its own params, slots, and behavior. It sits one level below a scene. A scene (or another component) references it through a new node kind, `componentInstance`, which `<LayoutScene>` **expands** while walking nodes — same "no new render path" discipline kept for `mount`. This is the well-trodden prefab / nested-symbol pattern (Unity prefab, Flash symbol, Rive artboard), adapted to the existing `LayoutNode` model.
+
+### 8.2 Data model (additive)
+
+```ts
+// packages/engine-layout/src/lib/types.ts (additions)
+
+export interface ComponentDef {
+  id: string;                  // stable, unique (e.g. 'baseGameOverlays')
+  name: string;                // human label
+  version: number;             // bumped on edit; instances pin a version (§8.9)
+  scope: 'shared' | 'project';
+  root: ContainerNode;         // the sub-tree (a container + children) — reuses LayoutNode
+  params?: ComponentParam[];   // typed inputs an instance or the engine can set
+  signals?: ComponentSignal[]; // named triggers the engine fires (enter/exit/win/…)
+  tracks?: BehaviorTrack[];    // authored timelines keyed by signal (§8.5)
+  slots?: TemplateSlot[];      // optional: a component may expose its own slots
+}
+
+export interface ComponentParam {
+  key: string;                 // 'winAmount', 'tint'
+  kind: 'number' | 'string' | 'color' | 'boolean';
+  default?: unknown;
+  // declare≠implement: a param the ENGINE supplies at runtime (not author-set).
+  // The editor only declares it; the game feeds the value when it fires a signal.
+  engineProvided?: boolean;
+}
+
+export interface ComponentSignal {
+  key: string;                 // 'enter' | 'exit' | 'idle' | custom ('win', 'bigWin')
+  note?: string;               // doc of which engine/book event the game wires it to
+}
+
+// New node kind — a placement that references a ComponentDef.
+export interface ComponentInstanceNode extends BaseNode {
+  kind: 'componentInstance';
+  componentId: string;
+  componentVersion?: number;   // pin; omit = latest (§8.9)
+  params?: Record<string, unknown>;  // author-set param overrides
+  // BaseNode already gives transform + per-layoutType `overrides` + `slotId`.
+}
+```
+
+`LayoutNode` gains `| ComponentInstanceNode`. Everything else is purely additive — existing `scenes.json` / templates / `editor-scenes.ts` stay valid.
+
+### 8.3 Storage + scope (both tiers)
+
+Symmetric with scenes (`editor/<projectKey>/scenes.json`) and templates (`_shared/editor-templates/<gameType>.json`):
+
+| Tier | R2 key | Source of truth |
+|---|---|---|
+| Shared component | `_shared/editor-components/<id>.json` | reusable across all clients/projects/game types |
+| Project component | `editor/<projectKey>/components/<id>.json` | project-local; **shadows** a shared component of the same id |
+
+`componentStorage.ts` (launcher) = `loadComponent(id, projectKey?)` (project shadows shared, exactly like `loadTemplate`'s R2-over-built-in precedence), `saveComponent`, `listComponents(scope)`. Launcher routes `GET/POST /api/editor/component` + `GET /api/editor/components`, all `toolScope.gate('editor')`.
+
+### 8.4 Authoring — a mode on the existing canvas
+
+Like Template mode (§7.5), component authoring is **not a new surface**: open/create a component on the same canvas, edit its `root` sub-tree with all the existing drag/transform/outliner/override machinery, save to R2. In scene mode, a **component picker** drops a `ComponentInstanceNode`; the Properties panel edits its `params` and per-layoutType transform. Editing a component and editing a scene are the same canvas in two modes (scene mode / template mode / component mode).
+
+### 8.5 Behavior model — the `declare ≠ implement` bridge (the hard part)
+
+The owner wants to author behavior **in** the editor. The danger: the overlays it would replace are *book-event-driven* (`Win.svelte` reacts to a `winInfo` event with a real amount, counts up, etc.). We must NOT try to author that data/branching logic as data — that way lies a worse, slower codegen. The line that keeps `declare ≠ implement` intact:
+
+- **The editor authors the *timeline*** (tweens on node props, spine animation playback, particle bursts) and **declares** two things: named **signals** (when to play) and **engine-provided params** (values fed in).
+- **The engine implements the *triggers and data***: it fires the declared signals (mapping book events → signal once, the same way `registerBoundComponents` maps names → components) and supplies the `engineProvided` param values.
+
+So the editor says *"on the `win` signal, play spine `celebrate` and count a text node up to `winAmount`"*; the engine says *"`win` = the `winInfo` book event, and here is `winAmount`."* Neither side owns both halves.
+
+```ts
+export interface BehaviorTrack {
+  signal: string;              // which ComponentSignal triggers this track
+  steps: TweenStep[];
+}
+
+export interface TweenStep {
+  targetNodeId: string;        // a node inside the component's root
+  delay?: number; duration: number; ease?: string;   // seconds / GSAP ease name
+  // exactly one of:
+  prop?: { name: 'x'|'y'|'alpha'|'scaleX'|'scaleY'|'rotation'|'tint'; from?: number; to: number };
+  spine?: { animation: string; loop?: boolean };
+  // bind a text node to an engine-provided param (the one data binding in v1):
+  bindParam?: { key: string; countUp?: boolean };    // key must be engineProvided
+}
+```
+
+**v1 behavior ceiling (a staging line, not the destination):** node-prop tweens + spine playback + signal-triggered tracks + *one* data binding (count-up text from an `engineProvided` param). Anything needing branching, RGS math, or stateful logic is, **for v1**, still a coded `mount`. We are building a small interpreted timeline (GSAP under the hood) first, not a scripting language — but the coded `mount` is scaffolding to be removed, not a permanent boundary (§8.7).
+
+### 8.6 Engine consumption
+
+`engine-layout` gains a `<ComponentInstance instance={node} />` that:
+1. resolves the `ComponentDef` (R2 with code fallback, like everything else),
+2. renders `def.root` through the existing `LayoutNodeView`/`<LayoutScene>` walk (static composition — works with zero behavior),
+3. subscribes to the declared `signals` on `utils-event-emitter`, and on a signal runs the matching `BehaviorTrack` via GSAP, reading `engineProvided` params from the firing payload.
+
+The game wires book-event → signal + supplies params **once**, via a small registry mirroring `registerBoundComponents` (e.g. `registerComponentSignals({ baseGameOverlays: { win: emitter.on('winInfo', …) } })`). Editor declares signal *names*; engine owns the *wiring*.
+
+### 8.7 The `mount`/`bind` hatch is a scaffold, driven to zero (owner direction 2026-06-05)
+
+**Correction to the earlier "both coexist permanently" steer.** The owner does *not* want a permanent coded escape hatch. The end-goal is a **bidirectional translator between code and editor** so that *all* hand-coded work can be done visually. `mount`/`bind` is therefore a **migration scaffold**, not a fixture: it holds a concern until that concern has a real visual primitive, then it goes away. The target is **zero coded mounts** for the games we ship.
+
+That goal is more reachable than it sounds, but only because the work splits into three layers that are *not* equally hard — and being honest about which is which is the whole plan:
+
+1. **Placement / scenery** (where things sit) — *fully visual already.* Nodes, scenes, templates (§1–7).
+2. **Presentation behavior** (entrance/exit tweens, spine playback, particle bursts, count-ups, reactions to a named signal) — *visual via the timeline/signal model* (§8.5). This is the bulk of what `Win`/`Transition`/intros actually do, and it is tractable as data.
+3. **Game logic / flow / math** (reel evaluation, win-line geometry, RGS book consumption, the XState game flow) — *the genuinely hard layer.* This is program logic, not layout or animation.
+
+The decisive fact that makes "no escape hatch" realistic: **the math is already external.** Stake's model (and ours) puts game math in the Python math SDK, delivered to the frontend as pre-determined "books." So the frontend rarely *computes* — it mostly *presents a pre-computed result*. That collapses most of layer 3 into layer 2 (read book event → drive a timeline). What's genuinely irreducible on the frontend is narrow: the reel/board render loop, win-line geometry, the flow skeleton, RGS plumbing.
+
+**So we remove the hatch by making it unnecessary, concern by concern** — each coded `mount` is retired when its concern gets a typed visual primitive (board/reels → a configurable grid primitive; win-lines → line data; UI → a placeable block; flow → see the fork below). Per [[feedback_engine_extensibility]] this is still "defang, don't gut": we don't delete `Win.svelte` on day one — we migrate `Transition` first, prove the model, then walk the list down to zero. "Permanent coexistence" was the wrong framing; "scaffold with a demolition order" is the right one.
+
+**The one real fork — how to make layer 3 visual.** For the irreducible logic/flow that can't be reduced to a timeline, there are two routes, and they differ by an order of magnitude:
+- **(A) Visual scripting / node-graph** — author logic itself as connected nodes (Unreal Blueprint / Unity Visual Scripting / Rive state-machine / Godot VisualScript). This is the literal "do the hard-coded work visually" and the true *code↔editor translator*, but it is a visual-programming platform — a multi-quarter effort, not a feature.
+- **(B) Presentation-complete, logic-bound** — make *everything presentational* visual (layers 1–2 to 100%), and let the small irreducible logic core stay code behind a single typed contract that the editor *configures* (parameters, not control flow). ~95% of "build a game visually" with a fraction of (A)'s cost.
+
+✅ **DECIDED (owner 2026-06-05): route (B) is the v1–v2 destination.** Make everything presentational visual (layers 1–2 to 100%) — that already retires almost every coded mount. The small irreducible logic core stays code behind one typed contract the editor *configures* (parameters, not control flow). **Route (A) — visual scripting / node-graph — is explicitly a later, separately-scoped initiative**, NOT a v1–v2 goal; visual-scripting ambition must not block shipping presentation-complete authoring. Revisit (A) only once (B) has driven the mount list near zero.
+
+### 8.8 Build order (layered — behavior is LAST)
+
+1. **Schema** — `ComponentDef` / `ComponentInstanceNode` / `componentInstance` kind in `engine-layout`. Additive, no behavior. Round-trips `normalizeDoc`.
+2. **Static expansion** — `<LayoutScene>`/`<ComponentInstance>` renders `def.root` (static only). Prove a hand-written static component renders identically inlined vs instanced.
+3. **Storage (both tiers)** — `componentStorage.ts` (shared + project shadow) + launcher API routes.
+4. **Editor component mode** — open/create/save a component on the canvas; component picker drops an instance; param overrides in Properties.
+5. **First real component** — extract a *static* composite (e.g. logo + frame group) and reuse it across two scenes. Proves visibility + reuse end-to-end **before any behavior**.
+6. **Behavior layer** (the big one) — signals + `engineProvided` params + `BehaviorTrack`; the GSAP interpreter in `engine-layout`; `registerComponentSignals` in the game; editor timeline UI (per-signal track editor). v1 ceiling per §8.5.
+7. **Migrate one coded overlay** — move `Transition` (simplest) from a coded `mount` to an authored component as the proof; keep `Win` coded until then.
+
+Land 1–5 (composition + reuse, no behavior) and stop to verify online before starting 6 — the behavior layer is where scope can run away, and it's worthless if the composition tier isn't solid first.
+
+### 8.9 Open decisions (need owner input)
+
+- **Versioning / migration** — ✅ **DECIDED (owner 2026-06-05): version components, pin-by-default.** Instances pin `componentVersion`; editing a component bumps its version; an instance stays on its pinned version until an explicit per-instance "update to latest." Same model as template versioning (§7.5). Still to spec: where the "update to latest" action lives + how a bumped component flags its outdated instances.
+- **Layer-3 fork (the big one)** — ✅ **DECIDED (owner 2026-06-05): route B** (presentation-complete; logic core stays code behind one editor-configured contract) is the v1–v2 destination. Route A (visual-scripting/node-graph) is a later, separately-scoped initiative, not a v1–v2 goal. See §8.7. This anchors build order past step 7: keep extending presentation primitives + retiring mounts; do **not** start a logic node-graph.
+- **Nesting** — components inside components: recommend allow (1–2 levels v1) with a **hard cycle guard** (a component cannot instance itself transitively). Confirm depth.
+- **Behavior ceiling** — confirm the §8.5 line (timeline + spine + one count-up binding; everything stateful stays `mount`). This is the decision most likely to creep.
+- **Signal vocabulary + wiring** — fixed core (`enter`/`exit`/`idle`) + per-game custom signals mapped to book events in **code** (`registerComponentSignals`) for v1; editor only declares names. Confirm engine owns the wiring (vs a data-authored event map later).
+- **Shared vs project precedence** — confirm project component **shadows** shared of the same id (mirrors template R2-over-built-in).
+- **Does a component subsume a template?** — a `ComponentDef` and a `GameTemplate` are both "mini `LayoutDoc` + metadata." Decide whether a template is just a top-level component, or they stay distinct (recommend distinct for now: template = per-scene slot contract, component = reusable instanced object; revisit if they converge).
