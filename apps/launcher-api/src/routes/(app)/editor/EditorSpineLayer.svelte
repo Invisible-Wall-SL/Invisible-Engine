@@ -354,13 +354,18 @@
 				inst.skeleton.scaleY = -sy;
 			}
 			// Bake the editor pan/zoom into the skeleton so it maps EXACTLY like the 2D
-			// canvas: backing px = (world*zoom + pan)*dpr (the static camera supplies the
-			// *dpr). placeArt / the plain path set world-space x/y/scale above; this is the
-			// single world→screen step that keeps the spine pixel-locked to its 2D box.
-			inst.skeleton.x = inst.skeleton.x * zoom + panX;
+			// canvas. The vendored OrthoCamera is set up with up=(0,-1,0) to cancel
+			// WebGL's bottom-left y-origin (so Y maps straight) — but that same up vector
+			// makes lookAt's x-axis (-1,0,0), i.e. it MIRRORS X about the viewport centre.
+			// So we compensate on X only: target backing px = (world*zoom + pan)*dpr, and
+			// since the camera renders `screen.x = vpW - skeleton.x*dpr` (vpW = clientW*dpr),
+			// place the origin at `clientW - (world*zoom + pan)` and negate scaleX so the
+			// content isn't left-right flipped. Y is already correct, so it passes through.
+			const clientW = canvas.clientWidth;
+			inst.skeleton.x = clientW - (inst.skeleton.x * zoom + panX);
 			inst.skeleton.y = inst.skeleton.y * zoom + panY;
-			inst.skeleton.scaleX *= zoom;
-			inst.skeleton.scaleY *= zoom;
+			inst.skeleton.scaleX = -inst.skeleton.scaleX * zoom;
+			inst.skeleton.scaleY = inst.skeleton.scaleY * zoom;
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
