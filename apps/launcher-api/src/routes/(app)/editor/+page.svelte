@@ -56,6 +56,8 @@
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline' | 'template'>('library');
+	/** Whether the asset-warning detail list is expanded (from the header pill). */
+	let showContentWarnings = $state(false);
 	/** The template currently being viewed/edited — starts as the project's
 	 * resolved template and is swapped by the game-type selector so you can load
 	 * and see any game type's template (e.g. `bookOf`). Drives the slot panel. */
@@ -65,6 +67,59 @@
 	const warnings = $derived(
 		activeTemplate ? findUnfilledRequiredSlots({ ...data.doc, scenes }, activeTemplate) : [],
 	);
+
+	/** Known asset keys + bundle prefixes from the project's asset list — used by
+	 * the live content-warning check below. This is the single home for the check:
+	 * it must run client-side so warnings track edits before any save, and
+	 * `$lib/server` can't be imported into the browser bundle. */
+	const knownAssets = $derived.by(() => {
+		const keys = new Set<string>();
+		const prefixes: string[] = [];
+		for (const a of data.assets.atlases) keys.add(a.key);
+		for (const s of data.assets.spines) {
+			keys.add(s.key);
+			prefixes.push(s.key.endsWith('/') ? s.key : `${s.key}/`);
+		}
+		for (const sh of data.assets.sheets) {
+			keys.add(sh.key);
+			prefixes.push(sh.key.endsWith('/') ? sh.key : `${sh.key}/`);
+		}
+		return { keys, prefixes };
+	});
+
+	function isKnownAsset(assetKey: string): boolean {
+		if (knownAssets.keys.has(assetKey)) return true;
+		return knownAssets.prefixes.some((p) => assetKey.startsWith(p));
+	}
+
+	/** Live, non-blocking content warnings (missing/unassigned asset references),
+	 * surfaced next to the slot warnings. Recomputed as the author edits. */
+	const contentWarnings = $derived.by(() => {
+		const out: { sceneId: string; nodeId: string; message: string }[] = [];
+		const walk = (nodes: LayoutNode[], sceneId: string): void => {
+			for (const n of nodes) {
+				if (!n.bind && (n.kind === 'sprite' || n.kind === 'spine')) {
+					const key = n.assetKey?.trim();
+					if (!key) {
+						out.push({
+							sceneId,
+							nodeId: n.id,
+							message: `${n.kind} "${n.label ?? n.id}" has no asset`,
+						});
+					} else if (!isKnownAsset(key)) {
+						out.push({
+							sceneId,
+							nodeId: n.id,
+							message: `${n.kind} "${n.label ?? n.id}" → missing asset "${key}"`,
+						});
+					}
+				}
+				if (n.kind === 'container') walk(n.children, sceneId);
+			}
+		};
+		for (const s of scenes) walk(s.nodes, s.id);
+		return out;
+	});
 	/** Template-authoring mode (§7.5): tag nodes as slots + export a `GameTemplate`
 	 * instead of just filling one. Normal mode is unchanged when this is off. */
 	let templateMode = $state(false);
@@ -195,12 +250,7 @@
 	/** Drag-to-slot: switch to the slot's scene, then ask the canvas to spawn the
 	 * dropped Library asset at frame centre, tagged with `slotId` (so it fills the
 	 * slot). The canvas owns spawning so region-preview seeding still happens. */
-	function onFillSlot(
-		sceneId: string,
-		sceneName: string,
-		slotId: string,
-		payload: unknown,
-	): void {
+	function onFillSlot(sceneId: string, sceneName: string, slotId: string, payload: unknown): void {
 		goToTemplateScene(sceneId, sceneName);
 		fillSeq += 1;
 		fillRequest = { payload, slotId, seq: fillSeq };
@@ -213,9 +263,38 @@
 		selectedId = null;
 	}
 
+	/** Set the active scene's coordinate space. `'game'` is the default → omit it
+	 * (keeps the doc clean); switching away from `'standard'` drops its `align`. */
+	function setSceneSpace(value: string): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value === 'game') delete sc.space;
+		else sc.space = value as NonNullable<Scene['space']>;
+		if (sc.space !== 'standard') delete sc.align;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Set an alignment axis on a `'standard'` scene; `''` clears that axis (and
+	 * the whole `align` object once both axes are unset). */
+	function setSceneAlign(axis: 'vertical' | 'horizontal', value: string): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc || sc.space !== 'standard') return;
+		const align = { ...(sc.align ?? {}) };
+		if (value) align[axis] = value as never;
+		else delete align[axis];
+		if (align.vertical || align.horizontal) sc.align = align;
+		else delete sc.align;
+		scenes = [...scenes];
+		markDirty();
+	}
+
 	/** Adopt a loaded `LayoutDoc`'s scenes (+ its game type and frame sizes) as the
 	 * project's layout, after confirming if it would discard placed nodes. */
-	function adoptScenes(doc: { scenes: Scene[]; gameType?: string; mainSizesMap?: typeof mainSizesMap }, gameType: string): void {
+	function adoptScenes(
+		doc: { scenes: Scene[]; gameType?: string; mainSizesMap?: typeof mainSizesMap },
+		gameType: string,
+	): void {
 		if (doc.scenes.length === 0) return;
 		const hasContent = scenes.some((s) => s.nodes.length > 0);
 		// Always confirm — loading replaces what's on the canvas. Be explicit that
@@ -273,10 +352,7 @@
 			) {
 				return;
 			}
-			scenes = [
-				...scenes.filter((s) => s.id !== 'hudBar' && s.id !== 'hudCorners'),
-				...fresh,
-			];
+			scenes = [...scenes.filter((s) => s.id !== 'hudBar' && s.id !== 'hudCorners'), ...fresh];
 		} else {
 			scenes = [...scenes, ...fresh];
 		}
@@ -711,7 +787,10 @@
 				<span class="save-pill dirty">Unsaved changes</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
 			{:else if loadedPreview}
-				<span class="save-pill dirty" title="A loaded reference layout is on screen but not saved — edit anything, or click Save, to keep it.">
+				<span
+					class="save-pill dirty"
+					title="A loaded reference layout is on screen but not saved — edit anything, or click Save, to keep it."
+				>
 					Preview — not saved
 				</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
@@ -722,6 +801,21 @@
 				<span class="save-pill error" title="Required template slots with no node filling them">
 					{warnings.length}
 					{warnings.length === 1 ? 'slot' : 'slots'} empty
+				</span>
+			{/if}
+			{#if contentWarnings.length > 0}
+				<span
+					class="save-pill warn"
+					title={contentWarnings.map((w) => w.message).join('\n')}
+					role="button"
+					tabindex="0"
+					onclick={() => (showContentWarnings = !showContentWarnings)}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') showContentWarnings = !showContentWarnings;
+					}}
+				>
+					{contentWarnings.length}
+					asset {contentWarnings.length === 1 ? 'issue' : 'issues'}
 				</span>
 			{/if}
 			<span class="dot-sep">·</span>
@@ -760,6 +854,37 @@
 			{/if}
 		</div>
 	</header>
+
+	{#if showContentWarnings && contentWarnings.length > 0}
+		<div class="warn-panel" role="dialog" aria-label="Asset issues">
+			<div class="warn-head">
+				<strong>Asset issues</strong>
+				<button class="warn-close" type="button" onclick={() => (showContentWarnings = false)}>
+					✕
+				</button>
+			</div>
+			<ul class="warn-list">
+				{#each contentWarnings as w (w.nodeId)}
+					<li>
+						<button
+							type="button"
+							onclick={() => {
+								const idx = scenes.findIndex((s) => s.id === w.sceneId);
+								if (idx !== -1) activeSceneIdx = idx;
+								selectedId = w.nodeId;
+							}}
+						>
+							{w.message}
+						</button>
+					</li>
+				{/each}
+			</ul>
+			<p class="warn-foot">
+				These nodes reference assets the game can't load — they render blank. Re-assign or remove
+				them.
+			</p>
+		</div>
+	{/if}
 
 	<div class="layout">
 		<aside class="left">
@@ -807,6 +932,52 @@
 						<li class="muted">No scenes yet — load a game scene above.</li>
 					{/each}
 				</ul>
+
+				{#if activeScene}
+					<div class="scene-space">
+						<label class="space-field">
+							<span>space</span>
+							<select
+								value={activeScene.space ?? 'game'}
+								onchange={(e) => setSceneSpace(e.currentTarget.value)}
+								title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
+							>
+								<option value="game">game (main box)</option>
+								<option value="standard">standard (HUD box)</option>
+								<option value="canvas">canvas (window edges)</option>
+								<option value="background">background (cover-fit)</option>
+							</select>
+						</label>
+						{#if activeScene.space === 'standard'}
+							<div class="space-aligns">
+								<label class="space-field">
+									<span>v-align</span>
+									<select
+										value={activeScene.align?.vertical ?? ''}
+										onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
+									>
+										<option value="">centre</option>
+										<option value="center">center</option>
+										<option value="bottom">bottom</option>
+									</select>
+								</label>
+								<label class="space-field">
+									<span>h-align</span>
+									<select
+										value={activeScene.align?.horizontal ?? ''}
+										onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
+									>
+										<option value="">centre</option>
+										<option value="center">center</option>
+										<option value="left">left</option>
+										<option value="right">right</option>
+									</select>
+								</label>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				<button
 					class="add-hud-btn"
 					type="button"
@@ -996,6 +1167,7 @@
 
 <style>
 	.shell {
+		position: relative;
 		display: grid;
 		grid-template-rows: auto 1fr auto;
 		height: 100vh;
@@ -1098,6 +1270,81 @@
 	.save-pill.ok {
 		color: #888;
 	}
+	.save-pill.warn {
+		color: #f0c878;
+		border-color: #3a3020;
+		cursor: pointer;
+	}
+	.save-pill.warn:hover {
+		border-color: #f0c878;
+	}
+	.warn-panel {
+		position: absolute;
+		top: 56px;
+		right: 24px;
+		z-index: 30;
+		width: 360px;
+		max-height: 50vh;
+		overflow-y: auto;
+		background: #14141c;
+		border: 1px solid #3a3020;
+		border-radius: 10px;
+		box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+		padding: 12px 14px;
+	}
+	.warn-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 8px;
+	}
+	.warn-head strong {
+		color: #f0c878;
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.warn-close {
+		background: transparent;
+		border: none;
+		color: #888;
+		cursor: pointer;
+		font-size: 13px;
+	}
+	.warn-close:hover {
+		color: #fff;
+	}
+	.warn-list {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.warn-list li {
+		background: transparent;
+		border: none;
+		padding: 0;
+	}
+	.warn-list button {
+		width: 100%;
+		text-align: left;
+		background: #1a1620;
+		border: 1px solid #2a2433;
+		color: #e8c89a;
+		padding: 6px 9px;
+		border-radius: 6px;
+		font-size: 11px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.warn-list button:hover {
+		border-color: #f0c878;
+	}
+	.warn-foot {
+		margin: 8px 0 0;
+		font-size: 10px;
+		color: #777;
+		line-height: 1.4;
+	}
 	.save-btn {
 		background: transparent;
 		border: 1px solid #2a2a33;
@@ -1179,6 +1426,39 @@
 	.add-hud-btn:hover {
 		border-color: #7ee0c0;
 		background: #16241f;
+	}
+	.scene-space {
+		margin-top: 10px;
+		padding-top: 10px;
+		border-top: 1px solid #1c1c24;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.space-aligns {
+		display: flex;
+		gap: 6px;
+	}
+	.space-field {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+	.space-field span {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+	}
+	.space-field select {
+		background: #16131c;
+		color: #c8a3ff;
+		border: 1px solid #2a2433;
+		border-radius: 6px;
+		padding: 5px 7px;
+		font-size: 12px;
+		font-family: inherit;
 	}
 	.screens-h {
 		font-size: 11px;

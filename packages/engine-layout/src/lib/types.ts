@@ -127,16 +127,54 @@ export interface SpineNode extends BaseNode {
 	loop?: boolean;
 }
 
+/**
+ * Text styling — a typed subset of `PIXI.TextStyle` (pixi-svelte's `<Text>`
+ * forwards `style` straight to `new PIXI.Text({ style })`, so every field here
+ * maps 1:1 onto a real Pixi text option). Covers what a game label/heading/
+ * count-up actually needs: multi-line **wrapping** + alignment, line/letter
+ * spacing, an outline `stroke`, and a `dropShadow` (win amounts almost always
+ * want one). All optional + additive — an existing `{ fontFamily, fontSize,
+ * fontWeight, fill }` doc stays valid.
+ *
+ * Font note: `fontFamily` only renders correctly if the *game* has loaded that
+ * web font (WebFontLoader) before first paint — otherwise Pixi silently falls
+ * back to a system font and the metrics shift. The editor records the family;
+ * keeping the game's loaded fonts in sync is the asset-registration concern (see
+ * `docs/design/invisible-editor.md` — asset/font validation).
+ */
+export interface TextStyle {
+	fontFamily?: string;
+	fontSize?: number;
+	/** `'normal' | 'bold' | '100'..'900'` — Pixi accepts the CSS weight strings. */
+	fontWeight?: string;
+	fontStyle?: 'normal' | 'italic' | 'oblique';
+	fill?: number;
+	align?: 'left' | 'center' | 'right' | 'justify';
+	/** Enable multi-line wrapping. Requires `wordWrapWidth` to bound the lines. */
+	wordWrap?: boolean;
+	/** Wrap width in the text node's local (pre-scale) pixels. */
+	wordWrapWidth?: number;
+	/** Break inside words when a single word exceeds `wordWrapWidth` (CJK/URLs). */
+	breakWords?: boolean;
+	lineHeight?: number;
+	letterSpacing?: number;
+	/** Outline. Pixi 8 takes a fill+width object. */
+	stroke?: { color: number; width: number };
+	dropShadow?: {
+		color?: number;
+		alpha?: number;
+		blur?: number;
+		/** Shadow direction in radians. */
+		angle?: number;
+		distance?: number;
+	};
+}
+
 export interface TextNode extends BaseNode {
 	kind: 'text';
 	/** May be a localization key — engine layer resolves before render. */
 	text: string;
-	style?: {
-		fontFamily?: string;
-		fontSize?: number;
-		fontWeight?: string;
-		fill?: number;
-	};
+	style?: TextStyle;
 }
 
 export type LayoutNode = ContainerNode | SpriteNode | SpineNode | TextNode;
@@ -146,17 +184,33 @@ export interface Scene {
 	name: string;
 	nodes: LayoutNode[];
 	/**
-	 * Which coordinate space this scene authors into — decides the box the editor
-	 * frames the scene against and the wrapper the game mounts `<LayoutScene>` in.
-	 * - `game` (default) — the doc's `mainSizesMap` box, plain `<MainContainer>`
+	 * Which coordinate space this scene authors into. `<LayoutScene>` reads this
+	 * and **self-wraps** in the matching container, so a scene renders identically
+	 * regardless of where the game mounts it (this is what fixes the "scene mounted
+	 * outside MainContainer draws main-coords as raw canvas pixels → offset" bug —
+	 * see `docs/design/invisible-editor.md`). The editor frames the same box.
+	 * - `game` (default) — the doc's `mainSizesMap` box, wrapped in `<MainContainer>`
 	 *   (every existing scene).
 	 * - `standard` — the fixed `STANDARD_MAIN_SIZES_MAP` box, `<MainContainer standard>`
-	 *   (the HUD bottom bar).
-	 * - `canvas` — raw window; nodes use {@link BaseNode.screenAnchor}, mounted at
-	 *   the `<App>` root (the HUD corners — logo / game name).
+	 *   (the HUD bottom bar). Honours {@link Scene.align}.
+	 * - `canvas` — raw window; nodes use {@link BaseNode.screenAnchor}, rendered at
+	 *   the `<App>` root with no wrapper (the HUD corners — logo / game name).
+	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via the
+	 *   layout context's `normalBackgroundLayout`, the node's `scale.x` acting as
+	 *   the cover scale (defaults to 0.5, matching the coded `Background`). For a
+	 *   static background image/spine; animated multi-state crossfade stays coded.
 	 * Additive — absent = `game`.
 	 */
-	space?: 'game' | 'standard' | 'canvas';
+	space?: 'game' | 'standard' | 'canvas' | 'background';
+	/**
+	 * Alignment of a `space: 'standard'` scene within the canvas — forwarded to
+	 * `<MainContainer standard alignVertical alignHorizontal>`. The HUD bottom bar
+	 * is `{ vertical: 'bottom' }`. Ignored for other spaces. Absent = centred.
+	 */
+	align?: {
+		vertical?: 'center' | 'bottom';
+		horizontal?: 'center' | 'left' | 'right';
+	};
 }
 
 export interface LayoutDoc {

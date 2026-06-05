@@ -86,12 +86,10 @@
 		-->
 		<Sound />
 
-		<MainContainer>
-			<LayoutScene scene={basegameScene} />
-			<BoardFrame />
-		</MainContainer>
+		<LayoutScene scene={basegameScene} />
 
 		<MainContainer>
+			<BoardFrame />
 			<Board />
 			<Anticipations />
 		</MainContainer>

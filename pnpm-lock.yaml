@@ -1255,6 +1255,9 @@ importers:
 
   packages/engine-layout:
     dependencies:
+      components-layout:
+        specifier: workspace:*
+        version: link:../components-layout
       constants-shared:
         specifier: workspace:*
         version: link:../constants-shared

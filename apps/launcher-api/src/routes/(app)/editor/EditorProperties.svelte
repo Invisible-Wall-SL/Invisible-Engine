@@ -4,6 +4,7 @@
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
+		type TextStyle,
 	} from 'engine-layout';
 
 	interface Props {
@@ -172,6 +173,105 @@
 	}
 	function deg2rad(d: number): number {
 		return (d * Math.PI) / 180;
+	}
+
+	// ---------- text style editing ----------
+	// All writes go through `node.style` (created lazily). Setting a control to its
+	// "unset" value (empty string / NaN / unchecked-with-no-data) DELETES the key so
+	// the saved doc stays clean (no empty objects, no zero-value noise).
+
+	function textStyle(n: LayoutNode): TextStyle {
+		if (n.kind !== 'text') return {};
+		if (!n.style) n.style = {};
+		return n.style;
+	}
+
+	/** Set a numeric style field; NaN/empty clears it. */
+	function setStyleNumber(n: LayoutNode, key: keyof TextStyle, value: number): void {
+		if (n.kind !== 'text') return;
+		const s = textStyle(n);
+		if (Number.isNaN(value)) delete s[key];
+		else (s as Record<string, unknown>)[key] = value;
+		markDirty();
+	}
+
+	/** Set a string style field; empty string clears it. */
+	function setStyleString(n: LayoutNode, key: keyof TextStyle, value: string): void {
+		if (n.kind !== 'text') return;
+		const s = textStyle(n);
+		const trimmed = value.trim();
+		if (trimmed) (s as Record<string, unknown>)[key] = trimmed;
+		else delete s[key];
+		markDirty();
+	}
+
+	function setStyleBool(n: LayoutNode, key: keyof TextStyle, value: boolean): void {
+		if (n.kind !== 'text') return;
+		const s = textStyle(n);
+		if (value) (s as Record<string, unknown>)[key] = true;
+		else delete s[key];
+		markDirty();
+	}
+
+	/** Parse a `#rrggbb` hex to a number; returns undefined if malformed. */
+	function parseHex(hex: string): number | undefined {
+		const clean = hex.trim().replace(/^#/, '');
+		if (!/^[0-9a-fA-F]{6}$/.test(clean)) return undefined;
+		return parseInt(clean, 16);
+	}
+
+	function setFill(n: LayoutNode, hex: string): void {
+		const value = parseHex(hex);
+		if (value === undefined) return;
+		textStyle(n).fill = value;
+		markDirty();
+	}
+
+	function setStrokeColor(n: LayoutNode, hex: string): void {
+		if (n.kind !== 'text') return;
+		const value = parseHex(hex);
+		if (value === undefined) return;
+		const s = textStyle(n);
+		s.stroke = { color: value, width: s.stroke?.width ?? 1 };
+		markDirty();
+	}
+
+	function setStrokeWidth(n: LayoutNode, width: number): void {
+		if (n.kind !== 'text') return;
+		const s = textStyle(n);
+		if (Number.isNaN(width) || width <= 0) {
+			delete s.stroke;
+		} else {
+			s.stroke = { color: s.stroke?.color ?? 0x000000, width };
+		}
+		markDirty();
+	}
+
+	function toggleDropShadow(n: LayoutNode, on: boolean): void {
+		if (n.kind !== 'text') return;
+		const s = textStyle(n);
+		if (on) s.dropShadow = s.dropShadow ?? { color: 0x000000, alpha: 0.5, blur: 2, distance: 2 };
+		else delete s.dropShadow;
+		markDirty();
+	}
+
+	function setDropShadowColor(n: LayoutNode, hex: string): void {
+		if (n.kind !== 'text' || !n.style?.dropShadow) return;
+		const value = parseHex(hex);
+		if (value === undefined) return;
+		n.style.dropShadow.color = value;
+		markDirty();
+	}
+
+	function setDropShadowNumber(
+		n: LayoutNode,
+		key: 'alpha' | 'blur' | 'angle' | 'distance',
+		value: number,
+	): void {
+		if (n.kind !== 'text' || !n.style?.dropShadow) return;
+		if (Number.isNaN(value)) delete n.style.dropShadow[key];
+		else n.style.dropShadow[key] = value;
+		markDirty();
 	}
 </script>
 
@@ -487,6 +587,19 @@
 					></textarea>
 				</label>
 			</div>
+
+			<div class="row">
+				<label class="field wide">
+					<span>font family</span>
+					<input
+						type="text"
+						placeholder="(game default)"
+						value={node.style?.fontFamily ?? ''}
+						oninput={(e) => setStyleString(node, 'fontFamily', e.currentTarget.value)}
+					/>
+				</label>
+			</div>
+
 			<div class="row">
 				<label class="field">
 					<span>font size</span>
@@ -494,11 +607,7 @@
 						type="number"
 						step="1"
 						value={node.style?.fontSize ?? 24}
-						oninput={(e) => {
-							if (!node.style) node.style = {};
-							node.style.fontSize = e.currentTarget.valueAsNumber;
-							markDirty();
-						}}
+						oninput={(e) => setStyleNumber(node, 'fontSize', e.currentTarget.valueAsNumber)}
 					/>
 				</label>
 				<label class="field">
@@ -507,16 +616,208 @@
 						type="text"
 						placeholder="#ffffff"
 						value={hexFrom(node.style?.fill)}
-						onchange={(e) => {
-							const clean = e.currentTarget.value.trim().replace(/^#/, '');
-							if (!/^[0-9a-fA-F]{6}$/.test(clean)) return;
-							if (!node.style) node.style = {};
-							node.style.fill = parseInt(clean, 16);
-							markDirty();
-						}}
+						onchange={(e) => setFill(node, e.currentTarget.value)}
 					/>
 				</label>
 			</div>
+
+			<div class="row">
+				<label class="field">
+					<span>weight</span>
+					<select
+						value={node.style?.fontWeight ?? 'normal'}
+						onchange={(e) => setStyleString(node, 'fontWeight', e.currentTarget.value)}
+					>
+						<option value="normal">normal</option>
+						<option value="bold">bold</option>
+						<option value="100">100</option>
+						<option value="200">200</option>
+						<option value="300">300</option>
+						<option value="400">400</option>
+						<option value="500">500</option>
+						<option value="600">600</option>
+						<option value="700">700</option>
+						<option value="800">800</option>
+						<option value="900">900</option>
+					</select>
+				</label>
+				<label class="field">
+					<span>style</span>
+					<select
+						value={node.style?.fontStyle ?? 'normal'}
+						onchange={(e) => setStyleString(node, 'fontStyle', e.currentTarget.value)}
+					>
+						<option value="normal">normal</option>
+						<option value="italic">italic</option>
+						<option value="oblique">oblique</option>
+					</select>
+				</label>
+			</div>
+
+			<div class="row">
+				<label class="field">
+					<span>align</span>
+					<select
+						value={node.style?.align ?? 'left'}
+						onchange={(e) => setStyleString(node, 'align', e.currentTarget.value)}
+					>
+						<option value="left">left</option>
+						<option value="center">center</option>
+						<option value="right">right</option>
+						<option value="justify">justify</option>
+					</select>
+				</label>
+				<label class="field">
+					<span>line height</span>
+					<input
+						type="number"
+						step="1"
+						value={node.style?.lineHeight ?? ''}
+						oninput={(e) => setStyleNumber(node, 'lineHeight', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+
+			<div class="row">
+				<label class="field">
+					<span>letter spacing</span>
+					<input
+						type="number"
+						step="0.5"
+						value={node.style?.letterSpacing ?? ''}
+						oninput={(e) => setStyleNumber(node, 'letterSpacing', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+
+			<div class="row">
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={node.style?.wordWrap ?? false}
+						onchange={(e) => setStyleBool(node, 'wordWrap', e.currentTarget.checked)}
+					/>
+					<span>word wrap</span>
+				</label>
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={node.style?.breakWords ?? false}
+						onchange={(e) => setStyleBool(node, 'breakWords', e.currentTarget.checked)}
+					/>
+					<span>break words</span>
+				</label>
+			</div>
+
+			{#if node.style?.wordWrap}
+				<div class="row">
+					<label class="field wide">
+						<span>wrap width (px)</span>
+						<input
+							type="number"
+							step="1"
+							value={node.style?.wordWrapWidth ?? ''}
+							oninput={(e) => setStyleNumber(node, 'wordWrapWidth', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+				</div>
+			{/if}
+		</section>
+
+		<section>
+			<h3>Stroke</h3>
+			<div class="row">
+				<label class="field">
+					<span>color</span>
+					<input
+						type="text"
+						placeholder="#000000"
+						value={hexFrom(node.style?.stroke?.color ?? 0x000000)}
+						onchange={(e) => setStrokeColor(node, e.currentTarget.value)}
+					/>
+				</label>
+				<label class="field">
+					<span>width (0 = off)</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						value={node.style?.stroke?.width ?? ''}
+						oninput={(e) => setStrokeWidth(node, e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+		</section>
+
+		<section>
+			<h3>Drop shadow</h3>
+			<div class="row">
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={!!node.style?.dropShadow}
+						onchange={(e) => toggleDropShadow(node, e.currentTarget.checked)}
+					/>
+					<span>enabled</span>
+				</label>
+			</div>
+			{#if node.style?.dropShadow}
+				<div class="row">
+					<label class="field">
+						<span>color</span>
+						<input
+							type="text"
+							placeholder="#000000"
+							value={hexFrom(node.style.dropShadow.color ?? 0x000000)}
+							onchange={(e) => setDropShadowColor(node, e.currentTarget.value)}
+						/>
+					</label>
+					<label class="field">
+						<span>alpha</span>
+						<input
+							type="number"
+							step="0.05"
+							min="0"
+							max="1"
+							value={node.style.dropShadow.alpha ?? ''}
+							oninput={(e) => setDropShadowNumber(node, 'alpha', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+				</div>
+				<div class="row">
+					<label class="field">
+						<span>blur</span>
+						<input
+							type="number"
+							step="1"
+							min="0"
+							value={node.style.dropShadow.blur ?? ''}
+							oninput={(e) => setDropShadowNumber(node, 'blur', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+					<label class="field">
+						<span>distance</span>
+						<input
+							type="number"
+							step="1"
+							value={node.style.dropShadow.distance ?? ''}
+							oninput={(e) => setDropShadowNumber(node, 'distance', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+				</div>
+				<div class="row">
+					<label class="field wide">
+						<span>angle (°)</span>
+						<input
+							type="number"
+							step="1"
+							value={rad2deg(node.style.dropShadow.angle)}
+							oninput={(e) =>
+								setDropShadowNumber(node, 'angle', deg2rad(e.currentTarget.valueAsNumber))}
+						/>
+					</label>
+				</div>
+			{/if}
 		</section>
 	{/if}
 {/if}
@@ -605,6 +906,7 @@
 	}
 	.field input[type='number'],
 	.field input[type='text'],
+	.field select,
 	.field textarea {
 		background: #0b0b10;
 		border: 1px solid #2a2a33;
@@ -621,6 +923,7 @@
 		resize: vertical;
 	}
 	.field input:focus,
+	.field select:focus,
 	.field textarea:focus {
 		outline: none;
 		border-color: #6b5bff;

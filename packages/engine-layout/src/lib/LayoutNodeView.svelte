@@ -1,7 +1,7 @@
 <script lang="ts" module>
-	import type { LayoutNode } from './types';
+	import type { LayoutNode, Scene } from './types';
 
-	export type Props = { node: LayoutNode };
+	export type Props = { node: LayoutNode; space?: Scene['space'] };
 </script>
 
 <script lang="ts">
@@ -11,7 +11,7 @@
 	import { resolveTransform } from './resolveTransform';
 	import { getBoundComponent } from './registerBoundComponents';
 
-	const { node }: Props = $props();
+	const { node, space }: Props = $props();
 	const layoutContext = getContextLayout();
 
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
@@ -27,6 +27,20 @@
 	);
 	const posY = $derived(
 		transform.screenAnchor ? transform.screenAnchor.y * canvas.height + transform.y : transform.y,
+	);
+
+	// `background`-space sprites/spine cover-fit the canvas via the layout context's
+	// `normalBackgroundLayout` (the node's `scale.x` is the cover scale, default 0.5
+	// to match the coded Background). The helper sets exactly one of width/height
+	// (the cover dimension); the undefined one lets the texture keep aspect. Sprites
+	// take a centre anchor (their origin is top-left); spine keeps the node's own
+	// anchor (pivot 0 by default — a background skeleton is authored around its own
+	// origin, matching apps/lines `Background.svelte`).
+	const isBackground = $derived(space === 'background');
+	const bg = $derived(
+		isBackground
+			? layoutContext.stateLayoutDerived.normalBackgroundLayout({ scale: node.scale?.x ?? 0.5 })
+			: undefined,
 	);
 </script>
 
@@ -52,7 +66,7 @@
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
 		>
-			<Bound {transform} {...(node.bind?.props ?? {})} />
+			<Bound {transform} {...node.bind?.props ?? {}} />
 		</Container>
 	{:else if node.kind === 'container'}
 		<Container
@@ -64,42 +78,38 @@
 			zIndex={transform.zIndex}
 		>
 			{#each node.children as child (child.id)}
-				<svelte:self node={child} />
+				<svelte:self node={child} {space} />
 			{/each}
 		</Container>
 	{:else if node.kind === 'sprite'}
 		<Sprite
 			key={node.region ?? node.assetKey}
-			x={posX}
-			y={posY}
-			anchor={transform.anchor}
-			scale={transform.scale}
+			x={bg ? bg.x : posX}
+			y={bg ? bg.y : posY}
+			anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
+			scale={bg ? undefined : transform.scale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={transform.width}
-			height={transform.height}
+			width={bg ? bg.width : transform.width}
+			height={bg ? bg.height : transform.height}
 			tint={transform.tint}
 		/>
 	{:else if node.kind === 'spine'}
 		<SpineProvider
 			key={node.assetKey}
-			x={posX}
-			y={posY}
+			x={bg ? bg.x : posX}
+			y={bg ? bg.y : posY}
 			anchor={transform.anchor}
-			scale={transform.scale}
+			scale={bg ? undefined : transform.scale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={transform.width}
-			height={transform.height}
+			width={bg ? bg.width : transform.width}
+			height={bg ? bg.height : transform.height}
 		>
 			{#if node.defaultAnimation}
-				<SpineTrack
-					trackIndex={0}
-					animationName={node.defaultAnimation}
-					loop={node.loop ?? true}
-				/>
+				<SpineTrack trackIndex={0} animationName={node.defaultAnimation} loop={node.loop ?? true} />
 			{/if}
 		</SpineProvider>
 	{:else if node.kind === 'text'}

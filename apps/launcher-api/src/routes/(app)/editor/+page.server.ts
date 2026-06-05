@@ -54,6 +54,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	// to the project's resolved game type when the doc predates that field.
 	const template = await loadTemplate(doc.gameType ?? (await projectGameType(projectKey)));
 	const warnings = template ? findUnfilledRequiredSlots(doc, template) : [];
+	// Content checks (missing/unassigned asset references) are computed live in the
+	// client (`+page.svelte`) from `assets`, since they must track edits before any
+	// save and `$lib/server` can't enter the browser bundle — no server copy here.
 	return { clientKey, projectKey, doc, assets, template, warnings };
 };
 
@@ -77,6 +80,11 @@ export const actions: Actions = {
 		// saved doc leaves unfilled, surfaced to the editor without rejecting.
 		const template = await loadTemplate(saved.gameType ?? (await projectGameType(projectKey)));
 		const warnings = template ? findUnfilledRequiredSlots(saved, template) : [];
-		return { action: 'save' as const, saved: true, updatedAt: saved.updatedAt, warnings };
+		return {
+			action: 'save' as const,
+			saved: true,
+			updatedAt: saved.updatedAt,
+			warnings,
+		};
 	},
 };
