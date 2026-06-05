@@ -31,15 +31,29 @@ export interface BoundComponentPreview {
 	bundle?: string;
 	/** Convention atlas-region name (kind `sprite`), resolved against the project manifest. */
 	region?: string;
-	/** How the editor fits the art to the scene frame. Absent = natural size. */
-	fit?: 'cover' | 'contain';
 }
+
+/**
+ * Where the editor draws a coded component's preview, so it lands on (≈) its
+ * real in-game spot. The board-relative ones are resolved against the game's
+ * board geometry — universal across games (formula, not magic numbers) — by
+ * {@link computeOverlayPlacement}:
+ * - `cover` — fill the canvas (full-bleed background).
+ * - `centre` — fit-inside + centre on the scene (full-screen overlays: intro/
+ *   outro/transition self-position centred, so this matches them).
+ * - `boardCentre` — centred on the reel board (e.g. the win animation).
+ * - `boardLeft` — to the LEFT of the board, top-aligned (the free-spin counter).
+ * (Room to add `boardRight`/`boardTop`/… as games need them.)
+ */
+export type OverlayPlacement = 'cover' | 'centre' | 'boardCentre' | 'boardLeft';
 
 export interface BoundComponentDefault {
 	/** Coordinate space for a scene hosting (only) this component. */
 	space?: Scene['space'];
 	/** Editor-only preview art (see {@link BoundComponentPreview}). */
 	preview?: BoundComponentPreview;
+	/** Where the editor places the preview (see {@link OverlayPlacement}). */
+	placement?: OverlayPlacement;
 	/** Default render order when the component is dropped as an anchor. */
 	zIndex?: number;
 	/** layoutTypes the component is shown for (absent = all). */
@@ -54,27 +68,33 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	Background: {
 		space: 'canvas',
 		zIndex: -10,
-		preview: { kind: 'spine', bundle: 'foregroundAnimation', fit: 'cover' },
+		placement: 'cover',
+		preview: { kind: 'spine', bundle: 'foregroundAnimation' },
 	},
 	Win: {
 		space: 'canvas',
-		preview: { kind: 'spine', bundle: 'bigwin', fit: 'contain' },
+		placement: 'boardCentre',
+		preview: { kind: 'spine', bundle: 'bigwin' },
 	},
 	Transition: {
 		space: 'canvas',
-		preview: { kind: 'spine', bundle: 'transition', fit: 'contain' },
+		placement: 'centre',
+		preview: { kind: 'spine', bundle: 'transition' },
 	},
 	FreeSpinCounter: {
 		space: 'canvas',
-		preview: { kind: 'sprite', region: 'Frame_FSCounter.png', fit: 'contain' },
+		placement: 'boardLeft',
+		preview: { kind: 'sprite', region: 'Frame_FSCounter.png' },
 	},
 	FreeSpinIntro: {
 		space: 'canvas',
-		preview: { kind: 'spine', bundle: 'fsIntro', fit: 'contain' },
+		placement: 'centre',
+		preview: { kind: 'spine', bundle: 'fsIntro' },
 	},
 	FreeSpinOutro: {
 		space: 'canvas',
-		preview: { kind: 'spine', bundle: 'fsOutro', fit: 'contain' },
+		placement: 'centre',
+		preview: { kind: 'spine', bundle: 'fsOutro' },
 	},
 };
 
@@ -95,7 +115,8 @@ export interface ResolvedPreviewArt {
 	 * yet (the caller draws a placeholder until its region index fills in). */
 	assetKey: string;
 	region?: string;
-	fit?: 'cover' | 'contain';
+	/** Where to draw it — feed to {@link computeOverlayPlacement} with the geometry. */
+	placement: OverlayPlacement;
 }
 
 /**
@@ -127,20 +148,84 @@ export function resolveAnchorPreviewArt(
 	assets: PreviewAssets,
 	spriteRegionIndex?: Map<string, string>,
 ): ResolvedPreviewArt | undefined {
+	// 1. Explicit per-node override wins. Its simple `fit` maps to a placement
+	//    (cover → cover, anything else → centred); a node needing a board-relative
+	//    spot just leaves `art` off and lets the catalog default apply.
 	const override = node.preview?.art;
-	if (override) return override;
+	if (override) {
+		return {
+			kind: override.kind,
+			assetKey: override.assetKey,
+			region: override.region,
+			placement: override.fit === 'cover' ? 'cover' : 'centre',
+		};
+	}
 	const component = node.bind?.component;
 	if (!component) return undefined;
-	const preview = boundComponentDefault(component)?.preview;
+	const def = boundComponentDefault(component);
+	const preview = def?.preview;
 	if (!preview) return undefined;
+	const placement: OverlayPlacement = def?.placement ?? 'centre';
 	if (preview.kind === 'spine') {
 		if (!preview.bundle) return undefined;
 		const match = assets.spines.find((s) => s.name === preview.bundle);
 		if (!match) return undefined;
-		return { kind: 'spine', assetKey: match.key, fit: preview.fit };
+		return { kind: 'spine', assetKey: match.key, placement };
 	}
 	// sprite
 	if (!preview.region) return undefined;
 	const assetKey = spriteRegionIndex?.get(preview.region) ?? '';
-	return { kind: 'sprite', assetKey, region: preview.region, fit: preview.fit };
+	return { kind: 'sprite', assetKey, region: preview.region, placement };
+}
+
+/**
+ * The board's geometry in the game's main-layout coords (centre + size), plus the
+ * main box and the preview art's natural size — everything {@link
+ * computeOverlayPlacement} needs. The editor reads the board from the project's
+ * `boardFrame` node (every game's basegame has one), so this stays game-agnostic.
+ */
+export interface PlacementGeometry {
+	main: { width: number; height: number };
+	board?: { x: number; y: number; width: number; height: number };
+	art?: { width: number; height: number };
+}
+
+/**
+ * How the caller should draw the preview. `cover`/`contain` reuse the existing
+ * fit paths; `positioned` gives an explicit MAIN-coord centre + anchor the editor
+ * maps to screen (via the doc's `mainSizesMap`, like `<MainContainer>`).
+ */
+export type OverlayPlacementResult =
+	| { mode: 'cover' }
+	| { mode: 'contain' }
+	| { mode: 'positioned'; x: number; y: number; anchor: { x: number; y: number } };
+
+/**
+ * Resolve an {@link OverlayPlacement} to concrete drawing instructions for the
+ * editor, given the game's geometry. Board-relative placements fall back to
+ * `contain` (centred) when no board is known. The formulas mirror the coded
+ * components (Win = board centre; FreeSpinCounter = a panel to the left of the
+ * board, top-aligned) but in terms of the board rect, so they hold for any game.
+ */
+export function computeOverlayPlacement(
+	placement: OverlayPlacement,
+	geom: PlacementGeometry,
+): OverlayPlacementResult {
+	if (placement === 'cover') return { mode: 'cover' };
+	if (placement === 'centre') return { mode: 'contain' };
+	const board = geom.board;
+	if (!board) return { mode: 'contain' };
+	if (placement === 'boardCentre') {
+		return { mode: 'positioned', x: board.x, y: board.y, anchor: { x: 0.5, y: 0.5 } };
+	}
+	// boardLeft: the panel's RIGHT edge sits a small gap left of the board, its TOP
+	// aligned to the board top — the free-spin counter's coded placement, expressed
+	// over the board rect (gap ≈ the coded SYMBOL_SIZE*0.7 for a ~5-col board).
+	const gap = board.width * 0.12;
+	return {
+		mode: 'positioned',
+		x: board.x - board.width / 2 - gap,
+		y: board.y - board.height / 2,
+		anchor: { x: 1, y: 0 },
+	};
 }

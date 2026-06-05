@@ -1163,6 +1163,8 @@
 		<main class="canvas-area">
 			<EditorCanvas
 				scene={activeScene}
+				{scenes}
+				{mainSizesMap}
 				frameWidth={frameSize.width}
 				frameHeight={frameSize.height}
 				layoutType={currentLayoutType}
