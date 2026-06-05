@@ -496,6 +496,13 @@
 	const ROTATE_OFFSET_PX = 22;
 	const SNAP_PX = 6;
 
+	// Bumped by "Reload art" to bust the per-session asset caches. The asset
+	// endpoint is `no-store`, but a distinct `?v=` also defeats any HTTP/disk
+	// cache, so updated R2 art re-fetches without a full page reload.
+	// `spineReload` is forwarded to the spine layer to drop its bundle cache.
+	let assetVersion = $state(0);
+	let spineReload = $state(0);
+
 	const images = new Map<string, HTMLImageElement | null>();
 	function ensureImage(key: string): HTMLImageElement | null {
 		if (images.has(key)) return images.get(key) ?? null;
@@ -512,8 +519,20 @@
 			imgSettled++;
 			console.warn('[editor] image load failed', key);
 		};
-		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}`;
+		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}&v=${assetVersion}`;
 		return null;
+	}
+
+	/** "Reload art": drop the per-session image + region caches and bump the
+	 * cache-bust tokens so updated atlas/spine art is re-fetched from R2 — no full
+	 * page reload needed. The 2D images + region pages re-load on the next draw();
+	 * the spine layer re-loads via the forwarded `spineReload` token. */
+	function refreshAssets(): void {
+		images.clear();
+		regionSets.clear();
+		assetVersion++;
+		spineReload++;
+		draw();
 	}
 
 	// ---------- region (atlas/sheet frame) resolution ----------
@@ -1705,6 +1724,7 @@
 		{panY}
 		{zoom}
 		{assets}
+		reloadToken={spineReload}
 		playing={playingSpines}
 		onReadyKeysChange={(keys) => {
 			readySpineKeys = keys;
@@ -1748,6 +1768,14 @@
 		click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
 		(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
 	</div>
+	<button
+		class="fit"
+		onclick={refreshAssets}
+		type="button"
+		title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
+	>
+		↻ Reload art
+	</button>
 	<button class="fit" onclick={fitView} type="button">Fit</button>
 </div>
 

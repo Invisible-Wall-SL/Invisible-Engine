@@ -57,6 +57,9 @@
 		/** Monotonic spine-bundle load tally, so the 2D canvas can fold spine loads
 		 * into its global progress overlay. `started`/`settled` only ever grow. */
 		onLoadingChange?: (counts: { started: number; settled: number }) => void;
+		/** Bumped by the editor's "Reload art" — drops every cached spine bundle so
+		 * the RAF loop re-fetches fresh skeletons + page textures from R2. */
+		reloadToken?: number;
 	}
 
 	let {
@@ -74,6 +77,7 @@
 		onReadyKeysChange,
 		onNaturalSizesChange,
 		onLoadingChange,
+		reloadToken = 0,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -138,6 +142,21 @@
 	/** Per-spine-node cache keyed by `assetKey` (one bundle = one shared instance). */
 	const entries = new Map<string, Entry>();
 
+	// "Reload art": when the token bumps, drop every cached bundle (freeing GPU)
+	// so the always-on RAF loop (`frame`) re-ensures them — re-fetching the
+	// skeleton + page textures from R2 with the new `?v=`.
+	let lastReloadToken = 0;
+	$effect(() => {
+		const t = reloadToken;
+		if (t === lastReloadToken) return;
+		lastReloadToken = t;
+		for (const entry of entries.values()) {
+			if (entry.state === 'ready') disposeSpineInstance(entry.instance);
+		}
+		entries.clear();
+		publishReady();
+	});
+
 	function ensureGl(): boolean {
 		if (gl && renderer) return true;
 		if (!canvas) return false;
@@ -167,7 +186,7 @@
 			return;
 		}
 		try {
-			const instance = await loadSpineInstance(assetKey, gl);
+			const instance = await loadSpineInstance(assetKey, gl, reloadToken);
 			if (!instance) {
 				entries.set(assetKey, { state: 'error' });
 				return;

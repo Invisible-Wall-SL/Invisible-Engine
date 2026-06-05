@@ -123,22 +123,26 @@ function buildSkeleton(
 export async function loadSpineInstance(
 	assetKey: string,
 	gl: WebGLRenderingContext,
+	version = 0,
 ): Promise<SpineInstance | null> {
 	const descriptor = await fetchDescriptor(assetKey);
 	if (!descriptor) return null;
 	const spine = await loadSpineRuntime(descriptor.runtime);
+	// Cache-bust token from the editor's "Reload art" — forces a fresh fetch of
+	// the skeleton + page textures after the underlying R2 art changed.
+	const bust = (u: string): string => (version ? `${u}&v=${version}` : u);
 
 	const [skeletonBytes, ...images] = await Promise.all([
 		descriptor.format === 'skel'
-			? fetch(descriptor.skeletonUrl).then((r) => {
+			? fetch(bust(descriptor.skeletonUrl)).then((r) => {
 					if (!r.ok) throw new Error('skeleton fetch failed');
 					return r.arrayBuffer();
 				})
-			: fetch(descriptor.skeletonUrl).then((r) => {
+			: fetch(bust(descriptor.skeletonUrl)).then((r) => {
 					if (!r.ok) throw new Error('skeleton fetch failed');
 					return r.text();
 				}),
-		...descriptor.pageUrls.map((u) => loadImage(u)),
+		...descriptor.pageUrls.map((u) => loadImage(bust(u))),
 	]);
 
 	const pageImages = new Map<string, HTMLImageElement>();
