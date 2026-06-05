@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { resolveTransform, type LayoutNode, type LayoutType, type Scene } from 'engine-layout';
+	import {
+		resolveAnchorPreviewArt,
+		resolveTransform,
+		type LayoutType,
+		type Scene,
+	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import {
 		disposeSpineInstance,
@@ -12,9 +17,18 @@
 		type SpineSceneRenderer,
 	} from './spineRuntime.client';
 
+	/** Structural view of the project's spines (mirrors `ProjectAssets`) — used to
+	 * resolve catalog-default spine preview art for `bind` anchors, the SAME way
+	 * the 2D canvas does, so both layers agree on which spine an anchor previews. */
+	interface ProjectAssets {
+		spines: { name: string; key: string }[];
+	}
+
 	interface Props {
 		scene: Scene;
 		layoutType: LayoutType;
+		/** The project's asset listing — resolves catalog-default spine preview art. */
+		assets: ProjectAssets;
 		/** Active scene frame size (world coords) — used to cover-fit `preview.art`
 		 * spine anchors, identical to the 2D canvas's `coverArtTransform`. */
 		frameWidth: number;
@@ -39,6 +53,7 @@
 	let {
 		scene,
 		layoutType,
+		assets,
 		frameWidth,
 		frameHeight,
 		panX,
@@ -181,8 +196,10 @@
 					transform: t,
 				});
 			} else {
-				const art = n.preview?.art;
-				if (art?.kind === 'spine') {
+				// Resolve the anchor's stand-in art the SAME way the 2D canvas does
+				// (explicit override → shared catalog default), so both layers agree.
+				const art = resolveAnchorPreviewArt(n, assets);
+				if (art?.kind === 'spine' && art.assetKey) {
 					out.push({
 						nodeId: n.id,
 						assetKey: art.assetKey,

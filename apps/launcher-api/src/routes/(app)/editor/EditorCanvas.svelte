@@ -1,8 +1,10 @@
 <script lang="ts">
 	import {
+		resolveAnchorPreviewArt,
 		resolveTransform,
 		type LayoutNode,
 		type LayoutType,
+		type ResolvedPreviewArt,
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
@@ -32,12 +34,24 @@
 	}
 	type DragPayload = AssetDragPayload | RegionDragPayload;
 
+	/** Structural view of the project's asset listing (mirrors `ProjectAssets` in
+	 * `$lib/server/projectAssets`, but defined here so this client component never
+	 * imports a server module). Drives catalog-default preview resolution. */
+	interface ProjectAssets {
+		atlases: { name: string; key: string; kind: 'atlas-manifest' | 'atlas-page' }[];
+		spines: { name: string; key: string }[];
+		sheets: { name: string; key: string }[];
+	}
+
 	interface Props {
 		scene: Scene;
 		frameWidth: number;
 		frameHeight: number;
 		/** Active authoring layoutType; non-`desktop` puts edits into override mode. */
 		layoutType: LayoutType;
+		/** The project's asset listing — used to resolve catalog-default preview art
+		 * for `bind` anchors (spine bundle by name, sprite region by manifest scan). */
+		assets: ProjectAssets;
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
 		/** Hoisted selection — bound from the page so the properties panel can read it. */
 		selectedId?: string | null;
@@ -59,6 +73,7 @@
 		frameWidth,
 		frameHeight,
 		layoutType,
+		assets,
 		onSpawn,
 		selectedId = $bindable(null),
 		onDirty,
@@ -91,8 +106,10 @@
 		// A `fit` art preview (e.g. the animated Background bind anchor or a centred
 		// overlay) sizes itself to the frame regardless of scene space — using the
 		// art's natural aspect (resolved from the preview spine/sprite) as the ratio.
-		if (node.preview?.art?.fit) {
-			return fitArtTransform(node, t, node.preview.art.fit);
+		// The art is resolved from an explicit override OR the shared catalog default.
+		const art = anchorArt(node);
+		if (art?.fit) {
+			return fitArtTransform(node, t, art.fit);
 		}
 		if (scene.space === 'canvas' && t.screenAnchor) {
 			return {
@@ -233,7 +250,7 @@
 	 * a write would store the synthetic centre/size and break the cover. The cover
 	 * scale is still editable via the Properties `scale.x` control. */
 	function isBackgroundCover(node: LayoutNode): boolean {
-		if (node.preview?.art?.fit) return true;
+		if (anchorArt(node)?.fit) return true;
 		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
 	}
 
@@ -422,6 +439,61 @@
 		return region ? { set, region } : null;
 	}
 
+	// ---------- catalog sprite-region index ----------
+	// A bind anchor whose catalog default is a SPRITE knows only the region NAME, not
+	// which project manifest packs it. We scan the project's atlas manifests + sheets
+	// (each via the same `/api/editor/regions` fetch the Library uses) ONCE, building
+	// `region name → manifest assetKey`. The resolver reads this map so the canvas can
+	// draw the region; until the scan settles the anchor falls back to a placeholder.
+	let spriteRegionIndex = $state<Map<string, string>>(new Map());
+	let regionScanStarted = false;
+	/** Manifest/sheet identifiers to scan for catalog sprite regions. */
+	function regionContainerKeys(): string[] {
+		const keys: string[] = [];
+		for (const a of assets.atlases) if (a.kind === 'atlas-manifest') keys.push(a.key);
+		for (const sh of assets.sheets) keys.push(sh.key);
+		return keys;
+	}
+	/** Kick off the one-time manifest scan that fills `spriteRegionIndex`. Triggered
+	 * lazily the first time a scene actually needs a catalog sprite region. */
+	function ensureRegionIndex(): void {
+		if (regionScanStarted) return;
+		regionScanStarted = true;
+		for (const key of regionContainerKeys()) {
+			void fetchRegions(key)
+				.then((set) => {
+					if (!set.regions.length) return;
+					const next = new Map(spriteRegionIndex);
+					let added = false;
+					for (const r of set.regions) {
+						// First manifest that packs a region name wins (stable + deterministic
+						// over the listing order); the resolved key is what `findRegion` loads.
+						if (!next.has(r.name)) {
+							next.set(r.name, set.assetKey);
+							added = true;
+						}
+					}
+					if (added) {
+						spriteRegionIndex = next;
+						draw();
+					}
+				})
+				.catch(() => {
+					/* a bad manifest just contributes no regions */
+				});
+		}
+	}
+
+	/** Resolved stand-in art for a `bind` anchor (explicit override → catalog default
+	 * against the project's assets). The 2D canvas + the spine overlay both resolve
+	 * through this so they agree on ONE art per anchor. Triggers the lazy sprite-region
+	 * scan when a node's catalog default is a sprite the index hasn't located yet. */
+	function anchorArt(node: LayoutNode): ResolvedPreviewArt | undefined {
+		const art = resolveAnchorPreviewArt(node, assets, spriteRegionIndex);
+		if (art?.kind === 'sprite' && !art.assetKey) ensureRegionIndex();
+		return art;
+	}
+
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
 	function naturalSize(node: LayoutNode): { w: number; h: number } | null {
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
@@ -445,9 +517,9 @@
 	 * - spine art: the skeleton's setup-pose bounds, reported by the WebGL overlay
 	 *   (the 2D canvas can't measure a skeleton). `null` until it resolves. */
 	function artNaturalSize(node: LayoutNode): { w: number; h: number } | null {
-		const art = node.preview?.art;
+		const art = anchorArt(node);
 		if (!art) return null;
-		if (art.kind === 'sprite' && art.region) {
+		if (art.kind === 'sprite' && art.region && art.assetKey) {
 			const found = findRegion(art.assetKey, art.region);
 			return found ? regionNaturalSize(found.region) : null;
 		}
@@ -586,7 +658,7 @@
 			// until ready, like a spine node); sprite art is drawn here on the 2D canvas.
 			// HUD elements carry `preview.style` so we draw a faithful chip; others get
 			// a plain placeholder.
-			const art = node.preview?.art;
+			const art = anchorArt(node);
 			if (art?.kind === 'spine') {
 				if (!readySpineKeys.has(art.assetKey)) {
 					drawPlaceholder(
@@ -597,7 +669,7 @@
 						`spine: ${node.label ?? art.assetKey}`,
 					);
 				}
-			} else if (art?.kind === 'sprite' && art.region) {
+			} else if (art?.kind === 'sprite' && art.region && art.assetKey) {
 				drawArtRegionSprite(ctx, art.assetKey, art.region, t, node.label);
 			} else if (node.preview?.style) {
 				drawHudChip(ctx, t, node.preview, node.label ?? node.bind.component);
@@ -1357,8 +1429,13 @@
 		// Live post-scale size in px (region/native box × scale).
 		const w = Math.round(box.w * (t.scale?.x ?? 1));
 		const h = Math.round(box.h * (t.scale?.y ?? 1));
+		// Resolved stand-in art (explicit override OR catalog default) — lets the
+		// overlay show the spine play toggle + a real subtitle for catalog anchors
+		// that carry no baked `preview.art`.
+		const resolvedArt = anchorArt(node) ?? null;
 		return {
 			node,
+			resolvedArt,
 			left: minX,
 			top: minY,
 			right: maxX,
@@ -1488,6 +1565,7 @@
 		{panX}
 		{panY}
 		{zoom}
+		{assets}
 		playing={playingSpines}
 		onReadyKeysChange={(keys) => {
 			readySpineKeys = keys;
