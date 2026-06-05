@@ -149,17 +149,18 @@
 
 	/**
 	 * One spine the overlay must render — either a real `kind:'spine'` node or a
-	 * `bind` anchor carrying a `preview.art` spine stand-in (the animated Background).
-	 * `cover` art is cover-fit to the frame; everything else renders at the node's
-	 * resolved transform. `nodeId` is the doc node (for the `playing` set);
-	 * `assetKey` keys the shared instance cache.
+	 * `bind` anchor carrying a `preview.art` spine stand-in (the animated Background
+	 * or a centred overlay). When `fit` is set the art is sized to the frame
+	 * (`'cover'` fills/crops, `'contain'` fits inside, both centred); otherwise it
+	 * renders at the node's resolved transform. `nodeId` is the doc node (for the
+	 * `playing` set); `assetKey` keys the shared instance cache.
 	 */
 	interface SpineRenderTarget {
 		nodeId: string;
 		assetKey: string;
 		defaultAnimation?: string;
 		loop?: boolean;
-		cover: boolean;
+		fit?: 'cover' | 'contain';
 		transform: ReturnType<typeof resolveTransform>;
 	}
 
@@ -176,7 +177,7 @@
 					assetKey: n.assetKey,
 					defaultAnimation: n.defaultAnimation,
 					loop: n.loop,
-					cover: false,
+					fit: undefined,
 					transform: t,
 				});
 			} else {
@@ -187,7 +188,7 @@
 						assetKey: art.assetKey,
 						defaultAnimation: undefined,
 						loop: true,
-						cover: Boolean(art.cover),
+						fit: art.fit,
 						transform: t,
 					});
 				}
@@ -267,8 +268,8 @@
 			syncPlayback(target, entry);
 			const t = target.transform;
 			const inst = entry.instance;
-			if (target.cover) {
-				placeCover(inst);
+			if (target.fit) {
+				placeFit(inst, target.fit);
 			} else {
 				const sx = t.scale?.x ?? 1;
 				const sy = t.scale?.y ?? 1;
@@ -288,14 +289,17 @@
 	}
 
 	/**
-	 * Cover-fit a spine instance to the scene frame — the editor stand-in for the
-	 * coded full-bleed `Background`. Mirrors the 2D canvas's `coverArtTransform`:
-	 * scale so BOTH frame dims are covered (max of the two cover scales), centred on
-	 * the frame. Uses the skeleton's setup-pose bounds for the art's size + centre,
-	 * accounting for the y-flip (`scaleY = -s`) so a local point (lx, ly) lands at
+	 * Fit a spine instance to the scene frame — the editor stand-in for a coded
+	 * component the editor can't run. Mirrors the 2D canvas's `fitArtTransform`,
+	 * centred on the frame:
+	 * - `'cover'` (the full-bleed animated Background): `s = max(...)` — both frame
+	 *   dims are covered (may crop).
+	 * - `'contain'` (centred overlays): `s = min(...)` — the art fits inside (no crop).
+	 * Uses the skeleton's setup-pose bounds for the art's size + centre, accounting
+	 * for the y-flip (`scaleY = -s`) so a local point (lx, ly) lands at
 	 * `(skeleton.x + s*lx, skeleton.y - s*ly)`.
 	 */
-	function placeCover(inst: SpineInstance): void {
+	function placeFit(inst: SpineInstance, fit: 'cover' | 'contain'): void {
 		const nat = naturalSizeOf(inst);
 		const offset = { x: 0, y: 0 };
 		const size = { x: 0, y: 0 };
@@ -316,7 +320,10 @@
 			inst.skeleton.scaleY = -1;
 			return;
 		}
-		const s = Math.max(frameWidth / bw, frameHeight / bh);
+		const s =
+			fit === 'cover'
+				? Math.max(frameWidth / bw, frameHeight / bh)
+				: Math.min(frameWidth / bw, frameHeight / bh);
 		const cx = offset.x + size.x / 2;
 		const cy = offset.y + size.y / 2;
 		inst.skeleton.x = frameWidth / 2 - s * cx;

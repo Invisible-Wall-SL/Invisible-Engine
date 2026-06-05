@@ -90,13 +90,21 @@ interface BaseNode {
 	 * - `art`: a real spine/sprite the editor draws in the anchor's place (e.g. the
 	 *   animated `Background`, which is full-bleed + crossfades in-game and so has
 	 *   to stay a coded `bind`). Lets "see the game composed" work without the
-	 *   editor running game code. `cover` cover-fits it to the scene box (bg).
+	 *   editor running game code. `fit` controls how the art is sized to the scene
+	 *   frame: `'cover'` fills the frame (may crop — the full-bleed background),
+	 *   `'contain'` scales to fit INSIDE the frame keeping aspect, centred (the
+	 *   centred overlays), absent = natural size at the node transform.
 	 */
 	preview?: {
 		w?: number;
 		h?: number;
 		style?: 'button' | 'label' | 'text';
-		art?: { kind: 'spine' | 'sprite'; assetKey: string; region?: string; cover?: boolean };
+		art?: {
+			kind: 'spine' | 'sprite';
+			assetKey: string;
+			region?: string;
+			fit?: 'cover' | 'contain';
+		};
 	};
 }
 

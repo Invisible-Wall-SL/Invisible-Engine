@@ -88,11 +88,11 @@
 	 */
 	function nodeTransform(node: LayoutNode): ResolvedTransform {
 		const t = resolveTransform(node, layoutType);
-		// A `cover` art preview (e.g. the animated Background bind anchor) cover-fits
-		// the frame regardless of scene space — mirror the background cover, using the
+		// A `fit` art preview (e.g. the animated Background bind anchor or a centred
+		// overlay) sizes itself to the frame regardless of scene space — using the
 		// art's natural aspect (resolved from the preview spine/sprite) as the ratio.
-		if (node.preview?.art?.cover) {
-			return coverArtTransform(node, t);
+		if (node.preview?.art?.fit) {
+			return fitArtTransform(node, t, node.preview.art.fit);
 		}
 		if (scene.space === 'canvas' && t.screenAnchor) {
 			return {
@@ -144,23 +144,38 @@
 	}
 
 	/**
-	 * Cover-fit transform for a `preview.art` bind anchor (the animated Background).
-	 * The coded `Background` mounts full-bleed and crossfades, so the editor stand-in
-	 * cover-fits the WHOLE frame (cover scale 1 — not the 0.5 a `background`-space
-	 * static node uses). Centred, with width/height computed so the art's natural
-	 * aspect covers the frame (the larger of the two cover dimensions wins). Falls
-	 * back to a plain frame-sized box until the art's natural size is known.
+	 * Fit transform for a `preview.art` bind anchor — the editor stand-in for a coded
+	 * component the editor can't run. Centred on the frame, sized by the art's natural
+	 * aspect:
+	 * - `'cover'` (the full-bleed animated Background): scale so BOTH frame dims are
+	 *   covered (the larger cover scale wins; may crop).
+	 * - `'contain'` (centred overlays — FS intro/outro, Win, Transition, counter):
+	 *   scale so the art fits INSIDE the frame (the smaller scale wins; no crop).
+	 * Falls back to a plain frame-sized box until the art's natural size is known.
 	 */
-	function coverArtTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
+	function fitArtTransform(
+		node: LayoutNode,
+		t: ResolvedTransform,
+		fit: 'cover' | 'contain',
+	): ResolvedTransform {
 		const nat = artNaturalSize(node);
 		const frameRatio = frameWidth / (frameHeight || 1);
 		const artRatio = nat ? nat.w / (nat.h || 1) : frameRatio;
-		// Cover: scale so BOTH frame dims are covered → drive by the dimension that
-		// would otherwise leave a gap. width-driven when the art is relatively
-		// narrower than the frame (its height overflows), else height-driven.
-		const widthDriven = artRatio <= frameRatio;
-		const width = widthDriven ? frameWidth : frameHeight * artRatio;
-		const height = widthDriven ? frameWidth / artRatio : frameHeight;
+		let width: number;
+		let height: number;
+		if (fit === 'cover') {
+			// Drive by the dimension that would otherwise leave a gap: width-driven
+			// when the art is relatively narrower than the frame (its height overflows).
+			const widthDriven = artRatio <= frameRatio;
+			width = widthDriven ? frameWidth : frameHeight * artRatio;
+			height = widthDriven ? frameWidth / artRatio : frameHeight;
+		} else {
+			// Contain: drive by the dimension that hits the frame edge first → the
+			// art fits inside. width-driven when the art is relatively wider.
+			const widthDriven = artRatio >= frameRatio;
+			width = widthDriven ? frameWidth : frameHeight * artRatio;
+			height = widthDriven ? frameWidth / artRatio : frameHeight;
+		}
 		return {
 			...t,
 			x: frameWidth / 2,
@@ -218,7 +233,7 @@
 	 * a write would store the synthetic centre/size and break the cover. The cover
 	 * scale is still editable via the Properties `scale.x` control. */
 	function isBackgroundCover(node: LayoutNode): boolean {
-		if (node.preview?.art?.cover) return true;
+		if (node.preview?.art?.fit) return true;
 		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
 	}
 
