@@ -43,7 +43,11 @@ if (!TP_PATH || !PAGE_PATH) {
 }
 
 /** Slug rule — byte-identical to `r2Slug` in the launcher + the Python tools. */
-const r2Slug = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'default';
+const r2Slug = (s) =>
+	s
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, '_')
+		.slice(0, 60) || 'default';
 const PREFIX = `${r2Slug(CLIENT)}/${r2Slug(PROJECT)}`;
 const pageName = basename(PAGE_PATH);
 const manifestKey = `${PREFIX}/manifests/reels_frame.json`;
@@ -84,7 +88,9 @@ async function buildManifest() {
 	const regions = Object.entries(frames).map(([name, f]) => tpToRegion(name, f));
 	const size = tp.meta?.size ?? {};
 	if (!size.w || !size.h) {
-		console.warn('⚠ TexturePacker meta.size missing — page width/height left 0 (region geometry still works).');
+		console.warn(
+			'⚠ TexturePacker meta.size missing — page width/height left 0 (region geometry still works).',
+		);
 	}
 	return {
 		atlas: { source_image_path: pageKey, width: size.w ?? 0, height: size.h ?? 0 },
@@ -137,6 +143,50 @@ const anchor = (id, slotId, label, component, extra = {}) => ({
 	children: [],
 	...extra,
 });
+
+/**
+ * List the project's spine bundles in R2 → `{ bundleName: assetKey }`. The
+ * `assetKey` is the bundle PREFIX (with trailing slash) — byte-identical to the
+ * value the editor Library drag hands out and that `bundleFromAssetKey` /
+ * `/api/editor/spine` resolve. Used to point a bind anchor's `preview.art` at the
+ * real background spine so the editor draws it as a stand-in.
+ */
+async function listSpineKeys(s3, bucket) {
+	const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+	const out = {};
+	const prefix = `${PREFIX}/spines/`;
+	let token;
+	do {
+		const r = await s3.send(
+			new ListObjectsV2Command({
+				Bucket: bucket,
+				Prefix: prefix,
+				Delimiter: '/',
+				ContinuationToken: token,
+			}),
+		);
+		for (const cp of r.CommonPrefixes ?? []) {
+			const p = cp.Prefix;
+			const name = p.slice(prefix.length).replace(/\/$/, '');
+			if (name) out[name] = p; // p keeps the trailing slash — the Library format
+		}
+		token = r.IsTruncated ? r.NextContinuationToken : undefined;
+	} while (token);
+	return out;
+}
+
+/**
+ * The Background bind anchor's editor-only `preview.art`: the coded `Background`
+ * is full-bleed + crossfades in-game (so it stays a `bind`), but the editor can
+ * draw the real `foregroundAnimation` spine as a cover-fit stand-in. `assetKey`
+ * is the bundle prefix the editor's spine preview resolves. Omitted (falls back
+ * to the placeholder) when the spine isn't found.
+ */
+function backgroundPreviewArt(spineKeys) {
+	const assetKey = spineKeys.foregroundAnimation;
+	if (!assetKey) return {};
+	return { preview: { art: { kind: 'spine', assetKey, cover: true } } };
+}
 // ---------- HUD scenes ----------
 // MIRROR of `engine-layout/src/lib/referenceLayouts/hud.ts` (the source of
 // truth) — inlined because this plain `node` script can't import the TS package.
@@ -196,16 +246,96 @@ function hudScenes() {
 			name: 'HUD — bottom bar',
 			space: 'standard',
 			nodes: [
-				bar('hud-balance', 'Balance', 'UiLabelBalance', LABEL, d(900 - 500, dLabelY), l1(420, lLabelY), t(880 - 640, tLabelY)),
-				bar('hud-win', 'Win', 'UiLabelWin', LABEL, d(900, dLabelY), l1(910, lLabelY), t(880, tLabelY)),
-				bar('hud-bet', 'Bet', 'UiLabelBet', LABEL, d(900 + 500, dLabelY), l1(1400, lLabelY), t(880 + 640, tLabelY)),
-				bar('hud-btn-menu', 'Menu', 'UiButtonMenu', BTN, d(220, dBtnY), l1(85 + 20, lBtnY), t(20, tBtnY)),
-				bar('hud-btn-buybonus', 'Buy bonus', 'UiButtonBuyBonus', BTN, d(220 + 150, dBtnY), l1(220 + 20, lBtnY), t(20 + 180, tBtnY)),
-				bar('hud-btn-autospin', 'Auto spin', 'UiButtonAutoSpin', BTN, d(160 + 150 * 4, dBtnY), l2(L * 0.5 - 140), t(-10 + 180 * 4, tBtnY)),
-				bar('hud-btn-bet', 'Spin / Bet', 'UiButtonBet', BTN, d(160 + 150 * 5, dBtnY), l2(L * 0.5), t(-10 + 180 * 5, tBtnY)),
-				bar('hud-btn-turbo', 'Turbo', 'UiButtonTurbo', BTN, d(160 + 150 * 6, dBtnY), l2(L * 0.5 + 140), t(-10 + 180 * 6, tBtnY)),
-				bar('hud-btn-decrease', 'Decrease', 'UiButtonDecrease', BTN, d(1440, dBtnY), l1(1580, lBtnY), t(1560, tBtnY)),
-				bar('hud-btn-increase', 'Increase', 'UiButtonIncrease', BTN, d(1440 + 150, dBtnY), l1(1715, lBtnY), t(1560 + 180, tBtnY)),
+				bar(
+					'hud-balance',
+					'Balance',
+					'UiLabelBalance',
+					LABEL,
+					d(900 - 500, dLabelY),
+					l1(420, lLabelY),
+					t(880 - 640, tLabelY),
+				),
+				bar(
+					'hud-win',
+					'Win',
+					'UiLabelWin',
+					LABEL,
+					d(900, dLabelY),
+					l1(910, lLabelY),
+					t(880, tLabelY),
+				),
+				bar(
+					'hud-bet',
+					'Bet',
+					'UiLabelBet',
+					LABEL,
+					d(900 + 500, dLabelY),
+					l1(1400, lLabelY),
+					t(880 + 640, tLabelY),
+				),
+				bar(
+					'hud-btn-menu',
+					'Menu',
+					'UiButtonMenu',
+					BTN,
+					d(220, dBtnY),
+					l1(85 + 20, lBtnY),
+					t(20, tBtnY),
+				),
+				bar(
+					'hud-btn-buybonus',
+					'Buy bonus',
+					'UiButtonBuyBonus',
+					BTN,
+					d(220 + 150, dBtnY),
+					l1(220 + 20, lBtnY),
+					t(20 + 180, tBtnY),
+				),
+				bar(
+					'hud-btn-autospin',
+					'Auto spin',
+					'UiButtonAutoSpin',
+					BTN,
+					d(160 + 150 * 4, dBtnY),
+					l2(L * 0.5 - 140),
+					t(-10 + 180 * 4, tBtnY),
+				),
+				bar(
+					'hud-btn-bet',
+					'Spin / Bet',
+					'UiButtonBet',
+					BTN,
+					d(160 + 150 * 5, dBtnY),
+					l2(L * 0.5),
+					t(-10 + 180 * 5, tBtnY),
+				),
+				bar(
+					'hud-btn-turbo',
+					'Turbo',
+					'UiButtonTurbo',
+					BTN,
+					d(160 + 150 * 6, dBtnY),
+					l2(L * 0.5 + 140),
+					t(-10 + 180 * 6, tBtnY),
+				),
+				bar(
+					'hud-btn-decrease',
+					'Decrease',
+					'UiButtonDecrease',
+					BTN,
+					d(1440, dBtnY),
+					l1(1580, lBtnY),
+					t(1560, tBtnY),
+				),
+				bar(
+					'hud-btn-increase',
+					'Increase',
+					'UiButtonIncrease',
+					BTN,
+					d(1440 + 150, dBtnY),
+					l1(1715, lBtnY),
+					t(1560 + 180, tBtnY),
+				),
 			],
 		},
 		{
@@ -213,14 +343,37 @@ function hudScenes() {
 			name: 'HUD — corners',
 			space: 'canvas',
 			nodes: [
-				{ id: 'hud-gamename', label: 'Game name', kind: 'container', screenAnchor: { x: 0, y: 0 }, x: 20, y: 0, anchor: { x: 0, y: 0 }, bind: { component: 'HudGameName' }, preview: { w: 260, h: 56, style: 'text' }, children: [] },
-				{ id: 'hud-logo', label: 'Logo', kind: 'container', screenAnchor: { x: 1, y: 0 }, x: -20, y: 0, anchor: { x: 1, y: 0 }, bind: { component: 'HudLogo' }, preview: { w: 220, h: 56, style: 'text' }, children: [] },
+				{
+					id: 'hud-gamename',
+					label: 'Game name',
+					kind: 'container',
+					screenAnchor: { x: 0, y: 0 },
+					x: 20,
+					y: 0,
+					anchor: { x: 0, y: 0 },
+					bind: { component: 'HudGameName' },
+					preview: { w: 260, h: 56, style: 'text' },
+					children: [],
+				},
+				{
+					id: 'hud-logo',
+					label: 'Logo',
+					kind: 'container',
+					screenAnchor: { x: 1, y: 0 },
+					x: -20,
+					y: 0,
+					anchor: { x: 1, y: 0 },
+					bind: { component: 'HudLogo' },
+					preview: { w: 220, h: 56, style: 'text' },
+					children: [],
+				},
 			],
 		},
 	];
 }
 
-function buildDoc(updatedAt) {
+function buildDoc(updatedAt, spineKeys = {}) {
+	const bgArt = backgroundPreviewArt(spineKeys);
 	return {
 		version: 1,
 		projectKey: r2Slug(PROJECT),
@@ -238,7 +391,7 @@ function buildDoc(updatedAt) {
 				id: 'background',
 				name: 'Background',
 				space: 'canvas',
-				nodes: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10 })],
+				nodes: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10, ...bgArt })],
 			},
 			{
 				id: 'basegame',
@@ -286,17 +439,45 @@ function buildDoc(updatedAt) {
 async function main() {
 	const manifest = await buildManifest();
 	console.info(`\nTarget project prefix: ${PREFIX}`);
-	console.info(`  manifest → ${manifestKey}  (${manifest.regions.length} regions, ${manifest.width}×${manifest.height})`);
+	console.info(
+		`  manifest → ${manifestKey}  (${manifest.regions.length} regions, ${manifest.width}×${manifest.height})`,
+	);
 	console.info(`  page     → ${pageKey}  (from ${PAGE_PATH})`);
 	const fb = manifest.regions.find((r) => r.name === 'frame_bg.png');
-	if (fb) console.info(`  frame_bg.png: rect ${fb.x},${fb.y} ${fb.w}×${fb.h} rotated=${fb.rotated} off ${fb.offX},${fb.offY} orig ${fb.origW}×${fb.origH}`);
+	if (fb)
+		console.info(
+			`  frame_bg.png: rect ${fb.x},${fb.y} ${fb.w}×${fb.h} rotated=${fb.rotated} off ${fb.offX},${fb.offY} orig ${fb.origW}×${fb.origH}`,
+		);
 
 	if (dryRun) {
-		const doc = buildDoc(new Date().toISOString());
-		console.info('\n--dry-run: no uploads. Doc previews:\n');
+		// No R2 creds in dry-run, so spine bundles can't be listed. Use a synthetic
+		// `foregroundAnimation` key in the SAME format the Library/`/api/editor/spine`
+		// resolve (`<prefix>/spines/<bundle>/`) so the doc SHAPE — incl. the
+		// Background anchor's `preview.art` — is visible. The real path resolves the
+		// actual key (or omits `preview.art` when the spine is missing).
+		const fakeSpineKeys = { foregroundAnimation: `${PREFIX}/spines/foregroundAnimation/` };
+		const doc = buildDoc(new Date().toISOString(), fakeSpineKeys);
+		console.info(
+			'\n--dry-run: no uploads (spine key synthesised — real run lists R2). Doc previews:\n',
+		);
 		console.info('MANIFEST', JSON.stringify(manifest, null, 2).slice(0, 800), '…');
 		console.info('\nDOC scenes', doc.scenes.map((s) => `${s.id}(${s.nodes.length})`).join(' '));
-		console.info('DOC basegame', JSON.stringify(doc.scenes.find((s) => s.id === 'basegame'), null, 2));
+		console.info(
+			'DOC basegame',
+			JSON.stringify(
+				doc.scenes.find((s) => s.id === 'basegame'),
+				null,
+				2,
+			),
+		);
+		console.info(
+			'DOC background',
+			JSON.stringify(
+				doc.scenes.find((s) => s.id === 'background'),
+				null,
+				2,
+			),
+		);
 		return;
 	}
 
@@ -309,16 +490,44 @@ async function main() {
 		process.exit(1);
 	}
 	const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
-	const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } });
-	const put = (Key, Body, ContentType) => s3.send(new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType }));
+	const s3 = new S3Client({
+		region: 'auto',
+		endpoint,
+		credentials: { accessKeyId, secretAccessKey },
+	});
+	const put = (Key, Body, ContentType) =>
+		s3.send(new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType }));
 
-	const doc = buildDoc(new Date().toISOString());
-	console.info(`  doc      → ${editorDocKey}  (${doc.scenes.map((s) => `${s.id}:${s.nodes.length}`).join(' ')})`);
+	// Resolve the project's spine bundles so the Background bind anchor can carry a
+	// `preview.art` pointing at the real `foregroundAnimation` spine (editor stand-in).
+	const spineKeys = await listSpineKeys(s3, bucket);
+	const bundleNames = Object.keys(spineKeys);
+	console.info(
+		`  spines   → ${bundleNames.length} bundle(s): ${bundleNames.join(', ') || '(none)'}`,
+	);
+	if (spineKeys.foregroundAnimation) {
+		console.info(`  bg art   → preview.art spine ${spineKeys.foregroundAnimation} (cover)`);
+	} else {
+		console.warn(
+			'  ⚠ spine "foregroundAnimation" not found in R2 — Background anchor keeps its placeholder.',
+		);
+	}
 
-	await put(pageKey, await readFile(PAGE_PATH), pageName.endsWith('.webp') ? 'image/webp' : 'image/png');
+	const doc = buildDoc(new Date().toISOString(), spineKeys);
+	console.info(
+		`  doc      → ${editorDocKey}  (${doc.scenes.map((s) => `${s.id}:${s.nodes.length}`).join(' ')})`,
+	);
+
+	await put(
+		pageKey,
+		await readFile(PAGE_PATH),
+		pageName.endsWith('.webp') ? 'image/webp' : 'image/png',
+	);
 	await put(manifestKey, JSON.stringify(manifest, null, 2), 'application/json');
 	await put(editorDocKey, JSON.stringify(doc, null, 2), 'application/json');
-	console.info(`\n✅ Uploaded page + manifest + scenes.json under ${bucket}/${PREFIX}/. Reload the editor on this project.`);
+	console.info(
+		`\n✅ Uploaded page + manifest + scenes.json under ${bucket}/${PREFIX}/. Reload the editor on this project.`,
+	);
 }
 
 main().catch((e) => {

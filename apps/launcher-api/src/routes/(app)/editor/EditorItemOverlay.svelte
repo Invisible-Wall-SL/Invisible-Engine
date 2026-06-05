@@ -38,13 +38,17 @@
 
 	const node = $derived(info.node);
 	const locked = $derived(node.locked === true);
-	const isSpine = $derived(node.kind === 'spine');
+	// Spine play toggle applies to real spine nodes AND `preview.art` spine anchors
+	// (e.g. the animated Background stand-in), so both can preview their animation.
+	const isSpine = $derived(node.kind === 'spine' || node.preview?.art?.kind === 'spine');
 
 	const subtitle = $derived.by(() => {
 		if (node.kind === 'sprite' && node.region)
 			return `${node.region} · ${node.assetKey.split('/').pop()}`;
 		if (node.kind === 'sprite') return node.assetKey.split('/').pop() ?? 'sprite';
 		if (node.kind === 'spine') return `spine · ${node.assetKey.split('/').pop()}`;
+		const art = node.preview?.art;
+		if (art) return `${art.kind} · ${art.assetKey.split('/').pop()}`;
 		return node.kind;
 	});
 

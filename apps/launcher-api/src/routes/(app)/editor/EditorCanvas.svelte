@@ -88,6 +88,12 @@
 	 */
 	function nodeTransform(node: LayoutNode): ResolvedTransform {
 		const t = resolveTransform(node, layoutType);
+		// A `cover` art preview (e.g. the animated Background bind anchor) cover-fits
+		// the frame regardless of scene space — mirror the background cover, using the
+		// art's natural aspect (resolved from the preview spine/sprite) as the ratio.
+		if (node.preview?.art?.cover) {
+			return coverArtTransform(node, t);
+		}
 		if (scene.space === 'canvas' && t.screenAnchor) {
 			return {
 				...t,
@@ -137,6 +143,36 @@
 		};
 	}
 
+	/**
+	 * Cover-fit transform for a `preview.art` bind anchor (the animated Background).
+	 * The coded `Background` mounts full-bleed and crossfades, so the editor stand-in
+	 * cover-fits the WHOLE frame (cover scale 1 — not the 0.5 a `background`-space
+	 * static node uses). Centred, with width/height computed so the art's natural
+	 * aspect covers the frame (the larger of the two cover dimensions wins). Falls
+	 * back to a plain frame-sized box until the art's natural size is known.
+	 */
+	function coverArtTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
+		const nat = artNaturalSize(node);
+		const frameRatio = frameWidth / (frameHeight || 1);
+		const artRatio = nat ? nat.w / (nat.h || 1) : frameRatio;
+		// Cover: scale so BOTH frame dims are covered → drive by the dimension that
+		// would otherwise leave a gap. width-driven when the art is relatively
+		// narrower than the frame (its height overflows), else height-driven.
+		const widthDriven = artRatio <= frameRatio;
+		const width = widthDriven ? frameWidth : frameHeight * artRatio;
+		const height = widthDriven ? frameWidth / artRatio : frameHeight;
+		return {
+			...t,
+			x: frameWidth / 2,
+			y: frameHeight / 2,
+			anchor: { x: 0.5, y: 0.5 },
+			scale: { x: 1, y: 1 },
+			rotation: 0,
+			width,
+			height,
+		};
+	}
+
 	/** Write `x`/`y` for the active layoutType (base when desktop, sparse override otherwise). */
 	function writeXY(node: LayoutNode, x: number, y: number): void {
 		// Canvas-space (HUD corners): x/y arrive as effective world coords; store the
@@ -182,6 +218,7 @@
 	 * a write would store the synthetic centre/size and break the cover. The cover
 	 * scale is still editable via the Properties `scale.x` control. */
 	function isBackgroundCover(node: LayoutNode): boolean {
+		if (node.preview?.art?.cover) return true;
 		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
 	}
 
@@ -224,6 +261,9 @@
 	/** `assetKey`s the spine overlay renders as real skeletons — the 2D canvas
 	 * skips their placeholder box so only the live preview shows. */
 	let readySpineKeys = $state<Set<string>>(new Set());
+	/** Setup-pose natural size per spine `assetKey`, reported by the WebGL overlay —
+	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect. */
+	let spineNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
 	function toggleSpinePlay(node: LayoutNode): void {
 		const next = new Set(playingSpines);
 		if (next.has(node.id)) next.delete(node.id);
@@ -369,6 +409,10 @@
 
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
 	function naturalSize(node: LayoutNode): { w: number; h: number } | null {
+		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
+		// math frames the rendered art, not an empty container).
+		const art = artNaturalSize(node);
+		if (art) return art;
 		if (node.kind === 'sprite' && node.region) {
 			const found = findRegion(node.assetKey, node.region);
 			if (found) return regionNaturalSize(found.region);
@@ -377,6 +421,23 @@
 		if (node.kind === 'sprite' || node.kind === 'spine') {
 			const img = images.get(node.assetKey);
 			if (img && img.naturalWidth > 0) return { w: img.naturalWidth, h: img.naturalHeight };
+		}
+		return null;
+	}
+
+	/** Natural size of a `preview.art` payload, when the art is loaded:
+	 * - sprite art: the atlas region's native size (resolved like a region sprite);
+	 * - spine art: the skeleton's setup-pose bounds, reported by the WebGL overlay
+	 *   (the 2D canvas can't measure a skeleton). `null` until it resolves. */
+	function artNaturalSize(node: LayoutNode): { w: number; h: number } | null {
+		const art = node.preview?.art;
+		if (!art) return null;
+		if (art.kind === 'sprite' && art.region) {
+			const found = findRegion(art.assetKey, art.region);
+			return found ? regionNaturalSize(found.region) : null;
+		}
+		if (art.kind === 'spine') {
+			return spineNaturalSizes.get(art.assetKey) ?? null;
 		}
 		return null;
 	}
@@ -505,9 +566,25 @@
 		if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
 			// editor-renderable art — the game mounts the real component at runtime.
-			// HUD elements carry a `preview` so we draw a faithful chip (rounded rect
-			// + label, like the real button/label); others get a plain placeholder.
-			if (node.preview) {
+			// A `preview.art` anchor (e.g. the animated Background) gets a real spine/
+			// sprite stand-in: spine art is drawn by the WebGL overlay (placeholder
+			// until ready, like a spine node); sprite art is drawn here on the 2D canvas.
+			// HUD elements carry `preview.style` so we draw a faithful chip; others get
+			// a plain placeholder.
+			const art = node.preview?.art;
+			if (art?.kind === 'spine') {
+				if (!readySpineKeys.has(art.assetKey)) {
+					drawPlaceholder(
+						ctx,
+						t.anchor?.x ?? 0.5,
+						t.anchor?.y ?? 0.5,
+						'#4a3a5a',
+						`spine: ${node.label ?? art.assetKey}`,
+					);
+				}
+			} else if (art?.kind === 'sprite' && art.region) {
+				drawArtRegionSprite(ctx, art.assetKey, art.region, t, node.label);
+			} else if (node.preview?.style) {
 				drawHudChip(ctx, t, node.preview, node.label ?? node.bind.component);
 			} else {
 				drawPlaceholder(
@@ -561,11 +638,25 @@
 		node: Extract<LayoutNode, { kind: 'sprite' }>,
 		t: import('engine-layout').ResolvedTransform,
 	): void {
-		const found = node.region ? findRegion(node.assetKey, node.region) : null;
+		drawArtRegionSprite(ctx, node.assetKey, node.region ?? '', t, node.label);
+	}
+
+	/** Core atlas-region draw, shared by region sprite NODES and `preview.art` sprite
+	 * anchors. `assetKey` = manifest/atlas key, `region` = packed frame; honours the
+	 * resolved transform's anchor + explicit width/height (else the region's native
+	 * size). Falls back to a placeholder until the page image + rect resolve. */
+	function drawArtRegionSprite(
+		ctx: CanvasRenderingContext2D,
+		assetKey: string,
+		regionName: string,
+		t: import('engine-layout').ResolvedTransform,
+		label?: string,
+	): void {
+		const found = regionName ? findRegion(assetKey, regionName) : null;
 		const ax = t.anchor?.x ?? 0;
 		const ay = t.anchor?.y ?? 0;
 		if (!found || !found.set.pageKey) {
-			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? node.region ?? '…');
+			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', label ?? (regionName || '…'));
 			return;
 		}
 		const img = ensureImage(found.set.pageKey);
@@ -575,7 +666,7 @@
 		const dw = t.width ?? nat.w;
 		const dh = t.height ?? nat.h;
 		if (!img || !img.complete || img.naturalWidth === 0) {
-			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', node.label ?? region.name);
+			drawPlaceholder(ctx, ax || 0.5, ay || 0.5, '#3a4a5a', label ?? region.name);
 			return;
 		}
 		// All destination geometry is in UPRIGHT space: `w/h` are the unrotated
@@ -617,8 +708,8 @@
 	): void {
 		const ax = t.anchor?.x ?? 0.5;
 		const ay = t.anchor?.y ?? 0.5;
-		const w = preview.w;
-		const h = preview.h;
+		const w = preview.w ?? 160;
+		const h = preview.h ?? 100;
 		const x = -w * ax;
 		const y = -h * ay;
 		const isText = preview.style === 'text';
@@ -1377,12 +1468,18 @@
 	<EditorSpineLayer
 		{scene}
 		{layoutType}
+		{frameWidth}
+		{frameHeight}
 		{panX}
 		{panY}
 		{zoom}
 		playing={playingSpines}
 		onReadyKeysChange={(keys) => {
 			readySpineKeys = keys;
+			schedule();
+		}}
+		onNaturalSizesChange={(sizes) => {
+			spineNaturalSizes = sizes;
 			schedule();
 		}}
 		onLoadingChange={(c) => {
