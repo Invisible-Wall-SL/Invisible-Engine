@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { validateSession } from '$lib/server/auth';
+import { purgeGameCache, type PurgeResult } from '$lib/server/cfPurge';
 import {
 	createGame,
 	gameExists,
@@ -76,5 +77,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		await createGame(key, name, url, projectKey);
 	}
 
-	return json({ ok: true, key }, { headers: NO_STORE });
+	// Auto-purge the Cloudflare edge cache for this game so a republish is
+	// immediately visible. NON-FATAL: a purge failure must never fail the
+	// registration — capture the result for the response and move on.
+	let purge: PurgeResult;
+	try {
+		purge = await purgeGameCache(key);
+	} catch (e) {
+		purge = { ok: false, purged: 0, error: e instanceof Error ? e.message : String(e) };
+	}
+
+	return json({ ok: true, key, purge }, { headers: NO_STORE });
 };

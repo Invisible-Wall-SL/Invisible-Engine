@@ -81,4 +81,19 @@ export const ENV = {
 	get ANTHROPIC_API_KEY() {
 		return env.ANTHROPIC_API_KEY ?? '';
 	},
+	// Cloudflare cache purge — auto-purges the edge cache for a game after it's
+	// (re)published so a republish is immediately visible (game filenames are
+	// stable). Token needs Zone → Cache Purge on the `invisiblewall.org` zone.
+	// Secret: no code default. When EITHER is empty, purgeGameCache() is a no-op.
+	get CF_API_TOKEN() {
+		return env.CF_API_TOKEN ?? '';
+	},
+	get CF_ZONE_ID() {
+		return env.CF_ZONE_ID ?? '';
+	},
+	// Public origin where published games are served (R2 `test_server/<key>/`
+	// behind Cloudflare). Non-secret → code default; env overrides.
+	get GAMES_BASE_URL() {
+		return env.GAMES_BASE_URL ?? 'https://games.invisiblewall.org';
+	},
 };
