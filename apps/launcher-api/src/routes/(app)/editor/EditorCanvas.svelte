@@ -76,9 +76,15 @@
 		return o;
 	}
 	/**
-	 * Resolve a node's transform with `screenAnchor` baked into x/y for `canvas`-
-	 * space scenes (HUD corners), so every geometry/draw/hit-test path can treat
-	 * x/y as plain world coords. Other scenes pass through unchanged.
+	 * Resolve a node's transform with space-specific framing baked into the result,
+	 * so every geometry/draw/hit-test path can treat x/y (+ width/height) as plain
+	 * world coords:
+	 * - `canvas`: `screenAnchor` is folded into x/y (HUD corners pin to frame edges).
+	 * - `background`: the node is cover-fit to the frame, centred, exactly like the
+	 *   engine's `normalBackgroundLayout` (the node's `scale.x` is the cover scale,
+	 *   default 0.5). We set explicit width+height + a centre anchor so the 2D
+	 *   draw/box math matches the live game's full-bleed cover.
+	 * Other scenes pass through unchanged.
 	 */
 	function nodeTransform(node: LayoutNode): ResolvedTransform {
 		const t = resolveTransform(node, layoutType);
@@ -89,7 +95,46 @@
 				y: t.screenAnchor.y * frameHeight + t.y,
 			};
 		}
+		if (scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine')) {
+			return backgroundTransform(node, t);
+		}
 		return t;
+	}
+
+	/**
+	 * Editor mirror of `createBackgroundLayout` (utils-layout): centre the node at
+	 * the frame centre and size it to COVER the frame at the node's cover scale.
+	 * The engine compares the canvas ratio against the background art ratio to pick
+	 * which dimension drives the cover; here the frame plays the canvas and the
+	 * node's natural art ratio plays the background ratio (it has no live layout
+	 * context). With scale, exactly one of width/height drives; the other keeps the
+	 * art's aspect — same as the engine. Falls back to plain cover when the art size
+	 * isn't loaded yet (so it never misrenders to a tiny offset sprite).
+	 */
+	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
+		const coverScale = node.scale?.x ?? 0.5;
+		const nat = naturalSize(node);
+		const frameRatio = frameWidth / (frameHeight || 1);
+		const artRatio = nat ? nat.w / (nat.h || 1) : frameRatio;
+		// Engine rule: canvasRatio < ratio → height-driven; else width-driven.
+		const widthDriven = frameRatio >= artRatio;
+		const width = widthDriven ? frameWidth * coverScale : undefined;
+		const height = widthDriven ? undefined : frameHeight * coverScale;
+		// Resolve the undefined dimension from the art's aspect so box/hit-test math
+		// has a concrete size (the 2D canvas can't lean on the texture's intrinsic
+		// aspect the way pixi's Sprite does).
+		const resolvedW = width ?? (height ?? frameHeight * coverScale) * artRatio;
+		const resolvedH = height ?? (width ?? frameWidth * coverScale) / artRatio;
+		return {
+			...t,
+			x: frameWidth / 2,
+			y: frameHeight / 2,
+			anchor: { x: 0.5, y: 0.5 },
+			scale: { x: 1, y: 1 },
+			rotation: 0,
+			width: resolvedW,
+			height: resolvedH,
+		};
 	}
 
 	/** Write `x`/`y` for the active layoutType (base when desktop, sparse override otherwise). */
@@ -130,6 +175,14 @@
 	function effectiveXY(node: LayoutNode): Vec2 {
 		const t = nodeTransform(node);
 		return { x: t.x, y: t.y };
+	}
+
+	/** Background-space sprite/spine nodes are auto-cover-fit (their transform is
+	 * synthesised, not authored), so the canvas must not drag/scale/rotate them —
+	 * a write would store the synthetic centre/size and break the cover. The cover
+	 * scale is still editable via the Properties `scale.x` control. */
+	function isBackgroundCover(node: LayoutNode): boolean {
+		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
@@ -384,6 +437,23 @@
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.translate(panX, panY);
 		ctx.scale(zoom, zoom);
+
+		// `standard` + bottom-align: show the window extent ABOVE the standard box so
+		// the author sees the box is pinned to the bottom of the screen (matching
+		// `<MainContainer standard alignVertical="bottom">`). The box itself frames at
+		// 0..frameHeight; the dimmed region above is a context cue only (the live
+		// window height varies — this uses a representative 16:9 window).
+		if (scene.space === 'standard' && scene.align?.vertical === 'bottom') {
+			const windowH = Math.max(frameWidth * (9 / 16), frameHeight);
+			const top = frameHeight - windowH;
+			ctx.fillStyle = 'rgba(20,20,28,0.35)';
+			ctx.fillRect(0, top, frameWidth, windowH - frameHeight);
+			ctx.lineWidth = 1.5 / zoom;
+			ctx.strokeStyle = '#2a2a36';
+			ctx.setLineDash([10 / zoom, 8 / zoom]);
+			ctx.strokeRect(0, top, frameWidth, windowH);
+			ctx.setLineDash([]);
+		}
 
 		ctx.fillStyle = '#14141c';
 		ctx.fillRect(0, 0, frameWidth, frameHeight);
@@ -665,7 +735,7 @@
 	function hitTestHandle(screen: Vec2): HandleHit | null {
 		if (!selectedId) return null;
 		const node = findNodeById(selectedId);
-		if (!node || node.locked) return null;
+		if (!node || node.locked || isBackgroundCover(node)) return null;
 		const t = nodeTransform(node);
 		if (!t.visible) return null;
 		const box = nodeBox(node, t, naturalSize);
@@ -946,7 +1016,8 @@
 		const node = hitTestNode(world);
 		if (node) {
 			selectedId = node.id;
-			startTranslate(node, world);
+			// Background-cover nodes select but never drag (transform is synthesised).
+			if (!isBackgroundCover(node)) startTranslate(node, world);
 			schedule();
 			e.preventDefault();
 			return;
@@ -1279,6 +1350,9 @@
 
 	$effect(() => {
 		void scene.nodes.length;
+		void scene.space;
+		void scene.align?.vertical;
+		void scene.align?.horizontal;
 		void frameWidth;
 		void frameHeight;
 		void selectedId;

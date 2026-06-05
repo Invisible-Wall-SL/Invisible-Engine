@@ -1,9 +1,4 @@
-import type {
-	LayoutDoc,
-	LayoutNode,
-	LayoutType,
-	Scene,
-} from 'engine-layout';
+import type { LayoutDoc, LayoutNode, LayoutType, Scene } from 'engine-layout';
 import { editorDocKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 
@@ -88,9 +83,29 @@ function normalizeScene(input: unknown): Scene | null {
 		? input.nodes.map(normalizeNode).filter((n): n is LayoutNode => n !== null)
 		: [];
 	const scene: Scene = { id, name, nodes };
-	// Preserve the HUD coordinate-space tag; 'game' is the default so it's omitted.
-	if (input.space === 'standard' || input.space === 'canvas') scene.space = input.space;
+	// Preserve the coordinate-space tag; 'game' is the default so it's omitted.
+	// `standard` honours `align`; `background` cover-fits; `canvas` uses screenAnchor.
+	if (input.space === 'standard' || input.space === 'canvas' || input.space === 'background') {
+		scene.space = input.space;
+	}
+	const align = normalizeAlign(input.align);
+	if (align) scene.align = align;
 	return scene;
+}
+
+/** Preserve a `standard` scene's alignment, dropping unknown/empty values. */
+function normalizeAlign(input: unknown): Scene['align'] | undefined {
+	if (!isRecord(input)) return undefined;
+	const out: NonNullable<Scene['align']> = {};
+	if (input.vertical === 'center' || input.vertical === 'bottom') out.vertical = input.vertical;
+	if (
+		input.horizontal === 'center' ||
+		input.horizontal === 'left' ||
+		input.horizontal === 'right'
+	) {
+		out.horizontal = input.horizontal;
+	}
+	return out.vertical || out.horizontal ? out : undefined;
 }
 
 function normalizeNode(input: unknown): LayoutNode | null {

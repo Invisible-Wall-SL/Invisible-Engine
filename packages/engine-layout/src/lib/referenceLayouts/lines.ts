@@ -111,6 +111,10 @@ export function defaultLayout(gameType: string): LayoutDoc {
 			{
 				id: 'basegameOverlays',
 				name: sceneName('basegameOverlays'),
+				// Mounted at the <App> root: its bind nodes are containers at (0,0)
+				// whose bound Win/Transition render their OWN MainContainer internally.
+				// `canvas` space = no wrapper, so we don't double-transform them.
+				space: 'canvas',
 				nodes: [
 					{
 						id: 'bound-win',

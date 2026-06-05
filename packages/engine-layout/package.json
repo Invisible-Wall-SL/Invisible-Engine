@@ -37,6 +37,7 @@
 		"prettier-plugin-svelte": "3.3.3"
 	},
 	"dependencies": {
+		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.8.1",
