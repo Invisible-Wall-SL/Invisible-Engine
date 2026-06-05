@@ -3405,10 +3405,16 @@ class Handler(BaseHTTPRequestHandler):
             json_note += ("  ⚠ Could not determine page image size → "
                           "TexturePacker .json skipped (meta.size would be 0).")
         if not mirrored:
-            json_note += ("  ℹ No mirrored deploy subpath set (manifest "
-                          "`deploy_path` empty) — deployed flat to deploy/. Set "
-                          "`deploy_path` to e.g. sprites/<name> to mirror the "
-                          "game's static/assets/ layout.")
+            # Deployed to the flat deploy/ ROOT because no `deploy_path` subpath
+            # was set. The files ARE deployed, but the game loads from
+            # static/assets/<deploy_path>/... so it will NOT find them at the
+            # root. Lead with a loud warning (not a soft note buried at the end).
+            warning = (
+                "⚠ DEPLOYED TO deploy/ ROOT — no `deploy_path` set, so the game "
+                "will NOT find these files. Set this manifest's Deploy prefix to "
+                "the asset's game path (mirrors static/assets/), e.g. "
+                "`sprites/<name>` or `spines/<group>`, then deploy again.")
+            return f"{warning}\n✓ Deployed to R2: {', '.join(copied)}{json_note}"
         return f"✓ Deployed to R2: {', '.join(copied)}{json_note}"
 
     def _saveglobalstyle(self, payload: dict) -> str:
