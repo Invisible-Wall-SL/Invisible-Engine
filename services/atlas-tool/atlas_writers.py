@@ -37,16 +37,22 @@ def write_texturepacker_json(path: str | Path, image_name: str,
     `symbolsStatic.webp`) so `meta.image` resolves the sibling page.
 
     Frame keys keep their extension when the region name already carries one
-    (`h1.webp`, `explodedW.png`); a bare name falls back to `.png` — but for the
-    deploy path the region names come from the `.atlas` and already carry the
-    game's per-frame extensions, so the fallback should rarely fire.
+    (`h1.webp`, `explodedW.png`); a bare name inherits the page image's
+    extension (`image_name` — e.g. `.webp`), so a `.webp` sheet yields `h1.webp`
+    keys matching how the engine references them.
     """
     frames: dict[str, dict] = {}
+    # A bare region name inherits the atlas PAGE's format — a frame of a
+    # `symbolsStatic.webp` sheet is `<name>.webp`, which is how the engine
+    # references these symbols (`h1.webp`). Region names that already carry an
+    # extension are kept verbatim (`explodedW.png`, `s.png`), so a mixed-format
+    # sheet still round-trips its original per-frame keys.
+    page_ext = Path(image_name).suffix or ".png"
     for r in regions:
         dw, dh = int(r["w"]), int(r["h"])
         rotated = bool(r.get("rotated"))
         # NO swap on rotation — see module docstring. frame.w/h == display size.
-        key = r["name"] if "." in r["name"] else f"{r['name']}.png"
+        key = r["name"] if "." in r["name"] else f"{r['name']}{page_ext}"
         frames[key] = {
             "frame": {"x": int(r["x"]), "y": int(r["y"]), "w": dw, "h": dh},
             "rotated": rotated,
