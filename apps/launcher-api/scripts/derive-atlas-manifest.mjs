@@ -32,8 +32,10 @@
 // stale uncommitted sheets never pollute the map) for deployable sheets:
 //   - TexturePacker sprite sheets (`*.json` with frames+meta) → stem + its dir, and
 //   - Spine pages (`*.atlas`) → the page-image basename + its dir,
-// builds an asset-map `{ "<stem>": { deploy_path, deploy_basename } }`, publishes it
-// to R2 `<client>/<project>/asset-map.json`, then backfills deploy_path/_basename on
+// builds an asset-map `{ "<stem>": { deploy_path, deploy_basename, kind } }` (kind =
+// "spine" for `.atlas` pages, "sprite" for TexturePacker sheets — Deploy uses it to do a
+// page-only deploy for spine pages so a TP `.json` never clobbers the skeleton), publishes
+// it to R2 `<client>/<project>/asset-map.json`, then backfills deploy_path/_basename on
 // existing R2 manifests whose name matches a map stem. `--manifests-dir` lets the
 // backfill read manifests from a local dir instead of R2 (offline dry-runs).
 import { readFile } from 'node:fs/promises';
@@ -196,7 +198,8 @@ function listAssetFiles(gameRoot, assetsDir) {
 
 /**
  * Scan a game's committed `static/assets/` tree and build the project asset-map:
- * `{ "<stem>": { deploy_path, deploy_basename } }`. Indexes TexturePacker sheets
+ * `{ "<stem>": { deploy_path, deploy_basename, kind } }` where `kind` is "spine" for
+ * `.atlas` pages and "sprite" for TexturePacker sheets. Indexes TexturePacker sheets
  * (`*.json` with frames+meta) and Spine pages (`*.atlas`). On duplicate stems keeps
  * the FIRST and warns. Returns `{ map, indexed, duplicates, source }`.
  * @param {string} gameRoot path to the game repo
@@ -219,7 +222,13 @@ function buildAssetMap(gameRoot) {
 			);
 			return;
 		}
-		map[stem] = { deploy_path: deployPath, deploy_basename: stem };
+		// Map `kind` (the scan's source tag: 'tp' | 'spine') to the published asset-map
+		// kind: a TexturePacker sheet is a "sprite", a `.atlas` page is "spine".
+		map[stem] = {
+			deploy_path: deployPath,
+			deploy_basename: stem,
+			kind: kind === 'spine' ? 'spine' : 'sprite',
+		};
 		indexed.push({ stem, deploy_path: deployPath, kind, rel });
 	};
 	for (const rel of rels.slice().sort()) {
@@ -252,7 +261,7 @@ function buildAssetMap(gameRoot) {
  * asset-map. Reads manifests from a local `--manifests-dir` when given, else from R2.
  * Returns a per-manifest plan; performs writes unless `dry`.
  * @param {object} r2 R2 client or null
- * @param {Record<string,{deploy_path:string,deploy_basename:string}>} map
+ * @param {Record<string,{deploy_path:string,deploy_basename:string,kind:'spine'|'sprite'}>} map
  * @param {boolean} dry
  */
 async function backfillManifests(r2, map, dry) {
