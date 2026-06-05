@@ -176,16 +176,38 @@ async function listSpineKeys(s3, bucket) {
 }
 
 /**
- * The Background bind anchor's editor-only `preview.art`: the coded `Background`
- * is full-bleed + crossfades in-game (so it stays a `bind`), but the editor can
- * draw the real `foregroundAnimation` spine as a cover-fit stand-in. `assetKey`
- * is the bundle prefix the editor's spine preview resolves. Omitted (falls back
- * to the placeholder) when the spine isn't found.
+ * Editor-only `preview.art` for a bind anchor whose coded component the editor
+ * can't run, so it draws the real spine/sprite as a stand-in:
+ * - `spineArt(spineKeys, bundles, fit)` — points at the first present spine bundle
+ *   (so a fallback list works). `assetKey` is the bundle PREFIX the editor's spine
+ *   preview resolves (same format `listSpineKeys` / the Library hand out). Returns
+ *   `{}` (placeholder fallback) when none of the bundles exist in R2.
+ * - `spriteArt(region, fit)` — a single packed frame within the uploaded manifest.
+ *
+ * `fit`: `'cover'` = fill the frame (the full-bleed Background, may crop);
+ * `'contain'` = fit inside the frame, centred, no crop (the centred overlays).
  */
-function backgroundPreviewArt(spineKeys) {
-	const assetKey = spineKeys.foregroundAnimation;
-	if (!assetKey) return {};
-	return { preview: { art: { kind: 'spine', assetKey, cover: true } } };
+function spineArt(spineKeys, bundles, fit) {
+	for (const b of bundles) {
+		const assetKey = spineKeys[b];
+		if (assetKey) return { preview: { art: { kind: 'spine', assetKey, fit } } };
+	}
+	return {};
+}
+function spriteArt(region, fit) {
+	if (!region) return {};
+	return { preview: { art: { kind: 'sprite', assetKey: manifestKey, region, fit } } };
+}
+
+/**
+ * `Frame_FSCounter.png` only carries a `preview.art` if the manifest actually
+ * packs it (otherwise the FS-counter anchor just falls back to a placeholder —
+ * never fail the seed for a missing frame). `manifestRegions` is the converted
+ * region list so we can test membership without re-reading the atlas.
+ */
+function fsCounterArt(manifestRegions) {
+	const has = manifestRegions.some((r) => r.name === 'Frame_FSCounter.png');
+	return has ? spriteArt('Frame_FSCounter.png', 'contain') : {};
 }
 // ---------- HUD scenes ----------
 // MIRROR of `engine-layout/src/lib/referenceLayouts/hud.ts` (the source of
@@ -372,8 +394,16 @@ function hudScenes() {
 	];
 }
 
-function buildDoc(updatedAt, spineKeys = {}) {
-	const bgArt = backgroundPreviewArt(spineKeys);
+function buildDoc(updatedAt, spineKeys = {}, manifestRegions = []) {
+	// Editor-only stand-ins per coded overlay (see the asset mapping in the task):
+	// the Background is the lone full-bleed `'cover'`; every other overlay is a
+	// centred `'contain'`. Missing spines/frames degrade to a placeholder ({}).
+	const bgArt = spineArt(spineKeys, ['foregroundAnimation'], 'cover');
+	const fsCounter = fsCounterArt(manifestRegions);
+	const fsIntroArt = spineArt(spineKeys, ['fsIntro'], 'contain');
+	const fsOutroArt = spineArt(spineKeys, ['fsOutro', 'fsOutroNumber'], 'contain');
+	const winArt = spineArt(spineKeys, ['bigwin'], 'contain');
+	const transitionArt = spineArt(spineKeys, ['transition'], 'contain');
 	return {
 		version: 1,
 		projectKey: r2Slug(PROJECT),
@@ -406,27 +436,45 @@ function buildDoc(updatedAt, spineKeys = {}) {
 				name: 'Base game overlays',
 				space: 'canvas',
 				nodes: [
-					anchor('bound-win', 'Win', 'Win overlay (coded)', 'Win'),
-					anchor('bound-transition', 'Transition', 'Transition overlay (coded)', 'Transition'),
+					anchor('bound-win', 'Win', 'Win overlay (coded)', 'Win', winArt),
+					anchor(
+						'bound-transition',
+						'Transition',
+						'Transition overlay (coded)',
+						'Transition',
+						transitionArt,
+					),
 				],
 			},
 			{
 				id: 'freeSpinCounter',
 				name: 'Free-spin counter',
 				space: 'canvas',
-				nodes: [anchor('fs-counter', 'freeSpinCounter', 'Free-spin counter', 'FreeSpinCounter')],
+				nodes: [
+					anchor(
+						'fs-counter',
+						'freeSpinCounter',
+						'Free-spin counter',
+						'FreeSpinCounter',
+						fsCounter,
+					),
+				],
 			},
 			{
 				id: 'freeSpinIntro',
 				name: 'Free-spin intro',
 				space: 'canvas',
-				nodes: [anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro')],
+				nodes: [
+					anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro', fsIntroArt),
+				],
 			},
 			{
 				id: 'freeSpinOutro',
 				name: 'Free-spin outro',
 				space: 'canvas',
-				nodes: [anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro')],
+				nodes: [
+					anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro', fsOutroArt),
+				],
 			},
 			// HUD layer (logo/name corners + bottom bar) — editor-positionable; the
 			// game's <UI hud=…> renders from these. Restores HUD alongside the art.
@@ -455,29 +503,36 @@ async function main() {
 		// resolve (`<prefix>/spines/<bundle>/`) so the doc SHAPE — incl. the
 		// Background anchor's `preview.art` — is visible. The real path resolves the
 		// actual key (or omits `preview.art` when the spine is missing).
-		const fakeSpineKeys = { foregroundAnimation: `${PREFIX}/spines/foregroundAnimation/` };
-		const doc = buildDoc(new Date().toISOString(), fakeSpineKeys);
+		const fakeSpineKeys = Object.fromEntries(
+			['foregroundAnimation', 'fsIntro', 'fsOutro', 'bigwin', 'transition'].map((b) => [
+				b,
+				`${PREFIX}/spines/${b}/`,
+			]),
+		);
+		const doc = buildDoc(new Date().toISOString(), fakeSpineKeys, manifest.regions);
 		console.info(
-			'\n--dry-run: no uploads (spine key synthesised — real run lists R2). Doc previews:\n',
+			'\n--dry-run: no uploads (spine keys synthesised — real run lists R2). Doc previews:\n',
 		);
 		console.info('MANIFEST', JSON.stringify(manifest, null, 2).slice(0, 800), '…');
 		console.info('\nDOC scenes', doc.scenes.map((s) => `${s.id}(${s.nodes.length})`).join(' '));
-		console.info(
-			'DOC basegame',
-			JSON.stringify(
-				doc.scenes.find((s) => s.id === 'basegame'),
-				null,
-				2,
-			),
-		);
-		console.info(
-			'DOC background',
-			JSON.stringify(
-				doc.scenes.find((s) => s.id === 'background'),
-				null,
-				2,
-			),
-		);
+		// Print every scene's nodes with their wired-up preview.art so the author can
+		// confirm which anchors got art (kind + fit) and which fell back to a placeholder.
+		for (const s of doc.scenes) {
+			console.info(`\nSCENE ${s.id} (${s.name}) [space=${s.space ?? 'game'}]`);
+			for (const n of s.nodes) {
+				const art = n.preview?.art;
+				const artDesc = art
+					? `art=${art.kind}:${art.fit ?? 'natural'}${art.region ? ` region=${art.region}` : ''}`
+					: n.bind
+						? 'art=(placeholder)'
+						: '';
+				console.info(
+					`  • ${n.id} [${n.kind}]${n.bind ? ` bind=${n.bind.component}` : ''}${
+						n.slotId ? ` slot=${n.slotId}` : ''
+					}${artDesc ? ` ${artDesc}` : ''}`,
+				);
+			}
+		}
 		return;
 	}
 
@@ -505,15 +560,32 @@ async function main() {
 	console.info(
 		`  spines   → ${bundleNames.length} bundle(s): ${bundleNames.join(', ') || '(none)'}`,
 	);
-	if (spineKeys.foregroundAnimation) {
-		console.info(`  bg art   → preview.art spine ${spineKeys.foregroundAnimation} (cover)`);
-	} else {
-		console.warn(
-			'  ⚠ spine "foregroundAnimation" not found in R2 — Background anchor keeps its placeholder.',
-		);
+	// Report which overlay anchors resolved a spine stand-in vs fell back. The
+	// sprite-based FS counter is reported from the manifest regions below.
+	const spineWants = [
+		['Background', ['foregroundAnimation'], 'cover'],
+		['Free-spin intro', ['fsIntro'], 'contain'],
+		['Free-spin outro', ['fsOutro', 'fsOutroNumber'], 'contain'],
+		['Win', ['bigwin'], 'contain'],
+		['Transition', ['transition'], 'contain'],
+	];
+	for (const [name, bundles, fit] of spineWants) {
+		const found = bundles.find((b) => spineKeys[b]);
+		if (found) console.info(`  art      → ${name}: spine "${found}" (${fit})`);
+		else
+			console.warn(
+				`  ⚠ ${name}: none of [${bundles.join(', ')}] found in R2 — anchor keeps its placeholder.`,
+			);
 	}
+	const hasFsCounter = manifest.regions.some((r) => r.name === 'Frame_FSCounter.png');
+	if (hasFsCounter)
+		console.info('  art      → Free-spin counter: sprite "Frame_FSCounter.png" (contain)');
+	else
+		console.warn(
+			'  ⚠ Free-spin counter: "Frame_FSCounter.png" not in manifest — anchor keeps its placeholder.',
+		);
 
-	const doc = buildDoc(new Date().toISOString(), spineKeys);
+	const doc = buildDoc(new Date().toISOString(), spineKeys, manifest.regions);
 	console.info(
 		`  doc      → ${editorDocKey}  (${doc.scenes.map((s) => `${s.id}:${s.nodes.length}`).join(' ')})`,
 	);
