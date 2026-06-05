@@ -22,8 +22,24 @@
 //   --check-only  run the validator, exit non-zero on missing/mismatch, write nothing.
 //
 // Real R2 env: R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
+//
+// ── Bulk mode (--all): build + publish a project asset-map, backfill manifests ──
+//   node scripts/derive-atlas-manifest.mjs --all --client <c> --project <p> \
+//     --game-root <path-to-game-repo> [--dry-run] [--force-deploy-path] \
+//     [--manifests-dir <local-dir>]
+//
+// Scans the game's COMMITTED `static/assets/` tree (git-tracked files only — so
+// stale uncommitted sheets never pollute the map) for deployable sheets:
+//   - TexturePacker sprite sheets (`*.json` with frames+meta) → stem + its dir, and
+//   - Spine pages (`*.atlas`) → the page-image basename + its dir,
+// builds an asset-map `{ "<stem>": { deploy_path, deploy_basename } }`, publishes it
+// to R2 `<client>/<project>/asset-map.json`, then backfills deploy_path/_basename on
+// existing R2 manifests whose name matches a map stem. `--manifests-dir` lets the
+// backfill read manifests from a local dir instead of R2 (offline dry-runs).
 import { readFile } from 'node:fs/promises';
-import { dirname, parse as parsePath } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { dirname, parse as parsePath, join, relative } from 'node:path';
 import { framesToRegionBuckets, tpFrameEntries, tpFrameToRegion } from './lib/tpRegions.mjs';
 
 const args = process.argv.slice(2);
@@ -33,10 +49,13 @@ const opt = (name, fallback = null) => {
 	return i !== -1 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : fallback;
 };
 
+const ALL = has('all');
 const CLIENT = opt('client');
 const PROJECT = opt('project');
 const NAME = opt('name');
 const SHEET_PATH = opt('sheet');
+const GAME_ROOT = opt('game-root');
+const MANIFESTS_DIR = opt('manifests-dir');
 const DEPLOY_PATH_ARG = opt('deploy-path');
 const DEPLOY_BASENAME_ARG = opt('deploy-basename');
 const DRY_RUN = has('dry-run');
@@ -44,13 +63,24 @@ const CHECK_ONLY = has('check-only');
 const FORCE_DEPLOY_PATH = has('force-deploy-path');
 let MERGE = has('merge');
 
-if (!CLIENT || !PROJECT || !NAME) {
-	console.error('Required: --client <c> --project <p> --name <sheet>');
+if (!CLIENT || !PROJECT) {
+	console.error('Required: --client <c> --project <p>');
 	process.exit(2);
 }
-if (!/^[A-Za-z0-9_-]+$/.test(NAME)) {
-	console.error(`Invalid --name "${NAME}" (letters/digits/_/- only).`);
-	process.exit(2);
+if (ALL) {
+	if (!GAME_ROOT) {
+		console.error('--all requires --game-root <path-to-game-repo>.');
+		process.exit(2);
+	}
+} else {
+	if (!NAME) {
+		console.error('Required (single-sheet mode): --name <sheet>');
+		process.exit(2);
+	}
+	if (!/^[A-Za-z0-9_-]+$/.test(NAME)) {
+		console.error(`Invalid --name "${NAME}" (letters/digits/_/- only).`);
+		process.exit(2);
+	}
 }
 
 /** A trimmed non-empty string, else undefined (empty/whitespace deploy_path = "unset"). */
@@ -63,25 +93,21 @@ const r2Slug = (s) =>
 		.replace(/[^a-z0-9]/g, '_')
 		.slice(0, 60) || 'default';
 const PREFIX = `${r2Slug(CLIENT)}/${r2Slug(PROJECT)}`;
-const manifestKey = `${PREFIX}/manifests/atlas_manifest_${NAME}.json`;
+const manifestKey = NAME ? `${PREFIX}/manifests/atlas_manifest_${NAME}.json` : null;
 
 /**
- * Auto-derive the game's deploy target from a `--sheet` path by anchoring on the
- * committed `static/assets/` (or bare `assets/`) segment. The game loads every
- * sheet at a predictable path under `static/assets/`, so the sheet's directory
- * RELATIVE to that segment IS the deploy_path, and the file stem IS the basename:
- *   …/static/assets/sprites/symbolsStatic/symbolsStatic.json
- *     → { deployPath: 'sprites/symbolsStatic', deployBasename: 'symbolsStatic' }
- *   …/static/assets/symbolsStatic.json
- *     → { deployPath: '', deployBasename: 'symbolsStatic' }
- * Returns `null` (caller warns + skips) when no assets anchor is present — we do
- * NOT guess a layout the game might not honour.
- * @param {string} sheetPath absolute or relative path to the game's TP JSON
- * @returns {{ deployPath: string, deployBasename: string } | null}
+ * The directory of `filePath` RELATIVE to the committed `static/assets/` (or bare
+ * `assets/`) anchor — i.e. the deploy_path the game loads that file from. The game
+ * loads every sheet at a predictable path under `static/assets/`, so the file's dir
+ * relative to that segment IS its deploy_path. Returns `null` when no anchor is
+ * present (we do NOT guess a layout the game might not honour).
+ *   …/static/assets/sprites/symbolsStatic/symbolsStatic.json → 'sprites/symbolsStatic'
+ *   …/static/assets/symbolsStatic.json                       → ''
+ * @param {string} filePath absolute or relative path under a game's asset tree
+ * @returns {string | null} forward-slash deploy_path, or null when un-anchored
  */
-function deriveDeployTarget(sheetPath) {
-	const stem = parsePath(sheetPath).name;
-	const dir = dirname(sheetPath).split(/[\\/]/).join('/');
+function deployPathFromAssets(filePath) {
+	const dir = dirname(filePath).split(/[\\/]/).join('/');
 	const segs = dir.split('/').filter(Boolean);
 	// Find the LAST `static/assets` pair, else the last bare `assets`, and take
 	// everything below it as the deploy_path.
@@ -95,8 +121,220 @@ function deriveDeployTarget(sheetPath) {
 		}
 	}
 	if (anchor === -1) return null;
-	const deployPath = segs.slice(anchor + 1).join('/');
-	return { deployPath, deployBasename: stem };
+	return segs.slice(anchor + 1).join('/');
+}
+
+/**
+ * Auto-derive the game's deploy target from a `--sheet` path (single-sheet mode):
+ * the sheet's dir relative to `static/assets/` is the deploy_path, the stem is the
+ * basename. Returns `null` when un-anchored (caller warns + skips).
+ * @param {string} sheetPath absolute or relative path to the game's TP JSON
+ * @returns {{ deployPath: string, deployBasename: string } | null}
+ */
+function deriveDeployTarget(sheetPath) {
+	const deployPath = deployPathFromAssets(sheetPath);
+	if (deployPath === null) return null;
+	return { deployPath, deployBasename: parsePath(sheetPath).name };
+}
+
+/** Does a parsed JSON look like a TexturePacker sprite sheet (frames + meta)? */
+function isTexturePackerSheet(json) {
+	if (!json || typeof json !== 'object') return false;
+	const { frames, meta } = json;
+	if (!meta || typeof meta !== 'object') return false;
+	if (Array.isArray(frames)) return frames.length > 0;
+	return !!frames && typeof frames === 'object' && Object.keys(frames).length > 0;
+}
+
+/** The page-image basename declared on a Spine `.atlas` (its first non-empty line). */
+function spineAtlasPageBasename(atlasText) {
+	for (const raw of atlasText.split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line.length > 0) return parsePath(line).name;
+	}
+	return '';
+}
+
+/**
+ * List `static/assets/` files RELATIVE to that dir, COMMITTED ones only (git-tracked)
+ * so stale/uncommitted sheets never enter the asset-map. Falls back to a filesystem
+ * walk when the game-root isn't a git repo (or git is unavailable).
+ * @param {string} gameRoot path to the game repo
+ * @param {string} assetsDir absolute path to `<gameRoot>/static/assets`
+ * @returns {{ rels: string[], source: 'git' | 'fs' }}
+ */
+function listAssetFiles(gameRoot, assetsDir) {
+	const relAssets = relative(gameRoot, assetsDir).split(/[\\/]/).join('/');
+	try {
+		const out = execFileSync('git', ['ls-files', '--', `${relAssets}/`], {
+			cwd: gameRoot,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'ignore'],
+		});
+		const rels = out
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean)
+			// `git ls-files` yields paths relative to gameRoot; re-relativise to assetsDir.
+			.filter((p) => p.startsWith(`${relAssets}/`))
+			.map((p) => p.slice(relAssets.length + 1));
+		if (rels.length) return { rels, source: 'git' };
+	} catch {
+		// not a git repo / git missing → fall through to fs walk
+	}
+	const rels = [];
+	const walk = (dir) => {
+		for (const entry of readdirSync(dir)) {
+			const abs = join(dir, entry);
+			if (statSync(abs).isDirectory()) walk(abs);
+			else rels.push(relative(assetsDir, abs).split(/[\\/]/).join('/'));
+		}
+	};
+	walk(assetsDir);
+	return { rels, source: 'fs' };
+}
+
+/**
+ * Scan a game's committed `static/assets/` tree and build the project asset-map:
+ * `{ "<stem>": { deploy_path, deploy_basename } }`. Indexes TexturePacker sheets
+ * (`*.json` with frames+meta) and Spine pages (`*.atlas`). On duplicate stems keeps
+ * the FIRST and warns. Returns `{ map, indexed, duplicates, source }`.
+ * @param {string} gameRoot path to the game repo
+ */
+function buildAssetMap(gameRoot) {
+	const assetsDir = join(gameRoot, 'static', 'assets');
+	if (!existsSync(assetsDir)) {
+		console.error(`No static/assets/ under --game-root "${gameRoot}" (looked at ${assetsDir}).`);
+		process.exit(2);
+	}
+	const { rels, source } = listAssetFiles(gameRoot, assetsDir);
+	const map = {};
+	const indexed = [];
+	const duplicates = [];
+	const add = (stem, deployPath, kind, rel) => {
+		if (Object.prototype.hasOwnProperty.call(map, stem)) {
+			duplicates.push({ stem, kept: map[stem].deploy_path, dropped: deployPath, kind, rel });
+			console.warn(
+				`⚠ duplicate stem "${stem}" — keeping "${map[stem].deploy_path}", ignoring "${deployPath}" (${rel}).`,
+			);
+			return;
+		}
+		map[stem] = { deploy_path: deployPath, deploy_basename: stem };
+		indexed.push({ stem, deploy_path: deployPath, kind, rel });
+	};
+	for (const rel of rels.slice().sort()) {
+		const abs = join(assetsDir, rel);
+		const deployPath = deployPathFromAssets(abs) ?? '';
+		if (rel.toLowerCase().endsWith('.json')) {
+			let json;
+			try {
+				json = JSON.parse(readFileSync(abs, 'utf8'));
+			} catch {
+				continue; // unreadable/non-JSON → not a sheet
+			}
+			if (!isTexturePackerSheet(json)) continue; // skip spine skeletons, fonts, audio…
+			add(parsePath(rel).name, deployPath, 'tp', rel);
+		} else if (rel.toLowerCase().endsWith('.atlas')) {
+			let stem;
+			try {
+				stem = spineAtlasPageBasename(readFileSync(abs, 'utf8')) || parsePath(rel).name;
+			} catch {
+				stem = parsePath(rel).name;
+			}
+			add(stem, deployPath, 'spine', rel);
+		}
+	}
+	return { map, indexed, duplicates, source };
+}
+
+/**
+ * Backfill deploy_path/deploy_basename on the project's existing manifests from the
+ * asset-map. Reads manifests from a local `--manifests-dir` when given, else from R2.
+ * Returns a per-manifest plan; performs writes unless `dry`.
+ * @param {object} r2 R2 client or null
+ * @param {Record<string,{deploy_path:string,deploy_basename:string}>} map
+ * @param {boolean} dry
+ */
+async function backfillManifests(r2, map, dry) {
+	const plan = { matched: [], unmatched: [], skipped: [] };
+	const entries = await listProjectManifests(r2);
+	for (const { name, key, text } of entries) {
+		let manifest;
+		try {
+			manifest = JSON.parse(text);
+		} catch {
+			plan.skipped.push({ name, reason: 'unparseable JSON' });
+			continue;
+		}
+		// Match on the manifest's existing deploy_basename, else its name (the stem
+		// the manifest is named for, e.g. atlas_manifest_symbolsStatic → symbolsStatic).
+		const stem = pickStr(manifest.deploy_basename) ?? name;
+		const hit = map[stem];
+		if (!hit) {
+			plan.unmatched.push({ name, key, stem });
+			continue;
+		}
+		const hasPath = pickStr(manifest.deploy_path) !== undefined;
+		if (hasPath && !FORCE_DEPLOY_PATH) {
+			plan.skipped.push({ name, reason: `already deploy_path="${manifest.deploy_path}"` });
+			continue;
+		}
+		const updated = {
+			...manifest,
+			deploy_path: hit.deploy_path,
+			deploy_basename: hit.deploy_basename,
+		};
+		plan.matched.push({
+			name,
+			key,
+			from: pickStr(manifest.deploy_path) ?? '',
+			to: hit.deploy_path,
+			basename: hit.deploy_basename,
+		});
+		if (!dry) {
+			requireR2(r2, 'write backfilled manifests');
+			await r2.putText(key, JSON.stringify(updated, null, 2));
+		}
+	}
+	return plan;
+}
+
+/**
+ * List the project's existing atlas manifests. From a local `--manifests-dir` when
+ * given (offline-friendly), else from R2 under `<prefix>/manifests/`. Yields
+ * `{ name, key, text }` where `name` is the manifest stem (atlas_manifest_<name>).
+ * @param {object} r2 R2 client or null
+ * @returns {Promise<{ name: string, key: string, text: string }[]>}
+ */
+async function listProjectManifests(r2) {
+	const fromName = (file) => {
+		const m = /^atlas_manifest_(.+)\.json$/.exec(file);
+		return m ? m[1] : null;
+	};
+	if (MANIFESTS_DIR) {
+		const out = [];
+		for (const file of readdirSync(MANIFESTS_DIR)) {
+			const name = fromName(file);
+			if (!name) continue;
+			out.push({
+				name,
+				key: `${PREFIX}/manifests/${file}`,
+				text: readFileSync(join(MANIFESTS_DIR, file), 'utf8'),
+			});
+		}
+		return out;
+	}
+	requireR2(r2, 'list the project manifests (or pass --manifests-dir)');
+	const keys = await r2.listKeys(`${PREFIX}/manifests/`);
+	const out = [];
+	for (const key of keys) {
+		const file = key.split('/').pop() ?? '';
+		const name = fromName(file);
+		if (!name) continue;
+		const text = await r2.getText(key);
+		if (text) out.push({ name, key, text });
+	}
+	return out;
 }
 
 // Creative fields the merge MUST preserve on each region (everything that isn't
@@ -133,7 +371,9 @@ async function r2Client() {
 	const creds = r2Creds();
 	if (!creds) return null;
 	const { bucket, endpoint, accessKeyId, secretAccessKey } = creds;
-	const { S3Client, GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3');
+	const { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } = await import(
+		'@aws-sdk/client-s3'
+	);
 	const s3 = new S3Client({
 		region: 'auto',
 		endpoint,
@@ -149,15 +389,27 @@ async function r2Client() {
 		}
 	};
 	const putText = (Key, Body) =>
-		s3.send(
-			new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType: 'application/json' }),
-		);
-	return { bucket, getText, putText };
+		s3.send(new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType: 'application/json' }));
+	const listKeys = async (Prefix) => {
+		const keys = [];
+		let ContinuationToken;
+		do {
+			const res = await s3.send(
+				new ListObjectsV2Command({ Bucket: bucket, Prefix, ContinuationToken }),
+			);
+			for (const o of res.Contents ?? []) if (o.Key) keys.push(o.Key);
+			ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+		} while (ContinuationToken);
+		return keys;
+	};
+	return { bucket, getText, putText, listKeys };
 }
 
 function requireR2(r2, why) {
 	if (!r2) {
-		console.error(`R2 required to ${why}, but R2_ENDPOINT/R2_BUCKET/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY are unset.`);
+		console.error(
+			`R2 required to ${why}, but R2_ENDPOINT/R2_BUCKET/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY are unset.`,
+		);
 		process.exit(2);
 	}
 	return r2;
@@ -274,8 +526,10 @@ function mergeManifest(existing, derivedRegions, meta) {
 function printDiff(report, mergeReport) {
 	console.info('\nValidation vs game sheet:');
 	console.info(`  ok: ${report.ok}`);
-	if (report.missing.length) console.info(`  missing (game needs, manifest lacks): ${report.missing.join(', ')}`);
-	if (report.extra.length) console.info(`  extra (manifest has, game dropped): ${report.extra.join(', ')}`);
+	if (report.missing.length)
+		console.info(`  missing (game needs, manifest lacks): ${report.missing.join(', ')}`);
+	if (report.extra.length)
+		console.info(`  extra (manifest has, game dropped): ${report.extra.join(', ')}`);
 	if (report.rotationMismatch.length)
 		console.info(`  rotation mismatch: ${report.rotationMismatch.join(', ')}`);
 	if (report.geometryMismatch.length) {
@@ -286,7 +540,8 @@ function printDiff(report, mergeReport) {
 		if (report.geometryMismatch.length > 40) console.info('    …');
 	}
 	if (mergeReport) {
-		if (mergeReport.added.length) console.info(`  + added (empty prompt): ${mergeReport.added.join(', ')}`);
+		if (mergeReport.added.length)
+			console.info(`  + added (empty prompt): ${mergeReport.added.join(', ')}`);
 		if (mergeReport.removed.length)
 			console.info(`  - removed (game dropped, KEPT — review): ${mergeReport.removed.join(', ')}`);
 		if (mergeReport.moved.length)
@@ -294,7 +549,68 @@ function printDiff(report, mergeReport) {
 	}
 }
 
+/** Bulk mode: scan committed assets → asset-map → publish → backfill manifests. */
+async function mainAll() {
+	const r2 = await r2Client();
+	const assetMapKey = `${PREFIX}/asset-map.json`;
+
+	const { map, indexed, duplicates, source } = buildAssetMap(GAME_ROOT);
+	const stems = Object.keys(map);
+	console.info(
+		`Scanned ${GAME_ROOT}/static/assets/ (${source}-tracked) → ${stems.length} deployable ` +
+			`assets indexed${duplicates.length ? `, ${duplicates.length} duplicate stem(s) dropped` : ''}.`,
+	);
+	const tp = indexed.filter((e) => e.kind === 'tp').length;
+	const spine = indexed.filter((e) => e.kind === 'spine').length;
+	console.info(`  ${tp} TexturePacker sheet(s), ${spine} Spine page(s).`);
+
+	// Publish the asset-map (skip on dry-run).
+	if (DRY_RUN) {
+		console.info(`\n--dry-run: would publish asset-map → R2 ${assetMapKey}`);
+		console.info(`asset-map.json:\n${JSON.stringify(map, null, 2)}`);
+	} else {
+		requireR2(r2, 'publish the asset-map');
+		await r2.putText(assetMapKey, JSON.stringify(map, null, 2));
+		console.info(`\n✅ Published asset-map → R2 ${assetMapKey} (${stems.length} entries).`);
+	}
+
+	// Backfill the project's existing manifests from the map.
+	const haveManifestSource = !!MANIFESTS_DIR || !!r2;
+	if (!haveManifestSource && DRY_RUN) {
+		console.info(
+			'\nBackfill SKIPPED: no R2 creds and no --manifests-dir → cannot list existing ' +
+				'manifests. (Scan + map above are live; backfill needs R2 or a local --manifests-dir.)',
+		);
+		return;
+	}
+	const plan = await backfillManifests(r2, map, DRY_RUN);
+
+	console.info('\nBackfill plan:');
+	console.info(
+		`  ${plan.matched.length} matched/backfilled, ${plan.unmatched.length} unmatched, ${plan.skipped.length} skipped.`,
+	);
+	for (const m of plan.matched) {
+		console.info(
+			`  ✓ ${m.name}: deploy_path "${m.from || '(empty)'}" → "${m.to}" (basename ${m.basename})` +
+				`${DRY_RUN ? ' — would set' : ' — set'}`,
+		);
+	}
+	for (const s of plan.skipped) console.info(`  · ${s.name}: skipped (${s.reason})`);
+	if (plan.unmatched.length) {
+		console.info(
+			`  ⚠ unmatched (no asset for stem — set deploy_path manually): ${plan.unmatched
+				.map((u) => `${u.name} (stem "${u.stem}")`)
+				.join(', ')}`,
+		);
+	}
+	console.info(
+		`\nSummary: ${stems.length} assets indexed · ${plan.matched.length} manifests ${DRY_RUN ? 'would be ' : ''}` +
+			`backfilled · ${plan.unmatched.length} unmatched.`,
+	);
+}
+
 async function main() {
+	if (ALL) return mainAll();
 	// --dry-run / --check-only that source from a local --sheet need no R2 reads,
 	// but R2 is still required to read the existing manifest for merge + to write.
 	const r2 = await r2Client();
@@ -356,13 +672,14 @@ async function main() {
 	else effDeployBasename = existingDeployBasename ?? basename;
 
 	if (autoTarget) {
-		const reason = DEPLOY_PATH_ARG !== null
-			? '(overridden by --deploy-path)'
-			: shouldFillFromAuto
-				? existingDeployPath === undefined
-					? '(was empty → filled)'
-					: '(--force-deploy-path → overwritten)'
-				: `(kept existing "${existingDeployPath}"; pass --force-deploy-path to overwrite)`;
+		const reason =
+			DEPLOY_PATH_ARG !== null
+				? '(overridden by --deploy-path)'
+				: shouldFillFromAuto
+					? existingDeployPath === undefined
+						? '(was empty → filled)'
+						: '(--force-deploy-path → overwritten)'
+					: `(kept existing "${existingDeployPath}"; pass --force-deploy-path to overwrite)`;
 		console.info(
 			`Deploy target from game layout: deploy_path="${autoTarget.deployPath}" ` +
 				`deploy_basename="${autoTarget.deployBasename}" → using deploy_path="${effDeployPath}" ${reason}`,
@@ -417,7 +734,9 @@ async function main() {
 			`  ${manifest.regions.length} regions + ${manifest.rotated_regions.length} rotated_regions, ${manifest.width}×${manifest.height}`,
 		);
 		const preview = JSON.stringify(manifest, null, 2);
-		console.info(`\nMANIFEST preview:\n${preview.slice(0, 1200)}${preview.length > 1200 ? '\n…' : ''}`);
+		console.info(
+			`\nMANIFEST preview:\n${preview.slice(0, 1200)}${preview.length > 1200 ? '\n…' : ''}`,
+		);
 		return;
 	}
 
