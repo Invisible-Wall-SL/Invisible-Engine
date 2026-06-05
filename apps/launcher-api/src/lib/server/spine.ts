@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
-import { getObjectBytes, getObjectText, objectExists } from './r2';
+import { getObjectBytes, getObjectText, listAllObjects, objectExists } from './r2';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
 
@@ -151,6 +151,50 @@ export interface EditorSpineDescriptor {
 }
 
 /**
+ * Map each spine page name to the R2 key the editor should stream. Prefers a
+ * DEPLOYED page (`deploy/…`) whose basename matches the spine's page name —
+ * preferring `.webp` then the largest match — so a spine reflects the latest
+ * deploy (same as region sprites). Falls back to the spine bundle's own page when
+ * nothing is deployed for it. Safe only because the atlas geometry is unchanged
+ * (the page is regenerated with the same layout); a re-pack that changed layout
+ * would need a matching `.atlas`.
+ */
+async function resolveSpinePageKeys(
+	pageNames: string[],
+	client: string,
+	project: string,
+	bundlePrefix: string,
+): Promise<string[]> {
+	let deployObjs: { key: string; size: number }[] = [];
+	try {
+		deployObjs = await listAllObjects(`${SUB.deploy(client, project)}/`);
+	} catch {
+		deployObjs = [];
+	}
+	const baseOf = (k: string): string => k.split('/').pop() ?? k;
+	const split = (b: string): [string, string] => {
+		const d = b.lastIndexOf('.');
+		return d === -1 ? [b, ''] : [b.slice(0, d), b.slice(d + 1)];
+	};
+	return pageNames.map((n) => {
+		const [stem] = split(baseOf(n));
+		const want = stem.toLowerCase();
+		const matches = deployObjs.filter((o) => {
+			const [s, e] = split(baseOf(o.key));
+			const ext = e.toLowerCase();
+			return (ext === 'png' || ext === 'webp') && s.toLowerCase() === want;
+		});
+		if (matches.length === 0) return `${bundlePrefix}/${n}`;
+		matches.sort((a, b) => {
+			const aw = a.key.toLowerCase().endsWith('.webp') ? 0 : 1;
+			const bw = b.key.toLowerCase().endsWith('.webp') ? 0 : 1;
+			return aw !== bw ? aw - bw : b.size - a.size;
+		});
+		return matches[0].key;
+	});
+}
+
+/**
  * Resolve a spine node's `assetKey` to everything the editor canvas needs to build
  * the skeleton: the index entry (from the per-project or `_shared` `skeletons.json`),
  * the PNG-preferred atlas text, and the R2 keys for the skeleton + page images.
@@ -199,7 +243,12 @@ export async function resolveEditorSpine(
 		pma: Boolean(entry.pma),
 		atlasText: atlas.body,
 		skeletonKey: `${prefix}/${entry.skeleton_file}`,
-		pageKeys: pageNames.map((n) => `${prefix}/${n}`),
+		// Prefer the DEPLOYED page (deploy/ = what the game loads) so a spine-backed
+		// screen (e.g. the Background) reflects the latest Atlas Maker deploy too —
+		// matching the region-sprite path. The atlas geometry is unchanged, so this is
+		// safe for the "regenerate page, don't override the .json" workflow (same
+		// layout); falls back to the spine bundle's own page when nothing is deployed.
+		pageKeys: await resolveSpinePageKeys(pageNames, clientKey, projectKey, prefix),
 		pageNames,
 	};
 }
