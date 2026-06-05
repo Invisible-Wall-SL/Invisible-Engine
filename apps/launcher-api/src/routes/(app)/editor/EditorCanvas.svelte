@@ -4,6 +4,7 @@
 		computeOverlayPlacement,
 		resolveAnchorPreviewArt,
 		resolveTransform,
+		STANDARD_MAIN_SIZES_MAP,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -120,7 +121,8 @@
 	 *   draw/box math matches the live game's full-bleed cover.
 	 * Other scenes pass through unchanged.
 	 */
-	function nodeTransform(node: LayoutNode, space: Scene['space'] = scene.space): ResolvedTransform {
+	function nodeTransform(node: LayoutNode, sceneCtx: Scene = scene): ResolvedTransform {
+		const space = sceneCtx.space;
 		const t = resolveTransform(node, layoutType);
 		// A preview-art bind anchor (e.g. the animated Background, the Win animation, or
 		// the free-spin counter) is placed by its catalog `placement`, resolved against
@@ -141,6 +143,9 @@
 				return placedArtTransform(node, t, placement);
 			}
 		}
+		if (space === 'standard') {
+			return standardToWorld(t, sceneCtx);
+		}
 		if (space === 'canvas' && t.screenAnchor) {
 			return {
 				...t,
@@ -152,6 +157,29 @@
 			return backgroundTransform(node, t);
 		}
 		return t;
+	}
+
+	/**
+	 * Map a `standard`-space node (HUD bar) into the current frame: fit the STANDARD
+	 * reference box into the frame (centred; bottom-aligned when the scene asks),
+	 * scaling position + size by the same factor — mirrors `<MainContainer standard>`.
+	 * When this scene IS the active one its frame == the standard box, so the fit is
+	 * identity (unchanged); as a composited backdrop over a game-space frame it scales
+	 * the HUD into view instead of stranding it at raw standard coords.
+	 */
+	function standardToWorld(t: ResolvedTransform, sceneCtx: Scene): ResolvedTransform {
+		const std = STANDARD_MAIN_SIZES_MAP[layoutType];
+		const s = Math.min(frameWidth / (std.width || 1), frameHeight / (std.height || 1));
+		const drawW = std.width * s;
+		const drawH = std.height * s;
+		const offX = (frameWidth - drawW) / 2;
+		const offY = sceneCtx.align?.vertical === 'bottom' ? frameHeight - drawH : (frameHeight - drawH) / 2;
+		return {
+			...t,
+			x: offX + t.x * s,
+			y: offY + t.y * s,
+			scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
+		};
 	}
 
 	/**
@@ -788,12 +816,12 @@
 
 		// Composite all non-hidden screens (editor-only "see all screens" view), each
 		// in its OWN coordinate space, in doc order so layering matches the game. The
-		// ACTIVE scene is always drawn (you're editing it) + stays the only
-		// interactive one; the others are visual context. The active scene's selection
+		// eye toggle is authoritative: a hidden screen never draws, even when it's the
+		// selected one. The active scene stays the only INTERACTIVE one; its selection
 		// overlay is drawn last (below), on top of everything.
 		for (const s of scenes) {
-			if (s.id !== scene.id && hiddenSceneIds.has(s.id)) continue;
-			for (const node of s.nodes) drawNode(ctx, node, s.space);
+			if (hiddenSceneIds.has(s.id)) continue;
+			for (const node of s.nodes) drawNode(ctx, node, s);
 		}
 
 		// Snap guide lines (world-space; covers all frame + visible).
@@ -824,9 +852,9 @@
 	function drawNode(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
-		space: Scene['space'] = scene.space,
+		sceneCtx: Scene = scene,
 	): void {
-		const t = nodeTransform(node, space);
+		const t = nodeTransform(node, sceneCtx);
 		if (!t.visible) return;
 
 		ctx.save();
@@ -901,7 +929,7 @@
 			}`;
 			ctx.fillText(node.text, 0, 0);
 		} else if (node.kind === 'container') {
-			for (const child of node.children) drawNode(ctx, child, space);
+			for (const child of node.children) drawNode(ctx, child, sceneCtx);
 		}
 
 		ctx.restore();

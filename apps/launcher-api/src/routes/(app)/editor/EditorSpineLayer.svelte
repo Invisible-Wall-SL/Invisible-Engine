@@ -231,7 +231,7 @@
 		// canvas. Placement/transform are space-independent here (catalog placement),
 		// so backdrop scenes render correctly without per-scene space handling.
 		for (const sc of scenes) {
-			if (sc.id !== scene.id && hiddenSceneIds.has(sc.id)) continue;
+			if (hiddenSceneIds.has(sc.id)) continue;
 			for (const n of sc.nodes) {
 				const t = resolveTransform(n, layoutType);
 				if (!t.visible) continue;
