@@ -879,6 +879,55 @@ def list_manifests() -> list[str]:
     return js + at
 
 
+def _manifest_deploy_stem(m: dict, manifest_filename: str) -> str:
+    """The deployed output stem a generation manifest produces — i.e. the
+    sheet/atlas filename the editor sees. Mirrors _deployatlas' field access
+    so the deep-link resolve stays consistent: `deploy_basename` wins, else the
+    basename of `deploy_path`, else the manifest stem sans `atlas_manifest_`."""
+    base = str(m.get("deploy_basename", "")).strip()
+    if base:
+        return Path(base).stem
+    dp = str(m.get("deploy_path", "")).replace("\\", "/").strip().strip("/")
+    if dp:
+        tail = dp.rsplit("/", 1)[-1]
+        # `deploy_path` is normally a folder prefix, but legacy values may name
+        # the file directly; only treat it as a filename if it has a suffix.
+        if tail and Path(tail).suffix:
+            return Path(tail).stem
+    return Path(manifest_filename).stem.replace("atlas_manifest_", "")
+
+
+def resolve_atlas_to_manifest(atlas: str) -> str | None:
+    """Map a deployed sheet/atlas filename (what the editor sprite uses, e.g.
+    'reels_frame.json') to the generation manifest that owns it. Returns the
+    manifest filename (in MANIFEST_DIR) or None if no Atlas Maker recipe owns
+    this atlas. Best-effort and exception-safe — callers fall back on None."""
+    try:
+        if not atlas:
+            return None
+        want = Path(atlas).name
+        manifests = list_manifests()
+        # 1) Direct: the atlas IS a known manifest (atlas_manifest_*.json/.atlas).
+        if want in manifests:
+            return want
+        # 2) By deployed output stem.
+        want_stem = Path(want).stem
+        if not MANIFEST_DIR.exists():
+            return None
+        for mp in sorted(MANIFEST_DIR.glob("atlas_manifest_*.json")):
+            try:
+                m = json.loads(mp.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(m, dict):
+                continue
+            if _manifest_deploy_stem(m, mp.name) == want_stem:
+                return mp.name
+        return None
+    except Exception:  # noqa: BLE001 — resolution must never break the index
+        return None
+
+
 def _drop_fx_snapshot(name: str) -> None:
     """Discard a region's frozen FX source (refs/fxsrc_<name>.png) so the
     next FX build re-captures from the new image. Called whenever the real
@@ -1691,8 +1740,11 @@ SPLASH = """<!doctype html><html><head><meta charset="utf-8">
   // stay in browser history (Back button skips it). `?fast=1` makes the
   // server skip the splash for any subsequent reload — that's how Save
   // Settings (and any other location.reload() in the UI) avoids replaying
-  // the splash every time.
-  window.location.replace('?fast=1');
+  // the splash every time. Preserve any existing query params (home, sibling,
+  // and the editor deep-link's atlas/region) so the real UI still sees them.
+  const _qp=new URLSearchParams(location.search);
+  _qp.set('fast','1');
+  window.location.replace('?'+_qp.toString());
  })();
 })();
 </script></body></html>"""
@@ -2658,6 +2710,24 @@ document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{closeModal();clos
 window.addEventListener('DOMContentLoaded',function(){{
  updateAllLocks(); refreshCredits(); setInterval(refreshCredits,60000);
 }});
+// Editor deep-link: scroll to + briefly flash the targeted region's card.
+// {flash_region} is the region key's stem (server-resolved) or empty.
+(function(){{
+ var rn={flash_region};
+ if(!rn) return;
+ window.addEventListener('DOMContentLoaded',function(){{
+  var c=document.querySelector('.card[data-name="'+rn+'"]');
+  if(!c) return;
+  try{{ c.scrollIntoView({{behavior:'smooth',block:'center'}}); }}catch(e){{}}
+  c.style.transition='box-shadow .25s, outline-color .25s';
+  c.style.outline='3px solid #ffd166';
+  c.style.boxShadow='0 0 0 4px rgba(255,209,102,.35)';
+  setTimeout(function(){{
+   c.style.outline='3px solid transparent';
+   c.style.boxShadow='none';
+  }},2200);
+ }});
+}})();
 </script></body></html>"""
 
 CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe}" data-usedseed="{used_seed}" data-lockedseed="{locked_seed}" data-variant="{variant}">
@@ -2817,6 +2887,61 @@ class Handler(BaseHTTPRequestHandler):
     def _resolve_project(self) -> None:
         self._resolve_context()
 
+    def _handle_deeplink(self, qs: dict) -> bool:
+        """Editor "Open in Atlas Maker" deep-link (shared URL contract).
+
+        The editor/launcher sends the user to `/?atlas=<sheetFile>&region=<key>`
+        (plus k/client/project/home/sibling). When `atlas` is present we resolve
+        it to the generation manifest that OWNS it and make that the active
+        manifest, optionally flashing the region's card. If no Atlas Maker recipe
+        owns the atlas we fall back to the Sheet Maker's Import browser (the
+        `sibling` URL), or — lacking a sibling — render a notice.
+
+        Returns True if a redirect response was already sent (caller must stop);
+        False to continue rendering the index. Fully defensive: any error just
+        returns False so the index renders normally."""
+        # Defaults so _index() can read these unconditionally.
+        self._deeplink_region = ""
+        self._deeplink_notice = ""
+        try:
+            atlas = (qs.get("atlas", [""])[0] or "").strip()
+            if not atlas:
+                return False
+            region = (qs.get("region", [""])[0] or "").strip()
+            sibling = (qs.get("sibling", [""])[0] or "").strip()
+            resolved = resolve_atlas_to_manifest(atlas)
+            if resolved:
+                # Activate it exactly like the session dropdown does.
+                try:
+                    cfg = load_config()
+                    cfg["manifest_path"] = resolved
+                    save_config(cfg)
+                except OSError:
+                    pass
+                if region:
+                    self._deeplink_region = Path(region).stem
+                return False
+            # No Atlas Maker recipe → fall back to the Sheet Maker Import browser.
+            if sibling:
+                sep = "&" if "?" in sibling else "?"
+                target = (
+                    f"{sibling}{sep}import={urllib.parse.quote(atlas)}"
+                    + (f"&region={urllib.parse.quote(region)}" if region else "")
+                )
+                self.send_response(303)
+                self.send_header("Location", target)
+                if self._set_cookie:
+                    self.send_header("Set-Cookie", self._set_cookie)
+                self.end_headers()
+                return True
+            # No sibling (user lacks the Sheet Maker) → visible notice, no link.
+            self._deeplink_notice = _diag("NO_ATLAS_RECIPE", atlas=atlas)
+            return False
+        except Exception:  # noqa: BLE001 — a bad deep-link must never 500
+            self._deeplink_region = ""
+            self._deeplink_notice = ""
+            return False
+
     def do_GET(self):
         ok, self._set_cookie = self._gate()
         if not ok:
@@ -2831,6 +2956,12 @@ class Handler(BaseHTTPRequestHandler):
             # first swap via history.replaceState, so browser-reload preserves
             # it. New tab/window with bare `/` still gets the splash.
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            # Editor "Open in Atlas Maker" deep-link: resolve atlas→manifest
+            # BEFORE serving the splash, so the unresolved-atlas fallback can
+            # 303-redirect to the Sheet Maker without first flashing the splash,
+            # and so the right manifest is active when the UI renders.
+            if self._handle_deeplink(qs):
+                return  # a redirect to the sibling Sheet Maker was sent
             if qs.get("fast", ["0"])[0] == "1":
                 t0 = time.time()
                 body = self._index().encode("utf-8")
@@ -2846,6 +2977,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html; charset=utf-8",
                            SPLASH.encode("utf-8"))
         elif path == "/_index_html":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if self._handle_deeplink(qs):
+                return
             t0 = time.time()
             body = self._index().encode("utf-8")
             dt = time.time() - t0
@@ -3263,6 +3397,56 @@ class Handler(BaseHTTPRequestHandler):
         # use the resolved value.
         prefix = str(R2_PREFIX) if R2_PREFIX else ""
         base = f"{prefix}/deploy" if prefix else "deploy"
+        # AUTO-RESOLVE: when no explicit `deploy_path` is set on the manifest,
+        # try the project's asset-map (published by the sibling tool at
+        # `<client>/<project>/asset-map.json`) before falling back to the flat
+        # deploy/ root. The map keys each game asset stem to where the game
+        # loads it: { "<stem>": {"deploy_path": "sprites/<name>",
+        # "deploy_basename": "<name>"}, … } mirroring static/assets/. Read it
+        # FRESH from R2 every deploy so a newly-published map is honoured
+        # without a tool restart; tolerate a missing/invalid map as "no map".
+        auto_note = ""
+        if not raw and prefix:
+            asset_map: dict = {}
+            try:
+                blob = storage.get(f"{prefix}/asset-map.json")
+                if blob:
+                    loaded = json.loads(blob)
+                    if isinstance(loaded, dict):
+                        asset_map = loaded
+            except Exception:  # noqa: BLE001 — any miss/parse error = no map
+                asset_map = {}
+            if asset_map:
+                # Candidate keys, in priority order: the manifest's
+                # deploy_basename, the stem/out_base being deployed, then the
+                # manifest filename sans `atlas_manifest_`/ext.
+                man_base = str(m.get("deploy_basename", "")).strip()
+                cands = [c for c in (man_base, out_base, stem) if c]
+                entry = None
+                for c in cands:
+                    if c in asset_map:
+                        entry = asset_map[c]
+                        break
+                if entry is None:  # case-insensitive fallback
+                    lowered = {str(k).lower(): v for k, v in asset_map.items()}
+                    for c in cands:
+                        hit = lowered.get(c.lower())
+                        if hit is not None:
+                            entry = hit
+                            break
+                if isinstance(entry, dict):
+                    mapped = str(entry.get("deploy_path", "")).replace(
+                        "\\", "/").strip().strip("/")
+                    if mapped and not (re.match(r"^[A-Za-z]:/", mapped)
+                                       or mapped.startswith("/")):
+                        raw = mapped
+                        # Adopt the map's basename only if the manifest had none.
+                        if not man_base:
+                            mb = str(entry.get("deploy_basename", "")).strip()
+                            if mb:
+                                out_base = mb
+                        auto_note = (
+                            f"ℹ deploy_path auto-resolved from asset-map → {raw}")
         # `deploy_path` is the subpath UNDER deploy/ that mirrors the game's
         # static/assets/ layout (e.g. `sprites/symbolsStatic`). Strip a redundant
         # leading `deploy/` if the user included it, so it never double-nests.
@@ -3415,7 +3599,8 @@ class Handler(BaseHTTPRequestHandler):
                 "the asset's game path (mirrors static/assets/), e.g. "
                 "`sprites/<name>` or `spines/<group>`, then deploy again.")
             return f"{warning}\n✓ Deployed to R2: {', '.join(copied)}{json_note}"
-        return f"✓ Deployed to R2: {', '.join(copied)}{json_note}"
+        head = f"{auto_note}\n" if auto_note else ""
+        return f"{head}✓ Deployed to R2: {', '.join(copied)}{json_note}"
 
     def _saveglobalstyle(self, payload: dict) -> str:
         m = load_manifest()
@@ -3841,6 +4026,25 @@ class Handler(BaseHTTPRequestHandler):
                 f'title="Open this skeleton in the Invisible Spine Viewer '
                 f'({html.escape(str(_spine.get("name", "")), quote=True)})">🦴 View in Spine</a>'
             )
+        # Deep-link state (set by _handle_deeplink before render; defaults so a
+        # plain page load is unaffected).
+        dl_region = getattr(self, "_deeplink_region", "") or ""
+        dl_notice = getattr(self, "_deeplink_notice", "") or ""
+        notices = []
+        if _load_warning:
+            notices.append(
+                f'<div style="margin:10px 0;padding:10px 14px;'
+                f'background:#5a3a1a;border:1px solid #b9802f;'
+                f'border-radius:6px;color:#ffd9a0;font-size:13px">'
+                f'⚠ {html.escape(_load_warning)}</div>')
+        if dl_notice:
+            # _diag() returns canonical multi-line text (glyph + why + fix);
+            # render it as a info-toned banner, preserving line breaks.
+            notices.append(
+                f'<div style="margin:10px 0;padding:10px 14px;'
+                f'background:#1d3a4a;border:1px solid #2f7fb9;'
+                f'border-radius:6px;color:#a0d6ff;font-size:13px;'
+                f'white-space:pre-line">{html.escape(dl_notice)}</div>')
         return PAGE.format(
             cards="".join(cards),
             global_fields="".join(global_fields),
@@ -3855,11 +4059,8 @@ class Handler(BaseHTTPRequestHandler):
             global_pre=html.escape(_style.get("positive_prefix", "")),
             global_suf=html.escape(_style.get("positive_suffix", "")),
             build=BUILD,
-            notice=(f'<div style="margin:10px 0;padding:10px 14px;'
-                    f'background:#5a3a1a;border:1px solid #b9802f;'
-                    f'border-radius:6px;color:#ffd9a0;font-size:13px">'
-                    f'⚠ {html.escape(_load_warning)}</div>'
-                    if _load_warning else ""),
+            flash_region=json.dumps(dl_region),
+            notice="".join(notices),
         )
 
     def _save(self, edits: list[dict]) -> str:
