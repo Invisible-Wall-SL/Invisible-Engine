@@ -1,8 +1,11 @@
 <script lang="ts">
 	import {
+		computeOverlayPlacement,
 		resolveAnchorPreviewArt,
 		resolveTransform,
 		type LayoutType,
+		type OverlayPlacement,
+		type PlacementGeometry,
 		type Scene,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
@@ -26,6 +29,12 @@
 
 	interface Props {
 		scene: Scene;
+		/** All doc scenes — used to locate the `boardFrame` node for board-relative
+		 * (positioned) spine previews (Win = board centre), mirroring the 2D canvas. */
+		scenes: Scene[];
+		/** The game's main-layout sizes per layoutType — the space a positioned overlay
+		 * preview is mapped from to canvas world coords. */
+		mainSizesMap: Record<LayoutType, { width: number; height: number }>;
 		layoutType: LayoutType;
 		/** The project's asset listing — resolves catalog-default spine preview art. */
 		assets: ProjectAssets;
@@ -52,6 +61,8 @@
 
 	let {
 		scene,
+		scenes,
+		mainSizesMap,
 		layoutType,
 		assets,
 		frameWidth,
@@ -164,18 +175,18 @@
 
 	/**
 	 * One spine the overlay must render — either a real `kind:'spine'` node or a
-	 * `bind` anchor carrying a `preview.art` spine stand-in (the animated Background
-	 * or a centred overlay). When `fit` is set the art is sized to the frame
-	 * (`'cover'` fills/crops, `'contain'` fits inside, both centred); otherwise it
-	 * renders at the node's resolved transform. `nodeId` is the doc node (for the
-	 * `playing` set); `assetKey` keys the shared instance cache.
+	 * `bind` anchor carrying a spine stand-in (animated Background, Win, intros). When
+	 * `placement` is set the art is placed by its catalog placement (cover/contain size
+	 * to the frame, centred; board-relative ones land at a MAIN-coord spot mapped like
+	 * `<MainContainer>`); otherwise it renders at the node's resolved transform.
+	 * `nodeId` is the doc node (for the `playing` set); `assetKey` keys the cache.
 	 */
 	interface SpineRenderTarget {
 		nodeId: string;
 		assetKey: string;
 		defaultAnimation?: string;
 		loop?: boolean;
-		fit?: 'cover' | 'contain';
+		placement?: OverlayPlacement;
 		transform: ReturnType<typeof resolveTransform>;
 	}
 
@@ -192,7 +203,7 @@
 					assetKey: n.assetKey,
 					defaultAnimation: n.defaultAnimation,
 					loop: n.loop,
-					fit: undefined,
+					placement: undefined,
 					transform: t,
 				});
 			} else {
@@ -205,13 +216,41 @@
 						assetKey: art.assetKey,
 						defaultAnimation: undefined,
 						loop: true,
-						fit: art.fit,
+						placement: art.placement,
 						transform: t,
 					});
 				}
 			}
 		}
 		return out;
+	}
+
+	/** Uniform MAIN→canvas-world scale (same as the 2D canvas's `mainScale`). */
+	function mainScale(): number {
+		const main = mainSizesMap[layoutType];
+		return Math.min(frameWidth / (main.width || 1), frameHeight / (main.height || 1));
+	}
+	/** Map a MAIN-coord point to canvas world coords, like `<MainContainer>`. */
+	function mainToWorld(p: { x: number; y: number }): { x: number; y: number } {
+		const main = mainSizesMap[layoutType];
+		const s = mainScale();
+		return {
+			x: frameWidth / 2 + s * (p.x - main.width / 2),
+			y: frameHeight / 2 + s * (p.y - main.height / 2),
+		};
+	}
+	/** The board rect in MAIN coords from the doc's `boardFrame` node (scan all
+	 * scenes — it lives in basegame, not the overlay scene). Mirrors the 2D canvas. */
+	function boardRect(): PlacementGeometry['board'] {
+		for (const s of scenes) {
+			for (const n of s.nodes) {
+				if (n.slotId !== 'boardFrame') continue;
+				const bt = resolveTransform(n, layoutType);
+				if (bt.width === undefined || bt.height === undefined) continue;
+				return { x: bt.x, y: bt.y, width: bt.width, height: bt.height };
+			}
+		}
+		return undefined;
 	}
 
 	function resizeCanvas(): void {
@@ -285,8 +324,8 @@
 			syncPlayback(target, entry);
 			const t = target.transform;
 			const inst = entry.instance;
-			if (target.fit) {
-				placeFit(inst, target.fit);
+			if (target.placement) {
+				placeArt(inst, target.placement);
 			} else {
 				const sx = t.scale?.x ?? 1;
 				const sy = t.scale?.y ?? 1;
@@ -306,17 +345,17 @@
 	}
 
 	/**
-	 * Fit a spine instance to the scene frame — the editor stand-in for a coded
-	 * component the editor can't run. Mirrors the 2D canvas's `fitArtTransform`,
-	 * centred on the frame:
-	 * - `'cover'` (the full-bleed animated Background): `s = max(...)` — both frame
-	 *   dims are covered (may crop).
-	 * - `'contain'` (centred overlays): `s = min(...)` — the art fits inside (no crop).
-	 * Uses the skeleton's setup-pose bounds for the art's size + centre, accounting
-	 * for the y-flip (`scaleY = -s`) so a local point (lx, ly) lands at
-	 * `(skeleton.x + s*lx, skeleton.y - s*ly)`.
+	 * Place a spine instance by its catalog `placement` — the editor stand-in for a
+	 * coded component the editor can't run. Mirrors the 2D canvas's `placedArtTransform`.
+	 * - `cover` (full-bleed Background): `s = max(...)` — both frame dims covered (crops).
+	 * - `contain` (centred overlays): `s = min(...)` — the art fits inside (no crop).
+	 * - `positioned` (board-relative — Win = board centre): natural size at the
+	 *   MAIN-coord spot mapped to canvas world via `mainToWorld`, scaled by the
+	 *   MAIN→canvas scale, placed by the result's anchor over the art's bounds.
+	 * All paths use the skeleton's setup-pose bounds for size+centre, accounting for the
+	 * y-flip (`scaleY = -s`): a local point (lx, ly) lands at `(x + s*lx, y - s*ly)`.
 	 */
-	function placeFit(inst: SpineInstance, fit: 'cover' | 'contain'): void {
+	function placeArt(inst: SpineInstance, placement: OverlayPlacement): void {
 		const nat = naturalSizeOf(inst);
 		const offset = { x: 0, y: 0 };
 		const size = { x: 0, y: 0 };
@@ -337,12 +376,35 @@
 			inst.skeleton.scaleY = -1;
 			return;
 		}
-		const s =
-			fit === 'cover'
-				? Math.max(frameWidth / bw, frameHeight / bh)
-				: Math.min(frameWidth / bw, frameHeight / bh);
+		const result = computeOverlayPlacement(placement, {
+			main: mainSizesMap[layoutType],
+			board: boardRect(),
+			art: { width: bw, height: bh },
+		});
+		// Setup-pose bounds centre (y-up runtime coords).
 		const cx = offset.x + size.x / 2;
 		const cy = offset.y + size.y / 2;
+		if (result.mode === 'positioned') {
+			// Draw at natural size (s = MAIN→canvas scale), positioned so the result's
+			// anchor over the art's bounds sits at the mapped MAIN-coord spot.
+			const s = mainScale();
+			const world = mainToWorld({ x: result.x, y: result.y });
+			// The art's bounds span [offset, offset+size] in runtime (y-up) space. The
+			// anchor point within those bounds, expressed in runtime coords:
+			const anchorLocalX = offset.x + size.x * result.anchor.x;
+			// anchor.y is top-down (0=top); runtime y is up, so top = offset.y + size.y.
+			const anchorLocalY = offset.y + size.y * (1 - result.anchor.y);
+			// world = skeleton + s*(anchorLocal) with the y-flip → solve skeleton.
+			inst.skeleton.x = world.x - s * anchorLocalX;
+			inst.skeleton.y = world.y + s * anchorLocalY;
+			inst.skeleton.scaleX = s;
+			inst.skeleton.scaleY = -s;
+			return;
+		}
+		const s =
+			result.mode === 'cover'
+				? Math.max(frameWidth / bw, frameHeight / bh)
+				: Math.min(frameWidth / bw, frameHeight / bh);
 		inst.skeleton.x = frameWidth / 2 - s * cx;
 		inst.skeleton.y = frameHeight / 2 + s * cy;
 		inst.skeleton.scaleX = s;

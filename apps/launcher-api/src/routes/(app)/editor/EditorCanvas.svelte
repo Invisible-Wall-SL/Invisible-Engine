@@ -1,9 +1,12 @@
 <script lang="ts">
 	import {
+		computeOverlayPlacement,
 		resolveAnchorPreviewArt,
 		resolveTransform,
 		type LayoutNode,
 		type LayoutType,
+		type OverlayPlacement,
+		type PlacementGeometry,
 		type ResolvedPreviewArt,
 		type ResolvedTransform,
 		type Scene,
@@ -45,6 +48,13 @@
 
 	interface Props {
 		scene: Scene;
+		/** All doc scenes — used to locate the `boardFrame` node (which lives in the
+		 * basegame scene, NOT the active overlay scene) so board-relative previews
+		 * land on their real in-game spot. */
+		scenes: Scene[];
+		/** The game's main-layout sizes per layoutType — the coordinate space a
+		 * `positioned` overlay preview is mapped from (board centre / left-of-board). */
+		mainSizesMap: Record<LayoutType, { width: number; height: number }>;
 		frameWidth: number;
 		frameHeight: number;
 		/** Active authoring layoutType; non-`desktop` puts edits into override mode. */
@@ -70,6 +80,8 @@
 
 	let {
 		scene,
+		scenes,
+		mainSizesMap,
 		frameWidth,
 		frameHeight,
 		layoutType,
@@ -103,13 +115,13 @@
 	 */
 	function nodeTransform(node: LayoutNode): ResolvedTransform {
 		const t = resolveTransform(node, layoutType);
-		// A `fit` art preview (e.g. the animated Background bind anchor or a centred
-		// overlay) sizes itself to the frame regardless of scene space — using the
-		// art's natural aspect (resolved from the preview spine/sprite) as the ratio.
-		// The art is resolved from an explicit override OR the shared catalog default.
+		// A preview-art bind anchor (e.g. the animated Background, the Win animation, or
+		// the free-spin counter) is placed by its catalog `placement`, resolved against
+		// the game's geometry: cover/contain size to the frame; board-relative ones land
+		// at a MAIN-coord spot mapped to the canvas like `<MainContainer>` does.
 		const art = anchorArt(node);
-		if (art?.fit) {
-			return fitArtTransform(node, t, art.fit);
+		if (art) {
+			return placedArtTransform(node, t, art.placement);
 		}
 		if (scene.space === 'canvas' && t.screenAnchor) {
 			return {
@@ -161,20 +173,101 @@
 	}
 
 	/**
-	 * Fit transform for a `preview.art` bind anchor — the editor stand-in for a coded
-	 * component the editor can't run. Centred on the frame, sized by the art's natural
-	 * aspect:
-	 * - `'cover'` (the full-bleed animated Background): scale so BOTH frame dims are
-	 *   covered (the larger cover scale wins; may crop).
-	 * - `'contain'` (centred overlays — FS intro/outro, Win, Transition, counter):
-	 *   scale so the art fits INSIDE the frame (the smaller scale wins; no crop).
+	 * Map a point in the GAME's MAIN-layout coords to the canvas's world coords the
+	 * SAME way `<MainContainer>` maps the doc's `mainSizesMap`: uniform scale that
+	 * fits the main box into the frame, centred. So a board-relative preview lands
+	 * where the coded component renders in-game. (Pan/zoom turns world → screen.)
+	 */
+	function mainScale(): number {
+		const main = mainSizesMap[layoutType];
+		return Math.min(frameWidth / (main.width || 1), frameHeight / (main.height || 1));
+	}
+	function mainToWorld(p: Vec2): Vec2 {
+		const main = mainSizesMap[layoutType];
+		const s = mainScale();
+		return {
+			x: frameWidth / 2 + s * (p.x - main.width / 2),
+			y: frameHeight / 2 + s * (p.y - main.height / 2),
+		};
+	}
+
+	/**
+	 * The board rect (centre + size) in the game's MAIN coords, read from the doc's
+	 * `boardFrame` node — every game's basegame carries one, so this is game-agnostic.
+	 * The node lives in a DIFFERENT scene than the overlay being drawn, so scan all
+	 * scenes. `undefined` when not found → board-relative placements fall back to
+	 * `contain` (centred), which is safe.
+	 */
+	function boardRect(): PlacementGeometry['board'] {
+		for (const s of scenes) {
+			for (const n of s.nodes) {
+				if (n.slotId !== 'boardFrame') continue;
+				const bt = resolveTransform(n, layoutType);
+				if (bt.width === undefined || bt.height === undefined) continue;
+				// boardFrame is anchored centre, so x/y is the board centre.
+				return { x: bt.x, y: bt.y, width: bt.width, height: bt.height };
+			}
+		}
+		return undefined;
+	}
+
+	/** Geometry inputs for {@link computeOverlayPlacement} for this node's art. */
+	function placementGeometry(node: LayoutNode): PlacementGeometry {
+		const main = mainSizesMap[layoutType];
+		const nat = artNaturalSize(node);
+		return {
+			main: { width: main.width, height: main.height },
+			board: boardRect(),
+			art: nat ? { width: nat.w, height: nat.h } : undefined,
+		};
+	}
+
+	/**
+	 * Resolve a preview-art bind anchor's transform from its catalog `placement` — the
+	 * editor stand-in for a coded component the editor can't run.
+	 * - `cover` (full-bleed Background): scale so BOTH frame dims are covered (may crop).
+	 * - `contain` (centred overlays — FS intro/outro, Transition): fit INSIDE the frame.
+	 * - `positioned` (board-relative — Win = board centre, FS counter = left of board):
+	 *   draw at the art's NATURAL size, placed at the MAIN-coord spot mapped to the
+	 *   canvas via `mainToWorld` (so it matches the coded in-game position). `boardLeft`
+	 *   panels are sized to ≈ board.width*0.4 so they read like the real counter panel.
 	 * Falls back to a plain frame-sized box until the art's natural size is known.
 	 */
-	function fitArtTransform(
+	function placedArtTransform(
 		node: LayoutNode,
 		t: ResolvedTransform,
-		fit: 'cover' | 'contain',
+		placement: OverlayPlacement,
 	): ResolvedTransform {
+		const result = computeOverlayPlacement(placement, placementGeometry(node));
+		if (result.mode === 'positioned') {
+			const nat = artNaturalSize(node);
+			const s = mainScale();
+			const board = boardRect();
+			let drawW = (nat?.w ?? 160) * s;
+			let drawH = (nat?.h ?? 100) * s;
+			// Optional sizing: scale a left-of-board panel to ≈40% of the board width
+			// (keeping aspect) so the FS counter reads like the real panel, not its raw
+			// natural size. Only when we know both the art aspect and the board.
+			if (placement === 'boardLeft' && nat && nat.w > 0 && board) {
+				const targetW = board.width * 0.4 * s;
+				const ratio = nat.h / nat.w;
+				drawW = targetW;
+				drawH = targetW * ratio;
+			}
+			const world = mainToWorld({ x: result.x, y: result.y });
+			return {
+				...t,
+				x: world.x,
+				y: world.y,
+				anchor: result.anchor,
+				scale: { x: 1, y: 1 },
+				rotation: 0,
+				width: drawW,
+				height: drawH,
+			};
+		}
+		// cover / contain: centred, sized to the frame by the art's natural aspect.
+		const fit = result.mode === 'cover' ? 'cover' : 'contain';
 		const nat = artNaturalSize(node);
 		const frameRatio = frameWidth / (frameHeight || 1);
 		const artRatio = nat ? nat.w / (nat.h || 1) : frameRatio;
@@ -250,7 +343,9 @@
 	 * a write would store the synthetic centre/size and break the cover. The cover
 	 * scale is still editable via the Properties `scale.x` control. */
 	function isBackgroundCover(node: LayoutNode): boolean {
-		if (anchorArt(node)?.fit) return true;
+		// Any resolved preview-art anchor uses a synthetic (placement-driven) transform;
+		// dragging it would store the synthetic centre/size and break placement.
+		if (anchorArt(node)) return true;
 		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
 	}
 
@@ -1559,6 +1654,8 @@
 	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown}></canvas>
 	<EditorSpineLayer
 		{scene}
+		{scenes}
+		{mainSizesMap}
 		{layoutType}
 		{frameWidth}
 		{frameHeight}
