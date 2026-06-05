@@ -206,6 +206,22 @@ CATALOG = {
             "jump from here.)"
         ),
     },
+    "ATLAS_IMPORT_FAILED": {
+        "severity": "error",
+        "title": "Couldn't import '{atlas}' into the Atlas Maker",
+        "explain": (
+            "The editor asked to open '{atlas}' here, so the Atlas Maker tried "
+            "to auto-import the existing sheet into a new generation manifest "
+            "— but it couldn't read the sheet's geometry or its page image from "
+            "this project's R2 staging. The source sheet (and its page PNG) may "
+            "not be hydrated, or the file isn't a TexturePacker / editor sheet."
+        ),
+        "fix": (
+            "Make sure '{atlas}' and its sibling page image exist in this "
+            "project's R2 (manifests/ prefix), then click ↻ Refresh from R2 "
+            "(or restart the service) and open it again."
+        ),
+    },
     "REGION_NOT_FOUND": {
         "severity": "error",
         "title": "Region '{name}' not found",

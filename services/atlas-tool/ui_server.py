@@ -928,6 +928,300 @@ def resolve_atlas_to_manifest(atlas: str) -> str | None:
         return None
 
 
+def _tp_frame_to_region(name: str, f: dict) -> dict:
+    """Convert ONE TexturePacker (json-hash) frame to the Atlas Maker snake_case
+    region. Mirrors apps/launcher-api/scripts/lib/tpRegions.mjs::tpFrameToRegion
+    exactly: frame.x/y/w/h → on-page rect (w/h = unrotated trimmed size);
+    rotated bool; spriteSourceSize.x/y → off_x/off_y; sourceSize.w/h →
+    orig_w/orig_h."""
+    fr = (f.get("frame") if isinstance(f, dict) else None) or {}
+    fw = int(fr.get("w") or 0)
+    fh = int(fr.get("h") or 0)
+    sss = (f.get("spriteSourceSize") if isinstance(f, dict) else None) or {}
+    src = (f.get("sourceSize") if isinstance(f, dict) else None) or {}
+    return {
+        "name": name,
+        "x": int(fr.get("x") or 0),
+        "y": int(fr.get("y") or 0),
+        "w": fw,
+        "h": fh,
+        "rotated": bool(isinstance(f, dict) and f.get("rotated")),
+        "off_x": int(sss.get("x") or 0),
+        "off_y": int(sss.get("y") or 0),
+        "orig_w": int(src.get("w") or fw),
+        "orig_h": int(src.get("h") or fh),
+    }
+
+
+def _tp_frame_entries(frames) -> list[tuple[str, dict]]:
+    """Normalize a TexturePacker `frames` block (json-hash object OR json-array)
+    into [(name, frame)] entries. Array frames carry their key in `filename`.
+    Mirrors tpRegions.mjs::tpFrameEntries."""
+    if isinstance(frames, list):
+        out = []
+        for f in frames:
+            if isinstance(f, dict):
+                nm = str(f.get("filename") or "")
+                if nm:
+                    out.append((nm, f))
+        return out
+    if isinstance(frames, dict):
+        return [(str(k), v) for k, v in frames.items() if isinstance(v, dict)]
+    return []
+
+
+def _normalize_converted_region(r: dict) -> dict | None:
+    """Normalize an already-converted editor/seed region (camelCase OR
+    snake_case) to the Atlas Maker snake_case shape. Returns None if it lacks a
+    usable name/rect."""
+    if not isinstance(r, dict):
+        return None
+    name = r.get("name")
+    if not name:
+        return None
+
+    def pick(*keys, default=None):
+        for k in keys:
+            if r.get(k) is not None:
+                return r[k]
+        return default
+
+    try:
+        x = int(pick("x", default=0))
+        y = int(pick("y", default=0))
+        w = int(pick("w"))
+        h = int(pick("h"))
+    except (TypeError, ValueError):
+        return None
+    return {
+        "name": name,
+        "x": x, "y": y, "w": w, "h": h,
+        "rotated": bool(r.get("rotated")),
+        "off_x": int(pick("off_x", "offX", default=0)),
+        "off_y": int(pick("off_y", "offY", default=0)),
+        "orig_w": int(pick("orig_w", "origW", default=w)),
+        "orig_h": int(pick("orig_h", "origH", default=h)),
+    }
+
+
+def _slice_region_from_page(src: Image.Image, region: dict) -> Image.Image | None:
+    """Cut one region's upright art out of the packed page image. Mirrors
+    slice_atlas.slice_regions' rotation handling: w/h are the UNROTATED size, so
+    a rotated frame occupies (h x w) on the page and is rotated -90 back upright.
+    Returns None if the rect is empty / out of bounds."""
+    sw, sh = src.size
+    x = int(region.get("x", 0))
+    y = int(region.get("y", 0))
+    w = int(region.get("w") or 0)
+    h = int(region.get("h") or 0)
+    rotated = bool(region.get("rotated"))
+    pw, ph = (h, w) if rotated else (w, h)
+    box = (max(0, x), max(0, y), min(sw, x + pw), min(sh, y + ph))
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return None
+    crop = src.crop(box)
+    if rotated:
+        crop = crop.rotate(-90, expand=True)
+    return crop
+
+
+def _import_asset_map_deploy(stem: str) -> tuple[str, str]:
+    """Best-effort (deploy_path, deploy_basename) for an imported sheet, read
+    from the project's asset-map (<R2_PREFIX>/asset-map.json) keyed by stem.
+    Missing/invalid map → ("", stem) so a later Deploy still has a basename and
+    the existing 'no deploy_path' warning prompts the user. Never raises."""
+    deploy_path = ""
+    deploy_basename = stem
+    try:
+        prefix = str(R2_PREFIX) if R2_PREFIX else ""
+        if not prefix:
+            return deploy_path, deploy_basename
+        blob = storage.get(f"{prefix}/asset-map.json")
+        if not blob:
+            return deploy_path, deploy_basename
+        amap = json.loads(blob)
+        if not isinstance(amap, dict):
+            return deploy_path, deploy_basename
+        entry = amap.get(stem)
+        if entry is None:  # case-insensitive fallback
+            entry = {str(k).lower(): v for k, v in amap.items()}.get(stem.lower())
+        if isinstance(entry, dict):
+            dp = str(entry.get("deploy_path", "")).replace("\\", "/").strip().strip("/")
+            if dp and not (re.match(r"^[A-Za-z]:/", dp) or dp.startswith("/")):
+                deploy_path = dp
+            mb = str(entry.get("deploy_basename", "")).strip()
+            if mb:
+                deploy_basename = mb
+    except Exception:  # noqa: BLE001 — asset-map is optional, never fatal
+        pass
+    return deploy_path, deploy_basename
+
+
+def import_sheet_to_manifest(atlas: str) -> str | None:
+    """Auto-import an existing TexturePacker / editor sheet into a NEW Atlas
+    Maker generation manifest and make it active. Returns the new manifest
+    filename (atlas_manifest_<stem>.json) on success, else None. Fully
+    exception-safe — any failure returns None so the deep-link renders a notice,
+    never a 500.
+
+    The source sheet is the hydrated `manifests/<basename(atlas)>` JSON. Both
+    shapes are handled: raw TexturePacker (`frames`+`meta`) and an
+    already-converted editor/seed manifest (`regions`+`atlas.source_image_path`).
+    Each region's CURRENT art is sliced out of the page and bound as its
+    `output_override` (mirrored to R2), so the cards show the existing art and
+    Create Atlas re-packs it (re-fit from the sliced art) until the user
+    replaces a frame."""
+    try:
+        if not atlas:
+            return None
+        name = Path(atlas).name
+        stem = Path(atlas).stem
+        MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+        # An existing recipe for this stem (resolve only missed it because its
+        # deploy stem diverged) must be ACTIVATED, never overwritten — a rewrite
+        # would destroy the user's prompts/seeds/refs. Open it instead.
+        existing = MANIFEST_DIR / f"atlas_manifest_{stem}.json"
+        if existing.exists():
+            try:
+                cfg = load_config()
+                cfg["manifest_path"] = existing.name
+                save_config(cfg)
+                return existing.name
+            except OSError:
+                return None
+        src_path = MANIFEST_DIR / name
+        if not src_path.exists():
+            # The sheet JSON itself may not be hydrated yet — pull by basename.
+            pulled = batch_atlas._hydrate_from_r2_by_name(name)
+            if pulled is not None and pulled.exists():
+                src_path = pulled
+        if not src_path.exists():
+            return None
+        try:
+            doc = json.loads(src_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(doc, dict):
+            return None
+
+        # --- Parse regions + page metadata from whichever shape we got. ------
+        regions: list[dict] = []
+        page_name = ""
+        width = height = 0
+        if isinstance(doc.get("frames"), (dict, list)):
+            # Raw TexturePacker (frames + meta).
+            for fname, f in _tp_frame_entries(doc.get("frames")):
+                regions.append(_tp_frame_to_region(fname, f))
+            meta = doc.get("meta") or {}
+            page_name = Path(str(meta.get("image") or "").replace("\\", "/")).name
+            size = meta.get("size") or {}
+            width = int(size.get("w") or 0)
+            height = int(size.get("h") or 0)
+        elif isinstance(doc.get("regions"), list):
+            # Already-converted editor/seed manifest.
+            for r in doc.get("regions"):
+                norm = _normalize_converted_region(r)
+                if norm is not None:
+                    regions.append(norm)
+            atlas_block = doc.get("atlas") or {}
+            page_ref = (atlas_block.get("source_image_path")
+                        or atlas_block.get("source_image") or "")
+            page_name = Path(str(page_ref).replace("\\", "/")).name
+            width = int(doc.get("width") or atlas_block.get("width") or 0)
+            height = int(doc.get("height") or atlas_block.get("height") or 0)
+        if not regions:
+            return None
+
+        # --- Split into the two buckets the tool uses. ----------------------
+        upright = [r for r in regions if not r.get("rotated")]
+        rotated = [r for r in regions if r.get("rotated")]
+
+        # --- Resolve the page image into staging so we can slice it. --------
+        page_path: Path | None = None
+        if page_name:
+            for cand in (MANIFEST_DIR / page_name,
+                         INPUT_DIR / "refs" / "atlas" / page_name,
+                         INPUT_DIR / page_name):
+                if cand.exists():
+                    page_path = cand
+                    break
+            if page_path is None:
+                pulled = batch_atlas._hydrate_from_r2_by_name(page_name)
+                if pulled is not None and pulled.exists():
+                    page_path = pulled
+        if page_path is None or not page_path.exists():
+            return None
+
+        # --- Slice each region's CURRENT art and bind it as output_override.
+        try:
+            page_img = Image.open(page_path).convert("RGBA")
+        except Exception:  # noqa: BLE001 — unreadable page → can't import
+            return None
+        if not width or not height:
+            width, height = page_img.size
+        (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
+        for r in upright + rotated:
+            try:
+                crop = _slice_region_from_page(page_img, r)
+                if crop is None:
+                    continue
+                rel = f"refs/useroutput_{r['name']}.png"
+                crop.save(INPUT_DIR / rel)
+                _mirror(INPUT_DIR / rel)  # persist verbatim art to R2
+                r["output_override"] = rel
+            except Exception:  # noqa: BLE001 — one bad region must not abort all
+                continue
+
+        # --- Stage the page so source_image_candidates() finds it later. ----
+        page_staged_rel = f"refs/atlas/{page_name}"
+        try:
+            dest = INPUT_DIR / page_staged_rel
+            if not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(page_path.read_bytes())
+                _mirror(dest)
+        except OSError:
+            page_staged_rel = page_name  # best-effort; geometry still works
+
+        # --- Deploy target (best-effort from asset-map). --------------------
+        deploy_path, deploy_basename = _import_asset_map_deploy(stem)
+
+        # --- Build + persist the manifest in the tool's own shape. ----------
+        manifest = {
+            "atlas": {
+                "source_image": page_staged_rel,
+                "source_image_path": page_staged_rel,
+                "width": width,
+                "height": height,
+                "format": "RGBA8888",
+            },
+            "width": width,
+            "height": height,
+            "style": {"positive_prefix": "", "positive_suffix": "",
+                      "negative": ""},
+            "regions": upright,
+            "rotated_regions": rotated,
+            "deploy_path": deploy_path,
+            "deploy_basename": deploy_basename,
+        }
+        out_name = f"atlas_manifest_{stem}.json"
+        out_path = MANIFEST_DIR / out_name
+        out_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+        _mirror(out_path)
+
+        # --- Activate it. ---------------------------------------------------
+        try:
+            cfg = load_config()
+            cfg["manifest_path"] = out_name
+            save_config(cfg)
+        except OSError:
+            return None
+        return out_name
+    except Exception:  # noqa: BLE001 — import must never break the deep-link
+        return None
+
+
 def _drop_fx_snapshot(name: str) -> None:
     """Discard a region's frozen FX source (refs/fxsrc_<name>.png) so the
     next FX build re-captures from the new image. Called whenever the real
@@ -2891,11 +3185,13 @@ class Handler(BaseHTTPRequestHandler):
         """Editor "Open in Atlas Maker" deep-link (shared URL contract).
 
         The editor/launcher sends the user to `/?atlas=<sheetFile>&region=<key>`
-        (plus k/client/project/home/sibling). When `atlas` is present we resolve
-        it to the generation manifest that OWNS it and make that the active
-        manifest, optionally flashing the region's card. If no Atlas Maker recipe
-        owns the atlas we fall back to the Sheet Maker's Import browser (the
-        `sibling` URL), or — lacking a sibling — render a notice.
+        (plus k/client/project/home). When `atlas` is present we resolve it to
+        the generation manifest that OWNS it and make that the active manifest,
+        optionally flashing the region's card. When NO Atlas Maker recipe owns
+        the atlas, we auto-import the existing TexturePacker/editor sheet into a
+        fresh generation manifest and open THAT — so "Open in Atlas Maker"
+        always lands in the Atlas Maker (it silently creates the recipe the
+        first time). The old Sheet Maker fallback redirect is gone.
 
         Returns True if a redirect response was already sent (caller must stop);
         False to continue rendering the index. Fully defensive: any error just
@@ -2908,7 +3204,6 @@ class Handler(BaseHTTPRequestHandler):
             if not atlas:
                 return False
             region = (qs.get("region", [""])[0] or "").strip()
-            sibling = (qs.get("sibling", [""])[0] or "").strip()
             resolved = resolve_atlas_to_manifest(atlas)
             if resolved:
                 # Activate it exactly like the session dropdown does.
@@ -2921,21 +3216,15 @@ class Handler(BaseHTTPRequestHandler):
                 if region:
                     self._deeplink_region = Path(region).stem
                 return False
-            # No Atlas Maker recipe → fall back to the Sheet Maker Import browser.
-            if sibling:
-                sep = "&" if "?" in sibling else "?"
-                target = (
-                    f"{sibling}{sep}import={urllib.parse.quote(atlas)}"
-                    + (f"&region={urllib.parse.quote(region)}" if region else "")
-                )
-                self.send_response(303)
-                self.send_header("Location", target)
-                if self._set_cookie:
-                    self.send_header("Set-Cookie", self._set_cookie)
-                self.end_headers()
-                return True
-            # No sibling (user lacks the Sheet Maker) → visible notice, no link.
-            self._deeplink_notice = _diag("NO_ATLAS_RECIPE", atlas=atlas)
+            # No Atlas Maker recipe → auto-import the existing sheet into a new
+            # generation manifest and open it (always lands in the Atlas Maker).
+            imported = import_sheet_to_manifest(atlas)
+            if imported:
+                if region:
+                    self._deeplink_region = Path(region).stem
+                return False  # render index → the newly-active manifest loads
+            # Import failed → visible notice, NO redirect.
+            self._deeplink_notice = _diag("ATLAS_IMPORT_FAILED", atlas=atlas)
             return False
         except Exception:  # noqa: BLE001 — a bad deep-link must never 500
             self._deeplink_region = ""
@@ -2957,11 +3246,11 @@ class Handler(BaseHTTPRequestHandler):
             # it. New tab/window with bare `/` still gets the splash.
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             # Editor "Open in Atlas Maker" deep-link: resolve atlas→manifest
-            # BEFORE serving the splash, so the unresolved-atlas fallback can
-            # 303-redirect to the Sheet Maker without first flashing the splash,
-            # and so the right manifest is active when the UI renders.
+            # (auto-importing the existing sheet into a fresh manifest when no
+            # recipe owns it yet) BEFORE serving the splash, so the right
+            # manifest is active when the UI renders.
             if self._handle_deeplink(qs):
-                return  # a redirect to the sibling Sheet Maker was sent
+                return  # a redirect response was already sent (rare)
             if qs.get("fast", ["0"])[0] == "1":
                 t0 = time.time()
                 body = self._index().encode("utf-8")
