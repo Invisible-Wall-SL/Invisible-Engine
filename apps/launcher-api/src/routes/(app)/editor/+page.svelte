@@ -296,12 +296,16 @@
 		gameType: string,
 	): void {
 		if (doc.scenes.length === 0) return;
+		const crossType = Boolean(projectGameType) && gameType !== projectGameType;
 		const hasContent = scenes.some((s) => s.nodes.length > 0);
-		// Always confirm — loading replaces what's on the canvas. Be explicit that
-		// it's a non-destructive preview until the first edit.
-		const warn = hasContent
-			? `Load the ${gameType} scenes? This replaces the current layout on screen.\n\nNothing is saved until you make an edit, so your project's saved layout is safe — but if you then edit, the load is what gets saved.`
-			: `Load the ${gameType} scenes onto the canvas?\n\nNothing is saved until you make an edit.`;
+		// A cross-type load (e.g. `lines` into a `bookOf` project) is the clobber
+		// case: confirm loudly AND suppress autosave afterwards so an edit can't
+		// silently overwrite the project's real, different-type saved doc.
+		const warn = crossType
+			? `⚠ This project is "${projectGameType}". Loading the "${gameType}" layout REPLACES it on screen, and saving would overwrite your "${projectGameType}" layout.\n\nIt will NOT autosave — you must click "Save" deliberately (or "Discard"). Continue?`
+			: hasContent
+				? `Load the ${gameType} scenes? This replaces the current layout on screen.\n\nNothing is saved until you make an edit, so your project's saved layout is safe — but if you then edit, the load is what gets saved.`
+				: `Load the ${gameType} scenes onto the canvas?\n\nNothing is saved until you make an edit.`;
 		if (!confirm(warn)) return;
 		scenes = structuredClone(doc.scenes);
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
@@ -309,10 +313,12 @@
 		activeSceneIdx = 0;
 		selectedId = null;
 		void loadTemplateFor(gameType);
-		// Deliberately NO markDirty(): loading a reference is a non-destructive
-		// preview. Autosave only kicks in once the user actually edits something,
-		// so merely viewing a reference can't clobber the project's saved doc.
-		loadedPreview = true;
+		// A same-type load stays a non-destructive preview (the first edit commits it
+		// via autosave). A cross-type load is held back from autosave entirely — only
+		// an explicit Save persists it — so it can't clobber the project's saved doc.
+		crossTypeLoaded = crossType;
+		crossTypeFrom = crossType ? gameType : '';
+		loadedPreview = !crossType;
 	}
 
 	/** Load the game scene chosen in the scene-bar picker. `ref:<type>` loads a
@@ -333,6 +339,12 @@
 			adoptScenes({ scenes: seedScenesFromTemplate(template), gameType }, gameType);
 		}
 		loadChoice = '';
+	}
+
+	/** Discard a cross-type loaded layout and reload the project's saved doc. */
+	function discardCrossType(): void {
+		if (!confirm("Discard the loaded layout and restore your project's saved layout?")) return;
+		location.reload();
 	}
 
 	/** Whether the HUD scenes (logo/name corners + bottom bar) are present. */
@@ -394,6 +406,16 @@
 	/** True after loading a reference layout, until the first edit — signals the
 	 * on-screen layout is an unsaved preview (autosave hasn't touched the doc). */
 	let loadedPreview = $state(false);
+	/** The project's OWN game type (from its saved doc / resolved template). Used to
+	 * flag a cross-type reference load that would overwrite a different game's doc. */
+	const projectGameType = data.doc.gameType ?? data.template?.gameType ?? '';
+	/** True after loading a reference/blank layout whose game type ≠ this project's.
+	 * While set, AUTOSAVE is suppressed so an edit can't silently overwrite the
+	 * project's real (different-type) saved doc — the user must Save or Discard.
+	 * This is the guard against the "Lines layout clobbered my bookOf project" bug. */
+	let crossTypeLoaded = $state(false);
+	/** The mismatched game type currently previewed (for the warning copy). */
+	let crossTypeFrom = $state('');
 	let lastError = $state('');
 	let lastSavedAt = $state(data.doc.updatedAt || '');
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
@@ -451,6 +473,8 @@
 				lastError = '';
 				dirty = false;
 				loadedPreview = false;
+				crossTypeLoaded = false;
+				crossTypeFrom = '';
 			}
 		} catch (e) {
 			lastError = e instanceof Error ? e.message : 'Save failed.';
@@ -468,6 +492,8 @@
 		// Re-running this effect when `dirty` flips true starts/restarts the
 		// autosave timer. Mutations bump `dirty` again -> debounce resets.
 		if (!dirty) return;
+		// A cross-type load must never autosave — only an explicit Save persists it.
+		if (crossTypeLoaded) return;
 		if (autosaveTimer) clearTimeout(autosaveTimer);
 		autosaveTimer = setTimeout(() => {
 			autosaveTimer = null;
@@ -783,6 +809,17 @@
 			{:else if lastError}
 				<span class="save-pill error" title={lastError}>Save failed</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Retry</button>
+			{:else if crossTypeLoaded}
+				<span
+					class="save-pill error"
+					title={`A "${crossTypeFrom}" layout is loaded over your "${projectGameType}" project. It will NOT autosave — Save converts the project, Discard restores it.`}
+				>
+					⚠ {crossTypeFrom} ≠ {projectGameType} — won't autosave
+				</span>
+				<button class="save-btn" type="button" onclick={() => void save()}>
+					Save as {crossTypeFrom}
+				</button>
+				<button class="save-btn" type="button" onclick={discardCrossType}>Discard</button>
 			{:else if dirty}
 				<span class="save-pill dirty">Unsaved changes</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
