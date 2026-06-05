@@ -1057,6 +1057,46 @@ def _import_asset_map_deploy(stem: str) -> tuple[str, str]:
     return deploy_path, deploy_basename
 
 
+def _page_only_hint(m: dict, stem: str) -> bool:
+    """Best-effort: does the active manifest resolve to a Spine target, so the
+    Deploy UI should pre-check "Page-only (Spine page)"? Mirrors triggers 1 & 2
+    of _deployatlas' page-only detection (manifest flag + asset-map kind), the
+    two cheap/no-network-after-startup checks. Trigger 3 (probing the deployed
+    `.json` in R2) is intentionally skipped here — it's the server's safety net
+    at deploy time, too heavy/uncertain for a UI hint. Never raises."""
+    try:
+        if m.get("deploy_page_only") or m.get("page_only"):
+            return True
+        prefix = str(R2_PREFIX) if R2_PREFIX else ""
+        if not prefix:
+            return False
+        blob = storage.get(f"{prefix}/asset-map.json")
+        if not blob:
+            return False
+        amap = json.loads(blob)
+        if not isinstance(amap, dict):
+            return False
+        man_base = str(m.get("deploy_basename", "")).strip()
+        cands = [c for c in (man_base, stem) if c]
+        entry = None
+        for c in cands:
+            if c in amap:
+                entry = amap[c]
+                break
+        if entry is None:  # case-insensitive fallback
+            lowered = {str(k).lower(): v for k, v in amap.items()}
+            for c in cands:
+                hit = lowered.get(c.lower())
+                if hit is not None:
+                    entry = hit
+                    break
+        if isinstance(entry, dict):
+            return str(entry.get("kind", "")).strip().lower() == "spine"
+    except Exception:  # noqa: BLE001 — asset-map is optional, never fatal
+        pass
+    return False
+
+
 def import_sheet_to_manifest(atlas: str) -> str | None:
     """Auto-import an existing TexturePacker / editor sheet into a NEW Atlas
     Maker generation manifest and make it active. Returns the new manifest
@@ -2209,6 +2249,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <input type="file" id="uplAtlasImg" accept="image/*" style="display:none" onchange="onAtlasImgPicked()">
   <button onclick="viewAtlas()" class="alt">🖼 View atlas</button>
   <button onclick="deployAtlas()" class="alt" title="Copy the built atlas (.png/.webp) to this manifest's Deploy folder, overwriting <stem>.png/.webp there. Set the folder in Atlas settings.">📦 Deploy atlas</button>
+  <label id="pageOnlyLbl" style="margin:0 2px 0 6px;font-size:13px;color:#bbb;display:inline-flex;align-items:center;gap:4px" title="Write only the page image (.webp/.png); skip the .json/.atlas so a Spine skeleton isn't overwritten. Auto-on for Spine targets.">
+   <input type="checkbox" id="pageOnly"{page_only_attrs} style="margin:0">Page-only (Spine page)</label>
+  {page_only_note}
   {spine_link}
  </div>
  <div class="bargrp" title="Generation/rendering controls — talks to ComfyUI">
@@ -2875,7 +2918,9 @@ async function deployAtlas(){{
  t.style.display='inline-block'; t.textContent='📦 Deploying…';
  let st=document.getElementById('stat'); if(st)st.textContent='📦 Deploying…';
  let msg;
- try{{ let r=await fetch('/deployatlas',{{method:'POST',body:'{{}}'}});
+ let pb=document.getElementById('pageOnly');
+ let url='/deployatlas'+((pb&&pb.checked)?'?page_only=1':'');
+ try{{ let r=await fetch(url,{{method:'POST',body:'{{}}'}});
   msg=(r.status===404)?'Deploy endpoint missing — restart run_ui.bat':await r.text();
  }}catch(e){{ msg='Deploy failed: '+e; }}
  t.textContent=msg; if(st)st.textContent=msg; flashDiag(msg);
@@ -3374,8 +3419,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._clearcache().encode())
         elif self.path == "/sliceatlas":
             self._send(200, "text/plain", self._sliceatlas().encode())
-        elif self.path == "/deployatlas":
-            self._send(200, "text/plain", self._deployatlas().encode())
+        elif urllib.parse.urlparse(self.path).path == "/deployatlas":
+            # `page_only=1` query param = explicit user override (the "Page-only
+            # (Spine page)" checkbox) forcing the spine-page deploy. OR-ed with
+            # the manifest-flag / asset-map / skeleton auto-detection inside
+            # _deployatlas — auto-detect still wins when unchecked.
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            _po = str((_q.get("page_only") or ["0"])[0]).strip().lower()
+            force_page_only = _po in ("1", "true", "yes", "on")
+            self._send(200, "text/plain",
+                       self._deployatlas(force_page_only=force_page_only).encode())
         elif self.path == "/setref":
             self._send(200, "text/plain", self._setref(json.loads(raw)).encode())
         elif self.path == "/clearref":
@@ -3663,7 +3716,7 @@ class Handler(BaseHTTPRequestHandler):
         freed = max(0, before - _dir_size(base))
         return f"✓ Cleared local cache — freed {_human_bytes(freed)}"
 
-    def _deployatlas(self) -> str:
+    def _deployatlas(self, force_page_only: bool = False) -> str:
         """Cloud deploy: copy the composed atlas (<stem>_new.png/webp/atlas in
         the staging ATLAS_DIR) to an R2 deploy location. `deploy_path` in the
         manifest is treated as an R2 key PREFIX (default
@@ -3763,11 +3816,14 @@ class Handler(BaseHTTPRequestHandler):
         # the skeleton and break the animation. When this is a spine page we deploy
         # ONLY the page image(s) and leave the skeleton + .atlas untouched. Trigger
         # on the first true of (cheap → best-effort):
+        #   0. the user's "Page-only (Spine page)" checkbox (`force_page_only`,
+        #      from the `page_only=1` query param) — an explicit override,
         #   1. manifest flag `deploy_page_only` / `page_only`,
         #   2. the matched asset-map entry's `kind == "spine"`,
         #   3. an existing `<dest>/<base>.json` in R2 parses as a Spine skeleton
         #      (top-level bones/skeleton/slots) rather than a TexturePacker map.
-        page_only = bool(m.get("deploy_page_only") or m.get("page_only"))
+        page_only = bool(force_page_only or m.get("deploy_page_only")
+                         or m.get("page_only"))
         if not page_only and isinstance(map_entry, dict):
             page_only = str(map_entry.get("kind", "")).strip().lower() == "spine"
         if not page_only:
@@ -4370,6 +4426,19 @@ class Handler(BaseHTTPRequestHandler):
                 f'title="Open this skeleton in the Invisible Spine Viewer '
                 f'({html.escape(str(_spine.get("name", "")), quote=True)})">🦴 View in Spine</a>'
             )
+        # Page-only (Spine page) hint: pre-check the Deploy checkbox + show a
+        # small note when the active manifest resolves to a Spine target. This is
+        # only a HINT — server-side auto-detect still forces page-only for spines
+        # even if the user unchecks it, and the checkbox forces it for any target.
+        _po_stem = manifest_path().stem.replace("atlas_manifest_", "")
+        page_only_hint = _page_only_hint(load_manifest(), _po_stem)
+        page_only_attrs = " checked" if page_only_hint else ""
+        page_only_note = (
+            '<span id="pageOnlyNote" style="font-size:12px;color:#7fd6a0;'
+            'margin-left:2px" title="This manifest maps to a Spine skeleton; '
+            'page-only is on so the .json/.atlas skeleton is not overwritten.">'
+            'Spine target &rarr; page-only</span>'
+            if page_only_hint else "")
         # Deep-link state (set by _handle_deeplink before render; defaults so a
         # plain page load is unaffected).
         dl_region = getattr(self, "_deeplink_region", "") or ""
@@ -4394,6 +4463,8 @@ class Handler(BaseHTTPRequestHandler):
             global_fields="".join(global_fields),
             atlas_fields="".join(atlas_fields),
             spine_link=spine_link,
+            page_only_attrs=page_only_attrs,
+            page_only_note=page_only_note,
             manifest_select=manifest_select,
             project_select=project_select,
             proj_qm=f'<span class="qm" title="{html.escape(help_for("project", cfg), quote=True)}">&#9432;</span>',
