@@ -3328,12 +3328,19 @@ class Handler(BaseHTTPRequestHandler):
                              f"({type(e).__name__}: {e}); ")
                 atlas_path = None  # fall through to the manifest-regions fallback
         if tp_regions is None:
-            # Fallback: build the spritesheet from the manifest's own regions[].
+            # Fallback: build the spritesheet from the manifest's own regions.
+            # Read BOTH region buckets — `regions` AND `rotated_regions` — exactly
+            # like every other manifest walk in this file (e.g. all_regions / the
+            # `for bucket in ("regions", "rotated_regions")` loops). Reading only
+            # `regions` silently drops every rotated_regions symbol from the
+            # deployed frame-map even though its art is in the page, so the game
+            # can't address it (blank symbol).
             # Manifest regions in this tool are snake_case ({name,x,y,w,h,rotated}
             # plus optional off_x/off_y/orig_w/orig_h when atlas-bound); a region
             # manifest authored elsewhere may use camelCase (offX/origW/…) — read
             # BOTH defensively. Missing offset/orig => a non-trimmed full frame.
-            man_regions = [r for r in (m.get("regions") or []) if isinstance(r, dict)]
+            man_regions = [r for bucket in ("regions", "rotated_regions")
+                           for r in (m.get(bucket) or []) if isinstance(r, dict)]
             normed: list[dict] = []
             for r in man_regions:
                 name = r.get("name")
