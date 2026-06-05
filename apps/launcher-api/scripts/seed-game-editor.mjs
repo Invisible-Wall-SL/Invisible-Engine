@@ -21,6 +21,7 @@
 // Real upload env: R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { tpFrameToEditorRegion } from './lib/tpRegions.mjs';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -58,34 +59,12 @@ const editorDocKey = `${PREFIX}/editor/scenes.json`;
 // Per-region Invisible fields (see lib/server/editorRegions.ts + the editor's
 // drawRegionSprite): x,y = on-page rect top-left; w,h = UNROTATED trimmed size
 // (the editor swaps to (h,w) on-page for rotated frames); offX,offY = trim offset
-// within origW,origH = original untrimmed size.
-//
-// ASSUMPTION (true for reels_frame.json): TexturePacker reports `frame.w/h` as the
-// UNROTATED size (frame.w/h == spriteSourceSize.w/h), not the on-sheet (rotated)
-// rect. If a rotated frame renders sideways/offset in the editor, this is the knob
-// to flip — tell me and I'll swap it.
-function tpToRegion(name, f) {
-	const fr = f.frame ?? {};
-	const sss = f.spriteSourceSize ?? { x: 0, y: 0, w: fr.w, h: fr.h };
-	const src = f.sourceSize ?? { w: fr.w, h: fr.h };
-	return {
-		name,
-		x: fr.x ?? 0,
-		y: fr.y ?? 0,
-		w: fr.w ?? 0,
-		h: fr.h ?? 0,
-		rotated: Boolean(f.rotated),
-		offX: sss.x ?? 0,
-		offY: sss.y ?? 0,
-		origW: src.w ?? fr.w ?? 0,
-		origH: src.h ?? fr.h ?? 0,
-	};
-}
-
+// within origW,origH = original untrimmed size. The frame→region mapping is the
+// shared `lib/tpRegions.mjs` (camelCase editor variant).
 async function buildManifest() {
 	const tp = JSON.parse(await readFile(TP_PATH, 'utf8'));
 	const frames = tp.frames ?? {};
-	const regions = Object.entries(frames).map(([name, f]) => tpToRegion(name, f));
+	const regions = Object.entries(frames).map(([name, f]) => tpFrameToEditorRegion(name, f));
 	const size = tp.meta?.size ?? {};
 	if (!size.w || !size.h) {
 		console.warn(
