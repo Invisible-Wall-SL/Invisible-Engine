@@ -111,6 +111,16 @@ interface BaseNode {
 export interface ContainerNode extends BaseNode {
 	kind: 'container';
 	children: LayoutNode[];
+	/**
+	 * Optional box size for an editor-visible anchor (e.g. a `mount` slot's
+	 * placeholder you positioned on the canvas). `resolveTransform` surfaces it so
+	 * the editor draws + resizes a real box. A PLAIN container ignores it in-game;
+	 * a `bind` container forwards it to the mounted component via `transform`
+	 * (which "SHOULD read transform.width/height" — see LayoutNodeView), so sizing
+	 * the box sizes the component for any game that consumes the anchor.
+	 */
+	width?: number;
+	height?: number;
 }
 
 export interface SpriteNode extends BaseNode {

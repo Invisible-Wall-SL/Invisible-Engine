@@ -10,7 +10,10 @@ export function resolveTransform(node: LayoutNode, layoutType: LayoutType): Reso
 	const gated = node.visibleFor && !node.visibleFor.includes(layoutType);
 	const visible = override.visible !== undefined ? override.visible : !gated;
 
-	const sizedBase = node.kind === 'sprite' || node.kind === 'spine' ? node : undefined;
+	const sizedBase =
+		node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'container'
+			? node
+			: undefined;
 	const tintedBase = node.kind === 'sprite' ? node : undefined;
 
 	return {

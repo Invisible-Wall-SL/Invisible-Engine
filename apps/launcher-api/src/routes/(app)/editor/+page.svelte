@@ -6,6 +6,7 @@
 		getReferenceLayout,
 		hudScenes,
 		listReferenceLayouts,
+		mountAnchor,
 		seedScenesFromTemplate,
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
@@ -254,6 +255,38 @@
 		goToTemplateScene(sceneId, sceneName);
 		fillSeq += 1;
 		fillRequest = { payload, slotId, seq: fillSeq };
+	}
+
+	/** Add an engine `mount` anchor for an empty mount slot so it shows as a
+	 * visible, draggable box on the canvas (mount slots take no asset). Sizes +
+	 * positions it over the board frame when the scene has one (slot `boardFrame`),
+	 * else centres a default box in the frame. Game-agnostic — driven by the active
+	 * template's slot, so it works for any game type. */
+	function onAddMountAnchor(sceneId: string, sceneName: string, slotId: string): void {
+		goToTemplateScene(sceneId, sceneName);
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		const slot = activeTemplate?.scenes
+			.find((s) => s.id === sceneId)
+			?.slots.find((s) => s.slotId === slotId && s.kind === 'mount');
+		if (!slot) return;
+		if (sc.nodes.some((n) => n.slotId === slotId)) return; // already anchored
+		// Default box: the board frame's rect if the scene has one, else a centred
+		// box in the main frame — so the anchor always lands somewhere visible.
+		const board = sc.nodes.find((n) => n.slotId === 'boardFrame' && n.kind === 'sprite');
+		const main = mainSizesMap[currentLayoutType];
+		const init =
+			board && board.kind === 'sprite' && board.width && board.height
+				? { x: board.x, y: board.y, width: board.width, height: board.height }
+				: {
+						x: main.width / 2,
+						y: main.height / 2,
+						width: Math.round(main.width * 0.6),
+						height: Math.round(main.height * 0.6),
+					};
+		const node = mountAnchor(sc.id, slot, init);
+		onSpawn(node);
+		selectedId = node.id;
 	}
 
 	/** Switch the canvas to a screen (scene) by index — the screen list picker. */
@@ -1155,6 +1188,7 @@
 						{selectedId}
 						onSelect={(id) => (selectedId = id)}
 						{onFillSlot}
+						onAddAnchor={onAddMountAnchor}
 					/>
 				{/if}
 			</div>

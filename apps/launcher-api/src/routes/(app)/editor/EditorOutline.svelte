@@ -8,8 +8,11 @@
 		onSelect: (id: string) => void;
 		/** Fill a slot by dropping a Library asset onto its row (drag-to-slot). */
 		onFillSlot?: (sceneId: string, sceneName: string, slotId: string, payload: unknown) => void;
+		/** Materialise an engine `mount` anchor for an empty mount slot, so it shows
+		 * as a draggable box on the canvas (mount slots take no asset). */
+		onAddAnchor?: (sceneId: string, sceneName: string, slotId: string) => void;
 	}
-	let { scene, template, selectedId, onSelect, onFillSlot }: Props = $props();
+	let { scene, template, selectedId, onSelect, onFillSlot, onAddAnchor }: Props = $props();
 
 	/** `slotId` of the slot row a Library asset is hovering over. */
 	let dragSlotId = $state<string | null>(null);
@@ -99,16 +102,23 @@
 			{#each slots as slot (slot.slotId)}
 				{@const isFilled = filled.has(slot.slotId)}
 				{@const missing = !isFilled && slot.required}
+				{@const addable = slot.kind === 'mount' && !isFilled}
 				<li>
 					<button
 						type="button"
 						class="slot"
 						class:missing
+						class:addable
 						class:dropping={dragSlotId === slot.slotId}
 						class:droppable={isDroppable(slot.kind)}
-						title={isDroppable(slot.kind)
-							? `Drag a Library asset here to fill ${slot.name}`
-							: `${slot.name} is a mount slot (engine-owned anchor)`}
+						title={addable
+							? `Add the ${slot.name} anchor to the canvas so you can position it`
+							: isDroppable(slot.kind)
+								? `Drag a Library asset here to fill ${slot.name}`
+								: `${slot.name} is a mount slot (engine-owned anchor)`}
+						onclick={addable && scene
+							? () => onAddAnchor?.(scene.id, scene.name, slot.slotId)
+							: undefined}
 						ondragover={(e) => onSlotDragOver(e, slot.slotId, slot.kind)}
 						ondragleave={() => (dragSlotId = null)}
 						ondrop={(e) => onSlotDrop(e, slot.slotId, slot.kind)}
@@ -116,7 +126,9 @@
 						<span class="dot" class:filled={isFilled}></span>
 						<span class="label">{slot.name}</span>
 						<span class="kind">{slot.kind}</span>
-						<span class="status" class:missing>{isFilled ? 'filled' : 'empty'}</span>
+						<span class="status" class:missing>
+							{isFilled ? 'filled' : addable ? '+ add' : 'empty'}
+						</span>
 					</button>
 				</li>
 			{/each}
@@ -241,6 +253,17 @@
 		border-color: #7ee0c0;
 		background: #14201c;
 		color: #cffaec;
+	}
+	.slot.addable {
+		cursor: pointer;
+	}
+	.slot.addable:hover {
+		border-color: #3a5a7a;
+		background: #141a22;
+		color: #cfe6ff;
+	}
+	.slot.addable .status {
+		color: #6aa0d0;
 	}
 	.slot.missing {
 		border-color: #4a2a30;
