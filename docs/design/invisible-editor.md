@@ -439,3 +439,37 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 - **Signal vocabulary + wiring** — fixed core (`enter`/`exit`/`idle`) + per-game custom signals mapped to book events in **code** (`registerComponentSignals`) for v1; editor only declares names. Confirm engine owns the wiring (vs a data-authored event map later).
 - **Shared vs project precedence** — confirm project component **shadows** shared of the same id (mirrors template R2-over-built-in).
 - **Does a component subsume a template?** — a `ComponentDef` and a `GameTemplate` are both "mini `LayoutDoc` + metadata." Decide whether a template is just a top-level component, or they stay distinct (recommend distinct for now: template = per-scene slot contract, component = reusable instanced object; revisit if they converge).
+
+## 9. Addendum — Fonts: edit text + see/ship the real game fonts (owner direction 2026-06-05)
+
+**Status: SCOPED, not started.** Owner ask: from a selected text node's **Properties** panel, (1) **see the same fonts in the editor that the game renders**, (2) **edit the text** and have it appear in-game, (3) **change the font/bitmap** and have the appearance change in-game.
+
+### 9.1 Why this is two systems (the gap)
+- **Editor** draws every text node with **HTML5 Canvas2D** `ctx.fillText` (`apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte` ~L849), `fontFamily ?? 'sans-serif'`. It loads **none** of the game's fonts → an unknown family (e.g. a bitmap-font name) silently falls back to a system font. (Same root cause as the older "rendered serif" note in STATUS.)
+- **Game** loads bitmap fonts as BMFont `.xml` + page PNG (`apps/lines/src/game/assets.ts` ~L136: `goldFont`/`goldBlur`/`silverFont`/`purpleFont`) and renders custom text via `<BitmapText fontFamily="gold">` (e.g. `FreeSpinCounter.svelte`). Web fonts go through `<Text>` (WebFontLoader).
+- **Engine layout text path** is *also* a gap: `packages/engine-layout/src/lib/LayoutNodeView.svelte` (~L116) renders a layout text node with the regular `<Text>` only — so a layout text node **cannot show a bitmap font even in-game** today. Closing both gaps is what makes "what I see in the editor == what ships."
+
+### 9.2 Scope boundary (agreed)
+- **In scope:** static / semi-static **layout text nodes** (labels, headings, captions) rendered through `<LayoutScene>` — their string + font are editor-authored and flow to the game via `/api/editor/doc`.
+- **Out of scope (v1):** **dynamic coded text** (free-spin counter value, balance/bet/win numbers, count-ups) — the *string* is computed at runtime in coded components and stays coded. Their **font/position** can be made editor-driven later (Phase 4), but not their text content.
+
+### 9.3 Contract + architecture decisions
+- **Font catalog = single source of truth.** New `FontEntry { name, kind: 'bitmap' | 'web', files }` in `packages/engine-layout` + a per-project `fonts.json` manifest in R2 (`<client>/<project>/fonts/…`, plus a `_shared/fonts/` library — mirror the spine `includeSharedSpines` posture). The catalog drives: the editor's font dropdown, the editor's renderer (which path), the engine's `<Text>`-vs-`<BitmapText>` choice, the game's boot-time font loading, and editor **validation** (warn when a text node references a font the project lacks — mirrors slot/asset warnings).
+- **Editor bitmap rendering = 2D-canvas BMFont blitter (recommended).** Fetch `.xml`+page, parse glyph/kerning table, blit glyph quads with `drawImage` on the existing 2D canvas. Rationale: text already lives on the 2D canvas, no new runtime, controllable metrics. (Alternative considered: route text through a WebGL/PIXI overlay like spine — heavier, only worth it if we need pixel-exact PIXI parity. **Owner decision still open — see 9.5.**)
+- **Persistence:** `style.fontFamily` already round-trips via `editorStorage.normalizeDoc`; `node.text` edits already flow to the game for layout text nodes. The new identity (which font + that it's bitmap) is resolved via the catalog by name — no per-node `bitmap` flag needed if the catalog is authoritative.
+- **Server pattern:** clone the spine endpoint — `GET /api/editor/fonts` (gated `gate({tool:'editor'})`, returns the catalog) + reuse `GET /api/editor/asset?key=…` to stream `.xml`/page bytes; resolver in `lib/server/fonts.ts`. Sync via `scripts/r2-sync-fonts.mjs` (clone of `r2-sync-spines.mjs`).
+
+### 9.4 Build order (phased; editor-only first, engine contract last)
+1. **Phase 0 — contract + fonts into R2 (foundation).** `engine-layout` `FontEntry`/`fontCatalog.ts` + `fonts.json`; `r2-sync-fonts.mjs`; `/api/editor/fonts` + `lib/server/fonts.ts`. Effort ~M, risk low (spine analogue).
+2. **Phase 1 — editor fidelity (read-only).** 2D BMFont renderer (`bmfont.ts` + `EditorCanvas.svelte`); load web fonts via `FontFace`/`document.fonts` before paint; wire font fetches into the existing `onLoadingChange` "Loading assets…" overlay. Effort ~M–L, risk med (glyph metrics must match PIXI). *After this: you see the real fonts.*
+3. **Phase 2 — Properties: edit text + pick font.** Replace the freeform `fontFamily` input (`EditorProperties.svelte` ~L597) with a `<select>` from `/api/editor/fonts` (name + bitmap/web tag); a text field bound to `node.text`; keep size/weight/style/fill, add **tint** for bitmap. ⚠️ Disable `stroke`/`dropShadow` when a bitmap font is selected (don't apply to `<BitmapText>`); note size = atlas scaling (can soften). Effort ~M, risk low.
+4. **Phase 3 — engine consumption (makes choices ship; touches the contract).** `LayoutNodeView` renders `<BitmapText>` when the catalog says `kind==='bitmap'`, else `<Text>`; game registers the catalog's fonts in its asset manifest at boot; parity fallback (no change → byte-identical). Parity-gated, per game (`apps/lines` + Book of Borut), same discipline as the reskin rollout. Effort ~M–L, risk med (engine contract change).
+5. **Phase 4 — optional.** Browser font upload (drag `.xml`+page → R2, cloud-native, no PowerShell); shared `_shared/fonts/` library; editor-driven fonts for dynamic coded text (font/position only); per-`layoutType` text style overrides.
+
+**Recommended:** land 0→1→2 (faithful, editable preview; editor-only, low risk) and verify online before Phase 3 (the only part that modifies the engine contract).
+
+### 9.5 Open decisions (need owner input)
+- **Editor render path** — 2D-canvas BMFont blitter (recommended, self-contained) vs. WebGL/PIXI overlay (pixel-exact PIXI parity, heavier). Default to 2D unless parity demands otherwise.
+- **Dynamic-text fonts** — confirm v1 leaves coded dynamic values out (their font/position deferred to Phase 4), per 9.2.
+- **Bitmap "change appearance" expectations** — bitmap fonts are baked atlases: tint + scale yes; arbitrary recolor/stroke/shadow no. Confirm that's acceptable, or a font swap (pick a different baked variant, e.g. `gold`→`silver`) is the intended "change appearance" path.
+- **Font discovery for the catalog** — seed `fonts.json` from each game's `assets.ts` `type:'font'` entries (Phase 0 sync), or author it in the editor. Recommend sync-from-game first.
