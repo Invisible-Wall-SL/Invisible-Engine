@@ -33,6 +33,10 @@ export interface ManifestRegion {
 export interface AtlasManifestShape {
 	regions?: ManifestRegion[];
 	rotated_regions?: ManifestRegion[];
+	/** Game-relative subdir under `static/assets/` the Deploy step mirrors into. */
+	deploy_path?: string;
+	/** Sheet file stem the Deploy step writes (`<deploy_basename>.json` / `.png`). */
+	deploy_basename?: string;
 }
 
 /** A TexturePacker frame as it appears in the game's committed sheet. */
@@ -61,6 +65,16 @@ export interface ManifestCheckReport {
 	geometryMismatch: GeometryMismatch[];
 	/** Frames whose `rotated` flag disagrees between manifest and game. */
 	rotationMismatch: string[];
+	/**
+	 * WARNING (does NOT affect `ok`): the manifest has no/empty `deploy_path`, so the
+	 * Deploy step dumps the sheet to the `deploy/` root and the game — which loads
+	 * each sheet from a fixed `static/assets/<deploy_path>/` path — won't find it.
+	 */
+	deployPathMissing: boolean;
+	/** WARNING (does NOT affect `ok`): the manifest has no/empty `deploy_basename`. */
+	deployBasenameMissing: boolean;
+	/** Human-readable notes (e.g. the missing-deploy_path consequence). */
+	notes: string[];
 	/** True when nothing is missing and no geometry/rotation differs. */
 	ok: boolean;
 }
@@ -174,8 +188,41 @@ export function validateManifestAgainstGame(
 	rotationMismatch.sort();
 	geometryMismatch.sort((a, b) => a.name.localeCompare(b.name) || a.field.localeCompare(b.field));
 
+	// Deploy-target warnings. A missing deploy_path is NOT a frame mismatch, so it
+	// must never flip `ok` — but Deploy then dumps the sheet to the deploy/ root and
+	// the game can't find it, so surface it loudly as a warning.
+	const deployPathMissing =
+		typeof manifest.deploy_path !== 'string' || manifest.deploy_path.trim().length === 0;
+	const deployBasenameMissing =
+		typeof manifest.deploy_basename !== 'string' ||
+		manifest.deploy_basename.trim().length === 0;
+
+	const notes: string[] = [];
+	if (deployPathMissing) {
+		notes.push(
+			'deploy_path is empty: Deploy will write the sheet to the deploy/ root, but the game ' +
+				'loads each sheet from static/assets/<deploy_path>/, so it will not find the files. ' +
+				'Auto-derive it from the game sheet (derive-atlas-manifest --sheet) or set an override.',
+		);
+	}
+	if (deployBasenameMissing) {
+		notes.push(
+			'deploy_basename is empty: Deploy falls back to the manifest name for the written ' +
+				'<basename>.json/.png, which may not match the file the game requests.',
+		);
+	}
+
 	const ok =
 		missing.length === 0 && geometryMismatch.length === 0 && rotationMismatch.length === 0;
 
-	return { missing, extra, geometryMismatch, rotationMismatch, ok };
+	return {
+		missing,
+		extra,
+		geometryMismatch,
+		rotationMismatch,
+		deployPathMissing,
+		deployBasenameMissing,
+		notes,
+		ok,
+	};
 }

@@ -5,7 +5,7 @@
 //
 //   node scripts/derive-atlas-manifest.mjs --client <c> --project <p> --name <sheet> \
 //     [--sheet <path-to-game.json>] [--deploy-path <sub>] [--deploy-basename <base>] \
-//     [--merge] [--dry-run] [--check-only]
+//     [--merge] [--force-deploy-path] [--dry-run] [--check-only]
 //
 // Source frames:
 //   --sheet <path>  read the game's TexturePacker JSON from disk, OR
@@ -23,6 +23,7 @@
 //
 // Real R2 env: R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
 import { readFile } from 'node:fs/promises';
+import { dirname, parse as parsePath } from 'node:path';
 import { framesToRegionBuckets, tpFrameEntries, tpFrameToRegion } from './lib/tpRegions.mjs';
 
 const args = process.argv.slice(2);
@@ -40,6 +41,7 @@ const DEPLOY_PATH_ARG = opt('deploy-path');
 const DEPLOY_BASENAME_ARG = opt('deploy-basename');
 const DRY_RUN = has('dry-run');
 const CHECK_ONLY = has('check-only');
+const FORCE_DEPLOY_PATH = has('force-deploy-path');
 let MERGE = has('merge');
 
 if (!CLIENT || !PROJECT || !NAME) {
@@ -51,6 +53,9 @@ if (!/^[A-Za-z0-9_-]+$/.test(NAME)) {
 	process.exit(2);
 }
 
+/** A trimmed non-empty string, else undefined (empty/whitespace deploy_path = "unset"). */
+const pickStr = (v) => (typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined);
+
 /** Slug rule — byte-identical to `r2Slug` in the launcher + the Python tools. */
 const r2Slug = (s) =>
 	s
@@ -59,6 +64,40 @@ const r2Slug = (s) =>
 		.slice(0, 60) || 'default';
 const PREFIX = `${r2Slug(CLIENT)}/${r2Slug(PROJECT)}`;
 const manifestKey = `${PREFIX}/manifests/atlas_manifest_${NAME}.json`;
+
+/**
+ * Auto-derive the game's deploy target from a `--sheet` path by anchoring on the
+ * committed `static/assets/` (or bare `assets/`) segment. The game loads every
+ * sheet at a predictable path under `static/assets/`, so the sheet's directory
+ * RELATIVE to that segment IS the deploy_path, and the file stem IS the basename:
+ *   …/static/assets/sprites/symbolsStatic/symbolsStatic.json
+ *     → { deployPath: 'sprites/symbolsStatic', deployBasename: 'symbolsStatic' }
+ *   …/static/assets/symbolsStatic.json
+ *     → { deployPath: '', deployBasename: 'symbolsStatic' }
+ * Returns `null` (caller warns + skips) when no assets anchor is present — we do
+ * NOT guess a layout the game might not honour.
+ * @param {string} sheetPath absolute or relative path to the game's TP JSON
+ * @returns {{ deployPath: string, deployBasename: string } | null}
+ */
+function deriveDeployTarget(sheetPath) {
+	const stem = parsePath(sheetPath).name;
+	const dir = dirname(sheetPath).split(/[\\/]/).join('/');
+	const segs = dir.split('/').filter(Boolean);
+	// Find the LAST `static/assets` pair, else the last bare `assets`, and take
+	// everything below it as the deploy_path.
+	let anchor = -1;
+	for (let i = 0; i < segs.length - 1; i++) {
+		if (segs[i] === 'static' && segs[i + 1] === 'assets') anchor = i + 1;
+	}
+	if (anchor === -1) {
+		for (let i = 0; i < segs.length; i++) {
+			if (segs[i] === 'assets') anchor = i;
+		}
+	}
+	if (anchor === -1) return null;
+	const deployPath = segs.slice(anchor + 1).join('/');
+	return { deployPath, deployBasename: stem };
+}
 
 // Creative fields the merge MUST preserve on each region (everything that isn't
 // derived geometry). Geometry keys are owned by the game sheet and overwritten.
@@ -285,11 +324,50 @@ async function main() {
 	const { regions: upright, rotated_regions: rotated } = framesToRegionBuckets(frames);
 	const derivedRegions = [...upright, ...rotated];
 
-	// Effective deploy_path/_basename for the written manifest: explicit arg wins,
-	// else carry over from the existing manifest, else default to a sprites mirror.
-	const effDeployPath =
-		DEPLOY_PATH_ARG ?? existing?.deploy_path ?? (SHEET_PATH ? '' : deployPath) ?? '';
-	const effDeployBasename = DEPLOY_BASENAME_ARG ?? existing?.deploy_basename ?? basename;
+	// Auto-derive the deploy target FROM the game's committed asset layout when the
+	// source is a `--sheet` on disk (the only place the game path is known). When the
+	// source is the R2 deploy/ fallback the game path is unknown, so leave it as-is.
+	const autoTarget = SHEET_PATH ? deriveDeployTarget(SHEET_PATH) : null;
+	if (SHEET_PATH && !autoTarget) {
+		console.warn(
+			`⚠ --sheet "${SHEET_PATH}" has no static/assets/ (or assets/) segment — ` +
+				'cannot auto-derive deploy_path; leaving it as-is. Pass --deploy-path to set it.',
+		);
+	}
+
+	// Effective deploy_path/_basename for the written manifest, in precedence order:
+	//   1. explicit --deploy-path / --deploy-basename arg (manual override, always wins)
+	//   2. the value carried on the existing manifest (preserved on --merge)…
+	//   3. …unless empty/absent (or --force-deploy-path) — then the auto-derived value
+	//   4. else the deployPath used to fetch the R2 fallback, or the sheet name.
+	const existingDeployPath = pickStr(existing?.deploy_path);
+	const existingDeployBasename = pickStr(existing?.deploy_basename);
+	const shouldFillFromAuto =
+		!!autoTarget && (FORCE_DEPLOY_PATH || existingDeployPath === undefined);
+
+	let effDeployPath;
+	if (DEPLOY_PATH_ARG !== null) effDeployPath = DEPLOY_PATH_ARG;
+	else if (shouldFillFromAuto) effDeployPath = autoTarget.deployPath;
+	else effDeployPath = existingDeployPath ?? (SHEET_PATH ? '' : deployPath) ?? '';
+
+	let effDeployBasename;
+	if (DEPLOY_BASENAME_ARG !== null) effDeployBasename = DEPLOY_BASENAME_ARG;
+	else if (shouldFillFromAuto) effDeployBasename = autoTarget.deployBasename;
+	else effDeployBasename = existingDeployBasename ?? basename;
+
+	if (autoTarget) {
+		const reason = DEPLOY_PATH_ARG !== null
+			? '(overridden by --deploy-path)'
+			: shouldFillFromAuto
+				? existingDeployPath === undefined
+					? '(was empty → filled)'
+					: '(--force-deploy-path → overwritten)'
+				: `(kept existing "${existingDeployPath}"; pass --force-deploy-path to overwrite)`;
+		console.info(
+			`Deploy target from game layout: deploy_path="${autoTarget.deployPath}" ` +
+				`deploy_basename="${autoTarget.deployBasename}" → using deploy_path="${effDeployPath}" ${reason}`,
+		);
+	}
 	const pageKey = `${PREFIX}/manifests/${pageImage.replace(/\\/g, '/').split('/').pop()}`;
 	const meta = {
 		atlas: { source_image_path: pageKey, width: size.w ?? 0, height: size.h ?? 0 },
@@ -315,6 +393,16 @@ async function main() {
 
 	// Validate the manifest we'd write against the authoritative frames.
 	const report = validate(manifest, frames);
+
+	// Deploy-target warning (mirrors atlasManifestCheck.ts): an empty deploy_path
+	// means Deploy dumps the sheet to the deploy/ root and the game can't find it.
+	if (!pickStr(manifest.deploy_path)) {
+		console.warn(
+			'⚠ deploy_path is empty: Deploy will write the sheet to the deploy/ root, but the ' +
+				'game loads each sheet from static/assets/<deploy_path>/ and will not find it. ' +
+				'Pass --sheet (auto-derives) or --deploy-path.',
+		);
+	}
 
 	if (CHECK_ONLY) {
 		printDiff(report, mergeReport);
