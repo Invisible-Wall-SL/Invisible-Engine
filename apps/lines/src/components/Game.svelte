@@ -31,6 +31,7 @@
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
+	import SymbolDebug from './SymbolDebug.svelte';
 
 	registerBoundComponents({ Win, Transition });
 
@@ -121,6 +122,7 @@
 		<InfoOverlay manifest={infoManifest} />
 
 		<I18nTest />
+		<SymbolDebug />
 	{/if}
 </App>
 

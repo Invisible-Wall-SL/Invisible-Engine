@@ -6,6 +6,9 @@ import ResponsiveBitmapText from './src/components/ResponsiveBitmapText.svelte';
 import ResponsiveText from './src/components/ResponsiveText.svelte';
 import Button, { type Props as ButtonProps } from './src/components/Button.svelte';
 import Amount, { type Props as AmountProps } from './src/components/Amount.svelte';
+import SymbolDebugOverlay, {
+	type Props as SymbolDebugOverlayProps,
+} from './src/components/SymbolDebugOverlay.svelte';
 
 export {
 	EnablePixiExtension,
@@ -16,6 +19,7 @@ export {
 	ResponsiveText,
 	Amount,
 	Button,
+	SymbolDebugOverlay,
 };
 
-export type { ButtonProps, AmountProps };
+export type { ButtonProps, AmountProps, SymbolDebugOverlayProps };
