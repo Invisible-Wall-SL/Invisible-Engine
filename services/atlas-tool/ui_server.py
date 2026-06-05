@@ -2661,7 +2661,7 @@ window.addEventListener('DOMContentLoaded',function(){{
 </script></body></html>"""
 
 CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe}" data-usedseed="{used_seed}" data-lockedseed="{locked_seed}" data-variant="{variant}">
- <h3><input type="checkbox" class="sel" {checked}> {name} — {fruit}{gpt_badge}
+ <h3><input type="checkbox" class="sel" {checked}> {name}{gpt_badge}
   <button class="cpbtn" title="Copy settings (prompt + advanced + shine; NOT reference image, seed or lock)" onclick="copyCfg('{name}')">⧉</button><button class="ptbtn" title="Paste copied settings into this region" onclick="pasteCfg('{name}')">📥</button>{mode_sel}</h3>
  <div class="role">{role}</div>
  <div class="imgs">
@@ -3653,7 +3653,6 @@ class Handler(BaseHTTPRequestHandler):
                 ref_kind=html.escape(ref_kind),
                 name=html.escape(name),
                 eff_pipe=html.escape(eff_pipe),
-                fruit=html.escape(str(r.get("fruit", ""))),
                 role=html.escape(str(r.get("role", ""))),
                 checked="" if r.get("skip_unless_explicit") else "checked",
                 locked="checked" if committed_lock else "",
