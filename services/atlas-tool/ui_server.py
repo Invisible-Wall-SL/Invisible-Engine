@@ -3695,7 +3695,12 @@ class Handler(BaseHTTPRequestHandler):
         # FRESH from R2 every deploy so a newly-published map is honoured
         # without a tool restart; tolerate a missing/invalid map as "no map".
         auto_note = ""
-        if not raw and prefix:
+        # The asset-map entry matched for THIS deploy (by basename/name) — kept
+        # around past the auto-resolve block so the page-only detection below can
+        # read its `kind` ("spine" vs "sprite") without re-reading the map.
+        map_entry: dict | None = None
+        man_base = str(m.get("deploy_basename", "")).strip()
+        if prefix:
             asset_map: dict = {}
             try:
                 blob = storage.get(f"{prefix}/asset-map.json")
@@ -3709,7 +3714,6 @@ class Handler(BaseHTTPRequestHandler):
                 # Candidate keys, in priority order: the manifest's
                 # deploy_basename, the stem/out_base being deployed, then the
                 # manifest filename sans `atlas_manifest_`/ext.
-                man_base = str(m.get("deploy_basename", "")).strip()
                 cands = [c for c in (man_base, out_base, stem) if c]
                 entry = None
                 for c in cands:
@@ -3724,18 +3728,22 @@ class Handler(BaseHTTPRequestHandler):
                             entry = hit
                             break
                 if isinstance(entry, dict):
-                    mapped = str(entry.get("deploy_path", "")).replace(
-                        "\\", "/").strip().strip("/")
-                    if mapped and not (re.match(r"^[A-Za-z]:/", mapped)
-                                       or mapped.startswith("/")):
-                        raw = mapped
-                        # Adopt the map's basename only if the manifest had none.
-                        if not man_base:
-                            mb = str(entry.get("deploy_basename", "")).strip()
-                            if mb:
-                                out_base = mb
-                        auto_note = (
-                            f"ℹ deploy_path auto-resolved from asset-map → {raw}")
+                    map_entry = entry
+            # AUTO-RESOLVE: when no explicit `deploy_path` is set on the
+            # manifest, adopt the matched asset-map entry's deploy_path/basename.
+            if map_entry is not None and not raw:
+                mapped = str(map_entry.get("deploy_path", "")).replace(
+                    "\\", "/").strip().strip("/")
+                if mapped and not (re.match(r"^[A-Za-z]:/", mapped)
+                                   or mapped.startswith("/")):
+                    raw = mapped
+                    # Adopt the map's basename only if the manifest had none.
+                    if not man_base:
+                        mb = str(map_entry.get("deploy_basename", "")).strip()
+                        if mb:
+                            out_base = mb
+                    auto_note = (
+                        f"ℹ deploy_path auto-resolved from asset-map → {raw}")
         # `deploy_path` is the subpath UNDER deploy/ that mirrors the game's
         # static/assets/ layout (e.g. `sprites/symbolsStatic`). Strip a redundant
         # leading `deploy/` if the user included it, so it never double-nests.
@@ -3749,8 +3757,39 @@ class Handler(BaseHTTPRequestHandler):
             dest_prefix = raw  # caller gave a fully-qualified key inside the project
         else:
             dest_prefix = f"{base}/{raw}"  # nest the mirrored subpath under deploy/
+        # PAGE-ONLY MODE — for a Spine target the deploy destination already holds
+        # a `<base>.json` that is the SKELETON (~88 KB) plus a `<base>.atlas`; the
+        # normal sprite-sheet path would write a TexturePacker `<base>.json` over
+        # the skeleton and break the animation. When this is a spine page we deploy
+        # ONLY the page image(s) and leave the skeleton + .atlas untouched. Trigger
+        # on the first true of (cheap → best-effort):
+        #   1. manifest flag `deploy_page_only` / `page_only`,
+        #   2. the matched asset-map entry's `kind == "spine"`,
+        #   3. an existing `<dest>/<base>.json` in R2 parses as a Spine skeleton
+        #      (top-level bones/skeleton/slots) rather than a TexturePacker map.
+        page_only = bool(m.get("deploy_page_only") or m.get("page_only"))
+        if not page_only and isinstance(map_entry, dict):
+            page_only = str(map_entry.get("kind", "")).strip().lower() == "spine"
+        if not page_only:
+            try:
+                existing = storage.get(f"{dest_prefix}/{out_base}.json")
+                if existing:
+                    doc = json.loads(existing)
+                    if isinstance(doc, dict):
+                        is_tp = isinstance(doc.get("frames"), (dict, list)) \
+                            and isinstance(doc.get("meta"), dict)
+                        is_spine = any(k in doc for k in
+                                       ("bones", "skeleton", "slots"))
+                        if is_spine and not is_tp:
+                            page_only = True
+            except Exception:  # noqa: BLE001 — missing/invalid = not detectable
+                pass
+        # Page-only deploys ship JUST the page image(s); never a `.atlas` (the
+        # spine target's own .atlas must stay intact). Normal deploys also carry
+        # the composed `.atlas`.
+        page_suffixes = {".png", ".webp"} if page_only else {".png", ".webp", ".atlas"}
         sources = sorted(p for p in ATLAS_DIR.glob(f"{stem}_new.*")
-                         if p.suffix.lower() in {".png", ".webp", ".atlas"})
+                         if p.suffix.lower() in page_suffixes)
         if not sources:
             return (f"📦 Nothing to deploy — no {stem}_new.(png|webp|atlas) in "
                     f"the composed output. Create Atlas first.")
@@ -3787,10 +3826,22 @@ class Handler(BaseHTTPRequestHandler):
         # they already carry per-region geometry). Additive: never blocks the
         # .png/.webp deploy above.
         json_note = ""
+        spine_note = ""
+        if page_only:
+            # Spine target: page image(s) already deployed above. SKIP the
+            # TexturePacker `<base>.json` writer entirely so the spine skeleton
+            # (also named `<base>.json`) and its `<base>.atlas` are left intact.
+            pages = ", ".join(
+                f"{out_base}{s.suffix}" for s in sources
+                if s.suffix.lower() in {".png", ".webp"})
+            spine_note = (
+                f"ℹ Spine page-only deploy — wrote {pages or out_base + '.png/.webp'}; "
+                f"skipped TexturePacker .json so the spine skeleton + .atlas "
+                f"stay intact.\n")
         tp_regions: list[dict] | None = None  # normalized region dicts for the writer
         page_w = page_h = 0
         atlas_path = batch_atlas.atlas_file_path(m, manifest_path())
-        if atlas_path is not None and atlas_path.exists():
+        if not page_only and atlas_path is not None and atlas_path.exists():
             # First choice: the bound `.atlas` is the authoritative region map.
             try:
                 parsed = atlas_format.parse_atlas(atlas_path)
@@ -3800,7 +3851,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_note = (f"  ⚠ Bound .atlas could not be parsed "
                              f"({type(e).__name__}: {e}); ")
                 atlas_path = None  # fall through to the manifest-regions fallback
-        if tp_regions is None:
+        if not page_only and tp_regions is None:
             # Fallback: build the spritesheet from the manifest's own regions.
             # Read BOTH region buckets — `regions` AND `rotated_regions` — exactly
             # like every other manifest walk in this file (e.g. all_regions / the
@@ -3854,7 +3905,9 @@ class Handler(BaseHTTPRequestHandler):
                             page_w, page_h = _pg.size
                     except Exception:  # noqa: BLE001
                         page_w = page_h = 0
-        if tp_regions and page_src is not None and page_w > 0 and page_h > 0:
+        if page_only:
+            pass  # page-only: no TexturePacker .json (see spine_note above)
+        elif tp_regions and page_src is not None and page_w > 0 and page_h > 0:
             try:
                 page_image = f"{out_base}{page_src.suffix}"
                 tp_path = ATLAS_DIR / f"{stem}_new.json"
@@ -3887,9 +3940,11 @@ class Handler(BaseHTTPRequestHandler):
                 "will NOT find these files. Set this manifest's Deploy prefix to "
                 "the asset's game path (mirrors static/assets/), e.g. "
                 "`sprites/<name>` or `spines/<group>`, then deploy again.")
-            return f"{warning}\n✓ Deployed to R2: {', '.join(copied)}{json_note}"
+            return (f"{spine_note}{warning}\n"
+                    f"✓ Deployed to R2: {', '.join(copied)}{json_note}")
         head = f"{auto_note}\n" if auto_note else ""
-        return f"{head}✓ Deployed to R2: {', '.join(copied)}{json_note}"
+        return (f"{spine_note}{head}"
+                f"✓ Deployed to R2: {', '.join(copied)}{json_note}")
 
     def _saveglobalstyle(self, payload: dict) -> str:
         m = load_manifest()
