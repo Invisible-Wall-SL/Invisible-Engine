@@ -60,6 +60,9 @@
 		/** Bumped by the editor's "Reload art" — drops every cached spine bundle so
 		 * the RAF loop re-fetches fresh skeletons + page textures from R2. */
 		reloadToken?: number;
+		/** Editor-only: scene ids hidden from the composite. The active scene always
+		 * renders; other non-hidden scenes' spines render too (the "see all" view). */
+		hiddenSceneIds?: Set<string>;
 	}
 
 	let {
@@ -78,6 +81,7 @@
 		onNaturalSizesChange,
 		onLoadingChange,
 		reloadToken = 0,
+		hiddenSceneIds = new Set<string>(),
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -222,31 +226,38 @@
 	 * spine bind anchors (containers are otherwise 2D-only for the preview). */
 	function spineTargets(): SpineRenderTarget[] {
 		const out: SpineRenderTarget[] = [];
-		for (const n of scene.nodes) {
-			const t = resolveTransform(n, layoutType);
-			if (!t.visible) continue;
-			if (n.kind === 'spine') {
-				out.push({
-					nodeId: n.id,
-					assetKey: n.assetKey,
-					defaultAnimation: n.defaultAnimation,
-					loop: n.loop,
-					placement: undefined,
-					transform: t,
-				});
-			} else {
-				// Resolve the anchor's stand-in art the SAME way the 2D canvas does
-				// (explicit override → shared catalog default), so both layers agree.
-				const art = resolveAnchorPreviewArt(n, assets);
-				if (art?.kind === 'spine' && art.assetKey) {
+		// Composite every non-hidden screen (the active scene always renders) so the
+		// "see all screens" view shows real spine art across screens, matching the 2D
+		// canvas. Placement/transform are space-independent here (catalog placement),
+		// so backdrop scenes render correctly without per-scene space handling.
+		for (const sc of scenes) {
+			if (sc.id !== scene.id && hiddenSceneIds.has(sc.id)) continue;
+			for (const n of sc.nodes) {
+				const t = resolveTransform(n, layoutType);
+				if (!t.visible) continue;
+				if (n.kind === 'spine') {
 					out.push({
 						nodeId: n.id,
-						assetKey: art.assetKey,
-						defaultAnimation: undefined,
-						loop: true,
-						placement: art.placement,
+						assetKey: n.assetKey,
+						defaultAnimation: n.defaultAnimation,
+						loop: n.loop,
+						placement: undefined,
 						transform: t,
 					});
+				} else {
+					// Resolve the anchor's stand-in art the SAME way the 2D canvas does
+					// (explicit override → shared catalog default), so both layers agree.
+					const art = resolveAnchorPreviewArt(n, assets);
+					if (art?.kind === 'spine' && art.assetKey) {
+						out.push({
+							nodeId: n.id,
+							assetKey: art.assetKey,
+							defaultAnimation: undefined,
+							loop: true,
+							placement: art.placement,
+							transform: t,
+						});
+					}
 				}
 			}
 		}

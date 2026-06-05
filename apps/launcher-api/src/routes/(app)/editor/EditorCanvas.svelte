@@ -78,6 +78,10 @@
 		 * page never needs the canvas's internal payload type.
 		 */
 		fillRequest?: { payload: unknown; slotId: string; seq: number } | null;
+		/** Editor-only: scene ids hidden from the composite. The ACTIVE scene always
+		 * draws (you're editing it); other non-hidden scenes draw as a dimmed,
+		 * non-interactive backdrop so you can see all screens at once. */
+		hiddenSceneIds?: Set<string>;
 	}
 
 	let {
@@ -93,6 +97,7 @@
 		onDirty,
 		onDelete,
 		fillRequest = null,
+		hiddenSceneIds = new Set<string>(),
 	}: Props = $props();
 
 	function getOverride(node: LayoutNode) {
@@ -115,7 +120,7 @@
 	 *   draw/box math matches the live game's full-bleed cover.
 	 * Other scenes pass through unchanged.
 	 */
-	function nodeTransform(node: LayoutNode): ResolvedTransform {
+	function nodeTransform(node: LayoutNode, space: Scene['space'] = scene.space): ResolvedTransform {
 		const t = resolveTransform(node, layoutType);
 		// A preview-art bind anchor (e.g. the animated Background, the Win animation, or
 		// the free-spin counter) is placed by its catalog `placement`, resolved against
@@ -136,14 +141,14 @@
 				return placedArtTransform(node, t, placement);
 			}
 		}
-		if (scene.space === 'canvas' && t.screenAnchor) {
+		if (space === 'canvas' && t.screenAnchor) {
 			return {
 				...t,
 				x: t.screenAnchor.x * frameWidth + t.x,
 				y: t.screenAnchor.y * frameHeight + t.y,
 			};
 		}
-		if (scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine')) {
+		if (space === 'background' && (node.kind === 'sprite' || node.kind === 'spine')) {
 			return backgroundTransform(node, t);
 		}
 		return t;
@@ -781,7 +786,15 @@
 		ctx.strokeRect(0, 0, frameWidth, frameHeight);
 		ctx.setLineDash([]);
 
-		for (const node of scene.nodes) drawNode(ctx, node);
+		// Composite all non-hidden screens (editor-only "see all screens" view), each
+		// in its OWN coordinate space, in doc order so layering matches the game. The
+		// ACTIVE scene is always drawn (you're editing it) + stays the only
+		// interactive one; the others are visual context. The active scene's selection
+		// overlay is drawn last (below), on top of everything.
+		for (const s of scenes) {
+			if (s.id !== scene.id && hiddenSceneIds.has(s.id)) continue;
+			for (const node of s.nodes) drawNode(ctx, node, s.space);
+		}
 
 		// Snap guide lines (world-space; covers all frame + visible).
 		if (snapLines.length > 0) {
@@ -808,8 +821,12 @@
 		drawSelectionOverlay(ctx);
 	}
 
-	function drawNode(ctx: CanvasRenderingContext2D, node: LayoutNode): void {
-		const t = nodeTransform(node);
+	function drawNode(
+		ctx: CanvasRenderingContext2D,
+		node: LayoutNode,
+		space: Scene['space'] = scene.space,
+	): void {
+		const t = nodeTransform(node, space);
 		if (!t.visible) return;
 
 		ctx.save();
@@ -884,7 +901,7 @@
 			}`;
 			ctx.fillText(node.text, 0, 0);
 		} else if (node.kind === 'container') {
-			for (const child of node.children) drawNode(ctx, child);
+			for (const child of node.children) drawNode(ctx, child, space);
 		}
 
 		ctx.restore();
@@ -1555,6 +1572,16 @@
 		fillSlotFromPayload(req.payload as DragPayload, req.slotId);
 	});
 
+	// Redraw the composite when the visible-screen set changes (eye toggles) or the
+	// scene set/active scene swaps. schedule() dedupes, so this is cheap.
+	$effect(() => {
+		hiddenSceneIds;
+		scenes;
+		scene;
+		layoutType;
+		schedule();
+	});
+
 	function fitView(): void {
 		if (!wrap) return;
 		const w = wrap.clientWidth;
@@ -1739,6 +1766,7 @@
 		{zoom}
 		{assets}
 		reloadToken={spineReload}
+		{hiddenSceneIds}
 		playing={playingSpines}
 		onReadyKeysChange={(keys) => {
 			readySpineKeys = keys;

@@ -42,6 +42,16 @@
 			: [{ id: 's_main', name: 'main', nodes: [] }],
 	);
 	let activeSceneIdx = $state(0);
+	/** Editor-only: scene ids hidden from the composite canvas (the eye toggles in
+	 * the Screens list). NOT persisted — purely an authoring view. The active scene
+	 * always renders; others render dimmed unless hidden here. */
+	let hiddenScenes = $state(new Set<string>());
+	function toggleSceneVisible(id: string): void {
+		const next = new Set(hiddenScenes);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		hiddenScenes = next; // reassign so the canvas $effect re-runs
+	}
 	/** Canvas frame sizes per layoutType — `$state` (not `data.doc`) so loading a
 	 * game scene that ships its own `mainSizesMap` resizes the canvas. */
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
@@ -987,15 +997,47 @@
 				<h3 class="screens-h">Screens <span class="count">{sceneCount}</span></h3>
 				<ul class="screens">
 					{#each scenes as s, i (s.id)}
-						<li>
+						{@const hidden = hiddenScenes.has(s.id)}
+						<li class="screen-li">
 							<button
 								type="button"
 								class="screen"
 								class:active={i === activeSceneIdx}
+								class:dimmed={hidden}
 								onclick={() => selectScene(i)}
 							>
 								<span class="screen-name">{s.name || s.id}</span>
 								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
+							</button>
+							<button
+								type="button"
+								class="eye"
+								class:off={hidden}
+								aria-pressed={!hidden}
+								title={hidden ? 'Show this screen in the canvas' : 'Hide this screen from the canvas'}
+								onclick={() => toggleSceneVisible(s.id)}
+							>
+								{#if hidden}
+									<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+										<path
+											d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.5 9.5 0 0112 5c5 0 9 4 10 7a12 12 0 01-3 4M6.1 6.1A12 12 0 002 12c1 3 5 7 10 7a9.5 9.5 0 003.3-.6"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+										/>
+									</svg>
+								{:else}
+									<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+										<path
+											d="M2 12c1-3 5-7 10-7s9 4 10 7c-1 3-5 7-10 7s-9-4-10-7z"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+										/>
+										<circle cx="12" cy="12" r="3" fill="currentColor" />
+									</svg>
+								{/if}
 							</button>
 						</li>
 					{:else}
@@ -1208,6 +1250,7 @@
 				onDirty={markDirty}
 				onDelete={onDeleteNode}
 				{fillRequest}
+				hiddenSceneIds={hiddenScenes}
 			/>
 		</main>
 
@@ -1551,11 +1594,17 @@
 		flex-direction: column;
 		gap: 2px;
 	}
+	.screen-li {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
 	.screen {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		width: 100%;
+		flex: 1;
+		min-width: 0;
 		text-align: left;
 		padding: 7px 9px;
 		font-size: 12px;
@@ -1565,6 +1614,30 @@
 		color: #c8c8d0;
 		cursor: pointer;
 		font-family: inherit;
+	}
+	.screen.dimmed .screen-name {
+		opacity: 0.5;
+	}
+	.eye {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		flex: none;
+		border-radius: 6px;
+		border: 1px solid #1f1f28;
+		background: #16161c;
+		color: #8aa0b4;
+		cursor: pointer;
+		padding: 0;
+	}
+	.eye:hover {
+		border-color: #2f3a48;
+		color: #cfe0ee;
+	}
+	.eye.off {
+		color: #5a5a66;
 	}
 	.screen:hover {
 		border-color: #2f3a48;
