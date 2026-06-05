@@ -2624,7 +2624,7 @@ async function fsList(p){{
  let j;
  try{{ j=await (await fetch('/fsbrowse?path='+encodeURIComponent(p||'')+'&key='+encodeURIComponent(_fsTarget||''))).json(); }}
  catch(e){{ box.innerHTML='<div style=color:#e88>browse failed</div>'; return; }}
- _fsCurDir=j.cur||'';
+ _fsCurDir=j.rel||'';        // clean repo-relative path (NOT the display label)
  document.getElementById('fscur').textContent=j.cur?('📂 '+j.cur):'📂 This PC';
  if(!j.ok){{ box.innerHTML='<div style="color:#e88;padding:8px">'+(j.error||'error')+'</div>'; return; }}
  box.innerHTML='';
@@ -3546,8 +3546,9 @@ class Handler(BaseHTTPRequestHandler):
                 parent = Path(rel).parent.as_posix()
                 up = "" if parent == "." else parent
             cur_label = "R2 repo: " + (rel or "(root)")
-            return json.dumps({"ok": True, "cur": cur_label, "up": up,
-                               "dirs": dirs, "files": files}).encode()
+            return json.dumps({"ok": True, "cur": cur_label, "rel": rel,
+                               "up": up, "dirs": dirs,
+                               "files": files}).encode()
         except Exception as e:  # noqa: BLE001 — picker must never 500 the UI
             return json.dumps({"ok": False, "error": str(e)}).encode()
 
@@ -4029,6 +4030,7 @@ class Handler(BaseHTTPRequestHandler):
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.convert("RGBA").save(INPUT_DIR / rel)
+        _mirror(INPUT_DIR / rel)  # persist the user image to R2
         _drop_fx_snapshot(name)
         m = load_manifest()
         r = self._ensure_region(m, name)
@@ -4069,6 +4071,7 @@ class Handler(BaseHTTPRequestHandler):
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.save(INPUT_DIR / rel)
+        _mirror(INPUT_DIR / rel)  # persist the user image to R2
         _drop_fx_snapshot(name)
         r = self._ensure_region(m, name)
         if r is None:
@@ -4096,6 +4099,7 @@ class Handler(BaseHTTPRequestHandler):
                 f.unlink(missing_ok=True)
             except OSError:
                 pass
+            _unmirror(INPUT_DIR / f"refs/useroutput_{name}.png")  # drop the stale R2 image too
             return f"Reverted {name} — it will be generated again on render"
         return f"{name} had no user image"
 
