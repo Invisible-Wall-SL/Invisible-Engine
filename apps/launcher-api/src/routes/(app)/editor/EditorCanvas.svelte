@@ -238,6 +238,13 @@
 		t: ResolvedTransform,
 		placement: OverlayPlacement,
 	): ResolvedTransform {
+		// The node's stored x/y is a POSITIONAL OFFSET (raw scene-canvas px at the
+		// editor reference frame) applied ON TOP of the placement — the game honours
+		// the same x/y verbatim for these canvas anchors (no screenAnchor). The frame
+		// IS world space 1:1, so the offset adds directly in world coords. With the
+		// default offset 0 the preview is identical to the Level-1 placement-only spot.
+		const offX = t.x;
+		const offY = t.y;
 		const result = computeOverlayPlacement(placement, placementGeometry(node));
 		if (result.mode === 'positioned') {
 			const nat = artNaturalSize(node);
@@ -257,8 +264,8 @@
 			const world = mainToWorld({ x: result.x, y: result.y });
 			return {
 				...t,
-				x: world.x,
-				y: world.y,
+				x: world.x + offX,
+				y: world.y + offY,
 				anchor: result.anchor,
 				scale: { x: 1, y: 1 },
 				rotation: 0,
@@ -286,16 +293,34 @@
 			width = widthDriven ? frameWidth : frameHeight * artRatio;
 			height = widthDriven ? frameWidth / artRatio : frameHeight;
 		}
+		// cover (full-bleed Background) ignores the offset — it stays non-draggable and
+		// pinned to the frame. contain (centred overlays) honours the draggable offset.
+		const applyOffset = fit === 'contain';
 		return {
 			...t,
-			x: frameWidth / 2,
-			y: frameHeight / 2,
+			x: frameWidth / 2 + (applyOffset ? offX : 0),
+			y: frameHeight / 2 + (applyOffset ? offY : 0),
 			anchor: { x: 0.5, y: 0.5 },
 			scale: { x: 1, y: 1 },
 			rotation: 0,
 			width,
 			height,
 		};
+	}
+
+	/**
+	 * The placement world base for a preview-art anchor — the on-screen position the
+	 * placement produces with a ZERO offset (cover/contain → frame centre; positioned
+	 * → the mapped MAIN-coord spot). Drag works in world coords, so subtracting this
+	 * base from a dropped world position yields the raw offset to store in x/y (which
+	 * the game then applies verbatim on top of the component's own placement).
+	 */
+	function placementWorldBase(node: LayoutNode, placement: OverlayPlacement): Vec2 {
+		const result = computeOverlayPlacement(placement, placementGeometry(node));
+		if (result.mode === 'positioned') {
+			return mainToWorld({ x: result.x, y: result.y });
+		}
+		return { x: frameWidth / 2, y: frameHeight / 2 };
 	}
 
 	/** Write `x`/`y` for the active layoutType (base when desktop, sparse override otherwise). */
@@ -306,6 +331,16 @@
 		if (scene.space === 'canvas' && sa) {
 			x -= sa.x * frameWidth;
 			y -= sa.y * frameHeight;
+		}
+		// Preview-art anchor (positioned/centred): x/y arrive as effective world coords
+		// (placement base + offset). Store the OFFSET from the placement base so the game
+		// applies the same raw x/y on top of the coded component's own placement. Raw
+		// scene-canvas px == world px (the frame is world 1:1), so no extra scaling.
+		const art = anchorArt(node);
+		if (art && art.placement !== 'cover') {
+			const base = placementWorldBase(node, art.placement);
+			x -= base.x;
+			y -= base.y;
 		}
 		if (layoutType === 'desktop') {
 			node.x = x;
@@ -338,14 +373,21 @@
 		return { x: t.x, y: t.y };
 	}
 
-	/** Background-space sprite/spine nodes are auto-cover-fit (their transform is
-	 * synthesised, not authored), so the canvas must not drag/scale/rotate them —
-	 * a write would store the synthetic centre/size and break the cover. The cover
-	 * scale is still editable via the Properties `scale.x` control. */
+	/** Full-bleed cover nodes are auto-cover-fit (their transform is synthesised, not
+	 * authored), so the canvas must not drag/scale/rotate them — a write would store
+	 * the synthetic centre/size and break the cover. The cover scale is still editable
+	 * via the Properties `scale.x` control. This covers BOTH `background`-space sprite/
+	 * spine nodes AND a `cover`-placement preview anchor (the full-bleed Background).
+	 *
+	 * Positioned/centred preview anchors (Win, Transition, FreeSpinIntro/Outro,
+	 * FreeSpinCounter) are NOT cover: their preview = placement + the node's stored x/y
+	 * offset, so dragging them writes a meaningful offset (Level 2). They stay draggable.
+	 */
 	function isBackgroundCover(node: LayoutNode): boolean {
-		// Any resolved preview-art anchor uses a synthetic (placement-driven) transform;
-		// dragging it would store the synthetic centre/size and break placement.
-		if (anchorArt(node)) return true;
+		const art = anchorArt(node);
+		// A cover-placement anchor (the full-bleed Background) stays non-draggable;
+		// every other preview-art anchor is offset-draggable.
+		if (art && art.placement === 'cover') return true;
 		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
 	}
 
