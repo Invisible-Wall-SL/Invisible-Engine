@@ -325,7 +325,12 @@
 			const t = target.transform;
 			const inst = entry.instance;
 			if (target.placement) {
-				placeArt(inst, target.placement);
+				// The node's raw x/y is a POSITIONAL OFFSET (scene-canvas px at the
+				// reference frame == world px) applied on top of the placement, matching
+				// the game's verbatim use of x/y for these canvas anchors. Offset 0 →
+				// identical to the Level-1 placement-only spot. cover stays pinned.
+				const off = target.placement === 'cover' ? { x: 0, y: 0 } : { x: t.x, y: t.y };
+				placeArt(inst, target.placement, off);
 			} else {
 				const sx = t.scale?.x ?? 1;
 				const sy = t.scale?.y ?? 1;
@@ -355,7 +360,11 @@
 	 * All paths use the skeleton's setup-pose bounds for size+centre, accounting for the
 	 * y-flip (`scaleY = -s`): a local point (lx, ly) lands at `(x + s*lx, y - s*ly)`.
 	 */
-	function placeArt(inst: SpineInstance, placement: OverlayPlacement): void {
+	function placeArt(
+		inst: SpineInstance,
+		placement: OverlayPlacement,
+		posOffset: { x: number; y: number },
+	): void {
 		const nat = naturalSizeOf(inst);
 		const offset = { x: 0, y: 0 };
 		const size = { x: 0, y: 0 };
@@ -370,8 +379,8 @@
 		const bh = nat?.h ?? size.y;
 		if (!(bw > 0) || !(bh > 0)) {
 			// Degenerate bounds: centre at 1:1 so something still shows.
-			inst.skeleton.x = frameWidth / 2;
-			inst.skeleton.y = frameHeight / 2;
+			inst.skeleton.x = frameWidth / 2 + posOffset.x;
+			inst.skeleton.y = frameHeight / 2 + posOffset.y;
 			inst.skeleton.scaleX = 1;
 			inst.skeleton.scaleY = -1;
 			return;
@@ -395,8 +404,9 @@
 			// anchor.y is top-down (0=top); runtime y is up, so top = offset.y + size.y.
 			const anchorLocalY = offset.y + size.y * (1 - result.anchor.y);
 			// world = skeleton + s*(anchorLocal) with the y-flip → solve skeleton.
-			inst.skeleton.x = world.x - s * anchorLocalX;
-			inst.skeleton.y = world.y + s * anchorLocalY;
+			// The node's stored offset adds in world px on top of the placement.
+			inst.skeleton.x = world.x - s * anchorLocalX + posOffset.x;
+			inst.skeleton.y = world.y + s * anchorLocalY + posOffset.y;
 			inst.skeleton.scaleX = s;
 			inst.skeleton.scaleY = -s;
 			return;
@@ -405,8 +415,9 @@
 			result.mode === 'cover'
 				? Math.max(frameWidth / bw, frameHeight / bh)
 				: Math.min(frameWidth / bw, frameHeight / bh);
-		inst.skeleton.x = frameWidth / 2 - s * cx;
-		inst.skeleton.y = frameHeight / 2 + s * cy;
+		// cover ignores the offset (caller passes 0); contain adds it in world px.
+		inst.skeleton.x = frameWidth / 2 - s * cx + posOffset.x;
+		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;
 		inst.skeleton.scaleX = s;
 		inst.skeleton.scaleY = -s;
 	}
