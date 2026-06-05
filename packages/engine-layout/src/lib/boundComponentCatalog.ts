@@ -29,6 +29,10 @@ export interface BoundComponentPreview {
 	kind: 'spine' | 'sprite';
 	/** Convention spine-bundle name (kind `spine`), resolved against project spines. */
 	bundle?: string;
+	/** Fallback spine-bundle names (kind `spine`), tried in order when `bundle` isn't
+	 * in the project. Encodes common reuse — e.g. a free-spin OUTRO that has no
+	 * dedicated `fsOutro` spine and reuses the INTRO frame (`fsIntro`). */
+	fallbackBundles?: string[];
 	/** Convention atlas-region name (kind `sprite`), resolved against the project manifest. */
 	region?: string;
 }
@@ -94,7 +98,9 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	FreeSpinOutro: {
 		space: 'canvas',
 		placement: 'centre',
-		preview: { kind: 'spine', bundle: 'fsOutro' },
+		// Most "book-of" games render the outro on the shared free-spin frame and ship
+		// no dedicated `fsOutro` spine — fall back to the intro frame so it previews.
+		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
 	},
 };
 
@@ -167,8 +173,12 @@ export function resolveAnchorPreviewArt(
 	if (!preview) return undefined;
 	const placement: OverlayPlacement = def?.placement ?? 'centre';
 	if (preview.kind === 'spine') {
-		if (!preview.bundle) return undefined;
-		const match = assets.spines.find((s) => s.name === preview.bundle);
+		const bundles = [preview.bundle, ...(preview.fallbackBundles ?? [])].filter(
+			(b): b is string => !!b,
+		);
+		const match = bundles
+			.map((name) => assets.spines.find((s) => s.name === name))
+			.find((m) => m);
 		if (!match) return undefined;
 		return { kind: 'spine', assetKey: match.key, placement };
 	}
