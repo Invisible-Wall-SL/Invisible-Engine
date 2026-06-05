@@ -1166,6 +1166,7 @@
 				frameWidth={frameSize.width}
 				frameHeight={frameSize.height}
 				layoutType={currentLayoutType}
+				assets={data.assets}
 				{onSpawn}
 				bind:selectedId
 				onDirty={markDirty}

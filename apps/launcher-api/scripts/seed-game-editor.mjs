@@ -144,71 +144,6 @@ const anchor = (id, slotId, label, component, extra = {}) => ({
 	...extra,
 });
 
-/**
- * List the project's spine bundles in R2 → `{ bundleName: assetKey }`. The
- * `assetKey` is the bundle PREFIX (with trailing slash) — byte-identical to the
- * value the editor Library drag hands out and that `bundleFromAssetKey` /
- * `/api/editor/spine` resolve. Used to point a bind anchor's `preview.art` at the
- * real background spine so the editor draws it as a stand-in.
- */
-async function listSpineKeys(s3, bucket) {
-	const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-	const out = {};
-	const prefix = `${PREFIX}/spines/`;
-	let token;
-	do {
-		const r = await s3.send(
-			new ListObjectsV2Command({
-				Bucket: bucket,
-				Prefix: prefix,
-				Delimiter: '/',
-				ContinuationToken: token,
-			}),
-		);
-		for (const cp of r.CommonPrefixes ?? []) {
-			const p = cp.Prefix;
-			const name = p.slice(prefix.length).replace(/\/$/, '');
-			if (name) out[name] = p; // p keeps the trailing slash — the Library format
-		}
-		token = r.IsTruncated ? r.NextContinuationToken : undefined;
-	} while (token);
-	return out;
-}
-
-/**
- * Editor-only `preview.art` for a bind anchor whose coded component the editor
- * can't run, so it draws the real spine/sprite as a stand-in:
- * - `spineArt(spineKeys, bundles, fit)` — points at the first present spine bundle
- *   (so a fallback list works). `assetKey` is the bundle PREFIX the editor's spine
- *   preview resolves (same format `listSpineKeys` / the Library hand out). Returns
- *   `{}` (placeholder fallback) when none of the bundles exist in R2.
- * - `spriteArt(region, fit)` — a single packed frame within the uploaded manifest.
- *
- * `fit`: `'cover'` = fill the frame (the full-bleed Background, may crop);
- * `'contain'` = fit inside the frame, centred, no crop (the centred overlays).
- */
-function spineArt(spineKeys, bundles, fit) {
-	for (const b of bundles) {
-		const assetKey = spineKeys[b];
-		if (assetKey) return { preview: { art: { kind: 'spine', assetKey, fit } } };
-	}
-	return {};
-}
-function spriteArt(region, fit) {
-	if (!region) return {};
-	return { preview: { art: { kind: 'sprite', assetKey: manifestKey, region, fit } } };
-}
-
-/**
- * `Frame_FSCounter.png` only carries a `preview.art` if the manifest actually
- * packs it (otherwise the FS-counter anchor just falls back to a placeholder —
- * never fail the seed for a missing frame). `manifestRegions` is the converted
- * region list so we can test membership without re-reading the atlas.
- */
-function fsCounterArt(manifestRegions) {
-	const has = manifestRegions.some((r) => r.name === 'Frame_FSCounter.png');
-	return has ? spriteArt('Frame_FSCounter.png', 'contain') : {};
-}
 // ---------- HUD scenes ----------
 // MIRROR of `engine-layout/src/lib/referenceLayouts/hud.ts` (the source of
 // truth) — inlined because this plain `node` script can't import the TS package.
@@ -394,16 +329,11 @@ function hudScenes() {
 	];
 }
 
-function buildDoc(updatedAt, spineKeys = {}, manifestRegions = []) {
-	// Editor-only stand-ins per coded overlay (see the asset mapping in the task):
-	// the Background is the lone full-bleed `'cover'`; every other overlay is a
-	// centred `'contain'`. Missing spines/frames degrade to a placeholder ({}).
-	const bgArt = spineArt(spineKeys, ['foregroundAnimation'], 'cover');
-	const fsCounter = fsCounterArt(manifestRegions);
-	const fsIntroArt = spineArt(spineKeys, ['fsIntro'], 'contain');
-	const fsOutroArt = spineArt(spineKeys, ['fsOutro', 'fsOutroNumber'], 'contain');
-	const winArt = spineArt(spineKeys, ['bigwin'], 'contain');
-	const transitionArt = spineArt(spineKeys, ['transition'], 'contain');
+function buildDoc(updatedAt) {
+	// Overlay scenery → PLAIN bind anchors. The editor draws each coded component's
+	// editor stand-in art LIVE from the shared catalog
+	// (engine-layout/boundComponentCatalog), resolved against the project's assets by
+	// component NAME — so the seed no longer lists spines or bakes any `preview.art`.
 	return {
 		version: 1,
 		projectKey: r2Slug(PROJECT),
@@ -421,7 +351,7 @@ function buildDoc(updatedAt, spineKeys = {}, manifestRegions = []) {
 				id: 'background',
 				name: 'Background',
 				space: 'canvas',
-				nodes: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10, ...bgArt })],
+				nodes: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10 })],
 			},
 			{
 				id: 'basegame',
@@ -436,48 +366,30 @@ function buildDoc(updatedAt, spineKeys = {}, manifestRegions = []) {
 				name: 'Base game overlays',
 				space: 'canvas',
 				nodes: [
-					anchor('bound-win', 'Win', 'Win overlay (coded)', 'Win', winArt),
-					anchor(
-						'bound-transition',
-						'Transition',
-						'Transition overlay (coded)',
-						'Transition',
-						transitionArt,
-					),
+					anchor('bound-win', 'Win', 'Win overlay (coded)', 'Win'),
+					anchor('bound-transition', 'Transition', 'Transition overlay (coded)', 'Transition'),
 				],
 			},
 			{
 				id: 'freeSpinCounter',
 				name: 'Free-spin counter',
 				space: 'canvas',
-				nodes: [
-					anchor(
-						'fs-counter',
-						'freeSpinCounter',
-						'Free-spin counter',
-						'FreeSpinCounter',
-						fsCounter,
-					),
-				],
+				nodes: [anchor('fs-counter', 'freeSpinCounter', 'Free-spin counter', 'FreeSpinCounter')],
 			},
 			{
 				id: 'freeSpinIntro',
 				name: 'Free-spin intro',
 				space: 'canvas',
-				nodes: [
-					anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro', fsIntroArt),
-				],
+				nodes: [anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro')],
 			},
 			{
 				id: 'freeSpinOutro',
 				name: 'Free-spin outro',
 				space: 'canvas',
-				nodes: [
-					anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro', fsOutroArt),
-				],
+				nodes: [anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro')],
 			},
 			// HUD layer (logo/name corners + bottom bar) — editor-positionable; the
-			// game's <UI hud=…> renders from these. Restores HUD alongside the art.
+			// game's <UI hud=…> renders from these.
 			...hudScenes(),
 		],
 		updatedAt,
@@ -498,34 +410,24 @@ async function main() {
 		);
 
 	if (dryRun) {
-		// No R2 creds in dry-run, so spine bundles can't be listed. Use a synthetic
-		// `foregroundAnimation` key in the SAME format the Library/`/api/editor/spine`
-		// resolve (`<prefix>/spines/<bundle>/`) so the doc SHAPE — incl. the
-		// Background anchor's `preview.art` — is visible. The real path resolves the
-		// actual key (or omits `preview.art` when the spine is missing).
-		const fakeSpineKeys = Object.fromEntries(
-			['foregroundAnimation', 'fsIntro', 'fsOutro', 'bigwin', 'transition'].map((b) => [
-				b,
-				`${PREFIX}/spines/${b}/`,
-			]),
-		);
-		const doc = buildDoc(new Date().toISOString(), fakeSpineKeys, manifest.regions);
-		console.info(
-			'\n--dry-run: no uploads (spine keys synthesised — real run lists R2). Doc previews:\n',
-		);
+		const doc = buildDoc(new Date().toISOString());
+		console.info('\n--dry-run: no uploads. Doc previews:\n');
 		console.info('MANIFEST', JSON.stringify(manifest, null, 2).slice(0, 800), '…');
 		console.info('\nDOC scenes', doc.scenes.map((s) => `${s.id}(${s.nodes.length})`).join(' '));
-		// Print every scene's nodes with their wired-up preview.art so the author can
-		// confirm which anchors got art (kind + fit) and which fell back to a placeholder.
+		// Print every scene's nodes. Overlay anchors are now PLAIN binds with no baked
+		// `preview.art` — the editor adds each component's stand-in art live from the
+		// shared catalog. Any leftover `preview.art` here would be an explicit override.
 		for (const s of doc.scenes) {
 			console.info(`\nSCENE ${s.id} (${s.name}) [space=${s.space ?? 'game'}]`);
 			for (const n of s.nodes) {
 				const art = n.preview?.art;
 				const artDesc = art
 					? `art=${art.kind}:${art.fit ?? 'natural'}${art.region ? ` region=${art.region}` : ''}`
-					: n.bind
-						? 'art=(placeholder)'
-						: '';
+					: n.preview?.style
+						? `chip=${n.preview.style}`
+						: n.bind
+							? 'art=(catalog/live)'
+							: '';
 				console.info(
 					`  • ${n.id} [${n.kind}]${n.bind ? ` bind=${n.bind.component}` : ''}${
 						n.slotId ? ` slot=${n.slotId}` : ''
@@ -553,39 +455,10 @@ async function main() {
 	const put = (Key, Body, ContentType) =>
 		s3.send(new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType }));
 
-	// Resolve the project's spine bundles so the Background bind anchor can carry a
-	// `preview.art` pointing at the real `foregroundAnimation` spine (editor stand-in).
-	const spineKeys = await listSpineKeys(s3, bucket);
-	const bundleNames = Object.keys(spineKeys);
-	console.info(
-		`  spines   → ${bundleNames.length} bundle(s): ${bundleNames.join(', ') || '(none)'}`,
-	);
-	// Report which overlay anchors resolved a spine stand-in vs fell back. The
-	// sprite-based FS counter is reported from the manifest regions below.
-	const spineWants = [
-		['Background', ['foregroundAnimation'], 'cover'],
-		['Free-spin intro', ['fsIntro'], 'contain'],
-		['Free-spin outro', ['fsOutro', 'fsOutroNumber'], 'contain'],
-		['Win', ['bigwin'], 'contain'],
-		['Transition', ['transition'], 'contain'],
-	];
-	for (const [name, bundles, fit] of spineWants) {
-		const found = bundles.find((b) => spineKeys[b]);
-		if (found) console.info(`  art      → ${name}: spine "${found}" (${fit})`);
-		else
-			console.warn(
-				`  ⚠ ${name}: none of [${bundles.join(', ')}] found in R2 — anchor keeps its placeholder.`,
-			);
-	}
-	const hasFsCounter = manifest.regions.some((r) => r.name === 'Frame_FSCounter.png');
-	if (hasFsCounter)
-		console.info('  art      → Free-spin counter: sprite "Frame_FSCounter.png" (contain)');
-	else
-		console.warn(
-			'  ⚠ Free-spin counter: "Frame_FSCounter.png" not in manifest — anchor keeps its placeholder.',
-		);
-
-	const doc = buildDoc(new Date().toISOString(), spineKeys, manifest.regions);
+	// Overlay anchors carry NO baked preview art — the editor resolves each coded
+	// component's stand-in from the shared catalog (by component name) against the
+	// project's R2 assets at render time, so no spine listing is needed here.
+	const doc = buildDoc(new Date().toISOString());
 	console.info(
 		`  doc      → ${editorDocKey}  (${doc.scenes.map((s) => `${s.id}:${s.nodes.length}`).join(' ')})`,
 	);

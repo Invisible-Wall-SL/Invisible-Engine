@@ -1,8 +1,11 @@
 <script lang="ts">
-	import type { LayoutNode } from 'engine-layout';
+	import type { LayoutNode, ResolvedPreviewArt } from 'engine-layout';
 
 	interface OverlayInfo {
 		node: LayoutNode;
+		/** Resolved stand-in art (explicit override OR catalog default), so the
+		 * overlay treats catalog-default anchors (no baked `preview.art`) like art. */
+		resolvedArt?: ResolvedPreviewArt | null;
 		left: number;
 		top: number;
 		right: number;
@@ -38,17 +41,19 @@
 
 	const node = $derived(info.node);
 	const locked = $derived(node.locked === true);
-	// Spine play toggle applies to real spine nodes AND `preview.art` spine anchors
-	// (e.g. the animated Background stand-in), so both can preview their animation.
-	const isSpine = $derived(node.kind === 'spine' || node.preview?.art?.kind === 'spine');
+	// The selected anchor's resolved art — an explicit `preview.art` OR the catalog
+	// default resolved by the canvas (catalog anchors carry no baked art).
+	const art = $derived(info.resolvedArt ?? node.preview?.art ?? null);
+	// Spine play toggle applies to real spine nodes AND spine stand-in anchors (e.g.
+	// the animated Background), so both can preview their animation.
+	const isSpine = $derived(node.kind === 'spine' || art?.kind === 'spine');
 
 	const subtitle = $derived.by(() => {
 		if (node.kind === 'sprite' && node.region)
 			return `${node.region} · ${node.assetKey.split('/').pop()}`;
 		if (node.kind === 'sprite') return node.assetKey.split('/').pop() ?? 'sprite';
 		if (node.kind === 'spine') return `spine · ${node.assetKey.split('/').pop()}`;
-		const art = node.preview?.art;
-		if (art) return `${art.kind} · ${art.assetKey.split('/').pop()}`;
+		if (art) return `${art.kind} · ${(art.assetKey || art.region || '').split('/').pop()}`;
 		return node.kind;
 	});
 

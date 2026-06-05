@@ -21,9 +21,12 @@ export function nodeBox(
 ): NodeBox {
 	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
-	// `preview.art` anchors select at the rendered art's box: the cover transform
-	// bakes width/height; else use the art's natural size (resolved via naturalSize).
-	if (node.preview?.art) {
+	// A preview-art anchor selects at the RENDERED art's box. The art may be an
+	// explicit `node.preview.art` OR a catalog default resolved live (no baked
+	// `preview.art`): in both cases EditorCanvas bakes the fit size into the resolved
+	// transform's width/height, so honour those for any `bind` container too. Falls
+	// back to the art's natural size (via naturalSize) when no size is baked.
+	if (node.preview?.art || (node.bind && (t.width !== undefined || t.height !== undefined))) {
 		const nat = naturalSize(node);
 		const w = t.width ?? nat?.w ?? 160;
 		const h = t.height ?? nat?.h ?? 100;
