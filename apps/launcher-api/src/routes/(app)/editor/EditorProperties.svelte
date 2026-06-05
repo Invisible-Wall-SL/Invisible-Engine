@@ -290,6 +290,19 @@
 			<div class="ctx">
 				Region <strong>{node.region}</strong> of <code>{node.assetKey.split('/').pop()}</code>
 			</div>
+			{#if node.assetKey}
+				<a
+					class="ghost-sm atlas-link"
+					href={`/atlas?atlas=${encodeURIComponent(
+						node.assetKey.split('/').pop() ?? '',
+					)}&region=${encodeURIComponent(node.region)}`}
+					target="_blank"
+					rel="noopener"
+					title="Open the Invisible Atlas Maker on this sprite's atlas (falls back to the Sheet Maker's Import browser if that atlas has no Atlas Maker recipe)"
+				>
+					🧩 Open in Atlas Maker
+				</a>
+			{/if}
 		{/if}
 		<div class="ctx" class:override={isOverrideMode}>
 			{#if isOverrideMode}
@@ -982,6 +995,11 @@
 	.ghost-sm.danger {
 		color: #ff9a9a;
 		border-color: #4a2a30;
+	}
+	.ghost-sm.atlas-link {
+		display: inline-block;
+		margin-top: 6px;
+		text-decoration: none;
 	}
 	.slot-section {
 		padding: 10px;

@@ -191,6 +191,21 @@ CATALOG = {
             "Copy an image from a source region first, then paste it here."
         ),
     },
+    "NO_ATLAS_RECIPE": {
+        "severity": "info",
+        "title": "No Atlas Maker recipe found for '{atlas}'",
+        "explain": (
+            "The editor asked to open '{atlas}' here, but no Atlas Maker "
+            "generation manifest in this project deploys to that atlas. It was "
+            "likely built directly in the Sheet Maker (packed sprites), not "
+            "generated as regions here."
+        ),
+        "fix": (
+            "Open it via the Sheet Maker's Import browser instead. (Your "
+            "account doesn't have the Sheet Maker linked, so there's no direct "
+            "jump from here.)"
+        ),
+    },
     "REGION_NOT_FOUND": {
         "severity": "error",
         "title": "Region '{name}' not found",

@@ -3,7 +3,7 @@ import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
+export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	// The parent layout already resolved the effective tool manifest; reuse it
 	// instead of re-querying the role/user overrides (same gate, fewer queries).
@@ -41,6 +41,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 			sib.set('project', project);
 			params.set('sibling', `${sheetBase}/?${sib.toString()}`);
 		}
+		// Deep-link from the Invisible Editor: when an atlas/region is requested,
+		// forward them so the tool can load the matching generation manifest (or
+		// fall back to the Sheet Maker Import browser via the `sibling` link).
+		const atlas = url.searchParams.get('atlas');
+		if (atlas) params.set('atlas', atlas);
+		const region = url.searchParams.get('region');
+		if (region) params.set('region', region);
 		throw redirect(303, `${base}/?${params.toString()}`);
 	}
 	return { configured: false };

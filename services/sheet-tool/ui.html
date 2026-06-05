@@ -189,6 +189,7 @@ let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused acros
 let activeSheet=null;        // which sheet the current canvas regions belong to
 let loadedPath=null, loadedDir=null, loadedName=null, isProject=false;  // loaded project identity
 let browseMode='projects';   // 'projects' (manifests only) | 'import' (any coords/image)
+let importTarget='';         // editor deep-link: atlas basename to land on (?import=)
 
 const $=id=>document.getElementById(id);
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
@@ -205,6 +206,11 @@ async function init(){
   // B24 — sibling tool link (Atlas Maker), passed ready-to-use by the launcher.
   const sibling=qp.get('sibling');
   if(sibling){ const s=$('siblinglink'); s.href=sibling; s.style.display=''; }
+  // Editor "Open in Atlas Maker" deep-link fallback: the Atlas Maker had no
+  // recipe for this atlas, so it sent the user here with ?import=<atlas>. Open
+  // the Load tab in Import mode so they can pick that packed sheet. Best-effort:
+  // an unknown atlas just lands at the default Import location.
+  importTarget=(qp.get('import')||'').split(/[\\/]/).pop()||'';
   $('amstatus').textContent=STATE.atlas_maker_found?'· Atlas Maker linked ✓':'· Atlas Maker not found';
   $('amstatus').className=STATE.atlas_maker_found?'ok':'err';
   // project dropdown
@@ -219,6 +225,12 @@ async function init(){
   sheetName=$('sheet').value.trim()||'newsheet';
   updateReadouts();
   fitView();
+  if(importTarget){
+    // Show Load tab + Import browse mode, pointed at the default location.
+    // browse() highlights/scrolls to the matching file when importTarget is set.
+    showTab('load');
+    setBrowseMode('import');
+  }
 }
 
 /* ---------- save identity readouts ---------- */
@@ -528,6 +540,28 @@ async function browse(path){
   $('browser').innerHTML=h||'<div class="it muted">(empty)</div>';
   $('browser').querySelectorAll('.dir').forEach(el=>el.onclick=()=>browse(el.dataset.d));
   $('browser').querySelectorAll('.file').forEach(el=>el.onclick=()=>loadFile(el.dataset.f));
+  // Editor deep-link: if we're looking for a specific atlas, flag the matching
+  // file row in the current listing (best-effort — match on basename or stem).
+  if(importTarget && browseMode==='import'){
+    const want=importTarget.toLowerCase();
+    const wantStem=want.replace(/\.[^.]+$/,'');
+    let hit=null;
+    $('browser').querySelectorAll('.file').forEach(el=>{
+      const fp=(el.dataset.f||'').split(/[\\/]/).pop().toLowerCase();
+      const fpStem=fp.replace(/\.[^.]+$/,'');
+      if(!hit && (fp===want || fpStem===wantStem)) hit=el;
+    });
+    if(hit){
+      hit.style.outline='2px solid #ffd166';
+      hit.style.background='rgba(255,209,102,.12)';
+      try{ hit.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
+      $('loadmsg').className='note';
+      $('loadmsg').textContent='Found "'+importTarget+'" — click it to import.';
+    }else{
+      $('loadmsg').className='note';
+      $('loadmsg').textContent='Looking for "'+importTarget+'" — browse to its folder, then click the .atlas / coords file.';
+    }
+  }
 }
 async function loadFile(path){
   if(/\.(png|webp)$/i.test(path)){ $('loadmsg').className='note'; $('loadmsg').textContent='Pick a coords file (.json/.atlas), not the image.'; return; }
