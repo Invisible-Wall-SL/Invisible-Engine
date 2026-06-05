@@ -14,7 +14,7 @@
  * here, then hand the resolved manifest key back to the client as `assetKey`.
  */
 import { SUB } from './projectPaths';
-import { getObjectText, listObjects, objectExists } from './r2';
+import { getObjectText, listAllObjects, listObjects, objectExists } from './r2';
 
 export interface EditorRegion {
 	name: string;
@@ -63,6 +63,9 @@ interface RawManifest {
 	width?: unknown;
 	height?: unknown;
 	export_prefix?: unknown;
+	/** Atlas-tool deploy hints — used to locate the DEPLOYED page (preferred). */
+	deploy_basename?: unknown;
+	deploy_path?: unknown;
 	regions?: unknown;
 }
 
@@ -111,12 +114,72 @@ async function resolveManifestKey(sheet: string): Promise<string | null> {
  * In the latter case we resolve by basename against the manifest's own folder
  * and the project's atlas output prefix, tolerating a `.png`/`.webp` mismatch.
  */
+/**
+ * Prefer the DEPLOYED page so the editor shows the latest Atlas Maker deploy —
+ * i.e. exactly what the game loads (deploy/ is the live-asset source of truth).
+ * Matches a page under `deploy/` by the sheet's basename stem (the manifest's
+ * `deploy_basename`, its source-page name, or its own stem), preferring `.webp`
+ * (the deploy's preferred page format) then `.png`. Returns null when nothing is
+ * deployed for this sheet → the caller falls back to the source page.
+ *
+ * Note: this swaps only the PAGE, keeping the manifest's region rects — correct
+ * when the deploy kept the same geometry (the Atlas Maker "don't override the
+ * .json" / spine path). A re-pack that changed geometry must also update the
+ * manifest's regions for the editor to stay aligned.
+ */
+async function findDeployedPage(
+	man: RawManifest,
+	manifestKey: string,
+	client: string,
+	project: string,
+): Promise<string | null> {
+	const stems = new Set<string>();
+	const addStem = (s: string | undefined): void => {
+		if (!s) return;
+		const b = basename(s.replace(/\\/g, '/'));
+		const stem = b.replace(/\.[^.]+$/, '').toLowerCase();
+		if (stem) stems.add(stem);
+	};
+	addStem(str(man.deploy_basename));
+	addStem(str(man.atlas?.source_image_path));
+	addStem(str(man.atlas?.source_image));
+	addStem(manifestKey);
+	if (stems.size === 0) return null;
+
+	let objs: { key: string; size: number }[];
+	try {
+		objs = await listAllObjects(`${SUB.deploy(client, project)}/`);
+	} catch {
+		return null;
+	}
+	const matches = objs.filter((o) => {
+		const b = basename(o.key);
+		const dot = b.lastIndexOf('.');
+		if (dot === -1) return false;
+		const ext = b.slice(dot + 1).toLowerCase();
+		return (ext === 'png' || ext === 'webp') && stems.has(b.slice(0, dot).toLowerCase());
+	});
+	if (matches.length === 0) return null;
+	// Prefer .webp (deploy's preferred page format), then the largest file (the
+	// packed page, not a stray icon sharing the stem).
+	matches.sort((a, b) => {
+		const aw = a.key.toLowerCase().endsWith('.webp') ? 0 : 1;
+		const bw = b.key.toLowerCase().endsWith('.webp') ? 0 : 1;
+		return aw !== bw ? aw - bw : b.size - a.size;
+	});
+	return matches[0].key;
+}
+
 async function resolvePageKey(
 	man: RawManifest,
 	manifestKey: string,
 	client: string,
 	project: string,
 ): Promise<string | null> {
+	// Prefer the deployed page so the editor reflects the latest deploy.
+	const deployed = await findDeployedPage(man, manifestKey, client, project);
+	if (deployed) return deployed;
+
 	const direct = str(man.atlas?.source_image_path);
 	if (direct && (await objectExists(direct))) return direct;
 

@@ -22,6 +22,7 @@
 		type NodeBox,
 	} from './editorCanvas.helpers';
 	import {
+		clearRegionCache,
 		fetchRegions,
 		regionNaturalSize,
 		type EditorRegion,
@@ -542,6 +543,7 @@
 	function refreshAssets(): void {
 		images.clear();
 		regionSets.clear();
+		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
 		assetVersion++;
 		spineReload++;
 		draw();

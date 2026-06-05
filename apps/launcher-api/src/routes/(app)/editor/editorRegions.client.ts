@@ -46,6 +46,13 @@ export interface RegionDragPayload {
 
 const cache = new Map<string, Promise<RegionSet>>();
 
+/** Drop the per-session region cache so the next fetch re-resolves from R2 —
+ * used by the editor's "Reload art" after the underlying atlas changed (e.g. a
+ * new deploy), so the page key + rects refresh without a full page reload. */
+export function clearRegionCache(): void {
+	cache.clear();
+}
+
 /** Fetch (and cache per identifier) the region set for a sheet/atlas key. */
 export function fetchRegions(sheetKey: string): Promise<RegionSet> {
 	const hit = cache.get(sheetKey);
