@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		boundComponentDefault,
 		computeOverlayPlacement,
 		resolveAnchorPreviewArt,
 		resolveTransform,
@@ -122,6 +123,17 @@
 		const art = anchorArt(node);
 		if (art) {
 			return placedArtTransform(node, t, art.placement);
+		}
+		// No resolvable preview art (e.g. the component's spine isn't in THIS project),
+		// but a known overlay still has a catalog PLACEMENT — position its placeholder
+		// where the component actually plays (centred / board-relative) instead of
+		// stranding it at the anchor's raw origin (top-left). Universal across game
+		// types; HUD binds have no catalog placement so they keep the screenAnchor path.
+		if (node.bind) {
+			const placement = boundComponentDefault(node.bind.component)?.placement;
+			if (placement) {
+				return placedArtTransform(node, t, placement);
+			}
 		}
 		if (scene.space === 'canvas' && t.screenAnchor) {
 			return {
