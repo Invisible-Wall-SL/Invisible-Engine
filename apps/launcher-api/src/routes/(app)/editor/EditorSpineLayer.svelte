@@ -104,11 +104,20 @@
 	 * hit-test box). Measured once on the static setup pose; `null` if degenerate. */
 	function naturalSizeOf(inst: SpineInstance): { w: number; h: number } | null {
 		try {
-			inst.skeleton.setToSetupPose();
-			inst.skeleton.updateWorldTransform(getSpinePhysics());
+			const skel = inst.skeleton;
+			// Measure at unit scale: the render loop bakes the editor zoom into the
+			// skeleton's scale, so getBounds would otherwise return zoom-scaled bounds.
+			const sx = skel.scaleX;
+			const sy = skel.scaleY;
+			skel.scaleX = 1;
+			skel.scaleY = 1;
+			skel.setToSetupPose();
+			skel.updateWorldTransform(getSpinePhysics());
 			const offset = { x: 0, y: 0 };
 			const size = { x: 0, y: 0 };
-			inst.skeleton.getBounds(offset, size, []);
+			skel.getBounds(offset, size, []);
+			skel.scaleX = sx;
+			skel.scaleY = sy;
 			if (size.x > 0 && size.y > 0) return { w: size.x, h: size.y };
 		} catch {
 			/* runtime not ready / bounds unavailable */
@@ -305,15 +314,19 @@
 		const cam = renderer.camera;
 		cam.viewportWidth = canvas.width;
 		cam.viewportHeight = canvas.height;
-		// y-down camera (up = -Y) so editor-world (origin top-left, y grows down)
-		// maps straight onto the canvas alongside the 2D layer.
+		// STATIC screen-space camera: editor-world units map 1:1 to CSS px (×dpr in the
+		// backing store), y-down. The editor PAN/ZOOM is NOT in the camera — it's baked
+		// into each skeleton's transform below. This is the same camera config that was
+		// correct at zoom=1 (app zoom + pan factored out), so the spine overlay uses the
+		// IDENTICAL `world*zoom + pan` mapping as the 2D canvas at EVERY zoom level.
+		// (Driving zoom through the camera drifted the spine off the 2D box when zooming.)
 		cam.up.x = 0;
 		cam.up.y = -1;
 		cam.up.z = 0;
-		const camZoom = 1 / (zoom * dpr);
+		const camZoom = 1 / dpr;
 		cam.zoom = camZoom;
-		cam.position.x = (canvas.width / 2 - panX * dpr) * camZoom;
-		cam.position.y = (canvas.height / 2 - panY * dpr) * camZoom;
+		cam.position.x = (canvas.width / 2) * camZoom;
+		cam.position.y = (canvas.height / 2) * camZoom;
 		cam.position.z = 0;
 		cam.update();
 		gl.viewport(0, 0, canvas.width, canvas.height);
@@ -340,6 +353,14 @@
 				// Flip Y: the runtime art is y-up; the camera is y-down.
 				inst.skeleton.scaleY = -sy;
 			}
+			// Bake the editor pan/zoom into the skeleton so it maps EXACTLY like the 2D
+			// canvas: backing px = (world*zoom + pan)*dpr (the static camera supplies the
+			// *dpr). placeArt / the plain path set world-space x/y/scale above; this is the
+			// single world→screen step that keeps the spine pixel-locked to its 2D box.
+			inst.skeleton.x = inst.skeleton.x * zoom + panX;
+			inst.skeleton.y = inst.skeleton.y * zoom + panY;
+			inst.skeleton.scaleX *= zoom;
+			inst.skeleton.scaleY *= zoom;
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
@@ -369,6 +390,10 @@
 		const offset = { x: 0, y: 0 };
 		const size = { x: 0, y: 0 };
 		try {
+			// Measure at unit scale (scale is re-set at the end of this fn + the loop
+			// bakes zoom into it), so offset/size are the art's true natural bounds.
+			inst.skeleton.scaleX = 1;
+			inst.skeleton.scaleY = 1;
 			inst.skeleton.setToSetupPose();
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
 			inst.skeleton.getBounds(offset, size, []);
