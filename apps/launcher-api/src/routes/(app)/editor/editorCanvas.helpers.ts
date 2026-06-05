@@ -21,8 +21,16 @@ export function nodeBox(
 ): NodeBox {
 	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
-	// HUD preview chips select at their drawn size.
-	if (node.preview) return { w: node.preview.w, h: node.preview.h, ax, ay };
+	// `preview.art` anchors select at the rendered art's box: the cover transform
+	// bakes width/height; else use the art's natural size (resolved via naturalSize).
+	if (node.preview?.art) {
+		const nat = naturalSize(node);
+		const w = t.width ?? nat?.w ?? 160;
+		const h = t.height ?? nat?.h ?? 100;
+		return { w, h, ax, ay };
+	}
+	// HUD preview chips select at their drawn size (w/h are optional → defaulted).
+	if (node.preview) return { w: node.preview.w ?? 160, h: node.preview.h ?? 100, ax, ay };
 	if (node.kind === 'sprite') {
 		const nat = naturalSize(node);
 		const w = t.width ?? nat?.w ?? 100;

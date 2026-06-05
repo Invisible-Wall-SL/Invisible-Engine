@@ -15,6 +15,10 @@
 	interface Props {
 		scene: Scene;
 		layoutType: LayoutType;
+		/** Active scene frame size (world coords) — used to cover-fit `preview.art`
+		 * spine anchors, identical to the 2D canvas's `coverArtTransform`. */
+		frameWidth: number;
+		frameHeight: number;
 		/** Editor view transform — kept byte-identical with the 2D canvas. */
 		panX: number;
 		panY: number;
@@ -24,13 +28,27 @@
 		/** Reports which `assetKey`s now render a real skeleton, so the 2D canvas
 		 * can drop their placeholder. Loading/errored keys stay placeholdered. */
 		onReadyKeysChange?: (keys: Set<string>) => void;
+		/** Reports each ready spine's setup-pose natural size per `assetKey`, so the
+		 * 2D canvas can cover-fit `preview.art` spine anchors by the art's aspect. */
+		onNaturalSizesChange?: (sizes: Map<string, { w: number; h: number }>) => void;
 		/** Monotonic spine-bundle load tally, so the 2D canvas can fold spine loads
 		 * into its global progress overlay. `started`/`settled` only ever grow. */
 		onLoadingChange?: (counts: { started: number; settled: number }) => void;
 	}
 
-	let { scene, layoutType, panX, panY, zoom, playing, onReadyKeysChange, onLoadingChange }: Props =
-		$props();
+	let {
+		scene,
+		layoutType,
+		frameWidth,
+		frameHeight,
+		panX,
+		panY,
+		zoom,
+		playing,
+		onReadyKeysChange,
+		onNaturalSizesChange,
+		onLoadingChange,
+	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
 	let loadStarted = 0;
@@ -42,11 +60,34 @@
 	let readyKeys = new Set<string>();
 	function publishReady(): void {
 		const next = new Set<string>();
-		for (const [key, entry] of entries) if (entry.state === 'ready') next.add(key);
+		const sizes = new Map<string, { w: number; h: number }>();
+		for (const [key, entry] of entries) {
+			if (entry.state !== 'ready') continue;
+			next.add(key);
+			const nat = naturalSizeOf(entry.instance);
+			if (nat) sizes.set(key, nat);
+		}
 		if (next.size !== readyKeys.size || [...next].some((k) => !readyKeys.has(k))) {
 			readyKeys = next;
 			onReadyKeysChange?.(next);
 		}
+		onNaturalSizesChange?.(sizes);
+	}
+
+	/** Setup-pose bounds size of an instance (for cover-fit ratio + the 2D canvas's
+	 * hit-test box). Measured once on the static setup pose; `null` if degenerate. */
+	function naturalSizeOf(inst: SpineInstance): { w: number; h: number } | null {
+		try {
+			inst.skeleton.setToSetupPose();
+			inst.skeleton.updateWorldTransform(getSpinePhysics());
+			const offset = { x: 0, y: 0 };
+			const size = { x: 0, y: 0 };
+			inst.skeleton.getBounds(offset, size, []);
+			if (size.x > 0 && size.y > 0) return { w: size.x, h: size.y };
+		} catch {
+			/* runtime not ready / bounds unavailable */
+		}
+		return null;
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
@@ -106,11 +147,51 @@
 		}
 	}
 
-	/** Visible spine nodes in this scene (containers are 2D-only for the preview). */
-	function spineNodes(): Extract<LayoutNode, { kind: 'spine' }>[] {
-		const out: Extract<LayoutNode, { kind: 'spine' }>[] = [];
+	/**
+	 * One spine the overlay must render — either a real `kind:'spine'` node or a
+	 * `bind` anchor carrying a `preview.art` spine stand-in (the animated Background).
+	 * `cover` art is cover-fit to the frame; everything else renders at the node's
+	 * resolved transform. `nodeId` is the doc node (for the `playing` set);
+	 * `assetKey` keys the shared instance cache.
+	 */
+	interface SpineRenderTarget {
+		nodeId: string;
+		assetKey: string;
+		defaultAnimation?: string;
+		loop?: boolean;
+		cover: boolean;
+		transform: ReturnType<typeof resolveTransform>;
+	}
+
+	/** Visible spine render targets in this scene: real spine nodes + `preview.art`
+	 * spine bind anchors (containers are otherwise 2D-only for the preview). */
+	function spineTargets(): SpineRenderTarget[] {
+		const out: SpineRenderTarget[] = [];
 		for (const n of scene.nodes) {
-			if (n.kind === 'spine' && resolveTransform(n, layoutType).visible) out.push(n);
+			const t = resolveTransform(n, layoutType);
+			if (!t.visible) continue;
+			if (n.kind === 'spine') {
+				out.push({
+					nodeId: n.id,
+					assetKey: n.assetKey,
+					defaultAnimation: n.defaultAnimation,
+					loop: n.loop,
+					cover: false,
+					transform: t,
+				});
+			} else {
+				const art = n.preview?.art;
+				if (art?.kind === 'spine') {
+					out.push({
+						nodeId: n.id,
+						assetKey: art.assetKey,
+						defaultAnimation: undefined,
+						loop: true,
+						cover: Boolean(art.cover),
+						transform: t,
+					});
+				}
+			}
 		}
 		return out;
 	}
@@ -127,13 +208,13 @@
 	}
 
 	/** Drive each ready instance's play/pause state from the `playing` set. */
-	function syncPlayback(node: Extract<LayoutNode, { kind: 'spine' }>, entry: Entry): void {
+	function syncPlayback(target: SpineRenderTarget, entry: Entry): void {
 		if (entry.state !== 'ready') return;
-		const wantPlay = playing.has(node.id);
-		const wantAnim = node.defaultAnimation || entry.instance.firstAnimation;
+		const wantPlay = playing.has(target.nodeId);
+		const wantAnim = target.defaultAnimation || entry.instance.firstAnimation;
 		if (wantPlay && wantAnim) {
 			if (entry.playingAnim !== wantAnim) {
-				entry.instance.animationState.setAnimation(0, wantAnim, node.loop ?? true);
+				entry.instance.animationState.setAnimation(0, wantAnim, target.loop ?? true);
 				entry.playingAnim = wantAnim;
 			}
 		} else if (entry.playingAnim !== null) {
@@ -151,9 +232,9 @@
 		const delta = lastTime ? (now - lastTime) / 1000 : 0;
 		lastTime = now;
 
-		const nodes = spineNodes();
+		const targets = spineTargets();
 		// Kick off loads for any newly-referenced bundles.
-		for (const n of nodes) if (!entries.has(n.assetKey)) void ensureInstance(n.assetKey);
+		for (const tg of targets) if (!entries.has(tg.assetKey)) void ensureInstance(tg.assetKey);
 
 		if (!gl) {
 			// No nodes have triggered GL yet — nothing to clear.
@@ -180,19 +261,23 @@
 		cam.update();
 		gl.viewport(0, 0, canvas.width, canvas.height);
 
-		for (const node of nodes) {
-			const entry = entries.get(node.assetKey);
+		for (const target of targets) {
+			const entry = entries.get(target.assetKey);
 			if (!entry || entry.state !== 'ready') continue;
-			syncPlayback(node, entry);
-			const t = resolveTransform(node, layoutType);
+			syncPlayback(target, entry);
+			const t = target.transform;
 			const inst = entry.instance;
-			const sx = t.scale?.x ?? 1;
-			const sy = t.scale?.y ?? 1;
-			inst.skeleton.x = t.x;
-			inst.skeleton.y = t.y;
-			inst.skeleton.scaleX = sx;
-			// Flip Y: the runtime art is y-up; the camera is y-down.
-			inst.skeleton.scaleY = -sy;
+			if (target.cover) {
+				placeCover(inst);
+			} else {
+				const sx = t.scale?.x ?? 1;
+				const sy = t.scale?.y ?? 1;
+				inst.skeleton.x = t.x;
+				inst.skeleton.y = t.y;
+				inst.skeleton.scaleX = sx;
+				// Flip Y: the runtime art is y-up; the camera is y-down.
+				inst.skeleton.scaleY = -sy;
+			}
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
@@ -200,6 +285,44 @@
 			renderer.drawSkeleton(inst.skeleton, inst.premultipliedAlpha);
 			renderer.end();
 		}
+	}
+
+	/**
+	 * Cover-fit a spine instance to the scene frame — the editor stand-in for the
+	 * coded full-bleed `Background`. Mirrors the 2D canvas's `coverArtTransform`:
+	 * scale so BOTH frame dims are covered (max of the two cover scales), centred on
+	 * the frame. Uses the skeleton's setup-pose bounds for the art's size + centre,
+	 * accounting for the y-flip (`scaleY = -s`) so a local point (lx, ly) lands at
+	 * `(skeleton.x + s*lx, skeleton.y - s*ly)`.
+	 */
+	function placeCover(inst: SpineInstance): void {
+		const nat = naturalSizeOf(inst);
+		const offset = { x: 0, y: 0 };
+		const size = { x: 0, y: 0 };
+		try {
+			inst.skeleton.setToSetupPose();
+			inst.skeleton.updateWorldTransform(getSpinePhysics());
+			inst.skeleton.getBounds(offset, size, []);
+		} catch {
+			/* bounds unavailable — fall through to safe defaults below */
+		}
+		const bw = nat?.w ?? size.x;
+		const bh = nat?.h ?? size.y;
+		if (!(bw > 0) || !(bh > 0)) {
+			// Degenerate bounds: centre at 1:1 so something still shows.
+			inst.skeleton.x = frameWidth / 2;
+			inst.skeleton.y = frameHeight / 2;
+			inst.skeleton.scaleX = 1;
+			inst.skeleton.scaleY = -1;
+			return;
+		}
+		const s = Math.max(frameWidth / bw, frameHeight / bh);
+		const cx = offset.x + size.x / 2;
+		const cy = offset.y + size.y / 2;
+		inst.skeleton.x = frameWidth / 2 - s * cx;
+		inst.skeleton.y = frameHeight / 2 + s * cy;
+		inst.skeleton.scaleX = s;
+		inst.skeleton.scaleY = -s;
 	}
 
 	onMount(() => {
@@ -222,7 +345,7 @@
 
 	// Drop cached instances whose node was removed from the scene (free GPU memory).
 	$effect(() => {
-		const live = new Set(spineNodes().map((n) => n.assetKey));
+		const live = new Set(spineTargets().map((tg) => tg.assetKey));
 		let removed = false;
 		for (const [key, entry] of entries) {
 			if (!live.has(key)) {

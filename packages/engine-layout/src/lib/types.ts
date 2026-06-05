@@ -81,13 +81,23 @@ interface BaseNode {
 	 */
 	screenAnchor?: Point2D;
 	/**
-	 * Editor-only render hint for `bind` nodes whose real component is a simple
-	 * shape+text (the HUD: buttons = rounded square + icon label; labels = ticker
-	 * + text). Lets the 2D editor draw a faithful chip at this size/style instead
-	 * of a generic placeholder box, so an author sees roughly the real HUD. The
-	 * game ignores it (it mounts the real Pixi component).
+	 * Editor-only render hint for `bind` nodes whose real coded component the
+	 * editor can't run. Two flavours, both purely editor-side — the game ALWAYS
+	 * ignores `preview` and mounts the real Pixi component:
+	 * - `style` (+ `w`/`h`): a simple 2D chip for HUD bind anchors (buttons =
+	 *   rounded square + icon label; labels = ticker + text), so the author sees
+	 *   roughly the real HUD instead of a generic placeholder box.
+	 * - `art`: a real spine/sprite the editor draws in the anchor's place (e.g. the
+	 *   animated `Background`, which is full-bleed + crossfades in-game and so has
+	 *   to stay a coded `bind`). Lets "see the game composed" work without the
+	 *   editor running game code. `cover` cover-fits it to the scene box (bg).
 	 */
-	preview?: { w: number; h: number; style: 'button' | 'label' | 'text' };
+	preview?: {
+		w?: number;
+		h?: number;
+		style?: 'button' | 'label' | 'text';
+		art?: { kind: 'spine' | 'sprite'; assetKey: string; region?: string; cover?: boolean };
+	};
 }
 
 export interface ContainerNode extends BaseNode {
