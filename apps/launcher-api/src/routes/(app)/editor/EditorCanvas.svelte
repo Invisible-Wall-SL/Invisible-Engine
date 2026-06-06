@@ -486,14 +486,116 @@
 	/** Spine node ids whose preview animation is playing (static otherwise). */
 	let playingSpines = $state<Set<string>>(new Set());
 	/** `assetKey`s the spine overlay renders as real skeletons — the 2D canvas
-	 * skips their placeholder box so only the live preview shows. */
+	 * skips their placeholder box so only the live preview shows. UNION across the
+	 * per-scene spine sublayers (each reports only its own scene's keys). */
 	let readySpineKeys = $state<Set<string>>(new Set());
 	/** Setup-pose natural size per spine `assetKey`, reported by the WebGL overlay —
-	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect. */
+	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect.
+	 * MERGED across the per-scene spine sublayers. */
 	let spineNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
 	/** Text node ids the PIXI text overlay renders with a real (catalog) font — the
-	 * 2D canvas skips their `fillText` placeholder so there's no double-draw. */
+	 * 2D canvas skips their `fillText` placeholder so there's no double-draw. UNION
+	 * across the per-scene text sublayers. */
 	let readyTextIds = $state<Set<string>>(new Set());
+
+	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
+	// canvas folds their reports together (union of ready keys/ids + merged natural
+	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
+	const spineReadyByScene = new Map<string, Set<string>>();
+	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
+	const textReadyByScene = new Map<string, Set<string>>();
+	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
+	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
+
+	function mergeSpineReady(sceneId: string, keys: Set<string>): void {
+		spineReadyByScene.set(sceneId, keys);
+		const union = new Set<string>();
+		for (const set of spineReadyByScene.values()) for (const k of set) union.add(k);
+		readySpineKeys = union;
+	}
+	function mergeSpineNatural(sceneId: string, sizes: Map<string, { w: number; h: number }>): void {
+		spineNaturalByScene.set(sceneId, sizes);
+		const merged = new Map<string, { w: number; h: number }>();
+		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		spineNaturalSizes = merged;
+	}
+	function mergeTextReady(sceneId: string, ids: Set<string>): void {
+		textReadyByScene.set(sceneId, ids);
+		const union = new Set<string>();
+		for (const set of textReadyByScene.values()) for (const id of set) union.add(id);
+		readyTextIds = union;
+	}
+	function mergeSpineLoading(sceneId: string, c: { started: number; settled: number }): void {
+		spineLoadByScene.set(sceneId, c);
+		let started = 0;
+		let settled = 0;
+		for (const v of spineLoadByScene.values()) {
+			started += v.started;
+			settled += v.settled;
+		}
+		spineStarted = started;
+		spineSettled = settled;
+	}
+	function mergeFontLoading(sceneId: string, c: { started: number; settled: number }): void {
+		fontLoadByScene.set(sceneId, c);
+		let started = 0;
+		let settled = 0;
+		for (const v of fontLoadByScene.values()) {
+			started += v.started;
+			settled += v.settled;
+		}
+		fontStarted = started;
+		fontSettled = settled;
+	}
+
+	/** Drop a scene's report buffers (when its group unmounts — hidden/removed) and
+	 * recompute the merged unions/sums so stale ready keys + load tallies don't linger. */
+	function forgetScene(id: string): void {
+		spineReadyByScene.delete(id);
+		spineNaturalByScene.delete(id);
+		textReadyByScene.delete(id);
+		spineLoadByScene.delete(id);
+		fontLoadByScene.delete(id);
+		sceneFilters.delete(id);
+		const keys = new Set<string>();
+		for (const set of spineReadyByScene.values()) for (const k of set) keys.add(k);
+		readySpineKeys = keys;
+		const nat = new Map<string, { w: number; h: number }>();
+		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
+		spineNaturalSizes = nat;
+		const ids = new Set<string>();
+		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
+		readyTextIds = ids;
+		let ss = 0;
+		let sd = 0;
+		for (const v of spineLoadByScene.values()) {
+			ss += v.started;
+			sd += v.settled;
+		}
+		spineStarted = ss;
+		spineSettled = sd;
+		let fs = 0;
+		let fd = 0;
+		for (const v of fontLoadByScene.values()) {
+			fs += v.started;
+			fd += v.settled;
+		}
+		fontStarted = fs;
+		fontSettled = fd;
+	}
+
+	/** Svelte action: register a per-scene 2D canvas + size/draw it once it mounts. */
+	function registerSceneCanvasAction(el: HTMLCanvasElement, id: string) {
+		registerSceneCanvas(id, el);
+		resizeCanvas();
+		schedule();
+		return {
+			destroy() {
+				registerSceneCanvas(id, null);
+				forgetScene(id);
+			},
+		};
+	}
 	function toggleSpinePlay(node: LayoutNode): void {
 		const next = new Set(playingSpines);
 		if (next.has(node.id)) next.delete(node.id);
@@ -770,9 +872,10 @@
 		const dpr = window.devicePixelRatio || 1;
 		const w = Math.floor(wrap.clientWidth * dpr);
 		const h = Math.floor(wrap.clientHeight * dpr);
-		// Keep the base + HUD canvases the same backing size (the HUD layer overlays
-		// the base 1:1, above the spine/FX layer).
-		for (const c of [canvas, hudCanvas]) {
+		// Keep every 2D surface the same backing size so they overlay the base 1:1:
+		// the base canvas (frame + interaction), each per-scene canvas, and the HUD.
+		const all = [canvas, hudCanvas, ...sceneCanvases.values()];
+		for (const c of all) {
 			if (c && (c.width !== w || c.height !== h)) {
 				c.width = w;
 				c.height = h;
@@ -795,6 +898,60 @@
 		return scene.nodes.filter((n) => resolveTransform(n, layoutType).visible);
 	}
 
+	/**
+	 * Non-hidden GAME scenes in DOC ORDER — the per-scene composite groups (markup
+	 * below) are emitted one per entry, z-ordered by this index so ANY scene's
+	 * content (its 2D canvas + spine + text) sits above/below ANOTHER scene's
+	 * content strictly by screen order. (HUD scenes are drawn separately on the
+	 * top-most `hudCanvas`.) This is what makes a full-bleed Background SPINE render
+	 * BELOW the base-game 2D reels, instead of the spine layer always sitting on top.
+	 */
+	function visibleGameScenes(): Scene[] {
+		return scenes.filter((s) => !hiddenSceneIds.has(s.id) && !isHudScene(s));
+	}
+
+	/** Does a scene carry a spine render target (a real spine node, or a `bind`
+	 * anchor whose resolved preview art is a spine)? Only such scenes mount a
+	 * (WebGL) spine sublayer in their group, so contexts stay bounded. */
+	function sceneHasSpine(s: Scene): boolean {
+		for (const n of s.nodes) {
+			if (n.kind === 'spine') return true;
+			const art = anchorArt(n);
+			if (art?.kind === 'spine' && art.assetKey) return true;
+		}
+		return false;
+	}
+
+	/** Does a scene carry a text render target (a `kind:'text'` node, or a coded HUD
+	 * text bind anchor)? Only such scenes mount a (pixi) text sublayer. */
+	function sceneHasText(s: Scene): boolean {
+		for (const n of s.nodes) {
+			if (n.kind === 'text') return true;
+			if (n.kind === 'container' && n.bind && n.preview?.style === 'text') return true;
+		}
+		return false;
+	}
+
+	/** Stable single-id `sceneFilter` per scene — memoized so the spine/text sublayers
+	 * don't see a fresh Set reference (and rebuild) on every parent re-render. */
+	const sceneFilters = new Map<string, Set<string>>();
+	function sceneFilterFor(id: string): Set<string> {
+		let f = sceneFilters.get(id);
+		if (!f) {
+			f = new Set([id]);
+			sceneFilters.set(id, f);
+		}
+		return f;
+	}
+
+	/** Per-scene 2D canvas registry — each game scene's node art draws onto its OWN
+	 * canvas (registered here on mount) so it z-orders with the rest of its group. */
+	const sceneCanvases = new Map<string, HTMLCanvasElement>();
+	function registerSceneCanvas(id: string, el: HTMLCanvasElement | null): void {
+		if (el) sceneCanvases.set(id, el);
+		else sceneCanvases.delete(id);
+	}
+
 	function findNodeById(id: string): LayoutNode | null {
 		for (const n of scene.nodes) if (n.id === id) return n;
 		return null;
@@ -804,6 +961,9 @@
 
 	function draw(): void {
 		if (!canvas) return;
+		// Size-sync every 2D surface first, so a per-scene canvas that mounted this same
+		// frame (or a DPR change) never paints one frame at a stale backing size.
+		resizeCanvas();
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		const dpr = window.devicePixelRatio || 1;
@@ -842,39 +1002,37 @@
 		ctx.strokeRect(0, 0, frameWidth, frameHeight);
 		ctx.setLineDash([]);
 
-		// Composite all non-hidden GAME screens (editor-only "see all screens" view),
-		// each in its OWN coordinate space, in doc order so layering matches the game.
-		// HUD screens are drawn separately on the top-most `hudCanvas` (above the spine/
-		// FX layer) by `drawHud()`. The eye toggle is authoritative: a hidden screen
-		// never draws. The active scene stays the only INTERACTIVE one; its selection
-		// overlay is drawn on top in `drawHud()`.
-		for (const s of scenes) {
-			if (hiddenSceneIds.has(s.id) || isHudScene(s)) continue;
-			for (const node of s.nodes) drawNode(ctx, node, s);
-		}
-
-		// Snap guide lines (world-space; covers all frame + visible).
-		if (snapLines.length > 0) {
-			ctx.save();
-			ctx.lineWidth = 1 / zoom;
-			ctx.strokeStyle = '#ff5db0';
-			ctx.setLineDash([6 / zoom, 4 / zoom]);
-			const ext = 4000 / zoom;
-			for (const s of snapLines) {
-				ctx.beginPath();
-				if (s.axis === 'x') {
-					ctx.moveTo(s.v, -ext);
-					ctx.lineTo(s.v, frameHeight + ext);
-				} else {
-					ctx.moveTo(-ext, s.v);
-					ctx.lineTo(frameWidth + ext, s.v);
-				}
-				ctx.stroke();
-			}
-			ctx.restore();
-		}
-
+		// GAME scenes are NOT drawn on this base canvas anymore: each is composited onto
+		// its OWN per-scene canvas (see `drawSceneCanvases`), z-ordered with that scene's
+		// spine + text sublayers by screen order — so e.g. a full-bleed Background spine
+		// renders BELOW the base-game 2D, instead of the spine layer always being on top.
+		// This base canvas keeps only the frame backdrop + the interaction surface (input
+		// passes through the per-scene groups, which are `pointer-events:none`).
+		drawSceneCanvases();
 		drawHud();
+	}
+
+	/**
+	 * Draw each non-hidden GAME scene's 2D node art onto its OWN registered canvas, in
+	 * the SAME world→screen mapping as everything else (`setTransform(dpr) · pan · zoom`).
+	 * Each per-scene canvas sits in a z-ordered group (markup below) between this base
+	 * canvas and the HUD, so intra-stack order follows screen order across the 2D/spine/
+	 * text surfaces. The eye toggle is authoritative — a hidden scene never draws.
+	 */
+	function drawSceneCanvases(): void {
+		const dpr = window.devicePixelRatio || 1;
+		for (const s of visibleGameScenes()) {
+			const c = sceneCanvases.get(s.id);
+			if (!c) continue;
+			const sctx = c.getContext('2d');
+			if (!sctx) continue;
+			sctx.setTransform(1, 0, 0, 1, 0, 0);
+			sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
+			sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			sctx.translate(panX, panY);
+			sctx.scale(zoom, zoom);
+			for (const node of s.nodes) drawNode(sctx, node, s);
+		}
 	}
 
 	/**
@@ -894,6 +1052,28 @@
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.translate(panX, panY);
 		ctx.scale(zoom, zoom);
+
+		// Snap guide lines (world-space). Drawn on the top-most HUD canvas so the pink
+		// placement guides stay visible over the per-scene composite groups beneath it.
+		if (snapLines.length > 0) {
+			ctx.save();
+			ctx.lineWidth = 1 / zoom;
+			ctx.strokeStyle = '#ff5db0';
+			ctx.setLineDash([6 / zoom, 4 / zoom]);
+			const ext = 4000 / zoom;
+			for (const s of snapLines) {
+				ctx.beginPath();
+				if (s.axis === 'x') {
+					ctx.moveTo(s.v, -ext);
+					ctx.lineTo(s.v, frameHeight + ext);
+				} else {
+					ctx.moveTo(-ext, s.v);
+					ctx.lineTo(frameWidth + ext, s.v);
+				}
+				ctx.stroke();
+			}
+			ctx.restore();
+		}
 
 		for (const s of scenes) {
 			if (hiddenSceneIds.has(s.id) || !isHudScene(s)) continue;
@@ -1666,6 +1846,8 @@
 
 	// Redraw the composite when the visible-screen set changes (eye toggles) or the
 	// scene set/active scene swaps. schedule() dedupes, so this is cheap.
+	// Invariant: each per-scene canvas action also calls schedule() on mount, so a
+	// new scene self-heals on the next frame even if this effect's RAF wins first.
 	$effect(() => {
 		hiddenSceneIds;
 		scenes;
@@ -1845,53 +2027,72 @@
 	role="region"
 	aria-label="Editor canvas"
 >
+	<!-- Base canvas: frame backdrop + the interaction surface. The per-scene composite
+	     groups above are `pointer-events:none`, so input (select/drag/zoom/pan) always
+	     reaches here; hit-testing is world-space math, independent of what's drawn. -->
 	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown}></canvas>
-	<EditorSpineLayer
-		{scene}
-		{scenes}
-		{mainSizesMap}
-		{layoutType}
-		{frameWidth}
-		{frameHeight}
-		{panX}
-		{panY}
-		{zoom}
-		{assets}
-		reloadToken={spineReload}
-		{hiddenSceneIds}
-		playing={playingSpines}
-		onReadyKeysChange={(keys) => {
-			readySpineKeys = keys;
-			schedule();
-		}}
-		onNaturalSizesChange={(sizes) => {
-			spineNaturalSizes = sizes;
-			schedule();
-		}}
-		onLoadingChange={(c) => {
-			spineStarted = c.started;
-			spineSettled = c.settled;
-		}}
-	/>
-	<EditorTextLayer
-		{scenes}
-		{layoutType}
-		{panX}
-		{panY}
-		{zoom}
-		worldTransformOf={nodeTransform}
-		{hiddenSceneIds}
-		{projectGameName}
-		reloadToken={fontReload}
-		onLoadingChange={(c) => {
-			fontStarted = c.started;
-			fontSettled = c.settled;
-		}}
-		onReadyIdsChange={(ids) => {
-			readyTextIds = ids;
-			schedule();
-		}}
-	/>
+
+	<!-- One z-ordered group per non-hidden GAME scene, in doc order. Each group stacks
+	     (bottom→top) its own 2D canvas, then its spine sublayer, then its text sublayer.
+	     `z-index = scene index` makes a LATER scene's whole group sit above an EARLIER
+	     scene's whole group — so a Background spine renders below the base-game 2D. The
+	     spine/text sublayers are filtered to the one scene + mounted only when present
+	     (keeps WebGL/pixi contexts bounded). -->
+	{#each visibleGameScenes() as s, i (s.id)}
+		<div class="scene-group" style="z-index:{i + 1}">
+			<canvas class="scene-2d" use:registerSceneCanvasAction={s.id}></canvas>
+			{#if sceneHasSpine(s)}
+				<EditorSpineLayer
+					{scenes}
+					{mainSizesMap}
+					{layoutType}
+					{frameWidth}
+					{frameHeight}
+					{panX}
+					{panY}
+					{zoom}
+					{assets}
+					reloadToken={spineReload}
+					{hiddenSceneIds}
+					sceneFilter={sceneFilterFor(s.id)}
+					playing={playingSpines}
+					onReadyKeysChange={(keys) => {
+						mergeSpineReady(s.id, keys);
+						schedule();
+					}}
+					onNaturalSizesChange={(sizes) => {
+						mergeSpineNatural(s.id, sizes);
+						schedule();
+					}}
+					onLoadingChange={(c) => {
+						mergeSpineLoading(s.id, c);
+					}}
+				/>
+			{/if}
+			{#if sceneHasText(s)}
+				<EditorTextLayer
+					{scenes}
+					{layoutType}
+					{panX}
+					{panY}
+					{zoom}
+					worldTransformOf={nodeTransform}
+					{hiddenSceneIds}
+					sceneFilter={sceneFilterFor(s.id)}
+					{projectGameName}
+					reloadToken={fontReload}
+					onLoadingChange={(c) => {
+						mergeFontLoading(s.id, c);
+					}}
+					onReadyIdsChange={(ids) => {
+						mergeTextReady(s.id, ids);
+						schedule();
+					}}
+				/>
+			{/if}
+		</div>
+	{/each}
+
 	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
 	{#if showOverlay}
 		<div class="load-overlay" role="status" aria-live="polite">
@@ -1969,10 +2170,30 @@
 		height: 100%;
 	}
 	.hud-layer {
-		/* Top-most 2D layer: overlays the base canvas + the spine/text layers so the
-		   HUD draws on top. Input passes through to the base canvas underneath. */
+		/* Top-most 2D layer: overlays the base canvas + the per-scene groups so the HUD
+		   draws on top. Sits above every scene group (which use z-index 1..N); the HUD
+		   needs a higher stacking context. Input passes through to the base canvas. */
 		position: absolute;
 		inset: 0;
+		z-index: 1000;
+		pointer-events: none;
+	}
+	.scene-group {
+		/* One composite group per game scene; z-index (set inline by scene order) makes
+		   a later scene's whole group — its 2D + spine + text — sit above an earlier
+		   scene's group. Input passes through to the base canvas underneath. */
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+	}
+	.scene-2d {
+		/* Bottom of each group: this scene's 2D node art. The group's spine + text
+		   sublayers stack above it (later in the group's DOM order). */
+		position: absolute;
+		inset: 0;
+		display: block;
+		width: 100%;
+		height: 100%;
 		pointer-events: none;
 	}
 	.hint {

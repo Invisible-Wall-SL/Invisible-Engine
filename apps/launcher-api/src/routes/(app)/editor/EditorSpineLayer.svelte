@@ -28,9 +28,9 @@
 	}
 
 	interface Props {
-		scene: Scene;
-		/** All doc scenes — used to locate the `boardFrame` node for board-relative
-		 * (positioned) spine previews (Win = board centre), mirroring the 2D canvas. */
+		/** All doc scenes — `spineTargets()` is driven by these (filtered by
+		 * `sceneFilter`/`hiddenSceneIds`); also locates the `boardFrame` node for
+		 * board-relative (positioned) spine previews (Win = board centre). */
 		scenes: Scene[];
 		/** The game's main-layout sizes per layoutType — the space a positioned overlay
 		 * preview is mapped from to canvas world coords. */
@@ -63,10 +63,14 @@
 		/** Editor-only: scene ids hidden from the composite. The active scene always
 		 * renders; other non-hidden scenes' spines render too (the "see all" view). */
 		hiddenSceneIds?: Set<string>;
+		/** Editor-only: when set, render ONLY these scene ids. Used by the per-scene
+		 * composite (EditorCanvas stacks one layer group per scene, z-ordered by screen
+		 * order) so a scene's spine sits above/below ANOTHER scene's 2D art per the doc
+		 * order — not always on top. Unset = render every non-hidden scene (legacy). */
+		sceneFilter?: Set<string> | null;
 	}
 
 	let {
-		scene,
 		scenes,
 		mainSizesMap,
 		layoutType,
@@ -82,6 +86,7 @@
 		onLoadingChange,
 		reloadToken = 0,
 		hiddenSceneIds = new Set<string>(),
+		sceneFilter = null,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -232,6 +237,7 @@
 		// so backdrop scenes render correctly without per-scene space handling.
 		for (const sc of scenes) {
 			if (hiddenSceneIds.has(sc.id)) continue;
+			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
 				const t = resolveTransform(n, layoutType);
 				if (!t.visible) continue;
@@ -496,6 +502,11 @@
 				/* context teardown */
 			}
 			renderer = null;
+			// Force-free the GPU context: with one context per spine-bearing scene and
+			// groups churning on every eye-toggle/screen reorder, browsers cap live WebGL
+			// contexts (~8–16) and silently drop the oldest → blank previews. Only here
+			// (real unmount), NOT the reload-token path (that keeps the same context).
+			gl?.getExtension('WEBGL_lose_context')?.loseContext();
 			gl = null;
 		};
 	});

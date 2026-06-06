@@ -36,6 +36,9 @@
 		worldTransformOf: (node: LayoutNode, scene: Scene) => ResolvedTransform;
 		/** Editor-only: scene ids hidden from the composite. */
 		hiddenSceneIds?: Set<string>;
+		/** Editor-only: when set, render ONLY these scene ids (per-scene composite, so a
+		 * scene's text z-orders with its own scene group instead of always on top). */
+		sceneFilter?: Set<string> | null;
 		/** Bumped by "Reload art" — re-fetches the catalog + reloads fonts. */
 		reloadToken?: number;
 		/** Monotonic font-load tally, folded into the 2D canvas's progress overlay. */
@@ -56,6 +59,7 @@
 		zoom,
 		worldTransformOf,
 		hiddenSceneIds = new Set<string>(),
+		sceneFilter = null,
 		reloadToken = 0,
 		onLoadingChange,
 		onReadyIdsChange,
@@ -133,6 +137,7 @@
 		const out: TextTarget[] = [];
 		for (const sc of scenes) {
 			if (hiddenSceneIds.has(sc.id)) continue;
+			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
 				if (!resolveTransform(n, layoutType).visible) continue;
 				if (n.kind === 'text') {
@@ -289,6 +294,7 @@
 	$effect(() => {
 		void scenes;
 		void hiddenSceneIds;
+		void sceneFilter;
 		void layoutType;
 		void panX;
 		void panY;
