@@ -5,7 +5,7 @@ export { defaultLayout } from './lines';
 export { bookofReferenceLayout } from './bookof';
 // The game HUD as editor scenes (identical across game types) — used by the
 // editor's "Add HUD layer" action + a game's fallback doc.
-export { hudScenes, hudBarScene, hudCornersScene } from './hud';
+export { hudScenes, hudBarScene, hudCornersScene, HUD_SCENE_IDS, isHudScene } from './hud';
 
 /**
  * A built-in, fully-placed reference layout for a game type — the engine-truth

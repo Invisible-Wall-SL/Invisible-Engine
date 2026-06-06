@@ -5,6 +5,7 @@
 		findUnfilledRequiredSlots,
 		getReferenceLayout,
 		hudScenes,
+		isHudScene,
 		listReferenceLayouts,
 		mountAnchor,
 		seedScenesFromTemplate,
@@ -176,6 +177,16 @@
 	);
 
 	const sceneCount = $derived(scenes.length);
+	// The Screens list groups the HUD screens (bottom bar + corners) into their own
+	// section, apart from the game screens — they're the always-on-top UI layer.
+	// Each entry keeps its ORIGINAL index into `scenes` (so `selectScene(i)` + the
+	// active highlight stay correct).
+	const gameSceneEntries = $derived(
+		scenes.map((s, i) => ({ s, i })).filter(({ s }) => !isHudScene(s)),
+	);
+	const hudSceneEntries = $derived(
+		scenes.map((s, i) => ({ s, i })).filter(({ s }) => isHudScene(s)),
+	);
 	const atlasCount = $derived(data.assets.atlases.length);
 	const spineCount = $derived(data.assets.spines.length);
 	const sheetCount = $derived(data.assets.sheets.length);
@@ -995,54 +1006,72 @@
 					</button>
 				</div>
 				<h3 class="screens-h">Screens <span class="count">{sceneCount}</span></h3>
+				{#snippet sceneRow(s: (typeof scenes)[number], i: number)}
+					{@const hidden = hiddenScenes.has(s.id)}
+					<li class="screen-li">
+						<button
+							type="button"
+							class="screen"
+							class:active={i === activeSceneIdx}
+							class:dimmed={hidden}
+							onclick={() => selectScene(i)}
+						>
+							<span class="screen-name">{s.name || s.id}</span>
+							<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
+						</button>
+						<button
+							type="button"
+							class="eye"
+							class:off={hidden}
+							aria-pressed={!hidden}
+							title={hidden ? 'Show this screen in the canvas' : 'Hide this screen from the canvas'}
+							onclick={() => toggleSceneVisible(s.id)}
+						>
+							{#if hidden}
+								<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+									<path
+										d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.5 9.5 0 0112 5c5 0 9 4 10 7a12 12 0 01-3 4M6.1 6.1A12 12 0 002 12c1 3 5 7 10 7a9.5 9.5 0 003.3-.6"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+									/>
+								</svg>
+							{:else}
+								<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+									<path
+										d="M2 12c1-3 5-7 10-7s9 4 10 7c-1 3-5 7-10 7s-9-4-10-7z"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									/>
+									<circle cx="12" cy="12" r="3" fill="currentColor" />
+								</svg>
+							{/if}
+						</button>
+					</li>
+				{/snippet}
 				<ul class="screens">
-					{#each scenes as s, i (s.id)}
-						{@const hidden = hiddenScenes.has(s.id)}
-						<li class="screen-li">
-							<button
-								type="button"
-								class="screen"
-								class:active={i === activeSceneIdx}
-								class:dimmed={hidden}
-								onclick={() => selectScene(i)}
-							>
-								<span class="screen-name">{s.name || s.id}</span>
-								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
-							</button>
-							<button
-								type="button"
-								class="eye"
-								class:off={hidden}
-								aria-pressed={!hidden}
-								title={hidden ? 'Show this screen in the canvas' : 'Hide this screen from the canvas'}
-								onclick={() => toggleSceneVisible(s.id)}
-							>
-								{#if hidden}
-									<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-										<path
-											d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.5 9.5 0 0112 5c5 0 9 4 10 7a12 12 0 01-3 4M6.1 6.1A12 12 0 002 12c1 3 5 7 10 7a9.5 9.5 0 003.3-.6"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-										/>
-									</svg>
-								{:else}
-									<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-										<path
-											d="M2 12c1-3 5-7 10-7s9 4 10 7c-1 3-5 7-10 7s-9-4-10-7z"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-										/>
-										<circle cx="12" cy="12" r="3" fill="currentColor" />
-									</svg>
-								{/if}
-							</button>
-						</li>
-					{:else}
+					{#if sceneCount === 0}
 						<li class="muted">No scenes yet — load a game scene above.</li>
-					{/each}
+					{:else}
+						{#each gameSceneEntries as { s, i } (s.id)}
+							{@render sceneRow(s, i)}
+						{/each}
+						{#if hudSceneEntries.length > 0}
+							<li class="screens-subhead">
+								<span>HUD</span>
+								<span
+									class="sub-note"
+									title="The HUD is the top-most UI layer — it always renders above the game screens"
+									>top layer</span
+								>
+							</li>
+							{#each hudSceneEntries as { s, i } (s.id)}
+								{@render sceneRow(s, i)}
+							{/each}
+						{/if}
+					{/if}
 				</ul>
 
 				{#if activeScene}
@@ -1598,6 +1627,25 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
+	}
+	.screens-subhead {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin: 8px 0 2px;
+		padding: 2px 6px 4px;
+		border-top: 1px solid #1c1c24;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #7a7a8a;
+	}
+	.screens-subhead .sub-note {
+		font-weight: 500;
+		letter-spacing: 0;
+		text-transform: none;
+		color: #565666;
 	}
 	.screen {
 		display: flex;

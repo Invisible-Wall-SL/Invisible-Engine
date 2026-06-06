@@ -2,6 +2,7 @@
 	import {
 		boundComponentDefault,
 		computeOverlayPlacement,
+		isHudScene,
 		resolveAnchorPreviewArt,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
@@ -441,6 +442,10 @@
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
+	// Top-most 2D layer for the HUD: it sits ABOVE the spine/FX overlay so the HUD
+	// draws on top (matching the game, where the HUD is the top UI layer). The base
+	// `canvas` draws the game scenes + frame BELOW the spine layer.
+	let hudCanvas: HTMLCanvasElement | null = $state(null);
 	let wrap: HTMLDivElement | null = $state(null);
 
 	let panX = $state(0);
@@ -757,13 +762,17 @@
 	}
 
 	function resizeCanvas(): void {
-		if (!canvas || !wrap) return;
+		if (!wrap) return;
 		const dpr = window.devicePixelRatio || 1;
 		const w = Math.floor(wrap.clientWidth * dpr);
 		const h = Math.floor(wrap.clientHeight * dpr);
-		if (canvas.width !== w || canvas.height !== h) {
-			canvas.width = w;
-			canvas.height = h;
+		// Keep the base + HUD canvases the same backing size (the HUD layer overlays
+		// the base 1:1, above the spine/FX layer).
+		for (const c of [canvas, hudCanvas]) {
+			if (c && (c.width !== w || c.height !== h)) {
+				c.width = w;
+				c.height = h;
+			}
 		}
 	}
 
@@ -829,13 +838,14 @@
 		ctx.strokeRect(0, 0, frameWidth, frameHeight);
 		ctx.setLineDash([]);
 
-		// Composite all non-hidden screens (editor-only "see all screens" view), each
-		// in its OWN coordinate space, in doc order so layering matches the game. The
-		// eye toggle is authoritative: a hidden screen never draws, even when it's the
-		// selected one. The active scene stays the only INTERACTIVE one; its selection
-		// overlay is drawn last (below), on top of everything.
+		// Composite all non-hidden GAME screens (editor-only "see all screens" view),
+		// each in its OWN coordinate space, in doc order so layering matches the game.
+		// HUD screens are drawn separately on the top-most `hudCanvas` (above the spine/
+		// FX layer) by `drawHud()`. The eye toggle is authoritative: a hidden screen
+		// never draws. The active scene stays the only INTERACTIVE one; its selection
+		// overlay is drawn on top in `drawHud()`.
 		for (const s of scenes) {
-			if (hiddenSceneIds.has(s.id)) continue;
+			if (hiddenSceneIds.has(s.id) || isHudScene(s)) continue;
 			for (const node of s.nodes) drawNode(ctx, node, s);
 		}
 
@@ -858,6 +868,32 @@
 				ctx.stroke();
 			}
 			ctx.restore();
+		}
+
+		drawHud();
+	}
+
+	/**
+	 * Draw the HUD screens on the top-most `hudCanvas` — ABOVE the spine/FX overlay,
+	 * so the HUD renders on top like the real game (the base canvas, which holds the
+	 * game scenes, sits below the spine layer). Also draws the selection overlay here
+	 * (top-most) so a selected node's handles are never hidden behind the FX.
+	 */
+	function drawHud(): void {
+		if (!hudCanvas) return;
+		const ctx = hudCanvas.getContext('2d');
+		if (!ctx) return;
+		const dpr = window.devicePixelRatio || 1;
+
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, hudCanvas.width, hudCanvas.height); // transparent overlay
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		ctx.translate(panX, panY);
+		ctx.scale(zoom, zoom);
+
+		for (const s of scenes) {
+			if (hiddenSceneIds.has(s.id) || !isHudScene(s)) continue;
+			for (const node of s.nodes) drawNode(ctx, node, s);
 		}
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1851,6 +1887,7 @@
 			schedule();
 		}}
 	/>
+	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
 	{#if showOverlay}
 		<div class="load-overlay" role="status" aria-live="polite">
 			<div class="load-card">
@@ -1925,6 +1962,13 @@
 		display: block;
 		width: 100%;
 		height: 100%;
+	}
+	.hud-layer {
+		/* Top-most 2D layer: overlays the base canvas + the spine/text layers so the
+		   HUD draws on top. Input passes through to the base canvas underneath. */
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
 	}
 	.hint {
 		position: absolute;
