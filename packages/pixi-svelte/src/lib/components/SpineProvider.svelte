@@ -31,34 +31,13 @@
 		return bundle ? (assets?.[bundle] as SPINE_PIXI.SkeletonData | undefined) : undefined;
 	});
 
-	const SCALE_BASE = { x: 1, y: 1 };
-
-	const scaleSize = $derived.by(() => {
-		if (!spineData) return SCALE_BASE;
-		if (!spineData?.width || !spineData?.height) return SCALE_BASE;
-		if (!baseSpineProps.width && !baseSpineProps.height) return SCALE_BASE;
-		if (!baseSpineProps.width && baseSpineProps.height) {
-			const scaleHeight = baseSpineProps.height / spineData.height;
-			return { x: scaleHeight, y: scaleHeight };
-		}
-		if (baseSpineProps.width && !baseSpineProps.height) {
-			const scaleWidth = baseSpineProps.width / spineData.width;
-			return { x: scaleWidth, y: scaleWidth };
-		}
-		if (baseSpineProps.width && baseSpineProps.height) {
-			return {
-				x: baseSpineProps.width / spineData.width,
-				y: baseSpineProps.height / spineData.height,
-			};
-		}
-
-		return SCALE_BASE;
-	});
-
+	// `width`/`height` → scale is resolved in `BaseSpineProvider` (it sizes against the
+	// pose-independent authored bounds, robust to animation/skin-driven art whose setup
+	// pose is empty). Here we only forward the caller's raw `scale`; BaseSpineProvider
+	// folds the size scale into it.
 	const scale = $derived.by(() => {
-		if (typeof scaleProp === 'number')
-			return { x: scaleSize.x * scaleProp, y: scaleSize.y * scaleProp };
-		return { x: scaleSize.x * (scaleProp?.x || 1), y: scaleSize.y * (scaleProp?.y || 1) };
+		if (typeof scaleProp === 'number') return { x: scaleProp, y: scaleProp };
+		return { x: scaleProp?.x ?? 1, y: scaleProp?.y ?? 1 };
 	});
 
 	const pivot = $derived.by(() => {

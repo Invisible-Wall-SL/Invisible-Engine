@@ -1,4 +1,5 @@
 import WebFont from 'webfontloader';
+import type * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 
 import type { PixiPoint, Sizes } from './types';
 
@@ -78,6 +79,59 @@ export const preloadFont = () =>
 			resolve();
 		}
 	});
+
+/**
+ * Resolve the uniform scale a `Spine` needs so an explicit `width`/`height` renders at
+ * that size — robust to animation/skin-driven art whose setup pose has no attachments.
+ *
+ * spine-pixi-v8's own `width`/`height` setters scale relative to the spine's CURRENT
+ * frame bounds, which are degenerate (0) for art driven by an animation before it has
+ * advanced — so the requested size silently does nothing and the spine renders raw
+ * (oversized). We instead size against the pose-independent authored bounds
+ * (`skeleton.data.width/height`), the same fallback the editor renderer uses. When the
+ * data omits a size we fall back to the live setup bounds; if those are also degenerate
+ * we leave the axis at scale 1 (nothing reliable to size against).
+ *
+ * Each axis is sized by the dimension given for it; when only one is given it's applied
+ * uniformly to both (preserving aspect), mirroring the prior `SpineProvider` behaviour.
+ */
+export function spineSizeScale({
+	spine,
+	width,
+	height,
+}: {
+	spine: SPINE_PIXI.Spine;
+	width?: number;
+	height?: number;
+}): { x: number; y: number } {
+	if (width === undefined && height === undefined) return { x: 1, y: 1 };
+
+	const data = spine.skeleton?.data;
+	let naturalWidth = data && data.width > 0 ? data.width : 0;
+	let naturalHeight = data && data.height > 0 ? data.height : 0;
+
+	if (!(naturalWidth > 0) || !(naturalHeight > 0)) {
+		// No authored size — try the live bounds (valid for spines whose setup pose has
+		// attachments). Degenerate bounds (animation-driven, not yet advanced) stay 0.
+		const bounds = spine.bounds;
+		if (bounds && bounds.width > 0 && bounds.height > 0) {
+			if (!(naturalWidth > 0)) naturalWidth = bounds.width;
+			if (!(naturalHeight > 0)) naturalHeight = bounds.height;
+		}
+	}
+
+	if (!(naturalWidth > 0) || !(naturalHeight > 0)) return { x: 1, y: 1 };
+
+	if (width !== undefined && height !== undefined) {
+		return { x: width / naturalWidth, y: height / naturalHeight };
+	}
+	if (width !== undefined) {
+		const s = width / naturalWidth;
+		return { x: s, y: s };
+	}
+	const s = (height as number) / naturalHeight;
+	return { x: s, y: s };
+}
 
 export function propsSyncEffect<TProps extends object, TTarget>({
 	props,
