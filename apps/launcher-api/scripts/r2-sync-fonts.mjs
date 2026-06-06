@@ -11,7 +11,11 @@
 // .otf`) become `kind:'web'` entries (name = the file stem). client/project are
 // slug-normalized the SAME way as the launcher + Python tools.
 //
-// Defaults: fontsDir = the `lines` game fonts, client = borut, project = book_of_borut
+// Defaults: fontsDir = the `lines` game fonts, client = borut, project = bookofborut.
+// IMPORTANT: pass the project KEY (what the editor reads), NOT the display name —
+// e.g. Book of Borut's key is `bookofborut` (r2Slug of itself), so `book_of_borut`
+// would write to the WRONG prefix the editor never reads. Same gotcha as
+// seed-game-editor.mjs.
 // Env for the real upload (NOT --dry-run): R2_ENDPOINT / R2_BUCKET /
 //   R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY (see r2-sync-spines.mjs).
 import { readFile, readdir, writeFile, stat } from 'node:fs/promises';
@@ -27,7 +31,7 @@ const dryRun = args.includes('--dry-run');
 const positional = args.filter((a) => !a.startsWith('--'));
 const FONTS_DIR = positional[0] ?? DEFAULT_DIR;
 const CLIENT = positional[1] ?? process.env.IW_CLIENT ?? 'borut';
-const PROJECT = positional[2] ?? process.env.IW_PROJECT ?? 'book_of_borut';
+const PROJECT = positional[2] ?? process.env.IW_PROJECT ?? 'bookofborut';
 const PREFIX = `${r2Slug(CLIENT)}/${r2Slug(PROJECT)}/fonts`;
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__']);
