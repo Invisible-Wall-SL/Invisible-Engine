@@ -11,6 +11,7 @@ export * from './resolveTransform';
 export * from './fontCatalog';
 export * from './hudText';
 export * from './registerBoundComponents';
+export * from './registerComponents';
 export * from './boundComponentCatalog';
 export * from './componentCatalog';
 export * from './validateTemplate';
