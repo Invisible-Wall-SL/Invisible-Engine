@@ -486,6 +486,23 @@
 		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;
 		inst.skeleton.scaleX = s;
 		inst.skeleton.scaleY = -s;
+		// TEMP DIAGNOSTIC (remove after): the cover/contain render size the spine layer
+		// actually applies, vs the 2D box in window.__ED. renderW/H is the on-frame size
+		// in world px; compare renderW to window.__ED.selected.boxW.
+		if (typeof window !== 'undefined') {
+			(window as unknown as { __EDSpine?: unknown }).__EDSpine = {
+				placement,
+				mode: result.mode,
+				bw,
+				bh,
+				frameWidth,
+				frameHeight,
+				coverScale: s,
+				renderW: bw * s,
+				renderH: bh * s,
+				dpr: window.devicePixelRatio || 1,
+			};
+		}
 	}
 
 	onMount(() => {
