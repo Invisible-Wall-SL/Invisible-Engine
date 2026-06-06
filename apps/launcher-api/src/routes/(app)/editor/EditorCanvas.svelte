@@ -1046,15 +1046,15 @@
 		const ph = region.rotated ? region.w : region.h;
 		if (region.rotated) {
 			// Page pixels are packed rotated; restore upright to MATCH THE GAME.
-			// PixiJS un-rotates a `rotated:true` frame with groupD8(2) = the matrix
-			// (x,y)→(-y,x) = canvas rotate(+90°). So the editor must use the SAME
-			// +90° (verified: PixiJS groupD8(2) source + a PIL crop of the real page
-			// — the -90-packed page un-rotates upright under +90). Draw the (h × w)
-			// page rect into a (ch × cw) local box translated to (cx + cw, cy) so the
-			// content lands upright in the (cw × ch) box, identical to PixiJS.
+			// The page is packed with PIL rotate(-90) (atlas-tool fit_to_region), so the
+			// un-rotation is +90 = counter-clockwise (verified empirically: cropping the
+			// real page rect and applying PIL rotate(+90) renders upright). Canvas is
+			// y-down, so CCW = rotate(-π/2) with translate(cx, cy + ch): under -π/2 the
+			// local (ch × cw) dest box lands upright at screen (cx, cy) size (cw × ch),
+			// no mirror (rotation det = +1).
 			ctx.save();
-			ctx.translate(cx + cw, cy);
-			ctx.rotate(Math.PI / 2);
+			ctx.translate(cx, cy + ch);
+			ctx.rotate(-Math.PI / 2);
 			ctx.drawImage(img, region.x, region.y, pw, ph, 0, 0, ch, cw);
 			ctx.restore();
 		} else {

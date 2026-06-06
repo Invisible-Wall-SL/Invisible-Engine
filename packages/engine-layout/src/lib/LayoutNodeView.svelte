@@ -42,6 +42,26 @@
 			? layoutContext.stateLayoutDerived.normalBackgroundLayout({ scale: node.scale?.x ?? 0.5 })
 			: undefined,
 	);
+
+	// A sized sprite/spine (explicit width/height) carries BOTH `width` and `scale`,
+	// but pixi-svelte's `propsSyncEffect` assigns props in object-key order and
+	// PIXI's `width`/`height` setters overwrite `scale.x`/`scale.y` — so `width`
+	// applied after `scale` silently clobbers any editor resize that wrote `scale`.
+	// The editor previews the displayed size as `width * scale`, so fold `scale`
+	// INTO the dimensions here and feed the sprite `scale = 1` (undefined), making
+	// `width`/`height` the single authority — "what you size in the editor" then
+	// equals "what the game shows". Falls through to plain `scale` when no explicit
+	// dimension is set (texture-natural sizing).
+	const sizeScaleX = $derived(transform.scale?.x ?? 1);
+	const sizeScaleY = $derived(transform.scale?.y ?? 1);
+	const hasExplicitSize = $derived(transform.width !== undefined || transform.height !== undefined);
+	const sizedWidth = $derived(
+		transform.width !== undefined ? transform.width * sizeScaleX : undefined,
+	);
+	const sizedHeight = $derived(
+		transform.height !== undefined ? transform.height * sizeScaleY : undefined,
+	);
+	const sizedScale = $derived(hasExplicitSize ? undefined : transform.scale);
 </script>
 
 {#if transform.visible}
@@ -87,12 +107,12 @@
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
 			anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
-			scale={bg ? undefined : transform.scale}
+			scale={bg ? undefined : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={bg ? bg.width : transform.width}
-			height={bg ? bg.height : transform.height}
+			width={bg ? bg.width : sizedWidth}
+			height={bg ? bg.height : sizedHeight}
 			tint={transform.tint}
 		/>
 	{:else if node.kind === 'spine'}
@@ -101,12 +121,12 @@
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
 			anchor={transform.anchor}
-			scale={bg ? undefined : transform.scale}
+			scale={bg ? undefined : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={bg ? bg.width : transform.width}
-			height={bg ? bg.height : transform.height}
+			width={bg ? bg.width : sizedWidth}
+			height={bg ? bg.height : sizedHeight}
 		>
 			{#if node.defaultAnimation}
 				<SpineTrack trackIndex={0} animationName={node.defaultAnimation} loop={node.loop ?? true} />

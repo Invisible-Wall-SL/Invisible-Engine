@@ -33,6 +33,14 @@ const DEFAULT_DOC_BASE = 'https://app.invisiblewall.org';
  * or when the fetched doc has no `basegame` scene, so the game still runs
  * offline / before any doc has been authored in the editor.
  */
+function fellBack(reason: string): LayoutDoc {
+	// Loud, single-line signal so a live game that is NOT honouring editor edits is
+	// diagnosable from the browser console (the silent fallback was the #1 cause of
+	// "my editor resize didn't reach the game"). The bundled layout still renders.
+	console.warn(`[editor] using bundled fallback layout — editor edits will NOT show. Reason: ${reason}`);
+	return fallbackEditorScenes;
+}
+
 export async function loadEditorScenes(): Promise<LayoutDoc> {
 	if (typeof window === 'undefined') return fallbackEditorScenes;
 	try {
@@ -42,19 +50,20 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 		// Shared read token the launcher appends to the game URL (`?k=`); the
 		// doc endpoint is token-gated. Without it the fetch 401s -> fallback.
 		const token = params.get('k');
-		if (!token) return fallbackEditorScenes;
+		if (!token) return fellBack('no ?k= token in the game URL (launcher must append it)');
 		const docUrl =
 			`${base}/api/editor/doc?project=${encodeURIComponent(project)}` +
 			`&k=${encodeURIComponent(token)}`;
 		const res = await fetch(docUrl);
-		if (!res.ok) return fallbackEditorScenes;
+		if (!res.ok) return fellBack(`doc fetch ${res.status} ${res.statusText} (${docUrl})`);
 		const data = (await res.json()) as { doc?: LayoutDoc };
 		const doc = data.doc;
 		if (doc && Array.isArray(doc.scenes) && doc.scenes.some((scene) => scene.id === 'basegame')) {
+			console.info(`[editor] loaded live layout doc for "${project}" — editor edits are active`);
 			return doc;
 		}
-		return fallbackEditorScenes;
-	} catch {
-		return fallbackEditorScenes;
+		return fellBack('fetched doc has no `basegame` scene (schema/validation rejected)');
+	} catch (err) {
+		return fellBack(`fetch threw: ${err instanceof Error ? err.message : String(err)}`);
 	}
 }

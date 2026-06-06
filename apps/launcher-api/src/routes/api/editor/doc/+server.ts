@@ -50,7 +50,7 @@ function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: st
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
 	'Access-Control-Allow-Methods': 'GET, OPTIONS',
-	'Cache-Control': 'public, max-age=30',
+	'Cache-Control': 'no-store',
 };
 
 export const GET: RequestHandler = async ({ url }) => {
