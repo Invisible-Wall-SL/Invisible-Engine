@@ -527,7 +527,7 @@
 			<button
 				class="ghost-sm"
 				onclick={() => onEditAsComponent?.(node as ContainerNode)}
-				title="Open this container's sub-tree as a reusable component (component mode)"
+				title="Save this container's sub-tree as a reusable component and open it in the Invisible Component Editor (new tab)"
 			>
 				◇ Edit as component
 			</button>

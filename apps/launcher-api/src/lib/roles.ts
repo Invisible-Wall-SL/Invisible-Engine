@@ -64,6 +64,11 @@ export const TOOL_ICONS: Record<string, string> = {
 	),
 	// overlapping shapes (place/arrange)
 	editor: I('<rect x="4" y="4" width="11" height="11" rx="1"/><rect x="9" y="9" width="11" height="11" rx="1"/>'),
+	// nested squares (a component containing its elements)
+	componentEditor: I(
+		'<rect x="3" y="3" width="18" height="18" rx="2"/>' +
+			'<rect x="7" y="7" width="6" height="6" rx="1"/><rect x="13" y="11" width="4" height="6" rx="1"/>',
+	),
 	// browse list (bulleted rows)
 	ftpBrowser: I(
 		'<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/>' +
@@ -155,13 +160,29 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/files',
 		icon: TOOL_ICONS.ftpBrowser,
 	},
+	componentEditor: {
+		id: 'componentEditor',
+		name: 'Invisible Component Editor',
+		description: 'Author reusable game components — edit their elements and bind the engine variables.',
+		kind: 'online',
+		url: '/components',
+		icon: TOOL_ICONS.componentEditor,
+	},
 };
 
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
-	developer: ['atlasTool', 'spineViewer', 'invisibleLauncher', 'localization', 'editor', 'ftpBrowser'],
-	artist: ['atlasTool', 'invisibleLauncher', 'sheetMaker', 'localization', 'editor'],
+	developer: [
+		'atlasTool',
+		'spineViewer',
+		'invisibleLauncher',
+		'localization',
+		'editor',
+		'componentEditor',
+		'ftpBrowser',
+	],
+	artist: ['atlasTool', 'invisibleLauncher', 'sheetMaker', 'localization', 'editor', 'componentEditor'],
 	animator: ['spineViewer', 'spine'],
 };
 
@@ -286,6 +307,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	localization: 'localization',
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
+	componentEditor: 'component-editor',
 };
 
 /** Repo-relative path to a tool's documentation (authored by the docs effort). */
