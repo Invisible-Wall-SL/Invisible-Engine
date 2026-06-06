@@ -64,9 +64,15 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  */
 export async function saveComponent(component: ComponentDef, projectKey?: string): Promise<void> {
 	const normalized = validateComponent(component);
+	// A `scope:'project'` def MUST be saved with a projectKey — never silently
+	// downgrade it to the shared library (that would publish a project-local
+	// component repo-wide).
+	if (normalized.scope === 'project' && !projectKey) {
+		throw new Error('A project-scoped component requires a projectKey.');
+	}
 	const key =
-		normalized.scope === 'project' && projectKey
-			? projectComponentKey(projectKey, normalized.id)
+		normalized.scope === 'project'
+			? projectComponentKey(projectKey as string, normalized.id)
 			: editorComponentKey(normalized.id);
 	await putObjectText(key, JSON.stringify(normalized, null, 2), 'application/json');
 }
@@ -134,8 +140,8 @@ function validateComponent(component: ComponentDef): ComponentDef {
 	if (typeof component.name !== 'string' || !component.name.trim()) {
 		throw new Error('Component requires a non-empty name.');
 	}
-	if (typeof component.version !== 'number' || !Number.isFinite(component.version)) {
-		throw new Error('Component version must be a number.');
+	if (!Number.isInteger(component.version) || component.version < 1) {
+		throw new Error('Component version must be a positive integer.');
 	}
 	if (component.scope !== 'shared' && component.scope !== 'project') {
 		throw new Error("Component scope must be 'shared' or 'project'.");
@@ -162,7 +168,7 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		version: raw.version,
 		scope: raw.scope,
 		category: raw.category,
-		root: raw.root,
+		root: identityComponentRoot(raw.root),
 	};
 	const params = normalizeParams(raw.params);
 	if (params.length) def.params = params;
@@ -248,6 +254,28 @@ function isComponentShape(input: unknown): input is ComponentDef {
 
 function isContainerNode(input: unknown): input is ContainerNode {
 	return isRecord(input) && input.kind === 'container';
+}
+
+/**
+ * A component `root` is authored in LOCAL space — the `componentInstance` node
+ * positions it — so the root carries NO transform of its own. Stripping it here is
+ * the authoritative invariant that keeps the engine path (which applies root's
+ * transform via `LayoutNodeView`) and the editor canvas (which skips it) in
+ * agreement, and stops a dropped instance from being offset by a baked-in scene
+ * transform. Keeps only id/kind/children + optional box (width/height) + label.
+ */
+function identityComponentRoot(root: ContainerNode): ContainerNode {
+	const next: ContainerNode = {
+		id: root.id,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: Array.isArray(root.children) ? root.children : [],
+	};
+	if (typeof root.width === 'number') next.width = root.width;
+	if (typeof root.height === 'number') next.height = root.height;
+	if (typeof root.label === 'string') next.label = root.label;
+	return next;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

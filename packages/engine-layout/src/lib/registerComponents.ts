@@ -14,6 +14,14 @@ import type { ComponentDef } from './types';
  */
 const registry = new Map<string, ComponentDef>();
 
+/**
+ * Max `componentInstance` nesting depth a renderer expands (root scene = depth 0).
+ * Beyond this, expansion stops (§8.9 "Nesting", 1–2 levels for v1). Lives here —
+ * a Svelte-free module re-exported from `index.ts` — so both renderers (the engine
+ * `ComponentInstance` and the editor's own canvas) share ONE source of truth.
+ */
+export const MAX_COMPONENT_DEPTH = 2;
+
 export function registerComponents(map: Record<string, ComponentDef>): void {
 	for (const [id, def] of Object.entries(map)) {
 		registry.set(id, def);

@@ -1,5 +1,7 @@
 import { setContext, getContext } from 'svelte';
 
+export { MAX_COMPONENT_DEPTH } from './registerComponents';
+
 /**
  * Nesting guard for `componentInstance` expansion (see
  * `docs/design/invisible-editor.md` §8.9 "Nesting"). A component must not
@@ -14,9 +16,6 @@ export interface ComponentNestState {
 	/** Component ids currently on the instancing stack — cycle detection. */
 	visited: ReadonlySet<string>;
 }
-
-/** v1 nesting cap (§8.9): components inside components, 1–2 levels. */
-export const MAX_COMPONENT_DEPTH = 2;
 
 const NS = '@@engine_layout_component_nest';
 

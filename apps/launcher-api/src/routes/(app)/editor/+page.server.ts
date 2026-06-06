@@ -2,6 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { findUnfilledRequiredSlots, type LayoutDoc } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
+import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc, saveDoc } from '$lib/server/editorStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
@@ -44,9 +45,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 		throw error(403, 'Your role does not have access to Invisible Editor.');
 	}
 	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
-	const [doc, assets] = await Promise.all([
+	const [doc, assets, components] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
+		// Components the project can use (shared + project, project shadowing shared,
+		// §8.3). Drives the scene-mode component picker AND the editor canvas's
+		// `componentInstance` resolution (passed down so the canvas renders an
+		// instance's `root` without calling the engine registry).
+		listComponents({ projectKey }),
 	]);
 	// Template + initial slot warnings, so the UI shows slot state on first load
 	// (§7.1) — not only after a save round-trip. Resolve from the doc's persisted
@@ -61,7 +67,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	// Content checks (missing/unassigned asset references) are computed live in the
 	// client (`+page.svelte`) from `assets`, since they must track edits before any
 	// save and `$lib/server` can't enter the browser bundle — no server copy here.
-	return { clientKey, projectKey, doc, assets, template, warnings, gameName };
+	return { clientKey, projectKey, doc, assets, template, warnings, gameName, components };
 };
 
 export const actions: Actions = {

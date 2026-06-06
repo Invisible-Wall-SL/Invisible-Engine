@@ -1,8 +1,14 @@
 <script lang="ts">
 	import {
 		defaultHudText,
+		ENGINE_PARAM_CATALOG,
+		ENGINE_SIGNAL_CATALOG,
 		getHudTextOverride,
 		resolveTransform,
+		type ComponentDef,
+		type ComponentParam,
+		type ComponentSignal,
+		type ContainerNode,
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
@@ -26,6 +32,24 @@
 		sceneSlots?: { slotId: string; name: string; kind: string }[];
 		/** Project display name — the HUD game-name default (shown as the placeholder). */
 		projectGameName?: string | null;
+		/** Component-authoring mode (§8.4): reveal the component-level params/signals
+		 * declaration UI (component metadata, not per-node). */
+		componentMode?: boolean;
+		/** The draft component's currently-declared params (component mode). */
+		componentParams?: ComponentParam[];
+		/** The draft component's currently-declared signals (component mode). */
+		componentSignals?: ComponentSignal[];
+		/** When the selected node is a `componentInstance`, its resolved def — drives
+		 * the author-set param override list (scene mode). */
+		instanceComponent?: ComponentDef | null;
+		/** "Edit as component": open the selected container's sub-tree as a component. */
+		onEditAsComponent?: (container: ContainerNode) => void;
+		/** Toggle an engine-catalog param on the draft component (component mode). */
+		onToggleParam?: (key: string, kind: ComponentParam['kind']) => void;
+		/** Toggle an engine-catalog signal on the draft component (component mode). */
+		onToggleSignal?: (key: string) => void;
+		/** Set / clear an author param override on the selected instance (scene mode). */
+		onSetInstanceParam?: (key: string, value: unknown) => void;
 	}
 	let {
 		node,
@@ -36,7 +60,26 @@
 		onSlotRequiredChange,
 		sceneSlots = [],
 		projectGameName = null,
+		componentMode = false,
+		componentParams = [],
+		componentSignals = [],
+		instanceComponent = null,
+		onEditAsComponent,
+		onToggleParam,
+		onToggleSignal,
+		onSetInstanceParam,
 	}: Props = $props();
+
+	/** Author-settable (non-engineProvided) params an instance may override. */
+	const authorParams = $derived(
+		(instanceComponent?.params ?? []).filter((p) => !p.engineProvided),
+	);
+	function paramHas(key: string): boolean {
+		return componentParams.some((p) => p.key === key);
+	}
+	function signalHas(key: string): boolean {
+		return componentSignals.some((s) => s.key === key);
+	}
 
 	function setSlotId(n: LayoutNode, value: string): void {
 		const trimmed = value.trim();
@@ -386,8 +429,56 @@
 	}
 </script>
 
+{#if componentMode}
+	<!-- Component-level metadata (§8.4 / §8.5): declare the params the ENGINE feeds +
+	     the signals it fires, by picking from the curated catalog. Metadata only —
+	     no timeline/behaviour authoring in v1. Shown above any selected-node fields. -->
+	<section class="cmp-vars">
+		<h3>Component variables</h3>
+		<p class="muted small">
+			Declare the values the engine feeds (params) and the moments it fires (signals).
+			These are the <strong>declare</strong> half — the game wires + supplies them.
+		</p>
+		<h4>Engine params</h4>
+		<ul class="picker">
+			{#each ENGINE_PARAM_CATALOG as p (p.key)}
+				<li>
+					<label class="pick">
+						<input
+							type="checkbox"
+							checked={paramHas(p.key)}
+							onchange={() => onToggleParam?.(p.key, p.kind)}
+						/>
+						<span class="pick-label">{p.label}</span>
+						<span class="pick-kind">{p.kind}</span>
+					</label>
+					{#if p.note}<span class="pick-note">{p.note}</span>{/if}
+				</li>
+			{/each}
+		</ul>
+		<h4>Engine signals</h4>
+		<ul class="picker">
+			{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
+				<li>
+					<label class="pick">
+						<input
+							type="checkbox"
+							checked={signalHas(s.key)}
+							onchange={() => onToggleSignal?.(s.key)}
+						/>
+						<span class="pick-label">{s.label}</span>
+					</label>
+					{#if s.note}<span class="pick-note">{s.note}</span>{/if}
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
+
 {#if !node}
-	<p class="muted">Select a node to edit its properties.</p>
+	{#if !componentMode}
+		<p class="muted">Select a node to edit its properties.</p>
+	{/if}
 {:else}
 	{@const t = resolveTransform(node, layoutType)}
 	{@const o = node.overrides?.[layoutType]}
@@ -432,7 +523,75 @@
 				Reset overrides
 			</button>
 		{/if}
+		{#if !componentMode && node.kind === 'container'}
+			<button
+				class="ghost-sm"
+				onclick={() => onEditAsComponent?.(node as ContainerNode)}
+				title="Open this container's sub-tree as a reusable component (component mode)"
+			>
+				◇ Edit as component
+			</button>
+		{/if}
 	</div>
+
+	{#if node.kind === 'componentInstance'}
+		<section>
+			<h3>Component instance</h3>
+			{#if instanceComponent}
+				<p class="muted small">
+					<strong>{instanceComponent.name}</strong> · {instanceComponent.scope} · pinned v{node.componentVersion ??
+						instanceComponent.version}
+				</p>
+				{#if authorParams.length > 0}
+					<h4 class="sub-h">Params</h4>
+					{#each authorParams as p (p.key)}
+						<div class="row">
+							<label class="field wide">
+								<span>{p.key} ({p.kind})</span>
+								{#if p.kind === 'boolean'}
+									<input
+										type="checkbox"
+										checked={Boolean(node.params?.[p.key])}
+										onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.checked)}
+									/>
+								{:else if p.kind === 'number'}
+									<input
+										type="number"
+										value={(node.params?.[p.key] as number) ?? ''}
+										oninput={(e) =>
+											onSetInstanceParam?.(
+												p.key,
+												e.currentTarget.value === ''
+													? undefined
+													: e.currentTarget.valueAsNumber,
+											)}
+									/>
+								{:else}
+									<input
+										type="text"
+										value={(node.params?.[p.key] as string) ?? ''}
+										oninput={(e) =>
+											onSetInstanceParam?.(
+												p.key,
+												e.currentTarget.value === '' ? undefined : e.currentTarget.value,
+											)}
+									/>
+								{/if}
+							</label>
+						</div>
+					{/each}
+				{:else}
+					<p class="muted small">
+						This component declares no author-set params (engine-provided params are fed at runtime).
+					</p>
+				{/if}
+			{:else}
+				<p class="muted small">
+					Component <code>{node.componentId}</code> not found in this project. It renders as a placeholder.
+				</p>
+			{/if}
+		</section>
+	{/if}
 
 	{#if templateMode}
 		<section class="slot-section">
@@ -1215,5 +1374,65 @@
 		margin: 4px 0 0;
 		font-size: 11px;
 		color: #777;
+	}
+	.cmp-vars {
+		padding: 10px;
+		border: 1px solid #2a2433;
+		border-radius: 8px;
+		background: #16131c;
+		margin-bottom: 14px;
+	}
+	.cmp-vars h3 {
+		color: #c8a3ff;
+	}
+	.cmp-vars h4 {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #999;
+		margin: 10px 0 4px;
+	}
+	.sub-h {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #888;
+		margin: 8px 0 4px;
+	}
+	.picker {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.picker li {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+	.pick {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: #c8c8d0;
+		cursor: pointer;
+	}
+	.pick-label {
+		flex: 1;
+	}
+	.pick-kind {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+	}
+	.pick-note {
+		font-size: 10px;
+		color: #666;
+		padding-left: 24px;
+		line-height: 1.3;
 	}
 </style>
