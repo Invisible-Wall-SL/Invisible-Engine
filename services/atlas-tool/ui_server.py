@@ -3860,10 +3860,19 @@ class Handler(BaseHTTPRequestHandler):
         mirrored = bool(raw)
         copied = []
         page_src = None  # the deployed page image the .json should point at
+        skipped_empty = []
         for src in sources:
+            data = src.read_bytes()
+            # NEVER deploy a 0-byte page (e.g. a failed WEBP encode): meta.image
+            # would point at an empty page → the game can't load the spritesheet
+            # → the whole atlas renders as nothing. Skip it; the valid page below
+            # (PNG) is used instead.
+            if src.suffix.lower() in {".png", ".webp"} and not data:
+                skipped_empty.append(src.name)
+                continue
             key = f"{dest_prefix}/{out_base}{src.suffix}"
             try:
-                storage.put(key, src.read_bytes())
+                storage.put(key, data)
             except Exception as e:  # noqa: BLE001
                 return _diag("DEPLOY_FAILED", src=src.name, key=key,
                              err=f"{type(e).__name__}: {e}")
@@ -3987,6 +3996,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             json_note += ("  ⚠ Could not determine page image size → "
                           "TexturePacker .json skipped (meta.size would be 0).")
+        if skipped_empty:
+            json_note += (f"  ⚠ Skipped empty page file(s) {', '.join(skipped_empty)} "
+                          f"(0 bytes — likely a failed WEBP encode); deployed the "
+                          f"valid page instead.")
         if not mirrored:
             # Deployed to the flat deploy/ ROOT because no `deploy_path` subpath
             # was set. The files ARE deployed, but the game loads from

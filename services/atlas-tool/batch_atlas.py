@@ -1921,10 +1921,26 @@ def main() -> None:
                     f"{manifest_path.stem.replace('atlas_manifest_', '')}_new.png")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         canvas.save(out_path)
-        canvas.save(out_path.with_suffix(".webp"), "WEBP", quality=95)
         print(f"Composed {placed}/{len(regions)} regions")
         print(f"Saved {out_path}")
-        print(f"Saved {out_path.with_suffix('.webp')}")
+        # WEBP is best-effort: if encoding fails or yields a 0-byte file (some
+        # Pillow builds can't encode large RGBA WEBP), REMOVE the broken file so
+        # deploy never copies a corrupt page that the game then fails to load
+        # (meta.image would point at an empty page → whole atlas gone). The PNG
+        # above is always valid; deploy falls back to it.
+        webp_path = out_path.with_suffix(".webp")
+        try:
+            canvas.save(webp_path, "WEBP", quality=95)
+            if webp_path.stat().st_size == 0:
+                raise ValueError("WEBP encoder produced a 0-byte file")
+            print(f"Saved {webp_path}")
+        except Exception as e:  # noqa: BLE001 — webp is optional, never fatal
+            try:
+                webp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            print(f"WARNING: WEBP not written ({type(e).__name__}: {e}); "
+                  f"PNG-only page")
         return
 
     # ---- generation mode: produce per-region variant PNGs only (no atlas) ----
