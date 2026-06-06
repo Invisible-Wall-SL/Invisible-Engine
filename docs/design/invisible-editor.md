@@ -474,3 +474,29 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 - **Dynamic-text fonts** — ✅ DECIDED 2026-06-06: the **semi-static coded HUD text (logo / game-name) IS editor-overridable** (font+size+fill+label) — landed as the Phase 4 HUD-text override above. Truly dynamic numeric values (balance/win/bet, FS counter) stay coded, per 9.2.
 - **Bitmap "change appearance" expectations** — bitmap fonts are baked atlases: tint + scale yes; arbitrary recolor/stroke/shadow no. Confirm that's acceptable, or a font swap (pick a different baked variant, e.g. `gold`→`silver`) is the intended "change appearance" path.
 - **Font discovery for the catalog** — seed `fonts.json` from each game's `assets.ts` `type:'font'` entries (Phase 0 sync), or author it in the editor. Recommend sync-from-game first.
+
+## 10. Addendum — Background sizing + fixed window-reference (full-bleed parity) (owner direction 2026-06-06)
+
+### 10.1 The two coupled bugs (measured, not guessed)
+Measured from a live game (`[bg-diag]`, window 1639×1301): the engine picked `layoutType: 'tablet'` (almost-square → main box 1000×1000, scale 1.301); the background spine `foregroundAnimation` is authored 3059.92×1501.3.
+1. **Background sized wrong in-game.** The coded `Background.svelte` called `normalBackgroundLayout({ scale: 0.5 })` → background at HALF the canvas. `scale: 1` is the exact cover. **Interim fix LANDED** (Book of Borut `Background.svelte` → `scale: 1`, full-bleed). The engine's `createBackgroundLayout` (utils-layout) IS the cover helper; the per-game `0.5` was just wrong for this art.
+2. **Editor composites against the ACTIVE scene's frame, not a fixed window.** `+page.svelte` `frameSize` = `mainSizesMap[layoutType]` for `game`-space scenes but `STANDARD_MAIN_SIZES_MAP` for `canvas`/`standard` scenes. So switching the active screen resizes the whole composite (background small on "Base game", big on "Base game overlays"); only fixed game-coord nodes (the reels frame) stay put. This also makes the editor's background never match the full-bleed game.
+
+Root cause is shared: background sizing lives in **two implementations** (engine `createBackgroundLayout` for the game; `EditorSpineLayer.placeArt` cover-to-frame for the editor) AND the editor frames per-active-scene instead of per-viewport.
+
+### 10.2 Design (single source of truth, fixed window reference)
+- **One cover helper, true cover from art dims.** Generalize/replace the `backgroundRatio`-driven `createBackgroundLayout` with a cover computed from the art's authored size: `scale = max(targetW/artW, targetH/artH) * coverScale` (default `coverScale = 1` = exact cover), centred. Robust regardless of `backgroundRatio` config. Spine art dims come from `skeleton.data.width/height` (the same source the pixi-svelte spine-sizing fix uses); sprite art from natural size. Lives in `utils-layout`/`engine-layout`, used by BOTH renderers.
+- **Game runtime.** Background bind/spine nodes size via the shared cover against the **full canvas** (`canvasSizes()`), reading art dims — so coded `Background.svelte` no longer hardcodes a scale. The cover `scale` + `fit` come from the editor doc node (default exact cover).
+- **Editor = fixed window reference.** The composite renders every scene against ONE viewport reference per `layoutType` (the game window), NOT the active scene's frame. `game`/`canvas`/`background` spaces all map into that one window the way the engine does at runtime (main box centred + scaled by `mainLayout`; canvas-edges pinned to the window; background cover-fit to the window). Switching the active screen no longer rescales anything, and the background covers the window = matches the full-bleed game per layout type.
+- **Doc-driven.** Background cover `scale` (default 1) + `fit: cover|contain` become node properties editable in Properties; persist via `normalizeNode` pass-through.
+
+### 10.3 Build order
+1. **Interim game fix. ✅ LANDED 2026-06-06.** Book of Borut `Background.svelte` `scale: 0.5 → 1` (full-bleed via existing engine cover). Validates the cover; unblocks the game. (Per-game; the pipeline removes the hardcoding.)
+2. **Shared cover helper (engine).** True data-dim cover in `utils-layout`/`engine-layout`; unit-reason parity vs `createBackgroundLayout` for well-configured games. Risk low–med.
+3. **Editor fixed window-reference.** `+page.svelte` `frameSize` → one per-`layoutType` viewport for ALL scenes; `EditorCanvas`/`EditorSpineLayer`/`EditorTextLayer` map each space into it; background uses the shared cover against the window. This is the bigger change (touches the composite refactored in the per-scene-ordering work). Risk med. *After this: editor == game per layout type.*
+4. **Doc-driven cover props.** Add `scale`/`fit` to Properties for the background node; game + editor read them. Risk low.
+5. **Engine consumption + per-game rollout.** Background bind nodes size via the shared cover in `LayoutNodeView`; games drop hardcoded scales, bump submodule, rebuild. Parity-gated per game (lines + Book of Borut).
+
+### 10.4 Open decisions (need owner input)
+- **Viewport reference per layoutType in the editor** — use a representative canvas size per type (desktop 16:9, tablet ~square, etc.) since the runtime viewport is variable; the cover result is edge-to-edge so absolute px don't matter, only aspect. Confirm the representative aspects (or derive from `mainSizesMap` + a standard letterbox model).
+- **Contain vs cover default** — backgrounds = cover; confirm any background should ever be `contain`.
