@@ -1686,12 +1686,15 @@ def fit_to_region(img: Image.Image, region: dict) -> Image.Image:
         img.paste(scaled, ((target_w - rw) // 2, (target_h - rh) // 2), scaled)
 
     if region.get("rotated"):
-        # upright (w x h) -> packed (h x w). A bound .atlas (Spine) wants
-        # rotate(+90), the exact inverse of the slicer's rotate(-90)
-        # page->upright, so slice/regenerate/compose round-trips and matches
-        # what the descriptor expects. Manifest-only atlases (no .atlas) are
-        # consumed the other way round and need rotate(-90).
-        img = img.rotate(90 if spine_slot else -90, expand=True)
+        # upright (w x h) -> packed (h x w), the STANDARD TexturePacker /
+        # PixiJS convention: pack 90 clockwise so Pixi's Spritesheet parser
+        # (frame rect built as (x, y, h, w) + rotate:2 = groupD8 S) un-rotates
+        # it back to upright at render time. One convention for ALL rotated
+        # frames (spine-slot and non-spine alike) — proven by the PIL<->Pixi
+        # round-trip in _rot_roundtrip_check.py: PIL rotate(-90) is the unique
+        # direction that renders upright under rotate:2. The slicer + editor
+        # un-rotate as the exact inverse of this.
+        img = img.rotate(-90, expand=True)
 
     return img
 
