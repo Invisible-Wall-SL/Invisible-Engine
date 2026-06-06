@@ -56,9 +56,10 @@ need to touch every endpoint or fork the staging tree.
 
 ### Phase 1 — Thread a stable `user` id launcher → tool
 - **Launcher** (`apps/launcher-api/src/routes/(app)/atlas/+page.server.ts`): add
-  `params.set('user', locals.user.id)` to the redirect query, mirrored into the
-  `sibling` (Sheet Maker) URL builder. Use `users.id` (stable UUID), **not** the
-  session token (rotates).
+  `params.set('user', locals.user.id)` to the atlas redirect query. Use
+  `users.id` (stable UUID), **not** the session token (rotates). The `sibling`
+  (Sheet Maker) URL needs no `user` — Sheet Maker is stateless (see
+  "Checked / not affected").
 - **Tool** (`_resolve_context()`, `ui_server.py:3177-3223`): parse `?user=` →
   thread-local + `iw_user` cookie, exactly like the existing `iw_client`/
   `iw_project` pattern. Fall back to `"default"` when absent (back-compat for
@@ -104,9 +105,14 @@ need to touch every endpoint or fork the staging tree.
 - Update `docs/STATUS.md` + the `project_invisible_pipeline_tools` memory.
 
 ## Out of scope (follow-ups)
-- **Sheet Maker** sibling tool almost certainly has the same shared-selection
-  issue — same fix pattern, separate change.
 - No soft-locking of manifest *content*.
+
+## Checked / not affected
+- **Sheet Maker** (`services/sheet-tool`) — verified 2026-06-06: **no equivalent
+  bug.** Compose is stateless (geometry comes entirely from the request payload,
+  `sheet_server.py:286-287`); `sheet_config.json` holds only shared canvas
+  *defaults* (width/padding/rotation, read at `:221-224`), not a browsed
+  selection. Nothing per-user to isolate, so no change needed there.
 
 ## Touch list
 - `apps/launcher-api/src/routes/(app)/atlas/+page.server.ts`
