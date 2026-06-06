@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "sdxl",
+  "name": "SDXL (built-in)",
+  "description": "Reference blueprint mirroring batch_atlas.build_workflow's sdxl branch (checkpoint + LoRA + IPAdapter style ref). Copy it as a starting point for a new SDXL pipeline. CAVEAT: the static graph wires the style_ref (IPAdapter) path only — the built-in builder adds its ControlNet (shape_ref) branch DYNAMICALLY, which a static graph can't represent, so a driven sdxl blueprint does NOT do ControlNet (hence no shape_ref binding).",
+  "author": "iw-builtin",
+  "base": "sdxl",
+  "bindings": {
+    "positive":   { "node": "10", "field": "text" },
+    "negative":   { "node": "11", "field": "text" },
+    "seed":       { "node": "13", "field": "seed" },
+    "width":      { "node": "12", "field": "width" },
+    "height":     { "node": "12", "field": "height" },
+    "style_ref":  { "node": "3",  "field": "image" },
+    "output":     { "node": "17" }
+  },
+  "models": [
+    { "field": "ckpt_name", "filename": "juggernautXL_ragnarokBy.safetensors", "dir": "checkpoints", "source": "" },
+    { "field": "lora_name", "filename": "gameIconInstitute3d_v10.safetensors", "dir": "loras", "source": "" }
+  ]
+}

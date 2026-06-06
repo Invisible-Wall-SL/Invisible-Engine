@@ -1,0 +1,40 @@
+{
+  "3": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "refs/style_ref.png" }
+  },
+  "15": {
+    "class_type": "OpenAIGPTImage1",
+    "inputs": {
+      "prompt": "make the skin look like a watermelon",
+      "image": ["3", 0],
+      "model": "gpt-image-2",
+      "quality": "low",
+      "background": "opaque",
+      "n": 1,
+      "size": "1024x1024",
+      "seed": 123456789
+    }
+  },
+  "18": {
+    "class_type": "Images to RGB",
+    "inputs": { "images": ["15", 0] }
+  },
+  "16": {
+    "class_type": "RMBG",
+    "inputs": {
+      "image": ["18", 0],
+      "model": "RMBG-2.0",
+      "sensitivity": 1.0,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "background": "Alpha"
+    }
+  },
+  "17": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["16", 0], "filename_prefix": "<comfy_filename_prefix_base>/batch/h1" }
+  }
+}

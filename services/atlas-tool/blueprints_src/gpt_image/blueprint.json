@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "gpt_image",
+  "name": "GPT-Image (built-in)",
+  "description": "LoadImage(reference) -> OpenAIGPTImage1(edit) -> Images to RGB -> RMBG -> SaveImage. Reference blueprint mirroring batch_atlas.build_workflow_gpt. The built-in gpt_image path keeps its dedicated Python builder (size/quality/background/match-ref logic + the gpt_prompt field); this blueprint is the canonical node SHAPE to copy when authoring a GPT-Image variant. CAVEAT: if driven via the generic runner the `positive` binding injects _resolve_text's combined prompt (NOT the region's gpt_prompt field) and the size/quality/background/match-ref logic is skipped — so a driven GPT blueprint won't match the built-in builder. Runs on comfy.org credits (the OpenAIGPTImage1 node self-authenticates). Owner-side verify owed.",
+  "author": "iw-builtin",
+  "base": "gpt_image",
+  "bindings": {
+    "positive":  { "node": "15", "field": "prompt" },
+    "seed":      { "node": "15", "field": "seed" },
+    "style_ref": { "node": "3",  "field": "image" },
+    "output":    { "node": "17" }
+  },
+  "models": []
+}

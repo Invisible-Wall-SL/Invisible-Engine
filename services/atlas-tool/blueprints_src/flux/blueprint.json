@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "flux",
+  "name": "FLUX.dev + Redux (built-in)",
+  "description": "FLUX(.dev) UNet/dual-CLIP/VAE + FLUX LoRA + Redux (style ref) + FluxGuidance graph. Reference blueprint mirroring batch_atlas.build_workflow_flux. FLUX is guidance-distilled (CFG 1.0) and uses an EMPTY negative, so 'negative' is intentionally NOT bound. UNVERIFIED against a live GPU — owner-side verify owed.",
+  "author": "iw-builtin",
+  "base": "flux",
+  "bindings": {
+    "positive":   { "node": "10", "field": "text" },
+    "seed":       { "node": "13", "field": "seed" },
+    "width":      { "node": "12", "field": "width" },
+    "height":     { "node": "12", "field": "height" },
+    "style_ref":  { "node": "22", "field": "image" },
+    "output":     { "node": "17" }
+  },
+  "models": [
+    { "field": "unet_name", "filename": "flux1-dev.safetensors", "dir": "unet", "source": "" },
+    { "field": "clip_name1", "filename": "t5xxl_fp16.safetensors", "dir": "clip", "source": "" },
+    { "field": "clip_name2", "filename": "clip_l.safetensors", "dir": "clip", "source": "" },
+    { "field": "vae_name", "filename": "ae.safetensors", "dir": "vae", "source": "" },
+    { "field": "style_model_name", "filename": "flux1-redux-dev.safetensors", "dir": "style_models", "source": "" },
+    { "field": "clip_name", "filename": "sigclip_vision_patch14_384.safetensors", "dir": "clip_vision", "source": "" }
+  ]
+}

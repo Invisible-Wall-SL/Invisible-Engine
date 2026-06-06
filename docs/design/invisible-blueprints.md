@@ -166,12 +166,20 @@ So the blueprint changes *which graph* and *which models* — nothing downstream
 1. **Spike — ComfyUI-Manager model install.** Confirm the installed Manager version's
    model-download + reboot endpoints over the tunnel; install one model end-to-end and
    verify it appears in `/object_info` after a rescan. *De-risks the whole feature.*
-2. **Blueprint format + storage.** Define `blueprint.json` (types shared py-side), the
-   `_shared/blueprints/` layout, and a `seed`-style uploader. Extend `toolScope.ts` +
-   `cloud_paths` hydration for the shared prefix.
-3. **Generic graph runner.** In `batch_atlas.py`, add a `run_blueprint(graph, bindings,
-   region, style, prefix)` that injects via bindings and reuses the existing submit/poll/
-   persist path. Unit-test bindings injection against a sample graph.
+2. ✅ **Blueprint format + storage.** *(DONE 2026-06-06, built-in scope.)* `blueprint.json`
+   defined + validated in `services/atlas-tool/blueprints.py` (loader: `list_blueprints` /
+   `get_blueprint` / `blueprint_exists`); `_shared/blueprints/<id>/` layout + a `seed`-style
+   uploader (`seed_blueprints.py`) mirroring the tracked `blueprints_src/` source; hydration
+   of the shared prefix is in `blueprints.hydrate()` (once-per-process, incremental, lazy on
+   first access). `toolScope.ts` allow-list (read for everyone) is **deferred to phase 7**
+   (write/publish gating) — read works today because the tool hydrates R2 directly.
+3. ✅ **Generic graph runner.** *(DONE 2026-06-06.)* `batch_atlas.build_workflow_blueprint(region,
+   style, blueprint) -> (wf, output_node_id)` (`:1154`, helper `_set_node_input` `:1136`)
+   injects via bindings (reusing `_resolve_text`) and reuses the existing
+   `_upload_workflow_refs` + submit/poll/`_persist_variant` path; `run_region` (`:1598`)
+   dispatches to it for a non-built-in `pipeline` id and reads the result from
+   `bindings.output.node` (generalizing the hardcoded `"17"`). Bindings injection
+   unit-tested against the seeded `sdxl` graph.
 4. **Prepare step.** Implement model check + Manager install + rescan loop (§4), with
    progress streamed into the existing diagnostics panel and the readable-failure checklist.
 5. **Atlas Maker UI — pick & generate.** Blueprint dropdown in Settings; wire selection
@@ -183,12 +191,22 @@ So the blueprint changes *which graph* and *which models* — nothing downstream
 
 Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve and safe.
 
+> **Backbone status (2026-06-06):** phases **2–3 DONE** for BUILT-IN pipelines
+> (`services/atlas-tool/blueprints.py`, `batch_atlas.build_workflow_blueprint`, the
+> `blueprints_src/{sdxl,flux,gpt_image}/` reference set, `seed_blueprints.py`,
+> `blueprints_src/README.md`). Phase **1** (ComfyUI-Manager model-download spike) is
+> still the next external unknown — `blueprint.json.models[]` is read-only metadata
+> until then. Phases **4–7** unbuilt. Code is in the working tree, uncommitted.
+
 ## 8. Anchor points in current code
 
 - Generation engine / graph builders: `services/atlas-tool/batch_atlas.py`
-  (`build_workflow` `:1135`, `build_workflow_flux` `:1327`, `build_workflow_gpt` `:1000`,
-  `run_region` `:1520`, `_persist_variant` `:1605`, `_available` `:666`,
-  `preflight_models` `:692`, `_DEFAULTS` `:41`).
+  (`build_workflow` `:1213`, `build_workflow_flux` `:1405`, `build_workflow_gpt` `:1001`,
+  `build_workflow_blueprint` `:1154`, `_set_node_input` `:1136`, `run_region` `:1598`,
+  `_persist_variant` `:1683`, `_available` `:666`, `preflight_models` `:692`,
+  `_DEFAULTS` `:41`). Blueprint loader: `services/atlas-tool/blueprints.py`
+  (`list_blueprints`, `get_blueprint`, `blueprint_exists`, `hydrate`). Seeder +
+  reference set: `services/atlas-tool/seed_blueprints.py`, `blueprints_src/`.
 - ComfyUI HTTP client: `services/_shared/iw_common/comfy.py` (`submit_prompt`,
   `wait_images`, `fetch_image`, `upload_image`) and the stdlib twins in `batch_atlas.py`.
 - UI: `services/atlas-tool/ui_server.py` (`/render` `:2923`, `run_render` `:1416`,

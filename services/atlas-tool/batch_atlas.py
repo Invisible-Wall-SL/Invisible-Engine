@@ -149,6 +149,7 @@ import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
 import storage  # noqa: E402
 import shine  # noqa: E402
+import blueprints  # noqa: E402
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
 
@@ -1132,6 +1133,83 @@ def build_workflow_gpt(region: dict, style: dict) -> dict:
     return wf
 
 
+def _set_node_input(graph: dict, binding: dict | None, value) -> None:
+    """Set graph[<node>].inputs[<field>] = value for one role binding. No-op if
+    the binding is absent (optional role) or its node/field isn't in the graph
+    (a graph that doesn't use that role just doesn't carry it). Tolerant by
+    design: a blueprint is user-supplied data, so a stale binding shouldn't
+    crash the run — the role simply doesn't get injected."""
+    if not isinstance(binding, dict):
+        return
+    node_id = str(binding.get("node", "")).strip()
+    field = str(binding.get("field", "")).strip()
+    if not node_id or not field:
+        return
+    node = graph.get(node_id)
+    if not isinstance(node, dict):
+        return
+    node.setdefault("inputs", {})[field] = value
+
+
+def build_workflow_blueprint(
+    region: dict, style: dict, blueprint: dict
+) -> tuple[dict, str]:
+    """Generic, data-driven pipeline runner: drive ANY ComfyUI graph via its
+    blueprint bindings instead of a hardcoded Python builder.
+
+    `blueprint` is the loaded dict from blueprints.get_blueprint(): {id, graph,
+    bindings, meta}. We deep-copy the API-format graph and apply the bindings
+    (design §2):
+      - positive/negative/seed via the SAME style+region combine + random-seed
+        logic the sdxl branch of build_workflow uses (reused via _resolve_text);
+      - width/height (when bound) from the configured generation size;
+      - the style_ref / shape_ref LoadImage nodes get the region's staging ref
+        path, so the existing _upload_workflow_refs uploads them unchanged;
+      - the output (SaveImage) node's filename_prefix is set to this project's
+        prefix, exactly like the built-in builders.
+
+    Returns (wf, output_node_id) — run_region reads the result from
+    output_node_id (the blueprint's bindings.output.node), generalizing the
+    previously-hardcoded SaveImage node "17".
+    """
+    import copy
+
+    bindings = blueprint.get("bindings") or {}
+    wf = copy.deepcopy(blueprint.get("graph") or {})
+
+    # Prompt / negative / seed — identical resolution to the sdxl branch.
+    prompt, negative, seed = _resolve_text(region, style)
+    _set_node_input(wf, bindings.get("positive"), prompt)
+    _set_node_input(wf, bindings.get("negative"), negative)
+    _set_node_input(wf, bindings.get("seed"), seed)
+
+    # Generation size (only when the graph exposes width/height roles).
+    _set_node_input(wf, bindings.get("width"), GEN_WIDTH)
+    _set_node_input(wf, bindings.get("height"), GEN_HEIGHT)
+
+    # Reference images — point the bound LoadImage nodes at the region's staging
+    # refs. Same precedence the builders use (region's own ref, style fallback
+    # via mockup_image). _upload_workflow_refs uploads whatever path lands here.
+    style_ref = region.get("style_ref") or (MOCKUP_IMAGE if MOCKUP_IMAGE else None)
+    if style_ref:
+        _set_node_input(wf, bindings.get("style_ref"), style_ref)
+    raw_shape_ref = region.get("shape_ref")
+    if raw_shape_ref:
+        _set_node_input(
+            wf, bindings.get("shape_ref"), normalize_shape_ref(raw_shape_ref))
+
+    # Output: set the SaveImage filename_prefix to this project's prefix (same
+    # as the builders) and resolve the node id run_region reads from.
+    out_binding = bindings.get("output") or {}
+    out_node_id = str(out_binding.get("node", "")).strip() or "17"
+    out_node = wf.get(out_node_id)
+    if isinstance(out_node, dict):
+        out_node.setdefault("inputs", {})["filename_prefix"] = (
+            f"{COMFY_PREFIX_BASE}/batch/{region['name']}")
+
+    return wf, out_node_id
+
+
 def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
     pipe = region_pipeline(region)
     if pipe == "gpt_image":
@@ -1140,26 +1218,10 @@ def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:
         return build_workflow_flux(region, style, atlas_path)
     # Atlas-bound regions come from the .atlas with no creative entry yet, so
     # 'prompt' may be absent — treat missing/empty as "no region prompt".
-    r_pos = str(region.get("prompt", "")).strip()
-    if region.get("positive_replace"):
-        prompt = r_pos                           # checkbox: ignore prefix/suffix
-    else:
-        parts = [str(style.get("positive_prefix", "")).strip(), r_pos,
-                 str(style.get("positive_suffix", "")).strip()]
-        prompt = ", ".join(p for p in parts if p)
-    # Negative: global style negative, with the optional per-region negative
-    # appended so the two form one combined prompt. Blank region negative =>
-    # global only (lets us A/B global-only vs global+region per symbol).
-    g_neg = style.get("negative", "")
-    r_neg = str(region.get("negative", "")).strip()
-    if r_neg and region.get("negative_replace"):
-        negative = r_neg                       # checkbox: region replaces global
-    elif g_neg and r_neg:
-        negative = f"{g_neg}, {r_neg}"         # default: append region to global
-    else:
-        negative = r_neg or g_neg              # only one present
-    # Seed: random per run unless region locks one with "seed" field.
-    seed = region.get("seed", random.randint(0, 2**31 - 1))
+    # Positive/negative/seed: shared with the blueprint runner (single source
+    # of truth) — prefix/suffix combine, region-appends-or-replaces-global
+    # negative, and a per-region seed lock else random.
+    prompt, negative, seed = _resolve_text(region, style)
 
     raw_shape_ref = region.get("shape_ref")
     shape_ref = normalize_shape_ref(raw_shape_ref) if raw_shape_ref else None
@@ -1518,7 +1580,20 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
 
 
 def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Image.Image:
-    wf = build_workflow(region, style, atlas_path)
+    # Pipeline dispatch: the three built-ins (sdxl/flux/gpt_image) use the
+    # proven hardcoded Python builders with the historical SaveImage node "17".
+    # Anything else is treated as a blueprint id — if one exists in the shared
+    # library, drive its graph via the generic, data-driven runner instead. The
+    # selection stays config-driven (the region/atlas `pipeline` value); a
+    # missing blueprint falls through to build_workflow, which then runs the
+    # default sdxl path (region_pipeline isn't one of the three -> sdxl branch).
+    pipe = region_pipeline(region)
+    out_node = "17"
+    bp = blueprints.get_blueprint(pipe) if pipe not in ("sdxl", "flux", "gpt_image") else None
+    if bp:
+        wf, out_node = build_workflow_blueprint(region, style, bp)
+    else:
+        wf = build_workflow(region, style, atlas_path)
     # Cloud: the remote ComfyUI can't read our staging refs — upload each
     # LoadImage source first and rewrite the node to the uploaded name.
     _upload_workflow_refs(wf)
@@ -1571,7 +1646,7 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 raise RuntimeError(
                     f"ComfyUI failed on region '{region['name']}' at node "
                     f"{node}: {msg or 'unknown error'}")
-            saves = entry.get("outputs", {}).get("17", {}).get("images", [])
+            saves = entry.get("outputs", {}).get(out_node, {}).get("images", [])
             if saves:
                 meta = saves[0]
                 blob = comfy_view(meta["filename"], meta["subfolder"], meta["type"])
