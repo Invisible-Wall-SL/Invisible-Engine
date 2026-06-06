@@ -27,9 +27,11 @@ function bearer(header: string | null): string | undefined {
 
 // Reads `Authorization: Bearer <token>` (a session token from POST /api/launcher/login),
 // validates it like the web session cookie, checks the owner role, then UPSERTS a game
-// row (key/name/url) in the `games` table — the same data `/admin → Games` manages. The
-// desktop launcher calls this after publishing a game bundle to the test server, so the
-// game appears in the portal's Games section with no manual step. 401 no/invalid token,
+// row (key/name/url + required project scope) in the `games` table — the same data
+// `/admin → Games` manages. The desktop launcher calls this after publishing a game
+// bundle to the test server, so the game appears in the portal's Games section with no
+// manual step. `project` MUST name an existing project (the publish is always project-
+// specific); omitting it is a 400, not a silent global game. 401 no/invalid token,
 // 403 wrong role, 400 bad body. Never logs the body.
 export const POST: RequestHandler = async ({ request }) => {
 	const token = bearer(request.headers.get('authorization'));
@@ -51,7 +53,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	const key = typeof body.key === 'string' ? body.key.trim() : '';
 	const name = typeof body.name === 'string' ? body.name.trim() : '';
 	const url = typeof body.url === 'string' ? body.url.trim() : '';
-	// Optional: scope the game to a project. Omitted/empty = global (shows everywhere).
+	// REQUIRED: a desktop publish is always for one specific project, so the game must be
+	// scoped to it. Omitting this used to silently land the game as "global" (projectKey
+	// NULL), which made it show under every client/project selection. Fail loud instead —
+	// a global game is a deliberate choice made by hand in `/admin → Games`, never here.
 	const project = typeof body.project === 'string' ? body.project.trim() : '';
 
 	if (!isValidGameKey(key)) {
@@ -63,10 +68,13 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!isValidGameUrl(url)) {
 		return json({ error: 'url must be a valid https:// URL' }, { status: 400, headers: NO_STORE });
 	}
-	if (project && !(await projectExists(project))) {
+	if (!project) {
+		return json({ error: 'Missing project' }, { status: 400, headers: NO_STORE });
+	}
+	if (!(await projectExists(project))) {
 		return json({ error: 'Unknown project' }, { status: 400, headers: NO_STORE });
 	}
-	const projectKey = project || null;
+	const projectKey = project;
 
 	// Upsert: update an existing game's name + url (+ scope), else create it.
 	if (await gameExists(key)) {
