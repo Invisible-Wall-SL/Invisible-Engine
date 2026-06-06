@@ -81,7 +81,10 @@ def slice_regions(src: Image.Image, regions: list[dict], out_dir: Path) -> dict[
         if rotated:
             # the on-page pixels are rotated; restore upright (this also turns
             # the (h x w) crop back into the region's (w x h) orientation).
-            crop = crop.rotate(-90, expand=True)
+            # The unified compose packs upright->page with PIL rotate(-90)
+            # (the PixiJS-standard CW pack); its exact PIL inverse is
+            # rotate(+90). See batch_atlas.fit_to_region + _rot_roundtrip_check.
+            crop = crop.rotate(90, expand=True)
         out_path = out_dir / f"{r['name']}.png"
         crop.save(out_path)
         rel = out_path.relative_to(INPUT_DIR).as_posix()
