@@ -16,7 +16,7 @@
 //
 //   # Book of Borut (its own repo):
 //   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build
-//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs book_of_borut <repo>/build \
+//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs bookofborut <repo>/build \
 //     --protocol book --name "Book of Borut"
 //
 // The mock protocol selects which mock RGS the test server mounts for the game:

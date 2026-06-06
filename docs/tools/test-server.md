@@ -75,7 +75,7 @@ node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits <HotFr
 
 # Book of Borut — from C:\…\Projects\iGaming\Borut\Book of Borut:
 PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build
-node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs book_of_borut <repo>/build \
+node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs bookofborut <repo>/build \
   --protocol book --name "Book of Borut"
 ```
 
@@ -87,9 +87,9 @@ Add a row in `/admin → Games` (managed via `apps/launcher-api`, `games` table)
 
 | field | Hot Fruits | Book of Borut |
 |---|---|---|
-| key | `hotfruits` | `book_of_borut` |
+| key | `hotfruits` | `bookofborut` |
 | name | Hot Fruits | Book of Borut |
-| url | `https://games.invisiblewall.org/hotfruits/?sessionID=demo&rgs_url=games.invisiblewall.org/api/hotfruits&lang=en&currency=USD&device=desktop` | `https://games.invisiblewall.org/book_of_borut/?sessionID=demo&rgs_url=games.invisiblewall.org/api/book_of_borut&lang=en&currency=USD&device=desktop` |
+| url | `https://games.invisiblewall.org/hotfruits/?sessionID=demo&rgs_url=games.invisiblewall.org/api/hotfruits&lang=en&currency=USD&device=desktop` | `https://games.invisiblewall.org/bookofborut/?sessionID=demo&rgs_url=games.invisiblewall.org/api/bookofborut&lang=en&currency=USD&device=desktop` |
 
 The launcher home appends `&project=<activeProject>`; the game ignores unknown
 params. After that, every logged-in user can launch from any machine.

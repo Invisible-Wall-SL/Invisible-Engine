@@ -25,7 +25,7 @@ Uploads to R2 (unified single-project-repo layout — no `<tool>/` segment):
 
 NOTE: client/project keys pass through `r2_slug` (lowercase, non-alphanumerics
 -> `_`, 60-char cap) — byte-identical to the tools + launcher — so a hyphenated
-launcher key like `book-of-borut` maps to the same `book_of_borut` everywhere.
+launcher key like `my-game` maps to the same `my_game` everywhere.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ DEFAULT_SHARED = r"C:\Invisible Wall SL\ComfyUI\Shared"
 def _key(val: str, default: str) -> str:
     """Canonical R2 slug — byte-identical to `iw_common.context.r2_slug` and the
     launcher's `r2Slug`: lowercase, non-alphanumerics -> `_`, 60-char cap. So a
-    hyphenated launcher key (`book-of-borut`) maps to the same `book_of_borut`
+    hyphenated launcher key (`my-game`) maps to the same `my_game`
     the tools read."""
     import re
     return re.sub(r"[^a-z0-9]", "_", (val or default).lower())[:60] or "default"

@@ -51,8 +51,8 @@ def safe_proj_name(name: str) -> str:
 def r2_slug(name: str | None) -> str:
     """Canonical R2 slug for a client/project key. Byte-identical to the
     launcher's slug rule so both halves build the SAME `<C>/<P>` prefix — this
-    also resolves the hyphen/underscore divergence (e.g. `book-of-borut` ->
-    `book_of_borut`)."""
+    also resolves the hyphen/underscore divergence (e.g. `my-game` ->
+    `my_game`)."""
     s = re.sub(r"[^a-z0-9]", "_", (name or "default").lower())[:60]
     return s or "default"
 

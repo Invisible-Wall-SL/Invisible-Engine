@@ -12,17 +12,17 @@
 //     --project <client>/<project> --dest <gameRepo>/static/assets [--dry-run]
 //
 // Each object at `deploy/<rel>` is mirrored verbatim to `<dest>/<rel>`:
-//   R2:    borut/book_of_borut/deploy/sprites/symbolsStatic/symbolsStatic.json
+//   R2:    borut/bookofborut/deploy/sprites/symbolsStatic/symbolsStatic.json
 //   local: <dest>/sprites/symbolsStatic/symbolsStatic.json
 //
 // Examples:
 //   # Book of Borut (its own repo, engine as submodule):
 //   EDITOR_DOC_SECRET=... node <engine>/apps/launcher-api/scripts/pull-project-assets.mjs \
-//     --project borut/book_of_borut --dest ./static/assets
+//     --project borut/bookofborut --dest ./static/assets
 //
 //   # Preview what would be pulled without writing anything:
 //   node <engine>/apps/launcher-api/scripts/pull-project-assets.mjs \
-//     --project borut/book_of_borut --dest ./static/assets --token <t> --dry-run
+//     --project borut/bookofborut --dest ./static/assets --token <t> --dry-run
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';

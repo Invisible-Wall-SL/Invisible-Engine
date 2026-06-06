@@ -25,8 +25,8 @@ PATH_FIELDS = ("style_ref", "shape_ref", "output_override")
 def _key(val: str, default: str) -> str:
     """Canonical R2 slug — byte-identical to `iw_common.context.r2_slug`,
     `seed_r2.py._key` and the launcher's `r2Slug`: lowercase, non-alphanumerics
-    -> `_`, 60-char cap. So a hyphenated launcher key (`book-of-borut`) maps to
-    the same `book_of_borut` everywhere."""
+    -> `_`, 60-char cap. So a hyphenated launcher key (`my-game`) maps to
+    the same `my_game` everywhere."""
     import re
     return re.sub(r"[^a-z0-9]", "_", (val or default).lower())[:60] or "default"
 

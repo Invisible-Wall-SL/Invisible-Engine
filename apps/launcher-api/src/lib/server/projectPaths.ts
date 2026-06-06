@@ -10,7 +10,7 @@
  * normalization the Python tools apply (`[^a-z0-9] → _`, lowercased, 60 chars).
  * The DB project/client KEYS stay as-is; only the R2 prefix is normalized. This
  * keeps the launcher and the Python tools byte-identical and fixes the historic
- * hyphen/underscore mismatch (`book-of-borut` → `book_of_borut`).
+ * hyphen/underscore mismatch (`my-game` → `my_game`).
  */
 
 export const UNASSIGNED_CLIENT = 'unassigned';
@@ -61,7 +61,7 @@ export function fontCatalogKey(client: string, project: string): string {
 	return `${SUB.fonts(client, project)}/fonts.json`;
 }
 
-/** Per-project font bundle prefix, e.g. `borut/book_of_borut/fonts/goldFont`. */
+/** Per-project font bundle prefix, e.g. `borut/bookofborut/fonts/goldFont`. */
 export function fontBundlePath(client: string, project: string, folder: string): string {
 	assertBundle(folder);
 	return `${SUB.fonts(client, project)}/${folder}`;
@@ -117,7 +117,7 @@ function assertBundle(value: string): void {
 	}
 }
 
-/** Per-project spine bundle prefix, e.g. `borut/book_of_borut/spines/loader`. */
+/** Per-project spine bundle prefix, e.g. `borut/bookofborut/spines/loader`. */
 export function spineBundlePath(client: string, project: string, bundle: string): string {
 	assertBundle(bundle);
 	return `${SUB.spines(client, project)}/${bundle}`;

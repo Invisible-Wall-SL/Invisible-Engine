@@ -86,6 +86,6 @@ Cloudflare path for the game's `assets/` prefix.
 ## Open decisions
 
 - **Project key source for the puller** — env var in the game repo (`PUBLIC_PROJECT_KEY` =
-  `borut/book_of_borut`) vs a field in the game's `package.json`. Recommend env, mirrors the
+  `borut/bookofborut`) vs a field in the game's `package.json`. Recommend env, mirrors the
   editor-scenes fetch which already keys by project.
 - **Spines/audio/fonts** — same convention applies; v1 can start with sprites/atlas and extend.
