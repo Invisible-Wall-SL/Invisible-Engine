@@ -37,6 +37,7 @@ import cloud_paths as project_paths  # noqa: E402
 import atlas_format  # noqa: E402
 import atlas_writers  # noqa: E402  (TexturePacker JSON for game-loadable deploy)
 import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source)
+import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
@@ -192,6 +193,25 @@ def _unmirror(p: Path) -> None:
 
 # Shared-secret access gate (the tool runs behind the launcher). Unset = open.
 ATLAS_TOOL_SECRET = os.environ.get("ATLAS_TOOL_SECRET", "")
+
+
+def _truthy_env(name: str) -> bool:
+    """A loose env truthiness test for boolean flags (1/true/yes/on)."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+# Blueprint publishing (upload/overwrite) is the only WRITE path into the SHARED
+# cross-project library, so it's gated separately from the read/run gate above —
+# and gated by KNOWLEDGE OF A SECRET, not a forgeable flag. The launcher appends
+# `bp=<ATLAS_BLUEPRINT_SECRET>` to the /atlas redirect ONLY for users holding the
+# `blueprintPublish` capability (mirrors how it appends `?k=<ATLAS_TOOL_SECRET>`);
+# the tool sets a per-session `atlas_bp=<secret>` cookie and publishing requires
+# that the param/cookie EQUAL the secret. A bare `bp=1` is meaningless — every
+# atlas user already holds `?k=`, so a non-secret flag would let anyone publish.
+# When no publish secret is configured the tool falls back to dev/local rules:
+# open only if there's no tool secret at all (local) or the explicit env override.
+ATLAS_BLUEPRINT_SECRET = os.environ.get("ATLAS_BLUEPRINT_SECRET", "").strip()
+ATLAS_BLUEPRINT_PUBLISH = _truthy_env("ATLAS_BLUEPRINT_PUBLISH")
 
 # POST routes that write/remove ref images → mirror staging refs to R2 after.
 _REF_MUTATING_ROUTES = {
@@ -683,6 +703,50 @@ def _opt_html(values, current: str, blank_label: str = "") -> str:
     return "".join(out)
 
 
+def _pipeline_options_html(current: str) -> str:
+    """<option>s for the pipeline <select>: the three built-in Python paths
+    under a "Built-in" optgroup, then every SHARED blueprint (that isn't one of
+    the three built-in keywords — those reference blueprints share an id with a
+    built-in and stay on the built-in Python path per the run_region dispatch,
+    so we never double-list them) under a "Blueprints" optgroup.
+
+    The current value is always kept selectable even if its blueprint vanished
+    from the library (so saving never silently changes a configured pipeline).
+    Best-effort on the blueprint list — an R2/hydrate hiccup just yields the
+    three built-ins (never raises into the page render)."""
+    cur = current or "sdxl"
+    try:
+        bps = blueprints.list_blueprints()
+    except Exception:  # noqa: BLE001 — UI must render even if R2 is down
+        bps = []
+    # Blueprint optgroup: ids that aren't one of the three built-in keywords.
+    extra = [b for b in bps
+             if str(b.get("id", "")) not in PIPELINE_OPTIONS]
+    known_ids = set(PIPELINE_OPTIONS) | {str(b.get("id", "")) for b in extra}
+
+    out = ['<optgroup label="Built-in">']
+    for v in PIPELINE_OPTIONS:
+        sel = " selected" if v == cur else ""
+        out.append(f'<option value="{html.escape(v, quote=True)}"{sel}>'
+                   f'{html.escape(v)}</option>')
+    out.append('</optgroup>')
+    if extra:
+        out.append('<optgroup label="Blueprints">')
+        for b in extra:
+            bid = str(b.get("id", ""))
+            name = str(b.get("name", "") or bid)
+            sel = " selected" if bid == cur else ""
+            out.append(f'<option value="{html.escape(bid, quote=True)}"{sel}>'
+                       f'{html.escape(name)}</option>')
+        out.append('</optgroup>')
+    # Keep an unknown current value (a blueprint that was removed) selectable so
+    # saving doesn't silently rewrite it.
+    if cur and cur not in known_ids:
+        out.append(f'<option value="{html.escape(cur, quote=True)}" selected>'
+                   f'{html.escape(cur)} (not in library)</option>')
+    return "".join(out)
+
+
 def _control_html(key: str, typ: str, value, cache: dict, *,
                    allow_blank: bool = False, blank_label: str = "",
                    placeholder: str = "", title: str = "",
@@ -695,7 +759,7 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
     common = f' data-cfg="{key}" title="{title}"'
     if key == "pipeline":
         return (f'<select{common}>'
-                f'{_opt_html(PIPELINE_OPTIONS, cur or "sdxl")}</select>')
+                f'{_pipeline_options_html(cur or "sdxl")}</select>')
     if key == "rembg":
         # on/off cutout toggle. Per-atlas keeps a blank "(inherit global)"
         # choice; the global config picks a concrete on/off (default on).
@@ -2310,6 +2374,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <span id="gnegstat" style="margin-left:12px;color:#999"></span>
  </div>
 </details>
+{blueprints_panel}
 <div class="grid">{cards}</div>
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
  <div class="modalbox">
@@ -2345,6 +2410,36 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   </div>
   <div id="fscur" style="padding:8px 18px 0;color:#888;font-size:12px;word-break:break-all"></div>
   <div id="fslist" style="padding:10px 18px 18px;max-height:55vh;overflow:auto;font-size:13px"></div>
+ </div>
+</div>
+<div id="bpmodal" class="modal" onclick="if(event.target===this)closeBp()">
+ <div class="modalbox" style="width:min(620px,94vw)">
+  <div class="modalhdr"><span id="bptitle">New blueprint</span><button onclick="closeBp()">✕ close</button></div>
+  <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
+   <div style="color:#888;font-size:12px">Pick a ComfyUI <b>API-format</b> workflow.json (Settings → "Save (API Format)"), then map each role onto a node in your graph. positive / seed / output are required.</div>
+   <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Workflow file (API format)
+    <input type="file" id="bpFile" accept=".json,application/json" onchange="onBpFilePicked()" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
+   </label>
+   <div id="bpmeta" style="display:none;flex-direction:column;gap:11px">
+    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Name
+     <input id="bpName" placeholder="My Pipeline" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Description
+     <textarea id="bpDesc" rows="2" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px;resize:vertical"></textarea>
+    </label>
+    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Base (ref/output conventions)
+     <select id="bpBase" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
+      <option value="sdxl">sdxl</option><option value="flux">flux</option><option value="gpt_image">gpt_image</option>
+     </select>
+    </label>
+    <div style="color:#aaa;font-weight:600;margin-top:2px">Bindings (role → node)</div>
+    <div id="bpBindings" style="display:flex;flex-direction:column;gap:8px"></div>
+   </div>
+   <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+    <button id="bpSave" onclick="saveBlueprint()" style="display:none">Publish blueprint</button>
+    <span id="bpstat" style="color:#999"></span>
+   </div>
+  </div>
  </div>
 </div>
 <div id="diags"></div>
@@ -2443,8 +2538,23 @@ async function saveCfg(btn){{
 //   all  -> every pipeline (incl. gpt_image)
 //   both -> the two local ComfyUI pipelines only (sdxl OR flux), never gpt
 //   sdxl|flux|gpt_image -> that pipeline only
+// A BLUEPRINT pipeline (an id that isn't one of the three built-in keywords)
+// pins its own models in its graph, so the built-in model <select>s (the
+// sdxl/flux/gpt_image groups) are hidden; the universal "all" + generic "both"
+// generation fields (size, padding, etc.) stay editable since a blueprint runs
+// through the same ComfyUI path.
+const BUILTIN_PIPES=['sdxl','flux','gpt_image'];
+// id -> list of bound role names, for every shared blueprint (built-ins
+// excluded — they use the Python path). Drives which ref fields a blueprint
+// pipeline shows (a blueprint that doesn't bind shape_ref hides its UI).
+const BP_BOUND_ROLES={bp_bound_roles_js};
+function isBlueprintPipe(p){{ return !!p && BUILTIN_PIPES.indexOf(p)<0; }}
+function bpBinds(p,role){{
+ let r=BP_BOUND_ROLES[p]; return !!r && r.indexOf(role)>=0;
+}}
 function pipeVisible(g,p){{
  if(!g||g==='all')return true;
+ if(isBlueprintPipe(p)) return g==='both';
  if(g==='both')return p==='sdxl'||p==='flux';
  return g===p;
 }}
@@ -2515,6 +2625,115 @@ async function sendAtlasUpload(img){{
  if(st)st.textContent=msg;
  _uplAtlas=null;
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),2200);
+}}
+// --- Blueprints: upload an API-format ComfyUI graph + bind roles ----------
+let _bpGraph=null;   // parsed API/prompt node dict from the picked file
+// Role -> required (must be bound) + candidate filter over (id, node).
+const BP_ROLES=[
+ ['positive',true],['negative',false],['seed',true],
+ ['width',false],['height',false],
+ ['style_ref',false],['shape_ref',false],['output',true]];
+function bpCandidates(role,graph){{
+ // Candidate-filter nodes by class_type / inputs so each role only offers
+ // nodes that can plausibly fill it (matches the design's binding step).
+ let out=[];
+ for(const id of Object.keys(graph)){{
+  const n=graph[id]||{{}}; const ct=String(n.class_type||'');
+  const inp=n.inputs||{{}};
+  let ok=false;
+  if(role==='positive'||role==='negative') ok=/CLIPTextEncode/i.test(ct);
+  else if(role==='seed') ok=('seed' in inp)||('noise_seed' in inp);
+  else if(role==='width') ok=('width' in inp);
+  else if(role==='height') ok=('height' in inp);
+  else if(role==='style_ref'||role==='shape_ref') ok=/LoadImage/i.test(ct);
+  else if(role==='output') ok=/SaveImage/i.test(ct);
+  if(ok) out.push([id,ct]);
+ }}
+ return out;
+}}
+// Default node-input field per role (the binding's `field`). output has none.
+const BP_FIELD={{positive:'text',negative:'text',seed:'seed',width:'width',
+ height:'height',style_ref:'image',shape_ref:'image'}};
+function openNewBlueprint(){{
+ _bpGraph=null;
+ document.getElementById('bpFile').value='';
+ document.getElementById('bpmeta').style.display='none';
+ document.getElementById('bpSave').style.display='none';
+ document.getElementById('bpName').value='';
+ document.getElementById('bpDesc').value='';
+ document.getElementById('bpstat').textContent='';
+ document.getElementById('bpmodal').classList.add('open');
+}}
+function closeBp(){{document.getElementById('bpmodal').classList.remove('open');}}
+function onBpFilePicked(){{
+ let f=document.getElementById('bpFile').files[0]; if(!f)return;
+ let rd=new FileReader();
+ rd.onload=()=>{{
+  let g;
+  try{{ g=JSON.parse(rd.result); }}
+  catch(e){{ document.getElementById('bpstat').textContent='✖ Not valid JSON: '+e; return; }}
+  if(!g||typeof g!=='object'||Array.isArray(g)){{
+   document.getElementById('bpstat').textContent='✖ Not an API-format node dict.'; return; }}
+  // Heuristic API-format check: every value is a node with a class_type.
+  let bad=Object.keys(g).find(k=>!g[k]||typeof g[k]!=='object'||!('class_type' in g[k]));
+  if(bad!==undefined){{
+   document.getElementById('bpstat').textContent='✖ Node "'+bad+'" has no class_type — export in API format, not the editor format.';
+   return; }}
+  _bpGraph=g;
+  if(!document.getElementById('bpName').value){{
+   document.getElementById('bpName').value=f.name.replace(/\\.json$/i,''); }}
+  buildBpBindings();
+  document.getElementById('bpmeta').style.display='flex';
+  document.getElementById('bpSave').style.display='';
+  document.getElementById('bpstat').textContent='';
+ }};
+ rd.readAsText(f);
+}}
+function buildBpBindings(){{
+ let wrap=document.getElementById('bpBindings'); wrap.innerHTML='';
+ BP_ROLES.forEach(([role,req])=>{{
+  let cands=bpCandidates(role,_bpGraph);
+  let row=document.createElement('label');
+  row.style.cssText='display:flex;align-items:center;gap:8px;color:#aaa';
+  let lbl=document.createElement('span');
+  lbl.style.cssText='min-width:90px'; lbl.textContent=role+(req?' *':'');
+  let sel=document.createElement('select');
+  sel.dataset.bprole=role;
+  sel.style.cssText='flex:1;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:6px';
+  if(!req){{ let o=document.createElement('option'); o.value=''; o.textContent='(not used)'; sel.appendChild(o); }}
+  cands.forEach(([id,ct])=>{{ let o=document.createElement('option'); o.value=id; o.textContent='node '+id+' — '+ct; sel.appendChild(o); }});
+  if(req&&!cands.length){{ let o=document.createElement('option'); o.value=''; o.textContent='⚠ no matching node'; sel.appendChild(o); }}
+  row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
+ }});
+}}
+async function saveBlueprint(overwrite){{
+ if(!_bpGraph) return;
+ let st=document.getElementById('bpstat'); st.textContent='⬆ Publishing…';
+ let bindings={{}};
+ document.querySelectorAll('#bpBindings [data-bprole]').forEach(sel=>{{
+  let role=sel.dataset.bprole, node=sel.value;
+  if(!node) return;
+  let b={{node:node}};
+  if(role!=='output') b.field=BP_FIELD[role]||'';
+  bindings[role]=b;
+ }});
+ let body={{name:document.getElementById('bpName').value,
+  description:document.getElementById('bpDesc').value,
+  base:document.getElementById('bpBase').value,
+  workflow_text:JSON.stringify(_bpGraph),
+  bindings:bindings, overwrite:!!overwrite}};
+ let msg;
+ try{{ let r=await fetch('/uploadblueprint',{{method:'POST',body:JSON.stringify(body)}});
+  msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Publish failed: '+e; }}
+ // A pre-existing id prompts to overwrite (mirror the .atlas confirm style).
+ if(msg.indexOf('⚠')===0 && msg.indexOf('already exists')>=0 && !overwrite){{
+  st.textContent=msg;
+  if(confirm(msg.replace('⚠ ','')+'\\n\\nOverwrite it?')) return saveBlueprint(true);
+  return;
+ }}
+ st.textContent=msg;
+ if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),1600);
 }}
 async function sliceAtlas(){{
  if(!confirm('Cut the Atlas source image into per-region crops and set each as its IPAdapter style ref? Existing prompts/seeds are kept.'))return;
@@ -2838,8 +3057,17 @@ function applyAdvPipe(){{
  // selector inherits the global pipeline.
  let ps=document.querySelector('#advform [data-adv="pipeline"]');
  let eff=(ps&&ps.value)||_advGlobalPipe;
+ let bp=isBlueprintPipe(eff);
  document.querySelectorAll('#advform label[data-pipe]').forEach(l=>{{
-  l.style.display=pipeVisible(l.dataset.pipe,eff)?'':'none';
+  let vis=pipeVisible(l.dataset.pipe,eff);
+  // For a blueprint pipeline, a ref field shows only if the blueprint binds
+  // that role (its graph has a LoadImage node for it) — otherwise the ref
+  // has nowhere to go, so hide the input.
+  if(vis&&bp){{
+   let adv=l.querySelector('[data-adv]'), role=adv&&adv.dataset.adv;
+   if((role==='style_ref'||role==='shape_ref')&&!bpBinds(eff,role)) vis=false;
+  }}
+  l.style.display=vis?'':'none';
  }});
 }}
 function closeAdv(){{document.getElementById('advmodal').classList.remove('open');}}
@@ -3227,6 +3455,45 @@ class Handler(BaseHTTPRequestHandler):
     def _resolve_project(self) -> None:
         self._resolve_context()
 
+    def _resolve_publish(self) -> None:
+        """Decide whether THIS request may publish a blueprint and set
+        `self.can_publish` (read by `_uploadblueprint` and exposed to the page
+        so the "＋ New blueprint" affordance only shows when allowed).
+
+        Mirrors the `?k=` secret handling in `_gate`: the launcher hands off
+        `bp=<ATLAS_BLUEPRINT_SECRET>` ONLY for users holding `blueprintPublish`,
+        and we require the param/cookie to EQUAL that secret. We stick it in a
+        session cookie `atlas_bp=<secret>` (same attributes as the gate's
+        `atlas_tool` cookie) so the capability survives the in-tool navigations
+        that drop the param. A non-secret flag would be forgeable — every atlas
+        user already holds the read secret, so `bp=1` would gate nothing.
+
+        Must run AFTER `_resolve_context()` (which initializes `_extra_cookies`)
+        so the extra Set-Cookie rides along on the response."""
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        param_bp = q.get("bp", [""])[0]
+        cookie_bp = ""
+        for part in (self.headers.get("Cookie", "") or "").split(";"):
+            part = part.strip()
+            if part.startswith("atlas_bp="):
+                cookie_bp = part[len("atlas_bp="):]
+                break
+        if ATLAS_BLUEPRINT_SECRET:
+            # Production model: knowledge of the publish secret == permission.
+            if param_bp == ATLAS_BLUEPRINT_SECRET and cookie_bp != ATLAS_BLUEPRINT_SECRET:
+                self._extra_cookies.append(
+                    f"atlas_bp={ATLAS_BLUEPRINT_SECRET}; Path=/; HttpOnly; "
+                    "SameSite=None; Secure")
+            self.can_publish = (
+                param_bp == ATLAS_BLUEPRINT_SECRET
+                or cookie_bp == ATLAS_BLUEPRINT_SECRET)
+        else:
+            # No publish secret configured → dev/local fallback: allow only when
+            # the tool runs fully open (no read secret) or the explicit env
+            # override is set. Fail safe (closed) when a read secret is set but
+            # no publish secret is — never forgeable-open in a deployed tool.
+            self.can_publish = bool(not ATLAS_TOOL_SECRET or ATLAS_BLUEPRINT_PUBLISH)
+
     def _handle_deeplink(self, qs: dict) -> bool:
         """Editor "Open in Atlas Maker" deep-link (shared URL contract).
 
@@ -3283,6 +3550,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(403, "text/plain", b"forbidden")
             return
         self._resolve_context()
+        self._resolve_publish()
         path = urllib.parse.urlparse(self.path).path
         if path == "/":
             # Splash is for the *first* visit (launcher → browser). Subsequent
@@ -3383,7 +3651,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(403, "text/plain", b"forbidden")
             return
         self._resolve_context()
+        self._resolve_publish()
         length = int(self.headers.get("Content-Length", 0))
+        # Blueprint upload writes attacker-sized JSON to the SHARED library +
+        # staging, so cap it (a real workflow graph is well under this).
+        if self.path == "/uploadblueprint" and length > 4_000_000:
+            self._send(200, "text/plain",
+                       b"Blueprint upload too large (max ~4 MB).")
+            return
         raw = self.rfile.read(length).decode("utf-8")
         if self.path == "/save":
             self._send(200, "text/plain", self._save(json.loads(raw)).encode())
@@ -3414,6 +3689,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._saveglobalstyle(json.loads(raw)).encode())
         elif self.path == "/uploadatlas":
             self._send(200, "text/plain", self._uploadatlas(json.loads(raw)).encode())
+        elif self.path == "/uploadblueprint":
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                self._send(200, "text/plain",
+                           b"Invalid request body (not JSON).")
+                return
+            self._send(200, "text/plain",
+                       self._uploadblueprint(payload).encode())
         elif self.path == "/refresh":
             self._send(200, "text/plain", self._refresh().encode())
         elif self.path == "/clearcache":
@@ -3612,6 +3896,125 @@ class Handler(BaseHTTPRequestHandler):
         return (f"✓ Uploaded {atlas_rel}{tail} and repointed "
                 f"{manifest_path().name} — reload to see regions.")
 
+    def _uploadblueprint(self, payload: dict) -> str:
+        """Save a user-supplied ComfyUI graph + bindings as a new shared
+        blueprint, writing `_shared/blueprints/<id>/{workflow.json,
+        blueprint.json}` to BOTH staging and R2 directly (blueprints live
+        OUTSIDE the project tree, so the per-route project push does NOT cover
+        them — we push to `_shared/blueprints/` like seed_blueprints.py).
+
+        payload: {name, description, base, workflow_text, bindings, overwrite?}.
+        `bindings` is role -> {node, field?} (output has no field). The write is
+        gated on `self.can_publish` (set by `_resolve_publish`). On success the
+        library is re-hydrated so the new blueprint is immediately selectable in
+        the pipeline picker, and the new id is returned. Never raises a 500 —
+        every failure path returns a readable string."""
+        if not getattr(self, "can_publish", False):
+            return ("✖ You're not allowed to publish blueprints. Ask an admin "
+                    "for the 'Publish blueprints' permission.")
+
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return "Give the blueprint a name."
+        base = str(payload.get("base", "sdxl")).strip().lower() or "sdxl"
+        if base not in ("sdxl", "flux", "gpt_image"):
+            return ("✖ base must be one of sdxl / flux / gpt_image "
+                    f"(got '{base}').")
+        description = str(payload.get("description", "")).strip()
+        workflow_text = payload.get("workflow_text", "")
+        if not str(workflow_text).strip():
+            return "The workflow.json was empty — pick an API-format export."
+        bindings = payload.get("bindings")
+        if not isinstance(bindings, dict):
+            return "✖ Missing the role→node bindings."
+        # Drop empty/blank bindings so an unbound optional role isn't persisted
+        # as a half-filled {node:'', ...} (the loader treats absent = skip).
+        clean_bindings: dict = {}
+        for role, b in bindings.items():
+            if role not in blueprints.KNOWN_ROLES or not isinstance(b, dict):
+                continue
+            node = str(b.get("node", "")).strip()
+            if not node:
+                continue
+            entry = {"node": node}
+            if role != "output":
+                field = str(b.get("field", "")).strip()
+                if not field:
+                    return (f"✖ Role '{role}' needs a node input field "
+                            "(none selected).")
+                entry["field"] = field
+            clean_bindings[role] = entry
+
+        # Validate the graph is parseable, API-format, and the bindings resolve.
+        try:
+            graph = json.loads(workflow_text)
+        except ValueError as e:
+            return f"✖ workflow.json isn't valid JSON: {e}"
+
+        bp_id = project_paths.r2_slug(name)
+        if not bp_id:
+            return "✖ Couldn't derive a blueprint id from that name."
+        # Built-in reference ids are the proven Python path — never let an upload
+        # clobber them (selecting that id keeps the built-in builder anyway).
+        if bp_id in PIPELINE_OPTIONS:
+            return (f"✖ '{bp_id}' is a built-in pipeline id and can't be "
+                    "overwritten. Pick a different name.")
+        overwrite = bool(payload.get("overwrite", False))
+        if blueprints.get_blueprint(bp_id) is not None and not overwrite:
+            return (f"⚠ A blueprint '{bp_id}' already exists. Re-submit with "
+                    "overwrite to replace it.")
+
+        manifest = {
+            "version": 1,
+            "id": bp_id,
+            "name": name,
+            "description": description,
+            "author": self._publish_author(),
+            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "base": base,
+            "bindings": clean_bindings,
+            "models": [],
+        }
+        try:
+            blueprints.validate_against_graph(bp_id, manifest, graph)
+        except ValueError as e:
+            return f"✖ {e}"
+
+        # Persist: staging mirror + R2 (the canonical store). Write the manifest
+        # we just validated (re-serialized) and the original graph text.
+        man_bytes = json.dumps(manifest, indent=2).encode("utf-8")
+        wf_bytes = json.dumps(graph, indent=2).encode("utf-8")
+        try:
+            dest = blueprints.BLUEPRINTS_STAGING / bp_id
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "blueprint.json").write_bytes(man_bytes)
+            (dest / "workflow.json").write_bytes(wf_bytes)
+            prefix = f"{blueprints.SHARED_BLUEPRINTS_PREFIX}/{bp_id}"
+            storage.put(f"{prefix}/blueprint.json", man_bytes)
+            storage.put(f"{prefix}/workflow.json", wf_bytes)
+        except Exception as e:  # noqa: BLE001 — disk/R2 hiccup, not a crash
+            return f"✖ Could not save blueprint '{bp_id}': {e}"
+
+        # Re-hydrate so it's listable/selectable right away (and confirm it
+        # loads cleanly through the same path the runner uses).
+        try:
+            blueprints.hydrate(force=True)
+        except Exception:  # noqa: BLE001 — staging copy already written
+            pass
+        if blueprints.get_blueprint(bp_id) is None:
+            return (f"⚠ Saved '{bp_id}' but it didn't reload cleanly — check the "
+                    "bindings and try again.")
+        verb = "Updated" if overwrite else "Published"
+        return (f"✓ {verb} blueprint '{bp_id}' — select it in the pipeline "
+                "dropdown (reload to refresh the list).")
+
+    def _publish_author(self) -> str:
+        """Best-effort username to stamp on an uploaded blueprint. The launcher
+        handoff doesn't currently forward an identity, so this is "uploaded"
+        unless an env (`IW_USER_NAME`) carries one. Kept as a single seam so a
+        future handoff field only changes here."""
+        return (os.environ.get("IW_USER_NAME", "").strip() or "uploaded")
+
     def _sliceatlas(self) -> str:
         # Pass the FULL staging manifest path (not just .name) so the subprocess
         # reads the right file even if its own context resolution differs; and
@@ -3656,6 +4059,15 @@ class Handler(BaseHTTPRequestHandler):
                 project_paths.project_name())
             project_paths.hydrate(client_key, proj_key, Path(STAGING_ROOT),
                                   force=True)
+            # Also re-pull the SHARED blueprint library so a newly-seeded /
+            # uploaded blueprint shows up in the pipeline picker without a
+            # service restart (blueprints.hydrate() is otherwise once-per-
+            # process). Best-effort: never let an R2 hiccup here fail the
+            # whole refresh.
+            try:
+                blueprints.hydrate(force=True)
+            except Exception:  # noqa: BLE001 — transient; manifests still fresh
+                pass
             n = len(list_manifests())
         except Exception as e:  # noqa: BLE001 — transient R2 issue, not fatal
             return ("↻ Refresh from R2 hit a snag — try again in a moment "
@@ -4485,8 +4897,26 @@ class Handler(BaseHTTPRequestHandler):
                 f'background:#1d3a4a;border:1px solid #2f7fb9;'
                 f'border-radius:6px;color:#a0d6ff;font-size:13px;'
                 f'white-space:pre-line">{html.escape(dl_notice)}</div>')
+        blueprints_panel = self._blueprints_panel_html(
+            getattr(self, "can_publish", False), g_pipe)
+        # role-binding map for every non-built-in blueprint, for the client's
+        # ref-field show/hide logic (a blueprint hides a ref field it doesn't
+        # bind). Best-effort — empty map on any R2 trouble.
+        bp_bound: dict[str, list[str]] = {}
+        try:
+            for _b in blueprints.list_blueprints():
+                _bid = str(_b.get("id", ""))
+                if _bid in PIPELINE_OPTIONS:
+                    continue
+                _full = blueprints.get_blueprint(_bid)
+                if _full:
+                    bp_bound[_bid] = list((_full.get("bindings") or {}).keys())
+        except Exception:  # noqa: BLE001 — never break the page render
+            bp_bound = {}
         return PAGE.format(
             cards="".join(cards),
+            blueprints_panel=blueprints_panel,
+            bp_bound_roles_js=json.dumps(bp_bound),
             global_fields="".join(global_fields),
             atlas_fields="".join(atlas_fields),
             spine_link=spine_link,
@@ -4504,6 +4934,58 @@ class Handler(BaseHTTPRequestHandler):
             flash_region=json.dumps(dl_region),
             notice="".join(notices),
         )
+
+    def _blueprints_panel_html(self, can_publish: bool, active_pipe: str) -> str:
+        """The "Blueprints" settings section: the shared library list + (when
+        the request may publish) the "＋ New blueprint" button that opens the
+        upload/bind modal. Read-only for everyone; the create affordance is
+        hidden when `can_publish` is false (server-side too — `_uploadblueprint`
+        refuses). Best-effort list — an R2 hiccup just shows none."""
+        try:
+            bps = blueprints.list_blueprints()
+        except Exception:  # noqa: BLE001 — never break the page on R2 trouble
+            bps = []
+        rows = []
+        for b in bps:
+            bid = str(b.get("id", ""))
+            name = str(b.get("name", "") or bid)
+            desc = str(b.get("description", ""))
+            base = str(b.get("base", ""))
+            builtin = bid in PIPELINE_OPTIONS
+            tag = " · built-in reference" if builtin else ""
+            active = " · ● selected" if bid == active_pipe else ""
+            rows.append(
+                f'<div style="padding:7px 0;border-top:1px solid #2a2a2e">'
+                f'<b style="color:#ddd">{html.escape(name)}</b> '
+                f'<code style="color:#7fa">{html.escape(bid)}</code>'
+                f'<span style="color:#888;font-size:11px"> · base '
+                f'{html.escape(base)}{tag}{active}</span>'
+                f'<div style="color:#999;font-size:12px;margin-top:2px">'
+                f'{html.escape(desc)}</div></div>')
+        listing = ("".join(rows) if rows else
+                   '<div style="color:#888;font-size:13px;padding:6px 0">'
+                   'No blueprints in the shared library yet.</div>')
+        new_btn = ""
+        if can_publish:
+            new_btn = (
+                '<button onclick="openNewBlueprint()" style="margin:10px 0 0" '
+                'title="Upload a ComfyUI API-format workflow and bind its roles '
+                'as a new shared blueprint">＋ New blueprint</button>')
+        note = ("" if can_publish else
+                '<div style="color:#777;font-size:12px;margin-top:8px">'
+                'Publishing new blueprints needs the &ldquo;Publish '
+                'blueprints&rdquo; permission.</div>')
+        return (
+            '<details class="settings">'
+            '<summary>🧩 Blueprints — shared ComfyUI pipeline library</summary>'
+            '<div style="padding-top:6px">'
+            '<div style="font-size:13px;color:#bbb;margin-bottom:6px">'
+            'Data-driven pipelines anyone can publish and everyone can run. '
+            'Select one in the <b>Pipeline</b> dropdown (Global settings) to '
+            'generate with it. Built-in sdxl/flux/gpt_image use their proven '
+            'Python path even though they appear here as references.</div>'
+            f'<div>{listing}</div>{new_btn}{note}'
+            '</div></details>')
 
     def _save(self, edits: list[dict]) -> str:
         m = load_manifest()

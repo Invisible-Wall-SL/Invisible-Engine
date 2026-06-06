@@ -104,6 +104,36 @@ def _validate_manifest(bp_id: str, manifest: dict) -> dict:
     return manifest
 
 
+def validate_against_graph(bp_id: str, manifest: dict, graph: dict) -> dict:
+    """Full validation for an UPLOAD: structural manifest checks (reusing
+    `_validate_manifest`) PLUS that every mapped binding points at a node which
+    actually exists in `graph` (the API/prompt node dict). Raises ValueError
+    with a readable message on any problem so the upload handler can return it
+    verbatim (never a 500)."""
+    if not isinstance(graph, dict) or not graph:
+        raise ValueError(
+            f"blueprint '{bp_id}': workflow.json is not a non-empty API-format "
+            "node dict (expected {{'<nodeId>': {{'class_type': ..., 'inputs': "
+            "...}}, ...}})")
+    for node_id, node in graph.items():
+        if not isinstance(node, dict) or "class_type" not in node:
+            raise ValueError(
+                f"blueprint '{bp_id}': node '{node_id}' is not an API-format "
+                "node (missing 'class_type') — export the workflow in API "
+                "format, not the editor format")
+    _validate_manifest(bp_id, manifest)
+    bindings = manifest["bindings"]
+    for role, b in bindings.items():
+        if not isinstance(b, dict):
+            continue
+        node_id = str(b.get("node", "")).strip()
+        if node_id and node_id not in graph:
+            raise ValueError(
+                f"blueprint '{bp_id}': role '{role}' is bound to node "
+                f"'{node_id}', which is not in the workflow graph")
+    return manifest
+
+
 def _read_blueprint_dir(d: Path) -> dict | None:
     """Load one blueprint directory -> {id, graph, bindings, meta} or None if it
     isn't a usable blueprint (missing/unreadable files, invalid manifest)."""
