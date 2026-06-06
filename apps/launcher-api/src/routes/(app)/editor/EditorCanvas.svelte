@@ -3,9 +3,11 @@
 		boundComponentDefault,
 		computeOverlayPlacement,
 		isHudScene,
+		MAX_COMPONENT_DEPTH,
 		resolveAnchorPreviewArt,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
+		type ComponentDef,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -68,6 +70,11 @@
 		/** The project's asset listing — used to resolve catalog-default preview art
 		 * for `bind` anchors (spine bundle by name, sprite region by manifest scan). */
 		assets: ProjectAssets;
+		/** Loaded component defs by id (§8.4) — lets the canvas resolve + draw a
+		 * `componentInstance` node by expanding `def.root` under the instance transform.
+		 * The editor canvas is its OWN renderer, so it reads this map (NOT the engine
+		 * registry). Absent / unknown id → a labelled placeholder. */
+		componentMap?: Map<string, ComponentDef>;
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
 		/** Hoisted selection — bound from the page so the properties panel can read it. */
 		selectedId?: string | null;
@@ -99,6 +106,7 @@
 		frameHeight,
 		layoutType,
 		assets,
+		componentMap = new Map(),
 		onSpawn,
 		selectedId = $bindable(null),
 		onDirty,
@@ -1088,6 +1096,8 @@
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
 		sceneCtx: Scene = scene,
+		componentDepth = 0,
+		componentStack: string[] = [],
 	): void {
 		const t = nodeTransform(node, sceneCtx);
 		if (!t.visible) return;
@@ -1170,10 +1180,42 @@
 				ctx.fillText(node.text, 0, 0);
 			}
 		} else if (node.kind === 'container') {
-			for (const child of node.children) drawNode(ctx, child, sceneCtx);
+			for (const child of node.children)
+				drawNode(ctx, child, sceneCtx, componentDepth, componentStack);
+		} else if (node.kind === 'componentInstance') {
+			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
 		}
 
 		ctx.restore();
+	}
+
+	/**
+	 * Draw a `componentInstance` by EXPANDING its `ComponentDef.root` children under
+	 * the (already-applied) instance transform — the editor's own static render of the
+	 * prefab, mirroring how `<LayoutScene>` expands it in-engine. The editor canvas
+	 * resolves the def from the loaded `componentMap` (NOT the engine registry). Guards:
+	 * a missing def or a depth/cycle breach draws a labelled placeholder instead.
+	 */
+	function drawComponentInstance(
+		ctx: CanvasRenderingContext2D,
+		node: Extract<LayoutNode, { kind: 'componentInstance' }>,
+		sceneCtx: Scene,
+		componentDepth: number,
+		componentStack: string[],
+	): void {
+		const def = componentMap.get(node.componentId);
+		if (!def) {
+			drawPlaceholder(ctx, 0.5, 0.5, '#4a3a5a', `◇ ${node.label ?? node.componentId}`);
+			return;
+		}
+		if (componentDepth >= MAX_COMPONENT_DEPTH || componentStack.includes(def.id)) {
+			drawPlaceholder(ctx, 0.5, 0.5, '#3a3a46', `◇ ${def.name}`);
+			return;
+		}
+		const stack = [...componentStack, def.id];
+		for (const child of def.root.children) {
+			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack);
+		}
 	}
 
 	function drawRegionSprite(

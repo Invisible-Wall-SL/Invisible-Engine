@@ -12,6 +12,11 @@
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
 	import type {
+		ComponentCategory,
+		ComponentDef,
+		ComponentInstanceNode,
+		ComponentParam,
+		ContainerNode,
 		GameTemplate,
 		LayoutNode,
 		LayoutType,
@@ -21,6 +26,7 @@
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
+	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
@@ -67,7 +73,7 @@
 	 * into `node.overrides[layoutType]` (override mode). */
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Left sidebar tab: which panel is shown. */
-	let leftTab = $state<'library' | 'outline' | 'template'>('library');
+	let leftTab = $state<'library' | 'outline' | 'template' | 'component'>('library');
 	/** Whether the asset-warning detail list is expanded (from the header pill). */
 	let showContentWarnings = $state(false);
 	/** The template currently being viewed/edited — starts as the project's
@@ -135,6 +141,212 @@
 	/** Template-authoring mode (§7.5): tag nodes as slots + export a `GameTemplate`
 	 * instead of just filling one. Normal mode is unchanged when this is off. */
 	let templateMode = $state(false);
+
+	// ---------- component mode (§8.4) ----------
+	// A THIRD mode alongside scene/template. Editing a component edits its `root`
+	// sub-tree on the SAME canvas: we present `root.children` as a synthetic Scene
+	// (`componentScene`) so the existing canvas/outline/properties machinery — drag,
+	// transform, override, outliner — all operate on it unchanged. Saving rebuilds
+	// `root.children` from that scene and POSTs the ComponentDef.
+
+	/** The three editor modes. Scene + template are the existing behaviour; when
+	 * `'component'`, the canvas/outline/properties edit {@link componentDraft.root}. */
+	let mode = $state<'scene' | 'template' | 'component'>('scene');
+	/** Components the project can use (shared + project shadow) — drives the picker +
+	 * the canvas's `componentInstance` resolution. Mutable so a save reflects locally. */
+	let components = $state<ComponentDef[]>(structuredClone(data.components));
+	/** The component currently being edited (component mode), or null. */
+	let componentDraft = $state<ComponentDef | null>(null);
+	/** Save state for the component POST (header pill, mirrors templateStatus). */
+	let componentBusy = $state(false);
+	let componentStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+	/** The scene index to restore when leaving component mode (the scene you were on). */
+	let sceneReturnIdx = 0;
+	/** Stable references for the component-mode canvas props (a fresh literal each
+	 * render would needlessly retrigger the canvas's redraw effect). */
+	const NO_HIDDEN = new Set<string>();
+	const NOOP = (): void => {};
+
+	/** id → def map, so the canvas resolves a `componentInstance` without the engine
+	 * registry (the editor canvas is its own renderer). */
+	const componentMap = $derived.by(() => {
+		const m = new Map<string, ComponentDef>();
+		for (const c of components) m.set(c.id, c);
+		return m;
+	});
+
+	function genComponentId(): string {
+		return 'c_' + Math.random().toString(36).slice(2, 10);
+	}
+
+	/** Synthetic scene wrapping the component draft's `root.children`, so the editor's
+	 * scene machinery edits the sub-tree in place (the array IS `root.children`). */
+	const componentScene = $derived.by<Scene | undefined>(() =>
+		componentDraft
+			? { id: 's_component', name: componentDraft.name, nodes: componentDraft.root.children }
+			: undefined,
+	);
+
+	/** Enter component mode editing `def` (a fresh draft or an existing component). */
+	function openComponent(def: ComponentDef): void {
+		sceneReturnIdx = activeSceneIdx;
+		componentDraft = structuredClone(def);
+		mode = 'component';
+		templateMode = false;
+		leftTab = 'library';
+		selectedId = null;
+		componentStatus = null;
+	}
+
+	/**
+	 * Normalise a container into a component `root`: identity placement, keeping only
+	 * its children + box (id/kind/children/width/height/label). A component is authored
+	 * in LOCAL space — the `componentInstance` node positions it — so the root must carry
+	 * NO transform of its own. This keeps the engine path (which applies `root`'s
+	 * transform via `LayoutNodeView`) and the editor canvas (which skips it) in agreement
+	 * and stops a dropped instance from being offset by a baked-in scene transform.
+	 * Enforced authoritatively on save by `componentStorage.normalizeComponent`.
+	 */
+	function toComponentRoot(container: ContainerNode): ContainerNode {
+		const clone = structuredClone(container);
+		const root: ContainerNode = { id: clone.id, kind: 'container', x: 0, y: 0, children: clone.children };
+		if (clone.width !== undefined) root.width = clone.width;
+		if (clone.height !== undefined) root.height = clone.height;
+		if (clone.label !== undefined) root.label = clone.label;
+		return root;
+	}
+
+	/** Create a blank component (empty `root` container) + open it. */
+	function createComponent(name: string, category: ComponentCategory): void {
+		const root: ContainerNode = {
+			id: genComponentId() + '_root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [],
+		};
+		openComponent({
+			id: genComponentId(),
+			name,
+			version: 1,
+			scope: 'project',
+			category,
+			root,
+		});
+	}
+
+	/** "Edit as component" from Properties (scene mode): open the selected container's
+	 * sub-tree as a component draft. The container becomes the new `root`; on first
+	 * save the author names it. We DON'T mutate the scene — saving is what materialises
+	 * a reusable def. The root is stripped to LOCAL space (see {@link toComponentRoot})
+	 * so the instance node fully owns placement and the two renderers agree. */
+	function editContainerAsComponent(container: ContainerNode): void {
+		sceneReturnIdx = activeSceneIdx;
+		const root = toComponentRoot(container);
+		componentDraft = {
+			id: genComponentId(),
+			name: container.label || 'Component',
+			version: 1,
+			scope: 'project',
+			category: 'overlay',
+			root,
+		};
+		mode = 'component';
+		templateMode = false;
+		leftTab = 'library';
+		selectedId = null;
+		componentStatus = null;
+	}
+
+	/** Leave component mode, returning to the scene that was active. */
+	function exitComponentMode(): void {
+		componentDraft = null;
+		mode = 'scene';
+		leftTab = 'library';
+		activeSceneIdx = Math.min(sceneReturnIdx, Math.max(0, scenes.length - 1));
+		selectedId = null;
+	}
+
+	/** Drop a `componentInstance` of `def` into the active SCENE at frame centre. */
+	function placeComponentInstance(def: ComponentDef): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node: ComponentInstanceNode = {
+			id: 'n_' + Math.random().toString(36).slice(2, 10),
+			kind: 'componentInstance',
+			label: def.name,
+			componentId: def.id,
+			componentVersion: def.version,
+			x: Math.round(main.width / 2),
+			y: Math.round(main.height / 2),
+			anchor: { x: 0.5, y: 0.5 },
+		};
+		onSpawn(node);
+		selectedId = node.id;
+	}
+
+	/** Save the component draft via POST (§8.3); refresh the local list on success. */
+	async function saveComponent(): Promise<void> {
+		if (!componentDraft || componentBusy) return;
+		componentBusy = true;
+		componentStatus = null;
+		try {
+			const body =
+				componentDraft.scope === 'project'
+					? { ...componentDraft, project: data.projectKey }
+					: componentDraft;
+			const res = await fetch('/api/editor/component', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (res.ok) {
+				componentStatus = { kind: 'ok', message: 'Component saved' };
+				// Reflect the saved def in the local list so the picker + canvas see it.
+				const saved = structuredClone(componentDraft);
+				const i = components.findIndex((c) => c.id === saved.id);
+				if (i === -1) components = [...components, saved];
+				else components = components.map((c) => (c.id === saved.id ? saved : c));
+			} else {
+				let message = 'Component save failed';
+				try {
+					const b = (await res.json()) as { message?: string };
+					if (b?.message) message = b.message;
+				} catch {
+					/* non-JSON error body */
+				}
+				componentStatus = { kind: 'error', message };
+			}
+		} catch (e) {
+			componentStatus = {
+				kind: 'error',
+				message: e instanceof Error ? e.message : 'Component save failed',
+			};
+		} finally {
+			componentBusy = false;
+		}
+	}
+
+	/** Toggle the component PARAM identified by a catalog entry on the draft. */
+	function toggleComponentParam(key: string, kind: ComponentParam['kind']): void {
+		if (!componentDraft) return;
+		const params = componentDraft.params ?? [];
+		const has = params.some((p) => p.key === key);
+		componentDraft.params = has
+			? params.filter((p) => p.key !== key)
+			: [...params, { key, kind, engineProvided: true }];
+		if (componentDraft.params.length === 0) delete componentDraft.params;
+	}
+
+	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
+	function toggleComponentSignal(key: string): void {
+		if (!componentDraft) return;
+		const signals = componentDraft.signals ?? [];
+		const has = signals.some((s) => s.key === key);
+		componentDraft.signals = has
+			? signals.filter((s) => s.key !== key)
+			: [...signals, { key }];
+		if (componentDraft.signals.length === 0) delete componentDraft.signals;
+	}
 	/** Per-slot authoring metadata not carried on `LayoutNode` (which has no
 	 * `required` field). Keyed by `slotId`; only read when exporting the template.
 	 * Seeded from the resolved template so existing `required` flags round-trip
@@ -151,14 +363,24 @@
 	}
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
+	/** The scene the canvas/outline/properties actually edit: the synthetic component
+	 * scene in component mode (so the existing scene machinery edits the sub-tree), else
+	 * the active doc scene. One switch funnels component mode through everything. */
+	const editScene = $derived(mode === 'component' ? componentScene : activeScene);
+	/** All scenes the canvas may composite. In component mode it ONLY sees the synthetic
+	 * scene — a neutral, self-contained frame around just the component. */
+	const editScenes = $derived<Scene[]>(
+		mode === 'component' ? (componentScene ? [componentScene] : []) : scenes,
+	);
 	/** Template slots of the active scene — offered as the Properties slot dropdown. */
 	const activeSceneSlots = $derived(
 		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
 	);
 	/** HUD scenes author into the fixed standard box (and canvas-space uses it as
-	 * the reference window); gameplay scenes use the project's own `mainSizesMap`. */
+	 * the reference window); gameplay scenes use the project's own `mainSizesMap`.
+	 * The component scene authors in plain game space. */
 	const frameSize = $derived(
-		activeScene?.space === 'standard' || activeScene?.space === 'canvas'
+		editScene?.space === 'standard' || editScene?.space === 'canvas'
 			? STANDARD_MAIN_SIZES_MAP[currentLayoutType]
 			: mainSizesMap[currentLayoutType],
 	);
@@ -173,7 +395,7 @@
 		return null;
 	}
 	const selectedNode = $derived(
-		selectedId && activeScene ? findById(activeScene.nodes, selectedId) : null,
+		selectedId && editScene ? findById(editScene.nodes, selectedId) : null,
 	);
 
 	const sceneCount = $derived(scenes.length);
@@ -244,6 +466,13 @@
 	}
 
 	function onSpawn(node: LayoutNode): void {
+		// Component mode: push into the draft's `root.children` (the array the synthetic
+		// `componentScene` exposes); the component has its own save, so don't mark the
+		// DOC dirty (no autosave of `scenes.json` for component edits).
+		if (mode === 'component' && componentDraft) {
+			componentDraft.root.children = [...componentDraft.root.children, node];
+			return;
+		}
 		const next = scenes.slice();
 		const sc = next[activeSceneIdx];
 		next[activeSceneIdx] = { ...sc, nodes: [...sc.nodes, node] };
@@ -440,6 +669,14 @@
 	}
 
 	function onDeleteNode(id: string): void {
+		// Component mode: delete from the draft's sub-tree (no doc autosave).
+		if (mode === 'component' && componentDraft) {
+			const nodes = componentDraft.root.children.slice();
+			if (!removeNode(nodes, id)) return;
+			componentDraft.root.children = nodes;
+			if (selectedId === id) selectedId = null;
+			return;
+		}
 		const next = scenes.slice();
 		const sc = next[activeSceneIdx];
 		const nodes = sc.nodes.slice();
@@ -913,8 +1150,20 @@
 			<button
 				type="button"
 				class="save-btn"
+				class:active-mode={leftTab === 'component' && mode !== 'component'}
+				aria-pressed={leftTab === 'component'}
+				disabled={mode === 'component'}
+				title="Components — reusable prefabs (overlays, UI groups) you can drop across scenes."
+				onclick={() => (leftTab = leftTab === 'component' ? 'library' : 'component')}
+			>
+				Components
+			</button>
+			<button
+				type="button"
+				class="save-btn"
 				class:active-mode={templateMode}
 				aria-pressed={templateMode}
+				disabled={mode === 'component'}
 				title="Template editor — a separate, advanced mode for defining a game type's slot schema. Not needed to lay out scenes."
 				onclick={() => {
 					templateMode = !templateMode;
@@ -942,6 +1191,23 @@
 				<button class="save-btn" type="button" onclick={() => void saveTemplate()}>
 					Save template
 				</button>
+			{/if}
+			{#if mode === 'component' && componentDraft}
+				<span class="dot-sep">·</span>
+				<span class="save-pill" title="Editing a component (its own save — not the scene doc)">
+					◇ {componentDraft.name}
+				</span>
+				{#if componentBusy}
+					<span class="save-pill busy">Saving component…</span>
+				{:else if componentStatus?.kind === 'error'}
+					<span class="save-pill error" title={componentStatus.message}>Component failed</span>
+				{:else if componentStatus?.kind === 'ok'}
+					<span class="save-pill ok">{componentStatus.message}</span>
+				{/if}
+				<button class="save-btn" type="button" onclick={() => void saveComponent()}>
+					Save component
+				</button>
+				<button class="save-btn" type="button" onclick={exitComponentMode}>← Back to scene</button>
 			{/if}
 		</div>
 	</header>
@@ -1161,6 +1427,17 @@
 						Template
 					</button>
 				{/if}
+				{#if leftTab === 'component' || mode === 'component'}
+					<button
+						role="tab"
+						aria-selected={leftTab === 'component'}
+						class="tab"
+						class:active={leftTab === 'component'}
+						onclick={() => (leftTab = 'component')}
+					>
+						Components
+					</button>
+				{/if}
 			</div>
 
 			<div class="tab-body">
@@ -1252,10 +1529,20 @@
 						onPickScene={goToTemplateScene}
 						{onFillSlot}
 					/>
+				{:else if leftTab === 'component'}
+					<EditorComponentPanel
+						{components}
+						inComponentMode={mode === 'component'}
+						editingId={componentDraft?.id ?? null}
+						onCreate={createComponent}
+						onOpen={openComponent}
+						onPlace={placeComponentInstance}
+						onBack={exitComponentMode}
+					/>
 				{:else}
 					<EditorOutline
-						scene={activeScene}
-						template={activeTemplate}
+						scene={editScene}
+						template={mode === 'component' ? undefined : activeTemplate}
 						{selectedId}
 						onSelect={(id) => (selectedId = id)}
 						{onFillSlot}
@@ -1266,22 +1553,25 @@
 		</aside>
 
 		<main class="canvas-area">
-			<EditorCanvas
-				scene={activeScene}
-				{scenes}
-				{mainSizesMap}
-				frameWidth={frameSize.width}
-				frameHeight={frameSize.height}
-				layoutType={currentLayoutType}
-				assets={data.assets}
-				{onSpawn}
-				bind:selectedId
-				onDirty={markDirty}
-				onDelete={onDeleteNode}
-				{fillRequest}
-				hiddenSceneIds={hiddenScenes}
-				projectGameName={data.gameName}
-			/>
+			{#if editScene}
+				<EditorCanvas
+					scene={editScene}
+					scenes={editScenes}
+					{mainSizesMap}
+					frameWidth={frameSize.width}
+					frameHeight={frameSize.height}
+					layoutType={currentLayoutType}
+					assets={data.assets}
+					{componentMap}
+					{onSpawn}
+					bind:selectedId
+					onDirty={mode === 'component' ? NOOP : markDirty}
+					onDelete={onDeleteNode}
+					fillRequest={mode === 'component' ? null : fillRequest}
+					hiddenSceneIds={mode === 'component' ? NO_HIDDEN : hiddenScenes}
+					projectGameName={data.gameName}
+				/>
+			{/if}
 		</main>
 
 		<aside class="properties">
@@ -1289,18 +1579,39 @@
 			<EditorProperties
 				node={selectedNode}
 				layoutType={currentLayoutType}
-				onDirty={markDirty}
+				onDirty={mode === 'component' ? NOOP : markDirty}
 				{templateMode}
 				{slotMeta}
 				sceneSlots={activeSceneSlots}
 				projectGameName={data.gameName}
-				onSlotRequiredChange={(slotId, required) => {
-					slotMeta = { ...slotMeta, [slotId]: { required } };
+				componentMode={mode === 'component'}
+				componentParams={componentDraft?.params ?? []}
+				componentSignals={componentDraft?.signals ?? []}
+				instanceComponent={selectedNode?.kind === 'componentInstance'
+					? (componentMap.get(selectedNode.componentId) ?? null)
+					: null}
+				onEditAsComponent={(c) => editContainerAsComponent(c)}
+				onToggleParam={toggleComponentParam}
+				onToggleSignal={toggleComponentSignal}
+				onSetInstanceParam={(key, value) => {
+					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+					const params = { ...(selectedNode.params ?? {}) };
+					if (value === undefined) delete params[key];
+					else params[key] = value;
+					selectedNode.params = Object.keys(params).length ? params : undefined;
+					// In component mode the selected node lives in the component draft
+					// (its own POST), not `scenes.json` — don't flip doc dirty/autosave.
+					if (mode !== 'component') markDirty();
 				}}
 			/>
 			<p class="muted hint">
-				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
-				{activeScene?.nodes.length ?? 0} nodes
+				{#if mode === 'component'}
+					Component: <strong>{componentDraft?.name ?? '—'}</strong> ·
+					{componentDraft?.root.children.length ?? 0} nodes
+				{:else}
+					Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
+					{activeScene?.nodes.length ?? 0} nodes
+				{/if}
 			</p>
 		</aside>
 	</div>

@@ -55,6 +55,8 @@
 				return 'T';
 			case 'container':
 				return '▦';
+			case 'componentInstance':
+				return '◇';
 		}
 	}
 

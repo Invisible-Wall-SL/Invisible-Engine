@@ -1,0 +1,45 @@
+import type { ComponentParam } from './types';
+
+/**
+ * Curated, code-owned catalog the editor's variable picker reads. It lists the
+ * engine-provided values an author can bind a component {@link ComponentParam}
+ * to, and the core signals the engine fires. This is the `declare` side of the
+ * `declare ≠ implement` bridge (see `docs/design/invisible-editor.md` §8.5): the
+ * editor offers these names; the game owns the runtime wiring. Pure data — no
+ * runtime logic.
+ */
+
+/** An engine-provided value an author can bind a component param to. */
+export interface EngineParamEntry {
+	key: string;
+	/** Constrained to a {@link ComponentParam} kind so a binding is type-checkable. */
+	kind: ComponentParam['kind'];
+	label: string;
+	note?: string;
+}
+
+/** A core signal name the engine fires at a component. */
+export interface EngineSignalEntry {
+	key: string;
+	label: string;
+	note?: string;
+}
+
+/** Engine-provided values an author can bind a component param to. */
+export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
+	{ key: 'bet', kind: 'number', label: 'Bet', note: 'Current total stake.' },
+	{ key: 'win', kind: 'number', label: 'Win', note: 'Win of the current round/spin.' },
+	{ key: 'balance', kind: 'number', label: 'Balance', note: 'Player wallet balance.' },
+	{ key: 'totalWin', kind: 'number', label: 'Total Win', note: 'Accumulated win for the round.' },
+	{ key: 'playerName', kind: 'string', label: 'Player Name' },
+	{ key: 'projectName', kind: 'string', label: 'Project Name' },
+];
+
+/** Core signals the engine fires at a component. */
+export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
+	{ key: 'enter', label: 'Enter', note: 'Component mounted / scene entered.' },
+	{ key: 'exit', label: 'Exit', note: 'Component about to unmount / scene left.' },
+	{ key: 'idle', label: 'Idle', note: 'Resting state between rounds.' },
+	{ key: 'win', label: 'Win', note: 'A winning result resolved.' },
+	{ key: 'bigWin', label: 'Big Win', note: 'A big-win threshold was crossed.' },
+];

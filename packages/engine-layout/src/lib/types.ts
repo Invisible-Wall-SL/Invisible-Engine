@@ -205,7 +205,27 @@ export interface TextNode extends BaseNode {
 	style?: TextStyle;
 }
 
-export type LayoutNode = ContainerNode | SpriteNode | SpineNode | TextNode;
+/**
+ * A placement that references a {@link ComponentDef} (the prefab tier — see
+ * `docs/design/invisible-editor.md` §8.2). The editor's component picker drops
+ * one; the Properties panel edits its `params` + per-layoutType transform. The
+ * resolved `ComponentDef.root` mounts at this node's transform.
+ */
+export interface ComponentInstanceNode extends BaseNode {
+	kind: 'componentInstance';
+	componentId: string;
+	/** Pin a specific {@link ComponentDef.version}; omit = latest. */
+	componentVersion?: number;
+	/** Author-set overrides for the component's {@link ComponentParam}s. */
+	params?: Record<string, unknown>;
+}
+
+export type LayoutNode =
+	| ContainerNode
+	| SpriteNode
+	| SpineNode
+	| TextNode
+	| ComponentInstanceNode;
 
 export interface Scene {
 	id: string;
@@ -298,6 +318,52 @@ export interface GameTemplate {
 	gameType: string;
 	version: 1;
 	scenes: TemplateScene[];
+}
+
+/**
+ * Component (prefab) tier — see `docs/design/invisible-editor.md` §8. A
+ * `ComponentDef` both *data-fies* today's coded pieces (so they're visible +
+ * composable in the editor) and serves as a reusable prefab dropped across
+ * scenes/games via a {@link ComponentInstanceNode}. Purely additive — a doc
+ * without components is unchanged.
+ */
+export type ComponentCategory = 'ui' | 'overlay' | 'scenery';
+
+export interface ComponentDef {
+	/** Stable, unique id (e.g. `'baseGameOverlays'`). */
+	id: string;
+	name: string;
+	/** Bumped on edit; an instance pins a {@link ComponentInstanceNode.componentVersion}. */
+	version: number;
+	scope: 'shared' | 'project';
+	category: ComponentCategory;
+	/** The reusable sub-tree, authored on the same canvas as a scene. */
+	root: ContainerNode;
+	/** Typed inputs an instance or the engine can set. */
+	params?: ComponentParam[];
+	/** Named triggers the engine fires (enter/exit/win/…). */
+	signals?: ComponentSignal[];
+	/** A component may expose its own slots. */
+	slots?: TemplateSlot[];
+	// tracks?: BehaviorTrack[]  // RESERVED for v2 authored-behavior timeline (§8.5) — NOT in v1
+}
+
+/**
+ * A typed input on a {@link ComponentDef}. `engineProvided` declares (without
+ * implementing) that the engine supplies the value at runtime — the
+ * `declare ≠ implement` bridge (§8.5).
+ */
+export interface ComponentParam {
+	key: string;
+	kind: 'number' | 'string' | 'color' | 'boolean';
+	default?: unknown;
+	engineProvided?: boolean;
+}
+
+/** A named trigger the engine fires at a component (wiring is engine-owned). */
+export interface ComponentSignal {
+	key: string;
+	note?: string;
 }
 
 /**

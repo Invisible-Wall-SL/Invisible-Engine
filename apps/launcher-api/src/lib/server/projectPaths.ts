@@ -82,6 +82,35 @@ export function editorTemplateKey(gameType: string): string {
 	return `_shared/editor-templates/${r2Slug(gameType)}.json`;
 }
 
+/**
+ * Editor components (the prefab tier — §8.3) come in two scopes, symmetric with
+ * scenes/templates:
+ *
+ * - SHARED: `_shared/editor-components/<id>.json` — reusable across all
+ *   clients/projects/game types (like `editorTemplateKey`'s `_shared/` home).
+ * - PROJECT: `editor/<projectKey>/components/<id>.json` — project-local; shadows
+ *   a shared component of the same id.
+ *
+ * The id + projectKey are run through `r2Slug` so the key matches the
+ * launcher/Python normalization everywhere else (fixes the historic
+ * hyphen/underscore mismatch).
+ */
+export function editorComponentKey(id: string): string {
+	return `_shared/editor-components/${r2Slug(id)}.json`;
+}
+
+export function projectComponentKey(projectKey: string, id: string): string {
+	return `editor/${r2Slug(projectKey)}/components/${r2Slug(id)}.json`;
+}
+
+/** Prefix for listing a project's components (delimited or recursive). */
+export function projectComponentsPrefix(projectKey: string): string {
+	return `editor/${r2Slug(projectKey)}/components/`;
+}
+
+/** Prefix for listing the shared component library. */
+export const sharedComponentsPrefix = '_shared/editor-components/';
+
 export function localizationDocKey(client: string, project: string): string {
 	return `${SUB.localization(client, project)}/strings.json`;
 }

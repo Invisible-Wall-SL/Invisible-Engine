@@ -10,6 +10,7 @@
 
 	import { resolveTransform } from './resolveTransform';
 	import { getBoundComponent } from './registerBoundComponents';
+	import ComponentInstance from './ComponentInstance.svelte';
 
 	const { node, space }: Props = $props();
 	const layoutContext = getContextLayout();
@@ -100,6 +101,24 @@
 			{#each node.children as child (child.id)}
 				<svelte:self node={child} {space} />
 			{/each}
+		</Container>
+	{:else if node.kind === 'componentInstance'}
+		<!--
+			Component-instance placement (§8.6): this wrapping <Container> applies the
+			instance node's transform; <ComponentInstance> resolves the ComponentDef and
+			renders `def.root` through this same node-walk (so a component composes
+			identically to an inlined container). Static only in v1 — params/signals are
+			ignored (see ComponentInstance.svelte).
+		-->
+		<Container
+			x={posX}
+			y={posY}
+			scale={transform.scale}
+			rotation={transform.rotation}
+			alpha={transform.alpha}
+			zIndex={transform.zIndex}
+		>
+			<ComponentInstance {node} {space} />
 		</Container>
 	{:else if node.kind === 'sprite'}
 		<Sprite
