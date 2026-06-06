@@ -301,11 +301,20 @@ const handleRequest = async (req, res) => {
 			const rel = segments.slice(1).join('/') || 'index.html';
 			const file = own(files, rel) ?? (rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined);
 			if (file) {
+				// Content-hashed bundle files (SvelteKit `_app/immutable/…`) get a new
+				// URL on every build, so they're safe to cache forever. Everything else
+				// — `index.html` AND the game's own `assets/…` (which keep STABLE
+				// filenames across re-deploys, e.g. `assets/sprites/reelsFrame/
+				// reels_frame.webp`) — must NOT be cached, or a re-publish serves stale
+				// art until a hard refresh. `no-store` also stops the CDN/browser from
+				// holding the old file (the bug where a redeployed atlas never showed).
+				const immutable = rel.startsWith('_app/immutable/');
 				const headers = {
 					'Content-Type': file.contentType,
 					'Content-Length': file.body.length,
-					// Bundles only change on /refresh — let the browser revalidate.
-					'Cache-Control': 'no-cache',
+					'Cache-Control': immutable
+						? 'public, max-age=31536000, immutable'
+						: 'no-store, must-revalidate',
 				};
 				if (req.method === 'HEAD') {
 					res.writeHead(200, headers);
