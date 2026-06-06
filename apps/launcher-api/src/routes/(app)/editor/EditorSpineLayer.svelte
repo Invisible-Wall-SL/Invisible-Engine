@@ -402,6 +402,30 @@
 			inst.skeleton.y = inst.skeleton.y * zoom + panY;
 			inst.skeleton.scaleX = -inst.skeleton.scaleX * zoom;
 			inst.skeleton.scaleY = inst.skeleton.scaleY * zoom;
+			// TEMP DIAGNOSTIC (remove after): per spine node, the ACTUAL final render scale
+			// (regardless of which placeArt branch ran) + natural bounds, so we can compute
+			// the world-space render size and compare it to the 2D box in window.__ED.
+			// worldW = natW * |scaleX| / zoom  (strip the zoom the 2D canvas also applies).
+			if (typeof window !== 'undefined') {
+				const nat = naturalSizeOf(inst);
+				const store = ((window as unknown as { __EDSpine?: Record<string, unknown> }).__EDSpine ||=
+					{});
+				const fsx = Math.abs(inst.skeleton.scaleX);
+				const fsy = Math.abs(inst.skeleton.scaleY);
+				store[target.nodeId] = {
+					placement: target.placement ?? null,
+					natW: nat?.w,
+					natH: nat?.h,
+					finalScaleX: fsx,
+					finalScaleY: fsy,
+					worldRenderW: nat && zoom ? (nat.w * fsx) / zoom : undefined,
+					worldRenderH: nat && zoom ? (nat.h * fsy) / zoom : undefined,
+					frameWidth,
+					frameHeight,
+					zoom,
+					dpr: window.devicePixelRatio || 1,
+				};
+			}
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
@@ -486,23 +510,6 @@
 		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;
 		inst.skeleton.scaleX = s;
 		inst.skeleton.scaleY = -s;
-		// TEMP DIAGNOSTIC (remove after): the cover/contain render size the spine layer
-		// actually applies, vs the 2D box in window.__ED. renderW/H is the on-frame size
-		// in world px; compare renderW to window.__ED.selected.boxW.
-		if (typeof window !== 'undefined') {
-			(window as unknown as { __EDSpine?: unknown }).__EDSpine = {
-				placement,
-				mode: result.mode,
-				bw,
-				bh,
-				frameWidth,
-				frameHeight,
-				coverScale: s,
-				renderW: bw * s,
-				renderH: bh * s,
-				dpr: window.devicePixelRatio || 1,
-			};
-		}
 	}
 
 	onMount(() => {
