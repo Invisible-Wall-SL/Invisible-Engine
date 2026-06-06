@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		defaultHudText,
 		findFont,
 		getHudTextOverride,
 		resolveTransform,
@@ -135,16 +136,17 @@
 				} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
 					// A coded HUD text anchor (game-name / logo): render its LIVE label as
 					// real text so the editor matches the game + the author can edit it. The
-					// override text drives the game too (via bind.props → UiGameName); until
-					// one is typed, fall back to the node label as a placeholder. Default the
-					// font to the engine HUD font when the author hasn't chosen one.
+					// override text drives the game too (via bind.props → UiGameName). Prefer
+					// the author's override, else the shared default label for this HUD
+					// component (so even older docs without a baked default show real text),
+					// else the node label. Default the font to the engine HUD font.
 					const ov = getHudTextOverride(n);
 					const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
 					out.push({
 						id: n.id,
 						node: n,
 						scene: sc,
-						text: ov?.text ?? n.label ?? '',
+						text: ov?.text ?? defaultHudText(n.bind.component) ?? n.label ?? '',
 						style,
 						isHud: true,
 					});

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		defaultHudText,
 		getHudTextOverride,
 		resolveTransform,
 		type LayoutNode,
@@ -82,6 +83,11 @@
 		!!node && node.kind === 'container' && !!node.bind && node.preview?.style === 'text',
 	);
 	const hudOverride = $derived(node ? getHudTextOverride(node) : undefined);
+	/** The shared default label for this HUD anchor's component — shown as the LABEL
+	 * TEXT placeholder so the empty field matches what renders on the canvas. */
+	const hudDefaultText = $derived(
+		node && node.kind === 'container' ? (defaultHudText(node.bind?.component) ?? '') : '',
+	);
 	const isHudBitmap = $derived(
 		(hudOverride?.style?.fontFamily &&
 			fontByName.get(hudOverride.style.fontFamily)?.kind === 'bitmap') ||
@@ -617,7 +623,7 @@
 					<span>label text</span>
 					<input
 						type="text"
-						placeholder="(coded default)"
+						placeholder={hudDefaultText || '(coded default)'}
 						value={hudOverride?.text ?? ''}
 						oninput={(e) => setHudText(node, e.currentTarget.value)}
 					/>

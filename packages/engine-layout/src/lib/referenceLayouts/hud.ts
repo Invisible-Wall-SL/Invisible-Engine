@@ -221,7 +221,7 @@ export function hudCornersScene(): Scene {
 				x: 20,
 				y: 0,
 				anchor: { x: 0, y: 0 },
-				bind: { component: 'HudGameName' },
+				bind: { component: 'HudGameName', props: { text: HUD_DEFAULT_TEXT.HudGameName } },
 				preview: { w: 260, h: 56, style: 'text' },
 				children: [],
 			},
@@ -233,7 +233,7 @@ export function hudCornersScene(): Scene {
 				x: -20,
 				y: 0,
 				anchor: { x: 1, y: 0 },
-				bind: { component: 'HudLogo' },
+				bind: { component: 'HudLogo', props: { text: HUD_DEFAULT_TEXT.HudLogo } },
 				preview: { w: 220, h: 56, style: 'text' },
 				children: [],
 			},
@@ -254,4 +254,21 @@ export const HUD_SCENE_IDS: readonly string[] = ['hudBar', 'hudCorners'];
  * HUD as its top UI layer, so the editor must match). */
 export function isHudScene(scene: { id: string }): boolean {
 	return HUD_SCENE_IDS.includes(scene.id);
+}
+
+/**
+ * Default label text for the coded HUD text anchors (game-name / logo), keyed by
+ * their bound component. Pre-filled on the anchors (above) so EVERY game's HUD text
+ * box shows real, self-documenting text in the editor + in-game out of the box
+ * (overridable per project via the editor's HUD-text field). The editor also uses
+ * this as the fallback for older docs whose anchors predate the default.
+ */
+export const HUD_DEFAULT_TEXT: Record<string, string> = {
+	HudGameName: 'GAME NAME',
+	HudLogo: 'ADD YOUR LOGO',
+};
+
+/** The default HUD label for a bound component (`HudGameName`/`HudLogo`), if any. */
+export function defaultHudText(component: string | undefined): string | undefined {
+	return component ? HUD_DEFAULT_TEXT[component] : undefined;
 }
