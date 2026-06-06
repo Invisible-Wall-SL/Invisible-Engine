@@ -1005,15 +1005,16 @@
 		const pw = region.rotated ? region.h : region.w;
 		const ph = region.rotated ? region.w : region.h;
 		if (region.rotated) {
-			// Page pixels are packed rotated; restore upright. The compose packs
-			// upright→page with PIL `rotate(-90)` (the PixiJS-standard CW pack), so
-			// the inverse here is a -90° (counter-clockwise, canvas y-down) rotation,
-			// drawing the (h × w) page rect into a (ch × cw) local box translated to
-			// (cx, cy + ch) so the content lands upright in the (cw × ch) box —
-			// matching what the game (PixiJS rotate:2) shows.
+			// Page pixels are packed rotated; restore upright to MATCH THE GAME.
+			// PixiJS un-rotates a `rotated:true` frame with groupD8(2) = the matrix
+			// (x,y)→(-y,x) = canvas rotate(+90°). So the editor must use the SAME
+			// +90° (verified: PixiJS groupD8(2) source + a PIL crop of the real page
+			// — the -90-packed page un-rotates upright under +90). Draw the (h × w)
+			// page rect into a (ch × cw) local box translated to (cx + cw, cy) so the
+			// content lands upright in the (cw × ch) box, identical to PixiJS.
 			ctx.save();
-			ctx.translate(cx, cy + ch);
-			ctx.rotate(-Math.PI / 2);
+			ctx.translate(cx + cw, cy);
+			ctx.rotate(Math.PI / 2);
 			ctx.drawImage(img, region.x, region.y, pw, ph, 0, 0, ch, cw);
 			ctx.restore();
 		} else {
