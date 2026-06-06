@@ -1010,27 +1010,6 @@
 		// passes through the per-scene groups, which are `pointer-events:none`).
 		drawSceneCanvases();
 		drawHud();
-
-		// TEMP DIAGNOSTIC (remove after): dump the active frame + the selected node's
-		// resolved 2D box so we can compare it against the spine layer's render scale
-		// (window.__EDSpine). Select the background, then read `window.__ED` in console.
-		if (typeof window !== 'undefined') {
-			const sel = selectedId ? findNodeById(selectedId) : null;
-			const selT = sel ? nodeTransform(sel, scene) : null;
-			(window as unknown as { __ED?: unknown }).__ED = {
-				dpr,
-				frameWidth,
-				frameHeight,
-				zoom,
-				panX,
-				panY,
-				activeScene: scene.id,
-				activeSpace: scene.space,
-				selected: sel
-					? { id: sel.id, kind: sel.kind, bind: sel.bind?.component, boxW: selT?.width, boxH: selT?.height }
-					: null,
-			};
-		}
 	}
 
 	/**

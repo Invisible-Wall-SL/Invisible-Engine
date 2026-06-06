@@ -113,9 +113,16 @@
 		onNaturalSizesChange?.(sizes);
 	}
 
-	/** Setup-pose bounds size of an instance (for cover-fit ratio + the 2D canvas's
-	 * hit-test box). Measured once on the static setup pose; `null` if degenerate. */
+	/** Natural size of an instance (for cover-fit ratio + the 2D canvas's hit-test box).
+	 * Prefers the authored setup-bounds rect from the skeleton DATA — it's pose-
+	 * independent and always present in the export. `skeleton.getBounds()` at the setup
+	 * pose returns 0 when the art's attachments are driven by an animation/skin (no
+	 * attachments in the raw setup pose), which would strand cover-fit at scale 1 = the
+	 * raw, oversized art. Falls back to a live setup-pose measure for skeletons whose
+	 * data omits a size, then `null` if even that is degenerate. */
 	function naturalSizeOf(inst: SpineInstance): { w: number; h: number } | null {
+		const data = inst.skeleton.data;
+		if (data && data.width > 0 && data.height > 0) return { w: data.width, h: data.height };
 		try {
 			const skel = inst.skeleton;
 			// Measure at unit scale: the render loop bakes the editor zoom into the
@@ -426,14 +433,7 @@
 		inst: SpineInstance,
 		placement: OverlayPlacement,
 		posOffset: { x: number; y: number },
-		dbgId?: string,
 	): void {
-		const dbg = (branch: string, extra: Record<string, unknown>): void => {
-			if (typeof window === 'undefined' || !dbgId) return;
-			const store = ((window as unknown as { __EDSpine?: Record<string, unknown> }).__EDSpine ||=
-				{});
-			store[dbgId] = { placement, branch, frameWidth, frameHeight, ...extra };
-		};
 		const nat = naturalSizeOf(inst);
 		const offset = { x: 0, y: 0 };
 		const size = { x: 0, y: 0 };
@@ -448,11 +448,21 @@
 		} catch {
 			/* bounds unavailable — fall through to safe defaults below */
 		}
+		// When the setup-pose getBounds is degenerate (animation/skin-driven art) but we
+		// know the authored natural size, synthesize a centred bounds rect from it so
+		// cover/contain/positioned size correctly instead of falling back to raw scale 1
+		// (= the un-fitted, oversized art). Assumes the art is centred on the skeleton
+		// origin, the norm for backgrounds/overlays.
+		if ((!(size.x > 0) || !(size.y > 0)) && nat) {
+			size.x = nat.w;
+			size.y = nat.h;
+			offset.x = -nat.w / 2;
+			offset.y = -nat.h / 2;
+		}
 		const bw = nat?.w ?? size.x;
 		const bh = nat?.h ?? size.y;
 		if (!(bw > 0) || !(bh > 0)) {
 			// Degenerate bounds: centre at 1:1 so something still shows.
-			dbg('degenerate', { natW: nat?.w, natH: nat?.h, sizeX: size.x, sizeY: size.y, bw, bh });
 			inst.skeleton.x = frameWidth / 2 + posOffset.x;
 			inst.skeleton.y = frameHeight / 2 + posOffset.y;
 			inst.skeleton.scaleX = 1;
@@ -483,7 +493,6 @@
 			inst.skeleton.y = world.y + s * anchorLocalY + posOffset.y;
 			inst.skeleton.scaleX = s;
 			inst.skeleton.scaleY = -s;
-			dbg('positioned', { bw, bh, s, worldRenderW: bw * s, worldRenderH: bh * s });
 			return;
 		}
 		const s =
@@ -495,7 +504,6 @@
 		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;
 		inst.skeleton.scaleX = s;
 		inst.skeleton.scaleY = -s;
-		dbg(result.mode, { natW: nat?.w, natH: nat?.h, bw, bh, s, worldRenderW: bw * s, worldRenderH: bh * s });
 	}
 
 	onMount(() => {
