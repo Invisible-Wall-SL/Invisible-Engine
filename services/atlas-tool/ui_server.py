@@ -3841,6 +3841,19 @@ class Handler(BaseHTTPRequestHandler):
                             page_only = True
             except Exception:  # noqa: BLE001 — missing/invalid = not detectable
                 pass
+        # STICKY PAGE-ONLY — once a deploy resolves to page-only (by checkbox OR
+        # any auto-detect trigger above), persist `deploy_page_only` on the
+        # manifest so the decision survives. Next deploy hits trigger #1 with no
+        # network probe, and the UI hint (`_page_only_hint`) pre-checks the box.
+        # Net effect: a spine reskin is ticked at most once — and a real spine
+        # target auto-detects on the first deploy, so usually never. Best-effort;
+        # a save failure must never block the deploy.
+        if page_only and not m.get("deploy_page_only"):
+            try:
+                m["deploy_page_only"] = True
+                save_manifest(m)
+            except Exception:  # noqa: BLE001 — persistence is a convenience
+                pass
         # Page-only deploys ship JUST the page image(s); never a `.atlas` (the
         # spine target's own .atlas must stay intact). Normal deploys also carry
         # the composed `.atlas`.
