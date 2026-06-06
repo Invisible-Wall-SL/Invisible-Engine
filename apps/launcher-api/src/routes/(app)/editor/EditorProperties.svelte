@@ -6,6 +6,8 @@
 		type NodeOverride,
 		type TextStyle,
 	} from 'engine-layout';
+	import { onMount } from 'svelte';
+	import { fetchFontCatalog, type EditorFont } from './fonts.client';
 
 	interface Props {
 		node: LayoutNode | null;
@@ -41,6 +43,34 @@
 	function markDirty(): void {
 		onDirty?.();
 	}
+
+	// The project's font catalog (the same `/api/editor/fonts` the editor canvas
+	// renders from), so the font dropdown offers exactly the fonts that will show.
+	let fontList = $state<EditorFont[]>([]);
+	let fontByName = $state<Map<string, EditorFont>>(new Map());
+	onMount(() => {
+		void fetchFontCatalog().then((c) => {
+			fontList = c.fonts;
+			fontByName = c.byName;
+		});
+	});
+
+	/** The selected text node's font kind from the catalog (`null` = game default
+	 * or a family the catalog doesn't list). Bitmap fonts are baked atlases, so the
+	 * style controls that don't apply to `<BitmapText>` are gated off below. */
+	const selectedFontKind = $derived.by(() => {
+		if (!node || node.kind !== 'text') return null;
+		const fam = node.style?.fontFamily;
+		return fam ? (fontByName.get(fam)?.kind ?? null) : null;
+	});
+	const isBitmapSelected = $derived(selectedFontKind === 'bitmap');
+	/** A non-empty current family the catalog doesn't list — kept as a "(custom)"
+	 * option so picking from the dropdown never silently drops an authored family. */
+	const customFamily = $derived.by(() => {
+		if (!node || node.kind !== 'text') return '';
+		const fam = node.style?.fontFamily ?? '';
+		return fam && !fontByName.has(fam) ? fam : '';
+	});
 
 	const overrideKeys = [
 		'x',
@@ -604,14 +634,32 @@
 			<div class="row">
 				<label class="field wide">
 					<span>font family</span>
-					<input
-						type="text"
-						placeholder="(game default)"
+					<select
 						value={node.style?.fontFamily ?? ''}
-						oninput={(e) => setStyleString(node, 'fontFamily', e.currentTarget.value)}
-					/>
+						onchange={(e) => setStyleString(node, 'fontFamily', e.currentTarget.value)}
+					>
+						<option value="">(game default)</option>
+						{#each fontList as f (f.id)}
+							<option value={f.name}>{f.name} [{f.kind}]</option>
+						{/each}
+						{#if customFamily}
+							<option value={customFamily}>{customFamily} (custom)</option>
+						{/if}
+					</select>
 				</label>
 			</div>
+			{#if fontList.length === 0}
+				<p class="muted small">
+					No fonts synced for this project — run <code>scripts/r2-sync-fonts.mjs</code> to populate the
+					catalog.
+				</p>
+			{/if}
+			{#if isBitmapSelected}
+				<p class="muted small">
+					Bitmap font: tint + size only (size scales the baked atlas — large sizes soften). Weight /
+					style / stroke / shadow don't apply.
+				</p>
+			{/if}
 
 			<div class="row">
 				<label class="field">
@@ -624,7 +672,7 @@
 					/>
 				</label>
 				<label class="field">
-					<span>fill</span>
+					<span>{isBitmapSelected ? 'tint' : 'fill'}</span>
 					<input
 						type="text"
 						placeholder="#ffffff"
@@ -737,101 +785,104 @@
 			{/if}
 		</section>
 
-		<section>
-			<h3>Stroke</h3>
-			<div class="row">
-				<label class="field">
-					<span>color</span>
-					<input
-						type="text"
-						placeholder="#000000"
-						value={hexFrom(node.style?.stroke?.color ?? 0x000000)}
-						onchange={(e) => setStrokeColor(node, e.currentTarget.value)}
-					/>
-				</label>
-				<label class="field">
-					<span>width (0 = off)</span>
-					<input
-						type="number"
-						step="1"
-						min="0"
-						value={node.style?.stroke?.width ?? ''}
-						oninput={(e) => setStrokeWidth(node, e.currentTarget.valueAsNumber)}
-					/>
-				</label>
-			</div>
-		</section>
-
-		<section>
-			<h3>Drop shadow</h3>
-			<div class="row">
-				<label class="field check">
-					<input
-						type="checkbox"
-						checked={!!node.style?.dropShadow}
-						onchange={(e) => toggleDropShadow(node, e.currentTarget.checked)}
-					/>
-					<span>enabled</span>
-				</label>
-			</div>
-			{#if node.style?.dropShadow}
+		{#if !isBitmapSelected}
+			<section>
+				<h3>Stroke</h3>
 				<div class="row">
 					<label class="field">
 						<span>color</span>
 						<input
 							type="text"
 							placeholder="#000000"
-							value={hexFrom(node.style.dropShadow.color ?? 0x000000)}
-							onchange={(e) => setDropShadowColor(node, e.currentTarget.value)}
+							value={hexFrom(node.style?.stroke?.color ?? 0x000000)}
+							onchange={(e) => setStrokeColor(node, e.currentTarget.value)}
 						/>
 					</label>
 					<label class="field">
-						<span>alpha</span>
-						<input
-							type="number"
-							step="0.05"
-							min="0"
-							max="1"
-							value={node.style.dropShadow.alpha ?? ''}
-							oninput={(e) => setDropShadowNumber(node, 'alpha', e.currentTarget.valueAsNumber)}
-						/>
-					</label>
-				</div>
-				<div class="row">
-					<label class="field">
-						<span>blur</span>
+						<span>width (0 = off)</span>
 						<input
 							type="number"
 							step="1"
 							min="0"
-							value={node.style.dropShadow.blur ?? ''}
-							oninput={(e) => setDropShadowNumber(node, 'blur', e.currentTarget.valueAsNumber)}
-						/>
-					</label>
-					<label class="field">
-						<span>distance</span>
-						<input
-							type="number"
-							step="1"
-							value={node.style.dropShadow.distance ?? ''}
-							oninput={(e) => setDropShadowNumber(node, 'distance', e.currentTarget.valueAsNumber)}
+							value={node.style?.stroke?.width ?? ''}
+							oninput={(e) => setStrokeWidth(node, e.currentTarget.valueAsNumber)}
 						/>
 					</label>
 				</div>
+			</section>
+
+			<section>
+				<h3>Drop shadow</h3>
 				<div class="row">
-					<label class="field wide">
-						<span>angle (°)</span>
+					<label class="field check">
 						<input
-							type="number"
-							step="1"
-							value={rad2deg(node.style.dropShadow.angle)}
-							oninput={(e) =>
-								setDropShadowNumber(node, 'angle', deg2rad(e.currentTarget.valueAsNumber))}
+							type="checkbox"
+							checked={!!node.style?.dropShadow}
+							onchange={(e) => toggleDropShadow(node, e.currentTarget.checked)}
 						/>
+						<span>enabled</span>
 					</label>
 				</div>
-			{/if}
-		</section>
+				{#if node.style?.dropShadow}
+					<div class="row">
+						<label class="field">
+							<span>color</span>
+							<input
+								type="text"
+								placeholder="#000000"
+								value={hexFrom(node.style.dropShadow.color ?? 0x000000)}
+								onchange={(e) => setDropShadowColor(node, e.currentTarget.value)}
+							/>
+						</label>
+						<label class="field">
+							<span>alpha</span>
+							<input
+								type="number"
+								step="0.05"
+								min="0"
+								max="1"
+								value={node.style.dropShadow.alpha ?? ''}
+								oninput={(e) => setDropShadowNumber(node, 'alpha', e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+					</div>
+					<div class="row">
+						<label class="field">
+							<span>blur</span>
+							<input
+								type="number"
+								step="1"
+								min="0"
+								value={node.style.dropShadow.blur ?? ''}
+								oninput={(e) => setDropShadowNumber(node, 'blur', e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+						<label class="field">
+							<span>distance</span>
+							<input
+								type="number"
+								step="1"
+								value={node.style.dropShadow.distance ?? ''}
+								oninput={(e) =>
+									setDropShadowNumber(node, 'distance', e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+					</div>
+					<div class="row">
+						<label class="field wide">
+							<span>angle (°)</span>
+							<input
+								type="number"
+								step="1"
+								value={rad2deg(node.style.dropShadow.angle)}
+								oninput={(e) =>
+									setDropShadowNumber(node, 'angle', deg2rad(e.currentTarget.valueAsNumber))}
+							/>
+						</label>
+					</div>
+				{/if}
+			</section>
+		{/if}
 	{/if}
 {/if}
 

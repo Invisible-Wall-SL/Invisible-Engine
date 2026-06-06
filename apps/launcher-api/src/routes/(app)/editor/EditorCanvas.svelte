@@ -32,6 +32,8 @@
 	} from './editorRegions.client';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorSpineLayer from './EditorSpineLayer.svelte';
+	import EditorTextLayer from './EditorTextLayer.svelte';
+	import { clearFontCatalogCache } from './fonts.client';
 
 	interface AssetDragPayload {
 		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine';
@@ -479,6 +481,9 @@
 	/** Setup-pose natural size per spine `assetKey`, reported by the WebGL overlay —
 	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect. */
 	let spineNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
+	/** Text node ids the PIXI text overlay renders with a real (catalog) font — the
+	 * 2D canvas skips their `fillText` placeholder so there's no double-draw. */
+	let readyTextIds = $state<Set<string>>(new Set());
 	function toggleSpinePlay(node: LayoutNode): void {
 		const next = new Set(playingSpines);
 		if (next.has(node.id)) next.delete(node.id);
@@ -496,8 +501,14 @@
 	let regSettled = $state(0);
 	let spineStarted = $state(0);
 	let spineSettled = $state(0);
+	let fontStarted = $state(0);
+	let fontSettled = $state(0);
 	const loadPending = $derived(
-		imgStarted - imgSettled + (regStarted - regSettled) + (spineStarted - spineSettled),
+		imgStarted -
+			imgSettled +
+			(regStarted - regSettled) +
+			(spineStarted - spineSettled) +
+			(fontStarted - fontSettled),
 	);
 	// High-water mark for the current load burst: grows as new refs are
 	// discovered, resets to 0 once everything settles. Gives a real progress
@@ -548,6 +559,7 @@
 	// `spineReload` is forwarded to the spine layer to drop its bundle cache.
 	let assetVersion = $state(0);
 	let spineReload = $state(0);
+	let fontReload = $state(0);
 
 	const images = new Map<string, HTMLImageElement | null>();
 	function ensureImage(key: string): HTMLImageElement | null {
@@ -577,8 +589,10 @@
 		images.clear();
 		regionSets.clear();
 		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
+		clearFontCatalogCache(); // drop the module-level font catalog so it re-fetches
 		assetVersion++;
 		spineReload++;
+		fontReload++;
 		draw();
 	}
 
@@ -923,11 +937,15 @@
 				);
 			}
 		} else if (node.kind === 'text') {
-			ctx.fillStyle = `#${(node.style?.fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
-			ctx.font = `${node.style?.fontWeight ?? 'normal'} ${node.style?.fontSize ?? 24}px ${
-				node.style?.fontFamily ?? 'sans-serif'
-			}`;
-			ctx.fillText(node.text, 0, 0);
+			// The PIXI text overlay owns nodes whose font resolved through the catalog
+			// (real bitmap/web font); the 2D canvas only draws the fallback for the rest.
+			if (!readyTextIds.has(node.id)) {
+				ctx.fillStyle = `#${(node.style?.fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
+				ctx.font = `${node.style?.fontWeight ?? 'normal'} ${node.style?.fontSize ?? 24}px ${
+					node.style?.fontFamily ?? 'sans-serif'
+				}`;
+				ctx.fillText(node.text, 0, 0);
+			}
 		} else if (node.kind === 'container') {
 			for (const child of node.children) drawNode(ctx, child, sceneCtx);
 		}
@@ -1809,6 +1827,24 @@
 		onLoadingChange={(c) => {
 			spineStarted = c.started;
 			spineSettled = c.settled;
+		}}
+	/>
+	<EditorTextLayer
+		{scenes}
+		{layoutType}
+		{panX}
+		{panY}
+		{zoom}
+		worldTransformOf={nodeTransform}
+		{hiddenSceneIds}
+		reloadToken={fontReload}
+		onLoadingChange={(c) => {
+			fontStarted = c.started;
+			fontSettled = c.settled;
+		}}
+		onReadyIdsChange={(ids) => {
+			readyTextIds = ids;
+			schedule();
 		}}
 	/>
 	{#if showOverlay}

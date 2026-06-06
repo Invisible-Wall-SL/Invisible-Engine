@@ -47,10 +47,31 @@ export const SUB = {
 	spines: (c: string, p: string) => `${projectPrefix(c, p)}/spines`,
 	localization: (c: string, p: string) => `${projectPrefix(c, p)}/localization`,
 	editor: (c: string, p: string) => `${projectPrefix(c, p)}/editor`,
+	fonts: (c: string, p: string) => `${projectPrefix(c, p)}/fonts`,
 } as const;
 
 /** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
 export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
+
+/** Cross-project shared fonts, outside any single project: `_shared/fonts/<folder>`. */
+export const sharedFontsPrefix = (folder: string) => `_shared/fonts/${folder}`;
+
+/** Per-project font catalog manifest: `<client>/<project>/fonts/fonts.json`. */
+export function fontCatalogKey(client: string, project: string): string {
+	return `${SUB.fonts(client, project)}/fonts.json`;
+}
+
+/** Per-project font bundle prefix, e.g. `borut/book_of_borut/fonts/goldFont`. */
+export function fontBundlePath(client: string, project: string, folder: string): string {
+	assertBundle(folder);
+	return `${SUB.fonts(client, project)}/${folder}`;
+}
+
+/** Cross-project fallback for shared font folders: `_shared/fonts/<folder>`. */
+export function fontBundleSharedPath(folder: string): string {
+	assertBundle(folder);
+	return sharedFontsPrefix(folder);
+}
 
 /**
  * Editor game-type templates are GLOBAL (per game type, not per project), so they

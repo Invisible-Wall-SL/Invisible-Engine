@@ -153,6 +153,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      pixi.js:
+        specifier: 8.8.1
+        version: 8.8.1
       postgres:
         specifier: 3.4.5
         version: 3.4.5

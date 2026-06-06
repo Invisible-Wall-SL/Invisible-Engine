@@ -23,6 +23,8 @@ type ToolId = Parameters<typeof roleHasTool>[1];
 export interface ScopeOptions {
 	/** Editor-only: also allow the cross-project `_shared/spines/` bundles. */
 	includeSharedSpines?: boolean;
+	/** Editor-only: also allow the cross-project `_shared/fonts/` library. */
+	includeSharedFonts?: boolean;
 }
 
 /** Every R2-key prefix (trailing `/`) the active `(client, project)` may touch. */
@@ -33,6 +35,7 @@ export function allowedPrefixes(
 ): string[] {
 	const prefixes = [`${projectPrefix(clientKey, projectKey)}/`];
 	if (opts.includeSharedSpines) prefixes.push('_shared/spines/');
+	if (opts.includeSharedFonts) prefixes.push('_shared/fonts/');
 	return prefixes;
 }
 
@@ -54,6 +57,8 @@ export interface GateOptions {
 	forbiddenMessage: string;
 	/** Pass through to `allowedPrefixes` (editor opts into `spines/_shared/`). */
 	includeSharedSpines?: boolean;
+	/** Pass through to `allowedPrefixes` (editor opts into `_shared/fonts/`). */
+	includeSharedFonts?: boolean;
 }
 
 export interface ToolScope {
@@ -85,6 +90,7 @@ export async function gate(
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const prefixes = allowedPrefixes(clientKey, projectKey, {
 		includeSharedSpines: opts.includeSharedSpines,
+		includeSharedFonts: opts.includeSharedFonts,
 	});
 	return { clientKey, projectKey, prefixes };
 }
