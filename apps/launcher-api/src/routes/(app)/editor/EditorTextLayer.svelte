@@ -1,21 +1,16 @@
 <script lang="ts">
 	import {
 		findFont,
+		getHudTextOverride,
 		resolveTransform,
 		type FontCatalog,
 		type LayoutNode,
 		type ResolvedTransform,
 		type Scene,
+		type TextStyle as LayoutTextStyle,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
-	import {
-		Application,
-		BitmapText,
-		Container,
-		Text,
-		TextStyle,
-		type ColorSource,
-	} from 'pixi.js';
+	import { Application, BitmapText, Container, Text, TextStyle, type ColorSource } from 'pixi.js';
 	import {
 		ensureBitmapFont,
 		ensureWebFont,
@@ -109,15 +104,42 @@
 		onReadyIdsChange?.(new Set(ids));
 	}
 
-	/** Top-level text nodes of every non-hidden scene (containers stay 2D-only). */
-	function textTargets(): { node: Extract<LayoutNode, { kind: 'text' }>; scene: Scene }[] {
-		const out: { node: Extract<LayoutNode, { kind: 'text' }>; scene: Scene }[] = [];
+	/** A normalized text target: a real `kind:'text'` node, OR a coded HUD text bind
+	 * anchor (logo / game-name) the author gave a catalog font — both render through
+	 * the same PIXI path so the editor shows the real font either way. */
+	interface TextTarget {
+		id: string;
+		node: LayoutNode;
+		scene: Scene;
+		text: string;
+		style: Partial<LayoutTextStyle> | undefined;
+	}
+
+	/** Top-level text targets of every non-hidden scene (containers stay 2D-only,
+	 * except a HUD text bind anchor with an editor-chosen font). */
+	function textTargets(): TextTarget[] {
+		const out: TextTarget[] = [];
 		for (const sc of scenes) {
 			if (hiddenSceneIds.has(sc.id)) continue;
 			for (const n of sc.nodes) {
-				if (n.kind !== 'text') continue;
 				if (!resolveTransform(n, layoutType).visible) continue;
-				out.push({ node: n, scene: sc });
+				if (n.kind === 'text') {
+					out.push({ id: n.id, node: n, scene: sc, text: n.text, style: n.style });
+				} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
+					// A coded HUD text anchor: only take ownership once the author picks a
+					// font (else the 2D HUD chip stands in). Use the override text, else the
+					// node label as a placeholder string.
+					const ov = getHudTextOverride(n);
+					if (ov?.style?.fontFamily) {
+						out.push({
+							id: n.id,
+							node: n,
+							scene: sc,
+							text: ov.text ?? n.label ?? '',
+							style: ov.style,
+						});
+					}
+				}
 			}
 		}
 		return out;
@@ -127,34 +149,35 @@
 		return fill ?? 0xffffff;
 	}
 
-	/** Build (or reuse) a BitmapText for a node whose font is a loaded bitmap font. */
+	/** Build (or reuse) a BitmapText for a target whose font is a loaded bitmap font. */
 	function buildBitmap(
-		node: Extract<LayoutNode, { kind: 'text' }>,
+		id: string,
+		text: string,
+		style: Partial<LayoutTextStyle> | undefined,
 		font: EditorFont,
 	): BitmapText {
-		const existing = objects.get(node.id);
-		const obj = existing instanceof BitmapText ? existing : new BitmapText({ text: node.text });
-		obj.text = node.text;
+		const existing = objects.get(id);
+		const obj = existing instanceof BitmapText ? existing : new BitmapText({ text });
+		obj.text = text;
 		obj.style = {
 			fontFamily: font.name,
-			fontSize: node.style?.fontSize ?? 24,
-			align: node.style?.align ?? 'left',
-			letterSpacing: node.style?.letterSpacing ?? 0,
+			fontSize: style?.fontSize ?? 24,
+			align: style?.align ?? 'left',
+			letterSpacing: style?.letterSpacing ?? 0,
 		} as ConstructorParameters<typeof BitmapText>[0]['style'];
 		// Bitmap fonts are baked atlases: tint recolours, but no stroke/dropShadow.
-		obj.tint = toColor(node.style?.fill);
+		obj.tint = toColor(style?.fill);
 		return obj;
 	}
 
-	/** Build (or reuse) a regular Text for a web/system-font node. */
-	function buildText(node: Extract<LayoutNode, { kind: 'text' }>): Text {
-		const existing = objects.get(node.id);
-		const obj = existing instanceof Text && !(existing instanceof BitmapText)
-			? existing
-			: new Text({ text: node.text });
-		obj.text = node.text;
-		const s = node.style ?? {};
-		const style = new TextStyle({
+	/** Build (or reuse) a regular Text for a web/system-font target. */
+	function buildText(id: string, text: string, style: Partial<TextStyle> | undefined): Text {
+		const existing = objects.get(id);
+		const obj =
+			existing instanceof Text && !(existing instanceof BitmapText) ? existing : new Text({ text });
+		obj.text = text;
+		const s = style ?? {};
+		const textStyle = new TextStyle({
 			fontFamily: s.fontFamily ?? 'sans-serif',
 			fontSize: s.fontSize ?? 24,
 			fontWeight: (s.fontWeight ?? 'normal') as TextStyle['fontWeight'],
@@ -167,9 +190,9 @@
 			wordWrapWidth: s.wordWrapWidth ?? 100,
 			breakWords: s.breakWords ?? false,
 		});
-		if (s.stroke) style.stroke = { color: s.stroke.color, width: s.stroke.width };
+		if (s.stroke) textStyle.stroke = { color: s.stroke.color, width: s.stroke.width };
 		if (s.dropShadow) {
-			style.dropShadow = {
+			textStyle.dropShadow = {
 				color: s.dropShadow.color ?? 0x000000,
 				alpha: s.dropShadow.alpha ?? 1,
 				angle: s.dropShadow.angle ?? Math.PI / 4,
@@ -177,7 +200,7 @@
 				distance: s.dropShadow.distance ?? 4,
 			};
 		}
-		obj.style = style;
+		obj.style = textStyle;
 		return obj;
 	}
 
@@ -195,8 +218,11 @@
 		const seen = new Set<string>();
 		const nowReady = new Set<string>();
 
-		for (const { node, scene } of targets) {
-			const font = findFont({ prefix: '', fonts: [...byName.values()] } as FontCatalog, node.style?.fontFamily);
+		for (const { id, node, scene, text, style } of targets) {
+			const font = findFont(
+				{ prefix: '', fonts: [...byName.values()] } as FontCatalog,
+				style?.fontFamily,
+			);
 			// Web + bitmap fonts both need an async load; kick it off + skip until ready.
 			if (font && !loadedFonts.has(font.name)) {
 				ensureFont(font);
@@ -204,11 +230,12 @@
 			}
 			// A web font the catalog DOESN'T list (a plain system family) renders fine via
 			// Text immediately; but to avoid double-drawing with the 2D canvas we only
-			// take ownership of nodes whose font we resolved through the catalog.
+			// take ownership of targets whose font we resolved through the catalog.
 			if (!font) continue;
 
-			seen.add(node.id);
-			const obj = font.kind === 'bitmap' ? buildBitmap(node, font) : buildText(node);
+			seen.add(id);
+			const obj =
+				font.kind === 'bitmap' ? buildBitmap(id, text, style, font) : buildText(id, text, style);
 			if (obj.parent !== world) world.addChild(obj);
 
 			const t = worldTransformOf(node, scene);
@@ -222,8 +249,8 @@
 			obj.rotation = t.rotation ?? 0;
 			obj.scale.set((t.scale?.x ?? 1) * zoom, (t.scale?.y ?? 1) * zoom);
 			obj.alpha = t.alpha ?? 1;
-			objects.set(node.id, obj);
-			nowReady.add(node.id);
+			objects.set(id, obj);
+			nowReady.add(id);
 		}
 
 		// Drop pixi objects whose node was removed / hidden / unowned this pass.

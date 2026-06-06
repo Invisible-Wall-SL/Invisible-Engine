@@ -96,19 +96,20 @@
 		</MainContainer>
 
 		<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
-			{#snippet gameName()}
-				<UiGameName name="LINES GAME" />
+			{#snippet gameName(override)}
+				<UiGameName name="LINES GAME" {override} />
 			{/snippet}
-			{#snippet logo()}
+			{#snippet logo(override)}
 				<Text
 					anchor={{ x: 1, y: 0 }}
-					text="ADD YOUR LOGO"
+					text={override?.text ?? 'ADD YOUR LOGO'}
 					style={{
 						fontFamily: 'proxima-nova',
 						fontSize: REM * 1.5,
 						fontWeight: '600',
 						lineHeight: REM * 2,
 						fill: 0xffffff,
+						...override?.style,
 					}}
 				/>
 			{/snippet}

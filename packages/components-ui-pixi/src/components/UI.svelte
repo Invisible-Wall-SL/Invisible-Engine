@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import type { HudTextOverride } from 'engine-layout';
 
 	import { stateUi } from 'state-shared';
 
@@ -8,8 +9,8 @@
 	import type { UiHud } from '../types';
 
 	type Props = {
-		gameName: Snippet;
-		logo: Snippet;
+		gameName: Snippet<[HudTextOverride?]>;
+		logo: Snippet<[HudTextOverride?]>;
 		/** Editor-authored HUD scenes — when provided the default UI renders its
 		 * HUD from them (positionable in the editor). Omit for the coded layout. */
 		hud?: UiHud;
@@ -26,11 +27,11 @@
 </script>
 
 <UIComponent hud={props.hud}>
-	{#snippet gameName()}
-		{@render props.gameName()}
+	{#snippet gameName(override?: HudTextOverride)}
+		{@render props.gameName(override)}
 	{/snippet}
 
-	{#snippet logo()}
-		{@render props.logo()}
+	{#snippet logo(override?: HudTextOverride)}
+		{@render props.logo(override)}
 	{/snippet}
 </UIComponent>

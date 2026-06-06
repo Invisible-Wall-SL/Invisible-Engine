@@ -7,7 +7,7 @@
 
 	import { DESKTOP_BASE_SIZE, LANDSCAPE_BASE_SIZE } from '../constants';
 	import { getContext } from '../context';
-	import { hudPos } from '../hudPositions';
+	import { hudPos, hudTextOverride } from '../hudPositions';
 	import type { LayoutUiProps } from '../types';
 
 	/**
@@ -71,24 +71,33 @@
 		decrease: b('hud-btn-decrease', 1440, BTN_Y),
 		increase: b('hud-btn-increase', 1440 + 150, BTN_Y),
 	});
+
+	// Editor-authored font/text overrides for the corner text snippets (logo /
+	// game-name) — handed to the coded snippet, which merges them into its `<Text>`.
+	const gameNameOverride = $derived(hudTextOverride(props.hud.corners, 'hud-gamename'));
+	const logoOverride = $derived(hudTextOverride(props.hud.corners, 'hud-logo'));
 </script>
 
 <!-- Corners (canvas space) -->
 {#if pos.gameName.visible}
 	<Container x={pos.gameName.x} y={pos.gameName.y}>
-		{@render props.gameName()}
+		{@render props.gameName(gameNameOverride)}
 	</Container>
 {/if}
 {#if pos.logo.visible}
 	<Container x={pos.logo.x} y={pos.logo.y}>
-		{@render props.logo()}
+		{@render props.logo(logoOverride)}
 	</Container>
 {/if}
 
 <!-- Bottom bar (standard space) -->
 <MainContainer standard alignVertical="bottom">
 	{#if pos.balance.visible}
-		<Container x={pos.balance.x} y={pos.balance.y} scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}>
+		<Container
+			x={pos.balance.x}
+			y={pos.balance.y}
+			scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}
+		>
 			{@render props.amountBalance({ stacked: true })}
 		</Container>
 	{/if}
@@ -108,17 +117,29 @@
 		</Container>
 	{/if}
 	{#if pos.buyBonus.visible}
-		<Container x={pos.buyBonus.x} y={pos.buyBonus.y} scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}>
+		<Container
+			x={pos.buyBonus.x}
+			y={pos.buyBonus.y}
+			scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}
+		>
 			{@render props.buttonBuyBonus({ anchor: 0.5 })}
 		</Container>
 	{/if}
 	{#if pos.autoSpin.visible}
-		<Container x={pos.autoSpin.x} y={pos.autoSpin.y} scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}>
+		<Container
+			x={pos.autoSpin.x}
+			y={pos.autoSpin.y}
+			scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}
+		>
 			{@render props.buttonAutoSpin({ anchor: 0.5 })}
 		</Container>
 	{/if}
 	{#if pos.betBtn.visible}
-		<Container x={pos.betBtn.x} y={pos.betBtn.y} scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}>
+		<Container
+			x={pos.betBtn.x}
+			y={pos.betBtn.y}
+			scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}
+		>
 			{@render props.buttonBet({ anchor: 0.5 })}
 		</Container>
 	{/if}
@@ -128,12 +149,20 @@
 		</Container>
 	{/if}
 	{#if pos.decrease.visible}
-		<Container x={pos.decrease.x} y={pos.decrease.y} scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}>
+		<Container
+			x={pos.decrease.x}
+			y={pos.decrease.y}
+			scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}
+		>
 			{@render props.buttonDecrease({ anchor: 0.5 })}
 		</Container>
 	{/if}
 	{#if pos.increase.visible}
-		<Container x={pos.increase.x} y={pos.increase.y} scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}>
+		<Container
+			x={pos.increase.x}
+			y={pos.increase.y}
+			scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}
+		>
 			{@render props.buttonIncrease({ anchor: 0.5 })}
 		</Container>
 	{/if}

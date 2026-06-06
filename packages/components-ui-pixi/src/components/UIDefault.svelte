@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import type { HudTextOverride } from 'engine-layout';
 
 	import type { ButtonProps } from 'components-pixi';
 	import { getContextLayout } from 'utils-layout';
@@ -28,8 +29,8 @@
 	import ButtonSoundSwitch from './ButtonSoundSwitch.svelte';
 
 	type Props = {
-		gameName: Snippet;
-		logo: Snippet;
+		gameName: Snippet<[HudTextOverride?]>;
+		logo: Snippet<[HudTextOverride?]>;
 		/** When provided, the HUD is positioned from these editor scenes (and is
 		 * editable in the Invisible Editor); otherwise the coded `Layout*` renders. */
 		hud?: import('../types').UiHud;
@@ -57,12 +58,12 @@
 
 <EnableSpaceHold />
 
-{#snippet gameName()}
-	{@render props.gameName()}
+{#snippet gameName(override?: HudTextOverride)}
+	{@render props.gameName(override)}
 {/snippet}
 
-{#snippet logo()}
-	{@render props.logo()}
+{#snippet logo(override?: HudTextOverride)}
+	{@render props.logo(override)}
 {/snippet}
 
 {#snippet amountBalance(labelProps: { stacked?: boolean })}

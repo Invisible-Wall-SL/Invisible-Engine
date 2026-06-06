@@ -175,7 +175,8 @@
 		const drawW = std.width * s;
 		const drawH = std.height * s;
 		const offX = (frameWidth - drawW) / 2;
-		const offY = sceneCtx.align?.vertical === 'bottom' ? frameHeight - drawH : (frameHeight - drawH) / 2;
+		const offY =
+			sceneCtx.align?.vertical === 'bottom' ? frameHeight - drawH : (frameHeight - drawH) / 2;
 		return {
 			...t,
 			x: offX + t.x * s,
@@ -900,9 +901,11 @@
 				}
 			} else if (art?.kind === 'sprite' && art.region && art.assetKey) {
 				drawArtRegionSprite(ctx, art.assetKey, art.region, t, node.label);
-			} else if (node.preview?.style) {
+			} else if (node.preview?.style && !readyTextIds.has(node.id)) {
+				// The PIXI text overlay draws this HUD anchor with its real chosen font once
+				// loaded (reported via readyTextIds); until then the chip stands in.
 				drawHudChip(ctx, t, node.preview, node.label ?? node.bind.component);
-			} else {
+			} else if (!node.preview?.style) {
 				drawPlaceholder(
 					ctx,
 					t.anchor?.x ?? 0.5,

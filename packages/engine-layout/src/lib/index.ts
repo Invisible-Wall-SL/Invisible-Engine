@@ -9,6 +9,7 @@ export * from './types';
 export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
 export * from './resolveTransform';
 export * from './fontCatalog';
+export * from './hudText';
 export * from './registerBoundComponents';
 export * from './boundComponentCatalog';
 export * from './validateTemplate';

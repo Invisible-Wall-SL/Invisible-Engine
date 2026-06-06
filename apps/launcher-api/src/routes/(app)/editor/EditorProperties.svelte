@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		getHudTextOverride,
 		resolveTransform,
 		type LayoutNode,
 		type LayoutType,
@@ -71,6 +72,73 @@
 		const fam = node.style?.fontFamily ?? '';
 		return fam && !fontByName.has(fam) ? fam : '';
 	});
+
+	// ---- HUD text override (coded logo / game-name bind anchors) ----
+	// These are `container` bind anchors whose coded snippet renders text; the
+	// editor lets you override the font/size/fill + the label string via
+	// `bind.props` (read in-game by `<LayoutEditable>` → the snippet). Detected by
+	// the `preview.style: 'text'` hint the HUD reference layout tags them with.
+	const isHudText = $derived(
+		!!node && node.kind === 'container' && !!node.bind && node.preview?.style === 'text',
+	);
+	const hudOverride = $derived(node ? getHudTextOverride(node) : undefined);
+	const isHudBitmap = $derived(
+		(hudOverride?.style?.fontFamily &&
+			fontByName.get(hudOverride.style.fontFamily)?.kind === 'bitmap') ||
+			false,
+	);
+	const hudCustomFamily = $derived.by(() => {
+		const fam = hudOverride?.style?.fontFamily ?? '';
+		return fam && !fontByName.has(fam) ? fam : '';
+	});
+
+	function ensureHudProps(n: LayoutNode): Record<string, unknown> {
+		if (n.kind !== 'container' || !n.bind) return {};
+		if (!n.bind.props) n.bind.props = {};
+		return n.bind.props as Record<string, unknown>;
+	}
+	function ensureHudStyle(n: LayoutNode): Record<string, unknown> {
+		const props = ensureHudProps(n);
+		if (!props.style || typeof props.style !== 'object') props.style = {};
+		return props.style as Record<string, unknown>;
+	}
+	/** Set the override label string; empty clears it (falls back to the coded name). */
+	function setHudText(n: LayoutNode, value: string): void {
+		const props = ensureHudProps(n);
+		const trimmed = value.trim();
+		if (trimmed) props.text = trimmed;
+		else delete props.text;
+		markDirty();
+	}
+	function setHudFontFamily(n: LayoutNode, value: string): void {
+		const s = ensureHudStyle(n);
+		const trimmed = value.trim();
+		if (trimmed) s.fontFamily = trimmed;
+		else delete s.fontFamily;
+		pruneHudStyle(n);
+		markDirty();
+	}
+	function setHudFontSize(n: LayoutNode, value: number): void {
+		const s = ensureHudStyle(n);
+		if (Number.isNaN(value)) delete s.fontSize;
+		else s.fontSize = value;
+		pruneHudStyle(n);
+		markDirty();
+	}
+	function setHudFill(n: LayoutNode, hex: string): void {
+		const value = parseHex(hex);
+		if (value === undefined) return;
+		ensureHudStyle(n).fill = value;
+		markDirty();
+	}
+	/** Drop an emptied `style` (and `bind.props`) so the saved doc stays clean. */
+	function pruneHudStyle(n: LayoutNode): void {
+		if (n.kind !== 'container' || !n.bind?.props) return;
+		const props = n.bind.props as Record<string, unknown>;
+		const s = props.style as Record<string, unknown> | undefined;
+		if (s && Object.keys(s).length === 0) delete props.style;
+		if (Object.keys(props).length === 0) delete n.bind.props;
+	}
 
 	const overrideKeys = [
 		'x',
@@ -537,6 +605,75 @@
 			</label>
 		</div>
 	</section>
+
+	{#if isHudText}
+		<section>
+			<h3>HUD text</h3>
+			<p class="muted small">
+				Coded HUD element — override its label + font here (placement is the transform above).
+			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>label text</span>
+					<input
+						type="text"
+						placeholder="(coded default)"
+						value={hudOverride?.text ?? ''}
+						oninput={(e) => setHudText(node, e.currentTarget.value)}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field wide">
+					<span>font family</span>
+					<select
+						value={hudOverride?.style?.fontFamily ?? ''}
+						onchange={(e) => setHudFontFamily(node, e.currentTarget.value)}
+					>
+						<option value="">(coded default)</option>
+						{#each fontList as f (f.id)}
+							<option value={f.name}>{f.name} [{f.kind}]</option>
+						{/each}
+						{#if hudCustomFamily}
+							<option value={hudCustomFamily}>{hudCustomFamily} (custom)</option>
+						{/if}
+					</select>
+				</label>
+			</div>
+			{#if fontList.length === 0}
+				<p class="muted small">
+					No fonts synced for this project — run <code>scripts/r2-sync-fonts.mjs</code> to populate the
+					catalog.
+				</p>
+			{/if}
+			<div class="row">
+				<label class="field">
+					<span>font size</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="(default)"
+						value={hudOverride?.style?.fontSize ?? ''}
+						oninput={(e) => setHudFontSize(node, e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>{isHudBitmap ? 'tint' : 'fill'}</span>
+					<input
+						type="text"
+						placeholder="#ffffff"
+						value={hudOverride?.style?.fill !== undefined ? hexFrom(hudOverride.style.fill) : ''}
+						onchange={(e) => setHudFill(node, e.currentTarget.value)}
+					/>
+				</label>
+			</div>
+			{#if isHudBitmap}
+				<p class="muted small">
+					Bitmap font: tint + size only (the baked atlas softens when scaled up).
+				</p>
+			{/if}
+		</section>
+	{/if}
 
 	{#if node.kind === 'sprite'}
 		<section>

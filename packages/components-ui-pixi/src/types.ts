@@ -1,7 +1,7 @@
 import type { Snippet } from 'svelte';
 
 import type { ButtonProps } from 'components-pixi';
-import type { Scene } from 'engine-layout';
+import type { HudTextOverride, Scene } from 'engine-layout';
 import type { ServerPayEntry } from 'utils-shared/paytable';
 
 /**
@@ -79,8 +79,11 @@ export type ButtonIcon =
 	| 'menuExit';
 
 export type LayoutUiProps = {
-	gameName: Snippet;
-	logo: Snippet;
+	/** The logo / game-name snippets receive an optional editor-authored font/text
+	 * override (from the HUD `corners` scene). A snippet that ignores it renders its
+	 * coded default — so opting in is per-game and parity-preserving. */
+	gameName: Snippet<[HudTextOverride?]>;
+	logo: Snippet<[HudTextOverride?]>;
 	amountBalance: Snippet<[{ stacked?: boolean }]>;
 	amountWin: Snippet<[{ stacked?: boolean }]>;
 	amountBet: Snippet<[{ stacked?: boolean }]>;

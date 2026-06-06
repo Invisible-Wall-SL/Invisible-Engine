@@ -1,4 +1,10 @@
-import { resolveTransform, type LayoutType, type Scene } from 'engine-layout';
+import {
+	getHudTextOverride,
+	resolveTransform,
+	type HudTextOverride,
+	type LayoutType,
+	type Scene,
+} from 'engine-layout';
 
 export interface HudPos {
 	x: number;
@@ -46,4 +52,14 @@ export function hudPos(
 		scaleY: t.scale?.y ?? 1,
 		visible: t.visible,
 	};
+}
+
+/**
+ * Read an editor-authored font/text override for a HUD text element (logo /
+ * game-name) from a HUD scene by node id, so `<LayoutEditable>` can hand it to the
+ * game's coded snippet. `undefined` when the scene/node is absent or unstyled →
+ * the snippet renders its coded default (parity).
+ */
+export function hudTextOverride(scene: Scene | undefined, id: string): HudTextOverride | undefined {
+	return getHudTextOverride(scene?.nodes.find((n) => n.id === id));
 }
