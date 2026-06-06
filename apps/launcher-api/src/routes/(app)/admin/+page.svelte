@@ -751,7 +751,7 @@
 					<select name="project">
 						<option value="">Global (all projects)</option>
 						{#each data.projects as p (p.key)}
-							<option value={p.key}>{p.name}</option>
+							<option value={p.key} selected={p.key === data.activeProjectKey}>{p.name}</option>
 						{/each}
 					</select>
 					<button type="submit">Create game</button>
