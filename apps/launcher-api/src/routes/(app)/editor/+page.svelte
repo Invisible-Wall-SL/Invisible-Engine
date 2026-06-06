@@ -190,7 +190,10 @@
 	/** Enter component mode editing `def` (a fresh draft or an existing component). */
 	function openComponent(def: ComponentDef): void {
 		sceneReturnIdx = activeSceneIdx;
-		componentDraft = structuredClone(def);
+		// `$state.snapshot` (not `structuredClone`): `def` may be a reactive proxy
+		// (e.g. an entry from the `components` list), which `structuredClone` rejects
+		// with DataCloneError. Snapshot returns a plain, detached deep copy.
+		componentDraft = $state.snapshot(def) as ComponentDef;
 		mode = 'component';
 		templateMode = false;
 		leftTab = 'library';
@@ -208,7 +211,9 @@
 	 * Enforced authoritatively on save by `componentStorage.normalizeComponent`.
 	 */
 	function toComponentRoot(container: ContainerNode): ContainerNode {
-		const clone = structuredClone(container);
+		// `$state.snapshot` (not `structuredClone`): `container` is the selected node,
+		// a reactive proxy `structuredClone` can't clone (DataCloneError).
+		const clone = $state.snapshot(container) as ContainerNode;
 		const root: ContainerNode = { id: clone.id, kind: 'container', x: 0, y: 0, children: clone.children };
 		if (clone.width !== undefined) root.width = clone.width;
 		if (clone.height !== undefined) root.height = clone.height;
@@ -302,7 +307,8 @@
 			if (res.ok) {
 				componentStatus = { kind: 'ok', message: 'Component saved' };
 				// Reflect the saved def in the local list so the picker + canvas see it.
-				const saved = structuredClone(componentDraft);
+				// Snapshot (not structuredClone): componentDraft is a reactive proxy.
+				const saved = $state.snapshot(componentDraft) as ComponentDef;
 				const i = components.findIndex((c) => c.id === saved.id);
 				if (i === -1) components = [...components, saved];
 				else components = components.map((c) => (c.id === saved.id ? saved : c));
