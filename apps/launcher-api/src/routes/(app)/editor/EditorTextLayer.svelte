@@ -104,19 +104,26 @@
 		onReadyIdsChange?.(new Set(ids));
 	}
 
+	/** The engine's coded HUD text font (UiGameName / the logo `<Text>`), used as the
+	 * editor's default so a HUD anchor without an explicit override still renders in a
+	 * game-like font (the browser falls back to sans-serif if it isn't loaded). */
+	const HUD_DEFAULT_FONT = 'proxima-nova';
+
 	/** A normalized text target: a real `kind:'text'` node, OR a coded HUD text bind
-	 * anchor (logo / game-name) the author gave a catalog font — both render through
-	 * the same PIXI path so the editor shows the real font either way. */
+	 * anchor (logo / game-name) — both render through the same PIXI path so the editor
+	 * shows the real text. `isHud` anchors always render (default font when none is
+	 * chosen) so the author SEES + edits the live label, not a placeholder chip. */
 	interface TextTarget {
 		id: string;
 		node: LayoutNode;
 		scene: Scene;
 		text: string;
 		style: Partial<LayoutTextStyle> | undefined;
+		isHud: boolean;
 	}
 
 	/** Top-level text targets of every non-hidden scene (containers stay 2D-only,
-	 * except a HUD text bind anchor with an editor-chosen font). */
+	 * except a HUD text bind anchor — logo / game-name — which always renders). */
 	function textTargets(): TextTarget[] {
 		const out: TextTarget[] = [];
 		for (const sc of scenes) {
@@ -124,21 +131,23 @@
 			for (const n of sc.nodes) {
 				if (!resolveTransform(n, layoutType).visible) continue;
 				if (n.kind === 'text') {
-					out.push({ id: n.id, node: n, scene: sc, text: n.text, style: n.style });
+					out.push({ id: n.id, node: n, scene: sc, text: n.text, style: n.style, isHud: false });
 				} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
-					// A coded HUD text anchor: only take ownership once the author picks a
-					// font (else the 2D HUD chip stands in). Use the override text, else the
-					// node label as a placeholder string.
+					// A coded HUD text anchor (game-name / logo): render its LIVE label as
+					// real text so the editor matches the game + the author can edit it. The
+					// override text drives the game too (via bind.props → UiGameName); until
+					// one is typed, fall back to the node label as a placeholder. Default the
+					// font to the engine HUD font when the author hasn't chosen one.
 					const ov = getHudTextOverride(n);
-					if (ov?.style?.fontFamily) {
-						out.push({
-							id: n.id,
-							node: n,
-							scene: sc,
-							text: ov.text ?? n.label ?? '',
-							style: ov.style,
-						});
-					}
+					const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
+					out.push({
+						id: n.id,
+						node: n,
+						scene: sc,
+						text: ov?.text ?? n.label ?? '',
+						style,
+						isHud: true,
+					});
 				}
 			}
 		}
@@ -218,7 +227,7 @@
 		const seen = new Set<string>();
 		const nowReady = new Set<string>();
 
-		for (const { id, node, scene, text, style } of targets) {
+		for (const { id, node, scene, text, style, isHud } of targets) {
 			const font = findFont(
 				{ prefix: '', fonts: [...byName.values()] } as FontCatalog,
 				style?.fontFamily,
@@ -228,14 +237,15 @@
 				ensureFont(font);
 				continue;
 			}
-			// A web font the catalog DOESN'T list (a plain system family) renders fine via
-			// Text immediately; but to avoid double-drawing with the 2D canvas we only
-			// take ownership of targets whose font we resolved through the catalog.
-			if (!font) continue;
+			// A regular text node whose family ISN'T in the catalog is left to the 2D
+			// canvas's `fillText` (avoids double-draw). A HUD anchor, by contrast, always
+			// renders here as real text (its 2D stand-in is a placeholder chip, not text),
+			// using the catalog font when chosen or a default `<Text>` font otherwise.
+			if (!font && !isHud) continue;
 
 			seen.add(id);
 			const obj =
-				font.kind === 'bitmap' ? buildBitmap(id, text, style, font) : buildText(id, text, style);
+				font?.kind === 'bitmap' ? buildBitmap(id, text, style, font) : buildText(id, text, style);
 			if (obj.parent !== world) world.addChild(obj);
 
 			const t = worldTransformOf(node, scene);
