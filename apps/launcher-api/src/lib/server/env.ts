@@ -59,6 +59,14 @@ export const ENV = {
 	get ATLAS_TOOL_SECRET() {
 		return env.ATLAS_TOOL_SECRET ?? '';
 	},
+	// Shared secret gating blueprint PUBLISHING (write to the shared library).
+	// Handed to the atlas tool as `bp=<secret>` only for users holding the
+	// `blueprintPublish` capability; the tool requires the value to match. Unset
+	// = publishing stays off in a deployed tool (fail safe). Must match the same
+	// var set on the atlas-tool service.
+	get ATLAS_BLUEPRINT_SECRET() {
+		return env.ATLAS_BLUEPRINT_SECRET ?? '';
+	},
 	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
 	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
 	// Code default to the current Railway service; env overrides.
