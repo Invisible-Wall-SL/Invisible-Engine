@@ -114,6 +114,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 		tools: Object.values(TOOLS).map((t) => ({ id: t.id, name: t.name, kind: t.kind })),
 		capabilities: CAPABILITIES,
 		adminPanelCapability: ADMIN_PANEL_CAPABILITY,
+		// Baseline (no-override) state for each managed capability per role, using
+		// the canonical resolver so the matrix UI doesn't re-encode the defaults.
+		capabilityDefaults: Object.fromEntries(
+			ROLES.map((role) => [
+				role,
+				Object.fromEntries(CAPABILITIES.map((c) => [c.key, roleHasCapability(role, c.key)])),
+			]),
+		) as Record<string, Record<string, boolean>>,
 		roleTools: ROLE_TOOLS,
 		projects,
 		projectAccess,
@@ -258,7 +266,7 @@ export const actions: Actions = {
 
 		if (!isValidRole(role)) return fail(400, { action: 'setRoleToolAccess', error: 'Invalid role.' });
 
-		const isCapability = toolKey === ADMIN_PANEL_CAPABILITY;
+		const isCapability = CAPABILITIES.some((c) => c.key === toolKey);
 		if (!isCapability && !TOOLS[toolKey]) {
 			return fail(400, { action: 'setRoleToolAccess', error: 'Unknown tool.' });
 		}

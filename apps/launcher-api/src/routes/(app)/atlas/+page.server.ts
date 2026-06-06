@@ -1,6 +1,9 @@
 import { error, redirect } from '@sveltejs/kit';
+import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
@@ -27,6 +30,28 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		if (ENV.ATLAS_TOOL_SECRET) params.set('k', ENV.ATLAS_TOOL_SECRET);
 		params.set('client', client);
 		params.set('project', project);
+		// Invisible Blueprints publish gate (design §6/§7). Everyone can READ the
+		// shared library; only holders of the `blueprintPublish` capability may
+		// publish. The gate is by KNOWLEDGE OF A SECRET, not a forgeable flag —
+		// every atlas user already holds `?k=`, so a bare `bp=1` would gate
+		// nothing. We hand off `bp=<ATLAS_BLUEPRINT_SECRET>` only when the user
+		// holds the capability AND the secret is configured; the tool requires
+		// param/cookie to equal the secret. Unset secret = publishing stays off
+		// in the deployed tool (fail safe).
+		if (ENV.ATLAS_BLUEPRINT_SECRET) {
+			const roleOverrides = await getRoleOverrides(locals.user.role);
+			const userOverrides = await getToolOverrides(locals.user.id);
+			if (
+				roleHasCapability(
+					locals.user.role,
+					BLUEPRINT_PUBLISH_CAPABILITY,
+					roleOverrides,
+					userOverrides,
+				)
+			) {
+				params.set('bp', ENV.ATLAS_BLUEPRINT_SECRET);
+			}
+		}
 		// B24 — cross-tool navigation. `home` points the tool's "← Launcher"
 		// back-link at us; `sibling` is a ready-to-use URL to the OTHER tool
 		// (carrying its own secret + the same client/project). Only emitted when

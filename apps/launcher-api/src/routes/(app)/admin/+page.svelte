@@ -95,8 +95,7 @@
 	// --- Roles matrix (role × tool/capability overrides) ---
 
 	function capDefault(role: string, key: string): boolean {
-		if (key === data.adminPanelCapability) return role === 'admin';
-		return false;
+		return data.capabilityDefaults[role]?.[key] ?? false;
 	}
 
 	/** Baseline (no overrides) for a role + tool/capability column. */

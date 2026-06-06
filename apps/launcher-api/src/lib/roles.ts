@@ -173,14 +173,29 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
  */
 export const ADMIN_PANEL_CAPABILITY = 'adminPanel';
 
+/**
+ * Managed capability key for publishing to the shared Invisible Blueprints
+ * library (`_shared/blueprints/` in R2). Like `adminPanel` it is NOT a tool in
+ * `TOOLS`; it lives in the same override matrix so admins can grant publish
+ * rights per role. Default-ON for `admin` only — every authed user can still
+ * READ the shared library (that gate lives in `toolScope.ts`), but only holders
+ * of this capability may WRITE/overwrite/delete a blueprint.
+ */
+export const BLUEPRINT_PUBLISH_CAPABILITY = 'blueprintPublish';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
+	{ key: BLUEPRINT_PUBLISH_CAPABILITY, name: 'Publish blueprints' },
 ];
 
-/** `ROLE_TOOLS` baseline for a capability key (only `admin` gets `adminPanel`). */
+/**
+ * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
+ * (`adminPanel`, `blueprintPublish`) default ON for `admin` and OFF elsewhere.
+ */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
+	if (key === BLUEPRINT_PUBLISH_CAPABILITY) return role === 'admin';
 	return false;
 }
 

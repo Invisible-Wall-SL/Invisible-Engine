@@ -25,6 +25,8 @@ export interface ScopeOptions {
 	includeSharedSpines?: boolean;
 	/** Editor-only: also allow the cross-project `_shared/fonts/` library. */
 	includeSharedFonts?: boolean;
+	/** Atlas-only: also allow the cross-project `_shared/blueprints/` library (read). */
+	includeBlueprints?: boolean;
 }
 
 /** Every R2-key prefix (trailing `/`) the active `(client, project)` may touch. */
@@ -36,6 +38,7 @@ export function allowedPrefixes(
 	const prefixes = [`${projectPrefix(clientKey, projectKey)}/`];
 	if (opts.includeSharedSpines) prefixes.push('_shared/spines/');
 	if (opts.includeSharedFonts) prefixes.push('_shared/fonts/');
+	if (opts.includeBlueprints) prefixes.push('_shared/blueprints/');
 	return prefixes;
 }
 
@@ -59,6 +62,8 @@ export interface GateOptions {
 	includeSharedSpines?: boolean;
 	/** Pass through to `allowedPrefixes` (editor opts into `_shared/fonts/`). */
 	includeSharedFonts?: boolean;
+	/** Pass through to `allowedPrefixes` (atlas opts into `_shared/blueprints/`). */
+	includeBlueprints?: boolean;
 }
 
 export interface ToolScope {
@@ -91,6 +96,7 @@ export async function gate(
 	const prefixes = allowedPrefixes(clientKey, projectKey, {
 		includeSharedSpines: opts.includeSharedSpines,
 		includeSharedFonts: opts.includeSharedFonts,
+		includeBlueprints: opts.includeBlueprints,
 	});
 	return { clientKey, projectKey, prefixes };
 }
