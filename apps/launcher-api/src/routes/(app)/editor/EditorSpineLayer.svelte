@@ -379,7 +379,7 @@
 				// the game's verbatim use of x/y for these canvas anchors. Offset 0 →
 				// identical to the Level-1 placement-only spot. cover stays pinned.
 				const off = target.placement === 'cover' ? { x: 0, y: 0 } : { x: t.x, y: t.y };
-				placeArt(inst, target.placement, off);
+				placeArt(inst, target.placement, off, target.nodeId);
 			} else {
 				const sx = t.scale?.x ?? 1;
 				const sy = t.scale?.y ?? 1;
@@ -402,30 +402,6 @@
 			inst.skeleton.y = inst.skeleton.y * zoom + panY;
 			inst.skeleton.scaleX = -inst.skeleton.scaleX * zoom;
 			inst.skeleton.scaleY = inst.skeleton.scaleY * zoom;
-			// TEMP DIAGNOSTIC (remove after): per spine node, the ACTUAL final render scale
-			// (regardless of which placeArt branch ran) + natural bounds, so we can compute
-			// the world-space render size and compare it to the 2D box in window.__ED.
-			// worldW = natW * |scaleX| / zoom  (strip the zoom the 2D canvas also applies).
-			if (typeof window !== 'undefined') {
-				const nat = naturalSizeOf(inst);
-				const store = ((window as unknown as { __EDSpine?: Record<string, unknown> }).__EDSpine ||=
-					{});
-				const fsx = Math.abs(inst.skeleton.scaleX);
-				const fsy = Math.abs(inst.skeleton.scaleY);
-				store[target.nodeId] = {
-					placement: target.placement ?? null,
-					natW: nat?.w,
-					natH: nat?.h,
-					finalScaleX: fsx,
-					finalScaleY: fsy,
-					worldRenderW: nat && zoom ? (nat.w * fsx) / zoom : undefined,
-					worldRenderH: nat && zoom ? (nat.h * fsy) / zoom : undefined,
-					frameWidth,
-					frameHeight,
-					zoom,
-					dpr: window.devicePixelRatio || 1,
-				};
-			}
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
@@ -450,7 +426,14 @@
 		inst: SpineInstance,
 		placement: OverlayPlacement,
 		posOffset: { x: number; y: number },
+		dbgId?: string,
 	): void {
+		const dbg = (branch: string, extra: Record<string, unknown>): void => {
+			if (typeof window === 'undefined' || !dbgId) return;
+			const store = ((window as unknown as { __EDSpine?: Record<string, unknown> }).__EDSpine ||=
+				{});
+			store[dbgId] = { placement, branch, frameWidth, frameHeight, ...extra };
+		};
 		const nat = naturalSizeOf(inst);
 		const offset = { x: 0, y: 0 };
 		const size = { x: 0, y: 0 };
@@ -469,6 +452,7 @@
 		const bh = nat?.h ?? size.y;
 		if (!(bw > 0) || !(bh > 0)) {
 			// Degenerate bounds: centre at 1:1 so something still shows.
+			dbg('degenerate', { natW: nat?.w, natH: nat?.h, sizeX: size.x, sizeY: size.y, bw, bh });
 			inst.skeleton.x = frameWidth / 2 + posOffset.x;
 			inst.skeleton.y = frameHeight / 2 + posOffset.y;
 			inst.skeleton.scaleX = 1;
@@ -499,6 +483,7 @@
 			inst.skeleton.y = world.y + s * anchorLocalY + posOffset.y;
 			inst.skeleton.scaleX = s;
 			inst.skeleton.scaleY = -s;
+			dbg('positioned', { bw, bh, s, worldRenderW: bw * s, worldRenderH: bh * s });
 			return;
 		}
 		const s =
@@ -510,6 +495,7 @@
 		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;
 		inst.skeleton.scaleX = s;
 		inst.skeleton.scaleY = -s;
+		dbg(result.mode, { natW: nat?.w, natH: nat?.h, bw, bh, s, worldRenderW: bw * s, worldRenderH: bh * s });
 	}
 
 	onMount(() => {
