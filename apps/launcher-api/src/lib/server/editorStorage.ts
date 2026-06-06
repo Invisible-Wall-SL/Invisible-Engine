@@ -12,7 +12,13 @@ const DEFAULT_MAIN_SIZES: Record<LayoutType, { width: number; height: number }> 
 
 const LAYOUT_TYPES: LayoutType[] = ['desktop', 'tablet', 'landscape', 'portrait'];
 
-const NODE_KINDS = new Set<LayoutNode['kind']>(['container', 'sprite', 'spine', 'text']);
+const NODE_KINDS = new Set<LayoutNode['kind']>([
+	'container',
+	'sprite',
+	'spine',
+	'text',
+	'componentInstance',
+]);
 
 /** Load a project's editor document, falling back to an empty valid `LayoutDoc`. */
 export async function loadDoc(clientKey: string, projectKey: string): Promise<LayoutDoc> {

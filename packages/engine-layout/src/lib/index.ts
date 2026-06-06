@@ -12,6 +12,7 @@ export * from './fontCatalog';
 export * from './hudText';
 export * from './registerBoundComponents';
 export * from './boundComponentCatalog';
+export * from './componentCatalog';
 export * from './validateTemplate';
 export * from './seedScenes';
 export * from './referenceLayouts';
