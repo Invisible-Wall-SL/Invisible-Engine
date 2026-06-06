@@ -86,6 +86,9 @@
 		 * draws (you're editing it); other non-hidden scenes draw as a dimmed,
 		 * non-interactive backdrop so you can see all screens at once. */
 		hiddenSceneIds?: Set<string>;
+		/** The project's display name — the default HUD game-name shown on the canvas
+		 * when the author hasn't typed an override (not written to the doc). */
+		projectGameName?: string | null;
 	}
 
 	let {
@@ -102,6 +105,7 @@
 		onDelete,
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
+		projectGameName = null,
 	}: Props = $props();
 
 	function getOverride(node: LayoutNode) {
@@ -1877,6 +1881,7 @@
 		{zoom}
 		worldTransformOf={nodeTransform}
 		{hiddenSceneIds}
+		{projectGameName}
 		reloadToken={fontReload}
 		onLoadingChange={(c) => {
 			fontStarted = c.started;

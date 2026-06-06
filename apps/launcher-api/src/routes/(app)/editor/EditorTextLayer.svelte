@@ -43,6 +43,9 @@
 		/** Reports which text NODE ids the overlay now renders with a real font, so the
 		 * 2D canvas skips their `fillText` placeholder (no double-draw). */
 		onReadyIdsChange?: (ids: Set<string>) => void;
+		/** Project display name — the HUD game-name default shown when unset (matches
+		 * what the game injects; not written to the doc). */
+		projectGameName?: string | null;
 	}
 
 	let {
@@ -56,6 +59,7 @@
 		reloadToken = 0,
 		onLoadingChange,
 		onReadyIdsChange,
+		projectGameName = null,
 	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
@@ -142,11 +146,17 @@
 					// else the node label. Default the font to the engine HUD font.
 					const ov = getHudTextOverride(n);
 					const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
+					// Game-name defaults to the PROJECT display name (matches what the game
+					// shows); else the shared component default; else the node label.
+					const fallback =
+						n.bind.component === 'HudGameName'
+							? (projectGameName ?? defaultHudText(n.bind.component))
+							: defaultHudText(n.bind.component);
 					out.push({
 						id: n.id,
 						node: n,
 						scene: sc,
-						text: ov?.text ?? defaultHudText(n.bind.component) ?? n.label ?? '',
+						text: ov?.text ?? fallback ?? n.label ?? '',
 						style,
 						isHud: true,
 					});

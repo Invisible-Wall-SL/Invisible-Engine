@@ -1,4 +1,4 @@
-import type { LayoutNode, TextStyle } from './types';
+import type { LayoutDoc, LayoutNode, TextStyle } from './types';
 
 /**
  * Editor-authored override for a coded HUD **text** element (the logo / game-name
@@ -30,4 +30,27 @@ export function getHudTextOverride(node: LayoutNode | undefined): HudTextOverrid
 	const text = typeof p.text === 'string' ? p.text : undefined;
 	if (!style && text === undefined) return undefined;
 	return { style, text };
+}
+
+/**
+ * Fill the HUD game-name anchor's text with `name` (the project's display name)
+ * when the author hasn't set an explicit override — so a game shows the project
+ * name by default WITHOUT it being hard-coded. Mutates the doc in place; a no-op
+ * when `name` is empty or the anchor already carries text. Used by the launcher
+ * when serving the editor doc to the game + to the editor.
+ */
+export function applyHudGameNameDefault(doc: LayoutDoc, name: string | null | undefined): void {
+	if (!name) return;
+	for (const scene of doc.scenes) {
+		for (const node of scene.nodes) {
+			if (node.kind !== 'container' || !node.bind || node.bind.component !== 'HudGameName') {
+				continue;
+			}
+			const props = (node.bind.props ?? {}) as Record<string, unknown>;
+			if (typeof props.text !== 'string' || !props.text) {
+				props.text = name;
+				node.bind.props = props;
+			}
+		}
+	}
 }

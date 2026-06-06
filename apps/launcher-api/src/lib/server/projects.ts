@@ -35,6 +35,16 @@ export async function projectClientKey(key: string): Promise<string | null> {
 	return row?.clientKey ?? null;
 }
 
+/** A project's display name (e.g. "Book of Borut"), or `null` when unknown. Used
+ * as the default HUD game-name so the game shows the project name automatically. */
+export async function projectName(key: string): Promise<string | null> {
+	const [row] = await getDb()
+		.select({ name: projects.name })
+		.from(projects)
+		.where(eq(projects.key, key));
+	return row?.name ?? null;
+}
+
 /**
  * The game type a project targets — used to pick its Invisible Editor template
  * (see `docs/design/invisible-editor.md` §7.4).

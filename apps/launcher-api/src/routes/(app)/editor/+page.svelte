@@ -1280,6 +1280,7 @@
 				onDelete={onDeleteNode}
 				{fillRequest}
 				hiddenSceneIds={hiddenScenes}
+				projectGameName={data.gameName}
 			/>
 		</main>
 
@@ -1292,6 +1293,7 @@
 				{templateMode}
 				{slotMeta}
 				sceneSlots={activeSceneSlots}
+				projectGameName={data.gameName}
 				onSlotRequiredChange={(slotId, required) => {
 					slotMeta = { ...slotMeta, [slotId]: { required } };
 				}}

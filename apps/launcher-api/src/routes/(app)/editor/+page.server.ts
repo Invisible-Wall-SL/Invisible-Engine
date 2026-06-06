@@ -4,7 +4,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { loadDoc, saveDoc } from '$lib/server/editorStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
-import { projectGameType } from '$lib/server/projects';
+import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadTemplate } from '$lib/server/templateStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -54,10 +54,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	// to the project's resolved game type when the doc predates that field.
 	const template = await loadTemplate(doc.gameType ?? (await projectGameType(projectKey)));
 	const warnings = template ? findUnfilledRequiredSlots(doc, template) : [];
+	// The project display name — the default for the HUD game-name (shown in the
+	// editor as a fallback, NOT written to the doc, so it tracks the project name
+	// until the author types an explicit override).
+	const gameName = await projectName(projectKey);
 	// Content checks (missing/unassigned asset references) are computed live in the
 	// client (`+page.svelte`) from `assets`, since they must track edits before any
 	// save and `$lib/server` can't enter the browser bundle — no server copy here.
-	return { clientKey, projectKey, doc, assets, template, warnings };
+	return { clientKey, projectKey, doc, assets, template, warnings, gameName };
 };
 
 export const actions: Actions = {

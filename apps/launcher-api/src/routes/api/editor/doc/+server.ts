@@ -1,8 +1,9 @@
 import { error, json } from '@sveltejs/kit';
+import { applyHudGameNameDefault } from 'engine-layout';
 import { ENV } from '$lib/server/env';
 import { loadDoc } from '$lib/server/editorStorage';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { DEFAULT_PROJECT_KEY, projectClientKey, projectName } from '$lib/server/projects';
 import { bundleFromAssetKey } from '$lib/server/spine';
 import type { RequestHandler } from './$types';
 
@@ -62,6 +63,9 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	try {
 		const doc = await loadDoc(clientKey, projectKey);
+		// Default the HUD game-name to the project's display name (unless the editor
+		// overrode it), so the game shows the project name without a hard-coded string.
+		applyHudGameNameDefault(doc, await projectName(projectKey));
 		resolveSpineKeysForGame(doc, clientKey, projectKey);
 		return json({ clientKey, projectKey, doc }, { headers: CORS_HEADERS });
 	} catch {

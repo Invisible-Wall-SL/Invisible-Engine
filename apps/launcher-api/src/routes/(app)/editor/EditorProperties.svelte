@@ -24,6 +24,8 @@
 		onSlotRequiredChange?: (slotId: string, required: boolean) => void;
 		/** The active scene's template slots — offered as the slot dropdown. */
 		sceneSlots?: { slotId: string; name: string; kind: string }[];
+		/** Project display name — the HUD game-name default (shown as the placeholder). */
+		projectGameName?: string | null;
 	}
 	let {
 		node,
@@ -33,6 +35,7 @@
 		slotMeta = {},
 		onSlotRequiredChange,
 		sceneSlots = [],
+		projectGameName = null,
 	}: Props = $props();
 
 	function setSlotId(n: LayoutNode, value: string): void {
@@ -83,11 +86,15 @@
 		!!node && node.kind === 'container' && !!node.bind && node.preview?.style === 'text',
 	);
 	const hudOverride = $derived(node ? getHudTextOverride(node) : undefined);
-	/** The shared default label for this HUD anchor's component — shown as the LABEL
-	 * TEXT placeholder so the empty field matches what renders on the canvas. */
-	const hudDefaultText = $derived(
-		node && node.kind === 'container' ? (defaultHudText(node.bind?.component) ?? '') : '',
-	);
+	/** The default label for this HUD anchor — shown as the LABEL TEXT placeholder so
+	 * the empty field matches what renders on the canvas. The game-name defaults to
+	 * the project's display name (what the game injects), else the shared default. */
+	const hudDefaultText = $derived.by(() => {
+		if (!node || node.kind !== 'container') return '';
+		const component = node.bind?.component;
+		if (component === 'HudGameName' && projectGameName) return projectGameName;
+		return defaultHudText(component) ?? '';
+	});
 	const isHudBitmap = $derived(
 		(hudOverride?.style?.fontFamily &&
 			fontByName.get(hudOverride.style.fontFamily)?.kind === 'bitmap') ||
