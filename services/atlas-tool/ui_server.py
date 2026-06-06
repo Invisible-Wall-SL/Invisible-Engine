@@ -1007,9 +1007,8 @@ def _normalize_converted_region(r: dict) -> dict | None:
 def _slice_region_from_page(src: Image.Image, region: dict) -> Image.Image | None:
     """Cut one region's upright art out of the packed page image. Mirrors
     slice_atlas.slice_regions' rotation handling: w/h are the UNROTATED size, so
-    a rotated frame occupies (h x w) on the page and is rotated +90 back upright
-    (the exact inverse of the unified compose's PIL rotate(-90) PixiJS-standard
-    pack). Returns None if the rect is empty / out of bounds."""
+    a rotated frame occupies (h x w) on the page and is rotated -90 back upright.
+    Returns None if the rect is empty / out of bounds."""
     sw, sh = src.size
     x = int(region.get("x", 0))
     y = int(region.get("y", 0))
@@ -1022,7 +1021,7 @@ def _slice_region_from_page(src: Image.Image, region: dict) -> Image.Image | Non
         return None
     crop = src.crop(box)
     if rotated:
-        crop = crop.rotate(90, expand=True)
+        crop = crop.rotate(-90, expand=True)
     return crop
 
 
