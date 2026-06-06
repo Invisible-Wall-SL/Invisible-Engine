@@ -984,13 +984,15 @@
 		const pw = region.rotated ? region.h : region.w;
 		const ph = region.rotated ? region.w : region.h;
 		if (region.rotated) {
-			// Page pixels are packed rotated; restore upright. The slicer
-			// (`slice_atlas`) un-rotates with PIL `rotate(-90)` = 90° clockwise, so
-			// drawing under a +90° (clockwise, canvas y-down) rotation into a
-			// (ch × cw) local box lands the content in the upright (cw × ch) box.
+			// Page pixels are packed rotated; restore upright. The compose packs
+			// upright→page with PIL `rotate(-90)` (the PixiJS-standard CW pack), so
+			// the inverse here is a -90° (counter-clockwise, canvas y-down) rotation,
+			// drawing the (h × w) page rect into a (ch × cw) local box translated to
+			// (cx, cy + ch) so the content lands upright in the (cw × ch) box —
+			// matching what the game (PixiJS rotate:2) shows.
 			ctx.save();
-			ctx.translate(cx + cw, cy);
-			ctx.rotate(Math.PI / 2);
+			ctx.translate(cx, cy + ch);
+			ctx.rotate(-Math.PI / 2);
 			ctx.drawImage(img, region.x, region.y, pw, ph, 0, 0, ch, cw);
 			ctx.restore();
 		} else {
