@@ -600,6 +600,52 @@
 		markDirty();
 	}
 
+	/**
+	 * Replace the selected board mount-anchor (a `container` filling the `reelGrid`
+	 * slot) with a parametric `reelGrid` node, dropping the container's `bind`/
+	 * `width`/`height`/`children`/`locked` so the engine + editor treat it as the
+	 * new kind. Seeded with the game's real board shape + cell size (template
+	 * `board`, default 5×3 @ 120) at the board's NATURAL centre per layoutType — NOT
+	 * the old anchor's possibly-offset rect — so the live board (which Phase 2 now
+	 * reads) stays exactly where it is (centre, scale 1, zero offset = parity). The
+	 * author then drags / tunes from there. In-place by id so selection survives.
+	 */
+	function onConvertToReelGrid(id: string): void {
+		const next = scenes.slice();
+		const sc = next[activeSceneIdx];
+		const nodes = sc.nodes.slice();
+		const idx = nodes.findIndex((n) => n.id === id);
+		if (idx === -1 || nodes[idx].kind !== 'container') return;
+		const old = nodes[idx];
+		const board = data.template?.board ?? { reels: 5, rows: 3, cellSize: 120 };
+		const centreOf = (lt: LayoutType) => ({
+			x: mainSizesMap[lt].width * 0.5,
+			y: mainSizesMap[lt].height * 0.5,
+		});
+		const grid: LayoutNode = {
+			id: old.id,
+			kind: 'reelGrid',
+			label: old.label ?? 'Reel grid',
+			...centreOf('desktop'),
+			anchor: { x: 0.5, y: 0.5 },
+			reels: board.reels,
+			rows: board.rows,
+			cellSize: board.cellSize ?? 120,
+			reelPadding: 0.53,
+			overrides: {
+				tablet: centreOf('tablet'),
+				landscape: centreOf('landscape'),
+				portrait: centreOf('portrait'),
+			},
+		};
+		if (old.slotId) grid.slotId = old.slotId;
+		if (old.zIndex !== undefined) grid.zIndex = old.zIndex;
+		nodes[idx] = grid;
+		next[activeSceneIdx] = { ...sc, nodes };
+		scenes = next;
+		markDirty();
+	}
+
 	// ---------- persistence ----------
 
 	const AUTOSAVE_MS = 1200;
@@ -1491,6 +1537,7 @@
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}
 				onEditAsComponent={(c) => void editContainerAsComponent(c)}
+				{onConvertToReelGrid}
 				onSetInstanceParam={(key, value) => {
 					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 					const params = { ...(selectedNode.params ?? {}) };

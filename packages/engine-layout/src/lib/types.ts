@@ -365,9 +365,11 @@ export interface GameTemplate {
 	 * validating an editor-authored {@link ReelGridNode}: `reels`/`rows` are
 	 * RGS/data-coupled (the book delivers a fixed N×M result), so the editor warns
 	 * when a `reelGrid` node diverges from this — they're descriptive, not yet
-	 * runtime-driven. Optional + additive — absent = no board-shape check.
+	 * runtime-driven. `cellSize` is the game's `SYMBOL_SIZE` — used to seed a
+	 * converted `reelGrid` node so its `scale` (`cellSize / SYMBOL_SIZE`) is 1
+	 * (board parity). Optional + additive — absent = no board-shape check.
 	 */
-	board?: { reels: number; rows: number };
+	board?: { reels: number; rows: number; cellSize?: number };
 }
 
 /**

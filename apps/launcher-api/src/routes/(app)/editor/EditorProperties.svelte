@@ -51,6 +51,9 @@
 		instanceComponent?: ComponentDef | null;
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
+		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
+		 * (a container) with a parametric `reelGrid` node (scene mode). */
+		onConvertToReelGrid?: (id: string) => void;
 		/** Toggle an engine-catalog param on the draft component (component mode). */
 		onToggleParam?: (key: string, kind: ComponentParam['kind']) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
@@ -73,6 +76,7 @@
 		componentSignals = [],
 		instanceComponent = null,
 		onEditAsComponent,
+		onConvertToReelGrid,
 		onToggleParam,
 		onToggleSignal,
 		onSetInstanceParam,
@@ -561,6 +565,15 @@
 				title="Save this container's sub-tree as a reusable component and open it in the Invisible Component Editor (new tab)"
 			>
 				◇ Edit as component
+			</button>
+		{/if}
+		{#if !componentMode && onConvertToReelGrid && node.kind === 'container' && (node.slotId === 'reelGrid' || node.bind?.component === 'ReelGrid')}
+			<button
+				class="ghost-sm"
+				onclick={() => onConvertToReelGrid?.(node.id)}
+				title="Replace this board mount-anchor with a parametric reel grid (editable reels / rows / cell size / padding; drives the in-game board position + cell size)"
+			>
+				⊞ Convert to parametric grid
 			</button>
 		{/if}
 	</div>

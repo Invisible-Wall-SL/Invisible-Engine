@@ -19,7 +19,7 @@ import type { GameTemplate } from '../types';
 export const linesTemplate: GameTemplate = {
 	gameType: 'lines',
 	version: 1,
-	board: { reels: 5, rows: 3 },
+	board: { reels: 5, rows: 3, cellSize: 120 },
 	scenes: [
 		{
 			id: 'basegame',
