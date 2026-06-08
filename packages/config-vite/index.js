@@ -17,11 +17,4 @@ export default () =>
 				sourcemap: dev ? true : false,
 			},
 		},
-		css: {
-			preprocessorOptions: {
-				scss: {
-					api: 'modern-compiler',
-				},
-			},
-		},
 	});
