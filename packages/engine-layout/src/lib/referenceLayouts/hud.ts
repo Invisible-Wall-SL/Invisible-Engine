@@ -1,4 +1,4 @@
-import type { LayoutNode, NodeOverride, Scene } from '../types';
+import type { ComponentInstanceNode, LayoutNode, NodeOverride, Scene } from '../types';
 
 /**
  * Engine-truth import of the game HUD (the `<UI>` layer) as editor scenes — the
@@ -102,42 +102,131 @@ function barNode(
 const LABEL = { stacked: true };
 const BTN = { anchor: 0.5 };
 
+/**
+ * A bottom-bar READOUT (balance / win / bet) as a `componentInstance` of the
+ * `hudReadout` ComponentDef (§14 B4.4 parity flip). The OPT-IN replacement for
+ * the `barNode(... 'UiLabel*' ...)` `bind` node: the def MOUNTS the coded
+ * `HudReadout`, which reuses `UiLabel`'s stacked caption+value + the per-source
+ * currency formatting + count-up — so the readout renders byte-for-byte where the
+ * coded `Label*` snippet sat. Transform (x/y desktop + landscape/tablet overrides,
+ * scale 0.8) is IDENTICAL to the `bind` `barNode`, so `LayoutEditable`'s `hudPos()`
+ * lands it at the same position. The game feeds the live number via
+ * `registerComponentValues` keyed by the `source` param; `countUp` is on only for
+ * `win` (matching `LabelWin`'s tween; balance/bet snap, like their coded labels).
+ *
+ * Emitted ONLY when a consumer requests `{ readouts: true }` (currently just
+ * `apps/lines` — see `hudScenes`). The default stays the `bind` `barNode`, so the
+ * editor's "Add HUD layer", Book of Borut's seed, and every other consumer remain
+ * byte-identical — the flip is `apps/lines`-scoped, as B4.4 requires.
+ */
+function readoutNode(
+	id: string,
+	label: string,
+	source: 'balance' | 'win' | 'bet',
+	desktop: XY,
+	landscape: XY,
+	tablet: XY,
+): ComponentInstanceNode {
+	return {
+		id,
+		label,
+		kind: 'componentInstance',
+		componentId: 'hudReadout',
+		x: desktop.x,
+		y: desktop.y,
+		anchor: { x: 0.5, y: 0 },
+		scale: DESKTOP_SCALE,
+		params: { source, label, countUp: source === 'win' },
+		overrides: {
+			landscape: { x: landscape.x, y: landscape.y },
+			tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },
+		},
+		preview: { w: LABEL_W, h: LABEL_H, style: 'label' },
+	};
+}
+
+/** A coded `UiLabel*` `bind` label (the pre-B4.4 default for every consumer). */
+function labelBarNode(
+	id: string,
+	label: string,
+	component: string,
+	desktop: XY,
+	landscape: XY,
+	tablet: XY,
+): LayoutNode {
+	return barNode(id, label, component, LABEL, desktop, landscape, tablet);
+}
+
+/** Options for {@link hudBarScene}. */
+export interface HudBarOptions {
+	/**
+	 * Emit balance/win/bet as parametric `componentInstance(hudReadout)` nodes
+	 * (B4.4) instead of coded `UiLabel*` `bind` nodes. Opt-in, `apps/lines`-only:
+	 * the game must register the `hudReadout` def + the coded `HudReadout` bound
+	 * component + the `balance`/`win`/`bet` value sources for these to render.
+	 * Absent/false ⇒ the pre-B4.4 coded `bind` labels (parity for the editor + Borut).
+	 */
+	readouts?: boolean;
+}
+
 /** Bottom bar — balance/win/bet labels + the button cluster (standard space). */
-export function hudBarScene(): Scene {
+export function hudBarScene(options: HudBarOptions = {}): Scene {
+	const balanceLabel: LayoutNode = options.readouts
+		? readoutNode(
+				'hud-balance',
+				'Balance',
+				'balance',
+				d(900 - 500, dLabelY),
+				l1(420, lLabelY),
+				t(880 - 640, tLabelY),
+			)
+		: labelBarNode(
+				'hud-balance',
+				'Balance',
+				'UiLabelBalance',
+				d(900 - 500, dLabelY),
+				l1(420, lLabelY),
+				t(880 - 640, tLabelY),
+			);
+	const winLabel: LayoutNode = options.readouts
+		? readoutNode('hud-win', 'Win', 'win', d(900, dLabelY), l1(910, lLabelY), t(880, tLabelY))
+		: labelBarNode(
+				'hud-win',
+				'Win',
+				'UiLabelWin',
+				d(900, dLabelY),
+				l1(910, lLabelY),
+				t(880, tLabelY),
+			);
+	const betLabel: LayoutNode = options.readouts
+		? readoutNode(
+				'hud-bet',
+				'Bet',
+				'bet',
+				d(900 + 500, dLabelY),
+				l1(1400, lLabelY),
+				t(880 + 640, tLabelY),
+			)
+		: labelBarNode(
+				'hud-bet',
+				'Bet',
+				'UiLabelBet',
+				d(900 + 500, dLabelY),
+				l1(1400, lLabelY),
+				t(880 + 640, tLabelY),
+			);
 	return {
 		id: 'hudBar',
 		name: 'HUD — bottom bar',
 		space: 'standard',
 		align: { vertical: 'bottom' },
 		nodes: [
-			// labels
-			barNode(
-				'hud-balance',
-				'Balance',
-				'UiLabelBalance',
-				LABEL,
-				d(900 - 500, dLabelY),
-				l1(420, lLabelY),
-				t(880 - 640, tLabelY),
-			),
-			barNode(
-				'hud-win',
-				'Win',
-				'UiLabelWin',
-				LABEL,
-				d(900, dLabelY),
-				l1(910, lLabelY),
-				t(880, tLabelY),
-			),
-			barNode(
-				'hud-bet',
-				'Bet',
-				'UiLabelBet',
-				LABEL,
-				d(900 + 500, dLabelY),
-				l1(1400, lLabelY),
-				t(880 + 640, tLabelY),
-			),
+			// labels — coded `UiLabel*` `bind` by default; `componentInstance(hudReadout)`
+			// when `readouts` is set (B4.4, `apps/lines` only). Either way the live HUD
+			// renders identically; the readout path is reversible (drop `readouts`).
+			balanceLabel,
+			winLabel,
+			betLabel,
 			// buttons
 			barNode(
 				'hud-btn-menu',
@@ -243,9 +332,13 @@ export function hudCornersScene(): Scene {
 	};
 }
 
-/** Both HUD scenes, in render order (bar then corners). */
-export function hudScenes(): Scene[] {
-	return [hudBarScene(), hudCornersScene()];
+/**
+ * Both HUD scenes, in render order (bar then corners). `options` forwards to
+ * {@link hudBarScene} — pass `{ readouts: true }` to emit the parametric
+ * `hudReadout` instances (B4.4, `apps/lines`); omit for the coded `bind` labels.
+ */
+export function hudScenes(options: HudBarOptions = {}): Scene[] {
+	return [hudBarScene(options), hudCornersScene()];
 }
 
 /** Scene ids of the reusable HUD screens (bottom bar + logo/game-name corners). */

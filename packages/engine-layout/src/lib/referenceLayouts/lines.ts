@@ -218,7 +218,14 @@ export function defaultLayout(gameType: string): LayoutDoc {
 			// game still renders `<UI>` from code today; these become live once the
 			// HUD render path (phase 2) consumes them. Shown in the editor now so the
 			// HUD is visible + positionable.
-			...hudScenes(),
+			//
+			// `{ readouts: true }` (B4.4, `apps/lines` only): balance/win/bet become
+			// parametric `componentInstance(hudReadout)` nodes — the def mounts the
+			// coded `HudReadout`, fed live by `registerComponentValues`. `apps/lines`'s
+			// `Game.svelte` registers all three (def + bound component + value sources).
+			// Book of Borut keeps the default coded `bind` labels (it calls
+			// `hudScenes()` with no options), so it stays parity-safe until migrated.
+			...hudScenes({ readouts: true }),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};

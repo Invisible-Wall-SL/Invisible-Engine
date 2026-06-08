@@ -4,10 +4,10 @@
 	import { EnablePixiExtension } from 'components-pixi';
 	import { EnableHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
-	import { App, Text, REM } from 'pixi-svelte';
+	import { App, Container, Text, REM } from 'pixi-svelte';
 	import { stateBet, stateBetDerived, stateModal } from 'state-shared';
 
-	import { UI, UiGameName, InfoOverlay } from 'components-ui-pixi';
+	import { UI, UiGameName, InfoOverlay, HudReadout } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
@@ -16,6 +16,7 @@
 		registerComponentValues,
 		HUD_READOUT_DEF,
 		findReelGridNode,
+		resolveTransform,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -44,11 +45,15 @@
 	import I18nTest from './I18nTest.svelte';
 	import SymbolDebug from './SymbolDebug.svelte';
 
-	registerBoundComponents({ Win, Transition });
-	// Batch B / B4.2 — register the parametric HUD readout def + its live value
-	// sources. PARITY-SAFE: nothing mounts a `hudReadout` `componentInstance` yet
-	// (the HUD still renders the coded `Label*` snippets), so this has NO render
-	// effect — it only populates the engine-layout registries for B4.3+.
+	// `HudReadout` is the coded component the `hudReadout` ComponentDef MOUNTS
+	// (§14.3 MOUNT path): the def's `root` `bind`s it by name, so it must be in the
+	// bound-component registry alongside the animated overlays. It reuses the coded
+	// label rendering (caption localization + currency format + count-up).
+	registerBoundComponents({ Win, Transition, HudReadout });
+	// Batch B / B4.4 — register the parametric HUD readout def + its live value
+	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
+	// nodes of `hudReadout` (see `referenceLayouts/hud.ts`), so this powers the live
+	// HUD: the def mounts the coded `HudReadout`, fed `value` from these sources.
 	registerComponents({ [HUD_READOUT_DEF.id]: HUD_READOUT_DEF });
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount),
@@ -95,6 +100,37 @@
 
 	const context = getContext();
 
+	// Move 3 Phase B — doc-driven loading splash. The `loading` scene holds one
+	// `canvas`-space node bound to `LoadingScreen`; its transform repositions/rescales
+	// the whole splash in-game. `LoadingScreen` keeps its coded mount + required
+	// `onloaded` callback (it's an either/or with the game, so it can't be a generic
+	// `bind`), so we mirror LayoutNodeView's canvas-space mount here and WRAP it.
+	const loadingNode = $derived(
+		editorDoc.scenes
+			.find((scene) => scene.id === 'loading')
+			?.nodes.find((node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen'),
+	);
+	const loadingTransform = $derived(
+		loadingNode
+			? resolveTransform(loadingNode, context.stateLayoutDerived.layoutType())
+			: undefined,
+	);
+	// Canvas-space placement, identical formula to LayoutNodeView: pin to a window edge
+	// via `screenAnchor * canvasSize + (x, y)`, else use x/y verbatim. Default node
+	// (x:0, y:0, no screenAnchor) → posX/posY = 0, so the container is a no-op.
+	const loadingPos = $derived.by(() => {
+		if (!loadingTransform) return { x: 0, y: 0 };
+		const canvas = context.stateLayoutDerived.canvasSizes();
+		return {
+			x: loadingTransform.screenAnchor
+				? loadingTransform.screenAnchor.x * canvas.width + loadingTransform.x
+				: loadingTransform.x,
+			y: loadingTransform.screenAnchor
+				? loadingTransform.screenAnchor.y * canvas.height + loadingTransform.y
+				: loadingTransform.y,
+		};
+	});
+
 	onMount(() => {
 		context.stateLayout.showLoadingScreen = true;
 		void loadEditorScenes().then((doc) => {
@@ -119,7 +155,23 @@
 	<Background cover={backgroundCover} />
 
 	{#if context.stateLayout.showLoadingScreen}
-		<LoadingScreen onloaded={() => (context.stateLayout.showLoadingScreen = false)} />
+		<!--
+			Move 3 Phase B — the doc-driven `loading` scene transform repositions/rescales
+			the whole splash as one unit. Default node (x:0, y:0, no scale) → no-op container
+			(x=0, y=0, scale/rotation/alpha undefined), byte-identical to the hardcoded mount.
+			The coded mount + `onloaded` callback are kept verbatim (LoadingScreen is an
+			either/or with the game, so it can't be a generic `bind`).
+		-->
+		<Container
+			x={loadingPos.x}
+			y={loadingPos.y}
+			scale={loadingTransform?.scale}
+			rotation={loadingTransform?.rotation}
+			alpha={loadingTransform?.alpha}
+			zIndex={loadingTransform?.zIndex}
+		>
+			<LoadingScreen onloaded={() => (context.stateLayout.showLoadingScreen = false)} />
+		</Container>
 	{:else}
 		<ResumeBet />
 		<!--

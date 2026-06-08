@@ -30,16 +30,20 @@ const HUD_FILL = 0xffffff;
 
 /**
  * The single parametric HUD readout (§14.1) — one def instanced three ways
- * (balance / win / bet) by its `source` param. `root` is a local-space
- * container holding a CAPTION text node stacked over a VALUE text node, mirroring
- * `UiLabel`'s stacked layout (caption at y:0, value one font-size below). The
- * value node carries a static sample (`'1,234'`) so the Component-Editor preview
- * reads like a real readout before any live value feed binds `value`.
+ * (balance / win / bet) by its `source` param.
  *
- * Bindings drive the consumer (`LayoutNodeView`): the caption binds its `text`
- * to the `label` param (string); the value binds `text` to the `value` param
- * (number → `<ParamReadoutText>`, formatted + optional count-up) and its
- * `style.fill`/`style.fontSize`/`style.fontFamily` to the matching style params.
+ * MOUNT path (§14.3, owner-chosen 2026-06-08): `root` is a local-space container
+ * whose single child `bind`s the coded `HudReadout` component (registered via
+ * `registerBoundComponents`). That coded component keeps the PROVEN coded-label
+ * rendering — the localized caption, `UiLabel`'s stacked caption+value, the
+ * per-source currency formatting, and the count-up — instead of re-implementing
+ * them as engine text nodes (which would lose currency formatting + bitmap-font
+ * fidelity). The mounted component reads the SAME params (`source`/`label`/`fill`/
+ * `fontSize`/`fontFamily`/`countUp`/`value`) off the param context that
+ * `<ComponentInstance>` provides — they flow to it through the context, not via
+ * text `paramBindings`. The Component Editor still owns the def (so B3 per-project
+ * defaults apply) and the preview path falls back to the bound-component catalog
+ * art for this `bind` anchor.
  */
 export const HUD_READOUT_DEF: ComponentDef = {
 	id: 'hudReadout',
@@ -54,37 +58,13 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		y: 0,
 		children: [
 			{
-				id: 'hudReadout-caption',
-				kind: 'text',
+				id: 'hudReadout-mount',
+				kind: 'container',
 				x: 0,
 				y: 0,
-				anchor: { x: 0.5, y: 0 },
-				text: 'LABEL',
-				style: {
-					fontFamily: HUD_FONT_FAMILY,
-					fontSize: HUD_CAPTION_FONT_SIZE,
-					fill: HUD_FILL,
-				},
-				paramBindings: { text: 'label' },
-			},
-			{
-				id: 'hudReadout-value',
-				kind: 'text',
-				x: 0,
-				y: HUD_VALUE_FONT_SIZE,
-				anchor: { x: 0.5, y: 0 },
-				text: '1,234',
-				style: {
-					fontFamily: HUD_FONT_FAMILY,
-					fontSize: HUD_VALUE_FONT_SIZE,
-					fill: HUD_FILL,
-				},
-				paramBindings: {
-					text: 'value',
-					'style.fill': 'fill',
-					'style.fontSize': 'fontSize',
-					'style.fontFamily': 'fontFamily',
-				},
+				bind: { component: 'HudReadout' },
+				preview: { w: HUD_CAPTION_FONT_SIZE * 8, h: HUD_VALUE_FONT_SIZE * 3, style: 'label' },
+				children: [],
 			},
 		],
 	},

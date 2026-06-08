@@ -103,6 +103,16 @@
 			})),
 	);
 
+	// Stop the double-render (§14 B4.4): when a readout id is now a
+	// `componentInstance` node (B4.4 converts balance/win/bet to instances of the
+	// `hudReadout` def), the `instances` loop above renders it via the engine
+	// `<ComponentInstance>` path — so the coded `Label*` snippet for that id must NOT
+	// also render. `mounted(id)` is true exactly when a `componentInstance` node
+	// owns the id. Reverting the hud-scene nodes back to `bind` (B4.4 reversal) makes
+	// this false again, re-enabling the coded snippet → the old HUD, no other change.
+	// The coded `Label{Balance,Win,Bet}.svelte` + their snippet props stay in place.
+	const mounted = (id: string) => instances.some((instance) => instance.node.id === id);
+
 	const ovr = $derived({
 		balance: labelOverride('hud-balance'),
 		win: labelOverride('hud-win'),
@@ -131,7 +141,7 @@
 
 <!-- Bottom bar (standard space) -->
 <MainContainer standard alignVertical="bottom">
-	{#if pos.balance.visible}
+	{#if pos.balance.visible && !mounted('hud-balance')}
 		<Container
 			x={pos.balance.x}
 			y={pos.balance.y}
@@ -140,12 +150,12 @@
 			{@render props.amountBalance({ stacked: true, ...ovr.balance })}
 		</Container>
 	{/if}
-	{#if pos.win.visible}
+	{#if pos.win.visible && !mounted('hud-win')}
 		<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }}>
 			{@render props.amountWin({ stacked: true, ...ovr.win })}
 		</Container>
 	{/if}
-	{#if pos.bet.visible}
+	{#if pos.bet.visible && !mounted('hud-bet')}
 		<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
 			{@render props.amountBet({ stacked: true, ...ovr.bet })}
 		</Container>
