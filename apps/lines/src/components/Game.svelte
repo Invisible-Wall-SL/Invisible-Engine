@@ -5,13 +5,16 @@
 	import { EnableHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Text, REM } from 'pixi-svelte';
-	import { stateModal } from 'state-shared';
+	import { stateBet, stateBetDerived, stateModal } from 'state-shared';
 
 	import { UI, UiGameName, InfoOverlay } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
+		registerComponents,
+		registerComponentValues,
+		HUD_READOUT_DEF,
 		findReelGridNode,
 		backgroundCoverScale,
 		backgroundCoverStretch,
@@ -20,6 +23,7 @@
 
 	import { infoManifest } from '../game/infoManifest';
 	import { setBoardOverride } from '../game/stateGame.svelte';
+	import { valueSource } from '../game/valueSource';
 	import { fallbackEditorScenes, loadEditorScenes } from '../editor-scenes';
 
 	import { getContext } from '../game/context';
@@ -41,6 +45,16 @@
 	import SymbolDebug from './SymbolDebug.svelte';
 
 	registerBoundComponents({ Win, Transition });
+	// Batch B / B4.2 — register the parametric HUD readout def + its live value
+	// sources. PARITY-SAFE: nothing mounts a `hudReadout` `componentInstance` yet
+	// (the HUD still renders the coded `Label*` snippets), so this has NO render
+	// effect — it only populates the engine-layout registries for B4.3+.
+	registerComponents({ [HUD_READOUT_DEF.id]: HUD_READOUT_DEF });
+	registerComponentValues({
+		balance: valueSource(() => stateBet.balanceAmount),
+		win: valueSource(() => stateBet.winBookEventAmount),
+		bet: valueSource(() => stateBetDerived.betCost()),
+	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
 	const fallbackOverlays = fallbackEditorScenes.scenes.find(

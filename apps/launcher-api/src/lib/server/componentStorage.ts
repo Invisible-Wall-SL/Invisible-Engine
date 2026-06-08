@@ -7,6 +7,7 @@ import type {
 	SlotKind,
 	TemplateSlot,
 } from 'engine-layout';
+import { BUILTIN_COMPONENTS } from 'engine-layout';
 import {
 	editorComponentKey,
 	projectComponentKey,
@@ -19,12 +20,13 @@ const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
 
 /**
- * Resolve a component def (§8.3). PROJECT shadows SHARED: with a `projectKey`,
- * the project key (`editor/<projectKey>/components/<id>.json`) is tried first and
- * the shared key (`_shared/editor-components/<id>.json`) is the fallback — exactly
- * like `loadTemplate`'s R2-over-built-in precedence. A malformed/unreadable R2
- * object never throws; it just falls through to the next source. Returns
- * `undefined` only when neither scope has a usable def for `id`.
+ * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
+ * (`editor/<projectKey>/components/<id>.json`) ◁ SHARED R2
+ * (`_shared/editor-components/<id>.json`) ◁ BUILT-IN code (`BUILTIN_COMPONENTS`) —
+ * exactly like `loadTemplate`'s R2-over-built-in fallback, with the built-in as
+ * the lowest layer. A malformed/unreadable R2 object never throws; it just falls
+ * through to the next source. Returns `undefined` only when no scope (and no
+ * built-in) has a usable def for `id`.
  */
 export async function loadComponent(
 	id: string,
@@ -34,7 +36,9 @@ export async function loadComponent(
 		const project = await readComponent(projectComponentKey(projectKey, id));
 		if (project) return project;
 	}
-	return readComponent(editorComponentKey(id));
+	const shared = await readComponent(editorComponentKey(id));
+	if (shared) return shared;
+	return BUILTIN_COMPONENTS.find((def) => def.id === id);
 }
 
 /** Read + normalize one component key, swallowing any read/parse failure. */
@@ -102,14 +106,20 @@ export interface ListComponentsOptions {
 }
 
 /**
- * List components, project shadowing shared by id (a project def of the same id
- * hides the shared one). Filters by `scope`/`category` when given. Malformed
+ * List components, lowest → highest precedence so a later layer shadows an
+ * earlier one of the same id: BUILT-IN code (`BUILTIN_COMPONENTS`) ◁ SHARED R2 ◁
+ * PROJECT R2. Built-ins are `scope:'shared'`, so they slot under the shared
+ * layer and are correctly excluded by a `scope:'project'` filter and kept by a
+ * `scope:'shared'` filter. Filters by `scope`/`category` when given. Malformed
  * entries are skipped, never thrown.
  */
 export async function listComponents(opts: ListComponentsOptions): Promise<ComponentDef[]> {
 	const byId = new Map<string, ComponentDef>();
 
 	if (opts.scope !== 'project') {
+		for (const def of BUILTIN_COMPONENTS) {
+			byId.set(def.id, def);
+		}
 		for (const def of await listFromPrefix(sharedComponentsPrefix)) {
 			byId.set(def.id, def);
 		}
