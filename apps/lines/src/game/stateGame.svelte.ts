@@ -4,6 +4,7 @@ import type { Tween } from 'svelte/motion';
 import { stateBet } from 'state-shared';
 import { createEnhanceBoard, createReelForSpinning } from 'utils-slots';
 import { createGetWinLevelDataByWinLevelAlias } from 'utils-shared/winLevel';
+import { resolveReelGridFromNode, type ReelGridNode } from 'engine-layout';
 
 import type { GameType, RawSymbol, SymbolState } from './types';
 import { stateLayoutDerived } from './stateLayout';
@@ -12,6 +13,7 @@ import { eventEmitter } from './eventEmitter';
 import {
 	SYMBOL_SIZE,
 	BOARD_SIZES,
+	REEL_PADDING,
 	INITIAL_BOARD,
 	BOARD_DIMENSIONS,
 	SPIN_OPTIONS_DEFAULT,
@@ -79,13 +81,48 @@ export const stateGame = $state({
 	scatterCounter: 0,
 });
 
-const boardLayout = () => ({
-	x: stateLayoutDerived.mainLayout().width * 0.5,
-	y: stateLayoutDerived.mainLayout().height * 0.5,
-	anchor: { x: 0.5, y: 0.5 },
-	pivot: { x: BOARD_SIZES.width / 2, y: BOARD_SIZES.height / 2 },
-	...BOARD_SIZES,
-});
+/**
+ * Editor doc's `reelGrid` node (LAYOUT ONLY) bridged in by `Game.svelte` once the
+ * doc loads. `null` → the board keeps its coded constants (byte-identical parity).
+ * Stored raw so `boardLayout()` re-resolves per-layoutType reactively.
+ */
+const boardOverride = $state<{ node: ReelGridNode | null }>({ node: null });
+
+export const setBoardOverride = (node: ReelGridNode | null) => {
+	boardOverride.node = node;
+};
+
+const boardLayout = () => {
+	const centreX = stateLayoutDerived.mainLayout().width * 0.5;
+	const centreY = stateLayoutDerived.mainLayout().height * 0.5;
+	const override = resolveReelGridFromNode(
+		boardOverride.node ?? undefined,
+		stateLayoutDerived.layoutType(),
+	);
+
+	if (!override) {
+		return {
+			x: centreX,
+			y: centreY,
+			scale: 1,
+			anchor: { x: 0.5, y: 0.5 },
+			pivot: { x: BOARD_SIZES.width / 2, y: BOARD_SIZES.height / 2 },
+			...BOARD_SIZES,
+		};
+	}
+
+	const scale = override.cellSize / SYMBOL_SIZE;
+	const paddingOffsetX = (override.reelPadding - REEL_PADDING) * SYMBOL_SIZE * scale;
+
+	return {
+		x: override.x + paddingOffsetX,
+		y: override.y,
+		scale,
+		anchor: { x: 0.5, y: 0.5 },
+		pivot: { x: BOARD_SIZES.width / 2, y: BOARD_SIZES.height / 2 },
+		...BOARD_SIZES,
+	};
+};
 
 const boardRaw = () =>
 	board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol));

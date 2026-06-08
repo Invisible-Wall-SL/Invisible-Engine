@@ -10,9 +10,10 @@
 	import { UI, UiGameName, InfoOverlay } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
-	import { registerBoundComponents } from 'engine-layout';
+	import { registerBoundComponents, findReelGridNode } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
+	import { setBoardOverride } from '../game/stateGame.svelte';
 	import { fallbackEditorScenes, loadEditorScenes } from '../editor-scenes';
 
 	import { getContext } from '../game/context';
@@ -58,7 +59,10 @@
 
 	onMount(() => {
 		context.stateLayout.showLoadingScreen = true;
-		void loadEditorScenes().then((doc) => (editorDoc = doc));
+		void loadEditorScenes().then((doc) => {
+			editorDoc = doc;
+			setBoardOverride(findReelGridNode(doc) ?? null);
+		});
 	});
 
 	context.eventEmitter.subscribeOnMount({

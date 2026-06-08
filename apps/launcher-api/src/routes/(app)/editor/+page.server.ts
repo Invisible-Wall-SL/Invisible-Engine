@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { findUnfilledRequiredSlots, type LayoutDoc } from 'engine-layout';
+import { findUnfilledRequiredSlots, reelGridWarnings, type LayoutDoc } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -59,7 +59,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	// `gameType` first (the author's choice sticks across sessions), falling back
 	// to the project's resolved game type when the doc predates that field.
 	const template = await loadTemplate(doc.gameType ?? (await projectGameType(projectKey)));
-	const warnings = template ? findUnfilledRequiredSlots(doc, template) : [];
+	const warnings = template
+		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, template)]
+		: [];
 	// The project display name — the default for the HUD game-name (shown in the
 	// editor as a fallback, NOT written to the doc, so it tracks the project name
 	// until the author types an explicit override).
@@ -89,7 +91,9 @@ export const actions: Actions = {
 		// Non-blocking template validation (§7.1): flag any required slot the
 		// saved doc leaves unfilled, surfaced to the editor without rejecting.
 		const template = await loadTemplate(saved.gameType ?? (await projectGameType(projectKey)));
-		const warnings = template ? findUnfilledRequiredSlots(saved, template) : [];
+		const warnings = template
+			? [...findUnfilledRequiredSlots(saved, template), ...reelGridWarnings(saved, template)]
+			: [];
 		return {
 			action: 'save' as const,
 			saved: true,

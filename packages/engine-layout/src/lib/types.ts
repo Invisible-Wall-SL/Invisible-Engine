@@ -360,6 +360,14 @@ export interface GameTemplate {
 	gameType: string;
 	version: 1;
 	scenes: TemplateScene[];
+	/**
+	 * The game's real board shape (reels × visible rows). The source of truth for
+	 * validating an editor-authored {@link ReelGridNode}: `reels`/`rows` are
+	 * RGS/data-coupled (the book delivers a fixed N×M result), so the editor warns
+	 * when a `reelGrid` node diverges from this — they're descriptive, not yet
+	 * runtime-driven. Optional + additive — absent = no board-shape check.
+	 */
+	board?: { reels: number; rows: number };
 }
 
 /**
