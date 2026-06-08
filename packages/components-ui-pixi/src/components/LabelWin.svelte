@@ -6,12 +6,9 @@
 
 	import UiLabel from './UiLabel.svelte';
 	import { i18nDerived } from '../i18n/i18nDerived';
+	import type { UiLabelArgs } from '../types';
 
-	type Props = {
-		stacked?: boolean;
-	};
-
-	const props: Props = $props();
+	const props: UiLabelArgs = $props();
 	const winBookEventAmountTween = new Tween(stateBet.winBookEventAmount);
 	const label = $derived(i18nDerived.win());
 	const value = $derived(bookEventAmountToCurrencyString(winBookEventAmountTween.current));
@@ -21,4 +18,4 @@
 	});
 </script>
 
-<UiLabel tiled {label} {value} stacked={props.stacked} />
+<UiLabel tiled {label} {value} stacked={props.stacked} style={props.style} text={props.text} />

@@ -1198,7 +1198,13 @@
 			} else if (node.preview?.style && !readyTextIds.has(node.id)) {
 				// The PIXI text overlay draws this HUD anchor with its real chosen font once
 				// loaded (reported via readyTextIds); until then the chip stands in.
-				drawHudChip(ctx, t, node.preview, node.label ?? node.bind.component);
+				drawHudChip(
+					ctx,
+					t,
+					node.preview,
+					node.label ?? node.bind.component,
+					node.bind.props as Record<string, unknown> | undefined,
+				);
 			} else if (!node.preview?.style) {
 				drawPlaceholder(
 					ctx,
@@ -1390,12 +1396,18 @@
 	/** Faithful 2D preview of a HUD `bind` element (the real component is a shape +
 	 * text, so this is close to what the game renders): buttons = dark rounded
 	 * square + centered icon label; labels = ticker + label + value; logo/name =
-	 * text. Drawn in the node's already-scaled space (drawNode applied scale). */
+	 * text. Drawn in the node's already-scaled space (drawNode applied scale).
+	 *
+	 * Reflects the editor-authored `bind.props` params so an edit shows here without
+	 * a republish: a button's `tint` colours the chip; a label's `style.fill`
+	 * colours its caption + value. `style.fontSize` scales the chip text. Absent =
+	 * the neutral defaults. */
 	function drawHudChip(
 		ctx: CanvasRenderingContext2D,
 		t: ResolvedTransform,
 		preview: NonNullable<LayoutNode['preview']>,
 		label: string,
+		props?: Record<string, unknown>,
 	): void {
 		const ax = t.anchor?.x ?? 0.5;
 		const ay = t.anchor?.y ?? 0.5;
@@ -1403,12 +1415,16 @@
 		const h = preview.h ?? 100;
 		const x = -w * ax;
 		const y = -h * ay;
+		const style = (props?.style ?? {}) as { fill?: number; fontSize?: number };
+		const tint = typeof props?.tint === 'number' ? props.tint : undefined;
+		const fill = typeof style.fill === 'number' ? cssColor(style.fill) : undefined;
 		const isText = preview.style === 'text';
 		if (!isText) {
 			const r = Math.min(preview.style === 'button' ? 36 : 26, h / 2);
 			ctx.beginPath();
 			ctx.roundRect(x, y, w, h, r);
-			ctx.fillStyle = 'rgba(8,8,10,0.92)';
+			// A button tint multiplies the themed art in-game; here it colours the chip.
+			ctx.fillStyle = tint !== undefined ? cssColor(tint) : 'rgba(8,8,10,0.92)';
 			ctx.fill();
 			ctx.lineWidth = 2;
 			ctx.strokeStyle = '#3a3a46';
@@ -1418,11 +1434,12 @@
 		ctx.textAlign = 'center';
 		if (preview.style === 'label') {
 			ctx.textBaseline = 'top';
-			ctx.font = '600 30px sans-serif';
-			ctx.fillStyle = '#e8e8ee';
+			const size = typeof style.fontSize === 'number' ? Math.max(8, style.fontSize) : 30;
+			ctx.font = `600 ${size}px sans-serif`;
+			ctx.fillStyle = fill ?? '#e8e8ee';
 			ctx.fillText(label, x + w / 2, y + 14);
-			ctx.fillStyle = '#7ee0c0';
-			ctx.fillText('0.00', x + w / 2, y + 14 + 38);
+			ctx.fillStyle = fill ?? '#7ee0c0';
+			ctx.fillText('0.00', x + w / 2, y + 14 + size + 8);
 		} else if (preview.style === 'button') {
 			ctx.textBaseline = 'middle';
 			ctx.font = '600 28px sans-serif';
@@ -1431,10 +1448,15 @@
 		} else {
 			ctx.textBaseline = 'middle';
 			ctx.font = '600 30px sans-serif';
-			ctx.fillStyle = '#c8a3ff';
+			ctx.fillStyle = fill ?? '#c8a3ff';
 			ctx.fillText(label, x + w / 2, y + h / 2);
 		}
 		ctx.restore();
+	}
+
+	/** A doc colour number (e.g. `0xff0000`) → a CSS hex string for the 2D canvas. */
+	function cssColor(n: number): string {
+		return `#${(n & 0xffffff).toString(16).padStart(6, '0')}`;
 	}
 
 	function drawPlaceholder(

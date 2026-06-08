@@ -1,7 +1,7 @@
 import type { Snippet } from 'svelte';
 
 import type { ButtonProps } from 'components-pixi';
-import type { HudTextOverride, Scene } from 'engine-layout';
+import type { HudTextOverride, Scene, TextStyle } from 'engine-layout';
 import type { ServerPayEntry } from 'utils-shared/paytable';
 
 /**
@@ -78,25 +78,34 @@ export type ButtonIcon =
 	| 'soundOff'
 	| 'menuExit';
 
+/** Args for a HUD bar LABEL snippet: placement flags + an optional editor-authored
+ * text-style/caption override (from the bar scene's `bind.props`). A snippet that
+ * ignores `style`/`text` renders its coded default → parity. */
+export type UiLabelArgs = { stacked?: boolean; style?: Partial<TextStyle>; text?: string };
+
+/** Args for a HUD bar BUTTON snippet: the coded button props + an optional editor-
+ * authored recolour `tint` (from `bind.props.tint`). Absent = no tint → parity. */
+export type UiButtonArgs = Partial<Omit<ButtonProps, 'children'>> & { tint?: number };
+
 export type LayoutUiProps = {
 	/** The logo / game-name snippets receive an optional editor-authored font/text
 	 * override (from the HUD `corners` scene). A snippet that ignores it renders its
 	 * coded default — so opting in is per-game and parity-preserving. */
 	gameName: Snippet<[HudTextOverride?]>;
 	logo: Snippet<[HudTextOverride?]>;
-	amountBalance: Snippet<[{ stacked?: boolean }]>;
-	amountWin: Snippet<[{ stacked?: boolean }]>;
-	amountBet: Snippet<[{ stacked?: boolean }]>;
-	buttonBuyBonus: Snippet<[Partial<ButtonProps>]>;
-	buttonBet: Snippet<[Partial<ButtonProps>]>;
-	buttonTurbo: Snippet<[Partial<ButtonProps>]>;
-	buttonAutoSpin: Snippet<[Partial<ButtonProps>]>;
-	buttonIncrease: Snippet<[Partial<ButtonProps>]>;
-	buttonDecrease: Snippet<[Partial<ButtonProps>]>;
-	buttonMenu: Snippet<[Partial<ButtonProps>]>;
-	buttonMenuClose: Snippet<[Partial<ButtonProps>]>;
-	buttonPayTable: Snippet<[Partial<ButtonProps>]>;
-	buttonGameRules: Snippet<[Partial<ButtonProps>]>;
-	buttonSettings: Snippet<[Partial<ButtonProps>]>;
-	buttonSoundSwitch: Snippet<[Partial<ButtonProps>]>;
+	amountBalance: Snippet<[UiLabelArgs]>;
+	amountWin: Snippet<[UiLabelArgs]>;
+	amountBet: Snippet<[UiLabelArgs]>;
+	buttonBuyBonus: Snippet<[UiButtonArgs]>;
+	buttonBet: Snippet<[UiButtonArgs]>;
+	buttonTurbo: Snippet<[UiButtonArgs]>;
+	buttonAutoSpin: Snippet<[UiButtonArgs]>;
+	buttonIncrease: Snippet<[UiButtonArgs]>;
+	buttonDecrease: Snippet<[UiButtonArgs]>;
+	buttonMenu: Snippet<[UiButtonArgs]>;
+	buttonMenuClose: Snippet<[UiButtonArgs]>;
+	buttonPayTable: Snippet<[UiButtonArgs]>;
+	buttonGameRules: Snippet<[UiButtonArgs]>;
+	buttonSettings: Snippet<[UiButtonArgs]>;
+	buttonSoundSwitch: Snippet<[UiButtonArgs]>;
 };

@@ -2,7 +2,6 @@
 	import type { Snippet } from 'svelte';
 	import type { HudTextOverride } from 'engine-layout';
 
-	import type { ButtonProps } from 'components-pixi';
 	import { getContextLayout } from 'utils-layout';
 	import { EnableSpaceHold } from 'components-shared';
 
@@ -36,6 +35,9 @@
 		hud?: import('../types').UiHud;
 	};
 
+	type UiLabelArgs = import('../types').UiLabelArgs;
+	type UiButtonArgs = import('../types').UiButtonArgs;
+
 	const props: Props = $props();
 
 	const { stateLayoutDerived } = getContextLayout();
@@ -66,63 +68,63 @@
 	{@render props.logo(override)}
 {/snippet}
 
-{#snippet amountBalance(labelProps: { stacked?: boolean })}
+{#snippet amountBalance(labelProps: UiLabelArgs)}
 	<LabelBalance {...labelProps} />
 {/snippet}
 
-{#snippet amountWin(labelProps: { stacked?: boolean })}
+{#snippet amountWin(labelProps: UiLabelArgs)}
 	<LabelWin {...labelProps} />
 {/snippet}
 
-{#snippet amountBet(labelProps: { stacked?: boolean })}
+{#snippet amountBet(labelProps: UiLabelArgs)}
 	<LabelBet {...labelProps} />
 {/snippet}
 
-{#snippet buttonBuyBonus(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonBuyBonus(buttonProps: UiButtonArgs)}
 	<ButtonBuyBonus {...buttonProps} />
 {/snippet}
 
-{#snippet buttonBet(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonBet(buttonProps: UiButtonArgs)}
 	<ButtonBet {...buttonProps} />
 {/snippet}
 
-{#snippet buttonTurbo(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonTurbo(buttonProps: UiButtonArgs)}
 	<ButtonTurbo {...buttonProps} />
 {/snippet}
 
-{#snippet buttonAutoSpin(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonAutoSpin(buttonProps: UiButtonArgs)}
 	<ButtonAutoSpin {...buttonProps} />
 {/snippet}
 
-{#snippet buttonIncrease(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonIncrease(buttonProps: UiButtonArgs)}
 	<ButtonIncrease {...buttonProps} />
 {/snippet}
 
-{#snippet buttonDecrease(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonDecrease(buttonProps: UiButtonArgs)}
 	<ButtonDecrease {...buttonProps} />
 {/snippet}
 
-{#snippet buttonMenu(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonMenu(buttonProps: UiButtonArgs)}
 	<ButtonMenu {...buttonProps} />
 {/snippet}
 
-{#snippet buttonMenuClose(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonMenuClose(buttonProps: UiButtonArgs)}
 	<ButtonMenuClose {...buttonProps} />
 {/snippet}
 
-{#snippet buttonPayTable(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonPayTable(buttonProps: UiButtonArgs)}
 	<ButtonPayTable {...buttonProps} />
 {/snippet}
 
-{#snippet buttonGameRules(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonGameRules(buttonProps: UiButtonArgs)}
 	<ButtonGameRules {...buttonProps} />
 {/snippet}
 
-{#snippet buttonSettings(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonSettings(buttonProps: UiButtonArgs)}
 	<ButtonSettings {...buttonProps} />
 {/snippet}
 
-{#snippet buttonSoundSwitch(buttonProps: Partial<ButtonProps>)}
+{#snippet buttonSoundSwitch(buttonProps: UiButtonArgs)}
 	<ButtonSoundSwitch {...buttonProps} />
 {/snippet}
 

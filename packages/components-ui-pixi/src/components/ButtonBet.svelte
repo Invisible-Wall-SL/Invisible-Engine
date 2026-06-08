@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Container, Text } from 'pixi-svelte';
-	import { Button, type ButtonProps } from 'components-pixi';
+	import { Button } from 'components-pixi';
 	import { OnHotkey } from 'components-shared';
 	import { stateBetDerived } from 'state-shared';
 
@@ -8,8 +8,9 @@
 	import ButtonBetProvider from './ButtonBetProvider.svelte';
 	import { UI_BASE_FONT_SIZE, UI_BASE_SIZE } from '../constants';
 	import { i18nDerived } from '../i18n/i18nDerived';
+	import type { UiButtonArgs } from '../types';
 
-	const props: Partial<Omit<ButtonProps, 'children'>> = $props();
+	const { tint, ...props }: UiButtonArgs = $props();
 	const disabled = $derived(!stateBetDerived.isBetCostAvailable());
 	const sizes = { width: UI_BASE_SIZE, height: UI_BASE_SIZE };
 </script>
@@ -19,7 +20,7 @@
 		<OnHotkey hotkey="Space" {disabled} {onpress} />
 		<Button {...props} {sizes} {onpress} {disabled}>
 			{#snippet children({ center, hovered })}
-				<Container {...center}>
+				<Container {...center} tint={tint ?? 0xffffff}>
 					<UiSprite
 						key="bet"
 						width={sizes.width}
