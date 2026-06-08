@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		backgroundCoverScale,
+		backgroundCoverStretch,
 		backgroundFit,
 		boundComponentDefault,
 		computeOverlayPlacement,
@@ -217,21 +218,25 @@
 	/**
 	 * Full-bleed cover of the fixed WINDOW (§10.4), via the shared `coverTransform` —
 	 * the SAME true-cover helper the game runtime uses. `coverScale` defaults to 1
-	 * (exact edge-to-edge cover, matching the game's `normalBackgroundLayout({ scale:
-	 * 1 })`); the node's `scale.x` is honoured as the cover multiplier so the author
-	 * can over/under-cover. Width/height are the art's natural size and the cover lives
-	 * in `scale`, so the 2D draw (`width × scale`) + box/hit-test math (`natural ×
-	 * scale`) reproduce the cover identically. Falls back to the window size when the
-	 * art dims aren't loaded so it never collapses to a tiny offset sprite.
+	 * (exact edge-to-edge cover); the node's `coverScale` is the uniform zoom and
+	 * `node.scale` the free per-axis stretch on top, both honoured so the author can
+	 * over/under-cover and stretch. Width/height are the art's natural size and the
+	 * cover lives in the per-axis `scaleX`/`scaleY`, so the 2D draw (`width × scale`) +
+	 * box/hit-test math (`natural × scale`) reproduce the cover identically. Falls back
+	 * to the window size when the art dims aren't loaded so it never collapses to a
+	 * tiny offset sprite.
 	 */
 	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
 		const nat = naturalSize(node);
+		const stretch = backgroundCoverStretch(node);
 		const cover = coverTransform({
 			artWidth: nat?.w ?? frameWidth,
 			artHeight: nat?.h ?? frameHeight,
 			targetWidth: frameWidth,
 			targetHeight: frameHeight,
 			coverScale: backgroundCoverScale(node),
+			stretchX: stretch.x,
+			stretchY: stretch.y,
 			fit: backgroundFit(node),
 		});
 		return {
@@ -239,7 +244,7 @@
 			x: cover.x,
 			y: cover.y,
 			anchor: { x: 0.5, y: 0.5 },
-			scale: { x: cover.scale, y: cover.scale },
+			scale: { x: cover.scaleX, y: cover.scaleY },
 			rotation: 0,
 			width: nat?.w ?? frameWidth,
 			height: nat?.h ?? frameHeight,
@@ -355,9 +360,10 @@
 		const isCover = result.mode === 'cover';
 		const fit = isCover ? backgroundFit(node) : 'contain';
 		const coverScale = isCover ? backgroundCoverScale(node) : 1;
+		const stretch = isCover ? backgroundCoverStretch(node) : { x: 1, y: 1 };
 		const nat = artNaturalSize(node);
-		// `coverTransform` returns a uniform `scale` for art of natural size; this 2D
-		// path draws via explicit width/height, so multiply the natural dims by it.
+		// `coverTransform` returns per-axis scales for art of natural size; this 2D
+		// path draws via explicit width/height, so multiply the natural dims by them.
 		const artW = nat?.w ?? frameWidth;
 		const artH = nat?.h ?? frameHeight;
 		const cover = coverTransform({
@@ -366,10 +372,12 @@
 			targetWidth: frameWidth,
 			targetHeight: frameHeight,
 			coverScale,
+			stretchX: stretch.x,
+			stretchY: stretch.y,
 			fit,
 		});
-		const width = artW * cover.scale;
-		const height = artH * cover.scale;
+		const width = artW * cover.scaleX;
+		const height = artH * cover.scaleY;
 		// cover (full-bleed Background) ignores the offset — it stays non-draggable and
 		// pinned to the frame. contain (centred overlays) honours the draggable offset.
 		const applyOffset = fit === 'contain';

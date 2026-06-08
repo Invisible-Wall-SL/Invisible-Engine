@@ -10,7 +10,13 @@
 	import { UI, UiGameName, InfoOverlay } from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
-	import { registerBoundComponents, findReelGridNode } from 'engine-layout';
+	import {
+		registerBoundComponents,
+		findReelGridNode,
+		backgroundCoverScale,
+		backgroundCoverStretch,
+		backgroundFit,
+	} from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
 	import { setBoardOverride } from '../game/stateGame.svelte';
@@ -55,6 +61,24 @@
 	const hudBarScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudBar'));
 	const hudCornersScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudCorners'));
 
+	// Doc-driven background cover: the node in the `background` scene bound to the coded
+	// `Background` component (id `bg`). When present the editor's cover scale/fit/stretch
+	// drive the full-bleed background; absent → the component defaults to exact cover.
+	const bgNode = $derived(
+		editorDoc.scenes
+			.find((scene) => scene.id === 'background')
+			?.nodes.find((node) => node.id === 'bg' || node.bind?.component === 'Background'),
+	);
+	const backgroundCover = $derived(
+		bgNode
+			? {
+					scale: backgroundCoverScale(bgNode),
+					fit: backgroundFit(bgNode),
+					stretch: backgroundCoverStretch(bgNode),
+				}
+			: undefined,
+	);
+
 	const context = getContext();
 
 	onMount(() => {
@@ -78,7 +102,7 @@
 	<EnableGameActor />
 	<EnablePixiExtension />
 
-	<Background />
+	<Background cover={backgroundCover} />
 
 	{#if context.stateLayout.showLoadingScreen}
 		<LoadingScreen onloaded={() => (context.stateLayout.showLoadingScreen = false)} />

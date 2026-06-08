@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		backgroundCoverScale,
+		backgroundCoverStretch,
 		backgroundFit,
 		computeOverlayPlacement,
 		coverTransform,
@@ -239,9 +240,11 @@
 		 * the fixed window (game → main→window scale; background → full-bleed cover). */
 		space?: Scene['space'];
 		/** For `background` space: the node's doc-driven cover multiplier
-		 * (`backgroundCoverScale`, default 1) + cover fit (`backgroundFit`, default
-		 * `'cover'`) — the SAME canonical readers the game runtime + 2D canvas use. */
+		 * (`backgroundCoverScale`, default 1), per-axis stretch (`backgroundCoverStretch`,
+		 * default `{1,1}`) + cover fit (`backgroundFit`, default `'cover'`) — the SAME
+		 * canonical readers the game runtime + 2D canvas use. */
 		coverScale?: number;
+		stretch?: { x: number; y: number };
 		fit?: 'cover' | 'contain';
 	}
 
@@ -269,6 +272,7 @@
 						transform: t,
 						space: sc.space,
 						coverScale: backgroundCoverScale(n),
+						stretch: backgroundCoverStretch(n),
 						fit: backgroundFit(n),
 					});
 				} else {
@@ -284,9 +288,11 @@
 							placement: art.placement,
 							transform: t,
 							// A `cover`-placement anchor (the full-bleed Background bind) reads its
-							// doc-driven cover scale + fit from `preview.art.fit` / `scale.x` — the
-							// SAME canonical readers the game runtime + 2D canvas use.
+							// doc-driven cover scale + stretch + fit from `preview.art.fit` /
+							// `coverScale` / `scale` — the SAME canonical readers the game runtime +
+							// 2D canvas use.
 							coverScale: backgroundCoverScale(n),
+							stretch: backgroundCoverStretch(n),
 							fit: backgroundFit(n),
 						});
 					}
@@ -405,23 +411,33 @@
 				// the game's verbatim use of x/y for these canvas anchors. Offset 0 →
 				// identical to the Level-1 placement-only spot. cover stays pinned.
 				const off = target.placement === 'cover' ? { x: 0, y: 0 } : { x: t.x, y: t.y };
-				placeArt(inst, target.placement, off, target.coverScale ?? 1, target.fit ?? 'cover');
+				placeArt(
+					inst,
+					target.placement,
+					off,
+					target.coverScale ?? 1,
+					target.stretch ?? { x: 1, y: 1 },
+					target.fit ?? 'cover',
+				);
 			} else if (target.space === 'background') {
 				// Full-bleed cover of the fixed window (§10.2) — same true-cover helper the
 				// game runtime + 2D canvas use. Art is centred on the skeleton origin.
 				const nat = naturalSizeOf(inst);
+				const bgStretch = target.stretch ?? { x: 1, y: 1 };
 				const cover = coverTransform({
 					artWidth: nat?.w ?? frameWidth,
 					artHeight: nat?.h ?? frameHeight,
 					targetWidth: frameWidth,
 					targetHeight: frameHeight,
 					coverScale: target.coverScale ?? 1,
+					stretchX: bgStretch.x,
+					stretchY: bgStretch.y,
 					fit: target.fit ?? 'cover',
 				});
 				inst.skeleton.x = cover.x;
 				inst.skeleton.y = cover.y;
-				inst.skeleton.scaleX = cover.scale;
-				inst.skeleton.scaleY = -cover.scale;
+				inst.skeleton.scaleX = cover.scaleX;
+				inst.skeleton.scaleY = -cover.scaleY;
 			} else if (target.space === 'standard' || target.space === 'canvas') {
 				// standard == window (identity fit); canvas authors raw window coords.
 				const sx = t.scale?.x ?? 1;
@@ -481,6 +497,7 @@
 		placement: OverlayPlacement,
 		posOffset: { x: number; y: number },
 		coverScale: number,
+		stretch: { x: number; y: number },
 		fit: 'cover' | 'contain',
 	): void {
 		const nat = naturalSizeOf(inst);
@@ -550,19 +567,22 @@
 		// `coverScale 1` + `fit cover` is exact full-bleed. A `contain` placement (centred
 		// overlays) is always contain at scale 1.
 		const isCover = result.mode === 'cover';
-		const { scale: s } = coverTransform({
+		const { scaleX: sx, scaleY: sy } = coverTransform({
 			artWidth: bw,
 			artHeight: bh,
 			targetWidth: frameWidth,
 			targetHeight: frameHeight,
 			coverScale: isCover ? coverScale : 1,
+			stretchX: isCover ? stretch.x : 1,
+			stretchY: isCover ? stretch.y : 1,
 			fit: isCover ? fit : 'contain',
 		});
-		// cover ignores the offset (caller passes 0); contain adds it in world px.
-		inst.skeleton.x = frameWidth / 2 - s * cx + posOffset.x;
-		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;
-		inst.skeleton.scaleX = s;
-		inst.skeleton.scaleY = -s;
+		// cover ignores the offset (caller passes 0); contain adds it in world px. The
+		// bounds centre is scaled per-axis so a stretched cover stays centred.
+		inst.skeleton.x = frameWidth / 2 - sx * cx + posOffset.x;
+		inst.skeleton.y = frameHeight / 2 + sy * cy + posOffset.y;
+		inst.skeleton.scaleX = sx;
+		inst.skeleton.scaleY = -sy;
 	}
 
 	onMount(() => {

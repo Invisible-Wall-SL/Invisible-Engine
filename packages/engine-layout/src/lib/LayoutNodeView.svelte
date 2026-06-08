@@ -10,7 +10,7 @@
 
 	import { resolveTransform } from './resolveTransform';
 	import { getBoundComponent } from './registerBoundComponents';
-	import { backgroundCoverScale, backgroundFit } from './coverTransform';
+	import { backgroundCoverScale, backgroundCoverStretch, backgroundFit } from './coverTransform';
 	import ComponentInstance from './ComponentInstance.svelte';
 
 	const { node, space }: Props = $props();
@@ -45,16 +45,37 @@
 	// authored around its own origin, matching apps/lines `Background.svelte`.
 	const isBackground = $derived(space === 'background');
 	const bgCoverScale = $derived(backgroundCoverScale(node));
+	const bgStretch = $derived(backgroundCoverStretch(node));
 	const bgFit = $derived(backgroundFit(node));
+	// The sprite background reuses the ratio-based `normalBackgroundLayout` (it sets
+	// exactly ONE of width/height; the texture keeps aspect on the other axis). The
+	// free per-axis stretch multiplies the SET dimension by its own axis; the
+	// unconstrained (texture-natural) axis carries the other stretch through `scale`.
+	// PIXI's width/height setter only clobbers the matching scale axis, so the cross
+	// axis on `scale` survives — default stretch {1,1} is byte-identical to before.
 	const bg = $derived.by(() => {
 		if (!isBackground) return undefined;
 		const cover = layoutContext.stateLayoutDerived.normalBackgroundLayout({ scale: bgCoverScale });
-		if (bgFit === 'cover') return cover;
-		// `contain`: swap which axis is constrained so the art fits inside the canvas.
-		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
-		return cover.width !== undefined
-			? { x: cover.x, y: cover.y, height: canvasBox.height * bgCoverScale }
-			: { x: cover.x, y: cover.y, width: canvasBox.width * bgCoverScale };
+		const box =
+			bgFit === 'cover'
+				? cover
+				: (() => {
+						// `contain`: swap which axis is constrained so the art fits inside.
+						const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+						return cover.width !== undefined
+							? { x: cover.x, y: cover.y, height: canvasBox.height * bgCoverScale }
+							: { x: cover.x, y: cover.y, width: canvasBox.width * bgCoverScale };
+					})();
+		const hasWidth = (box as { width?: number }).width !== undefined;
+		return {
+			x: box.x,
+			y: box.y,
+			width: hasWidth ? (box as { width: number }).width * bgStretch.x : undefined,
+			height: !hasWidth ? (box as { height: number }).height * bgStretch.y : undefined,
+			// Stretch the texture-natural (unconstrained) axis via `scale`: the SET
+			// dimension already folds in its own stretch above.
+			scale: { x: hasWidth ? 1 : bgStretch.x, y: hasWidth ? bgStretch.y : 1 },
+		};
 	});
 
 	// A sized sprite/spine (explicit width/height) carries BOTH `width` and `scale`,
@@ -79,13 +100,17 @@
 
 	// A background SPINE covers via pixi-svelte's `fit`: feed the full canvas box on
 	// BOTH axes (× the cover multiplier) and the doc fit; `SpineProvider`/`spineSizeScale`
-	// turn that into a UNIFORM cover/contain from `skeleton.data` dims — true cover, no
-	// stretch — equalling `coverTransform` so the editor preview and the game agree.
+	// turn that into a UNIFORM cover/contain from `skeleton.data` dims — true cover —
+	// equalling `coverTransform` so the editor preview and the game agree. The free
+	// per-axis stretch rides on the `scale` prop, which `BaseSpineProvider` multiplies
+	// onto the `fit` scale (`spine.scale.set(baseX * sizeScale.x, …)`), so default
+	// stretch {1,1} is byte-identical to before.
 	const bgSpineBox = $derived.by(() => {
 		if (!isBackground) return undefined;
 		const c = layoutContext.stateLayoutDerived.canvasSizes();
 		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
 	});
+	const bgSpineScale = $derived(isBackground ? bgStretch : undefined);
 </script>
 
 {#if transform.visible}
@@ -119,7 +144,11 @@
 			zIndex={transform.zIndex}
 		>
 			{#if isBackground}
-				<Bound {transform} cover={{ scale: bgCoverScale, fit: bgFit }} {...node.bind?.props ?? {}} />
+				<Bound
+					{transform}
+					cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch }}
+					{...node.bind?.props ?? {}}
+				/>
 			{:else}
 				<Bound {transform} {...node.bind?.props ?? {}} />
 			{/if}
@@ -161,7 +190,7 @@
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
 			anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
-			scale={bg ? undefined : sizedScale}
+			scale={bg ? bg.scale : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
@@ -175,7 +204,7 @@
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
 			anchor={transform.anchor}
-			scale={bg ? undefined : sizedScale}
+			scale={bgSpineBox ? bgSpineScale : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}

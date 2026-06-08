@@ -43,6 +43,12 @@ interface BaseNode {
 	y: number;
 	anchor?: Point2D;
 	scale?: Point2D;
+	/**
+	 * Background cover-scale multiplier — a dedicated UNIFORM zoom on the fitted
+	 * cover (`1` = exact edge-to-edge cover). Independent of {@link BaseNode.scale},
+	 * which authors the free non-uniform STRETCH ratio on top. Absent = `1`.
+	 */
+	coverScale?: number;
 	rotation?: number;
 	alpha?: number;
 	zIndex?: number;
@@ -63,7 +69,8 @@ interface BaseNode {
 	 * Background cover fit (§10.4). Canonical fit for a plain `background`-SPACE
 	 * sprite/spine node — `'cover'` (default) fills the window edge-to-edge (may
 	 * crop), `'contain'` scales the art to fit INSIDE the window keeping aspect.
-	 * The cover *scale* multiplier lives in `scale.x` (1 = exact cover). For a
+	 * The cover *scale* multiplier lives in {@link BaseNode.coverScale} (1 = exact
+	 * cover); `scale.x`/`scale.y` author the free non-uniform stretch on top. For a
 	 * `bind` cover anchor (e.g. the animated Background) the canonical fit is read
 	 * from {@link BaseNode.preview}.art.fit instead — see `backgroundFit`. Both the
 	 * game runtime and the editor preview read fit + scale through one helper so the
@@ -285,10 +292,11 @@ export interface Scene {
 	 *   (the HUD bottom bar). Honours {@link Scene.align}.
 	 * - `canvas` — raw window; nodes use {@link BaseNode.screenAnchor}, rendered at
 	 *   the `<App>` root with no wrapper (the HUD corners — logo / game name).
-	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via the
-	 *   layout context's `normalBackgroundLayout`, the node's `scale.x` acting as
-	 *   the cover scale (defaults to 0.5, matching the coded `Background`). For a
-	 *   static background image/spine; animated multi-state crossfade stays coded.
+	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via true
+	 *   cover, the node's {@link BaseNode.coverScale} acting as the uniform cover
+	 *   multiplier (default 1 = exact edge-to-edge) and `scale.x`/`scale.y` as the
+	 *   free non-uniform stretch on top. For a static background image/spine;
+	 *   animated multi-state crossfade stays coded.
 	 * Additive — absent = `game`.
 	 */
 	space?: 'game' | 'standard' | 'canvas' | 'background';

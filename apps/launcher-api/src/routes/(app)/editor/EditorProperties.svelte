@@ -431,11 +431,12 @@
 	}
 
 	// ---------- background cover (§10.3 step 4) ----------
-	// Cover SCALE is the cover multiplier (= `node.scale.x`, written UNIFORM so the
-	// cover never skews). Cover FIT is the canonical fit read by every cover path:
+	// Cover SCALE is a dedicated UNIFORM zoom on the fitted cover (= `node.coverScale`,
+	// 1 = exact edge-to-edge), authored base-only like `fit`. The TRANSFORM panel's
+	// SCALE.X/SCALE.Y (= `node.scale`) author the free non-uniform STRETCH on top, so
+	// the two are independent. Cover FIT is the canonical fit read by every cover path:
 	// `preview.art.fit` for a `bind` preview-art anchor (the field those anchors
-	// already round-trip), else the node-level `fit`. Scale honours the desktop-vs-
-	// override discipline via `setScale`; fit is authored base-only.
+	// already round-trip), else the node-level `fit`.
 	const coverScaleValue = $derived(node ? backgroundCoverScale(node) : 1);
 	const coverFitValue = $derived(node ? backgroundFit(node) : 'cover');
 	/** True when the node carries an editor preview-art payload — its fit lives in
@@ -444,8 +445,8 @@
 
 	function setCoverScale(n: LayoutNode, value: number): void {
 		if (Number.isNaN(value)) return;
-		setScale(n, 'x', value);
-		setScale(n, 'y', value);
+		n.coverScale = value;
+		markDirty();
 	}
 	function setCoverFit(n: LayoutNode, value: 'cover' | 'contain'): void {
 		if (n.preview?.art) n.preview.art.fit = value;
@@ -842,7 +843,9 @@
 				</label>
 			</div>
 			<p class="muted small">
-				Multiplier on the cover — <strong>1</strong> = exact edge-to-edge.
+				Uniform zoom on the cover — <strong>1</strong> = exact edge-to-edge. Use
+				<strong>scale.x</strong> / <strong>scale.y</strong> in Transform to stretch it
+				(e.g. 1.0 × 1.2 = taller).
 				{#if usesPreviewArtFit}Fit is stored on the preview art.{/if}
 			</p>
 		</section>

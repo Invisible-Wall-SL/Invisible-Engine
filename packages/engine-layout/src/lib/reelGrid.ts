@@ -29,10 +29,17 @@ export function findReelGridNode(doc: LayoutDoc): ReelGridNode | undefined {
 }
 
 /**
- * Resolve a `reelGrid` node's layout for `layoutType` (position via
+ * Resolve a `reelGrid` node's layout for `layoutType` (position + size via
  * `resolveTransform`, so per-layoutType overrides apply). Defensive: a missing
  * or malformed node (non-finite `cellSize`) yields `undefined` so the game falls
  * back to its constants.
+ *
+ * The editor's drag-resize writes the node's transform `scale` (like every other
+ * node — the resize handles scale the footprint), NOT `cellSize`. The board scale
+ * is uniform, so fold that (uniform) transform scale INTO the effective cell size
+ * — "what you size in the editor is what the game shows". `scale {1,1}` (no
+ * resize) leaves `cellSize` untouched = byte-parity. A non-uniform scale isn't
+ * representable on a uniform board, so the horizontal axis (`scale.x`) wins.
  */
 export function resolveReelGridFromNode(
 	node: ReelGridNode | undefined,
@@ -41,7 +48,9 @@ export function resolveReelGridFromNode(
 	if (!node || !Number.isFinite(node.cellSize) || node.cellSize <= 0) return undefined;
 	const transform = resolveTransform(node, layoutType);
 	const reelPadding = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
-	return { x: transform.x, y: transform.y, cellSize: node.cellSize, reelPadding };
+	const scaleX = transform.scale?.x;
+	const cellScale = Number.isFinite(scaleX) && (scaleX as number) > 0 ? (scaleX as number) : 1;
+	return { x: transform.x, y: transform.y, cellSize: node.cellSize * cellScale, reelPadding };
 }
 
 /** Find + resolve in one step from a whole doc. */

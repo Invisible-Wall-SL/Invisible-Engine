@@ -6,9 +6,13 @@
  * Unlike `utils-layout`'s `createBackgroundLayout` — which drives the cover off a
  * configured `backgroundRatio` and so UNDER-covers when that ratio ≠ the art's real
  * aspect — this computes a TRUE cover from the art's authored dimensions: it scales
- * the art uniformly so it fully covers (cover) or fully fits inside (contain) the
- * target, then centres it. The result is edge-to-edge for `cover` regardless of how
+ * the art so it fully covers (cover) or fully fits inside (contain) the target, then
+ * centres it. The result is edge-to-edge for `cover` regardless of how
  * `backgroundRatio` is configured.
+ *
+ * The fitted scale is uniform; a dedicated `coverScale` multiplies it as a uniform
+ * zoom (1 = exact cover), and a per-axis `stretchX`/`stretchY` applies the free
+ * non-uniform stretch on top — so the returned scale is per-axis (`scaleX`/`scaleY`).
  *
  * Art dimensions: spine art uses `skeleton.data.width/height` (the authored size —
  * the same source the pixi-svelte spine-sizing fix reads); sprite art uses the
@@ -23,15 +27,21 @@ export interface CoverInput {
 	targetWidth: number;
 	/** Target box height. */
 	targetHeight: number;
-	/** Multiplier on the fitted scale (`1` = exact edge-to-edge cover). */
+	/** Uniform multiplier on the fitted scale (`1` = exact edge-to-edge cover). */
 	coverScale?: number;
+	/** Free horizontal stretch applied on top of the fitted cover scale (default 1). */
+	stretchX?: number;
+	/** Free vertical stretch applied on top of the fitted cover scale (default 1). */
+	stretchY?: number;
 	/** `cover` (default) fills the target (may crop); `contain` fits inside it. */
 	fit?: 'cover' | 'contain';
 }
 
 export interface CoverTransform {
-	/** Uniform scale to apply to the art. */
-	scale: number;
+	/** Horizontal scale to apply to the art (`fitScale * coverScale * stretchX`). */
+	scaleX: number;
+	/** Vertical scale to apply to the art (`fitScale * coverScale * stretchY`). */
+	scaleY: number;
 	/** Centre x of the target (the art is drawn centred on this). */
 	x: number;
 	/** Centre y of the target. */
@@ -40,8 +50,10 @@ export interface CoverTransform {
 
 /**
  * Compute a centred true-cover (or contain) transform for art of the given authored
- * dimensions over the given target box. Degenerate art (zero dims) falls back to a
- * unit scale centred on the target so a draw never collapses to nothing.
+ * dimensions over the given target box. The fitted scale is uniform; `coverScale`
+ * zooms it uniformly and `stretchX`/`stretchY` apply the free non-uniform stretch on
+ * top. Degenerate art (zero dims) falls back to `coverScale * stretch` centred on the
+ * target so a draw never collapses to nothing.
  */
 export function coverTransform({
 	artWidth,
@@ -49,42 +61,57 @@ export function coverTransform({
 	targetWidth,
 	targetHeight,
 	coverScale = 1,
+	stretchX = 1,
+	stretchY = 1,
 	fit = 'cover',
 }: CoverInput): CoverTransform {
 	const x = targetWidth / 2;
 	const y = targetHeight / 2;
 	if (!(artWidth > 0) || !(artHeight > 0)) {
-		return { scale: coverScale, x, y };
+		return { scaleX: coverScale * stretchX, scaleY: coverScale * stretchY, x, y };
 	}
 	const sx = targetWidth / artWidth;
 	const sy = targetHeight / artHeight;
-	const scale = (fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy)) * coverScale;
-	return { scale, x, y };
+	const fitScale = fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
+	return {
+		scaleX: fitScale * coverScale * stretchX,
+		scaleY: fitScale * coverScale * stretchY,
+		x,
+		y,
+	};
 }
 
 /**
- * Canonical readers for a background cover node's doc-driven cover **scale** and
- * **fit** (§10.3 step 4) — the SINGLE place every cover code path resolves them,
- * so the game runtime + all three editor cover paths agree:
+ * Canonical readers for a background cover node's doc-driven cover **scale**,
+ * **stretch** and **fit** (§10.3 step 4) — the SINGLE place every cover code path
+ * resolves them, so the game runtime + all three editor cover paths agree:
  *
- * - **cover scale** = `node.scale.x` (the cover multiplier; `1` = exact
- *   edge-to-edge cover). Uniform — `scale.y` is ignored for the cover.
+ * - **cover scale** = `node.coverScale` (the uniform cover multiplier; `1` = exact
+ *   edge-to-edge cover).
+ * - **cover stretch** = `{ x: node.scale.x, y: node.scale.y }` (the free per-axis
+ *   stretch applied on top of the fitted cover; default `{1, 1}`).
  * - **cover fit** = the node's `fit` field, with a `bind` preview-art anchor
  *   reading `preview.art.fit` instead (the field the editor already round-trips
  *   for those anchors). Default `'cover'`.
  *
  * `node` is typed loosely so this lives in the dependency-free cover module
- * (consumers pass a `LayoutNode`; only `scale`/`fit`/`preview` are read).
+ * (consumers pass a `LayoutNode`; only `coverScale`/`scale`/`fit`/`preview` are read).
  */
 interface BackgroundCoverNode {
+	coverScale?: number;
 	scale?: { x: number; y: number };
 	fit?: 'cover' | 'contain';
 	preview?: { art?: { fit?: 'cover' | 'contain' } };
 }
 
-/** The cover scale multiplier (`scale.x`, default `1` = exact edge-to-edge cover). */
+/** The uniform cover scale multiplier (`coverScale`, default `1` = exact edge-to-edge cover). */
 export function backgroundCoverScale(node: BackgroundCoverNode): number {
-	return node.scale?.x ?? 1;
+	return node.coverScale ?? 1;
+}
+
+/** The free per-axis cover stretch (`node.scale`, default `{ x: 1, y: 1 }`). */
+export function backgroundCoverStretch(node: BackgroundCoverNode): { x: number; y: number } {
+	return { x: node.scale?.x ?? 1, y: node.scale?.y ?? 1 };
 }
 
 /** The canonical cover fit — `preview.art.fit` for a bind anchor, else `node.fit`; default `'cover'`. */
