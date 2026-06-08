@@ -46,6 +46,15 @@ export function nodeBox(
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
 	}
+	// Reel grid selects at its full footprint: reels × rows cells of cellSize.
+	if (node.kind === 'reelGrid') {
+		return {
+			w: Math.max(1, Math.round(node.reels)) * node.cellSize,
+			h: Math.max(1, Math.round(node.rows)) * node.cellSize,
+			ax,
+			ay,
+		};
+	}
 	return { w: 160, h: 100, ax, ay };
 }
 

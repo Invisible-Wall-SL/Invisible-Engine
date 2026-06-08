@@ -231,12 +231,43 @@ export interface ComponentInstanceNode extends BaseNode {
 	params?: Record<string, unknown>;
 }
 
+/**
+ * Parametric reel/board grid — the "configurable grid primitive" of route B
+ * (see `docs/design/invisible-editor.md` §8.7). Exposes the board's existing
+ * layout parameters for visual editing: the editor draws a static placeholder
+ * grid of `reels × rows` cells of `cellSize` px so the author can position the
+ * board and dial its shape, standing in for the (coded) dynamic symbols.
+ *
+ * v1 is EDITOR-ONLY: the engine renders nothing for this kind (the real board
+ * still draws from the game's coded `Board.svelte`), so a doc carrying a
+ * `reelGrid` node is parity-safe in-game. A later phase makes the runtime board
+ * read these params. The fields mirror the game's board constants 1:1 —
+ * `reels`/`rows` = `BOARD_DIMENSIONS.x`/`.y`, `cellSize` = `SYMBOL_SIZE`,
+ * `reelPadding` = `REEL_PADDING`.
+ */
+export interface ReelGridNode extends BaseNode {
+	kind: 'reelGrid';
+	/** Number of reels (columns) — the game's `BOARD_DIMENSIONS.x`. */
+	reels: number;
+	/** Number of visible rows — the game's `BOARD_DIMENSIONS.y`. */
+	rows: number;
+	/** Square cell pitch in px — the game's `SYMBOL_SIZE`. */
+	cellSize: number;
+	/**
+	 * Horizontal symbol-centre inset factor — the game's `REEL_PADDING` (the
+	 * `getSymbolX` `cellSize * (reelIndex + reelPadding)` term). ≈0.5 = centred.
+	 * Absent = 0.5.
+	 */
+	reelPadding?: number;
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
 	| SpineNode
 	| TextNode
-	| ComponentInstanceNode;
+	| ComponentInstanceNode
+	| ReelGridNode;
 
 export interface Scene {
 	id: string;

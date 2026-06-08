@@ -991,6 +991,82 @@
 				</label>
 			</div>
 		</section>
+	{:else if node.kind === 'reelGrid'}
+		<section>
+			<h3>Reel grid</h3>
+			<p class="muted small">
+				Board layout params — `SYMBOL_SIZE` / `BOARD_DIMENSIONS` / `REEL_PADDING`. Editor preview
+				today; a later pass makes the in-game board read these. Position the grid with the
+				Transform section above.
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>reels (cols)</span>
+					<input
+						type="number"
+						step="1"
+						min="1"
+						value={node.reels}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.reels = Math.max(1, Math.round(v));
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>rows</span>
+					<input
+						type="number"
+						step="1"
+						min="1"
+						value={node.rows}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.rows = Math.max(1, Math.round(v));
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span>cell size</span>
+					<input
+						type="number"
+						step="1"
+						min="1"
+						value={node.cellSize}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v) && v > 0) {
+								node.cellSize = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>reel padding</span>
+					<input
+						type="number"
+						step="0.01"
+						value={node.reelPadding ?? 0.5}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.reelPadding = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+			</div>
+		</section>
 	{:else if node.kind === 'text'}
 		<section>
 			<h3>Text</h3>

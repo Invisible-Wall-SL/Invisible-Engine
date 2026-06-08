@@ -1248,9 +1248,48 @@
 				drawNode(ctx, child, sceneCtx, componentDepth, componentStack);
 		} else if (node.kind === 'componentInstance') {
 			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
+		} else if (node.kind === 'reelGrid') {
+			drawReelGrid(ctx, node, t);
 		}
 
 		ctx.restore();
+	}
+
+	/**
+	 * Draw the static placeholder for a `reelGrid` node: a `reels × rows` grid of
+	 * `cellSize` cells, centred per the node's anchor (drawn in the node's already-
+	 * scaled local space — drawNode applied the transform). This stands in for the
+	 * coded dynamic symbols so the author can position/shape the board. `reelPadding`
+	 * is editor-stored for the runtime (Phase 2); the footprint here is anchor-centred
+	 * and matches `nodeBox`, so selection lines up with what's drawn.
+	 */
+	function drawReelGrid(
+		ctx: CanvasRenderingContext2D,
+		node: Extract<LayoutNode, { kind: 'reelGrid' }>,
+		t: ResolvedTransform,
+	): void {
+		const reels = Math.max(1, Math.round(node.reels));
+		const rows = Math.max(1, Math.round(node.rows));
+		const cell = node.cellSize;
+		const w = reels * cell;
+		const h = rows * cell;
+		const left = -w * (t.anchor?.x ?? 0.5);
+		const top = -h * (t.anchor?.y ?? 0.5);
+
+		ctx.fillStyle = 'rgba(93, 176, 255, 0.06)';
+		ctx.fillRect(left, top, w, h);
+
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = 'rgba(93, 176, 255, 0.45)';
+		for (let i = 0; i < reels; i++) {
+			for (let j = 0; j < rows; j++) {
+				ctx.strokeRect(left + i * cell, top + j * cell, cell, cell);
+			}
+		}
+
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = '#5db0ff';
+		ctx.strokeRect(left, top, w, h);
 	}
 
 	/**

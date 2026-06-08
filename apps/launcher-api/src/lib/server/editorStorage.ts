@@ -18,6 +18,7 @@ const NODE_KINDS = new Set<LayoutNode['kind']>([
 	'spine',
 	'text',
 	'componentInstance',
+	'reelGrid',
 ]);
 
 /** Load a project's editor document, falling back to an empty valid `LayoutDoc`. */

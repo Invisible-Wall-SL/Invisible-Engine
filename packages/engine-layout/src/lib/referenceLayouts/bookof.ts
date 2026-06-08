@@ -38,6 +38,26 @@ const frameOverrides: Partial<Record<LayoutType, NodeOverride>> = {
 	portrait: frameCentre(MAIN_SIZES_MAP.portrait),
 };
 
+// Reel grid — the game's current board params (`SYMBOL_SIZE` / `BOARD_DIMENSIONS`
+// / `REEL_PADDING`). Centred in the main box exactly like `boardLayout()`
+// (`mainLayout().width/height * 0.5`), anchored centre. Editor-only in v1 (the
+// engine ignores the kind); the coded `Board.svelte` still renders the symbols.
+const SYMBOL_SIZE = 120;
+const REELS = 5;
+const ROWS = 3;
+const REEL_PADDING = 0.53;
+
+const boardCentre = (size: { width: number; height: number }) => ({
+	x: size.width * 0.5,
+	y: size.height * 0.5,
+});
+
+const reelGridOverrides: Partial<Record<LayoutType, NodeOverride>> = {
+	tablet: boardCentre(MAIN_SIZES_MAP.tablet),
+	landscape: boardCentre(MAIN_SIZES_MAP.landscape),
+	portrait: boardCentre(MAIN_SIZES_MAP.portrait),
+};
+
 export function bookofReferenceLayout(): LayoutDoc {
 	const centre = frameCentre(MAIN_SIZES_MAP.desktop);
 	return {
@@ -85,6 +105,20 @@ export function bookofReferenceLayout(): LayoutDoc {
 						width: FRAME_WIDTH,
 						height: FRAME_HEIGHT,
 						overrides: frameOverrides,
+					},
+					{
+						id: 'reel-grid',
+						label: 'Reel grid',
+						kind: 'reelGrid',
+						reels: REELS,
+						rows: ROWS,
+						cellSize: SYMBOL_SIZE,
+						reelPadding: REEL_PADDING,
+						anchor: ANCHOR_CENTER,
+						x: boardCentre(MAIN_SIZES_MAP.desktop).x,
+						y: boardCentre(MAIN_SIZES_MAP.desktop).y,
+						zIndex: 1,
+						overrides: reelGridOverrides,
 					},
 				],
 			},

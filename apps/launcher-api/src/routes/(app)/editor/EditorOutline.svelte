@@ -57,6 +57,8 @@
 				return '▦';
 			case 'componentInstance':
 				return '◇';
+			case 'reelGrid':
+				return '⊞';
 		}
 	}
 
