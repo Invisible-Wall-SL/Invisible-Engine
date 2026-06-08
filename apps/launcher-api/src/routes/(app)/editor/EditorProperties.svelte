@@ -5,12 +5,13 @@
 		defaultHudText,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
-		getHudTextOverride,
+		getEditableParams,
 		resolveTransform,
 		type ComponentDef,
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
+		type EditableParam,
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
@@ -132,80 +133,69 @@
 		return fam && !fontByName.has(fam) ? fam : '';
 	});
 
-	// ---- HUD text override (coded logo / game-name bind anchors) ----
-	// These are `container` bind anchors whose coded snippet renders text; the
-	// editor lets you override the font/size/fill + the label string via
-	// `bind.props` (read in-game by `<LayoutEditable>` → the snippet). Detected by
-	// the `preview.style: 'text'` hint the HUD reference layout tags them with.
-	const isHudText = $derived(
-		!!node && node.kind === 'container' && !!node.bind && node.preview?.style === 'text',
+	// ---- Universal bound-component params (auto-rendered from the engine schema) ----
+	// Any `container` bind anchor whose `bind.component` has an editable-param schema
+	// (engine `BOUND_COMPONENT_PARAMS`) gets these controls; each writes to the node's
+	// `bind.props` (top-level, or nested `style` for `group:'style'`), which flows to
+	// the coded component in-game. This subsumes the old bespoke "HUD text" override
+	// (font/size/fill/label) and adds button tint — placement/visibility stay on the
+	// transform section above (already universal).
+	const editableParams = $derived<EditableParam[]>(
+		node && node.kind === 'container' && node.bind ? getEditableParams(node.bind.component) : [],
 	);
-	const hudOverride = $derived(node ? getHudTextOverride(node) : undefined);
-	/** The default label for this HUD anchor — shown as the LABEL TEXT placeholder so
-	 * the empty field matches what renders on the canvas. The game-name defaults to
-	 * the project's display name (what the game injects), else the shared default. */
+	/** Default label for a HUD text anchor — the LABEL TEXT placeholder, so the empty
+	 * field matches what renders (game-name defaults to the project display name). */
 	const hudDefaultText = $derived.by(() => {
 		if (!node || node.kind !== 'container') return '';
 		const component = node.bind?.component;
 		if (component === 'HudGameName' && projectGameName) return projectGameName;
 		return defaultHudText(component) ?? '';
 	});
-	const isHudBitmap = $derived(
-		(hudOverride?.style?.fontFamily &&
-			fontByName.get(hudOverride.style.fontFamily)?.kind === 'bitmap') ||
-			false,
-	);
-	const hudCustomFamily = $derived.by(() => {
-		const fam = hudOverride?.style?.fontFamily ?? '';
-		return fam && !fontByName.has(fam) ? fam : '';
-	});
 
-	function ensureHudProps(n: LayoutNode): Record<string, unknown> {
+	function ensureProps(n: LayoutNode): Record<string, unknown> {
 		if (n.kind !== 'container' || !n.bind) return {};
 		if (!n.bind.props) n.bind.props = {};
 		return n.bind.props as Record<string, unknown>;
 	}
-	function ensureHudStyle(n: LayoutNode): Record<string, unknown> {
-		const props = ensureHudProps(n);
+	function ensureStyle(n: LayoutNode): Record<string, unknown> {
+		const props = ensureProps(n);
 		if (!props.style || typeof props.style !== 'object') props.style = {};
 		return props.style as Record<string, unknown>;
 	}
-	/** Set the override label string; empty clears it (falls back to the coded name). */
-	function setHudText(n: LayoutNode, value: string): void {
-		const props = ensureHudProps(n);
-		const trimmed = value.trim();
-		if (trimmed) props.text = trimmed;
-		else delete props.text;
-		markDirty();
-	}
-	function setHudFontFamily(n: LayoutNode, value: string): void {
-		const s = ensureHudStyle(n);
-		const trimmed = value.trim();
-		if (trimmed) s.fontFamily = trimmed;
-		else delete s.fontFamily;
-		pruneHudStyle(n);
-		markDirty();
-	}
-	function setHudFontSize(n: LayoutNode, value: number): void {
-		const s = ensureHudStyle(n);
-		if (Number.isNaN(value)) delete s.fontSize;
-		else s.fontSize = value;
-		pruneHudStyle(n);
-		markDirty();
-	}
-	function setHudFill(n: LayoutNode, hex: string): void {
-		const value = parseHex(hex);
-		if (value === undefined) return;
-		ensureHudStyle(n).fill = value;
-		markDirty();
-	}
 	/** Drop an emptied `style` (and `bind.props`) so the saved doc stays clean. */
-	function pruneHudStyle(n: LayoutNode): void {
+	function pruneProps(n: LayoutNode): void {
 		if (n.kind !== 'container' || !n.bind?.props) return;
 		const props = n.bind.props as Record<string, unknown>;
 		const s = props.style as Record<string, unknown> | undefined;
 		if (s && Object.keys(s).length === 0) delete props.style;
 		if (Object.keys(props).length === 0) delete n.bind.props;
+	}
+	/** Read a param's current value from `bind.props` (top-level or nested `style`). */
+	function readParam(n: LayoutNode | null, p: EditableParam): unknown {
+		const props = n?.bind?.props as Record<string, unknown> | undefined;
+		if (!props) return undefined;
+		if (p.group === 'style') return (props.style as Record<string, unknown> | undefined)?.[p.key];
+		return props[p.key];
+	}
+	/** Write (or clear, when `undefined`) a param value at its `bind.props` location. */
+	function writeParam(n: LayoutNode, p: EditableParam, value: unknown): void {
+		const bucket = p.group === 'style' ? ensureStyle(n) : ensureProps(n);
+		if (value === undefined || value === '') delete bucket[p.key];
+		else bucket[p.key] = value;
+		pruneProps(n);
+		markDirty();
+	}
+	/** Colour control: empty clears; a malformed hex is a no-op (don't wipe on a half-type). */
+	function writeColorParam(n: LayoutNode, p: EditableParam, hex: string): void {
+		const trimmed = hex.trim();
+		if (!trimmed) return writeParam(n, p, undefined);
+		const value = parseHex(trimmed);
+		if (value !== undefined) writeParam(n, p, value);
+	}
+	/** A current font family the catalog doesn't list — kept as a "(custom)" option. */
+	function paramFontCustom(n: LayoutNode | null, p: EditableParam): string {
+		const fam = readParam(n, p);
+		return typeof fam === 'string' && fam && !fontByName.has(fam) ? fam : '';
 	}
 
 	const overrideKeys = [
@@ -858,70 +848,77 @@
 		</section>
 	{/if}
 
-	{#if isHudText}
+	{#if editableParams.length > 0}
 		<section>
-			<h3>HUD text</h3>
+			<h3>{node.label ?? 'Component'} — params</h3>
 			<p class="muted small">
-				Coded HUD element — override its label + font here (placement is the transform above).
+				Coded element — edit its appearance here. Placement, scale + visibility are the transform
+				above.
 			</p>
-			<div class="row">
-				<label class="field wide">
-					<span>label text</span>
-					<input
-						type="text"
-						placeholder={hudDefaultText || '(coded default)'}
-						value={hudOverride?.text ?? ''}
-						oninput={(e) => setHudText(node, e.currentTarget.value)}
-					/>
-				</label>
-			</div>
-			<div class="row">
-				<label class="field wide">
-					<span>font family</span>
-					<select
-						value={hudOverride?.style?.fontFamily ?? ''}
-						onchange={(e) => setHudFontFamily(node, e.currentTarget.value)}
-					>
-						<option value="">(coded default)</option>
-						{#each fontList as f (f.id)}
-							<option value={f.name}>{f.name} [{f.kind}]</option>
-						{/each}
-						{#if hudCustomFamily}
-							<option value={hudCustomFamily}>{hudCustomFamily} (custom)</option>
+			{#each editableParams as p (p.key)}
+				<div class="row">
+					<label class="field wide">
+						<span>{p.label}</span>
+						{#if p.kind === 'font'}
+							{@const custom = paramFontCustom(node, p)}
+							<select
+								value={(readParam(node, p) as string) ?? ''}
+								onchange={(e) => writeParam(node, p, e.currentTarget.value)}
+							>
+								<option value="">(coded default)</option>
+								{#each fontList as f (f.id)}
+									<option value={f.name}>{f.name} [{f.kind}]</option>
+								{/each}
+								{#if custom}
+									<option value={custom}>{custom} (custom)</option>
+								{/if}
+							</select>
+						{:else if p.kind === 'number'}
+							<input
+								type="number"
+								step="1"
+								placeholder={p.placeholder ?? '(default)'}
+								value={(readParam(node, p) as number) ?? ''}
+								oninput={(e) =>
+									writeParam(
+										node,
+										p,
+										Number.isNaN(e.currentTarget.valueAsNumber)
+											? undefined
+											: e.currentTarget.valueAsNumber,
+									)}
+							/>
+						{:else if p.kind === 'color'}
+							{@const cv = readParam(node, p)}
+							<input
+								type="text"
+								placeholder="#ffffff"
+								value={cv !== undefined ? hexFrom(cv as number) : ''}
+								onchange={(e) => writeColorParam(node, p, e.currentTarget.value)}
+							/>
+						{:else if p.kind === 'boolean'}
+							<input
+								type="checkbox"
+								checked={!!readParam(node, p)}
+								onchange={(e) => writeParam(node, p, e.currentTarget.checked ? true : undefined)}
+							/>
+						{:else}
+							<input
+								type="text"
+								placeholder={p.key === 'text'
+									? hudDefaultText || '(coded default)'
+									: (p.placeholder ?? '')}
+								value={(readParam(node, p) as string) ?? ''}
+								oninput={(e) => writeParam(node, p, e.currentTarget.value)}
+							/>
 						{/if}
-					</select>
-				</label>
-			</div>
-			{#if fontList.length === 0}
+					</label>
+				</div>
+			{/each}
+			{#if editableParams.some((p) => p.kind === 'font') && fontList.length === 0}
 				<p class="muted small">
 					No fonts synced for this project — run <code>scripts/r2-sync-fonts.mjs</code> to populate the
 					catalog.
-				</p>
-			{/if}
-			<div class="row">
-				<label class="field">
-					<span>font size</span>
-					<input
-						type="number"
-						step="1"
-						placeholder="(default)"
-						value={hudOverride?.style?.fontSize ?? ''}
-						oninput={(e) => setHudFontSize(node, e.currentTarget.valueAsNumber)}
-					/>
-				</label>
-				<label class="field">
-					<span>{isHudBitmap ? 'tint' : 'fill'}</span>
-					<input
-						type="text"
-						placeholder="#ffffff"
-						value={hudOverride?.style?.fill !== undefined ? hexFrom(hudOverride.style.fill) : ''}
-						onchange={(e) => setHudFill(node, e.currentTarget.value)}
-					/>
-				</label>
-			</div>
-			{#if isHudBitmap}
-				<p class="muted small">
-					Bitmap font: tint + size only (the baked atlas softens when scaled up).
 				</p>
 			{/if}
 		</section>

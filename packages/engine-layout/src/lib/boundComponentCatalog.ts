@@ -110,6 +110,74 @@ export function boundComponentDefault(name: string): BoundComponentDefault | und
 }
 
 /**
+ * One editable parameter a coded (bound) component exposes to the editor — the
+ * UNIVERSAL generalization of the per-component appearance knob (it subsumes the
+ * bespoke HUD-text override in `hudText.ts`). The editor auto-renders a control
+ * per entry and persists the value to the anchor's `bind.props`, which already
+ * flows to the component at runtime (`LayoutNodeView`/`LayoutEditable` spread
+ * `bind.props`). PLACEMENT (x/y/scale/rotation) and VISIBILITY stay on the node
+ * transform — they're already universal — so they are NOT params here.
+ *
+ * `group: 'style'` nests the value under `bind.props.style` (a `Partial<TextStyle>`,
+ * matching {@link HudTextOverride}); otherwise it's a top-level `bind.props` key.
+ * The component must consume the prop it declares (the "implement" half) — e.g.
+ * a label merges `style`, a button reads `tint`. Declaring a param the component
+ * doesn't yet read is harmless (no-op in-game) — opt-in per component.
+ */
+export interface EditableParam {
+	/** The `bind.props` key (or `bind.props.style` key when `group: 'style'`). */
+	key: string;
+	kind: 'number' | 'color' | 'boolean' | 'string' | 'font';
+	label: string;
+	/** Nest under `bind.props.style` (text styling) vs. a top-level `bind.props` key. */
+	group?: 'style';
+	/** Shown as the control placeholder (e.g. the coded default the empty field falls back to). */
+	placeholder?: string;
+}
+
+// Text styling knobs (font/size/colour) shared by every HUD text element.
+const TEXT_STYLE_PARAMS: EditableParam[] = [
+	{ key: 'fontFamily', kind: 'font', label: 'Font', group: 'style' },
+	{ key: 'fontSize', kind: 'number', label: 'Font size', group: 'style' },
+	{ key: 'fill', kind: 'color', label: 'Colour', group: 'style' },
+];
+// Logo / game-name: an editable label string on top of the style knobs.
+const HUD_TEXT_PARAMS: EditableParam[] = [
+	{ key: 'text', kind: 'string', label: 'Label text', placeholder: '(coded default)' },
+	...TEXT_STYLE_PARAMS,
+];
+// Buttons: a recolour tint (the icon/background tint the coded button reads).
+const BUTTON_PARAMS: EditableParam[] = [{ key: 'tint', kind: 'color', label: 'Tint' }];
+
+/**
+ * Editable-param schema per coded component, keyed by the SAME name written into
+ * `bind.component`. The editor reads this to auto-render the param controls. Add a
+ * component here (+ wire it to read the prop) to make it editor-configurable.
+ */
+export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
+	// HUD corner text (already consumed by the game's gameName/logo snippets).
+	HudGameName: HUD_TEXT_PARAMS,
+	HudLogo: HUD_TEXT_PARAMS,
+	// HUD bottom-bar labels — the live VALUE stays coded (§9.2); style is editable.
+	UiLabelBalance: TEXT_STYLE_PARAMS,
+	UiLabelWin: TEXT_STYLE_PARAMS,
+	UiLabelBet: TEXT_STYLE_PARAMS,
+	// HUD button cluster — recolour tint.
+	UiButtonMenu: BUTTON_PARAMS,
+	UiButtonBuyBonus: BUTTON_PARAMS,
+	UiButtonAutoSpin: BUTTON_PARAMS,
+	UiButtonBet: BUTTON_PARAMS,
+	UiButtonTurbo: BUTTON_PARAMS,
+	UiButtonDecrease: BUTTON_PARAMS,
+	UiButtonIncrease: BUTTON_PARAMS,
+};
+
+/** The editable-param schema for a coded component name (empty when none/unknown). */
+export function getEditableParams(name: string | undefined): EditableParam[] {
+	return name ? (BOUND_COMPONENT_PARAMS[name] ?? []) : [];
+}
+
+/**
  * The render-ready preview art shape both editor draw paths (the 2D canvas and the
  * spine WebGL overlay) already consume — i.e. what a node's `preview.art` is. The
  * resolver below produces this from the catalog so the two paths agree on ONE art.
