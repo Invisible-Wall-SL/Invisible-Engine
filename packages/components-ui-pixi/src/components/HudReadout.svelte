@@ -77,7 +77,10 @@
 
 	// Count-up via the SAME `svelte/motion` Tween primitive `LabelWin` uses (no GSAP
 	// dep). `countUp` off ⇒ snap (`duration: 0`), so balance/bet behave as today.
-	const valueTween = new Tween(liveValue ?? 0, { duration: 0 });
+	// Init to a literal 0 (not the `$derived` `liveValue`, which is `undefined` at
+	// init anyway and trips Svelte's `state_referenced_locally`); the effect below
+	// immediately sets it to the live value.
+	const valueTween = new Tween(0, { duration: 0 });
 	$effect(() => {
 		valueTween.set(liveValue ?? 0, { duration: countUp ? 500 : 0 });
 	});
