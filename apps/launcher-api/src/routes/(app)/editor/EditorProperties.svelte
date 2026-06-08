@@ -1,5 +1,7 @@
 <script lang="ts">
 	import {
+		backgroundCoverScale,
+		backgroundFit,
 		defaultHudText,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
@@ -32,6 +34,11 @@
 		sceneSlots?: { slotId: string; name: string; kind: string }[];
 		/** Project display name — the HUD game-name default (shown as the placeholder). */
 		projectGameName?: string | null;
+		/** The selected node is a full-bleed background COVER node (§10.3 step 4) — a
+		 * `background`-space sprite/spine, or a `cover`-placement bind anchor. Reveals
+		 * the "Background" section (cover scale + fit). Computed by the page (it knows the
+		 * active scene's space + can resolve the anchor's preview art). */
+		isBackgroundCover?: boolean;
 		/** Component-authoring mode (§8.4): reveal the component-level params/signals
 		 * declaration UI (component metadata, not per-node). */
 		componentMode?: boolean;
@@ -60,6 +67,7 @@
 		onSlotRequiredChange,
 		sceneSlots = [],
 		projectGameName = null,
+		isBackgroundCover = false,
 		componentMode = false,
 		componentParams = [],
 		componentSignals = [],
@@ -427,6 +435,29 @@
 		else n.style.dropShadow[key] = value;
 		markDirty();
 	}
+
+	// ---------- background cover (§10.3 step 4) ----------
+	// Cover SCALE is the cover multiplier (= `node.scale.x`, written UNIFORM so the
+	// cover never skews). Cover FIT is the canonical fit read by every cover path:
+	// `preview.art.fit` for a `bind` preview-art anchor (the field those anchors
+	// already round-trip), else the node-level `fit`. Scale honours the desktop-vs-
+	// override discipline via `setScale`; fit is authored base-only.
+	const coverScaleValue = $derived(node ? backgroundCoverScale(node) : 1);
+	const coverFitValue = $derived(node ? backgroundFit(node) : 'cover');
+	/** True when the node carries an editor preview-art payload — its fit lives in
+	 * `preview.art.fit`; otherwise fit lives in the node-level `fit` field. */
+	const usesPreviewArtFit = $derived(!!node?.preview?.art);
+
+	function setCoverScale(n: LayoutNode, value: number): void {
+		if (Number.isNaN(value)) return;
+		setScale(n, 'x', value);
+		setScale(n, 'y', value);
+	}
+	function setCoverFit(n: LayoutNode, value: 'cover' | 'contain'): void {
+		if (n.preview?.art) n.preview.art.fit = value;
+		else n.fit = value;
+		markDirty();
+	}
 </script>
 
 {#if componentMode}
@@ -777,6 +808,42 @@
 			</label>
 		</div>
 	</section>
+
+	{#if isBackgroundCover}
+		<section class="bg-section">
+			<h3>Background</h3>
+			<p class="muted small">
+				Full-bleed cover of the game window. Edit the cover here — it stays non-draggable.
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>cover scale</span>
+					<input
+						type="number"
+						step="0.05"
+						min="0.1"
+						max="4"
+						value={coverScaleValue}
+						oninput={(e) => setCoverScale(node, e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>fit</span>
+					<select
+						value={coverFitValue}
+						onchange={(e) => setCoverFit(node, e.currentTarget.value as 'cover' | 'contain')}
+					>
+						<option value="cover">cover (fill, may crop)</option>
+						<option value="contain">contain (fit inside)</option>
+					</select>
+				</label>
+			</div>
+			<p class="muted small">
+				Multiplier on the cover — <strong>1</strong> = exact edge-to-edge.
+				{#if usesPreviewArtFit}Fit is stored on the preview art.{/if}
+			</p>
+		</section>
+	{/if}
 
 	{#if isHudText}
 		<section>
@@ -1369,6 +1436,15 @@
 	}
 	.slot-section h3 {
 		color: #c8a3ff;
+	}
+	.bg-section {
+		padding: 10px;
+		border: 1px solid #243329;
+		border-radius: 8px;
+		background: #131c16;
+	}
+	.bg-section h3 {
+		color: #7ee0c0;
 	}
 	.slot-hint {
 		margin: 4px 0 0;

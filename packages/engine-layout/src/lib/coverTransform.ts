@@ -61,3 +61,33 @@ export function coverTransform({
 	const scale = (fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy)) * coverScale;
 	return { scale, x, y };
 }
+
+/**
+ * Canonical readers for a background cover node's doc-driven cover **scale** and
+ * **fit** (§10.3 step 4) — the SINGLE place every cover code path resolves them,
+ * so the game runtime + all three editor cover paths agree:
+ *
+ * - **cover scale** = `node.scale.x` (the cover multiplier; `1` = exact
+ *   edge-to-edge cover). Uniform — `scale.y` is ignored for the cover.
+ * - **cover fit** = the node's `fit` field, with a `bind` preview-art anchor
+ *   reading `preview.art.fit` instead (the field the editor already round-trips
+ *   for those anchors). Default `'cover'`.
+ *
+ * `node` is typed loosely so this lives in the dependency-free cover module
+ * (consumers pass a `LayoutNode`; only `scale`/`fit`/`preview` are read).
+ */
+interface BackgroundCoverNode {
+	scale?: { x: number; y: number };
+	fit?: 'cover' | 'contain';
+	preview?: { art?: { fit?: 'cover' | 'contain' } };
+}
+
+/** The cover scale multiplier (`scale.x`, default `1` = exact edge-to-edge cover). */
+export function backgroundCoverScale(node: BackgroundCoverNode): number {
+	return node.scale?.x ?? 1;
+}
+
+/** The canonical cover fit — `preview.art.fit` for a bind anchor, else `node.fit`; default `'cover'`. */
+export function backgroundFit(node: BackgroundCoverNode): 'cover' | 'contain' {
+	return node.preview?.art?.fit ?? node.fit ?? 'cover';
+}

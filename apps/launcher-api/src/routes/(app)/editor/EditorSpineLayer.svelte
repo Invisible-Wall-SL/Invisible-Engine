@@ -1,5 +1,7 @@
 <script lang="ts">
 	import {
+		backgroundCoverScale,
+		backgroundFit,
 		computeOverlayPlacement,
 		coverTransform,
 		resolveAnchorPreviewArt,
@@ -236,8 +238,11 @@
 		/** The owning scene's coordinate space — drives the non-placement mapping into
 		 * the fixed window (game → main→window scale; background → full-bleed cover). */
 		space?: Scene['space'];
-		/** For `background` space: the node's cover multiplier (`scale.x`, default 1). */
+		/** For `background` space: the node's doc-driven cover multiplier
+		 * (`backgroundCoverScale`, default 1) + cover fit (`backgroundFit`, default
+		 * `'cover'`) — the SAME canonical readers the game runtime + 2D canvas use. */
 		coverScale?: number;
+		fit?: 'cover' | 'contain';
 	}
 
 	/** Visible spine render targets in this scene: real spine nodes + `preview.art`
@@ -263,7 +268,8 @@
 						placement: undefined,
 						transform: t,
 						space: sc.space,
-						coverScale: n.scale?.x ?? 1,
+						coverScale: backgroundCoverScale(n),
+						fit: backgroundFit(n),
 					});
 				} else {
 					// Resolve the anchor's stand-in art the SAME way the 2D canvas does
@@ -277,6 +283,11 @@
 							loop: true,
 							placement: art.placement,
 							transform: t,
+							// A `cover`-placement anchor (the full-bleed Background bind) reads its
+							// doc-driven cover scale + fit from `preview.art.fit` / `scale.x` — the
+							// SAME canonical readers the game runtime + 2D canvas use.
+							coverScale: backgroundCoverScale(n),
+							fit: backgroundFit(n),
 						});
 					}
 				}
@@ -394,7 +405,7 @@
 				// the game's verbatim use of x/y for these canvas anchors. Offset 0 →
 				// identical to the Level-1 placement-only spot. cover stays pinned.
 				const off = target.placement === 'cover' ? { x: 0, y: 0 } : { x: t.x, y: t.y };
-				placeArt(inst, target.placement, off, target.nodeId);
+				placeArt(inst, target.placement, off, target.coverScale ?? 1, target.fit ?? 'cover');
 			} else if (target.space === 'background') {
 				// Full-bleed cover of the fixed window (§10.2) — same true-cover helper the
 				// game runtime + 2D canvas use. Art is centred on the skeleton origin.
@@ -405,7 +416,7 @@
 					targetWidth: frameWidth,
 					targetHeight: frameHeight,
 					coverScale: target.coverScale ?? 1,
-					fit: 'cover',
+					fit: target.fit ?? 'cover',
 				});
 				inst.skeleton.x = cover.x;
 				inst.skeleton.y = cover.y;
@@ -469,6 +480,8 @@
 		inst: SpineInstance,
 		placement: OverlayPlacement,
 		posOffset: { x: number; y: number },
+		coverScale: number,
+		fit: 'cover' | 'contain',
 	): void {
 		const nat = naturalSizeOf(inst);
 		const offset = { x: 0, y: 0 };
@@ -531,15 +544,19 @@
 			inst.skeleton.scaleY = -s;
 			return;
 		}
-		// cover/contain sized to the fixed WINDOW via the shared true-cover helper
-		// (coverScale 1 = exact full-bleed cover, matching the game's background).
+		// cover/contain sized to the fixed WINDOW via the shared true-cover helper. A
+		// `cover` placement (the full-bleed Background) reads the node's DOC-DRIVEN cover
+		// scale + fit (§10.3 step 4) — unified with the 2D canvas + the game runtime;
+		// `coverScale 1` + `fit cover` is exact full-bleed. A `contain` placement (centred
+		// overlays) is always contain at scale 1.
+		const isCover = result.mode === 'cover';
 		const { scale: s } = coverTransform({
 			artWidth: bw,
 			artHeight: bh,
 			targetWidth: frameWidth,
 			targetHeight: frameHeight,
-			coverScale: 1,
-			fit: result.mode === 'cover' ? 'cover' : 'contain',
+			coverScale: isCover ? coverScale : 1,
+			fit: isCover ? fit : 'contain',
 		});
 		// cover ignores the offset (caller passes 0); contain adds it in world px.
 		inst.skeleton.x = frameWidth / 2 - s * cx + posOffset.x;

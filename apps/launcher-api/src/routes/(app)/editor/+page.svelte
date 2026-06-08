@@ -8,6 +8,7 @@
 		isHudScene,
 		listReferenceLayouts,
 		mountAnchor,
+		resolveAnchorPreviewArt,
 		seedScenesFromTemplate,
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
@@ -307,6 +308,23 @@
 	const selectedNode = $derived(
 		selectedId && editScene ? findById(editScene.nodes, selectedId) : null,
 	);
+
+	/** Is the selected node a full-bleed background COVER node (§10.3 step 4)? Mirrors
+	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/spine node, OR a
+	 * `bind` anchor whose resolved preview art is a `cover` placement (the full-bleed
+	 * Background). Drives the Properties "Background" cover section (scale + fit). */
+	const isBackgroundCoverSelected = $derived.by(() => {
+		const node = selectedNode;
+		if (!node) return false;
+		// A `bind` preview-art anchor whose default placement is `cover` (the full-bleed
+		// Background). Also keep the section open once the author has switched its fit to
+		// `contain` — that flips the resolved placement away from `cover`, so detect the
+		// stored `preview.art.fit` too (else the control would vanish + trap the choice).
+		const art = resolveAnchorPreviewArt(node, data.assets);
+		if (art && art.placement === 'cover') return true;
+		if (node.preview?.art?.fit) return true;
+		return activeScene?.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
+	});
 
 	const sceneCount = $derived(scenes.length);
 	// The Screens list groups the HUD screens (bottom bar + corners) into their own
@@ -1468,6 +1486,7 @@
 				{slotMeta}
 				sceneSlots={activeSceneSlots}
 				projectGameName={data.gameName}
+				isBackgroundCover={isBackgroundCoverSelected}
 				instanceComponent={selectedNode?.kind === 'componentInstance'
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}

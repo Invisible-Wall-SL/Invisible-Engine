@@ -1,5 +1,7 @@
 <script lang="ts">
 	import {
+		backgroundCoverScale,
+		backgroundFit,
 		boundComponentDefault,
 		computeOverlayPlacement,
 		coverTransform,
@@ -223,15 +225,14 @@
 	 * art dims aren't loaded so it never collapses to a tiny offset sprite.
 	 */
 	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
-		const coverScale = node.scale?.x ?? 1;
 		const nat = naturalSize(node);
 		const cover = coverTransform({
 			artWidth: nat?.w ?? frameWidth,
 			artHeight: nat?.h ?? frameHeight,
 			targetWidth: frameWidth,
 			targetHeight: frameHeight,
-			coverScale,
-			fit: 'cover',
+			coverScale: backgroundCoverScale(node),
+			fit: backgroundFit(node),
 		});
 		return {
 			...t,
@@ -346,26 +347,29 @@
 				height: drawH,
 			};
 		}
-		// cover / contain: centred, sized to the frame by the art's natural aspect.
-		const fit = result.mode === 'cover' ? 'cover' : 'contain';
+		// cover / contain: centred, sized to the WINDOW via the shared `coverTransform`
+		// — the SAME true-cover helper the game runtime + the spine overlay use. The
+		// cover placement reads the node's DOC-DRIVEN fit + cover scale (§10.3 step 4)
+		// so this 2D path stays unified with `backgroundTransform` + the spine layer;
+		// the contain placement (centred overlays) is always contain at scale 1.
+		const isCover = result.mode === 'cover';
+		const fit = isCover ? backgroundFit(node) : 'contain';
+		const coverScale = isCover ? backgroundCoverScale(node) : 1;
 		const nat = artNaturalSize(node);
-		const frameRatio = frameWidth / (frameHeight || 1);
-		const artRatio = nat ? nat.w / (nat.h || 1) : frameRatio;
-		let width: number;
-		let height: number;
-		if (fit === 'cover') {
-			// Drive by the dimension that would otherwise leave a gap: width-driven
-			// when the art is relatively narrower than the frame (its height overflows).
-			const widthDriven = artRatio <= frameRatio;
-			width = widthDriven ? frameWidth : frameHeight * artRatio;
-			height = widthDriven ? frameWidth / artRatio : frameHeight;
-		} else {
-			// Contain: drive by the dimension that hits the frame edge first → the
-			// art fits inside. width-driven when the art is relatively wider.
-			const widthDriven = artRatio >= frameRatio;
-			width = widthDriven ? frameWidth : frameHeight * artRatio;
-			height = widthDriven ? frameWidth / artRatio : frameHeight;
-		}
+		// `coverTransform` returns a uniform `scale` for art of natural size; this 2D
+		// path draws via explicit width/height, so multiply the natural dims by it.
+		const artW = nat?.w ?? frameWidth;
+		const artH = nat?.h ?? frameHeight;
+		const cover = coverTransform({
+			artWidth: artW,
+			artHeight: artH,
+			targetWidth: frameWidth,
+			targetHeight: frameHeight,
+			coverScale,
+			fit,
+		});
+		const width = artW * cover.scale;
+		const height = artH * cover.scale;
 		// cover (full-bleed Background) ignores the offset — it stays non-draggable and
 		// pinned to the frame. contain (centred overlays) honours the draggable offset.
 		const applyOffset = fit === 'contain';
