@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
+import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { listComponents } from '$lib/server/componentStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -29,14 +30,17 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		throw error(403, 'Your role does not have access to the Invisible Component Editor.');
 	}
 	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
-	const [components, assets] = await Promise.all([
+	const [components, assets, componentDefaults] = await Promise.all([
 		// Components the project can use (shared + project, project shadowing shared, §8.3).
 		listComponents({ projectKey }),
 		listProjectAssets(clientKey, projectKey),
+		// Per-project author-set param defaults, by component id (§13.3) — hydrates the
+		// Defaults controls + the non-empty canvas preview without a second round-trip.
+		listComponentDefaults(projectKey),
 	]);
 	// Optional deep-link target: `/components?id=<id>` opens that component on mount.
 	// `/editor`'s "Open in Component Editor" sends `&project=` too, but the project
 	// is resolved from the session scope here, so we only read the id.
 	const openId = url.searchParams.get('id') || null;
-	return { clientKey, projectKey, components, assets, openId };
+	return { clientKey, projectKey, components, assets, componentDefaults, openId };
 };

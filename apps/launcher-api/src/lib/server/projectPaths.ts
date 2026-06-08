@@ -108,6 +108,22 @@ export function projectComponentsPrefix(projectKey: string): string {
 	return `editor/${r2Slug(projectKey)}/components/`;
 }
 
+/**
+ * Per-project component-DEFAULTS sidecar (§13.3): author-set param defaults for a
+ * component within a project, stored as `{ params: Record<string, unknown> }`.
+ * Lives at `editor/<projectKey>/component-defaults/<id>.json` — a thin sidecar so a
+ * shared def can carry per-project defaults without forking the def. The id +
+ * projectKey run through `r2Slug` to match the launcher/Python normalization.
+ */
+export function projectComponentDefaultsKey(projectKey: string, id: string): string {
+	return `editor/${r2Slug(projectKey)}/component-defaults/${r2Slug(id)}.json`;
+}
+
+/** Prefix for listing a project's component-defaults sidecars. */
+export function projectComponentDefaultsPrefix(projectKey: string): string {
+	return `editor/${r2Slug(projectKey)}/component-defaults/`;
+}
+
 /** Prefix for listing the shared component library. */
 export const sharedComponentsPrefix = '_shared/editor-components/';
 

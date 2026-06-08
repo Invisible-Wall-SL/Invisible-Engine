@@ -9,6 +9,7 @@
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
 		resolveAnchorPreviewArt,
+		resolveBoundValue,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
 		type ComponentDef,
@@ -100,6 +101,15 @@
 		/** The project's display name — the default HUD game-name shown on the canvas
 		 * when the author hasn't typed an override (not written to the doc). */
 		projectGameName?: string | null;
+		/**
+		 * Resolved component params for a non-empty preview (§13.4, B3). When the
+		 * Component Editor opens a `ComponentDef` it passes the params resolved by
+		 * `resolveComponentParams(def, undefined, projectDefaults)`; a text node with
+		 * `paramBindings` then reads its content/style from these values (via the pure
+		 * `resolveBoundValue` helper) instead of its own static value. Empty (the
+		 * default, and every scene-editor caller) ⇒ identical to today's draw — parity.
+		 */
+		componentParams?: Record<string, unknown>;
 	}
 
 	let {
@@ -118,7 +128,13 @@
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
 		projectGameName = null,
+		componentParams = {},
 	}: Props = $props();
+
+	/** B3 numeric readout format: thousands-grouped integer — matches B2's
+	 * `ParamReadoutText`/`LayoutNodeView` (`maximumFractionDigits: 0`) so the editor
+	 * preview reads like the engine. Cached formatter instance. */
+	const paramNumberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
 	function getOverride(node: LayoutNode) {
 		if (!node.overrides) node.overrides = {};
@@ -1164,6 +1180,34 @@
 		drawSelectionOverlay(ctx);
 	}
 
+	/**
+	 * Resolve a text node's bound `text` for the preview (§13.4): a NUMERIC bound
+	 * value formats thousands-grouped (matching B2's `ParamReadoutText`), a STRING
+	 * passes through, anything else (no binding, or a non-text param) keeps the
+	 * node's own static `text`. Pure — defers the binding lookup to `resolveBoundValue`.
+	 */
+	function boundTextValue(
+		node: Extract<LayoutNode, { kind: 'text' }>,
+		bound: Record<string, string> | undefined,
+	): string {
+		const value = resolveBoundValue(bound, 'text', componentParams);
+		if (typeof value === 'number') return paramNumberFormat.format(value);
+		if (typeof value === 'string') return value;
+		return node.text;
+	}
+
+	/** The numeric value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
+	function boundNumber(bound: Record<string, string> | undefined, fieldPath: string) {
+		const value = resolveBoundValue(bound, fieldPath, componentParams);
+		return typeof value === 'number' ? value : undefined;
+	}
+
+	/** The string value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
+	function boundString(bound: Record<string, string> | undefined, fieldPath: string) {
+		const value = resolveBoundValue(bound, fieldPath, componentParams);
+		return typeof value === 'string' ? value : undefined;
+	}
+
 	function drawNode(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
@@ -1251,11 +1295,25 @@
 			// The PIXI text overlay owns nodes whose font resolved through the catalog
 			// (real bitmap/web font); the 2D canvas only draws the fallback for the rest.
 			if (!readyTextIds.has(node.id)) {
-				ctx.fillStyle = `#${(node.style?.fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
-				ctx.font = `${node.style?.fontWeight ?? 'normal'} ${node.style?.fontSize ?? 24}px ${
-					node.style?.fontFamily ?? 'sans-serif'
+				// B3 (§13.4): when the open component provides resolved params AND this text
+				// node declares `paramBindings`, the bound `text`/style fields read from the
+				// params (via the pure `resolveBoundValue`) so the preview shows a real
+				// readout. With no params / no bindings every value below falls back to the
+				// node's own static value — byte-identical to the prior draw (parity).
+				const bound = node.paramBindings;
+				const hasParams = Object.keys(componentParams).length > 0;
+				const text = hasParams ? boundTextValue(node, bound) : node.text;
+				const fill = (hasParams ? boundNumber(bound, 'style.fill') : undefined) ?? node.style?.fill;
+				const fontSize =
+					(hasParams ? boundNumber(bound, 'style.fontSize') : undefined) ?? node.style?.fontSize;
+				const fontFamily =
+					(hasParams ? boundString(bound, 'style.fontFamily') : undefined) ??
+					node.style?.fontFamily;
+				ctx.fillStyle = `#${(fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
+				ctx.font = `${node.style?.fontWeight ?? 'normal'} ${fontSize ?? 24}px ${
+					fontFamily ?? 'sans-serif'
 				}`;
-				ctx.fillText(node.text, 0, 0);
+				ctx.fillText(text, 0, 0);
 			}
 		} else if (node.kind === 'container') {
 			for (const child of node.children)
@@ -2187,6 +2245,8 @@
 		void selectedId;
 		void snapLines.length;
 		void layoutType;
+		// Re-draw the param-aware text preview when a default changes (§13.4, B3).
+		void componentParams;
 		schedule();
 	});
 </script>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import { STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
+	import { resolveComponentParams, STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
 	import type {
 		ComponentCategory,
 		ComponentDef,
@@ -43,6 +43,20 @@
 	let saveBusy = $state(false);
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
+	/**
+	 * Per-project component param defaults (§13.3), by component id. Seeded from the
+	 * server load; mutated as the author edits the Defaults controls and persisted via
+	 * `POST /api/editor/component-defaults`. These feed the non-empty canvas preview
+	 * (resolved as `def.param.default ◁ projectDefault`).
+	 */
+	let componentDefaults = $state<Record<string, Record<string, unknown>>>(
+		structuredClone(data.componentDefaults),
+	);
+	/** Save state for the defaults POST (a small pill near the controls). */
+	let defaultsStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+	/** Debounce timer per open component, so a flurry of keystrokes POSTs once. */
+	let defaultsTimer = 0;
+
 	/** Hoisted active selection — bound from the canvas, read by Properties. */
 	let selectedId = $state<string | null>(null);
 	/** Components author in the fixed `desktop` design box — no per-layoutType
@@ -77,6 +91,96 @@
 	 * The standard box is a self-contained frame around just the component. */
 	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
 
+	/** The open draft's per-project defaults map (always an object once a component is
+	 * open, so the controls below can read/write `defaultsForOpen[param.key]`). */
+	const defaultsForOpen = $derived<Record<string, unknown>>(
+		componentDraft ? (componentDefaults[componentDraft.id] ?? {}) : {},
+	);
+
+	/**
+	 * Resolved params fed to the canvas preview (§13.4): `def.param.default ◁
+	 * project default`. No instance override here — the Component Editor edits the
+	 * def + its project defaults, not a placed instance. Reused, Svelte-free
+	 * precedence helper from `engine-layout` (B1/B2). Empty when no component is open.
+	 */
+	const resolvedParams = $derived<Record<string, unknown>>(
+		componentDraft ? resolveComponentParams(componentDraft, undefined, defaultsForOpen) : {},
+	);
+
+	/** Read one default value for the open component (undefined = unset → falls back
+	 * to the def's own param default in the resolved params). */
+	function getDefault(key: string): unknown {
+		return componentDraft ? componentDefaults[componentDraft.id]?.[key] : undefined;
+	}
+
+	/** Set/clear one default for the open component, then persist (debounced). An
+	 * `undefined` value clears the override (so the def's own default takes over). */
+	function setDefault(key: string, value: unknown): void {
+		if (!componentDraft) return;
+		const id = componentDraft.id;
+		const next = { ...(componentDefaults[id] ?? {}) };
+		if (value === undefined) delete next[key];
+		else next[key] = value;
+		componentDefaults = { ...componentDefaults, [id]: next };
+		scheduleSaveDefaults(id);
+	}
+
+	/** Debounce the defaults POST (~400ms) so typing in a control saves once. */
+	function scheduleSaveDefaults(id: string): void {
+		if (defaultsTimer) clearTimeout(defaultsTimer);
+		defaultsTimer = window.setTimeout(() => {
+			defaultsTimer = 0;
+			void saveDefaults(id);
+		}, 400);
+	}
+
+	/** Persist the open component's per-project defaults (§13.3) + reflect a pill. */
+	async function saveDefaults(id: string): Promise<void> {
+		defaultsStatus = null;
+		try {
+			const res = await fetch('/api/editor/component-defaults', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					project: data.projectKey,
+					id,
+					params: componentDefaults[id] ?? {},
+				}),
+			});
+			defaultsStatus = res.ok
+				? { kind: 'ok', message: 'Defaults saved' }
+				: { kind: 'error', message: 'Defaults save failed' };
+		} catch (e) {
+			defaultsStatus = {
+				kind: 'error',
+				message: e instanceof Error ? e.message : 'Defaults save failed',
+			};
+		}
+	}
+
+	/** Coerce a colour <input> hex (`#rrggbb`) to the param's numeric value. */
+	function hexToNumber(hex: string): number {
+		return parseInt(hex.replace(/^#/, ''), 16) || 0;
+	}
+	/** Render a numeric colour param as a `#rrggbb` value for the colour <input>. */
+	function numberToHex(value: unknown): string {
+		const n = typeof value === 'number' ? value : 0;
+		return `#${(n >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
+	}
+	/** A param key that looks like a font → render a text input (§13.4 hint). */
+	function looksLikeFont(key: string): boolean {
+		return /font/i.test(key);
+	}
+
+	/** A param's own `default`, shown as the control's placeholder so the author sees
+	 * the fallback the preview uses when no project default is set. */
+	function fmtDefault(value: unknown): string {
+		if (value === undefined) return '';
+		if (typeof value === 'string') return value;
+		if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+		return '';
+	}
+
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
 			if (n.id === id) return n;
@@ -98,6 +202,7 @@
 		componentDraft = $state.snapshot(def) as ComponentDef;
 		selectedId = null;
 		saveStatus = null;
+		defaultsStatus = null;
 		rightTab = 'outline';
 	}
 
@@ -131,6 +236,7 @@
 		componentDraft = null;
 		selectedId = null;
 		saveStatus = null;
+		defaultsStatus = null;
 	}
 
 	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
@@ -529,6 +635,7 @@
 					bind:selectedId
 					onDelete={onDeleteNode}
 					projectGameName={null}
+					componentParams={resolvedParams}
 				/>
 			{:else}
 				<div class="empty">
@@ -544,6 +651,69 @@
 		</main>
 
 		<aside class="properties">
+			{#if componentDraft}
+				<section class="defaults">
+					<div class="defaults-head">
+						<h3>Defaults (this project)</h3>
+						{#if defaultsStatus?.kind === 'ok'}
+							<span class="save-pill ok">{defaultsStatus.message}</span>
+						{:else if defaultsStatus?.kind === 'error'}
+							<span class="save-pill error" title={defaultsStatus.message}>Save failed</span>
+						{/if}
+					</div>
+					{#if !componentDraft.params || componentDraft.params.length === 0}
+						<p class="muted hint">
+							This component declares no params. Add params (Properties → component params) to set
+							per-project defaults and preview a real readout.
+						</p>
+					{:else}
+						<div class="defaults-grid">
+							{#each componentDraft.params as param (param.key)}
+								{@const current = getDefault(param.key)}
+								<label class="def-row">
+									<span class="def-key" title={param.key}>{param.key}</span>
+									{#if param.kind === 'boolean'}
+										<input
+											type="checkbox"
+											checked={current === true}
+											onchange={(e) => setDefault(param.key, e.currentTarget.checked)}
+										/>
+									{:else if param.kind === 'number'}
+										<input
+											type="number"
+											value={typeof current === 'number' ? current : ''}
+											placeholder={fmtDefault(param.default)}
+											oninput={(e) => {
+												const v = e.currentTarget.value;
+												setDefault(param.key, v === '' ? undefined : Number(v));
+											}}
+										/>
+									{:else if param.kind === 'color'}
+										<input
+											type="color"
+											value={numberToHex(current ?? param.default)}
+											oninput={(e) => setDefault(param.key, hexToNumber(e.currentTarget.value))}
+										/>
+									{:else}
+										<input
+											type="text"
+											value={typeof current === 'string' ? current : ''}
+											placeholder={looksLikeFont(param.key)
+												? 'font family…'
+												: fmtDefault(param.default)}
+											oninput={(e) => {
+												const v = e.currentTarget.value;
+												setDefault(param.key, v === '' ? undefined : v);
+											}}
+										/>
+									{/if}
+								</label>
+							{/each}
+						</div>
+					{/if}
+				</section>
+			{/if}
+
 			<div class="tabs" role="tablist" aria-label="Right panel">
 				<button
 					role="tab"
@@ -1025,6 +1195,67 @@
 	.foot {
 		padding: 8px 12px;
 		border-top: 1px solid #1c1c24;
+	}
+
+	.defaults {
+		border-bottom: 1px solid #1c1c24;
+		padding: 12px;
+		margin: 0;
+		max-height: 40%;
+		overflow-y: auto;
+	}
+	.defaults-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.defaults-head h3 {
+		margin: 0;
+		color: #c8a3ff;
+	}
+	.defaults-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.def-row {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		gap: 8px;
+	}
+	.def-key {
+		font-size: 11px;
+		color: #c8c8d0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.def-row input[type='text'],
+	.def-row input[type='number'] {
+		width: 130px;
+		background: #0b0b10;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		padding: 4px 7px;
+		color: #e8e8ee;
+		font-size: 12px;
+		font-family: inherit;
+	}
+	.def-row input[type='color'] {
+		width: 36px;
+		height: 26px;
+		padding: 0;
+		background: #0b0b10;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+	.def-row input[type='checkbox'] {
+		width: 16px;
+		height: 16px;
+		accent-color: #6b5bff;
 	}
 
 	.expandable {
