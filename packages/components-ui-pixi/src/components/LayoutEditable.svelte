@@ -3,7 +3,8 @@
 	import { BLACK } from 'constants-shared/colors';
 	import { MainContainer } from 'components-layout';
 	import { Container, Rectangle } from 'pixi-svelte';
-	import type { LayoutType, Scene, TextStyle } from 'engine-layout';
+	import { ComponentInstance } from 'engine-layout/svelte';
+	import type { ComponentInstanceNode, LayoutType, Scene, TextStyle } from 'engine-layout';
 
 	import { DESKTOP_BASE_SIZE, LANDSCAPE_BASE_SIZE } from '../constants';
 	import { getContext } from '../context';
@@ -85,6 +86,23 @@
 		style: hudStyle(props.hud.bar, id),
 		text: hudText(props.hud.bar, id),
 	});
+	// Engine-path readouts (§14.2 B4.3): any `componentInstance` node the author
+	// places in the bar scene mounts via the engine `<ComponentInstance>` at the
+	// SAME `hudPos()` Container the coded snippets get — so a converted readout
+	// (B4.4) lands exactly where its coded `Label*` sat. The live `hudBarScene()`
+	// has NO `componentInstance` nodes, so this list is empty in-game → byte-
+	// identical parity. `hudPos()` resolves the node's own transform (its x/y/scale
+	// from `resolveTransform`); the fallback is only used if the node is absent,
+	// which it never is here (we found it in the same scene).
+	const instances = $derived(
+		(props.hud.bar?.nodes ?? [])
+			.filter((n): n is ComponentInstanceNode => n.kind === 'componentInstance')
+			.map((node) => ({
+				node,
+				pos: hudPos(props.hud.bar, node.id, layoutType, canvas, { x: node.x, y: node.y }),
+			})),
+	);
+
 	const ovr = $derived({
 		balance: labelOverride('hud-balance'),
 		win: labelOverride('hud-win'),
@@ -187,6 +205,25 @@
 			{@render props.buttonIncrease({ anchor: 0.5, tint: ovr.increase })}
 		</Container>
 	{/if}
+
+	<!--
+		Engine-path readouts (§14.2 B4.3): a `componentInstance` HUD node mounts via
+		`<ComponentInstance>` at the same `hudPos()` Container the coded snippets get.
+		`space="standard"` matches this `<MainContainer standard>` wrapper so the
+		readout's text nodes resolve their transform identically. Empty in the live
+		HUD (no `componentInstance` nodes in `hudBarScene()`) → parity.
+	-->
+	{#each instances as instance (instance.node.id)}
+		{#if instance.pos.visible}
+			<Container
+				x={instance.pos.x}
+				y={instance.pos.y}
+				scale={{ x: instance.pos.scaleX, y: instance.pos.scaleY }}
+			>
+				<ComponentInstance node={instance.node} space="standard" />
+			</Container>
+		{/if}
+	{/each}
 </MainContainer>
 
 <!-- Menu drawer (coded — not editor-driven in v1; mirrors the per-layout Layout*) -->
