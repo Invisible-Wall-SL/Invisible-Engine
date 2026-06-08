@@ -21,6 +21,13 @@
 // Real upload env: R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+// The canonical bookOf scene set — generated from the engine's TS reference
+// layout (`packages/engine-layout/src/lib/referenceLayouts/bookof.ts`) by
+// `engine-layout`'s `gen:scenes`, so the seed and the editor/game share ONE
+// source and can't drift. The seed only overrides `basegame` (its board-frame
+// region sprites depend on the uploaded manifest); every other scene
+// (loading/background/overlays/free-spins/HUD) comes straight from here.
+import bookofSceneSet from 'engine-layout/scenes/bookof.json' with { type: 'json' };
 import { tpFrameToEditorRegion } from './lib/tpRegions.mjs';
 
 const args = process.argv.slice(2);
@@ -79,13 +86,10 @@ async function buildManifest() {
 	};
 }
 
-// ---------- editor doc (mirrors Book of Borut's defaultLayout) ----------
-const MAIN_SIZES_MAP = {
-	desktop: { width: 1422, height: 800 },
-	tablet: { width: 1000, height: 1000 },
-	landscape: { width: 1600, height: 900 },
-	portrait: { width: 800, height: 1422 },
-};
+// ---------- editor doc ----------
+// Single source: the board-frame geometry below AND the doc's `mainSizesMap`
+// both read from the shared generated scene set, so they can't diverge.
+const MAIN_SIZES_MAP = bookofSceneSet.mainSizesMap;
 const POS_ADJ = 1.01;
 const FRAME_WIDTH = 750;
 const FRAME_HEIGHT = 432;
@@ -111,275 +115,26 @@ const frameNode = (id, slotId, label, region) => ({
 	height: FRAME_HEIGHT,
 	overrides: frameOverrides,
 });
-const anchor = (id, slotId, label, component, extra = {}) => ({
-	id,
-	slotId,
-	label,
-	kind: 'container',
-	x: 0,
-	y: 0,
-	bind: { component },
-	children: [],
-	...extra,
-});
-
-// ---------- HUD scenes ----------
-// MIRROR of `engine-layout/src/lib/referenceLayouts/hud.ts` (the source of
-// truth) — inlined because this plain `node` script can't import the TS package.
-// Keep in sync if the HUD layout changes. Positions are computed from the same
-// constants as the `Layout*.svelte` files; the game ignores `preview`/`anchor`.
-function hudScenes() {
-	const D = 150 * 0.9;
-	const D_SUM = D * (188 / 116) + 800 + 350 + D * (340 / 116);
-	const dOX = 1920 * 0.5 - 0.5 * D_SUM;
-	const dOY = 1080 - D - 10;
-	const dLabelY = dOY + D * 0.5 - 160;
-	const dBtnY = dOY + D * 0.5;
-	const d = (lx, y) => ({ x: dOX + lx, y });
-	const L = 150 * 1.1;
-	const L_SUM = L * (188 / 116) + 1000 + L * (373 / 116);
-	const lO1X = 1920 * 0.5 - 0.5 * L_SUM;
-	const lO1Y = 1080 - L - 40;
-	const lLabelY = lO1Y + L * 0.5;
-	const lBtnY = lO1Y + L * 0.5 - 90;
-	const l1 = (lx, y) => ({ x: lO1X + lx, y });
-	const lO2X = 1920 - 60 - L;
-	const lO2Y = 1080 * 0.5 - L * 0.5;
-	const l2 = (cy) => ({ x: lO2X + L * 0.5, y: lO2Y + cy });
-	const tOX = 1920 * 0.5 - 0.5 * D_SUM;
-	const tOY = 1920 - D - 30;
-	const tLabelY = tOY + D * 0.5 - 220;
-	const tBtnY = tOY + D * 0.5;
-	const t = (lx, y) => ({ x: tOX + lx, y });
-	const LABEL_W = D * 0.3 * 3 * (326 / 73);
-	const LABEL_H = D * 0.3 * 3;
-	const LABEL = { stacked: true };
-	const BTN = { anchor: 0.5 };
-	const bar = (id, label, component, props, dd, ll, tt) => {
-		const isLabel = props === LABEL;
-		return {
-			id,
-			label,
-			kind: 'container',
-			x: dd.x,
-			y: dd.y,
-			anchor: isLabel ? { x: 0.5, y: 0 } : { x: 0.5, y: 0.5 },
-			scale: { x: 0.8, y: 0.8 },
-			bind: { component, props },
-			overrides: {
-				landscape: { x: ll.x, y: ll.y },
-				tablet: { x: tt.x, y: tt.y, scale: { x: 1, y: 1 } },
-			},
-			preview: isLabel
-				? { w: LABEL_W, h: LABEL_H, style: 'label' }
-				: { w: 150, h: 150, style: 'button' },
-			children: [],
-		};
-	};
-	return [
-		{
-			id: 'hudBar',
-			name: 'HUD — bottom bar',
-			space: 'standard',
-			nodes: [
-				bar(
-					'hud-balance',
-					'Balance',
-					'UiLabelBalance',
-					LABEL,
-					d(900 - 500, dLabelY),
-					l1(420, lLabelY),
-					t(880 - 640, tLabelY),
-				),
-				bar(
-					'hud-win',
-					'Win',
-					'UiLabelWin',
-					LABEL,
-					d(900, dLabelY),
-					l1(910, lLabelY),
-					t(880, tLabelY),
-				),
-				bar(
-					'hud-bet',
-					'Bet',
-					'UiLabelBet',
-					LABEL,
-					d(900 + 500, dLabelY),
-					l1(1400, lLabelY),
-					t(880 + 640, tLabelY),
-				),
-				bar(
-					'hud-btn-menu',
-					'Menu',
-					'UiButtonMenu',
-					BTN,
-					d(220, dBtnY),
-					l1(85 + 20, lBtnY),
-					t(20, tBtnY),
-				),
-				bar(
-					'hud-btn-buybonus',
-					'Buy bonus',
-					'UiButtonBuyBonus',
-					BTN,
-					d(220 + 150, dBtnY),
-					l1(220 + 20, lBtnY),
-					t(20 + 180, tBtnY),
-				),
-				bar(
-					'hud-btn-autospin',
-					'Auto spin',
-					'UiButtonAutoSpin',
-					BTN,
-					d(160 + 150 * 4, dBtnY),
-					l2(L * 0.5 - 140),
-					t(-10 + 180 * 4, tBtnY),
-				),
-				bar(
-					'hud-btn-bet',
-					'Spin / Bet',
-					'UiButtonBet',
-					BTN,
-					d(160 + 150 * 5, dBtnY),
-					l2(L * 0.5),
-					t(-10 + 180 * 5, tBtnY),
-				),
-				bar(
-					'hud-btn-turbo',
-					'Turbo',
-					'UiButtonTurbo',
-					BTN,
-					d(160 + 150 * 6, dBtnY),
-					l2(L * 0.5 + 140),
-					t(-10 + 180 * 6, tBtnY),
-				),
-				bar(
-					'hud-btn-decrease',
-					'Decrease',
-					'UiButtonDecrease',
-					BTN,
-					d(1440, dBtnY),
-					l1(1580, lBtnY),
-					t(1560, tBtnY),
-				),
-				bar(
-					'hud-btn-increase',
-					'Increase',
-					'UiButtonIncrease',
-					BTN,
-					d(1440 + 150, dBtnY),
-					l1(1715, lBtnY),
-					t(1560 + 180, tBtnY),
-				),
-			],
-		},
-		{
-			id: 'hudCorners',
-			name: 'HUD — corners',
-			space: 'canvas',
-			nodes: [
-				{
-					id: 'hud-gamename',
-					label: 'Game name',
-					kind: 'container',
-					screenAnchor: { x: 0, y: 0 },
-					x: 20,
-					y: 0,
-					anchor: { x: 0, y: 0 },
-					bind: { component: 'HudGameName' },
-					preview: { w: 260, h: 56, style: 'text' },
-					children: [],
-				},
-				{
-					id: 'hud-logo',
-					label: 'Logo',
-					kind: 'container',
-					screenAnchor: { x: 1, y: 0 },
-					x: -20,
-					y: 0,
-					anchor: { x: 1, y: 0 },
-					bind: { component: 'HudLogo' },
-					preview: { w: 220, h: 56, style: 'text' },
-					children: [],
-				},
-			],
-		},
-	];
-}
 
 function buildDoc(updatedAt) {
-	// Overlay scenery → PLAIN bind anchors. The editor draws each coded component's
-	// editor stand-in art LIVE from the shared catalog
-	// (engine-layout/boundComponentCatalog), resolved against the project's assets by
-	// component NAME — so the seed no longer lists spines or bakes any `preview.art`.
+	// The board frame is the one MANIFEST-dependent piece, so the seed builds it
+	// as REGION sprites pointing at the uploaded manifest. EVERY other scene
+	// (loading / background / overlays / free-spins / HUD) comes verbatim from the
+	// shared generated scene set — one source of truth, no drift (see the import).
+	const basegame = {
+		id: 'basegame',
+		name: 'Base game',
+		nodes: [
+			frameNode('frame-bg', 'boardFrame', 'Board frame background', 'frame_bg.png'),
+			frameNode('frame-edge', 'boardFrameEdge', 'Board frame edge', 'frame_edge.png'),
+		],
+	};
 	return {
 		version: 1,
 		projectKey: r2Slug(PROJECT),
 		gameType: 'bookOf',
 		mainSizesMap: MAIN_SIZES_MAP,
-		scenes: [
-			// Full-bleed / dynamic / event-gated scenery → BIND ANCHORS in `canvas`
-			// space. The registered game component (Background, Win, FreeSpin*) owns
-			// rendering, its own layout, and show/hide — so it can't leak into base
-			// game or fall back to a wrong font, and `canvas` space means <LayoutScene>
-			// adds no MainContainer (the component supplies its own). The board frame
-			// is the one genuinely static piece, so it stays a real sprite the editor
-			// positions. See docs/design/invisible-editor.md (mount/bind contract).
-			{
-				// Startup splash: the `loader` spine (logo + progress). Bind anchor —
-				// the editor previews it from the shared catalog; the game mounts its
-				// coded LoadingScreen regardless (not registered → ignored in-game).
-				id: 'loading',
-				name: 'Loading / logo',
-				space: 'canvas',
-				nodes: [anchor('loading-screen', 'loadingScreen', 'Loading screen (logo)', 'LoadingScreen')],
-			},
-			{
-				id: 'background',
-				name: 'Background',
-				space: 'canvas',
-				nodes: [anchor('bg', 'background', 'Background', 'Background', { zIndex: -10 })],
-			},
-			{
-				id: 'basegame',
-				name: 'Base game',
-				nodes: [
-					frameNode('frame-bg', 'boardFrame', 'Board frame background', 'frame_bg.png'),
-					frameNode('frame-edge', 'boardFrameEdge', 'Board frame edge', 'frame_edge.png'),
-				],
-			},
-			{
-				id: 'basegameOverlays',
-				name: 'Base game overlays',
-				space: 'canvas',
-				nodes: [
-					anchor('bound-win', 'Win', 'Win overlay (coded)', 'Win'),
-					anchor('bound-transition', 'Transition', 'Transition overlay (coded)', 'Transition'),
-				],
-			},
-			{
-				id: 'freeSpinCounter',
-				name: 'Free-spin counter',
-				space: 'canvas',
-				nodes: [anchor('fs-counter', 'freeSpinCounter', 'Free-spin counter', 'FreeSpinCounter')],
-			},
-			{
-				id: 'freeSpinIntro',
-				name: 'Free-spin intro',
-				space: 'canvas',
-				nodes: [anchor('fs-intro', 'freeSpinIntro', 'Free-spin intro', 'FreeSpinIntro')],
-			},
-			{
-				id: 'freeSpinOutro',
-				name: 'Free-spin outro',
-				space: 'canvas',
-				nodes: [anchor('fs-outro', 'freeSpinOutro', 'Free-spin outro', 'FreeSpinOutro')],
-			},
-			// HUD layer (logo/name corners + bottom bar) — editor-positionable; the
-			// game's <UI hud=…> renders from these.
-			...hudScenes(),
-		],
+		scenes: bookofSceneSet.scenes.map((scene) => (scene.id === 'basegame' ? basegame : scene)),
 		updatedAt,
 	};
 }

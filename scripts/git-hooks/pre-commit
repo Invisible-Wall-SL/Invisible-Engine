@@ -3,3 +3,14 @@
 #   git config core.hooksPath scripts/git-hooks
 # Blocks commits that contain likely secrets.
 node scripts/check-secrets.mjs || exit 1
+
+# The editor scene-set JSON (packages/engine-layout/scenes/*.json) is GENERATED
+# from the TS reference layouts and read by the per-project seed — one source of
+# truth. If a generator/template/seed/JSON file is staged, verify the committed
+# JSON isn't stale, so the seed can't drift from the engine again.
+if git diff --cached --name-only | grep -qE '^packages/engine-layout/(src/lib/(referenceLayouts|templates)/|scenes/)|^apps/launcher-api/scripts/seed-game-editor'; then
+	node packages/engine-layout/scripts/gen-scene-sets.mjs --check || {
+		echo "→ run: pnpm --filter engine-layout gen:scenes  (then: git add packages/engine-layout/scenes)"
+		exit 1
+	}
+fi

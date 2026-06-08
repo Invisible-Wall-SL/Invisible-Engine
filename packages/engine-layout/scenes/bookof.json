@@ -1,0 +1,722 @@
+{
+	"version": 1,
+	"projectKey": "borut",
+	"gameType": "bookOf",
+	"mainSizesMap": {
+		"desktop": {
+			"width": 1422,
+			"height": 800
+		},
+		"tablet": {
+			"width": 1000,
+			"height": 1000
+		},
+		"landscape": {
+			"width": 1600,
+			"height": 900
+		},
+		"portrait": {
+			"width": 800,
+			"height": 1422
+		}
+	},
+	"scenes": [
+		{
+			"id": "loading",
+			"name": "Loading / logo",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "loading-screen",
+					"slotId": "loadingScreen",
+					"label": "Loading screen (logo)",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "LoadingScreen"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "background",
+			"name": "Background",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "bg",
+					"slotId": "background",
+					"label": "Background",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"zIndex": -10,
+					"bind": {
+						"component": "Background"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "basegame",
+			"name": "Base game",
+			"nodes": [
+				{
+					"id": "frame-bg",
+					"slotId": "boardFrame",
+					"label": "Board frame background",
+					"kind": "sprite",
+					"assetKey": "frame_bg.png",
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": 718.11,
+					"y": 404,
+					"width": 750,
+					"height": 432,
+					"overrides": {
+						"tablet": {
+							"x": 505,
+							"y": 505
+						},
+						"landscape": {
+							"x": 808,
+							"y": 454.5
+						},
+						"portrait": {
+							"x": 404,
+							"y": 718.11
+						}
+					}
+				},
+				{
+					"id": "frame-edge",
+					"slotId": "boardFrameEdge",
+					"label": "Board frame edge",
+					"kind": "sprite",
+					"assetKey": "frame_edge.png",
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": 718.11,
+					"y": 404,
+					"width": 750,
+					"height": 432,
+					"overrides": {
+						"tablet": {
+							"x": 505,
+							"y": 505
+						},
+						"landscape": {
+							"x": 808,
+							"y": 454.5
+						},
+						"portrait": {
+							"x": 404,
+							"y": 718.11
+						}
+					}
+				},
+				{
+					"id": "reel-grid",
+					"label": "Reel grid",
+					"kind": "reelGrid",
+					"reels": 5,
+					"rows": 3,
+					"cellSize": 120,
+					"reelPadding": 0.53,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": 711,
+					"y": 400,
+					"zIndex": 1,
+					"overrides": {
+						"tablet": {
+							"x": 500,
+							"y": 500
+						},
+						"landscape": {
+							"x": 800,
+							"y": 450
+						},
+						"portrait": {
+							"x": 400,
+							"y": 711
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": "basegameOverlays",
+			"name": "Base game overlays",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "bound-win",
+					"slotId": "Win",
+					"label": "Win overlay (coded)",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "Win"
+					},
+					"children": []
+				},
+				{
+					"id": "bound-transition",
+					"slotId": "Transition",
+					"label": "Transition overlay (coded)",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "Transition"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "freeSpinCounter",
+			"name": "Free-spin counter",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "fs-counter",
+					"slotId": "freeSpinCounter",
+					"label": "Free-spin counter",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "FreeSpinCounter"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "freeSpinIntro",
+			"name": "Free-spin intro",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "fs-intro",
+					"slotId": "freeSpinIntro",
+					"label": "Free-spin intro",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "FreeSpinIntro"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "freeSpinOutro",
+			"name": "Free-spin outro",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "fs-outro",
+					"slotId": "freeSpinOutro",
+					"label": "Free-spin outro",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "FreeSpinOutro"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "hudBar",
+			"name": "HUD — bottom bar",
+			"space": "standard",
+			"align": {
+				"vertical": "bottom"
+			},
+			"nodes": [
+				{
+					"id": "hud-balance",
+					"label": "Balance",
+					"kind": "container",
+					"x": 477.75862068965523,
+					"y": 842.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiLabelBalance",
+						"props": {
+							"stacked": true
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 481.0129310344827,
+							"y": 957.5
+						},
+						"tablet": {
+							"x": 317.75862068965523,
+							"y": 1602.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 542.5890410958904,
+						"h": 121.5,
+						"style": "label"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-win",
+					"label": "Win",
+					"kind": "container",
+					"x": 977.7586206896552,
+					"y": 842.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiLabelWin",
+						"props": {
+							"stacked": true
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 971.0129310344827,
+							"y": 957.5
+						},
+						"tablet": {
+							"x": 957.7586206896552,
+							"y": 1602.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 542.5890410958904,
+						"h": 121.5,
+						"style": "label"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-bet",
+					"label": "Bet",
+					"kind": "container",
+					"x": 1477.7586206896553,
+					"y": 842.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiLabelBet",
+						"props": {
+							"stacked": true
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 1461.0129310344828,
+							"y": 957.5
+						},
+						"tablet": {
+							"x": 1597.7586206896553,
+							"y": 1602.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 542.5890410958904,
+						"h": 121.5,
+						"style": "label"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-menu",
+					"label": "Menu",
+					"kind": "container",
+					"x": 297.75862068965523,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonMenu",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 166.01293103448268,
+							"y": 867.5
+						},
+						"tablet": {
+							"x": 97.75862068965523,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-buybonus",
+					"label": "Buy bonus",
+					"kind": "container",
+					"x": 447.75862068965523,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonBuyBonus",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 301.0129310344827,
+							"y": 867.5
+						},
+						"tablet": {
+							"x": 277.75862068965523,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-autospin",
+					"label": "Auto spin",
+					"kind": "container",
+					"x": 837.7586206896552,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonAutoSpin",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 1777.5,
+							"y": 400
+						},
+						"tablet": {
+							"x": 787.7586206896552,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-bet",
+					"label": "Spin / Bet",
+					"kind": "container",
+					"x": 987.7586206896552,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonBet",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 1777.5,
+							"y": 540
+						},
+						"tablet": {
+							"x": 967.7586206896552,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-turbo",
+					"label": "Turbo",
+					"kind": "container",
+					"x": 1137.7586206896553,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonTurbo",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 1777.5,
+							"y": 680
+						},
+						"tablet": {
+							"x": 1147.7586206896553,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-decrease",
+					"label": "Decrease",
+					"kind": "container",
+					"x": 1517.7586206896553,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonDecrease",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 1641.0129310344828,
+							"y": 867.5
+						},
+						"tablet": {
+							"x": 1637.7586206896553,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-btn-increase",
+					"label": "Increase",
+					"kind": "container",
+					"x": 1667.7586206896553,
+					"y": 1002.5,
+					"anchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"scale": {
+						"x": 0.8,
+						"y": 0.8
+					},
+					"bind": {
+						"component": "UiButtonIncrease",
+						"props": {
+							"anchor": 0.5
+						}
+					},
+					"overrides": {
+						"landscape": {
+							"x": 1776.0129310344828,
+							"y": 867.5
+						},
+						"tablet": {
+							"x": 1817.7586206896553,
+							"y": 1822.5,
+							"scale": {
+								"x": 1,
+								"y": 1
+							}
+						}
+					},
+					"preview": {
+						"w": 150,
+						"h": 150,
+						"style": "button"
+					},
+					"children": []
+				}
+			]
+		},
+		{
+			"id": "hudCorners",
+			"name": "HUD — corners",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "hud-gamename",
+					"label": "Game name",
+					"kind": "container",
+					"screenAnchor": {
+						"x": 0,
+						"y": 0
+					},
+					"x": 20,
+					"y": 0,
+					"anchor": {
+						"x": 0,
+						"y": 0
+					},
+					"bind": {
+						"component": "HudGameName"
+					},
+					"preview": {
+						"w": 260,
+						"h": 56,
+						"style": "text"
+					},
+					"children": []
+				},
+				{
+					"id": "hud-logo",
+					"label": "Logo",
+					"kind": "container",
+					"screenAnchor": {
+						"x": 1,
+						"y": 0
+					},
+					"x": -20,
+					"y": 0,
+					"anchor": {
+						"x": 1,
+						"y": 0
+					},
+					"bind": {
+						"component": "HudLogo"
+					},
+					"preview": {
+						"w": 220,
+						"h": 56,
+						"style": "text"
+					},
+					"children": []
+				}
+			]
+		}
+	],
+	"updatedAt": "2026-05-30T00:00:00.000Z"
+}

@@ -84,8 +84,9 @@ export function bookofReferenceLayout(): LayoutDoc {
 				// positionable anchors in the editor; their art renders in-game.
 				id: 'background',
 				name: 'Background',
+				space: 'canvas',
 				nodes: [
-					{ id: 'bg', label: 'Background', kind: 'container', x: 0, y: 0, zIndex: -10, bind: { component: 'Background' }, children: [] },
+					{ id: 'bg', slotId: 'background', label: 'Background', kind: 'container', x: 0, y: 0, zIndex: -10, bind: { component: 'Background' }, children: [] },
 				],
 			},
 			{
@@ -137,6 +138,7 @@ export function bookofReferenceLayout(): LayoutDoc {
 			{
 				id: 'basegameOverlays',
 				name: 'Base game overlays',
+				space: 'canvas',
 				nodes: [
 					{
 						id: 'bound-win',
@@ -163,22 +165,25 @@ export function bookofReferenceLayout(): LayoutDoc {
 			{
 				id: 'freeSpinCounter',
 				name: 'Free-spin counter',
+				space: 'canvas',
 				nodes: [
-					{ id: 'fs-counter', label: 'Free-spin counter', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinCounter' }, children: [] },
+					{ id: 'fs-counter', slotId: 'freeSpinCounter', label: 'Free-spin counter', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinCounter' }, children: [] },
 				],
 			},
 			{
 				id: 'freeSpinIntro',
 				name: 'Free-spin intro',
+				space: 'canvas',
 				nodes: [
-					{ id: 'fs-intro', label: 'Free-spin intro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinIntro' }, children: [] },
+					{ id: 'fs-intro', slotId: 'freeSpinIntro', label: 'Free-spin intro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinIntro' }, children: [] },
 				],
 			},
 			{
 				id: 'freeSpinOutro',
 				name: 'Free-spin outro',
+				space: 'canvas',
 				nodes: [
-					{ id: 'fs-outro', label: 'Free-spin outro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinOutro' }, children: [] },
+					{ id: 'fs-outro', slotId: 'freeSpinOutro', label: 'Free-spin outro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinOutro' }, children: [] },
 				],
 			},
 			// HUD layer (logo/name corners + bottom bar) — universal across game
