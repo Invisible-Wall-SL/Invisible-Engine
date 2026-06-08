@@ -188,7 +188,12 @@ export function bookofReferenceLayout(): LayoutDoc {
 			},
 			// HUD layer (logo/name corners + bottom bar) — universal across game
 			// types, appended so the reference doc matches the per-project seed.
-			...hudScenes(),
+			// `{ readouts: true }` (B4.6): emit balance/win/bet as parametric
+			// `componentInstance(hudReadout)` nodes (mirrors `apps/lines`). The game
+			// must register the `hudReadout` def + coded `HudReadout` bound component +
+			// the value sources (Borut Game.svelte) for these to render; renders
+			// identically to the coded labels. Owner re-seeds Borut's R2 doc to land it.
+			...hudScenes({ readouts: true }),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};

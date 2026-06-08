@@ -253,7 +253,8 @@
 				{
 					"id": "hud-balance",
 					"label": "Balance",
-					"kind": "container",
+					"kind": "componentInstance",
+					"componentId": "hudReadout",
 					"x": 477.75862068965523,
 					"y": 842.5,
 					"anchor": {
@@ -264,11 +265,10 @@
 						"x": 0.8,
 						"y": 0.8
 					},
-					"bind": {
-						"component": "UiLabelBalance",
-						"props": {
-							"stacked": true
-						}
+					"params": {
+						"source": "balance",
+						"label": "Balance",
+						"countUp": false
 					},
 					"overrides": {
 						"landscape": {
@@ -288,13 +288,13 @@
 						"w": 542.5890410958904,
 						"h": 121.5,
 						"style": "label"
-					},
-					"children": []
+					}
 				},
 				{
 					"id": "hud-win",
 					"label": "Win",
-					"kind": "container",
+					"kind": "componentInstance",
+					"componentId": "hudReadout",
 					"x": 977.7586206896552,
 					"y": 842.5,
 					"anchor": {
@@ -305,11 +305,10 @@
 						"x": 0.8,
 						"y": 0.8
 					},
-					"bind": {
-						"component": "UiLabelWin",
-						"props": {
-							"stacked": true
-						}
+					"params": {
+						"source": "win",
+						"label": "Win",
+						"countUp": true
 					},
 					"overrides": {
 						"landscape": {
@@ -329,13 +328,13 @@
 						"w": 542.5890410958904,
 						"h": 121.5,
 						"style": "label"
-					},
-					"children": []
+					}
 				},
 				{
 					"id": "hud-bet",
 					"label": "Bet",
-					"kind": "container",
+					"kind": "componentInstance",
+					"componentId": "hudReadout",
 					"x": 1477.7586206896553,
 					"y": 842.5,
 					"anchor": {
@@ -346,11 +345,10 @@
 						"x": 0.8,
 						"y": 0.8
 					},
-					"bind": {
-						"component": "UiLabelBet",
-						"props": {
-							"stacked": true
-						}
+					"params": {
+						"source": "bet",
+						"label": "Bet",
+						"countUp": false
 					},
 					"overrides": {
 						"landscape": {
@@ -370,8 +368,7 @@
 						"w": 542.5890410958904,
 						"h": 121.5,
 						"style": "label"
-					},
-					"children": []
+					}
 				},
 				{
 					"id": "hud-btn-menu",
