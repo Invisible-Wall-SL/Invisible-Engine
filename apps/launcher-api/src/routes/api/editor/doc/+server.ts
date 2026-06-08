@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { applyHudGameNameDefault } from 'engine-layout';
 import { ENV } from '$lib/server/env';
+import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey, projectName } from '$lib/server/projects';
@@ -67,7 +68,11 @@ export const GET: RequestHandler = async ({ url }) => {
 		// overrode it), so the game shows the project name without a hard-coded string.
 		applyHudGameNameDefault(doc, await projectName(projectKey));
 		resolveSpineKeysForGame(doc, clientKey, projectKey);
-		return json({ clientKey, projectKey, doc }, { headers: CORS_HEADERS });
+		// Per-project component param defaults (§14.2 B4.5) so the game's
+		// `registerComponentDefaults` can apply author-set appearance defaults to
+		// `componentInstance`s (e.g. the HUD readouts). Empty map ⇒ def defaults apply.
+		const componentDefaults = await listComponentDefaults(projectKey);
+		return json({ clientKey, projectKey, doc, componentDefaults }, { headers: CORS_HEADERS });
 	} catch {
 		throw error(502, 'Failed to load the layout document.');
 	}

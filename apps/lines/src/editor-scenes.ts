@@ -1,4 +1,5 @@
 import type { LayoutDoc } from 'engine-layout';
+import { registerComponentDefaults } from 'engine-layout';
 
 import { defaultLayout } from './game/defaultLayout';
 
@@ -56,7 +57,14 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 			`&k=${encodeURIComponent(token)}`;
 		const res = await fetch(docUrl);
 		if (!res.ok) return fellBack(`doc fetch ${res.status} ${res.statusText} (${docUrl})`);
-		const data = (await res.json()) as { doc?: LayoutDoc };
+		const data = (await res.json()) as {
+			doc?: LayoutDoc;
+			componentDefaults?: Record<string, Record<string, unknown>>;
+		};
+		// Register the project's author-set component param defaults (§14.2 B4.5)
+		// before the doc renders, so a `componentInstance` (e.g. a HUD readout) picks
+		// up per-project appearance defaults. Absent/empty ⇒ def defaults apply (parity).
+		registerComponentDefaults(data.componentDefaults ?? {});
 		const doc = data.doc;
 		if (doc && Array.isArray(doc.scenes) && doc.scenes.some((scene) => scene.id === 'basegame')) {
 			console.info(`[editor] loaded live layout doc for "${project}" — editor edits are active`);

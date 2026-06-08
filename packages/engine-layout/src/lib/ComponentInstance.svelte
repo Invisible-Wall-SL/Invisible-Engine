@@ -15,6 +15,7 @@
 	import { setComponentParams } from './componentParamsContext';
 	import { resolveComponentParams } from './componentParams';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
+	import { getComponentDefaults } from './registerComponentDefaults';
 
 	const { node, space }: Props = $props();
 
@@ -57,10 +58,15 @@
 		visited: new Set([...parentNest.visited, node.componentId]),
 	});
 
-	// Param threading (§13.2 / Phase B1): resolve the instance's effective params
-	// (def defaults ◁ project defaults [stubbed undefined until B3] ◁ instance
-	// overrides). As in B1 the static set is read at init.
-	const staticParams = allowed && def ? resolveComponentParams(def, node.params) : {};
+	// Param threading (§13.2 / Phase B1+B4.5): resolve the instance's effective
+	// params — def defaults ◁ PER-PROJECT defaults (the B3 sidecar the game
+	// registers at boot via `registerComponentDefaults`, §14.2 B4.5) ◁ instance
+	// overrides. As in B1 the static set is read at init. No registered defaults ⇒
+	// `getComponentDefaults` is `undefined` ⇒ def's own defaults apply (parity).
+	const staticParams =
+		allowed && def
+			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
+			: {};
 
 	// Engine value feed (§13.2 step 2 / Phase B2): if the resolved params name a
 	// `source` AND the game registered a value store under it, subscribe and keep
