@@ -124,6 +124,16 @@ interface BaseNode {
 			fit?: 'cover' | 'contain';
 		};
 	};
+	/**
+	 * Parametric binding (§13.2 "param threading"). Maps a node FIELD PATH (e.g.
+	 * `'text'`, `'style.fill'`, `'style.fontFamily'`, `'style.fontSize'`) to a
+	 * {@link ComponentParam} key. Resolved only when the node renders inside a
+	 * `componentInstance` expansion that provides params (via the param context);
+	 * the bound field then reads its value from the resolved param instead of the
+	 * node's own static value. Absent ⇒ no effect (a top-level scene node, or a
+	 * node with no bindings, renders exactly as today — parity).
+	 */
+	paramBindings?: Record<string, string>;
 }
 
 export interface ContainerNode extends BaseNode {

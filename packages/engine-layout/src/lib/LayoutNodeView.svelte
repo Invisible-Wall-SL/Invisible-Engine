@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { LayoutNode, Scene } from './types';
+	import type { LayoutNode, Scene, TextStyle } from './types';
 
 	export type Props = { node: LayoutNode; space?: Scene['space'] };
 </script>
@@ -11,7 +11,10 @@
 	import { resolveTransform } from './resolveTransform';
 	import { getBoundComponent } from './registerBoundComponents';
 	import { backgroundCoverScale, backgroundCoverStretch, backgroundFit } from './coverTransform';
+	import { getComponentParams } from './componentParamsContext';
+	import { resolveBoundValue } from './componentParams';
 	import ComponentInstance from './ComponentInstance.svelte';
+	import ParamReadoutText from './ParamReadoutText.svelte';
 
 	const { node, space }: Props = $props();
 	const layoutContext = getContextLayout();
@@ -111,6 +114,47 @@
 		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
 	});
 	const bgSpineScale = $derived(isBackground ? bgStretch : undefined);
+
+	// Param threading (§13.2 / Phase B1) — TEXT branch only. When this text node
+	// renders inside a `componentInstance` expansion that provides params, a
+	// `paramBindings` entry overrides the bound field with the resolved param
+	// value; an unbound field keeps the node's own static value. Parity: at the top
+	// level (no provider) `getComponentParams()` is `{}` and `node.paramBindings` is
+	// typically absent, so every existing doc renders byte-identical to today.
+	// Wrong-primitive bound values are ignored (prefer the static value over a crash).
+	const componentParams = $derived(getComponentParams());
+
+	// Phase B2 — VALUE feed. The bound `text` value may now be a NUMBER (the
+	// `engineProvided` `value` param fed by `<ComponentInstance>`). A numeric bind
+	// routes through `<ParamReadoutText>` (formatted + optional count-up); a STRING
+	// bind passes through as in B1; an unbound text keeps `node.text`. `boundText`
+	// is the raw resolved value; `numericValue` is set ONLY for the readout path, so
+	// every non-numeric text node renders through the unchanged B1 `<Text>` below.
+	const boundText = $derived(
+		node.kind === 'text' ? resolveBoundValue(node.paramBindings, 'text', componentParams) : undefined,
+	);
+	const numericValue = $derived(typeof boundText === 'number' ? boundText : undefined);
+	const resolvedText = $derived.by(() => {
+		if (node.kind !== 'text') return undefined;
+		return typeof boundText === 'string' ? boundText : node.text;
+	});
+	// Author-set count-up flag (§13.2): read from the resolved params; absent ⇒ snap.
+	const countUp = $derived(componentParams['countUp'] === true);
+	// B2 minimal numeric format: thousands-grouped integer (a richer per-readout
+	// format — currency/decimals — is a later phase). Cached formatter instance.
+	const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+	const formatValue = (value: number) => numberFormat.format(value);
+	const resolvedStyle = $derived.by(() => {
+		if (node.kind !== 'text') return undefined;
+		const fontFamily = resolveBoundValue(node.paramBindings, 'style.fontFamily', componentParams);
+		const fontSize = resolveBoundValue(node.paramBindings, 'style.fontSize', componentParams);
+		const fill = resolveBoundValue(node.paramBindings, 'style.fill', componentParams);
+		const overrides: Partial<TextStyle> = {};
+		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
+		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
+		if (typeof fill === 'number') overrides.fill = fill;
+		return Object.keys(overrides).length > 0 ? { ...node.style, ...overrides } : node.style;
+	});
 </script>
 
 {#if transform.visible}
@@ -217,16 +261,38 @@
 			{/if}
 		</SpineProvider>
 	{:else if node.kind === 'text'}
-		<Text
-			text={node.text}
-			x={posX}
-			y={posY}
-			anchor={transform.anchor}
-			scale={transform.scale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-			style={node.style}
-		/>
+		{#if numericValue !== undefined}
+			<!--
+				B2 numeric readout: this text node is bound to a numeric `value` param
+				fed by `<ComponentInstance>`. `<ParamReadoutText>` formats it (and counts
+				up when `params.countUp` is set). Every other text node falls through to
+				the unchanged B1 `<Text>` below — parity.
+			-->
+			<ParamReadoutText
+				target={numericValue}
+				x={posX}
+				y={posY}
+				anchor={transform.anchor}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+				style={resolvedStyle}
+				{countUp}
+				format={formatValue}
+			/>
+		{:else}
+			<Text
+				text={resolvedText}
+				x={posX}
+				y={posY}
+				anchor={transform.anchor}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+				style={resolvedStyle}
+			/>
+		{/if}
 	{/if}
 {/if}

@@ -9,3 +9,8 @@ import ComponentInstance, {
 
 export { LayoutScene, LayoutNodeView, ComponentInstance };
 export type { LayoutSceneProps, LayoutNodeViewProps, ComponentInstanceProps };
+
+// Param context (§13.2) — Svelte-dependent, so it lives on the component entry
+// (the bare `engine-layout` import stays Svelte-free). The editor canvas can
+// reuse the same provider/reader when it threads instance params (B3).
+export { setComponentParams, getComponentParams } from './componentParamsContext';
