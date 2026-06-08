@@ -588,4 +588,35 @@ New R2 key `editor/<projectKey>/component-defaults/<componentId>.json` = `{ para
 - **Value binding vs full track interpreter** — B2 leans a direct readout binding; confirm we don't block B2 on the full §8.5 GSAP track UI (a plain readout doesn't need a timeline).
 - **Does `HudReadout` subsume the `UiLabel` coded component, or wrap it?** — i.e. is the readout a `text` node the engine draws, or a `mount` of the existing coded `UiLabel` (keeps number-formatting/font-fallback code)? Recommend wrap-via-mount first (least re-implementation), revisit.
 
-> **Status:** SCOPED (not built). Steps 1–5 + §12 are the foundation; Batch B = build step 6 narrowed to the HUD readout, phased B1→B4 with parity gates. Start B1 (param threading) — it's pure, reversible plumbing — and verify before B2.
+> **Status:** B1+B2 SHIPPED (`b26bc3b`), B3 SHIPPED (`ff3fc78`). B4 scoped in §14. Steps 1–5 + §12 are the foundation; Batch B = build step 6 narrowed to the HUD readout, phased B1→B4 with parity gates.
+
+## 14. Addendum — B4: migrate the HUD readouts to one parametric `HudReadout` (owner-chosen HYBRID, 2026-06-08)
+
+**Owner decision (2026-06-08):** the **hybrid** path. NOT a full HUD-through-engine rewrite, NOT the §12 `source`-prop shortcut. `LayoutEditable` keeps its bespoke positioning, but **mounts a `<ComponentInstance>`** of a single per-project `HudReadout` def for the three readouts — so B1/B2/B3 become the HUD's foundation and the owner's model holds (Component Editor owns `HudReadout` + per-project defaults; scene editor overrides per-instance).
+
+### 14.0 The architecture this migrates (mapped 2026-06-08)
+The HUD bottom bar is a **bespoke `LayoutEditable` renderer**, fully decoupled from the engine `<LayoutScene>`/`<ComponentInstance>` path (it does NOT expand `componentInstance` nodes, does NOT call `registerComponents`/`registerComponentValues`):
+- **Scene:** `referenceLayouts/hud.ts` `hudBarScene()` (~L114–140) defines balance/win/bet as **`bind` nodes** (`bind:{component:'UiLabelBalance', props:{stacked:true}}`).
+- **Render:** `components-ui-pixi/LayoutEditable.svelte` (~L114–190) reads each node by id, computes `hudPos()`/`hudStyle()`/`hudText()` (`hudPositions.ts` L80/89/98), spreads the §12 overrides into a coded **snippet**.
+- **Snippets:** three SEPARATE coded components `Label{Balance,Win,Bet}.svelte` wrapping base `UiLabel.svelte`, each **hardcoded** to a store. **Values:** `stateBet.balanceAmount` (`state-shared/stateBet.svelte.ts:10`), `stateBet.winBookEventAmount` (:15, tweened/count-up today), `stateBetDerived.betCost()` (:61).
+- HUD labels are passed as **snippet props** to `<UI>`→`<LayoutEditable>`; the only `registerBoundComponents` call is `{ Win, Transition }` (`apps/lines/Game.svelte:43`) — labels aren't in it.
+
+### 14.1 Target shape
+- **One `HudReadout` ComponentDef** (shared built-in, `_shared/editor-components/hudReadout.json`, so every project's Component Editor lists it; per-project appearance via the B3 defaults sidecar). `root` = a container with a **caption** text node (`paramBindings:{ text:'label' }`) stacked over a **value** text node (`paramBindings:{ text:'value', 'style.fill':'fill', 'style.fontSize':'fontSize', 'style.fontFamily':'fontFamily' }`). Params: `source`(string), `label`(string), `fill`/`fontSize`/`fontFamily`(style), `countUp`(boolean), `value`(number, `engineProvided`).
+- **Three HUD nodes become `componentInstance`** of `hudReadout` with `params:{ source:'balance'|'win'|'bet', label, countUp? }` (win `countUp:true`).
+- **`registerComponentValues({ balance, win, bet })`** at game boot wraps the live selectors as `ValueSource`s (raw target value — `ParamReadoutText` owns the count-up via `countUp`, replacing `LabelWin`'s tween).
+
+### 14.2 Build order (parity-gated; lines byte-identical until the flip)
+- **B4.1 — `HudReadout` def + registration.** Author the def (R2 `_shared` for the editor + a code/seed path so the game `registerComponents({ hudReadout })` at boot). No HUD wiring yet ⇒ parity. Open it in the Component Editor → confirm B3's defaults + non-empty preview render (this is also what makes B3 demonstrable).
+- **B4.2 — value sources.** `registerComponentValues({ balance, win, bet })` in `apps/lines/Game.svelte`, wrapping `stateBet.*`/`betCost()` as `ValueSource`s (a small `$state`→subscribe adapter, or reuse the existing tween stores raw). Unused until B4.3 ⇒ parity.
+- **B4.3 — `LayoutEditable` mounts `<ComponentInstance>`.** Teach `LayoutEditable` to render a `componentInstance` HUD node by wrapping `<ComponentInstance node={node}>` at the computed `hudPos()` Container (it already provides the pixi/layout context the game uses). Prove on ONE scratch readout node first (not the live three).
+- **B4.4 — convert the 3 nodes + parity flip.** A convert/seed turns the balance/win/bet `bind` nodes → `componentInstance(hudReadout,{source,…})` (mirrors the reelGrid "Convert to parametric grid" affordance). **Parity gate:** the readout must render at the same position, font, value, and count-up as the coded label before the coded `Label*` snippets are retired; keep both behind a flag until verified online. `apps/lines` `vite build` + visual parity GREEN.
+- **B4.5 — `projectDefaults` into the GAME render path.** Today B3's defaults feed only the editor preview; the game's `resolveComponentParams` 3rd arg is stubbed. Deliver the per-project defaults to the standalone game (it has no launcher session — it fetches via `/api/editor/doc?k=`). **Sub-decision:** (a) the launcher BAKES the project defaults into each served def's `param.default` when the game fetches components (engine stays simple — no runtime projectDefaults), vs (b) a token-gated `/api/editor/component-defaults` fetch the game registers via a new `registerComponentDefaults`. Recommend (a) — fewer moving parts, one delivery channel.
+- **B4.6 — Borut mirror + republish.** Once proven on `apps/lines`, mirror to Book of Borut (submodule bump + `build:engine` + republish), per the §11/§12 mirror pattern. Borut stays parity-safe until its HUD nodes are converted.
+
+### 14.3 Open sub-decisions (settle during B4)
+- **`HudReadout` = engine-drawn text nodes vs `mount` of coded `UiLabel`?** (§13.6 carried.) The hybrid leans engine-drawn text nodes (so the Component Editor truly owns the tree + B3 preview works). Risk: re-implementing `UiLabel`'s stacked caption/value + bitmap-font fallback as nodes. Validate the font path (the HUD uses a bitmap/web font via the catalog) renders correctly through `LayoutNodeView`/`ParamReadoutText` before retiring `UiLabel`.
+- **Where the `HudReadout` def is registered for the game** — bundled in the game vs fetched from R2 at boot. Coupled to B4.5's delivery choice.
+- **Caption (`label`) source** — a static text node value vs a `label` param (so the Component Editor can rename it per project). Lean param.
+
+> **Status:** SCOPED (not built). Path = HYBRID. Start B4.1 (def + registration, parity) — it also makes B3 demonstrable. Verify each phase online before the B4.4 flip; mirror to Borut only after `apps/lines` parity holds.
