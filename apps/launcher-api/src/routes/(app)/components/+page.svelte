@@ -45,14 +45,14 @@
 
 	/** Hoisted active selection — bound from the canvas, read by Properties. */
 	let selectedId = $state<string | null>(null);
-	/** Active authoring layoutType — `'desktop'` is base; others route into overrides. */
-	let currentLayoutType = $state<LayoutType>('desktop');
+	/** Components author in the fixed `desktop` design box — no per-layoutType
+	 * override switcher here (a component is one design; the scene editor owns
+	 * responsive overrides when the instance is placed). */
+	const currentLayoutType: LayoutType = 'desktop';
 	/** Left sidebar tab: the components list (home) vs the asset library. */
 	let leftTab = $state<'components' | 'library'>('components');
 	/** Right sidebar tab: outline of the open component vs the selected node's props. */
 	let rightTab = $state<'outline' | 'properties'>('properties');
-
-	const layoutTypes: LayoutType[] = ['desktop', 'tablet', 'landscape', 'portrait'];
 
 	function genComponentId(): string {
 		return 'c_' + Math.random().toString(36).slice(2, 10);
@@ -101,7 +101,10 @@
 		selectedId = null;
 		saveStatus = null;
 		rightTab = 'outline';
-		leftTab = 'library';
+		// Stay on the Components list and show the open component's Outline first —
+		// don't throw the author into the asset Library on open (they switch to
+		// Library themselves when they want to drag assets in).
+		leftTab = 'components';
 	}
 
 	let newName = $state('');
@@ -346,23 +349,6 @@
 			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE COMPONENT EDITOR</a>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
-
-		{#if componentDraft}
-			<div class="layout-pills" role="tablist" aria-label="Authoring layoutType">
-				{#each layoutTypes as lt (lt)}
-					<button
-						role="tab"
-						aria-selected={currentLayoutType === lt}
-						class="pill"
-						class:active={currentLayoutType === lt}
-						class:override={currentLayoutType === lt && lt !== 'desktop'}
-						onclick={() => (currentLayoutType = lt)}
-					>
-						{lt}
-					</button>
-				{/each}
-			</div>
-		{/if}
 
 		<div class="meta">
 			{#if componentDraft}
@@ -677,28 +663,6 @@
 	.subtitle strong {
 		color: #b8b8c4;
 		font-weight: 600;
-	}
-	.layout-pills {
-		display: flex;
-		gap: 4px;
-	}
-	.pill {
-		background: #14141a;
-		border: 1px solid #24242e;
-		color: #9a9aa6;
-		font-size: 11px;
-		padding: 4px 10px;
-		border-radius: 999px;
-		cursor: pointer;
-		font-family: inherit;
-	}
-	.pill.active {
-		border-color: #5db0ff;
-		color: #cfe6ff;
-	}
-	.pill.override {
-		border-color: #c8a3ff;
-		color: #d8c0ff;
 	}
 	.meta {
 		display: flex;
