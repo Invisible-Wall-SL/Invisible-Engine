@@ -620,3 +620,32 @@ The HUD bottom bar is a **bespoke `LayoutEditable` renderer**, fully decoupled f
 - **Caption (`label`) source** — a static text node value vs a `label` param (so the Component Editor can rename it per project). Lean param.
 
 > **Status:** SCOPED (not built). Path = HYBRID. Start B4.1 (def + registration, parity) — it also makes B3 demonstrable. Verify each phase online before the B4.4 flip; mirror to Borut only after `apps/lines` parity holds.
+
+## 15. Addendum — Complete + reconcile the scene set ("editor owns the full screen list") (owner direction 2026-06-08)
+
+**Owner report:** opening Book of Borut in the editor, *not all the game's screens appear* — notably **the startup logo/loading screen is missing** — and the free-spin intro/outro **look like duplicates**.
+
+**Root cause (investigated 2026-06-08): there was no single source of truth for the scene list, and the sources had drifted.** The editor renders `doc.scenes` from the loaded R2 `scenes.json` (the template is only used for slot-warnings, §7.1). FOUR generators each defined a *different* set, and **none defined a logo/loading scene** (it lived only in coded `LoadingScreen.svelte`):
+- `templates/{bookof,lines}.ts` — 3 / 2 scenes (schema only).
+- `referenceLayouts/bookof.ts` — 7 scenes incl. free-spins, **no HUD, no loading**.
+- `referenceLayouts/lines.ts` (`defaultLayout`) — basegame + overlays + HUD, **no loading/freeSpin**.
+- `scripts/seed-game-editor.mjs` (what writes the live R2 doc) — 8 scenes incl. HUD, **no loading, no freegame**.
+
+**Phase 1 — LANDED 2026-06-08 (code-only; owner re-seed pending).** Make the **logo/loading screen a first-class scene** and bring every source into agreement (additive, parity-safe):
+1. `boundComponentCatalog.ts` — new `LoadingScreen` default (`space:'canvas'`, `placement:'centre'`, preview spine bundle `loader` = the `title_screen` logo) so the editor draws the splash.
+2. `templates/{bookof,lines}.ts` — now enumerate the **full screen set** (`loading`, `background`, basegame, [`freegame` bookOf only], `basegameOverlays`, `freeSpinIntro`, `freeSpinCounter`, `freeSpinOutro`). New mount slots are **not `required`** (the game still renders these from coded components → no validation noise). The HUD stays a universal layer appended via `hudScenes()`, not enumerated in the template.
+3. `referenceLayouts/bookof.ts` — added the `loading` scene + appended `...hudScenes()` so the reference doc is complete and matches the seed.
+4. `referenceLayouts/lines.ts` — added inert `loading` + `freeSpin*` scenes. **Deliberately NO `background` scene** (Game.svelte reads a `background`-scene `bg` node to drive the coded `<Background>` cover; its absence keeps `apps/lines` on its exact-cover default per §10.6 — unchanged).
+5. `scripts/seed-game-editor.mjs` — `buildDoc()` now emits the `loading` scene (bind `LoadingScreen`).
+
+**Parity:** every new scene is a `bind` anchor to a coded component NOT in `registerBoundComponents` (e.g. `LoadingScreen`), and the game looks scenes up by id (never iterates all), so the additions are **inert in-game** — the coded screens render exactly as today. Editor-only visibility. `pnpm --filter {engine-layout,launcher-api} build` + `apps/lines` `vite build` GREEN.
+
+**Owner step to see it (TWO ways):**
+- **In-app button (no console) — LANDED 2026-06-08.** The editor scene-bar now has an **"＋ Add missing screens (N)"** button next to "Add HUD layer". It diffs the project's doc against the game type's canonical full scene set (`engine-layout` `getFullSceneSet(gameType)` — covers `lines` + `bookOf`) and appends only the scenes the doc LACKS, **by id, non-destructively** (existing scenes + edits untouched); autosave persists it. Mirrors the existing `addHudLayer()` pattern. The button only shows when something's missing, and tooltips the screen names. Safe for `bookOf` because the merge adopts only ABSENT scenes — never `bookofReferenceLayout`'s board-frame nodes (a seeded project already has `basegame`). This is the §7.4 "reset/import to engine defaults" action, scoped to a non-destructive top-up.
+- **Re-seed (console, also rewrites the atlas manifest):** `node scripts/seed-game-editor.mjs --client borut --project bookofborut --tp … --page …` with R2 creds — needed only when the board atlas itself changes; for just picking up new screens, the button is enough.
+
+**Deliberately deferred / explained:**
+- **`freegame`** — template-declared but given NO placeholder doc content: its only distinct asset is a free-game background not yet available, and a basegame-clone scene would itself read as a fake "duplicate." Add real free-game art when it exists.
+- **intro/outro "duplicate"** — NOT a bug: Borut ships no dedicated `fsOutro` spine, so `FreeSpinOutro`'s catalog preview falls back to the `fsIntro` frame (and the game reuses the same frame in-game too). The editor is faithful. A distinct outro needs distinct art or a per-node `preview.art` override.
+
+**Next (Move 2 proper — not yet done):** the seed (`.mjs`, can't import TS) and the TS `referenceLayouts`/`defaultLayout` are still two generators that can re-drift. Unify them into ONE `defaultLayout(gameType)` the seed consumes (a build step or a generated JSON), per §7.2 — so the scene set has a single source. Move 3 = drive each screen's show/hide from the doc (route B, §8.7) so the editor *owns* (not just previews) every screen.

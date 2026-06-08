@@ -1,4 +1,5 @@
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
+import { hudScenes } from './hud';
 
 /**
  * Placed reference layout for the Book of Borut family (`bookOf`) — the
@@ -66,6 +67,17 @@ export function bookofReferenceLayout(): LayoutDoc {
 		gameType: 'bookOf',
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
+			{
+				// Startup splash: the `loader` spine (logo + progress). Bind anchor —
+				// the editor previews it from the catalog; the game mounts its coded
+				// LoadingScreen regardless (not in registerBoundComponents → ignored).
+				id: 'loading',
+				name: 'Loading / logo',
+				space: 'canvas',
+				nodes: [
+					{ id: 'loading-screen', slotId: 'loadingScreen', label: 'Loading screen (logo)', kind: 'container', x: 0, y: 0, bind: { component: 'LoadingScreen' }, children: [] },
+				],
+			},
 			{
 				// Mirrors the game's generator (Book of Borut/src/game/defaultLayout.ts).
 				// Bind anchors (background, FS counter, intro, outro) show as
@@ -169,6 +181,9 @@ export function bookofReferenceLayout(): LayoutDoc {
 					{ id: 'fs-outro', label: 'Free-spin outro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinOutro' }, children: [] },
 				],
 			},
+			// HUD layer (logo/name corners + bottom bar) — universal across game
+			// types, appended so the reference doc matches the per-project seed.
+			...hudScenes(),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};

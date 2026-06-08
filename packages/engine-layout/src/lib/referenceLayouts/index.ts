@@ -1,4 +1,5 @@
 import type { LayoutDoc } from '../types';
+import { bookofReferenceLayout } from './bookof';
 import { defaultLayout } from './lines';
 
 export { defaultLayout } from './lines';
@@ -47,4 +48,25 @@ export function listReferenceLayouts(): { gameType: string; name: string }[] {
 /** The placed `LayoutDoc` for `gameType`, or `undefined` if none ships one. */
 export function getReferenceLayout(gameType: string): LayoutDoc | undefined {
 	return REFERENCE_LAYOUTS.find((r) => r.gameType === gameType)?.build();
+}
+
+/**
+ * The canonical FULL scene set for a game type — the complete screen list the
+ * game has (loading/logo, background, basegame, overlays, free-spins, HUD). The
+ * editor's "Add missing screens" action diffs this against a project's doc and
+ * appends only the scenes the doc LACKS (by id), non-destructively.
+ *
+ * Distinct from {@link getReferenceLayout}/the picker: it covers `bookOf` too.
+ * That's safe for the merge precisely because the merge adopts only ABSENT
+ * scenes — never `bookofReferenceLayout`'s board-frame nodes (whose atlas region
+ * the generic layout can't reproduce), since a seeded project already has
+ * `basegame`. Returns `undefined` for an unknown game type.
+ */
+const FULL_SCENE_SOURCES: Record<string, () => LayoutDoc> = {
+	lines: () => defaultLayout('lines'),
+	bookOf: () => bookofReferenceLayout(),
+};
+
+export function getFullSceneSet(gameType: string): LayoutDoc | undefined {
+	return FULL_SCENE_SOURCES[gameType]?.();
 }

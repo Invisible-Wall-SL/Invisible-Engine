@@ -3,6 +3,7 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import {
 		findUnfilledRequiredSlots,
+		getFullSceneSet,
 		getReferenceLayout,
 		hudScenes,
 		isHudScene,
@@ -581,6 +582,27 @@
 			scenes = [...scenes, ...fresh];
 		}
 		activeSceneIdx = scenes.length - fresh.length; // focus the first HUD screen
+		selectedId = null;
+		markDirty();
+	}
+
+	/** Screens in the game's canonical full set (per game type) that this doc is
+	 * missing, matched by scene id — e.g. a `loading`/logo scene added after the
+	 * project was first seeded. */
+	const missingScreens = $derived.by(() => {
+		const full = getFullSceneSet(projectGameType);
+		if (!full) return [] as Scene[];
+		return full.scenes.filter((ref) => !scenes.some((cur) => cur.id === ref.id));
+	});
+
+	/** Append every screen the game has that this doc lacks (e.g. the logo/loading
+	 * scene) — non-destructive: existing scenes + their edits are left untouched, so
+	 * the author tops up the screen list without re-running the console seed. */
+	function addMissingScreens(): void {
+		const toAdd = missingScreens;
+		if (toAdd.length === 0) return;
+		scenes = [...scenes, ...structuredClone(toAdd)];
+		activeSceneIdx = scenes.length - toAdd.length; // focus the first added screen
 		selectedId = null;
 		markDirty();
 	}
@@ -1377,6 +1399,19 @@
 				>
 					{hasHud ? '↻ Refresh HUD layer' : '＋ Add HUD layer'}
 				</button>
+
+				{#if missingScreens.length > 0}
+					<button
+						class="add-hud-btn"
+						type="button"
+						title={`Add ${missingScreens.length} screen(s) this game has but the layout is missing (e.g. the logo/loading screen) — non-destructive, keeps your edits: ${missingScreens
+							.map((s) => s.name || s.id)
+							.join(', ')}`}
+						onclick={addMissingScreens}
+					>
+						＋ Add missing screens ({missingScreens.length})
+					</button>
+				{/if}
 			</div>
 
 			<div class="tabs" role="tablist" aria-label="Left panel">

@@ -13,7 +13,31 @@ export const bookofTemplate: GameTemplate = {
 	gameType: 'bookOf',
 	version: 1,
 	board: { reels: 5, rows: 3, cellSize: 120 },
+	// The full screen set the game actually has, in lifecycle/z order. Mount slots
+	// are NOT `required` — the game still renders these from coded components, so a
+	// `defaultLayout`/seed drops only an anchor (the editor previews it from the
+	// shared catalog). The HUD (bottom bar + corners) is a universal layer appended
+	// at doc-gen time via `hudScenes()`, so it isn't enumerated here.
 	scenes: [
+		{
+			id: 'loading',
+			name: 'Loading / logo',
+			slots: [
+				{
+					slotId: 'loadingScreen',
+					name: 'Loading screen (logo)',
+					kind: 'mount',
+					mountComponent: 'LoadingScreen',
+				},
+			],
+		},
+		{
+			id: 'background',
+			name: 'Background',
+			slots: [
+				{ slotId: 'background', name: 'Background', kind: 'mount', mountComponent: 'Background' },
+			],
+		},
 		{
 			id: 'basegame',
 			name: 'Base game',
@@ -42,6 +66,42 @@ export const bookofTemplate: GameTemplate = {
 					name: 'Transition overlay',
 					kind: 'mount',
 					mountComponent: 'Transition',
+				},
+			],
+		},
+		{
+			id: 'freeSpinIntro',
+			name: 'Free-spin intro',
+			slots: [
+				{
+					slotId: 'freeSpinIntro',
+					name: 'Free-spin intro',
+					kind: 'mount',
+					mountComponent: 'FreeSpinIntro',
+				},
+			],
+		},
+		{
+			id: 'freeSpinCounter',
+			name: 'Free-spin counter',
+			slots: [
+				{
+					slotId: 'freeSpinCounter',
+					name: 'Free-spin counter',
+					kind: 'mount',
+					mountComponent: 'FreeSpinCounter',
+				},
+			],
+		},
+		{
+			id: 'freeSpinOutro',
+			name: 'Free-spin outro',
+			slots: [
+				{
+					slotId: 'freeSpinOutro',
+					name: 'Free-spin outro',
+					kind: 'mount',
+					mountComponent: 'FreeSpinOutro',
 				},
 			],
 		},

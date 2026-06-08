@@ -69,6 +69,15 @@ export interface BoundComponentDefault {
  * game passes to `registerBoundComponents` and writes into `bind.component`.
  */
 export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
+	LoadingScreen: {
+		// The startup splash: the game's `loader` spine (the `title_screen`
+		// animation = the logo) over the progress bar, self-centred in
+		// `<MainContainer>`. Editor-only preview; the game mounts its coded
+		// `LoadingScreen.svelte` regardless.
+		space: 'canvas',
+		placement: 'centre',
+		preview: { kind: 'spine', bundle: 'loader' },
+	},
 	Background: {
 		space: 'canvas',
 		zIndex: -10,

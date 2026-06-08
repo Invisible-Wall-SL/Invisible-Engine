@@ -327,6 +327,15 @@ function buildDoc(updatedAt) {
 			// is the one genuinely static piece, so it stays a real sprite the editor
 			// positions. See docs/design/invisible-editor.md (mount/bind contract).
 			{
+				// Startup splash: the `loader` spine (logo + progress). Bind anchor —
+				// the editor previews it from the shared catalog; the game mounts its
+				// coded LoadingScreen regardless (not registered → ignored in-game).
+				id: 'loading',
+				name: 'Loading / logo',
+				space: 'canvas',
+				nodes: [anchor('loading-screen', 'loadingScreen', 'Loading screen (logo)', 'LoadingScreen')],
+			},
+			{
 				id: 'background',
 				name: 'Background',
 				space: 'canvas',

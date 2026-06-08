@@ -55,6 +55,31 @@ export function defaultLayout(gameType: string): LayoutDoc {
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
 			{
+				// Startup splash: the `loader` spine (logo + progress). Bind anchor —
+				// editor previews it from the catalog; the game mounts its coded
+				// LoadingScreen regardless (not registered → ignored in-game).
+				id: 'loading',
+				name: sceneName('loading'),
+				space: 'canvas',
+				nodes: [
+					{
+						id: 'loading-screen',
+						slotId: 'loadingScreen',
+						label: 'Loading screen (logo)',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'LoadingScreen' },
+						children: [],
+					},
+				],
+			},
+			// NOTE: no `background` scene here on purpose. `apps/lines`' Game.svelte
+			// reads a `background`-scene `bg` node to drive the coded <Background>
+			// cover; the absence keeps it on its exact-cover default (§10.6). The
+			// `background` slot is still declared in the template + filled by the
+			// bookOf seed/reference, where the background is genuinely doc-driven.
+			{
 				id: 'basegame',
 				name: sceneName('basegame'),
 				nodes: [
@@ -134,6 +159,57 @@ export function defaultLayout(gameType: string): LayoutDoc {
 						x: 0,
 						y: 0,
 						bind: { component: 'Transition' },
+						children: [],
+					},
+				],
+			},
+			{
+				id: 'freeSpinIntro',
+				name: sceneName('freeSpinIntro'),
+				space: 'canvas',
+				nodes: [
+					{
+						id: 'fs-intro',
+						slotId: 'freeSpinIntro',
+						label: 'Free-spin intro',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'FreeSpinIntro' },
+						children: [],
+					},
+				],
+			},
+			{
+				id: 'freeSpinCounter',
+				name: sceneName('freeSpinCounter'),
+				space: 'canvas',
+				nodes: [
+					{
+						id: 'fs-counter',
+						slotId: 'freeSpinCounter',
+						label: 'Free-spin counter',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'FreeSpinCounter' },
+						children: [],
+					},
+				],
+			},
+			{
+				id: 'freeSpinOutro',
+				name: sceneName('freeSpinOutro'),
+				space: 'canvas',
+				nodes: [
+					{
+						id: 'fs-outro',
+						slotId: 'freeSpinOutro',
+						label: 'Free-spin outro',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'FreeSpinOutro' },
 						children: [],
 					},
 				],
