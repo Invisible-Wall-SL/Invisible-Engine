@@ -196,10 +196,15 @@
 		if (componentBusy) return;
 		componentBusy = true;
 		componentStatus = null;
+		const name = container.label || 'Component';
+		// Idempotent by name: re-running "Edit as component" on a container reuses the
+		// existing project-scoped component of the same name (overwrite in place)
+		// instead of minting a duplicate shell each time.
+		const existing = components.find((c) => c.scope === 'project' && c.name === name);
 		const def: ComponentDef = {
-			id: genComponentId(),
-			name: container.label || 'Component',
-			version: 1,
+			id: existing ? existing.id : genComponentId(),
+			name,
+			version: existing ? existing.version : 1,
 			scope: 'project',
 			category: 'overlay',
 			root: toComponentRoot(container),
@@ -221,9 +226,12 @@
 				componentStatus = { kind: 'error', message };
 				return;
 			}
-			// Reflect the new def locally so the picker + canvas resolve it immediately.
-			components = [...components, def];
-			componentStatus = { kind: 'ok', message: 'Component created' };
+			// Reflect the def locally so the picker + canvas resolve it immediately —
+			// overwrite an existing same-name entry in place rather than appending.
+			components = existing
+				? components.map((c) => (c.id === def.id ? def : c))
+				: [...components, def];
+			componentStatus = { kind: 'ok', message: existing ? 'Component updated' : 'Component created' };
 			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
 				data.projectKey,
 			)}`;
@@ -962,11 +970,33 @@
 		e.returnValue = '';
 	}
 
+	/** Guards overlapping component refetches (see {@link onVisibilityChange}). */
+	let refreshingComponents = false;
+
+	/** When this tab regains focus, re-pull the project's components — a component
+	 * created/saved in the Component Editor tab shows up without a full reload. */
+	async function onVisibilityChange(): Promise<void> {
+		if (document.visibilityState !== 'visible' || refreshingComponents) return;
+		refreshingComponents = true;
+		try {
+			const res = await fetch(
+				`/api/editor/components?project=${encodeURIComponent(data.projectKey)}`,
+			);
+			if (res.ok) components = (await res.json()) as ComponentDef[];
+		} catch {
+			/* transient fetch failure — keep the current list */
+		} finally {
+			refreshingComponents = false;
+		}
+	}
+
 	onMount(() => {
 		window.addEventListener('beforeunload', onBeforeUnload);
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		const id = window.setInterval(() => (nowTick = Date.now()), RELATIVE_TICK_MS);
 		return () => {
 			window.removeEventListener('beforeunload', onBeforeUnload);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			window.clearInterval(id);
 			if (autosaveTimer) clearTimeout(autosaveTimer);
 		};

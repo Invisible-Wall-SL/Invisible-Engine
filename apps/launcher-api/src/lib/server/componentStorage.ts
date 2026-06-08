@@ -13,7 +13,7 @@ import {
 	projectComponentsPrefix,
 	sharedComponentsPrefix,
 } from './projectPaths';
-import { getObjectText, listAllKeys, putObjectText } from './r2';
+import { deleteObject, getObjectText, listAllKeys, putObjectText } from './r2';
 
 const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
@@ -75,6 +75,24 @@ export async function saveComponent(component: ComponentDef, projectKey?: string
 			? projectComponentKey(projectKey as string, normalized.id)
 			: editorComponentKey(normalized.id);
 	await putObjectText(key, JSON.stringify(normalized, null, 2), 'application/json');
+}
+
+/**
+ * Delete a component from its scope's R2 key — the inverse of {@link saveComponent},
+ * resolving the key identically (project → `projectComponentKey`, shared →
+ * `editorComponentKey`). A `scope: 'project'` delete MUST carry a `projectKey`.
+ */
+export async function deleteComponent(
+	id: string,
+	scope: 'shared' | 'project',
+	projectKey?: string,
+): Promise<void> {
+	if (scope === 'project' && !projectKey) {
+		throw new Error('A project-scoped component requires a projectKey.');
+	}
+	const key =
+		scope === 'project' ? projectComponentKey(projectKey as string, id) : editorComponentKey(id);
+	await deleteObject(key);
 }
 
 export interface ListComponentsOptions {

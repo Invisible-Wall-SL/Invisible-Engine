@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { ComponentDef } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
-import { loadComponent, saveComponent } from '$lib/server/componentStorage';
+import { deleteComponent, loadComponent, saveComponent } from '$lib/server/componentStorage';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
@@ -50,6 +50,27 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const component = await loadComponent(id, projectKey);
 	if (!component) throw error(404, 'not found');
 	return json(component);
+};
+
+/** Delete a component from its scope's R2 key (project shadow or shared library). */
+export const DELETE: RequestHandler = async ({ url, locals }) => {
+	await gate(locals);
+	const id = url.searchParams.get('id');
+	if (!id) throw error(400, 'missing id');
+	const projectKey = url.searchParams.get('project') || undefined;
+	const scopeParam = url.searchParams.get('scope');
+	const scope =
+		scopeParam === 'shared' || scopeParam === 'project'
+			? scopeParam
+			: projectKey
+				? 'project'
+				: 'shared';
+	try {
+		await deleteComponent(id, scope, projectKey);
+	} catch (e) {
+		throw error(400, e instanceof Error ? e.message : 'Invalid delete.');
+	}
+	return json({ ok: true });
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {

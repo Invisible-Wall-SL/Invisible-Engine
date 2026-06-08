@@ -49,8 +49,6 @@
 	 * override switcher here (a component is one design; the scene editor owns
 	 * responsive overrides when the instance is placed). */
 	const currentLayoutType: LayoutType = 'desktop';
-	/** Left sidebar tab: the components list (home) vs the asset library. */
-	let leftTab = $state<'components' | 'library'>('components');
 	/** Right sidebar tab: outline of the open component vs the selected node's props. */
 	let rightTab = $state<'outline' | 'properties'>('properties');
 
@@ -101,10 +99,6 @@
 		selectedId = null;
 		saveStatus = null;
 		rightTab = 'outline';
-		// Stay on the Components list and show the open component's Outline first —
-		// don't throw the author into the asset Library on open (they switch to
-		// Library themselves when they want to drag assets in).
-		leftTab = 'components';
 	}
 
 	let newName = $state('');
@@ -137,7 +131,19 @@
 		componentDraft = null;
 		selectedId = null;
 		saveStatus = null;
-		leftTab = 'components';
+	}
+
+	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
+	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
+	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
+		e.stopPropagation();
+		if (!window.confirm(`Delete component "${def.name}"? This cannot be undone.`)) return;
+		const params = new URLSearchParams({ id: def.id, scope: def.scope });
+		if (def.scope === 'project') params.set('project', data.projectKey);
+		const res = await fetch(`/api/editor/component?${params.toString()}`, { method: 'DELETE' });
+		if (!res.ok) return;
+		components = components.filter((c) => c.id !== def.id);
+		if (componentDraft?.id === def.id) closeComponent();
 	}
 
 	/** Spawn a node into the open draft's `root.children` (the array the synthetic
@@ -346,6 +352,7 @@
 <div class="shell">
 	<header class="topbar">
 		<div class="brandwrap">
+			<a class="save-btn" href="/editor">← Editor</a>
 			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE COMPONENT EDITOR</a>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
@@ -365,7 +372,7 @@
 				<button class="save-btn primary" type="button" onclick={() => void saveComponent()}>
 					Save component
 				</button>
-				<button class="save-btn" type="button" onclick={closeComponent}>← Components</button>
+				<button class="save-btn" type="button" onclick={closeComponent}>← All components</button>
 			{:else}
 				<span class="counter">
 					{components.length}
@@ -377,33 +384,12 @@
 
 	<div class="layout">
 		<aside class="left">
-			<div class="tabs" role="tablist" aria-label="Left panel">
-				<button
-					role="tab"
-					aria-selected={leftTab === 'components'}
-					class="tab"
-					class:active={leftTab === 'components'}
-					onclick={() => (leftTab = 'components')}
-				>
-					Components
-				</button>
-				<button
-					role="tab"
-					aria-selected={leftTab === 'library'}
-					class="tab"
-					class:active={leftTab === 'library'}
-					disabled={!componentDraft}
-					title={componentDraft
-						? 'Drag sprites / spine into the open component'
-						: 'Open a component to add assets to it'}
-					onclick={() => (leftTab = 'library')}
-				>
-					Library
-				</button>
+			<div class="panel-head">
+				<h2 class="panel-title">{componentDraft ? 'Asset library' : 'Components'}</h2>
 			</div>
 
 			<div class="tab-body">
-				{#if leftTab === 'components'}
+				{#if !componentDraft}
 					<div class="create">
 						<h3>New component</h3>
 						<div class="create-row">
@@ -440,11 +426,10 @@
 								<h4>{group.label} <span class="count">{group.items.length}</span></h4>
 								<ul class="cmp-list">
 									{#each group.items as def (def.id)}
-										<li>
+										<li class="cmp-row-wrap">
 											<button
 												type="button"
 												class="cmp-row"
-												class:active={componentDraft?.id === def.id}
 												onclick={() => openComponent(def)}
 											>
 												<span class="glyph">◇</span>
@@ -454,72 +439,77 @@
 												</span>
 												<span class="ver">v{def.version}</span>
 											</button>
+											<button
+												type="button"
+												class="cmp-del"
+												title={`Delete component "${def.name}"`}
+												aria-label={`Delete component "${def.name}"`}
+												onclick={(e) => void deleteComponentDef(e, def)}
+											>
+												✕
+											</button>
 										</li>
 									{/each}
 								</ul>
 							</div>
 						{/each}
 					{/if}
-				{:else if leftTab === 'library'}
-					{#if !componentDraft}
-						<p class="muted">Open a component first, then drag assets into it.</p>
-					{:else}
-						<section>
-							<h3>Atlases <span class="count">{atlasCount}</span></h3>
-							<ul>
-								{#each data.assets.atlases as a (a.key)}
-									{#if a.kind === 'atlas-manifest'}
-										{@render expandable(a.key, a.name, 'manifest')}
-									{:else}
-										<li
-											draggable="true"
-											data-asset-kind={a.kind}
-											data-asset-key={a.key}
-											data-asset-name={a.name}
-											ondragstart={(e) => onAssetDragStart(e, a)}
-										>
-											<span class="name">{a.name}</span>
-											<span class="tag">page</span>
-										</li>
-									{/if}
+				{:else}
+					<section>
+						<h3>Atlases <span class="count">{atlasCount}</span></h3>
+						<ul>
+							{#each data.assets.atlases as a (a.key)}
+								{#if a.kind === 'atlas-manifest'}
+									{@render expandable(a.key, a.name, 'manifest')}
 								{:else}
-									<li class="muted">No atlases yet.</li>
-								{/each}
-							</ul>
-						</section>
-
-						<section>
-							<h3>Spines <span class="count">{spineCount}</span></h3>
-							<ul>
-								{#each data.assets.spines as s (s.key)}
 									<li
 										draggable="true"
-										data-asset-kind={s.kind}
-										data-asset-key={s.key}
-										data-asset-name={s.name}
-										ondragstart={(e) => onAssetDragStart(e, s)}
+										data-asset-kind={a.kind}
+										data-asset-key={a.key}
+										data-asset-name={a.name}
+										ondragstart={(e) => onAssetDragStart(e, a)}
 									>
-										<span class="name">{s.name}</span>
-										<span class="tag">spine</span>
-										{#if s.shared}<span class="badge">shared</span>{/if}
+										<span class="name">{a.name}</span>
+										<span class="tag">page</span>
 									</li>
-								{:else}
-									<li class="muted">No spines yet.</li>
-								{/each}
-							</ul>
-						</section>
+								{/if}
+							{:else}
+								<li class="muted">No atlases yet.</li>
+							{/each}
+						</ul>
+					</section>
 
-						<section>
-							<h3>Sheets <span class="count">{sheetCount}</span></h3>
-							<ul>
-								{#each data.assets.sheets as sh (sh.key)}
-									{@render expandable(sh.key, sh.name, 'sheet')}
-								{:else}
-									<li class="muted">No sheets yet.</li>
-								{/each}
-							</ul>
-						</section>
-					{/if}
+					<section>
+						<h3>Spines <span class="count">{spineCount}</span></h3>
+						<ul>
+							{#each data.assets.spines as s (s.key)}
+								<li
+									draggable="true"
+									data-asset-kind={s.kind}
+									data-asset-key={s.key}
+									data-asset-name={s.name}
+									ondragstart={(e) => onAssetDragStart(e, s)}
+								>
+									<span class="name">{s.name}</span>
+									<span class="tag">spine</span>
+									{#if s.shared}<span class="badge">shared</span>{/if}
+								</li>
+							{:else}
+								<li class="muted">No spines yet.</li>
+							{/each}
+						</ul>
+					</section>
+
+					<section>
+						<h3>Sheets <span class="count">{sheetCount}</span></h3>
+						<ul>
+							{#each data.assets.sheets as sh (sh.key)}
+								{@render expandable(sh.key, sh.name, 'sheet')}
+							{:else}
+								<li class="muted">No sheets yet.</li>
+							{/each}
+						</ul>
+					</section>
 				{/if}
 			</div>
 		</aside>
@@ -643,8 +633,11 @@
 	}
 	.brandwrap {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: 12px;
+	}
+	.brandwrap .save-btn {
+		text-decoration: none;
 	}
 	.brand {
 		display: inline-flex;
@@ -735,6 +728,19 @@
 	}
 	.properties {
 		border-left: 1px solid #1c1c24;
+	}
+	.panel-head {
+		display: flex;
+		align-items: center;
+		padding: 10px 12px;
+		border-bottom: 1px solid #1c1c24;
+	}
+	.panel-title {
+		margin: 0;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #b8b8c4;
 	}
 	.tabs {
 		display: flex;
@@ -904,10 +910,33 @@
 		background: #16161c;
 		border-color: #1f1f28;
 	}
-	.cmp-row.active {
-		background: #1a1a22;
-		border-color: #6b5bff;
-		color: #e8e8ee;
+	.cmp-row-wrap {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		padding: 0;
+		border: none;
+	}
+	.cmp-row-wrap .cmp-row {
+		flex: 1;
+		min-width: 0;
+	}
+	.cmp-del {
+		flex: 0 0 auto;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		color: #777;
+		font-size: 12px;
+		line-height: 1;
+		padding: 5px 7px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.cmp-del:hover {
+		background: #2a161a;
+		border-color: #4a2a30;
+		color: #ff9a9a;
 	}
 	.glyph {
 		color: #c8a3ff;
