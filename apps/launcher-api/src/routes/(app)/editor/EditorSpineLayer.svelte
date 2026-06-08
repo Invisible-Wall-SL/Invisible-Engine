@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		computeOverlayPlacement,
+		coverTransform,
 		resolveAnchorPreviewArt,
 		resolveTransform,
 		type LayoutType,
@@ -232,6 +233,11 @@
 		loop?: boolean;
 		placement?: OverlayPlacement;
 		transform: ReturnType<typeof resolveTransform>;
+		/** The owning scene's coordinate space — drives the non-placement mapping into
+		 * the fixed window (game → main→window scale; background → full-bleed cover). */
+		space?: Scene['space'];
+		/** For `background` space: the node's cover multiplier (`scale.x`, default 1). */
+		coverScale?: number;
 	}
 
 	/** Visible spine render targets in this scene: real spine nodes + `preview.art`
@@ -256,6 +262,8 @@
 						loop: n.loop,
 						placement: undefined,
 						transform: t,
+						space: sc.space,
+						coverScale: n.scale?.x ?? 1,
 					});
 				} else {
 					// Resolve the anchor's stand-in art the SAME way the 2D canvas does
@@ -387,11 +395,39 @@
 				// identical to the Level-1 placement-only spot. cover stays pinned.
 				const off = target.placement === 'cover' ? { x: 0, y: 0 } : { x: t.x, y: t.y };
 				placeArt(inst, target.placement, off, target.nodeId);
-			} else {
+			} else if (target.space === 'background') {
+				// Full-bleed cover of the fixed window (§10.2) — same true-cover helper the
+				// game runtime + 2D canvas use. Art is centred on the skeleton origin.
+				const nat = naturalSizeOf(inst);
+				const cover = coverTransform({
+					artWidth: nat?.w ?? frameWidth,
+					artHeight: nat?.h ?? frameHeight,
+					targetWidth: frameWidth,
+					targetHeight: frameHeight,
+					coverScale: target.coverScale ?? 1,
+					fit: 'cover',
+				});
+				inst.skeleton.x = cover.x;
+				inst.skeleton.y = cover.y;
+				inst.skeleton.scaleX = cover.scale;
+				inst.skeleton.scaleY = -cover.scale;
+			} else if (target.space === 'standard' || target.space === 'canvas') {
+				// standard == window (identity fit); canvas authors raw window coords.
 				const sx = t.scale?.x ?? 1;
 				const sy = t.scale?.y ?? 1;
 				inst.skeleton.x = t.x;
 				inst.skeleton.y = t.y;
+				inst.skeleton.scaleX = sx;
+				inst.skeleton.scaleY = -sy;
+			} else {
+				// game space: map the main-box origin into the window the way <MainContainer>
+				// does (centre + mainScale), matching the 2D canvas's `nodeTransform`.
+				const s = mainScale();
+				const world = mainToWorld({ x: t.x, y: t.y });
+				const sx = (t.scale?.x ?? 1) * s;
+				const sy = (t.scale?.y ?? 1) * s;
+				inst.skeleton.x = world.x;
+				inst.skeleton.y = world.y;
 				inst.skeleton.scaleX = sx;
 				// Flip Y: the runtime art is y-up; the camera is y-down.
 				inst.skeleton.scaleY = -sy;
@@ -495,10 +531,16 @@
 			inst.skeleton.scaleY = -s;
 			return;
 		}
-		const s =
-			result.mode === 'cover'
-				? Math.max(frameWidth / bw, frameHeight / bh)
-				: Math.min(frameWidth / bw, frameHeight / bh);
+		// cover/contain sized to the fixed WINDOW via the shared true-cover helper
+		// (coverScale 1 = exact full-bleed cover, matching the game's background).
+		const { scale: s } = coverTransform({
+			artWidth: bw,
+			artHeight: bh,
+			targetWidth: frameWidth,
+			targetHeight: frameHeight,
+			coverScale: 1,
+			fit: result.mode === 'cover' ? 'cover' : 'contain',
+		});
 		// cover ignores the offset (caller passes 0); contain adds it in world px.
 		inst.skeleton.x = frameWidth / 2 - s * cx + posOffset.x;
 		inst.skeleton.y = frameHeight / 2 + s * cy + posOffset.y;

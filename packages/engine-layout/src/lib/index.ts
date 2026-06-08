@@ -7,6 +7,7 @@ export * from './types';
 // layout context) can frame `space: 'standard' | 'canvas'` scenes. Canonical
 // copy lives in constants-shared so utils-layout (runtime) shares the one source.
 export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
+export * from './coverTransform';
 export * from './resolveTransform';
 export * from './fontCatalog';
 export * from './hudText';

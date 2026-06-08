@@ -286,13 +286,14 @@
 	const activeSceneSlots = $derived(
 		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
 	);
-	/** HUD scenes author into the fixed standard box (and canvas-space uses it as
-	 * the reference window); gameplay scenes use the project's own `mainSizesMap`. */
-	const frameSize = $derived(
-		editScene?.space === 'standard' || editScene?.space === 'canvas'
-			? STANDARD_MAIN_SIZES_MAP[currentLayoutType]
-			: mainSizesMap[currentLayoutType],
-	);
+	/** The fixed window-reference the composite renders EVERY scene against (§10.2):
+	 * one viewport per `layoutType` (the `STANDARD_MAIN_SIZES_MAP` box — its aspect
+	 * matches the per-layoutType viewport that drives `layoutType` selection, and it
+	 * comfortably contains the project's `mainSizesMap` box at `mainScale`). Using it
+	 * for ALL scenes means switching the active screen no longer rescales the composite
+	 * — `frameWidth`/`frameHeight` now mean the WINDOW, and each coordinate space maps
+	 * into it the way the engine does at runtime against the live canvas. */
+	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
 			if (n.id === id) return n;

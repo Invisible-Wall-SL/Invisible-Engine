@@ -2,6 +2,7 @@
 	import {
 		boundComponentDefault,
 		computeOverlayPlacement,
+		coverTransform,
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
 		resolveAnchorPreviewArt,
@@ -128,13 +129,17 @@
 	/**
 	 * Resolve a node's transform with space-specific framing baked into the result,
 	 * so every geometry/draw/hit-test path can treat x/y (+ width/height) as plain
-	 * world coords:
-	 * - `canvas`: `screenAnchor` is folded into x/y (HUD corners pin to frame edges).
-	 * - `background`: the node is cover-fit to the frame, centred, exactly like the
-	 *   engine's `normalBackgroundLayout` (the node's `scale.x` is the cover scale,
-	 *   default 0.5). We set explicit width+height + a centre anchor so the 2D
-	 *   draw/box math matches the live game's full-bleed cover.
-	 * Other scenes pass through unchanged.
+	 * WINDOW-world coords. Every scene is composited against ONE fixed window per
+	 * `layoutType` (§10.2), so switching the active screen never rescales anything:
+	 * - `game` (default): main-box coords mapped into the window EXACTLY like
+	 *   `<MainContainer>` — origin via `mainToWorld`, scale multiplied by `mainScale`
+	 *   (`s`) so a centred main box is scaled into the window.
+	 * - `canvas`: `screenAnchor` is folded into x/y against the window edges.
+	 * - `background`: full-bleed cover of the WINDOW via the shared `coverTransform`
+	 *   (default `coverScale = 1` = exact cover), centred — matching the game's
+	 *   `normalBackgroundLayout({ scale: 1 })`.
+	 * - `standard`: fit the STANDARD box into the window (identity now the window IS
+	 *   the standard box; still honours bottom-align).
 	 */
 	function nodeTransform(node: LayoutNode, sceneCtx: Scene = scene): ResolvedTransform {
 		const space = sceneCtx.space;
@@ -171,7 +176,16 @@
 		if (space === 'background' && (node.kind === 'sprite' || node.kind === 'spine')) {
 			return backgroundTransform(node, t);
 		}
-		return t;
+		// game space: map the node's main-box coords into the fixed window the way
+		// `<MainContainer>` does — centre the main box + scale it by `mainScale`.
+		const s = mainScale();
+		const world = mainToWorld({ x: t.x, y: t.y });
+		return {
+			...t,
+			x: world.x,
+			y: world.y,
+			scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
+		};
 	}
 
 	/**
@@ -199,38 +213,35 @@
 	}
 
 	/**
-	 * Editor mirror of `createBackgroundLayout` (utils-layout): centre the node at
-	 * the frame centre and size it to COVER the frame at the node's cover scale.
-	 * The engine compares the canvas ratio against the background art ratio to pick
-	 * which dimension drives the cover; here the frame plays the canvas and the
-	 * node's natural art ratio plays the background ratio (it has no live layout
-	 * context). With scale, exactly one of width/height drives; the other keeps the
-	 * art's aspect — same as the engine. Falls back to plain cover when the art size
-	 * isn't loaded yet (so it never misrenders to a tiny offset sprite).
+	 * Full-bleed cover of the fixed WINDOW (§10.4), via the shared `coverTransform` —
+	 * the SAME true-cover helper the game runtime uses. `coverScale` defaults to 1
+	 * (exact edge-to-edge cover, matching the game's `normalBackgroundLayout({ scale:
+	 * 1 })`); the node's `scale.x` is honoured as the cover multiplier so the author
+	 * can over/under-cover. Width/height are the art's natural size and the cover lives
+	 * in `scale`, so the 2D draw (`width × scale`) + box/hit-test math (`natural ×
+	 * scale`) reproduce the cover identically. Falls back to the window size when the
+	 * art dims aren't loaded so it never collapses to a tiny offset sprite.
 	 */
 	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
-		const coverScale = node.scale?.x ?? 0.5;
+		const coverScale = node.scale?.x ?? 1;
 		const nat = naturalSize(node);
-		const frameRatio = frameWidth / (frameHeight || 1);
-		const artRatio = nat ? nat.w / (nat.h || 1) : frameRatio;
-		// Engine rule: canvasRatio < ratio → height-driven; else width-driven.
-		const widthDriven = frameRatio >= artRatio;
-		const width = widthDriven ? frameWidth * coverScale : undefined;
-		const height = widthDriven ? undefined : frameHeight * coverScale;
-		// Resolve the undefined dimension from the art's aspect so box/hit-test math
-		// has a concrete size (the 2D canvas can't lean on the texture's intrinsic
-		// aspect the way pixi's Sprite does).
-		const resolvedW = width ?? (height ?? frameHeight * coverScale) * artRatio;
-		const resolvedH = height ?? (width ?? frameWidth * coverScale) / artRatio;
+		const cover = coverTransform({
+			artWidth: nat?.w ?? frameWidth,
+			artHeight: nat?.h ?? frameHeight,
+			targetWidth: frameWidth,
+			targetHeight: frameHeight,
+			coverScale,
+			fit: 'cover',
+		});
 		return {
 			...t,
-			x: frameWidth / 2,
-			y: frameHeight / 2,
+			x: cover.x,
+			y: cover.y,
 			anchor: { x: 0.5, y: 0.5 },
-			scale: { x: 1, y: 1 },
+			scale: { x: cover.scale, y: cover.scale },
 			rotation: 0,
-			width: resolvedW,
-			height: resolvedH,
+			width: nat?.w ?? frameWidth,
+			height: nat?.h ?? frameHeight,
 		};
 	}
 
@@ -390,19 +401,28 @@
 		// Canvas-space (HUD corners): x/y arrive as effective world coords; store the
 		// offset from the screen-anchored edge so the node stays edge-pinned at runtime.
 		const sa = resolveTransform(node, layoutType).screenAnchor;
+		const art = anchorArt(node);
 		if (scene.space === 'canvas' && sa) {
 			x -= sa.x * frameWidth;
 			y -= sa.y * frameHeight;
-		}
-		// Preview-art anchor (positioned/centred): x/y arrive as effective world coords
-		// (placement base + offset). Store the OFFSET from the placement base so the game
-		// applies the same raw x/y on top of the coded component's own placement. Raw
-		// scene-canvas px == world px (the frame is world 1:1), so no extra scaling.
-		const art = anchorArt(node);
-		if (art && art.placement !== 'cover') {
+		} else if (art && art.placement !== 'cover') {
+			// Preview-art anchor (positioned/centred): x/y arrive as effective world coords
+			// (placement base + offset). Store the OFFSET from the placement base so the game
+			// applies the same raw x/y on top of the coded component's own placement. Raw
+			// scene-canvas px == world px (the frame is world 1:1), so no extra scaling.
 			const base = placementWorldBase(node, art.placement);
 			x -= base.x;
 			y -= base.y;
+		} else if (isGameSpaceNode(node)) {
+			// Game-space: x/y arrive as WINDOW-world coords (the `mainToWorld` mapping in
+			// nodeTransform). Invert that mapping back to main-box coords before storing,
+			// so the value round-trips and the game (which reads raw main coords inside
+			// <MainContainer>) reproduces the same window position. Inverse of:
+			//   world = frameW/2 + s * (main - mainW/2)   →   main = (world - frameW/2)/s + mainW/2
+			const main = mainSizesMap[layoutType];
+			const s = mainScale();
+			x = (x - frameWidth / 2) / s + main.width / 2;
+			y = (y - frameHeight / 2) / s + main.height / 2;
 		}
 		if (layoutType === 'desktop') {
 			node.x = x;
@@ -413,7 +433,28 @@
 			o.y = y;
 		}
 	}
+	/** Does this node go through the game-space main→window mapping (scale ×`mainScale`)
+	 * in {@link nodeTransform}? Mirrors that branch's guards exactly so the scale/translate
+	 * inverses below match it. Canvas/standard/background spaces + preview-art anchors take
+	 * other paths and are NOT main-scaled. */
+	function isGameSpaceNode(node: LayoutNode): boolean {
+		if (scene.space === 'standard' || scene.space === 'background' || scene.space === 'canvas') {
+			return false;
+		}
+		const art = anchorArt(node);
+		if (art) return false;
+		if (node.bind && boundComponentDefault(node.bind.component)?.placement) return false;
+		return true;
+	}
 	function writeScale(node: LayoutNode, sx: number, sy: number): void {
+		// Game-space nodes are presented scaled by `mainScale` (nodeTransform maps the
+		// main box into the window). The handle drag works in that presented frame, so
+		// divide it back out before storing — keeps the stored scale in raw main space.
+		if (isGameSpaceNode(node)) {
+			const s = mainScale() || 1;
+			sx /= s;
+			sy /= s;
+		}
 		if (layoutType === 'desktop') {
 			node.scale = { x: sx, y: sy };
 		} else {
@@ -1002,6 +1043,8 @@
 			ctx.setLineDash([]);
 		}
 
+		// The frame backdrop now represents the fixed WINDOW (§10.2) — one viewport per
+		// layoutType that every scene composites against.
 		ctx.fillStyle = '#14141c';
 		ctx.fillRect(0, 0, frameWidth, frameHeight);
 		ctx.lineWidth = 2 / zoom;
@@ -1009,6 +1052,23 @@
 		ctx.setLineDash([12 / zoom, 8 / zoom]);
 		ctx.strokeRect(0, 0, frameWidth, frameHeight);
 		ctx.setLineDash([]);
+
+		// The play area (main box) drawn as a centred inner dashed guide, sized + placed
+		// EXACTLY like the game's <MainContainer> inside this window (centre + `mainScale`).
+		// Lets the author see where gameplay sits within the full window.
+		{
+			const main = mainSizesMap[layoutType];
+			const s = mainScale();
+			const mw = main.width * s;
+			const mh = main.height * s;
+			const mx = frameWidth / 2 - mw / 2;
+			const my = frameHeight / 2 - mh / 2;
+			ctx.lineWidth = 1.5 / zoom;
+			ctx.strokeStyle = '#2f5d57';
+			ctx.setLineDash([8 / zoom, 6 / zoom]);
+			ctx.strokeRect(mx, my, mw, mh);
+			ctx.setLineDash([]);
+		}
 
 		// GAME scenes are NOT drawn on this base canvas anymore: each is composited onto
 		// its OWN per-scene canvas (see `drawSceneCanvases`), z-ordered with that scene's
