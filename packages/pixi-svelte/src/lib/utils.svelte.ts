@@ -94,15 +94,24 @@ export const preloadFont = () =>
  *
  * Each axis is sized by the dimension given for it; when only one is given it's applied
  * uniformly to both (preserving aspect), mirroring the prior `SpineProvider` behaviour.
+ *
+ * `fit` (additive, default unset = prior behaviour): when set AND both `width` and
+ * `height` are given, return a UNIFORM scale that covers (`max`) or contains (`min`) the
+ * given box against the authored dims — true cover/contain with NO axis stretch. This is
+ * how a doc-driven background spine sizes against the canvas (see
+ * docs/design/invisible-editor.md §10). `fit` is ignored when only one dimension is given
+ * (already uniform) or when neither is — so non-background spines are unaffected.
  */
 export function spineSizeScale({
 	spine,
 	width,
 	height,
+	fit,
 }: {
 	spine: SPINE_PIXI.Spine;
 	width?: number;
 	height?: number;
+	fit?: 'cover' | 'contain';
 }): { x: number; y: number } {
 	if (width === undefined && height === undefined) return { x: 1, y: 1 };
 
@@ -123,6 +132,12 @@ export function spineSizeScale({
 	if (!(naturalWidth > 0) || !(naturalHeight > 0)) return { x: 1, y: 1 };
 
 	if (width !== undefined && height !== undefined) {
+		if (fit) {
+			const sx = width / naturalWidth;
+			const sy = height / naturalHeight;
+			const s = fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
+			return { x: s, y: s };
+		}
 		return { x: width / naturalWidth, y: height / naturalHeight };
 	}
 	if (width !== undefined) {

@@ -10,6 +10,7 @@
 
 	import { resolveTransform } from './resolveTransform';
 	import { getBoundComponent } from './registerBoundComponents';
+	import { backgroundCoverScale, backgroundFit } from './coverTransform';
 	import ComponentInstance from './ComponentInstance.svelte';
 
 	const { node, space }: Props = $props();
@@ -30,19 +31,31 @@
 		transform.screenAnchor ? transform.screenAnchor.y * canvas.height + transform.y : transform.y,
 	);
 
-	// `background`-space sprites/spine cover-fit the canvas via the layout context's
-	// `normalBackgroundLayout` (the node's `scale.x` is the cover scale, default 0.5
-	// to match the coded Background). The helper sets exactly one of width/height
-	// (the cover dimension); the undefined one lets the texture keep aspect. Sprites
-	// take a centre anchor (their origin is top-left); spine keeps the node's own
-	// anchor (pivot 0 by default — a background skeleton is authored around its own
-	// origin, matching apps/lines `Background.svelte`).
+	// `background`-space sprites/spine cover- or contain-fit the canvas, driven by the
+	// SAME canonical doc readers the editor preview uses (`backgroundCoverScale` =
+	// `scale.x`, default 1 = exact cover; `backgroundFit` = `'cover'`/`'contain'`,
+	// default `'cover'`) so editor == game for any authored scale/fit. The sprite path
+	// reuses the layout context's `normalBackgroundLayout` (sets exactly one of
+	// width/height — the texture keeps aspect on the other axis); for `'contain'` it
+	// sets the OPPOSITE axis so the art fits INSIDE the canvas. Sprites take a centre
+	// anchor (their origin is top-left); the spine path feeds the canvas box +
+	// `bgFit` to `<SpineProvider>`, which does a true UNIFORM cover/contain from
+	// `skeleton.data` dims (the pixi-svelte `fit`) — matching `coverTransform`'s
+	// `max/min(targetW/artW, targetH/artH) * coverScale`. A background skeleton is
+	// authored around its own origin, matching apps/lines `Background.svelte`.
 	const isBackground = $derived(space === 'background');
-	const bg = $derived(
-		isBackground
-			? layoutContext.stateLayoutDerived.normalBackgroundLayout({ scale: node.scale?.x ?? 0.5 })
-			: undefined,
-	);
+	const bgCoverScale = $derived(backgroundCoverScale(node));
+	const bgFit = $derived(backgroundFit(node));
+	const bg = $derived.by(() => {
+		if (!isBackground) return undefined;
+		const cover = layoutContext.stateLayoutDerived.normalBackgroundLayout({ scale: bgCoverScale });
+		if (bgFit === 'cover') return cover;
+		// `contain`: swap which axis is constrained so the art fits inside the canvas.
+		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+		return cover.width !== undefined
+			? { x: cover.x, y: cover.y, height: canvasBox.height * bgCoverScale }
+			: { x: cover.x, y: cover.y, width: canvasBox.width * bgCoverScale };
+	});
 
 	// A sized sprite/spine (explicit width/height) carries BOTH `width` and `scale`,
 	// but pixi-svelte's `propsSyncEffect` assigns props in object-key order and
@@ -63,6 +76,16 @@
 		transform.height !== undefined ? transform.height * sizeScaleY : undefined,
 	);
 	const sizedScale = $derived(hasExplicitSize ? undefined : transform.scale);
+
+	// A background SPINE covers via pixi-svelte's `fit`: feed the full canvas box on
+	// BOTH axes (× the cover multiplier) and the doc fit; `SpineProvider`/`spineSizeScale`
+	// turn that into a UNIFORM cover/contain from `skeleton.data` dims — true cover, no
+	// stretch — equalling `coverTransform` so the editor preview and the game agree.
+	const bgSpineBox = $derived.by(() => {
+		if (!isBackground) return undefined;
+		const c = layoutContext.stateLayoutDerived.canvasSizes();
+		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
+	});
 </script>
 
 {#if transform.visible}
@@ -78,6 +101,14 @@
 			anchor/size), and leave scale at 1 (the container scales). With the
 			generator's transform == the component's current placement, a no-doc boot
 			renders byte-for-byte as before.
+
+			`cover` is the doc-driven background cover intent (§10.3 step 5): a
+			`background`-space bind anchor (the full-bleed Background) receives the
+			canonical cover `scale` + `fit` so the coded component sizes its spine to
+			the canvas via pixi-svelte's `fit` instead of hardcoding a scale. Purely
+			additive — a bound component that ignores `cover` renders exactly as today
+			(parity). The cover scale is applied OUTSIDE this container (against the
+			canvas), so the container's own `transform.scale` stays the placement scale.
 		-->
 		<Container
 			x={posX}
@@ -87,7 +118,11 @@
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
 		>
-			<Bound {transform} {...node.bind?.props ?? {}} />
+			{#if isBackground}
+				<Bound {transform} cover={{ scale: bgCoverScale, fit: bgFit }} {...node.bind?.props ?? {}} />
+			{:else}
+				<Bound {transform} {...node.bind?.props ?? {}} />
+			{/if}
 		</Container>
 	{:else if node.kind === 'container'}
 		<Container
@@ -144,8 +179,9 @@
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={bg ? bg.width : sizedWidth}
-			height={bg ? bg.height : sizedHeight}
+			width={bgSpineBox ? bgSpineBox.width : sizedWidth}
+			height={bgSpineBox ? bgSpineBox.height : sizedHeight}
+			fit={bgSpineBox ? bgFit : undefined}
 		>
 			{#if node.defaultAnimation}
 				<SpineTrack trackIndex={0} animationName={node.defaultAnimation} loop={node.loop ?? true} />

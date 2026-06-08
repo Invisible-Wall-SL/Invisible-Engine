@@ -7,6 +7,10 @@
 	export type Props = OverwriteCursor<Omit<SPINE_PIXI.SpineOptions, 'children'>> & {
 		spineData: SPINE_PIXI.SkeletonData;
 		children: Snippet;
+		// When set AND both `width`/`height` are given, the spine sizes by a UNIFORM
+		// cover/contain scale instead of per-axis stretch (true cover, no distortion).
+		// Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
+		fit?: 'cover' | 'contain';
 	};
 </script>
 
@@ -28,13 +32,18 @@
 	// `skeleton.data.width/height`, and fold it into any incoming `scale` prop. This
 	// keeps normal spines (valid setup bounds) identical while fixing the degenerate
 	// case at first paint.
-	propsSyncEffect({ props, target: spine, ignore: ['children', 'width', 'height', 'scale'] });
+	propsSyncEffect({
+		props,
+		target: spine,
+		ignore: ['children', 'width', 'height', 'scale', 'fit'],
+	});
 
 	$effect(() => {
 		const sizeScale = spineSizeScale({
 			spine,
 			width: props.width,
 			height: props.height,
+			fit: props.fit,
 		});
 		const propScale = props.scale;
 		const baseX = typeof propScale === 'number' ? propScale : (propScale?.x ?? 1);
