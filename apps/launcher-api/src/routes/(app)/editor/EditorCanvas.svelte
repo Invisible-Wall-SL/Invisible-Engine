@@ -1639,7 +1639,11 @@
 		// are sibling `text` parts, so this draws no text (avoids the legacy all-in-one
 		// chip's caption + hardcoded `0.00` colliding with the real parts).
 		if (preview.style === 'tile') {
-			const r = Math.min(26, h / 2);
+			// Honour the editor-set `borderRadius` / `tint` (the `HudTicker` params) so an
+			// edit shows live; fall back to a neutral rounded tile when unset.
+			const radius =
+				typeof props?.borderRadius === 'number' ? props.borderRadius : Math.min(26, h / 2);
+			const r = Math.max(0, Math.min(radius, w / 2, h / 2));
 			ctx.beginPath();
 			ctx.roundRect(x, y, w, h, r);
 			ctx.fillStyle = tint !== undefined ? cssColor(tint) : 'rgba(8,8,10,0.92)';

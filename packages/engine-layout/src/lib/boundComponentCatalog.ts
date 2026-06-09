@@ -157,6 +157,15 @@ const HUD_TEXT_PARAMS: EditableParam[] = [
 ];
 // Buttons: a recolour tint (the icon/background tint the coded button reads).
 const BUTTON_PARAMS: EditableParam[] = [{ key: 'tint', kind: 'color', label: 'Tint' }];
+// Readout background tile (`HudTicker`): swap its texture, recolour it, and round
+// its corners. `texture` is the loaded sprite key the game's `UiSprite` resolves
+// (reference `UiSprite` is a plain rounded Rectangle and ignores it — `tint` →
+// `backgroundColor` recolours that fallback); a textured game `UiSprite` uses both.
+const TICKER_PARAMS: EditableParam[] = [
+	{ key: 'texture', kind: 'string', label: 'Texture key', placeholder: 'base_ticker' },
+	{ key: 'tint', kind: 'color', label: 'Tint' },
+	{ key: 'borderRadius', kind: 'number', label: 'Corner radius', placeholder: '35' },
+];
 
 /**
  * Editable-param schema per coded component, keyed by the SAME name written into
@@ -164,6 +173,8 @@ const BUTTON_PARAMS: EditableParam[] = [{ key: 'tint', kind: 'color', label: 'Ti
  * component here (+ wire it to read the prop) to make it editor-configurable.
  */
 export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
+	// Readout background tile — texture / tint / corner radius.
+	HudTicker: TICKER_PARAMS,
 	// HUD corner text (already consumed by the game's gameName/logo snippets).
 	HudGameName: HUD_TEXT_PARAMS,
 	HudLogo: HUD_TEXT_PARAMS,
@@ -253,9 +264,7 @@ export function resolveAnchorPreviewArt(
 		const bundles = [preview.bundle, ...(preview.fallbackBundles ?? [])].filter(
 			(b): b is string => !!b,
 		);
-		const match = bundles
-			.map((name) => assets.spines.find((s) => s.name === name))
-			.find((m) => m);
+		const match = bundles.map((name) => assets.spines.find((s) => s.name === name)).find((m) => m);
 		if (!match) return undefined;
 		return { kind: 'spine', assetKey: match.key, placement };
 	}
