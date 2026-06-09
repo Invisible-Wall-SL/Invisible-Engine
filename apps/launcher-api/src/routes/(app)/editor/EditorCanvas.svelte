@@ -845,7 +845,21 @@
 		const set = ensureRegionSet(assetKey);
 		if (!set) return null;
 		const region = set.regions.find((r) => r.name === regionName);
-		return region ? { set, region } : null;
+		if (region) return { set, region };
+		// MISS in the named atlas. A frame may live in ANOTHER atlas — a per-instance
+		// `image`-param swap, or a sprite whose static `assetKey` no longer packs it.
+		// Resolve it by NAME through the one-time cross-atlas index, matching the game
+		// (which resolves frames across all loaded atlases). Only runs on a miss, so a
+		// normal same-atlas sprite pays nothing.
+		const indexed = spriteRegionIndex.get(regionName);
+		if (indexed && indexed !== assetKey) {
+			const altSet = ensureRegionSet(indexed);
+			const altRegion = altSet?.regions.find((r) => r.name === regionName);
+			if (altRegion) return { set: altSet, region: altRegion };
+		} else if (!indexed) {
+			ensureRegionIndex(); // build the index, then a later redraw resolves
+		}
+		return null;
 	}
 
 	// ---------- catalog sprite-region index ----------
@@ -1333,21 +1347,10 @@
 			const boundAssetKey = hasParams ? boundString(bound, 'assetKey', effParams) : undefined;
 			const boundTint = hasParams ? boundNumber(bound, 'tint', effParams) : undefined;
 			const region = boundRegion ?? node.region;
-			let assetKey = boundAssetKey ?? node.assetKey;
-			// Cross-atlas resolution: a bound `region` (an `image`-param frame swap) may name
-			// a frame packed in a DIFFERENT atlas than the sprite's static `assetKey`. Only on
-			// a MISS in that atlas do we consult the one-time `spriteRegionIndex` (matching the
-			// game, which resolves frames by name across all loaded atlases) and kick off its
-			// lazy scan. Normal sprites + same-atlas / explicit-assetKey binds skip this whole
-			// block, so the common lookup is unchanged — no per-draw scan, no eager loading.
-			if (boundRegion && !boundAssetKey) {
-				const own = ensureRegionSet(assetKey);
-				if (own && !own.regions.some((r) => r.name === boundRegion)) {
-					const indexed = spriteRegionIndex.get(boundRegion);
-					if (indexed) assetKey = indexed;
-					else ensureRegionIndex();
-				}
-			}
+			// Cross-atlas resolution lives in `findRegion` now (a frame missing from this
+			// `assetKey` is looked up by name across atlases) — so a bound `image`-param swap
+			// OR a static region whose atlas no longer packs it both render.
+			const assetKey = boundAssetKey ?? node.assetKey;
 			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
 			if (region) {
 				drawRegionSprite(ctx, node, t, region, assetKey, tint);
