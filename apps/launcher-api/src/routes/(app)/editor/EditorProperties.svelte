@@ -21,6 +21,7 @@
 	import { onMount } from 'svelte';
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
 	import RegionPicker from './RegionPicker.svelte';
+	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
 
 	interface Props {
 		node: LayoutNode | null;
@@ -813,7 +814,12 @@
 						<div class="row">{@render paramField(p)}</div>
 					{/each}
 					{#each authorParamGroups as [groupName, groupParams] (groupName)}
-						<details class="param-group" open>
+						{@const groupKey = `${instanceComponent?.id ?? ''}:${groupName}`}
+						<details
+							class="param-group"
+							open={isParamGroupOpen(groupKey)}
+							ontoggle={(e) => setParamGroupOpen(groupKey, e.currentTarget.open)}
+						>
 							<summary>{groupName}</summary>
 							{#each groupParams as p (p.key)}
 								<div class="row">{@render paramField(p)}</div>
