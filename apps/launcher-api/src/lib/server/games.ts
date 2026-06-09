@@ -20,6 +20,17 @@ export function isValidGameUrl(value: string): boolean {
 	}
 }
 
+/** The conventional test-server launch URL for a game published to `gamesBaseUrl`
+ *  (R2 `test_server/<key>/` behind Cloudflare). Used as the auto-fill when a game is
+ *  created without an explicit URL. Mirrors the live games' pattern: the page under
+ *  `<base>/<key>/`, a `demo` session, and the game's own RGS proxy at `<host>/api/<key>`.
+ *  The launcher appends `?project=` (and `&k=`) at click time; this supplies the rest. */
+export function defaultGameUrl(key: string, gamesBaseUrl: string): string {
+	const base = gamesBaseUrl.replace(/\/+$/, '');
+	const host = base.replace(/^https?:\/\//, '');
+	return `${base}/${key}/?sessionID=demo&rgs_url=${host}/api/${key}&lang=en`;
+}
+
 export async function listGames(): Promise<Game[]> {
 	return getDb().select().from(games).orderBy(games.name);
 }
