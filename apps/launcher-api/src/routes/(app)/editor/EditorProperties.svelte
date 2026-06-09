@@ -1020,6 +1020,58 @@
 				</label>
 			</div>
 		</section>
+		{#if componentMode && componentParams.length > 0}
+			<section>
+				<h3>Bind to param</h3>
+				<p class="muted small">
+					Inside a component instance, a bound field reads the resolved param instead of the static
+					value above — so one prefab renders a different colour / texture per instance.
+				</p>
+				<div class="row">
+					<label class="field">
+						<span>Tint ← param</span>
+						<select
+							value={node.paramBindings?.['tint'] ?? ''}
+							onchange={(e) => setParamBinding(node, 'tint', e.currentTarget.value)}
+						>
+							<option value="">(none)</option>
+							{#each paramsForKinds(['color', 'number']) as p (p.key)}
+								<option value={p.key}>{p.key} [{p.kind}]</option>
+							{/each}
+						</select>
+					</label>
+					<label class="field">
+						<span>Texture ← param</span>
+						<select
+							value={node.paramBindings?.['assetKey'] ?? ''}
+							onchange={(e) => setParamBinding(node, 'assetKey', e.currentTarget.value)}
+						>
+							<option value="">(none)</option>
+							{#each paramsForKinds(['string']) as p (p.key)}
+								<option value={p.key}>{p.key} [{p.kind}]</option>
+							{/each}
+						</select>
+					</label>
+					<label class="field">
+						<span>Atlas frame ← param</span>
+						<select
+							value={node.paramBindings?.['region'] ?? ''}
+							onchange={(e) => setParamBinding(node, 'region', e.currentTarget.value)}
+						>
+							<option value="">(none)</option>
+							{#each paramsForKinds(['string']) as p (p.key)}
+								<option value={p.key}>{p.key} [{p.kind}]</option>
+							{/each}
+						</select>
+					</label>
+				</div>
+				{#if node.paramBindings?.['tint'] || node.paramBindings?.['assetKey'] || node.paramBindings?.['region']}
+					<p class="muted small">
+						Bound fields read their param in instances; the static value above is ignored.
+					</p>
+				{/if}
+			</section>
+		{/if}
 	{:else if node.kind === 'spine'}
 		<section>
 			<h3>Spine</h3>

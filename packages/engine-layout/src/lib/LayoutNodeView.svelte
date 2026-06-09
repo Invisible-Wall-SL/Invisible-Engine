@@ -155,6 +155,27 @@
 		if (typeof fill === 'number') overrides.fill = fill;
 		return Object.keys(overrides).length > 0 ? { ...node.style, ...overrides } : node.style;
 	});
+
+	// Sprite param bindings (§13.2): a `componentInstance` may drive a sprite's
+	// texture (`region`/`assetKey`) + `tint` from params, so ONE prefab renders a
+	// different icon / colour per instance. Unbound sprites (and any sprite outside a
+	// component instance) keep their static values — byte-identical parity.
+	const boundRegion = $derived(
+		node.kind === 'sprite' ? resolveBoundValue(node.paramBindings, 'region', componentParams) : undefined,
+	);
+	const boundAssetKey = $derived(
+		node.kind === 'sprite' ? resolveBoundValue(node.paramBindings, 'assetKey', componentParams) : undefined,
+	);
+	const boundTint = $derived(
+		node.kind === 'sprite' ? resolveBoundValue(node.paramBindings, 'tint', componentParams) : undefined,
+	);
+	const spriteKey = $derived.by(() => {
+		if (node.kind !== 'sprite') return undefined;
+		const region = typeof boundRegion === 'string' ? boundRegion : node.region;
+		const assetKey = typeof boundAssetKey === 'string' ? boundAssetKey : node.assetKey;
+		return region ?? assetKey;
+	});
+	const spriteTint = $derived(typeof boundTint === 'number' ? boundTint : transform.tint);
 </script>
 
 {#if transform.visible}
@@ -230,7 +251,7 @@
 		</Container>
 	{:else if node.kind === 'sprite'}
 		<Sprite
-			key={node.region ?? node.assetKey}
+			key={spriteKey}
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
 			anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
@@ -240,7 +261,7 @@
 			zIndex={transform.zIndex}
 			width={bg ? bg.width : sizedWidth}
 			height={bg ? bg.height : sizedHeight}
-			tint={transform.tint}
+			tint={spriteTint}
 		/>
 	{:else if node.kind === 'spine'}
 		<SpineProvider
