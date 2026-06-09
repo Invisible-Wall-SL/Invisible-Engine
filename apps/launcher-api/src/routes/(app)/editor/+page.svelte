@@ -1039,7 +1039,11 @@
 	let refreshingComponents = false;
 
 	/** When this tab regains focus, re-pull the project's components — a component
-	 * created/saved in the Component Editor tab shows up without a full reload. */
+	 * created/saved in the Component Editor (separate tab OR window) shows up without a
+	 * full reload. Bound to BOTH `visibilitychange` and window `focus`: the Component
+	 * Editor opens in a new tab via `window.open`, but if the user pops it into its own
+	 * WINDOW both tabs stay `visibilityState: 'visible'`, so `visibilitychange` never
+	 * fires on return — `focus` covers that case. */
 	async function onVisibilityChange(): Promise<void> {
 		if (document.visibilityState !== 'visible' || refreshingComponents) return;
 		refreshingComponents = true;
@@ -1058,10 +1062,12 @@
 	onMount(() => {
 		window.addEventListener('beforeunload', onBeforeUnload);
 		document.addEventListener('visibilitychange', onVisibilityChange);
+		window.addEventListener('focus', onVisibilityChange);
 		const id = window.setInterval(() => (nowTick = Date.now()), RELATIVE_TICK_MS);
 		return () => {
 			window.removeEventListener('beforeunload', onBeforeUnload);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
+			window.removeEventListener('focus', onVisibilityChange);
 			window.clearInterval(id);
 			if (autosaveTimer) clearTimeout(autosaveTimer);
 		};
