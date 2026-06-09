@@ -566,9 +566,17 @@
 	/** Add the game HUD as editor scenes (non-destructive — keeps other scenes), or
 	 * refresh existing HUD scenes to the latest engine version (e.g. to pick up the
 	 * preview chips / positions). Lets a project opt its `<UI>` HUD into editor
-	 * control without the clobber-prone "load a game scene" path. */
+	 * control without the clobber-prone "load a game scene" path.
+	 *
+	 * `{ readouts: true }` (B4.6): emits balance/win/bet as parametric
+	 * `componentInstance(hudReadout)` nodes (matching the engine reference layouts),
+	 * so this button is the non-destructive way to flip a project's HUD to the
+	 * parametric readouts (vs the console re-seed). The game must register the coded
+	 * `HudReadout` bound component + the value sources, and its published bundle must
+	 * already include that registration BEFORE the saved doc carries readout nodes
+	 * (else the live bundle can't render them). */
 	function addHudLayer(): void {
-		const fresh = hudScenes();
+		const fresh = hudScenes({ readouts: true });
 		if (hasHud) {
 			if (
 				!confirm(
