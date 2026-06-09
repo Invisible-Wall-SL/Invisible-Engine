@@ -166,6 +166,15 @@
 		return m;
 	});
 
+	/** Atlas/sheet manifests an `image`-kind param can pick frames from (the region
+	 * picker source). Atlas pages aren't manifests, so only `atlas-manifest`s + sheets. */
+	const pickSheets = $derived([
+		...data.assets.atlases
+			.filter((a) => a.kind === 'atlas-manifest')
+			.map((a) => ({ key: a.key, name: a.name })),
+		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
+	]);
+
 	function genComponentId(): string {
 		return 'c_' + Math.random().toString(36).slice(2, 10);
 	}
@@ -1671,6 +1680,7 @@
 				instanceComponent={selectedNode?.kind === 'componentInstance'
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}
+				{pickSheets}
 				onEditAsComponent={(c) => void editContainerAsComponent(c)}
 				{onConvertToReelGrid}
 				{onConvertToParametricButton}

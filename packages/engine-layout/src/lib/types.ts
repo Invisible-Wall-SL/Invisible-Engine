@@ -436,7 +436,13 @@ export interface ComponentDef {
  */
 export interface ComponentParam {
 	key: string;
-	kind: 'number' | 'string' | 'color' | 'boolean';
+	/**
+	 * `image` is a STRING value (an atlas frame/region name) the editor renders with
+	 * a region picker instead of a free-text box — bind a sprite's atlas-frame to it
+	 * to swap art per instance. The engine resolves it exactly like a `string` region
+	 * bind, so no runtime branch is needed; it's an editor input hint.
+	 */
+	kind: 'number' | 'string' | 'color' | 'boolean' | 'image';
 	default?: unknown;
 	engineProvided?: boolean;
 	/**

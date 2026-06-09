@@ -20,6 +20,7 @@
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
+	import RegionPicker from './RegionPicker.svelte';
 
 	interface Props {
 		node: LayoutNode | null;
@@ -51,6 +52,9 @@
 		/** When the selected node is a `componentInstance`, its resolved def — drives
 		 * the author-set param override list (scene mode). */
 		instanceComponent?: ComponentDef | null;
+		/** Atlas/sheet manifests (`{ key, name }`) whose frames an `image`-kind param
+		 * can pick from — feeds the per-instance region picker. */
+		pickSheets?: { key: string; name: string }[];
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
@@ -87,6 +91,7 @@
 		componentParams = [],
 		componentSignals = [],
 		instanceComponent = null,
+		pickSheets = [],
 		onEditAsComponent,
 		onConvertToReelGrid,
 		onConvertToParametricButton,
@@ -549,7 +554,8 @@
 		<p class="muted small">
 			Custom inputs you add. Three steps: <strong>1.</strong> add a param here (e.g.
 			<code>bg</code>, kind <em>string</em>) → <strong>2.</strong> select a node and, under its
-			<strong>Bind to param</strong>, point a field (image / tint / text) at it → <strong>3.</strong>
+			<strong>Bind to param</strong>, point a field (image / tint / text) at it →
+			<strong>3.</strong>
 			set its value per instance when you place the component in a scene.
 		</p>
 		{#if customParams.length > 0}
@@ -584,6 +590,7 @@
 				onchange={(e) => (newParamKind = e.currentTarget.value as ComponentParam['kind'])}
 			>
 				<option value="string">string</option>
+				<option value="image">image</option>
 				<option value="number">number</option>
 				<option value="color">color</option>
 				<option value="boolean">boolean</option>
@@ -747,6 +754,12 @@
 												p.key,
 												e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
 											)}
+									/>
+								{:else if p.kind === 'image'}
+									<RegionPicker
+										sheets={pickSheets}
+										value={(node.params?.[p.key] as string) ?? ''}
+										onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
 									/>
 								{:else}
 									<input
@@ -1127,8 +1140,8 @@
 				<h3>Bind to param</h3>
 				<p class="muted small">
 					Drive this sprite from a component param, so one prefab renders a different image / colour
-					per instance. Pick a param below; leave a field as <em>(none)</em> to keep the static value
-					above. Need one? Add it under <strong>Component variables → Your params</strong>.
+					per instance. Pick a param below; leave a field as <em>(none)</em> to keep the static
+					value above. Need one? Add it under <strong>Component variables → Your params</strong>.
 				</p>
 				<div class="bind-grid">
 					<label class="field wide">
@@ -1138,7 +1151,7 @@
 							onchange={(e) => setParamBinding(node, 'region', e.currentTarget.value)}
 						>
 							<option value="">(none)</option>
-							{#each paramsForKinds(['string']) as p (p.key)}
+							{#each paramsForKinds(['string', 'image']) as p (p.key)}
 								<option value={p.key}>{p.key}</option>
 							{/each}
 						</select>
@@ -1155,7 +1168,9 @@
 								<option value={p.key}>{p.key}</option>
 							{/each}
 						</select>
-						<span class="bind-hint">A standalone image or a different atlas — only if the frame lives elsewhere.</span>
+						<span class="bind-hint"
+							>A standalone image or a different atlas — only if the frame lives elsewhere.</span
+						>
 					</label>
 					<label class="field wide">
 						<span>Tint ← param</span>
