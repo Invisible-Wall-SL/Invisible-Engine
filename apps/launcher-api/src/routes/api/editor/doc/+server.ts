@@ -1,6 +1,8 @@
 import { error, json } from '@sveltejs/kit';
-import { applyHudGameNameDefault } from 'engine-layout';
+import { applyHudGameNameDefault, collectComponentIds } from 'engine-layout';
+import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { ENV } from '$lib/server/env';
+import { loadComponent } from '$lib/server/componentStorage';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
@@ -34,6 +36,36 @@ function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: st
 			if (Array.isArray(nodes)) nodes.forEach(walk);
 		}
 	}
+}
+
+/**
+ * Resolve the transitive set of {@link ComponentDef}s a doc references — every
+ * `componentInstance.componentId` in the scenes, plus any nested inside those
+ * defs' roots (cycle-safe via the `seen` set). Each id is resolved through the
+ * built-in → shared → project precedence (`loadComponent`),
+ * so a project's EDITED `button` shadows the coded one. Used by the build-time
+ * bake (`&components=1`) so a shipped game can `registerComponents(...)` the
+ * custom defs that otherwise live only in R2 and never reach the bundle.
+ */
+async function resolveReferencedDefs(
+	doc: LayoutDoc,
+	projectKey: string,
+): Promise<Record<string, ComponentDef>> {
+	const defs: Record<string, ComponentDef> = {};
+	const seen = new Set<string>();
+	const queue = collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes));
+	while (queue.length) {
+		const id = queue.shift()!;
+		if (seen.has(id)) continue;
+		seen.add(id);
+		const def = await loadComponent(id, projectKey);
+		if (!def) continue;
+		defs[id] = def;
+		for (const nested of collectComponentIds([def.root])) {
+			if (!seen.has(nested)) queue.push(nested);
+		}
+	}
+	return defs;
 }
 
 /**
@@ -72,7 +104,23 @@ export const GET: RequestHandler = async ({ url }) => {
 		// `registerComponentDefaults` can apply author-set appearance defaults to
 		// `componentInstance`s (e.g. the HUD readouts). Empty map ⇒ def defaults apply.
 		const componentDefaults = await listComponentDefaults(projectKey);
-		return json({ clientKey, projectKey, doc, componentDefaults }, { headers: CORS_HEADERS });
+		// `&components=1` (build-time bake): also bundle the referenced ComponentDefs so a
+		// shipped game can register the custom/edited ones (R2-only otherwise). Omitted by
+		// default so the runtime boot fetch stays lean.
+		const componentDefs =
+			url.searchParams.get('components') === '1'
+				? await resolveReferencedDefs(doc as LayoutDoc, projectKey)
+				: undefined;
+		return json(
+			{
+				clientKey,
+				projectKey,
+				doc,
+				componentDefaults,
+				...(componentDefs ? { componentDefs } : {}),
+			},
+			{ headers: CORS_HEADERS },
+		);
 	} catch {
 		throw error(502, 'Failed to load the layout document.');
 	}

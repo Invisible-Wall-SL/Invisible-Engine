@@ -103,7 +103,11 @@ const files = {
 					// gotcha-game-build-stale-engine-dist memo.
 					// To wire live-assets, add a `pull:assets` script (see Book of Borut)
 					// and chain it: `pnpm build:engine && pnpm pull:assets --optional && vite build`.
+					// `bake:doc` freezes the editor layout + custom component defs into
+					// src/baked-editor-bundle.json (no runtime fetch); chain it before build
+					// once the project has an authored doc. EDITOR_DOC_SECRET must be in the env.
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
+					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug}/${slug} --dest ./src/baked-editor-bundle.json --optional`,
 					build: 'pnpm build:engine && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
