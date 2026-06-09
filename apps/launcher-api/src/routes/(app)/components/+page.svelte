@@ -279,6 +279,25 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 	}
 
+	/** Declare a custom (author-defined) PARAM on the draft — bindable per instance.
+	 * No `engineProvided` flag, so it shows in the Defaults panel + every instance's
+	 * override panel. Deduped by key. */
+	function addCustomParam(key: string, kind: ComponentParam['kind']): void {
+		if (!componentDraft) return;
+		const k = key.trim();
+		if (!k) return;
+		const params = componentDraft.params ?? [];
+		if (params.some((p) => p.key === k)) return;
+		componentDraft.params = [...params, { key: k, kind, author: true }];
+	}
+
+	/** Remove a declared PARAM from the draft by key. */
+	function removeComponentParam(key: string): void {
+		if (!componentDraft?.params) return;
+		componentDraft.params = componentDraft.params.filter((p) => p.key !== key);
+		if (componentDraft.params.length === 0) delete componentDraft.params;
+	}
+
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
 	function toggleComponentSignal(key: string): void {
 		if (!componentDraft) return;
@@ -729,6 +748,8 @@
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}
 						onToggleParam={toggleComponentParam}
+						onAddParam={addCustomParam}
+						onRemoveParam={removeComponentParam}
 						onToggleSignal={toggleComponentSignal}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;

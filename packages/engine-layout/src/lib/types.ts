@@ -440,6 +440,13 @@ export interface ComponentParam {
 	default?: unknown;
 	engineProvided?: boolean;
 	/**
+	 * Author-defined param — created by the user in the Component Editor (vs the
+	 * component's built-in/coded params or an engine-catalog value). Only these are
+	 * listed as removable in the editor's "Your params" UI, so the author can't
+	 * accidentally delete a param a coded part depends on. Purely an editor hint.
+	 */
+	author?: boolean;
+	/**
 	 * Closed set of allowed values (a string enum) — the editor renders a dropdown
 	 * instead of a free text field wherever the param is set (the component's
 	 * default + a placed instance's override). Used by the readout's `source`
