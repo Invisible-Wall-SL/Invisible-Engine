@@ -3,6 +3,7 @@
 		backgroundCoverScale,
 		backgroundFit,
 		defaultHudText,
+		ENGINE_ACTION_CATALOG,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
 		getEditableParams,
@@ -457,6 +458,15 @@
 	function paramsForKinds(kinds: ComponentParam['kind'][]): ComponentParam[] {
 		return componentParams.filter((p) => kinds.includes(p.kind));
 	}
+	/** Dropdown options for an `action`-keyed param: the catalog of registered HUD
+	 * actions, plus the current value if it's a custom key not in the catalog (so a
+	 * hand-authored action isn't dropped). */
+	function actionOptions(current: unknown): string[] {
+		const v = typeof current === 'string' ? current : '';
+		return v && !ENGINE_ACTION_CATALOG.includes(v)
+			? [...ENGINE_ACTION_CATALOG, v]
+			: ENGINE_ACTION_CATALOG;
+	}
 
 	function setStrokeColor(n: LayoutNode, hex: string): void {
 		if (n.kind !== 'text') return;
@@ -753,6 +763,16 @@
 								<option value="">(inherit default)</option>
 								{#each p.options as opt (opt)}
 									<option value={opt}>{opt}</option>
+								{/each}
+							</select>
+						{:else if p.key === 'action'}
+							<select
+								value={(node.params?.[p.key] as string) ?? ''}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value="">(inherit default)</option>
+								{#each actionOptions(node.params?.[p.key]) as a (a)}
+									<option value={a}>{a}</option>
 								{/each}
 							</select>
 						{:else if p.kind === 'boolean'}
