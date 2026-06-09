@@ -20,9 +20,17 @@
 	interface Props {
 		tint?: number;
 		borderRadius?: number;
+		borderColor?: number;
+		borderWidth?: number;
 		texture?: string;
 	}
-	const { tint, borderRadius = 35, texture = 'base_ticker' }: Props = $props();
+	const {
+		tint,
+		borderRadius = 35,
+		borderColor,
+		borderWidth,
+		texture = 'base_ticker',
+	}: Props = $props();
 </script>
 
 <UiSprite
@@ -31,6 +39,8 @@
 	width={UI_BASE_FONT_SIZE * 3 * (326 / 73)}
 	height={UI_BASE_FONT_SIZE * 3}
 	{borderRadius}
+	{borderColor}
+	{borderWidth}
 	backgroundColor={tint}
 	{tint}
 />

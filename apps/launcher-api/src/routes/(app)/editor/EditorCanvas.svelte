@@ -1648,8 +1648,17 @@
 			ctx.roundRect(x, y, w, h, r);
 			ctx.fillStyle = tint !== undefined ? cssColor(tint) : 'rgba(8,8,10,0.92)';
 			ctx.fill();
-			ctx.lineWidth = 2;
-			ctx.strokeStyle = '#3a3a46';
+			// Authored outline (borderWidth/borderColor); when none is set, draw a faint
+			// 1px placeholder edge so the tile reads on the dark canvas (not a real border).
+			const bw = typeof props?.borderWidth === 'number' ? props.borderWidth : 0;
+			if (bw > 0) {
+				ctx.lineWidth = bw;
+				ctx.strokeStyle =
+					typeof props?.borderColor === 'number' ? cssColor(props.borderColor) : '#ffffff';
+			} else {
+				ctx.lineWidth = 1;
+				ctx.strokeStyle = '#3a3a46';
+			}
 			ctx.stroke();
 			return;
 		}

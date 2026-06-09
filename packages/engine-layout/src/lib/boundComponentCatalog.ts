@@ -157,13 +157,18 @@ const HUD_TEXT_PARAMS: EditableParam[] = [
 ];
 // Buttons: a recolour tint (the icon/background tint the coded button reads).
 const BUTTON_PARAMS: EditableParam[] = [{ key: 'tint', kind: 'color', label: 'Tint' }];
-// Readout background tile (`HudTicker`): swap its texture, recolour it, and round
-// its corners. `texture` is the loaded sprite key the game's `UiSprite` resolves
-// (reference `UiSprite` is a plain rounded Rectangle and ignores it — `tint` →
-// `backgroundColor` recolours that fallback); a textured game `UiSprite` uses both.
-const TICKER_PARAMS: EditableParam[] = [
+// REUSABLE tile-styling knobs — for any coded `UiSprite`-backed tile/frame (the
+// readout `HudTicker` today; attach to other tile components by referencing this).
+// `texture` is the loaded sprite key the game's `UiSprite` resolves (the reference
+// `UiSprite` is a plain rounded Rectangle and ignores it — `tint` → `backgroundColor`
+// recolours that fallback; a textured game `UiSprite` uses both). `borderColor`/
+// `borderWidth` map to the `Rectangle` stroke (no-ops on a textured sprite, whose
+// frame is baked into the art). The component reads + forwards what it supports.
+const TILE_PARAMS: EditableParam[] = [
 	{ key: 'texture', kind: 'string', label: 'Texture key', placeholder: 'base_ticker' },
 	{ key: 'tint', kind: 'color', label: 'Tint' },
+	{ key: 'borderColor', kind: 'color', label: 'Outline colour' },
+	{ key: 'borderWidth', kind: 'number', label: 'Outline width', placeholder: '0' },
 	{ key: 'borderRadius', kind: 'number', label: 'Corner radius', placeholder: '35' },
 ];
 
@@ -173,8 +178,8 @@ const TICKER_PARAMS: EditableParam[] = [
  * component here (+ wire it to read the prop) to make it editor-configurable.
  */
 export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
-	// Readout background tile — texture / tint / corner radius.
-	HudTicker: TICKER_PARAMS,
+	// Readout background tile — texture / tint / outline / corner radius.
+	HudTicker: TILE_PARAMS,
 	// HUD corner text (already consumed by the game's gameName/logo snippets).
 	HudGameName: HUD_TEXT_PARAMS,
 	HudLogo: HUD_TEXT_PARAMS,
