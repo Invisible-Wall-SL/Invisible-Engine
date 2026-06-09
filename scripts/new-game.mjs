@@ -107,9 +107,14 @@ const files = {
 					// instead of failing the build) — so a brand-new game builds green, and
 					// each capability "just works" the moment its data exists, with no
 					// per-game wiring to remember. Set EDITOR_DOC_SECRET in the build env to
-					// activate them. NOTE: the project key is `<client>/<project>` and
-					// defaults to `${slug}/${slug}` — change it if your launcher client
-					// differs from the slug.
+					// activate them. ⚠ The two endpoints take DIFFERENT project keys:
+					//   • pull:assets → /api/deploy wants `<client>/<project>` (defaults to
+					//     `${slug}/${slug}` — change it if your launcher client ≠ slug).
+					//   • bake:doc → /api/editor/doc wants the bare `<projectKey>` (the
+					//     launcher DB-resolves the client), defaults to `${slug}`.
+					// Set both to your real launcher project key (e.g. client `borut`,
+					// project `bookofborut` → `borut/bookofborut` for pull, `bookofborut`
+					// for bake).
 					//   build:engine — rebuild engine workspace dists so engine SOURCE
 					//                  changes reach this bundle (gotcha-game-build-stale-engine-dist)
 					//   pull:assets  — mirror the R2 deploy/ art into static/assets/ (live-assets.md)
@@ -117,7 +122,7 @@ const files = {
 					//                  src/baked-editor-bundle.json (no runtime fetch)
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
 					'pull:assets': `node ./engine/apps/launcher-api/scripts/pull-project-assets.mjs --project ${slug}/${slug} --dest ./static/assets`,
-					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug}/${slug} --dest ./src/baked-editor-bundle.json`,
+					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug} --dest ./src/baked-editor-bundle.json`,
 					build: 'pnpm build:engine && pnpm pull:assets --optional && pnpm bake:doc --optional && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
