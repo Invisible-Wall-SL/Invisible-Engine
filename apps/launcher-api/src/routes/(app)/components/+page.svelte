@@ -644,7 +644,17 @@
 								{@const current = getDefault(param.key)}
 								<label class="def-row">
 									<span class="def-key" title={param.key}>{param.key}</span>
-									{#if param.kind === 'boolean'}
+									{#if param.options && param.options.length > 0}
+										<select
+											value={typeof current === 'string' ? current : ''}
+											onchange={(e) => setDefault(param.key, e.currentTarget.value || undefined)}
+										>
+											<option value="">(none)</option>
+											{#each param.options as opt (opt)}
+												<option value={opt}>{opt}</option>
+											{/each}
+										</select>
+									{:else if param.kind === 'boolean'}
 										<input
 											type="checkbox"
 											checked={current === true}
@@ -1175,7 +1185,8 @@
 		white-space: nowrap;
 	}
 	.def-row input[type='text'],
-	.def-row input[type='number'] {
+	.def-row input[type='number'],
+	.def-row select {
 		width: 130px;
 		background: #0b0b10;
 		border: 1px solid #2a2a33;

@@ -1,3 +1,4 @@
+import { VALUE_SOURCE_KEYS } from './componentCatalog';
 import type { ComponentDef } from './types';
 
 /**
@@ -100,7 +101,9 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		],
 	},
 	params: [
-		{ key: 'source', kind: 'string' },
+		// The engine value feed this readout binds to — picked from the registered
+		// sources (editor renders `options` as a dropdown), not typed by hand.
+		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS },
 		{ key: 'label', kind: 'string', default: 'BALANCE' },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: HUD_VALUE_FONT_SIZE },

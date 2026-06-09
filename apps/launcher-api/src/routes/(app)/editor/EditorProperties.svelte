@@ -93,9 +93,11 @@
 	}: Props = $props();
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
-	const authorParams = $derived(
-		(instanceComponent?.params ?? []).filter((p) => !p.engineProvided),
-	);
+	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+	/** The open component's value-source binding (a param with an `options` enum, e.g.
+	 * the readout's `source`). When present the component is engine-fed THROUGH it, so
+	 * the literal engine-param checklist is inert — we show the binding instead. */
+	const sourceParam = $derived(componentParams.find((p) => (p.options?.length ?? 0) > 0));
 	function paramHas(key: string): boolean {
 		return componentParams.some((p) => p.key === key);
 	}
@@ -492,26 +494,39 @@
 	<section class="cmp-vars">
 		<h3>Component variables</h3>
 		<p class="muted small">
-			Declare the values the engine feeds (params) and the moments it fires (signals).
-			These are the <strong>declare</strong> half — the game wires + supplies them.
+			Declare the values the engine feeds (params) and the moments it fires (signals). These are the <strong
+				>declare</strong
+			> half — the game wires + supplies them.
 		</p>
 		<h4>Engine params</h4>
-		<ul class="picker">
-			{#each ENGINE_PARAM_CATALOG as p (p.key)}
-				<li>
-					<label class="pick">
-						<input
-							type="checkbox"
-							checked={paramHas(p.key)}
-							onchange={() => onToggleParam?.(p.key, p.kind)}
-						/>
-						<span class="pick-label">{p.label}</span>
-						<span class="pick-kind">{p.kind}</span>
-					</label>
-					{#if p.note}<span class="pick-note">{p.note}</span>{/if}
-				</li>
-			{/each}
-		</ul>
+		{#if sourceParam}
+			<!-- Engine-fed readout: the value is bound through a `source` param (a value
+			     feed picked from a closed set), NOT by ticking literal bet/win/balance — so
+			     the checklist would be inert here. Show the binding instead. -->
+			<p class="muted small">
+				Engine-fed: this component shows the live <strong>value</strong> of its
+				<strong>{sourceParam.key}</strong> — one of
+				<em>{sourceParam.options?.join(' · ')}</em>. Set the default source under
+				<strong>Defaults</strong>, and pick the source per placement when you drop it in a scene.
+			</p>
+		{:else}
+			<ul class="picker">
+				{#each ENGINE_PARAM_CATALOG as p (p.key)}
+					<li>
+						<label class="pick">
+							<input
+								type="checkbox"
+								checked={paramHas(p.key)}
+								onchange={() => onToggleParam?.(p.key, p.kind)}
+							/>
+							<span class="pick-label">{p.label}</span>
+							<span class="pick-kind">{p.kind}</span>
+						</label>
+						{#if p.note}<span class="pick-note">{p.note}</span>{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		<h4>Engine signals</h4>
 		<ul class="picker">
 			{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
@@ -643,7 +658,18 @@
 						<div class="row">
 							<label class="field wide">
 								<span>{p.key} ({p.kind})</span>
-								{#if p.kind === 'boolean'}
+								{#if p.options && p.options.length > 0}
+									<select
+										value={(node.params?.[p.key] as string) ?? ''}
+										onchange={(e) =>
+											onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+									>
+										<option value="">(inherit default)</option>
+										{#each p.options as opt (opt)}
+											<option value={opt}>{opt}</option>
+										{/each}
+									</select>
+								{:else if p.kind === 'boolean'}
 									<input
 										type="checkbox"
 										checked={Boolean(node.params?.[p.key])}
@@ -656,9 +682,7 @@
 										oninput={(e) =>
 											onSetInstanceParam?.(
 												p.key,
-												e.currentTarget.value === ''
-													? undefined
-													: e.currentTarget.valueAsNumber,
+												e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
 											)}
 									/>
 								{:else}
@@ -677,7 +701,8 @@
 					{/each}
 				{:else}
 					<p class="muted small">
-						This component declares no author-set params (engine-provided params are fed at runtime).
+						This component declares no author-set params (engine-provided params are fed at
+						runtime).
 					</p>
 				{/if}
 			{:else}
@@ -904,8 +929,8 @@
 			</div>
 			<p class="muted small">
 				Uniform zoom on the cover — <strong>1</strong> = exact edge-to-edge. Use
-				<strong>scale.x</strong> / <strong>scale.y</strong> in Transform to stretch it
-				(e.g. 1.0 × 1.2 = taller).
+				<strong>scale.x</strong> / <strong>scale.y</strong> in Transform to stretch it (e.g. 1.0 ×
+				1.2 = taller).
 				{#if usesPreviewArtFit}Fit is stored on the preview art.{/if}
 			</p>
 		</section>
@@ -1121,8 +1146,8 @@
 			<h3>Reel grid</h3>
 			<p class="muted small">
 				Board layout params — `SYMBOL_SIZE` / `BOARD_DIMENSIONS` / `REEL_PADDING`. Editor preview
-				today; a later pass makes the in-game board read these. Position the grid with the
-				Transform section above.
+				today; a later pass makes the in-game board read these. Position the grid with the Transform
+				section above.
 			</p>
 			<div class="row">
 				<label class="field">
@@ -1284,8 +1309,8 @@
 				<section>
 					<h3>Bind to param</h3>
 					<p class="muted small">
-						Inside a component instance, a bound field reads the resolved param instead of the static
-						value above.
+						Inside a component instance, a bound field reads the resolved param instead of the
+						static value above.
 					</p>
 					<div class="row">
 						<label class="field">

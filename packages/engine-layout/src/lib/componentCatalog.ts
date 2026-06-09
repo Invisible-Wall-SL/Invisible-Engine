@@ -35,6 +35,21 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 	{ key: 'projectName', kind: 'string', label: 'Project Name' },
 ];
 
+/**
+ * The numeric engine value feeds a readout's `source` param can bind to — the
+ * keys a game registers via `registerComponentValues` (balance/win/bet/totalWin).
+ * Derived from {@link ENGINE_PARAM_CATALOG} (its number-kind entries) so the
+ * editor's Source dropdown and the engine feed share ONE list. A game registers
+ * the subset it supports; a source with no registered store simply feeds nothing
+ * (the readout shows an empty/zero value), same as an unbound param.
+ */
+export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.filter(
+	(p) => p.kind === 'number',
+);
+
+/** Just the keys of {@link VALUE_SOURCE_CATALOG} — the `options` for a `source` param. */
+export const VALUE_SOURCE_KEYS: string[] = VALUE_SOURCE_CATALOG.map((p) => p.key);
+
 /** Core signals the engine fires at a component. */
 export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{ key: 'enter', label: 'Enter', note: 'Component mounted / scene entered.' },

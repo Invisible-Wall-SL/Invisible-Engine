@@ -439,6 +439,14 @@ export interface ComponentParam {
 	kind: 'number' | 'string' | 'color' | 'boolean';
 	default?: unknown;
 	engineProvided?: boolean;
+	/**
+	 * Closed set of allowed values (a string enum) — the editor renders a dropdown
+	 * instead of a free text field wherever the param is set (the component's
+	 * default + a placed instance's override). Used by the readout's `source`
+	 * (`balance | win | bet | …`): the engine value feed the readout binds to, so
+	 * the author picks from the registered sources rather than typing a name.
+	 */
+	options?: string[];
 }
 
 /** A named trigger the engine fires at a component (wiring is engine-owned). */
