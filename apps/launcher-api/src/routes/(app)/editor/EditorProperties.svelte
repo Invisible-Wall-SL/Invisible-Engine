@@ -61,6 +61,9 @@
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
+		/** "Edit in Component Editor": open the selected instance's def (`componentId`) in
+		 * the standalone Component Editor (new tab). Scene mode, componentInstance only. */
+		onOpenComponentEditor?: (componentId: string) => void;
 	}
 	let {
 		node,
@@ -81,6 +84,7 @@
 		onToggleParam,
 		onToggleSignal,
 		onSetInstanceParam,
+		onOpenComponentEditor,
 	}: Props = $props();
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
@@ -510,8 +514,14 @@
 	{@const o = node.overrides?.[layoutType]}
 	<div class="head">
 		<div class="title">
-			<strong>{node.label ?? node.id}</strong>
-			<span class="kind">{node.kind}</span>
+			{#if node.kind === 'componentInstance'}
+				<strong>{instanceComponent?.name ?? node.componentId}</strong>
+				<span class="kind">{node.kind}</span>
+				{#if node.label}<span class="kind role">· {node.label}</span>{/if}
+			{:else}
+				<strong>{node.label ?? node.id}</strong>
+				<span class="kind">{node.kind}</span>
+			{/if}
 			{#if node.locked}<span class="kind locked">locked</span>{/if}
 		</div>
 		{#if node.kind === 'sprite' && node.region}
@@ -536,7 +546,15 @@
 			{#if isOverrideMode}
 				Override: <strong>{layoutType}</strong>
 			{:else}
-				Base (desktop)
+				<span
+					title={'These are the BASE values, shared by every layout. ' +
+						'“' +
+						layoutType +
+						' view” is the layout you’re currently viewing — switch the layout tab to add ' +
+						'per-layout tweaks, which are stored as an Override.'}
+				>
+					Base values · <strong>{layoutType}</strong> view
+				</span>
 			{/if}
 		</div>
 		{#if isOverrideMode}
@@ -572,6 +590,13 @@
 	{#if node.kind === 'componentInstance'}
 		<section>
 			<h3>Component instance</h3>
+			<button
+				class="ghost-sm"
+				onclick={() => onOpenComponentEditor?.(node.componentId)}
+				title="Open this component's definition in the Invisible Component Editor (new tab) to edit its layout, params, and signals"
+			>
+				◇ Edit in Component Editor
+			</button>
 			{#if instanceComponent}
 				<p class="muted small">
 					<strong>{instanceComponent.name}</strong> · {instanceComponent.scope} · pinned v{node.componentVersion ??
@@ -1381,6 +1406,12 @@
 	.kind.locked {
 		color: #f0c878;
 		border-color: #3a3020;
+	}
+	.kind.role {
+		text-transform: none;
+		letter-spacing: 0;
+		color: #c8a3ff;
+		border-color: #2a2433;
 	}
 	.ctx code {
 		color: #c8a3ff;

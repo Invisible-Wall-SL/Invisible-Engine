@@ -10,6 +10,7 @@
 		MAX_COMPONENT_DEPTH,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
+		resolveComponentParams,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
 		type ComponentDef,
@@ -1214,6 +1215,15 @@
 		sceneCtx: Scene = scene,
 		componentDepth = 0,
 		componentStack: string[] = [],
+		/**
+		 * Resolved params of the ENCLOSING `componentInstance` (when this node is being
+		 * drawn as expanded def content) — threaded so a mounted `bind` chip can show the
+		 * instance's `label`/`fill`/`fontSize` params instead of the def's bare component
+		 * name. Absent for every top-level scene draw (and every non-instance subtree) ⇒
+		 * the chip/text paths fall back to their prior inputs — parity. A nested
+		 * componentInstance recomputes its OWN params (it does not inherit this).
+		 */
+		instanceParams?: Record<string, unknown>,
 	): void {
 		const t = nodeTransform(node, sceneCtx);
 		if (!t.visible) return;
@@ -1250,13 +1260,28 @@
 			} else if (node.preview?.style && !readyTextIds.has(node.id)) {
 				// The PIXI text overlay draws this HUD anchor with its real chosen font once
 				// loaded (reported via readyTextIds); until then the chip stands in.
-				drawHudChip(
-					ctx,
-					t,
-					node.preview,
-					node.label ?? node.bind.component,
-					node.bind.props as Record<string, unknown> | undefined,
-				);
+				// When this `bind` is a mount inside a componentInstance (instanceParams set),
+				// the chip shows the instance's resolved `label` caption + `fill`/`fontSize`
+				// styling — so a placed `HudReadout` reads "BALANCE" (its label param), not the
+				// bare component name. Absent instanceParams ⇒ the prior bind.props path (parity).
+				if (instanceParams) {
+					const caption = String(
+						instanceParams.label ?? node.label ?? node.bind.component,
+					);
+					drawHudChip(ctx, t, node.preview, caption, undefined, {
+						fill: typeof instanceParams.fill === 'number' ? instanceParams.fill : undefined,
+						fontSize:
+							typeof instanceParams.fontSize === 'number' ? instanceParams.fontSize : undefined,
+					});
+				} else {
+					drawHudChip(
+						ctx,
+						t,
+						node.preview,
+						node.label ?? node.bind.component,
+						node.bind.props as Record<string, unknown> | undefined,
+					);
+				}
 			} else if (!node.preview?.style) {
 				drawPlaceholder(
 					ctx,
@@ -1317,7 +1342,7 @@
 			}
 		} else if (node.kind === 'container') {
 			for (const child of node.children)
-				drawNode(ctx, child, sceneCtx, componentDepth, componentStack);
+				drawNode(ctx, child, sceneCtx, componentDepth, componentStack, instanceParams);
 		} else if (node.kind === 'componentInstance') {
 			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
 		} else if (node.kind === 'reelGrid') {
@@ -1388,8 +1413,15 @@
 			return;
 		}
 		const stack = [...componentStack, def.id];
+		// Resolve THIS instance's effective params (def defaults ◁ instance overrides) and
+		// thread them into the expanded children so a mounted `bind` chip shows the
+		// instance's `label`/`fill`/`fontSize` (e.g. "BALANCE"), not the def's component
+		// name. No per-project defaults here: the SCENE editor resolves each instance from
+		// def defaults + node.params (the `componentParams` prop is the Component Editor's
+		// open-component preview, a different concern), so pass `undefined`.
+		const params = resolveComponentParams(def, node.params, undefined);
 		for (const child of def.root.children) {
-			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack);
+			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params);
 		}
 	}
 
@@ -1474,6 +1506,10 @@
 		preview: NonNullable<LayoutNode['preview']>,
 		label: string,
 		props?: Record<string, unknown>,
+		/** Resolved-param styling for a componentInstance mount (§14.3): the instance's
+		 * `fill`/`fontSize` params, used INSTEAD of `props.style` so the chip colours/sizes
+		 * match the placed readout. Absent ⇒ the `props.style` path (parity). */
+		paramStyle?: { fill?: number; fontSize?: number },
 	): void {
 		const ax = t.anchor?.x ?? 0.5;
 		const ay = t.anchor?.y ?? 0.5;
@@ -1481,7 +1517,7 @@
 		const h = preview.h ?? 100;
 		const x = -w * ax;
 		const y = -h * ay;
-		const style = (props?.style ?? {}) as { fill?: number; fontSize?: number };
+		const style = paramStyle ?? ((props?.style ?? {}) as { fill?: number; fontSize?: number });
 		const tint = typeof props?.tint === 'number' ? props.tint : undefined;
 		const fill = typeof style.fill === 'number' ? cssColor(style.fill) : undefined;
 		const isText = preview.style === 'text';
@@ -1547,7 +1583,7 @@
 		if (!node) return;
 		const t = nodeTransform(node);
 		if (!t.visible) return;
-		const box = nodeBox(node, t, naturalSize);
+		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		const top = worldToScreen(topMidWorld(t, box));
 
@@ -1608,7 +1644,7 @@
 		if (!node || node.locked || isBackgroundCover(node)) return null;
 		const t = nodeTransform(node);
 		if (!t.visible) return null;
-		const box = nodeBox(node, t, naturalSize);
+		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		const top = worldToScreen(topMidWorld(t, box));
 		const rot = t.rotation ?? 0;
@@ -1641,7 +1677,7 @@
 			const node = list[i];
 			if (node.locked) continue;
 			const t = nodeTransform(node);
-			const box = nodeBox(node, t, naturalSize);
+			const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
 		}
@@ -1661,7 +1697,7 @@
 	}
 	function startScale(node: LayoutNode, cornerIdx: number, world: Vec2): void {
 		const t = nodeTransform(node);
-		const box = nodeBox(node, t, naturalSize);
+		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 		dragMode = {
 			kind: 'scale',
 			nodeId: node.id,
@@ -1761,7 +1797,7 @@
 	function snapTranslate(node: LayoutNode, nx: number, ny: number): Vec2 {
 		const tol = SNAP_PX / zoom;
 		const t = nodeTransform(node);
-		const box = nodeBox(node, t, naturalSize);
+		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 		// Compute candidate moving-node points using nx, ny.
 		const moved: typeof t = { ...t, x: nx, y: ny };
 		const corners = nodeCornersWorld(moved, box);
@@ -1773,7 +1809,7 @@
 		for (const other of visibleSceneNodes()) {
 			if (other.id === node.id) continue;
 			const ot = nodeTransform(other);
-			const ob = nodeBox(other, ot, naturalSize);
+			const ob = nodeBox(other, ot, naturalSize, componentMap, layoutType);
 			const oc = nodeCornersWorld(ot, ob);
 			let minX = Infinity,
 				maxX = -Infinity,
@@ -2118,7 +2154,7 @@
 		if (!node) return null;
 		const t = nodeTransform(node);
 		if (!t.visible) return null;
-		const box = nodeBox(node, t, naturalSize);
+		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		let minX = Infinity,
 			minY = Infinity,

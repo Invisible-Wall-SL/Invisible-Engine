@@ -1619,6 +1619,7 @@
 					selectedNode.params = Object.keys(params).length ? params : undefined;
 					markDirty();
 				}}
+				onOpenComponentEditor={openComponentEditor}
 			/>
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·

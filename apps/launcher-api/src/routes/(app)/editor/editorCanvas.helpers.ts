@@ -1,4 +1,11 @@
-import type { LayoutNode, ResolvedTransform } from 'engine-layout';
+import {
+	MAX_COMPONENT_DEPTH,
+	resolveTransform,
+	type ComponentDef,
+	type LayoutNode,
+	type LayoutType,
+	type ResolvedTransform,
+} from 'engine-layout';
 
 export interface Vec2 {
 	x: number;
@@ -18,9 +25,28 @@ export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
 	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
+	componentMap?: Map<string, ComponentDef>,
+	layoutType?: LayoutType,
 ): NodeBox {
 	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
+	// A componentInstance DRAWS its def's content (drawComponentInstance expands
+	// `def.root.children`), so the selection box must frame that content — not the
+	// generic placeholder size — or the rect offsets/mismatches the drawn chip. Return
+	// the union bounding box of the def's children in the instance's local space (each
+	// child's own box, offset by its local x/y + anchored). For the single-mount
+	// `HudReadout` this is the mount's `preview` box (240×135) at the instance anchor.
+	if (node.kind === 'componentInstance' && componentMap && layoutType !== undefined) {
+		const content = componentInstanceContentBox(
+			node,
+			naturalSize,
+			componentMap,
+			layoutType,
+			0,
+			[],
+		);
+		if (content) return content;
+	}
 	// A preview-art anchor selects at the RENDERED art's box. The art may be an
 	// explicit `node.preview.art` OR a catalog default resolved live (no baked
 	// `preview.art`): in both cases EditorCanvas bakes the fit size into the resolved
@@ -56,6 +82,70 @@ export function nodeBox(
 		};
 	}
 	return { w: 160, h: 100, ax, ay };
+}
+
+/**
+ * Local-space content box of a `componentInstance` — the union, in the instance's
+ * own pre-scale space, of every box its `def.root.children` draw (mirroring
+ * {@link drawComponentInstance}, which expands those children directly under the
+ * instance transform). Each child contributes its own {@link nodeBox} placed at its
+ * resolved local x/y + anchor; a nested instance recurses. Returns `null` when the
+ * def is missing or a depth/cycle guard trips (caller keeps its default), or when the
+ * def has no children. The result is expressed as a top-left-anchored box (ax=ay=0)
+ * around the union so `nodeCornersWorld` frames the real drawn extent at the instance.
+ */
+function componentInstanceContentBox(
+	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
+	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
+	componentMap: Map<string, ComponentDef>,
+	layoutType: LayoutType,
+	depth: number,
+	stack: string[],
+): NodeBox | null {
+	const def = componentMap.get(node.componentId);
+	if (!def) return null;
+	if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
+	const childStack = [...stack, def.id];
+
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	for (const child of def.root.children) {
+		const ct = resolveTransform(child, layoutType);
+		const cb =
+			child.kind === 'componentInstance'
+				? (componentInstanceContentBox(
+						child,
+						naturalSize,
+						componentMap,
+						layoutType,
+						depth + 1,
+						childStack,
+					) ?? nodeBox(child, ct, naturalSize, componentMap, layoutType))
+				: nodeBox(child, ct, naturalSize, componentMap, layoutType);
+		// The child's box (already including its anchor) is placed at its local x/y and
+		// scaled by its own scale — match drawNode's transform so the union frames the
+		// drawn art. Rotation is ignored here (HUD content is axis-aligned); the union is
+		// an axis-aligned envelope, which the instance transform then scales/rotates.
+		const csx = ct.scale?.x ?? 1;
+		const csy = ct.scale?.y ?? 1;
+		const left = ct.x - cb.w * cb.ax * csx;
+		const top = ct.y - cb.h * cb.ay * csy;
+		const right = left + cb.w * csx;
+		const bottom = top + cb.h * csy;
+		if (left < minX) minX = left;
+		if (top < minY) minY = top;
+		if (right > maxX) maxX = right;
+		if (bottom > maxY) maxY = bottom;
+	}
+	if (minX === Infinity) return null;
+	// Express the union as a TL-anchored box (ax/ay encode where the instance origin sits
+	// inside it) so nodeCornersWorld(instanceTransform, box) lands the rect on the union.
+	const w = maxX - minX;
+	const h = maxY - minY;
+	if (w <= 0 || h <= 0) return null;
+	return { w, h, ax: -minX / w, ay: -minY / h };
 }
 
 /** Compute the 4 world-space corners (TL, TR, BR, BL) of a node's box. */
