@@ -755,6 +755,24 @@
 												e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
 											)}
 									/>
+								{:else if p.kind === 'color'}
+									<span class="color-cell">
+										<input
+											type="color"
+											value={typeof node.params?.[p.key] === 'number'
+												? hexFrom(node.params[p.key] as number)
+												: '#ffffff'}
+											oninput={(e) => onSetInstanceParam?.(p.key, parseHex(e.currentTarget.value))}
+										/>
+										{#if node.params?.[p.key] !== undefined}
+											<button
+												type="button"
+												class="reset"
+												title="Inherit default"
+												onclick={() => onSetInstanceParam?.(p.key, undefined)}>×</button
+											>
+										{/if}
+									</span>
 								{:else if p.kind === 'image'}
 									<RegionPicker
 										sheets={pickSheets}
@@ -1054,12 +1072,21 @@
 							/>
 						{:else if p.kind === 'color'}
 							{@const cv = readParam(node, p)}
-							<input
-								type="text"
-								placeholder="#ffffff"
-								value={cv !== undefined ? hexFrom(cv as number) : ''}
-								onchange={(e) => writeColorParam(node, p, e.currentTarget.value)}
-							/>
+							<span class="color-cell">
+								<input
+									type="color"
+									value={cv !== undefined ? hexFrom(cv as number) : '#ffffff'}
+									oninput={(e) => writeColorParam(node, p, e.currentTarget.value)}
+								/>
+								{#if cv !== undefined}
+									<button
+										type="button"
+										class="reset"
+										title="Clear"
+										onclick={() => writeParam(node, p, undefined)}>×</button
+									>
+								{/if}
+							</span>
 						{:else if p.kind === 'boolean'}
 							<input
 								type="checkbox"
@@ -1123,8 +1150,7 @@
 				<label class="field wide">
 					<span>tint</span>
 					<input
-						type="text"
-						placeholder="#ffffff"
+						type="color"
 						value={hexFrom(t.tint)}
 						onchange={(e) => setTintHex(node, e.currentTarget.value)}
 					/>
@@ -1368,8 +1394,7 @@
 				<label class="field">
 					<span>{isBitmapSelected ? 'tint' : 'fill'}</span>
 					<input
-						type="text"
-						placeholder="#ffffff"
+						type="color"
 						value={hexFrom(node.style?.fill)}
 						onchange={(e) => setFill(node, e.currentTarget.value)}
 					/>
@@ -1559,8 +1584,7 @@
 					<label class="field">
 						<span>color</span>
 						<input
-							type="text"
-							placeholder="#000000"
+							type="color"
 							value={hexFrom(node.style?.stroke?.color ?? 0x000000)}
 							onchange={(e) => setStrokeColor(node, e.currentTarget.value)}
 						/>
@@ -1595,8 +1619,7 @@
 						<label class="field">
 							<span>color</span>
 							<input
-								type="text"
-								placeholder="#000000"
+								type="color"
 								value={hexFrom(node.style.dropShadow.color ?? 0x000000)}
 								onchange={(e) => setDropShadowColor(node, e.currentTarget.value)}
 							/>
@@ -1940,6 +1963,20 @@
 		font-size: 10px;
 		color: #777;
 		line-height: 1.3;
+	}
+	.color-cell {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.color-cell input[type='color'] {
+		width: 40px;
+		height: 24px;
+		padding: 0;
+		border: 1px solid #2a2a33;
+		border-radius: 4px;
+		background: transparent;
+		cursor: pointer;
 	}
 	.add-param {
 		display: flex;
