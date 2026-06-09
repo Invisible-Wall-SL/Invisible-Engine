@@ -1291,18 +1291,33 @@
 					node.label ?? node.bind.component,
 				);
 			}
-		} else if (node.kind === 'sprite' && node.region) {
-			drawRegionSprite(ctx, node, t);
 		} else if (node.kind === 'sprite') {
-			const img = ensureImage(node.assetKey);
-			if (img && img.complete && img.naturalWidth > 0) {
-				const w = t.width ?? img.naturalWidth;
-				const h = t.height ?? img.naturalHeight;
-				const ax = t.anchor?.x ?? 0;
-				const ay = t.anchor?.y ?? 0;
-				ctx.drawImage(img, -w * ax, -h * ay, w, h);
+			// B3 (§13.4): when the open component provides resolved params AND this sprite
+			// declares `paramBindings`, the bound `region`/`assetKey`/`tint` fields read
+			// from the params (same paths + precedence as `LayoutNodeView`) so the canvas
+			// previews the BOUND icon/texture + colour, not the static placeholder. With no
+			// params / no bindings every value falls back to the node's own — parity.
+			const bound = node.paramBindings;
+			const hasParams = Object.keys(componentParams).length > 0;
+			const boundRegion = hasParams ? boundString(bound, 'region') : undefined;
+			const boundAssetKey = hasParams ? boundString(bound, 'assetKey') : undefined;
+			const boundTint = hasParams ? boundNumber(bound, 'tint') : undefined;
+			const region = boundRegion ?? node.region;
+			const assetKey = boundAssetKey ?? node.assetKey;
+			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
+			if (region) {
+				drawRegionSprite(ctx, node, t, region, assetKey, tint);
 			} else {
-				drawPlaceholder(ctx, t.anchor?.x ?? 0.5, t.anchor?.y ?? 0.5, '#3a4a5a', node.label ?? '…');
+				const img = ensureImage(assetKey);
+				if (img && img.complete && img.naturalWidth > 0) {
+					const w = t.width ?? img.naturalWidth;
+					const h = t.height ?? img.naturalHeight;
+					const ax = t.anchor?.x ?? 0;
+					const ay = t.anchor?.y ?? 0;
+					drawTintedImage(ctx, img, 0, 0, img.naturalWidth, img.naturalHeight, -w * ax, -h * ay, w, h, tint);
+				} else {
+					drawPlaceholder(ctx, t.anchor?.x ?? 0.5, t.anchor?.y ?? 0.5, '#3a4a5a', node.label ?? '…');
+				}
 			}
 		} else if (node.kind === 'spine') {
 			// The WebGL overlay draws the real skeleton once loaded; until then (or on
@@ -1429,20 +1444,35 @@
 		ctx: CanvasRenderingContext2D,
 		node: Extract<LayoutNode, { kind: 'sprite' }>,
 		t: import('engine-layout').ResolvedTransform,
+		/** Effective region/assetKey from param-bindings (§13.4) — fall back to the
+		 * node's own when a field isn't bound, so an unbound sprite renders identically
+		 * (parity). `tint` multiplies the drawn frame (absent / 0xffffff = no-op). */
+		regionOverride?: string,
+		assetKeyOverride?: string,
+		tint?: number,
 	): void {
-		drawArtRegionSprite(ctx, node.assetKey, node.region ?? '', t, node.label);
+		drawArtRegionSprite(
+			ctx,
+			assetKeyOverride ?? node.assetKey,
+			regionOverride ?? node.region ?? '',
+			t,
+			node.label,
+			tint,
+		);
 	}
 
 	/** Core atlas-region draw, shared by region sprite NODES and `preview.art` sprite
 	 * anchors. `assetKey` = manifest/atlas key, `region` = packed frame; honours the
 	 * resolved transform's anchor + explicit width/height (else the region's native
-	 * size). Falls back to a placeholder until the page image + rect resolve. */
+	 * size). Falls back to a placeholder until the page image + rect resolve. `tint`
+	 * multiplies the drawn frame (absent / 0xffffff = untinted — parity). */
 	function drawArtRegionSprite(
 		ctx: CanvasRenderingContext2D,
 		assetKey: string,
 		regionName: string,
 		t: import('engine-layout').ResolvedTransform,
 		label?: string,
+		tint?: number,
 	): void {
 		const found = regionName ? findRegion(assetKey, regionName) : null;
 		const ax = t.anchor?.x ?? 0;
@@ -1484,11 +1514,63 @@
 			ctx.save();
 			ctx.translate(cx, cy + ch);
 			ctx.rotate(-Math.PI / 2);
-			ctx.drawImage(img, region.x, region.y, pw, ph, 0, 0, ch, cw);
+			drawTintedImage(ctx, img, region.x, region.y, pw, ph, 0, 0, ch, cw, tint);
 			ctx.restore();
 		} else {
-			ctx.drawImage(img, region.x, region.y, pw, ph, cx, cy, cw, ch);
+			drawTintedImage(ctx, img, region.x, region.y, pw, ph, cx, cy, cw, ch, tint);
 		}
+	}
+
+	/** Scratch canvas reused for tinted sprite draws (avoids per-frame allocation). */
+	let tintScratch: HTMLCanvasElement | null = null;
+
+	/**
+	 * Draw a sprite (or atlas frame, via the source rect) with an optional `tint`
+	 * multiply that respects the sprite's own alpha — the 2D-canvas equivalent of
+	 * PixiJS's `Sprite.tint`. Untinted (absent / 0xffffff) ⇒ a plain `ctx.drawImage`,
+	 * byte-identical to the prior draw (parity).
+	 *
+	 * Tint path: composite on an offscreen canvas sized to the DEST box so the main
+	 * canvas (and any active rotation/transform) is never polluted — draw the image,
+	 * `multiply` a solid tint over it, then `destination-in` the image again as the
+	 * alpha mask (so transparent pixels stay transparent), and blit the result back.
+	 */
+	function drawTintedImage(
+		ctx: CanvasRenderingContext2D,
+		img: CanvasImageSource,
+		sx: number,
+		sy: number,
+		sw: number,
+		sh: number,
+		dx: number,
+		dy: number,
+		dw: number,
+		dh: number,
+		tint?: number,
+	): void {
+		if (tint === undefined || tint === 0xffffff) {
+			ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+			return;
+		}
+		const iw = Math.max(1, Math.round(dw));
+		const ih = Math.max(1, Math.round(dh));
+		if (!tintScratch) tintScratch = document.createElement('canvas');
+		const off = tintScratch;
+		off.width = iw;
+		off.height = ih;
+		const octx = off.getContext('2d');
+		if (!octx) {
+			ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+			return;
+		}
+		octx.clearRect(0, 0, iw, ih);
+		octx.drawImage(img, sx, sy, sw, sh, 0, 0, iw, ih);
+		octx.globalCompositeOperation = 'multiply';
+		octx.fillStyle = cssColor(tint);
+		octx.fillRect(0, 0, iw, ih);
+		octx.globalCompositeOperation = 'destination-in';
+		octx.drawImage(img, sx, sy, sw, sh, 0, 0, iw, ih);
+		ctx.drawImage(off, dx, dy, dw, dh);
 	}
 
 	/** Faithful 2D preview of a HUD `bind` element (the real component is a shape +
