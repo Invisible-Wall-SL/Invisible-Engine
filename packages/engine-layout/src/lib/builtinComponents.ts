@@ -32,18 +32,21 @@ const HUD_FILL = 0xffffff;
  * The single parametric HUD readout (§14.1) — one def instanced three ways
  * (balance / win / bet) by its `source` param.
  *
- * MOUNT path (§14.3, owner-chosen 2026-06-08): `root` is a local-space container
- * whose single child `bind`s the coded `HudReadout` component (registered via
- * `registerBoundComponents`). That coded component keeps the PROVEN coded-label
- * rendering — the localized caption, `UiLabel`'s stacked caption+value, the
- * per-source currency formatting, and the count-up — instead of re-implementing
- * them as engine text nodes (which would lose currency formatting + bitmap-font
- * fidelity). The mounted component reads the SAME params (`source`/`label`/`fill`/
- * `fontSize`/`fontFamily`/`countUp`/`value`) off the param context that
- * `<ComponentInstance>` provides — they flow to it through the context, not via
- * text `paramBindings`. The Component Editor still owns the def (so B3 per-project
- * defaults apply) and the preview path falls back to the bound-component catalog
- * art for this `bind` anchor.
+ * SEPARATE CODED PARTS path (§14.3, owner-chosen 2026-06-09): `root` is a
+ * local-space container whose THREE children each `bind` a small coded part —
+ * `HudTicker` (Background tile), `HudCaption` (localized caption Text), `HudValue`
+ * (currency value Text + count-up + bet tap) — all registered via
+ * `registerBoundComponents`. The split keeps the PROVEN coded rendering (no new
+ * format contract: the value part keeps the coded currency formatter), but makes
+ * each part its OWN editable node the author can move / restyle / hide / delete,
+ * with room to add new nodes around them. All three read the SAME params
+ * (`source`/`label`/`fill`/`fontSize`/`fontFamily`/`countUp`/`value`) off the param
+ * context that `<ComponentInstance>` provides — they flow through the context, not
+ * via text `paramBindings`.
+ *
+ * The three children's positions RECREATE `UiLabel`'s stacked+tiled layout so the
+ * live render is unchanged: tile at `y:-20`, caption at `y:0`, value at
+ * `y:HUD_VALUE_FONT_SIZE` (45 = `UI_BASE_FONT_SIZE`), all `anchor {0.5,0}`.
  */
 export const HUD_READOUT_DEF: ComponentDef = {
 	id: 'hudReadout',
@@ -58,12 +61,36 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		y: 0,
 		children: [
 			{
-				id: 'hudReadout-mount',
+				id: 'hudReadout-bg',
+				label: 'Background',
+				kind: 'container',
+				x: 0,
+				y: -20,
+				anchor: { x: 0.5, y: 0 },
+				bind: { component: 'HudTicker' },
+				preview: { w: HUD_CAPTION_FONT_SIZE * 8, h: HUD_VALUE_FONT_SIZE * 3, style: 'label' },
+				children: [],
+			},
+			{
+				id: 'hudReadout-caption',
+				label: 'Caption',
 				kind: 'container',
 				x: 0,
 				y: 0,
-				bind: { component: 'HudReadout' },
-				preview: { w: HUD_CAPTION_FONT_SIZE * 8, h: HUD_VALUE_FONT_SIZE * 3, style: 'label' },
+				anchor: { x: 0.5, y: 0 },
+				bind: { component: 'HudCaption' },
+				preview: { style: 'text' },
+				children: [],
+			},
+			{
+				id: 'hudReadout-value',
+				label: 'Value',
+				kind: 'container',
+				x: 0,
+				y: HUD_VALUE_FONT_SIZE,
+				anchor: { x: 0.5, y: 0 },
+				bind: { component: 'HudValue' },
+				preview: { style: 'text' },
 				children: [],
 			},
 		],

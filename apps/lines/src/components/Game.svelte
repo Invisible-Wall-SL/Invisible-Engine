@@ -7,7 +7,15 @@
 	import { App, Container, Text, REM } from 'pixi-svelte';
 	import { stateBet, stateBetDerived, stateModal } from 'state-shared';
 
-	import { UI, UiGameName, InfoOverlay, HudReadout } from 'components-ui-pixi';
+	import {
+		UI,
+		UiGameName,
+		InfoOverlay,
+		HudReadout,
+		HudTicker,
+		HudCaption,
+		HudValue,
+	} from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
@@ -45,14 +53,20 @@
 	import I18nTest from './I18nTest.svelte';
 	import SymbolDebug from './SymbolDebug.svelte';
 
-	// `HudReadout` is the coded component the `hudReadout` ComponentDef MOUNTS
-	// (§14.3 MOUNT path): the def's `root` `bind`s it by name, so it must be in the
-	// bound-component registry alongside the animated overlays. It reuses the coded
-	// label rendering (caption localization + currency format + count-up).
+	// `HudTicker`/`HudCaption`/`HudValue` are the three coded parts the `hudReadout`
+	// ComponentDef MOUNTS (§14.3 separate-coded-parts path): the def's `root` has one
+	// `bind` child per part by name, so each must be in the bound-component registry
+	// alongside the animated overlays. They reuse the coded HUD rendering (tile +
+	// caption localization + currency format + count-up + bet tap). `HudReadout` (the
+	// pre-split single mount) stays registered for revert safety; it's unused by the
+	// def now.
 	registerBoundComponents({
 		Win,
 		Transition,
 		HudReadout,
+		HudTicker,
+		HudCaption,
+		HudValue,
 		// Move 3 Phase A — the free-spin overlays are now mounted from the doc via
 		// `<LayoutScene>` (canvas-space bind anchors), so the editor can position
 		// them. They self-show/animate off book events; the doc owns only placement.
@@ -135,7 +149,9 @@
 	const loadingNode = $derived(
 		editorDoc.scenes
 			.find((scene) => scene.id === 'loading')
-			?.nodes.find((node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen'),
+			?.nodes.find(
+				(node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen',
+			),
 	);
 	const loadingTransform = $derived(
 		loadingNode
