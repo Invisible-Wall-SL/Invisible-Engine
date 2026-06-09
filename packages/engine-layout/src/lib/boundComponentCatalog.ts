@@ -158,7 +158,7 @@ const HUD_TEXT_PARAMS: EditableParam[] = [
 // Buttons: a recolour tint (the icon/background tint the coded button reads).
 const BUTTON_PARAMS: EditableParam[] = [{ key: 'tint', kind: 'color', label: 'Tint' }];
 // REUSABLE tile-styling knobs — for any coded `UiSprite`-backed tile/frame (the
-// readout `HudTicker` today; attach to other tile components by referencing this).
+// readout `HudTicker` + the `ButtonFrame`; attach to others by referencing this).
 // `texture` is the loaded sprite key the game's `UiSprite` resolves (the reference
 // `UiSprite` is a plain rounded Rectangle and ignores it — `tint` → `backgroundColor`
 // recolours that fallback; a textured game `UiSprite` uses both). `borderColor`/
@@ -178,8 +178,11 @@ const TILE_PARAMS: EditableParam[] = [
  * component here (+ wire it to read the prop) to make it editor-configurable.
  */
 export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
-	// Readout background tile — texture / tint / outline / corner radius.
+	// Readout background tile + the parametric button's frame — same tile knobs
+	// (texture / tint / outline / corner radius). The button's engine STATES
+	// (disabled grey, active border) override the authored resting style.
 	HudTicker: TILE_PARAMS,
+	ButtonFrame: TILE_PARAMS,
 	// HUD corner text (already consumed by the game's gameName/logo snippets).
 	HudGameName: HUD_TEXT_PARAMS,
 	HudLogo: HUD_TEXT_PARAMS,

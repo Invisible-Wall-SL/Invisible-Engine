@@ -1664,14 +1664,26 @@
 		}
 		const isText = preview.style === 'text';
 		if (!isText) {
-			const r = Math.min(preview.style === 'button' ? 36 : 26, h / 2);
+			// Honour the editor-set `borderRadius` / `borderColor` / `borderWidth` (the
+			// shared tile params, e.g. on the button Frame) so an edit shows live; fall
+			// back to the chip default radius + faint edge when unset.
+			const defaultR = preview.style === 'button' ? 36 : 26;
+			const radius = typeof props?.borderRadius === 'number' ? props.borderRadius : defaultR;
+			const r = Math.max(0, Math.min(radius, w / 2, h / 2));
 			ctx.beginPath();
 			ctx.roundRect(x, y, w, h, r);
 			// A button tint multiplies the themed art in-game; here it colours the chip.
 			ctx.fillStyle = tint !== undefined ? cssColor(tint) : 'rgba(8,8,10,0.92)';
 			ctx.fill();
-			ctx.lineWidth = 2;
-			ctx.strokeStyle = '#3a3a46';
+			const bw = typeof props?.borderWidth === 'number' ? props.borderWidth : 0;
+			if (bw > 0) {
+				ctx.lineWidth = bw;
+				ctx.strokeStyle =
+					typeof props?.borderColor === 'number' ? cssColor(props.borderColor) : '#ffffff';
+			} else {
+				ctx.lineWidth = 2;
+				ctx.strokeStyle = '#3a3a46';
+			}
 			ctx.stroke();
 		}
 		ctx.save();
