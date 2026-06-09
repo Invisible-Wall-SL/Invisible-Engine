@@ -1333,7 +1333,21 @@
 			const boundAssetKey = hasParams ? boundString(bound, 'assetKey', effParams) : undefined;
 			const boundTint = hasParams ? boundNumber(bound, 'tint', effParams) : undefined;
 			const region = boundRegion ?? node.region;
-			const assetKey = boundAssetKey ?? node.assetKey;
+			let assetKey = boundAssetKey ?? node.assetKey;
+			// Cross-atlas resolution: a bound `region` (an `image`-param frame swap) may name
+			// a frame packed in a DIFFERENT atlas than the sprite's static `assetKey`. Only on
+			// a MISS in that atlas do we consult the one-time `spriteRegionIndex` (matching the
+			// game, which resolves frames by name across all loaded atlases) and kick off its
+			// lazy scan. Normal sprites + same-atlas / explicit-assetKey binds skip this whole
+			// block, so the common lookup is unchanged — no per-draw scan, no eager loading.
+			if (boundRegion && !boundAssetKey) {
+				const own = ensureRegionSet(assetKey);
+				if (own && !own.regions.some((r) => r.name === boundRegion)) {
+					const indexed = spriteRegionIndex.get(boundRegion);
+					if (indexed) assetKey = indexed;
+					else ensureRegionIndex();
+				}
+			}
 			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
 			if (region) {
 				drawRegionSprite(ctx, node, t, region, assetKey, tint);
