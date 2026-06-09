@@ -15,6 +15,8 @@
 		HudTicker,
 		HudCaption,
 		HudValue,
+		ButtonFrame,
+		ButtonLabel,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
@@ -67,6 +69,14 @@
 		HudTicker,
 		HudCaption,
 		HudValue,
+		// `ButtonFrame`/`ButtonLabel` are the two coded parts the `button` ComponentDef
+		// MOUNTS (§16.2 separate-coded-parts path, the button analogue of the HUD split):
+		// the def's `root` has one `bind` child per part by name (Frame = the `UiSprite`
+		// tile + hit area, Label = the localized icon/label `Text`), so each must be in
+		// the bound-component registry. Unused until the HUD button cluster is converted
+		// to `componentInstance`s (B6.4) — registered now keeps B6.1 purely additive.
+		ButtonFrame,
+		ButtonLabel,
 		// Move 3 Phase A — the free-spin overlays are now mounted from the doc via
 		// `<LayoutScene>` (canvas-space bind anchors), so the editor can position
 		// them. They self-show/animate off book events; the doc owns only placement.

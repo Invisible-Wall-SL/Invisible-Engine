@@ -106,5 +106,86 @@ export const HUD_READOUT_DEF: ComponentDef = {
 	],
 };
 
+/** Mirrors `components-ui-pixi` `UI_BASE_SIZE` — the coded button frame's square px. */
+const BUTTON_BASE_SIZE = 150;
+/** `UiButton`'s label size (`UI_BASE_FONT_SIZE 45 * 0.9`). */
+const BUTTON_FONT_SIZE = 40.5;
+
+/**
+ * The single parametric HUD button (§16.2) — one def instanced per HUD button
+ * (spin/bet, menu, buy-bonus, auto-spin, turbo, bet +/−) by its `action` param.
+ * The button analogue of {@link HUD_READOUT_DEF}: where the readout binds a
+ * `value`, the button binds an `action`.
+ *
+ * SEPARATE CODED PARTS path (§16.2, owner-chosen 2026-06-09, mirroring B5's §14.3):
+ * `root` is a local-space container whose TWO children each `bind` a small coded
+ * part — `ButtonFrame` (the `UiSprite` tile AND the hit area: variant bg, active
+ * border, disabled-grey, tint, `onpointerup` → the action) and `ButtonLabel` (the
+ * localized icon/label `Text`) — both registered via `registerBoundComponents`. The
+ * split keeps the PROVEN coded rendering but makes each part its OWN editable node
+ * the author can move / restyle / hide / delete. Both read the SAME params off the
+ * param context that `<ComponentInstance>` provides — they flow through the context,
+ * not via text `paramBindings`.
+ *
+ * Both children RECREATE `UiButton`'s centred layout so the live render is unchanged:
+ * frame and label both at `x:0,y:0`, anchor `{0.5,0.5}` — the label sits centred over
+ * the frame, exactly as `UiButton` stacks its `UiSprite` and `Text` (both `{...center}
+ * anchor={0.5}`).
+ *
+ * `disabled`/`active` are `engineProvided` (the action feed's `disabled`/`active`
+ * stores arrive via `registerComponentActions` in B6.2); `action` is the behaviour
+ * binding the engine resolves to an `onpress`. No HUD references this def yet (B6.1
+ * is def + parts + registration only), so the game renders byte-identically.
+ */
+export const BUTTON_DEF: ComponentDef = {
+	id: 'button',
+	name: 'Button',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'button-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'button-frame',
+				label: 'Frame',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				bind: { component: 'ButtonFrame' },
+				preview: { w: BUTTON_BASE_SIZE, h: BUTTON_BASE_SIZE, style: 'button' },
+				children: [],
+			},
+			{
+				id: 'button-label',
+				label: 'Label',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				bind: { component: 'ButtonLabel' },
+				preview: { style: 'text' },
+				children: [],
+			},
+		],
+	},
+	params: [
+		{ key: 'action', kind: 'string' },
+		{ key: 'icon', kind: 'string' },
+		{ key: 'label', kind: 'string' },
+		{ key: 'variant', kind: 'string', default: 'dark' },
+		{ key: 'tint', kind: 'color', default: HUD_FILL },
+		{ key: 'fontSize', kind: 'number', default: BUTTON_FONT_SIZE },
+		{ key: 'fill', kind: 'color', default: HUD_FILL },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		{ key: 'disabled', kind: 'boolean', engineProvided: true },
+		{ key: 'active', kind: 'boolean', engineProvided: true },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
-export const BUILTIN_COMPONENTS: ComponentDef[] = [HUD_READOUT_DEF];
+export const BUILTIN_COMPONENTS: ComponentDef[] = [HUD_READOUT_DEF, BUTTON_DEF];
