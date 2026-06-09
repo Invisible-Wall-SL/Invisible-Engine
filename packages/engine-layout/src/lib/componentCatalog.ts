@@ -50,6 +50,24 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
 /** Just the keys of {@link VALUE_SOURCE_CATALOG} — the `options` for a `source` param. */
 export const VALUE_SOURCE_KEYS: string[] = VALUE_SOURCE_CATALOG.map((p) => p.key);
 
+/**
+ * Canonical HUD button action keys the parametric Button's `action` param selects
+ * from — the editor renders the `action` param as a dropdown of these instead of a
+ * free-text box (no more silent typos). The GAME must register a matching handler
+ * via `registerComponentActions` (declare ≠ implement); an action with no registered
+ * handler simply does nothing, same as an unbound param. A custom action key typed
+ * elsewhere is preserved (the editor keeps an out-of-catalog value as an option).
+ */
+export const ENGINE_ACTION_CATALOG: string[] = [
+	'spin',
+	'decrease',
+	'increase',
+	'autoSpin',
+	'turbo',
+	'menu',
+	'buyBonus',
+];
+
 /** Core signals the engine fires at a component. */
 export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{ key: 'enter', label: 'Enter', note: 'Component mounted / scene entered.' },

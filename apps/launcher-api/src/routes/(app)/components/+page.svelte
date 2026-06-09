@@ -1,6 +1,10 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import { resolveComponentParams, STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
+	import {
+		ENGINE_ACTION_CATALOG,
+		resolveComponentParams,
+		STANDARD_MAIN_SIZES_MAP,
+	} from 'engine-layout';
 	import type {
 		ComponentCategory,
 		ComponentDef,
@@ -151,6 +155,14 @@
 	/** A param key that looks like a font → render a text input (§13.4 hint). */
 	function looksLikeFont(key: string): boolean {
 		return /font/i.test(key);
+	}
+	/** Dropdown options for an `action`-keyed param: the registered-action catalog,
+	 * plus the current value if it's a custom key (so it isn't dropped). */
+	function actionOptions(current: unknown): string[] {
+		const v = typeof current === 'string' ? current : '';
+		return v && !ENGINE_ACTION_CATALOG.includes(v)
+			? [...ENGINE_ACTION_CATALOG, v]
+			: ENGINE_ACTION_CATALOG;
 	}
 
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
@@ -757,6 +769,16 @@
 										<option value="">(none)</option>
 										{#each param.options as opt (opt)}
 											<option value={opt}>{opt}</option>
+										{/each}
+									</select>
+								{:else if param.key === 'action'}
+									<select
+										value={typeof current === 'string' ? current : ''}
+										onchange={(e) => setDefault(param.key, e.currentTarget.value || undefined)}
+									>
+										<option value="">(none)</option>
+										{#each actionOptions(current) as a (a)}
+											<option value={a}>{a}</option>
 										{/each}
 									</select>
 								{:else if param.kind === 'boolean'}
