@@ -183,7 +183,13 @@
 		// `$state.snapshot` (not `structuredClone`): `container` is the selected node,
 		// a reactive proxy `structuredClone` can't clone (DataCloneError).
 		const clone = $state.snapshot(container) as ContainerNode;
-		const root: ContainerNode = { id: clone.id, kind: 'container', x: 0, y: 0, children: clone.children };
+		const root: ContainerNode = {
+			id: clone.id,
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: clone.children,
+		};
 		if (clone.width !== undefined) root.width = clone.width;
 		if (clone.height !== undefined) root.height = clone.height;
 		if (clone.label !== undefined) root.label = clone.label;
@@ -233,7 +239,10 @@
 			components = existing
 				? components.map((c) => (c.id === def.id ? def : c))
 				: [...components, def];
-			componentStatus = { kind: 'ok', message: existing ? 'Component updated' : 'Component created' };
+			componentStatus = {
+				kind: 'ok',
+				message: existing ? 'Component updated' : 'Component created',
+			};
 			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
 				data.projectKey,
 			)}`;
@@ -1493,6 +1502,27 @@
 
 			<div class="tab-body">
 				{#if leftTab === 'library'}
+					<section>
+						<h3>Elements</h3>
+						<ul>
+							<li
+								draggable="true"
+								ondragstart={(e) => onAssetDragStart(e, { kind: 'text', key: '', name: 'Text' })}
+							>
+								<span class="name">Text</span>
+								<span class="tag">text</span>
+							</li>
+							<li
+								draggable="true"
+								ondragstart={(e) =>
+									onAssetDragStart(e, { kind: 'container', key: '', name: 'Group' })}
+							>
+								<span class="name">Container</span>
+								<span class="tag">group</span>
+							</li>
+						</ul>
+					</section>
+
 					<section>
 						<h3>Atlases <span class="count">{atlasCount}</span></h3>
 						<ul>
