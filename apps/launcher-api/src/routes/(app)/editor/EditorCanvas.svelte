@@ -1192,22 +1192,31 @@
 	function boundTextValue(
 		node: Extract<LayoutNode, { kind: 'text' }>,
 		bound: Record<string, string> | undefined,
+		params: Record<string, unknown>,
 	): string {
-		const value = resolveBoundValue(bound, 'text', componentParams);
+		const value = resolveBoundValue(bound, 'text', params);
 		if (typeof value === 'number') return paramNumberFormat.format(value);
 		if (typeof value === 'string') return value;
 		return node.text;
 	}
 
 	/** The numeric value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
-	function boundNumber(bound: Record<string, string> | undefined, fieldPath: string) {
-		const value = resolveBoundValue(bound, fieldPath, componentParams);
+	function boundNumber(
+		bound: Record<string, string> | undefined,
+		fieldPath: string,
+		params: Record<string, unknown>,
+	) {
+		const value = resolveBoundValue(bound, fieldPath, params);
 		return typeof value === 'number' ? value : undefined;
 	}
 
 	/** The string value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
-	function boundString(bound: Record<string, string> | undefined, fieldPath: string) {
-		const value = resolveBoundValue(bound, fieldPath, componentParams);
+	function boundString(
+		bound: Record<string, string> | undefined,
+		fieldPath: string,
+		params: Record<string, unknown>,
+	) {
+		const value = resolveBoundValue(bound, fieldPath, params);
 		return typeof value === 'string' ? value : undefined;
 	}
 
@@ -1315,10 +1324,14 @@
 			// previews the BOUND icon/texture + colour, not the static placeholder. With no
 			// params / no bindings every value falls back to the node's own — parity.
 			const bound = node.paramBindings;
-			const hasParams = Object.keys(componentParams).length > 0;
-			const boundRegion = hasParams ? boundString(bound, 'region') : undefined;
-			const boundAssetKey = hasParams ? boundString(bound, 'assetKey') : undefined;
-			const boundTint = hasParams ? boundNumber(bound, 'tint') : undefined;
+			// Prefer the ENCLOSING instance's resolved params (scene editor: a placed
+			// instance's per-instance overrides) over the open-component params (component
+			// editor: the def's own defaults). Both empty ⇒ static fallback (parity).
+			const effParams = instanceParams ?? componentParams;
+			const hasParams = Object.keys(effParams).length > 0;
+			const boundRegion = hasParams ? boundString(bound, 'region', effParams) : undefined;
+			const boundAssetKey = hasParams ? boundString(bound, 'assetKey', effParams) : undefined;
+			const boundTint = hasParams ? boundNumber(bound, 'tint', effParams) : undefined;
 			const region = boundRegion ?? node.region;
 			const assetKey = boundAssetKey ?? node.assetKey;
 			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
@@ -1376,13 +1389,16 @@
 				// readout. With no params / no bindings every value below falls back to the
 				// node's own static value — byte-identical to the prior draw (parity).
 				const bound = node.paramBindings;
-				const hasParams = Object.keys(componentParams).length > 0;
-				const text = hasParams ? boundTextValue(node, bound) : node.text;
-				const fill = (hasParams ? boundNumber(bound, 'style.fill') : undefined) ?? node.style?.fill;
+				const effParams = instanceParams ?? componentParams;
+				const hasParams = Object.keys(effParams).length > 0;
+				const text = hasParams ? boundTextValue(node, bound, effParams) : node.text;
+				const fill =
+					(hasParams ? boundNumber(bound, 'style.fill', effParams) : undefined) ?? node.style?.fill;
 				const fontSize =
-					(hasParams ? boundNumber(bound, 'style.fontSize') : undefined) ?? node.style?.fontSize;
+					(hasParams ? boundNumber(bound, 'style.fontSize', effParams) : undefined) ??
+					node.style?.fontSize;
 				const fontFamily =
-					(hasParams ? boundString(bound, 'style.fontFamily') : undefined) ??
+					(hasParams ? boundString(bound, 'style.fontFamily', effParams) : undefined) ??
 					node.style?.fontFamily;
 				ctx.fillStyle = `#${(fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
 				ctx.font = `${node.style?.fontWeight ?? 'normal'} ${fontSize ?? 24}px ${
