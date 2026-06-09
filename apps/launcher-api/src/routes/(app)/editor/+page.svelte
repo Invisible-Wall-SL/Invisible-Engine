@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import Emblem from '$lib/Emblem.svelte';
 	import {
+		buttonBindToInstance,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
 		getReferenceLayout,
@@ -679,6 +680,31 @@
 		if (old.slotId) grid.slotId = old.slotId;
 		if (old.zIndex !== undefined) grid.zIndex = old.zIndex;
 		nodes[idx] = grid;
+		next[activeSceneIdx] = { ...sc, nodes };
+		scenes = next;
+		markDirty();
+	}
+
+	/**
+	 * "Convert to parametric button" (B6): flip a coded HUD button `bind` container
+	 * into the parametric `componentInstance(button)` node, in-place by id so the
+	 * selection survives. `buttonBindToInstance` (engine-layout, the single source)
+	 * carries the transform byte-for-byte (id / label / x / y / anchor / scale /
+	 * overrides / zIndex / slotId / preview) + maps the bound `UiButton*` to its
+	 * `{ action, icon? }`, so the button lands in the same spot it sat — parity. The
+	 * author then edits action / icon / style on the resulting instance.
+	 */
+	function onConvertToParametricButton(id: string): void {
+		const next = scenes.slice();
+		const sc = next[activeSceneIdx];
+		const nodes = sc.nodes.slice();
+		const idx = nodes.findIndex((n) => n.id === id);
+		if (idx === -1) return;
+		const old = nodes[idx];
+		if (old.kind !== 'container') return;
+		const instance = buttonBindToInstance(old);
+		if (!instance) return;
+		nodes[idx] = instance;
 		next[activeSceneIdx] = { ...sc, nodes };
 		scenes = next;
 		markDirty();
@@ -1611,6 +1637,7 @@
 					: null}
 				onEditAsComponent={(c) => void editContainerAsComponent(c)}
 				{onConvertToReelGrid}
+				{onConvertToParametricButton}
 				onSetInstanceParam={(key, value) => {
 					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 					const params = { ...(selectedNode.params ?? {}) };

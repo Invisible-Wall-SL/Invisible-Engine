@@ -11,6 +11,7 @@ export * from './coverTransform';
 export * from './resolveTransform';
 export * from './componentParams';
 export * from './reelGrid';
+export * from './buttonConvert';
 export * from './fontCatalog';
 export * from './hudText';
 export * from './registerBoundComponents';

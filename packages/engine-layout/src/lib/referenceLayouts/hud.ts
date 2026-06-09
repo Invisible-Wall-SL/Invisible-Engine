@@ -1,3 +1,4 @@
+import { HUD_BUTTON_ACTION_MAP } from '../buttonConvert';
 import type { ComponentInstanceNode, LayoutNode, NodeOverride, Scene } from '../types';
 
 /**
@@ -279,24 +280,25 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 	// Each button is coded `UiButton*` `bind` by default; `componentInstance(button)`
 	// when `buttons` is set (B6.4). `btn()` picks per the flag, passing the SAME
 	// transform args to both builders so the flip is byte-identical placement. The
-	// `action`/`icon` map mirrors each coded `Button*.svelte`: menu→`menu`,
-	// buyBonus→`buyBonus`, autoSpin→`autoSpin`, turbo→`turbo`, increase→`increase`,
-	// decrease→`decrease` (the EXACT `icon` each passes to `UiButton`); the spin button
-	// (`hud-btn-bet`) is `action:'spin'` with NO icon — its caption is the action's
-	// dynamic `label` (bet↔stop), matching `ButtonBet`'s text logic.
+	// `action`/`icon` are looked up from `HUD_BUTTON_ACTION_MAP` (the single source,
+	// shared with the editor's "Convert to parametric button") keyed by `component`:
+	// menu→`menu`, buyBonus→`buyBonus`, autoSpin→`autoSpin`, turbo→`turbo`,
+	// increase→`increase`, decrease→`decrease` (the EXACT `icon` each passes to
+	// `UiButton`); the spin button (`hud-btn-bet`, `UiButtonBet`) is `action:'spin'`
+	// with NO icon — its caption is the action's dynamic `label` (bet↔stop), matching
+	// `ButtonBet`'s text logic.
 	const btn = (
 		id: string,
 		label: string,
 		component: string,
-		action: string,
-		icon: string | undefined,
 		desktop: XY,
 		landscape: XY,
 		tablet: XY,
-	): LayoutNode | ComponentInstanceNode =>
-		options.buttons
-			? buttonInstanceNode(id, label, action, icon, desktop, landscape, tablet)
-			: barNode(id, label, component, BTN, desktop, landscape, tablet);
+	): LayoutNode | ComponentInstanceNode => {
+		if (!options.buttons) return barNode(id, label, component, BTN, desktop, landscape, tablet);
+		const { action, icon } = HUD_BUTTON_ACTION_MAP[component];
+		return buttonInstanceNode(id, label, action, icon, desktop, landscape, tablet);
+	};
 	return {
 		id: 'hudBar',
 		name: 'HUD — bottom bar',
@@ -315,8 +317,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-menu',
 				'Menu',
 				'UiButtonMenu',
-				'menu',
-				'menu',
 				d(220, dBtnY),
 				l1(85 + 20, lBtnY),
 				t(20, tBtnY),
@@ -325,8 +325,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-buybonus',
 				'Buy bonus',
 				'UiButtonBuyBonus',
-				'buyBonus',
-				'buyBonus',
 				d(220 + 150, dBtnY),
 				l1(220 + 20, lBtnY),
 				t(20 + 180, tBtnY),
@@ -335,8 +333,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-autospin',
 				'Auto spin',
 				'UiButtonAutoSpin',
-				'autoSpin',
-				'autoSpin',
 				d(160 + 150 * 4, dBtnY),
 				l2(L * 0.5 - 140),
 				t(-10 + 180 * 4, tBtnY),
@@ -345,8 +341,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-bet',
 				'Spin / Bet',
 				'UiButtonBet',
-				'spin',
-				undefined,
 				d(160 + 150 * 5, dBtnY),
 				l2(L * 0.5),
 				t(-10 + 180 * 5, tBtnY),
@@ -355,8 +349,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-turbo',
 				'Turbo',
 				'UiButtonTurbo',
-				'turbo',
-				'turbo',
 				d(160 + 150 * 6, dBtnY),
 				l2(L * 0.5 + 140),
 				t(-10 + 180 * 6, tBtnY),
@@ -365,8 +357,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-decrease',
 				'Decrease',
 				'UiButtonDecrease',
-				'decrease',
-				'decrease',
 				d(1440, dBtnY),
 				l1(1580, lBtnY),
 				t(1560, tBtnY),
@@ -375,8 +365,6 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				'hud-btn-increase',
 				'Increase',
 				'UiButtonIncrease',
-				'increase',
-				'increase',
 				d(1440 + 150, dBtnY),
 				l1(1715, lBtnY),
 				t(1560 + 180, tBtnY),
