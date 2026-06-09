@@ -51,8 +51,9 @@
 	);
 	let activeSceneIdx = $state(0);
 	/** Editor-only: scene ids hidden from the composite canvas (the eye toggles in
-	 * the Screens list). NOT persisted — purely an authoring view. The active scene
-	 * always renders; others render dimmed unless hidden here. */
+	 * the Screens list). Persisted per-project (see the UI-layout block below) so the
+	 * authoring view restores on reopen. The active scene always renders; others render
+	 * dimmed unless hidden here. */
 	let hiddenScenes = $state(new Set<string>());
 	function toggleSceneVisible(id: string): void {
 		const next = new Set(hiddenScenes);
@@ -75,6 +76,75 @@
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline' | 'template' | 'component'>('library');
+
+	// ---------- persisted editor UI layout (panel widths + tab + layer visibility) ----------
+	// Per-project workspace state in localStorage ONLY — pure view state, never written to
+	// the doc. Restores panel sizes, the active left tab, and which screens are hidden when
+	// you reopen the same project.
+	const uiKey = `iw-editor-ui:${data.projectKey}`;
+	let leftWidth = $state(280);
+	let rightWidth = $state(320);
+	let resizing = $state<'left' | 'right' | null>(null);
+	let uiLoaded = false;
+	const clampWidth = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+	function loadUiState(): void {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			const raw = localStorage.getItem(uiKey);
+			if (!raw) return;
+			const s = JSON.parse(raw) as {
+				leftWidth?: number;
+				rightWidth?: number;
+				leftTab?: string;
+				hiddenScenes?: string[];
+			};
+			if (typeof s.leftWidth === 'number') leftWidth = clampWidth(s.leftWidth, 200, 560);
+			if (typeof s.rightWidth === 'number') rightWidth = clampWidth(s.rightWidth, 220, 640);
+			// Only the always-available tabs — `component`/`template` are mode-gated.
+			if (s.leftTab === 'library' || s.leftTab === 'outline') leftTab = s.leftTab;
+			if (Array.isArray(s.hiddenScenes)) {
+				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
+			}
+		} catch {
+			/* corrupt prefs — ignore */
+		}
+	}
+	$effect(() => {
+		// Re-serialise whenever any tracked piece changes (after the initial load).
+		const snapshot = JSON.stringify({
+			leftWidth,
+			rightWidth,
+			leftTab,
+			hiddenScenes: [...hiddenScenes],
+		});
+		if (!uiLoaded || typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(uiKey, snapshot);
+		} catch {
+			/* quota / disabled — ignore */
+		}
+	});
+	/** Drag a panel edge. Listeners live on `window` so the drag tracks even over the
+	 * canvas; `resizing` disables canvas pointer events + sets the col-resize cursor. */
+	function beginResize(e: PointerEvent, side: 'left' | 'right'): void {
+		e.preventDefault();
+		resizing = side;
+		const startX = e.clientX;
+		const startLeft = leftWidth;
+		const startRight = rightWidth;
+		const onMove = (ev: PointerEvent): void => {
+			const dx = ev.clientX - startX;
+			if (side === 'left') leftWidth = clampWidth(startLeft + dx, 200, 560);
+			else rightWidth = clampWidth(startRight - dx, 220, 640);
+		};
+		const onUp = (): void => {
+			resizing = null;
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+		};
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+	}
 	/** Whether the asset-warning detail list is expanded (from the header pill). */
 	let showContentWarnings = $state(false);
 	/** The template currently being viewed/edited — starts as the project's
@@ -1069,6 +1139,8 @@
 	}
 
 	onMount(() => {
+		loadUiState();
+		uiLoaded = true;
 		window.addEventListener('beforeunload', onBeforeUnload);
 		document.addEventListener('visibilitychange', onVisibilityChange);
 		window.addEventListener('focus', onVisibilityChange);
@@ -1305,7 +1377,11 @@
 		</div>
 	{/if}
 
-	<div class="layout">
+	<div
+		class="layout"
+		class:resizing={resizing !== null}
+		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
+	>
 		<aside class="left">
 			<div class="scene-bar">
 				<div class="load-row">
@@ -1699,6 +1775,23 @@
 				{activeScene?.nodes.length ?? 0} nodes
 			</p>
 		</aside>
+
+		<div
+			class="resizer resizer-l"
+			style="left: {leftWidth}px"
+			role="separator"
+			aria-orientation="vertical"
+			aria-label="Resize left panel"
+			onpointerdown={(e) => beginResize(e, 'left')}
+		></div>
+		<div
+			class="resizer resizer-r"
+			style="right: {rightWidth}px"
+			role="separator"
+			aria-orientation="vertical"
+			aria-label="Resize properties panel"
+			onpointerdown={(e) => beginResize(e, 'right')}
+		></div>
 	</div>
 
 	<footer class="help-strip">
@@ -2123,9 +2216,37 @@
 		font-size: 12px;
 	}
 	.layout {
+		position: relative;
 		display: grid;
 		grid-template-columns: 280px 1fr 320px;
 		min-height: 0;
+	}
+	.layout.resizing {
+		cursor: col-resize;
+		user-select: none;
+	}
+	/* While dragging, stop the canvas from swallowing the pointer so the drag tracks. */
+	.layout.resizing .canvas-area {
+		pointer-events: none;
+	}
+	.resizer {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		width: 8px;
+		z-index: 20;
+		cursor: col-resize;
+		touch-action: none;
+	}
+	.resizer-l {
+		transform: translateX(-50%);
+	}
+	.resizer-r {
+		transform: translateX(50%);
+	}
+	.resizer:hover,
+	.layout.resizing .resizer {
+		background: rgba(123, 140, 255, 0.28);
 	}
 	.left,
 	.properties {
