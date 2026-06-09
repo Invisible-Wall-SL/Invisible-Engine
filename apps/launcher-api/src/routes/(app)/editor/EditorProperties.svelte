@@ -387,6 +387,27 @@
 		markDirty();
 	}
 
+	/**
+	 * Bind / unbind a node FIELD PATH to a component param (§13.2). An empty `key`
+	 * clears the binding; an empty `paramBindings` map collapses back to `undefined`
+	 * so an unbound node round-trips byte-identical to today.
+	 */
+	function setParamBinding(n: LayoutNode, fieldPath: string, key: string): void {
+		if (key) {
+			n.paramBindings = { ...(n.paramBindings ?? {}), [fieldPath]: key };
+		} else if (n.paramBindings) {
+			const next = { ...n.paramBindings };
+			delete next[fieldPath];
+			n.paramBindings = Object.keys(next).length ? next : undefined;
+		}
+		markDirty();
+	}
+
+	/** Component params whose `kind` is one a given field can accept (§13.2). */
+	function paramsForKinds(kinds: ComponentParam['kind'][]): ComponentParam[] {
+		return componentParams.filter((p) => kinds.includes(p.kind));
+	}
+
 	function setStrokeColor(n: LayoutNode, hex: string): void {
 		if (n.kind !== 'text') return;
 		const value = parseHex(hex);
@@ -1120,6 +1141,11 @@
 					></textarea>
 				</label>
 			</div>
+			{#if node.paramBindings?.['text']}
+				<p class="muted small">
+					bound to {node.paramBindings['text']} — static value ignored in instances
+				</p>
+			{/if}
 
 			<div class="row">
 				<label class="field wide">
@@ -1138,6 +1164,11 @@
 					</select>
 				</label>
 			</div>
+			{#if node.paramBindings?.['style.fontFamily']}
+				<p class="muted small">
+					bound to {node.paramBindings['style.fontFamily']} — static value ignored in instances
+				</p>
+			{/if}
 			{#if fontList.length === 0}
 				<p class="muted small">
 					No fonts synced for this project — run <code>scripts/r2-sync-fonts.mjs</code> to populate the
@@ -1171,6 +1202,79 @@
 					/>
 				</label>
 			</div>
+			{#if node.paramBindings?.['style.fontSize']}
+				<p class="muted small">
+					font size bound to {node.paramBindings['style.fontSize']} — static value ignored in instances
+				</p>
+			{/if}
+			{#if node.paramBindings?.['style.fill']}
+				<p class="muted small">
+					{isBitmapSelected ? 'tint' : 'fill'} bound to {node.paramBindings['style.fill']} — static value
+					ignored in instances
+				</p>
+			{/if}
+
+			{#if componentMode && componentParams.length > 0}
+				<section>
+					<h3>Bind to param</h3>
+					<p class="muted small">
+						Inside a component instance, a bound field reads the resolved param instead of the static
+						value above.
+					</p>
+					<div class="row">
+						<label class="field">
+							<span>Text ← param</span>
+							<select
+								value={node.paramBindings?.['text'] ?? ''}
+								onchange={(e) => setParamBinding(node, 'text', e.currentTarget.value)}
+							>
+								<option value="">(none)</option>
+								{#each paramsForKinds(['string', 'number']) as p (p.key)}
+									<option value={p.key}>{p.key} [{p.kind}]</option>
+								{/each}
+							</select>
+						</label>
+						<label class="field">
+							<span>Font ← param</span>
+							<select
+								value={node.paramBindings?.['style.fontFamily'] ?? ''}
+								onchange={(e) => setParamBinding(node, 'style.fontFamily', e.currentTarget.value)}
+							>
+								<option value="">(none)</option>
+								{#each paramsForKinds(['string']) as p (p.key)}
+									<option value={p.key}>{p.key} [{p.kind}]</option>
+								{/each}
+							</select>
+						</label>
+					</div>
+					<div class="row">
+						<label class="field">
+							<span>Font size ← param</span>
+							<select
+								value={node.paramBindings?.['style.fontSize'] ?? ''}
+								onchange={(e) => setParamBinding(node, 'style.fontSize', e.currentTarget.value)}
+							>
+								<option value="">(none)</option>
+								{#each paramsForKinds(['number']) as p (p.key)}
+									<option value={p.key}>{p.key} [{p.kind}]</option>
+								{/each}
+							</select>
+						</label>
+						<label class="field">
+							<span>Colour ← param</span>
+							<select
+								value={node.paramBindings?.['style.fill'] ?? ''}
+								onchange={(e) => setParamBinding(node, 'style.fill', e.currentTarget.value)}
+							>
+								<option value="">(none)</option>
+								{#each paramsForKinds(['color', 'number']) as p (p.key)}
+									<option value={p.key}>{p.key} [{p.kind}]</option>
+								{/each}
+							</select>
+						</label>
+					</div>
+				</section>
+			{/if}
 
 			<div class="row">
 				<label class="field">
