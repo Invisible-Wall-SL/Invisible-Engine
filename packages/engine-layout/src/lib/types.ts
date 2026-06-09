@@ -453,6 +453,19 @@ export interface ComponentParam {
 	 */
 	author?: boolean;
 	/**
+	 * Editor-only display grouping. When set, the editor shows this param inside a
+	 * collapsible section titled `group` (e.g. all the params exposed from a text
+	 * node named "Title"), so a component with several text objects edits each one's
+	 * params independently. Ungrouped params render flat, as before.
+	 */
+	group?: string;
+	/**
+	 * Editor-only display name shown for this param INSIDE its `group` (e.g. `text`,
+	 * `font`, `size`, `colour`), so grouped params read as plain field names while
+	 * their `key` stays globally unique. Falls back to `key` when absent.
+	 */
+	label?: string;
+	/**
 	 * Closed set of allowed values (a string enum) — the editor renders a dropdown
 	 * instead of a free text field wherever the param is set (the component's
 	 * default + a placed instance's override). Used by the readout's `source`

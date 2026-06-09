@@ -69,6 +69,9 @@
 		onAddParam?: (key: string, kind: ComponentParam['kind']) => void;
 		/** Remove a custom (author-defined) param from the draft component (component mode). */
 		onRemoveParam?: (key: string) => void;
+		/** "Expose as params" for the selected text node: auto-create + bind grouped
+		 * text/font/size/colour params so the text is per-instance editable (component mode). */
+		onExposeTextParams?: (node: LayoutNode) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
@@ -98,6 +101,7 @@
 		onToggleParam,
 		onAddParam,
 		onRemoveParam,
+		onExposeTextParams,
 		onToggleSignal,
 		onSetInstanceParam,
 		onOpenComponentEditor,
@@ -105,6 +109,21 @@
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+	/** Flat (ungrouped) author params — rendered above the grouped sections. */
+	const ungroupedAuthorParams = $derived(authorParams.filter((p) => !p.group));
+	/** Author params bucketed by their `group` (e.g. a text node's name) — each renders
+	 * as a collapsible section so a component with several text objects edits each
+	 * independently. Insertion order preserved. */
+	const authorParamGroups = $derived.by(() => {
+		const map = new Map<string, ComponentParam[]>();
+		for (const p of authorParams) {
+			if (!p.group) continue;
+			const arr = map.get(p.group);
+			if (arr) arr.push(p);
+			else map.set(p.group, [p]);
+		}
+		return [...map.entries()];
+	});
 	/** The open component's value-source binding (a param with an `options` enum, e.g.
 	 * the readout's `source`). When present the component is engine-fed THROUGH it, so
 	 * the literal engine-param checklist is inert — we show the binding instead. */
@@ -722,76 +741,84 @@
 					<strong>{instanceComponent.name}</strong> · {instanceComponent.scope} · pinned v{node.componentVersion ??
 						instanceComponent.version}
 				</p>
+				{#snippet paramField(p: ComponentParam)}
+					<label class="field wide">
+						<span>{p.label ?? `${p.key} (${p.kind})`}</span>
+						{#if p.options && p.options.length > 0}
+							<select
+								value={(node.params?.[p.key] as string) ?? ''}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value="">(inherit default)</option>
+								{#each p.options as opt (opt)}
+									<option value={opt}>{opt}</option>
+								{/each}
+							</select>
+						{:else if p.kind === 'boolean'}
+							<input
+								type="checkbox"
+								checked={Boolean(node.params?.[p.key])}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.checked)}
+							/>
+						{:else if p.kind === 'number'}
+							<input
+								type="number"
+								value={(node.params?.[p.key] as number) ?? ''}
+								oninput={(e) =>
+									onSetInstanceParam?.(
+										p.key,
+										e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
+									)}
+							/>
+						{:else if p.kind === 'color'}
+							<span class="color-cell">
+								<input
+									type="color"
+									value={typeof node.params?.[p.key] === 'number'
+										? hexFrom(node.params[p.key] as number)
+										: '#ffffff'}
+									oninput={(e) => onSetInstanceParam?.(p.key, parseHex(e.currentTarget.value))}
+								/>
+								{#if node.params?.[p.key] !== undefined}
+									<button
+										type="button"
+										class="reset"
+										title="Inherit default"
+										onclick={() => onSetInstanceParam?.(p.key, undefined)}>×</button
+									>
+								{/if}
+							</span>
+						{:else if p.kind === 'image'}
+							<RegionPicker
+								sheets={pickSheets}
+								value={(node.params?.[p.key] as string) ?? ''}
+								onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
+							/>
+						{:else}
+							<input
+								type="text"
+								value={(node.params?.[p.key] as string) ?? ''}
+								oninput={(e) =>
+									onSetInstanceParam?.(
+										p.key,
+										e.currentTarget.value === '' ? undefined : e.currentTarget.value,
+									)}
+							/>
+						{/if}
+					</label>
+				{/snippet}
 				{#if authorParams.length > 0}
 					<h4 class="sub-h">Params</h4>
-					{#each authorParams as p (p.key)}
-						<div class="row">
-							<label class="field wide">
-								<span>{p.key} ({p.kind})</span>
-								{#if p.options && p.options.length > 0}
-									<select
-										value={(node.params?.[p.key] as string) ?? ''}
-										onchange={(e) =>
-											onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
-									>
-										<option value="">(inherit default)</option>
-										{#each p.options as opt (opt)}
-											<option value={opt}>{opt}</option>
-										{/each}
-									</select>
-								{:else if p.kind === 'boolean'}
-									<input
-										type="checkbox"
-										checked={Boolean(node.params?.[p.key])}
-										onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.checked)}
-									/>
-								{:else if p.kind === 'number'}
-									<input
-										type="number"
-										value={(node.params?.[p.key] as number) ?? ''}
-										oninput={(e) =>
-											onSetInstanceParam?.(
-												p.key,
-												e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
-											)}
-									/>
-								{:else if p.kind === 'color'}
-									<span class="color-cell">
-										<input
-											type="color"
-											value={typeof node.params?.[p.key] === 'number'
-												? hexFrom(node.params[p.key] as number)
-												: '#ffffff'}
-											oninput={(e) => onSetInstanceParam?.(p.key, parseHex(e.currentTarget.value))}
-										/>
-										{#if node.params?.[p.key] !== undefined}
-											<button
-												type="button"
-												class="reset"
-												title="Inherit default"
-												onclick={() => onSetInstanceParam?.(p.key, undefined)}>×</button
-											>
-										{/if}
-									</span>
-								{:else if p.kind === 'image'}
-									<RegionPicker
-										sheets={pickSheets}
-										value={(node.params?.[p.key] as string) ?? ''}
-										onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
-									/>
-								{:else}
-									<input
-										type="text"
-										value={(node.params?.[p.key] as string) ?? ''}
-										oninput={(e) =>
-											onSetInstanceParam?.(
-												p.key,
-												e.currentTarget.value === '' ? undefined : e.currentTarget.value,
-											)}
-									/>
-								{/if}
-							</label>
-						</div>
+					{#each ungroupedAuthorParams as p (p.key)}
+						<div class="row">{@render paramField(p)}</div>
+					{/each}
+					{#each authorParamGroups as [groupName, groupParams] (groupName)}
+						<details class="param-group" open>
+							<summary>{groupName}</summary>
+							{#each groupParams as p (p.key)}
+								<div class="row">{@render paramField(p)}</div>
+							{/each}
+						</details>
 					{/each}
 				{:else}
 					<p class="muted small">
@@ -1412,6 +1439,23 @@
 				</p>
 			{/if}
 
+			{#if componentMode}
+				<section>
+					<button
+						type="button"
+						class="ghost-sm"
+						onclick={() => onExposeTextParams?.(node)}
+						title="Create + bind params for this text node's content, font, size and colour"
+					>
+						✨ Expose text as params (per instance)
+					</button>
+					<p class="muted small">
+						One click — makes this text's content, font, size + colour editable per instance,
+						grouped under <strong>{node.label || 'Text'}</strong>.
+					</p>
+				</section>
+			{/if}
+
 			{#if componentMode && componentParams.length > 0}
 				<section>
 					<h3>Bind to param</h3>
@@ -1963,6 +2007,30 @@
 		font-size: 10px;
 		color: #777;
 		line-height: 1.3;
+	}
+	.param-group {
+		border: 1px solid #2a2a33;
+		border-radius: 4px;
+		margin: 6px 0;
+		padding: 2px 6px 4px;
+	}
+	.param-group > summary {
+		cursor: pointer;
+		font-size: 12px;
+		font-weight: 600;
+		color: #c8c8d0;
+		padding: 4px 2px;
+		list-style: none;
+	}
+	.param-group > summary::-webkit-details-marker {
+		display: none;
+	}
+	.param-group > summary::before {
+		content: '▸ ';
+		color: #777;
+	}
+	.param-group[open] > summary::before {
+		content: '▾ ';
 	}
 	.color-cell {
 		display: flex;
