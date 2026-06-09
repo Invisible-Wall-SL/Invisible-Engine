@@ -16,6 +16,7 @@ export * from './hudText';
 export * from './registerBoundComponents';
 export * from './registerComponents';
 export * from './registerComponentValues';
+export * from './registerComponentActions';
 export * from './registerComponentDefaults';
 export * from './builtinComponents';
 export * from './boundComponentCatalog';

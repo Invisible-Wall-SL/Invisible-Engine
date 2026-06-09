@@ -5,7 +5,7 @@
 	import { EnableHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
-	import { stateBet, stateBetDerived, stateModal } from 'state-shared';
+	import { stateBet, stateBetDerived, stateConfig, stateModal, stateUi } from 'state-shared';
 
 	import {
 		UI,
@@ -24,6 +24,7 @@
 		registerBoundComponents,
 		registerComponents,
 		registerComponentValues,
+		registerComponentActions,
 		HUD_READOUT_DEF,
 		findReelGridNode,
 		resolveTransform,
@@ -35,6 +36,7 @@
 	import { infoManifest } from '../game/infoManifest';
 	import { setBoardOverride } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource';
+	import { boolSource } from '../game/boolSource';
 	import { fallbackEditorScenes, loadEditorScenes } from '../editor-scenes';
 
 	import { getContext } from '../game/context';
@@ -150,6 +152,129 @@
 	);
 
 	const context = getContext();
+
+	// Phase B6.2 — register the 7 Borut button actions beside the value feed above.
+	// Each entry LIFTS the coded HUD button's `onpress`/`disabled`/`active` logic
+	// verbatim (from `components-ui-pixi`), wired to the SAME `context`
+	// (`eventEmitter` + `stateXstateDerived`) and `state-shared` selectors the coded
+	// buttons use, so a `button` componentInstance bound to one of these names behaves
+	// identically to its coded counterpart. `boolSource` replays each live derived as
+	// the registry's `BoolSource`. Nothing mounts a button instance yet (B6.3/B6.4),
+	// so this is pure registration plumbing — no render change.
+	registerComponentActions({
+		// ButtonMenu — open the menu overlay. No disabled/active.
+		menu: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateUi.menuOpen = true;
+			},
+		},
+		// ButtonBuyBonus — open the buy-bonus modal, or disable the active buy mode
+		// when one is armed. Disabled while not idle; active while a buy mode is on.
+		buyBonus: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				if (stateBetDerived.activeBetMode()?.type === 'activate') {
+					stateBet.activeBetModeKey = 'BASE';
+				} else {
+					stateModal.modal = { name: 'buyBonus' };
+				}
+			},
+			disabled: boolSource(() => !context.stateXstateDerived.isIdle()),
+			active: boolSource(() => stateBetDerived.activeBetMode()?.type === 'activate'),
+		},
+		// ButtonAutoSpin — open the auto-spin modal, or stop a running auto-spin.
+		// Active while an auto-bet counter is live; disabled per its compound derived.
+		autoSpin: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateBetDerived.hasAutoBetCounter()
+					? (stateBet.autoSpinsCounter = 0)
+					: (stateModal.modal = { name: 'autoSpin' });
+			},
+			disabled: boolSource(() => {
+				if (stateBet.isSpaceHold) return true;
+				if (!context.stateXstateDerived.isIdle() && !stateBetDerived.hasAutoBetCounter())
+					return true;
+				if (!stateBetDerived.isBetCostAvailable()) return true;
+				return false;
+			}),
+			active: boolSource(() => stateBetDerived.hasAutoBetCounter()),
+		},
+		// ButtonTurbo — toggle persistent turbo. Active while turbo is on; disabled
+		// while space is held. (The stop-button turbo nuance is a `subscribeOnMount`
+		// concern of the coded button, not part of the press/flag contract here.)
+		turbo: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateBetDerived.updateIsTurbo(!stateBet.isTurbo, { persistent: true });
+			},
+			disabled: boolSource(() => stateBet.isSpaceHold),
+			active: boolSource(() => stateBet.isTurbo),
+		},
+		// ButtonIncrease — step the bet to the next larger option. Disabled while not
+		// idle or already at the biggest option.
+		increase: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				const biggest =
+					stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1];
+				const nextBigger = [...stateConfig.betAmountOptions]
+					.sort((a, b) => a - b)
+					.find((option) => option > stateBet.betAmount);
+				stateBetDerived.setBetAmount(nextBigger || biggest);
+			},
+			disabled: boolSource(
+				() =>
+					!context.stateXstateDerived.isIdle() ||
+					stateBet.betAmount ===
+						stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1],
+			),
+		},
+		// ButtonDecrease — step the bet to the next smaller option. Disabled while not
+		// idle or already at the smallest option.
+		decrease: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				const smallest = stateConfig.betAmountOptions[0];
+				const nextSmaller = [...stateConfig.betAmountOptions]
+					.sort((a, b) => b - a)
+					.find((option) => option < stateBet.betAmount);
+				stateBetDerived.setBetAmount(nextSmaller || smallest);
+			},
+			disabled: boolSource(
+				() =>
+					!context.stateXstateDerived.isIdle() ||
+					stateBet.betAmount === stateConfig.betAmountOptions[0],
+			),
+		},
+		// ButtonBetProvider — spin/stop. Roughly-correct B6.2 entry lifted from
+		// `ButtonBetProvider`: idle → `bet()`, else → `stop()`; disabled only while
+		// idle && the bet cost is unavailable.
+		// B6.4: DEFER the full behaviour parity — the dynamic bet↔stop LABEL flip
+		// (`getKey`/`ButtonBetKey`), the internal `stopDisabled` state machine
+		// (`stopButtonClick`/`stopButtonEnable` subscriptions gating `stop()`), the
+		// turbo/auto-bet stop nuances, and the `OnHotkey` Space binding all land in
+		// B6.4. Do NOT build them here.
+		spin: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressBet' });
+				if (context.stateXstateDerived.isIdle()) {
+					if (stateBetDerived.activeBetMode()?.type === 'buy') {
+						stateBet.activeBetModeKey = 'BASE';
+					}
+					context.eventEmitter.broadcast({ type: 'bet' });
+				} else {
+					if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
+					context.eventEmitter.broadcast({ type: 'stopButtonClick' });
+				}
+			},
+			disabled: boolSource(
+				() =>
+					context.stateXstateDerived.isIdle() && !stateBetDerived.isBetCostAvailable(),
+			),
+		},
+	});
 
 	// Move 3 Phase B — doc-driven loading splash. The `loading` scene holds one
 	// `canvas`-space node bound to `LoadingScreen`; its transform repositions/rescales
