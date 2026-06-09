@@ -1,8 +1,41 @@
-import type { LayoutDoc } from 'engine-layout';
-import { registerComponentDefaults } from 'engine-layout';
+import type { ComponentDef, LayoutDoc } from 'engine-layout';
+import { registerComponentDefaults, registerComponents } from 'engine-layout';
 
+import bakedBundleJson from './baked-editor-bundle.json';
 import { defaultLayout } from './game/defaultLayout';
 import { HUD_BUTTON_INSTANCES } from './game/editorFlags';
+
+/**
+ * Build-time freeze (see docs/design/live-assets.md → "Layout-doc bake").
+ * `bake-editor-doc.mjs` overwrites `baked-editor-bundle.json` with the frozen doc + the
+ * referenced ComponentDefs. A non-null `doc` flips the game to the baked path:
+ * the layout + custom component defs come from the bundle (no `/api/editor/doc`
+ * fetch, no launcher dependency). The checked-in placeholder has `doc: null`, so
+ * an un-baked repo (incl. `apps/lines` dev) keeps fetching live — byte-identical.
+ */
+type BakedBundle = {
+	doc: LayoutDoc | null;
+	componentDefaults?: Record<string, Record<string, unknown>>;
+	componentDefs?: Record<string, ComponentDef>;
+};
+const bakedBundle = bakedBundleJson as unknown as BakedBundle;
+
+function hasBakedDoc(): boolean {
+	const doc = bakedBundle.doc;
+	return !!(doc && Array.isArray(doc.scenes) && doc.scenes.length > 0);
+}
+
+/**
+ * Register the baked component defs + per-project param defaults (no-op when not
+ * baked). Call at boot BEFORE the doc renders, AFTER the game's built-in
+ * `registerComponents(...)`, so a baked/edited def (e.g. a customized `button`
+ * with an extra background node) shadows the coded built-in.
+ */
+export function registerBakedComponents(): void {
+	if (!hasBakedDoc()) return;
+	if (bakedBundle.componentDefs) registerComponents(bakedBundle.componentDefs);
+	if (bakedBundle.componentDefaults) registerComponentDefaults(bakedBundle.componentDefaults);
+}
 
 /**
  * Offline fallback / checked-in stand-in for the editor document the Invisible
@@ -48,6 +81,13 @@ function fellBack(reason: string): LayoutDoc {
 }
 
 export async function loadEditorScenes(): Promise<LayoutDoc> {
+	// Build-time freeze: a baked doc is the authored layout snapshotted into the
+	// bundle, so production renders it instantly with no fetch + no launcher
+	// dependency. `registerBakedComponents()` (boot) has already registered its defs.
+	if (hasBakedDoc()) {
+		console.info('[editor] using baked layout doc (frozen at build) — live fetch skipped');
+		return bakedBundle.doc as LayoutDoc;
+	}
 	if (typeof window === 'undefined') return fallbackEditorScenes;
 	try {
 		const params = new URLSearchParams(window.location.search);

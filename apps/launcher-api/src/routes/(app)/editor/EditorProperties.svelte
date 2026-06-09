@@ -61,6 +61,10 @@
 		onConvertToParametricButton?: (id: string) => void;
 		/** Toggle an engine-catalog param on the draft component (component mode). */
 		onToggleParam?: (key: string, kind: ComponentParam['kind']) => void;
+		/** Declare a custom (author-defined) param on the draft component (component mode). */
+		onAddParam?: (key: string, kind: ComponentParam['kind']) => void;
+		/** Remove a custom (author-defined) param from the draft component (component mode). */
+		onRemoveParam?: (key: string) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
@@ -87,6 +91,8 @@
 		onConvertToReelGrid,
 		onConvertToParametricButton,
 		onToggleParam,
+		onAddParam,
+		onRemoveParam,
 		onToggleSignal,
 		onSetInstanceParam,
 		onOpenComponentEditor,
@@ -98,6 +104,18 @@
 	 * the readout's `source`). When present the component is engine-fed THROUGH it, so
 	 * the literal engine-param checklist is inert — we show the binding instead. */
 	const sourceParam = $derived(componentParams.find((p) => (p.options?.length ?? 0) > 0));
+	/** Params the author added here (flagged `author`) — the only ones shown as
+	 * removable, so a component's built-in/coded params can't be deleted by mistake. */
+	const customParams = $derived(componentParams.filter((p) => p.author === true));
+	let newParamKey = $state('');
+	let newParamKind = $state<ComponentParam['kind']>('string');
+	function addCustomParam(): void {
+		const key = newParamKey.trim();
+		if (!key) return;
+		onAddParam?.(key, newParamKind);
+		newParamKey = '';
+		newParamKind = 'string';
+	}
 	function paramHas(key: string): boolean {
 		return componentParams.some((p) => p.key === key);
 	}
@@ -527,6 +545,51 @@
 				{/each}
 			</ul>
 		{/if}
+		<h4>Your params</h4>
+		<p class="muted small">
+			Custom inputs you add. Three steps: <strong>1.</strong> add a param here (e.g.
+			<code>bg</code>, kind <em>string</em>) → <strong>2.</strong> select a node and, under its
+			<strong>Bind to param</strong>, point a field (image / tint / text) at it → <strong>3.</strong>
+			set its value per instance when you place the component in a scene.
+		</p>
+		{#if customParams.length > 0}
+			<ul class="picker">
+				{#each customParams as p (p.key)}
+					<li class="author-param">
+						<span class="pick-label">{p.key}</span>
+						<span class="pick-kind">{p.kind}</span>
+						<button
+							type="button"
+							class="param-remove"
+							title="Remove param"
+							onclick={() => onRemoveParam?.(p.key)}>×</button
+						>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="muted small">None yet — add one below.</p>
+		{/if}
+		<div class="add-param">
+			<input
+				type="text"
+				placeholder="param name, e.g. bg"
+				bind:value={newParamKey}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') addCustomParam();
+				}}
+			/>
+			<select
+				value={newParamKind}
+				onchange={(e) => (newParamKind = e.currentTarget.value as ComponentParam['kind'])}
+			>
+				<option value="string">string</option>
+				<option value="number">number</option>
+				<option value="color">color</option>
+				<option value="boolean">boolean</option>
+			</select>
+			<button type="button" disabled={!newParamKey.trim()} onclick={addCustomParam}>Add</button>
+		</div>
 		<h4>Engine signals</h4>
 		<ul class="picker">
 			{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
@@ -1063,11 +1126,38 @@
 			<section>
 				<h3>Bind to param</h3>
 				<p class="muted small">
-					Inside a component instance, a bound field reads the resolved param instead of the static
-					value above — so one prefab renders a different colour / texture per instance.
+					Drive this sprite from a component param, so one prefab renders a different image / colour
+					per instance. Pick a param below; leave a field as <em>(none)</em> to keep the static value
+					above. Need one? Add it under <strong>Component variables → Your params</strong>.
 				</p>
-				<div class="row">
-					<label class="field">
+				<div class="bind-grid">
+					<label class="field wide">
+						<span>Image — atlas frame ← param</span>
+						<select
+							value={node.paramBindings?.['region'] ?? ''}
+							onchange={(e) => setParamBinding(node, 'region', e.currentTarget.value)}
+						>
+							<option value="">(none)</option>
+							{#each paramsForKinds(['string']) as p (p.key)}
+								<option value={p.key}>{p.key}</option>
+							{/each}
+						</select>
+						<span class="bind-hint">A frame name inside an atlas — most packed art uses this.</span>
+					</label>
+					<label class="field wide">
+						<span>Image — whole texture ← param</span>
+						<select
+							value={node.paramBindings?.['assetKey'] ?? ''}
+							onchange={(e) => setParamBinding(node, 'assetKey', e.currentTarget.value)}
+						>
+							<option value="">(none)</option>
+							{#each paramsForKinds(['string']) as p (p.key)}
+								<option value={p.key}>{p.key}</option>
+							{/each}
+						</select>
+						<span class="bind-hint">A standalone image or a different atlas — only if the frame lives elsewhere.</span>
+					</label>
+					<label class="field wide">
 						<span>Tint ← param</span>
 						<select
 							value={node.paramBindings?.['tint'] ?? ''}
@@ -1075,38 +1165,15 @@
 						>
 							<option value="">(none)</option>
 							{#each paramsForKinds(['color', 'number']) as p (p.key)}
-								<option value={p.key}>{p.key} [{p.kind}]</option>
+								<option value={p.key}>{p.key}</option>
 							{/each}
 						</select>
-					</label>
-					<label class="field">
-						<span>Texture ← param</span>
-						<select
-							value={node.paramBindings?.['assetKey'] ?? ''}
-							onchange={(e) => setParamBinding(node, 'assetKey', e.currentTarget.value)}
-						>
-							<option value="">(none)</option>
-							{#each paramsForKinds(['string']) as p (p.key)}
-								<option value={p.key}>{p.key} [{p.kind}]</option>
-							{/each}
-						</select>
-					</label>
-					<label class="field">
-						<span>Atlas frame ← param</span>
-						<select
-							value={node.paramBindings?.['region'] ?? ''}
-							onchange={(e) => setParamBinding(node, 'region', e.currentTarget.value)}
-						>
-							<option value="">(none)</option>
-							{#each paramsForKinds(['string']) as p (p.key)}
-								<option value={p.key}>{p.key} [{p.kind}]</option>
-							{/each}
-						</select>
+						<span class="bind-hint">Colour multiply — needs a color param.</span>
 					</label>
 				</div>
 				{#if node.paramBindings?.['tint'] || node.paramBindings?.['assetKey'] || node.paramBindings?.['region']}
 					<p class="muted small">
-						Bound fields read their param in instances; the static value above is ignored.
+						Bound fields read their param in each instance; the static value above is ignored.
 					</p>
 				{/if}
 			</section>
@@ -1825,5 +1892,50 @@
 		color: #666;
 		padding-left: 24px;
 		line-height: 1.3;
+	}
+	.author-param {
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: #c8c8d0;
+	}
+	.param-remove {
+		margin-left: auto;
+		width: 18px;
+		height: 18px;
+		line-height: 1;
+		padding: 0;
+		border: 1px solid #444;
+		border-radius: 4px;
+		background: transparent;
+		color: #b06a6a;
+		cursor: pointer;
+	}
+	.param-remove:hover {
+		background: #3a2222;
+		border-color: #774444;
+	}
+	.bind-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.bind-hint {
+		font-size: 10px;
+		color: #777;
+		line-height: 1.3;
+	}
+	.add-param {
+		display: flex;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.add-param input {
+		flex: 1;
+		min-width: 0;
+	}
+	.add-param button {
+		white-space: nowrap;
 	}
 </style>

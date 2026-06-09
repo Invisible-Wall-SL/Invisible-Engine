@@ -89,3 +89,36 @@ Cloudflare path for the game's `assets/` prefix.
   `borut/bookofborut`) vs a field in the game's `package.json`. Recommend env, mirrors the
   editor-scenes fetch which already keys by project.
 - **Spines/audio/fonts** — same convention applies; v1 can start with sprites/atlas and extend.
+
+## Layout-doc bake (build-time freeze) — added 2026-06-09
+
+The puller above freezes **assets**. This freezes the **layout doc + custom component defs**,
+closing the same class of "authored online but not in the shipped bundle" gap for the editor doc.
+
+**Why.** A running game fetches `/api/editor/doc` at boot (bundled fallback on failure) — a
+runtime latency + a hard dependency on the launcher. Worse, at game runtime only the *built-in*
+ComponentDefs are registered (`registerComponents({...})` in `Game.svelte`); a component
+**customized in the Component Editor** (extra nodes, author params) is saved only to R2
+(`_shared/editor-components/<id>.json` / `editor/<project>/components/<id>.json`) and seen only by
+the editor — so a built game renders the coded built-in and the per-instance override never shows.
+
+**How.** A build-time bake mirrors the live fetch into the bundle:
+
+1. **Endpoint** — `GET /api/editor/doc?...&components=1` (the existing `EDITOR_DOC_SECRET`-gated,
+   token-only endpoint a build runner can call) additionally returns `componentDefs`: the
+   transitive closure of referenced defs (`collectComponentIds` in `engine-layout`, resolved via
+   `loadComponent` through built-in → shared → project precedence — so an edited `button` shadows
+   the coded one). Omitted unless `&components=1`, so the runtime boot fetch stays lean.
+2. **Bake script** — `apps/launcher-api/scripts/bake-editor-doc.mjs` (sibling to
+   `pull-project-assets.mjs`, fetch-only, `--optional`/`--dry-run`) writes
+   `{ doc, componentDefaults, componentDefs }` to the game's `src/baked-editor-bundle.json`.
+3. **Game boot** — `editor-scenes.ts` imports that JSON. A non-null `doc` flips the game to the
+   **baked path**: `registerBakedComponents()` (called after the built-in `registerComponents`, so
+   baked defs shadow built-ins) + `loadEditorScenes()` returns the baked doc, **skipping the live
+   fetch**. The checked-in placeholder has `doc: null` → un-baked repos (incl. `apps/lines` dev)
+   keep fetching live, byte-identical. Self-describing — no env flag.
+
+**Wire it (per game, e.g. Book of Borut — its own repo):** add a `bake:doc` script
+(`bake-editor-doc.mjs --project <client>/<project> --dest ./src/baked-editor-bundle.json
+--optional`) and chain it into `build` after `build:engine`. `new-game.mjs` scaffolds the script
+entry. Authoring stays dynamic (editor); production ships static + self-contained.
