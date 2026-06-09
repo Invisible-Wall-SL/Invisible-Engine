@@ -689,3 +689,55 @@ B5 (§14.3 "separate coded parts") is the reference: **one `ComponentDef`** (`HU
 - **Font path** — same caveat as §14.3: validate the label renders correctly through the bound part (bitmap/web font via the catalog) before retiring `UiButton`'s coded `Text`.
 
 > **Status:** SCOPED + Phase B6.1 STARTED (def + parts + registration, parity), branch `feat/editor-button-component`. Decisions locked: split coded parts; Borut HUD cluster only. Verify each phase online before the B6.4 flip; mirror to Borut only after `apps/lines` parity holds.
+
+## 17. Addendum — Component behavior layer: signal-triggered timelines (the animated overlays) (owner direction 2026-06-09)
+
+**Owner ask:** make the animated overlays (`Win`, `Transition`, FreeSpin `intro`/`outro`) editor-owned, not just placement-editable. This is the §8.8-step-6 / §8.5 "behavior" layer — deliberately deferred until the static/composition tier was solid. It is now scoped.
+
+### 17.0 The reframe that sizes this (timeline ≠ node graph)
+The instinct that "behavior needs its own visual editor" is correct — but the **right surface is a timeline/track editor, NOT a node/flow graph.** Two different shapes:
+- **Timeline/track editor** (After Effects / GSAP timeline / Unity Animation window) authors *animation* — tweens on node props over time. **This is what these overlays need.**
+- **Node/flow graph** (Unreal Blueprint / Rive state machine) authors *logic/flow* — branching, conditions, data routing. This is **route A (§8.7), and it stays DEFERRED** (owner re-confirmed 2026-06-09). The overlays do not need it.
+
+Why the overlays are animation, not logic:
+- **Transition** = enter+exit tween (wipe/fade), maybe a spine play.
+- **FS intro/outro** = on-enter: play a spine + reveal text.
+- **Win** = on a `win` signal: play the `celebrate` spine + count a number up to `winAmount`.
+
+Each is "*when signal X fires, run this timeline.*" The *when* (flow) is a **signal** wired to a book event **in code** (`registerComponentSignals`, §8.6) — a one-line map, not an authored graph. Branching that would tempt a node graph (small win vs big win) is just **two signals** (`win`/`bigWin`) wired in code. So neither the animation nor the flow needs route A.
+
+### 17.1 Altitude — Tier 0 → Tier 1, shared interpreter (owner-chosen 2026-06-09)
+The §8.5 schema (`BehaviorTrack`/`TweenStep`) **already exists** — scoping is about *how much editor surface* sits on top. Build the engine interpreter ONCE (shared by all tiers), then stage the UI:
+- **Tier 0 — signal presets (no canvas).** A node's Properties gains "on `<signal ▾>` → `<preset ▾>` over `<duration>`" with a fixed preset menu (fade / slide / pop / spine-play / count-up). Covers most of `Transition` + FS-intro with zero timeline UI. Ships first; proves signals→animation end-to-end on `Transition` (the §8.8-step-7 first migration).
+- **Tier 1 — the §8.5 timeline editor.** Time axis, one row per child node, draggable keyframe tweens, a per-signal track list, GSAP under the hood. Covers all overlays at the v1 ceiling. **Additive on top of Tier 0** — same interpreter + schema, no rewrite.
+- **Tier 2 — node/flow graph (route A).** DEFERRED. Not on the path for these overlays.
+
+### 17.2 The model (already designed — §8.5/§8.6 recap)
+- `BehaviorTrack { signal, steps: TweenStep[] }`; `TweenStep` = a prop tween (`x/y/alpha/scaleX/scaleY/rotation/tint`) **or** `spine` playback **or** one `bindParam` (count-up text from an `engineProvided` param). Stored on the `ComponentDef` (round-trips `normalizeDoc`).
+- **Editor authors** the timeline + **declares** signal names + `engineProvided` param names. **Engine implements** the triggers (book event → signal) + supplies the param values. Neither side owns both halves (`declare ≠ implement`).
+
+### 17.3 What it touches (cost made visible)
+1. **Engine interpreter** (`engine-layout`) — `<ComponentInstance>` subscribes to its `signals` on `utils-event-emitter`; on a signal, runs the matching `BehaviorTrack` via GSAP, reading `engineProvided` params from the firing payload. *The one genuinely new engine piece; shared by Tier 0 + Tier 1.*
+2. **Signal registry** — `registerComponentSignals({ … })` in the game maps book events → signal names (mirrors `registerBoundComponents`/`registerComponentValues`). ~1 line per signal.
+3. **Editor surface** — Tier 0 = Properties dropdowns (preset → a generated `BehaviorTrack`); Tier 1 = the timeline panel (authors `TweenStep`s directly).
+4. **Migration** — `Transition` first (simplest, the proof), then `Win`, then FS `intro`/`outro`. Each parity-gated: keep the coded `mount` behind a flag until the authored version matches on screen, then retire it (§8.7 "defang, don't gut").
+
+### 17.4 Build order (parity-gated; nothing renders differently until a component opts in)
+1. **Interpreter + schema wiring** — `BehaviorTrack` execution in `<ComponentInstance>` (GSAP); no component references a track yet ⇒ parity.
+2. **Signal registry** — `registerComponentSignals`; wire the core signals (`enter`/`exit`/`idle`/`win`/`bigWin`) to Borut's book events. Unused until a track exists ⇒ parity.
+3. **Tier 0 Properties UI** — preset dropdowns that emit a `BehaviorTrack`; author a `Transition` component as the first real one.
+4. **Migrate `Transition`** — convert the coded `mount` → authored component behind a flag; verify on screen; flip; retire the coded path.
+5. **Migrate `Win`** (signal `win` + count-up `bindParam`) and **FS `intro`/`outro`** (enter signal + spine).
+6. **Tier 1 timeline editor** — the track/keyframe panel on top of the same interpreter; only once Tier 0 has proven the loop online.
+7. **Borut mirror + republish** per the §11/§12 pattern, after `apps/lines` parity holds.
+
+### 17.5 The v1 ceiling (the scope-creep line — hold it)
+Tweens + spine playback + **one** count-up binding per the §8.5 ceiling. Anything needing branching, RGS math, or stateful logic stays a coded `mount` for v1. This is the line that keeps the feature a *timeline*, not a slide into building a scripting language. Crossing it = route A, which is deferred.
+
+### 17.6 Open sub-decisions (settle when build starts)
+- **Preset catalog (Tier 0)** — the exact fixed list (fade/slide/pop/spine-play/count-up) + their default durations/eases. Curated + code-owned (like `ENGINE_SIGNAL_CATALOG`).
+- **Signal vocabulary** — confirm the core set (`enter`/`exit`/`idle`/`win`/`bigWin`) + which Borut book events map to each. Per-game custom signals are code-wired for v1 (editor only declares names).
+- **Component versioning** — a behavior edit bumps the `ComponentDef` version; instances stay pinned until "update to latest" (§8.9). Confirm where that action lives.
+- **Where the timeline panel lives (Tier 1)** — a new Component-Editor panel vs. an expandable Properties section. Decide when Tier 1 starts.
+
+> **Status:** SCOPED (owner-chosen 2026-06-09: Tier 0 → Tier 1, shared interpreter; route A deferred). NOT started — parked behind the static-mount work (B6 + the placement-only sweep). The §8.5 schema already exists; remaining = engine interpreter + signal registry + the staged editor surface + per-overlay migration. Pick up at 17.4 step 1.
