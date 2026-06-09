@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 
 	import { EnablePixiExtension } from 'components-pixi';
-	import { EnableHotkey } from 'components-shared';
+	import { EnableHotkey, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
 	import { stateBet, stateBetDerived, stateConfig, stateModal, stateUi } from 'state-shared';
@@ -17,6 +17,7 @@
 		HudValue,
 		ButtonFrame,
 		ButtonLabel,
+		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
@@ -38,6 +39,8 @@
 	import { setBoardOverride } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource';
 	import { boolSource } from '../game/boolSource';
+	import { textSource } from '../game/textSource';
+	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import { fallbackEditorScenes, loadEditorScenes } from '../editor-scenes';
 
 	import { getContext } from '../game/context';
@@ -158,6 +161,35 @@
 
 	const context = getContext();
 
+	// §16.4 B6.4 — the spin/stop state machine, lifted VERBATIM from
+	// `ButtonBetProvider.svelte` so the parametric `spin` action behaves identically
+	// to the coded `ButtonBet`. `stopDisabled` is the internal latch the coded
+	// provider keeps: a `stopButtonClick` arms it (stop is then a no-op until the game
+	// re-enables it via `stopButtonEnable`), so a double-tap can't fire two stops.
+	// `getSpinKey()` is `ButtonBetProvider.getKey` byte-for-byte; the action's
+	// `disabled`/`label` sources below derive from it, exactly as `ButtonBet`'s
+	// `UiSprite` grey + `Text` caption derive from the coded `key`.
+	let stopDisabled = $state(false);
+	context.eventEmitter.subscribeOnMount({
+		stopButtonClick: () => (stopDisabled = true),
+		stopButtonEnable: () => (stopDisabled = false),
+	});
+	const getSpinKey = (): 'spin_default' | 'spin_disabled' | 'stop_default' | 'stop_disabled' => {
+		if (context.stateXstateDerived.isIdle()) {
+			if (!stateBetDerived.isBetCostAvailable()) return 'spin_disabled';
+			return 'spin_default';
+		}
+
+		if (!context.stateXstateDerived.isIdle()) {
+			if (stopDisabled) return 'stop_disabled';
+			if (stateBetDerived.hasAutoBetCounter()) return 'stop_default';
+			if (stateBet.isTurbo) return 'stop_disabled';
+			return 'stop_default';
+		}
+
+		return 'spin_default';
+	};
+
 	// Phase B6.2 — register the 7 Borut button actions beside the value feed above.
 	// Each entry LIFTS the coded HUD button's `onpress`/`disabled`/`active` logic
 	// verbatim (from `components-ui-pixi`), wired to the SAME `context`
@@ -222,8 +254,7 @@
 		increase: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				const biggest =
-					stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1];
+				const biggest = stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1];
 				const nextBigger = [...stateConfig.betAmountOptions]
 					.sort((a, b) => a - b)
 					.find((option) => option > stateBet.betAmount);
@@ -253,33 +284,58 @@
 					stateBet.betAmount === stateConfig.betAmountOptions[0],
 			),
 		},
-		// ButtonBetProvider — spin/stop. Roughly-correct B6.2 entry lifted from
-		// `ButtonBetProvider`: idle → `bet()`, else → `stop()`; disabled only while
-		// idle && the bet cost is unavailable.
-		// B6.4: DEFER the full behaviour parity — the dynamic bet↔stop LABEL flip
-		// (`getKey`/`ButtonBetKey`), the internal `stopDisabled` state machine
-		// (`stopButtonClick`/`stopButtonEnable` subscriptions gating `stop()`), the
-		// turbo/auto-bet stop nuances, and the `OnHotkey` Space binding all land in
-		// B6.4. Do NOT build them here.
+		// ButtonBetProvider + ButtonBet — spin/stop, now a FAITHFUL replication (B6.4).
+		// `onpress` is `ButtonBetProvider.onpress` byte-for-byte: sound, then idle →
+		// `bet()` (reset an armed buy-mode to BASE, broadcast `bet`), else → `stop()`
+		// (gated on `!stopDisabled`, reset an auto-bet counter, broadcast
+		// `stopButtonClick`). `disabled`/`label` derive from `getSpinKey()` (=
+		// `ButtonBetProvider.getKey`) exactly as `ButtonBet`'s coded `UiSprite` grey +
+		// `Text` caption do: the button greys on the `*_disabled` keys, and the caption
+		// is `bet()` on the `spin_*` keys else `stop()`. `boolSource`/`textSource` replay
+		// those live deriveds to the bound `button` instance. The Space hotkey the coded
+		// `ButtonBet` mounts is replaced in the markup below, gated on the same flag.
 		spin: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressBet' });
+
 				if (context.stateXstateDerived.isIdle()) {
-					if (stateBetDerived.activeBetMode()?.type === 'buy') {
-						stateBet.activeBetModeKey = 'BASE';
-					}
+					// bet()
+					if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
 					context.eventEmitter.broadcast({ type: 'bet' });
 				} else {
-					if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
-					context.eventEmitter.broadcast({ type: 'stopButtonClick' });
+					// stop() — the `stopDisabled` latch makes a second tap a no-op.
+					if (!stopDisabled) {
+						if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
+						context.eventEmitter.broadcast({ type: 'stopButtonClick' });
+					}
 				}
 			},
-			disabled: boolSource(
-				() =>
-					context.stateXstateDerived.isIdle() && !stateBetDerived.isBetCostAvailable(),
+			disabled: boolSource(() => ['spin_disabled', 'stop_disabled'].includes(getSpinKey())),
+			label: textSource(() =>
+				getSpinKey().startsWith('spin_') ? i18nDerived.bet() : i18nDerived.stop(),
 			),
 		},
 	});
+
+	// §16.4 B6.4 — replacement Space hotkey for the spin button. Once the cluster is
+	// flipped to `componentInstance(button)` nodes (`HUD_BUTTON_INSTANCES`), the coded
+	// `ButtonBet` (and its own `<OnHotkey hotkey="Space">`) is no longer mounted, so
+	// Space would stop working. This mirrors `ButtonBet`'s binding — `disabled` =
+	// `!isBetCostAvailable()` (the coded provider's hotkey-disabled), `onpress` = the
+	// SAME spin handler the action registers (re-derived here so it reads the same
+	// `stopDisabled`/state). GATED on the flag so it never double-fires alongside the
+	// coded button's own hotkey while the cluster is still coded (parity when OFF).
+	const spinHotkeyDisabled = $derived(!stateBetDerived.isBetCostAvailable());
+	const spinHotkeyPress = () => {
+		context.eventEmitter.broadcast({ type: 'soundPressBet' });
+		if (context.stateXstateDerived.isIdle()) {
+			if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
+			context.eventEmitter.broadcast({ type: 'bet' });
+		} else if (!stopDisabled) {
+			if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
+			context.eventEmitter.broadcast({ type: 'stopButtonClick' });
+		}
+	};
 
 	// Move 3 Phase B — doc-driven loading splash. The `loading` scene holds one
 	// `canvas`-space node bound to `LoadingScreen`; its transform repositions/rescales
@@ -363,6 +419,16 @@
 			Ref: https://developer.chrome.com/blog/autoplay
 		-->
 		<Sound />
+
+		<!--
+			§16.4 B6.4 — replacement Space hotkey for the flipped spin button. Mounted
+			ONLY when `HUD_BUTTON_INSTANCES` is on (the flip suppresses the coded
+			`ButtonBet`'s own `<OnHotkey>`); OFF ⇒ not rendered, so the coded hotkey is the
+			sole Space binding (parity, no double-fire). Mirrors `ButtonBet`'s binding.
+		-->
+		{#if HUD_BUTTON_INSTANCES}
+			<OnHotkey hotkey="Space" disabled={spinHotkeyDisabled} onpress={spinHotkeyPress} />
+		{/if}
 
 		<LayoutScene scene={basegameScene} />
 

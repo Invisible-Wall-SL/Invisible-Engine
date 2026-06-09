@@ -77,9 +77,7 @@
 	// stays undefined and the provided params equal B1's static map exactly (parity
 	// — the `value` getter below then never appears).
 	const source = typeof staticParams['source'] === 'string' ? staticParams['source'] : undefined;
-	const valueSource: ValueSource | undefined = source
-		? getComponentValueSource(source)
-		: undefined;
+	const valueSource: ValueSource | undefined = source ? getComponentValueSource(source) : undefined;
 	let liveValue = $state<number | undefined>(undefined);
 	$effect(() => {
 		if (!valueSource) return;
@@ -99,9 +97,7 @@
 	// `onpress` stays undefined/no-op and `disabled`/`active` fall back to the static
 	// map = false).
 	const action = typeof staticParams['action'] === 'string' ? staticParams['action'] : undefined;
-	const actionSource: ActionSource | undefined = action
-		? getComponentAction(action)
-		: undefined;
+	const actionSource: ActionSource | undefined = action ? getComponentAction(action) : undefined;
 	let liveDisabled = $state<boolean | undefined>(undefined);
 	$effect(() => {
 		if (!actionSource?.disabled) return;
@@ -114,6 +110,19 @@
 		if (!actionSource?.active) return;
 		return actionSource.active.subscribe((value) => {
 			liveActive = value;
+		});
+	});
+	// Dynamic label (§16.4 B6.4): the string sibling of the flags above. If the
+	// action provides a `label` TextSource (only the spin/stop flip does), subscribe
+	// it into `liveLabel`; the getter below then OVERRIDES the static `label` param so
+	// `ButtonLabel` renders the live caption. No label source ⇒ `liveLabel` stays
+	// undefined and the static `label` param is untouched — parity, same discipline as
+	// `value`/`disabled`/`active`.
+	let liveLabel = $state<string | undefined>(undefined);
+	$effect(() => {
+		if (!actionSource?.label) return;
+		return actionSource.label.subscribe((value) => {
+			liveLabel = value;
 		});
 	});
 
@@ -155,6 +164,17 @@
 			Object.defineProperty(providedParams, 'active', {
 				enumerable: true,
 				get: () => liveActive,
+			});
+		}
+		// Live caption (§16.4 B6.4): OVERRIDES the static `label` param when the action
+		// provides a `label` TextSource (spin/stop flip). Reactive enumerable getter, so
+		// `ButtonLabel`'s `$derived` re-runs on each `liveLabel` emit. Only defined when
+		// the source provides it — otherwise the static `label` from `resolveComponentParams`
+		// stands (parity).
+		if (actionSource.label) {
+			Object.defineProperty(providedParams, 'label', {
+				enumerable: true,
+				get: () => liveLabel,
 			});
 		}
 	}

@@ -41,16 +41,37 @@ export interface BoolSource {
 }
 
 /**
+ * The STRING sibling of {@link BoolSource} — a live text source for a button's
+ * dynamic LABEL (§16.4 B6.4). Same minimal Svelte-store `subscribe` contract, so
+ * this module stays Svelte-free; `subscribe` MUST invoke `run` synchronously with
+ * the current value on subscribe (the store contract), so the first paint has a
+ * real label. Used by the spin button, whose caption flips between `bet()` and
+ * `stop()` as the game leaves/returns to idle — the text analogue of the readout's
+ * live `value`. Any Svelte `Readable<string>` (e.g. a `derived(...)` over
+ * `stateXstateDerived.isIdle()` selecting `i18nDerived.bet()`/`i18nDerived.stop()`)
+ * satisfies it, as does a hand-rolled store.
+ */
+export interface TextSource {
+	subscribe(run: (value: string) => void): () => void;
+}
+
+/**
  * A named button behaviour. `onpress` is the click handler (read lazily by
  * `ButtonFrame` at click time, so a plain reference is enough). `disabled`/`active`
  * are OPTIONAL live flags: present only when the coded button being lifted has
  * them — when omitted the engine leaves the corresponding param to fall back to the
- * static map (false), exactly the value-feed parity discipline.
+ * static map (false), exactly the value-feed parity discipline. `label` is an
+ * OPTIONAL live caption (§16.4 B6.4) — present only for a button whose text is
+ * dynamic (the spin/stop flip); when omitted the static `label` param is untouched,
+ * same parity discipline as `disabled`/`active`. When present it OVERRIDES the
+ * static `label` param (see `ComponentInstance`), so `ButtonLabel` renders the live
+ * caption (it reads `label` when no `icon` is set — which a spin instance has none).
  */
 export interface ActionSource {
 	onpress: () => void;
 	disabled?: BoolSource;
 	active?: BoolSource;
+	label?: TextSource;
 }
 
 const registry = new Map<string, ActionSource>();

@@ -157,6 +157,54 @@ function labelBarNode(
 	return barNode(id, label, component, LABEL, desktop, landscape, tablet);
 }
 
+/**
+ * A bottom-bar BUTTON as a `componentInstance` of the `button` ComponentDef (§16.4
+ * B6.4 parity flip). The OPT-IN replacement for a `barNode(... 'UiButton*' ...)`
+ * `bind` node: the def MOUNTS the coded `ButtonFrame` + `ButtonLabel` parts, which
+ * reuse `UiButton`'s tile + localized label — so the button renders byte-for-byte
+ * where the coded `button*` snippet sat. Transform (x/y desktop + landscape/tablet
+ * overrides, anchor `{0.5,0.5}`, scale 0.8) is IDENTICAL to the `bind` `barNode` it
+ * replaces, so `LayoutEditable`'s `hudPos()` lands it at the same position. The game
+ * feeds live behaviour (`onpress` + `disabled`/`active`/`label`) via
+ * `registerComponentActions` keyed by the `action` param.
+ *
+ * `icon` names the localized glyph the coded button passed to `UiButton` (e.g.
+ * `'menu'`); the spin button is the lone exception — it passes NO `icon`, so its
+ * caption comes from the action's dynamic `label` TextSource (the bet↔stop flip).
+ *
+ * Emitted ONLY when a consumer requests `{ buttons: true }`. Default stays the
+ * `bind` `barNode`, so the editor + Book of Borut + every other consumer remain
+ * byte-identical — the flip is opt-in, exactly like `readouts` (B4.4).
+ */
+function buttonInstanceNode(
+	id: string,
+	label: string,
+	action: string,
+	icon: string | undefined,
+	desktop: XY,
+	landscape: XY,
+	tablet: XY,
+): ComponentInstanceNode {
+	return {
+		id,
+		label,
+		kind: 'componentInstance',
+		componentId: 'button',
+		x: desktop.x,
+		y: desktop.y,
+		anchor: { x: 0.5, y: 0.5 },
+		scale: DESKTOP_SCALE,
+		// Spin gets `{ action }` only (NO `icon`) so `ButtonLabel` renders the action's
+		// dynamic `label` (bet↔stop); the other six get `{ action, icon }`.
+		params: icon === undefined ? { action } : { action, icon },
+		overrides: {
+			landscape: { x: landscape.x, y: landscape.y },
+			tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },
+		},
+		preview: { w: BTN_SIZE, h: BTN_SIZE, style: 'button' },
+	};
+}
+
 /** Options for {@link hudBarScene}. */
 export interface HudBarOptions {
 	/**
@@ -167,6 +215,19 @@ export interface HudBarOptions {
 	 * Absent/false ⇒ the pre-B4.4 coded `bind` labels (parity for the editor + Borut).
 	 */
 	readouts?: boolean;
+	/**
+	 * Emit the 7-button cluster (menu / buy-bonus / auto-spin / spin / turbo /
+	 * decrease / increase) as parametric `componentInstance(button)` nodes (B6.4)
+	 * instead of coded `UiButton*` `bind` nodes. Opt-in, currently DEFAULT-OFF even
+	 * for `apps/lines` (the spin behaviour is re-implemented from `ButtonBetProvider`
+	 * and needs online verification before it becomes the default): the game must
+	 * register the `button` def + the coded `ButtonFrame`/`ButtonLabel` parts + the
+	 * 7 `action` sources (`registerComponentActions`) for these to render — AND mount
+	 * a replacement Space hotkey gated on this same flag (the flip suppresses the
+	 * coded `ButtonBet`'s own `OnHotkey`). Absent/false ⇒ the coded `bind` buttons +
+	 * their coded hotkey (parity for the editor + Borut + the current `apps/lines`).
+	 */
+	buttons?: boolean;
 }
 
 /** Bottom bar — balance/win/bet labels + the button cluster (standard space). */
@@ -215,6 +276,27 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				l1(1400, lLabelY),
 				t(880 + 640, tLabelY),
 			);
+	// Each button is coded `UiButton*` `bind` by default; `componentInstance(button)`
+	// when `buttons` is set (B6.4). `btn()` picks per the flag, passing the SAME
+	// transform args to both builders so the flip is byte-identical placement. The
+	// `action`/`icon` map mirrors each coded `Button*.svelte`: menu→`menu`,
+	// buyBonus→`buyBonus`, autoSpin→`autoSpin`, turbo→`turbo`, increase→`increase`,
+	// decrease→`decrease` (the EXACT `icon` each passes to `UiButton`); the spin button
+	// (`hud-btn-bet`) is `action:'spin'` with NO icon — its caption is the action's
+	// dynamic `label` (bet↔stop), matching `ButtonBet`'s text logic.
+	const btn = (
+		id: string,
+		label: string,
+		component: string,
+		action: string,
+		icon: string | undefined,
+		desktop: XY,
+		landscape: XY,
+		tablet: XY,
+	): LayoutNode | ComponentInstanceNode =>
+		options.buttons
+			? buttonInstanceNode(id, label, action, icon, desktop, landscape, tablet)
+			: barNode(id, label, component, BTN, desktop, landscape, tablet);
 	return {
 		id: 'hudBar',
 		name: 'HUD — bottom bar',
@@ -227,66 +309,74 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 			balanceLabel,
 			winLabel,
 			betLabel,
-			// buttons
-			barNode(
+			// buttons — coded `UiButton*` `bind` by default; `componentInstance(button)`
+			// when `buttons` is set (B6.4). Reversible (drop `buttons`).
+			btn(
 				'hud-btn-menu',
 				'Menu',
 				'UiButtonMenu',
-				BTN,
+				'menu',
+				'menu',
 				d(220, dBtnY),
 				l1(85 + 20, lBtnY),
 				t(20, tBtnY),
 			),
-			barNode(
+			btn(
 				'hud-btn-buybonus',
 				'Buy bonus',
 				'UiButtonBuyBonus',
-				BTN,
+				'buyBonus',
+				'buyBonus',
 				d(220 + 150, dBtnY),
 				l1(220 + 20, lBtnY),
 				t(20 + 180, tBtnY),
 			),
-			barNode(
+			btn(
 				'hud-btn-autospin',
 				'Auto spin',
 				'UiButtonAutoSpin',
-				BTN,
+				'autoSpin',
+				'autoSpin',
 				d(160 + 150 * 4, dBtnY),
 				l2(L * 0.5 - 140),
 				t(-10 + 180 * 4, tBtnY),
 			),
-			barNode(
+			btn(
 				'hud-btn-bet',
 				'Spin / Bet',
 				'UiButtonBet',
-				BTN,
+				'spin',
+				undefined,
 				d(160 + 150 * 5, dBtnY),
 				l2(L * 0.5),
 				t(-10 + 180 * 5, tBtnY),
 			),
-			barNode(
+			btn(
 				'hud-btn-turbo',
 				'Turbo',
 				'UiButtonTurbo',
-				BTN,
+				'turbo',
+				'turbo',
 				d(160 + 150 * 6, dBtnY),
 				l2(L * 0.5 + 140),
 				t(-10 + 180 * 6, tBtnY),
 			),
-			barNode(
+			btn(
 				'hud-btn-decrease',
 				'Decrease',
 				'UiButtonDecrease',
-				BTN,
+				'decrease',
+				'decrease',
 				d(1440, dBtnY),
 				l1(1580, lBtnY),
 				t(1560, tBtnY),
 			),
-			barNode(
+			btn(
 				'hud-btn-increase',
 				'Increase',
 				'UiButtonIncrease',
-				BTN,
+				'increase',
+				'increase',
 				d(1440 + 150, dBtnY),
 				l1(1715, lBtnY),
 				t(1560 + 180, tBtnY),
