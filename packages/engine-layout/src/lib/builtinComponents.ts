@@ -68,7 +68,9 @@ export const HUD_READOUT_DEF: ComponentDef = {
 				y: -20,
 				anchor: { x: 0.5, y: 0 },
 				bind: { component: 'HudTicker' },
-				preview: { w: HUD_CAPTION_FONT_SIZE * 8, h: HUD_VALUE_FONT_SIZE * 3, style: 'label' },
+				// Tile ONLY (no caption/value text) — the caption + value are their own
+				// sibling parts below, so this draws just the ticker background.
+				preview: { w: HUD_CAPTION_FONT_SIZE * 8, h: HUD_VALUE_FONT_SIZE * 3, style: 'tile' },
 				children: [],
 			},
 			{
@@ -79,7 +81,8 @@ export const HUD_READOUT_DEF: ComponentDef = {
 				y: 0,
 				anchor: { x: 0.5, y: 0 },
 				bind: { component: 'HudCaption' },
-				preview: { style: 'text' },
+				// Editor preview shows the resolved `label` param ("BALANCE"), not "Caption".
+				preview: { style: 'text', textParam: 'label' },
 				children: [],
 			},
 			{
@@ -90,7 +93,8 @@ export const HUD_READOUT_DEF: ComponentDef = {
 				y: HUD_VALUE_FONT_SIZE,
 				anchor: { x: 0.5, y: 0 },
 				bind: { component: 'HudValue' },
-				preview: { style: 'text' },
+				// Editor preview shows the resolved `value` (engine-fed; 0 until placed).
+				preview: { style: 'text', textParam: 'value' },
 				children: [],
 			},
 		],

@@ -103,8 +103,10 @@ interface BaseNode {
 	 * editor can't run. Two flavours, both purely editor-side — the game ALWAYS
 	 * ignores `preview` and mounts the real Pixi component:
 	 * - `style` (+ `w`/`h`): a simple 2D chip for HUD bind anchors (buttons =
-	 *   rounded square + icon label; labels = ticker + text), so the author sees
-	 *   roughly the real HUD instead of a generic placeholder box.
+	 *   rounded square + icon label; labels = ticker + caption + value; `tile` =
+	 *   just the ticker tile with NO text — used by a DECOMPOSED readout whose
+	 *   caption/value live in sibling `text` parts; `text` = a single line), so
+	 *   the author sees roughly the real HUD instead of a generic placeholder box.
 	 * - `art`: a real spine/sprite the editor draws in the anchor's place (e.g. the
 	 *   animated `Background`, which is full-bleed + crossfades in-game and so has
 	 *   to stay a coded `bind`). Lets "see the game composed" work without the
@@ -116,7 +118,16 @@ interface BaseNode {
 	preview?: {
 		w?: number;
 		h?: number;
-		style?: 'button' | 'label' | 'text';
+		style?: 'button' | 'label' | 'text' | 'tile';
+		/**
+		 * Editor-only: for a `style: 'text'` (or `'label'`) chip, the resolved
+		 * component-param key whose value the chip displays — so a decomposed
+		 * readout's Caption part shows its `label` ("BALANCE") and the Value part
+		 * shows its numeric `value`, instead of the bare part name. Resolved against
+		 * the open component's params (the canvas / text overlay look it up); absent
+		 * ⇒ the chip falls back to the node label. The game ignores it.
+		 */
+		textParam?: string;
 		art?: {
 			kind: 'spine' | 'sprite';
 			assetKey: string;

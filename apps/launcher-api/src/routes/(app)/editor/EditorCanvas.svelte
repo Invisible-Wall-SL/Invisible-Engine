@@ -1209,6 +1209,24 @@
 		return typeof value === 'string' ? value : undefined;
 	}
 
+	/** Caption a `bind` text-chip shows. A `preview.textParam` reads the resolved
+	 * param from `params` (number → formatted, string → as-is, engine-fed/unset
+	 * number → "0") so a decomposed readout's Caption reads "BALANCE" and its Value
+	 * a number — not the part name. No `textParam` ⇒ the instance's `label` param (a
+	 * placed readout's caption) then the node label — parity with the prior path. */
+	function chipCaption(node: LayoutNode, params: Record<string, unknown> | undefined): string {
+		const key = node.preview?.textParam;
+		if (key) {
+			const v = params?.[key];
+			if (typeof v === 'number') return paramNumberFormat.format(v);
+			if (typeof v === 'string' && v !== '') return v;
+			return '0';
+		}
+		const bindName = node.bind?.component ?? '';
+		const label = params?.label;
+		return String((typeof label === 'string' && label) || node.label || bindName);
+	}
+
 	function drawNode(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
@@ -1265,10 +1283,7 @@
 				// styling — so a placed `HudReadout` reads "BALANCE" (its label param), not the
 				// bare component name. Absent instanceParams ⇒ the prior bind.props path (parity).
 				if (instanceParams) {
-					const caption = String(
-						instanceParams.label ?? node.label ?? node.bind.component,
-					);
-					drawHudChip(ctx, t, node.preview, caption, undefined, {
+					drawHudChip(ctx, t, node.preview, chipCaption(node, instanceParams), undefined, {
 						fill: typeof instanceParams.fill === 'number' ? instanceParams.fill : undefined,
 						fontSize:
 							typeof instanceParams.fontSize === 'number' ? instanceParams.fontSize : undefined,
@@ -1278,7 +1293,7 @@
 						ctx,
 						t,
 						node.preview,
-						node.label ?? node.bind.component,
+						chipCaption(node, componentParams),
 						node.bind.props as Record<string, unknown> | undefined,
 					);
 				}
@@ -1314,9 +1329,27 @@
 					const h = t.height ?? img.naturalHeight;
 					const ax = t.anchor?.x ?? 0;
 					const ay = t.anchor?.y ?? 0;
-					drawTintedImage(ctx, img, 0, 0, img.naturalWidth, img.naturalHeight, -w * ax, -h * ay, w, h, tint);
+					drawTintedImage(
+						ctx,
+						img,
+						0,
+						0,
+						img.naturalWidth,
+						img.naturalHeight,
+						-w * ax,
+						-h * ay,
+						w,
+						h,
+						tint,
+					);
 				} else {
-					drawPlaceholder(ctx, t.anchor?.x ?? 0.5, t.anchor?.y ?? 0.5, '#3a4a5a', node.label ?? '…');
+					drawPlaceholder(
+						ctx,
+						t.anchor?.x ?? 0.5,
+						t.anchor?.y ?? 0.5,
+						'#3a4a5a',
+						node.label ?? '…',
+					);
 				}
 			}
 		} else if (node.kind === 'spine') {
@@ -1602,6 +1635,20 @@
 		const style = paramStyle ?? ((props?.style ?? {}) as { fill?: number; fontSize?: number });
 		const tint = typeof props?.tint === 'number' ? props.tint : undefined;
 		const fill = typeof style.fill === 'number' ? cssColor(style.fill) : undefined;
+		// `tile`: just the ticker background — a DECOMPOSED readout's caption + value
+		// are sibling `text` parts, so this draws no text (avoids the legacy all-in-one
+		// chip's caption + hardcoded `0.00` colliding with the real parts).
+		if (preview.style === 'tile') {
+			const r = Math.min(26, h / 2);
+			ctx.beginPath();
+			ctx.roundRect(x, y, w, h, r);
+			ctx.fillStyle = tint !== undefined ? cssColor(tint) : 'rgba(8,8,10,0.92)';
+			ctx.fill();
+			ctx.lineWidth = 2;
+			ctx.strokeStyle = '#3a3a46';
+			ctx.stroke();
+			return;
+		}
 		const isText = preview.style === 'text';
 		if (!isText) {
 			const r = Math.min(preview.style === 'button' ? 36 : 26, h / 2);
@@ -2433,6 +2480,7 @@
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
 					{projectGameName}
+					{componentParams}
 					reloadToken={fontReload}
 					onLoadingChange={(c) => {
 						mergeFontLoading(s.id, c);

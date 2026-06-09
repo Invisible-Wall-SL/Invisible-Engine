@@ -43,35 +43,16 @@
 	let saveBusy = $state(false);
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
-	/**
-	 * Per-project component param defaults (§13.3), by component id. Seeded from the
-	 * server load; mutated as the author edits the Defaults controls and persisted via
-	 * `POST /api/editor/component-defaults`. These feed the non-empty canvas preview
-	 * (resolved as `def.param.default ◁ projectDefault`).
-	 */
-	let componentDefaults = $state<Record<string, Record<string, unknown>>>(
-		structuredClone(data.componentDefaults),
-	);
-	/** Save state for the defaults POST (a small pill near the controls). */
-	let defaultsStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
-	/** Debounce timer per open component, so a flurry of keystrokes POSTs once. */
-	let defaultsTimer = 0;
-
 	/** Hoisted active selection — bound from the canvas, read by Properties. */
 	let selectedId = $state<string | null>(null);
 	/** Components author in the fixed `desktop` design box — no per-layoutType
 	 * override switcher here (a component is one design; the scene editor owns
 	 * responsive overrides when the instance is placed). */
 	const currentLayoutType: LayoutType = 'desktop';
-	/** Right sidebar tab: outline of the open component vs the selected node's props. */
-	let rightTab = $state<'outline' | 'properties'>('properties');
-	// Selecting a node (from the canvas OR the outline tree) reveals ITS Properties.
-	// Without this, the per-node editor is a tab the author has to find: clicking a
-	// node in the Outline just set the selection while the tree stayed up, so nothing
-	// appeared to happen ("I only see global properties"). A deselect (null) stays put.
-	$effect(() => {
-		if (selectedId) rightTab = 'properties';
-	});
+	/** Left sidebar tab (when a component is open): the asset Library to drag from,
+	 * or the Outline of the open component's tree. Properties always show on the
+	 * right, so selecting a node never needs a tab switch. */
+	let leftTab = $state<'library' | 'outline'>('outline');
 
 	function genComponentId(): string {
 		return 'c_' + Math.random().toString(36).slice(2, 10);
@@ -98,71 +79,41 @@
 	 * The standard box is a self-contained frame around just the component. */
 	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
 
-	/** The open draft's per-project defaults map (always an object once a component is
-	 * open, so the controls below can read/write `defaultsForOpen[param.key]`). */
-	const defaultsForOpen = $derived<Record<string, unknown>>(
-		componentDraft ? (componentDefaults[componentDraft.id] ?? {}) : {},
-	);
-
 	/**
-	 * Resolved params fed to the canvas preview (§13.4): `def.param.default ◁
-	 * project default`. No instance override here — the Component Editor edits the
-	 * def + its project defaults, not a placed instance. Reused, Svelte-free
-	 * precedence helper from `engine-layout` (B1/B2). Empty when no component is open.
+	 * Resolved params fed to the canvas preview (§13.4): just the def's own param
+	 * defaults (`def.param.default`). No instance override here — the Component
+	 * Editor edits the def itself; an instance's per-placement overrides are the
+	 * scene editor's job. Reused, Svelte-free helper from `engine-layout`. Empty
+	 * when no component is open.
 	 */
 	const resolvedParams = $derived<Record<string, unknown>>(
-		componentDraft ? resolveComponentParams(componentDraft, undefined, defaultsForOpen) : {},
+		componentDraft ? resolveComponentParams(componentDraft) : {},
 	);
 
-	/** Read one default value for the open component (undefined = unset → falls back
-	 * to the def's own param default in the resolved params). */
+	/** The params whose baked default the author can set here — engine-provided ones
+	 * are fed at runtime (a default makes no sense), so they're hidden. */
+	const editableDefaultParams = $derived(
+		(componentDraft?.params ?? []).filter((p) => !p.engineProvided),
+	);
+
+	/** Read one param's baked default — the value EVERY project inherits unless an
+	 * instance overrides it (saved on the def). `undefined` = unset. */
 	function getDefault(key: string): unknown {
-		return componentDraft ? componentDefaults[componentDraft.id]?.[key] : undefined;
+		return componentDraft?.params?.find((p) => p.key === key)?.default;
 	}
 
-	/** Set/clear one default for the open component, then persist (debounced). An
-	 * `undefined` value clears the override (so the def's own default takes over). */
+	/** Set/clear a param's baked default on the open draft. Travels on the def to
+	 * every project; persisted by "Save component". `undefined` clears it. */
 	function setDefault(key: string, value: unknown): void {
-		if (!componentDraft) return;
-		const id = componentDraft.id;
-		const next = { ...(componentDefaults[id] ?? {}) };
-		if (value === undefined) delete next[key];
-		else next[key] = value;
-		componentDefaults = { ...componentDefaults, [id]: next };
-		scheduleSaveDefaults(id);
-	}
-
-	/** Debounce the defaults POST (~400ms) so typing in a control saves once. */
-	function scheduleSaveDefaults(id: string): void {
-		if (defaultsTimer) clearTimeout(defaultsTimer);
-		defaultsTimer = window.setTimeout(() => {
-			defaultsTimer = 0;
-			void saveDefaults(id);
-		}, 400);
-	}
-
-	/** Persist the open component's per-project defaults (§13.3) + reflect a pill. */
-	async function saveDefaults(id: string): Promise<void> {
-		defaultsStatus = null;
-		try {
-			const res = await fetch('/api/editor/component-defaults', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					project: data.projectKey,
-					id,
-					params: componentDefaults[id] ?? {},
-				}),
-			});
-			defaultsStatus = res.ok
-				? { kind: 'ok', message: 'Defaults saved' }
-				: { kind: 'error', message: 'Defaults save failed' };
-		} catch (e) {
-			defaultsStatus = {
-				kind: 'error',
-				message: e instanceof Error ? e.message : 'Defaults save failed',
-			};
-		}
+		if (!componentDraft?.params) return;
+		componentDraft.params = componentDraft.params.map((p) => {
+			if (p.key !== key) return p;
+			if (value === undefined) {
+				const { default: _drop, ...rest } = p;
+				return rest;
+			}
+			return { ...p, default: value };
+		});
 	}
 
 	/** Coerce a colour <input> hex (`#rrggbb`) to the param's numeric value. */
@@ -177,15 +128,6 @@
 	/** A param key that looks like a font → render a text input (§13.4 hint). */
 	function looksLikeFont(key: string): boolean {
 		return /font/i.test(key);
-	}
-
-	/** A param's own `default`, shown as the control's placeholder so the author sees
-	 * the fallback the preview uses when no project default is set. */
-	function fmtDefault(value: unknown): string {
-		if (value === undefined) return '';
-		if (typeof value === 'string') return value;
-		if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-		return '';
 	}
 
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
@@ -209,8 +151,7 @@
 		componentDraft = $state.snapshot(def) as ComponentDef;
 		selectedId = null;
 		saveStatus = null;
-		defaultsStatus = null;
-		rightTab = 'outline';
+		leftTab = 'outline';
 	}
 
 	let newName = $state('');
@@ -243,7 +184,6 @@
 		componentDraft = null;
 		selectedId = null;
 		saveStatus = null;
-		defaultsStatus = null;
 	}
 
 	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
@@ -344,9 +284,7 @@
 		if (!componentDraft) return;
 		const signals = componentDraft.signals ?? [];
 		const has = signals.some((s) => s.key === key);
-		componentDraft.signals = has
-			? signals.filter((s) => s.key !== key)
-			: [...signals, { key }];
+		componentDraft.signals = has ? signals.filter((s) => s.key !== key) : [...signals, { key }];
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 	}
 
@@ -497,12 +435,12 @@
 
 	<div class="layout">
 		<aside class="left">
-			<div class="panel-head">
-				<h2 class="panel-title">{componentDraft ? 'Asset library' : 'Components'}</h2>
-			</div>
+			{#if !componentDraft}
+				<div class="panel-head">
+					<h2 class="panel-title">Components</h2>
+				</div>
 
-			<div class="tab-body">
-				{#if !componentDraft}
+				<div class="tab-body">
 					<div class="create">
 						<h3>New component</h3>
 						<div class="create-row">
@@ -540,11 +478,7 @@
 								<ul class="cmp-list">
 									{#each group.items as def (def.id)}
 										<li class="cmp-row-wrap">
-											<button
-												type="button"
-												class="cmp-row"
-												onclick={() => openComponent(def)}
-											>
+											<button type="button" class="cmp-row" onclick={() => openComponent(def)}>
 												<span class="glyph">◇</span>
 												<span class="name">{def.name}</span>
 												<span class="scope" class:project={def.scope === 'project'}>
@@ -567,64 +501,96 @@
 							</div>
 						{/each}
 					{/if}
-				{:else}
-					<section>
-						<h3>Atlases <span class="count">{atlasCount}</span></h3>
-						<ul>
-							{#each data.assets.atlases as a (a.key)}
-								{#if a.kind === 'atlas-manifest'}
-									{@render expandable(a.key, a.name, 'manifest')}
+				</div>
+			{:else}
+				<div class="tabs" role="tablist" aria-label="Left panel">
+					<button
+						role="tab"
+						aria-selected={leftTab === 'library'}
+						class="tab"
+						class:active={leftTab === 'library'}
+						onclick={() => (leftTab = 'library')}
+					>
+						Library
+					</button>
+					<button
+						role="tab"
+						aria-selected={leftTab === 'outline'}
+						class="tab"
+						class:active={leftTab === 'outline'}
+						onclick={() => (leftTab = 'outline')}
+					>
+						Outline
+					</button>
+				</div>
+
+				<div class="tab-body">
+					{#if leftTab === 'library'}
+						<section>
+							<h3>Atlases <span class="count">{atlasCount}</span></h3>
+							<ul>
+								{#each data.assets.atlases as a (a.key)}
+									{#if a.kind === 'atlas-manifest'}
+										{@render expandable(a.key, a.name, 'manifest')}
+									{:else}
+										<li
+											draggable="true"
+											data-asset-kind={a.kind}
+											data-asset-key={a.key}
+											data-asset-name={a.name}
+											ondragstart={(e) => onAssetDragStart(e, a)}
+										>
+											<span class="name">{a.name}</span>
+											<span class="tag">page</span>
+										</li>
+									{/if}
 								{:else}
+									<li class="muted">No atlases yet.</li>
+								{/each}
+							</ul>
+						</section>
+
+						<section>
+							<h3>Spines <span class="count">{spineCount}</span></h3>
+							<ul>
+								{#each data.assets.spines as s (s.key)}
 									<li
 										draggable="true"
-										data-asset-kind={a.kind}
-										data-asset-key={a.key}
-										data-asset-name={a.name}
-										ondragstart={(e) => onAssetDragStart(e, a)}
+										data-asset-kind={s.kind}
+										data-asset-key={s.key}
+										data-asset-name={s.name}
+										ondragstart={(e) => onAssetDragStart(e, s)}
 									>
-										<span class="name">{a.name}</span>
-										<span class="tag">page</span>
+										<span class="name">{s.name}</span>
+										<span class="tag">spine</span>
+										{#if s.shared}<span class="badge">shared</span>{/if}
 									</li>
-								{/if}
-							{:else}
-								<li class="muted">No atlases yet.</li>
-							{/each}
-						</ul>
-					</section>
+								{:else}
+									<li class="muted">No spines yet.</li>
+								{/each}
+							</ul>
+						</section>
 
-					<section>
-						<h3>Spines <span class="count">{spineCount}</span></h3>
-						<ul>
-							{#each data.assets.spines as s (s.key)}
-								<li
-									draggable="true"
-									data-asset-kind={s.kind}
-									data-asset-key={s.key}
-									data-asset-name={s.name}
-									ondragstart={(e) => onAssetDragStart(e, s)}
-								>
-									<span class="name">{s.name}</span>
-									<span class="tag">spine</span>
-									{#if s.shared}<span class="badge">shared</span>{/if}
-								</li>
-							{:else}
-								<li class="muted">No spines yet.</li>
-							{/each}
-						</ul>
-					</section>
-
-					<section>
-						<h3>Sheets <span class="count">{sheetCount}</span></h3>
-						<ul>
-							{#each data.assets.sheets as sh (sh.key)}
-								{@render expandable(sh.key, sh.name, 'sheet')}
-							{:else}
-								<li class="muted">No sheets yet.</li>
-							{/each}
-						</ul>
-					</section>
-				{/if}
-			</div>
+						<section>
+							<h3>Sheets <span class="count">{sheetCount}</span></h3>
+							<ul>
+								{#each data.assets.sheets as sh (sh.key)}
+									{@render expandable(sh.key, sh.name, 'sheet')}
+								{:else}
+									<li class="muted">No sheets yet.</li>
+								{/each}
+							</ul>
+						</section>
+					{:else}
+						<EditorOutline
+							scene={componentScene}
+							template={undefined}
+							{selectedId}
+							onSelect={(id) => (selectedId = id)}
+						/>
+					{/if}
+				</div>
+			{/if}
 		</aside>
 
 		<main class="canvas-area">
@@ -661,21 +627,20 @@
 			{#if componentDraft}
 				<section class="defaults">
 					<div class="defaults-head">
-						<h3>Defaults (this project)</h3>
-						{#if defaultsStatus?.kind === 'ok'}
-							<span class="save-pill ok">{defaultsStatus.message}</span>
-						{:else if defaultsStatus?.kind === 'error'}
-							<span class="save-pill error" title={defaultsStatus.message}>Save failed</span>
-						{/if}
+						<h3>Defaults (all projects)</h3>
 					</div>
-					{#if !componentDraft.params || componentDraft.params.length === 0}
+					{#if editableDefaultParams.length === 0}
 						<p class="muted hint">
-							This component declares no params. Add params (Properties → component params) to set
-							per-project defaults and preview a real readout.
+							This component declares no author-settable params. Add params (Properties → component
+							params); engine-provided values are fed at runtime and have no default.
 						</p>
 					{:else}
+						<p class="muted hint">
+							The component's own defaults — every project inherits these unless an instance
+							overrides them. Saved with the component.
+						</p>
 						<div class="defaults-grid">
-							{#each componentDraft.params as param (param.key)}
+							{#each editableDefaultParams as param (param.key)}
 								{@const current = getDefault(param.key)}
 								<label class="def-row">
 									<span class="def-key" title={param.key}>{param.key}</span>
@@ -689,7 +654,7 @@
 										<input
 											type="number"
 											value={typeof current === 'number' ? current : ''}
-											placeholder={fmtDefault(param.default)}
+											placeholder="(unset)"
 											oninput={(e) => {
 												const v = e.currentTarget.value;
 												setDefault(param.key, v === '' ? undefined : Number(v));
@@ -698,16 +663,14 @@
 									{:else if param.kind === 'color'}
 										<input
 											type="color"
-											value={numberToHex(current ?? param.default)}
+											value={numberToHex(current)}
 											oninput={(e) => setDefault(param.key, hexToNumber(e.currentTarget.value))}
 										/>
 									{:else}
 										<input
 											type="text"
 											value={typeof current === 'string' ? current : ''}
-											placeholder={looksLikeFont(param.key)
-												? 'font family…'
-												: fmtDefault(param.default)}
+											placeholder={looksLikeFont(param.key) ? 'font family…' : '(unset)'}
 											oninput={(e) => {
 												const v = e.currentTarget.value;
 												setDefault(param.key, v === '' ? undefined : v);
@@ -721,37 +684,9 @@
 				</section>
 			{/if}
 
-			<div class="tabs" role="tablist" aria-label="Right panel">
-				<button
-					role="tab"
-					aria-selected={rightTab === 'outline'}
-					class="tab"
-					class:active={rightTab === 'outline'}
-					onclick={() => (rightTab = 'outline')}
-				>
-					Outline
-				</button>
-				<button
-					role="tab"
-					aria-selected={rightTab === 'properties'}
-					class="tab"
-					class:active={rightTab === 'properties'}
-					onclick={() => (rightTab = 'properties')}
-				>
-					Properties
-				</button>
-			</div>
-
 			<div class="right-body">
 				{#if !componentDraft}
 					<p class="muted hint">Open a component to edit its elements.</p>
-				{:else if rightTab === 'outline'}
-					<EditorOutline
-						scene={componentScene}
-						template={undefined}
-						{selectedId}
-						onSelect={(id) => (selectedId = id)}
-					/>
 				{:else}
 					<EditorProperties
 						node={selectedNode}

@@ -49,6 +49,10 @@
 		/** Project display name — the HUD game-name default shown when unset (matches
 		 * what the game injects; not written to the doc). */
 		projectGameName?: string | null;
+		/** Open component's resolved params (Component Editor) — a HUD text anchor with
+		 * a `preview.textParam` shows that param's value (caption/number) instead of its
+		 * label. Empty/undefined in scene mode ⇒ the label fallback (parity). */
+		componentParams?: Record<string, unknown>;
 	}
 
 	let {
@@ -64,7 +68,20 @@
 		onLoadingChange,
 		onReadyIdsChange,
 		projectGameName = null,
+		componentParams,
 	}: Props = $props();
+
+	/** Thousands-grouped integer — matches the 2D canvas / `ParamReadoutText`. */
+	const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+	/** Value a `preview.textParam` chip shows: number → formatted, string → as-is,
+	 * engine-fed/unset number → "0". Returns null when there's no usable param. */
+	function textParamValue(key: string | undefined): string | null {
+		if (!key) return null;
+		const v = componentParams?.[key];
+		if (typeof v === 'number') return numberFormat.format(v);
+		if (typeof v === 'string' && v !== '') return v;
+		return '0';
+	}
 
 	let host: HTMLDivElement | null = $state(null);
 	let app: Application | null = null;
@@ -151,6 +168,10 @@
 					// else the node label. Default the font to the engine HUD font.
 					const ov = getHudTextOverride(n);
 					const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
+					// A decomposed readout's Caption/Value parts carry a `preview.textParam`
+					// → show the resolved param (the `label` "BALANCE" / the numeric `value`)
+					// so the editor reads like the real readout, not the part name.
+					const paramText = textParamValue(n.preview?.textParam);
 					// Game-name defaults to the PROJECT display name (matches what the game
 					// shows); else the shared component default; else the node label.
 					const fallback =
@@ -161,7 +182,7 @@
 						id: n.id,
 						node: n,
 						scene: sc,
-						text: ov?.text ?? fallback ?? n.label ?? '',
+						text: paramText ?? ov?.text ?? fallback ?? n.label ?? '',
 						style,
 						isHud: true,
 					});
@@ -299,6 +320,7 @@
 		void panX;
 		void panY;
 		void zoom;
+		void componentParams;
 		rebuild();
 	});
 
