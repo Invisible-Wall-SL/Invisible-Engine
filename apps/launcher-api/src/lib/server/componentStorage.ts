@@ -226,6 +226,8 @@ function normalizeParams(input: unknown): ComponentParam[] {
 		if ('default' in item) param.default = item.default;
 		if (item.engineProvided === true) param.engineProvided = true;
 		if (item.author === true) param.author = true;
+		if (typeof item.group === 'string' && item.group) param.group = item.group;
+		if (typeof item.label === 'string' && item.label) param.label = item.label;
 		if (Array.isArray(item.options)) {
 			const options = item.options.filter((o): o is string => typeof o === 'string');
 			if (options.length) param.options = options;

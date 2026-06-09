@@ -104,6 +104,19 @@
 	const editableDefaultParams = $derived(
 		(componentDraft?.params ?? []).filter((p) => !p.engineProvided),
 	);
+	/** Ungrouped default params (rendered flat above the grouped sections). */
+	const ungroupedDefaultParams = $derived(editableDefaultParams.filter((p) => !p.group));
+	/** Default params bucketed by `group` (e.g. an exposed text node's name) → collapsible. */
+	const defaultParamGroups = $derived.by(() => {
+		const map = new Map<string, ComponentParam[]>();
+		for (const p of editableDefaultParams) {
+			if (!p.group) continue;
+			const arr = map.get(p.group);
+			if (arr) arr.push(p);
+			else map.set(p.group, [p]);
+		}
+		return [...map.entries()];
+	});
 
 	/** Read one param's baked default — the value EVERY project inherits unless an
 	 * instance overrides it (saved on the def). `undefined` = unset. */
@@ -305,6 +318,49 @@
 		if (!componentDraft?.params) return;
 		componentDraft.params = componentDraft.params.filter((p) => p.key !== key);
 		if (componentDraft.params.length === 0) delete componentDraft.params;
+	}
+
+	/** "Expose as params" for a text node: create grouped author params for its
+	 * text / font / size / colour and bind the node's fields to them, so every placed
+	 * instance can edit this text. Keys are namespaced (group slug + field) to stay
+	 * globally unique; the editor shows them as plain fields under a collapsible group
+	 * titled with the node's name. Idempotent — skips a field that's already bound. */
+	function exposeTextParams(node: LayoutNode): void {
+		if (!componentDraft || node.kind !== 'text') return;
+		const group = node.label?.trim() || 'Text';
+		const slug = group.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'text';
+		const params = componentDraft.params ?? [];
+		const keys = new Set(params.map((p) => p.key));
+		const uniqueKey = (base: string): string => {
+			let k = base;
+			let i = 2;
+			while (keys.has(k)) k = `${base}${i++}`;
+			keys.add(k);
+			return k;
+		};
+		const bindings: Record<string, string> = { ...(node.paramBindings ?? {}) };
+		const added: ComponentParam[] = [];
+		const expose = (
+			fieldPath: string,
+			suffix: string,
+			kind: ComponentParam['kind'],
+			label: string,
+			def: unknown,
+		): void => {
+			if (bindings[fieldPath]) return;
+			const key = uniqueKey(slug + suffix);
+			const p: ComponentParam = { key, kind, group, label, author: true };
+			if (def !== undefined) p.default = def;
+			added.push(p);
+			bindings[fieldPath] = key;
+		};
+		expose('text', 'Text', 'string', 'text', node.text);
+		expose('style.fontFamily', 'Font', 'string', 'font', node.style?.fontFamily);
+		expose('style.fontSize', 'Size', 'number', 'size', node.style?.fontSize);
+		expose('style.fill', 'Colour', 'color', 'colour', node.style?.fill);
+		if (added.length === 0) return;
+		node.paramBindings = bindings;
+		componentDraft.params = [...params, ...added];
 	}
 
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
@@ -688,63 +744,76 @@
 							The component's own defaults — every project inherits these unless an instance
 							overrides them. Saved with the component.
 						</p>
+						{#snippet defRow(param: ComponentParam)}
+							{@const current = getDefault(param.key)}
+							<label class="def-row">
+								<span class="def-key" title={param.key}>{param.label ?? param.key}</span>
+								{#if param.options && param.options.length > 0}
+									<select
+										value={typeof current === 'string' ? current : ''}
+										onchange={(e) => setDefault(param.key, e.currentTarget.value || undefined)}
+									>
+										<option value="">(none)</option>
+										{#each param.options as opt (opt)}
+											<option value={opt}>{opt}</option>
+										{/each}
+									</select>
+								{:else if param.kind === 'boolean'}
+									<input
+										type="checkbox"
+										checked={current === true}
+										onchange={(e) => setDefault(param.key, e.currentTarget.checked)}
+									/>
+								{:else if param.kind === 'number'}
+									<input
+										type="number"
+										value={typeof current === 'number' ? current : ''}
+										placeholder="(unset)"
+										oninput={(e) => {
+											const v = e.currentTarget.value;
+											setDefault(param.key, v === '' ? undefined : Number(v));
+										}}
+									/>
+								{:else if param.kind === 'color'}
+									<input
+										type="color"
+										value={numberToHex(current)}
+										oninput={(e) => setDefault(param.key, hexToNumber(e.currentTarget.value))}
+									/>
+								{:else if param.kind === 'image'}
+									<RegionPicker
+										sheets={pickSheets}
+										value={typeof current === 'string' ? current : ''}
+										onSelect={(region) => setDefault(param.key, region || undefined)}
+									/>
+								{:else}
+									<input
+										type="text"
+										value={typeof current === 'string' ? current : ''}
+										placeholder={looksLikeFont(param.key) ? 'font family…' : '(unset)'}
+										oninput={(e) => {
+											const v = e.currentTarget.value;
+											setDefault(param.key, v === '' ? undefined : v);
+										}}
+									/>
+								{/if}
+							</label>
+						{/snippet}
 						<div class="defaults-grid">
-							{#each editableDefaultParams as param (param.key)}
-								{@const current = getDefault(param.key)}
-								<label class="def-row">
-									<span class="def-key" title={param.key}>{param.key}</span>
-									{#if param.options && param.options.length > 0}
-										<select
-											value={typeof current === 'string' ? current : ''}
-											onchange={(e) => setDefault(param.key, e.currentTarget.value || undefined)}
-										>
-											<option value="">(none)</option>
-											{#each param.options as opt (opt)}
-												<option value={opt}>{opt}</option>
-											{/each}
-										</select>
-									{:else if param.kind === 'boolean'}
-										<input
-											type="checkbox"
-											checked={current === true}
-											onchange={(e) => setDefault(param.key, e.currentTarget.checked)}
-										/>
-									{:else if param.kind === 'number'}
-										<input
-											type="number"
-											value={typeof current === 'number' ? current : ''}
-											placeholder="(unset)"
-											oninput={(e) => {
-												const v = e.currentTarget.value;
-												setDefault(param.key, v === '' ? undefined : Number(v));
-											}}
-										/>
-									{:else if param.kind === 'color'}
-										<input
-											type="color"
-											value={numberToHex(current)}
-											oninput={(e) => setDefault(param.key, hexToNumber(e.currentTarget.value))}
-										/>
-									{:else if param.kind === 'image'}
-										<RegionPicker
-											sheets={pickSheets}
-											value={typeof current === 'string' ? current : ''}
-											onSelect={(region) => setDefault(param.key, region || undefined)}
-										/>
-									{:else}
-										<input
-											type="text"
-											value={typeof current === 'string' ? current : ''}
-											placeholder={looksLikeFont(param.key) ? 'font family…' : '(unset)'}
-											oninput={(e) => {
-												const v = e.currentTarget.value;
-												setDefault(param.key, v === '' ? undefined : v);
-											}}
-										/>
-									{/if}
-								</label>
+							{#each ungroupedDefaultParams as param (param.key)}
+								{@render defRow(param)}
 							{/each}
 						</div>
+						{#each defaultParamGroups as [groupName, groupParams] (groupName)}
+							<details class="param-group" open>
+								<summary>{groupName}</summary>
+								<div class="defaults-grid">
+									{#each groupParams as param (param.key)}
+										{@render defRow(param)}
+									{/each}
+								</div>
+							</details>
+						{/each}
 					{/if}
 				</section>
 			{/if}
@@ -766,6 +835,7 @@
 						onToggleParam={toggleComponentParam}
 						onAddParam={addCustomParam}
 						onRemoveParam={removeComponentParam}
+						onExposeTextParams={exposeTextParams}
 						onToggleSignal={toggleComponentSignal}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
@@ -1219,6 +1289,30 @@
 		align-items: center;
 		gap: 8px;
 		margin-bottom: 8px;
+	}
+	.param-group {
+		border: 1px solid #2a2a33;
+		border-radius: 4px;
+		margin: 6px 0;
+		padding: 2px 6px 6px;
+	}
+	.param-group > summary {
+		cursor: pointer;
+		font-size: 12px;
+		font-weight: 600;
+		color: #c8c8d0;
+		padding: 4px 2px;
+		list-style: none;
+	}
+	.param-group > summary::-webkit-details-marker {
+		display: none;
+	}
+	.param-group > summary::before {
+		content: '▸ ';
+		color: #777;
+	}
+	.param-group[open] > summary::before {
+		content: '▾ ';
 	}
 	.defaults-head h3 {
 		margin: 0;
