@@ -37,9 +37,9 @@
 
 	import { infoManifest } from '../game/infoManifest';
 	import { setBoardOverride } from '../game/stateGame.svelte';
-	import { valueSource } from '../game/valueSource';
-	import { boolSource } from '../game/boolSource';
-	import { textSource } from '../game/textSource';
+	import { valueSource } from '../game/valueSource.svelte';
+	import { boolSource } from '../game/boolSource.svelte';
+	import { textSource } from '../game/textSource.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import { fallbackEditorScenes, loadEditorScenes } from '../editor-scenes';
 
