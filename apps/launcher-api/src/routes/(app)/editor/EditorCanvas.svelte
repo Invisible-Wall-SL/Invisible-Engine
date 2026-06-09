@@ -2189,7 +2189,12 @@
 		} catch {
 			return;
 		}
-		if (!payload || !payload.key || !payload.kind) return;
+		// Blank elements (the Library's "Elements" palette — `text`/`container`) carry
+		// an empty `key` by design; only ASSET kinds (region/atlas-page/spine) reference
+		// a key. Requiring a key here silently rejected the text/container drop.
+		if (!payload || !payload.kind) return;
+		const keyless = payload.kind === 'text' || payload.kind === 'container';
+		if (!keyless && !payload.key) return;
 		const pos = clientToWorld(e.clientX, e.clientY);
 		const node = spawnNode(payload, pos);
 		if (node) {
