@@ -101,14 +101,24 @@ const files = {
 					// recompiles the game's workspace deps (topological; only the ~2 that
 					// emit a dist) first. See docs/design/live-assets.md + the
 					// gotcha-game-build-stale-engine-dist memo.
-					// To wire live-assets, add a `pull:assets` script (see Book of Borut)
-					// and chain it: `pnpm build:engine && pnpm pull:assets --optional && vite build`.
-					// `bake:doc` freezes the editor layout + custom component defs into
-					// src/baked-editor-bundle.json (no runtime fetch); chain it before build
-					// once the project has an authored doc. EDITOR_DOC_SECRET must be in the env.
+					// `build` chains the full editor pipeline below. Every step is a SAFE
+					// NO-OP until the project has data + EDITOR_DOC_SECRET in the build env
+					// (the `--optional` flags warn loudly and keep the checked-in copies
+					// instead of failing the build) — so a brand-new game builds green, and
+					// each capability "just works" the moment its data exists, with no
+					// per-game wiring to remember. Set EDITOR_DOC_SECRET in the build env to
+					// activate them. NOTE: the project key is `<client>/<project>` and
+					// defaults to `${slug}/${slug}` — change it if your launcher client
+					// differs from the slug.
+					//   build:engine — rebuild engine workspace dists so engine SOURCE
+					//                  changes reach this bundle (gotcha-game-build-stale-engine-dist)
+					//   pull:assets  — mirror the R2 deploy/ art into static/assets/ (live-assets.md)
+					//   bake:doc     — freeze the editor layout + custom component defs into
+					//                  src/baked-editor-bundle.json (no runtime fetch)
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
-					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug}/${slug} --dest ./src/baked-editor-bundle.json --optional`,
-					build: 'pnpm build:engine && vite build',
+					'pull:assets': `node ./engine/apps/launcher-api/scripts/pull-project-assets.mjs --project ${slug}/${slug} --dest ./static/assets`,
+					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug}/${slug} --dest ./src/baked-editor-bundle.json`,
+					build: 'pnpm build:engine && pnpm pull:assets --optional && pnpm bake:doc --optional && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',
