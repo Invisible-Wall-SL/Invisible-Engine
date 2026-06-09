@@ -224,6 +224,10 @@ function normalizeParams(input: unknown): ComponentParam[] {
 		const param: ComponentParam = { key: item.key, kind: item.kind };
 		if ('default' in item) param.default = item.default;
 		if (item.engineProvided === true) param.engineProvided = true;
+		if (Array.isArray(item.options)) {
+			const options = item.options.filter((o): o is string => typeof o === 'string');
+			if (options.length) param.options = options;
+		}
 		out.push(param);
 	}
 	return out;
