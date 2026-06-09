@@ -26,6 +26,7 @@
 		registerComponentValues,
 		registerComponentActions,
 		HUD_READOUT_DEF,
+		BUTTON_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -90,7 +91,11 @@
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
 	// nodes of `hudReadout` (see `referenceLayouts/hud.ts`), so this powers the live
 	// HUD: the def mounts the coded `HudReadout`, fed `value` from these sources.
-	registerComponents({ [HUD_READOUT_DEF.id]: HUD_READOUT_DEF });
+	// `BUTTON_DEF` (§16.3 B6.3) is registered beside it so `getComponent('button')`
+	// resolves — required for any `button` componentInstance to expand into its
+	// `ButtonFrame`/`ButtonLabel` parts. No live scene carries a button instance yet
+	// (B6.4 converts the HUD cluster), so this is pure registration — no render change.
+	registerComponents({ [HUD_READOUT_DEF.id]: HUD_READOUT_DEF, [BUTTON_DEF.id]: BUTTON_DEF });
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount),
 		win: valueSource(() => stateBet.winBookEventAmount),
