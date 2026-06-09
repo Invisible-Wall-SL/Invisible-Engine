@@ -45,7 +45,9 @@
 	import { clearFontCatalogCache } from './fonts.client';
 
 	interface AssetDragPayload {
-		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine';
+		// `text` / `container` are not assets — they're blank ELEMENTS the Library's
+		// "Elements" palette drags in (key is unused for those).
+		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'container';
 		key: string;
 		name: string;
 	}
@@ -2234,6 +2236,17 @@
 					defaultAnimation: '',
 					loop: false,
 				};
+			// Blank elements (the Library's "Elements" palette) — a default text node
+			// (edited via Properties → Text) or an empty container for grouping.
+			case 'text':
+				return {
+					...base,
+					kind: 'text',
+					text: 'Text',
+					style: { fontFamily: 'proxima-nova', fontSize: 45, fill: 0xffffff },
+				};
+			case 'container':
+				return { ...base, kind: 'container', children: [] };
 			// `atlas-manifest` / `sheet` are CONTAINERS — they are never dropped
 			// whole (the Library expands them into draggable regions instead).
 			default:

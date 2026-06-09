@@ -527,6 +527,27 @@
 				<div class="tab-body">
 					{#if leftTab === 'library'}
 						<section>
+							<h3>Elements</h3>
+							<ul>
+								<li
+									draggable="true"
+									ondragstart={(e) => onAssetDragStart(e, { kind: 'text', key: '', name: 'Text' })}
+								>
+									<span class="name">Text</span>
+									<span class="tag">text</span>
+								</li>
+								<li
+									draggable="true"
+									ondragstart={(e) =>
+										onAssetDragStart(e, { kind: 'container', key: '', name: 'Group' })}
+								>
+									<span class="name">Container</span>
+									<span class="tag">group</span>
+								</li>
+							</ul>
+						</section>
+
+						<section>
 							<h3>Atlases <span class="count">{atlasCount}</span></h3>
 							<ul>
 								{#each data.assets.atlases as a (a.key)}
