@@ -49,7 +49,17 @@
 	// (§14.3 MOUNT path): the def's `root` `bind`s it by name, so it must be in the
 	// bound-component registry alongside the animated overlays. It reuses the coded
 	// label rendering (caption localization + currency format + count-up).
-	registerBoundComponents({ Win, Transition, HudReadout });
+	registerBoundComponents({
+		Win,
+		Transition,
+		HudReadout,
+		// Move 3 Phase A — the free-spin overlays are now mounted from the doc via
+		// `<LayoutScene>` (canvas-space bind anchors), so the editor can position
+		// them. They self-show/animate off book events; the doc owns only placement.
+		FreeSpinIntro,
+		FreeSpinCounter,
+		FreeSpinOutro,
+	});
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
 	// nodes of `hudReadout` (see `referenceLayouts/hud.ts`), so this powers the live
@@ -74,6 +84,23 @@
 	);
 	const basegameOverlaysScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
+	);
+	// Move 3 Phase A — free-spin overlays as editor scenes (the fallback layout
+	// ships them, so the `!` is safe + a no-doc boot is parity). Each is a
+	// `canvas`-space bind anchor at (0,0): <LayoutScene> wraps it in a no-op
+	// Container and the coded component renders at canvas origin, self-positioning
+	// exactly as the prior hardcoded mount. An editor transform then offsets it.
+	const fallbackFsIntro = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinIntro')!;
+	const fsIntroScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'freeSpinIntro') ?? fallbackFsIntro,
+	);
+	const fallbackFsCounter = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinCounter')!;
+	const fsCounterScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'freeSpinCounter') ?? fallbackFsCounter,
+	);
+	const fallbackFsOutro = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinOutro')!;
+	const fsOutroScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'freeSpinOutro') ?? fallbackFsOutro,
 	);
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -209,11 +236,11 @@
 			{/snippet}
 		</UI>
 		<LayoutScene scene={basegameOverlaysScene} />
-		<FreeSpinIntro />
+		<LayoutScene scene={fsIntroScene} />
 		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
-			<FreeSpinCounter />
+			<LayoutScene scene={fsCounterScene} />
 		{/if}
-		<FreeSpinOutro />
+		<LayoutScene scene={fsOutroScene} />
 		<InfoOverlay manifest={infoManifest} />
 
 		<I18nTest />
