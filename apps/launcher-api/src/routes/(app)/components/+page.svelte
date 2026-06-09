@@ -18,6 +18,7 @@
 	import EditorCanvas from '../editor/EditorCanvas.svelte';
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
+	import RegionPicker from '../editor/RegionPicker.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import {
 		fetchRegions,
@@ -33,6 +34,14 @@
 		{ id: 'overlay', label: 'Overlay' },
 		{ id: 'scenery', label: 'Scenery' },
 	];
+
+	/** Atlas/sheet manifests an `image`-kind param can pick frames from (region picker). */
+	const pickSheets = $derived([
+		...data.assets.atlases
+			.filter((a) => a.kind === 'atlas-manifest')
+			.map((a) => ({ key: a.key, name: a.name })),
+		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
+	]);
 
 	/** Components the project can use (shared + project shadow). Mutable so a save
 	 * reflects in the sidebar without a reload. */
@@ -716,6 +725,12 @@
 											value={numberToHex(current)}
 											oninput={(e) => setDefault(param.key, hexToNumber(e.currentTarget.value))}
 										/>
+									{:else if param.kind === 'image'}
+										<RegionPicker
+											sheets={pickSheets}
+											value={typeof current === 'string' ? current : ''}
+											onSelect={(region) => setDefault(param.key, region || undefined)}
+										/>
 									{:else}
 										<input
 											type="text"
@@ -742,6 +757,7 @@
 						node={selectedNode}
 						layoutType={currentLayoutType}
 						componentMode={true}
+						{pickSheets}
 						componentParams={componentDraft.params ?? []}
 						componentSignals={componentDraft.signals ?? []}
 						instanceComponent={selectedNode?.kind === 'componentInstance'

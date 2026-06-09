@@ -217,7 +217,8 @@ function normalizeParams(input: unknown): ComponentParam[] {
 			item.kind !== 'number' &&
 			item.kind !== 'string' &&
 			item.kind !== 'color' &&
-			item.kind !== 'boolean'
+			item.kind !== 'boolean' &&
+			item.kind !== 'image'
 		) {
 			continue;
 		}
