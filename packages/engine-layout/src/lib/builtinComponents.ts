@@ -184,7 +184,8 @@ export const BUTTON_DEF: ComponentDef = {
 		{ key: 'action', kind: 'string' },
 		{ key: 'icon', kind: 'string' },
 		{ key: 'label', kind: 'string' },
-		{ key: 'variant', kind: 'string', default: 'dark' },
+		// The button's already-declared look (`UiButton`): dark/light bg + text.
+		{ key: 'variant', kind: 'string', default: 'dark', options: ['dark', 'light'] },
 		{ key: 'tint', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: BUTTON_FONT_SIZE },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
