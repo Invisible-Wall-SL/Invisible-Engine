@@ -41,7 +41,20 @@ const frameOverrides: Partial<Record<LayoutType, NodeOverride>> = {
 
 const sceneName = (id: string) => linesTemplate.scenes.find((scene) => scene.id === id)?.name ?? id;
 
-export function defaultLayout(gameType: string): LayoutDoc {
+/** Engine-flip options forwarded to {@link hudScenes}; default OFF = parity. */
+export interface DefaultLayoutOptions {
+	/**
+	 * Emit the HUD button cluster as parametric `componentInstance(button)` nodes
+	 * (§16.4 B6.4) instead of coded `UiButton*` `bind` nodes. Forwarded to
+	 * `hudScenes({ buttons })`. Default-OFF so the editor's "Load game scene" picker
+	 * + the full-scene-set merge (`referenceLayouts/index.ts`) stay byte-identical;
+	 * `apps/lines` passes its `HUD_BUTTON_INSTANCES` module flag (also default-OFF
+	 * for now — see `apps/lines/src/game/editorFlags.ts`) to drive its fallback doc.
+	 */
+	buttons?: boolean;
+}
+
+export function defaultLayout(gameType: string, options: DefaultLayoutOptions = {}): LayoutDoc {
 	if (gameType !== 'lines') {
 		throw new Error(`defaultLayout: unsupported gameType "${gameType}"`);
 	}
@@ -225,7 +238,13 @@ export function defaultLayout(gameType: string): LayoutDoc {
 			// `Game.svelte` registers all three (def + bound component + value sources).
 			// Book of Borut keeps the default coded `bind` labels (it calls
 			// `hudScenes()` with no options), so it stays parity-safe until migrated.
-			...hudScenes({ readouts: true }),
+			//
+			// `buttons` (B6.4): forwarded from `options.buttons` — the editor picker +
+			// full-scene-set merge call `defaultLayout('lines')` with no options ⇒ OFF
+			// (coded `bind` buttons, parity); `apps/lines` passes its default-OFF
+			// `HUD_BUTTON_INSTANCES` flag, so flipping that one constant converts the
+			// cluster to `componentInstance(button)` nodes (+ the replacement hotkey).
+			...hudScenes({ readouts: true, buttons: options.buttons }),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};

@@ -658,3 +658,86 @@ The HUD bottom bar is a **bespoke `LayoutEditable` renderer**, fully decoupled f
 - **Phase B — loading/logo splash (LANDED). `apps/lines` + Book of Borut.** `LoadingScreen` can't be a generic `bind` (required `onloaded` callback + it's an either/or with the game), so the coded mount is **wrapped in a doc-driven `<Container>`** built from the `loading` scene node's resolved transform (mirrors `LayoutNodeView`'s canvas-space `screenAnchor·canvasSize + (x,y)` formula). Dragging the logo in the editor now repositions/rescales the whole splash in-game. **Parity-safe:** default node (x:0,y:0,no-scale) → no-op container → byte-identical. No engine change (uses existing `resolveTransform` + pixi-svelte `Container`). `apps/lines` build GREEN (folded into engine commit `5143fd1` by a concurrent session); **Book of Borut** mirrored + built GREEN + pushed (`Book-of-Borut@9e3fa9c`) — republishes via its host. **Verification:** build-green + the game loads the `loading` scene at default (parity); pixel-level A/B was blocked by the WebGPU renderer (preview screenshot can't capture it) — confirm visually in-browser. **Owner step to SEE it on Borut:** in the editor, "Add missing screens" (or re-seed) so the live doc has the `loading` scene → drag the logo → Save → open Borut from the launcher (with `?k=`).
 - **Phase A — free-spin screens in `apps/lines` (LANDED).** `apps/lines` now registers `FreeSpinIntro/Counter/Outro` in `registerBoundComponents` and mounts them via `<LayoutScene>` (canvas-space bind anchors) instead of hardcoded tags — matching Borut, so the editor positions them. Parity by construction: the fallback ships those scenes at (0,0) → no-op container → byte-identical; the components keep their book-event self-show, the doc owns only placement. Background stays coded (`<Background cover>`) per §10.6 (no `background` scene in the lines fallback). `apps/lines` build GREEN.
 - **Phase D — later (deferred):** per-element transforms within a screen + driving show/hide + count-ups from the doc via the behavior/timeline layer (§8.5). The big "behavior as data" work route B parks.
+
+## 16. Addendum — B6: the HUD button cluster as one parametric `Button` component (owner direction 2026-06-09)
+
+**Owner ask:** continue building the editor components Book of Borut needs, next up the HUD — turn the **button** we already have into an editor-owned component, the same way B5 turned the HUD readout into one. **Owner decisions (2026-06-09):** (i) build it as **separate coded parts** (match the B5 readout split — each part individually movable/restylable/hideable), NOT a single dispatcher that mounts the coded buttons whole; (ii) first pass covers the **Borut HUD cluster only** (spin/bet, menu, buy-bonus, auto-spin, turbo, bet +/−), not the full ~16-variant `Button*` family.
+
+### 16.0 The pattern this extends (B5, on `main` `65a5917`)
+B5 (§14.3 "separate coded parts") is the reference: **one `ComponentDef`** (`HUD_READOUT_DEF`, `engine-layout/builtinComponents.ts`) instanced 3 ways by a `source` param; its `root` is a container of three `bind` parts (`HudTicker`/`HudCaption`/`HudValue` in `components-ui-pixi`), each reading the def's params off the **param context** `<ComponentInstance>` provides (`getComponentParams()`), with the live number arriving via `registerComponentValues({ source → store })`. Parts registered in the game's `registerBoundComponents`; the def is a built-in so every Component Editor lists it. The button mirrors this exactly — with an **action** binding where the readout has a **value** binding.
+
+### 16.1 The architecture this migrates (mapped 2026-06-09)
+- Base coded button `components-ui-pixi/UiButton.svelte` wraps `components-pixi` `Button` (hover/press/disabled) → a `UiSprite` frame (variant dark/light, active border, disabled-grey) + a localized `Text` icon label + a `tint`.
+- ~16 specialized `Button*` each own their **behaviour** (onpress action, disabled logic, hotkeys, providers): heaviest is `ButtonBet` (`ButtonBetProvider` spin/stop state + `OnHotkey` Space); the rest (`ButtonMenu`/`ButtonBuyBonus`/`ButtonAutoSpin`/`ButtonTurbo`/`ButtonIncrease`/`ButtonDecrease`) are plain onpress + a disabled selector.
+- In the HUD they're already **`bind` anchors** (`UiButtonMenu`, `UiButtonBet`, …) with a §12 `tint` param (`BOUND_COMPONENT_PARAMS`). Not yet `componentInstance`s — B6 is the rung that makes the cluster one parametric component.
+
+### 16.2 Target shape
+- **One `BUTTON_DEF`** (built-in beside `HUD_READOUT_DEF`), instanced per HUD button. **Params:** `action`(string — `spin`|`menu`|`buyBonus`|`autoSpin`|`turbo`|`increase`|`decrease`, the behaviour binding), `icon`/`label`(string), `variant`(string `dark`/`light`), `tint`(color), `fontSize`/`fill`/`fontFamily`(style), `disabled`(boolean, **engineProvided**), `active`(boolean, **engineProvided**, for toggles turbo/auto-spin).
+- **`root` parts** (each a `bind` child reading `getComponentParams()`): **`ButtonFrame`** = the `UiSprite` tile (variant bg, active border, disabled-grey, tint) **and** the hit area (`eventMode="static"`, `onpointerup` → the action handler, disabled cursor) — the `HudValue`-owns-the-bet-tap analogue; **`ButtonLabel`** = the localized `Text` label (`i18nDerived[icon]()` + size/fill/font) — the `HudCaption` analogue. (A `ButtonIcon` sprite-glyph part is deferred until a Borut button needs art instead of text.)
+- **New `registerComponentActions({ spin, menu, buyBonus, … })`** (sibling to `registerComponentValues`): each entry `{ onpress: () => void, disabled: ValueSource<boolean>, active?: ValueSource<boolean> }`. `<ComponentInstance>` reads `action`, subscribes `disabled`/`active` into the param context (same reactive-getter trick as `value`) and exposes `onpress` for `ButtonFrame`. Engine owns the wiring; the editor only declares the action name. **Heaviest entry = `spin`** — its `disabled`/`onpress`/key come from `ButtonBetProvider`'s spin/stop state surfaced as stores (the one real re-implementation; isolated to its own phase).
+
+### 16.3 Build order (parity-gated; `apps/lines` byte-identical until the flip)
+- **B6.1 — def + parts + registration (parity).** Author `BUTTON_DEF`; add `ButtonFrame`/`ButtonLabel` to `components-ui-pixi`; register them in `registerBoundComponents`. Built-in so the Component Editor lists it + previews non-empty. No HUD wiring ⇒ parity.
+- **B6.2 — action feed.** `registerComponentActions` + `ComponentInstance.svelte` subscribes disabled/active + exposes onpress; wire the 7 Borut actions in `apps/lines/Game.svelte` (spin via the provider's surfaced state, the rest via existing selectors). Unused until B6.4 ⇒ parity.
+- **B6.3 — `LayoutEditable` mounts `<ComponentInstance>`** for a button node — proved on ONE scratch button first (not the live cluster).
+- **B6.4 — convert the cluster + parity flip.** A convert/seed turns each `UiButton*` `bind` node → `componentInstance(button,{action,icon})` (mirrors the reelGrid "Convert to parametric grid" affordance). **Parity gate:** same position, frame, label, **press, disabled, hotkey, active** as the coded button before the coded `Button*` are retired; keep both behind a flag until verified online. `apps/lines` `vite build` + visual+behaviour parity GREEN.
+- **B6.5 — Borut mirror + republish** once `apps/lines` parity holds (submodule bump + `build:engine` + republish, per the §11/§12 mirror pattern).
+
+### 16.4 Open sub-decisions (settle during B6)
+- **`spin` action surfacing** — expose `ButtonBetProvider`'s state as stores for the action registry vs. let `ButtonFrame` keep the provider/`OnHotkey` internally for the spin case only. Lean: surface as stores so all 7 actions are uniform; fall back to internal-provider if the state proves awkward to lift.
+- **`active` for toggles** — confirm turbo/auto-spin need the engineProvided `active` in v1 or can defer (they render an active border).
+- **Font path** — same caveat as §14.3: validate the label renders correctly through the bound part (bitmap/web font via the catalog) before retiring `UiButton`'s coded `Text`.
+
+> **Status:** SCOPED + Phase B6.1 STARTED (def + parts + registration, parity), branch `feat/editor-button-component`. Decisions locked: split coded parts; Borut HUD cluster only. Verify each phase online before the B6.4 flip; mirror to Borut only after `apps/lines` parity holds.
+
+## 17. Addendum — Component behavior layer: signal-triggered timelines (the animated overlays) (owner direction 2026-06-09)
+
+**Owner ask:** make the animated overlays (`Win`, `Transition`, FreeSpin `intro`/`outro`) editor-owned, not just placement-editable. This is the §8.8-step-6 / §8.5 "behavior" layer — deliberately deferred until the static/composition tier was solid. It is now scoped.
+
+### 17.0 The reframe that sizes this (timeline ≠ node graph)
+The instinct that "behavior needs its own visual editor" is correct — but the **right surface is a timeline/track editor, NOT a node/flow graph.** Two different shapes:
+- **Timeline/track editor** (After Effects / GSAP timeline / Unity Animation window) authors *animation* — tweens on node props over time. **This is what these overlays need.**
+- **Node/flow graph** (Unreal Blueprint / Rive state machine) authors *logic/flow* — branching, conditions, data routing. This is **route A (§8.7), and it stays DEFERRED** (owner re-confirmed 2026-06-09). The overlays do not need it.
+
+Why the overlays are animation, not logic:
+- **Transition** = enter+exit tween (wipe/fade), maybe a spine play.
+- **FS intro/outro** = on-enter: play a spine + reveal text.
+- **Win** = on a `win` signal: play the `celebrate` spine + count a number up to `winAmount`.
+
+Each is "*when signal X fires, run this timeline.*" The *when* (flow) is a **signal** wired to a book event **in code** (`registerComponentSignals`, §8.6) — a one-line map, not an authored graph. Branching that would tempt a node graph (small win vs big win) is just **two signals** (`win`/`bigWin`) wired in code. So neither the animation nor the flow needs route A.
+
+### 17.1 Altitude — Tier 0 → Tier 1, shared interpreter (owner-chosen 2026-06-09)
+The §8.5 schema (`BehaviorTrack`/`TweenStep`) **already exists** — scoping is about *how much editor surface* sits on top. Build the engine interpreter ONCE (shared by all tiers), then stage the UI:
+- **Tier 0 — signal presets (no canvas).** A node's Properties gains "on `<signal ▾>` → `<preset ▾>` over `<duration>`" with a fixed preset menu (fade / slide / pop / spine-play / count-up). Covers most of `Transition` + FS-intro with zero timeline UI. Ships first; proves signals→animation end-to-end on `Transition` (the §8.8-step-7 first migration).
+- **Tier 1 — the §8.5 timeline editor.** Time axis, one row per child node, draggable keyframe tweens, a per-signal track list, GSAP under the hood. Covers all overlays at the v1 ceiling. **Additive on top of Tier 0** — same interpreter + schema, no rewrite.
+- **Tier 2 — node/flow graph (route A).** DEFERRED. Not on the path for these overlays.
+
+### 17.2 The model (already designed — §8.5/§8.6 recap)
+- `BehaviorTrack { signal, steps: TweenStep[] }`; `TweenStep` = a prop tween (`x/y/alpha/scaleX/scaleY/rotation/tint`) **or** `spine` playback **or** one `bindParam` (count-up text from an `engineProvided` param). Stored on the `ComponentDef` (round-trips `normalizeDoc`).
+- **Editor authors** the timeline + **declares** signal names + `engineProvided` param names. **Engine implements** the triggers (book event → signal) + supplies the param values. Neither side owns both halves (`declare ≠ implement`).
+
+### 17.3 What it touches (cost made visible)
+1. **Engine interpreter** (`engine-layout`) — `<ComponentInstance>` subscribes to its `signals` on `utils-event-emitter`; on a signal, runs the matching `BehaviorTrack` via GSAP, reading `engineProvided` params from the firing payload. *The one genuinely new engine piece; shared by Tier 0 + Tier 1.*
+2. **Signal registry** — `registerComponentSignals({ … })` in the game maps book events → signal names (mirrors `registerBoundComponents`/`registerComponentValues`). ~1 line per signal.
+3. **Editor surface** — Tier 0 = Properties dropdowns (preset → a generated `BehaviorTrack`); Tier 1 = the timeline panel (authors `TweenStep`s directly).
+4. **Migration** — `Transition` first (simplest, the proof), then `Win`, then FS `intro`/`outro`. Each parity-gated: keep the coded `mount` behind a flag until the authored version matches on screen, then retire it (§8.7 "defang, don't gut").
+
+### 17.4 Build order (parity-gated; nothing renders differently until a component opts in)
+1. **Interpreter + schema wiring** — `BehaviorTrack` execution in `<ComponentInstance>` (GSAP); no component references a track yet ⇒ parity.
+2. **Signal registry** — `registerComponentSignals`; wire the core signals (`enter`/`exit`/`idle`/`win`/`bigWin`) to Borut's book events. Unused until a track exists ⇒ parity.
+3. **Tier 0 Properties UI** — preset dropdowns that emit a `BehaviorTrack`; author a `Transition` component as the first real one.
+4. **Migrate `Transition`** — convert the coded `mount` → authored component behind a flag; verify on screen; flip; retire the coded path.
+5. **Migrate `Win`** (signal `win` + count-up `bindParam`) and **FS `intro`/`outro`** (enter signal + spine).
+6. **Tier 1 timeline editor** — the track/keyframe panel on top of the same interpreter; only once Tier 0 has proven the loop online.
+7. **Borut mirror + republish** per the §11/§12 pattern, after `apps/lines` parity holds.
+
+### 17.5 The v1 ceiling (the scope-creep line — hold it)
+Tweens + spine playback + **one** count-up binding per the §8.5 ceiling. Anything needing branching, RGS math, or stateful logic stays a coded `mount` for v1. This is the line that keeps the feature a *timeline*, not a slide into building a scripting language. Crossing it = route A, which is deferred.
+
+### 17.6 Open sub-decisions (settle when build starts)
+- **Preset catalog (Tier 0)** — the exact fixed list (fade/slide/pop/spine-play/count-up) + their default durations/eases. Curated + code-owned (like `ENGINE_SIGNAL_CATALOG`).
+- **Signal vocabulary** — confirm the core set (`enter`/`exit`/`idle`/`win`/`bigWin`) + which Borut book events map to each. Per-game custom signals are code-wired for v1 (editor only declares names).
+- **Component versioning** — a behavior edit bumps the `ComponentDef` version; instances stay pinned until "update to latest" (§8.9). Confirm where that action lives.
+- **Where the timeline panel lives (Tier 1)** — a new Component-Editor panel vs. an expandable Properties section. Decide when Tier 1 starts.
+
+> **Status:** SCOPED (owner-chosen 2026-06-09: Tier 0 → Tier 1, shared interpreter; route A deferred). NOT started — parked behind the static-mount work (B6 + the placement-only sweep). The §8.5 schema already exists; remaining = engine interpreter + signal registry + the staged editor surface + per-overlay migration. Pick up at 17.4 step 1.

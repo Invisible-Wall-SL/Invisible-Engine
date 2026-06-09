@@ -2,6 +2,7 @@ import type { LayoutDoc } from 'engine-layout';
 import { registerComponentDefaults } from 'engine-layout';
 
 import { defaultLayout } from './game/defaultLayout';
+import { HUD_BUTTON_INSTANCES } from './game/editorFlags';
 
 /**
  * Offline fallback / checked-in stand-in for the editor document the Invisible
@@ -18,7 +19,9 @@ import { defaultLayout } from './game/defaultLayout';
  * `mount` slots) draws OUTSIDE it, since those components self-position in
  * canvas coords.
  */
-export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines');
+export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
+	buttons: HUD_BUTTON_INSTANCES,
+});
 
 /**
  * Default launcher origin that serves the public layout-doc endpoint
@@ -38,7 +41,9 @@ function fellBack(reason: string): LayoutDoc {
 	// Loud, single-line signal so a live game that is NOT honouring editor edits is
 	// diagnosable from the browser console (the silent fallback was the #1 cause of
 	// "my editor resize didn't reach the game"). The bundled layout still renders.
-	console.warn(`[editor] using bundled fallback layout — editor edits will NOT show. Reason: ${reason}`);
+	console.warn(
+		`[editor] using bundled fallback layout — editor edits will NOT show. Reason: ${reason}`,
+	);
 	return fallbackEditorScenes;
 }
 

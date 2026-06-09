@@ -65,6 +65,13 @@
 	const currentLayoutType: LayoutType = 'desktop';
 	/** Right sidebar tab: outline of the open component vs the selected node's props. */
 	let rightTab = $state<'outline' | 'properties'>('properties');
+	// Selecting a node (from the canvas OR the outline tree) reveals ITS Properties.
+	// Without this, the per-node editor is a tab the author has to find: clicking a
+	// node in the Outline just set the selection while the tree stayed up, so nothing
+	// appeared to happen ("I only see global properties"). A deselect (null) stays put.
+	$effect(() => {
+		if (selectedId) rightTab = 'properties';
+	});
 
 	function genComponentId(): string {
 		return 'c_' + Math.random().toString(36).slice(2, 10);

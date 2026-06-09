@@ -59,6 +59,7 @@ import {
 } from '$lib/server/clients';
 import {
 	createGame,
+	defaultGameUrl,
 	deleteGame,
 	gameExists,
 	isValidGameKey,
@@ -67,6 +68,7 @@ import {
 	setGameProject,
 	setGameUrl,
 } from '$lib/server/games';
+import { ENV } from '$lib/server/env';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -129,6 +131,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		clientAccess,
 		games,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
+		gamesBaseUrl: ENV.GAMES_BASE_URL,
 	};
 };
 
@@ -486,8 +489,13 @@ export const actions: Actions = {
 			return fail(400, { action: 'createGame', error: 'Unknown project.' });
 		}
 
-		await createGame(key, name, url, project || null);
-		return { action: 'createGame', ok: `Created game ${key}.` };
+		// Blank URL → auto-fill the conventional test-server launch URL for this key.
+		const finalUrl = url || defaultGameUrl(key, ENV.GAMES_BASE_URL);
+		await createGame(key, name, finalUrl, project || null);
+		return {
+			action: 'createGame',
+			ok: url ? `Created game ${key}.` : `Created game ${key} with the default test-server URL.`,
+		};
 	},
 
 	setGameProject: async ({ request, locals }) => {

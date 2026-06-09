@@ -6,6 +6,7 @@
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
 		getEditableParams,
+		isHudButtonBind,
 		resolveTransform,
 		type ComponentDef,
 		type ComponentParam,
@@ -55,6 +56,9 @@
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
 		 * (a container) with a parametric `reelGrid` node (scene mode). */
 		onConvertToReelGrid?: (id: string) => void;
+		/** "Convert to parametric button": replace the selected HUD button `bind`
+		 * container with a parametric `componentInstance(button)` node (scene mode). */
+		onConvertToParametricButton?: (id: string) => void;
 		/** Toggle an engine-catalog param on the draft component (component mode). */
 		onToggleParam?: (key: string, kind: ComponentParam['kind']) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
@@ -81,6 +85,7 @@
 		instanceComponent = null,
 		onEditAsComponent,
 		onConvertToReelGrid,
+		onConvertToParametricButton,
 		onToggleParam,
 		onToggleSignal,
 		onSetInstanceParam,
@@ -604,6 +609,15 @@
 				title="Replace this board mount-anchor with a parametric reel grid (editable reels / rows / cell size / padding; drives the in-game board position + cell size)"
 			>
 				⊞ Convert to parametric grid
+			</button>
+		{/if}
+		{#if !componentMode && onConvertToParametricButton && node.kind === 'container' && isHudButtonBind(node.bind?.component)}
+			<button
+				class="ghost-sm"
+				onclick={() => onConvertToParametricButton?.(node.id)}
+				title="Replace this coded HUD button with an editable parametric button (action + icon + style) at the same position; reversible by reseeding"
+			>
+				⊞ Convert to parametric button
 			</button>
 		{/if}
 	</div>

@@ -711,6 +711,10 @@
 				Games grid only when that project (or its client) is selected. Leave the project as
 				<em>Global</em> to show it on every selection. The launch URL gets the active project appended
 				(<code>?project=…</code>). Games will live on a future dedicated game server.
+				<strong>Leave the URL blank when creating</strong> and it auto-fills the standard test-server
+				URL for the key (<code>{data.gamesBaseUrl}/&lt;key&gt;/?sessionID=demo&amp;rgs_url=…/api/&lt;key&gt;&amp;lang=en</code>);
+				enter a URL only for games hosted elsewhere. The game still has to be published to that path to
+				actually load.
 			</p>
 			<div class="projects">
 				{#each data.games as g (g.key)}
@@ -747,7 +751,12 @@
 				<form method="POST" action="?/createGame" use:enhance class="project-row create">
 					<input name="key" type="text" placeholder="key (e.g. lines)" autocomplete="off" required />
 					<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
-					<input name="url" type="text" placeholder="https://… (optional)" autocomplete="off" />
+					<input
+						name="url"
+						type="text"
+						placeholder="https://… (blank = auto test-server URL)"
+						autocomplete="off"
+					/>
 					<select name="project">
 						<option value="">Global (all projects)</option>
 						{#each data.projects as p (p.key)}

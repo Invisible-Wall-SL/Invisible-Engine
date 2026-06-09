@@ -103,14 +103,18 @@
 			})),
 	);
 
-	// Stop the double-render (§14 B4.4): when a readout id is now a
-	// `componentInstance` node (B4.4 converts balance/win/bet to instances of the
-	// `hudReadout` def), the `instances` loop above renders it via the engine
-	// `<ComponentInstance>` path — so the coded `Label*` snippet for that id must NOT
-	// also render. `mounted(id)` is true exactly when a `componentInstance` node
-	// owns the id. Reverting the hud-scene nodes back to `bind` (B4.4 reversal) makes
-	// this false again, re-enabling the coded snippet → the old HUD, no other change.
-	// The coded `Label{Balance,Win,Bet}.svelte` + their snippet props stay in place.
+	// Stop the double-render (§14 B4.4 / §16.3 B6.3): when a HUD id is now a
+	// `componentInstance` node — the readouts (B4.4 converts balance/win/bet to
+	// `hudReadout` instances) OR the buttons (B6.4 converts the cluster to `button`
+	// instances) — the `instances` loop above renders it via the engine
+	// `<ComponentInstance>` path, so the coded snippet for that id (`Label*` /
+	// `buttonMenu`/`buttonBet`/…) must NOT also render. `mounted(id)` is true exactly
+	// when a `componentInstance` node owns the id. Reverting the hud-scene nodes back to
+	// `bind` makes this false again, re-enabling the coded snippet → the old HUD, no
+	// other change. The live `hudBarScene()` carries NO `button` instances, so every
+	// `mounted('hud-btn-…')` below is false in-game → the coded buttons render exactly
+	// as today (B6.3 is parity-safe; the guard only matters once B6.4 converts them).
+	// The coded `Label{Balance,Win,Bet}.svelte` + the button snippet props stay in place.
 	const mounted = (id: string) => instances.some((instance) => instance.node.id === id);
 
 	const ovr = $derived({
@@ -160,12 +164,12 @@
 			{@render props.amountBet({ stacked: true, ...ovr.bet })}
 		</Container>
 	{/if}
-	{#if pos.menu.visible}
+	{#if pos.menu.visible && !mounted('hud-btn-menu')}
 		<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }}>
 			{@render props.buttonMenu({ anchor: 0.5, tint: ovr.menu })}
 		</Container>
 	{/if}
-	{#if pos.buyBonus.visible}
+	{#if pos.buyBonus.visible && !mounted('hud-btn-buybonus')}
 		<Container
 			x={pos.buyBonus.x}
 			y={pos.buyBonus.y}
@@ -174,7 +178,7 @@
 			{@render props.buttonBuyBonus({ anchor: 0.5, tint: ovr.buyBonus })}
 		</Container>
 	{/if}
-	{#if pos.autoSpin.visible}
+	{#if pos.autoSpin.visible && !mounted('hud-btn-autospin')}
 		<Container
 			x={pos.autoSpin.x}
 			y={pos.autoSpin.y}
@@ -183,7 +187,7 @@
 			{@render props.buttonAutoSpin({ anchor: 0.5, tint: ovr.autoSpin })}
 		</Container>
 	{/if}
-	{#if pos.betBtn.visible}
+	{#if pos.betBtn.visible && !mounted('hud-btn-bet')}
 		<Container
 			x={pos.betBtn.x}
 			y={pos.betBtn.y}
@@ -192,12 +196,12 @@
 			{@render props.buttonBet({ anchor: 0.5, tint: ovr.betBtn })}
 		</Container>
 	{/if}
-	{#if pos.turbo.visible}
+	{#if pos.turbo.visible && !mounted('hud-btn-turbo')}
 		<Container x={pos.turbo.x} y={pos.turbo.y} scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }}>
 			{@render props.buttonTurbo({ anchor: 0.5, tint: ovr.turbo })}
 		</Container>
 	{/if}
-	{#if pos.decrease.visible}
+	{#if pos.decrease.visible && !mounted('hud-btn-decrease')}
 		<Container
 			x={pos.decrease.x}
 			y={pos.decrease.y}
@@ -206,7 +210,7 @@
 			{@render props.buttonDecrease({ anchor: 0.5, tint: ovr.decrease })}
 		</Container>
 	{/if}
-	{#if pos.increase.visible}
+	{#if pos.increase.visible && !mounted('hud-btn-increase')}
 		<Container
 			x={pos.increase.x}
 			y={pos.increase.y}
