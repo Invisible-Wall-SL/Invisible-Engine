@@ -97,6 +97,7 @@
 				rightWidth?: number;
 				leftTab?: string;
 				hiddenScenes?: string[];
+				libExpanded?: string[];
 			};
 			if (typeof s.leftWidth === 'number') leftWidth = clampWidth(s.leftWidth, 200, 560);
 			if (typeof s.rightWidth === 'number') rightWidth = clampWidth(s.rightWidth, 220, 640);
@@ -104,6 +105,20 @@
 			if (s.leftTab === 'library' || s.leftTab === 'outline') leftTab = s.leftTab;
 			if (Array.isArray(s.hiddenScenes)) {
 				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
+			}
+			// Restore expanded Library atlases + lazily hydrate their regions.
+			if (Array.isArray(s.libExpanded)) {
+				const exp: Record<string, boolean> = {};
+				for (const k of s.libExpanded) if (typeof k === 'string') exp[k] = true;
+				expanded = exp;
+				for (const k of Object.keys(exp)) {
+					if (regionSets[k] === undefined) {
+						regionSets = { ...regionSets, [k]: null };
+						void fetchRegions(k).then((set) => {
+							regionSets = { ...regionSets, [k]: set };
+						});
+					}
+				}
 			}
 		} catch {
 			/* corrupt prefs — ignore */
@@ -116,6 +131,7 @@
 			rightWidth,
 			leftTab,
 			hiddenScenes: [...hiddenScenes],
+			libExpanded: Object.keys(expanded).filter((k) => expanded[k]),
 		});
 		if (!uiLoaded || typeof localStorage === 'undefined') return;
 		try {

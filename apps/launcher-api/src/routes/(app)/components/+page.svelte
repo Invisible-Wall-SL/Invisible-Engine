@@ -20,6 +20,7 @@
 	import EditorProperties from '../editor/EditorProperties.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
+	import { isParamGroupOpen, setParamGroupOpen } from '../editor/groupCollapse.client';
 	import {
 		fetchRegions,
 		type RegionDragPayload,
@@ -805,7 +806,12 @@
 							{/each}
 						</div>
 						{#each defaultParamGroups as [groupName, groupParams] (groupName)}
-							<details class="param-group" open>
+							{@const groupKey = `${componentDraft?.id ?? ''}:${groupName}`}
+							<details
+								class="param-group"
+								open={isParamGroupOpen(groupKey)}
+								ontoggle={(e) => setParamGroupOpen(groupKey, e.currentTarget.open)}
+							>
 								<summary>{groupName}</summary>
 								<div class="defaults-grid">
 									{#each groupParams as param (param.key)}
