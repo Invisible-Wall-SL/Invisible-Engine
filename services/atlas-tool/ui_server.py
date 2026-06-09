@@ -4217,6 +4217,21 @@ class Handler(BaseHTTPRequestHandler):
             raw = ""
         elif raw.startswith("deploy/"):
             raw = raw[len("deploy/") :]
+        # SMART DEFAULT: still no subpath (no manifest value, no asset-map hit) →
+        # mirror the game's static/assets/ layout with `<kind>/<out_base>` instead
+        # of dumping to the flat deploy/ ROOT (which the game can't load from).
+        # Infer spine from the CHEAP signals already at hand — no R2 probe (the
+        # page-only skeleton probe below needs dest_prefix and runs later).
+        if not raw and out_base:
+            likely_spine = bool(force_page_only or m.get("deploy_page_only")
+                                or m.get("page_only"))
+            if not likely_spine and isinstance(map_entry, dict):
+                likely_spine = str(
+                    map_entry.get("kind", "")).strip().lower() == "spine"
+            raw = f"{'spines' if likely_spine else 'sprites'}/{out_base}"
+            note = (f"ℹ deploy_path defaulted → {raw} (mirrors static/assets/; "
+                    f"set a Deploy prefix to override)")
+            auto_note = f"{auto_note}  {note}" if auto_note else note
         if not raw:
             dest_prefix = base
         elif prefix and (raw == prefix or raw.startswith(prefix + "/")):
