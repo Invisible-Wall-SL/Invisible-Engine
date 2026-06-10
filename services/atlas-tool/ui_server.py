@@ -1965,17 +1965,23 @@ SPLASH = """<!doctype html><html><head><meta charset="utf-8">
   {pre:"> Annealing the random generator",    tail:"OK"}
  ];
 
- // The server is, by definition, ready — if the splash HTML reached the
- // browser, the HTTP server is up. So no probe is needed. We just play
- // the splash for a short MIN_TIME, then navigate to `?fast=1` where
- // _index() renders ONCE for the real UI. Before this we were fetching
- // /_index_html as a "readiness probe" which itself triggered a full
- // _index() render server-side — so every cold start rendered the heavy
- // UI twice (probe + navigation).
- const MIN_SPLASH_MS=1400;   // hard floor so the logo + a few lines play
+ // Fetch the real UI in the background while the splash types — ONE
+ // server-side _index() render total. (The old readiness probe fetched
+ // the heavy page AND then navigated to it, so every cold start rendered
+ // it twice; the fixed-timer replacement then froze the splash during the
+ // slow navigation. This does neither: fetch once, swap the document in.)
+ const _qp=new URLSearchParams(location.search);
+ _qp.set('fast','1');
+ const target='?'+_qp.toString();
+ const MIN_SPLASH_MS=1400;   // hard floor so the logo still plays on warm loads
  const splashStart=Date.now();
+ let uiHtml=null;
  let uiErr=null;
- const ready=()=>(Date.now()-splashStart)>=MIN_SPLASH_MS;
+ fetch(target,{credentials:'same-origin'})
+   .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+   .then(t=>{ if(!t) throw new Error('empty UI response'); uiHtml=t; })
+   .catch(e=>{ uiErr=String(e&&e.message||e); });
+ const ready=()=>(uiHtml!==null||uiErr!==null)&&(Date.now()-splashStart)>=MIN_SPLASH_MS;
 
  const CURSOR='<span class="cur"></span>';
  const FILL=44;        // column at which [ OK ] right-aligns
@@ -1995,9 +2001,10 @@ SPLASH = """<!doctype html><html><head><meta charset="utf-8">
   window.scrollTo(0,document.body.scrollHeight);
  }
 
- // (ready() is defined up top — true once MIN_SPLASH_MS has elapsed.
- // typeLine() / run() consult it to bail out of typing as soon as we're
- // allowed to navigate, so the splash never overstays its welcome.)
+ // (ready() is defined up top — true once the background fetch has
+ // settled AND MIN_SPLASH_MS has elapsed. typeLine() / run() consult it
+ // to bail out of typing as soon as we can swap the real UI in, so the
+ // splash never overstays its welcome.)
 
  async function typeLine(p){
   const text=p.pre||'';
@@ -2081,15 +2088,16 @@ SPLASH = """<!doctype html><html><head><meta charset="utf-8">
    paint();
    return;
   }
-  // Navigate to the real UI. Uses location.replace so the splash doesn't
-  // stay in browser history (Back button skips it). `?fast=1` makes the
-  // server skip the splash for any subsequent reload — that's how Save
-  // Settings (and any other location.reload() in the UI) avoids replaying
-  // the splash every time. Preserve any existing query params (home, sibling,
-  // and the editor deep-link's atlas/region) so the real UI still sees them.
-  const _qp=new URLSearchParams(location.search);
-  _qp.set('fast','1');
-  window.location.replace('?'+_qp.toString());
+  // Swap the already-fetched UI HTML into this document — no second
+  // navigation, no second server render. The page was fetched with
+  // `?fast=1` (in the background, up top); history.replaceState puts that
+  // URL in the address bar so any subsequent location.reload() in the UI
+  // (e.g. Save Settings) keeps fast=1 and skips the splash, and the splash
+  // never sits in history (Back button skips it). `target` preserves the
+  // existing query params (home, sibling, and the editor deep-link's
+  // atlas/region) so the real UI still sees them.
+  history.replaceState(null,'',target);
+  document.open(); document.write(uiHtml); document.close();
  })();
 })();
 </script></body></html>"""
