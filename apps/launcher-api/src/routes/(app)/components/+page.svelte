@@ -1007,6 +1007,9 @@
 	}
 
 	.create {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
 		padding: 10px;
 		border: 1px solid #1f1f28;
 		border-radius: 8px;
@@ -1016,6 +1019,7 @@
 	.create-row {
 		display: flex;
 		gap: 6px;
+		align-items: center;
 	}
 	.create-row input {
 		flex: 1;
@@ -1029,6 +1033,8 @@
 		font-family: inherit;
 	}
 	.create-row select {
+		flex: 1;
+		min-width: 0;
 		background: #16131c;
 		border: 1px solid #2a2433;
 		border-radius: 6px;
