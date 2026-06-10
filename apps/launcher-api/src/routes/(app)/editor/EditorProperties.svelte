@@ -1228,11 +1228,19 @@
 					value above. Need one? Add it under <strong>Component variables → Your params</strong>.
 				</p>
 				<div class="bind-grid">
+					<!-- The two image fields are mutually exclusive PER PARAM: one param value
+					     can't be both a frame name and an R2 asset key, so binding one side to
+					     a param the other side already uses clears the other side. -->
 					<label class="field wide">
 						<span>Image — atlas frame ← param</span>
 						<select
 							value={node.paramBindings?.['region'] ?? ''}
-							onchange={(e) => setParamBinding(node, 'region', e.currentTarget.value)}
+							onchange={(e) => {
+								const key = e.currentTarget.value;
+								if (key && node.paramBindings?.['assetKey'] === key)
+									setParamBinding(node, 'assetKey', '');
+								setParamBinding(node, 'region', key);
+							}}
 						>
 							<option value="">(none)</option>
 							{#each paramsForKinds(['string', 'image']) as p (p.key)}
@@ -1245,7 +1253,12 @@
 						<span>Image — whole texture ← param</span>
 						<select
 							value={node.paramBindings?.['assetKey'] ?? ''}
-							onchange={(e) => setParamBinding(node, 'assetKey', e.currentTarget.value)}
+							onchange={(e) => {
+								const key = e.currentTarget.value;
+								if (key && node.paramBindings?.['region'] === key)
+									setParamBinding(node, 'region', '');
+								setParamBinding(node, 'assetKey', key);
+							}}
 						>
 							<option value="">(none)</option>
 							{#each paramsForKinds(['string']) as p (p.key)}
@@ -1253,7 +1266,8 @@
 							{/each}
 						</select>
 						<span class="bind-hint"
-							>A standalone image or a different atlas — only if the frame lives elsewhere.</span
+							>A standalone image or a different atlas — only if the frame lives elsewhere. Picking
+							a param already used by the frame field moves it here.</span
 						>
 					</label>
 					<label class="field wide">

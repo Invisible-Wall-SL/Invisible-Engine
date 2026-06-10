@@ -781,6 +781,7 @@
 	function refreshAssets(): void {
 		images.clear();
 		regionSets.clear();
+		failedRegionKeys.clear();
 		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
 		clearPageImages(); // drop the Library thumbnails' shared page decodes (+ bust their HTTP cache)
 		clearFontCatalogCache(); // drop the module-level font catalog so it re-fetches
@@ -795,6 +796,9 @@
 	// key + per-frame rects) is editor-side only — resolved here, never saved.
 	// Keyed by `assetKey` so a reopened doc re-fetches automatically.
 	const regionSets = new Map<string, RegionSet | null>();
+	// Keys whose region fetch FAILED (403/404/…) — lets findRegion tell "still
+	// loading" apart from "never going to load" and fall back to the name index.
+	const failedRegionKeys = new Set<string>();
 	function ensureRegionSet(assetKey: string): RegionSet | null {
 		if (regionSets.has(assetKey)) return regionSets.get(assetKey) ?? null;
 		regionSets.set(assetKey, null);
@@ -807,8 +811,10 @@
 				draw(); // force a redraw once regions resolve (don't rely on raf dedup)
 			})
 			.catch((err) => {
+				failedRegionKeys.add(assetKey);
 				regSettled++;
 				console.warn('[editor] region load failed', assetKey, err);
+				draw(); // let findRegion's name-index fallback take over
 			});
 		return null;
 	}
@@ -844,19 +850,32 @@
 		assetKey: string,
 		regionName: string,
 	): { set: RegionSet; region: EditorRegion } | null {
-		const set = ensureRegionSet(assetKey);
-		if (!set) return null;
-		const region = set.regions.find((r) => r.name === regionName);
-		if (region) return { set, region };
-		// MISS in the named atlas. A frame may live in ANOTHER atlas — a per-instance
-		// `image`-param swap, or a sprite whose static `assetKey` no longer packs it.
-		// Resolve it by NAME through the one-time cross-atlas index, matching the game
-		// (which resolves frames across all loaded atlases). Only runs on a miss, so a
-		// normal same-atlas sprite pays nothing.
-		const indexed = spriteRegionIndex.get(regionName);
+		// An assetKey with no `/` can't be an R2 key — a broken def likely shoved a
+		// region NAME into it (e.g. a param bound to both image fields). Fetching it
+		// is a guaranteed 403, so skip the fetch and resolve purely by name below.
+		const looksLikeKey = assetKey.includes('/');
+		const set = looksLikeKey ? ensureRegionSet(assetKey) : null;
+		if (set) {
+			const region = set.regions.find((r) => r.name === regionName);
+			if (region) return { set, region };
+		} else if (looksLikeKey && !failedRegionKeys.has(assetKey)) {
+			// Fetch still in flight — let it settle first, so the normal same-atlas
+			// path never kicks off the full cross-atlas manifest scan.
+			return null;
+		}
+		// MISS in the named atlas (or the set failed to load / the key wasn't a key).
+		// A frame may live in ANOTHER atlas — a per-instance `image`-param swap, or a
+		// sprite whose static `assetKey` no longer packs it. Resolve it by NAME through
+		// the one-time cross-atlas index, matching the game (which resolves frames
+		// across all loaded atlases). Only runs on a miss, so a normal same-atlas
+		// sprite pays nothing. When `regionName` is empty, try `assetKey` itself as
+		// the name (a def that put a region name in assetKey).
+		const lookupName = regionName || (!looksLikeKey ? assetKey : '');
+		if (!lookupName) return null;
+		const indexed = spriteRegionIndex.get(lookupName);
 		if (indexed && indexed !== assetKey) {
 			const altSet = ensureRegionSet(indexed);
-			const altRegion = altSet?.regions.find((r) => r.name === regionName);
+			const altRegion = altSet?.regions.find((r) => r.name === lookupName);
 			if (altRegion) return { set: altSet, region: altRegion };
 		} else if (!indexed) {
 			ensureRegionIndex(); // build the index, then a later redraw resolves
