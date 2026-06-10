@@ -2600,15 +2600,17 @@
 		click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
 		(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
 	</div>
-	<button
-		class="fit"
-		onclick={refreshAssets}
-		type="button"
-		title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
-	>
-		↻ Reload art
-	</button>
-	<button class="fit" onclick={fitView} type="button">Fit</button>
+	<div class="canvas-actions">
+		<button
+			class="fit"
+			onclick={refreshAssets}
+			type="button"
+			title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
+		>
+			↻ Reload art
+		</button>
+		<button class="fit" onclick={fitView} type="button">Fit</button>
+	</div>
 </div>
 
 <style>
@@ -2682,10 +2684,14 @@
 		pointer-events: none;
 		text-shadow: 0 1px 2px #000;
 	}
-	.fit {
+	.canvas-actions {
 		position: absolute;
 		top: 10px;
 		right: 10px;
+		display: flex;
+		gap: 6px;
+	}
+	.fit {
 		background: #16161c;
 		color: #c8a3ff;
 		border: 1px solid #2a2430;
