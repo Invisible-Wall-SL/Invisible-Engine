@@ -1212,6 +1212,7 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
         # --- Parse regions + page metadata from whichever shape we got. ------
         regions: list[dict] = []
         page_name = ""
+        page_ref = ""
         width = height = 0
         if isinstance(doc.get("frames"), (dict, list)):
             # Raw TexturePacker (frames + meta).
@@ -1251,7 +1252,14 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
                     page_path = cand
                     break
             if page_path is None:
-                pulled = batch_atlas._hydrate_from_r2_by_name(page_name)
+                # Sheet-Maker page ref: hydrate by EXACT key (no list scan),
+                # preserving the sheets/sheet_src subtree — same as the other
+                # resolvers. Non-sheet refs fall back to the basename scan.
+                page_srel = batch_atlas._staging_rel(page_ref) if page_ref else ""
+                if page_srel.startswith("sheets/") or page_srel.startswith("sheet_src/"):
+                    pulled = batch_atlas._hydrate_from_r2_by_name(page_name, r2_key=page_ref)
+                else:
+                    pulled = batch_atlas._hydrate_from_r2_by_name(page_name)
                 if pulled is not None and pulled.exists():
                     page_path = pulled
         if page_path is None or not page_path.exists():
@@ -1337,6 +1345,33 @@ def _drop_fx_snapshot(name: str) -> None:
         pass
 
 
+def _resolve_region_ref(ref: str) -> Path | None:
+    """Resolve a region reference field (shape_ref / style_ref) to a real file
+    in staging. Handles three forms:
+      - absolute container path → as-is;
+      - a Sheet-Maker key (`sheets/…` / `sheet_src/…`, with or without the
+        `<C>/<P>` prefix) → lazy-hydrate the subtree, return STAGING_ROOT /
+        _staging_rel(ref); hydrate that exact key by-name if not on disk yet;
+      - anything else → INPUT_DIR-relative (legacy refs/ behaviour, unchanged).
+    Returns the resolved Path if it exists, else None."""
+    if not ref:
+        return None
+    if Path(ref).is_absolute():
+        p = Path(ref)
+        return p if p.exists() else None
+    srel = batch_atlas._staging_rel(ref)
+    if srel.startswith("sheets/") or srel.startswith("sheet_src/"):
+        project_paths.ensure_lazy(
+            "sheets/" if srel.startswith("sheets/") else "sheet_src/")
+        p = STAGING_ROOT / srel
+        if p.exists():
+            return p
+        pulled = batch_atlas._hydrate_from_r2_by_name(Path(srel).name, r2_key=ref)
+        return pulled if (pulled and pulled.exists()) else None
+    p = INPUT_DIR / ref
+    return p if p.exists() else None
+
+
 def _empty_manifest() -> dict:
     return {"atlas": {}, "style": {"positive_prefix": "",
             "positive_suffix": "", "negative": ""}, "regions": []}
@@ -1346,114 +1381,24 @@ def _empty_manifest() -> dict:
 # _index() turns it into a visible banner instead of letting the page 500.
 _load_warning: str = ""
 
-# Manifests already ingested this process (keyed by file path) so the B14
-# self-contained resolve runs once, not on every load_manifest() call.
-_ingested_manifests: set[str] = set()
-
-
-def _fetch_r2_into_input(r2_key: str, dest_rel: str) -> bool:
-    """Copy an R2 object into the staging INPUT_DIR at `dest_rel`, mirroring it
-    to THIS project's R2 prefix too (so it survives the next hydrate). Returns
-    True if the file now exists in staging. Best-effort: a miss leaves the
-    existing resolver to surface a clear 'not found' later."""
-    dest = INPUT_DIR / dest_rel
-    if dest.exists():
-        return True
-    body = storage.get(r2_key)
-    if body is None:
-        return False
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(body)
-    except OSError:
-        return False
-    _mirror(dest)
-    return True
-
-
-def _ingest_self_contained(m: dict, mp: Path) -> bool:
-    """B14 — make a Sheet-Maker manifest self-resolving inside the Atlas Maker.
-
-    A self-contained manifest carries R2 keys for the sibling files it was
-    exported with (`atlas.source_image_path`, `atlas.atlas_file`,
-    `atlas.texturepacker_json`, per-region `shape_ref`, all under
-    `export_prefix`). Those keys point into the Sheet Maker's R2 tree, NOT the
-    Atlas Maker's INPUT_DIR, so we copy each one into `refs/atlas/` (sheet page
-    + `.atlas`) or `refs/` (shape refs) and repoint the manifest at the
-    INPUT_DIR-relative paths `batch_atlas.atlas_file_path()` /
-    `source_image_candidates()` already resolve.
-
-    Runs once per manifest per process and only when there's something to do;
-    OLD manifests (no new fields) are untouched — today's manual-pick behaviour
-    is preserved. Returns True if the manifest was modified (caller saves)."""
-    atlas = m.get("atlas") or {}
-    changed = False
-
-    def _looks_like_r2_key(v: str) -> bool:
-        # A full R2 key from the Sheet Maker (sheet_maker/<c>/<p>/...); never an
-        # absolute local path, a Windows drive path, or an already-INPUT_DIR-
-        # relative refs/ path. (A Windows path like "C:\\..." is NOT
-        # Path.is_absolute() on Linux, so guard it explicitly — else ingest
-        # wastes an R2 fetch on a local path that can never be a key.)
-        v = (v or "").replace("\\", "/")
-        if not v or "/" not in v or v.startswith("refs/") or Path(v).is_absolute():
-            return False
-        return not re.match(r"^[A-Za-z]:/", v)  # not a Windows drive path
-
-    # .atlas geometry — only if the manifest doesn't already resolve one.
-    atlas_key = atlas.get("atlas_file")
-    if _looks_like_r2_key(atlas_key):
-        ap = batch_atlas.atlas_file_path(m, mp)
-        if ap is None or not ap.exists():
-            name = Path(atlas_key.replace("\\", "/")).name
-            if _fetch_r2_into_input(atlas_key, f"refs/atlas/{name}"):
-                atlas["atlas_file"] = f"refs/atlas/{name}"
-                changed = True
-
-    # Packed sheet page — repoint source_image at the staged copy so
-    # source_image_candidates() finds it under refs/atlas/.
-    page_key = atlas.get("source_image_path") or ""
-    if _looks_like_r2_key(page_key):
-        name = Path(page_key.replace("\\", "/")).name
-        if _fetch_r2_into_input(page_key, f"refs/atlas/{name}"):
-            atlas["source_image"] = f"refs/atlas/{name}"
-            atlas.pop("source_image_path", None)
-            changed = True
-
-    # Per-region shape refs (loose trims). Pull each into refs/ and repoint to
-    # the INPUT_DIR-relative path the region card / generate already resolves.
-    for r in m.get("regions") or []:
-        sk = r.get("shape_ref")
-        if _looks_like_r2_key(sk):
-            name = Path(sk.replace("\\", "/")).name
-            dest_rel = f"refs/{name}"
-            if _fetch_r2_into_input(sk, dest_rel):
-                r["shape_ref"] = dest_rel
-                changed = True
-
-    if changed:
-        m["atlas"] = atlas
-    return changed
-
 
 def load_manifest() -> dict:
     """The active manifest, or an empty in-memory instance if the configured
     file was renamed/deleted/corrupted. Never raises — a bad manifest must not
     take the whole UI down; it surfaces as a banner so the user can pick
-    another from the dropdown or recreate it."""
+    another from the dropdown or recreate it.
+
+    UNIFY: Sheet-Maker manifests carry R2 keys (`atlas.atlas_file`,
+    `atlas.source_image_path`, per-region `shape_ref`) under `sheets/` /
+    `sheet_src/`. The Section-2 resolvers (atlas_file_path,
+    source_image_candidates, _resolve_region_ref) now hydrate those keys
+    DIRECTLY from their Sheet-Maker location into staging — so there is no
+    longer a copy/ingest step here. load_manifest just parses + returns."""
     global _load_warning
     mp = manifest_path()
     try:
         m = json.loads(mp.read_text(encoding="utf-8"))
         _load_warning = ""
-        key = str(mp)
-        if key not in _ingested_manifests:
-            _ingested_manifests.add(key)
-            try:
-                if _ingest_self_contained(m, mp):
-                    save_manifest(m)
-            except Exception:  # noqa: BLE001 — ingest is best-effort, never fatal
-                pass
         return m
     except FileNotFoundError:
         _load_warning = (f"Manifest \"{mp.name}\" was not found (renamed or "
@@ -1592,12 +1537,13 @@ def fx_source(m: dict, name: str) -> Path | None:
     s = batch_atlas._pick_variant_png(BATCH_DIR, region)
     if s and s.exists():
         return s
-    # 4. The region's own reference (original atlas slice, etc.).
+    # 4. The region's own reference (original atlas slice, etc.). Refs may be a
+    #    Sheet-Maker `sheets/`/`sheet_src/` key — _resolve_region_ref hydrates it.
     for key in ("style_ref", "shape_ref"):
         ref = region.get(key)
         if ref:
-            p = Path(ref) if Path(ref).is_absolute() else INPUT_DIR / ref
-            if p.exists():
+            p = _resolve_region_ref(ref)
+            if p is not None:
                 return p
     return None
 
@@ -3762,8 +3708,8 @@ class Handler(BaseHTTPRequestHandler):
         for key in ("shape_ref", "style_ref"):
             ref = region.get(key)
             if ref:
-                p = Path(ref) if Path(ref).is_absolute() else INPUT_DIR / ref
-                if p.exists():
+                p = _resolve_region_ref(ref)
+                if p is not None:
                     return p
         return None
 
@@ -4555,10 +4501,18 @@ class Handler(BaseHTTPRequestHandler):
                    b'text-anchor="middle">IW</text></svg>')
 
     def _fsbrowse(self, path: str, key: str = "") -> bytes:
-        """R2 file picker. Browses the project's R2 asset repo (mirrored into the
-        local staging INPUT_DIR) as a folder tree, returning INPUT_DIR-relative
-        paths — which is exactly what region `style_ref`/`source_image` fields
-        expect. `path` is the relative subfolder ("" = repo root). Read-only.
+        """R2 file picker. Browses the project's R2 asset repo (mirrored into
+        staging) as a folder tree. Rooted at STAGING_ROOT with an ALLOWED-ROOTS
+        whitelist — the picker may descend only into `input/` (legacy refs),
+        the Sheet-Maker `sheets/`/`sheet_src/` subtrees, and `atlas/`.
+
+        Returned `path` values are RELATIVIZED PER ROOT so existing callers don't
+        break: an `input/` pick comes back input-rooted (e.g. `refs/foo.png`),
+        exactly as before, since the region fields + INPUT_DIR resolvers expect
+        that; a sheet pick comes back STAGING_ROOT-rooted (e.g.
+        `sheets/foo/bar.png`), which the Section-2 resolvers
+        (_resolve_region_ref / atlas_file_path / source_image_candidates) now
+        accept. `rel`/`up` navigation stays STAGING_ROOT-relative throughout.
 
         `key` tunes the filter: `atlas_file` also lists `.atlas` geometry;
         `deploy_path` lists folders only. Everything else lists images."""
@@ -4566,25 +4520,67 @@ class Handler(BaseHTTPRequestHandler):
         exts = img_exts | {".atlas"} if key == "atlas_file" else img_exts
         folder_only = key == "deploy_path"
         try:
-            root = INPUT_DIR.resolve()
+            root = STAGING_ROOT.resolve()
             root.mkdir(parents=True, exist_ok=True)
+            input_root = INPUT_DIR.resolve()
+            # Permitted subtrees under STAGING_ROOT. Anything outside these snaps
+            # back to root (which lists only their top-level names).
+            allowed = [input_root, (root / "sheets").resolve(),
+                       (root / "sheet_src").resolve(), (root / "atlas").resolve()]
+            # Hydrate the Sheet-Maker subtrees lazily so they're populated before
+            # we list them (they're not eagerly pulled at project open).
+            project_paths.ensure_lazy("sheets/")
+            project_paths.ensure_lazy("sheet_src/")
             rel = (path or "").strip().replace("\\", "/").strip("/")
+            # Legacy field values (e.g. `refs/atlas/foo.png` → folder `refs/atlas`)
+            # are INPUT_DIR-relative with no allowed top-level segment; map them to
+            # `input/<rel>` so the picker opens at that folder instead of snapping
+            # to root. STAGING-rooted nav paths already lead with an allowed segment.
+            top = rel.split("/", 1)[0] if rel else ""
+            if rel and top not in ("input", "sheets", "sheet_src", "atlas"):
+                rel = f"input/{rel}"
             cur = (root / rel).resolve()
-            # Never escape the repo root.
-            if root != cur and root not in cur.parents:
+            # Allow root itself, or any path AT/UNDER one of the allowed subtrees.
+            ok = (cur == root) or any(
+                sub == cur or sub in cur.parents for sub in allowed)
+            if not ok or not cur.is_dir():
                 cur, rel = root, ""
-            if not cur.is_dir():
-                cur, rel = root, ""
-            dirs, files = [], []
-            for e in sorted(cur.iterdir(), key=lambda p: p.name.lower()):
+
+            def _file_path(e: Path) -> str:
+                # FILE picks are per-root: input/ files come back input-rooted
+                # (unchanged legacy behaviour — region fields + INPUT_DIR
+                # resolvers expect `refs/…`); sheet files come back STAGING-rooted
+                # (`sheets/…`), which the Section-2 resolvers now accept.
+                er = e.resolve()
                 try:
-                    rp = e.relative_to(root).as_posix()
-                    if e.is_dir():
-                        dirs.append({"name": e.name, "path": rp})
-                    elif not folder_only and e.suffix.lower() in exts:
-                        files.append({"name": e.name, "path": rp})
+                    if er == input_root or input_root in er.parents:
+                        return er.relative_to(input_root).as_posix()
                 except (OSError, ValueError):
-                    continue
+                    pass
+                return er.relative_to(root).as_posix()
+
+            dirs, files = [], []
+            if cur == root:
+                # At root, list ONLY the allowed subdir names (input/sheets/…).
+                # Dir nav paths are ALWAYS STAGING-rooted (the browser re-roots
+                # at STAGING_ROOT), so input/ navigates as `input`, sheets as
+                # `sheets`, etc. — independent of the per-root file relativization.
+                for sub in allowed:
+                    if sub.is_dir():
+                        dirs.append({"name": sub.name,
+                                     "path": sub.relative_to(root).as_posix()})
+            else:
+                for e in sorted(cur.iterdir(), key=lambda p: p.name.lower()):
+                    try:
+                        if e.is_dir():
+                            # STAGING-rooted nav path so fsList(d.path) re-roots
+                            # correctly under STAGING_ROOT for every subtree.
+                            dirs.append({"name": e.name,
+                                         "path": e.resolve().relative_to(root).as_posix()})
+                        elif not folder_only and e.suffix.lower() in exts:
+                            files.append({"name": e.name, "path": _file_path(e)})
+                    except (OSError, ValueError):
+                        continue
             if rel == "":
                 up = None
             else:
@@ -5204,8 +5200,8 @@ class Handler(BaseHTTPRequestHandler):
         for key in ("shape_ref", "style_ref"):
             ref = region.get(key)
             if ref:
-                p = Path(ref) if Path(ref).is_absolute() else INPUT_DIR / ref
-                if p.exists():
+                p = _resolve_region_ref(ref)
+                if p is not None:
                     src = p
                     break
         if src is None:

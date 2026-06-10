@@ -253,6 +253,10 @@ CF_HEADERS = dict(_PP.get("cf_headers") or {})
 BATCH_DIR = _PathProxy("batch_dir")
 ATLAS_DIR = _PathProxy("atlas_dir")
 INPUT_DIR = _PathProxy("input_dir")
+# The (client, project)-rooted staging dir itself (parent of input/batch/atlas).
+# Sheet-Maker artifacts mirror into `sheets/` and `sheet_src/` SIBLINGS of
+# input/, so resolving them needs the staging root, not INPUT_DIR.
+STAGING_ROOT = _PathProxy("staging_root")
 # Where manifests (and `.atlas` files picked into the tool) live in the
 # R2-backed staging mirror — NOT the script dir. A bare `--manifest` name must
 # resolve here, else compose/slice hit /app/<name> and FileNotFoundError.
@@ -424,32 +428,103 @@ def region_trim(region: dict) -> tuple[int, int, int, int]:
     return ox, oy, ow, oh
 
 
-def _hydrate_from_r2_by_name(name: str) -> Path | None:
-    """Pull a geometry/page file into staging by its bare basename when it isn't
-    on local disk yet. A legacy/Windows-authored manifest names an atlas/page
-    that lives in R2 (seeded by seed_r2.py) but was never hydrated into this
-    container's staging — so resolve it from the active project's R2 tree at the
-    two locations it can live (`input/refs/atlas/<name>` — the INPUT_DIR mirror —
-    and the shared `manifests/<name>`), drop it into `INPUT_DIR/refs/atlas/<name>`
-    and return that local path. Best-effort; returns None if R2 is empty/down."""
-    if not name:
-        return None
+def _staging_rel(key: str) -> str:
+    """Map a (possibly project-prefixed) R2 key to a STAGING_ROOT-relative path.
+
+    The Sheet Maker writes keys WITH the `<client>/<project>/` prefix (e.g.
+    `borut/hotfruits/sheets/foo/bar.png`), but STAGING_ROOT is ALREADY
+    project-rooted, so building `STAGING_ROOT / <key>` verbatim yields
+    `staging_root/<C>/<P>/sheets/...` (file-not-found). Strip a leading
+    `r2_project_prefix + "/"` if present and return the remainder
+    (`sheets/foo/bar.png`); keys that already lack the prefix pass through.
+    Always normalises Windows separators and strips a leading slash."""
+    k = (key or "").replace("\\", "/").lstrip("/")
+    try:
+        prefix = project_paths.resolve().get("r2_project_prefix") or ""
+    except Exception:  # noqa: BLE001
+        prefix = ""
+    if prefix:
+        prefix = prefix.replace("\\", "/").strip("/")
+        if k == prefix:
+            return ""
+        if k.startswith(prefix + "/"):
+            return k[len(prefix) + 1:]
+    return k
+
+
+def _hydrate_from_r2_by_name(name: str, r2_key: str | None = None) -> Path | None:
+    """Pull a geometry/page file into staging when it isn't on local disk yet.
+
+    Two modes:
+      - `r2_key` given (a full R2 key, e.g. a Sheet-Maker `sheets/…`/`sheet_src/…`
+        artifact): fetch that EXACT key (no list scan) and write it to
+        `STAGING_ROOT / _staging_rel(r2_key)`, preserving the sheets/sheet_src
+        subtree. Returns that local path.
+      - no `r2_key`: a legacy/Windows-authored manifest names an atlas/page by
+        bare basename. Probe the two historic locations (`input/refs/atlas/<name>`
+        — the INPUT_DIR mirror — and the shared `manifests/<name>`) writing to
+        `INPUT_DIR/refs/atlas/<name>`, AND scan `sheets/`/`sheet_src/` for a key
+        whose basename matches, writing that to `STAGING_ROOT / _staging_rel(key)`.
+
+    Best-effort; returns None if R2 is empty/down."""
     try:
         r2_prefix = project_paths.resolve().get("r2_project_prefix")
     except Exception:  # noqa: BLE001
         return None
     if not r2_prefix:
         return None
-    for key in (f"{r2_prefix}/input/refs/atlas/{name}", f"{r2_prefix}/manifests/{name}"):
+    # Direct by-key fetch: write into staging preserving the sheets/ subtree.
+    # The caller may pass either a full prefixed key (`<C>/<P>/sheets/…`, from a
+    # self-contained manifest) or a staging-relative one (`sheets/…`, from an
+    # /fsbrowse pick). Normalise to the staging-relative remainder, then rebuild
+    # the canonical full R2 key for storage.get — and dest from STAGING_ROOT.
+    if r2_key:
+        srel = _staging_rel(r2_key)
+        if not srel:  # ref equal to the project prefix → don't write to staging root
+            return None
+        full_key = f"{r2_prefix}/{srel}"
+        blob = storage.get(full_key)
+        if not blob:
+            return None
+        dest = STAGING_ROOT / srel
         try:
-            blob = storage.get(key)
-        except Exception:  # noqa: BLE001
-            blob = None
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(blob)
+            return dest
+        except OSError:
+            return None
+    if not name:
+        return None
+    # Historic locations — write to refs/atlas/ as today.
+    for key in (f"{r2_prefix}/input/refs/atlas/{name}", f"{r2_prefix}/manifests/{name}"):
+        blob = storage.get(key)
         if blob:
             dest = INPUT_DIR / "refs" / "atlas" / name
             try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(blob)
+                return dest
+            except OSError:
+                return None
+    # Sheet-Maker subtrees: basename scan, then fetch the exact key and write it
+    # into staging preserving the sheets/sheet_src subtree.
+    for sub in ("sheets/", "sheet_src/"):
+        try:
+            entries = storage.list_keys(f"{r2_prefix}/{sub}")
+        except Exception:  # noqa: BLE001
+            entries = []
+        for entry in entries:
+            key = entry.get("key") if isinstance(entry, dict) else str(entry)
+            if not key or os.path.basename(key) != name:
+                continue
+            blob = storage.get(key)
+            if not blob:
+                continue
+            dest = STAGING_ROOT / _staging_rel(key)
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(blob)
+                print(f"[atlas] hydrate-by-name {name} <- {key}")
                 return dest
             except OSError:
                 return None
@@ -483,15 +558,31 @@ def atlas_file_path(manifest: dict, manifest_path: Path) -> Path | None:
         return p
     rel = ref.replace("\\", "/").lstrip("/")
     name = Path(rel).name  # rel uses '/', so this is the true basename
-    for cand in (manifest_path.parent / rel, INPUT_DIR / rel,
-                 manifest_path.parent / name, INPUT_DIR / "refs" / "atlas" / name,
-                 INPUT_DIR / name, SELF / name):
+    cands: list[Path] = []
+    # Sheet-Maker artifact: `atlas_file` is an R2 key under sheets/ (packed
+    # `.atlas`) or sheet_src/ (loose). STAGING_ROOT mirrors the project root 1:1,
+    # so the staged copy lives at STAGING_ROOT / <subtree-relative>. Hydrate that
+    # subtree lazily first, then offer the staged path BEFORE the basename
+    # fallbacks below. _staging_rel() strips the project prefix (CRITICAL —
+    # raw `STAGING_ROOT / <key>` would double the <C>/<P> prefix).
+    srel = _staging_rel(ref)
+    if srel.startswith("sheets/") or srel.startswith("sheet_src/"):
+        project_paths.ensure_lazy("sheets/" if srel.startswith("sheets/") else "sheet_src/")
+        cands.append(STAGING_ROOT / srel)
+    cands += [manifest_path.parent / rel, INPUT_DIR / rel,
+              manifest_path.parent / name, INPUT_DIR / "refs" / "atlas" / name,
+              INPUT_DIR / name, SELF / name]
+    for cand in cands:
         if cand.exists():
             return cand
     # Nothing on disk yet — the manifest was likely authored offline with a
-    # local/Windows `atlas_file`, but seed_r2 placed the geometry in R2. Pull it
-    # into staging by basename so resolution succeeds without a manual upload.
-    pulled = _hydrate_from_r2_by_name(name)
+    # local/Windows `atlas_file`, but seed_r2 / the Sheet Maker placed the
+    # geometry in R2. A sheets/ key fetches by exact key; otherwise pull by
+    # basename so resolution succeeds without a manual upload.
+    if srel.startswith("sheets/") or srel.startswith("sheet_src/"):
+        pulled = _hydrate_from_r2_by_name(name, r2_key=ref)
+    else:
+        pulled = _hydrate_from_r2_by_name(name)
     if pulled is not None:
         return pulled
     # Still nothing — report against the location an Upload .atlas / the
@@ -531,7 +622,20 @@ def source_image_candidates(manifest: dict, atlas_path: Path | None,
       2. the bound `.atlas`'s page image, next to the `.atlas` file;
       3. <input>/<page>,  <input>/refs/<page>,  <input>/refs/atlas/<page>."""
     cands: list[Path] = []
-    si = (manifest.get("atlas") or {}).get("source_image")
+    atlas_meta = manifest.get("atlas") or {}
+    # Sheet-Maker self-contained manifests carry the packed PAGE PNG as an R2 key
+    # in `source_image_path` (under sheets/). STAGING_ROOT mirrors the project
+    # root 1:1, so the staged copy is STAGING_ROOT / _staging_rel(key) — offered
+    # FIRST (highest priority) so it wins over legacy basename guesses, and used
+    # as the by-key fallback. _staging_rel() strips the <C>/<P> prefix (CRITICAL:
+    # raw STAGING_ROOT / <key> would double it).
+    sip = atlas_meta.get("source_image_path")
+    sip_srel = _staging_rel(sip) if sip else ""
+    if sip_srel.startswith("sheets/") or sip_srel.startswith("sheet_src/"):
+        project_paths.ensure_lazy(
+            "sheets/" if sip_srel.startswith("sheets/") else "sheet_src/")
+        cands.append(STAGING_ROOT / sip_srel)
+    si = atlas_meta.get("source_image")
     if si:
         p = Path(si)
         if p.is_absolute():
@@ -546,12 +650,16 @@ def source_image_candidates(manifest: dict, atlas_path: Path | None,
             cands.append(atlas_path.parent / pg)
         cands += [INPUT_DIR / pg, INPUT_DIR / "refs" / pg,
                   INPUT_DIR / "refs" / "atlas" / pg]
-    # Legacy/offline manifest: the page lives in R2 (seeded under refs/atlas/)
-    # but isn't in staging yet. If nothing on disk matches, pull it by basename
-    # so compose/slice find it — same auto-hydrate atlas_file_path does.
+    # Nothing on disk yet — auto-hydrate from R2. A Sheet-Maker `source_image_path`
+    # fetches by EXACT key (preserving the sheets/ subtree); otherwise the legacy
+    # page (seeded under refs/atlas/) pulls by basename. Same as atlas_file_path.
     if not any(c.exists() for c in cands):
-        name = Path((si or page_image or "").replace("\\", "/")).name
-        pulled = _hydrate_from_r2_by_name(name)
+        if sip_srel.startswith("sheets/") or sip_srel.startswith("sheet_src/"):
+            name = Path(sip_srel).name
+            pulled = _hydrate_from_r2_by_name(name, r2_key=sip)
+        else:
+            name = Path((si or page_image or "").replace("\\", "/")).name
+            pulled = _hydrate_from_r2_by_name(name)
         if pulled is not None:
             cands.append(pulled)
     return cands

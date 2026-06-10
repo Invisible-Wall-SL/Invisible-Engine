@@ -121,7 +121,7 @@ _HYDRATE_LOCK: threading.Lock = _CTX.hydrate_lock
 # NB: `deploy/` is listed here ONLY so `hydrate(force=True)` and clearcache clear
 # any stale guard for it — nothing READS local `deploy/` (it's write-only to R2),
 # so there is deliberately no `ensure_lazy("deploy/")` chokepoint to find.
-_LAZY_SUBTREES = ("batch/", "deploy/")
+_LAZY_SUBTREES = ("batch/", "deploy/", "sheets/", "sheet_src/")
 _LAZY_DONE: set[tuple[str, str, str]] = set()
 # Reentrant: clearcache holds it across a force-`hydrate()` call, which itself
 # re-takes this lock to discard the force-cleared guards.
@@ -222,6 +222,7 @@ def ensure_lazy(subtree: str) -> None:
             return
         _LAZY_DONE.add(key)
         try:
+            print(f"[atlas] lazy-pull {sub} for {client_key}/{proj_key}")
             storage.pull_prefix(base + "/" + sub, staging_root, base + "/")
         except Exception:  # noqa: BLE001 — first run / empty bucket / transient
             _LAZY_DONE.discard(key)
