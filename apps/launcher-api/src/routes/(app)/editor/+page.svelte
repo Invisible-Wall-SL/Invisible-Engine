@@ -38,6 +38,7 @@
 		type RegionDragPayload,
 		type RegionSet,
 	} from './editorRegions.client';
+	import { isSectionOpen, setSectionOpen } from './sectionCollapse.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -1425,7 +1426,6 @@
 						Load
 					</button>
 				</div>
-				<h3 class="screens-h">Screens <span class="count">{sceneCount}</span></h3>
 				{#snippet sceneRow(s: (typeof scenes)[number], i: number)}
 					{@const hidden = hiddenScenes.has(s.id)}
 					<li class="screen-li">
@@ -1471,97 +1471,106 @@
 						</button>
 					</li>
 				{/snippet}
-				<ul class="screens">
-					{#if sceneCount === 0}
-						<li class="muted">No scenes yet — load a game scene above.</li>
-					{:else}
-						{#each gameSceneEntries as { s, i } (s.id)}
-							{@render sceneRow(s, i)}
-						{/each}
-						{#if hudSceneEntries.length > 0}
-							<li class="screens-subhead">
-								<span>HUD</span>
-								<span
-									class="sub-note"
-									title="The HUD is the top-most UI layer — it always renders above the game screens"
-									>top layer</span
-								>
-							</li>
-							{#each hudSceneEntries as { s, i } (s.id)}
+				<details
+					class="panel-sec"
+					open={isSectionOpen('screens')}
+					ontoggle={(e) => setSectionOpen('screens', e.currentTarget.open)}
+				>
+					<summary class="sec-h"
+						><span class="sec-title">Screens</span><span class="count">{sceneCount}</span></summary
+					>
+					<ul class="screens">
+						{#if sceneCount === 0}
+							<li class="muted">No scenes yet — load a game scene above.</li>
+						{:else}
+							{#each gameSceneEntries as { s, i } (s.id)}
 								{@render sceneRow(s, i)}
 							{/each}
+							{#if hudSceneEntries.length > 0}
+								<li class="screens-subhead">
+									<span>HUD</span>
+									<span
+										class="sub-note"
+										title="The HUD is the top-most UI layer — it always renders above the game screens"
+										>top layer</span
+									>
+								</li>
+								{#each hudSceneEntries as { s, i } (s.id)}
+									{@render sceneRow(s, i)}
+								{/each}
+							{/if}
 						{/if}
+					</ul>
+
+					{#if activeScene}
+						<div class="scene-space">
+							<label class="space-field">
+								<span>space</span>
+								<select
+									value={activeScene.space ?? 'game'}
+									onchange={(e) => setSceneSpace(e.currentTarget.value)}
+									title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
+								>
+									<option value="game">game (main box)</option>
+									<option value="standard">standard (HUD box)</option>
+									<option value="canvas">canvas (window edges)</option>
+									<option value="background">background (cover-fit)</option>
+								</select>
+							</label>
+							{#if activeScene.space === 'standard'}
+								<div class="space-aligns">
+									<label class="space-field">
+										<span>v-align</span>
+										<select
+											value={activeScene.align?.vertical ?? ''}
+											onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
+										>
+											<option value="">centre</option>
+											<option value="center">center</option>
+											<option value="bottom">bottom</option>
+										</select>
+									</label>
+									<label class="space-field">
+										<span>h-align</span>
+										<select
+											value={activeScene.align?.horizontal ?? ''}
+											onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
+										>
+											<option value="">centre</option>
+											<option value="center">center</option>
+											<option value="left">left</option>
+											<option value="right">right</option>
+										</select>
+									</label>
+								</div>
+							{/if}
+						</div>
 					{/if}
-				</ul>
 
-				{#if activeScene}
-					<div class="scene-space">
-						<label class="space-field">
-							<span>space</span>
-							<select
-								value={activeScene.space ?? 'game'}
-								onchange={(e) => setSceneSpace(e.currentTarget.value)}
-								title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
-							>
-								<option value="game">game (main box)</option>
-								<option value="standard">standard (HUD box)</option>
-								<option value="canvas">canvas (window edges)</option>
-								<option value="background">background (cover-fit)</option>
-							</select>
-						</label>
-						{#if activeScene.space === 'standard'}
-							<div class="space-aligns">
-								<label class="space-field">
-									<span>v-align</span>
-									<select
-										value={activeScene.align?.vertical ?? ''}
-										onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
-									>
-										<option value="">centre</option>
-										<option value="center">center</option>
-										<option value="bottom">bottom</option>
-									</select>
-								</label>
-								<label class="space-field">
-									<span>h-align</span>
-									<select
-										value={activeScene.align?.horizontal ?? ''}
-										onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
-									>
-										<option value="">centre</option>
-										<option value="center">center</option>
-										<option value="left">left</option>
-										<option value="right">right</option>
-									</select>
-								</label>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<button
-					class="add-hud-btn"
-					type="button"
-					title={hasHud
-						? 'Refresh the HUD scenes to the latest version (resets HUD positions)'
-						: 'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything'}
-					onclick={addHudLayer}
-				>
-					{hasHud ? '↻ Refresh HUD layer' : '＋ Add HUD layer'}
-				</button>
-
-				{#if missingScreens.length > 0}
 					<button
 						class="add-hud-btn"
 						type="button"
-						title={`Add ${missingScreens.length} screen(s) this game has but the layout is missing (e.g. the logo/loading screen) — non-destructive, keeps your edits: ${missingScreens
-							.map((s) => s.name || s.id)
-							.join(', ')}`}
-						onclick={addMissingScreens}
+						title={hasHud
+							? 'Refresh the HUD scenes to the latest version (resets HUD positions)'
+							: 'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything'}
+						onclick={addHudLayer}
 					>
-						＋ Add missing screens ({missingScreens.length})
+						{hasHud ? '↻ Refresh HUD layer' : '＋ Add HUD layer'}
 					</button>
-				{/if}
+
+					{#if missingScreens.length > 0}
+						<button
+							class="add-hud-btn"
+							type="button"
+							title={`Add ${missingScreens.length} screen(s) this game has but the layout is missing (e.g. the logo/loading screen) — non-destructive, keeps your edits: ${missingScreens
+								.map((s) => s.name || s.id)
+								.join(', ')}`}
+							onclick={addMissingScreens}
+						>
+							＋ Add missing screens ({missingScreens.length})
+						</button>
+					{/if}
+				</details>
 			</div>
 
 			<div class="tabs" role="tablist" aria-label="Left panel">
@@ -1609,8 +1618,12 @@
 
 			<div class="tab-body">
 				{#if leftTab === 'library'}
-					<section>
-						<h3>Elements</h3>
+					<details
+						class="panel-sec"
+						open={isSectionOpen('lib-elements')}
+						ontoggle={(e) => setSectionOpen('lib-elements', e.currentTarget.open)}
+					>
+						<summary class="sec-h"><span class="sec-title">Elements</span></summary>
 						<ul>
 							<li
 								draggable="true"
@@ -1628,10 +1641,17 @@
 								<span class="tag">group</span>
 							</li>
 						</ul>
-					</section>
+					</details>
 
-					<section>
-						<h3>Atlases <span class="count">{atlasCount}</span></h3>
+					<details
+						class="panel-sec"
+						open={isSectionOpen('lib-atlases')}
+						ontoggle={(e) => setSectionOpen('lib-atlases', e.currentTarget.open)}
+					>
+						<summary class="sec-h"
+							><span class="sec-title">Atlases</span><span class="count">{atlasCount}</span
+							></summary
+						>
 						<ul>
 							{#each data.assets.atlases as a (a.key)}
 								{#if a.kind === 'atlas-manifest'}
@@ -1652,21 +1672,29 @@
 								<li class="muted">No atlases yet.</li>
 							{/each}
 						</ul>
-					</section>
+					</details>
 
-					<section>
-						<h3>
-							Spines <span class="count">{spineCount}</span>
+					<details
+						class="panel-sec"
+						open={isSectionOpen('lib-spines')}
+						ontoggle={(e) => setSectionOpen('lib-spines', e.currentTarget.open)}
+					>
+						<summary class="sec-h">
+							<span class="sec-title">Spines</span>
+							<span class="count">{spineCount}</span>
 							<button
 								type="button"
 								class="upload-btn"
 								disabled={spineUploadBusy}
 								title="Pick a folder of Spine bundles to sync to this project (R2)"
-								onclick={() => spineFileInput?.click()}
+								onclick={(e) => {
+									e.stopPropagation();
+									spineFileInput?.click();
+								}}
 							>
 								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
 							</button>
-						</h3>
+						</summary>
 						<input
 							bind:this={spineFileInput}
 							type="file"
@@ -1697,10 +1725,16 @@
 								<li class="muted">No spines yet.</li>
 							{/each}
 						</ul>
-					</section>
+					</details>
 
-					<section>
-						<h3>Sheets <span class="count">{sheetCount}</span></h3>
+					<details
+						class="panel-sec"
+						open={isSectionOpen('lib-sheets')}
+						ontoggle={(e) => setSectionOpen('lib-sheets', e.currentTarget.open)}
+					>
+						<summary class="sec-h"
+							><span class="sec-title">Sheets</span><span class="count">{sheetCount}</span></summary
+						>
 						<ul>
 							{#each data.assets.sheets as sh (sh.key)}
 								{@render expandable(sh.key, sh.name, 'sheet')}
@@ -1708,7 +1742,7 @@
 								<li class="muted">No sheets yet.</li>
 							{/each}
 						</ul>
-					</section>
+					</details>
 				{:else if leftTab === 'template'}
 					<EditorTemplatePanel
 						template={activeTemplate}
@@ -2113,14 +2147,44 @@
 		font-size: 12px;
 		font-family: inherit;
 	}
-	.screens-h {
+	/* Collapsible left-panel sections (Screens, Elements, Atlases, Spines, Sheets).
+	   Native <details>; open/closed persisted via sectionCollapse.client.ts. */
+	.panel-sec {
+		margin: 0 0 4px;
+	}
+	.panel-sec > summary.sec-h {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+		list-style: none;
+		user-select: none;
 		font-size: 11px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: #aaa;
 		margin: 0 0 6px;
-		display: flex;
-		justify-content: space-between;
+	}
+	.panel-sec > summary.sec-h::-webkit-details-marker {
+		display: none;
+	}
+	.panel-sec > summary.sec-h::before {
+		content: '▸';
+		font-size: 9px;
+		color: #667;
+		transition: transform 0.12s ease;
+	}
+	.panel-sec[open] > summary.sec-h::before {
+		transform: rotate(90deg);
+	}
+	.sec-title {
+		font-weight: 600;
+	}
+	.panel-sec .count {
+		margin-left: auto;
+	}
+	.panel-sec .upload-btn {
+		margin-left: 4px;
 	}
 	.screens {
 		list-style: none;
@@ -2316,16 +2380,6 @@
 		color: #888;
 		margin: 0 0 14px;
 	}
-	h3 {
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #aaa;
-		margin: 14px 0 6px;
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
 	.count {
 		color: #555;
 		font-weight: 400;
@@ -2366,7 +2420,10 @@
 	.upload-status.error {
 		color: #ff9a9a;
 	}
-	.tab-body section:first-of-type h3 {
+	.tab-body .panel-sec {
+		margin-top: 14px;
+	}
+	.tab-body .panel-sec:first-of-type {
 		margin-top: 0;
 	}
 	ul {
