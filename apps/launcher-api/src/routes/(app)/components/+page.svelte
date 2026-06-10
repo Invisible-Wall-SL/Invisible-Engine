@@ -121,10 +121,33 @@
 	 * with DataCloneError — snapshot returns a plain, detached deep copy. */
 	function openComponent(def: ComponentDef): void {
 		componentDraft = $state.snapshot(def) as ComponentDef;
+		// Baseline for the unsaved-changes guard. A NEWLY CREATED component is
+		// deliberately dirty from the start (`null` baseline): it exists ONLY as this
+		// draft until "Save component", so leaving without saving must warn.
+		savedSnapshot = components.some((c) => c.id === def.id)
+			? JSON.stringify($state.snapshot(componentDraft))
+			: null;
 		selectedId = null;
 		saveStatus = null;
 		leftTab = 'outline';
 	}
+
+	/** JSON of the draft as last saved/opened — `null` = never persisted. */
+	let savedSnapshot = $state<string | null>(null);
+	/** True when the open draft has edits (or was never saved at all). */
+	const draftDirty = $derived(
+		componentDraft !== null && JSON.stringify($state.snapshot(componentDraft)) !== savedSnapshot,
+	);
+	// An unsaved draft is ONLY in memory — warn before a full-page navigation
+	// ("← Editor" is a reload link) or a tab close discards it silently.
+	$effect(() => {
+		if (!draftDirty) return;
+		const warn = (e: BeforeUnloadEvent) => {
+			e.preventDefault();
+		};
+		window.addEventListener('beforeunload', warn);
+		return () => window.removeEventListener('beforeunload', warn);
+	});
 
 	let newName = $state('');
 	let newCategory = $state<ComponentCategory>('overlay');
@@ -162,9 +185,21 @@
 		newName = '';
 	}
 
-	/** Close the open component, back to the sidebar home. */
+	/** Close the open component, back to the sidebar home. Confirms first when the
+	 * draft has unsaved edits (a never-saved component would vanish entirely). */
 	function closeComponent(): void {
+		if (
+			draftDirty &&
+			!window.confirm(
+				savedSnapshot === null
+					? 'This component has never been saved — closing discards it entirely. Close anyway?'
+					: 'Discard the unsaved changes to this component?',
+			)
+		) {
+			return;
+		}
 		componentDraft = null;
+		savedSnapshot = null;
 		selectedId = null;
 		saveStatus = null;
 	}
@@ -228,6 +263,7 @@
 				saveStatus = { kind: 'ok', message: 'Component saved' };
 				// Snapshot (not structuredClone): componentDraft is a reactive proxy.
 				const saved = $state.snapshot(componentDraft) as ComponentDef;
+				savedSnapshot = JSON.stringify(saved);
 				const i = components.findIndex((c) => c.id === saved.id);
 				if (i === -1) components = [...components, saved];
 				else components = components.map((c) => (c.id === saved.id ? saved : c));
@@ -524,8 +560,10 @@
 						{#if newType === 'button'}
 							<p class="muted small">
 								Drop your art (atlas regions, text) on the canvas — the whole component becomes the
-								click area. Pick the <strong>Action</strong> (spin, menu, turbo…) on each placed instance
-								in the scene editor.
+								click area. Pick the <strong>Action</strong> (spin, menu, turbo…) on each placed
+								instance in the scene editor. Click <strong>Save component</strong> when done — it
+								is listed under
+								<strong>UI</strong>.
 							</p>
 						{/if}
 					</div>
