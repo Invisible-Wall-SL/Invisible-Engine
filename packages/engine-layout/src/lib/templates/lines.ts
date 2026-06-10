@@ -48,8 +48,10 @@ export const linesTemplate: GameTemplate = {
 			id: 'basegame',
 			name: 'Base game',
 			slots: [
-				{ slotId: 'boardFrame', name: 'Board frame', kind: 'sprite', required: true },
-				{ slotId: 'boardFrameEdge', name: 'Board frame edge', kind: 'sprite', required: true },
+				// Graphical (sprite) slots are advisory drop targets, never `required` —
+				// authors may replace them with free nodes; an unfilled slot renders nothing.
+				{ slotId: 'boardFrame', name: 'Board frame', kind: 'sprite' },
+				{ slotId: 'boardFrameEdge', name: 'Board frame edge', kind: 'sprite' },
 				{
 					// Declared so the editor can anchor it, but not yet `required`: the
 					// board still renders from coded `Board.svelte`, so `defaultLayout`
