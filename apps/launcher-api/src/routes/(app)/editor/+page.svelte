@@ -31,6 +31,8 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
+	import PanelResizers from './PanelResizers.svelte';
+	import PanelSection from './PanelSection.svelte';
 	import RegionThumb from './RegionThumb.svelte';
 	import {
 		fetchRegions,
@@ -38,7 +40,6 @@
 		type RegionDragPayload,
 		type RegionSet,
 	} from './editorRegions.client';
-	import { isSectionOpen, setSectionOpen } from './sectionCollapse.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -78,30 +79,26 @@
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline' | 'template' | 'component'>('library');
 
-	// ---------- persisted editor UI layout (panel widths + tab + layer visibility) ----------
+	// ---------- persisted editor UI layout (tab + layer visibility) ----------
 	// Per-project workspace state in localStorage ONLY — pure view state, never written to
-	// the doc. Restores panel sizes, the active left tab, and which screens are hidden when
-	// you reopen the same project.
+	// the doc. Restores the active left tab and which screens are hidden when you reopen
+	// the same project. Panel WIDTHS are owned by the shared <PanelResizers> (its own
+	// key), so the resizable-sidebar behaviour is inherited by every editor-family tool.
 	const uiKey = `iw-editor-ui:${data.projectKey}`;
 	let leftWidth = $state(280);
 	let rightWidth = $state(320);
 	let resizing = $state<'left' | 'right' | null>(null);
 	let uiLoaded = false;
-	const clampWidth = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 	function loadUiState(): void {
 		if (typeof localStorage === 'undefined') return;
 		try {
 			const raw = localStorage.getItem(uiKey);
 			if (!raw) return;
 			const s = JSON.parse(raw) as {
-				leftWidth?: number;
-				rightWidth?: number;
 				leftTab?: string;
 				hiddenScenes?: string[];
 				libExpanded?: string[];
 			};
-			if (typeof s.leftWidth === 'number') leftWidth = clampWidth(s.leftWidth, 200, 560);
-			if (typeof s.rightWidth === 'number') rightWidth = clampWidth(s.rightWidth, 220, 640);
 			// Only the always-available tabs — `component`/`template` are mode-gated.
 			if (s.leftTab === 'library' || s.leftTab === 'outline') leftTab = s.leftTab;
 			if (Array.isArray(s.hiddenScenes)) {
@@ -128,8 +125,6 @@
 	$effect(() => {
 		// Re-serialise whenever any tracked piece changes (after the initial load).
 		const snapshot = JSON.stringify({
-			leftWidth,
-			rightWidth,
 			leftTab,
 			hiddenScenes: [...hiddenScenes],
 			libExpanded: Object.keys(expanded).filter((k) => expanded[k]),
@@ -141,27 +136,6 @@
 			/* quota / disabled — ignore */
 		}
 	});
-	/** Drag a panel edge. Listeners live on `window` so the drag tracks even over the
-	 * canvas; `resizing` disables canvas pointer events + sets the col-resize cursor. */
-	function beginResize(e: PointerEvent, side: 'left' | 'right'): void {
-		e.preventDefault();
-		resizing = side;
-		const startX = e.clientX;
-		const startLeft = leftWidth;
-		const startRight = rightWidth;
-		const onMove = (ev: PointerEvent): void => {
-			const dx = ev.clientX - startX;
-			if (side === 'left') leftWidth = clampWidth(startLeft + dx, 200, 560);
-			else rightWidth = clampWidth(startRight - dx, 220, 640);
-		};
-		const onUp = (): void => {
-			resizing = null;
-			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
-		};
-		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
-	}
 	/** Whether the asset-warning detail list is expanded (from the header pill). */
 	let showContentWarnings = $state(false);
 	/** The template currently being viewed/edited — starts as the project's
@@ -1196,7 +1170,7 @@
 	const savedAgo = $derived(relativeTime(lastSavedAt, nowTick));
 </script>
 
-<svelte:head><title>Invisible Editor — Invisible Wall</title></svelte:head>
+<svelte:head><title>Invisible Scene Editor — Invisible Wall</title></svelte:head>
 
 {#snippet expandable(key: string, name: string, tag: string)}
 	<li class="group" class:open={expanded[key]}>
@@ -1237,7 +1211,7 @@
 <div class="shell">
 	<header>
 		<div class="brand-wrap">
-			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE EDITOR</a>
+			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE SCENE EDITOR</a>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
 		<div class="layout-pills" role="tablist" aria-label="Authoring layoutType">
@@ -1479,14 +1453,7 @@
 						</button>
 					</li>
 				{/snippet}
-				<details
-					class="panel-sec"
-					open={isSectionOpen('screens')}
-					ontoggle={(e) => setSectionOpen('screens', e.currentTarget.open)}
-				>
-					<summary class="sec-h"
-						><span class="sec-title">Screens</span><span class="count">{sceneCount}</span></summary
-					>
+				<PanelSection id="screens" title="Screens" count={sceneCount}>
 					<ul class="screens">
 						{#if sceneCount === 0}
 							<li class="muted">No scenes yet — load a game scene above.</li>
@@ -1578,7 +1545,7 @@
 							＋ Add missing screens ({missingScreens.length})
 						</button>
 					{/if}
-				</details>
+				</PanelSection>
 			</div>
 
 			<div class="tabs" role="tablist" aria-label="Left panel">
@@ -1626,12 +1593,7 @@
 
 			<div class="tab-body">
 				{#if leftTab === 'library'}
-					<details
-						class="panel-sec"
-						open={isSectionOpen('lib-elements')}
-						ontoggle={(e) => setSectionOpen('lib-elements', e.currentTarget.open)}
-					>
-						<summary class="sec-h"><span class="sec-title">Elements</span></summary>
+					<PanelSection id="lib-elements" title="Elements">
 						<ul>
 							<li
 								draggable="true"
@@ -1649,17 +1611,9 @@
 								<span class="tag">group</span>
 							</li>
 						</ul>
-					</details>
+					</PanelSection>
 
-					<details
-						class="panel-sec"
-						open={isSectionOpen('lib-atlases')}
-						ontoggle={(e) => setSectionOpen('lib-atlases', e.currentTarget.open)}
-					>
-						<summary class="sec-h"
-							><span class="sec-title">Atlases</span><span class="count">{atlasCount}</span
-							></summary
-						>
+					<PanelSection id="lib-atlases" title="Atlases" count={atlasCount}>
 						<ul>
 							{#each data.assets.atlases as a (a.key)}
 								{#if a.kind === 'atlas-manifest'}
@@ -1680,16 +1634,10 @@
 								<li class="muted">No atlases yet.</li>
 							{/each}
 						</ul>
-					</details>
+					</PanelSection>
 
-					<details
-						class="panel-sec"
-						open={isSectionOpen('lib-spines')}
-						ontoggle={(e) => setSectionOpen('lib-spines', e.currentTarget.open)}
-					>
-						<summary class="sec-h">
-							<span class="sec-title">Spines</span>
-							<span class="count">{spineCount}</span>
+					<PanelSection id="lib-spines" title="Spines" count={spineCount}>
+						{#snippet actions()}
 							<button
 								type="button"
 								class="upload-btn"
@@ -1702,7 +1650,7 @@
 							>
 								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
 							</button>
-						</summary>
+						{/snippet}
 						<input
 							bind:this={spineFileInput}
 							type="file"
@@ -1733,16 +1681,9 @@
 								<li class="muted">No spines yet.</li>
 							{/each}
 						</ul>
-					</details>
+					</PanelSection>
 
-					<details
-						class="panel-sec"
-						open={isSectionOpen('lib-sheets')}
-						ontoggle={(e) => setSectionOpen('lib-sheets', e.currentTarget.open)}
-					>
-						<summary class="sec-h"
-							><span class="sec-title">Sheets</span><span class="count">{sheetCount}</span></summary
-						>
+					<PanelSection id="lib-sheets" title="Sheets" count={sheetCount}>
 						<ul>
 							{#each data.assets.sheets as sh (sh.key)}
 								{@render expandable(sh.key, sh.name, 'sheet')}
@@ -1750,7 +1691,7 @@
 								<li class="muted">No sheets yet.</li>
 							{/each}
 						</ul>
-					</details>
+					</PanelSection>
 				{:else if leftTab === 'template'}
 					<EditorTemplatePanel
 						template={activeTemplate}
@@ -1834,22 +1775,12 @@
 			</p>
 		</aside>
 
-		<div
-			class="resizer resizer-l"
-			style="left: {leftWidth}px"
-			role="separator"
-			aria-orientation="vertical"
-			aria-label="Resize left panel"
-			onpointerdown={(e) => beginResize(e, 'left')}
-		></div>
-		<div
-			class="resizer resizer-r"
-			style="right: {rightWidth}px"
-			role="separator"
-			aria-orientation="vertical"
-			aria-label="Resize properties panel"
-			onpointerdown={(e) => beginResize(e, 'right')}
-		></div>
+		<PanelResizers
+			storageKey={`iw-editor-panels:${data.projectKey}`}
+			bind:leftWidth
+			bind:rightWidth
+			bind:resizing
+		/>
 	</div>
 
 	<footer class="help-strip">
@@ -2155,45 +2086,6 @@
 		font-size: 12px;
 		font-family: inherit;
 	}
-	/* Collapsible left-panel sections (Screens, Elements, Atlases, Spines, Sheets).
-	   Native <details>; open/closed persisted via sectionCollapse.client.ts. */
-	.panel-sec {
-		margin: 0 0 4px;
-	}
-	.panel-sec > summary.sec-h {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		cursor: pointer;
-		list-style: none;
-		user-select: none;
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #aaa;
-		margin: 0 0 6px;
-	}
-	.panel-sec > summary.sec-h::-webkit-details-marker {
-		display: none;
-	}
-	.panel-sec > summary.sec-h::before {
-		content: '▸';
-		font-size: 9px;
-		color: #667;
-		transition: transform 0.12s ease;
-	}
-	.panel-sec[open] > summary.sec-h::before {
-		transform: rotate(90deg);
-	}
-	.sec-title {
-		font-weight: 600;
-	}
-	.panel-sec .count {
-		margin-left: auto;
-	}
-	.panel-sec .upload-btn {
-		margin-left: 4px;
-	}
 	.screens {
 		list-style: none;
 		padding: 0;
@@ -2317,25 +2209,6 @@
 	.layout.resizing .canvas-area {
 		pointer-events: none;
 	}
-	.resizer {
-		position: absolute;
-		top: 0;
-		bottom: 0;
-		width: 8px;
-		z-index: 20;
-		cursor: col-resize;
-		touch-action: none;
-	}
-	.resizer-l {
-		transform: translateX(-50%);
-	}
-	.resizer-r {
-		transform: translateX(50%);
-	}
-	.resizer:hover,
-	.layout.resizing .resizer {
-		background: rgba(123, 140, 255, 0.28);
-	}
 	.left,
 	.properties {
 		background: #0f0f14;
@@ -2428,10 +2301,11 @@
 	.upload-status.error {
 		color: #ff9a9a;
 	}
-	.tab-body .panel-sec {
+	/* Spacing for the SHARED collapsible sections (PanelSection) in this panel. */
+	.tab-body :global(.iw-panel-sec) {
 		margin-top: 14px;
 	}
-	.tab-body .panel-sec:first-of-type {
+	.tab-body :global(.iw-panel-sec:first-of-type) {
 		margin-top: 0;
 	}
 	ul {

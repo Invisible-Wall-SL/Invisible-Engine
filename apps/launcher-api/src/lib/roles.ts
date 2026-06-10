@@ -63,7 +63,9 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<path d="M12 3c2.6 2.6 2.6 15.4 0 18"/><path d="M12 3c-2.6 2.6-2.6 15.4 0 18"/>',
 	),
 	// overlapping shapes (place/arrange)
-	editor: I('<rect x="4" y="4" width="11" height="11" rx="1"/><rect x="9" y="9" width="11" height="11" rx="1"/>'),
+	editor: I(
+		'<rect x="4" y="4" width="11" height="11" rx="1"/><rect x="9" y="9" width="11" height="11" rx="1"/>',
+	),
 	// nested squares (a component containing its elements)
 	componentEditor: I(
 		'<rect x="3" y="3" width="18" height="18" rx="2"/>' +
@@ -146,7 +148,7 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 	editor: {
 		id: 'editor',
-		name: 'Invisible Editor',
+		name: 'Invisible Scene Editor',
 		description: 'Place images/spine on game screens and export the layout the engine renders.',
 		kind: 'online',
 		url: '/editor',
@@ -163,7 +165,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	componentEditor: {
 		id: 'componentEditor',
 		name: 'Invisible Component Editor',
-		description: 'Author reusable game components — edit their elements and bind the engine variables.',
+		description:
+			'Author reusable game components — edit their elements and bind the engine variables.',
 		kind: 'online',
 		url: '/components',
 		icon: TOOL_ICONS.componentEditor,
@@ -182,7 +185,14 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'componentEditor',
 		'ftpBrowser',
 	],
-	artist: ['atlasTool', 'invisibleLauncher', 'sheetMaker', 'localization', 'editor', 'componentEditor'],
+	artist: [
+		'atlasTool',
+		'invisibleLauncher',
+		'sheetMaker',
+		'localization',
+		'editor',
+		'componentEditor',
+	],
 	animator: ['spineViewer', 'spine'],
 };
 

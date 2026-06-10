@@ -23,6 +23,8 @@
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
+	import PanelResizers from '../editor/PanelResizers.svelte';
+	import PanelSection from '../editor/PanelSection.svelte';
 	import {
 		fetchRegions,
 		type RegionDragPayload,
@@ -65,6 +67,11 @@
 	 * or the Outline of the open component's tree. Properties always show on the
 	 * right, so selecting a node never needs a tab switch. */
 	let leftTab = $state<'library' | 'outline'>('outline');
+	// Resizable sidebars — shared behaviour via <PanelResizers> (same as the
+	// Scene Editor); widths persist under this tool's own key.
+	let leftWidth = $state(280);
+	let rightWidth = $state(320);
+	let resizing = $state<'left' | 'right' | null>(null);
 
 	function genComponentId(): string {
 		return 'c_' + Math.random().toString(36).slice(2, 10);
@@ -514,7 +521,11 @@
 		</div>
 	</header>
 
-	<div class="layout">
+	<div
+		class="layout"
+		class:resizing={resizing !== null}
+		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
+	>
 		<aside class="left">
 			{#if !componentDraft}
 				<div class="panel-head">
@@ -522,85 +533,89 @@
 				</div>
 
 				<div class="tab-body">
-					<div class="create">
-						<h3>New component</h3>
-						<div class="create-row">
-							<input
-								type="text"
-								placeholder="Component name…"
-								bind:value={newName}
-								onkeydown={(e) => {
-									if (e.key === 'Enter') createComponent();
-								}}
-							/>
-							<select
-								bind:value={newType}
-								aria-label="Component type"
-								title="Button = pre-wired clickable component: drop your art, then pick the Action on each placed instance"
-							>
-								<option value="blank">Blank</option>
-								<option value="button">Button</option>
-							</select>
-							{#if newType === 'blank'}
-								<select bind:value={newCategory} aria-label="Component category">
-									{#each CATEGORIES as c (c.id)}
-										<option value={c.id}>{c.label}</option>
-									{/each}
-								</select>
-							{/if}
-							<button
-								type="button"
-								class="create-btn"
-								disabled={!newName.trim()}
-								onclick={createComponent}
-							>
-								Create
-							</button>
-						</div>
-						{#if newType === 'button'}
-							<p class="muted small">
-								Drop your art (atlas regions, text) on the canvas — the whole component becomes the
-								click area. Pick the <strong>Action</strong> (spin, menu, turbo…) on each placed
-								instance in the scene editor. Click <strong>Save component</strong> when done — it
-								is listed under
-								<strong>UI</strong>.
-							</p>
-						{/if}
-					</div>
-
-					<h3 class="list-h">Library <span class="count">{components.length}</span></h3>
-					{#if components.length === 0}
-						<p class="muted">No components yet. Create one above to start authoring.</p>
-					{:else}
-						{#each grouped as group (group.id)}
-							<div class="group">
-								<h4>{group.label} <span class="count">{group.items.length}</span></h4>
-								<ul class="cmp-list">
-									{#each group.items as def (def.id)}
-										<li class="cmp-row-wrap">
-											<button type="button" class="cmp-row" onclick={() => openComponent(def)}>
-												<span class="glyph">◇</span>
-												<span class="name">{def.name}</span>
-												<span class="scope" class:project={def.scope === 'project'}>
-													{def.scope}
-												</span>
-												<span class="ver">v{def.version}</span>
-											</button>
-											<button
-												type="button"
-												class="cmp-del"
-												title={`Delete component "${def.name}"`}
-												aria-label={`Delete component "${def.name}"`}
-												onclick={(e) => void deleteComponentDef(e, def)}
-											>
-												✕
-											</button>
-										</li>
-									{/each}
-								</ul>
+					<PanelSection id="cmp-create" title="New component">
+						<div class="create">
+							<div class="create-row">
+								<input
+									type="text"
+									placeholder="Component name…"
+									bind:value={newName}
+									onkeydown={(e) => {
+										if (e.key === 'Enter') createComponent();
+									}}
+								/>
 							</div>
-						{/each}
-					{/if}
+							<div class="create-row">
+								<select
+									bind:value={newType}
+									aria-label="Component type"
+									title="Button = pre-wired clickable component: drop your art, then pick the Action on each placed instance"
+								>
+									<option value="blank">Blank</option>
+									<option value="button">Button</option>
+								</select>
+								{#if newType === 'blank'}
+									<select bind:value={newCategory} aria-label="Component category">
+										{#each CATEGORIES as c (c.id)}
+											<option value={c.id}>{c.label}</option>
+										{/each}
+									</select>
+								{/if}
+								<button
+									type="button"
+									class="create-btn"
+									disabled={!newName.trim()}
+									onclick={createComponent}
+								>
+									Create
+								</button>
+							</div>
+							{#if newType === 'button'}
+								<p class="muted small">
+									Drop your art (atlas regions, text) on the canvas — the whole component becomes
+									the click area. Pick the <strong>Action</strong> (spin, menu, turbo…) on each
+									placed instance in the scene editor. Click <strong>Save component</strong> when
+									done — it is listed under
+									<strong>UI</strong>.
+								</p>
+							{/if}
+						</div>
+					</PanelSection>
+
+					<PanelSection id="cmp-library" title="Library" count={components.length}>
+						{#if components.length === 0}
+							<p class="muted">No components yet. Create one above to start authoring.</p>
+						{:else}
+							{#each grouped as group (group.id)}
+								<div class="group">
+									<h4>{group.label} <span class="count">{group.items.length}</span></h4>
+									<ul class="cmp-list">
+										{#each group.items as def (def.id)}
+											<li class="cmp-row-wrap">
+												<button type="button" class="cmp-row" onclick={() => openComponent(def)}>
+													<span class="glyph">◇</span>
+													<span class="name">{def.name}</span>
+													<span class="scope" class:project={def.scope === 'project'}>
+														{def.scope}
+													</span>
+													<span class="ver">v{def.version}</span>
+												</button>
+												<button
+													type="button"
+													class="cmp-del"
+													title={`Delete component "${def.name}"`}
+													aria-label={`Delete component "${def.name}"`}
+													onclick={(e) => void deleteComponentDef(e, def)}
+												>
+													✕
+												</button>
+											</li>
+										{/each}
+									</ul>
+								</div>
+							{/each}
+						{/if}
+					</PanelSection>
 				</div>
 			{:else}
 				<div class="tabs" role="tablist" aria-label="Left panel">
@@ -626,8 +641,7 @@
 
 				<div class="tab-body">
 					{#if leftTab === 'library'}
-						<section>
-							<h3>Elements</h3>
+						<PanelSection id="cmp-lib-elements" title="Elements">
 							<ul>
 								<li
 									draggable="true"
@@ -645,10 +659,9 @@
 									<span class="tag">group</span>
 								</li>
 							</ul>
-						</section>
+						</PanelSection>
 
-						<section>
-							<h3>Atlases <span class="count">{atlasCount}</span></h3>
+						<PanelSection id="cmp-lib-atlases" title="Atlases" count={atlasCount}>
 							<ul>
 								{#each data.assets.atlases as a (a.key)}
 									{#if a.kind === 'atlas-manifest'}
@@ -669,10 +682,9 @@
 									<li class="muted">No atlases yet.</li>
 								{/each}
 							</ul>
-						</section>
+						</PanelSection>
 
-						<section>
-							<h3>Spines <span class="count">{spineCount}</span></h3>
+						<PanelSection id="cmp-lib-spines" title="Spines" count={spineCount}>
 							<ul>
 								{#each data.assets.spines as s (s.key)}
 									<li
@@ -690,10 +702,9 @@
 									<li class="muted">No spines yet.</li>
 								{/each}
 							</ul>
-						</section>
+						</PanelSection>
 
-						<section>
-							<h3>Sheets <span class="count">{sheetCount}</span></h3>
+						<PanelSection id="cmp-lib-sheets" title="Sheets" count={sheetCount}>
 							<ul>
 								{#each data.assets.sheets as sh (sh.key)}
 									{@render expandable(sh.key, sh.name, 'sheet')}
@@ -701,7 +712,7 @@
 									<li class="muted">No sheets yet.</li>
 								{/each}
 							</ul>
-						</section>
+						</PanelSection>
 					{:else}
 						<EditorOutline
 							scene={componentScene}
@@ -782,6 +793,8 @@
 				</p>
 			{/if}
 		</aside>
+
+		<PanelResizers storageKey="iw-components-panels" bind:leftWidth bind:rightWidth bind:resizing />
 	</div>
 </div>
 
@@ -888,9 +901,18 @@
 	}
 
 	.layout {
+		position: relative;
 		display: grid;
 		grid-template-columns: 280px 1fr 320px;
 		min-height: 0;
+	}
+	.layout.resizing {
+		cursor: col-resize;
+		user-select: none;
+	}
+	/* While dragging, stop the canvas from swallowing the pointer so the drag tracks. */
+	.layout.resizing .canvas-area {
+		pointer-events: none;
 	}
 	.left,
 	.properties {
@@ -1034,24 +1056,12 @@
 		cursor: default;
 	}
 
-	h3 {
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #aaa;
-		margin: 0 0 8px;
-	}
 	h4 {
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #888;
 		margin: 0 0 4px;
-	}
-	.list-h {
-		display: flex;
-		justify-content: space-between;
-		margin-top: 4px;
 	}
 	.count {
 		color: #666;
