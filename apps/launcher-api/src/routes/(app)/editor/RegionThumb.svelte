@@ -1,6 +1,16 @@
 <script lang="ts" module>
 	/** One shared <img> per page key, across all thumbnails — many reuse the same decode. */
 	const pageImages = new Map<string, HTMLImageElement>();
+
+	/** Bumped by "Reload art" (EditorCanvas.refreshAssets) — also feeds `?v=` so the
+	 * HTTP cache is busted, mirroring the canvas's own `assetVersion` mechanism. */
+	let pageVersion = $state(0);
+
+	/** Drop the shared page decodes so Library thumbnails repaint from fresh R2 art. */
+	export function clearPageImages(): void {
+		pageImages.clear();
+		pageVersion++;
+	}
 </script>
 
 <script lang="ts">
@@ -19,7 +29,7 @@
 		const hit = pageImages.get(key);
 		if (hit) return hit;
 		const img = new Image();
-		img.src = regionAssetUrl(key);
+		img.src = `${regionAssetUrl(key)}&v=${pageVersion}`;
 		pageImages.set(key, img);
 		return img;
 	}
@@ -62,6 +72,7 @@
 	$effect(() => {
 		void set.pageKey;
 		void region.name;
+		void pageVersion; // "Reload art" bump → re-fetch the page + repaint
 		paint();
 	});
 </script>

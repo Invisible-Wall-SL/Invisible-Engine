@@ -223,13 +223,22 @@ export async function listAllKeys(prefix: string): Promise<string[]> {
 	return out;
 }
 
+export interface ListedObject {
+	key: string;
+	size: number;
+	/** Epoch ms of `LastModified` (0 when the listing omits it). */
+	lastModified: number;
+}
+
 /**
- * NON-delimited recursive listing returning each object's key + byte size,
- * paginating through all pages. Like `listAllKeys` but carries `Size` so
- * callers (e.g. the deploy listing) can report file sizes without a HEAD.
+ * NON-delimited recursive listing returning each object's key + byte size +
+ * last-modified time, paginating through all pages. Like `listAllKeys` but
+ * carries `Size`/`LastModified` so callers (e.g. the deploy listing, the
+ * editor's deployed-page resolver) can report sizes and pick the newest object
+ * without a HEAD per key.
  */
-export async function listAllObjects(prefix: string): Promise<{ key: string; size: number }[]> {
-	const out: { key: string; size: number }[] = [];
+export async function listAllObjects(prefix: string): Promise<ListedObject[]> {
+	const out: ListedObject[] = [];
 	let token: string | undefined;
 	do {
 		const res = await s3().send(
@@ -240,7 +249,9 @@ export async function listAllObjects(prefix: string): Promise<{ key: string; siz
 			}),
 		);
 		for (const o of res.Contents ?? []) {
-			if (typeof o.Key === 'string') out.push({ key: o.Key, size: o.Size ?? 0 });
+			if (typeof o.Key === 'string') {
+				out.push({ key: o.Key, size: o.Size ?? 0, lastModified: o.LastModified?.getTime() ?? 0 });
+			}
 		}
 		token = res.IsTruncated ? res.NextContinuationToken : undefined;
 	} while (token);

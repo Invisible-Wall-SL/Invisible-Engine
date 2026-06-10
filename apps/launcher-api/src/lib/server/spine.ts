@@ -1,7 +1,14 @@
 import { error } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
-import { getObjectBytes, getObjectText, listAllObjects, objectExists } from './r2';
+import { pickDeployedPage } from './deployedPage';
+import {
+	getObjectBytes,
+	getObjectText,
+	listAllObjects,
+	objectExists,
+	type ListedObject,
+} from './r2';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
 
@@ -153,7 +160,8 @@ export interface EditorSpineDescriptor {
 /**
  * Map each spine page name to the R2 key the editor should stream. Prefers a
  * DEPLOYED page (`deploy/…`) whose basename matches the spine's page name —
- * preferring `.webp` then the largest match — so a spine reflects the latest
+ * via the shared `pickDeployedPage` ranking (editor-art excluded, newest deploy
+ * batch, `.webp` then largest within it) — so a spine reflects the latest
  * deploy (same as region sprites). Falls back to the spine bundle's own page when
  * nothing is deployed for it. Safe only because the atlas geometry is unchanged
  * (the page is regenerated with the same layout); a re-pack that changed layout
@@ -165,32 +173,19 @@ async function resolveSpinePageKeys(
 	project: string,
 	bundlePrefix: string,
 ): Promise<string[]> {
-	let deployObjs: { key: string; size: number }[] = [];
+	const deployPrefix = `${SUB.deploy(client, project)}/`;
+	let deployObjs: ListedObject[] = [];
 	try {
-		deployObjs = await listAllObjects(`${SUB.deploy(client, project)}/`);
+		deployObjs = await listAllObjects(deployPrefix);
 	} catch {
 		deployObjs = [];
 	}
-	const baseOf = (k: string): string => k.split('/').pop() ?? k;
-	const split = (b: string): [string, string] => {
-		const d = b.lastIndexOf('.');
-		return d === -1 ? [b, ''] : [b.slice(0, d), b.slice(d + 1)];
-	};
 	return pageNames.map((n) => {
-		const [stem] = split(baseOf(n));
-		const want = stem.toLowerCase();
-		const matches = deployObjs.filter((o) => {
-			const [s, e] = split(baseOf(o.key));
-			const ext = e.toLowerCase();
-			return (ext === 'png' || ext === 'webp') && s.toLowerCase() === want;
-		});
-		if (matches.length === 0) return `${bundlePrefix}/${n}`;
-		matches.sort((a, b) => {
-			const aw = a.key.toLowerCase().endsWith('.webp') ? 0 : 1;
-			const bw = b.key.toLowerCase().endsWith('.webp') ? 0 : 1;
-			return aw !== bw ? aw - bw : b.size - a.size;
-		});
-		return matches[0].key;
+		const base = n.split('/').pop() ?? n;
+		const dot = base.lastIndexOf('.');
+		const stem = (dot === -1 ? base : base.slice(0, dot)).toLowerCase();
+		const deployed = pickDeployedPage(deployObjs, new Set([stem]), deployPrefix);
+		return deployed ?? `${bundlePrefix}/${n}`;
 	});
 }
 

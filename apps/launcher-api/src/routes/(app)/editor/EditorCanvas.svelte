@@ -43,6 +43,7 @@
 	import EditorSpineLayer from './EditorSpineLayer.svelte';
 	import EditorTextLayer from './EditorTextLayer.svelte';
 	import { clearFontCatalogCache } from './fonts.client';
+	import { clearPageImages } from './RegionThumb.svelte';
 
 	interface AssetDragPayload {
 		// `text` / `container` are not assets — they're blank ELEMENTS the Library's
@@ -781,6 +782,7 @@
 		images.clear();
 		regionSets.clear();
 		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
+		clearPageImages(); // drop the Library thumbnails' shared page decodes (+ bust their HTTP cache)
 		clearFontCatalogCache(); // drop the module-level font catalog so it re-fetches
 		assetVersion++;
 		spineReload++;
