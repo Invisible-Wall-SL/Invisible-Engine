@@ -3,8 +3,14 @@
 	import { BLACK } from 'constants-shared/colors';
 	import { MainContainer } from 'components-layout';
 	import { Container, Rectangle } from 'pixi-svelte';
-	import { ComponentInstance } from 'engine-layout/svelte';
-	import type { ComponentInstanceNode, LayoutType, Scene, TextStyle } from 'engine-layout';
+	import { ComponentInstance, LayoutNodeView } from 'engine-layout/svelte';
+	import type {
+		ComponentInstanceNode,
+		LayoutNode,
+		LayoutType,
+		Scene,
+		TextStyle,
+	} from 'engine-layout';
 
 	import { DESKTOP_BASE_SIZE, LANDSCAPE_BASE_SIZE } from '../constants';
 	import { getContext } from '../context';
@@ -117,6 +123,35 @@
 	// The coded `Label{Balance,Win,Bet}.svelte` + the button snippet props stay in place.
 	const mounted = (id: string) => instances.some((instance) => instance.node.id === id);
 
+	// Free author art (§18.5): the coded HUD ids above + the `componentInstance`
+	// loop are the only nodes this bespoke renderer drew — so a plain sprite/text/
+	// container the author DROPS on a HUD scene in the editor was silently dropped
+	// in-game. Render every OTHER node generically through the engine
+	// `<LayoutNodeView>` (which applies the node's own transform), in the scene's
+	// own space: `hud.bar` is standard (inside the bottom-bar MainContainer),
+	// `hud.corners` is canvas. The live seed carries none of these, so this list is
+	// empty in-game → byte-identical parity until an author adds art. Rendered
+	// BEFORE the coded snippets so a bar-background sits behind them (author zIndex
+	// still wins).
+	const RESERVED_HUD_IDS = new Set([
+		'hud-gamename',
+		'hud-logo',
+		'hud-balance',
+		'hud-win',
+		'hud-bet',
+		'hud-btn-menu',
+		'hud-btn-buybonus',
+		'hud-btn-autospin',
+		'hud-btn-bet',
+		'hud-btn-turbo',
+		'hud-btn-decrease',
+		'hud-btn-increase',
+	]);
+	const isFreeNode = (n: LayoutNode): boolean =>
+		n.kind !== 'componentInstance' && !RESERVED_HUD_IDS.has(n.id);
+	const barFreeNodes = $derived((props.hud.bar?.nodes ?? []).filter(isFreeNode));
+	const cornerFreeNodes = $derived((props.hud.corners?.nodes ?? []).filter(isFreeNode));
+
 	const ovr = $derived({
 		balance: labelOverride('hud-balance'),
 		win: labelOverride('hud-win'),
@@ -130,6 +165,11 @@
 		increase: hudTint(props.hud.bar, 'hud-btn-increase'),
 	});
 </script>
+
+<!-- Free author art on the corners scene (canvas space) — see §18.5. -->
+{#each cornerFreeNodes as node (node.id)}
+	<LayoutNodeView {node} space="canvas" />
+{/each}
 
 <!-- Corners (canvas space) -->
 {#if pos.gameName.visible}
@@ -145,6 +185,11 @@
 
 <!-- Bottom bar (standard space) -->
 <MainContainer standard alignVertical="bottom">
+	<!-- Free author art on the bar scene (standard space) — see §18.5. Rendered
+	     first so a bar-background sits behind the coded HUD; author zIndex wins. -->
+	{#each barFreeNodes as node (node.id)}
+		<LayoutNodeView {node} space="standard" />
+	{/each}
 	{#if pos.balance.visible && !mounted('hud-balance')}
 		<Container
 			x={pos.balance.x}

@@ -793,3 +793,15 @@ coded `ButtonFrame` part, and plain sprite/text nodes carry no event handling. F
 `Container` (`eventMode static`, pointer/not-allowed cursor, press → `onpress` unless disabled), so
 the whole rendered art hit-tests. A def containing ANY bind part keeps the coded part as the sole
 press owner (no wrapper → no double-fire → parity for the built-in `button`).
+
+### 18.5 Free author art on HUD scenes (owner bug 2026-06-10)
+A plain sprite/text/container dropped on a HUD scene (`hudBar`/`hudCorners`) in the Scene Editor
+showed in the editor but NOT in the game. Cause: HUD scenes don't render through the generic
+`<LayoutScene>` node-walker — they're consumed by the bespoke `LayoutEditable` (`components-ui-pixi`),
+which only (a) positions the coded HUD snippets by KNOWN id (`hud-balance`, `hud-btn-*`, …) and
+(b) renders author-placed `componentInstance` nodes. Any other node was silently dropped. Fix:
+`LayoutEditable` now also renders every "free" node (not a reserved coded id, not a componentInstance)
+through the engine `<LayoutNodeView>` in the scene's own space — `hudBar` standard (inside the bottom-bar
+MainContainer), `hudCorners` canvas — BEFORE the coded snippets so a bar-background sits behind them
+(author `zIndex` still wins). The live seed carries no such nodes → byte-identical parity until art is
+added. So: NO special component needed — drop any sprite/text on a HUD screen and it ships.
