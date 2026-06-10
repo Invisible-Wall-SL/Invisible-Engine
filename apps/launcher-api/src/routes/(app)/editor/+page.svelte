@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
+	import { invalidateAll } from '$app/navigation';
 	import Emblem from '$lib/Emblem.svelte';
 	import {
 		buttonBindToInstance,
@@ -343,7 +343,7 @@
 			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
 				data.projectKey,
 			)}`;
-			await goto(href);
+			window.location.href = href;
 		} catch (e) {
 			componentStatus = {
 				kind: 'error',
@@ -374,13 +374,16 @@
 	/** Open the standalone Component Editor in THIS window (optionally on `id`).
 	 * Flushes the layout to the doc first so scene edits aren't lost on navigation —
 	 * except a cross-type preview, which must never autosave (the user Saves/Discards
-	 * it deliberately). */
+	 * it deliberately). Uses a FULL-PAGE navigation (not SPA `goto`): the editor and
+	 * component editor are heavy WebGL tools that expect a clean document load — an
+	 * in-app remount between them leaves the canvas broken (the "← Editor" link
+	 * stopped working). Same window/tab, fresh document. */
 	async function openComponentEditor(id?: string): Promise<void> {
 		if (dirty && !crossTypeLoaded) await save();
 		const params = new URLSearchParams();
 		if (id) params.set('id', id);
 		params.set('project', data.projectKey);
-		await goto(`/components?${params.toString()}`);
+		window.location.href = `/components?${params.toString()}`;
 	}
 
 	/** Per-slot authoring metadata not carried on `LayoutNode` (which has no

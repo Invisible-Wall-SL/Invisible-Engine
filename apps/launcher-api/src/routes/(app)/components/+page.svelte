@@ -500,7 +500,7 @@
 <div class="shell">
 	<header class="topbar">
 		<div class="brandwrap">
-			<a class="save-btn" href="/editor">← Editor</a>
+			<a class="save-btn" href="/editor" data-sveltekit-reload>← Editor</a>
 			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE COMPONENT EDITOR</a>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
