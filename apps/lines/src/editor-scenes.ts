@@ -17,6 +17,13 @@ type BakedBundle = {
 	doc: LayoutDoc | null;
 	componentDefaults?: Record<string, Record<string, unknown>>;
 	componentDefs?: Record<string, ComponentDef>;
+	/** Art exported from the doc's references (`deploy/editor-art/`), mirrored
+	 * into `static/assets/` by the deploy pull. `json`/`file` are relative to
+	 * `static/assets/`. `images[].key` is the sprite node's full `assetKey`. */
+	editorArt?: {
+		sheets: { key: string; json: string }[];
+		images: { key: string; file: string }[];
+	};
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
 
@@ -35,6 +42,36 @@ export function registerBakedComponents(): void {
 	if (!hasBakedDoc()) return;
 	if (bakedBundle.componentDefs) registerComponents(bakedBundle.componentDefs);
 	if (bakedBundle.componentDefaults) registerComponentDefaults(bakedBundle.componentDefaults);
+}
+
+/**
+ * Asset entries for the spritesheets the baked doc's art references (exported to
+ * `deploy/editor-art/` at bake time, mirrored into `static/assets/` by the
+ * deploy pull). Spread into the game's `assets` record at `createApp` so every
+ * editor-placed sprite/image resolves WITHOUT a manual `assets.ts` entry — the
+ * sheet frames are keyed by the editor's region names, exactly what
+ * `LayoutNodeView` looks up. Empty when un-baked (dev keeps its own assets).
+ * The src is page-relative (`assets/…`), matching how the static dir is served.
+ */
+export function bakedEditorArtAssets(): Record<
+	string,
+	{ type: 'sprites' | 'sprite'; src: string; preload: boolean }
+> {
+	const out: Record<string, { type: 'sprites' | 'sprite'; src: string; preload: boolean }> = {};
+	if (!hasBakedDoc()) return out;
+	for (const sheet of bakedBundle.editorArt?.sheets ?? []) {
+		out[`editorArt/${sheet.json}`] = {
+			type: 'sprites',
+			src: `assets/${sheet.json}`,
+			preload: true,
+		};
+	}
+	// Standalone images register under the sprite node's full assetKey — that IS
+	// the engine's lookup key for a region-less sprite node.
+	for (const image of bakedBundle.editorArt?.images ?? []) {
+		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
+	}
+	return out;
 }
 
 /**

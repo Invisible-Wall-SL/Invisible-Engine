@@ -147,21 +147,53 @@ async function main() {
 		bail(`no authored doc for ${project} — has the project been opened + saved in the editor?`);
 	}
 
+	// Export the art the doc references into R2 `deploy/editor-art/` (spritesheet
+	// JSON + page per referenced atlas) so the deploy mirror that runs next in the
+	// game build pulls it, and embed the index so the game registers the sheets.
+	// This is what makes editor-placed sprites/images reach the shipped game
+	// automatically — without it they render as empty textures.
+	let editorArt = { sheets: [], images: [] };
+	const artUrl =
+		`${base}/api/editor/export-art?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the editor-art export — it writes to R2 deploy/.');
+	} else
+		try {
+			const artRes = await fetch(artUrl, { method: 'POST' });
+			if (!artRes.ok) {
+				bail(`Editor-art export failed: HTTP ${artRes.status} — ${await bodySnippet(artRes)}`);
+			}
+			const art = await artRes.json();
+			editorArt = {
+				sheets: Array.isArray(art?.sheets) ? art.sheets : [],
+				images: Array.isArray(art?.images) ? art.images : [],
+			};
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-art — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	const bundle = {
 		doc,
 		componentDefaults: data.componentDefaults ?? {},
 		componentDefs: data.componentDefs ?? {},
+		editorArt,
 	};
 
 	const sceneCount = doc.scenes.length;
 	const defCount = Object.keys(bundle.componentDefs).length;
 	const defaultCount = Object.keys(bundle.componentDefaults).length;
+	const artCount = editorArt.sheets.length + editorArt.images.length;
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
 		console.info(
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
-				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets).`,
+				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
+				` ${artCount} editor-art sheets).`,
 		);
 		return;
 	}
@@ -170,7 +202,8 @@ async function main() {
 	await writeFile(dest, json);
 	console.info(
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
-			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets).`,
+			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
+			` ${artCount} editor-art sheets).`,
 	);
 }
 

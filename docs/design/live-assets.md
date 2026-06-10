@@ -122,3 +122,32 @@ the editor — so a built game renders the coded built-in and the per-instance o
 (`bake-editor-doc.mjs --project <client>/<project> --dest ./src/baked-editor-bundle.json
 --optional`) and chain it into `build` after `build:engine`. `new-game.mjs` scaffolds the script
 entry. Authoring stays dynamic (editor); production ships static + self-contained.
+
+## Editor-art export — doc-referenced art reaches the build automatically (added 2026-06-10)
+
+The bake above freezes the doc, but the ART the doc references was still manual: a sprite
+placed from the editor Library keeps `assetKey = <R2 manifest key>` + `region`, which the
+editor renders straight from R2 — while the game resolves textures ONLY from spritesheets
+declared in `assets.ts`. Nothing exported those atlases to `deploy/`, so editor-placed
+sprites (and image-param art on component instances) rendered as `Texture.EMPTY` in a
+shipped game.
+
+**How it works now (no manual steps):**
+
+1. **Export (server)** — `$lib/server/editorArtExport.ts` walks the doc + its referenced
+   ComponentDefs and collects: sprite-node manifest keys, region names set via image-kind
+   params (located among the project's atlases), and standalone image keys (dropped atlas
+   pages). For each referenced atlas it writes a TexturePacker json-hash sheet (frames keyed
+   by the editor REGION NAMES — the engine's exact lookup keys) + a copy of the page under
+   `deploy/editor-art/<stem>/`, plus an `index.json`. Stale objects from a previous export
+   are pruned; the export is idempotent.
+2. **Trigger** — `POST /api/editor/export-art?project=<key>&k=<token>` (same
+   `EDITOR_DOC_SECRET` gate as the doc endpoint). `bake-editor-doc.mjs` calls it right
+   before writing the bundle and embeds the returned index as `bundle.editorArt`.
+3. **Transport** — unchanged: `pull-project-assets.mjs` mirrors `deploy/` →
+   `static/assets/`, now including `editor-art/`. ⚠ Build-order: `bake:doc` must run
+   BEFORE `pull:assets` so the freshly exported art is mirrored in the same build.
+4. **Game** — `editor-scenes.ts#bakedEditorArtAssets()` turns `bundle.editorArt` into
+   asset entries (`type:'sprites'` per sheet; `type:'sprite'` keyed by the node's full
+   `assetKey` for standalone images); `stateApp.ts` spreads them into `createApp({assets})`.
+   Un-baked repos get `{}` — dev parity.
