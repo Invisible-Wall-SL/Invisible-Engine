@@ -215,9 +215,9 @@ ATLAS_BLUEPRINT_PUBLISH = _truthy_env("ATLAS_BLUEPRINT_PUBLISH")
 
 # POST routes that write/remove ref images → mirror staging refs to R2 after.
 _REF_MUTATING_ROUTES = {
-    "/setref", "/setoutput", "/userefimg", "/shinefrom", "/shinemode",
-    "/fxbuild", "/clearref", "/clearoutput", "/setmode", "/delvariants",
-    "/uploadatlas",
+    "/setref", "/setoutput", "/userefimg", "/userefall", "/shinefrom",
+    "/shinemode", "/fxbuild", "/clearref", "/clearoutput", "/setmode",
+    "/delvariants", "/uploadatlas",
 }
 
 
@@ -2254,6 +2254,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <button onclick="selAll(true)" class="alt">Select all</button>
   <button onclick="selAll(false)" class="alt">Select none</button>
   <button onclick="createAtlas()" id="abtn" style="background:#629432">🧩 Create Atlas</button>
+  <button onclick="useRefAll()" class="alt" title="Seed every EMPTY region's atlas tile from its own reference image (verbatim — no AI). Never overwrites a region that already has a generated image. ✕ revert restores generation per region.">⤵ Refs → generated</button>
   <button onclick="sliceAtlas()" class="alt" title="Cut the Atlas source image into per-region crops and set them as each region's IPAdapter style ref">✂ Slice source → refs</button>
   <button onclick="uploadAtlas()" class="alt" title="Upload a .atlas geometry file (and its source page image) into R2 and repoint this manifest, so Slice/Compose resolve in the cloud">⬆ Upload .atlas</button>
   <input type="file" id="uplAtlasFile" accept=".atlas" style="display:none" onchange="onAtlasFilePicked()">
@@ -2848,6 +2849,14 @@ async function pasteSel(e){{
  if(!dsts.length){{alert('Tick the target cards first (the selection checkboxes)');return;}}
  if(!confirm('Paste settings from '+s+' into '+dsts.length+' selected region(s)? (reference image, seed and lock are kept per-region)'))return;
  let r=await fetch('/copyfrom',{{method:'POST',body:JSON.stringify({{src:s,dsts:dsts}})}});
+ let msg=await r.text(); document.getElementById('stat').textContent=msg;
+ if(!flashDiag(msg)) setTimeout(()=>location.reload(),600);
+}}
+async function useRefAll(){{
+ if(!confirm('Seed every EMPTY region\'s atlas tile from its reference image? '
+  +'Regions that already have a generated image are left untouched. '
+  +'(✕ revert restores generation per region.)'))return;
+ let r=await fetch('/userefall',{{method:'POST',body:JSON.stringify({{}})}});
  let msg=await r.text(); document.getElementById('stat').textContent=msg;
  if(!flashDiag(msg)) setTimeout(()=>location.reload(),600);
 }}
@@ -3468,9 +3477,22 @@ class Handler(BaseHTTPRequestHandler):
                 # Activate it exactly like the session dropdown does.
                 try:
                     cfg = load_config()
+                    _was = cfg.get("manifest_path", "")
                     cfg["manifest_path"] = resolved
                     save_config(cfg)
+                    # Re-activating an EXISTING sheet-derived recipe: fill its
+                    # empty atlas tiles from refs (same rule as the dropdown).
+                    # Only on a real switch + only for sheet manifests + only
+                    # when something gets seeded (avoid pointless R2 writes).
+                    if resolved != _was:
+                        nm = load_manifest()
+                        if bool(nm.get("export_prefix")):
+                            res = self._seed_refs_into_outputs(nm, only_empty=True)
+                            if res["seeded"]:
+                                save_manifest(nm)
                 except OSError:
+                    pass
+                except Exception:  # noqa: BLE001 — never 500 a deep-link
                     pass
                 if region:
                     self._deeplink_region = Path(region).stem
@@ -3668,6 +3690,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._setoutput(json.loads(raw)).encode())
         elif self.path == "/userefimg":
             self._send(200, "text/plain", self._userefimg(json.loads(raw)).encode())
+        elif self.path == "/userefall":
+            self._send(200, "text/plain", self._userefall(json.loads(raw)).encode())
         elif self.path == "/clearoutput":
             self._send(200, "text/plain", self._clearoutput(json.loads(raw)).encode())
         elif self.path == "/shinefrom":
@@ -5183,6 +5207,97 @@ class Handler(BaseHTTPRequestHandler):
         return (f"Using your image for {name} (not processed). "
                 f"Create Atlas to apply; ✕ revert to generate again.")
 
+    def _bind_ref_as_output(self, m: dict, region: dict) -> tuple[bool, str]:
+        """Core of "use this region's reference image as its atlas tile":
+        resolve the region's ref (shape_ref → style_ref), snapshot it to
+        refs/useroutput_<name>.png (verbatim — no AI, no RMBG), mirror to R2,
+        drop the stale FX snapshot, and set output_override on the region's
+        PERSISTED creative entry (via _ensure_region — `region` may be a merged
+        .atlas view that isn't itself saved).
+
+        Does NOT call save_manifest — the caller persists once (so this is
+        safe to call in a bulk loop).
+
+        Return contract: (ok, detail). Element 2 is dual-purpose by `ok`:
+          - ok=True  → detail is the source filename (src.name), for display.
+          - ok=False → detail is a failure reason: the sentinel "noref" when
+            the region has no usable reference, else a decode-error string."""
+        name = region.get("name", "")
+        src = None
+        for key in ("shape_ref", "style_ref"):
+            ref = region.get(key)
+            if ref:
+                p = _resolve_region_ref(ref)
+                if p is not None:
+                    src = p
+                    break
+        if src is None:
+            return (False, "noref")
+        try:
+            img = Image.open(src).convert("RGBA")
+        except Exception as e:  # noqa: BLE001
+            return (False, f"{type(e).__name__}: {e}")
+        r = self._ensure_region(m, name)
+        if r is None:
+            return (False, "noref")
+        (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
+        rel = f"refs/useroutput_{name}.png"
+        img.save(INPUT_DIR / rel)
+        _mirror(INPUT_DIR / rel)  # persist the user image to R2
+        _drop_fx_snapshot(name)
+        r["output_override"] = rel
+        return (True, src.name)
+
+    def _region_has_output(self, region: dict) -> bool:
+        """True when a region already has a committed/available atlas tile —
+        either a user output_override that resolves to a real file, or a
+        generated variant PNG exists for it. Centralized so the bulk seed and
+        any future caller share one definition of "already has an image".
+
+        NOTE: callers must hydrate batch/ first (the variant pile is a lazy
+        subtree not pulled at startup); _seed_refs_into_outputs does this once
+        before its loop so the variant check sees R2 variants after a switch."""
+        if batch_atlas.override_image_path(region) is not None:
+            return True
+        try:
+            return bool(batch_atlas.variant_files(BATCH_DIR, region["name"]))
+        except Exception:  # noqa: BLE001 — missing dir / odd name → no variant
+            return False
+
+    def _seed_refs_into_outputs(self, m: dict, names: list[str] | None = None,
+                                only_empty: bool = True) -> dict:
+        """Bulk: bind each region's reference image as its atlas tile.
+        Skips regions not in `names` (when given), regions that already have
+        an image (when only_empty), and regions with no usable ref. Does NOT
+        save — the caller persists once. Returns counts + the seeded names."""
+        # Hydrate the lazy variant pile ONCE before the only_empty check below:
+        # batch/ is excluded from the startup pull, so right after a manifest
+        # switch (when auto-seed fires) the variant PNGs may not be on local
+        # disk yet. Without this, _region_has_output wrongly returns False and
+        # the seed would overwrite an existing generated variant. Idempotent.
+        project_paths.ensure_lazy("batch/")
+        want = set(names) if names else None
+        seeded: list[str] = []
+        skipped_existing = 0
+        noref = 0  # region genuinely has no reference image
+        bad = 0    # ref present but unopenable (decode/format failure)
+        for region in all_regions(m):
+            nm = region.get("name", "")
+            if want is not None and nm not in want:
+                continue
+            if only_empty and self._region_has_output(region):
+                skipped_existing += 1
+                continue
+            ok, reason = self._bind_ref_as_output(m, region)
+            if ok:
+                seeded.append(nm)
+            elif reason == "noref":
+                noref += 1
+            else:  # ref existed but could not be decoded
+                bad += 1
+        return {"seeded": len(seeded), "skipped_existing": skipped_existing,
+                "noref": noref, "bad": bad, "names": seeded}
+
     def _userefimg(self, payload: dict) -> str:
         """Bind a region's CURRENT reference image (the one shown in the ref
         figure: shape_ref, else style_ref / atlas slice) as that region's
@@ -5196,33 +5311,33 @@ class Handler(BaseHTTPRequestHandler):
         region = next((r for r in all_regions(m) if r["name"] == name), None)
         if region is None:
             return _diag("REGION_NOT_FOUND", name=name)
-        src = None
-        for key in ("shape_ref", "style_ref"):
-            ref = region.get(key)
-            if ref:
-                p = _resolve_region_ref(ref)
-                if p is not None:
-                    src = p
-                    break
-        if src is None:
-            return _diag("NO_REFERENCE_IMAGE", name=name)
-        try:
-            img = Image.open(src).convert("RGBA")
-        except Exception as e:  # noqa: BLE001
-            return _diag("SOURCE_IMAGE_INVALID", err=f"{type(e).__name__}: {e}")
-        (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
-        rel = f"refs/useroutput_{name}.png"
-        img.save(INPUT_DIR / rel)
-        _mirror(INPUT_DIR / rel)  # persist the user image to R2
-        _drop_fx_snapshot(name)
-        r = self._ensure_region(m, name)
-        if r is None:
-            return _diag("REGION_NOT_FOUND", name=name)
-        r["output_override"] = rel
+        ok, reason = self._bind_ref_as_output(m, region)
+        if not ok:
+            if reason == "noref":
+                return _diag("NO_REFERENCE_IMAGE", name=name)
+            return _diag("SOURCE_IMAGE_INVALID", err=reason)
         save_manifest(m)
-        return (f"{name}: using its reference image ({src.name}) as the "
+        return (f"{name}: using its reference image ({reason}) as the "
                 f"atlas tile — not processed. Create Atlas to apply; "
                 f"✕ revert to generate again.")
+
+    def _userefall(self, payload: dict) -> str:
+        """Bulk "Copy all refs → generated": seed every EMPTY region's atlas
+        tile from its reference image. Never overwrites a region that already
+        has a generated/committed image. One save_manifest for the whole op."""
+        m = load_manifest()
+        names = payload.get("names") or None
+        res = self._seed_refs_into_outputs(m, names=names, only_empty=True)
+        if res["seeded"]:
+            save_manifest(m)
+        parts = [f"Seeded {res['seeded']} empty region(s) from their reference"]
+        if res["skipped_existing"]:
+            parts.append(f"{res['skipped_existing']} already had an image")
+        if res["noref"]:
+            parts.append(f"{res['noref']} had no ref")
+        if res.get("bad"):
+            parts.append(f"{res['bad']} had an unreadable ref")
+        return " · ".join(parts)
 
     def _clearoutput(self, payload: dict) -> str:
         name = payload.get("name", "")
@@ -5425,6 +5540,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _saveconfig(self, edits: dict) -> str:
         cfg = load_config()
+        # Did the Session dropdown switch the ACTIVE manifest? (compare against
+        # the value BEFORE we apply edits). Used to auto-seed sheet-derived
+        # manifests from their refs on activation — see below.
+        _prev_mp = cfg.get("manifest_path", "")
+        _new_mp = str(edits.get("manifest_path", _prev_mp)).strip()
+        _switched_manifest = bool(_new_mp) and _new_mp != _prev_mp
         m = load_manifest()
         settings = m.get("settings") or {}
         atlas = m.setdefault("atlas", {})
@@ -5464,6 +5585,21 @@ class Handler(BaseHTTPRequestHandler):
             m.pop("settings", None)
         save_manifest(m)
         save_config(cfg)
+        # Auto-seed on ACTIVATION (not on every render): when the Session
+        # dropdown switches to a sheet-derived manifest (Sheet Maker stamps a
+        # truthy `export_prefix`), fill its EMPTY atlas tiles from each
+        # region's reference image. load_manifest now resolves to the newly
+        # active file (config was just saved); only_empty never overwrites an
+        # existing image, and we only save when something was actually seeded.
+        if _switched_manifest:
+            try:
+                nm = load_manifest()
+                if bool(nm.get("export_prefix")):
+                    res = self._seed_refs_into_outputs(nm, only_empty=True)
+                    if res["seeded"]:
+                        save_manifest(nm)
+            except Exception:  # noqa: BLE001 — a seed hiccup must not 500 a save
+                pass
         return "Settings saved (per-atlas overrides + globals)"
 
 
