@@ -1,6 +1,10 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import { resolveComponentParams, STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
+	import {
+		ENGINE_ACTION_CATALOG,
+		resolveComponentParams,
+		STANDARD_MAIN_SIZES_MAP,
+	} from 'engine-layout';
 	import type {
 		ComponentCategory,
 		ComponentDef,
@@ -124,8 +128,15 @@
 
 	let newName = $state('');
 	let newCategory = $state<ComponentCategory>('overlay');
+	/** What the new component starts as: a blank shell, or a from-scratch BUTTON —
+	 * same blank root (the author drops their own art), but pre-declared with the
+	 * `action` param. That single param is the whole button contract: a placed
+	 * instance picks its action from the registered-action dropdown, and the engine
+	 * provides the hit surface for an action-bound def with no coded part (§18.4) —
+	 * the authored art becomes clickable with zero extra wiring. */
+	let newType = $state<'blank' | 'button'>('blank');
 
-	/** Create a blank component (empty identity `root` container) + open it. */
+	/** Create a component (blank root; a Button additionally declares `action`) + open it. */
 	function createComponent(): void {
 		const name = newName.trim();
 		if (!name) return;
@@ -136,14 +147,18 @@
 			y: 0,
 			children: [],
 		};
-		openComponent({
+		const def: ComponentDef = {
 			id: genComponentId(),
 			name,
 			version: 1,
 			scope: 'project',
-			category: newCategory,
+			category: newType === 'button' ? 'ui' : newCategory,
 			root,
-		});
+		};
+		if (newType === 'button') {
+			def.params = [{ key: 'action', kind: 'string', options: ENGINE_ACTION_CATALOG }];
+		}
+		openComponent(def);
 		newName = '';
 	}
 
@@ -482,11 +497,21 @@
 									if (e.key === 'Enter') createComponent();
 								}}
 							/>
-							<select bind:value={newCategory} aria-label="Component category">
-								{#each CATEGORIES as c (c.id)}
-									<option value={c.id}>{c.label}</option>
-								{/each}
+							<select
+								bind:value={newType}
+								aria-label="Component type"
+								title="Button = pre-wired clickable component: drop your art, then pick the Action on each placed instance"
+							>
+								<option value="blank">Blank</option>
+								<option value="button">Button</option>
 							</select>
+							{#if newType === 'blank'}
+								<select bind:value={newCategory} aria-label="Component category">
+									{#each CATEGORIES as c (c.id)}
+										<option value={c.id}>{c.label}</option>
+									{/each}
+								</select>
+							{/if}
 							<button
 								type="button"
 								class="create-btn"
@@ -496,6 +521,13 @@
 								Create
 							</button>
 						</div>
+						{#if newType === 'button'}
+							<p class="muted small">
+								Drop your art (atlas regions, text) on the canvas — the whole component becomes the
+								click area. Pick the <strong>Action</strong> (spin, menu, turbo…) on each placed instance
+								in the scene editor.
+							</p>
+						{/if}
 					</div>
 
 					<h3 class="list-h">Library <span class="count">{components.length}</span></h3>
