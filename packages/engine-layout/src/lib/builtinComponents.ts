@@ -190,6 +190,17 @@ export const BUTTON_DEF: ComponentDef = {
 		{ key: 'fontSize', kind: 'number', default: BUTTON_FONT_SIZE },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		// Per-state background IMAGES (atlas frame names — `kind: 'image'` renders the
+		// editor's region picker). `ButtonFrame` swaps its bg by interaction state:
+		// `image` is the resting look, `imageSelected` shows while the engine `active`
+		// flag is on, `imageDisabled` is the downstate (engine `disabled` flag), and a
+		// missing `imagePressed` falls back to `imageHover` then `image`. All absent ⇒
+		// the coded variant tile renders unchanged (parity).
+		{ key: 'image', kind: 'image', group: 'State images', label: 'normal' },
+		{ key: 'imageHover', kind: 'image', group: 'State images', label: 'hover' },
+		{ key: 'imagePressed', kind: 'image', group: 'State images', label: 'pressed' },
+		{ key: 'imageSelected', kind: 'image', group: 'State images', label: 'selected' },
+		{ key: 'imageDisabled', kind: 'image', group: 'State images', label: 'downstate' },
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
 	],

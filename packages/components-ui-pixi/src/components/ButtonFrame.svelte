@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Container } from 'pixi-svelte';
+	import { Container, Sprite } from 'pixi-svelte';
 	import { getComponentParams } from 'engine-layout/svelte';
 
 	import UiSprite from './UiSprite.svelte';
@@ -13,14 +13,26 @@
 	 * the params carry their defaults.
 	 *
 	 * This part ALSO owns the hit area: a `static` `Container` whose `onpointerup`
-	 * calls the action `onpress` exposed on the param context (the action feed).
+	 * calls the action `onpress` exposed on the param context (the action feed). It
+	 * also tracks `hovered`/`pressed` locally (mirroring the coded `Button.svelte`)
+	 * to drive the state images below.
+	 *
+	 * STATE IMAGES (the def's `image*` instance params, atlas frame names): when the
+	 * state's image is authored, the frame renders a real `<Sprite>` of that frame
+	 * INSTEAD of the variant tile — resolution order disabled (`imageDisabled`, the
+	 * downstate) → pressed (`imagePressed`, falls back to hover, then to selected
+	 * while active) → hovered (`imageHover`, falls back to selected while active) →
+	 * active (`imageSelected`) → resting (`image`). The coded painted states only
+	 * apply where no image covers them: no `imageDisabled` ⇒ disabled greys (tile
+	 * fill / sprite tint). The active BORDER is tile-only — once a resting `image`
+	 * is authored, `imageSelected` is what makes the active state visible, so an
+	 * image-skinned button should author both. No image params at all ⇒ the tile
+	 * path is byte-identical.
 	 *
 	 * Editor-configurable via the shared `TILE_PARAMS` (the `ButtonFrame` entry in
 	 * `BOUND_COMPONENT_PARAMS`): `texture`/`tint`/`borderColor`/`borderWidth`/
 	 * `borderRadius` arrive on the node's `bind.props` (spread in here) as the RESTING
-	 * look. The engine STATES still win: `disabled` greys the fill and `active` draws
-	 * its border OVER any authored border (the live flags come from the action feed via
-	 * the param context). `tint` on `bind.props` overrides the instance `tint` param.
+	 * look. `tint` on `bind.props` overrides the instance `tint` param.
 	 * Reads the engine param context the `<ComponentInstance>` provides.
 	 */
 	interface Props {
@@ -32,9 +44,13 @@
 	}
 	const { texture, tint: tintProp, borderColor, borderWidth, borderRadius }: Props = $props();
 
+	// Empty string normalizes to undefined: a cleared editor field must fall back
+	// like an absent param (otherwise `''` defeats the painted disabled/active
+	// fallbacks below while rendering nothing).
 	const stringParam = (key: string): string | undefined => {
 		const params = getComponentParams();
-		return typeof params[key] === 'string' ? (params[key] as string) : undefined;
+		const value = typeof params[key] === 'string' ? (params[key] as string) : undefined;
+		return value === '' ? undefined : value;
 	};
 	const numberParam = (key: string): number | undefined => {
 		const params = getComponentParams();
@@ -48,39 +64,93 @@
 	const disabled = $derived(boolParam('disabled'));
 	const active = $derived(boolParam('active'));
 
+	// Interaction state — same tracking + disabled-reset as the coded `Button.svelte`.
+	let hovered = $state(false);
+	let pressed = $state(false);
+	$effect(() => {
+		if (disabled) {
+			hovered = false;
+			pressed = false;
+		}
+	});
+
+	// Authored per-state bg image (atlas frame name) for the CURRENT state, with the
+	// cascade documented above; undefined ⇒ the state has no image of its own. While
+	// `active`, hover/press fall back to the selected image (not past it) so a
+	// selected button doesn't visibly deselect under the pointer.
+	const stateImage = $derived.by(() => {
+		if (disabled) return stringParam('imageDisabled');
+		const selected = active ? stringParam('imageSelected') : undefined;
+		if (pressed) return stringParam('imagePressed') ?? stringParam('imageHover') ?? selected;
+		if (hovered) return stringParam('imageHover') ?? selected;
+		return selected;
+	});
+	const frameImage = $derived(stateImage ?? stringParam('image'));
+	// Coded painted states apply only where no authored image covers them.
+	const paintDisabled = $derived(disabled && stringParam('imageDisabled') === undefined);
+	const paintActive = $derived(active && stringParam('imageSelected') === undefined);
+
 	// The action handler arrives on the param context (same reactive trick as
 	// `HudValue`'s `value`); undefined until the action feed registers it → no-op.
 	const onpress = () => {
+		if (disabled) return;
 		const handler = getComponentParams()['onpress'];
 		if (typeof handler === 'function') (handler as () => void)();
 	};
 </script>
 
-<Container eventMode="static" cursor={disabled ? 'not-allowed' : 'pointer'} onpointerup={onpress}>
+<Container
+	eventMode="static"
+	cursor={disabled ? 'not-allowed' : 'pointer'}
+	onpointerover={() => {
+		if (!disabled) hovered = true;
+	}}
+	onpointerout={() => {
+		hovered = false;
+		pressed = false;
+	}}
+	onpointerdown={() => {
+		if (!disabled) pressed = true;
+	}}
+	onpointerup={() => {
+		pressed = false;
+		onpress();
+	}}
+>
 	<Container {tint}>
-		<UiSprite
-			anchor={0.5}
-			width={UI_BASE_SIZE}
-			height={UI_BASE_SIZE}
-			backgroundColor={variant === 'dark' ? 0x000000 : 0xffffff}
-			{...texture ? { key: texture } : {}}
-			{...borderRadius !== undefined ? { borderRadius } : {}}
-			{...disabled
-				? {
-						backgroundColor: 0xaaaaaa,
-					}
-				: {}}
-			{...active
-				? {
-						borderWidth: 10,
-						borderColor: variant === 'dark' ? 0xffffff : 0x000000,
-					}
-				: borderWidth
+		{#if frameImage}
+			<Sprite
+				key={frameImage}
+				anchor={0.5}
+				width={UI_BASE_SIZE}
+				height={UI_BASE_SIZE}
+				tint={paintDisabled ? 0xaaaaaa : 0xffffff}
+			/>
+		{:else}
+			<UiSprite
+				anchor={0.5}
+				width={UI_BASE_SIZE}
+				height={UI_BASE_SIZE}
+				backgroundColor={variant === 'dark' ? 0x000000 : 0xffffff}
+				{...texture ? { key: texture } : {}}
+				{...borderRadius !== undefined ? { borderRadius } : {}}
+				{...paintDisabled
 					? {
-							borderWidth,
-							borderColor: borderColor ?? 0x000000,
+							backgroundColor: 0xaaaaaa,
 						}
 					: {}}
-		/>
+				{...paintActive
+					? {
+							borderWidth: 10,
+							borderColor: variant === 'dark' ? 0xffffff : 0x000000,
+						}
+					: borderWidth
+						? {
+								borderWidth,
+								borderColor: borderColor ?? 0x000000,
+							}
+						: {}}
+			/>
+		{/if}
 	</Container>
 </Container>
