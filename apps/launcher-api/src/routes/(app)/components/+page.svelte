@@ -1,10 +1,6 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import {
-		ENGINE_ACTION_CATALOG,
-		resolveComponentParams,
-		STANDARD_MAIN_SIZES_MAP,
-	} from 'engine-layout';
+	import { resolveComponentParams, STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
 	import type {
 		ComponentCategory,
 		ComponentDef,
@@ -22,9 +18,7 @@
 	import EditorCanvas from '../editor/EditorCanvas.svelte';
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
-	import RegionPicker from '../editor/RegionPicker.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
-	import { isParamGroupOpen, setParamGroupOpen } from '../editor/groupCollapse.client';
 	import {
 		fetchRegions,
 		type RegionDragPayload,
@@ -103,67 +97,6 @@
 	const resolvedParams = $derived<Record<string, unknown>>(
 		componentDraft ? resolveComponentParams(componentDraft) : {},
 	);
-
-	/** The params whose baked default the author can set here — engine-provided ones
-	 * are fed at runtime (a default makes no sense), so they're hidden. */
-	const editableDefaultParams = $derived(
-		(componentDraft?.params ?? []).filter((p) => !p.engineProvided),
-	);
-	/** Ungrouped default params (rendered flat above the grouped sections). */
-	const ungroupedDefaultParams = $derived(editableDefaultParams.filter((p) => !p.group));
-	/** Default params bucketed by `group` (e.g. an exposed text node's name) → collapsible. */
-	const defaultParamGroups = $derived.by(() => {
-		const map = new Map<string, ComponentParam[]>();
-		for (const p of editableDefaultParams) {
-			if (!p.group) continue;
-			const arr = map.get(p.group);
-			if (arr) arr.push(p);
-			else map.set(p.group, [p]);
-		}
-		return [...map.entries()];
-	});
-
-	/** Read one param's baked default — the value EVERY project inherits unless an
-	 * instance overrides it (saved on the def). `undefined` = unset. */
-	function getDefault(key: string): unknown {
-		return componentDraft?.params?.find((p) => p.key === key)?.default;
-	}
-
-	/** Set/clear a param's baked default on the open draft. Travels on the def to
-	 * every project; persisted by "Save component". `undefined` clears it. */
-	function setDefault(key: string, value: unknown): void {
-		if (!componentDraft?.params) return;
-		componentDraft.params = componentDraft.params.map((p) => {
-			if (p.key !== key) return p;
-			if (value === undefined) {
-				const { default: _drop, ...rest } = p;
-				return rest;
-			}
-			return { ...p, default: value };
-		});
-	}
-
-	/** Coerce a colour <input> hex (`#rrggbb`) to the param's numeric value. */
-	function hexToNumber(hex: string): number {
-		return parseInt(hex.replace(/^#/, ''), 16) || 0;
-	}
-	/** Render a numeric colour param as a `#rrggbb` value for the colour <input>. */
-	function numberToHex(value: unknown): string {
-		const n = typeof value === 'number' ? value : 0;
-		return `#${(n >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
-	}
-	/** A param key that looks like a font → render a text input (§13.4 hint). */
-	function looksLikeFont(key: string): boolean {
-		return /font/i.test(key);
-	}
-	/** Dropdown options for an `action`-keyed param: the registered-action catalog,
-	 * plus the current value if it's a custom key (so it isn't dropped). */
-	function actionOptions(current: unknown): string[] {
-		const v = typeof current === 'string' ? current : '';
-		return v && !ENGINE_ACTION_CATALOG.includes(v)
-			? [...ENGINE_ACTION_CATALOG, v]
-			: ENGINE_ACTION_CATALOG;
-	}
 
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
@@ -742,110 +675,6 @@
 		</main>
 
 		<aside class="properties">
-			{#if componentDraft}
-				<section class="defaults">
-					<div class="defaults-head">
-						<h3>Defaults (all projects)</h3>
-					</div>
-					{#if editableDefaultParams.length === 0}
-						<p class="muted hint">
-							This component declares no author-settable params. Add params (Properties → component
-							params); engine-provided values are fed at runtime and have no default.
-						</p>
-					{:else}
-						<p class="muted hint">
-							The component's own defaults — every project inherits these unless an instance
-							overrides them. Saved with the component.
-						</p>
-						{#snippet defRow(param: ComponentParam)}
-							{@const current = getDefault(param.key)}
-							<label class="def-row">
-								<span class="def-key" title={param.key}>{param.label ?? param.key}</span>
-								{#if param.options && param.options.length > 0}
-									<select
-										value={typeof current === 'string' ? current : ''}
-										onchange={(e) => setDefault(param.key, e.currentTarget.value || undefined)}
-									>
-										<option value="">(none)</option>
-										{#each param.options as opt (opt)}
-											<option value={opt}>{opt}</option>
-										{/each}
-									</select>
-								{:else if param.key === 'action'}
-									<select
-										value={typeof current === 'string' ? current : ''}
-										onchange={(e) => setDefault(param.key, e.currentTarget.value || undefined)}
-									>
-										<option value="">(none)</option>
-										{#each actionOptions(current) as a (a)}
-											<option value={a}>{a}</option>
-										{/each}
-									</select>
-								{:else if param.kind === 'boolean'}
-									<input
-										type="checkbox"
-										checked={current === true}
-										onchange={(e) => setDefault(param.key, e.currentTarget.checked)}
-									/>
-								{:else if param.kind === 'number'}
-									<input
-										type="number"
-										value={typeof current === 'number' ? current : ''}
-										placeholder="(unset)"
-										oninput={(e) => {
-											const v = e.currentTarget.value;
-											setDefault(param.key, v === '' ? undefined : Number(v));
-										}}
-									/>
-								{:else if param.kind === 'color'}
-									<input
-										type="color"
-										value={numberToHex(current)}
-										oninput={(e) => setDefault(param.key, hexToNumber(e.currentTarget.value))}
-									/>
-								{:else if param.kind === 'image'}
-									<RegionPicker
-										sheets={pickSheets}
-										value={typeof current === 'string' ? current : ''}
-										onSelect={(region) => setDefault(param.key, region || undefined)}
-									/>
-								{:else}
-									<input
-										type="text"
-										value={typeof current === 'string' ? current : ''}
-										placeholder={looksLikeFont(param.key) ? 'font family…' : '(unset)'}
-										oninput={(e) => {
-											const v = e.currentTarget.value;
-											setDefault(param.key, v === '' ? undefined : v);
-										}}
-									/>
-								{/if}
-							</label>
-						{/snippet}
-						<div class="defaults-grid">
-							{#each ungroupedDefaultParams as param (param.key)}
-								{@render defRow(param)}
-							{/each}
-						</div>
-						{#each defaultParamGroups as [groupName, groupParams] (groupName)}
-							{@const groupKey = `${componentDraft?.id ?? ''}:${groupName}`}
-							<details
-								class="param-group"
-								open={isParamGroupOpen(groupKey)}
-								ontoggle={(e) => setParamGroupOpen(groupKey, e.currentTarget.open)}
-							>
-								<summary>{groupName}</summary>
-								<div class="defaults-grid">
-									{#each groupParams as param (param.key)}
-										{@render defRow(param)}
-									{/each}
-								</div>
-							</details>
-						{/each}
-					{/if}
-				</section>
-			{/if}
-
 			<div class="right-body">
 				{#if !componentDraft}
 					<p class="muted hint">Open a component to edit its elements.</p>
@@ -1303,92 +1132,6 @@
 	.foot {
 		padding: 8px 12px;
 		border-top: 1px solid #1c1c24;
-	}
-
-	.defaults {
-		border-bottom: 1px solid #1c1c24;
-		padding: 12px;
-		margin: 0;
-		max-height: 40%;
-		overflow-y: auto;
-	}
-	.defaults-head {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-bottom: 8px;
-	}
-	.param-group {
-		border: 1px solid #2a2a33;
-		border-radius: 4px;
-		margin: 6px 0;
-		padding: 2px 6px 6px;
-	}
-	.param-group > summary {
-		cursor: pointer;
-		font-size: 12px;
-		font-weight: 600;
-		color: #c8c8d0;
-		padding: 4px 2px;
-		list-style: none;
-	}
-	.param-group > summary::-webkit-details-marker {
-		display: none;
-	}
-	.param-group > summary::before {
-		content: '▸ ';
-		color: #777;
-	}
-	.param-group[open] > summary::before {
-		content: '▾ ';
-	}
-	.defaults-head h3 {
-		margin: 0;
-		color: #c8a3ff;
-	}
-	.defaults-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-	.def-row {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		align-items: center;
-		gap: 8px;
-	}
-	.def-key {
-		font-size: 11px;
-		color: #c8c8d0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.def-row input[type='text'],
-	.def-row input[type='number'],
-	.def-row select {
-		width: 130px;
-		background: #0b0b10;
-		border: 1px solid #2a2a33;
-		border-radius: 6px;
-		padding: 4px 7px;
-		color: #e8e8ee;
-		font-size: 12px;
-		font-family: inherit;
-	}
-	.def-row input[type='color'] {
-		width: 36px;
-		height: 26px;
-		padding: 0;
-		background: #0b0b10;
-		border: 1px solid #2a2a33;
-		border-radius: 6px;
-		cursor: pointer;
-	}
-	.def-row input[type='checkbox'] {
-		width: 16px;
-		height: 16px;
-		accent-color: #6b5bff;
 	}
 
 	.expandable {
