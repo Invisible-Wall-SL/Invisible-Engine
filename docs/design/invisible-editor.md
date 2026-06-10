@@ -783,3 +783,13 @@ browser (HUD readouts, game-name/clock, board, i18n test overlay — no console 
 - **Editor key-picker**: surface the project's Localization-tool keys as suggestions on text params
   (today the author types the key; unknown keys render literal).
 - Editor canvas preview stays source-language (authoring shows keys/source text — by design for now).
+
+### 18.4 Default hit surface for art-only components (owner bug 2026-06-10)
+A custom button authored in the Component Editor (background sprite + text — no coded `bind` part)
+published as a STATIC IMAGE: all button interactivity (hit area, cursor, `onpointerup`) lived in the
+coded `ButtonFrame` part, and plain sprite/text nodes carry no event handling. Fix in
+`<ComponentInstance>`: when the instance resolved an ACTION feed and the def's root contains NO
+`bind` node, the engine provides the default hit surface — the expansion wraps in an interactive
+`Container` (`eventMode static`, pointer/not-allowed cursor, press → `onpress` unless disabled), so
+the whole rendered art hit-tests. A def containing ANY bind part keeps the coded part as the sole
+press owner (no wrapper → no double-fire → parity for the built-in `button`).
