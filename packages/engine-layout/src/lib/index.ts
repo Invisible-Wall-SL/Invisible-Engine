@@ -20,6 +20,7 @@ export * from './registerComponents';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerComponentDefaults';
+export * from './registerTextResolver';
 export * from './builtinComponents';
 export * from './boundComponentCatalog';
 export * from './componentCatalog';

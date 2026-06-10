@@ -176,17 +176,48 @@ async function main() {
 			);
 		}
 
+	// Localization-tool strings (reviewed translations + source text), merged into
+	// the game's Lingui catalog at boot so editor-authored localization keys (e.g.
+	// a textBox's `text` param) resolve in the shipped game. Absent/empty doc is
+	// normal (not every project localizes) — never fatal, just an empty map.
+	let localization = { sourceLang: 'en', messages: {} };
+	if (!dryRun) {
+		try {
+			const locRes = await fetch(
+				`${base}/api/localization/strings?project=${encodeURIComponent(project)}` +
+					`&k=${encodeURIComponent(token)}`,
+			);
+			if (locRes.ok) {
+				const loc = await locRes.json();
+				localization = {
+					sourceLang: typeof loc?.sourceLang === 'string' ? loc.sourceLang : 'en',
+					messages: loc?.messages && typeof loc.messages === 'object' ? loc.messages : {},
+				};
+			} else {
+				console.warn(
+					`⚠ bake-doc: localization fetch HTTP ${locRes.status} — baking without strings.`,
+				);
+			}
+		} catch (err) {
+			console.warn(
+				`⚠ bake-doc: localization fetch failed (${err instanceof Error ? err.message : err}) — baking without strings.`,
+			);
+		}
+	}
+
 	const bundle = {
 		doc,
 		componentDefaults: data.componentDefaults ?? {},
 		componentDefs: data.componentDefs ?? {},
 		editorArt,
+		localization,
 	};
 
 	const sceneCount = doc.scenes.length;
 	const defCount = Object.keys(bundle.componentDefs).length;
 	const defaultCount = Object.keys(bundle.componentDefaults).length;
 	const artCount = editorArt.sheets.length + editorArt.images.length;
+	const localeCount = Object.keys(localization.messages).length;
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
@@ -203,7 +234,7 @@ async function main() {
 	console.info(
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
-			` ${artCount} editor-art sheets).`,
+			` ${artCount} editor-art sheets, ${localeCount} locales).`,
 	);
 }
 

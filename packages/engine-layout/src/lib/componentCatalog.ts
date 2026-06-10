@@ -51,6 +51,13 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
 export const VALUE_SOURCE_KEYS: string[] = VALUE_SOURCE_CATALOG.map((p) => p.key);
 
 /**
+ * Every engine value feed a TEXT field can bind to — numbers (formatted, count-up
+ * capable) AND strings (rendered verbatim). The `textBox` def's `source` options;
+ * a game registers the subset it supports via `registerComponentValues`.
+ */
+export const TEXT_SOURCE_KEYS: string[] = ENGINE_PARAM_CATALOG.map((p) => p.key);
+
+/**
  * Canonical HUD button action keys the parametric Button's `action` param selects
  * from — the editor renders the `action` param as a dropdown of these instead of a
  * free-text box (no more silent typos). The GAME must register a matching handler

@@ -28,6 +28,7 @@
 		registerComponentActions,
 		HUD_READOUT_DEF,
 		BUTTON_DEF,
+		TEXT_BOX_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -41,7 +42,13 @@
 	import { boolSource } from '../game/boolSource.svelte';
 	import { textSource } from '../game/textSource.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
-	import { fallbackEditorScenes, loadEditorScenes, registerBakedComponents } from '../editor-scenes';
+	import {
+		fallbackEditorScenes,
+		loadEditorScenes,
+		registerBakedComponents,
+		registerEditorTextLocalization,
+	} from '../editor-scenes';
+	import messagesMap from '../i18n/messagesMap';
 
 	import { getContext } from '../game/context';
 	import EnableSound from './EnableSound.svelte';
@@ -98,12 +105,19 @@
 	// resolves — required for any `button` componentInstance to expand into its
 	// `ButtonFrame`/`ButtonLabel` parts. No live scene carries a button instance yet
 	// (B6.4 converts the HUD cluster), so this is pure registration — no render change.
-	registerComponents({ [HUD_READOUT_DEF.id]: HUD_READOUT_DEF, [BUTTON_DEF.id]: BUTTON_DEF });
+	registerComponents({
+		[HUD_READOUT_DEF.id]: HUD_READOUT_DEF,
+		[BUTTON_DEF.id]: BUTTON_DEF,
+		[TEXT_BOX_DEF.id]: TEXT_BOX_DEF,
+	});
 	// Build-time freeze: register any custom/edited ComponentDefs baked into the
 	// bundle AFTER the built-ins, so a baked def (e.g. a customized `button` with an
 	// author-added background node) shadows the coded one. No-op when not baked
 	// (`apps/lines` dev) → parity. See docs/design/live-assets.md → "Layout-doc bake".
 	registerBakedComponents();
+	// Layout-doc text localization (§18): any doc text matching a catalog key —
+	// code catalogs + the baked Localization-tool strings — renders translated.
+	registerEditorTextLocalization(messagesMap);
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount),
 		win: valueSource(() => stateBet.winBookEventAmount),

@@ -1,4 +1,4 @@
-import { VALUE_SOURCE_KEYS } from './componentCatalog';
+import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS } from './componentCatalog';
 import type { ComponentDef } from './types';
 
 /**
@@ -195,5 +195,61 @@ export const BUTTON_DEF: ComponentDef = {
 	],
 };
 
+/** The default `textBox` body size — readable at HUD scale without dwarfing it. */
+const TEXT_BOX_FONT_SIZE = 32;
+
+/**
+ * The single reusable TEXT BOX (§18) — ONE def for every text field in a game.
+ * Its `text` param is a literal string OR a localization key (the engine's
+ * registered text resolver translates known keys at render — see
+ * `registerTextResolver`), and its optional `source` param binds the SAME
+ * instance to a live engine value feed (clock/balance/player name/…): when a
+ * source is registered, `<ComponentInstance>` overrides the `text` param with
+ * the live value — numbers route through the formatted/count-up readout path,
+ * strings render as text. So static captions, localized labels and dynamic
+ * readouts are all instances of this one component, restyled per instance via
+ * the font/size/fill params.
+ */
+export const TEXT_BOX_DEF: ComponentDef = {
+	id: 'textBox',
+	name: 'Text Box',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'textBox-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'textBox-text',
+				label: 'Text',
+				kind: 'text',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Text',
+				style: { fontFamily: HUD_FONT_FAMILY, fontSize: TEXT_BOX_FONT_SIZE, fill: HUD_FILL },
+				paramBindings: {
+					text: 'text',
+					'style.fontFamily': 'fontFamily',
+					'style.fontSize': 'fontSize',
+					'style.fill': 'fill',
+				},
+			},
+		],
+	},
+	params: [
+		{ key: 'text', kind: 'string', default: 'Text', label: 'text (or localization key)' },
+		{ key: 'source', kind: 'string', options: TEXT_SOURCE_KEYS, label: 'live value source' },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		{ key: 'fontSize', kind: 'number', default: TEXT_BOX_FONT_SIZE },
+		{ key: 'fill', kind: 'color', default: HUD_FILL },
+		{ key: 'countUp', kind: 'boolean', default: false },
+		{ key: 'value', kind: 'number', engineProvided: true },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
-export const BUILTIN_COMPONENTS: ComponentDef[] = [HUD_READOUT_DEF, BUTTON_DEF];
+export const BUILTIN_COMPONENTS: ComponentDef[] = [HUD_READOUT_DEF, BUTTON_DEF, TEXT_BOX_DEF];

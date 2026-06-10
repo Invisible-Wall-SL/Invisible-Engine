@@ -9,6 +9,7 @@
 	import { getContextLayout } from 'utils-layout';
 
 	import { resolveTransform } from './resolveTransform';
+	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
 	import { backgroundCoverScale, backgroundCoverStretch, backgroundFit } from './coverTransform';
 	import { getComponentParams } from './componentParamsContext';
@@ -131,12 +132,18 @@
 	// is the raw resolved value; `numericValue` is set ONLY for the readout path, so
 	// every non-numeric text node renders through the unchanged B1 `<Text>` below.
 	const boundText = $derived(
-		node.kind === 'text' ? resolveBoundValue(node.paramBindings, 'text', componentParams) : undefined,
+		node.kind === 'text'
+			? resolveBoundValue(node.paramBindings, 'text', componentParams)
+			: undefined,
 	);
 	const numericValue = $derived(typeof boundText === 'number' ? boundText : undefined);
+	// Localization (§18): the FINAL string — static `node.text` or a string param
+	// bind — runs through the game-registered text resolver, so any text field may
+	// be a localization key. Unknown keys / no resolver render the literal (parity).
 	const resolvedText = $derived.by(() => {
 		if (node.kind !== 'text') return undefined;
-		return typeof boundText === 'string' ? boundText : node.text;
+		const raw = typeof boundText === 'string' ? boundText : node.text;
+		return resolveLocalizedText(raw);
 	});
 	// Author-set count-up flag (§13.2): read from the resolved params; absent ⇒ snap.
 	const countUp = $derived(componentParams['countUp'] === true);
@@ -161,13 +168,19 @@
 	// different icon / colour per instance. Unbound sprites (and any sprite outside a
 	// component instance) keep their static values — byte-identical parity.
 	const boundRegion = $derived(
-		node.kind === 'sprite' ? resolveBoundValue(node.paramBindings, 'region', componentParams) : undefined,
+		node.kind === 'sprite'
+			? resolveBoundValue(node.paramBindings, 'region', componentParams)
+			: undefined,
 	);
 	const boundAssetKey = $derived(
-		node.kind === 'sprite' ? resolveBoundValue(node.paramBindings, 'assetKey', componentParams) : undefined,
+		node.kind === 'sprite'
+			? resolveBoundValue(node.paramBindings, 'assetKey', componentParams)
+			: undefined,
 	);
 	const boundTint = $derived(
-		node.kind === 'sprite' ? resolveBoundValue(node.paramBindings, 'tint', componentParams) : undefined,
+		node.kind === 'sprite'
+			? resolveBoundValue(node.paramBindings, 'tint', componentParams)
+			: undefined,
 	);
 	const spriteKey = $derived.by(() => {
 		if (node.kind !== 'sprite') return undefined;

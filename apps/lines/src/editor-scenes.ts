@@ -1,5 +1,7 @@
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
-import { registerComponentDefaults, registerComponents } from 'engine-layout';
+import { registerComponentDefaults, registerComponents, registerTextResolver } from 'engine-layout';
+import { stateI18nDerived, stateUrlDerived } from 'state-shared';
+import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
 import { defaultLayout } from './game/defaultLayout';
@@ -23,6 +25,13 @@ type BakedBundle = {
 	editorArt?: {
 		sheets: { key: string; json: string }[];
 		images: { key: string; file: string }[];
+	};
+	/** Localization-tool strings (source text + REVIEWED translations) in Lingui
+	 * message-map shape — merged into the game catalog so editor-authored
+	 * localization keys resolve in the shipped game. */
+	localization?: {
+		sourceLang: string;
+		messages: Record<string, Record<string, string>>;
 	};
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
@@ -72,6 +81,35 @@ export function bakedEditorArtAssets(): Record<
 		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
 	}
 	return out;
+}
+
+/**
+ * The baked Localization-tool strings as a per-locale messages map, merged into
+ * the game's Lingui catalog (LAST, so a project's reviewed strings override a
+ * code catalog on key clash). Empty when un-baked / nothing localized — parity.
+ */
+export function bakedLocalizationMessagesMap(): MessagesMap {
+	return (bakedBundle.localization?.messages ?? {}) as MessagesMap;
+}
+
+/**
+ * Register the engine's text-localization resolver (§18): any layout-doc text —
+ * a text node's literal or a `textBox`'s `text` param — that matches a key in
+ * the game's merged catalog renders its translation for the active language;
+ * unknown strings render verbatim. Call once at boot with the SAME merged
+ * `messagesMap` the game feeds `<LoadI18n>`, so the editor and code share one
+ * catalog (including the baked Localization-tool strings merged above).
+ */
+export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
+	registerTextResolver((key) => {
+		const lang = stateUrlDerived.lang();
+		const catalog = (messagesMap[lang] ?? messagesMap['en' as keyof MessagesMap] ?? {}) as Record<
+			string,
+			unknown
+		>;
+		if (!(key in catalog)) return undefined;
+		return stateI18nDerived.translate(key);
+	});
 }
 
 /**

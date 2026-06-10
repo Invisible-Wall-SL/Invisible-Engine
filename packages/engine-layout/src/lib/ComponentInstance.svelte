@@ -78,7 +78,7 @@
 	// — the `value` getter below then never appears).
 	const source = typeof staticParams['source'] === 'string' ? staticParams['source'] : undefined;
 	const valueSource: ValueSource | undefined = source ? getComponentValueSource(source) : undefined;
-	let liveValue = $state<number | undefined>(undefined);
+	let liveValue = $state<number | string | undefined>(undefined);
 	$effect(() => {
 		if (!valueSource) return;
 		return valueSource.subscribe((value) => {
@@ -141,6 +141,18 @@
 			enumerable: true,
 			get: () => liveValue,
 		});
+		// Live text (TextBox / §18): when the def ALSO declares a `text` param (the
+		// parametric `textBox` binds its text node to it), the live feed OVERRIDES the
+		// static `text` — so one def renders a static/localized string when no source
+		// is picked, and the live value (clock, balance, …) when one is. Same parity
+		// discipline as the action feed's `label` override: defs without a `text`
+		// param (HudReadout, Button) are untouched.
+		if (def?.params?.some((p) => p.key === 'text')) {
+			Object.defineProperty(providedParams, 'text', {
+				enumerable: true,
+				get: () => liveValue ?? staticParams['text'],
+			});
+		}
 	}
 	// Action feed (§16.2/§16.3): expose `onpress` as a plain function reference
 	// (`ButtonFrame` reads it lazily at click time, so no reactive getter needed)

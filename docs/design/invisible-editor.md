@@ -741,3 +741,45 @@ Tweens + spine playback + **one** count-up binding per the §8.5 ceiling. Anythi
 - **Where the timeline panel lives (Tier 1)** — a new Component-Editor panel vs. an expandable Properties section. Decide when Tier 1 starts.
 
 > **Status:** SCOPED (owner-chosen 2026-06-09: Tier 0 → Tier 1, shared interpreter; route A deferred). NOT started — parked behind the static-mount work (B6 + the placement-only sweep). The §8.5 schema already exists; remaining = engine interpreter + signal registry + the staged editor surface + per-overlay migration. Pick up at 17.4 step 1.
+
+## 18. Addendum — One reusable Text Box + universal text localization (owner direction 2026-06-10)
+
+**Owner ask:** the HUD corner game-name/logo being coded `bind` anchors (not text nodes) surfaced the
+deeper want: ONE reusable text component for *every* text field in a game, with dynamic values fed by
+the engine through params — and **all text localizable**, end to end (Localization tool → shipped game).
+This generalizes §13/§14's value-as-param architecture to text, and removes the limitation that forced
+B5's "separate coded parts" choice (a plain text node previously couldn't be localized or dynamic).
+
+### 18.1 What shipped (CODE BUILT 2026-06-10)
+1. **Engine text-localization resolver** (`engine-layout/registerTextResolver.ts`): the game registers
+   ONE resolver at boot; `LayoutNodeView` runs every text node's FINAL string (static `node.text` or a
+   string param bind) through it. Known catalog key → translation for the active language; unknown
+   string / no resolver → literal (parity). This implements the long-documented aspiration on
+   `TextNode.text` ("may be a localization key").
+2. **String value sources**: `ValueSource` widened to `number | string`; `<ComponentInstance>`'s live
+   feed carries either. Numbers keep the formatted/count-up readout path; strings render as text.
+3. **`TEXT_BOX_DEF` built-in** (`textBox`): one def, a single text node with `paramBindings`
+   (`text`/`fontFamily`/`fontSize`/`fill` → params). `text` param = literal OR localization key.
+   Optional `source` param (options = `TEXT_SOURCE_KEYS`, the full `ENGINE_PARAM_CATALOG`): when a
+   registered feed exists, `<ComponentInstance>` OVERRIDES the `text` param with the live value (the
+   §16.4 `label`-override precedent, applied only to defs that declare a `text` param — HudReadout/
+   Button untouched). Static caption, localized label, and live readout are all ONE component.
+4. **Localization delivery (tool → game)**: new token-gated `GET /api/localization/strings?project&k`
+   exports the Localization tool's doc as per-locale message maps — source language fully, target
+   languages REVIEWED-only. `bake-editor-doc.mjs` embeds it as `bundle.localization`; the game merges
+   it into its Lingui catalog LAST (project strings override code catalogs) via
+   `bakedLocalizationMessagesMap()` in `editor-scenes.ts`, and registers the resolver with
+   `registerEditorTextLocalization(messagesMap)` at boot (`Game.svelte`).
+
+### 18.2 Verified
+`engine-layout` + `launcher-api` + `apps/lines` builds GREEN; `apps/lines` dev parity verified in the
+browser (HUD readouts, game-name/clock, board, i18n test overlay — no console errors).
+
+### 18.3 Next steps (not started)
+- **Borut mirror** (editor-scenes/messagesMap/Game.svelte + submodule bump) — same files as §14 B4.6.
+- **Migrate the HUD corners**: re-seed `hudCornersScene()` game-name as a `textBox` instance with a
+  `gameName`/`clock` source (needs the game to register those string sources) — retiring the
+  `HudGameName` bind for doc-driven games; `HudLogo` becomes a sprite slot or image-param textBox.
+- **Editor key-picker**: surface the project's Localization-tool keys as suggestions on text params
+  (today the author types the key; unknown keys render literal).
+- Editor canvas preview stays source-language (authoring shows keys/source text — by design for now).

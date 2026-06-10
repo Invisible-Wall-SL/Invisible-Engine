@@ -31,10 +31,15 @@
  * (e.g. a `derived(...)` selector that already drives a `UiLabel`) satisfies it,
  * as does a hand-rolled store. `subscribe` MUST invoke `run` synchronously with
  * the current value on subscribe (the Svelte store contract), so the first paint
- * has a real number.
+ * has a real value.
+ *
+ * Values may be numbers (balance/win/bet — formatted, count-up capable) OR
+ * strings (clock/player-name/project-name — rendered verbatim through the text
+ * path). Method-position bivariance keeps an existing `Readable<number>` source
+ * assignable unchanged.
  */
 export interface ValueSource {
-	subscribe(run: (value: number) => void): () => void;
+	subscribe(run: (value: number | string) => void): () => void;
 }
 
 const registry = new Map<string, ValueSource>();
