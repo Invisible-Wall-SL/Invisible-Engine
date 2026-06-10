@@ -109,19 +109,45 @@
 			})),
 	);
 
-	// Stop the double-render (§14 B4.4 / §16.3 B6.3): when a HUD id is now a
-	// `componentInstance` node — the readouts (B4.4 converts balance/win/bet to
-	// `hudReadout` instances) OR the buttons (B6.4 converts the cluster to `button`
-	// instances) — the `instances` loop above renders it via the engine
-	// `<ComponentInstance>` path, so the coded snippet for that id (`Label*` /
-	// `buttonMenu`/`buttonBet`/…) must NOT also render. `mounted(id)` is true exactly
-	// when a `componentInstance` node owns the id. Reverting the hud-scene nodes back to
-	// `bind` makes this false again, re-enabling the coded snippet → the old HUD, no
-	// other change. The live `hudBarScene()` carries NO `button` instances, so every
-	// `mounted('hud-btn-…')` below is false in-game → the coded buttons render exactly
-	// as today (B6.3 is parity-safe; the guard only matters once B6.4 converts them).
-	// The coded `Label{Balance,Win,Bet}.svelte` + the button snippet props stay in place.
-	const mounted = (id: string) => instances.some((instance) => instance.node.id === id);
+	// Stop the double-render (§14 B4.4 / §16.3 B6.3 / §18.6): when an author-placed
+	// `componentInstance` provides a HUD element, its coded snippet (`Label*` /
+	// `buttonMenu`/`buttonBet`/…) must NOT also render. Matching by node id alone is
+	// not enough: a button/readout the author places FROM SCRATCH (or via the picker)
+	// gets a RANDOM id, not the reserved `hud-btn-*`/`hud-*` id — so the coded snippet
+	// kept rendering at its fallback position, the "ghost old-graphics button" bug.
+	// So a coded element is also suppressed when a placed instance covers its ACTION
+	// (buttons) or its value SOURCE (readouts), regardless of the instance's id. The
+	// action/source is the instance's own param (the editor sets it per placement).
+	// `hud-bet` here is the BET READOUT (source `bet`); the bet/spin BUTTON is
+	// `hud-btn-bet` (action `spin`) — distinct ids.
+	const HUD_ID_ACTION: Record<string, string> = {
+		'hud-btn-menu': 'menu',
+		'hud-btn-buybonus': 'buyBonus',
+		'hud-btn-autospin': 'autoSpin',
+		'hud-btn-bet': 'spin',
+		'hud-btn-turbo': 'turbo',
+		'hud-btn-decrease': 'decrease',
+		'hud-btn-increase': 'increase',
+	};
+	const HUD_ID_SOURCE: Record<string, string> = {
+		'hud-balance': 'balance',
+		'hud-win': 'win',
+		'hud-bet': 'bet',
+	};
+	const instanceParam = (node: ComponentInstanceNode, key: string): string | undefined => {
+		const v = (node.params as Record<string, unknown> | undefined)?.[key];
+		return typeof v === 'string' ? v : undefined;
+	};
+	const coveredActions = $derived(
+		new Set(instances.map((i) => instanceParam(i.node, 'action')).filter(Boolean)),
+	);
+	const coveredSources = $derived(
+		new Set(instances.map((i) => instanceParam(i.node, 'source')).filter(Boolean)),
+	);
+	const mounted = (id: string) =>
+		instances.some((instance) => instance.node.id === id) ||
+		coveredActions.has(HUD_ID_ACTION[id]) ||
+		coveredSources.has(HUD_ID_SOURCE[id]);
 
 	// Free author art (§18.5): the coded HUD ids above + the `componentInstance`
 	// loop are the only nodes this bespoke renderer drew — so a plain sprite/text/

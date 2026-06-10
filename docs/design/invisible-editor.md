@@ -805,3 +805,15 @@ through the engine `<LayoutNodeView>` in the scene's own space — `hudBar` stan
 MainContainer), `hudCorners` canvas — BEFORE the coded snippets so a bar-background sits behind them
 (author `zIndex` still wins). The live seed carries no such nodes → byte-identical parity until art is
 added. So: NO special component needed — drop any sprite/text on a HUD screen and it ships.
+
+### 18.6 Ghost coded HUD buttons when replaced by from-scratch instances (owner bug 2026-06-10)
+After authoring custom button COMPONENTS onto the HUD bar, the old coded buttons (spin/turbo/±) still
+rendered as duplicates. Cause: `LayoutEditable`'s double-render guard `mounted(id)` only suppressed a
+coded snippet when a `componentInstance` had the snippet's RESERVED id (`hud-btn-bet`, …). A button the
+author places from scratch (or via the picker) gets a RANDOM id, so the guard missed it and the coded
+snippet kept drawing at its fallback position — a ghost of the old graphic. Fix: also suppress a coded
+element when a placed instance COVERS its action (buttons: `hud-btn-bet`→`spin`, `hud-btn-turbo`→`turbo`,
+…) or its value source (readouts: `hud-balance`→`balance`, …), read from the instance's own param,
+regardless of id. Stock seeds are unaffected (their instances already carry the reserved ids → same
+result). So an author can drop their own button component over a coded HUD slot and the coded one steps
+aside once the instance's `action` matches.
