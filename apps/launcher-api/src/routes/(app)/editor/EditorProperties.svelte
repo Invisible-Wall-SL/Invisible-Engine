@@ -819,12 +819,17 @@
 							<input
 								type="text"
 								value={(node.params?.[p.key] as string) ?? ''}
-								oninput={(e) =>
-									onSetInstanceParam?.(
-										p.key,
-										e.currentTarget.value === '' ? undefined : e.currentTarget.value,
-									)}
+								placeholder={p.default !== undefined ? String(p.default) : ''}
+								oninput={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value)}
 							/>
+							{#if node.params?.[p.key] !== undefined}
+								<button
+									type="button"
+									class="reset"
+									title="Inherit default — clearing the field instead sets an explicit empty value (no text)"
+									onclick={() => onSetInstanceParam?.(p.key, undefined)}>×</button
+								>
+							{/if}
 						{/if}
 					</label>
 				{/snippet}
