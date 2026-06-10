@@ -2853,9 +2853,9 @@ async function pasteSel(e){{
  if(!flashDiag(msg)) setTimeout(()=>location.reload(),600);
 }}
 async function useRefAll(){{
- if(!confirm('Seed every EMPTY region\'s atlas tile from its reference image? '
-  +'Regions that already have a generated image are left untouched. '
-  +'(✕ revert restores generation per region.)'))return;
+ if(!confirm("Seed every EMPTY region's atlas tile from its reference image? "
+  +"Regions that already have a generated image are left untouched. "
+  +"(✕ revert restores generation per region.)"))return;
  let r=await fetch('/userefall',{{method:'POST',body:JSON.stringify({{}})}});
  let msg=await r.text(); document.getElementById('stat').textContent=msg;
  if(!flashDiag(msg)) setTimeout(()=>location.reload(),600);
