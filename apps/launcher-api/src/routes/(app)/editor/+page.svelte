@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import Emblem from '$lib/Emblem.svelte';
 	import {
 		buttonBindToInstance,
@@ -294,12 +294,13 @@
 
 	/** "Edit as component" from Properties: MATERIALISE the selected container's
 	 * sub-tree into a project `ComponentDef` (identity root), POST it, then open it
-	 * in the standalone Component Editor in a NEW TAB (the Atlas-Maker deep-link
-	 * pattern). The scene is NOT mutated in v1 — authoring lives in the other tool. */
+	 * in the standalone Component Editor in THIS window. Flushes the layout to the
+	 * doc first so scene edits aren't lost on navigation. */
 	async function editContainerAsComponent(container: ContainerNode): Promise<void> {
 		if (componentBusy) return;
 		componentBusy = true;
 		componentStatus = null;
+		if (dirty && !crossTypeLoaded) await save();
 		const name = container.label || 'Component';
 		// Idempotent by name: re-running "Edit as component" on a container reuses the
 		// existing project-scoped component of the same name (overwrite in place)
@@ -342,7 +343,7 @@
 			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
 				data.projectKey,
 			)}`;
-			window.open(href, '_blank', 'noopener');
+			await goto(href);
 		} catch (e) {
 			componentStatus = {
 				kind: 'error',
@@ -370,12 +371,16 @@
 		selectedId = node.id;
 	}
 
-	/** Open the standalone Component Editor in a new tab (optionally on `id`). */
-	function openComponentEditor(id?: string): void {
+	/** Open the standalone Component Editor in THIS window (optionally on `id`).
+	 * Flushes the layout to the doc first so scene edits aren't lost on navigation —
+	 * except a cross-type preview, which must never autosave (the user Saves/Discards
+	 * it deliberately). */
+	async function openComponentEditor(id?: string): Promise<void> {
+		if (dirty && !crossTypeLoaded) await save();
 		const params = new URLSearchParams();
 		if (id) params.set('id', id);
 		params.set('project', data.projectKey);
-		window.open(`/components?${params.toString()}`, '_blank', 'noopener');
+		await goto(`/components?${params.toString()}`);
 	}
 
 	/** Per-slot authoring metadata not carried on `LayoutNode` (which has no
