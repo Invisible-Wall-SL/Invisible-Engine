@@ -152,7 +152,9 @@
 		font-size: 11px;
 		color: #9ad;
 		white-space: nowrap;
-		z-index: 10;
+		/* Sits above the HUD layer (z-index 1000 in EditorCanvas) so the item controls
+		   are never hidden behind the HUD when an item overlaps it. */
+		z-index: 1100;
 		pointer-events: auto;
 		box-shadow: 0 4px 16px #000a;
 	}
