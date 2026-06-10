@@ -817,3 +817,18 @@ element when a placed instance COVERS its action (buttons: `hud-btn-bet`→`spin
 regardless of id. Stock seeds are unaffected (their instances already carry the reserved ids → same
 result). So an author can drop their own button component over a coded HUD slot and the coded one steps
 aside once the instance's `action` matches.
+
+### 18.7 Editor↔game HUD text fidelity (font + alignment) (owner bug 2026-06-10)
+The HUD readout caption/value looked different in the editor vs the game. Two causes, both editor-side
+(the game render is the reference): (1) FONT — the games load proxima-nova via a Typekit kit
+(`apps/lines/app.html`); the launcher didn't, so the editor fell back to sans-serif. Added the same
+Typekit `<link>` to `apps/launcher-api/src/app.html` (+ an `onMount document.fonts.ready` redraw in
+`EditorCanvas` so the first paint isn't the fallback). (2) ALIGNMENT/SIZE — `EditorCanvas.drawHudChip`
+drew the decomposed `style:'text'` chip (the coded `HudCaption`/`HudValue` parts) with a hardcoded
+`600 30px sans-serif`, vertically CENTRED; the coded parts render `<Text anchor={{x:0.5,y:0}}>` in the
+resolved `fontFamily` (proxima-nova) at the resolved `fontSize` (UiLabel base 45), normal weight,
+TOP-anchored at the node origin. Fixed the chip to use the resolved family/size + top baseline at the
+origin (and threaded `fontFamily` through the param-style). Now editor ≈ game. NOTE: the coded HUD parts
+are still an editor APPROXIMATION (the editor can't run them); for pixel-exact WYSIWYG, author the
+caption/value as `textBox`/text nodes (§18), which render through the identical engine `<Text>` path in
+both. Launcher-only change — no game republish.

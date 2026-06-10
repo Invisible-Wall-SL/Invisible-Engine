@@ -1312,6 +1312,8 @@
 						fill: typeof instanceParams.fill === 'number' ? instanceParams.fill : undefined,
 						fontSize:
 							typeof instanceParams.fontSize === 'number' ? instanceParams.fontSize : undefined,
+						fontFamily:
+							typeof instanceParams.fontFamily === 'string' ? instanceParams.fontFamily : undefined,
 					});
 				} else {
 					drawHudChip(
@@ -1657,9 +1659,9 @@
 		label: string,
 		props?: Record<string, unknown>,
 		/** Resolved-param styling for a componentInstance mount (§14.3): the instance's
-		 * `fill`/`fontSize` params, used INSTEAD of `props.style` so the chip colours/sizes
-		 * match the placed readout. Absent ⇒ the `props.style` path (parity). */
-		paramStyle?: { fill?: number; fontSize?: number },
+		 * `fill`/`fontSize`/`fontFamily` params, used INSTEAD of `props.style` so the chip
+		 * colours/sizes/font match the placed readout. Absent ⇒ the `props.style` path (parity). */
+		paramStyle?: { fill?: number; fontSize?: number; fontFamily?: string },
 	): void {
 		const ax = t.anchor?.x ?? 0.5;
 		const ay = t.anchor?.y ?? 0.5;
@@ -1667,7 +1669,9 @@
 		const h = preview.h ?? 100;
 		const x = -w * ax;
 		const y = -h * ay;
-		const style = paramStyle ?? ((props?.style ?? {}) as { fill?: number; fontSize?: number });
+		const style =
+			paramStyle ??
+			((props?.style ?? {}) as { fill?: number; fontSize?: number; fontFamily?: string });
 		const tint = typeof props?.tint === 'number' ? props.tint : undefined;
 		const fill = typeof style.fill === 'number' ? cssColor(style.fill) : undefined;
 		// `tile`: just the ticker background — a DECOMPOSED readout's caption + value
@@ -1737,10 +1741,18 @@
 			ctx.fillStyle = '#e8e8ee';
 			ctx.fillText(label, x + w / 2, y + h / 2);
 		} else {
-			ctx.textBaseline = 'middle';
-			ctx.font = '600 30px sans-serif';
-			ctx.fillStyle = fill ?? '#c8a3ff';
-			ctx.fillText(label, x + w / 2, y + h / 2);
+			// Decomposed readout caption/value (the coded HudCaption/HudValue parts).
+			// Match the GAME render so the editor preview is WYSIWYG: the coded parts are
+			// `<Text anchor={{x:0.5,y:0}}>` in the resolved `fontFamily` (proxima-nova by
+			// default) at the resolved `fontSize` (UiLabel base 45), normal weight — i.e.
+			// horizontally centred, TOP-anchored at the node origin. The old hardcoded
+			// `600 30px sans-serif`, vertically centred, was the editor↔game mismatch.
+			ctx.textBaseline = 'top';
+			const size = typeof style.fontSize === 'number' ? Math.max(8, style.fontSize) : 45;
+			const family = style.fontFamily ?? 'proxima-nova';
+			ctx.font = `${size}px ${family}, sans-serif`;
+			ctx.fillStyle = fill ?? '#ffffff';
+			ctx.fillText(label, 0, 0);
 		}
 		ctx.restore();
 	}
@@ -2458,6 +2470,12 @@
 	onMount(() => {
 		resizeCanvas();
 		fitView();
+		// The 2D HUD-chip text uses the webfont (proxima-nova, via the Typekit kit in
+		// app.html). It loads async — redraw once it's ready so the first paint shows
+		// the real game font instead of the sans-serif fallback.
+		if (typeof document !== 'undefined' && document.fonts) {
+			void document.fonts.ready.then(() => schedule());
+		}
 		const ro = new ResizeObserver(() => {
 			resizeCanvas();
 			schedule();
