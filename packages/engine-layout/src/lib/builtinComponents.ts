@@ -365,6 +365,11 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 		// The engine value feed this counter binds to — picked from the registered
 		// sources (the `freeSpins` composed-string source the game registers).
 		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS },
+		// The engine visibility feed this counter binds to: when set per-instance to a
+		// registered boolean source (e.g. `freeSpinCounterShow`, true only during free
+		// spins) the whole instance hides while that source is false. No default — the
+		// shared def stays game-agnostic; an instance opts in (slice 2b).
+		{ key: 'visibleSource', kind: 'string' },
 		{ key: 'label', kind: 'string', default: 'FREE SPIN' },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: FS_FONT_SIZE },

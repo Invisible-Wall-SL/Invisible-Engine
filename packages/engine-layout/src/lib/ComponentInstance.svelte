@@ -20,6 +20,7 @@
 	import { resolveButtonStateImage, BUTTON_STATE_IMAGE_KEYS } from './buttonStateImage';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
+	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentDefaults } from './registerComponentDefaults';
 
@@ -128,6 +129,27 @@
 		if (!actionSource?.label) return;
 		return actionSource.label.subscribe((value) => {
 			liveLabel = value;
+		});
+	});
+
+	// Engine visibility feed: the show/hide analogue of the value/action feeds
+	// above. If the resolved params name a `visibleSource` AND the game registered a
+	// `BoolSource` under it, subscribe it into `liveVisible` and gate the whole
+	// rendered subtree on it (a `false` Container keeps the instance mounted but
+	// unrendered). The subscription lives in an `$effect` so it re-binds if the
+	// registered source changes and tears down on unmount. No source ⇒ `liveVisible`
+	// stays `true` and NO wrapper is added below — the output is byte-identical to
+	// today (parity, same discipline as `value`/`disabled`/`active`).
+	const visibleSourceKey =
+		typeof staticParams['visibleSource'] === 'string' ? staticParams['visibleSource'] : undefined;
+	const visibilitySource: BoolSource | undefined = visibleSourceKey
+		? getComponentVisibility(visibleSourceKey)
+		: undefined;
+	let liveVisible = $state(true);
+	$effect(() => {
+		if (!visibilitySource) return;
+		return visibilitySource.subscribe((value) => {
+			liveVisible = value;
 		});
 	});
 
@@ -318,7 +340,7 @@
 	};
 </script>
 
-{#if allowed && def}
+{#snippet rendered(root: LayoutNode)}
 	{#if interactive}
 		<Container
 			eventMode="static"
@@ -338,9 +360,25 @@
 				onpress();
 			}}
 		>
-			<LayoutNodeView node={def.root} {space} />
+			<LayoutNodeView node={root} {space} />
 		</Container>
 	{:else}
-		<LayoutNodeView node={def.root} {space} />
+		<LayoutNodeView node={root} {space} />
+	{/if}
+{/snippet}
+
+{#if allowed && def}
+	<!--
+		Visibility gate: ONLY when a `visibleSource` resolved a registered source do we
+		wrap the subtree in a `<Container visible={liveVisible}>` (hidden = mounted but
+		unrendered). With NO source `visibilitySource` is undefined and the snippet is
+		rendered bare — no extra Container, byte-identical to before the feed existed.
+	-->
+	{#if visibilitySource}
+		<Container visible={liveVisible}>
+			{@render rendered(def.root)}
+		</Container>
+	{:else}
+		{@render rendered(def.root)}
 	{/if}
 {/if}

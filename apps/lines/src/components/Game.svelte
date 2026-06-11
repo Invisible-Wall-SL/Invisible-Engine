@@ -26,6 +26,7 @@
 		registerComponents,
 		registerComponentValues,
 		registerComponentActions,
+		registerComponentVisibility,
 		registerComponentSignals,
 		registerFontCatalog,
 		HUD_READOUT_DEF,
@@ -157,6 +158,15 @@
 		freeSpins: textSource(
 			() => `${stateUi.freeSpinCounterCurrent} OF ${stateUi.freeSpinCounterTotal}`,
 		),
+	});
+	// Visibility feed (slice 2a, additive) — register the boolean source that gates a
+	// `freeSpinCounter` componentInstance: `stateUi.freeSpinCounterShow` is true only
+	// during free spins. This makes the source available; nothing renders gated until
+	// an instance sets `visibleSource: 'freeSpinCounterShow'` (slice 2b), so this is
+	// pure registration with no render change (the coded `FreeSpinCounter` still
+	// self-shows off book events).
+	registerComponentVisibility({
+		freeSpinCounterShow: boolSource(() => stateUi.freeSpinCounterShow),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
