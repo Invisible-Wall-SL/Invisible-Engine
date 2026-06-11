@@ -134,6 +134,77 @@ def save_config(cfg: dict) -> None:
     _mirror(config_path)
 
 
+def _session_path() -> Path:
+    """The persisted editor session for the ACTIVE (client, project). Lives
+    next to sheet_config.json at the staging root, so it mirrors to the R2 key
+    `<C>/<P>/sheet_session.json` and survives container restarts (hydrate()
+    pulls it back eagerly)."""
+    return Path(_ctx()["staging_root"]) / "sheet_session.json"
+
+
+def load_session() -> dict | None:
+    """The saved working session, or None when absent/corrupt/malformed — a bad
+    file is silently ignored so the editor just starts clean (never 500s)."""
+    try:
+        sess = json.loads(_session_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(sess, dict) or not isinstance(sess.get("regions"), list):
+        return None
+    return sess
+
+
+# Exactly the per-region fields the canvas needs to reconstruct itself; anything
+# else a (future/concurrent) client sends is dropped on save.
+_SESSION_REGION_KEYS = ("src", "name", "x", "y", "w", "h", "ow", "oh",
+                        "rotated", "locked", "prompt", "shape_ref", "seed",
+                        "unplaced")
+
+
+def api_session(payload: dict) -> dict:
+    """Persist (or clear, with {"clear": true}) the editor's working session so
+    a browser refresh / container restart restores the canvas exactly. The UI
+    debounces its POSTs; concurrent tabs are last-write-wins by design. The
+    payload is re-shaped server-side (known keys only, ints coerced) so a
+    malformed body can't poison the stored file."""
+    sp = _session_path()
+    if payload.get("clear"):
+        sp.unlink(missing_ok=True)
+        r2_prefix = _ctx()["r2_prefix"]
+        if r2_prefix:
+            storage.delete(f"{r2_prefix}/{sp.name}")   # drop the mirror too
+        return {"ok": True, "cleared": True}
+
+    def _i(key: str, default: int) -> int:
+        try:
+            return int(payload.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    regions = []
+    for r in payload.get("regions") or []:
+        if not isinstance(r, dict) or not r.get("src"):
+            continue
+        regions.append({k: r.get(k) for k in _SESSION_REGION_KEYS})
+    loaded = payload.get("loaded")
+    sess = {
+        "version": 1,
+        "sheet": safe_name(str(payload.get("sheet") or "sheet")),
+        "display_name": str(payload.get("display_name") or "")[:200],
+        "active_sheet": safe_name(str(payload.get("active_sheet") or ""), ""),
+        "canvas_w": _i("canvas_w", 1024),
+        "canvas_h": _i("canvas_h", 1024),
+        "padding": _i("padding", 2),
+        "allow_rotation": bool(payload.get("allow_rotation")),
+        "loaded": loaded if isinstance(loaded, dict) else {},
+        "regions": regions,
+    }
+    sp.parent.mkdir(parents=True, exist_ok=True)
+    sp.write_text(json.dumps(sess, indent=2, ensure_ascii=False), encoding="utf-8")
+    _mirror(sp)
+    return {"ok": True, "regions": len(regions)}
+
+
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -164,17 +235,20 @@ def output_dir(sheet: str) -> Path:
 
 def _dest_output_dir(sheet: str, dest_dir: str) -> Path:
     """Resolve the export destination. Empty `dest_dir` -> the sheet's default
-    output dir. Otherwise resolve the requested dir and CONFINE it to the staging
-    root (any path outside falls back to the default output dir). Created if
-    missing."""
+    output dir. Otherwise resolve the requested dir and CONFINE it to the
+    `sheets/` subtree of the staging root — anything else (e.g. a `loadedDir`
+    that points at `manifests/` after opening a sheet via its manifest) falls
+    back to the default output dir, so the page/.atlas/json always land at the
+    canonical keys the manifest back-references. Created if missing."""
     if not dest_dir:
         return output_dir(sheet)
     root = Path(project_paths.resolve()["staging_root"]).resolve()
+    sheets_root = (root / "sheets").resolve()
     try:
         d = Path(dest_dir).resolve()
     except (OSError, ValueError):
         return output_dir(sheet)
-    if root not in d.parents and d != root:
+    if sheets_root not in d.parents and d != sheets_root:
         return output_dir(sheet)
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -234,6 +308,22 @@ def api_state() -> dict:
     out_root = pp["output_root"]
     if out_root.exists():
         sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir())
+    # Saved working session (refresh-survival). Annotate which region sprite
+    # files are actually present so the UI can drop dead regions with a clear
+    # message instead of rendering broken thumbnails. uploads_dir() lazily
+    # hydrates sheet_src/ from R2 first, so a fresh container still finds them.
+    session = load_session()
+    if session and session.get("regions"):
+        d = uploads_dir(str(session.get("sheet") or "sheet"))
+        missing = []
+        for r in session["regions"]:
+            src = r.get("src") if isinstance(r, dict) else None
+            if not src:
+                continue
+            fn = safe_name(str(src), "")
+            if not fn or not (d / fn).exists():
+                missing.append(str(src))
+        session["missing"] = sorted(set(missing))
     return {
         "build": BUILD,
         "launcher_url": os.environ.get("LAUNCHER_URL", "https://app.invisiblewall.org"),
@@ -245,6 +335,7 @@ def api_state() -> dict:
         # land in the shared manifests/ folder both tools read.
         "atlas_maker_found": bool(_ctx()["r2_prefix"]),
         "sheets": sheets,
+        "session": session,
         "defaults": {
             "canvas_w": cfg.get("width", 1024),
             "canvas_h": cfg.get("height", 1024),
@@ -360,7 +451,15 @@ def api_export(payload: dict) -> dict:
     ctx = _ctx()
     r2_prefix = ctx["r2_prefix"]
     sheet_key = safe_name(sheet)
-    export_prefix = f"{r2_prefix}/sheets/{sheet_key}" if r2_prefix else ""
+    # Derive the prefix from where the files ACTUALLY landed (`out`), not from
+    # an assumed `sheets/<sheet>` — a custom dest under sheets/ would otherwise
+    # produce a manifest whose back-references point at files that don't exist.
+    try:
+        out_rel = out.resolve().relative_to(
+            Path(project_paths.resolve()["staging_root"]).resolve()).as_posix()
+    except ValueError:
+        out_rel = f"sheets/{sheet_key}"
+    export_prefix = f"{r2_prefix}/{out_rel}" if r2_prefix else ""
     source_image_key = f"{export_prefix}/{sheet_png.name}" if export_prefix else ""
     input_prefix = f"{r2_prefix}/sheet_src/{sheet_key}" if r2_prefix else ""
     region_shape_keys = {
@@ -1386,6 +1485,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_load(payload))
             elif path == "/api/load-sheet":
                 self._send_json(api_load_sheet(payload))
+            elif path == "/api/session":
+                self._send_json(api_session(payload))
             elif path == "/api/set-project":
                 self._send_json(api_set_project(payload))
             elif path == "/api/refresh":
