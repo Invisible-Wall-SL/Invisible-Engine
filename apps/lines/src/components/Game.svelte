@@ -27,6 +27,7 @@
 		registerComponentValues,
 		registerComponentActions,
 		registerComponentSignals,
+		registerFontCatalog,
 		HUD_READOUT_DEF,
 		BUTTON_DEF,
 		TEXT_BOX_DEF,
@@ -118,6 +119,23 @@
 		// instance — the `freeSpinCounter` scene still mounts the coded `FreeSpinCounter`
 		// via its `bind` anchor — so this is pure registration with no render change.
 		[FREE_SPIN_COUNTER_DEF.id]: FREE_SPIN_COUNTER_DEF,
+	});
+	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
+	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
+	// `style.fontFamily` names one of these families, instead of a system-font
+	// `<Text>`. The names are the BMFont `<info face>` each `.xml` installs under (the
+	// runtime sibling of the editor's `/api/editor/fonts` catalog). Web fonts need no
+	// entry — absent ⇒ `<Text>` ⇒ parity. No live scene text node references a bitmap
+	// family yet (the `freeSpinCounter` def's `gold` text is unwired), so this is pure
+	// registration with no render change today.
+	registerFontCatalog({
+		prefix: '',
+		fonts: [
+			{ id: 'gold', name: 'gold', kind: 'bitmap', folder: '' },
+			{ id: 'goldblur', name: 'goldblur', kind: 'bitmap', folder: '' },
+			{ id: 'silver', name: 'silver', kind: 'bitmap', folder: '' },
+			{ id: 'purple', name: 'purple', kind: 'bitmap', folder: '' },
+		],
 	});
 	// Build-time freeze: register any custom/edited ComponentDefs baked into the
 	// bundle AFTER the built-ins, so a baked def (e.g. a customized `button` with an
