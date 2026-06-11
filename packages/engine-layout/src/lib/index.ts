@@ -21,6 +21,7 @@ export * from './registerBoundComponents';
 export * from './registerComponents';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
+export * from './registerComponentVisibility';
 export * from './registerComponentSignals';
 export * from './registerComponentDefaults';
 export * from './registerTextResolver';
