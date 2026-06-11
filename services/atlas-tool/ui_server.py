@@ -1420,14 +1420,86 @@ def save_manifest(data: dict) -> None:
     _mirror(mp)
 
 
+def _refresh_manifest_from_r2(sel: str) -> None:
+    """Re-pull a manifest (and its bound Sheet-Maker `.atlas`) by EXACT R2 key
+    into staging, overwriting the staged copies.
+
+    The staging tree hydrates from R2 once per process, but the Sheet Maker
+    keeps re-exporting to the same fixed keys (`manifests/atlas_manifest_
+    <sheet>.json`, `sheets/<sheet>/<sheet>.atlas`) while this process runs —
+    so on manifest ACTIVATION (dropdown switch / deep-link) the staged copies
+    may be stale. Loading — and worse, auto-seed re-SAVING — a stale staged
+    manifest would push it back to R2 and overwrite the Sheet Maker's fresh
+    export. Two exact GETs, only on a real switch; best-effort: an R2 miss or
+    outage keeps the local copy (never blanks a working manifest)."""
+    name = Path(str(sel).replace("\\", "/")).name
+    if not name:
+        return
+    r2_prefix = str(R2_PREFIX)
+    if not r2_prefix:
+        return
+    try:
+        blob = storage.get(f"{r2_prefix}/manifests/{name}")
+        if blob:
+            dest = MANIFEST_DIR / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(blob)
+            print(f"[atlas] refreshed manifest from R2: {name}", flush=True)
+    except Exception:  # noqa: BLE001 — keep the staged copy on any R2 trouble
+        return
+    if not name.lower().endswith(".json"):
+        return
+    try:
+        m = json.loads((MANIFEST_DIR / name).read_text(encoding="utf-8"))
+        ref = (m.get("atlas") or {}).get("atlas_file") or ""
+        srel = batch_atlas._staging_rel(ref) if ref else ""
+        if srel.startswith(("sheets/", "sheet_src/")):
+            # _hydrate_from_r2_by_name(r2_key=…) writes the fetched bytes
+            # unconditionally (no exists() skip), so this force-refreshes the
+            # staged geometry even though atlas_file_path's own cand.exists()
+            # early-return would otherwise keep serving the stale copy.
+            batch_atlas._hydrate_from_r2_by_name(Path(srel).name, r2_key=ref)
+    except Exception:  # noqa: BLE001 — geometry refresh is best-effort too
+        pass
+
+
+# Set by all_regions() when the manifest names regions the bound `.atlas`
+# geometry doesn't have (stale staged geometry); _index() shows it as a banner.
+_geom_warning: str = ""
+
+
 def all_regions(m: dict) -> list[dict]:
     """Geometry-aware. When the manifest is bound to a `.atlas`, cards are
     built from the `.atlas` regions merged with this manifest's creative
     data (by name). No `.atlas` → legacy cell-grid / explicit-geometry list."""
+    global _geom_warning
+    # Reset on entry so a previous manifest's warning can't outlive a switch
+    # to a legacy/unbound manifest or a parse failure.
+    _geom_warning = ""
     ap = batch_atlas.atlas_file_path(m, manifest_path())
     if ap and ap.exists():
         try:
-            return batch_atlas.merge_atlas_regions(m, atlas_format.parse_atlas(ap))
+            atlas_data = atlas_format.parse_atlas(ap)
+            merged = batch_atlas.merge_atlas_regions(m, atlas_data)
+            # Observability (merge stays .atlas-authoritative): a manifest
+            # region with no `.atlas` counterpart is silently dropped by the
+            # merge — usually a sign the staged geometry is stale vs R2.
+            have = {r.get("name") for r in atlas_data.get("regions", [])}
+            missing = [r["name"]
+                       for r in (list(m.get("regions") or [])
+                                 + list(m.get("rotated_regions") or []))
+                       if r.get("name") and r["name"] not in have]
+            if missing:
+                msg = (f"{len(missing)} manifest region(s) missing from "
+                       f"{ap.name} — geometry may be stale; press "
+                       f"↻ Refresh from R2")
+                if msg != _geom_warning:  # log once per state, not per call
+                    print(f"[atlas] {msg} ({', '.join(missing[:10])})",
+                          flush=True)
+                _geom_warning = msg
+            else:
+                _geom_warning = ""
+            return merged
         except (OSError, ValueError):
             pass
     return list(m.get("regions", [])) + list(m.get("rotated_regions", []))
@@ -3260,7 +3332,11 @@ class Handler(BaseHTTPRequestHandler):
                     # empty atlas tiles from refs (same rule as the dropdown).
                     # Only on a real switch + only for sheet manifests + only
                     # when something gets seeded (avoid pointless R2 writes).
+                    # Exact-key refresh FIRST (same rule as _saveconfig): the
+                    # seed's save_manifest must write back the FRESH manifest,
+                    # never push a stale staged copy over a Sheet Maker export.
                     if resolved != _was:
+                        _refresh_manifest_from_r2(resolved)
                         nm = load_manifest()
                         if bool(nm.get("export_prefix")):
                             res = self._seed_refs_into_outputs(nm, only_empty=True)
@@ -4700,6 +4776,14 @@ class Handler(BaseHTTPRequestHandler):
                 f'background:#5a3a1a;border:1px solid #b9802f;'
                 f'border-radius:6px;color:#ffd9a0;font-size:13px">'
                 f'⚠ {html.escape(_load_warning)}</div>')
+        if _geom_warning:
+            # Set by all_regions() while the cards above were built: manifest
+            # regions absent from the bound `.atlas` (stale staged geometry).
+            notices.append(
+                f'<div style="margin:10px 0;padding:10px 14px;'
+                f'background:#5a3a1a;border:1px solid #b9802f;'
+                f'border-radius:6px;color:#ffd9a0;font-size:13px">'
+                f'⚠ {html.escape(_geom_warning)}</div>')
         if dl_notice:
             # _diag() returns canonical multi-line text (glyph + why + fix);
             # render it as a info-toned banner, preserving line breaks.
@@ -5322,10 +5406,24 @@ class Handler(BaseHTTPRequestHandler):
         _prev_mp = cfg.get("manifest_path", "")
         _new_mp = str(edits.get("manifest_path", _prev_mp)).strip()
         _switched_manifest = bool(_new_mp) and _new_mp != _prev_mp
+        if _switched_manifest:
+            # Staging hydrates from R2 once per process, but the Sheet Maker
+            # re-exports to the same fixed keys while we run — pull the NEWLY
+            # selected manifest (+ its bound .atlas geometry) by exact key
+            # BEFORE anything loads (and the auto-seed below possibly SAVES)
+            # it, so a stale staged copy can never overwrite a fresh export.
+            _refresh_manifest_from_r2(_new_mp)
         m = load_manifest()
         settings = m.get("settings") or {}
         atlas = m.setdefault("atlas", {})
         numeric = {k for k, _, t in CONFIG_FIELDS if t == "number"}
+        # Only persist the (still-active = PREVIOUS) manifest when this request
+        # actually wrote a manifest-backed field. A pure Session-dropdown switch
+        # POSTs only {manifest_path} (a config field) — unconditionally saving
+        # here pushed a possibly-stale previous manifest back to R2 on every
+        # switch. Settings-panel saves (which post the manifest-bound fields)
+        # still persist as before.
+        manifest_dirty = False
 
         def _num(v):
             try:
@@ -5338,20 +5436,26 @@ class Handler(BaseHTTPRequestHandler):
                 sv = str(v).strip()
                 if sv:
                     m[k] = sv
-                else:
-                    m.pop(k, None)
+                    manifest_dirty = True
+                elif k in m:
+                    m.pop(k)
+                    manifest_dirty = True
             elif k in _ATLAS_GEOM_KEYS:
                 sv = str(v).strip()
                 if sv == "":
                     continue  # never wipe required atlas geometry
                 mk = _ATLAS_GEOM_KEYS[k]
                 atlas[mk] = int(float(sv)) if k in _ATLAS_GEOM_NUMERIC else sv
+                manifest_dirty = True
             elif k in PER_ATLAS_KEYS:
                 sv = str(v).strip()
                 if sv == "":
-                    settings.pop(k, None)        # blank => inherit global
+                    if k in settings:            # blank => inherit global
+                        settings.pop(k)
+                        manifest_dirty = True
                 else:
                     settings[k] = _num(v) if k in numeric else v
+                    manifest_dirty = True
             else:
                 cfg[k] = _num(v) if k in numeric else v
 
@@ -5359,14 +5463,17 @@ class Handler(BaseHTTPRequestHandler):
             m["settings"] = settings
         else:
             m.pop("settings", None)
-        save_manifest(m)
+        if manifest_dirty:
+            save_manifest(m)
         save_config(cfg)
         # Auto-seed on ACTIVATION (not on every render): when the Session
         # dropdown switches to a sheet-derived manifest (Sheet Maker stamps a
         # truthy `export_prefix`), fill its EMPTY atlas tiles from each
         # region's reference image. load_manifest now resolves to the newly
-        # active file (config was just saved); only_empty never overwrites an
-        # existing image, and we only save when something was actually seeded.
+        # active file (config was just saved) — and that file was just exact-key
+        # refreshed from R2 above, so the seed's save_manifest writes back FRESH
+        # data; only_empty never overwrites an existing image, and we only save
+        # when something was actually seeded.
         if _switched_manifest:
             try:
                 nm = load_manifest()
