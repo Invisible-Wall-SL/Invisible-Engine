@@ -345,6 +345,22 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 	}
 
+	/** Set (or clear) a param's DEFAULT — the value the preview + every placed instance
+	 * use until overridden. Reassigns `params` so the preview's `resolveComponentParams`
+	 * re-derives. */
+	function setParamDefault(key: string, value: unknown): void {
+		if (!componentDraft?.params) return;
+		componentDraft.params = componentDraft.params.map((p) =>
+			p.key === key ? (value === undefined ? omitDefault(p) : { ...p, default: value }) : p,
+		);
+	}
+	/** A param with its `default` cleared. */
+	function omitDefault(p: ComponentParam): ComponentParam {
+		const next = { ...p };
+		delete next.default;
+		return next;
+	}
+
 	/** "Expose as params" for a text node: create grouped author params for its
 	 * text / font / size / colour and bind the node's fields to them, so every placed
 	 * instance can edit this text. Keys are namespaced (group slug + field) to stay
@@ -862,6 +878,7 @@
 						onToggleParam={toggleComponentParam}
 						onAddParam={addCustomParam}
 						onRemoveParam={removeComponentParam}
+						onSetParamDefault={setParamDefault}
 						onExposeTextParams={exposeTextParams}
 						onUnexposeTextParams={unexposeTextParams}
 						onToggleSignal={toggleComponentSignal}

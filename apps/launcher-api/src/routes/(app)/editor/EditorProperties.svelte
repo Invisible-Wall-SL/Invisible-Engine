@@ -77,6 +77,9 @@
 		onAddParam?: (key: string, kind: ComponentParam['kind']) => void;
 		/** Remove a custom (author-defined) param from the draft component (component mode). */
 		onRemoveParam?: (key: string) => void;
+		/** Set a custom param's DEFAULT value (component mode) — the value the component's
+		 * preview + every placed instance use until overridden. `undefined` clears it. */
+		onSetParamDefault?: (key: string, value: unknown) => void;
 		/** "Expose as params" for the selected text node: auto-create + bind grouped
 		 * text/font/size/colour params so the text is per-instance editable (component mode). */
 		onExposeTextParams?: (node: LayoutNode) => void;
@@ -113,6 +116,7 @@
 		onToggleParam,
 		onAddParam,
 		onRemoveParam,
+		onSetParamDefault,
 		onExposeTextParams,
 		onUnexposeTextParams,
 		onToggleSignal,
@@ -647,14 +651,51 @@
 			<ul class="picker">
 				{#each customParams as p (p.key)}
 					<li class="author-param">
-						<span class="pick-label">{p.key}</span>
-						<span class="pick-kind">{p.kind}</span>
-						<button
-							type="button"
-							class="param-remove"
-							title="Remove param"
-							onclick={() => onRemoveParam?.(p.key)}>×</button
-						>
+						<div class="author-param-head">
+							<span class="pick-label"
+								>{p.label ?? p.key}{#if p.group}<span class="pick-group">· {p.group}</span
+									>{/if}</span
+							>
+							<span class="pick-kind">{p.kind}</span>
+							<button
+								type="button"
+								class="param-remove"
+								title="Remove param"
+								onclick={() => onRemoveParam?.(p.key)}>×</button
+							>
+						</div>
+						<label class="param-default">
+							<span>default</span>
+							{#if p.kind === 'number'}
+								<input
+									type="number"
+									value={typeof p.default === 'number' ? p.default : ''}
+									oninput={(e) =>
+										onSetParamDefault?.(
+											p.key,
+											e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
+										)}
+								/>
+							{:else if p.kind === 'color'}
+								<input
+									type="color"
+									value={typeof p.default === 'number' ? hexFrom(p.default) : '#ffffff'}
+									oninput={(e) => onSetParamDefault?.(p.key, parseHex(e.currentTarget.value))}
+								/>
+							{:else if p.kind === 'boolean'}
+								<input
+									type="checkbox"
+									checked={p.default === true}
+									onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.checked)}
+								/>
+							{:else}
+								<input
+									type="text"
+									value={typeof p.default === 'string' ? p.default : ''}
+									oninput={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+								/>
+							{/if}
+						</label>
 					</li>
 				{/each}
 			</ul>
@@ -2202,11 +2243,40 @@
 		line-height: 1.3;
 	}
 	.author-param {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 4px;
+		font-size: 12px;
+		color: #c8c8d0;
+	}
+	.author-param-head {
+		display: flex;
 		flex-direction: row;
 		align-items: center;
 		gap: 8px;
-		font-size: 12px;
-		color: #c8c8d0;
+	}
+	.pick-group {
+		color: #8a7aa8;
+		font-size: 10px;
+		margin-left: 4px;
+	}
+	.param-default {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding-left: 4px;
+	}
+	.param-default > span {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+		width: 48px;
+	}
+	.param-default > input[type='text'],
+	.param-default > input[type='number'] {
+		flex: 1;
+		min-width: 0;
 	}
 	.param-remove {
 		margin-left: auto;
