@@ -48,7 +48,11 @@ export const SUB = {
 	localization: (c: string, p: string) => `${projectPrefix(c, p)}/localization`,
 	editor: (c: string, p: string) => `${projectPrefix(c, p)}/editor`,
 	fonts: (c: string, p: string) => `${projectPrefix(c, p)}/fonts`,
+	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
 } as const;
+
+/** The engine reference Storybook (apps/lines), outside any single project. */
+export const SHARED_ENGINE_STORYBOOK_PREFIX = '_shared/storybook/engine';
 
 /** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
 export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;

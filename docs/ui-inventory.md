@@ -72,6 +72,6 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
 | Shared `gate()` + `assertAllowed` + `allowedPrefixes` | A | `lib/server/ftpScope.ts` | **canonical — use this** |
-| Inline duplicate gates (editor, localization, atlas, sheet, spine) | A | each route's `+page.server.ts` / `+server.ts` | duplicated; consolidate (health-eval #4) |
+| Inline duplicate gates (editor, localization, atlas, sheet, spine, storybook) | A | each route's `+page.server.ts` / `+server.ts`; `lib/server/storybooks.ts` (`requireStorybookAccess`, mirrors spine's) | duplicated; consolidate (health-eval #4) |
 
 → Two divergent `allowedPrefixes()` exist (editor allows `spines/_shared/`, ftp doesn't). Reconcile into one parameterized definition.

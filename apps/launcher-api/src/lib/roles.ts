@@ -71,6 +71,11 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<rect x="3" y="3" width="18" height="18" rx="2"/>' +
 			'<rect x="7" y="7" width="6" height="6" rx="1"/><rect x="13" y="11" width="4" height="6" rx="1"/>',
 	),
+	// open book (storybook)
+	storybook: I(
+		'<path d="M12 6c-1.5-1.6-3.8-2.5-6.5-2.5H4v14h1.5c2.7 0 5 .9 6.5 2.5 1.5-1.6 3.8-2.5 6.5-2.5H20v-14h-1.5c-2.7 0-5 .9-6.5 2.5z"/>' +
+			'<line x1="12" y1="6" x2="12" y2="20"/>',
+	),
 	// browse list (bulleted rows)
 	ftpBrowser: I(
 		'<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/>' +
@@ -162,6 +167,14 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/files',
 		icon: TOOL_ICONS.ftpBrowser,
 	},
+	storybook: {
+		id: 'storybook',
+		name: 'Invisible Storybook',
+		description: 'Browse published Storybook builds — engine reference and per-project.',
+		kind: 'online',
+		url: '/storybook',
+		icon: TOOL_ICONS.storybook,
+	},
 	componentEditor: {
 		id: 'componentEditor',
 		name: 'Invisible Component Editor',
@@ -184,6 +197,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'componentEditor',
 		'ftpBrowser',
+		'storybook',
 	],
 	artist: [
 		'atlasTool',
@@ -318,6 +332,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
 	componentEditor: 'component-editor',
+	storybook: 'storybook',
 };
 
 /** Repo-relative path to a tool's documentation (authored by the docs effort). */

@@ -35,10 +35,18 @@ function arg(flag, fallback) {
 
 const name = arg('--name');
 if (!name) {
-	console.error('Usage: node scripts/new-game.mjs --name "Book of Foo" [--slug ...] [--dir ...] [--port 3003]');
+	console.error(
+		'Usage: node scripts/new-game.mjs --name "Book of Foo" [--slug ...] [--dir ...] [--port 3003]',
+	);
 	process.exit(1);
 }
-const slug = arg('--slug', name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+const slug = arg(
+	'--slug',
+	name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, ''),
+);
 const parent = arg('--dir', DEFAULT_PARENT);
 const port = arg('--port', '3003');
 const dest = join(parent, slug);
@@ -123,7 +131,19 @@ const files = {
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
 					'pull:assets': `node ./engine/apps/launcher-api/scripts/pull-project-assets.mjs --project ${slug}/${slug} --dest ./static/assets`,
 					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug} --dest ./src/baked-editor-bundle.json`,
-					build: 'pnpm build:engine && pnpm pull:assets --optional && pnpm bake:doc --optional && vite build',
+					// publish:storybook — upload an already-built storybook-static/ to
+					// `<client>/<project>/storybook/` so the launcher's Invisible Storybook
+					// tool serves it. NOT runnable out of the box: the scaffold writes no
+					// .storybook/ config (build the storybook here once you add one, or
+					// build it elsewhere and pass --dir), and the publish script needs
+					// @aws-sdk/client-s3 resolvable from this repo (pnpm add -D
+					// @aws-sdk/client-s3) — the engine submodule never installs
+					// apps/launcher-api's deps. Needs R2_* creds in the env and, like
+					// pull:assets, the launcher project key `<client>/<project>` (defaults
+					// to `${slug}/${slug}` — fix it alongside pull:assets). See the README.
+					'publish:storybook': `node ./engine/apps/launcher-api/scripts/publish-storybook.mjs --project ${slug}/${slug} --dir storybook-static`,
+					build:
+						'pnpm build:engine && pnpm pull:assets --optional && pnpm bake:doc --optional && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',
@@ -230,6 +250,13 @@ git add engine && git commit -m "games: bump engine to <short-sha>"
 \`\`\`bash
 pnpm build        # -> build/  (deploy this; its own target, own cadence)
 \`\`\`
+
+## Storybook publishing (optional)
+\`pnpm publish:storybook\` uploads a built \`storybook-static/\` to the launcher's
+Invisible Storybook tool. It needs (a) a \`.storybook/\` config in this repo to
+produce the build (or build elsewhere and pass \`--dir <path>\`), and (b)
+\`pnpm add -D @aws-sdk/client-s3\` here, since the engine submodule does not
+install the publish script's own deps. R2_* creds in the env, as with assets.
 `,
 };
 

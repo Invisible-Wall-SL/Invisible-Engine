@@ -14,6 +14,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Spine Viewer** | Cloud (launcher static) | launcher → `/spine` | [spine-viewer.md](spine-viewer.md) |
 | **Invisible Sheet Maker** | Cloud (Railway) | launcher → `/sheet` | [sheet-maker.md](sheet-maker.md) |
 | **Invisible Localization** | Cloud (launcher + Claude) | launcher → `/localization` | [localization.md](localization.md) |
+| **Invisible Storybook** | Cloud (launcher, serves R2 builds) | launcher → `/storybook` | [storybook.md](storybook.md) |
 | **ComfyUI** (third-party) | Local (your GPU) | runs locally, exposed via tunnel | [comfyui.md](comfyui.md) |
 
 For the authoritative live state, deploy details and env vars see
