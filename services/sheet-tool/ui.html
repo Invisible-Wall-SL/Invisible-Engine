@@ -136,7 +136,7 @@
           <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
           <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
           <button id="bm-refresh" style="flex:0 0 auto" onclick="refreshR2(this)" title="Re-pull this project's files from R2 (e.g. after exporting a sheet to the Atlas Maker, or saving from another machine) without restarting or switching projects">↻ Refresh from R2</button>
-          <button id="bm-clearcache" style="flex:0 0 auto" onclick="clearCache(this)" title="Free local disk: delete cached project trees and this project's uploaded sprite pile. R2 is the source of truth, so nothing is lost — the active project re-fetches on demand.">🧹 Clear local cache</button>
+          <button id="bm-clearcache" style="flex:0 0 auto" onclick="clearCache(this)" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
         </div>
         <div class="hint" id="browsehint"></div>
         <div class="cwd" id="cwd"></div>
@@ -149,8 +149,8 @@
       <h2>Canvas size</h2>
       <div class="field"><label>Width</label><input type="number" id="cw" value="1024"></div>
       <div class="field"><label>Height</label><input type="number" id="ch" value="1024"></div>
-      <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2"></div>
-      <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot"></div>
+      <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2" onchange="markDirty()"></div>
+      <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot" onchange="markDirty()"></div>
       <button class="sec wide" onclick="applyCanvas()">Apply size</button>
     </div>
 
@@ -201,6 +201,79 @@ async function jget(u){return (await fetch(u)).json();}
 async function jpost(u,b){return (await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();}
 const reg=src=>regions.find(r=>r.src===src);
 
+/* ---------- session persistence (refresh / restart survival) ----------
+   The full editor state is snapshotted server-side (sheet_session.json in the
+   project's staging tree, mirrored to R2). Save points piggyback on existing
+   actions via markDirty(), debounced so per-keystroke edits coalesce into one
+   POST. Restore happens in init() from STATE.session. */
+let sessTimer=0;
+function sessionSnapshot(){
+  // `sheet` is the sprite-pile key (sheet_src/<sheet>/) the regions' files live
+  // under — activeSheet, NOT the typed name, which can drift ahead of the pile.
+  return {version:1,sheet:activeSheet||sheetName,display_name:$('sheet').value.trim(),
+    active_sheet:activeSheet||'',
+    canvas_w:canvasW,canvas_h:canvasH,
+    padding:parseInt($('pad').value)||2,allow_rotation:$('rot').checked,
+    loaded:{path:loadedPath,dir:loadedDir,name:loadedName,is_project:isProject},
+    regions:regions.map(r=>({src:r.src,name:r.name,x:r.x,y:r.y,w:r.w,h:r.h,
+      ow:r.ow,oh:r.oh,rotated:!!r.rotated,locked:!!r.locked,
+      prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
+      unplaced:!!r.unplaced}))};
+}
+function markDirty(){ clearTimeout(sessTimer); sessTimer=setTimeout(saveSession,600); }
+async function saveSession(){
+  clearTimeout(sessTimer); sessTimer=0;
+  try{ await jpost('/api/session',sessionSnapshot()); }catch(e){}  // best-effort
+}
+async function clearSession(){
+  clearTimeout(sessTimer); sessTimer=0;
+  try{ await jpost('/api/session',{clear:true}); }catch(e){}
+}
+/* Flush a pending debounced save on refresh/close so the last edit isn't lost. */
+window.addEventListener('beforeunload',()=>{
+  if(!sessTimer) return;
+  clearTimeout(sessTimer); sessTimer=0;
+  try{ navigator.sendBeacon('/api/session',
+    new Blob([JSON.stringify(sessionSnapshot())],{type:'application/json'})); }catch(e){}
+});
+function restoreSession(s){
+  const missing=new Set(s.missing||[]);
+  sheetName=s.sheet||sheetName;
+  activeSheet=s.active_sheet||sheetName;
+  canvasW=+s.canvas_w||canvasW; canvasH=+s.canvas_h||canvasH;
+  $('cw').value=canvasW; $('ch').value=canvasH;
+  if(s.padding!=null) $('pad').value=s.padding;
+  if(s.allow_rotation!=null) $('rot').checked=!!s.allow_rotation;
+  $('sheet').value=s.display_name||s.sheet||$('sheet').value;
+  const ld=s.loaded||{};
+  loadedPath=ld.path||null; loadedDir=ld.dir||null; loadedName=ld.name||null; isProject=!!ld.is_project;
+  clearCanvasDom();
+  const dropped=[];
+  regions=(s.regions||[]).filter(r=>{
+    if(!r||!r.src) return false;
+    if(missing.has(r.src)){ dropped.push(r.name||r.src); return false; }
+    return true;
+  }).map(r=>({src:r.src,name:r.name||r.src.replace(/\.[^.]+$/,''),
+    x:Math.max(0,+r.x||0),y:Math.max(0,+r.y||0),
+    w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),
+    ow:+r.ow||+r.w||1,oh:+r.oh||+r.h||1,
+    rotated:!!r.rotated,locked:!!r.locked,
+    prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
+    unplaced:!!r.unplaced}));
+  sel=null;
+  const m=$('uploadmsg');
+  if(dropped.length){
+    m.className='note';
+    m.textContent='Session restored ('+regions.length+' sprites) — '+dropped.length
+      +' sprite file(s) gone from storage, removed: '
+      +dropped.slice(0,5).join(', ')+(dropped.length>5?'…':'');
+    markDirty();   // persist the trimmed session
+  }else if(regions.length){
+    m.className='muted';
+    m.textContent='Session restored — '+regions.length+' sprite(s) back on canvas.';
+  }
+}
+
 async function init(){
   STATE=await jget('/api/state');
   $('build').textContent=STATE.build;
@@ -228,6 +301,11 @@ async function init(){
   canvasW=d.canvas_w; canvasH=d.canvas_h;
   $('cw').value=canvasW; $('ch').value=canvasH; $('pad').value=d.padding; $('rot').checked=d.allow_rotation;
   sheetName=$('sheet').value.trim()||'newsheet';
+  // Refresh-survival: a saved session for this project rebuilds the canvas
+  // exactly where the user left off (regions, names, locks, AI fields, dims).
+  if(STATE.session && Array.isArray(STATE.session.regions) && STATE.session.regions.length){
+    restoreSession(STATE.session);
+  }
   updateReadouts();
   fitView();
   if(importTarget){
@@ -240,7 +318,7 @@ async function init(){
 
 /* ---------- save identity readouts ---------- */
 function currentName(){ return $('sheet').value.trim()||'newsheet'; }
-function onNameInput(){ sheetName=currentName(); updateReadouts(); }
+function onNameInput(){ sheetName=currentName(); updateReadouts(); markDirty(); }
 function updateReadouts(){
   const name=currentName();
   if(isProject && loadedPath){
@@ -344,10 +422,10 @@ function makeSelBar(r){
     inp.onchange=()=>{
       const k=inp.dataset.k, v=parseInt(inp.value)||0;
       r[k]=(k==='w'||k==='h')?Math.max(8,v):Math.max(0,v);
-      r.unplaced=false; render(); syncInspector();
+      r.unplaced=false; render(); syncInspector(); markDirty();
     };
   });
-  bar.querySelector('[data-lock]').onclick=()=>{ r.locked=!r.locked; render(); syncInspector(); };
+  bar.querySelector('[data-lock]').onclick=()=>{ r.locked=!r.locked; render(); syncInspector(); markDirty(); };
   return bar;
 }
 
@@ -407,7 +485,7 @@ function endDrag(){
     if(drag.mode==='move'){ if(drag.nx!=null){ r.x=drag.nx; r.y=drag.ny; } }
     else if(drag.nw!=null){ r.w=drag.nw; r.h=drag.nh; r.unplaced=false; }
     drag=null; lastE=null;
-    render(); syncInspector();
+    render(); syncInspector(); markDirty();
   }
 }
 
@@ -449,26 +527,27 @@ function flagName(){
   el.style.borderColor=(!nm||dup)?'#e66':'';
   el.title=!nm?'Name cannot be empty':(dup?'Another region already uses this name':'');
 }
-function renameSel(v){ const r=reg(sel); if(!r) return; r.name=v; flagName(); render(); }
-function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked') render(); }
+function renameSel(v){ const r=reg(sel); if(!r) return; r.name=v; flagName(); render(); markDirty(); }
+function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked') render(); markDirty(); }
 function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(8,parseInt(v)||8);
   if($('i_aspect').checked){ if(k==='w'){ r.w=n; r.h=Math.max(8,Math.round(n*r.oh/r.ow)); } else { r.h=n; r.w=Math.max(8,Math.round(n*r.ow/r.oh)); } }
   else r[k]=n;
-  r.unplaced=false; render(); syncInspector(); }
-function resetSize(){ const r=reg(sel); if(!r) return; r.w=r.ow; r.h=r.oh; r.unplaced=false; render(); syncInspector(); }
-function deleteSel(){ const i=regions.findIndex(r=>r.src===sel); if(i<0) return; regions.splice(i,1); sel=null; render(); syncInspector(); }
+  r.unplaced=false; render(); syncInspector(); markDirty(); }
+function resetSize(){ const r=reg(sel); if(!r) return; r.w=r.ow; r.h=r.oh; r.unplaced=false; render(); syncInspector(); markDirty(); }
+function deleteSel(){ const i=regions.findIndex(r=>r.src===sel); if(i<0) return; regions.splice(i,1); sel=null; render(); syncInspector(); markDirty(); }
 
 window.addEventListener('keydown',e=>{
   if((e.key==='Delete'||e.key==='Backspace')&&sel&&document.activeElement.tagName!=='INPUT'){ deleteSel(); }
-  if(e.key==='l'&&sel&&document.activeElement.tagName!=='INPUT'){ const r=reg(sel); if(r){r.locked=!r.locked; render(); syncInspector();} }
+  if(e.key==='l'&&sel&&document.activeElement.tagName!=='INPUT'){ const r=reg(sel); if(r){r.locked=!r.locked; render(); syncInspector(); markDirty();} }
 });
 
 /* ---------- canvas size ---------- */
-function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canvasH=Math.max(16,parseInt($('ch').value)||1024); fitView(); }
+function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canvasH=Math.max(16,parseInt($('ch').value)||1024); fitView(); markDirty(); }
 
 /* ---------- upload ---------- */
 function newSheet(){ regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
   loadedPath=null; loadedDir=null; loadedName=null; isProject=false; updateReadouts();
+  clearSession();   // drop the persisted session too — a refresh stays blank
   $('uploadmsg').className='muted'; $('uploadmsg').textContent='Canvas cleared.'; }
 
 async function upload(){
@@ -499,6 +578,7 @@ async function upload(){
   $('files').value='';
   $('uploadmsg').className='ok';
   $('uploadmsg').textContent=added+' added'+(replaced?' · '+replaced+' replaced':'')+' · '+regions.length+' on canvas';
+  markDirty();          // persist even if the arrange below fails
   await doArrange();
 }
 
@@ -516,6 +596,7 @@ async function doArrange(){
   m.className=up.size?'err':'ok';
   m.textContent=up.size?(' '+up.size+" didn't fit — enlarge canvas"):' arranged ✓';
   render();
+  markDirty();
 }
 
 /* ---------- load existing ---------- */
@@ -550,6 +631,7 @@ async function loadSheet(){
   const noted=(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
   m.className=noted?'note':'ok'; m.textContent=msg;
   fitView();
+  markDirty();
 }
 async function refreshR2(btn){
   const m=$('loadmsg');
@@ -569,12 +651,12 @@ async function refreshR2(btn){
   finally{ if(btn) btn.disabled=false; }
 }
 async function clearCache(btn){
-  if(!confirm('Clear the local disk cache?\n\nR2 is the source of truth, so '
-    +'nothing is lost. Other projects drop entirely; this project keeps its '
-    +'manifests and packed sheets and re-fetches sprites on demand.')) return;
+  if(!confirm('Reset this project from the cloud?\n\nRe-downloads everything '
+    +'from R2 and DROPS any local files that were deleted from the cloud. '
+    +'Unsaved local work is lost. R2 is the source of truth.')) return;
   const m=$('loadmsg');
   if(btn) btn.disabled=true;
-  if(m){ m.className='muted'; m.textContent='🧹 Clearing local cache…'; }
+  if(m){ m.className='muted'; m.textContent='↺ Resetting from R2…'; }
   try{
     const j=await jpost('/api/clearcache',{});
     if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
@@ -643,6 +725,7 @@ async function loadFile(path){
   const noted=(j.packed===false)||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
   $('loadmsg').className=noted?'note':'ok'; $('loadmsg').textContent=msg;
   fitView();
+  markDirty();
 }
 
 /* ---------- save ---------- */
@@ -667,6 +750,7 @@ async function runExport(destDir){
   if(j.error){ m.className='err'; m.textContent=j.error; return false; }
   loadedPath=j.manifest_path; loadedDir=j.output_dir; loadedName=j.name; isProject=true;
   updateReadouts();
+  markDirty();          // loaded identity changed — persist it
   // A save can create a new sheet — surface it in the "Add to sheet" list.
   const ss=$('sheetsel');
   if(![...ss.options].some(o=>o.value===j.name)){

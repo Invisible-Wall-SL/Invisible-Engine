@@ -169,7 +169,7 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
     # sprite pile (sheet_src/) is NOT pulled — it grows without bound and is only
     # needed once a sheet is actively edited, so it hydrates lazily on first
     # access (see ensure_lazy) instead of for every cold project.
-    for sub in ("manifests/", "sheet_config.json", "sheets/"):
+    for sub in ("manifests/", "sheet_config.json", "sheet_session.json", "sheets/"):
         try:
             storage.pull_prefix(base + "/" + sub, staging_root, kr)
         except Exception:  # noqa: BLE001 — first run / empty bucket is fine
