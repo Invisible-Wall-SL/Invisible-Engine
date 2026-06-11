@@ -416,6 +416,43 @@
 		componentDraft.params = [...params, ...added];
 	}
 
+	/**
+	 * Un-expose a text node: drop its AUTHOR-param bindings + the params they created,
+	 * restoring each field's static value from the removed param's default. Engine/other
+	 * binds (e.g. a value node's `text` → `value`) are left untouched. The inverse of
+	 * {@link exposeTextParams}.
+	 */
+	function unexposeTextParams(node: LayoutNode): void {
+		if (!componentDraft || node.kind !== 'text' || !node.paramBindings) return;
+		const params = componentDraft.params ?? [];
+		const byKey = new Map(params.map((p) => [p.key, p]));
+		const bindings: Record<string, string> = { ...node.paramBindings };
+		const removed = new Set<string>();
+		const unbind = (field: string): ComponentParam | undefined => {
+			const key = bindings[field];
+			if (!key) return undefined;
+			const p = byKey.get(key);
+			if (!p?.author) return undefined; // leave engine/other binds (e.g. text → value)
+			delete bindings[field];
+			removed.add(key);
+			return p;
+		};
+		const textParam = unbind('text');
+		const fontParam = unbind('style.fontFamily');
+		const sizeParam = unbind('style.fontSize');
+		const fillParam = unbind('style.fill');
+		if (removed.size === 0) return;
+		if (textParam && typeof textParam.default === 'string') node.text = textParam.default;
+		const style = { ...(node.style ?? {}) };
+		if (fontParam && typeof fontParam.default === 'string') style.fontFamily = fontParam.default;
+		if (sizeParam && typeof sizeParam.default === 'number') style.fontSize = sizeParam.default;
+		if (fillParam && typeof fillParam.default === 'number') style.fill = fillParam.default;
+		node.style = style;
+		node.paramBindings = Object.keys(bindings).length ? bindings : undefined;
+		componentDraft.params = params.filter((p) => !removed.has(p.key));
+		if (componentDraft.params.length === 0) delete componentDraft.params;
+	}
+
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
 	function toggleComponentSignal(key: string): void {
 		if (!componentDraft) return;
@@ -826,6 +863,7 @@
 						onAddParam={addCustomParam}
 						onRemoveParam={removeComponentParam}
 						onExposeTextParams={exposeTextParams}
+						onUnexposeTextParams={unexposeTextParams}
 						onToggleSignal={toggleComponentSignal}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;

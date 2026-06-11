@@ -80,6 +80,9 @@
 		/** "Expose as params" for the selected text node: auto-create + bind grouped
 		 * text/font/size/colour params so the text is per-instance editable (component mode). */
 		onExposeTextParams?: (node: LayoutNode) => void;
+		/** "Remove exposed parameters": un-expose the selected text node — drop its
+		 * author-param bindings + the params they created, restoring the static values. */
+		onUnexposeTextParams?: (node: LayoutNode) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
@@ -111,6 +114,7 @@
 		onAddParam,
 		onRemoveParam,
 		onExposeTextParams,
+		onUnexposeTextParams,
 		onToggleSignal,
 		onSetInstanceParam,
 		onOpenComponentEditor,
@@ -118,6 +122,26 @@
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+
+	/** Text-style fields the "Expose text as params" flow binds (text content + the three
+	 * style knobs). Used to detect whether the selected text node is already exposed. */
+	const TEXT_BIND_FIELDS = ['text', 'style.fontFamily', 'style.fontSize', 'style.fill'] as const;
+	/** The AUTHOR params (key + the field that binds them) this text node currently exposes —
+	 * i.e. its `paramBindings` pointing at author (not engine-provided) component params. */
+	const exposedTextBindings = $derived.by(() => {
+		if (!node || node.kind !== 'text' || !node.paramBindings) return [];
+		const out: { field: string; key: string }[] = [];
+		for (const field of TEXT_BIND_FIELDS) {
+			const key = node.paramBindings[field];
+			if (!key) continue;
+			const p = componentParams.find((cp) => cp.key === key);
+			if (p?.author) out.push({ field, key });
+		}
+		return out;
+	});
+	/** True when the selected text node is exposed (component mode) — the static value
+	 * fields + Expose button collapse into a "using exposed parameters" state. */
+	const isTextExposed = $derived(componentMode && exposedTextBindings.length > 0);
 	/** Flat (ungrouped) author params — rendered above the grouped sections. */
 	const ungroupedAuthorParams = $derived(authorParams.filter((p) => !p.group));
 	/** Author params bucketed by their `group` (e.g. a text node's name) — each renders
@@ -1541,91 +1565,107 @@
 	{:else if node.kind === 'text'}
 		<section>
 			<h3>Text</h3>
-			<div class="row">
-				<label class="field wide">
-					<span>text</span>
-					<textarea
-						value={node.text}
-						oninput={(e) => {
-							node.text = e.currentTarget.value;
-							markDirty();
-						}}
-					></textarea>
-				</label>
-			</div>
-			{#if node.paramBindings?.['text']}
+			{#if isTextExposed}
 				<p class="muted small">
-					bound to {node.paramBindings['text']} — static value ignored in instances
+					Using exposed parameters — this text's content, font, size + colour are set per instance
+					via the params grouped under <strong>{node.label || 'Text'}</strong>. Edit their defaults
+					in the Component Variables panel.
 				</p>
+				<button
+					type="button"
+					class="ghost-sm"
+					onclick={() => onUnexposeTextParams?.(node)}
+					title="Drop the bindings + the params they created, restoring the static values"
+				>
+					Remove exposed parameters
+				</button>
+			{:else}
+				<div class="row">
+					<label class="field wide">
+						<span>text</span>
+						<textarea
+							value={node.text}
+							oninput={(e) => {
+								node.text = e.currentTarget.value;
+								markDirty();
+							}}
+						></textarea>
+					</label>
+				</div>
+				{#if node.paramBindings?.['text']}
+					<p class="muted small">
+						bound to {node.paramBindings['text']} — static value ignored in instances
+					</p>
+				{/if}
+
+				<div class="row">
+					<label class="field wide">
+						<span>font family</span>
+						<select
+							value={node.style?.fontFamily ?? ''}
+							onchange={(e) => setStyleString(node, 'fontFamily', e.currentTarget.value)}
+						>
+							<option value="">(game default)</option>
+							{#each fontList as f (f.id)}
+								<option value={f.name}>{f.name} [{f.kind}]</option>
+							{/each}
+							{#if customFamily}
+								<option value={customFamily}>{customFamily} (custom)</option>
+							{/if}
+						</select>
+					</label>
+				</div>
+				{#if node.paramBindings?.['style.fontFamily']}
+					<p class="muted small">
+						bound to {node.paramBindings['style.fontFamily']} — static value ignored in instances
+					</p>
+				{/if}
+				{#if fontList.length === 0}
+					<p class="muted small">
+						No fonts synced for this project — run <code>scripts/r2-sync-fonts.mjs</code> to populate
+						the catalog.
+					</p>
+				{/if}
+				{#if isBitmapSelected}
+					<p class="muted small">
+						Bitmap font: tint + size only (size scales the baked atlas — large sizes soften). Weight
+						/ style / stroke / shadow don't apply.
+					</p>
+				{/if}
+
+				<div class="row">
+					<label class="field">
+						<span>font size</span>
+						<input
+							type="number"
+							step="1"
+							value={node.style?.fontSize ?? 24}
+							oninput={(e) => setStyleNumber(node, 'fontSize', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+					<label class="field">
+						<span>{isBitmapSelected ? 'tint' : 'fill'}</span>
+						<input
+							type="color"
+							value={hexFrom(node.style?.fill)}
+							onchange={(e) => setFill(node, e.currentTarget.value)}
+						/>
+					</label>
+				</div>
+				{#if node.paramBindings?.['style.fontSize']}
+					<p class="muted small">
+						font size bound to {node.paramBindings['style.fontSize']} — static value ignored in instances
+					</p>
+				{/if}
+				{#if node.paramBindings?.['style.fill']}
+					<p class="muted small">
+						{isBitmapSelected ? 'tint' : 'fill'} bound to {node.paramBindings['style.fill']} — static
+						value ignored in instances
+					</p>
+				{/if}
 			{/if}
 
-			<div class="row">
-				<label class="field wide">
-					<span>font family</span>
-					<select
-						value={node.style?.fontFamily ?? ''}
-						onchange={(e) => setStyleString(node, 'fontFamily', e.currentTarget.value)}
-					>
-						<option value="">(game default)</option>
-						{#each fontList as f (f.id)}
-							<option value={f.name}>{f.name} [{f.kind}]</option>
-						{/each}
-						{#if customFamily}
-							<option value={customFamily}>{customFamily} (custom)</option>
-						{/if}
-					</select>
-				</label>
-			</div>
-			{#if node.paramBindings?.['style.fontFamily']}
-				<p class="muted small">
-					bound to {node.paramBindings['style.fontFamily']} — static value ignored in instances
-				</p>
-			{/if}
-			{#if fontList.length === 0}
-				<p class="muted small">
-					No fonts synced for this project — run <code>scripts/r2-sync-fonts.mjs</code> to populate the
-					catalog.
-				</p>
-			{/if}
-			{#if isBitmapSelected}
-				<p class="muted small">
-					Bitmap font: tint + size only (size scales the baked atlas — large sizes soften). Weight /
-					style / stroke / shadow don't apply.
-				</p>
-			{/if}
-
-			<div class="row">
-				<label class="field">
-					<span>font size</span>
-					<input
-						type="number"
-						step="1"
-						value={node.style?.fontSize ?? 24}
-						oninput={(e) => setStyleNumber(node, 'fontSize', e.currentTarget.valueAsNumber)}
-					/>
-				</label>
-				<label class="field">
-					<span>{isBitmapSelected ? 'tint' : 'fill'}</span>
-					<input
-						type="color"
-						value={hexFrom(node.style?.fill)}
-						onchange={(e) => setFill(node, e.currentTarget.value)}
-					/>
-				</label>
-			</div>
-			{#if node.paramBindings?.['style.fontSize']}
-				<p class="muted small">
-					font size bound to {node.paramBindings['style.fontSize']} — static value ignored in instances
-				</p>
-			{/if}
-			{#if node.paramBindings?.['style.fill']}
-				<p class="muted small">
-					{isBitmapSelected ? 'tint' : 'fill'} bound to {node.paramBindings['style.fill']} — static value
-					ignored in instances
-				</p>
-			{/if}
-
-			{#if componentMode}
+			{#if componentMode && !isTextExposed}
 				<section>
 					<button
 						type="button"
@@ -1642,7 +1682,7 @@
 				</section>
 			{/if}
 
-			{#if componentMode && componentParams.length > 0}
+			{#if componentMode && componentParams.length > 0 && !isTextExposed}
 				<section>
 					<h3>Bind to param</h3>
 					<p class="muted small">
