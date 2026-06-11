@@ -5,11 +5,107 @@ import {
 	type LayoutNode,
 	type LayoutType,
 	type ResolvedTransform,
+	type Scene,
 } from 'engine-layout';
 
 export interface Vec2 {
 	x: number;
 	y: number;
+}
+
+/**
+ * A 2D affine matrix `[a, b, c, d, tx, ty]` in the SAME column convention the 2D
+ * canvas uses, so a point `(x, y)` maps to `(a·x + c·y + tx, b·x + d·y + ty)`.
+ * This is exactly what a `CanvasRenderingContext2D` accumulates, and what PIXI's
+ * `Matrix` / `Container.setFromMatrix` consume — so the editor's 2D canvas and the
+ * PIXI text overlay compose nested transforms through ONE definition.
+ */
+export type Affine = [number, number, number, number, number, number];
+
+export const IDENTITY_AFFINE: Affine = [1, 0, 0, 1, 0, 0];
+
+/**
+ * The affine matrix a `ResolvedTransform` represents — byte-equivalent to
+ * `ctx.translate(t.x, t.y); ctx.rotate(t.rotation); ctx.scale(sx, sy)` (the EXACT
+ * sequence {@link drawNode} runs). `ctx` post-multiplies its current matrix by this
+ * `T·R·S`, so folding {@link matMul} over a node's ancestor chain reproduces the
+ * canvas's world matrix for any nested node. Anchor is NOT folded in here: it is a
+ * per-leaf local offset the renderer (sprite/text) applies on top, exactly as the
+ * canvas + runtime do.
+ */
+export function matFromTransform(t: ResolvedTransform): Affine {
+	const sx = t.scale?.x ?? 1;
+	const sy = t.scale?.y ?? 1;
+	const rot = t.rotation ?? 0;
+	const cos = Math.cos(rot);
+	const sin = Math.sin(rot);
+	// T(x,y) · R(rot) · S(sx,sy)
+	return [cos * sx, sin * sx, -sin * sy, cos * sy, t.x, t.y];
+}
+
+/** Matrix product `m · n` (apply `n` first, then `m`) — same convention as `ctx`. */
+export function matMul(m: Affine, n: Affine): Affine {
+	const [a, b, c, d, e, f] = m;
+	const [a2, b2, c2, d2, e2, f2] = n;
+	return [
+		a * a2 + c * b2,
+		b * a2 + d * b2,
+		a * c2 + c * d2,
+		b * c2 + d * d2,
+		a * e2 + c * f2 + e,
+		b * e2 + d * f2 + f,
+	];
+}
+
+/**
+ * The LOCAL transform of a NESTED node (one with a parent in the doc tree), in its
+ * parent's space — i.e. NO scene-space framing (`mainToWorld`/`mainScale`, background
+ * cover, standard fit). It mirrors `<LayoutNodeView>` for a child inside a container:
+ * raw {@link resolveTransform}, with `screenAnchor` folded into x/y only for a
+ * `canvas`-space scene (the parent chain already carries every framing transform once,
+ * exactly like the single root `<MainContainer>`). This is what lets the overlay +
+ * canvas + runtime compose nested nodes identically: framing is applied ONCE at the
+ * top-level node (the canvas's `nodeTransform`), children compose in pure local space.
+ */
+export function childLocalTransform(
+	node: LayoutNode,
+	layoutType: LayoutType,
+	space: Scene['space'],
+	frameWidth: number,
+	frameHeight: number,
+): ResolvedTransform {
+	const t = resolveTransform(node, layoutType);
+	if (space === 'canvas' && t.screenAnchor) {
+		return {
+			...t,
+			x: t.screenAnchor.x * frameWidth + t.x,
+			y: t.screenAnchor.y * frameHeight + t.y,
+		};
+	}
+	return t;
+}
+
+/**
+ * The WORLD matrix of a nested node, composed from its ancestor chain the SAME way
+ * the 2D canvas's `ctx` matrix stack does: fold {@link matFromTransform} of each
+ * ancestor's resolved transform (top → leaf) via {@link matMul}. The TOP-LEVEL node
+ * (`chain[0]`) is framed via `topTransform` (the canvas's `nodeTransform` — the editor
+ * equivalent of the single root `<MainContainer>`); every nested node uses
+ * `childTransform` (pure local space). So the overlay and the canvas land a nested
+ * node at the identical spot, and both match the runtime's container composition, by
+ * construction. `chain` is root-first, leaf-last.
+ */
+export function composeWorldMatrix(
+	chain: LayoutNode[],
+	topTransform: (node: LayoutNode) => ResolvedTransform,
+	childTransform: (node: LayoutNode) => ResolvedTransform,
+): Affine {
+	let m = IDENTITY_AFFINE;
+	for (let i = 0; i < chain.length; i++) {
+		const t = i === 0 ? topTransform(chain[i]) : childTransform(chain[i]);
+		m = matMul(m, matFromTransform(t));
+	}
+	return m;
 }
 
 export interface NodeBox {
@@ -37,14 +133,7 @@ export function nodeBox(
 	// child's own box, offset by its local x/y + anchored). For the single-mount
 	// `HudReadout` this is the mount's `preview` box (240×135) at the instance anchor.
 	if (node.kind === 'componentInstance' && componentMap && layoutType !== undefined) {
-		const content = componentInstanceContentBox(
-			node,
-			naturalSize,
-			componentMap,
-			layoutType,
-			0,
-			[],
-		);
+		const content = componentInstanceContentBox(node, naturalSize, componentMap, layoutType, 0, []);
 		if (content) return content;
 	}
 	// A preview-art anchor selects at the RENDERED art's box. The art may be an

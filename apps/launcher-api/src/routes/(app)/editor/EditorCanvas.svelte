@@ -24,6 +24,7 @@
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
 	import {
+		childLocalTransform,
 		nodeBox,
 		nodeCornersWorld,
 		topMidWorld,
@@ -579,9 +580,10 @@
 	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect.
 	 * MERGED across the per-scene spine sublayers. */
 	let spineNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
-	/** Text node ids the PIXI text overlay renders with a real (catalog) font — the
-	 * 2D canvas skips their `fillText` placeholder so there's no double-draw. UNION
-	 * across the per-scene text sublayers. */
+	/** Node ids the PIXI text overlay (`EditorTextLayer`) now renders as real text — the
+	 * 2D canvas steps its HUD-text CHIP aside for these (the overlay owns the text). Text
+	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
+	 * chips. UNION across the per-scene text sublayers. */
 	let readyTextIds = $state<Set<string>>(new Set());
 
 	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
@@ -1060,11 +1062,23 @@
 	}
 
 	/** Does a scene carry a text render target (a `kind:'text'` node, or a coded HUD
-	 * text bind anchor)? Only such scenes mount a (pixi) text sublayer. */
+	 * text bind anchor) ANYWHERE in its tree — including nested in containers / component
+	 * instances, which the overlay now also owns? Only such scenes mount the pixi text
+	 * sublayer. Walks the same tree (+ `componentInstance` expansion) as the overlay's
+	 * `collectTextTargets`, so the layer mounts exactly when the overlay has work. */
 	function sceneHasText(s: Scene): boolean {
-		for (const n of s.nodes) {
+		return nodesHaveText(s.nodes, 0, []);
+	}
+	function nodesHaveText(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
+		for (const n of nodes) {
 			if (n.kind === 'text') return true;
 			if (n.kind === 'container' && n.bind && n.preview?.style === 'text') return true;
+			if (n.kind === 'container' && nodesHaveText(n.children, depth, stack)) return true;
+			if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				if (nodesHaveText(def.root.children, depth + 1, [...stack, def.id])) return true;
+			}
 		}
 		return false;
 	}
@@ -1240,23 +1254,6 @@
 		drawSelectionOverlay(ctx);
 	}
 
-	/**
-	 * Resolve a text node's bound `text` for the preview (§13.4): a NUMERIC bound
-	 * value formats thousands-grouped (matching B2's `ParamReadoutText`), a STRING
-	 * passes through, anything else (no binding, or a non-text param) keeps the
-	 * node's own static `text`. Pure — defers the binding lookup to `resolveBoundValue`.
-	 */
-	function boundTextValue(
-		node: Extract<LayoutNode, { kind: 'text' }>,
-		bound: Record<string, string> | undefined,
-		params: Record<string, unknown>,
-	): string {
-		const value = resolveBoundValue(bound, 'text', params);
-		if (typeof value === 'number') return paramNumberFormat.format(value);
-		if (typeof value === 'string') return value;
-		return node.text;
-	}
-
 	/** The numeric value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
 	function boundNumber(
 		bound: Record<string, string> | undefined,
@@ -1310,8 +1307,20 @@
 		 * componentInstance recomputes its OWN params (it does not inherit this).
 		 */
 		instanceParams?: Record<string, unknown>,
+		/**
+		 * NESTED nodes (a container/component-instance child) compose in their parent's
+		 * LOCAL space — no scene-space framing (`mainToWorld`/`mainScale`, background cover,
+		 * standard fit), because the parent chain (via the `ctx` matrix stack) already
+		 * carries that framing ONCE, exactly like the runtime's single root `<MainContainer>`.
+		 * Top-level scene nodes (`false`) keep the framed `nodeTransform`. This is THE shared
+		 * composition rule the PIXI text overlay obeys too (`childLocalTransform`), so the 2D
+		 * canvas + overlay + game runtime land every nested node identically.
+		 */
+		nested = false,
 	): void {
-		const t = nodeTransform(node, sceneCtx);
+		const t = nested
+			? childLocalTransform(node, layoutType, sceneCtx.space, frameWidth, frameHeight)
+			: nodeTransform(node, sceneCtx);
 		if (!t.visible) return;
 
 		ctx.save();
@@ -1442,35 +1451,13 @@
 				);
 			}
 		} else if (node.kind === 'text') {
-			// The PIXI text overlay owns nodes whose font resolved through the catalog
-			// (real bitmap/web font); the 2D canvas only draws the fallback for the rest.
-			if (!readyTextIds.has(node.id)) {
-				// B3 (§13.4): when the open component provides resolved params AND this text
-				// node declares `paramBindings`, the bound `text`/style fields read from the
-				// params (via the pure `resolveBoundValue`) so the preview shows a real
-				// readout. With no params / no bindings every value below falls back to the
-				// node's own static value — byte-identical to the prior draw (parity).
-				const bound = node.paramBindings;
-				const effParams = instanceParams ?? componentParams;
-				const hasParams = Object.keys(effParams).length > 0;
-				const text = hasParams ? boundTextValue(node, bound, effParams) : node.text;
-				const fill =
-					(hasParams ? boundNumber(bound, 'style.fill', effParams) : undefined) ?? node.style?.fill;
-				const fontSize =
-					(hasParams ? boundNumber(bound, 'style.fontSize', effParams) : undefined) ??
-					node.style?.fontSize;
-				const fontFamily =
-					(hasParams ? boundString(bound, 'style.fontFamily', effParams) : undefined) ??
-					node.style?.fontFamily;
-				ctx.fillStyle = `#${(fill ?? 0xffffff).toString(16).padStart(6, '0')}`;
-				ctx.font = `${node.style?.fontWeight ?? 'normal'} ${fontSize ?? 24}px ${
-					fontFamily ?? 'sans-serif'
-				}`;
-				ctx.fillText(text, 0, 0);
-			}
+			// Text is rendered EXCLUSIVELY by the PIXI overlay (`EditorTextLayer`) now — it
+			// owns every `kind:'text'` node (top-level, nested, or inside a component
+			// instance) with the same anchor/align/baseline + world position as the game
+			// runtime. The old 2D `fillText` fallback (which dropped anchor/align) is gone.
 		} else if (node.kind === 'container') {
 			for (const child of node.children)
-				drawNode(ctx, child, sceneCtx, componentDepth, componentStack, instanceParams);
+				drawNode(ctx, child, sceneCtx, componentDepth, componentStack, instanceParams, true);
 		} else if (node.kind === 'componentInstance') {
 			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
 		} else if (node.kind === 'reelGrid') {
@@ -1549,7 +1536,7 @@
 		// open-component preview, a different concern), so pass `undefined`.
 		const params = resolveComponentParams(def, node.params, undefined);
 		for (const child of def.root.children) {
-			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params);
+			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params, true);
 		}
 	}
 
@@ -2622,6 +2609,9 @@
 					sceneFilter={sceneFilterFor(s.id)}
 					{projectGameName}
 					{componentParams}
+					{componentMap}
+					{frameWidth}
+					{frameHeight}
 					reloadToken={fontReload}
 					onLoadingChange={(c) => {
 						mergeFontLoading(s.id, c);

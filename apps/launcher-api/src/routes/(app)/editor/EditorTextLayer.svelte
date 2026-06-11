@@ -3,7 +3,11 @@
 		defaultHudText,
 		findFont,
 		getHudTextOverride,
+		resolveBoundValue,
+		resolveComponentParams,
 		resolveTransform,
+		MAX_COMPONENT_DEPTH,
+		type ComponentDef,
 		type FontCatalog,
 		type LayoutNode,
 		type ResolvedTransform,
@@ -11,13 +15,27 @@
 		type TextStyle as LayoutTextStyle,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
-	import { Application, BitmapText, Container, Text, TextStyle, type ColorSource } from 'pixi.js';
+	import {
+		Application,
+		BitmapText,
+		Container,
+		Matrix,
+		Text,
+		TextStyle,
+		type ColorSource,
+	} from 'pixi.js';
 	import {
 		ensureBitmapFont,
 		ensureWebFont,
 		fetchFontCatalog,
 		type EditorFont,
 	} from './fonts.client';
+	import {
+		childLocalTransform,
+		composeWorldMatrix,
+		matMul,
+		type Affine,
+	} from './editorCanvas.helpers';
 
 	interface Props {
 		/** All doc scenes — the composite the 2D canvas + spine layer also draw. */
@@ -53,6 +71,14 @@
 		 * a `preview.textParam` shows that param's value (caption/number) instead of its
 		 * label. Empty/undefined in scene mode ⇒ the label fallback (parity). */
 		componentParams?: Record<string, unknown>;
+		/** Loaded project component defs, so the overlay can EXPAND a `componentInstance`'s
+		 * tree (resolve its params + recurse into `def.root.children`) and own the text it
+		 * draws — the same `componentMap` the 2D canvas uses. */
+		componentMap?: Map<string, ComponentDef>;
+		/** The fixed window dims (§10.2) — a nested `canvas`-space node folds its
+		 * `screenAnchor` against these, mirroring `<LayoutNodeView>` (`canvasSizes`). */
+		frameWidth: number;
+		frameHeight: number;
 	}
 
 	let {
@@ -69,19 +95,13 @@
 		onReadyIdsChange,
 		projectGameName = null,
 		componentParams,
+		componentMap = new Map<string, ComponentDef>(),
+		frameWidth,
+		frameHeight,
 	}: Props = $props();
 
 	/** Thousands-grouped integer — matches the 2D canvas / `ParamReadoutText`. */
 	const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
-	/** Value a `preview.textParam` chip shows: number → formatted, string → as-is,
-	 * engine-fed/unset number → "0". Returns null when there's no usable param. */
-	function textParamValue(key: string | undefined): string | null {
-		if (!key) return null;
-		const v = componentParams?.[key];
-		if (typeof v === 'number') return numberFormat.format(v);
-		if (typeof v === 'string' && v !== '') return v;
-		return '0';
-	}
 
 	let host: HTMLDivElement | null = $state(null);
 	let app: Application | null = null;
@@ -137,57 +157,163 @@
 
 	/** A normalized text target: a real `kind:'text'` node, OR a coded HUD text bind
 	 * anchor (logo / game-name) — both render through the same PIXI path so the editor
-	 * shows the real text. `isHud` anchors always render (default font when none is
-	 * chosen) so the author SEES + edits the live label, not a placeholder chip. */
+	 * shows the real text. The `chain` is the node's full ancestor path within its scene
+	 * (root-first, leaf-last) — the overlay composes its WORLD transform from it,
+	 * identically to the 2D canvas. `key` (the chain's ids joined) is UNIQUE per rendered
+	 * position, so two instances of one component (which share def-child node ids) get
+	 * distinct pixi objects; `id` is the bare node id reported to `readyTextIds` (the 2D
+	 * canvas's HUD-chip suppression keys on the bare id during instance expansion). */
 	interface TextTarget {
+		key: string;
 		id: string;
 		node: LayoutNode;
 		scene: Scene;
+		chain: LayoutNode[];
 		text: string;
 		style: Partial<LayoutTextStyle> | undefined;
-		isHud: boolean;
 	}
 
-	/** Top-level text targets of every non-hidden scene (containers stay 2D-only,
-	 * except a HUD text bind anchor — logo / game-name — which always renders). */
+	/** Unique render-position key for a chain (its node ids joined) — see {@link TextTarget}. */
+	function chainKey(chain: LayoutNode[]): string {
+		return chain.map((n) => n.id).join('/');
+	}
+
+	/** Bound `text` for a text node (§13.4), mirroring the 2D canvas's `boundTextValue`:
+	 * a numeric param formats thousands-grouped, a string passes through, no/other binding
+	 * keeps the node's static `text`. `params` is the enclosing instance's resolved params
+	 * (`instanceParams ?? componentParams`). */
+	function boundTextValue(
+		node: Extract<LayoutNode, { kind: 'text' }>,
+		params: Record<string, unknown>,
+	): string {
+		const value = resolveBoundValue(node.paramBindings, 'text', params);
+		if (typeof value === 'number') return numberFormat.format(value);
+		if (typeof value === 'string') return value;
+		return node.text;
+	}
+
+	/** Bound text STYLE overrides (fill/fontSize/fontFamily) for a text node, merged onto
+	 * its static `style` — same fields + precedence as `LayoutNodeView`'s `resolvedStyle`
+	 * and the 2D canvas's text block. Wrong-primitive binds are ignored (keep static). */
+	function boundTextStyle(
+		node: Extract<LayoutNode, { kind: 'text' }>,
+		params: Record<string, unknown>,
+	): Partial<LayoutTextStyle> | undefined {
+		const fill = resolveBoundValue(node.paramBindings, 'style.fill', params);
+		const fontSize = resolveBoundValue(node.paramBindings, 'style.fontSize', params);
+		const fontFamily = resolveBoundValue(node.paramBindings, 'style.fontFamily', params);
+		const overrides: Partial<LayoutTextStyle> = {};
+		if (typeof fill === 'number') overrides.fill = fill;
+		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
+		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
+		return Object.keys(overrides).length > 0 ? { ...node.style, ...overrides } : node.style;
+	}
+
+	/** Caption a HUD text bind anchor shows: the resolved `preview.textParam` (decomposed
+	 * readout part), else the author override, else the shared component default, else the
+	 * node label. `params` is the enclosing instance's resolved params, so a placed
+	 * `HudReadout`'s Caption reads its `label` ("BALANCE"), not the component name. */
+	function hudAnchorTarget(
+		n: Extract<LayoutNode, { kind: 'container' }> & { bind: NonNullable<LayoutNode['bind']> },
+		sc: Scene,
+		chain: LayoutNode[],
+		params: Record<string, unknown>,
+	): TextTarget {
+		const ov = getHudTextOverride(n);
+		const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
+		const key = n.preview?.textParam;
+		const paramText = key ? hudParamValue(params[key]) : null;
+		const fallback =
+			n.bind.component === 'HudGameName'
+				? (projectGameName ?? defaultHudText(n.bind.component))
+				: defaultHudText(n.bind.component);
+		return {
+			key: chainKey(chain),
+			id: n.id,
+			node: n,
+			scene: sc,
+			chain,
+			text: paramText ?? ov?.text ?? fallback ?? n.label ?? '',
+			style,
+		};
+	}
+
+	/** A resolved param value as a HUD chip caption: number → formatted, non-empty string
+	 * → as-is, engine-fed/unset → "0" (parity with the 2D canvas's `chipCaption`). */
+	function hudParamValue(v: unknown): string | null {
+		if (typeof v === 'number') return numberFormat.format(v);
+		if (typeof v === 'string' && v !== '') return v;
+		return '0';
+	}
+
+	/**
+	 * Recursively collect every text target of a scene's tree — top-level text, text
+	 * nested in containers, and text inside `componentInstance` expansions (params
+	 * threaded the SAME way the 2D canvas's `drawComponentInstance` threads them). The
+	 * overlay owns ALL of it (the 2D `fillText` path is gone). `chain` is the ancestor
+	 * path so far (root-first); `params` is the enclosing instance's resolved params
+	 * (`instanceParams ?? componentParams`), so bound text/style/HUD captions resolve.
+	 */
+	function collectTextTargets(
+		nodes: LayoutNode[],
+		sc: Scene,
+		out: TextTarget[],
+		chain: LayoutNode[],
+		params: Record<string, unknown>,
+		depth: number,
+		stack: string[],
+	): void {
+		for (const n of nodes) {
+			if (!resolveTransform(n, layoutType).visible) continue;
+			const nextChain = [...chain, n];
+			if (n.kind === 'text') {
+				out.push({
+					key: chainKey(nextChain),
+					id: n.id,
+					node: n,
+					scene: sc,
+					chain: nextChain,
+					text: boundTextValue(n, params),
+					style: boundTextStyle(n, params),
+				});
+			} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
+				out.push(
+					hudAnchorTarget(
+						n as Extract<LayoutNode, { kind: 'container' }> & {
+							bind: NonNullable<LayoutNode['bind']>;
+						},
+						sc,
+						nextChain,
+						params,
+					),
+				);
+				// A HUD bind anchor renders as its own leaf text — its (empty) children carry
+				// no separate text, so don't recurse.
+			} else if (n.kind === 'container') {
+				collectTextTargets(n.children, sc, out, nextChain, params, depth, stack);
+			} else if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				// Resolve THIS instance's params (def defaults ◁ instance overrides) — the
+				// scene editor threads no per-project defaults, matching `drawComponentInstance`.
+				const instanceParams = resolveComponentParams(def, n.params, undefined);
+				collectTextTargets(def.root.children, sc, out, nextChain, instanceParams, depth + 1, [
+					...stack,
+					def.id,
+				]);
+			}
+		}
+	}
+
+	/** Every text target of every non-hidden, in-filter scene — top-level AND nested. */
 	function textTargets(): TextTarget[] {
 		const out: TextTarget[] = [];
 		for (const sc of scenes) {
 			if (hiddenSceneIds.has(sc.id)) continue;
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
-			for (const n of sc.nodes) {
-				if (!resolveTransform(n, layoutType).visible) continue;
-				if (n.kind === 'text') {
-					out.push({ id: n.id, node: n, scene: sc, text: n.text, style: n.style, isHud: false });
-				} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
-					// A coded HUD text anchor (game-name / logo): render its LIVE label as
-					// real text so the editor matches the game + the author can edit it. The
-					// override text drives the game too (via bind.props → UiGameName). Prefer
-					// the author's override, else the shared default label for this HUD
-					// component (so even older docs without a baked default show real text),
-					// else the node label. Default the font to the engine HUD font.
-					const ov = getHudTextOverride(n);
-					const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
-					// A decomposed readout's Caption/Value parts carry a `preview.textParam`
-					// → show the resolved param (the `label` "BALANCE" / the numeric `value`)
-					// so the editor reads like the real readout, not the part name.
-					const paramText = textParamValue(n.preview?.textParam);
-					// Game-name defaults to the PROJECT display name (matches what the game
-					// shows); else the shared component default; else the node label.
-					const fallback =
-						n.bind.component === 'HudGameName'
-							? (projectGameName ?? defaultHudText(n.bind.component))
-							: defaultHudText(n.bind.component);
-					out.push({
-						id: n.id,
-						node: n,
-						scene: sc,
-						text: paramText ?? ov?.text ?? fallback ?? n.label ?? '',
-						style,
-						isHud: true,
-					});
-				}
-			}
+			// Top-level params source: the Component Editor's open-component params (so a
+			// HUD `preview.textParam` resolves there); empty in the scene editor — parity.
+			collectTextTargets(sc.nodes, sc, out, [], componentParams ?? {}, 0, []);
 		}
 		return out;
 	}
@@ -196,14 +322,15 @@
 		return fill ?? 0xffffff;
 	}
 
-	/** Build (or reuse) a BitmapText for a target whose font is a loaded bitmap font. */
+	/** Build (or reuse) a BitmapText for a target whose font is a loaded bitmap font.
+	 * `key` is the unique render-position key (the object-map key), not the bare node id. */
 	function buildBitmap(
-		id: string,
+		key: string,
 		text: string,
 		style: Partial<LayoutTextStyle> | undefined,
 		font: EditorFont,
 	): BitmapText {
-		const existing = objects.get(id);
+		const existing = objects.get(key);
 		const obj = existing instanceof BitmapText ? existing : new BitmapText({ text });
 		obj.text = text;
 		obj.style = {
@@ -217,9 +344,10 @@
 		return obj;
 	}
 
-	/** Build (or reuse) a regular Text for a web/system-font target. */
-	function buildText(id: string, text: string, style: Partial<TextStyle> | undefined): Text {
-		const existing = objects.get(id);
+	/** Build (or reuse) a regular Text for a web/system-font target. `key` is the unique
+	 * render-position key (the object-map key), not the bare node id. */
+	function buildText(key: string, text: string, style: Partial<TextStyle> | undefined): Text {
+		const existing = objects.get(key);
 		const obj =
 			existing instanceof Text && !(existing instanceof BitmapText) ? existing : new Text({ text });
 		obj.text = text;
@@ -251,63 +379,91 @@
 		return obj;
 	}
 
+	/** Destroy + drop the cached object for `key` (used on a Text↔BitmapText swap). */
+	function dropObject(key: string): void {
+		const existing = objects.get(key);
+		if (!existing) return;
+		existing.destroy();
+		objects.delete(key);
+	}
+
 	/**
-	 * Rebuild the overlay from the current targets: position each text node at the
-	 * 2D canvas's world transform mapped to screen (`world*zoom + pan`), pick
-	 * BitmapText vs Text by the catalog font kind, and report which node ids now
-	 * render a REAL font (loaded bitmap or web) so the 2D canvas drops its
-	 * placeholder. A node whose font hasn't loaded (or isn't in the catalog) is left
-	 * to the 2D canvas's `fillText`, so it never disappears.
+	 * Rebuild the overlay from the current targets — the SINGLE renderer for every
+	 * `kind:'text'` node + HUD text anchor (top-level, nested, or inside a component
+	 * instance). Each node's WORLD transform is composed from its ancestor chain the
+	 * SAME way the 2D canvas's `ctx` stack does ({@link composeWorldMatrix}), then mapped
+	 * to screen by the view matrix and applied via `setFromMatrix` + leaf `anchor` — so
+	 * the text lands exactly where the canvas draws its sibling sprites, and matches the
+	 * game runtime's container composition. A catalog bitmap/web font loads async; while
+	 * loading the node renders IMMEDIATELY as a default `<Text>` (system fallback) and
+	 * swaps to the real font on load — text never disappears. EVERY owned id is reported
+	 * so the canvas's HUD chip / any 2D stand-in steps aside (no double-draw).
 	 */
 	function rebuild(): void {
 		if (!ready || !app || !world) return;
 		const targets = textTargets();
 		const seen = new Set<string>();
-		const nowReady = new Set<string>();
+		const owned = new Set<string>();
+		// Editor view transform (world → screen): `[zoom, 0, 0, zoom, panX, panY]`, the
+		// SAME mapping the 2D canvas applies (`translate(pan) · scale(zoom)`).
+		const view: Affine = [zoom, 0, 0, zoom, panX, panY];
 
-		for (const { id, node, scene, text, style, isHud } of targets) {
+		for (const { key, id, node, scene, chain, text, style } of targets) {
 			const font = findFont(
 				{ prefix: '', fonts: [...byName.values()] } as FontCatalog,
 				style?.fontFamily,
 			);
-			// Web + bitmap fonts both need an async load; kick it off + skip until ready.
-			if (font && !loadedFonts.has(font.name)) {
-				ensureFont(font);
-				continue;
-			}
-			// A regular text node whose family ISN'T in the catalog is left to the 2D
-			// canvas's `fillText` (avoids double-draw). A HUD anchor, by contrast, always
-			// renders here as real text (its 2D stand-in is a placeholder chip, not text),
-			// using the catalog font when chosen or a default `<Text>` font otherwise.
-			if (!font && !isHud) continue;
+			// A catalog font (bitmap OR web) needs an async load — kick it off, but DON'T
+			// skip: render a default `<Text>` now (system fallback) so the node is never
+			// blank, then this rebuild re-runs on load and swaps in the real font.
+			const fontLoading = !!font && !loadedFonts.has(font.name);
+			if (fontLoading && font) ensureFont(font);
+			const useBitmap = !!font && !fontLoading && font.kind === 'bitmap';
 
-			seen.add(id);
+			// Object kind must match (Text vs BitmapText) — drop a stale one on a swap.
+			const existing = objects.get(key);
+			if (useBitmap && !(existing instanceof BitmapText)) dropObject(key);
+			else if (!useBitmap && existing instanceof BitmapText) dropObject(key);
+
+			seen.add(key);
 			const obj =
-				font?.kind === 'bitmap' ? buildBitmap(id, text, style, font) : buildText(id, text, style);
+				useBitmap && font ? buildBitmap(key, text, style, font) : buildText(key, text, style);
 			if (obj.parent !== world) world.addChild(obj);
 
-			const t = worldTransformOf(node, scene);
-			obj.visible = t.visible;
-			if (!t.visible) continue;
-			obj.anchor.set(t.anchor?.x ?? 0, t.anchor?.y ?? 0);
-			// World → screen: same `world*zoom + pan` mapping as the 2D canvas, with the
-			// node's own scale folded on top so size tracks the canvas exactly.
-			obj.x = t.x * zoom + panX;
-			obj.y = t.y * zoom + panY;
-			obj.rotation = t.rotation ?? 0;
-			obj.scale.set((t.scale?.x ?? 1) * zoom, (t.scale?.y ?? 1) * zoom);
-			obj.alpha = t.alpha ?? 1;
-			objects.set(id, obj);
-			nowReady.add(id);
+			// WORLD matrix from the ancestor chain (top-level framed via the canvas's
+			// `nodeTransform`; nested nodes pure-local) → screen via the view matrix. The
+			// transform of each link is resolved by the SAME callbacks, so the leaf's anchor
+			// + the chain's alpha come from one source.
+			const topT = (top: LayoutNode) => worldTransformOf(top, scene);
+			const childT = (child: LayoutNode) =>
+				childLocalTransform(child, layoutType, scene.space, frameWidth, frameHeight);
+			const worldMat = composeWorldMatrix(chain, topT, childT);
+			const m = matMul(view, worldMat);
+			// Leaf transform (framed when it IS the top-level node, else pure-local) for
+			// the anchor; alpha multiplies down the whole chain like the canvas's globalAlpha.
+			const leafT = chain.length === 1 ? topT(node) : childT(node);
+			let alpha = 1;
+			for (let i = 0; i < chain.length; i++) {
+				const t = i === 0 ? topT(chain[i]) : childT(chain[i]);
+				alpha *= t.alpha ?? 1;
+			}
+			obj.anchor.set(leafT.anchor?.x ?? 0, leafT.anchor?.y ?? 0);
+			obj.setFromMatrix(new Matrix(m[0], m[1], m[2], m[3], m[4], m[5]));
+			obj.alpha = alpha;
+			obj.visible = true;
+			objects.set(key, obj);
+			// Report the BARE node id (not the unique key): the 2D canvas's HUD-chip
+			// suppression checks `readyTextIds.has(node.id)` during instance expansion.
+			owned.add(id);
 		}
 
-		// Drop pixi objects whose node was removed / hidden / unowned this pass.
-		for (const [id, obj] of objects) {
-			if (seen.has(id)) continue;
+		// Drop pixi objects whose render position was removed / hidden / unowned this pass.
+		for (const [key, obj] of objects) {
+			if (seen.has(key)) continue;
 			obj.destroy();
-			objects.delete(id);
+			objects.delete(key);
 		}
-		publishReady(nowReady);
+		publishReady(owned);
 	}
 
 	// Rebuild whenever the inputs that affect layout/content change. Svelte tracks
@@ -321,6 +477,9 @@
 		void panY;
 		void zoom;
 		void componentParams;
+		void componentMap;
+		void frameWidth;
+		void frameHeight;
 		rebuild();
 	});
 
