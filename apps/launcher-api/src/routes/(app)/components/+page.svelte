@@ -350,6 +350,15 @@
 	 * instance can edit this text. Keys are namespaced (group slug + field) to stay
 	 * globally unique; the editor shows them as plain fields under a collapsible group
 	 * titled with the node's name. Idempotent — skips a field that's already bound. */
+	/**
+	 * Expose a text node's content/font/size/colour as per-instance params, GROUPED
+	 * under the node's name. Re-runnable: if the node was already exposed (then
+	 * renamed), clicking again re-groups its existing params under the current node
+	 * name — so two distinct text nodes never share one "Text" group (which would
+	 * merge them into a single section in the instance properties). Only the param
+	 * `group`/`label` are re-synced, never the `key` — a key rename would orphan the
+	 * per-instance overrides scenes store by key.
+	 */
 	function exposeTextParams(node: LayoutNode): void {
 		if (!componentDraft || node.kind !== 'text') return;
 		const group = node.label?.trim() || 'Text';
@@ -365,6 +374,7 @@
 		};
 		const bindings: Record<string, string> = { ...(node.paramBindings ?? {}) };
 		const added: ComponentParam[] = [];
+		let changed = false;
 		const expose = (
 			fieldPath: string,
 			suffix: string,
@@ -372,18 +382,36 @@
 			label: string,
 			def: unknown,
 		): void => {
-			if (bindings[fieldPath]) return;
+			const existingKey = bindings[fieldPath];
+			if (existingKey) {
+				// Already bound — re-group the existing AUTHORED param under the current node
+				// name (handles a node renamed after its first expose). Key stays put. Skip
+				// engine-provided binds (e.g. a value node bound to `value`): those aren't
+				// author params and don't belong in a node group.
+				const existing = params.find((p) => p.key === existingKey);
+				if (
+					existing &&
+					!existing.engineProvided &&
+					(existing.group !== group || existing.label !== label)
+				) {
+					existing.group = group;
+					existing.label = label;
+					changed = true;
+				}
+				return;
+			}
 			const key = uniqueKey(slug + suffix);
 			const p: ComponentParam = { key, kind, group, label, author: true };
 			if (def !== undefined) p.default = def;
 			added.push(p);
 			bindings[fieldPath] = key;
+			changed = true;
 		};
 		expose('text', 'Text', 'string', 'text', node.text);
 		expose('style.fontFamily', 'Font', 'string', 'font', node.style?.fontFamily);
 		expose('style.fontSize', 'Size', 'number', 'size', node.style?.fontSize);
 		expose('style.fill', 'Colour', 'color', 'colour', node.style?.fill);
-		if (added.length === 0) return;
+		if (!changed) return;
 		node.paramBindings = bindings;
 		componentDraft.params = [...params, ...added];
 	}
