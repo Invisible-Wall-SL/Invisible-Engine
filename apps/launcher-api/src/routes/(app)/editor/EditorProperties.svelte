@@ -80,6 +80,10 @@
 		/** Set a custom param's DEFAULT value (component mode) — the value the component's
 		 * preview + every placed instance use until overridden. `undefined` clears it. */
 		onSetParamDefault?: (key: string, value: unknown) => void;
+		/** Param keys that drive a font (bound to a text node's `style.fontFamily`) in the
+		 * open component — the "Your params" default editor renders these as a font dropdown.
+		 * Component mode only (the parent scans the draft tree). */
+		fontParamKeys?: Set<string>;
 		/** "Expose as params" for the selected text node: auto-create + bind grouped
 		 * text/font/size/colour params so the text is per-instance editable (component mode). */
 		onExposeTextParams?: (node: LayoutNode) => void;
@@ -117,6 +121,7 @@
 		onAddParam,
 		onRemoveParam,
 		onSetParamDefault,
+		fontParamKeys = new Set(),
 		onExposeTextParams,
 		onUnexposeTextParams,
 		onToggleSignal,
@@ -126,6 +131,25 @@
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+
+	/** Param keys the instance's def binds to a text node's `style.fontFamily` — i.e. the
+	 * params that drive a FONT. The instance editor renders these as a font dropdown (like
+	 * the component editor's font field) instead of a free-text box. */
+	const instanceFontParamKeys = $derived.by(() => {
+		const set = new Set<string>();
+		const root = instanceComponent?.root;
+		if (!root) return set;
+		const walk = (n: LayoutNode): void => {
+			if (n.kind === 'text') {
+				const key = n.paramBindings?.['style.fontFamily'];
+				if (key) set.add(key);
+			} else if (n.kind === 'container') {
+				for (const child of n.children) walk(child);
+			}
+		};
+		walk(root);
+		return set;
+	});
 
 	/** Text-style fields the "Expose text as params" flow binds (text content + the three
 	 * style knobs). Used to detect whether the selected text node is already exposed. */
@@ -666,7 +690,17 @@
 						</div>
 						<label class="param-default">
 							<span>default</span>
-							{#if p.kind === 'number'}
+							{#if p.kind === 'string' && fontParamKeys.has(p.key)}
+								<select
+									value={typeof p.default === 'string' ? p.default : ''}
+									onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+								>
+									<option value="">(game default)</option>
+									{#each fontList as f (f.id)}
+										<option value={f.name}>{f.name} [{f.kind}]</option>
+									{/each}
+								</select>
+							{:else if p.kind === 'number'}
 								<input
 									type="number"
 									value={typeof p.default === 'number' ? p.default : ''}
@@ -911,6 +945,16 @@
 								value={(node.params?.[p.key] as string) ?? ''}
 								onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
 							/>
+						{:else if p.kind === 'string' && instanceFontParamKeys.has(p.key)}
+							<select
+								value={(node.params?.[p.key] as string) ?? ''}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value="">(inherit default)</option>
+								{#each fontList as f (f.id)}
+									<option value={f.name}>{f.name} [{f.kind}]</option>
+								{/each}
+							</select>
 						{:else}
 							<input
 								type="text"

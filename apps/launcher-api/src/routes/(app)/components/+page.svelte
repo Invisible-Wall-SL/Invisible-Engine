@@ -112,6 +112,24 @@
 		componentDraft ? resolveComponentParams(componentDraft) : {},
 	);
 
+	/** Param keys the draft binds to a text node's `style.fontFamily` — so the Properties
+	 * panel renders their default as a font dropdown (not free text). */
+	const fontParamKeys = $derived.by(() => {
+		const set = new Set<string>();
+		const root = componentDraft?.root;
+		if (!root) return set;
+		const walk = (n: LayoutNode): void => {
+			if (n.kind === 'text') {
+				const key = n.paramBindings?.['style.fontFamily'];
+				if (key) set.add(key);
+			} else if (n.kind === 'container') {
+				for (const c of n.children) walk(c);
+			}
+		};
+		walk(root);
+		return set;
+	});
+
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
 			if (n.id === id) return n;
@@ -879,6 +897,7 @@
 						onAddParam={addCustomParam}
 						onRemoveParam={removeComponentParam}
 						onSetParamDefault={setParamDefault}
+						{fontParamKeys}
 						onExposeTextParams={exposeTextParams}
 						onUnexposeTextParams={unexposeTextParams}
 						onToggleSignal={toggleComponentSignal}
