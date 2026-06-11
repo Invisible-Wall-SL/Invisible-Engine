@@ -128,6 +128,10 @@
         <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
       </div>
       <div id="pane-load" style="display:none">
+        <div class="field"><label>Add to sheet</label>
+          <select id="sheetsel" style="flex:1;min-width:0"></select>
+          <button style="flex:0 0 auto" onclick="loadSheet()" title="Load this saved sheet — its sprites, names and AI fields — so you can ADD sprites: upload more on the Upload tab, re-arrange, then Save to update the sheet in place.">Load</button></div>
+        <div class="hint">Add sprites to a saved sheet: load it, upload more, then Save (overwrites the same name + manifest).</div>
         <div class="tabs">
           <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
           <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
@@ -219,6 +223,7 @@ async function init(){
   if(!STATE.projects||!STATE.projects.length){const o=document.createElement('option');o.textContent=STATE.project||'(none)';ps.appendChild(o);}
   if(STATE.project_locked){ps.disabled=true;$('projnote').textContent='(set by Launcher)';}
   ps.onchange=async()=>{await jpost('/api/set-project',{project:ps.value});location.reload();};
+  fillSheetSel(STATE.sheets||[]);
   const d=STATE.defaults;
   canvasW=d.canvas_w; canvasH=d.canvas_h;
   $('cw').value=canvasW; $('ch').value=canvasH; $('pad').value=d.padding; $('rot').checked=d.allow_rotation;
@@ -478,11 +483,22 @@ async function upload(){
   const j=await (await fetch('/api/upload',{method:'POST',body:fd})).json();
   if(j.error){ $('uploadmsg').className='err'; $('uploadmsg').textContent=j.error; return; }
   // add ONLY the files just picked (j.saved), not the whole accumulated folder
-  let added=0;
-  (j.saved||[]).forEach(s=>{ if(!reg(s.file)){ regions.push({src:s.file,name:s.file.replace(/\.[^.]+$/,''),
-    x:0,y:0,w:s.w,h:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:''}); added++; } });
+  let added=0, replaced=0;
+  (j.saved||[]).forEach(s=>{
+    const ex=reg(s.file);
+    if(ex){
+      // Same filename as a sprite already on canvas (e.g. on a loaded sheet):
+      // the server overwrote the file, so refresh size + bust the thumbnail.
+      ex.w=s.w; ex.h=s.h; ex.ow=s.w; ex.oh=s.h; ex.unplaced=false;
+      const el=spriteEls[s.file];
+      if(el) el.img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(s.file)+'&t='+Date.now();
+      replaced++;
+    } else { regions.push({src:s.file,name:s.file.replace(/\.[^.]+$/,''),
+      x:0,y:0,w:s.w,h:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:''}); added++; }
+  });
   $('files').value='';
-  $('uploadmsg').className='ok'; $('uploadmsg').textContent=added+' added · '+regions.length+' on canvas';
+  $('uploadmsg').className='ok';
+  $('uploadmsg').textContent=added+' added'+(replaced?' · '+replaced+' replaced':'')+' · '+regions.length+' on canvas';
   await doArrange();
 }
 
@@ -503,6 +519,38 @@ async function doArrange(){
 }
 
 /* ---------- load existing ---------- */
+function fillSheetSel(sheets){
+  const ss=$('sheetsel'); ss.innerHTML='';
+  sheets.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;ss.appendChild(o);});
+  if(!sheets.length){const o=document.createElement('option');o.value='';o.textContent='(no saved sheets)';ss.appendChild(o);}
+}
+async function loadSheet(){
+  const name=$('sheetsel').value;
+  const m=$('loadmsg');
+  if(!name){ m.className='note'; m.textContent='No saved sheets in this project yet — Save one first.'; return; }
+  m.className='muted'; m.textContent='Loading sheet "'+name+'"…';
+  const j=await jpost('/api/load-sheet',{sheet:name});
+  if(j.error){ m.className='err'; m.textContent=j.error; return; }
+  sheetName=j.sheet;
+  canvasW=j.canvas_w||canvasW; canvasH=j.canvas_h||canvasH;
+  $('cw').value=canvasW; $('ch').value=canvasH;
+  clearCanvasDom();
+  regions=j.regions.map(r=>({...r,ow:r.ow||r.w,oh:r.oh||r.h}));
+  sel=null;
+  // Key the session on the sheet's OWN name: uploads accumulate into the same
+  // sheet_src/<sheet>/ pile (upload() only clears when the name changes) and
+  // Save overwrites the sheet + manifest in place.
+  activeSheet=sheetName;
+  $('sheet').value=j.name||j.sheet;
+  loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
+  updateReadouts();
+  let msg='Loaded "'+j.name+'" ('+j.count+' sprites, locked in place) — upload more on the Upload tab, then Save to update it.';
+  if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
+  if(j.missing && j.missing.length) msg+=' · '+j.missing.length+' sprite source(s) missing: '+j.missing.slice(0,5).join(', ')+(j.missing.length>5?'…':'');
+  const noted=(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
+  m.className=noted?'note':'ok'; m.textContent=msg;
+  fitView();
+}
 async function refreshR2(btn){
   const m=$('loadmsg');
   if(btn) btn.disabled=true;
@@ -511,6 +559,11 @@ async function refreshR2(btn){
     const j=await jpost('/api/refresh',{});
     if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
     await browse('');                         // re-list now that staging is fresh
+    // Repopulate "Add to sheet" too — the load-sheet error tells users to
+    // refresh, so a stale dropdown here would dead-end them.
+    const ss=$('sheetsel'), cur=ss.value;
+    fillSheetSel(j.sheets||[]);
+    if([...ss.options].some(o=>o.value===cur)) ss.value=cur;
     if(m){ m.className='ok'; m.textContent='✓ Refreshed from R2'; }
   }catch(e){ if(m){ m.className='err'; m.textContent='Refresh request failed: '+e; } }
   finally{ if(btn) btn.disabled=false; }
@@ -614,6 +667,12 @@ async function runExport(destDir){
   if(j.error){ m.className='err'; m.textContent=j.error; return false; }
   loadedPath=j.manifest_path; loadedDir=j.output_dir; loadedName=j.name; isProject=true;
   updateReadouts();
+  // A save can create a new sheet — surface it in the "Add to sheet" list.
+  const ss=$('sheetsel');
+  if(![...ss.options].some(o=>o.value===j.name)){
+    if(ss.options.length===1 && !ss.options[0].value) ss.innerHTML='';   // drop "(no saved sheets)"
+    const o=document.createElement('option'); o.value=j.name; o.textContent=j.name; ss.appendChild(o);
+  }
   let h='<div class="ok">Wrote '+j.written.length+' file(s) to:</div><div class="geo">'+esc(j.dir||j.output_dir)+'</div>';
   if(j.manifest_note) h+='<div class="note">'+esc(j.manifest_note)+'</div>';
   m.className=''; m.innerHTML=h;

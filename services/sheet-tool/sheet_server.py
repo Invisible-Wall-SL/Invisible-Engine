@@ -443,7 +443,12 @@ def api_refresh() -> dict:
     except Exception as e:  # noqa: BLE001 — transient R2 issue, not fatal
         return {"error": f"Refresh from R2 hit a snag — try again in a moment "
                 f"({type(e).__name__}: {e})"}
-    return {"ok": True}
+    # Fresh sheet list so the "Add to sheet" dropdown can repopulate without a
+    # second /api/state round-trip (the load-sheet error text points here).
+    out_root = pp["output_root"]
+    sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
+        if out_root.exists() else []
+    return {"ok": True, "sheets": sheets}
 
 
 def api_clearcache() -> dict:
@@ -1035,6 +1040,166 @@ def api_load(payload: dict) -> dict:
             "name": name, "is_project": is_project}
 
 
+def api_load_sheet(payload: dict) -> dict:
+    """Add sprites to an EXISTING sheet: load one of this project's saved
+    sheets back into the editor so new uploads pack on top of it.
+
+    Source of truth per piece:
+      * loose sprites  -> sheet_src/<sheet>/ (the ORIGINAL uploads, untouched
+        pixels — found via each region's manifest shape_ref, which
+        build_manifest defaults to exactly that R2 key);
+      * names + geometry + AI fields -> atlas_manifest_<sheet>.json in the
+        shared manifests/ folder (fallback: the .atlas / TexturePacker JSON
+        beside the packed PNG, which carry geometry but no AI fields);
+      * any region whose loose sprite is gone -> re-sliced out of the packed
+        sheet PNG (same crop/unrotate as api_load).
+
+    Unlike api_load, the session keys on the sheet's OWN name: uploads
+    accumulate into the same sheet_src/<sheet>/ pile and Save overwrites the
+    sheet + its manifest in place, so the Atlas Maker handoff updates the same
+    atlas_manifest_<sheet>.json."""
+    sheet = safe_name(payload.get("sheet", ""), "")
+    if not sheet:
+        return {"error": "No sheet name given."}
+
+    ctx = _ctx()
+    # Look up the coords file against UNCREATED paths first: mkdir-ing before
+    # this check would leave an empty sheets/<typo>/ behind that api_state then
+    # lists in everyone's dropdown.
+    out = project_paths.resolve()["output_root"] / sheet
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
+    coords = next((c for c in (man_dir / f"atlas_manifest_{sheet}.json",
+                               out / f"{sheet}.atlas",
+                               out / f"{sheet}.json") if c.exists()), None)
+    if coords is None:
+        return {"error": f"Sheet '{sheet}' has no coords file — looked for "
+                f"atlas_manifest_{sheet}.json (manifests/), {sheet}.atlas and "
+                f"{sheet}.json (sheets/{sheet}/). Try ↻ Refresh from R2."}
+    try:
+        parsed = _parse_coords_file(coords)
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        return {"error": f"Could not parse {coords.name}: {e}"}
+    up = uploads_dir(sheet)            # hydrates sheet_src/ lazily from R2
+    out = output_dir(sheet)            # same path as above, now created
+
+    # The packed page, for re-slicing regions whose loose sprite is gone.
+    page_path: Path | None = out / f"{sheet}.png"
+    if not page_path.exists():
+        page_path = _resolve_image(coords, parsed.get("image", ""))
+    page_img = None                    # opened lazily — only if a slice is needed
+
+    # build_manifest defaults shape_ref to the region's loose sprite under this
+    # exact prefix; a ref that still points there recovers the original file.
+    input_prefix = f"{ctx['r2_prefix']}/sheet_src/{sheet}" if ctx["r2_prefix"] else ""
+
+    regions_out, written, skipped, missing = [], [], [], []
+    used_names: set[str] = set()
+    used_srcs: set[str] = set()
+    for r in parsed["regions"]:
+        nm = safe_name(r["name"], "region")
+        base_nm = nm
+        k = 2
+        while nm in used_names:
+            nm = f"{base_nm}_{k}"; k += 1
+        used_names.add(nm)
+
+        # 1. the original loose sprite, via the manifest's shape_ref back-ref
+        src = ""
+        src_from_ref = False
+        ref = (r.get("shape_ref") or "").replace("\\", "/")
+        ref_is_ours = bool(input_prefix) and ref.startswith(input_prefix + "/")
+        if ref_is_ours:
+            cand = ref[len(input_prefix) + 1:]
+            if cand and "/" not in cand and (up / cand).exists():
+                src = cand
+                src_from_ref = True
+        # 2. else by region name (the upload default: name == file stem)
+        if not src:
+            for ext in (".png", ".webp"):
+                if (up / (nm + ext)).exists():
+                    src = nm + ext
+                    break
+        if src and src in used_srcs:
+            src = ""                   # two regions, one file → slice a copy
+            src_from_ref = False
+        w, h = int(r["w"]), int(r["h"])
+        ow = oh = 0
+        if src:
+            try:
+                ow, oh = packer.measure(up / src)
+            except Exception:  # noqa: BLE001 — corrupt loose sprite; re-slice
+                src = ""
+                src_from_ref = False
+        if not src:
+            # 3. re-slice this region out of the packed sheet (api_load's crop:
+            # clamp the rotated footprint to the page, skip zero-area regions).
+            if page_img is None:
+                if page_path is None or not page_path.exists():
+                    missing.append(r["name"] or "(unnamed)")
+                    continue
+                page_img = Image.open(page_path).convert("RGBA")
+            fw, fh = (h, w) if r["rotated"] else (w, h)
+            x0 = max(0, min(int(r["x"]), page_img.width))
+            y0 = max(0, min(int(r["y"]), page_img.height))
+            x1 = max(x0, min(int(r["x"]) + fw, page_img.width))
+            y1 = max(y0, min(int(r["y"]) + fh, page_img.height))
+            if w <= 0 or h <= 0 or x1 <= x0 or y1 <= y0:
+                skipped.append(r["name"] or "(unnamed)")
+                continue
+            crop = page_img.crop((x0, y0, x1, y1))
+            if r["rotated"]:
+                crop = crop.rotate(90, expand=True)   # back to upright
+            # Deterministic name: bump ONLY past files claimed by an earlier
+            # region of THIS load; otherwise overwrite this slice's own prior
+            # output (or the corrupt original) in place — bumping past every
+            # existing file minted nm_2, nm_3, … (a new R2 object) per load.
+            src = f"{nm}.png"
+            i = 2
+            while src in used_srcs:
+                src = f"{nm}_{i}.png"; i += 1
+            crop.save(up / src)
+            written.append(up / src)
+            ow, oh = crop.width, crop.height
+        geom_ok = w > 0 and h > 0
+        if not geom_ok:
+            w, h = ow, oh              # broken geometry; the sprite itself is fine
+        used_srcs.add(src)
+        # A ref into this sheet's own sheet_src/ that did NOT yield the source
+        # (missing / corrupt / shared → name-matched or re-sliced) is dangling:
+        # build_manifest prefers any truthy shape_ref over the recomputed key,
+        # so passing it through would persist the dead R2 key on Save. Blank it
+        # so export recomputes from the new src; hand-set refs under OTHER
+        # prefixes pass through untouched.
+        shape_ref = r.get("shape_ref", "")
+        if ref_is_ours and not src_from_ref:
+            shape_ref = ""
+        regions_out.append({
+            "src": src, "name": nm, "x": int(r["x"]), "y": int(r["y"]),
+            "w": w, "h": h, "ow": ow, "oh": oh,
+            # Loaded regions arrive LOCKED (when their geometry was sound) so
+            # auto-arrange packs new uploads AROUND the existing layout instead
+            # of reshuffling the whole sheet. Unlock per-sprite to repack.
+            "rotated": bool(r["rotated"]), "locked": geom_ok,
+            "prompt": r.get("prompt", ""), "shape_ref": shape_ref,
+            "seed": r.get("seed", ""),
+        })
+
+    # Mirror exactly the sprites this load re-sliced (originals are already
+    # in R2 — re-pushing the whole pile would be wasted writes).
+    for p in written:
+        _mirror(p)
+
+    cfg = load_config()
+    canvas_w = int(parsed.get("width") or 0) or int(cfg.get("width", 1024))
+    canvas_h = int(parsed.get("height") or 0) or int(cfg.get("height", 1024))
+    return {"sheet": sheet, "canvas_w": canvas_w, "canvas_h": canvas_h,
+            "regions": regions_out, "count": len(regions_out),
+            "skipped": skipped, "missing": missing,
+            "source_path": str(coords.resolve()), "source_dir": str(out.resolve()),
+            "name": sheet,
+            "is_project": coords.name.startswith("atlas_manifest_")}
+
+
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
@@ -1219,6 +1384,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_export(payload))
             elif path == "/api/load":
                 self._send_json(api_load(payload))
+            elif path == "/api/load-sheet":
+                self._send_json(api_load_sheet(payload))
             elif path == "/api/set-project":
                 self._send_json(api_set_project(payload))
             elif path == "/api/refresh":

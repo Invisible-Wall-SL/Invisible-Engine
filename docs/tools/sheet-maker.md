@@ -50,6 +50,17 @@ binds `0.0.0.0:$PORT` (default **8766**).
 6. In the Atlas Maker, **restart the service** (hydrate runs at boot) for the
    new manifest to appear, then generate art from it.
 
+### Adding sprites to an existing sheet
+
+The **Load existing** pane has an "Add to sheet" dropdown listing the project's
+saved sheets. Loading one pulls its source sprites back from `sheet_src/<sheet>/`
+(falling back to re-slicing the packed PNG if a source is missing) together with
+the region names and AI fields from its manifest. Loaded regions arrive
+**locked in place**, so newly uploaded PNGs pack around the existing layout.
+Upload the new sprites, arrange, and **Save** under the same name — the exports
+and the Atlas Maker manifest are updated in place. Uploading a file named like
+an existing sprite replaces its pixels.
+
 ## Config / env (names only)
 
 `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
