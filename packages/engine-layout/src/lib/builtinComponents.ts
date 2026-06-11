@@ -262,5 +262,123 @@ export const TEXT_BOX_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * The free-spin counter panel (`apps/lines` `FreeSpinCounter.svelte`) as an
+ * editor-visible/editable component — slice 1 of decomposing the coded overlay
+ * (mirrors the §14.3 HUD-readout decomposition). PURELY ADDITIVE: the live game
+ * still renders the coded `FreeSpinCounter` via its `bind` anchor in the
+ * `freeSpinCounter` scene (parity), so this def is unwired until a later slice
+ * flips that anchor to a `componentInstance`.
+ *
+ * PLAIN-NODE path (NOT the HUD's separate-coded-parts path): `root` is a
+ * local-space container with three EDITOR-NATIVE children —
+ * - a real `kind:'sprite'` Frame (`Frame_FSCounter.png`), sized to the coded panel
+ *   (`SYMBOL_SIZE*2` wide at the 824/622 ratio), which renders directly in the
+ *   editor and stays draggable/resizable with no coded part;
+ * - a `kind:'text'` Caption ("FREE SPIN", static);
+ * - a `kind:'text'` Value bound (`paramBindings.text → 'value'`) to the
+ *   engine-fed string source, so it shows "X OF Y" verbatim.
+ *
+ * Why plain text over reusing `HudCaption`/`HudValue`: the engine layout text
+ * path (`LayoutNodeView`) renders text via `<Text>` only — it does NOT yet emit
+ * `<BitmapText>` for a `kind:'bitmap'` font (design §9.4 Phase 3 is decided but
+ * unlanded), and `HudValue` is hardwired to a NUMERIC currency formatter so it
+ * can't render the "X OF Y" string at all. Plain text nodes are fully
+ * editor-native + directly editable (the owner-preferred path), correctly express
+ * the string value, and will pick up the `gold` bitmap font with no def change the
+ * moment §9.4 Phase 3 lands. The coded `FreeSpinCounter` keeps owning the live
+ * bitmap render until then.
+ */
+const FS_PANEL_RATIO = 824 / 622;
+/** Coded panel width (`SYMBOL_SIZE*2`, SYMBOL_SIZE = 120). */
+const FS_PANEL_WIDTH = 240;
+/** Coded panel height (`width / ratio`). */
+const FS_PANEL_HEIGHT = FS_PANEL_WIDTH / FS_PANEL_RATIO;
+/** Coded label size (`SYMBOL_SIZE * 0.275`). */
+const FS_FONT_SIZE = 33;
+/** The bitmap font the coded counter renders (`<BitmapText fontFamily='gold'>`). */
+const FS_FONT_FAMILY = 'gold';
+
+export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
+	id: 'freeSpinCounter',
+	name: 'Free-Spin Counter',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'freeSpinCounter-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'freeSpinCounter-frame',
+				label: 'Frame',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				anchor: { x: 0, y: 0 },
+				assetKey: 'Frame_FSCounter.png',
+				region: 'Frame_FSCounter.png',
+				width: FS_PANEL_WIDTH,
+				height: FS_PANEL_HEIGHT,
+			},
+			{
+				id: 'freeSpinCounter-caption',
+				label: 'Caption',
+				kind: 'text',
+				x: FS_PANEL_WIDTH * 0.5,
+				y: FS_PANEL_HEIGHT * 0.48 - FS_FONT_SIZE,
+				anchor: { x: 0.5, y: 0 },
+				text: 'FREE SPIN',
+				style: { fontFamily: FS_FONT_FAMILY, fontSize: FS_FONT_SIZE, fill: HUD_FILL },
+				paramBindings: {
+					text: 'label',
+					'style.fontFamily': 'fontFamily',
+					'style.fontSize': 'fontSize',
+					'style.fill': 'fill',
+				},
+				// Editor preview shows the resolved `label` param ("FREE SPIN").
+				preview: { style: 'text', textParam: 'label' },
+			},
+			{
+				id: 'freeSpinCounter-value',
+				label: 'Value',
+				kind: 'text',
+				x: FS_PANEL_WIDTH * 0.5,
+				y: FS_PANEL_HEIGHT * 0.48,
+				anchor: { x: 0.5, y: 0 },
+				text: '0 OF 0',
+				style: { fontFamily: FS_FONT_FAMILY, fontSize: FS_FONT_SIZE, fill: HUD_FILL },
+				paramBindings: {
+					text: 'value',
+					'style.fontFamily': 'fontFamily',
+					'style.fontSize': 'fontSize',
+					'style.fill': 'fill',
+				},
+				// Editor preview shows the engine-fed "X OF Y" value.
+				preview: { style: 'text', textParam: 'value' },
+			},
+		],
+	},
+	params: [
+		// The engine value feed this counter binds to — picked from the registered
+		// sources (the `freeSpins` composed-string source the game registers).
+		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS },
+		{ key: 'label', kind: 'string', default: 'FREE SPIN' },
+		{ key: 'fill', kind: 'color', default: HUD_FILL },
+		{ key: 'fontSize', kind: 'number', default: FS_FONT_SIZE },
+		{ key: 'fontFamily', kind: 'string', default: FS_FONT_FAMILY },
+		// Engine-fed "X OF Y" string (the `freeSpins` source); a `string` value so it
+		// renders verbatim through the text path, not the numeric readout.
+		{ key: 'value', kind: 'string', engineProvided: true },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
-export const BUILTIN_COMPONENTS: ComponentDef[] = [HUD_READOUT_DEF, BUTTON_DEF, TEXT_BOX_DEF];
+export const BUILTIN_COMPONENTS: ComponentDef[] = [
+	HUD_READOUT_DEF,
+	BUTTON_DEF,
+	TEXT_BOX_DEF,
+	FREE_SPIN_COUNTER_DEF,
+];

@@ -30,6 +30,7 @@
 		HUD_READOUT_DEF,
 		BUTTON_DEF,
 		TEXT_BOX_DEF,
+		FREE_SPIN_COUNTER_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -111,6 +112,12 @@
 		[HUD_READOUT_DEF.id]: HUD_READOUT_DEF,
 		[BUTTON_DEF.id]: BUTTON_DEF,
 		[TEXT_BOX_DEF.id]: TEXT_BOX_DEF,
+		// Slice 1 of the FreeSpinCounter decomposition (additive): registering the def
+		// makes `getComponent('freeSpinCounter')` resolve so a `componentInstance` of it
+		// can expand into its frame/caption/value nodes. No live scene carries such an
+		// instance — the `freeSpinCounter` scene still mounts the coded `FreeSpinCounter`
+		// via its `bind` anchor — so this is pure registration with no render change.
+		[FREE_SPIN_COUNTER_DEF.id]: FREE_SPIN_COUNTER_DEF,
 	});
 	// Build-time freeze: register any custom/edited ComponentDefs baked into the
 	// bundle AFTER the built-ins, so a baked def (e.g. a customized `button` with an
@@ -124,6 +131,14 @@
 		balance: valueSource(() => stateBet.balanceAmount),
 		win: valueSource(() => stateBet.winBookEventAmount),
 		bet: valueSource(() => stateBetDerived.betCost()),
+		// Composed-string feed for the `freeSpinCounter` def's `value` param — the live
+		// "current OF total" the coded `FreeSpinCounter` shows, sourced from the SAME
+		// `stateUi` fields the coded overlay reads (set in bookEventHandlerMap). A string
+		// source, so it renders verbatim through the text path. Unwired until a
+		// `freeSpinCounter` componentInstance is placed (parity with the coded mount).
+		freeSpins: textSource(
+			() => `${stateUi.freeSpinCounterCurrent} OF ${stateUi.freeSpinCounterTotal}`,
+		),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;

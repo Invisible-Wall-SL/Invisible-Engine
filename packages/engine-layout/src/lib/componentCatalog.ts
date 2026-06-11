@@ -33,6 +33,12 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 	{ key: 'totalWin', kind: 'number', label: 'Total Win', note: 'Accumulated win for the round.' },
 	{ key: 'playerName', kind: 'string', label: 'Player Name' },
 	{ key: 'projectName', kind: 'string', label: 'Project Name' },
+	{
+		key: 'freeSpins',
+		kind: 'string',
+		label: 'Free Spins',
+		note: 'Composed "current OF total" free-spin counter string.',
+	},
 ];
 
 /**
@@ -47,8 +53,19 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
 	(p) => p.kind === 'number',
 );
 
-/** Just the keys of {@link VALUE_SOURCE_CATALOG} — the `options` for a `source` param. */
-export const VALUE_SOURCE_KEYS: string[] = VALUE_SOURCE_CATALOG.map((p) => p.key);
+/**
+ * The keys a `source` param dropdown offers — the numeric feeds
+ * ({@link VALUE_SOURCE_CATALOG}) PLUS the composed-string feeds (e.g. `freeSpins`,
+ * the "X OF Y" free-spin counter string). String sources render verbatim through
+ * the text path (the `freeSpinCounter` def's `value` param is `kind:'string'`), so
+ * they're kept OUT of the numeric-only {@link VALUE_SOURCE_CATALOG} but still listed
+ * here so the editor's Source dropdown lists them.
+ */
+const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins'];
+export const VALUE_SOURCE_KEYS: string[] = [
+	...VALUE_SOURCE_CATALOG.map((p) => p.key),
+	...COMPOSED_STRING_SOURCE_KEYS,
+];
 
 /**
  * Every engine value feed a TEXT field can bind to — numbers (formatted, count-up
