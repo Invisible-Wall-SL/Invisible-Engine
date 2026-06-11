@@ -1919,7 +1919,6 @@
 		const list = visibleSceneNodes();
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
-			if (node.locked) continue;
 			const t = nodeTransform(node);
 			const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
 			const corners = nodeCornersWorld(t, box);
@@ -2166,8 +2165,9 @@
 		const node = hitTestNode(world);
 		if (node) {
 			selectedId = node.id;
-			// Background-cover nodes select but never drag (transform is synthesised).
-			if (!isBackgroundCover(node)) startTranslate(node, world);
+			// Locked nodes select but never move; background-cover nodes select but
+			// never drag (transform is synthesised). Only movement is locked, not selection.
+			if (!node.locked && !isBackgroundCover(node)) startTranslate(node, world);
 			schedule();
 			e.preventDefault();
 			return;
