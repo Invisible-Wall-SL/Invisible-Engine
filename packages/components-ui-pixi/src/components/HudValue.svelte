@@ -5,6 +5,7 @@
 	import { WHITE } from 'constants-shared/colors';
 	import { stateModal } from 'state-shared';
 	import { getComponentParams } from 'engine-layout/svelte';
+	import type { ResolvedTransform } from 'engine-layout';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
 	import { getContext } from '../context';
@@ -17,10 +18,14 @@
 	 * balance/bet → `numberToCurrencyString`), the `svelte/motion` count-up `Tween`,
 	 * and the `bet`-only tap-to-open-bet-menu interactivity (disabled mid-spin).
 	 *
-	 * Rendered at its OWN local origin (anchor `{0.5,0}`) — the `hudReadout` def
-	 * positions this node (`y:45`, mirroring `UiLabel`'s `y: UI_BASE_FONT_SIZE` value
-	 * `Text`). Reads the engine param context the `<ComponentInstance>` provides.
+	 * Honors the bind node's `transform.anchor` (the editor's alignment knob) so a
+	 * re-anchored Value node lands the SAME in-game as it previews; defaults to
+	 * `{0.5,0}` — mirroring `UiLabel`'s `y: UI_BASE_FONT_SIZE` value `Text` origin —
+	 * so the built-in `hudReadout` def (value `y:45`) is byte-identical. Reads the
+	 * engine param context the `<ComponentInstance>` provides.
 	 */
+	const { transform }: { transform?: ResolvedTransform } = $props();
+
 	const context = getContext();
 
 	const numberParam = (key: string): number | undefined => {
@@ -72,8 +77,8 @@
 
 {#if isBet}
 	<Container eventMode="static" cursor={disabled ? 'not-allowed' : 'pointer'} onpointerup={onpress}>
-		<Text anchor={{ x: 0.5, y: 0 }} text={value} {style} />
+		<Text anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
 	</Container>
 {:else}
-	<Text anchor={{ x: 0.5, y: 0 }} text={value} {style} />
+	<Text anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
 {/if}

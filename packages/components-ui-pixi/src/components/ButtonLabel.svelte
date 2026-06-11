@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Text } from 'pixi-svelte';
 	import { getComponentParams } from 'engine-layout/svelte';
+	import type { ResolvedTransform } from 'engine-layout';
 
 	import { UI_BASE_FONT_SIZE } from '../constants';
 	import { i18nDerived } from '../i18n/i18nDerived';
@@ -14,10 +15,13 @@
 	 * style merge `UiButton` uses (align/wrap, `proxima-nova` 600, `UI_BASE_FONT_SIZE
 	 * * 0.9`, variant fill) so the live render is unchanged.
 	 *
-	 * Rendered at its OWN local origin (anchor `{0.5,0.5}`) — the `button` def
-	 * positions this node (`x:0,y:0`), matching `UiButton`'s centred label. Reads
-	 * the engine param context the `<ComponentInstance>` provides.
+	 * Honors the bind node's `transform.anchor` (the editor's alignment knob) so a
+	 * re-anchored Label node lands the SAME in-game as it previews; defaults to
+	 * `0.5` — `UiButton`'s centred label origin — so the built-in `button` def
+	 * (label `x:0,y:0`) is byte-identical. Reads the engine param context the
+	 * `<ComponentInstance>` provides.
 	 */
+	const { transform }: { transform?: ResolvedTransform } = $props();
 	const numberParam = (key: string): number | undefined => {
 		const params = getComponentParams();
 		return typeof params[key] === 'number' ? (params[key] as number) : undefined;
@@ -52,4 +56,4 @@
 	});
 </script>
 
-<Text anchor={0.5} {text} {style} />
+<Text anchor={transform?.anchor ?? 0.5} {text} {style} />

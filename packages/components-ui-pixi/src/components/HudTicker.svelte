@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { ResolvedTransform } from 'engine-layout';
+
 	import UiSprite from './UiSprite.svelte';
 	import { UI_BASE_FONT_SIZE } from '../constants';
 
@@ -23,6 +25,9 @@
 		borderColor?: number;
 		borderWidth?: number;
 		texture?: string;
+		/** The bind node's resolved transform — only `anchor` is read here (the
+		 * editor's alignment knob); defaults to the tile's coded `{0.5,0}` origin. */
+		transform?: ResolvedTransform;
 	}
 	const {
 		tint,
@@ -30,11 +35,12 @@
 		borderColor,
 		borderWidth,
 		texture = 'base_ticker',
+		transform,
 	}: Props = $props();
 </script>
 
 <UiSprite
-	anchor={{ x: 0.5, y: 0 }}
+	anchor={transform?.anchor ?? { x: 0.5, y: 0 }}
 	key={texture}
 	width={UI_BASE_FONT_SIZE * 3 * (326 / 73)}
 	height={UI_BASE_FONT_SIZE * 3}
