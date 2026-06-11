@@ -551,19 +551,29 @@ def api_refresh() -> dict:
 
 
 def api_clearcache() -> dict:
-    """Prune the local staging tree to bound disk growth. R2 is canonical, so
-    this is always safe — nothing here is unique. Inactive project trees are
-    deleted whole; the ACTIVE project's regenerable subtree (sheet_src/, the
-    uploaded sprite pile) is cleared but its manifests/packed sheets/config are
-    kept so it stays usable (sprites re-fetch on demand via ensure_lazy, which
-    we reset so the next access re-pulls). Local-disk only — never touches R2.
-    Returns the bytes freed.
+    """TRUE reset of the ACTIVE (client, project) from R2: rmtree the whole
+    per-project staging subtree, then force-hydrate to rebuild it EXACTLY from
+    R2. Because pull_prefix only adds/overwrites (never prunes) and our listings
+    come from the local staging glob, a file deleted from R2 (e.g. via the
+    launcher FTP browser or a separate container) would otherwise linger here
+    forever. Deleting the whole subtree first guarantees staging matches R2
+    afterwards — anything dropped from R2 is dropped here too.
+
+    Inactive project trees are still deleted whole (bound disk growth). The
+    active subtree is deleted whole as well — including sheet_session.json — then
+    force-hydrate re-pulls the eager subtrees (manifests/ + sheet_config.json +
+    sheet_session.json + sheets/ sync) and clears the lazy guards so sheet_src/
+    re-pulls on demand. The session file mirrors to R2 and hydrate pulls it back
+    eagerly, so the saved canvas is restored from the cloud (R2 is source of
+    truth). R2 is canonical, so nothing local is unique — local-disk only, never
+    touches R2. Returns the bytes freed.
 
     Serialized against the lazy-hydrate lock so the rmtree can't interleave with
     an in-flight `ensure_lazy` pull (which would otherwise leave a half-populated
     sheet_src/ behind its still-set guard). Active lazy guards are discarded
     BEFORE the rmtree (under the lazy lock), not relying solely on the
-    post-rmtree force-hydrate."""
+    post-rmtree force-hydrate. The active (client, project) context is preserved
+    — we rebuild the same project in place, never switch."""
     base = Path(project_paths.STAGING_BASE).resolve()
     before = _dir_size(base)
     pp = project_paths.resolve()
@@ -573,24 +583,30 @@ def api_clearcache() -> dict:
         # the lazy lock re-pulls after us instead of trusting a stale guard over
         # the tree we are about to delete.
         project_paths.discard_active_lazy_guards()
+        # Drop every (client, project) tree entirely, the active one included —
+        # guarded so we only ever rmtree a per-(client, project) subtree, never
+        # STAGING_BASE itself or a stray sibling at the wrong depth.
         if base.exists():
             for client_dir in base.iterdir():
                 if not client_dir.is_dir():
                     continue
                 for proj_dir in client_dir.iterdir():
-                    if proj_dir.is_dir() and proj_dir.resolve() != active:
+                    if proj_dir.is_dir():
                         shutil.rmtree(proj_dir, ignore_errors=True)
                 if not any(client_dir.iterdir()):
                     shutil.rmtree(client_dir, ignore_errors=True)
-        # Clear the active project's regenerable subtree (uploaded sprites) only.
-        shutil.rmtree(active / "sheet_src", ignore_errors=True)
-        # Re-ensure the active project's essential dirs exist + its small assets
-        # are back on disk (cheap — already in R2).
+        # Re-ensure the active project's essential dirs exist (resolve() also
+        # recreates them, but be explicit so a read before the next resolve()
+        # can't trip).
         for d in (pp["input_dir"], pp["output_root"], pp["manifest_dir"]):
             try:
                 Path(d).mkdir(parents=True, exist_ok=True)
             except OSError:
                 pass
+        # Rebuild the active project from R2: manifests/ + config + session +
+        # packed sheets/ pull synchronously (so the sheet list + saved session
+        # are fresh and any R2-deleted sheet/manifest is gone), sheet_src/ pulls
+        # lazily on next access.
         try:
             project_paths.hydrate(
                 project_paths.r2_slug(project_paths.client_name()),
@@ -602,7 +618,7 @@ def api_clearcache() -> dict:
             pass
     freed = max(0, before - _dir_size(base))
     return {"ok": True, "freed": freed, "freed_human": _human_bytes(freed),
-            "note": f"Cleared local cache — freed {_human_bytes(freed)}"}
+            "note": f"Reset from R2 — freed {_human_bytes(freed)}"}
 
 
 def _safe_rel(path: str) -> str:

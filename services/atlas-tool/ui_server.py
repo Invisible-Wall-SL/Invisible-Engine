@@ -2138,7 +2138,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
  <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
- <button onclick="clearCache(this)" class="alt" title="Free local disk: delete cached project trees and this project's regenerable variant pile. R2 is the source of truth, so nothing is lost — the active project re-fetches on demand.">🧹 Clear local cache</button>
+ <button onclick="clearCache(this)" class="alt" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
  <span class="ssn-note">switching reloads the page</span>
 </div>
 <details class="settings">
@@ -2558,12 +2558,12 @@ async function refreshR2(btn){{
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),900);
 }}
 async function clearCache(btn){{
- if(!confirm('Clear the local disk cache?\\n\\nR2 is the source of truth, so '
-  +'nothing is lost. Other projects drop entirely; this project keeps its '
-  +'manifests and re-fetches variants on demand.')) return;
+ if(!confirm('Reset this project from the cloud?\\n\\nRe-downloads everything '
+  +'from R2 and DROPS any local files that were deleted from the cloud. '
+  +'Unsaved local work is lost. R2 is the source of truth.')) return;
  let t=document.getElementById('toast');
- if(t){{ t.style.display='inline-block'; t.textContent='🧹 Clearing…'; }}
- let st=document.getElementById('stat'); if(st)st.textContent='🧹 Clearing…';
+ if(t){{ t.style.display='inline-block'; t.textContent='↺ Resetting…'; }}
+ let st=document.getElementById('stat'); if(st)st.textContent='↺ Resetting…';
  if(btn) btn.disabled=true;
  let msg;
  try{{ let r=await fetch('/clearcache',{{method:'POST',body:'{{}}'}});
@@ -3897,20 +3897,28 @@ class Handler(BaseHTTPRequestHandler):
         return f"✓ Refreshed from R2 — {n} manifest(s) available"
 
     def _clearcache(self) -> str:
-        """Prune the local staging tree to bound disk growth. R2 is canonical,
-        so this is always safe — nothing here is unique. Inactive project trees
-        are deleted whole; the ACTIVE project's regenerable subtrees (batch/ the
-        variant pile, deploy/) are cleared but its manifests/refs/composed atlas
-        are kept so it stays usable (variants re-fetch on demand via ensure_lazy,
-        which we reset so the next access re-pulls). Local-disk only — never
-        touches R2 (no _unmirror). Returns the bytes freed.
+        """TRUE reset of the ACTIVE (client, project) from R2: rmtree the whole
+        per-project staging subtree, then force-hydrate to rebuild it EXACTLY
+        from R2. Because pull_prefix only adds/overwrites (never prunes) and our
+        listings come from the local staging glob, a file deleted from R2 (e.g.
+        via the launcher FTP browser or a separate container) would otherwise
+        linger here forever. Deleting the whole subtree first guarantees staging
+        matches R2 afterwards — anything dropped from R2 is dropped here too.
+
+        Inactive project trees are still deleted whole (bound disk growth). The
+        active subtree is deleted whole as well, then force-hydrate re-pulls the
+        eager subtrees (manifests/ + atlas_config.json sync, input/ + atlas/ in
+        the background) and clears the lazy guards so batch/ + deploy/ re-pull on
+        demand. R2 is canonical, so nothing local is unique — local-disk only,
+        never touches R2 (no _unmirror). Returns the bytes freed.
 
         Serialized against the render lock and the lazy-hydrate lock so the
         rmtree can't interleave with an in-flight generation or `ensure_lazy`
         pull (which would otherwise leave a half-populated `batch/` behind its
         still-set guard). Active lazy guards are discarded BEFORE the rmtree
         (under the lazy lock), not relying solely on the post-rmtree
-        force-hydrate."""
+        force-hydrate. The active (client, project) context is preserved — we
+        rebuild the same project in place, never switch."""
         base = Path(project_paths.STAGING_BASE).resolve()
         active = Path(STAGING_ROOT).resolve()
         client_key = project_paths.r2_slug(project_paths.client_name())
@@ -3924,32 +3932,36 @@ class Handler(BaseHTTPRequestHandler):
             # on the lazy lock re-pulls after us instead of trusting a stale
             # guard over the tree we are about to delete.
             project_paths.discard_active_lazy_guards()
-            # Drop every other (client, project) tree entirely.
+            # Drop every other (client, project) tree entirely, AND the active
+            # one — guarded so we only ever rmtree a per-(client, project)
+            # subtree, never STAGING_BASE itself or a stray sibling at the wrong
+            # depth.
             if base.exists():
                 for client_dir in base.iterdir():
                     if not client_dir.is_dir():
                         continue
                     for proj_dir in client_dir.iterdir():
-                        if proj_dir.is_dir() and proj_dir.resolve() != active:
+                        if proj_dir.is_dir():
                             shutil.rmtree(proj_dir, ignore_errors=True)
                     if not any(client_dir.iterdir()):
                         shutil.rmtree(client_dir, ignore_errors=True)
-            # Clear the active project's regenerable subtrees only.
-            for sub in ("batch", "deploy"):
-                shutil.rmtree(active / sub, ignore_errors=True)
-            # Re-ensure the active project's essential dirs exist + its manifests
-            # are back on disk (cheap — they're small and already in R2).
+            # Re-ensure the active project's essential dirs exist (the tool reads
+            # them directly; resolve() also recreates them, but make it explicit
+            # so a read between here and the next resolve() can't trip).
             for d in (INPUT_DIR, BATCH_DIR, ATLAS_DIR, MANIFEST_DIR):
                 try:
                     Path(d).mkdir(parents=True, exist_ok=True)
                 except OSError:
                     pass
+            # Rebuild the active project from R2: manifests/ + atlas_config sync
+            # (so list_manifests() is fresh and any R2-deleted manifest is gone),
+            # input/ + atlas/ background, batch/ + deploy/ lazily on next access.
             try:
                 project_paths.hydrate(client_key, proj_key, active, force=True)
             except Exception:  # noqa: BLE001 — best-effort re-hydrate
                 pass
         freed = max(0, before - _dir_size(base))
-        return f"✓ Cleared local cache — freed {_human_bytes(freed)}"
+        return f"✓ Reset from R2 — freed {_human_bytes(freed)}"
 
     def _deployatlas(self, force_page_only: bool = False) -> str:
         """Cloud deploy: copy the composed atlas (<stem>_new.png/webp/atlas in
