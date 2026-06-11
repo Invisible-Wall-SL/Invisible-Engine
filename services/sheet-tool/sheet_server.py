@@ -33,8 +33,36 @@ import cloud_paths as project_paths  # noqa: E402
 import packer              # noqa: E402
 import atlas_writers       # noqa: E402
 import storage             # noqa: E402  (R2 object storage + staging mirror)
+from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 
 SELF = Path(__file__).resolve().parent
+
+# CRT boot splash (shared with the Atlas Maker — see iw_common/splash.py).
+# Served instantly for the first `/` visit; the splash JS background-fetches
+# the real UI at `?fast=1`, which is the request that hydrates staging.
+SHEET_PHRASES = [
+    "Heating cathode-ray tube",
+    "Calibrating scanlines",
+    "Reading sheet manifest",
+    "Trimming transparent pixels",
+    "Negotiating with the bin packer",
+    "Sorting sprites by height",
+    "Rotating stubborn rectangles",
+    "Computing atlas occupancy",
+    "Padding bleed margins",
+    "Deduplicating identical frames",
+    "Compressing phosphor green",
+    "Indexing sheet_src uploads",
+    "Mirroring staging to R2",
+    "Aligning pixel grid",
+    "Counting wasted pixels",
+    "Packing the last awkward sprite",
+    "Writing libGDX geometry",
+    "Exporting TexturePacker json",
+    "Reticulating splines",
+    "Polishing the trim heuristics",
+]
+SPLASH = splash_html("SHEET MAKER", phrases=SHEET_PHRASES)
 
 
 # Per-request path resolution. There is NO module-level copy of the active
@@ -1121,10 +1149,21 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             self._send_bytes(b"forbidden", "text/plain", 403)
             return
-        self._resolve_context()
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         q = urllib.parse.parse_qs(parsed.query)
+        if path == "/" and q.get("fast", ["0"])[0] != "1":
+            # First visit: serve the CRT splash BEFORE _resolve_context() —
+            # a cold switch_context() hydrates the whole sheets/ tree from R2
+            # and would block the first byte for seconds (blank tab). The
+            # splash JS background-fetches `?fast=1` built from this URL's
+            # query, so the client/project params + cookies ride along and
+            # context resolution/hydration happen on THAT request while the
+            # splash types. history.replaceState keeps fast=1 afterwards, so
+            # in-UI location.reload() skips straight to the real page.
+            self._send_bytes(SPLASH.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        self._resolve_context()
         if path == "/":
             self._send_bytes(_page().encode("utf-8"), "text/html; charset=utf-8")
             return
