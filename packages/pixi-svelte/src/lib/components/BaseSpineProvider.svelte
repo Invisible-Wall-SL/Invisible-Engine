@@ -11,6 +11,9 @@
 		// cover/contain scale instead of per-axis stretch (true cover, no distortion).
 		// Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
 		fit?: 'cover' | 'contain';
+		// Skeleton skin name. When set + non-empty, applied via the spine-pixi-v8 API
+		// after construction. Absent = the runtime's default-skin behaviour (untouched).
+		skin?: string;
 	};
 </script>
 
@@ -35,7 +38,21 @@
 	propsSyncEffect({
 		props,
 		target: spine,
-		ignore: ['children', 'width', 'height', 'scale', 'fit'],
+		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin'],
+	});
+
+	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),
+	// a no-op when absent so the runtime keeps its default-skin behaviour. An unknown
+	// skin name throws in spine-pixi-v8; we swallow it and leave the current skin.
+	$effect(() => {
+		const skin = props.skin;
+		if (!skin) return;
+		try {
+			spine.skeleton.setSkinByName(skin);
+			spine.skeleton.setSlotsToSetupPose();
+		} catch {
+			// Unknown skin name — keep the current skin.
+		}
 	});
 
 	$effect(() => {

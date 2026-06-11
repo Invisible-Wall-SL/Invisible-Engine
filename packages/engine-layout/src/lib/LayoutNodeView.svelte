@@ -289,6 +289,7 @@
 			width={bgSpineBox ? bgSpineBox.width : sizedWidth}
 			height={bgSpineBox ? bgSpineBox.height : sizedHeight}
 			fit={bgSpineBox ? bgFit : undefined}
+			skin={node.skin}
 		>
 			{#if node.defaultAnimation}
 				<SpineTrack trackIndex={0} animationName={node.defaultAnimation} loop={node.loop ?? true} />

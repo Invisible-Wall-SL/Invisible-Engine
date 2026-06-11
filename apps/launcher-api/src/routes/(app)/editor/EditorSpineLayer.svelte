@@ -58,6 +58,9 @@
 		/** Reports each ready spine's setup-pose natural size per `assetKey`, so the
 		 * 2D canvas can cover-fit `preview.art` spine anchors by the art's aspect. */
 		onNaturalSizesChange?: (sizes: Map<string, { w: number; h: number }>) => void;
+		/** Reports each ready spine's animation + skin name lists per `assetKey`, so the
+		 * Properties panel can offer dropdowns instead of free-text. */
+		onSpineMetaChange?: (meta: Map<string, { animations: string[]; skins: string[] }>) => void;
 		/** Monotonic spine-bundle load tally, so the 2D canvas can fold spine loads
 		 * into its global progress overlay. `started`/`settled` only ever grow. */
 		onLoadingChange?: (counts: { started: number; settled: number }) => void;
@@ -87,6 +90,7 @@
 		playing,
 		onReadyKeysChange,
 		onNaturalSizesChange,
+		onSpineMetaChange,
 		onLoadingChange,
 		reloadToken = 0,
 		hiddenSceneIds = new Set<string>(),
@@ -101,18 +105,31 @@
 	}
 
 	let readyKeys = new Set<string>();
+	// Cache the last-published meta key-set so we only re-emit when the ready bundle
+	// set changes (the animation/skin lists are fixed per `assetKey`), matching the
+	// idempotent style of `readyKeys` above so the parent's `$state` doesn't loop.
+	let metaKeys = new Set<string>();
 	function publishReady(): void {
 		const next = new Set<string>();
 		const sizes = new Map<string, { w: number; h: number }>();
+		const meta = new Map<string, { animations: string[]; skins: string[] }>();
 		for (const [key, entry] of entries) {
 			if (entry.state !== 'ready') continue;
 			next.add(key);
 			const nat = naturalSizeOf(entry.instance);
 			if (nat) sizes.set(key, nat);
+			meta.set(key, {
+				animations: entry.instance.data.animations.map((a) => a.name),
+				skins: entry.instance.data.skins.map((s) => s.name),
+			});
 		}
 		if (next.size !== readyKeys.size || [...next].some((k) => !readyKeys.has(k))) {
 			readyKeys = next;
 			onReadyKeysChange?.(next);
+		}
+		if (meta.size !== metaKeys.size || [...meta.keys()].some((k) => !metaKeys.has(k))) {
+			metaKeys = new Set(meta.keys());
+			onSpineMetaChange?.(meta);
 		}
 		onNaturalSizesChange?.(sizes);
 	}
@@ -158,7 +175,15 @@
 	type Entry =
 		| { state: 'loading' }
 		| { state: 'error' }
-		| { state: 'ready'; instance: SpineInstance; playingAnim: string | null };
+		| {
+				state: 'ready';
+				instance: SpineInstance;
+				playingAnim: string | null;
+				/** Skin currently applied to the shared skeleton (the instance is cached per
+				 * `assetKey`, so two targets with different skins re-apply per draw). Empty
+				 * string means the skeleton's default skin is active. */
+				appliedSkin: string;
+		  };
 	/** Per-spine-node cache keyed by `assetKey` (one bundle = one shared instance). */
 	const entries = new Map<string, Entry>();
 
@@ -212,7 +237,7 @@
 				return;
 			}
 			if (!renderer && canvas && gl) renderer = createSceneRenderer(canvas, gl);
-			entries.set(assetKey, { state: 'ready', instance, playingAnim: null });
+			entries.set(assetKey, { state: 'ready', instance, playingAnim: null, appliedSkin: '' });
 		} catch {
 			entries.set(assetKey, { state: 'error' });
 		} finally {
@@ -233,6 +258,8 @@
 		nodeId: string;
 		assetKey: string;
 		defaultAnimation?: string;
+		/** Authored skin name (real spine nodes only); empty/undefined = default skin. */
+		skin?: string;
 		loop?: boolean;
 		placement?: OverlayPlacement;
 		transform: ReturnType<typeof resolveTransform>;
@@ -267,6 +294,7 @@
 						nodeId: n.id,
 						assetKey: n.assetKey,
 						defaultAnimation: n.defaultAnimation,
+						skin: n.skin,
 						loop: n.loop,
 						placement: undefined,
 						transform: t,
@@ -356,6 +384,31 @@
 			entry.instance.skeleton.setToSetupPose();
 			entry.instance.animationState.setEmptyAnimation(0, 0);
 			entry.playingAnim = null;
+		}
+	}
+
+	/** Apply a target's chosen skin to the shared skeleton, idempotent per draw. The
+	 * instance is cached per `assetKey` and shared across targets, so two nodes that use
+	 * the same bundle with different skins each set theirs right before their own draw.
+	 * Empty/undefined skin restores the skeleton's default skin. Unknown names are
+	 * swallowed so a stale doc value can't blank the preview. */
+	function applySkin(target: SpineRenderTarget, entry: Entry): void {
+		if (entry.state !== 'ready') return;
+		const data = entry.instance.data;
+		const want = target.skin ?? '';
+		if (entry.appliedSkin === want) return;
+		const skeleton = entry.instance.skeleton;
+		try {
+			if (want) {
+				skeleton.setSkinByName(want);
+			} else {
+				const def = data.skins.find((s) => s.name === 'default') ?? data.skins[0];
+				if (def) skeleton.setSkinByName(def.name);
+			}
+			skeleton.setSlotsToSetupPose();
+			entry.appliedSkin = want;
+		} catch {
+			/* unknown skin name — leave the current skin in place */
 		}
 	}
 
@@ -472,6 +525,9 @@
 			inst.skeleton.y = inst.skeleton.y * zoom + panY;
 			inst.skeleton.scaleX = -inst.skeleton.scaleX * zoom;
 			inst.skeleton.scaleY = inst.skeleton.scaleY * zoom;
+			// Apply this target's skin to the shared instance just before its draw, so two
+			// nodes sharing one bundle with different skins each render correctly.
+			applySkin(target, entry);
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
 			inst.skeleton.updateWorldTransform(getSpinePhysics());

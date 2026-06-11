@@ -76,6 +76,9 @@
 	/** Hoisted active layoutType. `'desktop'` is the base; anything else routes edits
 	 * into `node.overrides[layoutType]` (override mode). */
 	let currentLayoutType = $state<LayoutType>('desktop');
+	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
+	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
+	let spineMeta = $state<Map<string, { animations: string[]; skins: string[] }>>(new Map());
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline' | 'template' | 'component'>('library');
 
@@ -1737,6 +1740,7 @@
 					{fillRequest}
 					hiddenSceneIds={hiddenScenes}
 					projectGameName={data.gameName}
+					onSpineMeta={(meta) => (spineMeta = meta)}
 				/>
 			{/if}
 		</main>
@@ -1752,6 +1756,7 @@
 				sceneSlots={activeSceneSlots}
 				projectGameName={data.gameName}
 				isBackgroundCover={isBackgroundCoverSelected}
+				{spineMeta}
 				instanceComponent={selectedNode?.kind === 'componentInstance'
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}

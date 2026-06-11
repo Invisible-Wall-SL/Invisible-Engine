@@ -192,6 +192,7 @@ export interface SpineNode extends BaseNode {
 	height?: number;
 	defaultAnimation?: string;
 	loop?: boolean;
+	skin?: string;
 }
 
 /**

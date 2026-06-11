@@ -57,6 +57,10 @@
 		/** Atlas/sheet manifests (`{ key, name }`) whose frames an `image`-kind param
 		 * can pick from — feeds the per-instance region picker. */
 		pickSheets?: { key: string; name: string }[];
+		/** Per-`assetKey` animation + skin name lists for every loaded spine bundle (from
+		 * the canvas). A selected `kind:'spine'` node looks up its key here to offer
+		 * animation/skin dropdowns; an unknown key falls back to free-text. */
+		spineMeta?: Map<string, { animations: string[]; skins: string[] }>;
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
@@ -97,6 +101,7 @@
 		componentSignals = [],
 		instanceComponent = null,
 		pickSheets = [],
+		spineMeta = new Map(),
 		onEditAsComponent,
 		onConvertToReelGrid,
 		onConvertToParametricButton,
@@ -1292,19 +1297,63 @@
 			</section>
 		{/if}
 	{:else if node.kind === 'spine'}
+		{@const meta = spineMeta.get(node.assetKey)}
 		<section>
 			<h3>Spine</h3>
 			<div class="row">
 				<label class="field wide">
 					<span>default animation</span>
-					<input
-						type="text"
-						value={node.defaultAnimation ?? ''}
-						oninput={(e) => {
-							node.defaultAnimation = e.currentTarget.value;
-							markDirty();
-						}}
-					/>
+					{#if meta?.animations?.length}
+						<select
+							value={node.defaultAnimation ?? ''}
+							onchange={(e) => {
+								node.defaultAnimation = e.currentTarget.value || undefined;
+								markDirty();
+							}}
+						>
+							<option value="">(first / default)</option>
+							{#each meta.animations as anim (anim)}
+								<option value={anim}>{anim}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							value={node.defaultAnimation ?? ''}
+							oninput={(e) => {
+								node.defaultAnimation = e.currentTarget.value;
+								markDirty();
+							}}
+						/>
+					{/if}
+				</label>
+			</div>
+			<div class="row">
+				<label class="field wide">
+					<span>skin</span>
+					{#if meta?.skins?.length}
+						<select
+							value={node.skin ?? ''}
+							onchange={(e) => {
+								node.skin = e.currentTarget.value || undefined;
+								markDirty();
+							}}
+						>
+							<option value="">(default skin)</option>
+							{#each meta.skins as skin (skin)}
+								<option value={skin}>{skin}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							value={node.skin ?? ''}
+							oninput={(e) => {
+								node.skin = e.currentTarget.value || undefined;
+								markDirty();
+							}}
+						/>
+					{/if}
 				</label>
 			</div>
 			<div class="row">
