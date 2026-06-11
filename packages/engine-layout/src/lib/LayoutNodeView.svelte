@@ -13,12 +13,18 @@
 	import { getBoundComponent } from './registerBoundComponents';
 	import { backgroundCoverScale, backgroundCoverStretch, backgroundFit } from './coverTransform';
 	import { getComponentParams } from './componentParamsContext';
+	import { getComponentSignalAnims } from './componentSignalContext';
 	import { resolveBoundValue } from './componentParams';
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 
 	const { node, space }: Props = $props();
 	const layoutContext = getContextLayout();
+
+	// Signal-driven spine-anim overrides (§8.5, spine-only). `undefined` when this
+	// node has no `componentInstance` ancestor providing the context — a scene-level
+	// spine then just uses its static `defaultAnimation` (byte-identical parity).
+	const signalAnims = getComponentSignalAnims();
 
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
 
@@ -277,6 +283,7 @@
 			tint={spriteTint}
 		/>
 	{:else if node.kind === 'spine'}
+		{@const sigAnim = signalAnims?.[node.id]}
 		<SpineProvider
 			key={node.assetKey}
 			x={bg ? bg.x : posX}
@@ -291,8 +298,9 @@
 			fit={bgSpineBox ? bgFit : undefined}
 			skin={node.skin}
 		>
-			{#if node.defaultAnimation}
-				<SpineTrack trackIndex={0} animationName={node.defaultAnimation} loop={node.loop ?? true} />
+			{@const anim = sigAnim?.animation ?? node.defaultAnimation}
+			{#if anim}
+				<SpineTrack trackIndex={0} animationName={anim} loop={sigAnim?.loop ?? node.loop ?? true} />
 			{/if}
 		</SpineProvider>
 	{:else if node.kind === 'text'}

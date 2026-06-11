@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { ComponentInstanceNode, LayoutNode, Scene } from './types';
+	import type { ComponentInstanceNode, LayoutNode, Scene, SpineCue } from './types';
 
 	export type Props = { node: ComponentInstanceNode; space?: Scene['space'] };
 </script>
@@ -15,10 +15,12 @@
 		MAX_COMPONENT_DEPTH,
 	} from './componentInstanceContext';
 	import { setComponentParams } from './componentParamsContext';
+	import { setComponentSignalAnims } from './componentSignalContext';
 	import { resolveComponentParams } from './componentParams';
 	import { resolveButtonStateImage, BUTTON_STATE_IMAGE_KEYS } from './buttonStateImage';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
+	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentDefaults } from './registerComponentDefaults';
 
 	const { node, space }: Props = $props();
@@ -127,6 +129,59 @@
 		return actionSource.label.subscribe((value) => {
 			liveLabel = value;
 		});
+	});
+
+	// Engine signal feed (§8.5, narrowed to spine-only): the event analogue of the
+	// value/action feeds above. Walk `def.root` once at init for `spine` nodes
+	// carrying a non-empty `cues` array and index those cues by signal NAME →
+	// `{ nodeId, animation, loop }[]`. The static set is read at init (like
+	// `staticParams`): a keyed instance never swaps its def, so the spine tree is
+	// stable. When the game registered a `SignalSource` under a cue's signal, each
+	// fire writes the cue's animation into `signalAnims[nodeId]`; the spine node in
+	// `def.root` then prefers that override over its static `defaultAnimation` (see
+	// `componentSignalContext` + `LayoutNodeView`). No cues / no registered signal ⇒
+	// nothing is ever written and the spine uses `defaultAnimation` (parity).
+	const signalToTargets = ((): Map<
+		string,
+		{ nodeId: string; animation: string; loop?: boolean }[]
+	> => {
+		const map = new Map<string, { nodeId: string; animation: string; loop?: boolean }[]>();
+		if (!allowed || !def) return map;
+		const walk = (n: LayoutNode): void => {
+			if (n.kind === 'spine' && n.cues?.length) {
+				for (const cue of n.cues as SpineCue[]) {
+					const targets = map.get(cue.signal) ?? [];
+					targets.push({ nodeId: n.id, animation: cue.animation, loop: cue.loop });
+					map.set(cue.signal, targets);
+				}
+			} else if (n.kind === 'container') {
+				for (const child of n.children) walk(child);
+			}
+		};
+		walk(def.root);
+		return map;
+	})();
+	let signalAnims = $state<Record<string, { animation: string; loop?: boolean }>>({});
+	// One `$effect` (re)subscribes to every referenced signal and returns a combined
+	// cleanup — `$effect` can't live inside a loop, so iterate the precomputed map
+	// inside it and collect each unsubscribe. A signal with no registered source is
+	// skipped (dormant — parity).
+	$effect(() => {
+		const unsubs: (() => void)[] = [];
+		for (const [signalKey, targets] of signalToTargets) {
+			const source = getComponentSignal(signalKey);
+			if (!source) continue;
+			unsubs.push(
+				source.subscribe(() => {
+					for (const t of targets) {
+						signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop };
+					}
+				}),
+			);
+		}
+		return () => {
+			for (const unsub of unsubs) unsub();
+		};
 	});
 
 	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
@@ -250,6 +305,11 @@
 		});
 	}
 	setComponentParams(allowed && def ? providedParams : {});
+	// Provide the signal-driven spine-anim overrides to the rendered sub-tree (the
+	// `$state` proxy, so a descendant spine's `{@const}` read re-runs on each signal
+	// fire — same stable-object discipline as `setComponentParams`). `{}` when the
+	// instance can't expand, so a descendant never reads a stale PARENT instance's map.
+	setComponentSignalAnims(allowed && def ? signalAnims : {});
 
 	const cursor = $derived(liveDisabled ? 'not-allowed' : 'pointer');
 	const onpress = () => {

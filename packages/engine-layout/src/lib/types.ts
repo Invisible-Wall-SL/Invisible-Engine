@@ -185,6 +185,14 @@ export interface SpriteNode extends BaseNode {
 	tint?: number;
 }
 
+export interface SpineCue {
+	/** A ComponentSignal key declared on the owning component (e.g. 'win','bigWin'). */
+	signal: string;
+	/** Animation name on this spine to play when the signal fires. */
+	animation: string;
+	loop?: boolean;
+}
+
 export interface SpineNode extends BaseNode {
 	kind: 'spine';
 	assetKey: string;
@@ -193,6 +201,13 @@ export interface SpineNode extends BaseNode {
 	defaultAnimation?: string;
 	loop?: boolean;
 	skin?: string;
+	/** Signal-driven playback cues (design §8.5, narrowed to spine-only). When the
+	 * named component `signal` fires, this spine plays `animation` on track 0. The
+	 * simplest behavior tier — no timeline/tween. Only active when the spine is
+	 * inside a `componentInstance` whose game registered a matching signal source via
+	 * `registerComponentSignals`; otherwise ignored (a scene-level spine just uses
+	 * `defaultAnimation`, parity). */
+	cues?: SpineCue[];
 }
 
 /**
