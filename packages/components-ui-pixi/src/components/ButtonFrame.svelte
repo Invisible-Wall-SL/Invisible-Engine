@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Container, Sprite } from 'pixi-svelte';
+	import { resolveButtonStateImage } from 'engine-layout';
 	import { getComponentParams } from 'engine-layout/svelte';
 
 	import UiSprite from './UiSprite.svelte';
@@ -74,17 +75,13 @@
 		}
 	});
 
-	// Authored per-state bg image (atlas frame name) for the CURRENT state, with the
-	// cascade documented above; undefined ⇒ the state has no image of its own. While
-	// `active`, hover/press fall back to the selected image (not past it) so a
-	// selected button doesn't visibly deselect under the pointer.
-	const stateImage = $derived.by(() => {
-		if (disabled) return stringParam('imageDisabled');
-		const selected = active ? stringParam('imageSelected') : undefined;
-		if (pressed) return stringParam('imagePressed') ?? stringParam('imageHover') ?? selected;
-		if (hovered) return stringParam('imageHover') ?? selected;
-		return selected;
-	});
+	// Authored per-state bg image (atlas frame name) for the CURRENT state — the
+	// SHARED cascade (`engine-layout/buttonStateImage`, also used by the authored
+	// art-button path in `<ComponentInstance>`); undefined ⇒ the state has no image
+	// of its own.
+	const stateImage = $derived(
+		resolveButtonStateImage(getComponentParams(), { hovered, pressed, disabled, active }),
+	);
 	const frameImage = $derived(stateImage ?? stringParam('image'));
 	// Coded painted states apply only where no authored image covers them.
 	const paintDisabled = $derived(disabled && stringParam('imageDisabled') === undefined);

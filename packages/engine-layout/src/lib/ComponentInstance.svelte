@@ -16,6 +16,7 @@
 	} from './componentInstanceContext';
 	import { setComponentParams } from './componentParamsContext';
 	import { resolveComponentParams } from './componentParams';
+	import { resolveButtonStateImage, BUTTON_STATE_IMAGE_KEYS } from './buttonStateImage';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
 	import { getComponentDefaults } from './registerComponentDefaults';
@@ -128,6 +129,36 @@
 		});
 	});
 
+	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
+	// container — no coded `bind` part) has nothing to own the press: `ButtonFrame`
+	// is what carries the hit area/cursor/onpointerup in the built-in button, so a
+	// custom button built in the Component Editor rendered as a static image. When
+	// this instance resolved an action feed AND the def has no bind part, the
+	// wrapper Container below turns interactive and the WHOLE rendered art becomes
+	// the hit surface (pixi hit-tests the children bounds), mirroring ButtonFrame's
+	// semantics (static eventMode, pointer/not-allowed cursor, press → onpress
+	// unless disabled). A def containing ANY bind part keeps the coded part as the
+	// sole press owner — no wrapper, no double-fire, byte-identical parity.
+	const hasBindPart = ((): boolean => {
+		const walk = (n: LayoutNode): boolean =>
+			!!n.bind || (n.kind === 'container' && n.children.some(walk));
+		return def ? walk(def.root) : false;
+	})();
+	const interactive = !!actionSource && !hasBindPart;
+
+	// Interaction state for the AUTHORED art-button path (the def has no coded part,
+	// so no `ButtonFrame` tracks hover/press) — same tracking + disabled-reset as the
+	// coded `Button.svelte`. Drives the state-image override below.
+	let hovered = $state(false);
+	let pressed = $state(false);
+	$effect(() => {
+		if (!interactive) return;
+		if (liveDisabled) {
+			hovered = false;
+			pressed = false;
+		}
+	});
+
 	// Provide the params to the rendered sub-tree (§13.2). `setContext` captures the
 	// reference once at init, so the provided object stays STABLE while exposing a
 	// REACTIVE `value` via a getter: a descendant text node's `$derived` reads
@@ -192,24 +223,34 @@
 			});
 		}
 	}
+	// Button STATE IMAGES on the authored art-button path: when this instance owns
+	// the press (interactive) and the def declares the `image*` params, the `image`
+	// param becomes a REACTIVE getter resolving the shared state cascade — the def's
+	// bg sprite binds `region` → `image`, so hover/press/selected/downstate swap the
+	// art exactly like `ButtonFrame` does for the coded button. Falls back to the
+	// static resting `image` (instance override / def default). Only defined when
+	// declared — a def without state images keeps the plain static map (parity).
+	// Gate on the four STATE keys (not the resting `image`): a def with only a
+	// static `image` param needs no live override and keeps the plain static map.
+	const hasStateImages =
+		def?.params?.some(
+			(p) => p.key !== 'image' && (BUTTON_STATE_IMAGE_KEYS as readonly string[]).includes(p.key),
+		) ?? false;
+	if (interactive && hasStateImages) {
+		const restingImage = staticParams['image'];
+		Object.defineProperty(providedParams, 'image', {
+			enumerable: true,
+			get: () =>
+				resolveButtonStateImage(staticParams, {
+					hovered,
+					pressed,
+					disabled: liveDisabled === true,
+					active: liveActive === true,
+				}) ?? restingImage,
+		});
+	}
 	setComponentParams(allowed && def ? providedParams : {});
 
-	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
-	// container — no coded `bind` part) has nothing to own the press: `ButtonFrame`
-	// is what carries the hit area/cursor/onpointerup in the built-in button, so a
-	// custom button built in the Component Editor rendered as a static image. When
-	// this instance resolved an action feed AND the def has no bind part, the
-	// wrapper Container below turns interactive and the WHOLE rendered art becomes
-	// the hit surface (pixi hit-tests the children bounds), mirroring ButtonFrame's
-	// semantics (static eventMode, pointer/not-allowed cursor, press → onpress
-	// unless disabled). A def containing ANY bind part keeps the coded part as the
-	// sole press owner — no wrapper, no double-fire, byte-identical parity.
-	const hasBindPart = ((): boolean => {
-		const walk = (n: LayoutNode): boolean =>
-			!!n.bind || (n.kind === 'container' && n.children.some(walk));
-		return def ? walk(def.root) : false;
-	})();
-	const interactive = !!actionSource && !hasBindPart;
 	const cursor = $derived(liveDisabled ? 'not-allowed' : 'pointer');
 	const onpress = () => {
 		if (liveDisabled) return;
@@ -219,7 +260,24 @@
 
 {#if allowed && def}
 	{#if interactive}
-		<Container eventMode="static" {cursor} onpointerup={onpress}>
+		<Container
+			eventMode="static"
+			{cursor}
+			onpointerover={() => {
+				if (!liveDisabled) hovered = true;
+			}}
+			onpointerout={() => {
+				hovered = false;
+				pressed = false;
+			}}
+			onpointerdown={() => {
+				if (!liveDisabled) pressed = true;
+			}}
+			onpointerup={() => {
+				pressed = false;
+				onpress();
+			}}
+		>
 			<LayoutNodeView node={def.root} {space} />
 		</Container>
 	{:else}

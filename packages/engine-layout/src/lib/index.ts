@@ -13,6 +13,7 @@ export * from './componentParams';
 export * from './collectComponentIds';
 export * from './reelGrid';
 export * from './buttonConvert';
+export * from './buttonStateImage';
 export * from './fontCatalog';
 export * from './hudText';
 export * from './registerBoundComponents';

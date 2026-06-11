@@ -19,6 +19,7 @@
 		clearComponentActions,
 		BUTTON_DEF,
 		type BoolSource,
+		type ComponentDef,
 		type Scene,
 	} from 'engine-layout';
 
@@ -88,8 +89,58 @@
 		statesActiveLabel = statesActive.get();
 	};
 
+	// AUTHORED art button (the Component-Editor flavour): a def with NO coded part —
+	// just a bg sprite whose `region` binds to the `image` param + a text. The
+	// `<ComponentInstance>` interactive wrapper owns hover/press and overrides
+	// `image` with the shared state cascade, so the bg swaps per state exactly like
+	// the coded `ButtonFrame` flavour. Mirrors the defs authors save from /components.
+	const ART_BUTTON_DEF: ComponentDef = {
+		id: 'artButton',
+		name: 'Art Button',
+		version: 1,
+		scope: 'shared',
+		category: 'ui',
+		root: {
+			id: 'artButton-root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [
+				{
+					id: 'artButton-bg',
+					label: 'Background',
+					kind: 'sprite',
+					x: 0,
+					y: 0,
+					anchor: { x: 0.5, y: 0.5 },
+					assetKey: 'symbolsStatic',
+					region: 'h1.webp',
+					paramBindings: { region: 'image' },
+				},
+				{
+					id: 'artButton-text',
+					label: 'Text',
+					kind: 'text',
+					x: 0,
+					y: 0,
+					anchor: { x: 0.5, y: 0.5 },
+					text: 'ART',
+					style: { fontFamily: 'proxima-nova', fontSize: 36, fontWeight: '600', fill: 0xffffff },
+				},
+			],
+		},
+		params: [
+			{ key: 'action', kind: 'string' },
+			{ key: 'image', kind: 'image', group: 'State images', label: 'normal' },
+			{ key: 'imageHover', kind: 'image', group: 'State images', label: 'hover' },
+			{ key: 'imagePressed', kind: 'image', group: 'State images', label: 'pressed' },
+			{ key: 'imageSelected', kind: 'image', group: 'State images', label: 'selected' },
+			{ key: 'imageDisabled', kind: 'image', group: 'State images', label: 'downstate' },
+		],
+	};
+
 	clearComponentActions();
-	registerComponents({ [BUTTON_DEF.id]: BUTTON_DEF });
+	registerComponents({ [BUTTON_DEF.id]: BUTTON_DEF, [ART_BUTTON_DEF.id]: ART_BUTTON_DEF });
 	// The def MOUNTS these two coded parts — register them so the `bind` nodes in
 	// `def.root` resolve (the button analogue of the readout's `HudReadout`).
 	registerBoundComponents({ ButtonFrame, ButtonLabel });
@@ -161,6 +212,32 @@
 			},
 		],
 	};
+
+	// Same state params, AUTHORED def (no coded part) — proves the
+	// `<ComponentInstance>` wrapper path (`artButton` above).
+	const artScene: Scene = {
+		id: 'button-art-states',
+		name: 'Art button state images',
+		space: 'canvas',
+		nodes: [
+			{
+				id: 'btn-art-states',
+				label: 'Art states button',
+				kind: 'componentInstance',
+				componentId: 'artButton',
+				x: 600,
+				y: 260,
+				params: {
+					action: 'turbo',
+					image: 'h1.webp',
+					imageHover: 'h2.webp',
+					imagePressed: 'h3.webp',
+					imageSelected: 's.png',
+					imageDisabled: 'l1.webp',
+				},
+			},
+		],
+	};
 </script>
 
 <Story name="scratch button mounts + presses + greys">
@@ -193,6 +270,41 @@
 	<StoryPixiApp assets={stateStoryAssets}>
 		<StoryLocale lang="en">
 			<LayoutScene scene={statesScene} />
+			<Text
+				anchor={0.5}
+				x={600}
+				y={420}
+				text={`presses: ${statePresses} — hover = h2, press = h3`}
+				style={{ fontFamily: 'proxima-nova', fontSize: 28, fontWeight: '600', fill: 0xffffff }}
+			/>
+			<Text
+				anchor={0.5}
+				x={600}
+				y={470}
+				eventMode="static"
+				cursor="pointer"
+				text={`selected (active): ${statesActiveLabel} → s.png (tap to toggle)`}
+				style={{ fontFamily: 'proxima-nova', fontSize: 24, fontWeight: '600', fill: 0x7fd8ff }}
+				onpointerup={toggleStatesActive}
+			/>
+			<Text
+				anchor={0.5}
+				x={600}
+				y={520}
+				eventMode="static"
+				cursor="pointer"
+				text={`downstate (disabled): ${statesDisabledLabel} → l1.webp (tap to toggle)`}
+				style={{ fontFamily: 'proxima-nova', fontSize: 24, fontWeight: '600', fill: 0x7fd8ff }}
+				onpointerup={toggleStatesDisabled}
+			/>
+		</StoryLocale>
+	</StoryPixiApp>
+</Story>
+
+<Story name="authored art button (no coded part) swaps state images">
+	<StoryPixiApp assets={stateStoryAssets}>
+		<StoryLocale lang="en">
+			<LayoutScene scene={artScene} />
 			<Text
 				anchor={0.5}
 				x={600}
