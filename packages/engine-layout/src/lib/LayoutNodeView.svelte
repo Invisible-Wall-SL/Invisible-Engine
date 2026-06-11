@@ -5,9 +5,11 @@
 </script>
 
 <script lang="ts">
-	import { Container, Sprite, SpineProvider, SpineTrack, Text } from 'pixi-svelte';
+	import { BitmapText, Container, Sprite, SpineProvider, SpineTrack, Text } from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
 
+	import { isBitmapFont } from './fontCatalog';
+	import { getFontCatalog } from './registerFontCatalog';
 	import { resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -168,6 +170,13 @@
 		if (typeof fill === 'number') overrides.fill = fill;
 		return Object.keys(overrides).length > 0 ? { ...node.style, ...overrides } : node.style;
 	});
+	// §9.4 bitmap vs system font: when the boot-registered catalog (the runtime
+	// sibling of the editor's `/api/editor/fonts`) marks `resolvedStyle.fontFamily`
+	// as a bitmap font, the plain text path renders `<BitmapText>` (pixi's BitmapFont
+	// blitter) instead of `<Text>`. No catalog, or a family that isn't a bitmap
+	// entry, ⇒ `false` ⇒ `<Text>` exactly as before (parity). The catalog is set
+	// once at boot (like `getComponent`), so reading it here is a plain read.
+	const isBitmap = $derived(isBitmapFont(getFontCatalog(), resolvedStyle?.fontFamily));
 
 	// Sprite param bindings (§13.2): a `componentInstance` may drive a sprite's
 	// texture (`region`/`assetKey`) + `tint` from params, so ONE prefab renders a
@@ -323,6 +332,25 @@
 				style={resolvedStyle}
 				{countUp}
 				format={formatValue}
+			/>
+		{:else if isBitmap && resolvedText !== undefined}
+			<!--
+				§9.4 bitmap text: `resolvedStyle.fontFamily` names a bitmap font in the
+				boot-registered catalog, so render through pixi's BitmapFont blitter with
+				the SAME positional props the `<Text>` path gets. (A bitmap-font numeric
+				readout is a later follow-on — the numeric `<ParamReadoutText>` path above
+				is unchanged.)
+			-->
+			<BitmapText
+				text={resolvedText}
+				x={posX}
+				y={posY}
+				anchor={transform.anchor}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+				style={resolvedStyle}
 			/>
 		{:else}
 			<Text

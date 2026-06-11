@@ -15,6 +15,7 @@ export * from './reelGrid';
 export * from './buttonConvert';
 export * from './buttonStateImage';
 export * from './fontCatalog';
+export * from './registerFontCatalog';
 export * from './hudText';
 export * from './registerBoundComponents';
 export * from './registerComponents';
