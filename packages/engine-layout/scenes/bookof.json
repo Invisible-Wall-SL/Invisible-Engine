@@ -194,13 +194,29 @@
 					"id": "fs-counter",
 					"slotId": "freeSpinCounter",
 					"label": "Free-spin counter",
-					"kind": "container",
-					"x": 0,
-					"y": 0,
-					"bind": {
-						"component": "FreeSpinCounter"
+					"kind": "componentInstance",
+					"componentId": "freeSpinCounter",
+					"x": 87,
+					"y": 220,
+					"overrides": {
+						"tablet": {
+							"x": -124,
+							"y": 320
+						},
+						"landscape": {
+							"x": 176,
+							"y": 270
+						},
+						"portrait": {
+							"x": -224,
+							"y": 531
+						}
 					},
-					"children": []
+					"params": {
+						"source": "freeSpins",
+						"visibleSource": "freeSpinCounterShow",
+						"label": "FREE SPIN"
+					}
 				}
 			]
 		},

@@ -39,6 +39,35 @@ const frameOverrides: Partial<Record<LayoutType, NodeOverride>> = {
 	portrait: frameCentre(MAIN_SIZES_MAP.portrait),
 };
 
+// --- free-spin counter panel placement (componentInstance of `freeSpinCounter`) ---
+// Replicates the coded `FreeSpinCounter.svelte` formula EXACTLY, so the parametric
+// instance lands where the coded overlay used to. The def's root is LOCAL space (the
+// `Frame_FSCounter.png` drawn anchor {0,0}), so the node's `x/y` is the panel
+// TOP-LEFT in MAIN coords — the same value the coded overlay set as its `position`:
+//   panelWidth = SYMBOL_SIZE * 2
+//   x = boardLayout().x − boardLayout().width*0.5 − panelWidth − SYMBOL_SIZE*0.7
+//   y = boardLayout().y − boardLayout().height*0.5
+// Board geometry mirrors `apps/lines/game/constants.ts` (the game's own board): the
+// board is centred in each layoutType's main box (`mainLayout().w/h * 0.5`), so
+// `boardLayout().x/y` = main-box centre and `width/height` = SYMBOL_SIZE * reels/rows.
+const SYMBOL_SIZE = 120;
+const BOARD_REELS = 5;
+const BOARD_ROWS = 3;
+const FS_PANEL_WIDTH = SYMBOL_SIZE * 2;
+const FS_BOARD_WIDTH = SYMBOL_SIZE * BOARD_REELS;
+const FS_BOARD_HEIGHT = SYMBOL_SIZE * BOARD_ROWS;
+
+const fsCounterPos = (size: { width: number; height: number }) => ({
+	x: size.width * 0.5 - FS_BOARD_WIDTH * 0.5 - FS_PANEL_WIDTH - SYMBOL_SIZE * 0.7,
+	y: size.height * 0.5 - FS_BOARD_HEIGHT * 0.5,
+});
+
+const fsCounterOverrides: Partial<Record<LayoutType, NodeOverride>> = {
+	tablet: fsCounterPos(MAIN_SIZES_MAP.tablet),
+	landscape: fsCounterPos(MAIN_SIZES_MAP.landscape),
+	portrait: fsCounterPos(MAIN_SIZES_MAP.portrait),
+};
+
 const sceneName = (id: string) => linesTemplate.scenes.find((scene) => scene.id === id)?.name ?? id;
 
 /** Engine-flip options forwarded to {@link hudScenes}; default OFF = parity. */
@@ -198,15 +227,27 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				name: sceneName('freeSpinCounter'),
 				space: 'canvas',
 				nodes: [
+					// B-FS-2b-i: the free-spin counter as a `componentInstance` of the
+					// `freeSpinCounter` ComponentDef (frame + "FREE SPIN" caption + "X OF Y"
+					// value) — the live-render switch off the coded `FreeSpinCounter` bind
+					// anchor. The def feeds the value from the game's `freeSpins` source and
+					// gates visibility on `freeSpinCounterShow`; `x/y` is the panel top-left
+					// in MAIN coords per layoutType (see `fsCounterPos`). The coded
+					// `FreeSpinCounter` stays registered as a fallback, just unreferenced.
 					{
 						id: 'fs-counter',
 						slotId: 'freeSpinCounter',
 						label: 'Free-spin counter',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'FreeSpinCounter' },
-						children: [],
+						kind: 'componentInstance',
+						componentId: 'freeSpinCounter',
+						x: fsCounterPos(MAIN_SIZES_MAP.desktop).x,
+						y: fsCounterPos(MAIN_SIZES_MAP.desktop).y,
+						overrides: fsCounterOverrides,
+						params: {
+							source: 'freeSpins',
+							visibleSource: 'freeSpinCounterShow',
+							label: 'FREE SPIN',
+						},
 					},
 				],
 			},

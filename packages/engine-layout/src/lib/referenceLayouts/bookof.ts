@@ -59,6 +59,32 @@ const reelGridOverrides: Partial<Record<LayoutType, NodeOverride>> = {
 	portrait: boardCentre(MAIN_SIZES_MAP.portrait),
 };
 
+// --- free-spin counter panel placement (componentInstance of `freeSpinCounter`) ---
+// Replicates the coded `FreeSpinCounter.svelte` formula EXACTLY, so the parametric
+// instance lands where the coded overlay used to. The def's root is LOCAL space (the
+// `Frame_FSCounter.png` drawn anchor {0,0}), so the node's `x/y` is the panel
+// TOP-LEFT in MAIN coords — the same value the coded overlay set as its `position`:
+//   panelWidth = SYMBOL_SIZE * 2
+//   x = boardLayout().x − boardLayout().width*0.5 − panelWidth − SYMBOL_SIZE*0.7
+//   y = boardLayout().y − boardLayout().height*0.5
+// Board geometry reuses this file's own board constants (the board is centred in each
+// layoutType's main box, so `boardLayout().x/y` = `boardCentre()` and `width/height` =
+// SYMBOL_SIZE * REELS/ROWS).
+const FS_PANEL_WIDTH = SYMBOL_SIZE * 2;
+const FS_BOARD_WIDTH = SYMBOL_SIZE * REELS;
+const FS_BOARD_HEIGHT = SYMBOL_SIZE * ROWS;
+
+const fsCounterPos = (size: { width: number; height: number }) => ({
+	x: size.width * 0.5 - FS_BOARD_WIDTH * 0.5 - FS_PANEL_WIDTH - SYMBOL_SIZE * 0.7,
+	y: size.height * 0.5 - FS_BOARD_HEIGHT * 0.5,
+});
+
+const fsCounterOverrides: Partial<Record<LayoutType, NodeOverride>> = {
+	tablet: fsCounterPos(MAIN_SIZES_MAP.tablet),
+	landscape: fsCounterPos(MAIN_SIZES_MAP.landscape),
+	portrait: fsCounterPos(MAIN_SIZES_MAP.portrait),
+};
+
 export function bookofReferenceLayout(): LayoutDoc {
 	const centre = frameCentre(MAIN_SIZES_MAP.desktop);
 	return {
@@ -75,7 +101,16 @@ export function bookofReferenceLayout(): LayoutDoc {
 				name: 'Loading / logo',
 				space: 'canvas',
 				nodes: [
-					{ id: 'loading-screen', slotId: 'loadingScreen', label: 'Loading screen (logo)', kind: 'container', x: 0, y: 0, bind: { component: 'LoadingScreen' }, children: [] },
+					{
+						id: 'loading-screen',
+						slotId: 'loadingScreen',
+						label: 'Loading screen (logo)',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'LoadingScreen' },
+						children: [],
+					},
 				],
 			},
 			{
@@ -86,7 +121,17 @@ export function bookofReferenceLayout(): LayoutDoc {
 				name: 'Background',
 				space: 'canvas',
 				nodes: [
-					{ id: 'bg', slotId: 'background', label: 'Background', kind: 'container', x: 0, y: 0, zIndex: -10, bind: { component: 'Background' }, children: [] },
+					{
+						id: 'bg',
+						slotId: 'background',
+						label: 'Background',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						zIndex: -10,
+						bind: { component: 'Background' },
+						children: [],
+					},
 				],
 			},
 			{
@@ -167,7 +212,27 @@ export function bookofReferenceLayout(): LayoutDoc {
 				name: 'Free-spin counter',
 				space: 'canvas',
 				nodes: [
-					{ id: 'fs-counter', slotId: 'freeSpinCounter', label: 'Free-spin counter', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinCounter' }, children: [] },
+					// B-FS-2b-i: the free-spin counter as a `componentInstance` of the
+					// `freeSpinCounter` ComponentDef (frame + "FREE SPIN" caption + "X OF Y"
+					// value) — the live-render switch off the coded `FreeSpinCounter` bind
+					// anchor. `x/y` = panel top-left in MAIN coords per layoutType (see
+					// `fsCounterPos`). The coded `FreeSpinCounter` stays registered as a
+					// fallback. Borut's LIVE R2 doc is unaffected until the owner re-seeds.
+					{
+						id: 'fs-counter',
+						slotId: 'freeSpinCounter',
+						label: 'Free-spin counter',
+						kind: 'componentInstance',
+						componentId: 'freeSpinCounter',
+						x: fsCounterPos(MAIN_SIZES_MAP.desktop).x,
+						y: fsCounterPos(MAIN_SIZES_MAP.desktop).y,
+						overrides: fsCounterOverrides,
+						params: {
+							source: 'freeSpins',
+							visibleSource: 'freeSpinCounterShow',
+							label: 'FREE SPIN',
+						},
+					},
 				],
 			},
 			{
@@ -175,7 +240,16 @@ export function bookofReferenceLayout(): LayoutDoc {
 				name: 'Free-spin intro',
 				space: 'canvas',
 				nodes: [
-					{ id: 'fs-intro', slotId: 'freeSpinIntro', label: 'Free-spin intro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinIntro' }, children: [] },
+					{
+						id: 'fs-intro',
+						slotId: 'freeSpinIntro',
+						label: 'Free-spin intro',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'FreeSpinIntro' },
+						children: [],
+					},
 				],
 			},
 			{
@@ -183,7 +257,16 @@ export function bookofReferenceLayout(): LayoutDoc {
 				name: 'Free-spin outro',
 				space: 'canvas',
 				nodes: [
-					{ id: 'fs-outro', slotId: 'freeSpinOutro', label: 'Free-spin outro', kind: 'container', x: 0, y: 0, bind: { component: 'FreeSpinOutro' }, children: [] },
+					{
+						id: 'fs-outro',
+						slotId: 'freeSpinOutro',
+						label: 'Free-spin outro',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'FreeSpinOutro' },
+						children: [],
+					},
 				],
 			},
 			// HUD layer (logo/name corners + bottom bar) — universal across game
