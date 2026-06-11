@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "launcher_profile" jsonb;

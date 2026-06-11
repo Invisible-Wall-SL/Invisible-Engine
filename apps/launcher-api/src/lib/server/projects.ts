@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
-import { projects, userClientAccess, userProjectAccess } from './db/schema';
+import { clients, projects, userClientAccess, userProjectAccess } from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 
@@ -90,6 +90,51 @@ export async function accessibleProjects(userId: string, role: Role): Promise<Pr
 /** True when the user may select/use the given project key. */
 export async function canAccessProject(userId: string, role: Role, key: string): Promise<boolean> {
 	return (await accessibleProjects(userId, role)).some((p) => p.key === key);
+}
+
+/** An accessible project enriched with its owning client's display name. */
+export type AccessibleProjectWithClient = {
+	key: string;
+	name: string;
+	clientKey: string | null;
+	clientName: string | null;
+	launcherProfile: unknown;
+};
+
+/**
+ * Like {@link accessibleProjects} but each row also carries `clientName` resolved
+ * from the `clients` table. Wraps the existing access logic (no reimplementation)
+ * and joins clients with a single key→name lookup — no per-project query.
+ */
+export async function accessibleProjectsWithClient(
+	userId: string,
+	role: Role,
+): Promise<AccessibleProjectWithClient[]> {
+	const accessible = await accessibleProjects(userId, role);
+	const clientRows = await getDb().select({ key: clients.key, name: clients.name }).from(clients);
+	const clientNames = new Map(clientRows.map((c) => [c.key, c.name]));
+
+	return accessible.map((p) => ({
+		key: p.key,
+		name: p.name,
+		clientKey: p.clientKey,
+		clientName: p.clientKey === null ? null : (clientNames.get(p.clientKey) ?? null),
+		launcherProfile: p.launcherProfile,
+	}));
+}
+
+/** The opaque launcher profile for a project, or `null` when unset/unknown. */
+export async function getLauncherProfile(key: string): Promise<unknown | null> {
+	const [row] = await getDb()
+		.select({ launcherProfile: projects.launcherProfile })
+		.from(projects)
+		.where(eq(projects.key, key));
+	return row?.launcherProfile ?? null;
+}
+
+/** Store (or replace) a project's opaque launcher profile. */
+export async function setLauncherProfile(key: string, profile: unknown): Promise<void> {
+	await getDb().update(projects).set({ launcherProfile: profile }).where(eq(projects.key, key));
 }
 
 /** Per-user project grants, keyed by userId (for the admin table). */

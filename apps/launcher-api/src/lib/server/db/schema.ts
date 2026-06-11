@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -28,6 +28,12 @@ export const projects = pgTable('projects', {
 	name: text('name').notNull(),
 	/** Owning client; null = unassigned (the default `cloud` and legacy projects). */
 	clientKey: text('client_key').references(() => clients.key, { onDelete: 'set null' }),
+	/**
+	 * Machine-independent "launcher profile" published by the owner from the desktop
+	 * launcher. Opaque JSON — the shape is owned by the desktop client; the server
+	 * stores and returns it as-is. Null until first published.
+	 */
+	launcherProfile: jsonb('launcher_profile'),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
