@@ -26,6 +26,7 @@
 		registerComponents,
 		registerComponentValues,
 		registerComponentActions,
+		registerComponentSignals,
 		HUD_READOUT_DEF,
 		BUTTON_DEF,
 		TEXT_BOX_DEF,
@@ -41,6 +42,7 @@
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
 	import { textSource } from '../game/textSource.svelte';
+	import { eventSignal } from '../game/signalSource';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		fallbackEditorScenes,
@@ -179,6 +181,26 @@
 	);
 
 	const context = getContext();
+
+	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
+	// above. Maps the game's win presentation events → signal NAMES from the
+	// catalog, so a placed `componentInstance` whose `kind:'spine'` node carries
+	// `cues:[{ signal:'win'|'bigWin', animation, loop }]` plays that animation when
+	// these fire. Registration alone is a no-op: it has NO effect until such a cued
+	// component instance is placed in a scene (pure parity with the doc-less boot) —
+	// `<ComponentInstance>` only subscribes a signal a cue names. `win` fires when the
+	// win presentation begins (`winShow`); `bigWin` fires only on the `'big'` win-level
+	// tier (covers big/superwin/mega/epic/max — see game/winLevelMap.ts).
+	registerComponentSignals({
+		win: eventSignal((run) => context.eventEmitter.subscribe({ winShow: () => run() })),
+		bigWin: eventSignal((run) =>
+			context.eventEmitter.subscribe({
+				winUpdate: (e) => {
+					if (e.winLevelData.type === 'big') run();
+				},
+			}),
+		),
+	});
 
 	// §16.4 B6.4 — the spin/stop state machine, lifted VERBATIM from
 	// `ButtonBetProvider.svelte` so the parametric `spin` action behaves identically

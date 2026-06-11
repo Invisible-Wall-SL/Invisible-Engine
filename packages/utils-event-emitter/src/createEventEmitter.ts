@@ -47,6 +47,10 @@ export function createEventEmitter<TEmitterEvent extends EmitterEventBase>() {
 
 	const eventEmitter = {
 		subscribeOnMount,
+		// Lifecycle-free sibling of `subscribeOnMount` (takes a `Partial<EmitterEventHandlerMap>`,
+		// returns an unsubscribe) for use OUTSIDE component init (e.g. inside an `$effect` / a
+		// registered `SignalSource`), where Svelte's `onMount` cannot run.
+		subscribe: subscribeHandlerMap,
 		broadcast,
 		broadcastAsync,
 	};
