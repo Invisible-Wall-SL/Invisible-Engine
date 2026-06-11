@@ -10,8 +10,9 @@ import type { ValueSource } from 'engine-layout';
  * unsubscribe. So a registered source replays the live selector (`stateBet.*` /
  * `betCost()`) to whichever `HudReadout` instance binds it.
  */
-export function valueSource(getter: () => number): ValueSource {
+export function valueSource(getter: () => number, format?: (value: number) => string): ValueSource {
 	return {
+		format,
 		subscribe(run) {
 			run(getter());
 			return $effect.root(() => {

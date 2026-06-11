@@ -6,6 +6,7 @@
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
 	import { stateBet, stateBetDerived, stateConfig, stateModal, stateUi } from 'state-shared';
+	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
 	import {
 		UI,
@@ -147,9 +148,9 @@
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(messagesMap);
 	registerComponentValues({
-		balance: valueSource(() => stateBet.balanceAmount),
-		win: valueSource(() => stateBet.winBookEventAmount),
-		bet: valueSource(() => stateBetDerived.betCost()),
+		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
+		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
+		bet: valueSource(() => stateBetDerived.betCost(), numberToCurrencyString),
 		// Composed-string feed for the `freeSpinCounter` def's `value` param — the live
 		// "current OF total" the coded `FreeSpinCounter` shows, sourced from the SAME
 		// `stateUi` fields the coded overlay reads (set in bookEventHandlerMap). A string

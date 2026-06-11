@@ -40,6 +40,17 @@
  */
 export interface ValueSource {
 	subscribe(run: (value: number | string) => void): () => void;
+	/**
+	 * How a NUMERIC value should be rendered (e.g. `balance`/`bet` →
+	 * `numberToCurrencyString`, `win` → `bookEventAmountToCurrencyString`). The
+	 * formatter is intrinsic to the source — the game registers it alongside the
+	 * store, so a PLAIN text node bound to the `value` param renders identically to
+	 * the coded readout (`$5,000.00`) WITHOUT `engine-layout` knowing about currency
+	 * or game state. `<ComponentInstance>` forwards it into the param context as
+	 * `valueFormat`; absent ⇒ the readout falls back to a thousands-grouped integer.
+	 * String sources ignore it (rendered verbatim).
+	 */
+	format?: (value: number) => string;
 }
 
 const registry = new Map<string, ValueSource>();

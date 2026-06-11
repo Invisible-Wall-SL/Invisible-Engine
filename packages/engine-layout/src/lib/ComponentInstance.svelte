@@ -251,6 +251,12 @@
 			enumerable: true,
 			get: () => liveValue,
 		});
+		// The source's own number formatter (currency, etc.), forwarded so a plain
+		// `text` node bound to `value` renders like the coded readout ($5,000.00)
+		// without `engine-layout` knowing about currency/game state. Stable (set at
+		// registration), so a plain assignment — `<LayoutNodeView>` reads it as
+		// `valueFormat`. Absent ⇒ the readout uses its integer fallback (parity).
+		if (valueSource.format) providedParams.valueFormat = valueSource.format;
 		// Live text (TextBox / §18): when the def ALSO declares a `text` param (the
 		// parametric `textBox` binds its text node to it), the live feed OVERRIDES the
 		// static `text` — so one def renders a static/localized string when no source

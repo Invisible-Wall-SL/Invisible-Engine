@@ -155,10 +155,18 @@
 	});
 	// Author-set count-up flag (§13.2): read from the resolved params; absent ⇒ snap.
 	const countUp = $derived(componentParams['countUp'] === true);
-	// B2 minimal numeric format: thousands-grouped integer (a richer per-readout
-	// format — currency/decimals — is a later phase). Cached formatter instance.
+	// Numeric readout format: the value SOURCE's own formatter when the game
+	// registered one (forwarded by `<ComponentInstance>` as `valueFormat` — e.g.
+	// currency for balance/bet/win), so a plain `text` node bound to `value` renders
+	// like the coded readout. Falls back to a thousands-grouped integer when no
+	// source formatter is present (parity). Cached formatter instance.
 	const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
-	const formatValue = (value: number) => numberFormat.format(value);
+	const formatValue = (value: number) => {
+		const fmt = componentParams['valueFormat'];
+		return typeof fmt === 'function'
+			? (fmt as (v: number) => string)(value)
+			: numberFormat.format(value);
+	};
 	const resolvedStyle = $derived.by(() => {
 		if (node.kind !== 'text') return undefined;
 		const fontFamily = resolveBoundValue(node.paramBindings, 'style.fontFamily', componentParams);
