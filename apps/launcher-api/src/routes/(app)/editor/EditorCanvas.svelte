@@ -1095,6 +1095,28 @@
 		return f;
 	}
 
+	/** Synthetic scene key for the HUD text overlay's report buffers (it covers ALL HUD
+	 * scenes, which the game draws on one top layer — not one buffer per game scene). */
+	const HUD_TEXT_KEY = '__hud-text__';
+
+	/** Non-hidden HUD scenes that carry text the overlay must own. The HUD draws on its
+	 * OWN top-most layer (`hudCanvas`), so its text lives on ONE overlay above that — the
+	 * per-game-scene `{#each}` deliberately excludes HUD scenes. */
+	function hudTextScenes(): Scene[] {
+		return scenes.filter((s) => isHudScene(s) && !hiddenSceneIds.has(s.id) && sceneHasText(s));
+	}
+
+	/** Memoized multi-id `sceneFilter` for the HUD text overlay — a stable Set reference
+	 * (rebuilt only when the membership changes) so the overlay doesn't churn each render. */
+	let hudTextFilter = new Set<string>();
+	function hudTextSceneFilter(): Set<string> {
+		const ids = hudTextScenes().map((s) => s.id);
+		if (ids.length !== hudTextFilter.size || ids.some((id) => !hudTextFilter.has(id))) {
+			hudTextFilter = new Set(ids);
+		}
+		return hudTextFilter;
+	}
+
 	/** Per-scene 2D canvas registry — each game scene's node art draws onto its OWN
 	 * canvas (registered here on mount) so it z-orders with the rest of its group. */
 	const sceneCanvases = new Map<string, HTMLCanvasElement>();
@@ -2626,6 +2648,37 @@
 	{/each}
 
 	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
+	<!-- HUD text overlay: the HUD scenes (hudBar/hudCorners) draw on the top-most
+	     `hudCanvas`, NOT in the per-game-scene `{#each}` above — so their text (which the
+	     2D canvas no longer fills) needs its OWN pixi overlay, layered just over the HUD
+	     canvas. Covers every HUD scene at once (one filter Set). -->
+	{#if hudTextScenes().length > 0}
+		<div class="hud-text-layer">
+			<EditorTextLayer
+				{scenes}
+				{layoutType}
+				{panX}
+				{panY}
+				{zoom}
+				worldTransformOf={nodeTransform}
+				{hiddenSceneIds}
+				sceneFilter={hudTextSceneFilter()}
+				{projectGameName}
+				{componentParams}
+				{componentMap}
+				{frameWidth}
+				{frameHeight}
+				reloadToken={fontReload}
+				onLoadingChange={(c) => {
+					mergeFontLoading(HUD_TEXT_KEY, c);
+				}}
+				onReadyIdsChange={(ids) => {
+					mergeTextReady(HUD_TEXT_KEY, ids);
+					schedule();
+				}}
+			/>
+		</div>
+	{/if}
 	{#if showOverlay}
 		<div class="load-overlay" role="status" aria-live="polite">
 			<div class="load-card">
@@ -2710,6 +2763,15 @@
 		position: absolute;
 		inset: 0;
 		z-index: 1000;
+		pointer-events: none;
+	}
+	.hud-text-layer {
+		/* The HUD's text overlay — sits just ABOVE the HUD's 2D canvas (z-index 1000) so
+		   HUD readout/caption text draws over the plaque chips, mirroring how the game
+		   layers HUD text on its top UI layer. Input passes through to the base canvas. */
+		position: absolute;
+		inset: 0;
+		z-index: 1001;
 		pointer-events: none;
 	}
 	.scene-group {
