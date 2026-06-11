@@ -114,6 +114,10 @@
 		 * default, and every scene-editor caller) ⇒ identical to today's draw — parity.
 		 */
 		componentParams?: Record<string, unknown>;
+		/** Bubbles the merged `assetKey → {animations,skins}` map for every ready spine
+		 * bundle (union across the per-scene sublayers) up to the page, so the Properties
+		 * panel can offer animation/skin dropdowns instead of free-text. */
+		onSpineMeta?: (meta: Map<string, { animations: string[]; skins: string[] }>) => void;
 	}
 
 	let {
@@ -133,6 +137,7 @@
 		hiddenSceneIds = new Set<string>(),
 		projectGameName = null,
 		componentParams = {},
+		onSpineMeta,
 	}: Props = $props();
 
 	/** B3 numeric readout format: thousands-grouped integer — matches B2's
@@ -584,6 +589,10 @@
 	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
 	const spineReadyByScene = new Map<string, Set<string>>();
 	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
+	const spineMetaByScene = new Map<
+		string,
+		Map<string, { animations: string[]; skins: string[] }>
+	>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
@@ -599,6 +608,15 @@
 		const merged = new Map<string, { w: number; h: number }>();
 		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		spineNaturalSizes = merged;
+	}
+	function mergeSpineMeta(
+		sceneId: string,
+		meta: Map<string, { animations: string[]; skins: string[] }>,
+	): void {
+		spineMetaByScene.set(sceneId, meta);
+		const merged = new Map<string, { animations: string[]; skins: string[] }>();
+		for (const m of spineMetaByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		onSpineMeta?.(merged);
 	}
 	function mergeTextReady(sceneId: string, ids: Set<string>): void {
 		textReadyByScene.set(sceneId, ids);
@@ -634,10 +652,14 @@
 	function forgetScene(id: string): void {
 		spineReadyByScene.delete(id);
 		spineNaturalByScene.delete(id);
+		spineMetaByScene.delete(id);
 		textReadyByScene.delete(id);
 		spineLoadByScene.delete(id);
 		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
+		const meta = new Map<string, { animations: string[]; skins: string[] }>();
+		for (const m of spineMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
+		onSpineMeta?.(meta);
 		const keys = new Set<string>();
 		for (const set of spineReadyByScene.values()) for (const k of set) keys.add(k);
 		readySpineKeys = keys;
@@ -2577,6 +2599,10 @@
 					}}
 					onNaturalSizesChange={(sizes) => {
 						mergeSpineNatural(s.id, sizes);
+						schedule();
+					}}
+					onSpineMetaChange={(meta) => {
+						mergeSpineMeta(s.id, meta);
 						schedule();
 					}}
 					onLoadingChange={(c) => {

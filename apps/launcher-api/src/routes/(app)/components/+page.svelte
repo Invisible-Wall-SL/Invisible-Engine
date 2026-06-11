@@ -59,6 +59,9 @@
 
 	/** Hoisted active selection — bound from the canvas, read by Properties. */
 	let selectedId = $state<string | null>(null);
+	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
+	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
+	let spineMeta = $state<Map<string, { animations: string[]; skins: string[] }>>(new Map());
 	/** Components author in the fixed `desktop` design box — no per-layoutType
 	 * override switcher here (a component is one design; the scene editor owns
 	 * responsive overrides when the instance is placed). */
@@ -741,6 +744,7 @@
 					onDelete={onDeleteNode}
 					projectGameName={null}
 					componentParams={resolvedParams}
+					onSpineMeta={(meta) => (spineMeta = meta)}
 				/>
 			{:else}
 				<div class="empty">
@@ -764,6 +768,7 @@
 						node={selectedNode}
 						layoutType={currentLayoutType}
 						componentMode={true}
+						{spineMeta}
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
 						componentSignals={componentDraft.signals ?? []}

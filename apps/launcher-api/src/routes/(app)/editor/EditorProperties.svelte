@@ -17,6 +17,8 @@
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
+		type SpineCue,
+		type SpineNode,
 		type TextStyle,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
@@ -57,6 +59,10 @@
 		/** Atlas/sheet manifests (`{ key, name }`) whose frames an `image`-kind param
 		 * can pick from — feeds the per-instance region picker. */
 		pickSheets?: { key: string; name: string }[];
+		/** Per-`assetKey` animation + skin name lists for every loaded spine bundle (from
+		 * the canvas). A selected `kind:'spine'` node looks up its key here to offer
+		 * animation/skin dropdowns; an unknown key falls back to free-text. */
+		spineMeta?: Map<string, { animations: string[]; skins: string[] }>;
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
@@ -97,6 +103,7 @@
 		componentSignals = [],
 		instanceComponent = null,
 		pickSheets = [],
+		spineMeta = new Map(),
 		onEditAsComponent,
 		onConvertToReelGrid,
 		onConvertToParametricButton,
@@ -536,6 +543,30 @@
 	function setCoverFit(n: LayoutNode, value: 'cover' | 'contain'): void {
 		if (n.preview?.art) n.preview.art.fit = value;
 		else n.fit = value;
+		markDirty();
+	}
+
+	// ---------- spine signal cues (§8.5, narrowed) ----------
+	// When the owning component's named signal fires (the game wires it to a book
+	// event via `registerComponentSignals`), this spine plays the chosen animation.
+	// Authored as `node.cues`; only meaningful inside a component that has declared
+	// signals. Array is reassigned on every edit so Svelte 5 reactivity fires.
+
+	function addCue(n: SpineNode): void {
+		const first = componentSignals[0]?.key ?? '';
+		n.cues = [...(n.cues ?? []), { signal: first, animation: '', loop: undefined }];
+		markDirty();
+	}
+	function updateCue(n: SpineNode, i: number, patch: Partial<SpineCue>): void {
+		const cues = [...(n.cues ?? [])];
+		if (!cues[i]) return;
+		cues[i] = { ...cues[i], ...patch };
+		n.cues = cues;
+		markDirty();
+	}
+	function removeCue(n: SpineNode, i: number): void {
+		const cues = (n.cues ?? []).filter((_, idx) => idx !== i);
+		n.cues = cues.length ? cues : undefined;
 		markDirty();
 	}
 </script>
@@ -1292,19 +1323,63 @@
 			</section>
 		{/if}
 	{:else if node.kind === 'spine'}
+		{@const meta = spineMeta.get(node.assetKey)}
 		<section>
 			<h3>Spine</h3>
 			<div class="row">
 				<label class="field wide">
 					<span>default animation</span>
-					<input
-						type="text"
-						value={node.defaultAnimation ?? ''}
-						oninput={(e) => {
-							node.defaultAnimation = e.currentTarget.value;
-							markDirty();
-						}}
-					/>
+					{#if meta?.animations?.length}
+						<select
+							value={node.defaultAnimation ?? ''}
+							onchange={(e) => {
+								node.defaultAnimation = e.currentTarget.value || undefined;
+								markDirty();
+							}}
+						>
+							<option value="">(first / default)</option>
+							{#each meta.animations as anim (anim)}
+								<option value={anim}>{anim}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							value={node.defaultAnimation ?? ''}
+							oninput={(e) => {
+								node.defaultAnimation = e.currentTarget.value;
+								markDirty();
+							}}
+						/>
+					{/if}
+				</label>
+			</div>
+			<div class="row">
+				<label class="field wide">
+					<span>skin</span>
+					{#if meta?.skins?.length}
+						<select
+							value={node.skin ?? ''}
+							onchange={(e) => {
+								node.skin = e.currentTarget.value || undefined;
+								markDirty();
+							}}
+						>
+							<option value="">(default skin)</option>
+							{#each meta.skins as skin (skin)}
+								<option value={skin}>{skin}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							value={node.skin ?? ''}
+							oninput={(e) => {
+								node.skin = e.currentTarget.value || undefined;
+								markDirty();
+							}}
+						/>
+					{/if}
 				</label>
 			</div>
 			<div class="row">
@@ -1320,6 +1395,72 @@
 					<span>loop</span>
 				</label>
 			</div>
+			{#if componentSignals.length > 0}
+				<h4 class="sub-h">Plays on signal</h4>
+				<p class="muted small">
+					When the component's signal fires (the game wires it to a book event), this spine plays
+					the chosen animation.
+				</p>
+				{#each node.cues ?? [] as cue, i (i)}
+					<div class="bind-grid cue-row">
+						<label class="field">
+							<span>signal</span>
+							<select
+								value={cue.signal}
+								onchange={(e) => updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
+							>
+								{#each componentSignals as s (s.key)}
+									<option value={s.key} title={s.note ?? undefined}>{s.key}</option>
+								{/each}
+							</select>
+						</label>
+						<label class="field">
+							<span>animation</span>
+							{#if meta?.animations?.length}
+								<select
+									value={cue.animation}
+									onchange={(e) =>
+										updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
+								>
+									<option value="">(choose animation)</option>
+									{#each meta.animations as anim (anim)}
+										<option value={anim}>{anim}</option>
+									{/each}
+								</select>
+							{:else}
+								<input
+									type="text"
+									value={cue.animation}
+									oninput={(e) =>
+										updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
+								/>
+							{/if}
+						</label>
+						<label class="field check">
+							<input
+								type="checkbox"
+								checked={cue.loop ?? false}
+								onchange={(e) =>
+									updateCue(node as SpineNode, i, {
+										loop: e.currentTarget.checked || undefined,
+									})}
+							/>
+							<span>loop</span>
+							<button
+								type="button"
+								class="param-remove"
+								title="Remove cue"
+								onclick={() => removeCue(node as SpineNode, i)}>×</button
+							>
+						</label>
+					</div>
+				{/each}
+				<button type="button" class="ghost-sm" onclick={() => addCue(node as SpineNode)}>
+					+ add cue
+				</button>
+			{:else if componentMode}
+				<p class="muted small">Declare a signal on this component to add playback cues.</p>
+			{/if}
 		</section>
 	{:else if node.kind === 'reelGrid'}
 		<section>
@@ -2052,6 +2193,16 @@
 		font-size: 10px;
 		color: #777;
 		line-height: 1.3;
+	}
+	.cue-row {
+		gap: 6px;
+		padding: 8px;
+		margin-bottom: 6px;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+	}
+	.cue-row .param-remove {
+		margin-left: auto;
 	}
 	.param-group {
 		border: 1px solid #2a2a33;
