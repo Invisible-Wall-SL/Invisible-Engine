@@ -254,6 +254,24 @@
 		if (selectedId === id) selectedId = null;
 	}
 
+	/** Set a node's outline `label` (or clear it to fall back to the node id). Walks
+	 * the open draft's tree to find the node; mutates in place (reactive proxy). */
+	function renameNode(id: string, label: string): void {
+		if (!componentDraft) return;
+		const walk = (nodes: LayoutNode[]): boolean => {
+			for (const n of nodes) {
+				if (n.id === id) {
+					if (label) n.label = label;
+					else delete n.label;
+					return true;
+				}
+				if (n.kind === 'container' && walk(n.children)) return true;
+			}
+			return false;
+		};
+		walk(componentDraft.root.children);
+	}
+
 	/** Save the open draft via POST (§8.3); refresh the local list on success. */
 	async function saveComponent(): Promise<void> {
 		if (!componentDraft || saveBusy) return;
@@ -722,6 +740,7 @@
 							template={undefined}
 							{selectedId}
 							onSelect={(id) => (selectedId = id)}
+							onRename={renameNode}
 						/>
 					{/if}
 				</div>

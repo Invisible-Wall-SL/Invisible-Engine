@@ -729,6 +729,25 @@
 		markDirty();
 	}
 
+	/** Set a node's outline `label` (or clear it to fall back to the node id), walking
+	 * the active scene's tree. Reassigns `scenes` so the change reacts + marks dirty. */
+	function onRenameNode(id: string, label: string): void {
+		const walk = (nodes: LayoutNode[]): boolean => {
+			for (const n of nodes) {
+				if (n.id === id) {
+					if (label) n.label = label;
+					else delete n.label;
+					return true;
+				}
+				if (n.kind === 'container' && walk(n.children)) return true;
+			}
+			return false;
+		};
+		if (!walk(scenes[activeSceneIdx].nodes)) return;
+		scenes = scenes.slice();
+		markDirty();
+	}
+
 	/**
 	 * Replace the selected board mount-anchor (a `container` filling the `reelGrid`
 	 * slot) with a parametric `reelGrid` node, dropping the container's `bind`/
@@ -1717,6 +1736,7 @@
 						onSelect={(id) => (selectedId = id)}
 						{onFillSlot}
 						onAddAnchor={onAddMountAnchor}
+						onRename={onRenameNode}
 					/>
 				{/if}
 			</div>

@@ -11,11 +11,35 @@
 		/** Materialise an engine `mount` anchor for an empty mount slot, so it shows
 		 * as a draggable box on the canvas (mount slots take no asset). */
 		onAddAnchor?: (sceneId: string, sceneName: string, slotId: string) => void;
+		/** Rename a node (its outline `label`). Double-click a row to edit it inline. */
+		onRename?: (id: string, label: string) => void;
 	}
-	let { scene, template, selectedId, onSelect, onFillSlot, onAddAnchor }: Props = $props();
+	let { scene, template, selectedId, onSelect, onFillSlot, onAddAnchor, onRename }: Props =
+		$props();
 
 	/** `slotId` of the slot row a Library asset is hovering over. */
 	let dragSlotId = $state<string | null>(null);
+
+	/** Inline-rename state: the node id being edited + its draft label. */
+	let renamingId = $state<string | null>(null);
+	let draftLabel = $state('');
+
+	function startRename(node: LayoutNode): void {
+		if (!onRename) return;
+		renamingId = node.id;
+		draftLabel = node.label ?? '';
+	}
+	function commitRename(): void {
+		if (renamingId === null) return;
+		const id = renamingId;
+		const label = draftLabel.trim();
+		renamingId = null;
+		// Empty label clears back to the node id fallback — pass '' and let the parent decide.
+		onRename?.(id, label);
+	}
+	function cancelRename(): void {
+		renamingId = null;
+	}
 
 	/** `mount` slots are engine-owned anchors, not asset targets — not droppable. */
 	function isDroppable(kind: string): boolean {
@@ -77,18 +101,35 @@
 
 {#snippet row(node: LayoutNode, depth: number)}
 	<li>
-		<button
-			type="button"
-			class="row"
-			class:selected={selectedId === node.id}
-			style:padding-left="{8 + depth * 14}px"
-			onclick={() => onSelect(node.id)}
-		>
-			<span class="glyph">{kindGlyph(node.kind)}</span>
-			<span class="label">{node.label ?? node.id}</span>
-			{#if node.locked}<span class="lock" title="Locked">🔒</span>{/if}
-			<span class="kind">{node.kind}</span>
-		</button>
+		{#if renamingId === node.id}
+			<!-- svelte-ignore a11y_autofocus -->
+			<input
+				class="rename"
+				style:padding-left="{8 + depth * 14}px"
+				bind:value={draftLabel}
+				autofocus
+				onblur={commitRename}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') commitRename();
+					else if (e.key === 'Escape') cancelRename();
+				}}
+			/>
+		{:else}
+			<button
+				type="button"
+				class="row"
+				class:selected={selectedId === node.id}
+				style:padding-left="{8 + depth * 14}px"
+				onclick={() => onSelect(node.id)}
+				ondblclick={() => startRename(node)}
+				title={onRename ? 'Double-click to rename' : undefined}
+			>
+				<span class="glyph">{kindGlyph(node.kind)}</span>
+				<span class="label">{node.label ?? node.id}</span>
+				{#if node.locked}<span class="lock" title="Locked">🔒</span>{/if}
+				<span class="kind">{node.kind}</span>
+			</button>
+		{/if}
 		{#if node.kind === 'container' && node.children.length > 0}
 			<ul class="children">
 				{#each node.children as child (child.id)}
@@ -183,6 +224,18 @@
 		background: #1a1a22;
 		border-color: #5db0ff;
 		color: #e8e8ee;
+	}
+	.rename {
+		display: flex;
+		width: 100%;
+		padding: 6px 8px;
+		background: #0e0e14;
+		border: 1px solid #5db0ff;
+		border-radius: 6px;
+		color: #e8e8ee;
+		font-size: 12px;
+		font-family: inherit;
+		box-sizing: border-box;
 	}
 	.glyph {
 		color: #c8a3ff;
