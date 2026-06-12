@@ -3,6 +3,7 @@ import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { toolBarParams } from '$lib/server/toolBar';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
@@ -52,20 +53,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 				params.set('bp', ENV.ATLAS_BLUEPRINT_SECRET);
 			}
 		}
-		// B24 — cross-tool navigation. `home` points the tool's "← Launcher"
-		// back-link at us; `sibling` is a ready-to-use URL to the OTHER tool
-		// (carrying its own secret + the same client/project). Only emitted when
-		// the user actually has the sibling tool, so the link can't bypass the
-		// role gate (the tools' own gate is just the shared secret).
-		params.set('home', ENV.ORIGIN);
-		const sheetBase = ENV.SHEET_TOOL_URL.replace(/\/$/, '');
-		if (sheetBase && tools.some((t) => t.id === 'sheetMaker')) {
-			const sib = new URLSearchParams();
-			if (ENV.SHEET_TOOL_SECRET) sib.set('k', ENV.SHEET_TOOL_SECRET);
-			sib.set('client', client);
-			sib.set('project', project);
-			params.set('sibling', `${sheetBase}/?${sib.toString()}`);
-		}
+		// Unified tool bar — the launcher bakes the role-gated tool list (`home`
+		// for the emblem + `tools` for the switcher). Every link routes back
+		// through the launcher, which re-gates the role and forwards the secret +
+		// active project, so nothing here can bypass a gate.
+		for (const [key, value] of toolBarParams(tools, 'atlasTool')) params.set(key, value);
 		// Deep-link from the Invisible Editor: when an atlas/region is requested,
 		// forward them so the tool can load the matching generation manifest (or
 		// fall back to the Sheet Maker Import browser via the `sibling` link).

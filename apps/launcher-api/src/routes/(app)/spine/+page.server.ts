@@ -1,16 +1,18 @@
 import { error, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
+import { toolBarParams } from '$lib/server/toolBar';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, parent }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'spineViewer', roleOverrides, overrides)) {
+	// The parent layout already resolved the effective tool manifest; reuse it
+	// for both the gate and the shared tool-bar params (fewer queries).
+	const { tools } = await parent();
+	if (!tools.some((t) => t.id === 'spineViewer')) {
 		throw error(403, 'Your role does not have access to the Invisible Spine Viewer.');
 	}
-	// Full-page, no iframe: send the user straight to the viewer document.
-	throw redirect(303, '/spine/view.html');
+	// Full-page, no iframe: send the user straight to the viewer document. The
+	// unified tool bar is fed the role-gated tool list (`home` + `tools`); the
+	// viewer is same-origin, so every switcher link is a launcher URL.
+	const params = toolBarParams(tools, 'spineViewer');
+	throw redirect(303, `/spine/view.html?${params.toString()}`);
 };

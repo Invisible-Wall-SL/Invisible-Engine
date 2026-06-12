@@ -65,11 +65,10 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
 | **`ToolTopBar.svelte`** — emblem (→ home) + current tool name + online-tool switcher (`TOOL_BAR_ORDER`) | A | `apps/launcher-api/src/lib/ToolTopBar.svelte` + `roles.ts` (`TOOL_BAR_ORDER`, `toolBarItems`) | **canonical for domain A** — used by all 6 launcher tool pages |
-| Sheet Maker top bar: `← Launcher` link + "Atlas Maker linked ✓" status pill | B | `services/sheet-tool/ui.html` (90, 96, 199-202) | ⏳ pending: render the bar twin from `?tools=` (unified-tool-bar Phase 3); single-sibling link to be removed |
-| Atlas Maker top bar (no nav at all) | B | `services/atlas-tool/ui_server.py` (~1506-1510) | ⏳ pending: render the bar twin from `?tools=` (unified-tool-bar Phase 3) |
+| **Bar twin** (`.iw-toolbar`) — same emblem/name/switcher, vanilla HTML/CSS/JS, fed by `?home`+`?tools` | B + static | `apps/launcher-api/static/spine/view.html` (Spine viewer), `services/atlas-tool/ui_server.py` (`IW_TOOLBAR`), `services/sheet-tool/ui.html` | **canonical twin** — mirror `ToolTopBar.svelte`; copy the `ICON` map + renderer from `view.html` when adding a new non-Svelte tool |
 | Launcher Emblem header | A | `$lib/Emblem.svelte` | brand mark (consumed by `ToolTopBar`) |
 
-→ **Design + decisions:** `docs/design/unified-tool-bar.md`. The Domain-B tools render a visually identical HTML twin fed by a launcher-baked `tools=` redirect param (Phases 2–3, not yet built).
+→ **Design + decisions:** `docs/design/unified-tool-bar.md`. The launcher bakes the role-gated tool list into the redirect (`toolBarParams` in `lib/server/toolBar.ts` → `?home`+`?tools`); every switcher link routes back through the launcher (no per-tool secret baked). The B/static twin is kept visually identical to the Svelte original by convention (B18-style).
 
 ### 8. Server gate + active-scope resolution (not UI, but the #1 duplicated thing)
 | Impl | Domain | File(s) | Status |

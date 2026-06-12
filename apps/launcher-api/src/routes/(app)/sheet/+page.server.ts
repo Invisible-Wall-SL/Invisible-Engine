@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
+import { toolBarParams } from '$lib/server/toolBar';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
@@ -27,19 +28,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 		if (ENV.SHEET_TOOL_SECRET) params.set('k', ENV.SHEET_TOOL_SECRET);
 		params.set('client', client);
 		params.set('project', project);
-		// B24 — cross-tool navigation. `home` → the tool's "← Launcher" back-link;
-		// `sibling` → a ready-to-use URL to the Atlas Maker (its own secret + the
-		// same client/project). Only emitted when the user actually has the atlas
-		// tool, so the link can't bypass the role gate.
-		params.set('home', ENV.ORIGIN);
-		const atlasBase = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
-		if (atlasBase && tools.some((t) => t.id === 'atlasTool')) {
-			const sib = new URLSearchParams();
-			if (ENV.ATLAS_TOOL_SECRET) sib.set('k', ENV.ATLAS_TOOL_SECRET);
-			sib.set('client', client);
-			sib.set('project', project);
-			params.set('sibling', `${atlasBase}/?${sib.toString()}`);
-		}
+		// Unified tool bar — the launcher bakes the role-gated tool list (`home`
+		// for the emblem + `tools` for the switcher). Every link routes back
+		// through the launcher, which re-gates the role and forwards the secret +
+		// active project, so nothing here can bypass a gate.
+		for (const [key, value] of toolBarParams(tools, 'sheetMaker')) params.set(key, value);
 		throw redirect(303, `${base}/?${params.toString()}`);
 	}
 	return { configured: false };
