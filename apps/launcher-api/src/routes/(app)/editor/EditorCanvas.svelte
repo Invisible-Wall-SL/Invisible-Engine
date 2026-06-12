@@ -1491,11 +1491,13 @@
 
 	/**
 	 * Draw the static placeholder for a `reelGrid` node: a `reels × rows` grid of
-	 * `cellSize` cells, centred per the node's anchor (drawn in the node's already-
+	 * cells (`cellWidth × cellHeight`, defaulting to the square `cellSize`) at the
+	 * `gapX/gapY` pitch, centred per the node's anchor (drawn in the node's already-
 	 * scaled local space — drawNode applied the transform). This stands in for the
-	 * coded dynamic symbols so the author can position/shape the board. `reelPadding`
-	 * is editor-stored for the runtime (Phase 2); the footprint here is anchor-centred
-	 * and matches `nodeBox`, so selection lines up with what's drawn.
+	 * coded dynamic symbols so the author can position/shape the board. A warm
+	 * inner SYMBOL marker per cell visualises the symbol's seat inside the cell —
+	 * `reelPadding`/`rowPadding` offset it (≠0.5 ⇒ off-centre), gaps separate the
+	 * cells. The footprint matches `nodeBox`, so selection lines up with the draw.
 	 */
 	function drawReelGrid(
 		ctx: CanvasRenderingContext2D,
@@ -1504,9 +1506,14 @@
 	): void {
 		const reels = Math.max(1, Math.round(node.reels));
 		const rows = Math.max(1, Math.round(node.rows));
-		const cell = node.cellSize;
-		const w = reels * cell;
-		const h = rows * cell;
+		const cellW = node.cellWidth && node.cellWidth > 0 ? node.cellWidth : node.cellSize;
+		const cellH = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
+		const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
+		const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
+		const pitchX = cellW + gapX;
+		const pitchY = cellH + gapY;
+		const w = reels * cellW + (reels - 1) * gapX;
+		const h = rows * cellH + (rows - 1) * gapY;
 		const left = -w * (t.anchor?.x ?? 0.5);
 		const top = -h * (t.anchor?.y ?? 0.5);
 
@@ -1517,7 +1524,26 @@
 		ctx.strokeStyle = 'rgba(93, 176, 255, 0.45)';
 		for (let i = 0; i < reels; i++) {
 			for (let j = 0; j < rows; j++) {
-				ctx.strokeRect(left + i * cell, top + j * cell, cell, cell);
+				ctx.strokeRect(left + i * pitchX, top + j * pitchY, cellW, cellH);
+			}
+		}
+
+		// Inner symbol marker: a square seated inside each cell at the padding offset
+		// (reelPadding/rowPadding as a cell-fraction of the symbol centre). It mirrors
+		// the engine's `getSymbolX/Y` seat so the author sees position + padding, with
+		// gaps separating the cells. Symbol art keeps Stake sizing (square), so the
+		// marker is a square of the smaller cell axis.
+		const padX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
+		const padY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
+		const symSize = Math.min(cellW, cellH);
+		ctx.fillStyle = 'rgba(255, 196, 93, 0.10)';
+		ctx.strokeStyle = 'rgba(255, 196, 93, 0.7)';
+		for (let i = 0; i < reels; i++) {
+			for (let j = 0; j < rows; j++) {
+				const cx = left + i * pitchX + cellW * padX;
+				const cy = top + j * pitchY + cellH * padY;
+				ctx.fillRect(cx - symSize / 2, cy - symSize / 2, symSize, symSize);
+				ctx.strokeRect(cx - symSize / 2, cy - symSize / 2, symSize, symSize);
 			}
 		}
 

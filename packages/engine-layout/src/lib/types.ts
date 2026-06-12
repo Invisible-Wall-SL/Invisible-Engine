@@ -298,11 +298,34 @@ export interface ReelGridNode extends BaseNode {
 	/** Square cell pitch in px — the game's `SYMBOL_SIZE`. */
 	cellSize: number;
 	/**
+	 * Per-axis cell size in px for NON-SQUARE cells. Absent ⇒ falls back to the
+	 * square {@link cellSize} on that axis (so an unset pair = today's square
+	 * grid, parity-safe). When set, the cell is drawn/positioned `cellWidth ×
+	 * cellHeight` instead of `cellSize × cellSize`.
+	 */
+	cellWidth?: number;
+	cellHeight?: number;
+	/**
+	 * Cell SPACING (gaps) in px — the empty pitch ADDED between adjacent cells
+	 * (column pitch = `cellWidth + gapX`, row pitch = `cellHeight + gapY`).
+	 * Absent ⇒ 0 = cells sit flush (today's behaviour). This is distinct from
+	 * {@link reelPadding}/{@link rowPadding}, which inset the whole grid; gaps
+	 * change the distance BETWEEN cells.
+	 */
+	gapX?: number;
+	gapY?: number;
+	/**
 	 * Horizontal symbol-centre inset factor — the game's `REEL_PADDING` (the
 	 * `getSymbolX` `cellSize * (reelIndex + reelPadding)` term). ≈0.5 = centred.
 	 * Absent = 0.5.
 	 */
 	reelPadding?: number;
+	/**
+	 * Vertical symbol-centre inset factor — the analog of {@link reelPadding} on
+	 * the row axis (the `getSymbolY` `(rowIndex + rowPadding)` term). ≈0.5 =
+	 * centred. Absent = 0.5 (today's hard-coded value).
+	 */
+	rowPadding?: number;
 }
 
 export type LayoutNode =

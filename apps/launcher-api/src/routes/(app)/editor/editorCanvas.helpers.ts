@@ -161,11 +161,18 @@ export function nodeBox(
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
 	}
-	// Reel grid selects at its full footprint: reels × rows cells of cellSize.
+	// Reel grid selects at its full footprint: reels × rows cells, including any
+	// non-square cell size + inter-cell gaps (so the box matches what's drawn).
 	if (node.kind === 'reelGrid') {
+		const reels = Math.max(1, Math.round(node.reels));
+		const rows = Math.max(1, Math.round(node.rows));
+		const cellW = node.cellWidth && node.cellWidth > 0 ? node.cellWidth : node.cellSize;
+		const cellH = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
+		const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
+		const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
 		return {
-			w: Math.max(1, Math.round(node.reels)) * node.cellSize,
-			h: Math.max(1, Math.round(node.rows)) * node.cellSize,
+			w: reels * cellW + (reels - 1) * gapX,
+			h: rows * cellH + (rows - 1) * gapY,
 			ax,
 			ay,
 		};

@@ -1575,9 +1575,10 @@
 		<section>
 			<h3>Reel grid</h3>
 			<p class="muted small">
-				Board layout params — `SYMBOL_SIZE` / `BOARD_DIMENSIONS` / `REEL_PADDING`. Editor preview
-				today; a later pass makes the in-game board read these. Position the grid with the Transform
-				section above.
+				Board layout — position, cell size and reel padding drive the LIVE in-game board.
+				Reels/rows are descriptive (the RGS sets the real board shape; a mismatch only warns). Cell
+				width/height, gaps and row padding render in this preview and feed the engine's next board
+				pass. Position the grid with the Transform section above.
 			</p>
 			<div class="row">
 				<label class="field">
@@ -1630,6 +1631,74 @@
 						}}
 					/>
 				</label>
+			</div>
+			<p class="muted small">
+				Leave cell width/height blank for a square cell (= cell size). Gaps add empty space BETWEEN
+				cells; padding insets the whole grid.
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>cell width</span>
+					<input
+						type="number"
+						step="1"
+						min="1"
+						placeholder={String(node.cellSize)}
+						value={node.cellWidth ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.cellWidth = Number.isFinite(v) && v > 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>cell height</span>
+					<input
+						type="number"
+						step="1"
+						min="1"
+						placeholder={String(node.cellSize)}
+						value={node.cellHeight ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.cellHeight = Number.isFinite(v) && v > 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span>gap X</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="0"
+						value={node.gapX ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.gapX = Number.isFinite(v) && v !== 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>gap Y</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="0"
+						value={node.gapY ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.gapY = Number.isFinite(v) && v !== 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+			</div>
+			<div class="row">
 				<label class="field">
 					<span>reel padding</span>
 					<input
@@ -1640,6 +1709,21 @@
 							const v = e.currentTarget.valueAsNumber;
 							if (!Number.isNaN(v)) {
 								node.reelPadding = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>row padding</span>
+					<input
+						type="number"
+						step="0.01"
+						value={node.rowPadding ?? 0.5}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.rowPadding = v;
 								markDirty();
 							}
 						}}
