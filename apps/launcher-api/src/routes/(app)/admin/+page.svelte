@@ -6,7 +6,15 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	// --- Tabs ---
-	type TabId = 'users' | 'roles' | 'tools' | 'projects' | 'clients' | 'games' | 'sessions';
+	type TabId =
+		| 'users'
+		| 'roles'
+		| 'tools'
+		| 'projects'
+		| 'clients'
+		| 'games'
+		| 'sessions'
+		| 'settings';
 	const TABS: { id: TabId; label: string }[] = [
 		{ id: 'users', label: 'Users' },
 		{ id: 'roles', label: 'Roles' },
@@ -15,6 +23,7 @@
 		{ id: 'clients', label: 'Clients' },
 		{ id: 'games', label: 'Games' },
 		{ id: 'sessions', label: 'Sessions' },
+		{ id: 'settings', label: 'Settings' },
 	];
 	let tab = $state<TabId>('users');
 
@@ -182,6 +191,17 @@
 		if (!clientKey) return '—';
 		return data.clients.find((c) => c.key === clientKey)?.name ?? clientKey;
 	}
+
+	// --- Settings: deploy token ---
+	// The revealed secret only ever arrives via a reveal/set/rotate action result;
+	// it lives in `form`, not `data`, so a plain page navigation re-masks it.
+	const revealedDeployToken = $derived(
+		form?.action === 'revealDeployToken' ||
+			form?.action === 'setDeployToken' ||
+			form?.action === 'rotateDeployToken'
+			? (form.deployToken ?? null)
+			: null,
+	);
 </script>
 
 <svelte:head><title>Admin — Invisible Wall</title></svelte:head>
@@ -827,6 +847,80 @@
 			{/if}
 		</section>
 	</div>
+
+	<!-- SETTINGS -->
+	<div
+		id="panel-settings"
+		role="tabpanel"
+		aria-labelledby="tab-settings"
+		hidden={tab !== 'settings'}
+		tabindex="0"
+	>
+		<section>
+			<h2>Settings</h2>
+			<p class="muted hint">
+				Build &amp; deploy secrets managed in the database (overriding any Railway env-var
+				bootstrap). Only admins can view, set, or rotate these. Values are masked by default.
+			</p>
+
+			<div class="card">
+				<h3>Deploy token</h3>
+				<p class="muted hint">
+					The shared token the desktop launcher fetches (<span class="mono"
+						>GET /api/launcher/deploy-token</span
+					>) and injects into game builds so <span class="mono">bake:doc</span>,
+					<span class="mono">pull:assets</span>, and the editor exports run authenticated. The
+					launcher endpoint requires the <strong>Build &amp; publish games</strong> capability
+					(grant it per role or per user under
+					<button type="button" class="link" onclick={() => (tab = 'roles')}>Roles</button>).
+					Rotating requires game rebuilds to pick up the new token; already-deployed (baked) games
+					are unaffected since they don't use it at runtime.
+				</p>
+
+				<div class="token-status">
+					<span class="muted">Current</span>
+					{#if data.deployToken.configured}
+						<span class="mono token-masked">{data.deployToken.masked}</span>
+						<span class="pill on">configured</span>
+					{:else}
+						<span class="mono muted">— not configured —</span>
+						<span class="pill off">unset</span>
+					{/if}
+				</div>
+
+				{#if revealedDeployToken}
+					<div class="token-reveal">
+						<label for="revealed-token">Revealed token (copy now — it re-masks on reload)</label>
+						<input
+							id="revealed-token"
+							class="mono"
+							type="text"
+							readonly
+							value={revealedDeployToken}
+							onfocus={(e) => e.currentTarget.select()}
+						/>
+					</div>
+				{/if}
+
+				<div class="token-actions">
+					<form method="POST" action="?/revealDeployToken" use:enhance>
+						<button type="submit" class="ghost-btn">Reveal current</button>
+					</form>
+					<form method="POST" action="?/rotateDeployToken" use:enhance>
+						<button type="submit">Rotate (generate new)</button>
+					</form>
+				</div>
+
+				<form method="POST" action="?/setDeployToken" use:enhance class="inline token-set">
+					<label class="grow">
+						Set token (typed value)
+						<input name="token" type="text" autocomplete="off" placeholder="paste or type a token" />
+					</label>
+					<button type="submit">Save</button>
+				</form>
+			</div>
+		</section>
+	</div>
 </div>
 
 <style>
@@ -1300,5 +1394,43 @@
 	}
 	.project-row.create input {
 		flex: 1;
+	}
+
+	/* --- Settings: deploy token --- */
+	.token-status {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin: 4px 0 16px;
+		font-size: 13px;
+	}
+	.token-masked {
+		color: #c8a3ff;
+	}
+	.token-reveal {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		margin-bottom: 16px;
+	}
+	.token-reveal input {
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.token-actions {
+		display: flex;
+		gap: 10px;
+		margin-bottom: 16px;
+	}
+	.token-actions form {
+		margin: 0;
+	}
+	button.ghost-btn {
+		background: transparent;
+		border: 1px solid #2a2a33;
+		color: #ccc;
+	}
+	.token-set {
+		margin-bottom: 0;
 	}
 </style>

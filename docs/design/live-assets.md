@@ -179,3 +179,29 @@ shipped game. This mirrors the editor-art transport exactly:
    overrides a built-in of the same name) so the engine routes that `fontFamily` to
    `<BitmapText>`. **Web** fonts load via `registerBakedWebFonts()` (FontFace API). Un-baked
    repos keep only the game's hardcoded built-in fonts — dev parity.
+
+## The shared build/deploy token (admin-managed)
+
+All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,
+`/api/editor/export-art`, `/api/editor/export-fonts`, `/api/localization/strings`) and the
+runtime layout fetch share ONE token (`?k=` / `secret`). The desktop launcher fetches it from
+`GET /api/launcher/deploy-token` and injects it into game builds so `bake:doc` / `pull:assets`
+/ the exports run authenticated on any machine.
+
+**Source of truth (since 2026-06-12):** the token is resolved by
+`$lib/server/appSettings.ts#getDeployToken()` — the admin-managed DB value
+(`app_settings.deployToken`) if set, else the `EDITOR_DOC_SECRET` env var as the bootstrap
+default/fallback. Every call-site reads `getDeployToken()`, so behaviour is identical to the
+old env-only setup when no DB row exists. Manage it in **`/admin` → Settings → Deploy token**
+(view masked, reveal once, set a typed value, or rotate to a strong random value). Only admins
+can view/set/rotate; the secret is never logged and reveals are one-shot (re-mask on reload).
+
+**`GET /api/launcher/deploy-token` is capability-gated:** it now requires the `gamePublish`
+("Build & publish games") capability (managed in `/admin` → Roles, default-ON for `admin`).
+This is an intentional behaviour change — previously every signed-in user could fetch the
+token. Admins keep working; other publishers need the grant.
+
+**Rotation:** rotating requires game rebuilds to pick up the new token. Already-deployed
+(baked) games are unaffected — the baked bundle embeds its assets and does not call these
+endpoints at runtime. (The runtime layout fetch on the launcher home rides `&k=` from the
+freshly resolved token, so it tracks rotations automatically.)

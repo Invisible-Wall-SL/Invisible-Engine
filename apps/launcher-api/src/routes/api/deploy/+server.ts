@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { ENV } from '$lib/server/env';
+import { getDeployToken } from '$lib/server/appSettings';
 import { getObjectBytes, listAllObjects } from '$lib/server/r2';
 import { r2Slug, SUB } from '$lib/server/projectPaths';
 import type { RequestHandler } from './$types';
@@ -8,7 +8,8 @@ import type { RequestHandler } from './$types';
  * Read-only `deploy/` asset endpoint for anonymous game clients (build CI +
  * browser). A deployed game / build runner has no launcher session, so this is
  * NOT cookie-authed: it is gated by the SAME shared read token (`?k=`, matched
- * against `EDITOR_DOC_SECRET`) the layout-doc / atlas tools use. The deploy tree
+ * against the deploy token — see `getDeployToken()`) the layout-doc / atlas tools
+ * use. The deploy tree
  * is non-sensitive final art, and the token is client-visible to anyone the game
  * is served to; the gate keeps the assets from being read by anonymous/external
  * callers. When the secret is unset the endpoint refuses to serve (503) so it is
@@ -44,7 +45,7 @@ function splitProject(project: string): { client: string; proj: string } {
 }
 
 export const GET: RequestHandler = async ({ url }) => {
-	const secret = ENV.EDITOR_DOC_SECRET;
+	const secret = await getDeployToken();
 	if (!secret) throw error(503, 'Deploy endpoint is not configured.');
 	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
 

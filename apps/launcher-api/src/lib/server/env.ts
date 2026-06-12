@@ -80,6 +80,10 @@ export const ENV = {
 	// (`GET /api/editor/doc`). Standalone games (own origin, no launcher session)
 	// pass it as `?k=`. Secret: no code default. When EMPTY the endpoint refuses
 	// to serve (503) so the layout docs are never exposed unauthenticated.
+	// NOTE: this is now the BOOTSTRAP/fallback for the deploy token — the effective
+	// value is resolved by `$lib/server/appSettings.ts#getDeployToken()`, which
+	// prefers the admin-managed DB value (`app_settings.deployToken`). Don't read
+	// this directly for the deploy/editor/localization endpoints; call getDeployToken().
 	get EDITOR_DOC_SECRET() {
 		return env.EDITOR_DOC_SECRET ?? '';
 	},

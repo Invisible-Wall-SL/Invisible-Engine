@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { ENV } from '$lib/server/env';
+import { getDeployToken } from '$lib/server/appSettings';
 import { exportEditorFonts } from '$lib/server/fontExport';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
@@ -14,7 +14,7 @@ import type { RequestHandler } from './$types';
  * session. Idempotent; safe to re-run per build.
  */
 export const POST: RequestHandler = async ({ url }) => {
-	const secret = ENV.EDITOR_DOC_SECRET;
+	const secret = await getDeployToken();
 	if (!secret) throw error(503, 'Editor font export is not configured.');
 	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
 

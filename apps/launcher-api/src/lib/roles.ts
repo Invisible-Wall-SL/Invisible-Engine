@@ -287,22 +287,34 @@ export const BLUEPRINT_PUBLISH_CAPABILITY = 'blueprintPublish';
  */
 export const FONT_PUBLISH_CAPABILITY = 'fontPublish';
 
+/**
+ * Managed capability key for fetching the shared build/deploy token from
+ * `GET /api/launcher/deploy-token` (used by the desktop launcher to authenticate
+ * game builds: `bake:doc` / `pull:assets` / editor exports). Like `fontPublish`
+ * it is NOT a tool in `TOOLS`; it lives in the same override matrix. Default-ON
+ * for `admin` only. NOTE: this capability GATES an endpoint that previously every
+ * signed-in user could read — granting build/publish power is now explicit.
+ */
+export const GAME_PUBLISH_CAPABILITY = 'gamePublish';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
 	{ key: BLUEPRINT_PUBLISH_CAPABILITY, name: 'Publish blueprints' },
 	{ key: FONT_PUBLISH_CAPABILITY, name: 'Publish shared fonts' },
+	{ key: GAME_PUBLISH_CAPABILITY, name: 'Build & publish games' },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
- * (`adminPanel`, `blueprintPublish`, `fontPublish`) default ON for `admin` and
- * OFF elsewhere.
+ * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`) default ON for
+ * `admin` and OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
 	if (key === BLUEPRINT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === FONT_PUBLISH_CAPABILITY) return role === 'admin';
+	if (key === GAME_PUBLISH_CAPABILITY) return role === 'admin';
 	return false;
 }
 

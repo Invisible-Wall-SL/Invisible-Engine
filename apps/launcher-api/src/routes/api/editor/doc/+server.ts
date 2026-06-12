@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { applyHudGameNameDefault, collectComponentIds } from 'engine-layout';
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
-import { ENV } from '$lib/server/env';
+import { getDeployToken } from '$lib/server/appSettings';
 import { loadComponent } from '$lib/server/componentStorage';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
@@ -87,7 +87,7 @@ const CORS_HEADERS = {
 };
 
 export const GET: RequestHandler = async ({ url }) => {
-	const secret = ENV.EDITOR_DOC_SECRET;
+	const secret = await getDeployToken();
 	if (!secret) throw error(503, 'Layout-doc endpoint is not configured.');
 	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
 

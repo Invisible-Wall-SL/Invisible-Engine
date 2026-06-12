@@ -164,6 +164,21 @@ export const loginAttempts = pgTable('login_attempts', {
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Generic key/value app settings — admin-managed runtime config that should live
+ * in the DB (not just a Railway env var) so it can be edited + rotated from the
+ * admin panel. First use: the shared build/deploy token (`deployToken`), which
+ * overrides the `EDITOR_DOC_SECRET` env bootstrap default when set. The value
+ * column may hold a SECRET; never expose it through a non-admin route.
+ */
+export const appSettings = pgTable('app_settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	/** The admin user who last set this value; null when set out-of-band. */
+	updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+});
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -175,3 +190,4 @@ export type Client = typeof clients.$inferSelect;
 export type UserClientAccess = typeof userClientAccess.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type AppSetting = typeof appSettings.$inferSelect;

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import {
@@ -69,6 +70,7 @@ import {
 	setGameUrl,
 } from '$lib/server/games';
 import { ENV } from '$lib/server/env';
+import { DEPLOY_TOKEN_KEY, getDeployToken, setAppSetting } from '$lib/server/appSettings';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -95,6 +97,19 @@ function parseExpiry(raw: string): Date | null | undefined {
 	return d;
 }
 
+/** Mask a secret to a non-reversible preview (`abcd…wxyz`). Never reveals the body. */
+function maskToken(token: string): string {
+	if (token.length <= 8) return '••••';
+	return `${token.slice(0, 4)}…${token.slice(-4)}`;
+}
+
+/** Generate a strong URL-safe random deploy token (32 bytes ≈ 43 chars). */
+function generateDeployToken(): string {
+	return randomBytes(32).toString('base64url');
+}
+
+const MIN_DEPLOY_TOKEN = 16;
+
 export const load: PageServerLoad = async ({ locals }) => {
 	await requireAdmin(locals);
 
@@ -106,6 +121,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const clients = await listClients();
 	const clientAccess = await clientAccessFor(userList.map((u) => u.id));
 	const games = await listGames();
+
+	// Deploy-token status only — the raw secret is NEVER sent on load; it is masked
+	// by default and revealed only on demand via the reveal/set/rotate actions.
+	const deployToken = await getDeployToken();
 
 	return {
 		currentUserId: locals.user!.id,
@@ -132,6 +151,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 		games,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
+		deployToken: {
+			configured: !!deployToken,
+			// A short masked preview so an admin can sanity-check WHICH token is live
+			// without revealing it. Never the full value.
+			masked: deployToken ? maskToken(deployToken) : null,
+		},
 	};
 };
 
@@ -602,5 +627,47 @@ export const actions: Actions = {
 
 		const rows = await sessionsForUser(userId);
 		return { action: 'loadSessions', userId, sessions: rows };
+	},
+
+	// --- Deploy token (shared build/publish token) ---
+	// All three actions are admin-only (requireAdmin re-checks the adminPanel
+	// capability). The secret is returned to the page ONLY by an explicit reveal/
+	// set/rotate; it is never logged and the page serves it no differently than any
+	// other form result (no-store handled by the admin route being uncacheable).
+
+	/** Reveal the current effective deploy token once (admin-only). */
+	revealDeployToken: async ({ locals }) => {
+		await requireAdmin(locals);
+		const token = await getDeployToken();
+		if (!token) {
+			return fail(404, { action: 'revealDeployToken', error: 'No deploy token is configured.' });
+		}
+		return { action: 'revealDeployToken', deployToken: token };
+	},
+
+	/** Set the deploy token to an admin-typed value (admin-only). */
+	setDeployToken: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const token = String(data.get('token') ?? '').trim();
+
+		if (token.length < MIN_DEPLOY_TOKEN) {
+			return fail(400, {
+				action: 'setDeployToken',
+				error: `Token must be at least ${MIN_DEPLOY_TOKEN} characters.`,
+			});
+		}
+
+		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
+		// Reveal the just-set value once so the admin can copy it; never logged.
+		return { action: 'setDeployToken', ok: 'Deploy token saved.', deployToken: token };
+	},
+
+	/** Generate a strong random deploy token, save it, and reveal it once (admin-only). */
+	rotateDeployToken: async ({ locals }) => {
+		const admin = await requireAdmin(locals);
+		const token = generateDeployToken();
+		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
+		return { action: 'rotateDeployToken', ok: 'Deploy token rotated.', deployToken: token };
 	},
 };

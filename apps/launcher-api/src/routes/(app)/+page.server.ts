@@ -3,7 +3,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
 import { listGamesForProject } from '$lib/server/games';
-import { ENV } from '$lib/server/env';
+import { getDeployToken } from '$lib/server/appSettings';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -18,7 +18,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		games: await listGamesForProject(activeProjectKey),
 		// Shared read token for the layout-doc endpoint; ridden along on game
 		// URLs (`&k=`) so the game can fetch its scenes. Empty when unconfigured.
-		editorDocSecret: ENV.EDITOR_DOC_SECRET,
+		// Resolves the admin-managed DB value first, else the env bootstrap.
+		editorDocSecret: (await getDeployToken()) ?? '',
 	};
 };
 
