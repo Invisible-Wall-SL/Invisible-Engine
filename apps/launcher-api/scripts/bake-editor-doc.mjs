@@ -214,6 +214,52 @@ async function main() {
 			);
 		}
 
+	// Export the symbol→state asset bindings (Invisible Symbols State Machine) into
+	// R2 `deploy/editor-symbols/` (sprite sheets keyed by their own frame names +
+	// verbatim spine bundles) so the deploy mirror that runs next pulls them, and
+	// embed the returned `{ map, index }` so the game merges the binding overrides
+	// over its coded `SYMBOL_INFO_MAP` and registers the introduced assets. Without
+	// this a rebound symbol shows in the tool preview but ships its old asset.
+	let symbols = { map: {}, index: { sheets: [], images: [], spines: [], collisions: [] } };
+	const symbolsUrl =
+		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the symbols export — it writes to R2 deploy/.');
+	} else
+		try {
+			const symRes = await fetch(symbolsUrl, { method: 'POST' });
+			if (!symRes.ok) {
+				bail(`Symbols export failed: HTTP ${symRes.status} — ${await bodySnippet(symRes)}`);
+			}
+			const s = await symRes.json();
+			symbols = {
+				map: s?.map && typeof s.map === 'object' ? s.map : {},
+				index: {
+					sheets: Array.isArray(s?.index?.sheets) ? s.index.sheets : [],
+					images: Array.isArray(s?.index?.images) ? s.index.images : [],
+					spines: Array.isArray(s?.index?.spines) ? s.index.spines : [],
+					collisions: Array.isArray(s?.index?.collisions) ? s.index.collisions : [],
+				},
+			};
+			// Loud (non-fatal) warning when a bound frame name lives in two sheets.
+			// Symbol sheet frames register with NO namespace, so a colliding name is
+			// ambiguous (last-loaded wins) — name the overlap so the author can retire
+			// the stale sheet or rename the frame.
+			for (const c of symbols.index.collisions) {
+				console.warn(
+					`⚠ bake-doc: symbol frame "${c.frame}" exists in ${c.sheets.length} sheets ` +
+						`(${c.sheets.join(', ')}). Symbol frames are un-namespaced, so this is ` +
+						'AMBIGUOUS — rename the frame or retire the stale sheet.',
+				);
+			}
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-symbols — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Localization-tool strings (reviewed translations + source text), merged into
 	// the game's Lingui catalog at boot so editor-authored localization keys (e.g.
 	// a textBox's `text` param) resolve in the shipped game. Absent/empty doc is
@@ -250,6 +296,7 @@ async function main() {
 		editorArt,
 		fonts,
 		localization,
+		symbols,
 	};
 
 	const sceneCount = doc.scenes.length;
@@ -258,13 +305,17 @@ async function main() {
 	const artCount = editorArt.sheets.length + editorArt.images.length;
 	const fontCount = fonts.catalog.fonts.length;
 	const localeCount = Object.keys(localization.messages).length;
+	const symbolCount = Object.keys(symbols.map).length;
+	const symbolAssetCount =
+		symbols.index.sheets.length + symbols.index.images.length + symbols.index.spines.length;
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
 		console.info(
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
-				` ${artCount} editor-art sheets, ${fontCount} fonts).`,
+				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
+				` ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -274,7 +325,8 @@ async function main() {
 	console.info(
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
-			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales).`,
+			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
+			` ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 

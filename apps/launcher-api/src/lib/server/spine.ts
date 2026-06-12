@@ -38,7 +38,7 @@ export async function resolveSkeletonsRoot(
 }
 
 /** Pick the first existing bundle prefix: per-project, then shared `_shared/`. */
-async function resolveBundlePrefix(
+export async function resolveBundlePrefix(
 	clientKey: string,
 	projectKey: string,
 	bundle: string,
@@ -102,7 +102,7 @@ export async function fetchSpineBundleFile(
 }
 
 /** One skeleton's index entry, as written into `skeletons.json` by the sync. */
-interface SkeletonIndexEntry {
+export interface SkeletonIndexEntry {
 	name: string;
 	folder: string;
 	skeleton_file: string;
@@ -132,9 +132,29 @@ export function bundleFromAssetKey(
 	return null;
 }
 
+/**
+ * Read a project's `skeletons.json` entries (per-project, then `_shared/`). Returns
+ * `[]` when the index is missing or unparseable. The shared read primitive for any
+ * caller that needs to resolve a folder → `{ atlas_file, skeleton_file, … }`.
+ */
+export async function loadSkeletonIndex(
+	clientKey: string,
+	projectKey: string,
+): Promise<SkeletonIndexEntry[]> {
+	const root = await resolveSkeletonsRoot(clientKey, projectKey);
+	if (!root) return [];
+	const indexText = await getObjectText(root.key);
+	if (!indexText) return [];
+	try {
+		return (JSON.parse(indexText).skeletons ?? []) as SkeletonIndexEntry[];
+	} catch {
+		return [];
+	}
+}
+
 /** Page-image filenames referenced by an atlas (lines with an image extension). */
 const ATLAS_PAGE_LINE = /^(\S.*\.(?:png|webp|jpg|jpeg))\s*$/i;
-function atlasPageNames(atlasText: string): string[] {
+export function atlasPageNames(atlasText: string): string[] {
 	const out: string[] = [];
 	for (const line of atlasText.split(/\r?\n/)) {
 		const m = line.match(ATLAS_PAGE_LINE);
@@ -204,17 +224,7 @@ export async function resolveEditorSpine(
 	const bundle = bundleFromAssetKey(clientKey, projectKey, assetKey);
 	if (bundle === null) return null;
 
-	const root = await resolveSkeletonsRoot(clientKey, projectKey);
-	if (!root) return null;
-	const indexText = await getObjectText(root.key);
-	if (!indexText) return null;
-
-	let entries: SkeletonIndexEntry[];
-	try {
-		entries = (JSON.parse(indexText).skeletons ?? []) as SkeletonIndexEntry[];
-	} catch {
-		return null;
-	}
+	const entries = await loadSkeletonIndex(clientKey, projectKey);
 	const entry = entries.find((e) => e.folder === bundle);
 	if (!entry) return null;
 

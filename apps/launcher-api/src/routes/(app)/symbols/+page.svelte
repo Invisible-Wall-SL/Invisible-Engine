@@ -120,6 +120,14 @@
 		}
 	}
 
+	/** Last path segment of a full spine-bundle R2 prefix, for a readable chip. The
+	 *  STORED `assetKey` stays the full prefix (resolution needs it); this is display
+	 *  only. Sprite frame keys have no trailing slash, so they pass through unchanged. */
+	function displayKey(cell: SymbolCell): string {
+		const trimmed = cell.assetKey.replace(/\/$/, '');
+		return cell.type === 'spine' ? (trimmed.split('/').pop() ?? trimmed) : trimmed;
+	}
+
 	/** Short binding label for a cell chip (`type · assetKey · anim`). */
 	function cellLabel(cell: SymbolCell | undefined): string {
 		if (!cell) return 'unset';
@@ -201,7 +209,7 @@
 													/>
 												{:else}
 													<span class="chip spine" title={cellLabel(eff.cell)}>
-														<span class="chip-key">{eff.cell.assetKey}</span>
+														<span class="chip-key">{displayKey(eff.cell)}</span>
 														{#if eff.cell.animationName}
 															<span class="chip-anim">{eff.cell.animationName}</span>
 														{/if}
@@ -280,7 +288,7 @@
 						>
 							<option value="">Pick a bundle…</option>
 							{#each spineBundles as b (b.key)}
-								<option value={b.name}>{b.name}</option>
+								<option value={b.key}>{b.name}</option>
 							{/each}
 						</select>
 					</div>
