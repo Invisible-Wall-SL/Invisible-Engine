@@ -348,6 +348,54 @@
 		selectedId = node.id;
 	}
 
+	/**
+	 * The doc's single `reelGrid` node, if any (scene index + node), scanning every
+	 * scene's top-level nodes — matching the engine's `findReelGridNode`, which reads
+	 * the FIRST one across all scenes to drive the live board. The editor enforces ONE
+	 * reel grid: a second would be silently ignored in-game, so the "Reel" element is
+	 * disabled while one exists and instead selects the existing one. */
+	const existingReelGrid = $derived.by(() => {
+		for (let s = 0; s < scenes.length; s++) {
+			const idx = scenes[s].nodes.findIndex((n) => n.kind === 'reelGrid');
+			if (idx !== -1) return { sceneIdx: s, node: scenes[s].nodes[idx] };
+		}
+		return null;
+	});
+
+	/**
+	 * Insert a from-scratch `reelGrid` (the parametric board placeholder) into the
+	 * active scene, centred, seeded from the game's real board shape (template `board`,
+	 * default 5×3 @ 120) so a brand-new layout gets a board the engine can read via
+	 * `findReelGridNode` + `setBoardOverride`. Mirrors `placeComponentInstance` (spawn
+	 * at main centre → select). Single-reel guard: if one already exists, jump to it
+	 * instead of creating a second (which the engine would ignore). */
+	function insertReelGrid(): void {
+		if (existingReelGrid) {
+			activeSceneIdx = existingReelGrid.sceneIdx;
+			selectedId = existingReelGrid.node.id;
+			return;
+		}
+		const main = mainSizesMap[currentLayoutType];
+		const board = data.template?.board ?? { reels: 5, rows: 3, cellSize: 120 };
+		const node: LayoutNode = {
+			id: 'n_' + Math.random().toString(36).slice(2, 10),
+			kind: 'reelGrid',
+			label: 'Reel grid',
+			x: Math.round(main.width / 2),
+			y: Math.round(main.height / 2),
+			anchor: { x: 0.5, y: 0.5 },
+			reels: board.reels,
+			rows: board.rows,
+			cellSize: board.cellSize ?? 120,
+			reelPadding: 0.5,
+			rowPadding: 0.5,
+			gapX: 0,
+			gapY: 0,
+		};
+		onSpawn(node);
+		selectedId = node.id;
+	}
+
 	/** Open the standalone Component Editor in THIS window (optionally on `id`).
 	 * Flushes the layout to the doc first so scene edits aren't lost on navigation —
 	 * except a cross-type preview, which must never autosave (the user Saves/Discards
@@ -1655,6 +1703,20 @@
 								<span class="name">Container</span>
 								<span class="tag">group</span>
 							</li>
+							<li
+								class="click"
+								class:active={existingReelGrid}
+								title={existingReelGrid
+									? 'This layout already has a reel grid (one per game) — click to select it.'
+									: 'Insert the reel/board placeholder. Drives the in-game board position + cell size.'}
+							>
+								<!-- Real <button> (not a clickable <li>) so keyboard activation +
+									 a11y are native; `display: contents` keeps the palette look identical. -->
+								<button type="button" class="li-btn" onclick={insertReelGrid}>
+									<span class="name">Reel</span>
+									<span class="tag">grid</span>
+								</button>
+							</li>
 						</ul>
 					</PanelSection>
 
@@ -2394,6 +2456,24 @@
 		background: #2a2430;
 		padding: 1px 6px;
 		border-radius: 999px;
+	}
+	li.click {
+		cursor: pointer;
+	}
+	.li-btn {
+		display: contents;
+		font: inherit;
+		color: inherit;
+		text-align: inherit;
+		cursor: pointer;
+	}
+	li.click:hover {
+		border-color: #2f3a48;
+		background: #1a1a22;
+	}
+	li.click.active {
+		border-color: #2f4660;
+		color: #9cc4ff;
 	}
 	li.muted {
 		background: transparent;
