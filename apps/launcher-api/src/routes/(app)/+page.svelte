@@ -184,6 +184,31 @@
 		</div>
 	</section>
 
+	<section class="sec sec-games">
+		<h2>Games</h2>
+		<div class="grid">
+			{#each data.games as game (game.key)}
+				{#if game.url}
+					<a class="tool" href={gameUrl(game.url)} target="_blank" rel="noopener">
+						<span class="ico">{@html GAME_ICON}</span>
+						<strong>{game.name}</strong>
+						<span class="muted">Launch for project '{projectKey}'</span>
+						<span class="tag games">launch</span>
+					</a>
+				{:else}
+					<div class="tool disabled">
+						<span class="ico">{@html GAME_ICON}</span>
+						<strong>{game.name}</strong>
+						<span class="muted">No URL set — configure in Admin.</span>
+						<span class="tag games">launch</span>
+					</div>
+				{/if}
+			{:else}
+				<p class="muted">No games yet — add them in Admin.</p>
+			{/each}
+		</div>
+	</section>
+
 	<section class="sec sec-local">
 		<h2>Local tools</h2>
 		<p class="sechelp">
@@ -243,31 +268,6 @@
 				</div>
 			{:else}
 				<p class="muted">No local tools for your role.</p>
-			{/each}
-		</div>
-	</section>
-
-	<section class="sec sec-games">
-		<h2>Games</h2>
-		<div class="grid">
-			{#each data.games as game (game.key)}
-				{#if game.url}
-					<a class="tool" href={gameUrl(game.url)} target="_blank" rel="noopener">
-						<span class="ico">{@html GAME_ICON}</span>
-						<strong>{game.name}</strong>
-						<span class="muted">Launch for project '{projectKey}'</span>
-						<span class="tag games">launch</span>
-					</a>
-				{:else}
-					<div class="tool disabled">
-						<span class="ico">{@html GAME_ICON}</span>
-						<strong>{game.name}</strong>
-						<span class="muted">No URL set — configure in Admin.</span>
-						<span class="tag games">launch</span>
-					</div>
-				{/if}
-			{:else}
-				<p class="muted">No games yet — add them in Admin.</p>
 			{/each}
 		</div>
 	</section>
