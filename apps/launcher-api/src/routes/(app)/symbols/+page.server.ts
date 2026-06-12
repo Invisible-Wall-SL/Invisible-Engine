@@ -4,7 +4,7 @@ import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { symbolDefaultsFor } from '$lib/server/symbolDefaults';
+import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
@@ -31,15 +31,18 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	}
 
 	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
-	const [doc, assets, gameType] = await Promise.all([
+	const [doc, assets, gameType, published] = await Promise.all([
 		loadSymbolsDoc(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
 		projectGameType(projectKey),
+		loadPublishedSymbolDefaults(clientKey, projectKey),
 	]);
-	// The coded defaults drive the grid's symbol list, the 6 states, and every
-	// cell's default binding; the doc above is the sparse override on top. v1
-	// resolves the set from the project's game type (always `lines` today).
-	const defaults = symbolDefaultsFor(gameType);
+	// The defaults drive the grid's symbol list, the 6 states, and every cell's
+	// default binding; the doc above is the sparse override on top. Prefer the
+	// project's OWN published `SYMBOL_INFO_MAP` (built from its coded map) so e.g.
+	// Book of Borut shows its symbols; fall back to the committed coded set for an
+	// un-published project (or `apps/lines` dev) resolved by game type.
+	const defaults = published ?? symbolDefaultsFor(gameType);
 
 	return {
 		clientKey,

@@ -151,6 +151,19 @@ export function symbolsDocKey(client: string, project: string): string {
 	return `${SUB.symbols(client, project)}/symbols.json`;
 }
 
+/**
+ * Per-project published symbol DEFAULTS:
+ * `<client>/<project>/symbols/defaults.json` — the game's coded `SYMBOL_INFO_MAP`
+ * published to R2 at build time so the tool grid is driven by each project's own
+ * symbol set instead of the committed `lines.json` fallback. Sibling of the
+ * authored `symbolsDocKey` overrides file; same client/project slug-underscore
+ * convention. DENSE (every state present), unlike the sparse overrides doc.
+ * See `docs/design/invisible-symbols-state-machine.md`.
+ */
+export function symbolDefaultsKey(client: string, project: string): string {
+	return `${SUB.symbols(client, project)}/defaults.json`;
+}
+
 export function atlasConfigKey(client: string, project: string): string {
 	return `${projectPrefix(client, project)}/atlas_config.json`;
 }

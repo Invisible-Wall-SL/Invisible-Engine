@@ -131,9 +131,16 @@ const files = {
 					//   pull:assets  — mirror the R2 deploy/ art + fonts into static/assets/
 					//                  (live-assets.md). MUST run AFTER bake:doc — the export it
 					//                  triggers is what populates deploy/ for this same build.
+					//   publish:symbols — publish this game's coded SYMBOL_INFO_MAP to R2 so the
+					//                  Invisible Symbols State Machine tool drives its grid from
+					//                  THIS project's symbols (not the committed lines fallback).
+					//                  Independent of bake/pull; safe no-op without a token
+					//                  (--optional). Runs under `node --experimental-strip-types`
+					//                  because it imports the game's TS symbol-map module.
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
 					'pull:assets': `node ./engine/apps/launcher-api/scripts/pull-project-assets.mjs --project ${slug}/${slug} --dest ./static/assets`,
 					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug} --dest ./src/baked-editor-bundle.json`,
+					'publish:symbols': `node --experimental-strip-types ./engine/apps/launcher-api/scripts/publish-symbol-defaults.mjs --project ${slug}`,
 					// publish:storybook — upload an already-built storybook-static/ to
 					// `<client>/<project>/storybook/` so the launcher's Invisible Storybook
 					// tool serves it. NOT runnable out of the box: the scaffold writes no
@@ -146,7 +153,7 @@ const files = {
 					// to `${slug}/${slug}` — fix it alongside pull:assets). See the README.
 					'publish:storybook': `node ./engine/apps/launcher-api/scripts/publish-storybook.mjs --project ${slug}/${slug} --dir storybook-static`,
 					build:
-						'pnpm build:engine && pnpm bake:doc --optional && pnpm pull:assets --optional && vite build',
+						'pnpm build:engine && pnpm bake:doc --optional && pnpm pull:assets --optional && pnpm publish:symbols --optional && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',

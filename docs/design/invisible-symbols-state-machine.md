@@ -164,11 +164,35 @@ done when it travels **export → `deploy/` → bake → pull → register**.
 - **S5 — Prove end-to-end** on Book of Borut: rebind a symbol state online → `pnpm build`
   → republish → new asset/animation shows in the game.
 
+## Per-project defaults — automatic publish (added 2026-06-12)
+
+The grid is scaffolded from each game's coded `SYMBOL_INFO_MAP` (the symbol list, the 6
+states, every cell's default binding). The launcher is cloud and can't import a game's
+source, so — like every other asset class — the game **publishes** its map to R2 and the
+tool reads it. No hand-maintained per-game JSON.
+
+1. **Publish (game build)** — `apps/launcher-api/scripts/publish-symbol-defaults.mjs` imports
+   the game's `SYMBOL_INFO_MAP` (under `node --experimental-strip-types`, since it's a TS
+   module with computed ratios) and `PUT`s `{ version, gameType, symbols }` to
+   `POST`-sibling `PUT /api/editor/symbol-defaults?project=&k=` (deploy-token gated). The
+   endpoint writes `<client>/<project>/symbols/defaults.json`. `--optional` keeps a build
+   green when un-tokened (mirrors `bake:doc`/`pull:assets`).
+2. **Scaffold (automatic for new games)** — `scripts/new-game.mjs` adds a `publish:symbols`
+   script and chains it into `build` (`… && pnpm publish:symbols --optional && vite build`),
+   so every new game publishes its symbol map on build with zero per-game wiring.
+3. **Read (tool)** — `symbols/+page.server.ts` prefers `loadPublishedSymbolDefaults(...)`
+   (R2) and falls back to the committed `symbolDefaultsFor(gameType)` (`lines.json`) for an
+   un-published project or `apps/lines` dev. So Book of Borut shows ITS symbols once it has
+   built once with a deploy token; an un-published project shows the coded `lines` set.
+
+`lines.json` stays committed as the offline fallback / dev parity.
+
 ## Open decisions
 
-- **Symbol set discovery** — v1 reads the fixed `apps/lines` symbol set. A later version
-  should read the project's actual symbol set from the engine-truth import (mirrors how
-  `defaultLayout('lines')` imports the basegame).
+- **Existing standalone games must build once to publish.** Book of Borut (and any game that
+  predates this) needs (a) the S1 engine contract mirrored in (its own `src/game/*`), and
+  (b) one tokened build (or a manual `publish:symbols` run) to populate
+  `symbols/defaults.json`. New games get it from the scaffolder automatically.
 - **Per-game `getSymbolInfo`** — each `apps/<game>/src/game/utils.ts` has its own copy;
   S1 lands in `apps/lines` first, then mirrors into Book of Borut (record-every-engine-change
   rule) and the other reference games.
