@@ -87,6 +87,13 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<path d="M5 17 9.5 6h1L15 17"/><line x1="6.7" y1="13" x2="13.3" y2="13"/>' +
 			'<line x1="4" y1="20" x2="20" y2="20"/>',
 	),
+	// grid of cells with one highlighted (a symbol×state matrix)
+	symbols: I(
+		'<rect x="3" y="3" width="18" height="18" rx="2"/>' +
+			'<line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>' +
+			'<line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>' +
+			'<rect x="9.6" y="9.6" width="4.8" height="4.8" rx="0.6" fill="currentColor" stroke="none"/>',
+	),
 };
 
 /** Registry of every tool the platform knows about. */
@@ -197,6 +204,14 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/fonts',
 		icon: TOOL_ICONS.fontMaker,
 	},
+	symbols: {
+		id: 'symbols',
+		name: 'Invisible Symbols State Machine',
+		description: 'Rebind each symbol×state to a sprite frame or spine animation from R2.',
+		kind: 'online',
+		url: '/symbols',
+		icon: TOOL_ICONS.symbols,
+	},
 };
 
 /**
@@ -208,6 +223,7 @@ export const TOOLS: Record<string, ToolDef> = {
  */
 export const TOOL_BAR_ORDER: string[] = [
 	'editor',
+	'symbols',
 	'sheetMaker',
 	'atlasTool',
 	'componentEditor',
@@ -240,6 +256,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'invisibleLauncher',
 		'localization',
 		'editor',
+		'symbols',
 		'componentEditor',
 		'fontMaker',
 		'ftpBrowser',
@@ -251,6 +268,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'sheetMaker',
 		'localization',
 		'editor',
+		'symbols',
 		'componentEditor',
 		'fontMaker',
 	],
@@ -408,6 +426,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	componentEditor: 'component-editor',
 	fontMaker: 'font-maker',
 	storybook: 'storybook',
+	symbols: 'symbols-state-machine',
 };
 
 /** Repo-relative path to a tool's documentation (authored by the docs effort). */

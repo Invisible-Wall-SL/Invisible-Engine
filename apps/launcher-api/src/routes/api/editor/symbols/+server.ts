@@ -11,9 +11,9 @@ import type { RequestHandler } from './$types';
 /**
  * Authoring endpoints for the Invisible Symbols State Machine (`/symbols`) doc.
  *
- * Session-gated (logged-in + entitled to the `editor` tool, role + per-user
- * overrides applied) — the SAME gate the editor component/template routes use,
- * NOT the deploy-token gate (that is only for the build-time export in S4). The
+ * Session-gated (logged-in + entitled to the `symbols` tool, role + per-user
+ * overrides applied) — the SAME entitlement gate the `/symbols` page uses, NOT
+ * the deploy-token gate (that is only for the build-time export in S4). The
  * project is a `?project=` request param resolved to its client the same way the
  * read-only `doc` route does (`projectClientKey`, defaulting to the unassigned
  * client), so the doc lands at `<client>/<project>/symbols/symbols.json`.
@@ -22,8 +22,8 @@ async function gate(locals: App.Locals): Promise<void> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Editor.');
+	if (!roleHasTool(locals.user.role, 'symbols', roleOverrides, overrides)) {
+		throw error(403, 'Your role does not have access to the Invisible Symbols State Machine.');
 	}
 }
 

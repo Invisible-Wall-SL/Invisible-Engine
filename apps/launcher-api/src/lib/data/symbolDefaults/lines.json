@@ -1,0 +1,637 @@
+{
+  "version": 1,
+  "gameType": "lines",
+  "symbols": {
+    "H1": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "H1",
+        "animationName": "h1",
+        "sizeRatios": {
+          "width": 0.575,
+          "height": 0.513
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "h1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "h1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "h1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "h1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "H2": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "H2",
+        "animationName": "h2",
+        "sizeRatios": {
+          "width": 0.5,
+          "height": 0.513
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "h2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "h2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "h2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "h2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "H3": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "H3",
+        "animationName": "h3",
+        "sizeRatios": {
+          "width": 0.45,
+          "height": 0.47700000000000004
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "h3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "h3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "h3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "h3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "H4": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "H4",
+        "animationName": "h4",
+        "sizeRatios": {
+          "width": 0.45,
+          "height": 0.47700000000000004
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "h4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "h4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "h4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "h4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "H5": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "H5",
+        "animationName": "h5",
+        "sizeRatios": {
+          "width": 0.45,
+          "height": 0.47700000000000004
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "h5.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "h5.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "h5.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "h5.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "L1": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "L1",
+        "animationName": "l1",
+        "sizeRatios": {
+          "width": 0.375,
+          "height": 0.5850000000000001
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "l1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "l1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "l1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "l1.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "L2": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "L2",
+        "animationName": "l2",
+        "sizeRatios": {
+          "width": 0.375,
+          "height": 0.5850000000000001
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "l2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "l2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "l2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "l2.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "L3": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "L3",
+        "animationName": "l3",
+        "sizeRatios": {
+          "width": 0.375,
+          "height": 0.5670000000000001
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "l3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "l3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "l3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "l3.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "L4": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "L4",
+        "animationName": "l4",
+        "sizeRatios": {
+          "width": 0.375,
+          "height": 0.5670000000000001
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "l4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "l4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "l4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "land": {
+        "type": "sprite",
+        "assetKey": "l4.webp",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      }
+    },
+    "L5": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "M",
+        "animationName": "low_multiplier_pay",
+        "sizeRatios": {
+          "width": 0.3,
+          "height": 0.3
+        }
+      },
+      "postWinStatic": {
+        "type": "spine",
+        "assetKey": "M",
+        "animationName": "low_multiplier_static",
+        "sizeRatios": {
+          "width": 0.3,
+          "height": 0.3
+        }
+      },
+      "static": {
+        "type": "spine",
+        "assetKey": "M",
+        "animationName": "low_multiplier_static",
+        "sizeRatios": {
+          "width": 0.3,
+          "height": 0.3
+        }
+      },
+      "spin": {
+        "type": "spine",
+        "assetKey": "M",
+        "animationName": "low_multiplier_static",
+        "sizeRatios": {
+          "width": 0.3,
+          "height": 0.3
+        }
+      },
+      "land": {
+        "type": "spine",
+        "assetKey": "M",
+        "animationName": "low_multiplier_static",
+        "sizeRatios": {
+          "width": 0.3,
+          "height": 0.3
+        }
+      }
+    },
+    "W": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "explodedW.png",
+        "sizeRatios": {
+          "width": 0.85,
+          "height": 0.85
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "w.png",
+        "sizeRatios": {
+          "width": 1.12,
+          "height": 1.12
+        }
+      },
+      "spin": {
+        "type": "sprite",
+        "assetKey": "w.png",
+        "sizeRatios": {
+          "width": 1.12,
+          "height": 1.12
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "W",
+        "animationName": "wild_dynamite",
+        "sizeRatios": {
+          "width": 1.35,
+          "height": 1.15
+        }
+      },
+      "land": {
+        "type": "spine",
+        "assetKey": "W",
+        "animationName": "wild_dynamite_land",
+        "sizeRatios": {
+          "width": 1.35,
+          "height": 1.15
+        }
+      }
+    },
+    "S": {
+      "explosion": {
+        "type": "spine",
+        "assetKey": "explosion",
+        "animationName": "explosion",
+        "sizeRatios": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "postWinStatic": {
+        "type": "sprite",
+        "assetKey": "s.png",
+        "sizeRatios": {
+          "width": 1.243,
+          "height": 1.243
+        }
+      },
+      "static": {
+        "type": "sprite",
+        "assetKey": "s.png",
+        "sizeRatios": {
+          "width": 1.243,
+          "height": 1.243
+        }
+      },
+      "spin": {
+        "type": "spine",
+        "assetKey": "S",
+        "animationName": "scatter_spin",
+        "sizeRatios": {
+          "width": 2.5,
+          "height": 2.3
+        }
+      },
+      "win": {
+        "type": "spine",
+        "assetKey": "S",
+        "animationName": "scatter_win",
+        "sizeRatios": {
+          "width": 2.5,
+          "height": 2.3
+        }
+      },
+      "land": {
+        "type": "spine",
+        "assetKey": "S",
+        "animationName": "scatter_land",
+        "sizeRatios": {
+          "width": 2.5,
+          "height": 2.3
+        }
+      }
+    }
+  }
+}
