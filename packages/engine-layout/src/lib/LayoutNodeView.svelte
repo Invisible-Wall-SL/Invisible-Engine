@@ -17,6 +17,7 @@
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { resolveBoundValue } from './componentParams';
+	import { editorArtTextureKey, isManifestAssetKey } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 
@@ -205,12 +206,23 @@
 			? resolveBoundValue(node.paramBindings, 'tint', componentParams)
 			: undefined,
 	);
-	const spriteKey = $derived.by(() => {
+	// A sprite resolves its texture by `region` (a frame in a loaded sheet) or, when
+	// region-less (a standalone image), by `assetKey`. Editor-art frames are ALSO
+	// registered scoped by their manifest (`<assetKey>::<region>`), so a node bound
+	// to one sheet can't pick up an identically-named frame from another. We look up
+	// the scoped key first and fall back to the bare region (parity for game-bundled
+	// sheets + any registration predating the namespacing).
+	const spriteRef = $derived.by(() => {
 		if (node.kind !== 'sprite') return undefined;
 		const region = typeof boundRegion === 'string' ? boundRegion : node.region;
 		const assetKey = typeof boundAssetKey === 'string' ? boundAssetKey : node.assetKey;
-		return region ?? assetKey;
+		if (region && isManifestAssetKey(assetKey)) {
+			return { key: editorArtTextureKey(assetKey, region), fallbackKey: region };
+		}
+		return { key: region ?? assetKey, fallbackKey: undefined };
 	});
+	const spriteKey = $derived(spriteRef?.key);
+	const spriteFallbackKey = $derived(spriteRef?.fallbackKey);
 	const spriteTint = $derived(typeof boundTint === 'number' ? boundTint : transform.tint);
 </script>
 
@@ -288,6 +300,7 @@
 	{:else if node.kind === 'sprite'}
 		<Sprite
 			key={spriteKey}
+			fallbackKey={spriteFallbackKey}
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
 			anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}

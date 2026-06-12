@@ -6,6 +6,11 @@
 	export type Props = Omit<BaseProps, 'texture'> & {
 		debug?: boolean;
 		key: string;
+		/** Resolved when `key` is absent from `loadedAssets`. Lets a caller pass a
+		 * scoped lookup key (e.g. an editor-art `<assetKey>::<region>`) while still
+		 * degrading to the bare key when the scoped texture was not registered (a
+		 * game whose asset registration predates the namespacing). */
+		fallbackKey?: string;
 	};
 </script>
 
@@ -14,15 +19,19 @@
 	import { getContextApp } from '../context.svelte';
 	import type { LoadedSprite } from '../types';
 
-	const { debug, key, ...baseSpriteProps }: Props = $props();
+	const { debug, key, fallbackKey, ...baseSpriteProps }: Props = $props();
 	const context = getContextApp();
 	const texture = $derived(
-		(context.stateApp.loadedAssets?.[key] || PIXI.Texture.EMPTY) as LoadedSprite,
+		(context.stateApp.loadedAssets?.[key] ||
+			(fallbackKey ? context.stateApp.loadedAssets?.[fallbackKey] : undefined) ||
+			PIXI.Texture.EMPTY) as LoadedSprite,
 	);
 </script>
 
 {#if texture === PIXI.Texture.EMPTY || debug}
-	{console.error(`Sprite: key "${key}" is not found in the loadedAssets`)}
+	{console.error(
+		`Sprite: key "${key}"${fallbackKey ? ` (fallback "${fallbackKey}")` : ''} is not found in the loadedAssets`,
+	)}
 	{console.log('loadedAssets', $state.snapshot(context.stateApp).loadedAssets)}
 {/if}
 

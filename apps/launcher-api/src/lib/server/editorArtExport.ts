@@ -43,9 +43,22 @@ export interface EditorArtImage {
 	file: string;
 }
 
+/** A region name that appears in MORE THAN ONE exported sheet. Harmless now that
+ * each sheet is registered scoped by its manifest, but surfaced as a build warning
+ * because it usually means a superseded sheet (e.g. the 2D original behind a 3D
+ * remake) is still referenced and could be retired. */
+export interface EditorArtCollision {
+	region: string;
+	/** Stems (folder names under `editor-art/`) of the sheets sharing this name. */
+	sheets: string[];
+	/** Whether the colliding name is actually placed by the doc (vs only packed). */
+	used: boolean;
+}
+
 export interface EditorArtIndex {
 	sheets: EditorArtSheet[];
 	images: EditorArtImage[];
+	collisions: EditorArtCollision[];
 }
 
 /** A doc `assetKey` that names an R2 atlas/sheet manifest (vs a game-bundled
@@ -68,6 +81,9 @@ interface ArtRefs {
 	/** Region names referenced ONLY by name (image-kind component params) — their
 	 * containing manifest must be found among the project's atlases. */
 	regionNames: Set<string>;
+	/** Every region a sprite node actually places (for the collision report's
+	 * `used` flag) — a superset of `regionNames`. */
+	usedRegions: Set<string>;
 }
 
 function walkNodes(nodes: LayoutNode[], visit: (node: LayoutNode) => void): void {
@@ -81,7 +97,12 @@ function walkNodes(nodes: LayoutNode[], visit: (node: LayoutNode) => void): void
  * keys, and region names set through image-kind params (instance overrides and
  * def defaults), which carry no atlas key of their own. */
 function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): ArtRefs {
-	const refs: ArtRefs = { manifestKeys: new Set(), imageKeys: new Set(), regionNames: new Set() };
+	const refs: ArtRefs = {
+		manifestKeys: new Set(),
+		imageKeys: new Set(),
+		regionNames: new Set(),
+		usedRegions: new Set(),
+	};
 	const imageParamKeys = new Map<string, Set<string>>();
 	for (const [id, def] of Object.entries(defs)) {
 		const keys = new Set<string>();
@@ -95,6 +116,9 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 	}
 
 	const visit = (node: LayoutNode): void => {
+		if (node.kind === 'sprite' && typeof node.region === 'string' && node.region) {
+			refs.usedRegions.add(node.region);
+		}
 		if (node.kind === 'sprite' && isManifestAssetKey(node.assetKey)) {
 			refs.manifestKeys.add(node.assetKey);
 		} else if (node.kind === 'sprite' && !node.region && isImageAssetKey(node.assetKey)) {
@@ -112,6 +136,8 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 
 	for (const scene of doc.scenes) walkNodes(scene.nodes, visit);
 	for (const def of Object.values(defs)) walkNodes([def.root], visit);
+	// Regions referenced by name through image params are "used" too.
+	for (const n of refs.regionNames) refs.usedRegions.add(n);
 	return refs;
 }
 
@@ -208,6 +234,9 @@ export async function exportEditorArt(
 	const usedStems = new Set<string>();
 	const coveredRegions = new Set<string>();
 	const exported = new Set<string>();
+	/** Region names per exported sheet (by stem) — used to detect cross-sheet name
+	 * collisions for the build warning. */
+	const sheetRegionNames: { stem: string; names: string[] }[] = [];
 
 	const exportManifest = async (
 		manifestKey: string,
@@ -238,6 +267,7 @@ export async function exportEditorArt(
 		written.add(`${deployPrefix}${jsonRel}`);
 		written.add(`${deployPrefix}${pageRel}`);
 		sheets.push({ key: manifestKey, json: jsonRel, frames: set.regions.length });
+		sheetRegionNames.push({ stem, names: set.regions.map((r) => r.name) });
 		for (const r of set.regions) coveredRegions.add(r.name);
 	};
 
@@ -279,7 +309,30 @@ export async function exportEditorArt(
 		images.push({ key: imageKey, file });
 	}
 
-	const index: EditorArtIndex = { sheets, images };
+	// Cross-sheet region-name collisions. Each sheet is registered scoped by its
+	// manifest so a collision no longer mis-renders, but it usually flags a stale
+	// sheet (e.g. a 2D original still referenced behind a 3D remake) worth retiring.
+	const regionToStems = new Map<string, Set<string>>();
+	for (const { stem, names } of sheetRegionNames) {
+		for (const name of names) {
+			let stems = regionToStems.get(name);
+			if (!stems) regionToStems.set(name, (stems = new Set()));
+			stems.add(stem);
+		}
+	}
+	const collisions: EditorArtCollision[] = [];
+	for (const [region, stems] of regionToStems) {
+		if (stems.size >= 2) {
+			collisions.push({
+				region,
+				sheets: [...stems].sort(),
+				used: refs.usedRegions.has(region),
+			});
+		}
+	}
+	collisions.sort((a, b) => a.region.localeCompare(b.region));
+
+	const index: EditorArtIndex = { sheets, images, collisions };
 	const indexKey = `${artPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);

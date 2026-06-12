@@ -1,5 +1,10 @@
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
-import { registerComponentDefaults, registerComponents, registerTextResolver } from 'engine-layout';
+import {
+	editorArtNamespace,
+	registerComponentDefaults,
+	registerComponents,
+	registerTextResolver,
+} from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import type { MessagesMap } from 'utils-shared/i18n';
 
@@ -64,15 +69,22 @@ export function registerBakedComponents(): void {
  */
 export function bakedEditorArtAssets(): Record<
 	string,
-	{ type: 'sprites' | 'sprite'; src: string; preload: boolean }
+	{ type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
 > {
-	const out: Record<string, { type: 'sprites' | 'sprite'; src: string; preload: boolean }> = {};
+	const out: Record<
+		string,
+		{ type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
+	> = {};
 	if (!hasBakedDoc()) return out;
 	for (const sheet of bakedBundle.editorArt?.sheets ?? []) {
+		// Scope each sheet's frames by its manifest key (the value sprite nodes store
+		// as `assetKey`) so two sheets that reuse a region name don't collide in the
+		// flat loadedAssets map. `LayoutNodeView` resolves the matching scoped key.
 		out[`editorArt/${sheet.json}`] = {
 			type: 'sprites',
 			src: `assets/${sheet.json}`,
 			preload: true,
+			namespace: editorArtNamespace(sheet.key),
 		};
 	}
 	// Standalone images register under the sprite node's full assetKey — that IS

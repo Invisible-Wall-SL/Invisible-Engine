@@ -43,11 +43,11 @@
 		const loadedAssetsArray = await Promise.all(
 			nameList.map(async (key) => {
 				try {
-					const { type, src } = context.stateApp.assets![key];
+					const { type, src, namespace } = context.stateApp.assets![key];
 					const loadSrc =
 						type === 'spine' ? Object.values(src).filter((item) => typeof item === 'string') : src;
 					const rawAsset = await PIXI.Assets.load<RawAsset>(loadSrc, onProgress);
-					const processed = getProcessed({ key, rawAsset, type, src });
+					const processed = getProcessed({ key, rawAsset, type, src, namespace });
 					return processed;
 				} catch (error) {
 					console.error(error);

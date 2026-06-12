@@ -17,7 +17,18 @@ const PROCESS_METHOD_MAP = {
 		return { [key]: skeletonData };
 	},
 	sprite: ({ key, rawAsset }: { key: string; rawAsset: RawSprites }) => ({ [key]: rawAsset }),
-	sprites: ({ rawAsset }: { rawAsset: RawSprites }) => rawAsset.textures,
+	// A `namespace` registers each frame BOTH bare and under `<namespace><frame>`,
+	// so a sheet scoped by its manifest can't collide with another sheet that reuses
+	// a frame name, while the bare key preserves back-compat for un-scoped lookups.
+	sprites: ({ rawAsset, namespace }: { rawAsset: RawSprites; namespace?: string }) => {
+		if (!namespace) return rawAsset.textures;
+		const out: RawSprites['textures'] = {};
+		for (const [name, texture] of Object.entries(rawAsset.textures)) {
+			out[name] = texture;
+			out[`${namespace}${name}`] = texture;
+		}
+		return out;
+	},
 	spriteSheet: ({ key, rawAsset }: { key: string; rawAsset: RawSprites }) => ({
 		[key]: Object.values(rawAsset.textures),
 	}),
@@ -31,16 +42,18 @@ export const getProcessed = ({
 	type,
 	rawAsset,
 	src,
+	namespace,
 }: {
 	key: string;
 	type: RawType;
 	rawAsset: RawAsset;
 	src: string | SpineSrc;
+	namespace?: string;
 }) => {
 	if (type === 'font') return; // No need to process raw font data and add it to the loaded assets.
 	const processMethod = PROCESS_METHOD_MAP[type];
 	if (!processMethod)
 		throw Error('No asset process method found, please check the type of the asset.');
 	// @ts-expect-error
-	return processMethod({ key, rawAsset, src });
+	return processMethod({ key, rawAsset, src, namespace });
 };

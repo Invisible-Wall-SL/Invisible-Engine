@@ -31,7 +31,16 @@ export type RawAsset = RawSpine | RawSprite | RawSprites | RawSpriteSheet | RawA
 export type RawType = 'spine' | 'sprite' | 'sprites' | 'spriteSheet' | 'font' | 'audio';
 
 export type SpineSrc = { skeleton: string; atlas: string; scale?: number };
-export type Asset = { type: RawType; src: string | SpineSrc; preload?: boolean };
+export type Asset = {
+	type: RawType;
+	src: string | SpineSrc;
+	preload?: boolean;
+	/** `sprites` only: a key prefix prepended to every frame's `loadedAssets` entry
+	 * (in addition to the bare frame name), so two sheets that reuse a frame name
+	 * don't clobber each other in the flat map. Used by editor-art registration to
+	 * scope each sheet by its manifest. See engine-layout `editorArtKey.ts`. */
+	namespace?: string;
+};
 export type Assets = PIXI.Dict<Asset>;
 
 export type ParticleSpawnOption =

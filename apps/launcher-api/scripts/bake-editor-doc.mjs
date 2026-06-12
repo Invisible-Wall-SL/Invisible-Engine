@@ -169,6 +169,18 @@ async function main() {
 				sheets: Array.isArray(art?.sheets) ? art.sheets : [],
 				images: Array.isArray(art?.images) ? art.images : [],
 			};
+			// Loud (non-fatal) warning when two referenced sheets share a region name.
+			// Rendering is correct (each sheet is scoped by its manifest), but it
+			// usually means a superseded sheet is still referenced — name the overlap
+			// so the author can retire the dead one.
+			const collisions = Array.isArray(art?.collisions) ? art.collisions : [];
+			for (const c of collisions) {
+				console.warn(
+					`⚠ bake-doc: region "${c.region}" exists in ${c.sheets.length} sheets ` +
+						`(${c.sheets.join(', ')})${c.used ? ' — PLACED in the layout' : ''}. ` +
+						'Scoped per manifest, so it renders correctly; retire the stale sheet if unused.',
+				);
+			}
 		} catch (err) {
 			if (err instanceof BakeBail) throw err;
 			bail(
