@@ -147,12 +147,27 @@ const boardLayout = () => {
 	// the whole board (the engine's coded vertical lead is 0.5). Default 0.5 ⇒ 0.
 	const paddingOffsetY = (override.rowPadding - 0.5) * SYMBOL_SIZE * scale;
 
+	// The flush pivot (BOARD_SIZES/2) is the gap-LESS board centre. `getSymbolX`
+	// grows the gap cumulatively rightward and the reel pitch grows it downward,
+	// so without this the symbol cluster drifts off the container origin (lopsided,
+	// disagreeing with the editor's symmetric footprint). Recentre the pivot on the
+	// gap-extended cluster: the X cluster-centre shift is the mean reel-index extra
+	// `(reels-1)/2 · columnExtraLocal`; the Y shift is the mean visible-row pitch
+	// excess `(rows/2) · (rowPitchLocal − SYMBOL_SIZE)` — note the Y factor is rows/2,
+	// not (rows−1)/2, because the visible rows are symbolIndex 1..rows with a −0.5
+	// pitch lead, so their mean centre lands at (rows/2)·pitch (see boardGeometry()
+	// + createReelForSpinning's `symbolY`). No override ⇒ both extras are 0 ⇒ pivot
+	// is byte-identical to the flush case.
+	const { columnExtraLocal, rowPitchLocal } = boardGeometry();
+	const pivotX = BOARD_SIZES.width / 2 + ((BOARD_DIMENSIONS.x - 1) / 2) * columnExtraLocal;
+	const pivotY = BOARD_SIZES.height / 2 + (BOARD_DIMENSIONS.y / 2) * (rowPitchLocal - SYMBOL_SIZE);
+
 	return {
 		x: override.x + paddingOffsetX,
 		y: override.y + paddingOffsetY,
 		scale,
 		anchor: { x: 0.5, y: 0.5 },
-		pivot: { x: BOARD_SIZES.width / 2, y: BOARD_SIZES.height / 2 },
+		pivot: { x: pivotX, y: pivotY },
 		...BOARD_SIZES,
 	};
 };
