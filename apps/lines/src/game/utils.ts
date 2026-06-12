@@ -3,7 +3,8 @@ import { stateBet } from 'state-shared';
 import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
 
-import { SYMBOL_INFO_MAP, BOARD_DIMENSIONS } from './constants';
+import { BOARD_DIMENSIONS } from './constants';
+import { getActiveSymbolInfoMap } from './symbolMap';
 import { eventEmitter } from './eventEmitter';
 import type { Bet, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
@@ -56,5 +57,5 @@ export const getSymbolInfo = ({
 	rawSymbol: RawSymbol;
 	state: SymbolState;
 }) => {
-	return SYMBOL_INFO_MAP[rawSymbol.name][state];
+	return getActiveSymbolInfoMap()[rawSymbol.name][state];
 };

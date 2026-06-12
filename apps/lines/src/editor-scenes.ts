@@ -11,6 +11,7 @@ import type { MessagesMap } from 'utils-shared/i18n';
 import bakedBundleJson from './baked-editor-bundle.json';
 import { defaultLayout } from './game/defaultLayout';
 import { HUD_BUTTON_INSTANCES } from './game/editorFlags';
+import type { SymbolInfoMap } from './game/types';
 
 /**
  * Build-time freeze (see docs/design/live-assets.md → "Layout-doc bake").
@@ -43,6 +44,26 @@ type BakedBundle = {
 	localization?: {
 		sourceLang: string;
 		messages: Record<string, Record<string, string>>;
+	};
+	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
+	 * of any sprite sheets / images / spine bundles those bindings introduce, exported to
+	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
+	 * `map` is merged over the coded `SYMBOL_INFO_MAP` at first render (`game/symbolMap.ts`);
+	 * the `index` registers the new assets at `createApp`. See
+	 * docs/design/invisible-symbols-state-machine.md. */
+	symbols?: {
+		map: SymbolInfoMap;
+		index: {
+			/** Sprite sheets. `key` is the source manifest (kept for the exporter); the
+			 * sheet's frames register under their own names — symbol bindings reference
+			 * those plain frame keys (e.g. `h1.webp`). */
+			sheets: { key: string; json: string }[];
+			/** Standalone images, registered under the binding's full `assetKey`. */
+			images: { key: string; file: string }[];
+			/** Spine bundles (atlas + skeleton, shared page on disk). `key` is the
+			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
+			spines: { key: string; atlas: string; skeleton: string; scale?: number }[];
+		};
 	};
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
@@ -97,6 +118,61 @@ export function bakedEditorArtAssets(): Record<
 	// the engine's lookup key for a region-less sprite node.
 	for (const image of bakedBundle.editorArt?.images ?? []) {
 		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
+	}
+	return out;
+}
+
+/**
+ * The baked symbol→state binding overrides (Invisible Symbols State Machine). Merged over
+ * the coded `SYMBOL_INFO_MAP` in `game/symbolMap.ts`. Undefined when un-baked → the game
+ * keeps the coded map byte-for-byte (dev parity).
+ */
+export function bakedSymbolMap(): SymbolInfoMap | undefined {
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.map;
+}
+
+type SymbolAssetEntry =
+	| { type: 'sprites' | 'sprite'; src: string; preload: boolean }
+	| { type: 'spine'; src: { atlas: string; skeleton: string; scale: number }; preload: boolean };
+
+/**
+ * Asset entries for any sprite sheet / image / spine bundle a baked symbol binding
+ * introduces (exported to `deploy/editor-symbols/`, mirrored into `static/assets/` by the
+ * deploy pull). Spread into `createApp({assets})` beside `bakedEditorArtAssets()` so a
+ * rebound symbol resolves WITHOUT a manual `assets.ts` entry. The src is page-relative
+ * (`assets/…`), matching how the static dir is served. Empty when un-baked (dev parity).
+ *
+ * Symbol sprite sheets register their frames under the sheet's OWN frame names (NOT
+ * namespaced like editor-art), because a symbol binding's `assetKey` is the plain frame
+ * key (e.g. `h1.webp`) that `SymbolSprite` looks up directly. The exporter therefore must
+ * keep symbol frame keys unique across the project's bound sheets.
+ */
+export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
+	const out: Record<string, SymbolAssetEntry> = {};
+	if (!hasBakedDoc()) return out;
+	const index = bakedBundle.symbols?.index;
+	if (!index) return out;
+	for (const sheet of index.sheets ?? []) {
+		out[`editorSymbols/${sheet.json}`] = {
+			type: 'sprites',
+			src: `assets/${sheet.json}`,
+			preload: true,
+		};
+	}
+	for (const image of index.images ?? []) {
+		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
+	}
+	for (const spine of index.spines ?? []) {
+		out[spine.key] = {
+			type: 'spine',
+			src: {
+				atlas: `assets/${spine.atlas}`,
+				skeleton: `assets/${spine.skeleton}`,
+				scale: spine.scale ?? 2,
+			},
+			preload: true,
+		};
 	}
 	return out;
 }
