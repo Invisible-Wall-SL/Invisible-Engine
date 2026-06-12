@@ -68,14 +68,23 @@ export async function saveBitmapFont(args: {
 	files: SaveFile[];
 	/** Where to save (default `project`; `shared` needs the `fontPublish` capability). */
 	target?: FontTarget;
+	/** Replace an existing entry with the same id (the server rejects collisions otherwise). */
+	overwrite?: boolean;
 }): Promise<{ id: string; name: string }> {
-	const { folder, descriptorFile, descriptorFormat, files, target = 'project' } = args;
+	const { folder, descriptorFile, descriptorFormat, files, target = 'project', overwrite } = args;
 	await putFiles(folder, files, target);
 
 	const saveRes = await fetch('/api/fonts/save', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ folder, target, kind: 'bitmap', descriptorFile, descriptorFormat }),
+		body: JSON.stringify({
+			folder,
+			target,
+			kind: 'bitmap',
+			descriptorFile,
+			descriptorFormat,
+			overwrite,
+		}),
 	});
 	if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
 	const { font } = (await saveRes.json()) as { font: { name: string; id: string } };
@@ -103,8 +112,10 @@ export async function saveWebFont(args: {
 	name: string;
 	files: WebSaveFile[];
 	target?: FontTarget;
+	/** Replace an existing entry with the same id (the server rejects collisions otherwise). */
+	overwrite?: boolean;
 }): Promise<{ id: string; name: string }> {
-	const { folder, name, files, target = 'project' } = args;
+	const { folder, name, files, target = 'project', overwrite } = args;
 	await putFiles(folder, files, target);
 
 	const saveRes = await fetch('/api/fonts/save', {
@@ -115,6 +126,7 @@ export async function saveWebFont(args: {
 			target,
 			kind: 'web',
 			name,
+			overwrite,
 			files: files.map((f) => ({
 				file: f.name,
 				format: f.format,

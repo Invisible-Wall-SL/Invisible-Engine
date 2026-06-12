@@ -91,6 +91,7 @@
 	let images = $state<PickedImage[]>([]);
 	let folder = $state('');
 	let folderTouched = $state(false);
+	let overwrite = $state(false);
 	let existingIds = $state<Set<string>>(new Set());
 
 	// Web-font sub-mode state.
@@ -150,10 +151,17 @@
 	const folderCollision = $derived(folderValid && existingIds.has(folder));
 	const familyValid = $derived(family.trim().length > 0);
 	const canSave = $derived(
-		mode === 'web'
+		(mode === 'web'
 			? webFiles.length > 0 && familyValid && folderValid && !saving
-			: !!descriptor && folderValid && missingPages.length === 0 && !saving,
+			: !!descriptor && folderValid && missingPages.length === 0 && !saving) &&
+			(!folderCollision || overwrite),
 	);
+
+	$effect(() => {
+		// The folder IS the catalog id — keep it tracking the (editable) web family name
+		// until the user edits the folder by hand, so a different name yields a different id.
+		if (mode === 'web' && !folderTouched) folder = slug(family);
+	});
 
 	/**
 	 * Sort dropped files into bitmap-import (descriptor + page images) or web-import
@@ -195,7 +203,6 @@
 		}
 		const stem = file.name.replace(/\.[^.]+$/, '');
 		if (!familyTouched && !family) family = stem;
-		if (!folderTouched && !folder) folder = slug(stem);
 		webFiles = [
 			...webFiles,
 			{
@@ -268,6 +275,7 @@
 		familyTouched = false;
 		folder = '';
 		folderTouched = false;
+		overwrite = false;
 		errors = [];
 		saveError = null;
 		savedNote = null;
@@ -462,6 +470,7 @@
 			descriptorFile: descriptor.file.name,
 			descriptorFormat: descriptor.format,
 			target,
+			overwrite,
 			files,
 		});
 	}
@@ -475,7 +484,7 @@
 			weight: w.weight,
 			style: w.style,
 		}));
-		return saveWebFont({ folder, name: family.trim(), target, files });
+		return saveWebFont({ folder, name: family.trim(), target, overwrite, files });
 	}
 
 	onDestroy(() => {
@@ -567,8 +576,13 @@
 					</p>
 				{:else if folderCollision}
 					<p class="warn small">
-						An entry with id <code>{folder}</code> exists — saving overwrites it.
+						A font with id <code>{folder}</code> already exists. Change the folder/id to save a new
+						font, or confirm overwrite.
 					</p>
+					<label class="overwrite-toggle">
+						<input type="checkbox" bind:checked={overwrite} /> Overwrite the existing
+						<code>{folder}</code>
+					</label>
 				{/if}
 
 				<h2 class="spaced">Files</h2>
@@ -699,7 +713,14 @@
 						letter or digit.
 					</p>
 				{:else if folderCollision}
-					<p class="warn small">An entry with id <code>{folder}</code> exists — saving overwrites it.</p>
+					<p class="warn small">
+						A font with id <code>{folder}</code> already exists. Change the folder/id to save a new
+						font, or confirm overwrite.
+					</p>
+					<label class="overwrite-toggle">
+						<input type="checkbox" bind:checked={overwrite} /> Overwrite the existing
+						<code>{folder}</code>
+					</label>
 				{/if}
 			</div>
 
@@ -904,6 +925,18 @@
 	.folder-field input:focus {
 		outline: none;
 		border-color: #6b5bff;
+	}
+	.overwrite-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+		font-size: 12px;
+		color: #e0b050;
+		cursor: pointer;
+	}
+	.overwrite-toggle input {
+		accent-color: #6b5bff;
 	}
 	.canvas-wrap {
 		background: #0f0f14;

@@ -16,6 +16,8 @@ interface SaveRequest {
 	folder?: unknown;
 	target?: unknown;
 	kind?: unknown;
+	/** Must be explicitly `true` to replace an existing entry with the same `id`. */
+	overwrite?: unknown;
 	// Bitmap.
 	descriptorFile?: unknown;
 	descriptorFormat?: unknown;
@@ -53,11 +55,30 @@ async function loadCatalog(catalogKey: string, prefix: string): Promise<FontCata
 	return catalog;
 }
 
-/** Upsert an entry by `id === folder` and write the catalog back. */
-async function commit(catalog: FontCatalog, catalogKey: string, entry: FontEntry): Promise<void> {
+/**
+ * Upsert an entry by `id === folder` and write the catalog back. A collision is only
+ * replaced when `overwrite` is explicitly true — otherwise it throws 409 so a new font
+ * never silently clobbers an existing one (defense in depth: the client already gates
+ * this, but the uploaded bytes have landed by now, so the catalog is the last guard).
+ */
+async function commit(
+	catalog: FontCatalog,
+	catalogKey: string,
+	entry: FontEntry,
+	overwrite: boolean,
+): Promise<void> {
 	const at = catalog.fonts.findIndex((f) => f.id === entry.id);
-	if (at >= 0) catalog.fonts[at] = entry;
-	else catalog.fonts.push(entry);
+	if (at >= 0) {
+		if (!overwrite) {
+			throw error(
+				409,
+				`A font with id "${entry.id}" already exists. Pick a different folder/id, or confirm overwrite.`,
+			);
+		}
+		catalog.fonts[at] = entry;
+	} else {
+		catalog.fonts.push(entry);
+	}
 	await putObjectText(catalogKey, JSON.stringify(catalog), 'application/json');
 }
 
@@ -116,17 +137,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	const kind = body.kind === 'web' ? 'web' : 'bitmap';
+	const overwrite = body.overwrite === true;
 
 	if (kind === 'web') {
 		const entry = await saveWebEntry(body, folder, bundle, prefixes);
 		const catalog = await loadCatalog(dest.catalogKey, dest.prefix);
-		await commit(catalog, dest.catalogKey, entry);
+		await commit(catalog, dest.catalogKey, entry, overwrite);
 		return json({ ok: true, font: entry });
 	}
 
 	const entry = await saveBitmapEntry(body, folder, bundle, prefixes);
 	const catalog = await loadCatalog(dest.catalogKey, dest.prefix);
-	await commit(catalog, dest.catalogKey, entry);
+	await commit(catalog, dest.catalogKey, entry, overwrite);
 	return json({ ok: true, font: entry });
 };
 

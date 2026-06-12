@@ -43,6 +43,7 @@
 	let face = $state('');
 	let folder = $state('');
 	let folderTouched = $state(false);
+	let overwrite = $state(false);
 	let existingIds = $state<Set<string>>(new Set());
 
 	// ---- Bake controls ----
@@ -76,7 +77,15 @@
 	const folderCollision = $derived(folderValid && existingIds.has(folder));
 	const faceValid = $derived(face.trim().length > 0);
 	const canBake = $derived(!!font && chars.length > 0 && !baking);
-	const canSave = $derived(!!result && faceValid && folderValid && !saving);
+	const canSave = $derived(
+		!!result && faceValid && folderValid && (!folderCollision || overwrite) && !saving,
+	);
+
+	$effect(() => {
+		// The folder IS the catalog id — keep it tracking the family name until the user
+		// edits it by hand, so a different name yields a different id (no silent overwrite).
+		if (!folderTouched) folder = slug(face);
+	});
 	const pageBase = $derived(folderValid ? folder : 'font');
 
 	function slug(name: string): string {
@@ -114,7 +123,6 @@
 			fontFileName = file.name;
 			const family = parsed.names.fontFamily?.en?.trim() ?? '';
 			face = family || file.name.replace(/\.[^.]+$/, '');
-			if (!folderTouched) folder = slug(face);
 			clearResult();
 		} catch (e) {
 			font = null;
@@ -268,6 +276,7 @@
 				descriptorFile,
 				descriptorFormat: 'xml',
 				target,
+				overwrite,
 				files: [
 					{
 						name: descriptorFile,
@@ -365,8 +374,13 @@
 					</p>
 				{:else if folderCollision}
 					<p class="warn small">
-						An entry with id <code>{folder}</code> exists — saving overwrites it.
+						A font with id <code>{folder}</code> already exists. Change the folder/id above to save a
+						new font, or confirm overwrite.
 					</p>
+					<label class="toggle small overwrite">
+						<input type="checkbox" bind:checked={overwrite} /> Overwrite the existing
+						<code>{folder}</code>
+					</label>
 				{/if}
 
 				<h2 class="spaced">Characters</h2>
@@ -775,6 +789,10 @@
 	}
 	.toggle.kern {
 		margin-top: 12px;
+	}
+	.toggle.overwrite {
+		margin-top: 4px;
+		color: #e0b050;
 	}
 	.atlases {
 		margin: 14px 0 0;
