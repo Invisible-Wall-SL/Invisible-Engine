@@ -2,10 +2,11 @@
  * Font Maker client-side font catalog + PIXI/CSS font loading for the View preview.
  * Mirrors `editor/fonts.client.ts`, but reads from the Font Maker's self-contained
  * `/api/fonts/catalog` (so the tool does NOT depend on the editor grant). The
- * catalog already routes every file through `/api/fonts/asset`; bitmap descriptors
- * load through PIXI's `Assets.load` (page refs rewritten to absolute gated URLs by
- * `/api/fonts/asset?…&font=1`), web fonts through the browser `FontFace` API. Both
- * are idempotent + cached per id, defensive on failure.
+ * catalog already routes every file through `/api/fonts/asset`; bitmap fonts are
+ * built from the raw descriptor text + the catalog's explicit page URLs (NOT via
+ * `Assets.load`'s descriptor-relative page resolution, which mangles our gated
+ * query-string URLs into a doubled path), web fonts through the browser `FontFace`
+ * API. Both are idempotent + cached per id, defensive on failure.
  */
 import { Assets, BitmapFont, Cache, Texture } from 'pixi.js';
 import type { FontDescriptorFormat, FontKind } from 'engine-layout';
@@ -477,19 +478,19 @@ function buildFromJson(text: string, family: string): BitmapFontData {
 	};
 }
 
-/** Append `font=1` so the asset endpoint rewrites the descriptor's page refs to
- * absolute gated URLs (PIXI otherwise resolves them against the descriptor request
- * URL and 404s). Robust to an existing query string. */
-function descriptorLoadUrl(url: string): string {
-	return url.includes('?') ? `${url}&font=1` : `${url}?font=1`;
-}
-
 const bitmapLoads = new Map<string, Promise<string | null>>();
 
 /**
- * Ensure a bitmap font is registered with PIXI under its catalog `name`, so a
- * `BitmapText({ style: { fontFamily: name } })` resolves it. Resolves to the family
- * name on success, `null` on failure. Idempotent per font id.
+ * Ensure a catalog bitmap font is registered with PIXI under its catalog `name`, so a
+ * `BitmapText({ style: { fontFamily: name } })` resolves it. We DON'T use
+ * `Assets.load(descriptorUrl, { loadParser: 'loadBitmapFont' })`: PIXI resolves the
+ * descriptor's `<page file>` refs RELATIVE to the descriptor's request URL, and our
+ * gated URLs are query-string based (`/api/fonts/asset?key=…`), so that resolution
+ * mangles each page into a doubled `/api/fonts/api/fonts/asset?…?key=…` path. Instead
+ * we fetch the raw descriptor text and map each declared page to the catalog's gated
+ * page URL (`loadLocalBitmapFont` — the same robust path the import preview uses, and
+ * the page URLs that already render as thumbnails). Resolves to the family name on
+ * success, `null` on failure. Idempotent per font id.
  */
 export function ensureBitmapFont(font: CatalogFont): Promise<string | null> {
 	const hit = bitmapLoads.get(font.id);
@@ -497,10 +498,16 @@ export function ensureBitmapFont(font: CatalogFont): Promise<string | null> {
 	const p = (async (): Promise<string | null> => {
 		if (!font.descriptorUrl) return null;
 		try {
-			await Assets.load({
-				src: descriptorLoadUrl(font.descriptorUrl),
-				alias: font.name,
-				loadParser: 'loadBitmapFont',
+			const res = await fetch(font.descriptorUrl);
+			if (!res.ok) throw new Error(`descriptor request failed (${res.status})`);
+			const descriptorText = await res.text();
+			const pageUrls: Record<string, string> = {};
+			for (const page of font.pages ?? []) pageUrls[page.file] = page.url;
+			await loadLocalBitmapFont({
+				family: font.name,
+				descriptorText,
+				descriptorFormat: font.descriptorFormat ?? 'xml',
+				pageUrls,
 			});
 			return font.name;
 		} catch (e) {
