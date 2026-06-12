@@ -39,6 +39,10 @@ const defaultCellSchema = z
 		type: z.enum(['sprite', 'spine']),
 		assetKey: z.string().min(1),
 		animationName: z.string().min(1).optional(),
+		/** Tool-only `<folder>/<stem>` spine resolver hint (e.g. `symbols/h1`) for a
+		 *  shared-atlas symbol bundle, so the grid can preview the SPECIFIC skeleton of
+		 *  a default spine cell. Display/preview only — never written to a saved override. */
+		previewKey: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema,
 	})
 	.strict();

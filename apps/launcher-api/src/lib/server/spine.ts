@@ -221,11 +221,18 @@ export async function resolveEditorSpine(
 	assetKey: string,
 	preferPng: boolean,
 ): Promise<EditorSpineDescriptor | null> {
-	const bundle = bundleFromAssetKey(clientKey, projectKey, assetKey);
-	if (bundle === null) return null;
-
 	const entries = await loadSkeletonIndex(clientKey, projectKey);
-	const entry = entries.find((e) => e.folder === bundle);
+	// A full R2 bundle-PREFIX assetKey resolves to the FIRST skeleton in its folder
+	// (the editor's by-folder model — one skeleton per placed spine node). A short
+	// `<folder>/<stem>` key (the Symbols tool's published `previewKey`, e.g.
+	// `symbols/h1`, matching a `skeletons.json` entry `name`) resolves the SPECIFIC
+	// skeleton — so a default symbol spine sharing a multi-skeleton atlas previews the
+	// right one (e.g. h1 vs h2 in `symbols/`).
+	const bundle = bundleFromAssetKey(clientKey, projectKey, assetKey);
+	const entry =
+		bundle !== null
+			? entries.find((e) => e.folder === bundle)
+			: entries.find((e) => e.name === assetKey);
 	if (!entry) return null;
 
 	const atlas = await fetchSpineBundleFile(

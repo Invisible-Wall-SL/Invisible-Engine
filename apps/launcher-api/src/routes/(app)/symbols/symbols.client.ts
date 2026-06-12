@@ -37,6 +37,10 @@ export interface SymbolCell {
 	type: 'sprite' | 'spine';
 	assetKey: string;
 	animationName?: string;
+	/** Tool-only spine resolver hint (`<folder>/<stem>`, e.g. `symbols/h1`) on a
+	 *  DEFAULT cell, so the grid previews the specific skeleton of a shared-atlas
+	 *  bundle. Display/preview only — `applyDraft` never copies it into an override. */
+	previewKey?: string;
 	sizeRatios: SizeRatios;
 }
 

@@ -233,7 +233,7 @@
 													/>
 												{:else if isFocused(symbol, state)}
 													<SymbolSpinePreview
-														assetKey={eff.cell.assetKey}
+														assetKey={eff.cell.previewKey ?? eff.cell.assetKey}
 														animationName={eff.cell.animationName}
 														size={previewSize}
 													/>
@@ -312,6 +312,9 @@
 							onchange={(e) => {
 								if (!draft) return;
 								draft.assetKey = e.currentTarget.value;
+								// Picking a real R2 bundle prefix supersedes the default's tool-only
+								// previewKey, so the preview + the saved override use the chosen bundle.
+								draft.previewKey = undefined;
 								draft.animationName = '';
 								draftAnimations = [];
 							}}
@@ -352,7 +355,7 @@
 							<span class="label">Preview</span>
 							<div class="panel-preview">
 								<SymbolSpinePreview
-									assetKey={draft.assetKey}
+									assetKey={draft.previewKey ?? draft.assetKey}
 									animationName={draft.animationName}
 									size={120}
 									onAnimations={(names) => (draftAnimations = names)}

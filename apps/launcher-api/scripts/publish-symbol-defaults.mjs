@@ -54,6 +54,8 @@ const USAGE =
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
 	'                                (NOT <client>/<project>). Required.\n' +
 	`  --symbols <path>              the game's symbol-map module (default ${DEFAULT_SYMBOLS})\n` +
+	'  --assets <path>               the game asset registry for spine previewKeys\n' +
+	'                                (default ./src/game/assets.ts)\n' +
 	`  --export <name>               named export to read (default ${DEFAULT_EXPORT})\n` +
 	'  --game-type <type>            informational gameType to stamp (default the project key)\n' +
 	`  --base <url>                  launcher base (default ${DEFAULT_BASE})\n` +
@@ -77,6 +79,8 @@ if (!project) {
 
 const symbolsArg = getFlag('symbols') || DEFAULT_SYMBOLS;
 const symbolsPath = isAbsolute(symbolsArg) ? symbolsArg : resolve(process.cwd(), symbolsArg);
+const assetsArg = getFlag('assets') || './src/game/assets.ts';
+const assetsPath = isAbsolute(assetsArg) ? assetsArg : resolve(process.cwd(), assetsArg);
 const exportName = getFlag('export') || DEFAULT_EXPORT;
 const gameType = getFlag('game-type') || project;
 const base = (getFlag('base') || DEFAULT_BASE).replace(/\/+$/, '');
@@ -114,6 +118,40 @@ async function bodySnippet(res) {
 	}
 }
 
+/**
+ * Attach a `previewKey` to each spine cell, resolved from the game's `assets.ts`
+ * (the assetKey → { atlas, skeleton } registry). `previewKey` is `<folder>/<stem>`
+ * (e.g. `symbols/h1`) — the same shape as a `skeletons.json` entry name — so the
+ * launcher can preview the SPECIFIC skeleton of a shared-atlas symbol bundle. The
+ * paths in assets.ts are `new URL('../../assets/spines/<folder>/<file>', …).href`,
+ * so we read the `spines/<folder>/` segment + the skeleton stem out of the URL.
+ */
+async function enrichSpinePreviewKeys(symbols) {
+	let assetMap;
+	try {
+		const mod = await import(pathToFileURL(assetsPath).href);
+		assetMap = mod?.default ?? mod;
+	} catch {
+		return; // no assets module → leave spine defaults as chips
+	}
+	if (!assetMap || typeof assetMap !== 'object') return;
+
+	const previewKeyFor = (asset) => {
+		if (!asset || asset.type !== 'spine' || !asset.src) return undefined;
+		const folder = String(asset.src.atlas ?? '').match(/\/spines\/([^/]+)\//);
+		const stem = String(asset.src.skeleton ?? '').match(/\/([^/]+)\.[^./]+$/);
+		return folder && stem ? `${folder[1]}/${stem[1]}` : undefined;
+	};
+
+	for (const states of Object.values(symbols)) {
+		for (const cell of Object.values(states)) {
+			if (cell?.type !== 'spine' || !cell.assetKey) continue;
+			const pk = previewKeyFor(assetMap[cell.assetKey]);
+			if (pk) cell.previewKey = pk;
+		}
+	}
+}
+
 async function main() {
 	let mod;
 	try {
@@ -129,6 +167,13 @@ async function main() {
 
 	// Strip `as const` readonly + clone to a plain JSON-safe object.
 	const symbols = JSON.parse(JSON.stringify(map));
+	// Tool-only enrichment: give each spine cell a `previewKey` (`<folder>/<stem>`,
+	// e.g. `symbols/h1`) resolved from the game's assets.ts, so the Symbols tool can
+	// preview a DEFAULT spine whose coded `assetKey` (`H1`) is a short engine key, not
+	// an R2 bundle prefix. Best-effort — a missing/odd assets module just leaves spine
+	// defaults as chips (prior behaviour). `previewKey` is display/preview-only; it is
+	// never written into a saved override (applyDraft rebuilds the cell from scratch).
+	await enrichSpinePreviewKeys(symbols);
 	const doc = { version: 1, gameType, symbols };
 	const symbolNames = Object.keys(symbols);
 
