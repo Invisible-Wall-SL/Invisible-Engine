@@ -7,6 +7,9 @@ export type ToolKind = 'online' | 'local';
 export interface ToolDef {
 	id: string;
 	name: string;
+	/** Short label for the cross-tool switcher bar. Defaults to `name` minus the
+	 *  "Invisible " prefix; set explicitly when the full name is too long for the bar. */
+	barName?: string;
 	description: string;
 	kind: ToolKind;
 	/** Online tools: the private-area URL the launcher opens with the session token. */
@@ -207,6 +210,7 @@ export const TOOLS: Record<string, ToolDef> = {
 	symbols: {
 		id: 'symbols',
 		name: 'Invisible Symbols State Machine',
+		barName: 'Symbols SM',
 		description: 'Rebind each symbol×state to a sprite frame or spine animation from R2.',
 		kind: 'online',
 		url: '/symbols',

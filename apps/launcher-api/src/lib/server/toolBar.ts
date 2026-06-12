@@ -20,7 +20,9 @@ export function toolBarParams(tools: ToolDef[], currentId: string): URLSearchPar
 	const origin = ENV.ORIGIN.replace(/\/$/, '');
 	const items = toolBarItems(tools, currentId).map((t) => ({
 		id: t.id,
-		name: t.name,
+		// Bake the short bar label so the Python/Spine HTML twin matches the Svelte bar
+		// (it strips a leading "Invisible " itself; an explicit `barName` has none).
+		name: t.barName ?? t.name,
 		url: origin + (t.url ?? '/'),
 	}));
 	const params = new URLSearchParams();

@@ -23,7 +23,7 @@
 		{#each items as tool (tool.id)}
 			<a class="tool" href={tool.url} title={tool.name}>
 				{#if tool.icon}<span class="ic">{@html tool.icon}</span>{/if}
-				<span class="label">{tool.name.replace(/^Invisible /, '')}</span>
+				<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
 			</a>
 		{/each}
 	</nav>
