@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import Emblem from '$lib/Emblem.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		buttonBindToInstance,
 		findUnfilledRequiredSlots,
@@ -1233,7 +1233,7 @@
 <div class="shell">
 	<header>
 		<div class="brand-wrap">
-			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE SCENE EDITOR</a>
+			<ToolTopBar current="editor" tools={data.tools} />
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
 		<div class="layout-pills" role="tablist" aria-label="Authoring layoutType">
@@ -1838,16 +1838,8 @@
 		display: flex;
 		align-items: center;
 		gap: 18px;
-	}
-	.brand {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-		font-weight: 700;
-		letter-spacing: 0.14em;
-		color: #7ee0c0;
-		font-size: 15px;
-		text-decoration: none;
+		min-width: 0;
+		flex: 1 1 auto;
 	}
 	.subtitle {
 		font-size: 12px;

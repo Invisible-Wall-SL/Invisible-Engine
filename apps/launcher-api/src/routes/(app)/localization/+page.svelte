@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Emblem from '$lib/Emblem.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type {
 		LocalizationDoc,
 		LocalizationEntry,
@@ -188,7 +188,7 @@
 
 <div class="shell">
 	<header>
-		<a class="brand" href="/"><Emblem height={18} /> INVISIBLE LOCALIZATION</a>
+		<ToolTopBar current="localization" tools={data.tools} />
 		<div class="meta">
 			<span class="project">Project: <strong>{data.projectKey}</strong></span>
 			{#if status}<span class="status">{status}</span>{/if}
@@ -360,16 +360,6 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 24px;
-	}
-	.brand {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-		font-weight: 700;
-		letter-spacing: 0.14em;
-		color: #7ee0c0;
-		font-size: 15px;
-		text-decoration: none;
 	}
 	.meta {
 		display: flex;

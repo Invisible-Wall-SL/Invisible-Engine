@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Emblem from '$lib/Emblem.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -284,7 +284,7 @@
 
 <div class="shell">
 	<header>
-		<a class="brand" href="/"><Emblem height={18} /> INVISIBLE FTP BROWSER</a>
+		<ToolTopBar current="ftpBrowser" tools={data.tools} />
 		<div class="meta">
 			{#if full}
 				<span class="project">Full server <strong>(admin)</strong></span>
@@ -480,16 +480,6 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 18px;
-	}
-	.brand {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-		font-weight: 700;
-		letter-spacing: 0.14em;
-		color: #7ee0c0;
-		font-size: 15px;
-		text-decoration: none;
 	}
 	.meta {
 		display: flex;

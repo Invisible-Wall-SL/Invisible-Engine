@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		ENGINE_ACTION_CATALOG,
 		resolveComponentParams,
@@ -611,8 +612,7 @@
 <div class="shell">
 	<header class="topbar">
 		<div class="brandwrap">
-			<a class="save-btn" href="/editor" data-sveltekit-reload>← Editor</a>
-			<a class="brand" href="/"><Emblem height={18} /> INVISIBLE COMPONENT EDITOR</a>
+			<ToolTopBar current="componentEditor" tools={data.tools} />
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
 
@@ -951,19 +951,8 @@
 		display: flex;
 		align-items: center;
 		gap: 12px;
-	}
-	.brandwrap .save-btn {
-		text-decoration: none;
-	}
-	.brand {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 12px;
-		letter-spacing: 0.08em;
-		font-weight: 600;
-		color: #c8a3ff;
-		text-decoration: none;
+		min-width: 0;
+		flex: 1 1 auto;
 	}
 	.subtitle {
 		font-size: 11px;

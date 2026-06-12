@@ -9,6 +9,7 @@ The Studio portal at `app.invisiblewall.org` (Railway project `Invisible launche
 
 ## Conventions specific here
 - **Tools are FULL-PAGE — never iframes.** `/atlas` and `/spine` `throw redirect(303, …)` after the auth+role gate (atlas → the external tool URL; spine → static `/spine/view.html`). Keep this pattern for new tools.
+- **Every tool renders the shared `ToolTopBar`.** `$lib/ToolTopBar.svelte` (emblem → home, current tool name, online-tool switcher) is the header for every launcher tool — pass `current="<toolId>" tools={data.tools}`. Register the tool in `roles.ts` and add it to `TOOL_BAR_ORDER`. New tools must be designed full-page with this bar from the start. See `docs/design/unified-tool-bar.md`. (Python tools — atlas/sheet — render a visually identical HTML twin; keep them in sync.)
 - **Env access goes through `ENV` in `src/lib/server/env.ts`.** For non-secret config (URLs, flags), give it a **code default** there — Railway env vars are easy to mis-apply (they stage), so don't make the app depend on the dashboard. Example: `ATLAS_TOOL_URL` defaults to the tool's known URL.
 - Svelte 5 runes; SvelteKit file conventions; TypeScript, no `any`; Prettier (tabs, single quotes, 100 cols).
 

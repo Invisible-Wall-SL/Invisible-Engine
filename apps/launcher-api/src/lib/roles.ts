@@ -199,6 +199,38 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 };
 
+/**
+ * Order of the cross-tool switcher in the shared top bar (`ToolTopBar`). Lists
+ * ONLY the online tools (local installs have no in-browser URL and are excluded);
+ * the launcher home grid keeps its own ordering. The Python tools mirror this
+ * order via the launcher-baked `tools=` redirect param. See
+ * `docs/design/unified-tool-bar.md`.
+ */
+export const TOOL_BAR_ORDER: string[] = [
+	'editor',
+	'sheetMaker',
+	'atlasTool',
+	'componentEditor',
+	'storybook',
+	'spineViewer',
+	'fontMaker',
+	'localization',
+	'ftpBrowser',
+];
+
+/**
+ * The switcher items for the top bar: the user's online tools in
+ * `TOOL_BAR_ORDER`, with the current tool removed. `tools` is the effective
+ * manifest (`data.tools` from the authed layout). `currentId` is the tool the
+ * bar is rendered inside (omit on the launcher home).
+ */
+export function toolBarItems(tools: ToolDef[], currentId?: string): ToolDef[] {
+	const have = new Map(tools.filter((t) => t.kind === 'online').map((t) => [t.id, t]));
+	return TOOL_BAR_ORDER.map((id) => have.get(id)).filter(
+		(t): t is ToolDef => !!t && t.id !== currentId,
+	);
+}
+
 /** Which tool ids each role is entitled to. */
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
@@ -243,19 +275,34 @@ export const ADMIN_PANEL_CAPABILITY = 'adminPanel';
  */
 export const BLUEPRINT_PUBLISH_CAPABILITY = 'blueprintPublish';
 
+/**
+ * Managed capability key for publishing to the shared Invisible Font library
+ * (`_shared/fonts/` in R2). Like `blueprintPublish` it is NOT a tool in `TOOLS`;
+ * it lives in the same override matrix so admins can grant publish rights per
+ * role. Default-ON for `admin` only — every Font Maker user can still READ the
+ * shared library (that gate lives in `toolScope.ts` via `includeSharedFonts`),
+ * but only holders of this capability may WRITE/overwrite/delete a shared font.
+ * `includeSharedFonts` alone is NOT a write gate (it only widens the read/PUT
+ * allow-list), so the font endpoints check this capability explicitly.
+ */
+export const FONT_PUBLISH_CAPABILITY = 'fontPublish';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
 	{ key: BLUEPRINT_PUBLISH_CAPABILITY, name: 'Publish blueprints' },
+	{ key: FONT_PUBLISH_CAPABILITY, name: 'Publish shared fonts' },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
- * (`adminPanel`, `blueprintPublish`) default ON for `admin` and OFF elsewhere.
+ * (`adminPanel`, `blueprintPublish`, `fontPublish`) default ON for `admin` and
+ * OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
 	if (key === BLUEPRINT_PUBLISH_CAPABILITY) return role === 'admin';
+	if (key === FONT_PUBLISH_CAPABILITY) return role === 'admin';
 	return false;
 }
 

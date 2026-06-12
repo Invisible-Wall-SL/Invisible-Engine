@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Emblem from '$lib/Emblem.svelte';
-	import { fetchFontCatalog, type CatalogFont } from './fonts.client';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { deleteFont, fetchFontCatalog, type CatalogFont, type FontTarget } from './fonts.client';
 	import FontPreview from './FontPreview.svelte';
 	import FontImport from './FontImport.svelte';
 	import FontGenerate from './FontGenerate.svelte';
@@ -14,11 +14,21 @@
 
 	// View-mode state.
 	let fonts = $state<CatalogFont[]>([]);
+	/** Which target the loaded catalog resolved from (a delete hits this target). */
+	let source = $state<FontTarget>('project');
 	let loading = $state(true);
 	let sample = $state('Aa Bb 0123 $9,999.00');
 	let size = $state(48);
 
+	// Delete flow: the id pending confirmation + in-flight / error state.
+	let confirmingId = $state<string | null>(null);
+	let deletingId = $state<string | null>(null);
+	let deleteError = $state<string | null>(null);
+
 	const projectLabel = $derived(data.projectName ?? data.projectKey);
+
+	/** A shared-library font can only be deleted by a holder of `fontPublish`. */
+	const canDelete = $derived(source === 'project' || data.canPublishShared);
 
 	/** First page-image URL for a bitmap font (the thumbnail). */
 	function thumbUrl(font: CatalogFont): string | null {
@@ -27,8 +37,24 @@
 
 	async function loadCatalog(): Promise<void> {
 		loading = true;
-		fonts = await fetchFontCatalog();
+		const res = await fetchFontCatalog();
+		fonts = res.fonts;
+		source = res.source;
 		loading = false;
+	}
+
+	async function confirmDelete(id: string): Promise<void> {
+		deletingId = id;
+		deleteError = null;
+		try {
+			await deleteFont(id, source);
+			confirmingId = null;
+			await loadCatalog();
+		} catch (e) {
+			deleteError = e instanceof Error ? e.message : String(e);
+		} finally {
+			deletingId = null;
+		}
 	}
 
 	/** After an import saves, refresh the View catalog and switch to it. */
@@ -46,7 +72,7 @@
 
 <div class="shell">
 	<header>
-		<a class="brand" href="/"><Emblem height={18} /> INVISIBLE FONT MAKER</a>
+		<ToolTopBar current="fontMaker" tools={data.tools} />
 		<div class="meta">
 			<span class="project">
 				{#if data.clientKey}<span class="client">{data.clientKey}</span> / {/if}
@@ -95,8 +121,46 @@
 							<div class="font-head">
 								<span class="font-name">{font.name}</span>
 								<span class="badge {font.kind}">{font.kind}</span>
+								{#if source === 'shared'}<span class="badge shared">shared</span>{/if}
+								{#if canDelete}
+									<div class="card-actions">
+										{#if confirmingId === font.id}
+											<span class="confirm-q">Delete?</span>
+											<button
+												class="del confirm"
+												type="button"
+												disabled={deletingId === font.id}
+												onclick={() => confirmDelete(font.id)}
+											>
+												{deletingId === font.id ? 'Deleting…' : 'Yes, delete'}
+											</button>
+											<button
+												class="del cancel"
+												type="button"
+												disabled={deletingId === font.id}
+												onclick={() => (confirmingId = null)}
+											>
+												Cancel
+											</button>
+										{:else}
+											<button
+												class="del"
+												type="button"
+												onclick={() => {
+													confirmingId = font.id;
+													deleteError = null;
+												}}
+											>
+												Delete
+											</button>
+										{/if}
+									</div>
+								{/if}
 							</div>
 							<div class="font-id">{font.id}</div>
+							{#if confirmingId === font.id && deleteError}
+								<p class="del-error">{deleteError}</p>
+							{/if}
 							<div class="font-body">
 								{#if thumbUrl(font)}
 									<img class="thumb" src={thumbUrl(font)} alt="{font.name} page" loading="lazy" />
@@ -111,9 +175,9 @@
 			{/if}
 		</section>
 	{:else if tab === 'import'}
-		<FontImport {sample} {size} onsaved={onImported} />
+		<FontImport {sample} {size} canPublishShared={data.canPublishShared} onsaved={onImported} />
 	{:else}
-		<FontGenerate {sample} {size} onsaved={onImported} />
+		<FontGenerate {sample} {size} canPublishShared={data.canPublishShared} onsaved={onImported} />
 	{/if}
 </div>
 
@@ -129,16 +193,6 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 18px;
-	}
-	.brand {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-		font-weight: 700;
-		letter-spacing: 0.14em;
-		color: #7ee0c0;
-		font-size: 15px;
-		text-decoration: none;
 	}
 	.meta {
 		font-size: 13px;
@@ -243,6 +297,51 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
+	}
+	.card-actions {
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.confirm-q {
+		font-size: 12px;
+		color: #e0b050;
+	}
+	.del {
+		background: transparent;
+		border: 1px solid #333;
+		border-radius: 6px;
+		padding: 4px 10px;
+		color: #bbb;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.del:hover {
+		border-color: #5a2f2f;
+		color: #e06b6b;
+	}
+	.del.confirm {
+		border-color: #5a2f2f;
+		background: #2a1a1a;
+		color: #e06b6b;
+	}
+	.del.confirm:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	.del.cancel {
+		color: #999;
+	}
+	.del-error {
+		color: #e06b6b;
+		font-size: 12px;
+		margin: 0 0 8px;
+	}
+	.badge.shared {
+		background: #2a2430;
+		border-color: #44345a;
+		color: #c8a3ff;
 	}
 	.font-name {
 		font-weight: 600;
