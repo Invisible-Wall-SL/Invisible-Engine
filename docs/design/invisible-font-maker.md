@@ -100,8 +100,21 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
    (builds a `BitmapFont` from object-URL pages for the pre-save preview — a blob
    descriptor can't go through pixi's `loadBitmapFont` because it mangles relative page
    refs). Per-project writes only (shared = Phase 4). `pnpm --filter launcher-api build` GREEN.
-3. **Phase 3 — Generate.** `opentype.js` + canvas baker with effects, live preview,
-   emit XML+PNG, save via the same endpoint.
+3. **Phase 3 — Generate. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+   `FontGenerate.svelte` + `fontBake.client.ts`: upload a TTF/OTF (`opentype.js`),
+   pick a charset (`charsets.client.ts`: digits/currency/alphanumeric/ASCII/custom) +
+   size + page width + **effects** (solid/gradient fill, outline, drop-shadow, each
+   toggleable), bake a glyph atlas + BMFont XML **in the browser** (opentype for
+   metrics/geometry → Canvas 2D `Path2D` fill/stroke/shadow → shelf packer → single
+   page PNG), live-preview via `loadLocalBitmapFont` + PIXI `BitmapText` (the same
+   game-load path = the metrics self-check), and save via the SAME Phase-2 flow. The
+   client upload→save sequence was extracted to `fonts.client.ts` `saveBitmapFont(...)`
+   and is now shared by Import + Generate. Metrics: `scale=fontSize/unitsPerEm`,
+   `base=round(ascent)`, `lineHeight=round(ascent+descent)`, per-glyph tile = ink box
+   (`Path.getBoundingBox()`) + effect-bleed `pad`, `xoffset/yoffset` relative to pen/
+   line-top, `xadvance=round(advanceWidth*scale)`. Deps: `opentype.js` + `@types`.
+   Deferred to Phase 4: kerning (`<kernings>`), multi-page atlases, shared-library save.
+   `pnpm --filter launcher-api build` GREEN.
 4. **Phase 4 — polish.** Shared-library target UI, delete/rename, web-font import,
    kerning (opentype.js exposes pairs → `<kernings>` block).
 

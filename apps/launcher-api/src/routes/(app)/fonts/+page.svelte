@@ -4,6 +4,7 @@
 	import { fetchFontCatalog, type CatalogFont } from './fonts.client';
 	import FontPreview from './FontPreview.svelte';
 	import FontImport from './FontImport.svelte';
+	import FontGenerate from './FontGenerate.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -60,19 +61,21 @@
 		<button class:active={tab === 'generate'} onclick={() => (tab = 'generate')}>Generate</button>
 	</nav>
 
+	{#if tab !== 'import'}
+		<div class="controls">
+			<label class="sample-field">
+				Sample text
+				<input bind:value={sample} spellcheck="false" placeholder="Type a sample…" />
+			</label>
+			<label class="size-field">
+				Size {size}px
+				<input type="range" min="12" max="160" step="1" bind:value={size} />
+			</label>
+		</div>
+	{/if}
+
 	{#if tab === 'view'}
 		<section class="view">
-			<div class="controls">
-				<label class="sample-field">
-					Sample text
-					<input bind:value={sample} spellcheck="false" placeholder="Type a sample…" />
-				</label>
-				<label class="size-field">
-					Size {size}px
-					<input type="range" min="12" max="160" step="1" bind:value={size} />
-				</label>
-			</div>
-
 			{#if loading}
 				<p class="muted">Loading fonts…</p>
 			{:else if fonts.length === 0}
@@ -82,7 +85,7 @@
 						Use <button class="link" onclick={() => (tab = 'import')}>Import</button> to bring in an
 						existing BMFont, or
 						<button class="link" onclick={() => (tab = 'generate')}>Generate</button> to bake one from
-						a TTF/OTF. (Both coming in Phase 2 / Phase 3.)
+						a TTF/OTF.
 					</p>
 				</div>
 			{:else}
@@ -110,13 +113,7 @@
 	{:else if tab === 'import'}
 		<FontImport {sample} {size} onsaved={onImported} />
 	{:else}
-		<section class="soon">
-			<h2>Generate</h2>
-			<p class="muted">
-				Coming soon (Phase 3). Upload a TTF/OTF, pick a charset + size + effects (gradient fill,
-				outline, drop-shadow), preview live, then bake a BMFont XML + PNG and save.
-			</p>
-		</section>
+		<FontGenerate {sample} {size} onsaved={onImported} />
 	{/if}
 </div>
 

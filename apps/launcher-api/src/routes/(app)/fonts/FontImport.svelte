@@ -6,9 +6,11 @@
 		fetchFontCatalog,
 		loadLocalBitmapFont,
 		parseDescriptorClient,
+		saveBitmapFont,
 		type CatalogFont,
 		type LocalBitmapFont,
 		type ParsedDescriptor,
+		type SaveFile,
 	} from './fonts.client';
 
 	interface Props {
@@ -296,50 +298,29 @@
 		saveError = null;
 		savedNote = null;
 		try {
-			const files = [
-				{ name: descriptor.file.name, contentType: DESC_CONTENT_TYPE[descriptor.format] },
-				...descriptor.parsed.pageFiles.map((p) => ({
-					name: p,
-					contentType: IMAGE_CONTENT_TYPE[ext(p)] ?? 'application/octet-stream',
-				})),
+			const files: SaveFile[] = [
+				{
+					name: descriptor.file.name,
+					blob: descriptor.file,
+					contentType: DESC_CONTENT_TYPE[descriptor.format],
+				},
 			];
-
-			const urlsRes = await fetch('/api/fonts/upload-urls', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ folder, files }),
-			});
-			if (!urlsRes.ok) throw new Error(await errText(urlsRes, 'Failed to mint upload URLs.'));
-			const { uploads } = (await urlsRes.json()) as {
-				uploads: { name: string; url: string; contentType: string }[];
-			};
-
-			// PUT each file directly to R2 with the matching content-type.
-			for (const up of uploads) {
-				const blob =
-					up.name === descriptor.file.name
-						? descriptor.file
-						: images.find((i) => i.name === up.name)?.file;
-				if (!blob) throw new Error(`Internal: no local file for "${up.name}".`);
-				const put = await fetch(up.url, {
-					method: 'PUT',
-					headers: { 'content-type': up.contentType },
-					body: blob,
+			for (const page of descriptor.parsed.pageFiles) {
+				const img = images.find((i) => i.name === page);
+				if (!img) throw new Error(`Internal: no local file for "${page}".`);
+				files.push({
+					name: page,
+					blob: img.file,
+					contentType: IMAGE_CONTENT_TYPE[ext(page)] ?? 'application/octet-stream',
 				});
-				if (!put.ok) throw new Error(`Upload of "${up.name}" failed (${put.status}).`);
 			}
 
-			const saveRes = await fetch('/api/fonts/save', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					folder,
-					descriptorFile: descriptor.file.name,
-					descriptorFormat: descriptor.format,
-				}),
+			const font = await saveBitmapFont({
+				folder,
+				descriptorFile: descriptor.file.name,
+				descriptorFormat: descriptor.format,
+				files,
 			});
-			if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
-			const { font } = (await saveRes.json()) as { font: { name: string; id: string } };
 
 			savedNote = `Saved "${font.name}" as ${font.id}.`;
 			existingIds = new Set([...existingIds, font.id]);
@@ -348,15 +329,6 @@
 			saveError = e instanceof Error ? e.message : String(e);
 		} finally {
 			saving = false;
-		}
-	}
-
-	async function errText(res: Response, fallback: string): Promise<string> {
-		try {
-			const body = (await res.json()) as { message?: string };
-			return body.message ?? fallback;
-		} catch {
-			return `${fallback} (${res.status})`;
 		}
 	}
 

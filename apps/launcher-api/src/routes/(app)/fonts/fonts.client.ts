@@ -33,6 +33,74 @@ export async function fetchFontCatalog(): Promise<CatalogFont[]> {
 	}
 }
 
+/** One file to upload as part of a bitmap-font save (descriptor or page image). */
+export interface SaveFile {
+	/** Filename — must match a `<page file>` ref for pages, or the descriptor name. */
+	name: string;
+	blob: Blob;
+	contentType: string;
+}
+
+/**
+ * Run the Phase-2 save sequence shared by Import + Generate: mint presigned PUT URLs
+ * (`POST /api/fonts/upload-urls`), PUT each file straight to R2 with its content-type,
+ * then `POST /api/fonts/save` (AUTHORITATIVE — re-reads the descriptor + upserts the
+ * catalog). The descriptor MUST be one of `files`; `descriptorFile` names it. Throws
+ * on any failure; resolves to the committed entry's `{ id, name }`.
+ */
+export async function saveBitmapFont(args: {
+	folder: string;
+	descriptorFile: string;
+	descriptorFormat: FontDescriptorFormat;
+	files: SaveFile[];
+}): Promise<{ id: string; name: string }> {
+	const { folder, descriptorFile, descriptorFormat, files } = args;
+	const byName = new Map(files.map((f) => [f.name, f]));
+
+	const urlsRes = await fetch('/api/fonts/upload-urls', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			folder,
+			files: files.map((f) => ({ name: f.name, contentType: f.contentType })),
+		}),
+	});
+	if (!urlsRes.ok) throw new Error(await errText(urlsRes, 'Failed to mint upload URLs.'));
+	const { uploads } = (await urlsRes.json()) as {
+		uploads: { name: string; url: string; contentType: string }[];
+	};
+
+	for (const up of uploads) {
+		const file = byName.get(up.name);
+		if (!file) throw new Error(`Internal: no local file for "${up.name}".`);
+		const put = await fetch(up.url, {
+			method: 'PUT',
+			headers: { 'content-type': up.contentType },
+			body: file.blob,
+		});
+		if (!put.ok) throw new Error(`Upload of "${up.name}" failed (${put.status}).`);
+	}
+
+	const saveRes = await fetch('/api/fonts/save', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ folder, descriptorFile, descriptorFormat }),
+	});
+	if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
+	const { font } = (await saveRes.json()) as { font: { name: string; id: string } };
+	return { id: font.id, name: font.name };
+}
+
+/** Read a JSON error `message` off a failed response, falling back to a default. */
+async function errText(res: Response, fallback: string): Promise<string> {
+	try {
+		const body = (await res.json()) as { message?: string };
+		return body.message ?? fallback;
+	} catch {
+		return `${fallback} (${res.status})`;
+	}
+}
+
 /** Result of parsing a BMFont descriptor client-side (mirrors the server parse). */
 export interface ParsedDescriptor {
 	face: string;
