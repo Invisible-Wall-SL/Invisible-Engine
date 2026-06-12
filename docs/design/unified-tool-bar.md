@@ -94,9 +94,10 @@ Every tool is full-page (no iframes) — already enforced (atlas/spine redirect)
 **New tools must render `<ToolTopBar>` as their header and be designed full-page
 from the start.** Captured in `apps/launcher-api/CLAUDE.md`.
 
-> Note: some launcher landing shells (storybook/files/localization) are still
-> `max-width`-centered rather than full-bleed. Making those full-bleed is the B22
-> beauty-pass, tracked separately — not part of this bar work.
+> Done (2026-06-12): every launcher tool shell is now full-bleed — the centered
+> `max-width` + `margin: 0 auto` shells (localization, storybook, files, fonts)
+> were switched to `width: 100%` + `box-sizing: border-box` so they stretch
+> end-to-end like the editor/sheet/home shells.
 
 ## Build plan
 

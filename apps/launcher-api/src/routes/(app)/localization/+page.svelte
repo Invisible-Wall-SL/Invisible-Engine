@@ -350,9 +350,9 @@
 
 <style>
 	.shell {
-		max-width: 1400px;
-		margin: 0 auto;
-		padding: 24px;
+		width: 100%;
+		box-sizing: border-box;
+		padding: 24px clamp(20px, 3vw, 40px);
 		color: #e8e8ee;
 	}
 	header {

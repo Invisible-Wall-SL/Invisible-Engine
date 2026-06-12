@@ -470,9 +470,8 @@
 <style>
 	.shell {
 		width: 100%;
-		max-width: 1400px;
-		margin: 0 auto;
-		padding: clamp(16px, 3vw, 24px);
+		box-sizing: border-box;
+		padding: clamp(16px, 3vw, 24px) clamp(20px, 3vw, 40px);
 		color: #e8e8ee;
 	}
 	header {
