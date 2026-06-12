@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Application, BitmapText, Container, Text, TextStyle } from 'pixi.js';
-	import { ensureBitmapFont, ensureWebFont, type CatalogFont } from './fonts.client';
+	import { ensureBitmapFont, ensureWebFont, fitCanvasToObject, type CatalogFont } from './fonts.client';
 
 	interface Props {
 		font: CatalogFont;
@@ -44,13 +44,10 @@
 		resize();
 	}
 
-	/** Fit the canvas to the rendered text so the preview area sizes to content. */
+	/** Fit the canvas to the rendered text's true bounds so nothing is clipped. */
 	function resize(): void {
 		if (!app || !obj || !host) return;
-		const w = Math.max(1, Math.ceil(obj.width) + 8);
-		const h = Math.max(1, Math.ceil(obj.height) + 8);
-		app.renderer.resize(w, h);
-		obj.position.set(4, 4);
+		fitCanvasToObject(app, obj);
 	}
 
 	// Rebuild when the sample text or size changes (re-render the same loaded font).

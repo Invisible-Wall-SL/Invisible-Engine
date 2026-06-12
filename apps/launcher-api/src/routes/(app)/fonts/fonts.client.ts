@@ -13,7 +13,12 @@ export type {
 	ParsedDescriptor,
 	LocalBitmapFont,
 } from '$lib/fontLoad.client';
-export { parseDescriptorClient, loadLocalBitmapFont, ensureWebFont } from '$lib/fontLoad.client';
+export {
+	parseDescriptorClient,
+	loadLocalBitmapFont,
+	ensureWebFont,
+	fitCanvasToObject,
+} from '$lib/fontLoad.client';
 /** A catalog bitmap font, registered with PIXI under its `name`. See the shared module. */
 export const ensureBitmapFont = loadCatalogBitmapFont;
 

@@ -14,8 +14,23 @@
  * Web fonts load through the browser `FontFace` API. Both are idempotent + cached
  * per id, defensive on failure (a bad font resolves to "not loaded").
  */
-import { BitmapFont, Cache, Texture } from 'pixi.js';
+import { Application, BitmapFont, Cache, Container, Texture } from 'pixi.js';
 import type { FontDescriptorFormat, FontKind } from 'engine-layout';
+
+/**
+ * Size a PIXI app's canvas to a display object's TRUE bounds + position the object
+ * fully inside it (with `pad`). Bitmap/web text can render above the baseline or
+ * taller than the nominal font size, so sizing from `obj.width/height` at a fixed
+ * origin clips the overhang — `getLocalBounds()` captures the real extent (whose
+ * origin may be negative), so the preview area grows to exactly fit the glyphs.
+ */
+export function fitCanvasToObject(app: Application, obj: Container, pad = 6): void {
+	const b = obj.getLocalBounds();
+	const w = Math.max(1, Math.ceil(b.width) + pad * 2);
+	const h = Math.max(1, Math.ceil(b.height) + pad * 2);
+	app.renderer.resize(w, h);
+	obj.position.set(pad - b.x, pad - b.y);
+}
 
 /**
  * One resolved font as a tool's catalog endpoint (`/api/editor/fonts` or

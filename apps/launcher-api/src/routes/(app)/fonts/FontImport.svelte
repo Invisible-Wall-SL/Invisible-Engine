@@ -4,6 +4,7 @@
 	import type { FontDescriptorFormat } from 'engine-layout';
 	import {
 		fetchFontCatalog,
+		fitCanvasToObject,
 		loadLocalBitmapFont,
 		parseDescriptorClient,
 		saveBitmapFont,
@@ -300,11 +301,8 @@
 		if (!app || !world || !localFont) return;
 		obj?.destroy();
 		obj = new BitmapText({ text: sample, style: { fontFamily: localFont.family, fontSize: size } });
-		obj.position.set(4, 4);
 		world.addChild(obj);
-		const w = Math.max(1, Math.ceil(obj.width) + 8);
-		const h = Math.max(1, Math.ceil(obj.height) + 8);
-		app.renderer.resize(w, h);
+		fitCanvasToObject(app, obj);
 	}
 
 	$effect(() => {
