@@ -867,3 +867,37 @@ origin (and threaded `fontFamily` through the param-style). Now editor ≈ game.
 are still an editor APPROXIMATION (the editor can't run them); for pixel-exact WYSIWYG, author the
 caption/value as `textBox`/text nodes (§18), which render through the identical engine `<Text>` path in
 both. Launcher-only change — no game republish.
+
+### 18.8 Data-driven PORTRAIT HUD — the fold-out drawer, author-positioned (2026-06-12)
+Phase 3 (§"Editable game HUD" in `docs/STATUS.md`) made the HUD data-driven for desktop/landscape/tablet
+but left **portrait coded** (`UIDefault.svelte` had `&& layoutType() !== 'portrait'`), because the coded
+`LayoutPortrait.svelte` is an animated fold-out DRAWER — behaviour, not static placement. So an author
+who positioned the HUD in the editor's portrait view still got the old hardcoded layout in-game. Closed by
+keeping the drawer behaviour while driving its element positions from the doc. Our fork-addition.
+- **Parity gate.** Deleting the guard unconditionally would render desktop coords in the 1080×1920 portrait
+  box for any doc lacking portrait authoring. Instead `UIDefault` routes portrait to `LayoutEditable` ONLY
+  when `hudHasPortrait(props.hud)` (new `hudPositions.ts` helper) is true — i.e. at least one bar/corners
+  node carries an `overrides.portrait` entry. No portrait authoring ⇒ the coded `LayoutPortrait` still
+  renders (parity for `apps/lines` + un-refreshed docs). The other three layoutTypes are untouched.
+- **Drawer reproduced in `LayoutEditable`.** A `{#if layoutType === 'portrait'}` branch reuses
+  `LayoutPortrait`'s `DRAWER_Y`/`DRAWER_BUTTON_Y` constants, `drawerTween`/`drawerButtonTween` (`cubicInOut`),
+  and `subscribeOnMount({drawerButtonShow/Hide, drawerUnfold/Fold})` wiring verbatim. The reserved bar ids
+  are classified into the same groups: DRAWER group (menu/buyBonus/autoSpin/bet/turbo/balance) wrapped in
+  `<Container y={drawerTween.current}>`; win follows `y={Math.min(tween,350)}`; always-visible decrease/
+  increase + the bet readout (swapped for `LabelFreeSpinCounter` on `stateUi.freeSpinCounterShow`); the
+  `ButtonDrawer` in a `FadeContainer` on `stateUi.drawerButtonShow` at `y={drawerButtonTween.current}`. The
+  tween y-offsets ride ON TOP of the AUTHORED positions — the author authors the UNFOLDED resting layout.
+  `mounted()` suppression, free-author-art, `componentInstance` expansion, and label/tint overrides all stay
+  live in portrait. The menu overlay gains a portrait branch mirroring `LayoutPortrait`'s cluster.
+- **Seeded resting positions** (`referenceLayouts/hud.ts`). Each bar node now emits a `portrait` override
+  COMPUTED from `LayoutPortrait`'s constants over the 1080×1920 box (scale 1): balance `(540,1650)`, win
+  `(540,1250)`, bet `(540,1790)`, menu `(100,1520)`, buyBonus `(980,1520)`, autoSpin `(360,1520)`, bet-btn
+  `(540,1520)`, turbo `(720,1520)`, decrease `(150,1835)`, increase `(930,1835)`. So a freshly-seeded /
+  "Refresh HUD layer" doc opts in and renders byte-for-byte like coded `LayoutPortrait`. Corners (canvas
+  space, `screenAnchor`) are layoutType-agnostic — no portrait override needed.
+- **Caveat / non-parity edges.** The drawer TOGGLE button has no `hud-btn-*` reserved id (it exists only in
+  portrait), so `LayoutEditable` resolves an optional `hud-btn-drawer` node, falling back to the coded coord
+  `(W*0.5+440, H-105)` from `STANDARD_MAIN_SIZES_MAP.portrait`. Byte-identical-to-coded holds ONLY against a
+  doc carrying the seeded portrait overrides; an author who MOVES the portrait layout gets that layout (the
+  intended outcome). Builds: `engine-layout` + `lines` GREEN; Prettier clean. Book of Borut picks this up on
+  the next engine submodule bump.

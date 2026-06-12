@@ -19,9 +19,15 @@ import type { ComponentInstanceNode, LayoutNode, NodeOverride, Scene } from '../
  *   `screenAnchor` (generalises `Layout*`'s `x = canvasWidth - 20`), identical
  *   across layoutTypes.
  *
- * PORTRAIT is intentionally omitted (no override): its bar lives in an animated
- * fold-out drawer (`LayoutPortrait.svelte`) — behaviour, not static placement —
- * so portrait keeps rendering the coded layout. The other three are data-driven.
+ * PORTRAIT carries an override too (the UNFOLDED resting position of each bar
+ * element), computed from `LayoutPortrait.svelte`'s constants. Its bar is an
+ * animated fold-out DRAWER (behaviour, not static placement): `LayoutEditable`'s
+ * portrait branch reproduces the drawer, applying the `drawerTween` y-offset ON TOP
+ * of these resting coords (the author authors the unfolded layout). `<UIDefault>`
+ * only routes portrait to `LayoutEditable` when the doc carries portrait authoring
+ * (`hudHasPortrait`) — a freshly-seeded / "Refresh HUD layer" doc does, so it then
+ * renders the data-driven portrait byte-for-byte like the coded `LayoutPortrait`;
+ * an un-refreshed doc (no portrait override) keeps the coded layout (parity).
  *
  * Positions are COMPUTED from the same constants as `Layout*.svelte` (not magic
  * numbers) so they stay verifiable.
@@ -58,8 +64,17 @@ const tLabelY = tOY + D * 0.5 - 220;
 const tBtnY = tOY + D * 0.5;
 const t = (lx: number, y: number): XY => ({ x: tOX + lx, y });
 
+// --- portrait (LayoutPortrait.svelte) — box 1080×1920, scale 1 (the animated drawer).
+// These are the UNFOLDED resting positions; `LayoutEditable`'s portrait branch adds
+// the `drawerTween` y-offset on top (the author authors the unfolded layout). Each is
+// the absolute (x, y) the coded layout places the element at in the 1080×1920 box.
+const PW = 1080;
+const PH = 1920;
+const p = (x: number, y: number): XY => ({ x, y });
+
 const DESKTOP_SCALE = { x: 0.8, y: 0.8 };
 const TABLET_SCALE = { x: 1, y: 1 };
+const PORTRAIT_SCALE = { x: 1, y: 1 };
 
 // Real element sizes (unscaled) for the editor preview chips:
 const BTN_SIZE = 150; // UI_BASE_SIZE — buttons are 150×150 rounded squares
@@ -75,11 +90,15 @@ function barNode(
 	desktop: XY,
 	landscape: XY,
 	tablet: XY,
+	portrait: XY,
 ): LayoutNode {
 	const isLabel = props === LABEL;
-	const overrides: Partial<Record<'landscape' | 'tablet', NodeOverride>> = {
+	const overrides: Partial<Record<'landscape' | 'tablet' | 'portrait', NodeOverride>> = {
 		landscape: { x: landscape.x, y: landscape.y }, // scale inherits desktop 0.8
 		tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },
+		// Portrait = the drawer's UNFOLDED resting position (`LayoutEditable` adds the
+		// fold tween); scale 1 (the coded `LayoutPortrait` uses no element scale).
+		portrait: { x: portrait.x, y: portrait.y, scale: PORTRAIT_SCALE },
 	};
 	return {
 		id,
@@ -127,6 +146,7 @@ function readoutNode(
 	desktop: XY,
 	landscape: XY,
 	tablet: XY,
+	portrait: XY,
 ): ComponentInstanceNode {
 	return {
 		id,
@@ -141,6 +161,7 @@ function readoutNode(
 		overrides: {
 			landscape: { x: landscape.x, y: landscape.y },
 			tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },
+			portrait: { x: portrait.x, y: portrait.y, scale: PORTRAIT_SCALE },
 		},
 		preview: { w: LABEL_W, h: LABEL_H, style: 'label' },
 	};
@@ -154,8 +175,9 @@ function labelBarNode(
 	desktop: XY,
 	landscape: XY,
 	tablet: XY,
+	portrait: XY,
 ): LayoutNode {
-	return barNode(id, label, component, LABEL, desktop, landscape, tablet);
+	return barNode(id, label, component, LABEL, desktop, landscape, tablet, portrait);
 }
 
 /**
@@ -185,6 +207,7 @@ function buttonInstanceNode(
 	desktop: XY,
 	landscape: XY,
 	tablet: XY,
+	portrait: XY,
 ): ComponentInstanceNode {
 	return {
 		id,
@@ -201,6 +224,7 @@ function buttonInstanceNode(
 		overrides: {
 			landscape: { x: landscape.x, y: landscape.y },
 			tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },
+			portrait: { x: portrait.x, y: portrait.y, scale: PORTRAIT_SCALE },
 		},
 		preview: { w: BTN_SIZE, h: BTN_SIZE, style: 'button' },
 	};
@@ -241,6 +265,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(900 - 500, dLabelY),
 				l1(420, lLabelY),
 				t(880 - 640, tLabelY),
+				p(PW * 0.5, PH - 270),
 			)
 		: labelBarNode(
 				'hud-balance',
@@ -249,9 +274,18 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(900 - 500, dLabelY),
 				l1(420, lLabelY),
 				t(880 - 640, tLabelY),
+				p(PW * 0.5, PH - 270),
 			);
 	const winLabel: LayoutNode = options.readouts
-		? readoutNode('hud-win', 'Win', 'win', d(900, dLabelY), l1(910, lLabelY), t(880, tLabelY))
+		? readoutNode(
+				'hud-win',
+				'Win',
+				'win',
+				d(900, dLabelY),
+				l1(910, lLabelY),
+				t(880, tLabelY),
+				p(PW * 0.5, PH - 670),
+			)
 		: labelBarNode(
 				'hud-win',
 				'Win',
@@ -259,6 +293,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(900, dLabelY),
 				l1(910, lLabelY),
 				t(880, tLabelY),
+				p(PW * 0.5, PH - 670),
 			);
 	const betLabel: LayoutNode = options.readouts
 		? readoutNode(
@@ -268,6 +303,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(900 + 500, dLabelY),
 				l1(1400, lLabelY),
 				t(880 + 640, tLabelY),
+				p(PW * 0.5, PH - 130),
 			)
 		: labelBarNode(
 				'hud-bet',
@@ -276,6 +312,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(900 + 500, dLabelY),
 				l1(1400, lLabelY),
 				t(880 + 640, tLabelY),
+				p(PW * 0.5, PH - 130),
 			);
 	// Each button is coded `UiButton*` `bind` by default; `componentInstance(button)`
 	// when `buttons` is set (B6.4). `btn()` picks per the flag, passing the SAME
@@ -294,10 +331,12 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 		desktop: XY,
 		landscape: XY,
 		tablet: XY,
+		portrait: XY,
 	): LayoutNode | ComponentInstanceNode => {
-		if (!options.buttons) return barNode(id, label, component, BTN, desktop, landscape, tablet);
+		if (!options.buttons)
+			return barNode(id, label, component, BTN, desktop, landscape, tablet, portrait);
 		const { action, icon } = HUD_BUTTON_ACTION_MAP[component];
-		return buttonInstanceNode(id, label, action, icon, desktop, landscape, tablet);
+		return buttonInstanceNode(id, label, action, icon, desktop, landscape, tablet, portrait);
 	};
 	return {
 		id: 'hudBar',
@@ -320,6 +359,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(220, dBtnY),
 				l1(85 + 20, lBtnY),
 				t(20, tBtnY),
+				p(PW * 0.5 - 440, PH - 400),
 			),
 			btn(
 				'hud-btn-buybonus',
@@ -328,6 +368,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(220 + 150, dBtnY),
 				l1(220 + 20, lBtnY),
 				t(20 + 180, tBtnY),
+				p(PW * 0.5 + 440, PH - 400),
 			),
 			btn(
 				'hud-btn-autospin',
@@ -336,6 +377,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(160 + 150 * 4, dBtnY),
 				l2(L * 0.5 - 140),
 				t(-10 + 180 * 4, tBtnY),
+				p(PW * 0.5 - 180, PH - 400),
 			),
 			btn(
 				'hud-btn-bet',
@@ -344,6 +386,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(160 + 150 * 5, dBtnY),
 				l2(L * 0.5),
 				t(-10 + 180 * 5, tBtnY),
+				p(PW * 0.5, PH - 400),
 			),
 			btn(
 				'hud-btn-turbo',
@@ -352,6 +395,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(160 + 150 * 6, dBtnY),
 				l2(L * 0.5 + 140),
 				t(-10 + 180 * 6, tBtnY),
+				p(PW * 0.5 + 180, PH - 400),
 			),
 			btn(
 				'hud-btn-decrease',
@@ -360,6 +404,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(1440, dBtnY),
 				l1(1580, lBtnY),
 				t(1560, tBtnY),
+				p(PW * 0.5 - 390, PH - 85),
 			),
 			btn(
 				'hud-btn-increase',
@@ -368,6 +413,7 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 				d(1440 + 150, dBtnY),
 				l1(1715, lBtnY),
 				t(1560 + 180, tBtnY),
+				p(PW * 0.5 + 390, PH - 85),
 			),
 		],
 	};

@@ -99,3 +99,19 @@ export function hudTint(scene: Scene | undefined, id: string): number | undefine
 	const tint = hudProps(scene, id)?.tint;
 	return typeof tint === 'number' ? tint : undefined;
 }
+
+/**
+ * Portrait parity gate (the data-driven portrait HUD opt-in). Portrait's coded
+ * layout (`LayoutPortrait.svelte`) is an animated fold-out drawer, so unlike the
+ * other three layoutTypes a doc must EXPLICITLY carry portrait authoring before we
+ * drive it from data — otherwise a doc with no portrait overrides would render its
+ * desktop coords inside the 1080×1920 portrait box. True when at least one HUD node
+ * (bar OR corners) carries an `overrides.portrait` entry; the freshly-seeded
+ * `hudBarScene()` does (it now emits portrait overrides), so a seeded / "Refresh HUD
+ * layer" doc opts in, while an un-refreshed doc keeps the coded `LayoutPortrait`.
+ */
+export function hudHasPortrait(hud: { bar?: Scene; corners?: Scene } | undefined): boolean {
+	const hasPortraitOverride = (scene: Scene | undefined): boolean =>
+		(scene?.nodes ?? []).some((node) => node.overrides?.portrait !== undefined);
+	return hasPortraitOverride(hud?.bar) || hasPortraitOverride(hud?.corners);
+}

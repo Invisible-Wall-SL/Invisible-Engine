@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { Tween } from 'svelte/motion';
+	import { cubicInOut } from 'svelte/easing';
+
 	import { stateUi } from 'state-shared';
 	import { BLACK } from 'constants-shared/colors';
+	import { FadeContainer } from 'components-pixi';
 	import { MainContainer } from 'components-layout';
 	import { Container, Rectangle } from 'pixi-svelte';
+	import { waitForResolve } from 'utils-shared/wait';
 	import { ComponentInstance, LayoutNodeView } from 'engine-layout/svelte';
+	import { STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
 	import type {
 		ComponentInstanceNode,
 		LayoutNode,
@@ -12,6 +18,8 @@
 		TextStyle,
 	} from 'engine-layout';
 
+	import LabelFreeSpinCounter from './LabelFreeSpinCounter.svelte';
+	import ButtonDrawer from './ButtonDrawer.svelte';
 	import { DESKTOP_BASE_SIZE, LANDSCAPE_BASE_SIZE } from '../constants';
 	import { getContext } from '../context';
 	import { hudPos, hudTextOverride, hudStyle, hudText, hudTint } from '../hudPositions';
@@ -25,16 +33,90 @@
 	 * hardcoded `Layout*` components render unchanged (full parity).
 	 *
 	 * Snippet CONTENT + the menu drawer stay coded — only placement is data-driven.
-	 * Coordinates mirror `LayoutDesktop.svelte` (the fallbacks here are the same
-	 * flattened absolute standard-box positions as `referenceLayouts/hud.ts`), so
-	 * with the engine-truth HUD scene this renders byte-for-byte as before.
+	 * Coordinates mirror the per-layoutType `Layout*.svelte` (the fallbacks here are
+	 * the same flattened absolute standard-box positions as `referenceLayouts/hud.ts`,
+	 * which carries desktop base + landscape/tablet/portrait overrides), so with the
+	 * engine-truth HUD scene this renders byte-for-byte as the coded layouts.
 	 *
-	 * NOTE: desktop layout for now — the HUD scenes only carry desktop positions;
-	 * per-layoutType overrides (tablet/landscape/portrait) are a follow-up.
+	 * PORTRAIT is a special case: its coded `LayoutPortrait.svelte` is an animated
+	 * fold-out DRAWER (behaviour, not static placement). `<UIDefault>` only routes
+	 * portrait here when the doc carries portrait authoring (`hudHasPortrait`); the
+	 * `{#if layoutType === 'portrait'}` branch below reproduces the drawer exactly —
+	 * the seeded portrait `overrides` are the UNFOLDED resting positions and the
+	 * `drawerTween`/`drawerButtonTween` y-offsets (same constants + `subscribeOnMount`
+	 * wiring as `LayoutPortrait`) add the fold delta on top.
 	 */
 	type Props = LayoutUiProps & { hud: { bar?: Scene; corners?: Scene } };
 	const props: Props = $props();
 	const context = getContext();
+
+	const layoutType = $derived(context.stateLayoutDerived.layoutType() as LayoutType);
+
+	// --- Portrait drawer fold (mirrors LayoutPortrait.svelte) -----------------
+	// Same DRAWER_Y / DRAWER_BUTTON_Y constants, tweens, and event wiring as the
+	// coded portrait layout. The tweens drive a y-offset Container that wraps the
+	// drawer group; the authored portrait positions are the UNFOLDED resting coords.
+	const DRAWER_Y = { unfold: 0, fold: 550 };
+	const drawerTween = new Tween(stateUi.drawerFold ? DRAWER_Y.fold : DRAWER_Y.unfold, {
+		easing: cubicInOut,
+	});
+
+	const DRAWER_BUTTON_Y = { unfold: 0, fold: 50 };
+	const drawerButtonTween = new Tween(
+		stateUi.drawerFold ? DRAWER_BUTTON_Y.fold : DRAWER_BUTTON_Y.unfold,
+		{ easing: cubicInOut },
+	);
+
+	let drawerButtonFadeComplete = $state(() => {});
+
+	// Portrait drives the fold-out drawer structure (only reached when `<UIDefault>`
+	// has confirmed the doc carries portrait authoring, via `hudHasPortrait`).
+	const isPortrait = $derived(layoutType === 'portrait');
+
+	// The drawer events only have meaning in the portrait fold-out layout — the coded
+	// `LayoutDesktop/Landscape/Tablet` never subscribed to them. But the editable path
+	// renders a SINGLE `<LayoutEditable>` for every layoutType (it isn't remounted per
+	// layoutType the way the coded `LayoutComponent` is), and `apps/lines` runs it on
+	// all layouts — so the subscription must stay wired unconditionally (a desktop
+	// session can later resize into portrait without a remount). The deadlock the
+	// reviewer flagged comes from the `await` inside the show/hide handlers: off-portrait
+	// the resolver-firing `FadeContainer` never renders, so a `drawerButtonShow`/`Hide`
+	// handler that awaited it would never resolve, and `bookEventHandlerMap`'s
+	// `await broadcastAsync({ type: 'drawerButtonShow' })` (Promise.all of handler
+	// returns) would hang freeSpin entry. Fix: each handler short-circuits (resolves
+	// immediately) when not in portrait — matching the coded off-portrait layouts, which
+	// are no-ops for these events. Reads `isPortrait` at call time, so a resize INTO
+	// portrait still gets the real fold behaviour.
+	context.eventEmitter.subscribeOnMount({
+		drawerButtonShow: async () => {
+			if (!isPortrait) return;
+			if (!stateUi.drawerButtonShow) {
+				stateUi.drawerButtonShow = true;
+				await waitForResolve((resolve) => (drawerButtonFadeComplete = resolve));
+			}
+		},
+		drawerButtonHide: async () => {
+			if (!isPortrait) return;
+			if (stateUi.drawerButtonShow) {
+				stateUi.drawerButtonShow = false;
+				await waitForResolve((resolve) => (drawerButtonFadeComplete = resolve));
+			}
+		},
+		drawerUnfold: async () => {
+			if (!isPortrait) return;
+			if (stateUi.drawerFold) {
+				drawerButtonTween.set(DRAWER_BUTTON_Y.unfold);
+				await drawerTween.set(DRAWER_Y.unfold);
+			}
+		},
+		drawerFold: async () => {
+			if (!isPortrait) return;
+			if (!stateUi.drawerFold) {
+				drawerButtonTween.set(DRAWER_BUTTON_Y.fold);
+				await drawerTween.set(DRAWER_Y.fold);
+			}
+		},
+	});
 
 	const BAR_BG_WIDTHS = [
 		DESKTOP_BASE_SIZE * (188 / 116),
@@ -48,7 +130,12 @@
 	const BTN_Y = BAR_ORIGIN_Y + DESKTOP_BASE_SIZE * 0.5;
 	const BTN_SCALE = 0.8;
 
-	const layoutType = $derived(context.stateLayoutDerived.layoutType() as LayoutType);
+	// Portrait standard box (1080×1920) — used only for the drawer toggle button's
+	// fallback, which (unlike the reserved bar ids) has no desktop coord in
+	// `LayoutPortrait`; it lives at `(W*0.5+440, H-105)`.
+	const PORTRAIT_W = STANDARD_MAIN_SIZES_MAP.portrait.width;
+	const PORTRAIT_H = STANDARD_MAIN_SIZES_MAP.portrait.height;
+
 	const canvas = $derived(context.stateLayoutDerived.canvasSizes());
 
 	const b = (id: string, fx: number, fy: number) =>
@@ -77,6 +164,14 @@
 		turbo: b('hud-btn-turbo', 160 + 150 * 6, BTN_Y),
 		decrease: b('hud-btn-decrease', 1440, BTN_Y),
 		increase: b('hud-btn-increase', 1440 + 150, BTN_Y),
+		// Portrait-only drawer toggle. Not a reserved desktop bar id (it has no desktop
+		// coord), so its fallback is the coded `LayoutPortrait` portrait position; the
+		// `hudPos()` resolution still honours an authored `hud-btn-drawer` node if a doc
+		// adds one. Outside portrait this entry is never rendered.
+		drawerButton: hudPos(props.hud.bar, 'hud-btn-drawer', layoutType, canvas, {
+			x: PORTRAIT_W * 0.5 + 440,
+			y: PORTRAIT_H - 105,
+		}),
 	});
 
 	// Editor-authored font/text overrides for the corner text snippets (logo /
@@ -95,11 +190,13 @@
 	// Engine-path readouts (§14.2 B4.3): any `componentInstance` node the author
 	// places in the bar scene mounts via the engine `<ComponentInstance>` at the
 	// SAME `hudPos()` Container the coded snippets get — so a converted readout
-	// (B4.4) lands exactly where its coded `Label*` sat. The live `hudBarScene()`
-	// has NO `componentInstance` nodes, so this list is empty in-game → byte-
-	// identical parity. `hudPos()` resolves the node's own transform (its x/y/scale
-	// from `resolveTransform`); the fallback is only used if the node is absent,
-	// which it never is here (we found it in the same scene).
+	// (B4.4) lands exactly where its coded `Label*` sat. For a `readouts:true` /
+	// `buttons:true` consumer (bookof, apps/lines) the bar scene DOES carry
+	// `componentInstance` nodes — balance/win/bet readouts and/or the action
+	// buttons — so this list is non-empty and the coded snippets they cover are
+	// suppressed (see `mounted`). `hudPos()` resolves the node's own transform (its
+	// x/y/scale from `resolveTransform`); the fallback is only used if the node is
+	// absent, which it never is here (we found it in the same scene).
 	const instances = $derived(
 		(props.hud.bar?.nodes ?? [])
 			.filter((n): n is ComponentInstanceNode => n.kind === 'componentInstance')
@@ -149,6 +246,63 @@
 		coveredActions.has(HUD_ID_ACTION[id]) ||
 		coveredSources.has(HUD_ID_SOURCE[id]);
 
+	// Portrait fold groups (BLOCKING 1 / SHOULD-FIX 3). In portrait the coded
+	// `LayoutPortrait` slides three groups independently: the DRAWER group (menu /
+	// buy-bonus / auto-spin / spin / turbo buttons + the BALANCE readout) by
+	// `drawerTween.current`; the WIN readout by `min(drawerTween.current, 350)`; and
+	// the BET row (bet readout — or the free-spin counter — plus decrease / increase)
+	// stays put. A `componentInstance` readout/button must ride the SAME wrapper as
+	// the coded element it replaces, else (the bookof case, where balance/win/bet are
+	// `hudReadout` instances) it renders statically through the flat loop and never
+	// folds. Classify each instance into its fold group by the reserved id it carries,
+	// or — for from-scratch placements with a random id — by the action/source it
+	// covers (same key the `mounted` suppression uses). Anything unrecognised stays in
+	// `flat` (rendered in the always-visible loop = today's behaviour / desktop parity).
+	type FoldGroup = 'drawer' | 'win' | 'betRow' | 'flat';
+	const ACTION_GROUP: Record<string, FoldGroup> = {
+		menu: 'drawer',
+		buyBonus: 'drawer',
+		autoSpin: 'drawer',
+		spin: 'drawer',
+		turbo: 'drawer',
+		decrease: 'betRow',
+		increase: 'betRow',
+	};
+	const SOURCE_GROUP: Record<string, FoldGroup> = {
+		balance: 'drawer',
+		win: 'win',
+		bet: 'betRow',
+	};
+	const RESERVED_ID_GROUP: Record<string, FoldGroup> = {
+		'hud-balance': 'drawer',
+		'hud-win': 'win',
+		'hud-bet': 'betRow',
+		'hud-btn-menu': 'drawer',
+		'hud-btn-buybonus': 'drawer',
+		'hud-btn-autospin': 'drawer',
+		'hud-btn-bet': 'drawer',
+		'hud-btn-turbo': 'drawer',
+		'hud-btn-decrease': 'betRow',
+		'hud-btn-increase': 'betRow',
+	};
+	const instanceGroup = (node: ComponentInstanceNode): FoldGroup => {
+		const action = instanceParam(node, 'action');
+		const source = instanceParam(node, 'source');
+		return (
+			RESERVED_ID_GROUP[node.id] ??
+			(action ? ACTION_GROUP[action] : undefined) ??
+			(source ? SOURCE_GROUP[source] : undefined) ??
+			'flat'
+		);
+	};
+	const instancesInGroup = (group: FoldGroup) =>
+		instances.filter((instance) => instanceGroup(instance.node) === group);
+	// In portrait the grouped instances ride their fold wrapper; off-portrait every
+	// instance renders in the one flat loop (parity). `betRow` instances also follow
+	// the free-spin counter swap in portrait, so the BET readout is hidden during free
+	// spins exactly like the coded `LabelBet` is.
+	const flatInstances = $derived(isPortrait ? instancesInGroup('flat') : instances);
+
 	// Free author art (§18.5): the coded HUD ids above + the `componentInstance`
 	// loop are the only nodes this bespoke renderer drew — so a plain sprite/text/
 	// container the author DROPS on a HUD scene in the editor was silently dropped
@@ -172,6 +326,7 @@
 		'hud-btn-turbo',
 		'hud-btn-decrease',
 		'hud-btn-increase',
+		'hud-btn-drawer',
 	]);
 	const isFreeNode = (n: LayoutNode): boolean =>
 		n.kind !== 'componentInstance' && !RESERVED_HUD_IDS.has(n.id);
@@ -191,6 +346,24 @@
 		increase: hudTint(props.hud.bar, 'hud-btn-increase'),
 	});
 </script>
+
+<!--
+	A single engine-path instance (readout / placed button / free art) — mounted via
+	`<ComponentInstance>` at its own `hudPos()` Container. `space="standard"` matches
+	the bottom-bar `<MainContainer standard>` wrapper. Used both inside the portrait
+	fold wrappers (so a readout folds with its coded sibling) and in the flat loop.
+-->
+{#snippet instanceView(instance: { node: ComponentInstanceNode; pos: ReturnType<typeof hudPos> })}
+	{#if instance.pos.visible}
+		<Container
+			x={instance.pos.x}
+			y={instance.pos.y}
+			scale={{ x: instance.pos.scaleX, y: instance.pos.scaleY }}
+		>
+			<ComponentInstance node={instance.node} space="standard" />
+		</Container>
+	{/if}
+{/snippet}
 
 <!-- Free author art on the corners scene (canvas space) — see §18.5. -->
 {#each cornerFreeNodes as node (node.id)}
@@ -216,98 +389,231 @@
 	{#each barFreeNodes as node (node.id)}
 		<LayoutNodeView {node} space="standard" />
 	{/each}
-	{#if pos.balance.visible && !mounted('hud-balance')}
-		<Container
-			x={pos.balance.x}
-			y={pos.balance.y}
-			scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}
+
+	{#if isPortrait}
+		<!-- Portrait: the fold-out drawer (mirrors LayoutPortrait.svelte). The authored
+		     positions are the UNFOLDED resting coords; the tweens add the fold delta.
+		     The DRAWER group (menu / buy-bonus / auto-spin / spin / turbo / balance)
+		     slides by `drawerTween.current`; the win amount follows by `min(tween, 350)`;
+		     decrease / increase / bet (or the free-spin counter) stay put. -->
+		<Container y={drawerTween.current}>
+			{#if pos.menu.visible && !mounted('hud-btn-menu')}
+				<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }}>
+					{@render props.buttonMenu({ anchor: 0.5, tint: ovr.menu })}
+				</Container>
+			{/if}
+			{#if pos.buyBonus.visible && !mounted('hud-btn-buybonus')}
+				<Container
+					x={pos.buyBonus.x}
+					y={pos.buyBonus.y}
+					scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}
+				>
+					{@render props.buttonBuyBonus({ anchor: 0.5, tint: ovr.buyBonus })}
+				</Container>
+			{/if}
+			{#if pos.betBtn.visible && !mounted('hud-btn-bet')}
+				<Container
+					x={pos.betBtn.x}
+					y={pos.betBtn.y}
+					scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}
+				>
+					{@render props.buttonBet({ anchor: 0.5, tint: ovr.betBtn })}
+				</Container>
+			{/if}
+			{#if pos.autoSpin.visible && !mounted('hud-btn-autospin')}
+				<Container
+					x={pos.autoSpin.x}
+					y={pos.autoSpin.y}
+					scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}
+				>
+					{@render props.buttonAutoSpin({ anchor: 0.5, tint: ovr.autoSpin })}
+				</Container>
+			{/if}
+			{#if pos.turbo.visible && !mounted('hud-btn-turbo')}
+				<Container
+					x={pos.turbo.x}
+					y={pos.turbo.y}
+					scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }}
+				>
+					{@render props.buttonTurbo({ anchor: 0.5, tint: ovr.turbo })}
+				</Container>
+			{/if}
+			{#if pos.balance.visible && !mounted('hud-balance')}
+				<Container
+					x={pos.balance.x}
+					y={pos.balance.y}
+					scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}
+				>
+					{@render props.amountBalance({ stacked: true, ...ovr.balance })}
+				</Container>
+			{/if}
+			<!-- Drawer-group instances (e.g. the bookof `balance` readout, or a placed
+			     menu/buy-bonus/auto-spin/spin/turbo button) ride the SAME fold wrapper. -->
+			{#each instancesInGroup('drawer') as instance (instance.node.id)}
+				{@render instanceView(instance)}
+			{/each}
+		</Container>
+
+		<Container y={Math.min(drawerTween.current, 350)}>
+			{#if pos.win.visible && !mounted('hud-win')}
+				<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }}>
+					{@render props.amountWin({ stacked: true, ...ovr.win })}
+				</Container>
+			{/if}
+			<!-- Win-group instances (the bookof `win` readout) follow `min(tween, 350)`. -->
+			{#each instancesInGroup('win') as instance (instance.node.id)}
+				{@render instanceView(instance)}
+			{/each}
+		</Container>
+
+		{#if stateUi.freeSpinCounterShow}
+			<!-- Free-spin counter swaps in for the BET slot regardless of whether bet is a
+			     coded label or a `componentInstance` readout (SHOULD-FIX 3): the bet-row
+			     instances are NOT rendered here, so the readout is hidden during free spins
+			     exactly like the coded `LabelBet`. The counter sits at the authored bet
+			     position (`pos.bet` is the seeded `hud-bet` coord even when a readout
+			     covers the slot). -->
+			{#if pos.bet.visible}
+				<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
+					<LabelFreeSpinCounter stacked />
+				</Container>
+			{/if}
+		{:else}
+			{#if pos.bet.visible && !mounted('hud-bet')}
+				<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
+					{@render props.amountBet({ stacked: true, ...ovr.bet })}
+				</Container>
+			{/if}
+			<!-- Bet-row instances (bet readout + any placed decrease/increase). Hidden
+			     above during free spins so the counter takes the slot. -->
+			{#each instancesInGroup('betRow') as instance (instance.node.id)}
+				{@render instanceView(instance)}
+			{/each}
+			{#if pos.decrease.visible && !mounted('hud-btn-decrease')}
+				<Container
+					x={pos.decrease.x}
+					y={pos.decrease.y}
+					scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}
+				>
+					{@render props.buttonDecrease({ anchor: 0.5, tint: ovr.decrease })}
+				</Container>
+			{/if}
+			{#if pos.increase.visible && !mounted('hud-btn-increase')}
+				<Container
+					x={pos.increase.x}
+					y={pos.increase.y}
+					scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}
+				>
+					{@render props.buttonIncrease({ anchor: 0.5, tint: ovr.increase })}
+				</Container>
+			{/if}
+		{/if}
+
+		<!-- Drawer toggle button — fades on `drawerButtonShow`, slides by `drawerButtonTween`.
+		     Positioned at `pos.drawerButton` (an optional `hud-btn-drawer` node, else the
+		     coded `LayoutPortrait` resting coord), matching the coded layout's toggle. -->
+		<FadeContainer
+			persistent
+			show={stateUi.drawerButtonShow}
+			oncomplete={drawerButtonFadeComplete}
+			y={drawerButtonTween.current}
 		>
-			{@render props.amountBalance({ stacked: true, ...ovr.balance })}
-		</Container>
-	{/if}
-	{#if pos.win.visible && !mounted('hud-win')}
-		<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }}>
-			{@render props.amountWin({ stacked: true, ...ovr.win })}
-		</Container>
-	{/if}
-	{#if pos.bet.visible && !mounted('hud-bet')}
-		<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
-			{@render props.amountBet({ stacked: true, ...ovr.bet })}
-		</Container>
-	{/if}
-	{#if pos.menu.visible && !mounted('hud-btn-menu')}
-		<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }}>
-			{@render props.buttonMenu({ anchor: 0.5, tint: ovr.menu })}
-		</Container>
-	{/if}
-	{#if pos.buyBonus.visible && !mounted('hud-btn-buybonus')}
-		<Container
-			x={pos.buyBonus.x}
-			y={pos.buyBonus.y}
-			scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}
-		>
-			{@render props.buttonBuyBonus({ anchor: 0.5, tint: ovr.buyBonus })}
-		</Container>
-	{/if}
-	{#if pos.autoSpin.visible && !mounted('hud-btn-autospin')}
-		<Container
-			x={pos.autoSpin.x}
-			y={pos.autoSpin.y}
-			scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}
-		>
-			{@render props.buttonAutoSpin({ anchor: 0.5, tint: ovr.autoSpin })}
-		</Container>
-	{/if}
-	{#if pos.betBtn.visible && !mounted('hud-btn-bet')}
-		<Container
-			x={pos.betBtn.x}
-			y={pos.betBtn.y}
-			scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}
-		>
-			{@render props.buttonBet({ anchor: 0.5, tint: ovr.betBtn })}
-		</Container>
-	{/if}
-	{#if pos.turbo.visible && !mounted('hud-btn-turbo')}
-		<Container x={pos.turbo.x} y={pos.turbo.y} scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }}>
-			{@render props.buttonTurbo({ anchor: 0.5, tint: ovr.turbo })}
-		</Container>
-	{/if}
-	{#if pos.decrease.visible && !mounted('hud-btn-decrease')}
-		<Container
-			x={pos.decrease.x}
-			y={pos.decrease.y}
-			scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}
-		>
-			{@render props.buttonDecrease({ anchor: 0.5, tint: ovr.decrease })}
-		</Container>
-	{/if}
-	{#if pos.increase.visible && !mounted('hud-btn-increase')}
-		<Container
-			x={pos.increase.x}
-			y={pos.increase.y}
-			scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}
-		>
-			{@render props.buttonIncrease({ anchor: 0.5, tint: ovr.increase })}
-		</Container>
+			<Container x={pos.drawerButton.x} y={pos.drawerButton.y}>
+				<ButtonDrawer disabled={!stateUi.drawerButtonShow} anchor={0.5} />
+			</Container>
+		</FadeContainer>
+	{:else}
+		{#if pos.balance.visible && !mounted('hud-balance')}
+			<Container
+				x={pos.balance.x}
+				y={pos.balance.y}
+				scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}
+			>
+				{@render props.amountBalance({ stacked: true, ...ovr.balance })}
+			</Container>
+		{/if}
+		{#if pos.win.visible && !mounted('hud-win')}
+			<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }}>
+				{@render props.amountWin({ stacked: true, ...ovr.win })}
+			</Container>
+		{/if}
+		{#if pos.bet.visible && !mounted('hud-bet')}
+			<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
+				{@render props.amountBet({ stacked: true, ...ovr.bet })}
+			</Container>
+		{/if}
+		{#if pos.menu.visible && !mounted('hud-btn-menu')}
+			<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }}>
+				{@render props.buttonMenu({ anchor: 0.5, tint: ovr.menu })}
+			</Container>
+		{/if}
+		{#if pos.buyBonus.visible && !mounted('hud-btn-buybonus')}
+			<Container
+				x={pos.buyBonus.x}
+				y={pos.buyBonus.y}
+				scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}
+			>
+				{@render props.buttonBuyBonus({ anchor: 0.5, tint: ovr.buyBonus })}
+			</Container>
+		{/if}
+		{#if pos.autoSpin.visible && !mounted('hud-btn-autospin')}
+			<Container
+				x={pos.autoSpin.x}
+				y={pos.autoSpin.y}
+				scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}
+			>
+				{@render props.buttonAutoSpin({ anchor: 0.5, tint: ovr.autoSpin })}
+			</Container>
+		{/if}
+		{#if pos.betBtn.visible && !mounted('hud-btn-bet')}
+			<Container
+				x={pos.betBtn.x}
+				y={pos.betBtn.y}
+				scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}
+			>
+				{@render props.buttonBet({ anchor: 0.5, tint: ovr.betBtn })}
+			</Container>
+		{/if}
+		{#if pos.turbo.visible && !mounted('hud-btn-turbo')}
+			<Container
+				x={pos.turbo.x}
+				y={pos.turbo.y}
+				scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }}
+			>
+				{@render props.buttonTurbo({ anchor: 0.5, tint: ovr.turbo })}
+			</Container>
+		{/if}
+		{#if pos.decrease.visible && !mounted('hud-btn-decrease')}
+			<Container
+				x={pos.decrease.x}
+				y={pos.decrease.y}
+				scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}
+			>
+				{@render props.buttonDecrease({ anchor: 0.5, tint: ovr.decrease })}
+			</Container>
+		{/if}
+		{#if pos.increase.visible && !mounted('hud-btn-increase')}
+			<Container
+				x={pos.increase.x}
+				y={pos.increase.y}
+				scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}
+			>
+				{@render props.buttonIncrease({ anchor: 0.5, tint: ovr.increase })}
+			</Container>
+		{/if}
 	{/if}
 
 	<!--
 		Engine-path readouts (§14.2 B4.3): a `componentInstance` HUD node mounts via
 		`<ComponentInstance>` at the same `hudPos()` Container the coded snippets get.
 		`space="standard"` matches this `<MainContainer standard>` wrapper so the
-		readout's text nodes resolve their transform identically. Empty in the live
-		HUD (no `componentInstance` nodes in `hudBarScene()`) → parity.
+		readout's text nodes resolve their transform identically. Off-portrait this is
+		EVERY instance (flat, no fold — the coded `LayoutDesktop/Landscape/Tablet` are
+		static too). In portrait the balance/win/bet-row instances are rendered inside
+		their fold wrappers above, so `flatInstances` is only the unclassified ones.
 	-->
-	{#each instances as instance (instance.node.id)}
-		{#if instance.pos.visible}
-			<Container
-				x={instance.pos.x}
-				y={instance.pos.y}
-				scale={{ x: instance.pos.scaleX, y: instance.pos.scaleY }}
-			>
-				<ComponentInstance node={instance.node} space="standard" />
-			</Container>
-		{/if}
+	{#each flatInstances as instance (instance.node.id)}
+		{@render instanceView(instance)}
 	{/each}
 </MainContainer>
 
@@ -326,7 +632,31 @@
 		onpointerup={() => (stateUi.menuOpen = false)}
 	/>
 
-	{#if layoutType === 'landscape'}
+	{#if layoutType === 'portrait'}
+		<!-- Menu overlay (coded — mirrors LayoutPortrait.svelte's menu cluster). -->
+		<MainContainer standard alignVertical="bottom">
+			<Container
+				x={context.stateLayoutDerived.mainLayoutStandard().width * 0.5 - 440}
+				y={context.stateLayoutDerived.mainLayoutStandard().height - 400}
+			>
+				<Container y={-190 - 210 * 3}>
+					{@render props.buttonPayTable({ anchor: 0.5 })}
+				</Container>
+				<Container y={-190 - 210 * 2}>
+					{@render props.buttonGameRules({ anchor: 0.5 })}
+				</Container>
+				<Container y={-190 - 210 * 1}>
+					{@render props.buttonSettings({ anchor: 0.5 })}
+				</Container>
+				<Container y={-190}>
+					{@render props.buttonSoundSwitch({ anchor: 0.5 })}
+				</Container>
+				<Container>
+					{@render props.buttonMenuClose({ anchor: 0.5 })}
+				</Container>
+			</Container>
+		</MainContainer>
+	{:else if layoutType === 'landscape'}
 		<MainContainer standard alignVertical="bottom">
 			<Container
 				x={165}

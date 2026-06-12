@@ -5,6 +5,8 @@
 	import { getContextLayout } from 'utils-layout';
 	import { EnableSpaceHold } from 'components-shared';
 
+	import { hudHasPortrait } from '../hudPositions';
+
 	import UiFadeContainer from './UiFadeContainer.svelte';
 	import LayoutDesktop from './LayoutDesktop.svelte';
 	import LayoutPortrait from './LayoutPortrait.svelte';
@@ -51,10 +53,16 @@
 
 	const LayoutComponent = $derived(LAYOUT_COMPONENT_MAP[stateLayoutDerived.layoutType()]);
 	// Opt-in: a game that passes `hud` scenes drives the HUD from editor data.
-	// Portrait keeps the coded layout — its bar is an animated fold-out drawer
-	// (behaviour, not static placement), so it's out of the data-driven path.
+	// Portrait's coded layout is an animated fold-out drawer (behaviour, not static
+	// placement), so it joins the data-driven path ONLY when the doc actually carries
+	// portrait authoring (`hudHasPortrait`) — `LayoutEditable` then reproduces the
+	// drawer fold while positioning each element at its authored portrait coords. A
+	// doc with no portrait overrides keeps rendering the coded `LayoutPortrait`
+	// (parity for `apps/lines` + un-refreshed docs). The other three layoutTypes use
+	// the editable path whenever any HUD scene is passed, unchanged.
 	const useEditable = $derived(
-		Boolean(props.hud?.bar || props.hud?.corners) && stateLayoutDerived.layoutType() !== 'portrait',
+		Boolean(props.hud?.bar || props.hud?.corners) &&
+			(stateLayoutDerived.layoutType() !== 'portrait' || hudHasPortrait(props.hud)),
 	);
 </script>
 
