@@ -468,11 +468,13 @@ export function hudScenes(options: HudBarOptions = {}): Scene[] {
 /** Scene ids of the reusable HUD screens (bottom bar + logo/game-name corners). */
 export const HUD_SCENE_IDS: readonly string[] = ['hudBar', 'hudCorners'];
 
-/** True when a scene is one of the HUD screens — used by the editor to group them
- * in the Screens list and render them on the top-most layer (the game draws the
- * HUD as its top UI layer, so the editor must match). */
+/** True when a scene is a HUD screen — used by the editor to group them in the
+ * Screens list and render them on the top-most layer (the game draws the HUD as
+ * its top UI layer, so the editor must match). Matches the two canonical HUD
+ * scenes (`hudBar`/`hudCorners`) AND any author-created HUD screen, which the
+ * editor mints with a `hud_` id prefix (the "New HUD screen" button). */
 export function isHudScene(scene: { id: string }): boolean {
-	return HUD_SCENE_IDS.includes(scene.id);
+	return HUD_SCENE_IDS.includes(scene.id) || scene.id.startsWith('hud_');
 }
 
 /**

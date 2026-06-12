@@ -768,6 +768,156 @@
 		markDirty();
 	}
 
+	/** Next free `"<prefix> NNN"` name (zero-padded), scanning existing scene names so
+	 * it survives deletes — used for the auto-named "New screen" / "New HUD screen". */
+	function nextScreenName(prefix: string): string {
+		const re = new RegExp(`^${prefix} (\\d+)$`);
+		let max = 0;
+		for (const s of scenes) {
+			const m = re.exec(s.name ?? '');
+			if (m) max = Math.max(max, Number.parseInt(m[1], 10));
+		}
+		return `${prefix} ${String(max + 1).padStart(3, '0')}`;
+	}
+
+	/** Add a blank game-space screen (auto-named "Screen 001", …) and focus it — the
+	 * generic counterpart to "New background screen". NOTE: the reference games mount
+	 * scenes by id in code, so a fresh screen renders in this editor preview but does
+	 * not yet appear in the shipped game until its id is wired into the game (deferred
+	 * engine work — see docs/STATUS.md). */
+	function addEmptyScreen(): void {
+		const id = 's_' + Math.random().toString(36).slice(2, 10);
+		scenes = [...scenes, { id, name: nextScreenName('Screen'), nodes: [] }];
+		activeSceneIdx = scenes.length - 1;
+		selectedId = null;
+		markDirty();
+	}
+
+	/** Add a blank HUD-layer screen — a `standard`-space scene minted with a `hud_` id
+	 * so `isHudScene()` groups it under the always-on-top HUD section. Drop atlas
+	 * regions onto it to build a custom top-layer overlay. Same shipping caveat as
+	 * `addEmptyScreen` (needs game wiring to render in the live game). */
+	function addHudScreen(): void {
+		const id = 'hud_' + Math.random().toString(36).slice(2, 10);
+		scenes = [...scenes, { id, name: nextScreenName('HUD'), space: 'standard', nodes: [] }];
+		activeSceneIdx = scenes.length - 1;
+		selectedId = null;
+		markDirty();
+	}
+
+	/** Delete a screen (with its nodes) after confirmation, then re-resolve the active
+	 * screen so the canvas keeps a valid selection. */
+	function deleteScene(idx: number): void {
+		const sc = scenes[idx];
+		if (!sc) return;
+		const label = sc.name || sc.id;
+		const msg =
+			sc.nodes.length > 0
+				? `Delete the "${label}" screen and its ${sc.nodes.length} item${sc.nodes.length === 1 ? '' : 's'}? This can't be undone.`
+				: `Delete the "${label}" screen?`;
+		if (!confirm(msg)) return;
+		const activeId = activeScene?.id;
+		const next = scenes.filter((_, i) => i !== idx);
+		scenes = next;
+		if (next.length === 0) {
+			activeSceneIdx = 0;
+		} else if (activeId === sc.id) {
+			activeSceneIdx = Math.min(idx, next.length - 1);
+		} else {
+			const ni = next.findIndex((s) => s.id === activeId);
+			activeSceneIdx = ni === -1 ? Math.min(activeSceneIdx, next.length - 1) : ni;
+		}
+		selectedId = null;
+		markDirty();
+	}
+
+	// ---------- inline screen rename ----------
+	let renamingSceneIdx = $state<number | null>(null);
+	let renameDraft = $state('');
+	function startRenameScene(idx: number): void {
+		if (!scenes[idx]) return;
+		renamingSceneIdx = idx;
+		renameDraft = scenes[idx].name ?? '';
+	}
+	function commitRenameScene(): void {
+		if (renamingSceneIdx === null) return;
+		const sc = scenes[renamingSceneIdx];
+		const name = renameDraft.trim();
+		if (sc && name && name !== sc.name) {
+			sc.name = name;
+			scenes = scenes.slice();
+			markDirty();
+		}
+		renamingSceneIdx = null;
+	}
+	function cancelRenameScene(): void {
+		renamingSceneIdx = null;
+	}
+	/** Focus + select an input on mount (the rename field). */
+	function selectOnMount(node: HTMLInputElement): void {
+		node.focus();
+		node.select();
+	}
+
+	// ---------- drag-to-reorder screens ----------
+	// The editor composites GAME scenes in doc-array order (EditorCanvas), so moving a
+	// row changes its layer (top row = back, bottom = front). HUD scenes always draw on
+	// the top-most layer, so reordering is constrained WITHIN a group (game ↔ game, HUD
+	// ↔ HUD) — a cross-group drop is rejected (it wouldn't change rendering anyway).
+	let dragSceneIdx = $state<number | null>(null);
+	let dropInfo = $state<{ idx: number; after: boolean } | null>(null);
+	function sameGroup(a: number, b: number): boolean {
+		return Boolean(scenes[a]) && Boolean(scenes[b]) && isHudScene(scenes[a]) === isHudScene(scenes[b]);
+	}
+	function onSceneDragStart(e: DragEvent, idx: number): void {
+		dragSceneIdx = idx;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', String(idx)); // Firefox needs a payload
+		}
+	}
+	function dropAfter(e: DragEvent): boolean {
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		return e.clientY > rect.top + rect.height / 2;
+	}
+	function onSceneDragOver(e: DragEvent, idx: number): void {
+		if (dragSceneIdx === null || !sameGroup(dragSceneIdx, idx)) return;
+		e.preventDefault(); // allow the drop
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		const after = dropAfter(e);
+		if (!dropInfo || dropInfo.idx !== idx || dropInfo.after !== after) dropInfo = { idx, after };
+	}
+	function onSceneDrop(e: DragEvent, idx: number): void {
+		e.preventDefault();
+		if (dragSceneIdx !== null && sameGroup(dragSceneIdx, idx)) {
+			moveScene(dragSceneIdx, idx, dropAfter(e));
+		}
+		resetSceneDrag();
+	}
+	function resetSceneDrag(): void {
+		dragSceneIdx = null;
+		dropInfo = null;
+	}
+	/** Move scene `from` to sit before/after `targetIdx`, keeping the active screen
+	 * focused. `ref` is the insert-before index in the original array; it drops by one
+	 * once `from` is spliced out from earlier in the array. */
+	function moveScene(from: number, targetIdx: number, after: boolean): void {
+		if (from < 0 || from >= scenes.length) return;
+		let ref = after ? targetIdx + 1 : targetIdx;
+		if (from < ref) ref -= 1;
+		if (ref === from) return; // no-op
+		const activeId = activeScene?.id;
+		const next = scenes.slice();
+		const [moved] = next.splice(from, 1);
+		next.splice(ref, 0, moved);
+		scenes = next;
+		if (activeId) {
+			const ni = next.findIndex((s) => s.id === activeId);
+			if (ni !== -1) activeSceneIdx = ni;
+		}
+		markDirty();
+	}
+
 	function removeNode(nodes: LayoutNode[], id: string): boolean {
 		const i = nodes.findIndex((n) => n.id === id);
 		if (i !== -1) {
@@ -1494,17 +1644,47 @@
 				</div>
 				{#snippet sceneRow(s: (typeof scenes)[number], i: number)}
 					{@const hidden = hiddenScenes.has(s.id)}
-					<li class="screen-li">
-						<button
-							type="button"
-							class="screen"
-							class:active={i === activeSceneIdx}
-							class:dimmed={hidden}
-							onclick={() => selectScene(i)}
+					<li
+						class="screen-li"
+						class:dragging={dragSceneIdx === i}
+						class:drop-before={dropInfo?.idx === i && !dropInfo.after}
+						class:drop-after={dropInfo?.idx === i && dropInfo.after}
+						draggable={renamingSceneIdx !== i}
+						ondragstart={(e) => onSceneDragStart(e, i)}
+						ondragover={(e) => onSceneDragOver(e, i)}
+						ondrop={(e) => onSceneDrop(e, i)}
+						ondragend={resetSceneDrag}
+					>
+						<span class="grip" title="Drag to reorder (changes layer order)" aria-hidden="true"
+							>⠿</span
 						>
-							<span class="screen-name">{s.name || s.id}</span>
-							<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
-						</button>
+						{#if renamingSceneIdx === i}
+							<!-- svelte-ignore a11y_autofocus -->
+							<input
+								class="screen-rename"
+								type="text"
+								bind:value={renameDraft}
+								use:selectOnMount
+								onblur={commitRenameScene}
+								onkeydown={(e) => {
+									if (e.key === 'Enter') commitRenameScene();
+									else if (e.key === 'Escape') cancelRenameScene();
+								}}
+							/>
+						{:else}
+							<button
+								type="button"
+								class="screen"
+								class:active={i === activeSceneIdx}
+								class:dimmed={hidden}
+								title="Click to edit · double-click to rename"
+								onclick={() => selectScene(i)}
+								ondblclick={() => startRenameScene(i)}
+							>
+								<span class="screen-name">{s.name || s.id}</span>
+								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
+							</button>
+						{/if}
 						<button
 							type="button"
 							class="eye"
@@ -1534,6 +1714,23 @@
 									<circle cx="12" cy="12" r="3" fill="currentColor" />
 								</svg>
 							{/if}
+						</button>
+						<button
+							type="button"
+							class="del"
+							title="Delete this screen"
+							aria-label="Delete this screen"
+							onclick={() => deleteScene(i)}
+						>
+							<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+								<path
+									d="M5 5l14 14M19 5L5 19"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+								/>
+							</svg>
 						</button>
 					</li>
 				{/snippet}
@@ -1609,6 +1806,15 @@
 					<button
 						class="add-hud-btn"
 						type="button"
+						title="Create a new blank screen (auto-named). Drag atlas regions onto it to build a layer. Reorder it in the list to set its layer order."
+						onclick={addEmptyScreen}
+					>
+						＋ New empty screen
+					</button>
+
+					<button
+						class="add-hud-btn"
+						type="button"
 						title="Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge."
 						onclick={addBackgroundScreen}
 					>
@@ -1624,6 +1830,15 @@
 						onclick={addHudLayer}
 					>
 						{hasHud ? '↻ Refresh HUD layer' : '＋ Add HUD layer'}
+					</button>
+
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Create a new blank HUD-layer screen (always on top). Drag atlas regions onto it to build a custom overlay."
+						onclick={addHudScreen}
+					>
+						＋ New HUD screen
 					</button>
 
 					{#if missingScreens.length > 0}
@@ -2200,6 +2415,72 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
+		position: relative;
+	}
+	.screen-li.dragging {
+		opacity: 0.4;
+	}
+	/* Drop indicator: a bright line at the top/bottom edge of the hovered row. */
+	.screen-li.drop-before::before,
+	.screen-li.drop-after::after {
+		content: '';
+		position: absolute;
+		left: 18px;
+		right: 0;
+		height: 2px;
+		background: #5db0ff;
+		border-radius: 2px;
+		pointer-events: none;
+	}
+	.screen-li.drop-before::before {
+		top: -2px;
+	}
+	.screen-li.drop-after::after {
+		bottom: -2px;
+	}
+	.grip {
+		flex: none;
+		width: 12px;
+		text-align: center;
+		color: #4a4a56;
+		cursor: grab;
+		font-size: 12px;
+		line-height: 1;
+		user-select: none;
+	}
+	.screen-li:hover .grip {
+		color: #7a7a8a;
+	}
+	.screen-rename {
+		flex: 1;
+		min-width: 0;
+		padding: 7px 9px;
+		font-size: 12px;
+		font-family: inherit;
+		border-radius: 6px;
+		border: 1px solid #5db0ff;
+		background: #0d1620;
+		color: #e8e8ee;
+		outline: none;
+	}
+	.del {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		flex: none;
+		border-radius: 6px;
+		border: 1px solid #1f1f28;
+		background: #16161c;
+		color: #8a6a70;
+		cursor: pointer;
+		padding: 0;
+	}
+	.del:hover {
+		border-color: #b3434f;
+		background: #241417;
+		color: #ff8a96;
 	}
 	.screens-subhead {
 		display: flex;

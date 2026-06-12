@@ -901,3 +901,159 @@ keeping the drawer behaviour while driving its element positions from the doc. O
   doc carrying the seeded portrait overrides; an author who MOVES the portrait layout gets that layout (the
   intended outcome). Builds: `engine-layout` + `lines` GREEN; Prettier clean. Book of Borut picks this up on
   the next engine submodule bump.
+
+---
+
+## 19. Addendum — Reconcile the composition-seeding model: one slot-tagged source, two projections (owner direction 2026-06-12)
+
+**Owner report:** the Scene Editor's "＋ Load a game scene…" picker is confusing — it packs two unrelated
+ideas into one dropdown ("Placed game layouts" vs "Blank scenes (from template)"), and the template concept
+"seems broken and behind compared to Book of Borut." Investigated 2026-06-12.
+
+### 19.1 Root cause — two encodings of one thing, plus a split starting point
+
+A game's scene set is encoded **twice**, and the two drifted (the same disease §15 already started treating):
+
+| Encoding | What it is | Consumers |
+|---|---|---|
+| **Reference layout** (`referenceLayouts/*.ts`: `defaultLayout`, `bookofReferenceLayout`) | the **filled, engine-truth composition** (frame, FS counter, HUD readouts, overlay/loading anchors) | the seed script (via generated JSON, §15 Move 2), the game's offline fallback (`editor-scenes.ts`), the picker's `ref:` "Placed layouts" group, `getFullSceneSet` (Add-missing-screens diff) |
+| **Template** (`templates/*.ts`: `GameTemplate`) | the **empty slot skeleton** (scenes + slot metadata, mount anchors only) | slot-warnings, Template-mode authoring, the picker's `skel:` "Blank scenes" group, **new-project scaffold** (`projectScaffold.ts` → `seedScenesFromTemplate`) |
+
+These are §7's "template = target schema, import = first-fill" — but in practice the **filled** encoding won
+every real job, and the **empty** one decayed into slot-warnings + the confusing `skel:` menu group + the
+new-project scaffold. Two consequences:
+
+1. **The menu welds two mental models together** ("open the real composed game" vs "seed empty skeletons"),
+   and for 4 of 5 kinds offers only the empty skeleton — so it reads as broken/incomplete.
+2. **New projects and real games start from different places.** A new project scaffolds its editor doc from
+   `seedScenesFromTemplate(template)` (verified — `projectScaffold.ts` `buildSeeds`), i.e. **empty** scenes;
+   Book of Borut got its doc from `seed-game-editor.mjs` (the **rich** reference composition). So "what you
+   see when you open a project" depends on which path created it — *that* is the "behind Borut" feeling.
+
+### 19.2 Owner's reframe — what "template" should actually mean
+
+Pick **a game KIND** and get a project pre-scaffolded with **the correct screens and engine pieces for that
+kind** — "lines would need a reel screen." Decisions (owner, 2026-06-12):
+- Create from zero, choosing only the game kind; it materialises the right screen set + engine-owned pieces.
+- **Fresh-project art = ENGINE PIECES ONLY**: place the engine-owned screens + mounts (reel grid, HUD,
+  overlay/loading/free-spin anchors); place **no artist art**, not even empty placeholders. The author adds
+  background / board frame / logo / buttons themselves.
+
+### 19.3 The reconciled model — one slot-tagged source, two projections
+
+**One source of truth per game kind = the reference layout, slot-tagged** (every node already may carry
+`slotId`; engine-owned content is a `mount`/`bind` anchor or HUD; artist content is a plain
+`sprite`/`spine`/`text` with no `bind`). From that single source we **compute** two projections — no parallel
+hand-maintained file, so nothing can drift:
+
+- **`import` (open a composed game)** = the reference layout as-is (today's `ref:` "Placed layouts").
+- **`scaffold` (create-from-zero by kind)** = the reference layout **filtered to engine-owned nodes only**:
+  keep every scene; within each scene keep `mount` anchors, `bind` anchors (overlay/loading/free-spin), the
+  HUD layer, and engine-bound `componentInstance`s (HUD readouts/buttons whose params bind a value source);
+  **drop plain artist `sprite`/`spine`/`text`** (e.g. the board frame). Result = correct screens + wired
+  engine pieces + no art = exactly "engine pieces only."
+
+The standalone empty-`GameTemplate` files and the `skel:` menu group are **retired** as a *seeding* source:
+"the correct screens for a kind" is no longer a separately-maintained skeleton — it is *derived* from the one
+real composition. (Slot metadata still exists on nodes and still drives mount validation / the asset-library
+grouping of §7.6; what goes away is the second hand-written scene list.)
+
+**Template-mode authoring survives, narrowed:** it is how you define a **brand-new kind** (e.g. "Crash") that
+has no reference layout yet — author its engine-owned skeleton on the canvas, save it, and it becomes the
+kind's source (and therefore both projections). For the existing kinds (`lines`/`ways`/`cluster`/`scatter`/
+`bookOf`) you never touch a template — you pick the kind and the scaffold projection runs.
+
+### 19.4 The classifier (what counts as "engine-owned")
+
+A pure `engineOwnedOnly(doc)` filter in `engine-layout` (sibling to `seedScenesFromTemplate`, which it
+replaces as the scaffold source). A node is **kept** iff any of:
+- `kind === 'container'` with a `bind` (coded mount/overlay anchor) **or** a `slotId` whose template slot
+  `kind === 'mount'`;
+- `kind === 'componentInstance'` whose def is engine-bound (a param binds a registered value `source` /
+  `action` — HUD readouts, buttons);
+- it belongs to the HUD layer (`isHudScene` / reserved hud ids).
+
+Otherwise (plain `sprite`/`spine`/`text` with no `bind`, no engine binding) it is **dropped**. Empty scenes
+are still emitted (the screen exists; it's just unfurnished). This is computable from existing metadata — no
+schema change.
+
+### 19.5 UI collapse (the menu)
+
+Replace the two-group "＋ Load a game scene…" dropdown with an honest split:
+- **New game from kind** → `lines / ways / cluster / scatter / bookOf` — runs the **scaffold** projection
+  (engine pieces only). This is the owner's "create a template from zero."
+- **Import composed reference** → the kinds that ship a reference layout — runs the **import** projection
+  (filled), clobber-guarded (PR #23). bookOf is included here via the project-aware path (see 19.6), no longer
+  excluded-then-offered-empty.
+- The non-destructive top-ups stay as their own controls (Add missing screens / Add HUD layer / New
+  background), visually grouped as "add to this project," not competing entries in the load menu.
+
+### 19.6 bookOf's board-frame caveat (carried over, not regressed)
+
+`bookofReferenceLayout` was excluded from the picker because its board frame is an atlas FRAME living inside
+the project's `reels_frame` atlas — a generic standalone-key layout can't render it, and loading it blind
+could clobber a real seeded doc (`referenceLayouts/index.ts`). Under 19.3 this mostly dissolves: the
+**scaffold** projection *drops* the board frame (it's artist art), so the frame-atlas problem doesn't arise
+for "new bookOf game." The **import** projection still needs the project's own manifest for the frame — so
+import stays project-aware (reuse the seed's manifest-pointing logic) and clobber-guarded.
+
+### 19.7 Build order (parity-gated; engine-layout first, launcher second)
+
+1. **`engine-layout`:** add `engineOwnedOnly(doc)` (19.4) + tests; export it. Keep `seedScenesFromTemplate`
+   for now (back-compat) but mark it superseded.
+2. **`engine-layout`:** ensure each kind's reference layout is the complete, slot-tagged screen set (§15
+   already did `lines`/`bookOf`; add `ways`/`cluster`/`scatter` reference layouts, or fall them back to a
+   minimal kind-correct skeleton until authored).
+3. **Launcher scaffold (`projectScaffold.ts`):** seed a new project's editor doc from
+   `engineOwnedOnly(referenceLayout(gameType))` instead of `seedScenesFromTemplate(template)`. A new project
+   now opens with the correct screens + engine pieces, art-empty.
+4. **Launcher editor UI (`/editor`):** collapse the dropdown into the 19.5 layout; drop the `skel:` group;
+   wire "New game from kind" → scaffold projection, "Import composed reference" → import projection.
+5. **Verify online** (owner): new lines project opens with a reel screen + HUD, no art; new bookOf opens with
+   its screens + reel mount, no frame; importing a kind still composes the filled reference; Borut unchanged.
+6. **Cleanup:** once 1–5 verify, retire the empty-`GameTemplate` *seed* path (the `GameTemplate` type stays
+   for slot metadata + new-kind authoring; only its use as a parallel scene list goes).
+
+### 19.8 Open decisions / dependencies
+
+- **`gameType` storage.** "Pick a kind on create" needs the kind persisted per project. `projectGameType()` is
+  still a STUB returning `'lines'` (no `game_type` column — noted in §7.4). The scaffold projection is blocked
+  on this for non-lines kinds until the column + create-time field land (owner-applied migration; Claude has
+  no `DATABASE_URL`). Until then, "New game from kind" can carry the kind in the create request without
+  persisting it.
+- **`ways`/`cluster`/`scatter` reference layouts** don't exist yet (only `lines`/`bookOf`). Step 2 either
+  authors them or ships a minimal kind-correct engine-owned skeleton so the scaffold has something to filter.
+- **Re-scaffold semantics.** Never silently overwrite an author-edited doc — gate "New game from kind" on an
+  empty/new project, and make any reset explicit + confirmed (matches §7.4).
+- **Should a template just be the engine-owned projection?** Long-term, §7.5's "author a template" and 19.3's
+  "engine-owned skeleton for a new kind" are the same artifact. Likely fold `GameTemplate` authoring into
+  "save the engine-owned projection of a composition as a new kind." Defer until a real new kind is needed.
+
+## 20. Addendum — Screens panel becomes a full list manager (owner direction 2026-06-12)
+
+The `/editor` SCREENS list was view-only (select + hide). Now it manages the screen set:
+
+- **Drag-to-reorder.** HTML5 DnD on each row; a blue line marks the drop slot. The editor composites GAME
+  scenes in **doc-array order** (`EditorCanvas.visibleGameScenes`, top row = back), so a move re-layers the
+  preview. Constrained **within a group** (game↔game, HUD↔HUD): HUD always draws on the top-most layer, and a
+  cross-group move wouldn't change rendering. `moveScene(from, targetIdx, after)` splices the full array
+  (insert-before index `ref`, decremented once `from` is removed from earlier) and keeps the active screen focused.
+- **Delete** (`deleteScene`) — confirm (names the node count), then re-resolve the active scene so the canvas
+  keeps a valid selection.
+- **Inline rename** (`startRenameScene`/`commitRenameScene`) — double-click the name → focused input;
+  Enter/blur commit, Esc cancels. (Renames `Scene.name`, distinct from per-node `onRenameNode`.)
+- **Create** — alongside "New background screen": **"＋ New empty screen"** (`addEmptyScreen`, auto-named
+  `Screen 001`…, `game` space) and **"＋ New HUD screen"** (`addHudScreen`, blank `standard`-space scene minted
+  with a `hud_` id). `isHudScene` (engine-layout `hud.ts`) was broadened to match the `hud_` prefix so the new
+  HUD screen groups under the top-layer HUD section. `isHudScene` is editor-only (not in the game runtime), so
+  this is non-breaking.
+
+### 20.1 Deferred engine wiring (owner: "keep this change for later")
+
+The reference games mount scenes by **hardcoded id** in a fixed JSX order (`apps/lines/Game.svelte`
+`<LayoutScene scene={…}>` per id; only `background`-space scenes render generically). So today a brand-new
+empty/HUD screen and a reorder change the **editor preview** but do **not** drive the shipped game. The deferred
+step: make the runtime render doc scenes generically (by id-driven slots that respect doc order, or a generic
+`{#each scenes}` pass for non-special ids) so new screens + reorder ship automatically — then reorder truly
+"reflects the position in the game", not just the editor. Scope this against the per-game special scenes
+(`loading`/`hudBar`/`hudCorners`/`basegame` split around the reel) before generalizing.
