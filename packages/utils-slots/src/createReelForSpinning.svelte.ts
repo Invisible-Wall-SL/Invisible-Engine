@@ -130,9 +130,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelState.symbols = [...symbolsForSpin];
 
 		const topY =
-			homeY() -
-			symbolsForSpin.length * getSymbolHeight() +
-			reelLength * getSymbolHeight();
+			homeY() - symbolsForSpin.length * getSymbolHeight() + reelLength * getSymbolHeight();
 		return topY;
 	};
 
@@ -361,14 +359,18 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	};
 
 	const readyToSpinEffect = () => {
-		// Re-home a settled reel when a REACTIVE row pitch changes (e.g. the editor's
-		// reelGrid cell-height/gap override loads after module init). Gated on a getter
-		// height: a static number never changes `homeY()`, so this effect is inert and
-		// the reel keeps byte-identical behaviour.
+		// Re-home a settled reel when a REACTIVE row pitch CHANGES (e.g. the editor's
+		// reelGrid cell-height/gap override loads after module init). Keyed off the
+		// height VALUE alone — never `reelY.current` — so it can't fire while a spin or
+		// pre-spin has deliberately parked the reel off-home. (Depending on reelY made
+		// it snap the reel back to homeY mid pre-spin setup, landing the window straight
+		// on the new symbols instead of sliding into them.) Inert for a static number.
+		let lastHeight = getSymbolHeight();
 		$effect(() => {
-			if (isReactiveHeight && reelState.motion === 'stopped' && reelY.current !== homeY()) {
-				placeY(homeY());
-			}
+			const height = getSymbolHeight();
+			if (!isReactiveHeight || height === lastHeight) return;
+			lastHeight = height;
+			if (reelState.motion === 'stopped') placeY(homeY());
 		});
 		$effect(() => {
 			if (reelY.current === homeY()) {
