@@ -52,6 +52,16 @@ name, protocol `lines`/`book`, build cwd/cmd/out, build env), click it, and it:
 4. **registers** the game in the portal's `/admin → Games` (via
    `POST /api/launcher/register-game`, owner login) — so it appears in the portal with
    no manual step.
+5. **shares the project SETUP** to the portal (`POST /api/launcher/projects`): the
+   machine-independent profile — `repo.url`/`branch` (captured from the build folder's
+   git remote) + the `game.publish` block. Every OTHER launcher then gets it on **↻ Sync
+   from cloud**, which `git clone --recurse-submodules` the repo into
+   `Projects/<client>/<key>` and can Build & publish with no typing. This is why building
+   from a real checkout matters — a freshly-synced *empty* folder has no remote to
+   capture, which is the failure mode that left a project un-clonable (build then runs
+   `pnpm` in an empty dir → `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`). One-time bootstrap for
+   such a project: `apps/launcher-api/scripts/seed-project-profile.mjs` (or Build & publish
+   it once from its real checkout). Added in launcher **v1.0.8**.
 
 > The build step needs Node + pnpm + the game's repo on that machine, so it's an
 > owner/dev action. Artist boxes that only sync ComfyUI won't build.
