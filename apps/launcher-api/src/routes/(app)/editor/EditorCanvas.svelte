@@ -1915,59 +1915,6 @@
 		ctx.stroke();
 	}
 
-	// ---------- TEMP cover diagnostic (remove once the background-fit bug is found) ----------
-	// Dumps the exact geometry the selected node resolves to, so we can see WHERE the
-	// box (selection) and the drawn image diverge for a full-bleed background.
-	$effect(() => {
-		const id = selectedId;
-		if (!id) return;
-		const node = findNodeById(id);
-		if (!node || (node.kind !== 'sprite' && node.kind !== 'spine')) return;
-		const nat = naturalSize(node);
-		const art = anchorArt(node);
-		const t = nodeTransform(node);
-		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
-		const c = nodeCornersWorld(t, box);
-		const boxWorld = {
-			w: Math.hypot(c[1].x - c[0].x, c[1].y - c[0].y),
-			h: Math.hypot(c[3].x - c[0].x, c[3].y - c[0].y),
-		};
-		const found = node.kind === 'sprite' && node.region ? findRegion(node.assetKey, node.region) : null;
-		// Reproduce the draw's scale: dw = t.width, scaleX = dw / regionNaturalSize, cw = region.w * scaleX.
-		let draw: Record<string, unknown> | null = null;
-		if (found) {
-			const rn = { w: found.region.origW ?? found.region.w, h: found.region.origH ?? found.region.h };
-			const dw = t.width ?? rn.w;
-			const dh = t.height ?? rn.h;
-			const sX = dw / rn.w;
-			const sY = dh / rn.h;
-			draw = {
-				regionNatural: rn,
-				dw,
-				dh,
-				drawScale: { x: sX, y: sY },
-				contentDrawn: { w: found.region.w * sX, h: found.region.h * sY },
-				contentWorld: { w: found.region.w * sX * (t.scale?.x ?? 1), h: found.region.h * sY * (t.scale?.y ?? 1) },
-				trimOffset: { x: found.region.offX ?? 0, y: found.region.offY ?? 0 },
-			};
-		}
-		console.log('[cover-debug] selected node geometry', {
-			node: { id: node.id, kind: node.kind, region: node.region, assetKey: node.assetKey, slotId: node.slotId },
-			docValues: { coverScale: node.coverScale, fit: node.fit, scale: node.scale, width: node.width, height: node.height, x: node.x, y: node.y, anchor: node.anchor },
-			scene: { name: scene.name, space: scene.space },
-			frame: { w: frameWidth, h: frameHeight, layoutType },
-			naturalSize: nat,
-			anchorArt: art ? { kind: art.kind, placement: art.placement, region: art.region, assetKey: art.assetKey } : null,
-			resolvedTransform: { x: t.x, y: t.y, width: t.width, height: t.height, scale: t.scale, anchor: t.anchor, rotation: t.rotation },
-			nodeBox: box,
-			boxWorldSize: boxWorld,
-			resolvedRegion: found
-				? { fromAtlas: found.set.assetKey, page: { key: found.set.pageKey, w: found.set.pageWidth, h: found.set.pageHeight }, rect: { x: found.region.x, y: found.region.y, w: found.region.w, h: found.region.h }, origW: found.region.origW, origH: found.region.origH, offX: found.region.offX, offY: found.region.offY, rotated: found.region.rotated }
-				: null,
-			draw,
-		});
-	});
-
 	// ---------- hit-test ----------
 
 	function hitTestHandle(screen: Vec2): HandleHit | null {

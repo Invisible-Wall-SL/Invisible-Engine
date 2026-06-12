@@ -239,7 +239,9 @@ DEFAULT_CONFIG = {
     "controlnet_end_percent": 0.85,
     "ksampler_steps": 30,
     "ksampler_cfg": 8.5,
-    "padding_pct": 0.12,
+    # Inner-fit transparent margin per element (see batch_atlas._DEFAULTS).
+    # 0 = edge-to-edge in-slot; opt-in per atlas. Keep in sync with batch_atlas.
+    "padding_pct": 0.0,
     "gen_width": 1024,
     "gen_height": 1024,
     "auto_fx_rebuild": "on",
@@ -538,8 +540,9 @@ SETTING_HELP = {
         "~6-9 typical for SDXL.",
     "padding_pct":
         "Transparent margin added around each symbol when it's fitted into "
-        "its atlas slot. 0 = edge-to-edge (no border); ~0.1 leaves breathing "
-        "room so neighbours don't touch.",
+        "its atlas slot. Default 0 = edge-to-edge (no border) — full-bleed "
+        "backgrounds fill exactly. Raise it (e.g. 0.1) only if you want "
+        "breathing room so neighbouring symbols don't touch.",
     "shape_ref_fill_pct":
         "How much of the 1024² canvas the shape_ref silhouette is scaled to "
         "fill before generation. Higher = bigger subject / tighter framing; "

@@ -58,7 +58,12 @@ _DEFAULTS = {
     "controlnet_end_percent": 0.85,
     "ksampler_steps": 35,
     "ksampler_cfg": 8.5,
-    "padding_pct": 0.12,
+    # Inner-fit transparent margin around each element INSIDE its own packed
+    # slot (distinct from the Sheet Maker's inter-region gutter). 0 = the art
+    # fills its slot edge-to-edge; opt-in per atlas via manifest settings.
+    # Never silently inset the art — a 0.12 default once shrank full-bleed
+    # backgrounds to ~80% (with fit_mode=fill: border = P/(1+2P) ≈ 9.7%).
+    "padding_pct": 0.0,
     "shape_ref_fill_pct": 0.75,
     "gen_width": 1024,
     "gen_height": 1024,
