@@ -17,7 +17,7 @@
 //   PORTAL_EMAIL=you@x PORTAL_PASSWORD=… node apps/launcher-api/scripts/seed-project-profile.mjs \
 //     --key bookofborut --name "Book of Borut" --client borut \
 //     --repo https://github.com/Invisible-Wall-SL/Book-of-Borut.git --branch main \
-//     --protocol book --build-cmd "pnpm install && pnpm build" \
+//     --protocol book --build-cmd "git submodule update --init --recursive && pnpm install && pnpm build" \
 //     --env PUBLIC_RGS_TRANSPORT=play4fun --env PUBLIC_RGS_GAME=book
 //
 //   # Dump the resolved payload without sending it:
@@ -65,7 +65,15 @@ const branch = (args.branch || '').trim();
 const protocol = (args.protocol || 'lines').trim() === 'book' ? 'book' : 'lines';
 const buildCwd = (args['build-cwd'] || '.').trim();
 const buildOut = (args['build-out'] || 'build').trim();
-const buildCmd = (args['build-cmd'] || 'pnpm install && pnpm build').trim();
+// `git submodule update --init --recursive` FIRST so the engine submodule is
+// checked out to the commit this superproject pins — the same commit whose
+// pnpm-lock.yaml is committed alongside it. Without this, a contributor whose
+// "Sync from cloud" left engine/ drifted ahead of the committed lockfile gets
+// ERR_PNPM_OUTDATED_LOCKFILE from the (frozen-by-default) `pnpm install`.
+// See gotcha-game-deploy-lockfile-submodule-drift.
+const buildCmd = (
+	args['build-cmd'] || 'git submodule update --init --recursive && pnpm install && pnpm build'
+).trim();
 
 if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(key)) {
 	die(`--key "${key}" invalid (lowercase letters/digits/_/- ; must match isValidGameKey()).`);
