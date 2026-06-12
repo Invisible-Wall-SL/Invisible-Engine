@@ -1,4 +1,4 @@
-import type { ComponentDef, LayoutDoc } from 'engine-layout';
+import type { ComponentDef, FontCatalog, LayoutDoc } from 'engine-layout';
 import {
 	editorArtNamespace,
 	registerComponentDefaults,
@@ -31,6 +31,12 @@ type BakedBundle = {
 		sheets: { key: string; json: string }[];
 		images: { key: string; file: string }[];
 	};
+	/** Fonts (Font Maker output) the project uses, exported to `deploy/editor-fonts/`
+	 * and mirrored into `static/assets/` by the deploy pull. The catalog's `prefix`
+	 * is that subtree (`editor-fonts`); each entry keeps its `folder` + file names,
+	 * so a bitmap descriptor's relative page refs resolve. Registered at boot so
+	 * editor-authored fonts reach the shipped game. */
+	fonts?: { catalog: FontCatalog };
 	/** Localization-tool strings (source text + REVIEWED translations) in Lingui
 	 * message-map shape — merged into the game catalog so editor-authored
 	 * localization keys resolve in the shipped game. */
@@ -93,6 +99,76 @@ export function bakedEditorArtAssets(): Record<
 		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
 	}
 	return out;
+}
+
+/**
+ * Asset entries for the baked project fonts (exported to `deploy/editor-fonts/`,
+ * mirrored into `static/assets/` by the deploy pull). Only BITMAP fonts ride the
+ * pixi asset loader: a `{type:'font'}` entry makes `AssetsLoader` preload the
+ * descriptor before first paint, and pixi installs the `BitmapFont` under its
+ * `<info face>` — exactly what `<BitmapText fontFamily={name}>` then resolves.
+ * Spread into the game's `assets` record at `createApp`, alongside
+ * {@link bakedEditorArtAssets}. Web fonts load via {@link registerBakedWebFonts}.
+ * Empty when un-baked (dev keeps its hardcoded font assets). The src is
+ * page-relative (`assets/…`), matching how the static dir is served.
+ */
+export function bakedFontAssets(): Record<
+	string,
+	{ type: 'font'; src: string; preload: boolean }
+> {
+	const out: Record<string, { type: 'font'; src: string; preload: boolean }> = {};
+	if (!hasBakedDoc()) return out;
+	const catalog = bakedBundle.fonts?.catalog;
+	if (!catalog) return out;
+	for (const f of catalog.fonts) {
+		if (f.kind !== 'bitmap' || !f.descriptorFile) continue;
+		out[`bakedFont/${f.id}`] = {
+			type: 'font',
+			src: `assets/${catalog.prefix}/${f.folder}/${f.descriptorFile}`,
+			preload: true,
+		};
+	}
+	return out;
+}
+
+/**
+ * The baked project font catalog, merged into the game's boot-time
+ * `registerFontCatalog` so the engine layout text path renders `<BitmapText>` for
+ * a node whose `style.fontFamily` names one of these families. Undefined when
+ * un-baked (dev) → the game keeps only its hardcoded built-in font catalog.
+ */
+export function bakedFontCatalog(): FontCatalog | undefined {
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.fonts?.catalog;
+}
+
+/**
+ * Register the baked WEB fonts via the FontFace API (bitmap fonts go through the
+ * pixi asset loader in {@link bakedFontAssets} instead). Best-effort + idempotent:
+ * each `@font-face` is loaded from `static/assets/editor-fonts/…` and added to
+ * `document.fonts` so a `<Text fontFamily={name}>` renders the real face. No-op
+ * server-side / when un-baked / when the project has no web fonts.
+ */
+export async function registerBakedWebFonts(): Promise<void> {
+	if (typeof document === 'undefined' || !hasBakedDoc()) return;
+	const catalog = bakedBundle.fonts?.catalog;
+	if (!catalog) return;
+	for (const f of catalog.fonts) {
+		if (f.kind !== 'web') continue;
+		for (const wf of f.files ?? []) {
+			try {
+				const url = `assets/${catalog.prefix}/${f.folder}/${wf.file}`;
+				const face = new FontFace(f.name, `url(${url})`, {
+					weight: wf.weight ?? 'normal',
+					style: wf.style ?? 'normal',
+				});
+				await face.load();
+				document.fonts.add(face);
+			} catch (err) {
+				console.warn(`[fonts] web font "${f.name}" (${wf.file}) failed to load:`, err);
+			}
+		}
+	}
 }
 
 /**

@@ -125,9 +125,12 @@ const files = {
 					// for bake).
 					//   build:engine — rebuild engine workspace dists so engine SOURCE
 					//                  changes reach this bundle (gotcha-game-build-stale-engine-dist)
-					//   pull:assets  — mirror the R2 deploy/ art into static/assets/ (live-assets.md)
 					//   bake:doc     — freeze the editor layout + custom component defs into
-					//                  src/baked-editor-bundle.json (no runtime fetch)
+					//                  src/baked-editor-bundle.json (no runtime fetch) AND export
+					//                  the doc-referenced art + project fonts into R2 deploy/
+					//   pull:assets  — mirror the R2 deploy/ art + fonts into static/assets/
+					//                  (live-assets.md). MUST run AFTER bake:doc — the export it
+					//                  triggers is what populates deploy/ for this same build.
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
 					'pull:assets': `node ./engine/apps/launcher-api/scripts/pull-project-assets.mjs --project ${slug}/${slug} --dest ./static/assets`,
 					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug} --dest ./src/baked-editor-bundle.json`,
@@ -143,7 +146,7 @@ const files = {
 					// to `${slug}/${slug}` — fix it alongside pull:assets). See the README.
 					'publish:storybook': `node ./engine/apps/launcher-api/scripts/publish-storybook.mjs --project ${slug}/${slug} --dir storybook-static`,
 					build:
-						'pnpm build:engine && pnpm pull:assets --optional && pnpm bake:doc --optional && vite build',
+						'pnpm build:engine && pnpm bake:doc --optional && pnpm pull:assets --optional && vite build',
 					preview: 'vite preview',
 					lint: 'eslint "src"',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',

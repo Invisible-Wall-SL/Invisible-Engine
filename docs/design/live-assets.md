@@ -151,3 +151,31 @@ shipped game.
    asset entries (`type:'sprites'` per sheet; `type:'sprite'` keyed by the node's full
    `assetKey` for standalone images); `stateApp.ts` spreads them into `createApp({assets})`.
    Un-baked repos get `{}` — dev parity.
+
+## Font export — Font Maker fonts reach the build automatically (added 2026-06-12)
+
+Same gap as editor-art, for fonts. A font made in the **Invisible Font Maker** is written to
+R2 `<client>/<project>/fonts/<folder>/` + a `fonts.json` catalog. The **editor** renders it
+by streaming straight from R2 (`/api/editor/fonts`), so it "works in the editor" — but the
+**game** loads fonts only from files in its own `static/assets/`, and nothing exported the
+font tree to `deploy/`. So a Font Maker font showed in the editor and was MISSING from the
+shipped game. This mirrors the editor-art transport exactly:
+
+1. **Export (server)** — `$lib/server/fontExport.ts#exportEditorFonts` reads the project's
+   `fonts.json` (per-project, with the `_shared/fonts/` fallback) and copies each font's
+   descriptor + page images (bitmap) or web-font files into `deploy/editor-fonts/<folder>/`,
+   preserving file names so a bitmap descriptor's relative page refs resolve. Writes an
+   `index.json` (the exported `FontCatalog`); prunes stale objects; idempotent.
+2. **Trigger** — `POST /api/editor/export-fonts?project=<key>&k=<token>` (same
+   `EDITOR_DOC_SECRET` gate). `bake-editor-doc.mjs` calls it right after the art export and
+   embeds the returned catalog as `bundle.fonts.catalog`.
+3. **Transport** — `pull-project-assets.mjs` mirrors `deploy/` → `static/assets/`, now
+   including `editor-fonts/` (the prune step covers it too). ⚠ Same build-order rule:
+   `bake:doc` BEFORE `pull:assets`.
+4. **Game** — `editor-scenes.ts#bakedFontAssets()` turns each **bitmap** font into a
+   `{type:'font'}` asset (preloaded by `AssetsLoader` before first paint; pixi installs the
+   `BitmapFont` under its `<info face>`), spread into `createApp({assets})` via `stateApp.ts`.
+   `bakedFontCatalog()` is merged into the boot `registerFontCatalog` (a baked family
+   overrides a built-in of the same name) so the engine routes that `fontFamily` to
+   `<BitmapText>`. **Web** fonts load via `registerBakedWebFonts()` (FontFace API). Un-baked
+   repos keep only the game's hardcoded built-in fonts — dev parity.

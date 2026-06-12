@@ -21,6 +21,7 @@
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
+	import type { FontEntry } from 'engine-layout';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
@@ -49,9 +50,11 @@
 	import { eventSignal } from '../game/signalSource';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
+		bakedFontCatalog,
 		fallbackEditorScenes,
 		loadEditorScenes,
 		registerBakedComponents,
+		registerBakedWebFonts,
 		registerEditorTextLocalization,
 	} from '../editor-scenes';
 	import messagesMap from '../i18n/messagesMap';
@@ -130,15 +133,23 @@
 	// entry — absent ⇒ `<Text>` ⇒ parity. No live scene text node references a bitmap
 	// family yet (the `freeSpinCounter` def's `gold` text is unwired), so this is pure
 	// registration with no render change today.
-	registerFontCatalog({
-		prefix: '',
-		fonts: [
-			{ id: 'gold', name: 'gold', kind: 'bitmap', folder: '' },
-			{ id: 'goldblur', name: 'goldblur', kind: 'bitmap', folder: '' },
-			{ id: 'silver', name: 'silver', kind: 'bitmap', folder: '' },
-			{ id: 'purple', name: 'purple', kind: 'bitmap', folder: '' },
-		],
-	});
+	// The game's built-in bitmap fonts (shipped in `assets.ts`). Merged below with
+	// the baked per-project font catalog (Font Maker output, exported into the
+	// bundle by `bake-editor-doc.mjs`) so an editor-authored font reaches the
+	// shipped game; a baked font with the same family name overrides a built-in.
+	// Bitmap fonts load as `{type:'font'}` assets (see `bakedFontAssets`); web
+	// fonts load via `registerBakedWebFonts()` below.
+	const builtinFonts = [
+		{ id: 'gold', name: 'gold', kind: 'bitmap' as const, folder: '' },
+		{ id: 'goldblur', name: 'goldblur', kind: 'bitmap' as const, folder: '' },
+		{ id: 'silver', name: 'silver', kind: 'bitmap' as const, folder: '' },
+		{ id: 'purple', name: 'purple', kind: 'bitmap' as const, folder: '' },
+	];
+	const mergedFonts = new Map<string, FontEntry>(builtinFonts.map((f) => [f.name, f]));
+	for (const f of bakedFontCatalog()?.fonts ?? []) mergedFonts.set(f.name, f);
+	registerFontCatalog({ prefix: '', fonts: [...mergedFonts.values()] });
+	// Load any baked WEB fonts (FontFace) so a `<Text>` renders the real face.
+	void registerBakedWebFonts();
 	// Build-time freeze: register any custom/edited ComponentDefs baked into the
 	// bundle AFTER the built-ins, so a baked def (e.g. a customized `button` with an
 	// author-added background node) shadows the coded one. No-op when not baked

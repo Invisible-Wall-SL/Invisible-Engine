@@ -188,6 +188,32 @@ async function main() {
 			);
 		}
 
+	// Export the project's fonts (Font Maker output) into R2 `deploy/editor-fonts/`
+	// so the deploy mirror that runs next pulls them, and embed the catalog so the
+	// game registers each bitmap font (pixi installs the `BitmapFont` under its
+	// face) and routes its family to `<BitmapText>`. Without this a font made in
+	// the Font Maker shows in the editor but is MISSING from the shipped game.
+	let fonts = { catalog: { prefix: 'editor-fonts', fonts: [] } };
+	const fontsUrl =
+		`${base}/api/editor/export-fonts?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the font export — it writes to R2 deploy/.');
+	} else
+		try {
+			const fontRes = await fetch(fontsUrl, { method: 'POST' });
+			if (!fontRes.ok) {
+				bail(`Font export failed: HTTP ${fontRes.status} — ${await bodySnippet(fontRes)}`);
+			}
+			const f = await fontRes.json();
+			if (f?.catalog && Array.isArray(f.catalog.fonts)) fonts = { catalog: f.catalog };
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-fonts — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Localization-tool strings (reviewed translations + source text), merged into
 	// the game's Lingui catalog at boot so editor-authored localization keys (e.g.
 	// a textBox's `text` param) resolve in the shipped game. Absent/empty doc is
@@ -222,6 +248,7 @@ async function main() {
 		componentDefaults: data.componentDefaults ?? {},
 		componentDefs: data.componentDefs ?? {},
 		editorArt,
+		fonts,
 		localization,
 	};
 
@@ -229,6 +256,7 @@ async function main() {
 	const defCount = Object.keys(bundle.componentDefs).length;
 	const defaultCount = Object.keys(bundle.componentDefaults).length;
 	const artCount = editorArt.sheets.length + editorArt.images.length;
+	const fontCount = fonts.catalog.fonts.length;
 	const localeCount = Object.keys(localization.messages).length;
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
@@ -236,7 +264,7 @@ async function main() {
 		console.info(
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
-				` ${artCount} editor-art sheets).`,
+				` ${artCount} editor-art sheets, ${fontCount} fonts).`,
 		);
 		return;
 	}
@@ -246,7 +274,7 @@ async function main() {
 	console.info(
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
-			` ${artCount} editor-art sheets, ${localeCount} locales).`,
+			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales).`,
 	);
 }
 

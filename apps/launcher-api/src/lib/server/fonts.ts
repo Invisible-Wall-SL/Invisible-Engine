@@ -87,7 +87,7 @@ export async function resolveFontCatalogRoot(
 }
 
 /** Pick the first existing font-folder prefix: per-project, then shared `_shared/`. */
-async function resolveFontBundlePrefix(
+export async function resolveFontBundlePrefix(
 	clientKey: string,
 	projectKey: string,
 	folder: string,
