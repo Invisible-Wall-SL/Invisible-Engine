@@ -187,6 +187,22 @@ tool reads it. No hand-maintained per-game JSON.
 
 `lines.json` stays committed as the offline fallback / dev parity.
 
+## Seeding a game's symbol assets into R2 (so previews render)
+
+The tool previews ONLY from R2, under the per-project prefixes `listProjectAssets` scans:
+sprites → `sheets/` + `manifests/`, spines → `spines/`. A game's BASE symbol art lives in
+its repo (`static/assets/…`), not those prefixes, so default cells render as placeholder
+chips until the art is seeded. Two sibling syncs (run from the engine repo with `R2_*` creds):
+
+- **Sprites** — `apps/launcher-api/scripts/r2-sync-sheets.mjs <spritesDir> <client> <project>`
+  uploads each TexturePacker sheet folder to `<client>/<project>/sheets/<folder>/`.
+  `loadRegionSet` reads the TexturePacker JSON directly + resolves the page beside it, so a
+  game's own `symbolsStatic` (frames `h1.png … w.png`) becomes previewable with no re-author.
+- **Spines** — `apps/launcher-api/scripts/r2-sync-spines.mjs <spinesDir> <client> <project>`
+  uploads bundles + writes the `skeletons.json` index. (Spine *default* cells still render as
+  chips — the coded map's short keys like `H1` aren't R2 bundle prefixes; only a rebind, which
+  stores the full bundle prefix, gets a live preview.)
+
 ## Open decisions
 
 - **Existing standalone games must build once to publish.** Book of Borut (and any game that
