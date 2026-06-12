@@ -72,6 +72,7 @@
 	$effect(() => {
 		void set.pageKey;
 		void region.name;
+		void size; // resizing the canvas clears it → repaint at the new size
 		void pageVersion; // "Reload art" bump → re-fetch the page + repaint
 		paint();
 	});

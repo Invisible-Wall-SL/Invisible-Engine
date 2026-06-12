@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
@@ -23,6 +24,35 @@
 
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
+
+	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
+	// in the top-left, and each preview scales with the 6 state columns. Width-driven
+	// (with vertical scroll for the symbol rows, like the in-game debug grid) so cells
+	// stay large and legible; clamped so they're crisp on small screens and don't blow
+	// up on ultra-wide ones. A ResizeObserver on the scroll area tracks window resize +
+	// the side panel opening/closing live.
+	const LABEL_COL = 92;
+	const GRID_GAP = 10;
+	const GRID_PAD = 36;
+	const MIN_CELL = 72;
+	const MAX_CELL = 168;
+	let viewW = $state(1280);
+	let gridScroll = $state<HTMLElement | null>(null);
+	const previewSize = $derived.by(() => {
+		const cols = SYMBOL_STATES.length;
+		const byWidth = (viewW - LABEL_COL - GRID_GAP * (cols + 1) - GRID_PAD) / cols;
+		return Math.round(Math.max(MIN_CELL, Math.min(MAX_CELL, byWidth)));
+	});
+
+	onMount(() => {
+		if (!gridScroll) return;
+		const ro = new ResizeObserver((entries) => {
+			const rect = entries[0]?.contentRect;
+			if (rect) viewW = rect.width;
+		});
+		ro.observe(gridScroll);
+		return () => ro.disconnect();
+	});
 
 	/** Atlases + sheets a sprite frame can be picked from (mirrors the editor). */
 	const pickSheets = $derived([
@@ -163,11 +193,11 @@
 	</header>
 
 	<div class="body" class:has-panel={!!focus}>
-		<div class="grid-scroll">
+		<div class="grid-scroll" bind:this={gridScroll}>
 			{#if symbolNames.length === 0}
 				<p class="muted">No symbols defined for this game type.</p>
 			{:else}
-				<table class="grid">
+				<table class="grid" style="--cell: {previewSize}px">
 					<thead>
 						<tr>
 							<th class="corner">Symbol</th>
@@ -199,13 +229,13 @@
 													<SymbolSpritePreview
 														frame={eff.cell.assetKey}
 														sheets={pickSheets}
-														size={56}
+														size={previewSize}
 													/>
 												{:else if isFocused(symbol, state)}
 													<SymbolSpinePreview
 														assetKey={eff.cell.assetKey}
 														animationName={eff.cell.animationName}
-														size={56}
+														size={previewSize}
 													/>
 												{:else}
 													<span class="chip spine" title={cellLabel(eff.cell)}>
@@ -447,21 +477,27 @@
 	}
 	.grid-scroll {
 		overflow: auto;
-		padding: 16px;
+		padding: 18px;
 	}
 	.muted {
 		color: #777;
 	}
 	.grid {
+		width: 100%;
+		table-layout: fixed;
 		border-collapse: separate;
-		border-spacing: 6px;
+		border-spacing: 10px;
 	}
 	.grid th {
-		font-size: 12px;
+		font-size: 13px;
 		font-weight: 600;
 		color: #9a9aa6;
 		text-align: center;
 		padding: 4px 6px;
+	}
+	.grid th.corner,
+	.grid th.rowhead {
+		width: 92px;
 	}
 	.grid th.corner {
 		text-align: left;
@@ -469,7 +505,8 @@
 	.grid th.rowhead {
 		text-align: right;
 		color: #c8c8d0;
-		font-size: 13px;
+		font-size: 15px;
+		font-weight: 700;
 		position: sticky;
 		left: 0;
 		background: #0b0b0f;
@@ -482,12 +519,12 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 3px;
-		width: 76px;
-		padding: 6px 4px 4px;
+		gap: 6px;
+		width: 100%;
+		padding: 8px 6px 6px;
 		background: #14141a;
 		border: 1px solid #24242e;
-		border-radius: 6px;
+		border-radius: 8px;
 		cursor: pointer;
 		color: inherit;
 	}
@@ -505,8 +542,8 @@
 		opacity: 0.7;
 	}
 	.preview {
-		width: 56px;
-		height: 56px;
+		width: var(--cell, 56px);
+		height: var(--cell, 56px);
 		display: grid;
 		place-items: center;
 	}
@@ -515,15 +552,15 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		width: 56px;
-		height: 56px;
-		border-radius: 4px;
+		width: var(--cell, 56px);
+		height: var(--cell, 56px);
+		border-radius: 6px;
 		background: #1a1a22;
 		border: 1px dashed #33333f;
 		color: #8a8a96;
-		font-size: 9px;
-		padding: 2px;
-		gap: 1px;
+		font-size: clamp(9px, calc(var(--cell, 56px) * 0.13), 15px);
+		padding: 4px;
+		gap: 2px;
 	}
 	.chip.spine {
 		border-style: solid;
@@ -533,13 +570,13 @@
 	.chip-key {
 		font-weight: 600;
 		color: #b9b9e0;
-		max-width: 52px;
+		max-width: calc(var(--cell, 56px) - 10px);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	.chip-anim {
-		max-width: 52px;
+		max-width: calc(var(--cell, 56px) - 10px);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
