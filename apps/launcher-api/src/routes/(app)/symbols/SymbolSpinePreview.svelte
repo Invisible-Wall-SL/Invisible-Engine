@@ -10,6 +10,7 @@
 		getSpinePhysics,
 		type SpineSceneRenderer,
 	} from '../editor/spineRuntime.client';
+	import CellLoading from './CellLoading.svelte';
 
 	interface Props {
 		/** Spine bundle key (the `assetKey` of a spine cell). */
@@ -180,7 +181,7 @@
 <div class="wrap" style:width="{size}px" style:height="{size}px">
 	<canvas bind:this={canvas} style:width="{size}px" style:height="{size}px"></canvas>
 	{#if status === 'loading'}
-		<span class="overlay">…</span>
+		<div class="ld"><CellLoading {size} /></div>
 	{:else if status === 'error'}
 		<span class="overlay err">no spine</span>
 	{/if}
@@ -196,6 +197,13 @@
 	}
 	canvas {
 		display: block;
+	}
+	.ld {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		pointer-events: none;
 	}
 	.overlay {
 		position: absolute;

@@ -5,6 +5,7 @@
 		type RegionSet,
 	} from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
+	import CellLoading from './CellLoading.svelte';
 
 	interface Sheet {
 		key: string;
@@ -55,9 +56,11 @@
 
 {#if resolved}
 	<RegionThumb set={resolved.set} region={resolved.region} {size} />
+{:else if searching}
+	<CellLoading {size} />
 {:else}
 	<div class="ph" style:width="{size}px" style:height="{size}px" title={frame}>
-		<span class="ph-label">{searching ? '…' : frame}</span>
+		<span class="ph-label">{frame}</span>
 	</div>
 {/if}
 
