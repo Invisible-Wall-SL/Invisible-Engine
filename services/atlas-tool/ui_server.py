@@ -1943,6 +1943,73 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
 SPLASH = splash_html("ATLAS MAKER")
 
 
+# Unified tool bar — HTML/CSS/JS twin of the launcher's $lib/ToolTopBar.svelte.
+# Kept as a SEPARATE non-`.format()` string because its inline SVG / JS objects
+# are full of literal braces; injected into PAGE via the {iw_toolbar} slot so we
+# don't have to double every brace. The launcher bakes ?home=<origin> (emblem
+# target) and ?tools=<url-encoded [{id,name,url}]> (role-gated, current tool
+# removed) into the redirect; the ICON map mirrors roles.ts TOOL_ICONS by id.
+# See docs/design/unified-tool-bar.md.
+IW_TOOLBAR = """<header class="iw-toolbar">
+ <a class="iw-brand" id="iw-home" href="https://app.invisiblewall.org" title="Invisible Launcher">
+  <svg width="22" height="18" viewBox="0 0 366 304" aria-hidden="true">
+   <g fill="currentColor">
+    <polygon points="20,50 40,73 336,9 336,5"/>
+    <polygon points="13,55 28,80 21,278 17,278"/>
+   </g>
+  </svg>
+  <span>INVISIBLE ATLAS MAKER</span>
+ </a>
+ <nav class="iw-switcher" id="iw-switcher" aria-label="Switch tool"></nav>
+</header>
+<script>
+(function () {
+  var qp = new URLSearchParams(location.search);
+  var home = qp.get('home');
+  var homeEl = document.getElementById('iw-home');
+  if (home && homeEl) homeEl.href = home;
+  var ICON = {
+    editor: '<rect x="4" y="4" width="11" height="11" rx="1"/><rect x="9" y="9" width="11" height="11" rx="1"/>',
+    sheetMaker: '<rect x="3" y="3" width="9" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="10" width="7" height="4" rx="1"/><rect x="3" y="14" width="13" height="7" rx="1"/>',
+    atlasTool: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    componentEditor: '<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="6" height="6" rx="1"/><rect x="13" y="11" width="4" height="6" rx="1"/>',
+    storybook: '<path d="M12 6c-1.5-1.6-3.8-2.5-6.5-2.5H4v14h1.5c2.7 0 5 .9 6.5 2.5 1.5-1.6 3.8-2.5 6.5-2.5H20v-14h-1.5c-2.7 0-5 .9-6.5 2.5z"/><line x1="12" y1="6" x2="12" y2="20"/>',
+    spineViewer: '<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><line x1="7.6" y1="16.4" x2="16.4" y2="7.6"/><circle cx="12" cy="12" r="1.3"/>',
+    fontMaker: '<path d="M5 17 9.5 6h1L15 17"/><line x1="6.7" y1="13" x2="13.3" y2="13"/><line x1="4" y1="20" x2="20" y2="20"/>',
+    localization: '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3c2.6 2.6 2.6 15.4 0 18"/><path d="M12 3c-2.6 2.6-2.6 15.4 0 18"/>',
+    ftpBrowser: '<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/><circle cx="5" cy="12" r="1"/><line x1="9" y1="12" x2="20" y2="12"/><circle cx="5" cy="18" r="1"/><line x1="9" y1="18" x2="20" y2="18"/>'
+  };
+  function svg(id) {
+    var b = ICON[id];
+    if (!b) return '';
+    return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + b + '</svg>';
+  }
+  var tools = [];
+  try { tools = JSON.parse(qp.get('tools') || '[]'); } catch (e) {}
+  var nav = document.getElementById('iw-switcher');
+  if (nav && Array.isArray(tools)) {
+    tools.forEach(function (t) {
+      if (!t || !t.url) return;
+      var a = document.createElement('a');
+      a.className = 'iw-tool';
+      a.href = t.url;
+      a.title = t.name || '';
+      var ic = document.createElement('span');
+      ic.className = 'ic';
+      ic.innerHTML = svg(t.id);
+      var lb = document.createElement('span');
+      lb.className = 'label';
+      lb.textContent = (t.name || '').replace(/^Invisible /, '');
+      a.appendChild(ic);
+      a.appendChild(lb);
+      nav.appendChild(a);
+    });
+  }
+})();
+</script>
+"""
+
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
 <style>
@@ -1950,6 +2017,19 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  header{{display:flex;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid #333}}
  header img.logo{{height:42px;width:42px;object-fit:contain}}
  header .t{{font-size:18px;font-weight:600}} header .s{{font-size:12px;color:#888}}
+ /* unified tool bar — visual twin of the launcher $lib/ToolTopBar.svelte */
+ .iw-toolbar{{display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:1px solid #333}}
+ .iw-brand{{display:flex;align-items:center;gap:9px;flex:none;font-weight:700;
+   letter-spacing:.14em;text-transform:uppercase;color:#7ee0c0;font-size:14px;
+   text-decoration:none;white-space:nowrap}}
+ .iw-switcher{{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto;overflow:hidden}}
+ .iw-tool{{display:inline-flex;align-items:center;gap:6px;flex:none;padding:5px 9px;
+   border-radius:8px;border:1px solid transparent;color:#b9b9c4;text-decoration:none;
+   font-size:12px;font-weight:600;white-space:nowrap}}
+ .iw-tool:hover{{background:#23232a;border-color:#2f2f37;color:#fff}}
+ .iw-tool .ic{{display:inline-flex;width:16px;height:16px}}
+ .iw-tool .ic svg{{width:16px;height:16px;display:block}}
+ @media (max-width:1100px){{.iw-tool .label{{display:none}} .iw-tool{{padding:6px}}}}
  .credits{{float:right;font-size:13px;font-weight:600;color:#cfeede;background:#2e6b3e;border:1px solid #3f8a52;border-radius:6px;padding:6px 12px;text-decoration:none;white-space:nowrap}}
  .credits.low{{background:#7a4a1f;border-color:#a4702f;color:#ffe2bd}}
  .credits.err{{background:#7a2f2f;border-color:#a44;color:#ffd5d5}}
@@ -2088,8 +2168,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .diag-info{{border-color:#2b557a;background:#141d24}}
  .diag-info .diag-ic{{color:#5db0ff}}
 </style></head><body>
+{iw_toolbar}
 <header>
- <a id="homelink" class="alt" href="#" title="Back to the Launcher" style="display:none;padding:9px 14px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">← Launcher</a>
  <img class="logo" src="/logo" alt="IW">
  <div><div class="t">Invisible Atlas Maker</div>
  <div class="s">by Invisible Wall SL &nbsp;·&nbsp; Manifest: {manifest_name} &nbsp;·&nbsp; <b style="color:#6a9">build {build}</b></div></div>
@@ -2124,7 +2204,6 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <div class="bargrp" title="Reference & account links">
   <span class="glbl">Docs/credits</span>
   <a class="alt" href="/docs" target="_blank" title="What every control does — opens a self-contained reference page" style="display:inline-block;padding:9px 16px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">📖 Docs</a>
-  <a id="siblinglink" class="alt" href="#" title="Open the Sheet Maker (same project)" style="display:none;padding:9px 16px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">Sheet Maker →</a>
   <a id="credits" class="credits" href="https://platform.comfy.org" target="_blank" title="comfy.org API-node credit balance (click to top up). Refreshes automatically.">◆ credits …</a>
  </div>
  <div class="barstatus">
@@ -3003,15 +3082,6 @@ async function refreshCredits(){{
   }}
  }}catch(e){{ el.textContent='◆ credits: n/a'; el.classList.add('err'); }}
 }}
-// Cross-tool nav (B24): the launcher appends ?home= (its origin) and ?sibling=
-// (a full Sheet Maker URL). Reveal the matching header links when present.
-(function(){{
- var qp=new URLSearchParams(location.search);
- var h=qp.get('home'); var e=document.getElementById('homelink');
- if(e){{ e.href=h||'https://app.invisiblewall.org'; e.style.display=''; }}
- var s=qp.get('sibling'); var f=document.getElementById('siblinglink');
- if(s&&f){{ f.href=s; f.style.display=''; }}
-}})();
 let _fsTarget=null;
 let _fsFolderMode=false;
 let _fsCurDir='';
@@ -4821,6 +4891,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 — never break the page render
             bp_bound = {}
         return PAGE.format(
+            iw_toolbar=IW_TOOLBAR,
             cards="".join(cards),
             blueprints_panel=blueprints_panel,
             bp_bound_roles_js=json.dumps(bp_bound),
