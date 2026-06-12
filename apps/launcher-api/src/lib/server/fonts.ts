@@ -40,7 +40,9 @@ async function resolveFontBundlePrefix(
 	return null;
 }
 
-const assetUrl = (key: string): string => `/api/editor/asset?key=${encodeURIComponent(key)}`;
+/** Default stream-URL builder: route bytes through the editor-gated `/api/editor/asset`. */
+const editorAssetUrl = (key: string): string =>
+	`/api/editor/asset?key=${encodeURIComponent(key)}`;
 
 /** One font, resolved into the editor-gated stream URLs (relative filenames → URLs). */
 export interface EditorFont {
@@ -57,15 +59,20 @@ export interface EditorFont {
 }
 
 /**
- * Resolve the project's `fonts.json` into a flat list of fonts the editor can
- * load, each file routed through the editor-gated `/api/editor/asset` streamer
- * (so no extra tool grant is required). Resolves each font's folder per-project
- * first, then the shared `_shared/fonts/` library. Returns `null` when the
- * project has no catalog.
+ * Resolve the project's `fonts.json` into a flat list of fonts a tool can load,
+ * each file routed through a gated streamer (so no extra tool grant is required).
+ * Resolves each font's folder per-project first, then the shared `_shared/fonts/`
+ * library. Returns `null` when the project has no catalog.
+ *
+ * `assetUrl` builds the stream URL for a resolved R2 key; it defaults to the
+ * editor-gated `/api/editor/asset?key=…` builder (so the editor path stays
+ * byte-identical). The Font Maker passes its own `/api/fonts/asset?key=…` builder
+ * to route bytes through its self-contained, `fontMaker`-gated streamer instead.
  */
 export async function resolveEditorFonts(
 	clientKey: string,
 	projectKey: string,
+	assetUrl: (key: string) => string = editorAssetUrl,
 ): Promise<EditorFont[] | null> {
 	const root = await resolveFontCatalogRoot(clientKey, projectKey);
 	if (!root) return null;

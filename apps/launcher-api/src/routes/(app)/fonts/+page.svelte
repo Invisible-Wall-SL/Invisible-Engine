@@ -1,0 +1,335 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import Emblem from '$lib/Emblem.svelte';
+	import { fetchFontCatalog, type CatalogFont } from './fonts.client';
+	import FontPreview from './FontPreview.svelte';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
+	type Tab = 'view' | 'import' | 'generate';
+	let tab = $state<Tab>('view');
+
+	// View-mode state.
+	let fonts = $state<CatalogFont[]>([]);
+	let loading = $state(true);
+	let sample = $state('Aa Bb 0123 $9,999.00');
+	let size = $state(48);
+
+	const projectLabel = $derived(data.projectName ?? data.projectKey);
+
+	/** First page-image URL for a bitmap font (the thumbnail). */
+	function thumbUrl(font: CatalogFont): string | null {
+		return font.pages?.[0]?.url ?? null;
+	}
+
+	onMount(() => {
+		void fetchFontCatalog().then((list) => {
+			fonts = list;
+			loading = false;
+		});
+	});
+</script>
+
+<svelte:head><title>Invisible Font Maker — Invisible Wall</title></svelte:head>
+
+<div class="shell">
+	<header>
+		<a class="brand" href="/"><Emblem height={18} /> INVISIBLE FONT MAKER</a>
+		<div class="meta">
+			<span class="project">
+				{#if data.clientKey}<span class="client">{data.clientKey}</span> / {/if}
+				<strong>{projectLabel}</strong>
+			</span>
+		</div>
+	</header>
+
+	<nav class="tabs">
+		<button class:active={tab === 'view'} onclick={() => (tab = 'view')}>View</button>
+		<button class:active={tab === 'import'} onclick={() => (tab = 'import')}>Import</button>
+		<button class:active={tab === 'generate'} onclick={() => (tab = 'generate')}>Generate</button>
+	</nav>
+
+	{#if tab === 'view'}
+		<section class="view">
+			<div class="controls">
+				<label class="sample-field">
+					Sample text
+					<input bind:value={sample} spellcheck="false" placeholder="Type a sample…" />
+				</label>
+				<label class="size-field">
+					Size {size}px
+					<input type="range" min="12" max="160" step="1" bind:value={size} />
+				</label>
+			</div>
+
+			{#if loading}
+				<p class="muted">Loading fonts…</p>
+			{:else if fonts.length === 0}
+				<div class="empty">
+					<p class="empty-title">No fonts in this project yet.</p>
+					<p class="muted">
+						Use <button class="link" onclick={() => (tab = 'import')}>Import</button> to bring in an
+						existing BMFont, or
+						<button class="link" onclick={() => (tab = 'generate')}>Generate</button> to bake one from
+						a TTF/OTF. (Both coming in Phase 2 / Phase 3.)
+					</p>
+				</div>
+			{:else}
+				<ul class="font-list">
+					{#each fonts as font (font.id)}
+						<li class="font-card">
+							<div class="font-head">
+								<span class="font-name">{font.name}</span>
+								<span class="badge {font.kind}">{font.kind}</span>
+							</div>
+							<div class="font-id">{font.id}</div>
+							<div class="font-body">
+								{#if thumbUrl(font)}
+									<img class="thumb" src={thumbUrl(font)} alt="{font.name} page" loading="lazy" />
+								{/if}
+								<div class="live">
+									<FontPreview {font} {sample} {size} />
+								</div>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+	{:else if tab === 'import'}
+		<section class="soon">
+			<h2>Import</h2>
+			<p class="muted">
+				Coming soon (Phase 2). Upload an existing BMFont (<code>.xml</code>/<code>.fnt</code> + page
+				PNG), preview it, and save it into the project's <code>fonts/</code> folder.
+			</p>
+		</section>
+	{:else}
+		<section class="soon">
+			<h2>Generate</h2>
+			<p class="muted">
+				Coming soon (Phase 3). Upload a TTF/OTF, pick a charset + size + effects (gradient fill,
+				outline, drop-shadow), preview live, then bake a BMFont XML + PNG and save.
+			</p>
+		</section>
+	{/if}
+</div>
+
+<style>
+	.shell {
+		max-width: 1400px;
+		margin: 0 auto;
+		padding: 24px;
+		color: #e8e8ee;
+	}
+	header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 18px;
+	}
+	.brand {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		font-weight: 700;
+		letter-spacing: 0.14em;
+		color: #7ee0c0;
+		font-size: 15px;
+		text-decoration: none;
+	}
+	.meta {
+		font-size: 13px;
+		color: #888;
+	}
+	.project strong {
+		color: #c8a3ff;
+	}
+	.client {
+		color: #888;
+	}
+	.tabs {
+		display: flex;
+		gap: 4px;
+		border-bottom: 1px solid #222;
+		margin-bottom: 20px;
+	}
+	.tabs button {
+		border: none;
+		background: transparent;
+		color: #999;
+		padding: 10px 16px;
+		cursor: pointer;
+		font-size: 13px;
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+	}
+	.tabs button:hover {
+		color: #ddd;
+	}
+	.tabs button.active {
+		color: #7ee0c0;
+		border-bottom-color: #7ee0c0;
+	}
+	h2 {
+		font-size: 13px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #888;
+		margin: 0 0 12px;
+	}
+	.muted {
+		color: #888;
+		font-size: 13px;
+		line-height: 1.6;
+	}
+	.controls {
+		display: flex;
+		gap: 24px;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		background: #16161c;
+		border: 1px solid #222;
+		border-radius: 12px;
+		padding: 16px 18px;
+		margin-bottom: 20px;
+	}
+	label {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		font-size: 12px;
+		color: #999;
+	}
+	.sample-field {
+		flex: 1 1 280px;
+	}
+	.size-field {
+		min-width: 200px;
+	}
+	.sample-field input {
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		padding: 8px 10px;
+		color: #e8e8ee;
+		font-size: 13px;
+		font-family: inherit;
+	}
+	.sample-field input:focus {
+		outline: none;
+		border-color: #6b5bff;
+	}
+	input[type='range'] {
+		accent-color: #6b5bff;
+	}
+	.font-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 14px;
+	}
+	.font-card {
+		background: #16161c;
+		border: 1px solid #222;
+		border-radius: 12px;
+		padding: 16px 18px;
+	}
+	.font-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.font-name {
+		font-weight: 600;
+		font-size: 15px;
+		color: #e8e8ee;
+	}
+	.badge {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		padding: 2px 7px;
+		border-radius: 999px;
+		border: 1px solid #333;
+		color: #aaa;
+	}
+	.badge.bitmap {
+		background: #1f2d23;
+		border-color: #2f5340;
+		color: #7ee787;
+	}
+	.badge.web {
+		background: #2a2430;
+		border-color: #44345a;
+		color: #c8a3ff;
+	}
+	.font-id {
+		font-family: ui-monospace, monospace;
+		font-size: 11px;
+		color: #777;
+		margin: 4px 0 12px;
+	}
+	.font-body {
+		display: flex;
+		gap: 16px;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+	.thumb {
+		max-width: 120px;
+		max-height: 90px;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		background:
+			repeating-conic-gradient(#1a1a20 0% 25%, #14141a 0% 50%) 50% / 16px 16px;
+		image-rendering: pixelated;
+	}
+	.live {
+		flex: 1 1 320px;
+		min-width: 0;
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		padding: 10px 12px;
+	}
+	.empty {
+		background: #16161c;
+		border: 1px dashed #333;
+		border-radius: 12px;
+		padding: 28px;
+		text-align: center;
+	}
+	.empty-title {
+		color: #ccc;
+		font-size: 15px;
+		margin: 0 0 6px;
+	}
+	.link {
+		background: transparent;
+		border: none;
+		color: #7ee0c0;
+		cursor: pointer;
+		padding: 0;
+		font-size: inherit;
+		text-decoration: underline;
+	}
+	.soon {
+		background: #16161c;
+		border: 1px solid #222;
+		border-radius: 12px;
+		padding: 28px;
+		max-width: 640px;
+	}
+	code {
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 4px;
+		padding: 1px 5px;
+		font-size: 12px;
+		color: #c8a3ff;
+	}
+</style>

@@ -82,6 +82,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<circle cx="5" cy="12" r="1"/><line x1="9" y1="12" x2="20" y2="12"/>' +
 			'<circle cx="5" cy="18" r="1"/><line x1="9" y1="18" x2="20" y2="18"/>',
 	),
+	// glyph "A" on a baseline (type/font)
+	fontMaker: I(
+		'<path d="M5 17 9.5 6h1L15 17"/><line x1="6.7" y1="13" x2="13.3" y2="13"/>' +
+			'<line x1="4" y1="20" x2="20" y2="20"/>',
+	),
 };
 
 /** Registry of every tool the platform knows about. */
@@ -184,6 +189,14 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/components',
 		icon: TOOL_ICONS.componentEditor,
 	},
+	fontMaker: {
+		id: 'fontMaker',
+		name: 'Invisible Font Maker',
+		description: 'Create, view, and save bitmap fonts for your games.',
+		kind: 'online',
+		url: '/fonts',
+		icon: TOOL_ICONS.fontMaker,
+	},
 };
 
 /** Which tool ids each role is entitled to. */
@@ -196,6 +209,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'localization',
 		'editor',
 		'componentEditor',
+		'fontMaker',
 		'ftpBrowser',
 		'storybook',
 	],
@@ -206,6 +220,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'localization',
 		'editor',
 		'componentEditor',
+		'fontMaker',
 	],
 	animator: ['spineViewer', 'spine'],
 };
@@ -332,6 +347,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
 	componentEditor: 'component-editor',
+	fontMaker: 'font-maker',
 	storybook: 'storybook',
 };
 

@@ -1,0 +1,110 @@
+# Invisible Font Maker — design + build plan
+
+> A launcher tool to **create, view, and save bitmap fonts** per client / per project
+> into R2, so any game in the pipeline can consume them by font-family name.
+> Owner direction 2026-06-12. Related: `invisible-editor.md` §9 (the font *consume*
+> side — already built).
+
+## 1. Why this tool exists (the gap)
+
+The whole **consume** side of fonts already ships:
+
+- **Catalog contract** — `packages/engine-layout/src/lib/fontCatalog.ts`
+  (`FontEntry` / `FontCatalog`, `findFont` / `isBitmapFont`).
+- **R2 layout** — `<client>/<project>/fonts/fonts.json` + each font in its own
+  subfolder; a `_shared/fonts/` library fallback. Path helpers in
+  `apps/launcher-api/src/lib/server/projectPaths.ts` (`SUB.fonts`,
+  `fontCatalogKey`, `fontBundlePath`, `sharedFontsPrefix`).
+- **Read endpoints** — `GET /api/editor/fonts` + `lib/server/fonts.ts`
+  `resolveEditorFonts`; bytes stream through `/api/editor/asset?...&font=1`
+  (which rewrites a BMFont descriptor's relative `<page file>` refs to absolute
+  gated URLs).
+- **Editor render + in-game** — the editor renders the real fonts (`EditorTextLayer`);
+  the engine `<BitmapText>` path (`LayoutNodeView`) is the remaining engine
+  consume step.
+
+The **only** way a font gets *into* that contract today is the PowerShell script
+`apps/launcher-api/scripts/r2-sync-fonts.mjs`, which reads *pre-existing* BMFont
+files off disk. There is **no authoring UI**. This tool is that UI.
+
+## 2. The format question (settled)
+
+The engine/game loads **BMFont XML** — a `.xml` descriptor + a page image —
+via pixi's `Assets.load` (`type: 'font'`, passthrough in
+`packages/pixi-svelte/src/lib/assetLoad.ts`). Proven by `apps/lines/src/game/assets.ts`
+(`gold`/`silver`/`purple`/`goldblur` all load the `.xml`) and the canonical
+`apps/lines/static/assets/fonts/goldFont/mm_gold.xml`
+(`<info face>`, `<common>`, `<pages>`, `<chars>`; unicode `char id`s; no
+`<kernings>` block in the shipped fonts).
+
+**So the tool emits BMFont `.xml` + page PNG** — byte-compatible with what ships.
+`name` (the entry's family) **MUST equal** the descriptor's `<info face>` — pixi
+registers the `BitmapFont` under that face and games resolve
+`<BitmapText fontFamily={name}>` by it.
+
+## 3. Architecture (decided 2026-06-12)
+
+- **Host: a launcher-native Svelte page at `/fonts`** (owner choice) — reuses
+  launcher auth, the client→project selector, scope gating, and R2 writes. No new
+  Railway/Python service.
+- **Baking: browser-side, `opentype.js` + Canvas 2D.**
+  - `opentype.js` loads the TTF/OTF → exact glyph outlines, metrics, and kerning
+    (so we read metrics from the font, not lossy `measureText`).
+  - Canvas 2D does the **effects natively** — gradient fills, `strokeText`
+    outlines, `shadowBlur` drop-shadow. Effects in v1 (owner requirement).
+  - JS shelf-packer lays glyph tiles onto a page; `canvas.toBlob` → page PNG;
+    emit the BMFont XML string.
+- **Writes: a `fontMaker`-gated launcher endpoint** (`POST /api/fonts/save`) using
+  the existing `r2.ts` writers (`putObjectBytes` pages + descriptor under
+  `fontBundlePath`, `putObjectText` the merged `fontCatalogKey`). `assertAllowed`
+  every key against the gate's `prefixes`.
+- **No `engine-layout` change, no new R2 client, no new path helpers** — the
+  contract + writers already exist.
+
+### Expectation boundary (important)
+The generator bakes **clean parametric** fonts (TTF + gradient/outline/shadow
+params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
+`mm_silver` faces — those are designer layer-stacks. To bring those in, use
+**Import** (§4). This is exactly why the tool supports both.
+
+## 4. Scope — three modes
+
+| Mode | Behaviour |
+|---|---|
+| **View** | List the project's + `_shared` fonts from the catalog; live `<BitmapText>` preview with an editable sample-text field. |
+| **Import** | Upload an existing BMFont (`.xml`/`.fnt` + page PNG) [web fonts later] → preview → save into `fonts/<folder>/` + merge `fonts.json`. Replaces the sync script for the common case. |
+| **Generate** | Upload TTF/OTF → charset preset (digits / currency / ASCII / custom) + size + **effects** (solid/gradient fill, outline, drop-shadow/blur) → live preview → bake BMFont XML+PNG → save. |
+| **Save target** | Per-project (default) or shared library (`_shared/fonts/`). |
+
+## 5. Build order (phased)
+
+0. **Phase 0 — register + skeleton.** This doc; `roles.ts` (`fontMaker` in
+   `TOOLS` / `ROLE_TOOLS` / `TOOL_ICONS` / `TOOL_DOC_SLUG`); route
+   `(app)/fonts/+page.server.ts` (`ssr=false`, gate `fontMaker`, return scope +
+   catalog); `+page.svelte` shell branded with `Emblem.svelte`.
+1. **Phase 1 — View.** A `fontMaker`-gated read (`GET /api/fonts/catalog`) +
+   self-contained byte streamer (`GET /api/fonts/asset`) so the tool does NOT
+   depend on the `editor` grant; live PIXI `<BitmapText>` / `<Text>` preview.
+   Factor `resolveEditorFonts` to take an `assetUrl` builder so both the editor
+   and this tool reuse one resolver.
+2. **Phase 2 — Import + Save.** Upload BMFont files → preview → `POST /api/fonts/save`
+   (`putObjectBytes` pages+descriptor under `fontBundlePath`, merge + `putObjectText`
+   `fontCatalogKey`; `assertAllowed` each key).
+3. **Phase 3 — Generate.** `opentype.js` + canvas baker with effects, live preview,
+   emit XML+PNG, save via the same endpoint.
+4. **Phase 4 — polish.** Shared-library target UI, delete/rename, web-font import,
+   kerning (opentype.js exposes pairs → `<kernings>` block).
+
+## 6. Touch-points (Phase 0–2)
+
+- `apps/launcher-api/src/lib/roles.ts` — registry entry + icon + doc slug.
+- `apps/launcher-api/src/routes/(app)/fonts/+page.server.ts` + `+page.svelte`
+  (+ helper components).
+- `apps/launcher-api/src/routes/api/fonts/catalog/+server.ts` (read),
+  `.../fonts/asset/+server.ts` (gated streamer), `.../fonts/save/+server.ts` (write).
+- `apps/launcher-api/src/lib/server/fonts.ts` — parametrize `assetUrl`.
+- `docs/tools/font-maker.md` — user doc (later).
+
+Reuses (do **not** re-create): `r2.ts` writers, `projectPaths.ts` font helpers,
+`toolScope.ts` `gate`/`assertAllowed`/`includeSharedFonts`, `fontCatalog.ts`,
+`auth.ts` `getActiveScope`.
