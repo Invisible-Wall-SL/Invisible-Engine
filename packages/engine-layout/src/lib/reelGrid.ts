@@ -1,5 +1,11 @@
 import { resolveTransform } from './resolveTransform';
-import type { GameTemplate, LayoutDoc, LayoutType, ReelGridNode } from './types';
+import type {
+	GameTemplate,
+	LayoutDoc,
+	LayoutType,
+	ReelGridNode,
+	ReelSpinProfile,
+} from './types';
 
 /**
  * Phase 2 of the "configurable grid primitive" (§8.7). Shared, game-agnostic
@@ -87,6 +93,26 @@ export function resolveReelGridLayout(
 ): ReelGridLayout | undefined {
 	if (!doc) return undefined;
 	return resolveReelGridFromNode(findReelGridNode(doc), layoutType);
+}
+
+/**
+ * Resolve a `reelGrid` node's spin-FEEL override for one profile (`normal` =
+ * default/anticipated, `fast` = turbo). Returns only the FINITE numeric fields
+ * the author set, so the game can `{ ...codedOptions, ...override }`. No node /
+ * no `spin` / empty profile ⇒ `undefined`, so the game keeps its coded
+ * `SPIN_OPTIONS_*` unchanged (parity).
+ */
+export function resolveReelSpinProfile(
+	node: ReelGridNode | undefined,
+	which: 'normal' | 'fast',
+): ReelSpinProfile | undefined {
+	const profile = node?.spin?.[which];
+	if (!profile) return undefined;
+	const out: ReelSpinProfile = {};
+	for (const [key, value] of Object.entries(profile)) {
+		if (Number.isFinite(value)) out[key as keyof ReelSpinProfile] = value as number;
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 /**

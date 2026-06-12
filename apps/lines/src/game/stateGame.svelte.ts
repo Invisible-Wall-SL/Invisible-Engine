@@ -4,7 +4,7 @@ import type { Tween } from 'svelte/motion';
 import { stateBet } from 'state-shared';
 import { createEnhanceBoard, createReelForSpinning } from 'utils-slots';
 import { createGetWinLevelDataByWinLevelAlias } from 'utils-shared/winLevel';
-import { resolveReelGridFromNode, type ReelGridNode } from 'engine-layout';
+import { resolveReelGridFromNode, resolveReelSpinProfile, type ReelGridNode } from 'engine-layout';
 
 import type { GameType, RawSymbol, SymbolState } from './types';
 import { stateLayoutDerived } from './stateLayout';
@@ -90,8 +90,14 @@ const board = _.range(BOARD_DIMENSIONS.x).map((reelIndex) => {
 		onSymbolLand,
 	});
 
-	reel.reelState.spinOptions = () =>
-		reel.reelState.spinType === 'fast' ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
+	reel.reelState.spinOptions = () => {
+		const isFast = reel.reelState.spinType === 'fast';
+		const base = isFast ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
+		// Editor spin-FEEL override (reactive): merge the authored profile over the
+		// coded options. No node / no spin ⇒ undefined ⇒ coded constants (parity).
+		const override = resolveReelSpinProfile(boardOverride.node ?? undefined, isFast ? 'fast' : 'normal');
+		return override ? { ...base, ...override } : base;
+	};
 
 	return reel;
 });

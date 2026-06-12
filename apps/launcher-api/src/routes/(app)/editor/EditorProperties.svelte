@@ -17,6 +17,8 @@
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
+		type ReelGridNode,
+		type ReelSpinProfile,
 		type SpineCue,
 		type SpineNode,
 		type TextStyle,
@@ -217,6 +219,40 @@
 
 	function markDirty(): void {
 		onDirty?.();
+	}
+
+	// Spin-FEEL tuning fields (reelGrid node, advanced). Each maps to a
+	// `SpinningReelSpinOptions` key; blank = the game's coded default for that
+	// profile. Authored under `node.spin.{normal,fast}`.
+	const SPIN_FIELDS: { key: keyof ReelSpinProfile; label: string }[] = [
+		{ key: 'reelSpinSpeed', label: 'spin speed' },
+		{ key: 'reelPreSpinSpeed', label: 'pre-spin speed' },
+		{ key: 'reelSpinSpeedBeforeBounce', label: 'speed before bounce' },
+		{ key: 'reelBounceBackSpeed', label: 'bounce-back speed' },
+		{ key: 'reelBounceSizeMulti', label: 'bounce size' },
+		{ key: 'reelSpinDelay', label: 'reel stagger (ms)' },
+		{ key: 'reelPaddingMultiplierNormal', label: 'spin length' },
+		{ key: 'reelPaddingMultiplierAnticipated', label: 'anticipation length' },
+	];
+
+	function readSpin(n: ReelGridNode, profile: 'normal' | 'fast', key: keyof ReelSpinProfile) {
+		return n.spin?.[profile]?.[key] ?? '';
+	}
+
+	function writeSpin(
+		n: ReelGridNode,
+		profile: 'normal' | 'fast',
+		key: keyof ReelSpinProfile,
+		raw: number,
+	): void {
+		const spin: NonNullable<ReelGridNode['spin']> = { ...(n.spin ?? {}) };
+		const prof: ReelSpinProfile = { ...(spin[profile] ?? {}) };
+		if (Number.isFinite(raw)) prof[key] = raw;
+		else delete prof[key];
+		spin[profile] = Object.keys(prof).length ? prof : undefined;
+		// Drop an empty tuning object so an untouched node carries no `spin` (parity).
+		n.spin = spin.normal || spin.fast ? spin : undefined;
+		markDirty();
 	}
 
 	// The project's font catalog (the same `/api/editor/fonts` the editor canvas
@@ -1730,6 +1766,31 @@
 					/>
 				</label>
 			</div>
+			<details class="spin-tuning">
+				<summary>Spin tuning (advanced)</summary>
+				<p class="muted small">
+					Animation feel, not layout — blank = the game's coded default. Speeds are px/ms; stagger
+					is ms per reel; "length" scales how far the reel spins. Two profiles: <strong>Normal</strong>
+					(also drives anticipation) and <strong>Turbo</strong>.
+				</p>
+				{#each [{ profile: 'normal', title: 'Normal' }, { profile: 'fast', title: 'Turbo' }] as p (p.profile)}
+					<h4 class="spin-profile">{p.title}</h4>
+					<div class="spin-grid">
+						{#each SPIN_FIELDS as f (f.key)}
+							<label class="field">
+								<span>{f.label}</span>
+								<input
+									type="number"
+									step="0.01"
+									value={readSpin(node, p.profile as 'normal' | 'fast', f.key)}
+									oninput={(e) =>
+										writeSpin(node, p.profile as 'normal' | 'fast', f.key, e.currentTarget.valueAsNumber)}
+								/>
+							</label>
+						{/each}
+					</div>
+				{/each}
+			</details>
 		</section>
 	{:else if node.kind === 'text'}
 		<section>
@@ -2260,6 +2321,29 @@
 	.muted {
 		color: #666;
 		font-size: 12px;
+	}
+	.spin-tuning {
+		margin-top: 8px;
+		border-top: 1px solid #2a2433;
+		padding-top: 8px;
+	}
+	.spin-tuning > summary {
+		cursor: pointer;
+		font-size: 12px;
+		color: #9a8fb0;
+		user-select: none;
+	}
+	.spin-profile {
+		margin: 8px 0 4px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #888;
+	}
+	.spin-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 6px;
 	}
 	.ghost-sm {
 		align-self: flex-start;

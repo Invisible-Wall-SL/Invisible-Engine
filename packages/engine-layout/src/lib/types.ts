@@ -326,6 +326,38 @@ export interface ReelGridNode extends BaseNode {
 	 * centred. Absent = 0.5 (today's hard-coded value).
 	 */
 	rowPadding?: number;
+	/**
+	 * Spin-FEEL tuning (animation, not layout): optional per-field overrides of the
+	 * game's coded `SPIN_OPTIONS_*`, applied by the game's `spinOptions` getter.
+	 * Absent / empty ⇒ the coded constants are used unchanged (parity).
+	 */
+	spin?: ReelSpinTuning;
+}
+
+/**
+ * Per-field overrides for one spin profile — mirrors the engine's
+ * `SpinningReelSpinOptions` (all optional; an unset field falls back to the
+ * game's coded value). Speeds are px/ms; `reelSpinDelay` is ms of stagger per
+ * reel; the `reelPaddingMultiplier*` scale the spin LENGTH.
+ */
+export interface ReelSpinProfile {
+	reelPreSpinSpeed?: number;
+	reelSpinSpeed?: number;
+	reelSpinSpeedBeforeBounce?: number;
+	reelBounceBackSpeed?: number;
+	reelBounceSizeMulti?: number;
+	reelSpinDelay?: number;
+	reelPaddingMultiplierNormal?: number;
+	reelPaddingMultiplierAnticipated?: number;
+}
+
+/**
+ * Spin tuning split by profile: `normal` overrides the coded `SPIN_OPTIONS_DEFAULT`
+ * (also used by anticipated spins), `fast` overrides `SPIN_OPTIONS_FAST` (turbo).
+ */
+export interface ReelSpinTuning {
+	normal?: ReelSpinProfile;
+	fast?: ReelSpinProfile;
 }
 
 export type LayoutNode =
