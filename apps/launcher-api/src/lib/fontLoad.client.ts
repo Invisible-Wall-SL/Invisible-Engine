@@ -14,7 +14,7 @@
  * Web fonts load through the browser `FontFace` API. Both are idempotent + cached
  * per id, defensive on failure (a bad font resolves to "not loaded").
  */
-import { Assets, BitmapFont, Cache, Texture } from 'pixi.js';
+import { BitmapFont, Cache, Texture } from 'pixi.js';
 import type { FontDescriptorFormat, FontKind } from 'engine-layout';
 
 /**
@@ -142,12 +142,21 @@ export async function loadLocalBitmapFont(args: {
 	const { family, descriptorText, descriptorFormat, pageUrls } = args;
 	const data = buildBitmapFontData(descriptorText, descriptorFormat, family);
 
+	// Load each page image by FETCHING its bytes + decoding to an `ImageBitmap`, then
+	// build a `Texture` from it. We must NOT `Assets.load(url)` here: PIXI picks an
+	// asset parser by the URL's file EXTENSION, but our gated page URLs are
+	// query-string based with none (`/api/<tool>/asset?key=…webp`) — and the import
+	// preview's `blob:` object URLs have none either — so detection fails ("we don't
+	// know how to parse it") and the page texture comes back null. Decoding the bytes
+	// ourselves works regardless of how the URL is shaped.
 	const textures: Texture[] = [];
 	for (const page of data.pages) {
 		const url = pageUrls[page.file];
 		if (!url) throw new Error(`Missing page image for "${page.file}".`);
-		const texture = (await Assets.load(url)) as Texture;
-		textures.push(texture);
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`page image "${page.file}" failed (${res.status}).`);
+		const bitmap = await createImageBitmap(await res.blob());
+		textures.push(Texture.from(bitmap));
 	}
 
 	const font = new BitmapFont({ data, textures });
@@ -167,11 +176,12 @@ export async function loadLocalBitmapFont(args: {
 			} catch {
 				/* font already torn down */
 			}
-			for (const url of Object.values(pageUrls)) {
+			// We built these textures ourselves (not via Assets), so free them directly.
+			for (const t of textures) {
 				try {
-					void Assets.unload(url);
+					t.destroy(true);
 				} catch {
-					/* not tracked */
+					/* already torn down */
 				}
 			}
 		},
