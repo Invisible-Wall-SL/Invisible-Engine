@@ -115,8 +115,17 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
    line-top, `xadvance=round(advanceWidth*scale)`. Deps: `opentype.js` + `@types`.
    Deferred to Phase 4: kerning (`<kernings>`), multi-page atlases, shared-library save.
    `pnpm --filter launcher-api build` GREEN.
-4. **Phase 4 — polish.** Shared-library target UI, delete/rename, web-font import,
-   kerning (opentype.js exposes pairs → `<kernings>` block).
+4. **Phase 4 — polish** (incremental).
+   - **Round 1 ✅ LANDED 2026-06-12 (code-only): Generate baker — kerning + multi-page.**
+     `fontBake.client.ts`: emits a `<kernings>` block from `font.getKerningValue` (toggle,
+     default on; capped at 256 chars); multi-page shelf packer (new **page max height**
+     control, default 2048) producing one PNG per page (`<base>.png` single, `<base>_i.png`
+     multi), `<common pages="N">` + per-`<char page>`; `BakeResult.pages: {file,blob,canvas}[]`.
+     Preview + `saveBitmapFont` already multi-page-capable (no server change; `loadLocalBitmapFont`
+     iterates `<page>`s). `pnpm --filter launcher-api build` GREEN.
+   - **Round 2 (next):** delete/rename a font (View), web-font import (Import accepts
+     woff2/woff/ttf/otf → `kind:'web'`), shared-library (`_shared/fonts/`) save target
+     behind an admin-gated capability.
 
 ## 6. Touch-points (Phase 0–2)
 

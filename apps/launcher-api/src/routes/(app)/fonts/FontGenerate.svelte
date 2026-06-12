@@ -45,6 +45,8 @@
 	let custom = $state('');
 	let bakeSize = $state(64);
 	let pageMaxWidth = $state(1024);
+	let pageMaxHeight = $state(2048);
+	let kerning = $state(true);
 	let effects = $state<BakeEffects>(defaultEffects());
 
 	// ---- Status ----
@@ -52,7 +54,8 @@
 	let baking = $state(false);
 	let bakeError = $state<string | null>(null);
 	let result = $state<BakeResult | null>(null);
-	let atlasUrl = $state<string | null>(null);
+	/** Page filename → object URL, one per baked atlas page (preview + thumbnails). */
+	let atlasUrls = $state<Record<string, string>>({});
 	let saving = $state(false);
 	let saveError = $state<string | null>(null);
 	let savedNote = $state<string | null>(null);
@@ -69,7 +72,7 @@
 	const faceValid = $derived(face.trim().length > 0);
 	const canBake = $derived(!!font && chars.length > 0 && !baking);
 	const canSave = $derived(!!result && faceValid && folderValid && !saving);
-	const pageFile = $derived(`${folderValid ? folder : 'font'}.png`);
+	const pageBase = $derived(folderValid ? folder : 'font');
 
 	function slug(name: string): string {
 		const s = name.replace(/[^A-Za-z0-9_-]/g, '');
@@ -114,15 +117,17 @@
 		}
 	}
 
+	function revokeAtlasUrls(): void {
+		for (const url of Object.values(atlasUrls)) URL.revokeObjectURL(url);
+		atlasUrls = {};
+	}
+
 	function clearResult(): void {
 		teardownFont();
 		result = null;
 		bakeError = null;
 		savedNote = null;
-		if (atlasUrl) {
-			URL.revokeObjectURL(atlasUrl);
-			atlasUrl = null;
-		}
+		revokeAtlasUrls();
 	}
 
 	async function bake(): Promise<void> {
@@ -134,10 +139,12 @@
 			const res = await bakeBitmapFont({
 				font,
 				face: face.trim(),
-				pageFile,
+				pageBase,
 				chars,
 				fontSize: bakeSize,
 				pageMaxWidth,
+				pageMaxHeight,
+				kerning,
 				effects,
 			});
 			setResult(res);
@@ -151,8 +158,10 @@
 
 	function setResult(res: BakeResult): void {
 		teardownFont();
-		if (atlasUrl) URL.revokeObjectURL(atlasUrl);
-		atlasUrl = URL.createObjectURL(res.pageBlob);
+		revokeAtlasUrls();
+		const urls: Record<string, string> = {};
+		for (const page of res.pages) urls[page.file] = URL.createObjectURL(page.blob);
+		atlasUrls = urls;
 		result = res;
 		// Re-render the live preview through the SAME path the game uses.
 		void mountPreview(res);
@@ -175,13 +184,18 @@
 
 	async function mountPreview(res: BakeResult): Promise<void> {
 		previewError = null;
-		if (!app || !atlasUrl) return;
+		if (!app || res.pages.length === 0) return;
 		try {
+			const pageUrls: Record<string, string> = {};
+			for (const page of res.pages) {
+				const url = atlasUrls[page.file];
+				if (url) pageUrls[page.file] = url;
+			}
 			const lf = await loadLocalBitmapFont({
 				family: face.trim(),
 				descriptorText: res.xml,
 				descriptorFormat: 'xml',
-				pageUrls: { [pageFile]: atlasUrl },
+				pageUrls,
 			});
 			teardownFont();
 			localFont = lf;
@@ -257,7 +271,11 @@
 						blob: new Blob([result.xml], { type: 'application/xml' }),
 						contentType: 'application/xml',
 					},
-					{ name: pageFile, blob: result.pageBlob, contentType: 'image/png' },
+					...result.pages.map((page) => ({
+						name: page.file,
+						blob: page.blob,
+						contentType: 'image/png',
+					})),
 				],
 			});
 			savedNote = `Saved "${saved.name}" as ${saved.id}.`;
@@ -272,7 +290,7 @@
 
 	onDestroy(() => {
 		teardownFont();
-		if (atlasUrl) URL.revokeObjectURL(atlasUrl);
+		revokeAtlasUrls();
 		try {
 			app?.destroy(true);
 		} catch {
@@ -376,7 +394,15 @@
 						Page max width
 						<input type="number" min="128" max="4096" step="128" bind:value={pageMaxWidth} />
 					</label>
+					<label class="field narrow">
+						Page max height
+						<input type="number" min="128" max="4096" step="128" bind:value={pageMaxHeight} />
+					</label>
 				</div>
+				<label class="toggle small kern">
+					<input type="checkbox" bind:checked={kerning} /> Kerning (emit
+					<code>&lt;kernings&gt;</code>)
+				</label>
 
 				<h2 class="spaced">Effects</h2>
 				<div class="effect">
@@ -469,21 +495,29 @@
 
 				{#if result}
 					<dl class="metrics">
-						<dt>Page</dt>
+						<dt>Page size</dt>
 						<dd class="mono">{result.scaleW}×{result.scaleH}</dd>
+						<dt>Pages</dt>
+						<dd class="mono">{result.pages.length}</dd>
 						<dt>Glyphs</dt>
 						<dd class="mono">{result.glyphCount}</dd>
+						<dt>Kernings</dt>
+						<dd class="mono">{result.kerningCount}</dd>
 						{#if result.skipped.length}
 							<dt>Skipped</dt>
 							<dd class="warn mono">{result.skipped.length} (font lacks them)</dd>
 						{/if}
 					</dl>
-					{#if atlasUrl}
-						<figure class="atlas">
-							<img src={atlasUrl} alt="baked atlas page" />
-							<figcaption class="mono">{pageFile}</figcaption>
-						</figure>
-					{/if}
+					<div class="atlases">
+						{#each result.pages as page (page.file)}
+							{#if atlasUrls[page.file]}
+								<figure class="atlas">
+									<img src={atlasUrls[page.file]} alt="baked atlas page {page.file}" />
+									<figcaption class="mono">{page.file}</figcaption>
+								</figure>
+							{/if}
+						{/each}
+					</div>
 
 					<div class="actions">
 						<button class="primary" type="button" disabled={!canSave} onclick={save}>
@@ -710,8 +744,16 @@
 		margin: 0;
 		color: #e8e8ee;
 	}
-	.atlas {
+	.toggle.kern {
+		margin-top: 12px;
+	}
+	.atlases {
 		margin: 14px 0 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 14px;
+	}
+	.atlas {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
