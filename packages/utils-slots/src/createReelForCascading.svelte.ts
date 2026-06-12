@@ -13,9 +13,16 @@ export type CascadingReelSymbolState = 'static' | 'land' | 'spin';
 export function createReelForCascading<TRawSymbol extends object, TSymbolState extends string>(
 	reelOptions: CascadingReelCreateOptions<TRawSymbol, TSymbolState>,
 ) {
+	// Row pitch may be a getter (reactive override); resolve lazily so a plain
+	// number stays byte-identical.
+	const getSymbolHeight = () =>
+		typeof reelOptions.symbolHeight === 'function'
+			? reelOptions.symbolHeight()
+			: reelOptions.symbolHeight;
+
 	// reelSymbols
 	const getSymbolY = (symbolIndexOfBoard: number) =>
-		(symbolIndexOfBoard + 0.5) * reelOptions.symbolHeight;
+		(symbolIndexOfBoard + 0.5) * getSymbolHeight();
 
 	const createReelSymbol = (reelSymbolOptions: { rawSymbol: TRawSymbol; symbolIndex: number }) => {
 		const symbolIndexOfBoard = reelSymbolOptions.symbolIndex - 1;
@@ -153,7 +160,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				reelState.spinOptions().symbolFallInInterval *
 				(reelLengthInBoard - reelSymbol.symbolIndexOfBoard);
 			const bounceDistance =
-				reelOptions.symbolHeight * reelState.spinOptions().symbolFallInBounceSizeMulti;
+				getSymbolHeight() * reelState.spinOptions().symbolFallInBounceSizeMulti;
 			const bounceDuration = bounceDistance / reelState.spinOptions().symbolFallInBounceSpeed;
 			const landDuration = (distance - bounceDistance) / reelState.spinOptions().symbolFallInSpeed;
 
@@ -245,7 +252,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 	return {
 		// from options
 		reelIndex: reelOptions.reelIndex,
-		symbolHeight: reelOptions.symbolHeight,
+		symbolHeight: getSymbolHeight(),
 		onReelStopping: reelOptions.onReelStopping,
 		reelLength,
 		// reactive states

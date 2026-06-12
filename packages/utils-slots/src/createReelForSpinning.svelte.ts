@@ -19,7 +19,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		const rawSymbol = reelSymbolOptions.rawSymbol;
 		const symbolIndex = reelSymbolOptions.symbolIndex;
 		const symbolState = reelOptions.initialSymbolState;
-		const symbolY = () => reelY.current + (reelSymbol.symbolIndex + 0.5) * reelOptions.symbolHeight;
+		const symbolY = () => reelY.current + (reelSymbol.symbolIndex + 0.5) * getSymbolHeight();
 		const oncomplete = () => {};
 
 		const reelSymbol = $state({
@@ -54,14 +54,21 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	};
 
 	// constants
-	const defaultY = -reelOptions.symbolHeight;
+	// Row pitch may be a getter (reactive override). Resolve lazily everywhere so a
+	// plain number stays byte-identical; `homeY()` (the reel's resting Y) tracks it.
+	const isReactiveHeight = typeof reelOptions.symbolHeight === 'function';
+	const getSymbolHeight = () =>
+		typeof reelOptions.symbolHeight === 'function'
+			? reelOptions.symbolHeight()
+			: reelOptions.symbolHeight;
+	const homeY = () => -getSymbolHeight();
 	const reelLength = reelOptions.initialSymbols.length;
 
 	// interruptible
 	const interruptible = createInterruptible();
 
 	// reactive states
-	const reelY = new Tween(defaultY);
+	const reelY = new Tween(homeY());
 	const reelState = $state({
 		symbols: createReelSymbols(reelOptions.initialSymbols),
 		motion: 'stopped' as SpinningReelMotion,
@@ -123,9 +130,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelState.symbols = [...symbolsForSpin];
 
 		const topY =
-			defaultY -
-			symbolsForSpin.length * reelOptions.symbolHeight +
-			reelLength * reelOptions.symbolHeight;
+			homeY() -
+			symbolsForSpin.length * getSymbolHeight() +
+			reelLength * getSymbolHeight();
 		return topY;
 	};
 
@@ -149,9 +156,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 
 	const removePaddingAndBounceBack = async () => {
 		reelState.symbols = [...targetSymbols];
-		placeY(defaultY + reelOptions.symbolHeight * reelState.spinOptions().reelBounceSizeMulti);
+		placeY(homeY() + getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti);
 		await slideY({
-			reelY: defaultY,
+			reelY: homeY(),
 			speed: reelState.spinOptions().reelBounceBackSpeed,
 			easing: sineOut,
 		});
@@ -188,7 +195,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				? reelState.spinOptions().reelSpinSpeed
 				: reelState.spinOptions().reelPreSpinSpeed;
 			const easing = started || isTurboBeforeAll ? linear : backIn;
-			await slideY({ reelY: defaultY, speed, easing });
+			await slideY({ reelY: homeY(), speed, easing });
 			await preSpinPadding({ preSpinPaddingRawReel });
 			if (!started) {
 				reelState.motion = 'spinning';
@@ -249,10 +256,10 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const fastSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = reelOptions.symbolHeight * reelState.spinOptions().reelBounceSizeMulti;
+				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
 
 				await slideY({
-					reelY: defaultY + bounceSize,
+					reelY: homeY() + bounceSize,
 					speed: reelState.spinOptions().reelSpinSpeed,
 				});
 			},
@@ -261,14 +268,14 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const normalSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = reelOptions.symbolHeight * reelState.spinOptions().reelBounceSizeMulti;
+				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
 
 				await slideY({
-					reelY: defaultY * basePaddingSize(),
+					reelY: homeY() * basePaddingSize(),
 					speed: reelState.spinOptions().reelSpinSpeed,
 				});
 				await slideY({
-					reelY: defaultY + bounceSize,
+					reelY: homeY() + bounceSize,
 					speed: reelState.spinOptions().reelSpinSpeedBeforeBounce,
 				});
 			},
@@ -277,14 +284,14 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const anticipatedSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = reelOptions.symbolHeight * reelState.spinOptions().reelBounceSizeMulti;
+				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
 
 				await slideY({
-					reelY: defaultY * basePaddingSize(),
+					reelY: homeY() * basePaddingSize(),
 					speed: reelState.spinOptions().reelSpinSpeed,
 				});
 				await slideY({
-					reelY: defaultY + bounceSize,
+					reelY: homeY() + bounceSize,
 					speed: reelState.spinOptions().reelSpinSpeedBeforeBounce,
 				});
 			},
@@ -335,7 +342,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 
 	const setSymbolsWithReelSymbols = (reelSymbols?: ReelSymbol[]) => {
 		reelState.motion = 'stopped';
-		placeY(defaultY);
+		placeY(homeY());
 		if (reelSymbols) {
 			prevSymbols = [...reelSymbols];
 			targetSymbols = [...reelSymbols];
@@ -354,8 +361,17 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	};
 
 	const readyToSpinEffect = () => {
+		// Re-home a settled reel when a REACTIVE row pitch changes (e.g. the editor's
+		// reelGrid cell-height/gap override loads after module init). Gated on a getter
+		// height: a static number never changes `homeY()`, so this effect is inert and
+		// the reel keeps byte-identical behaviour.
 		$effect(() => {
-			if (reelY.current === defaultY) {
+			if (isReactiveHeight && reelState.motion === 'stopped' && reelY.current !== homeY()) {
+				placeY(homeY());
+			}
+		});
+		$effect(() => {
+			if (reelY.current === homeY()) {
 				reelState.readyToSpin();
 			}
 		});
@@ -364,7 +380,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	return {
 		// from options
 		reelIndex: reelOptions.reelIndex,
-		symbolHeight: reelOptions.symbolHeight,
+		symbolHeight: getSymbolHeight(),
 		onReelStopping: reelOptions.onReelStopping,
 		reelLength,
 		// reactive states

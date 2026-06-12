@@ -39,10 +39,45 @@ const onSymbolLand = ({ rawSymbol }: { rawSymbol: RawSymbol }) => {
 	}
 };
 
+/**
+ * Editor doc's `reelGrid` node (LAYOUT ONLY) bridged in by `Game.svelte` once the
+ * doc loads. `null` → the board keeps its coded constants (byte-identical parity).
+ * Stored raw so `boardLayout()`/`boardGeometry()` re-resolve per-layoutType reactively.
+ * Defined above `board` because the reel pitch reads `boardGeometry()` lazily.
+ */
+const boardOverride = $state<{ node: ReelGridNode | null }>({ node: null });
+
+export const setBoardOverride = (node: ReelGridNode | null) => {
+	boardOverride.node = node;
+};
+
+/**
+ * Board LATTICE derived from the override, in board-LOCAL space (before the
+ * container `scale`). `columnExtraLocal` = extra x added per reel index for
+ * non-square cell width + horizontal gap; `rowPitchLocal` = the reel's symbol
+ * pitch (drives `createReelForSpinning`'s reactive `symbolHeight`). No node ⇒
+ * `{0, SYMBOL_SIZE}` = today's flush square lattice (byte-identical parity).
+ */
+const boardGeometry = () => {
+	const override = resolveReelGridFromNode(
+		boardOverride.node ?? undefined,
+		stateLayoutDerived.layoutType(),
+	);
+	if (!override) return { columnExtraLocal: 0, rowPitchLocal: SYMBOL_SIZE };
+	const scale = override.cellSize / SYMBOL_SIZE;
+	const columnExtraLocal = (override.cellWidth - override.cellSize + override.gapX) / scale;
+	const rowPitchLocal = (override.cellHeight + override.gapY) / scale;
+	return { columnExtraLocal, rowPitchLocal };
+};
+
+/** Reactive symbol-centre X in board-local space (honours non-square width + gap). */
+export const getSymbolX = (reelIndex: number) =>
+	SYMBOL_SIZE * (reelIndex + REEL_PADDING) + reelIndex * boardGeometry().columnExtraLocal;
+
 const board = _.range(BOARD_DIMENSIONS.x).map((reelIndex) => {
 	const reel = createReelForSpinning({
 		reelIndex,
-		symbolHeight: SYMBOL_SIZE,
+		symbolHeight: () => boardGeometry().rowPitchLocal,
 		initialSymbols: INITIAL_BOARD[reelIndex],
 		initialSymbolState: INITIAL_SYMBOL_STATE,
 		onReelStopping: () => {
@@ -81,17 +116,6 @@ export const stateGame = $state({
 	scatterCounter: 0,
 });
 
-/**
- * Editor doc's `reelGrid` node (LAYOUT ONLY) bridged in by `Game.svelte` once the
- * doc loads. `null` → the board keeps its coded constants (byte-identical parity).
- * Stored raw so `boardLayout()` re-resolves per-layoutType reactively.
- */
-const boardOverride = $state<{ node: ReelGridNode | null }>({ node: null });
-
-export const setBoardOverride = (node: ReelGridNode | null) => {
-	boardOverride.node = node;
-};
-
 const boardLayout = () => {
 	const centreX = stateLayoutDerived.mainLayout().width * 0.5;
 	const centreY = stateLayoutDerived.mainLayout().height * 0.5;
@@ -113,10 +137,13 @@ const boardLayout = () => {
 
 	const scale = override.cellSize / SYMBOL_SIZE;
 	const paddingOffsetX = (override.reelPadding - REEL_PADDING) * SYMBOL_SIZE * scale;
+	// Row padding mirrors reel padding on the Y axis: a uniform vertical nudge of
+	// the whole board (the engine's coded vertical lead is 0.5). Default 0.5 ⇒ 0.
+	const paddingOffsetY = (override.rowPadding - 0.5) * SYMBOL_SIZE * scale;
 
 	return {
 		x: override.x + paddingOffsetX,
-		y: override.y,
+		y: override.y + paddingOffsetY,
 		scale,
 		anchor: { x: 0.5, y: 0.5 },
 		pivot: { x: BOARD_SIZES.width / 2, y: BOARD_SIZES.height / 2 },

@@ -39,7 +39,12 @@ type ReelCreateOptions<TRawSymbol extends object, TSymbolState extends string> =
 	initialSymbols: TRawSymbol[];
 	initialSymbolState: TSymbolState;
 	reelIndex: number;
-	symbolHeight: number;
+	/**
+	 * Row pitch (px). A getter form lets a game drive it reactively (e.g. the
+	 * editor's `reelGrid` cell-height/gap override) — resolved lazily at each use,
+	 * so a plain `number` is byte-identical to passing the value directly.
+	 */
+	symbolHeight: number | (() => number);
 	onReelStopping: () => void;
 	onSymbolLand: (args: { rawSymbol: TRawSymbol }) => void;
 };

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Symbol from './Symbol.svelte';
 	import SymbolWrap from './SymbolWrap.svelte';
-	import { getSymbolInfo, getSymbolX } from '../game/utils';
-	import type { ReelSymbol } from '../game/stateGame.svelte';
+	import { getSymbolInfo } from '../game/utils';
+	import { getSymbolX, type ReelSymbol } from '../game/stateGame.svelte';
 
 	type Props = {
 		reelIndex: number;

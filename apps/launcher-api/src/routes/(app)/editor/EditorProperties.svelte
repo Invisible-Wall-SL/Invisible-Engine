@@ -1575,10 +1575,10 @@
 		<section>
 			<h3>Reel grid</h3>
 			<p class="muted small">
-				Board layout — position, cell size and reel padding drive the LIVE in-game board.
-				Reels/rows are descriptive (the RGS sets the real board shape; a mismatch only warns). Cell
-				width/height, gaps and row padding render in this preview and feed the engine's next board
-				pass. Position the grid with the Transform section above.
+				Board layout — position, cell size, non-square cell width/height, gaps and reel/row padding
+				all drive the LIVE in-game board. Reels/rows are descriptive (the RGS sets the real board
+				shape; a mismatch only warns). Symbol art keeps its aspect (Stake sizing); gaps space the
+				cells, padding insets the whole grid. Position the grid with the Transform section above.
 			</p>
 			<div class="row">
 				<label class="field">
