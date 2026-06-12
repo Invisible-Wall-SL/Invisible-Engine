@@ -1578,6 +1578,9 @@ importers:
       '@lingui/core':
         specifier: 5.2.0
         version: 5.2.0(@lingui/babel-plugin-lingui-macro@5.2.0(babel-plugin-macros@3.1.0))(babel-plugin-macros@3.1.0)
+      '@lingui/message-utils':
+        specifier: 5.2.0
+        version: 5.2.0
       '@sveltejs/kit':
         specifier: 2.17.3
         version: 2.17.3(@sveltejs/vite-plugin-svelte@5.1.0(svelte@5.20.5)(vite@7.0.0(@types/node@25.9.3)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2)))(svelte@5.20.5)(vite@7.0.0(@types/node@25.9.3)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2))

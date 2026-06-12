@@ -1,5 +1,12 @@
 import { i18n, type Messages } from '@lingui/core';
+import { compileMessage } from '@lingui/message-utils/compileMessage';
 import { type Language } from './stateUrl.svelte';
+
+// We ship uncompiled catalogs (plain string maps merged from code + the
+// Invisible Localization tool), so register a runtime message compiler.
+// Without it Lingui logs "Uncompiled message detected" for every label
+// (BET, STOP, …) and skips ICU interpolation/plurals.
+i18n.setMessagesCompiler(compileMessage);
 
 export const stateI18n = $state({
 	i18n
