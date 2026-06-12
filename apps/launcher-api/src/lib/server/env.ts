@@ -104,4 +104,18 @@ export const ENV = {
 	get GAMES_BASE_URL() {
 		return env.GAMES_BASE_URL ?? 'https://games.invisiblewall.org';
 	},
+	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
+	// (and their submodules) on any machine with no per-user GitHub login. Served by
+	// GET /api/launcher/git-credentials to authenticated launchers. Use a fine-grained
+	// PAT (read-only "Contents" on the org's game repos) or a GitHub App installation
+	// token. Secret: no code default. Empty → the endpoint 404s and the launcher falls
+	// back to interactive git auth. Treat it as a shared, rotatable deploy secret.
+	get GIT_CLONE_TOKEN() {
+		return env.GIT_CLONE_TOKEN ?? '';
+	},
+	// Username paired with GIT_CLONE_TOKEN in the clone URL. For a PAT or App token the
+	// username is ignored by GitHub, so the conventional `x-access-token` is the default.
+	get GIT_CLONE_USERNAME() {
+		return env.GIT_CLONE_USERNAME ?? 'x-access-token';
+	},
 };
