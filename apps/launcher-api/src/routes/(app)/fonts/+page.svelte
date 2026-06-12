@@ -3,6 +3,7 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import { fetchFontCatalog, type CatalogFont } from './fonts.client';
 	import FontPreview from './FontPreview.svelte';
+	import FontImport from './FontImport.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -23,11 +24,20 @@
 		return font.pages?.[0]?.url ?? null;
 	}
 
+	async function loadCatalog(): Promise<void> {
+		loading = true;
+		fonts = await fetchFontCatalog();
+		loading = false;
+	}
+
+	/** After an import saves, refresh the View catalog and switch to it. */
+	function onImported(): void {
+		void loadCatalog();
+		tab = 'view';
+	}
+
 	onMount(() => {
-		void fetchFontCatalog().then((list) => {
-			fonts = list;
-			loading = false;
-		});
+		void loadCatalog();
 	});
 </script>
 
@@ -98,13 +108,7 @@
 			{/if}
 		</section>
 	{:else if tab === 'import'}
-		<section class="soon">
-			<h2>Import</h2>
-			<p class="muted">
-				Coming soon (Phase 2). Upload an existing BMFont (<code>.xml</code>/<code>.fnt</code> + page
-				PNG), preview it, and save it into the project's <code>fonts/</code> folder.
-			</p>
-		</section>
+		<FontImport {sample} {size} onsaved={onImported} />
 	{:else}
 		<section class="soon">
 			<h2>Generate</h2>

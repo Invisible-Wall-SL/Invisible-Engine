@@ -87,9 +87,19 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
    depend on the `editor` grant; live PIXI `<BitmapText>` / `<Text>` preview.
    Factor `resolveEditorFonts` to take an `assetUrl` builder so both the editor
    and this tool reuse one resolver.
-2. **Phase 2 — Import + Save.** Upload BMFont files → preview → `POST /api/fonts/save`
-   (`putObjectBytes` pages+descriptor under `fontBundlePath`, merge + `putObjectText`
-   `fontCatalogKey`; `assertAllowed` each key).
+2. **Phase 2 — Import + Save. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+   Upload a BMFont (`.xml`/`.fnt`/`.json` + page image[s]) → client parses + live-previews
+   → save. Uploads use **presigned PUT** (BMFont page PNGs exceed adapter-node's 512 KB
+   `BODY_SIZE_LIMIT`): `POST /api/fonts/upload-urls` mints `presignPut` URLs for the
+   descriptor + each page (keys via `fontBundlePath`, `assertAllowed`); the browser PUTs
+   each file straight to R2; then `POST /api/fonts/save` is **authoritative** — re-reads
+   the uploaded descriptor from R2, re-derives `name` (`<info face>`) + `pageFiles` via
+   `lib/server/bmfont.ts` `parseBmfontDescriptor` (never trusts the client), verifies each
+   page `objectExists`, and upserts the `fonts.json` entry by `id===folder`. Client:
+   `FontImport.svelte` + `fonts.client.ts` `parseDescriptorClient`/`loadLocalBitmapFont`
+   (builds a `BitmapFont` from object-URL pages for the pre-save preview — a blob
+   descriptor can't go through pixi's `loadBitmapFont` because it mangles relative page
+   refs). Per-project writes only (shared = Phase 4). `pnpm --filter launcher-api build` GREEN.
 3. **Phase 3 — Generate.** `opentype.js` + canvas baker with effects, live preview,
    emit XML+PNG, save via the same endpoint.
 4. **Phase 4 — polish.** Shared-library target UI, delete/rename, web-font import,
