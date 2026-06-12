@@ -1,0 +1,85 @@
+/**
+ * Shared baked-font runtime — the engine-owned half of the font publish pipeline
+ * (docs/design/live-assets.md → "Font export"). A game's `bake-editor-doc.mjs`
+ * embeds the project's font catalog in `baked-editor-bundle.json`; these helpers
+ * turn that catalog into the things a game needs at boot. Defined ONCE here so
+ * every game (current and future) gets the same behaviour by calling them —
+ * fixes propagate through the engine submodule, not per-game copy-paste.
+ *
+ * A game's `editor-scenes.ts` extracts `bundle.fonts?.catalog` (it owns its own
+ * bundle import + baked/un-baked gate) and passes it in; un-baked dev passes
+ * `undefined` and every helper is an inert no-op.
+ */
+import type { FontCatalog, FontEntry } from './fontCatalog';
+
+/** A pixi asset entry (structurally the game's `RawAsset` for a bitmap font). */
+export interface BakedFontAsset {
+	type: 'font';
+	src: string;
+	preload: boolean;
+}
+
+/**
+ * Bitmap fonts from a baked catalog as pixi `{type:'font'}` asset entries, keyed
+ * `bakedFont/<id>`. Spread into `createApp({assets})`: `AssetsLoader` preloads the
+ * descriptor before first paint and pixi installs the `BitmapFont` under its
+ * `<info face>` — exactly what `<BitmapText fontFamily={name}>` then resolves. The
+ * `src` is page-relative (`assets/<prefix>/<folder>/<descriptor>`), matching the
+ * deploy mirror. Web fonts load via {@link registerBakedWebFonts}. Empty catalog
+ * (un-baked / no fonts) ⇒ `{}`.
+ */
+export function bakedFontAssets(catalog: FontCatalog | undefined): Record<string, BakedFontAsset> {
+	const out: Record<string, BakedFontAsset> = {};
+	if (!catalog) return out;
+	for (const f of catalog.fonts) {
+		if (f.kind !== 'bitmap' || !f.descriptorFile) continue;
+		out[`bakedFont/${f.id}`] = {
+			type: 'font',
+			src: `assets/${catalog.prefix}/${f.folder}/${f.descriptorFile}`,
+			preload: true,
+		};
+	}
+	return out;
+}
+
+/**
+ * Merge a baked project font catalog over the game's built-in font entries for
+ * `registerFontCatalog`. A baked entry overrides a built-in of the same family
+ * `name`; un-baked ⇒ just the built-ins (parity). `prefix` is irrelevant to the
+ * engine's bitmap-vs-`<Text>` decision (it keys on `name`/`kind`), so it is left
+ * empty here — the per-font `folder` in {@link bakedFontAssets} drives loading.
+ */
+export function mergeBakedFontCatalog(
+	builtins: FontEntry[],
+	baked: FontCatalog | undefined,
+): FontCatalog {
+	const merged = new Map<string, FontEntry>(builtins.map((f) => [f.name, f]));
+	for (const f of baked?.fonts ?? []) merged.set(f.name, f);
+	return { prefix: '', fonts: [...merged.values()] };
+}
+
+/**
+ * Load a baked catalog's WEB fonts via the FontFace API (bitmap fonts go through
+ * the pixi asset loader in {@link bakedFontAssets} instead). Best-effort +
+ * idempotent: each `@font-face` is loaded from `assets/<prefix>/<folder>/<file>`
+ * and added to `document.fonts` so a `<Text fontFamily={name}>` renders the real
+ * face. No-op server-side / un-baked / when the project has no web fonts.
+ */
+export async function registerBakedWebFonts(catalog: FontCatalog | undefined): Promise<void> {
+	if (typeof document === 'undefined' || !catalog) return;
+	for (const f of catalog.fonts) {
+		if (f.kind !== 'web') continue;
+		for (const wf of f.files ?? []) {
+			try {
+				const face = new FontFace(f.name, `url(assets/${catalog.prefix}/${f.folder}/${wf.file})`, {
+					weight: wf.weight ?? 'normal',
+					style: wf.style ?? 'normal',
+				});
+				await face.load();
+				document.fonts.add(face);
+			} catch (err) {
+				console.warn(`[fonts] web font "${f.name}" (${wf.file}) failed to load:`, err);
+			}
+		}
+	}
+}

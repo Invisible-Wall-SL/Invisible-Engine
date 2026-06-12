@@ -17,6 +17,7 @@ export * from './buttonConvert';
 export * from './buttonStateImage';
 export * from './fontCatalog';
 export * from './registerFontCatalog';
+export * from './bakedFonts';
 export * from './hudText';
 export * from './registerBoundComponents';
 export * from './registerComponents';

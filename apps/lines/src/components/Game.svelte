@@ -21,7 +21,6 @@
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals } from 'components-ui-html';
-	import type { FontEntry } from 'engine-layout';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
@@ -31,6 +30,8 @@
 		registerComponentVisibility,
 		registerComponentSignals,
 		registerFontCatalog,
+		mergeBakedFontCatalog,
+		registerBakedWebFonts,
 		HUD_READOUT_DEF,
 		BUTTON_DEF,
 		TEXT_BOX_DEF,
@@ -54,7 +55,6 @@
 		fallbackEditorScenes,
 		loadEditorScenes,
 		registerBakedComponents,
-		registerBakedWebFonts,
 		registerEditorTextLocalization,
 	} from '../editor-scenes';
 	import messagesMap from '../i18n/messagesMap';
@@ -133,23 +133,21 @@
 	// entry — absent ⇒ `<Text>` ⇒ parity. No live scene text node references a bitmap
 	// family yet (the `freeSpinCounter` def's `gold` text is unwired), so this is pure
 	// registration with no render change today.
-	// The game's built-in bitmap fonts (shipped in `assets.ts`). Merged below with
-	// the baked per-project font catalog (Font Maker output, exported into the
-	// bundle by `bake-editor-doc.mjs`) so an editor-authored font reaches the
-	// shipped game; a baked font with the same family name overrides a built-in.
-	// Bitmap fonts load as `{type:'font'}` assets (see `bakedFontAssets`); web
-	// fonts load via `registerBakedWebFonts()` below.
+	// The game's built-in bitmap fonts (shipped in `assets.ts`). Merged with the
+	// baked per-project font catalog (Font Maker output, frozen into the bundle by
+	// `bake-editor-doc.mjs`) via the engine's shared `mergeBakedFontCatalog` so an
+	// editor-authored font reaches the shipped game; a baked font with the same
+	// family name overrides a built-in. Bitmap fonts load as `{type:'font'}` assets
+	// (`bakedFontAssets` in `stateApp.ts`); web fonts load via `registerBakedWebFonts`.
 	const builtinFonts = [
 		{ id: 'gold', name: 'gold', kind: 'bitmap' as const, folder: '' },
 		{ id: 'goldblur', name: 'goldblur', kind: 'bitmap' as const, folder: '' },
 		{ id: 'silver', name: 'silver', kind: 'bitmap' as const, folder: '' },
 		{ id: 'purple', name: 'purple', kind: 'bitmap' as const, folder: '' },
 	];
-	const mergedFonts = new Map<string, FontEntry>(builtinFonts.map((f) => [f.name, f]));
-	for (const f of bakedFontCatalog()?.fonts ?? []) mergedFonts.set(f.name, f);
-	registerFontCatalog({ prefix: '', fonts: [...mergedFonts.values()] });
+	registerFontCatalog(mergeBakedFontCatalog(builtinFonts, bakedFontCatalog()));
 	// Load any baked WEB fonts (FontFace) so a `<Text>` renders the real face.
-	void registerBakedWebFonts();
+	void registerBakedWebFonts(bakedFontCatalog());
 	// Build-time freeze: register any custom/edited ComponentDefs baked into the
 	// bundle AFTER the built-ins, so a baked def (e.g. a customized `button` with an
 	// author-added background node) shadows the coded one. No-op when not baked
@@ -191,6 +189,25 @@
 	let editorDoc = $state(fallbackEditorScenes);
 	const basegameScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'basegame') ?? fallbackBasegame,
+	);
+	// Reel z-order: the editor lets you order the `reelGrid` placeholder among the
+	// basegame layers, but the real <Board/> mounts in its OWN trailing MainContainer
+	// (a separate Pixi container), so it always paints over the whole scene — no editor
+	// ordering can put a layer above it. Split the scene at the top-level reelGrid index
+	// into a below-reel pass and an above-reel pass; the board renders BETWEEN them, so
+	// layers authored after the reel now stack above it (matching the editor preview).
+	// The board subtree is left untouched. No top-level reelGrid → single pass, byte-
+	// identical to before (parity for doc-less boot / nested reelGrid).
+	const reelGridIndex = $derived(basegameScene.nodes.findIndex((node) => node.kind === 'reelGrid'));
+	const basegameBelowReel = $derived(
+		reelGridIndex < 0
+			? basegameScene
+			: { ...basegameScene, nodes: basegameScene.nodes.slice(0, reelGridIndex) },
+	);
+	const basegameAboveReel = $derived(
+		reelGridIndex < 0
+			? undefined
+			: { ...basegameScene, nodes: basegameScene.nodes.slice(reelGridIndex + 1) },
 	);
 	const basegameOverlaysScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
@@ -526,13 +543,21 @@
 			<OnHotkey hotkey="Space" disabled={spinHotkeyDisabled} onpress={spinHotkeyPress} />
 		{/if}
 
-		<LayoutScene scene={basegameScene} />
+		<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
+			 MainContainer. Do NOT wrap it again here (that double-scales it).
+			 Split at the reelGrid placeholder: below-reel layers, then the board, then
+			 above-reel layers (so editor stacking order around the reel is honored). -->
+		<LayoutScene scene={basegameBelowReel} />
 
 		<MainContainer>
 			<BoardFrame />
 			<Board />
 			<Anticipations />
 		</MainContainer>
+
+		{#if basegameAboveReel && basegameAboveReel.nodes.length}
+			<LayoutScene scene={basegameAboveReel} />
+		{/if}
 
 		<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
 			{#snippet gameName(override)}
