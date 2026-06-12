@@ -10,6 +10,7 @@ import {
 	accessibleProjectsWithClient,
 	createProject,
 	isValidProjectKey,
+	normalizeLauncherProfile,
 	projectClientKey,
 	projectExists,
 	renameProject,
@@ -49,7 +50,9 @@ export const GET: RequestHandler = async ({ request }) => {
 		name: p.name,
 		clientKey: p.clientKey,
 		clientName: p.clientName,
-		profile: p.launcherProfile,
+		// Pin the engine submodule before the (frozen) install so a drifted machine can't
+		// fail the build — applied on read so it reaches every launcher with no re-seed.
+		profile: normalizeLauncherProfile(p.launcherProfile),
 	}));
 
 	// Distinct clients present among the accessible projects (skip the null/unassigned bucket).

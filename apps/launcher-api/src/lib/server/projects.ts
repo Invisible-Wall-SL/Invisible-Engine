@@ -123,6 +123,42 @@ export async function accessibleProjectsWithClient(
 	}));
 }
 
+// Standalone game repos vendor the engine as a git submodule and share ONE root
+// pnpm-lock.yaml that flattens `engine/packages/*`. The desktop launcher's build runs
+// `pnpm install` with CI=1 → frozen-lockfile. If a machine's `engine/` submodule has
+// drifted off the committed pin (the launcher's sync skips the submodule update when a
+// dirty tree blocks its ff-pull), that frozen install hard-fails with
+// ERR_PNPM_OUTDATED_LOCKFILE even though the pushed lockfile is correct.
+//
+// Fix at the contract boundary: every game build-cmd we hand the launcher pins the
+// submodule to the superproject's committed commit FIRST, so engine == pin == committed
+// lockfile right before the frozen install. This reaches EVERY launcher (even ones that
+// predate the source-side fix) on its next "Sync from cloud" — no exe rebuild, no
+// re-seed. Idempotent; only game-publish profiles; leaves an already-pinning cmd alone.
+// See gotcha-game-deploy-lockfile-submodule-drift.
+const SUBMODULE_PIN = 'git submodule update --init --recursive';
+const DEFAULT_GAME_BUILD_CMD = 'pnpm install && pnpm build';
+
+export function normalizeLauncherProfile(profile: unknown): unknown {
+	if (!profile || typeof profile !== 'object') return profile;
+	const p = profile as Record<string, unknown>;
+	const game = p.game;
+	if (!game || typeof game !== 'object') return profile;
+	const g = game as Record<string, unknown>;
+	const publish = g.publish;
+	if (!publish || typeof publish !== 'object') return profile;
+	const pub = publish as Record<string, unknown>;
+
+	const current = typeof pub.build_cmd === 'string' ? pub.build_cmd.trim() : '';
+	const base = current || DEFAULT_GAME_BUILD_CMD;
+	if (base.includes('submodule update')) return profile; // already pins — leave as-is
+
+	return {
+		...p,
+		game: { ...g, publish: { ...pub, build_cmd: `${SUBMODULE_PIN} && ${base}` } },
+	};
+}
+
 /** The opaque launcher profile for a project, or `null` when unset/unknown. */
 export async function getLauncherProfile(key: string): Promise<unknown | null> {
 	const [row] = await getDb()
