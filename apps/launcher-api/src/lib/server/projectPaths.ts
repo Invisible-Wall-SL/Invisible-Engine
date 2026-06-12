@@ -48,6 +48,7 @@ export const SUB = {
 	localization: (c: string, p: string) => `${projectPrefix(c, p)}/localization`,
 	editor: (c: string, p: string) => `${projectPrefix(c, p)}/editor`,
 	fonts: (c: string, p: string) => `${projectPrefix(c, p)}/fonts`,
+	symbols: (c: string, p: string) => `${projectPrefix(c, p)}/symbols`,
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
 } as const;
 
@@ -137,6 +138,17 @@ export function localizationDocKey(client: string, project: string): string {
 
 export function editorDocKey(client: string, project: string): string {
 	return `${SUB.editor(client, project)}/scenes.json`;
+}
+
+/**
+ * Per-project Invisible Symbols State Machine doc:
+ * `<client>/<project>/symbols/symbols.json` — the authored symbol→state→asset
+ * binding map (sparse overrides over the coded `SYMBOL_INFO_MAP`). Same
+ * client/project slug-underscore convention as `editorDocKey`.
+ * See `docs/design/invisible-symbols-state-machine.md`.
+ */
+export function symbolsDocKey(client: string, project: string): string {
+	return `${SUB.symbols(client, project)}/symbols.json`;
 }
 
 export function atlasConfigKey(client: string, project: string): string {
