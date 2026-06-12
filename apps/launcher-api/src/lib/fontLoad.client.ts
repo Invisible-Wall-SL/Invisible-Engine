@@ -333,11 +333,23 @@ function buildFromXmlOrFnt(
 		.filter((p) => p.file)
 		.map((p) => ({ id: num(p.id), file: p.file }));
 
+	// Key chars by the LETTER — exactly like PIXI's `bitmapFontTextParser`. The
+	// `BitmapFont` ctor derives `id = key.codePointAt(0)` from the key, and the layout
+	// looks up `font.chars[char] || font.chars[' ']`, so a numeric key makes EVERY
+	// lookup (incl. the space fallback) miss → `undefined.kerning`. Real BMFonts often
+	// have no `letter` attr (just a numeric `id`), so derive it from the code (NaN-safe
+	// `fromCharCode`, matching PIXI). Kerning lives on the SECOND char keyed by the
+	// FIRST char's letter (layout reads `charData.kerning[previousChar]`).
 	const chars: Record<string, RawCharData> = {};
+	const idToLetter = new Map<number, string>();
 	for (const c of blocks('char')) {
 		if (c.id === undefined) continue;
-		const id = num(c.id);
-		chars[id] = {
+		const id = parseInt(c.id, 10);
+		let letter = c.letter ?? c.char ?? '';
+		if (!letter) letter = String.fromCharCode(id);
+		if (letter === 'space') letter = ' ';
+		idToLetter.set(id, letter);
+		chars[letter] = {
 			id,
 			page: num(c.page),
 			x: num(c.x),
@@ -348,22 +360,50 @@ function buildFromXmlOrFnt(
 			yOffset: num(c.yoffset),
 			xAdvance: num(c.xadvance),
 			kerning: {},
-			letter: c.letter ?? String.fromCodePoint(id),
+			letter,
 		};
 	}
 	for (const k of blocks('kerning')) {
-		const first = chars[num(k.first)];
-		if (first) first.kerning[String(num(k.second))] = num(k.amount);
+		const second = idToLetter.get(parseInt(k.second, 10));
+		const first = idToLetter.get(parseInt(k.first, 10));
+		if (second !== undefined && first !== undefined && chars[second]) {
+			chars[second].kerning[first] = num(k.amount);
+		}
 	}
 
 	const fontSize = num(info.size, 16) || 16;
+	const lineHeight = num(common.lineHeight, fontSize) || fontSize;
+	ensureSpaceChar(chars, fontSize);
 	return {
 		fontFamily: info.face?.trim() || family,
 		fontSize,
-		lineHeight: num(common.lineHeight, fontSize) || fontSize,
-		baseLineOffset: num(common.base),
+		lineHeight,
+		// PIXI: `baseLineOffset = lineHeight - base` (NOT `base`).
+		baseLineOffset: lineHeight - num(common.base),
 		pages,
 		chars,
+	};
+}
+
+/**
+ * PIXI's bitmap layout dereferences `font.chars[' ']` for every missing glyph AND for
+ * its end-of-string sentinel (`getBitmapTextLayout`), so a font lacking a space char
+ * crashes the renderer (`undefined.kerning`). Synthesize a zero-size space if absent.
+ */
+function ensureSpaceChar(chars: Record<string, RawCharData>, fontSize: number): void {
+	if (chars[' ']) return;
+	chars[' '] = {
+		id: 32,
+		page: 0,
+		x: 0,
+		y: 0,
+		width: 0,
+		height: 0,
+		xOffset: 0,
+		yOffset: 0,
+		xAdvance: Math.round(fontSize / 4),
+		kerning: {},
+		letter: ' ',
 	};
 }
 
@@ -388,7 +428,9 @@ function buildFromJson(text: string, family: string): BitmapFontData {
 			: [];
 	for (const c of charList) {
 		const id = num(String(c.id ?? c.charCode));
-		chars[id] = {
+		let letter = typeof c.char === 'string' && c.char.length ? c.char : String.fromCharCode(id);
+		if (letter === 'space') letter = ' ';
+		chars[letter] = {
 			id,
 			page: num(String(c.page ?? 0)),
 			x: num(String(c.x)),
@@ -399,16 +441,18 @@ function buildFromJson(text: string, family: string): BitmapFontData {
 			yOffset: num(String(c.yoffset ?? c.yOffset)),
 			xAdvance: num(String(c.xadvance ?? c.xAdvance)),
 			kerning: {},
-			letter: typeof c.char === 'string' ? c.char : String.fromCodePoint(id || 32),
+			letter,
 		};
 	}
 
 	const fontSize = num(String(info.size), 16) || 16;
+	const lineHeight = num(String(common.lineHeight), fontSize) || fontSize;
+	ensureSpaceChar(chars, fontSize);
 	return {
 		fontFamily: typeof info.face === 'string' ? info.face.trim() : family,
 		fontSize,
-		lineHeight: num(String(common.lineHeight), fontSize) || fontSize,
-		baseLineOffset: num(String(common.base)),
+		lineHeight,
+		baseLineOffset: lineHeight - num(String(common.base)),
 		pages,
 		chars,
 	};
