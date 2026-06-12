@@ -47,6 +47,8 @@ export interface CatalogFont {
 	pages?: { file: string; url: string }[];
 	/** Web: each font file's stream URL + `@font-face` format token. */
 	files?: { url: string; format: string; weight?: string; style?: string }[];
+	/** Bitmap only: the font has an authoring recipe, so the View tab can offer Edit. */
+	editable?: boolean;
 }
 
 /** Result of parsing a BMFont descriptor client-side (mirrors the server parse). */

@@ -1,5 +1,11 @@
 import { error, json } from '@sveltejs/kit';
-import type { FontCatalog, FontDescriptorFormat, FontEntry, FontFile } from 'engine-layout';
+import type {
+	FontCatalog,
+	FontDescriptorFormat,
+	FontEntry,
+	FontFile,
+	FontRecipe,
+} from 'engine-layout';
 import { parseBmfontDescriptor } from '$lib/server/bmfont';
 import { parseFontTarget, resolveFontTarget } from '$lib/server/fonts';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -21,6 +27,8 @@ interface SaveRequest {
 	// Bitmap.
 	descriptorFile?: unknown;
 	descriptorFormat?: unknown;
+	/** Bitmap, authoring-only: `{ file, sourceFile }` sidecar refs (re-bake support). */
+	recipe?: unknown;
 	// Web.
 	name?: unknown;
 	files?: unknown;
@@ -186,7 +194,7 @@ async function saveBitmapEntry(
 		if (!(await objectExists(pageKey))) throw error(400, `page not uploaded: ${page}`);
 	}
 
-	return {
+	const entry: FontEntry = {
 		id: folder,
 		name: face,
 		kind: 'bitmap',
@@ -195,6 +203,40 @@ async function saveBitmapEntry(
 		descriptorFormat: format,
 		pageFiles,
 	};
+
+	const recipe = await resolveRecipe(body.recipe, bundle, prefixes);
+	if (recipe) entry.recipe = recipe;
+
+	return entry;
+}
+
+/**
+ * Validate an optional authoring-only recipe sidecar. Both files must be safe
+ * names, inside an allowed prefix, and already uploaded (the client PUTs them
+ * before save). Absent → `undefined` (web fonts never get one). NOT shipped.
+ */
+async function resolveRecipe(
+	raw: unknown,
+	bundle: string,
+	prefixes: string[],
+): Promise<FontRecipe | undefined> {
+	if (raw === undefined || raw === null) return undefined;
+	const r = raw as { file?: unknown; sourceFile?: unknown };
+	const file = r.file;
+	const sourceFile = r.sourceFile;
+	if (typeof file !== 'string' || !isSafeName(file)) {
+		throw error(400, `Invalid recipe file: ${JSON.stringify(file)}`);
+	}
+	if (typeof sourceFile !== 'string' || !isSafeName(sourceFile)) {
+		throw error(400, `Invalid recipe sourceFile: ${JSON.stringify(sourceFile)}`);
+	}
+	const recipeKey = `${bundle}/${file}`;
+	const sourceKey = `${bundle}/${sourceFile}`;
+	assertAllowed(recipeKey, prefixes);
+	assertAllowed(sourceKey, prefixes);
+	if (!(await objectExists(recipeKey))) throw error(400, `recipe not uploaded: ${file}`);
+	if (!(await objectExists(sourceKey))) throw error(400, `recipe source not uploaded: ${sourceFile}`);
+	return { file, sourceFile };
 }
 
 /** Validate + build a web `FontEntry` from the client-supplied family + files. */

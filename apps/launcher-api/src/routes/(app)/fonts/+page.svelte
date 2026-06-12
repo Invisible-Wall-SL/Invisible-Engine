@@ -20,6 +20,9 @@
 	let sample = $state('Aa Bb 0123 $9,999.00');
 	let size = $state(48);
 
+	// When set, the Generate tab opens that font's recipe for re-baking.
+	let editId = $state<string | null>(null);
+
 	// Delete flow: the id pending confirmation + in-flight / error state.
 	let confirmingId = $state<string | null>(null);
 	let deletingId = $state<string | null>(null);
@@ -75,7 +78,8 @@
 		<ToolTopBar current="fontMaker" tools={data.tools} />
 		<div class="meta">
 			<span class="project">
-				{#if data.clientKey}<span class="client">{data.clientKey}</span> / {/if}
+				{#if data.clientKey}<span class="client">{data.clientKey}</span> /
+				{/if}
 				<strong>{projectLabel}</strong>
 			</span>
 		</div>
@@ -122,37 +126,51 @@
 								<span class="font-name">{font.name}</span>
 								<span class="badge {font.kind}">{font.kind}</span>
 								{#if source === 'shared'}<span class="badge shared">shared</span>{/if}
-								{#if canDelete}
+								{#if font.editable || canDelete}
 									<div class="card-actions">
-										{#if confirmingId === font.id}
-											<span class="confirm-q">Delete?</span>
+										{#if font.editable}
 											<button
-												class="del confirm"
-												type="button"
-												disabled={deletingId === font.id}
-												onclick={() => confirmDelete(font.id)}
-											>
-												{deletingId === font.id ? 'Deleting…' : 'Yes, delete'}
-											</button>
-											<button
-												class="del cancel"
-												type="button"
-												disabled={deletingId === font.id}
-												onclick={() => (confirmingId = null)}
-											>
-												Cancel
-											</button>
-										{:else}
-											<button
-												class="del"
+												class="edit"
 												type="button"
 												onclick={() => {
-													confirmingId = font.id;
-													deleteError = null;
+													editId = font.id;
+													tab = 'generate';
 												}}
 											>
-												Delete
+												Edit
 											</button>
+										{/if}
+										{#if canDelete}
+											{#if confirmingId === font.id}
+												<span class="confirm-q">Delete?</span>
+												<button
+													class="del confirm"
+													type="button"
+													disabled={deletingId === font.id}
+													onclick={() => confirmDelete(font.id)}
+												>
+													{deletingId === font.id ? 'Deleting…' : 'Yes, delete'}
+												</button>
+												<button
+													class="del cancel"
+													type="button"
+													disabled={deletingId === font.id}
+													onclick={() => (confirmingId = null)}
+												>
+													Cancel
+												</button>
+											{:else}
+												<button
+													class="del"
+													type="button"
+													onclick={() => {
+														confirmingId = font.id;
+														deleteError = null;
+													}}
+												>
+													Delete
+												</button>
+											{/if}
 										{/if}
 									</div>
 								{/if}
@@ -177,7 +195,14 @@
 	{:else if tab === 'import'}
 		<FontImport {sample} {size} canPublishShared={data.canPublishShared} onsaved={onImported} />
 	{:else}
-		<FontGenerate {sample} {size} canPublishShared={data.canPublishShared} onsaved={onImported} />
+		<FontGenerate
+			{sample}
+			{size}
+			canPublishShared={data.canPublishShared}
+			onsaved={onImported}
+			{editId}
+			oneditconsumed={() => (editId = null)}
+		/>
 	{/if}
 </div>
 
@@ -321,6 +346,19 @@
 		border-color: #5a2f2f;
 		color: #e06b6b;
 	}
+	.edit {
+		background: transparent;
+		border: 1px solid #333;
+		border-radius: 6px;
+		padding: 4px 10px;
+		color: #bbb;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.edit:hover {
+		border-color: #6b5bff;
+		color: #c8a3ff;
+	}
 	.del.confirm {
 		border-color: #5a2f2f;
 		background: #2a1a1a;
@@ -384,8 +422,7 @@
 		max-height: 90px;
 		border: 1px solid #2a2a33;
 		border-radius: 6px;
-		background:
-			repeating-conic-gradient(#1a1a20 0% 25%, #14141a 0% 50%) 50% / 16px 16px;
+		background: repeating-conic-gradient(#1a1a20 0% 25%, #14141a 0% 50%) 50% / 16px 16px;
 		image-rendering: pixelated;
 	}
 	.live {

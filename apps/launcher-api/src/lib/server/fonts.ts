@@ -1,6 +1,11 @@
 import { error } from '@sveltejs/kit';
 import type { FontCatalog, FontDescriptorFormat, FontKind } from 'engine-layout';
-import { FONT_PUBLISH_CAPABILITY, roleHasCapability, type Role, type ToolOverrides } from '$lib/roles';
+import {
+	FONT_PUBLISH_CAPABILITY,
+	roleHasCapability,
+	type Role,
+	type ToolOverrides,
+} from '$lib/roles';
 import {
 	SUB,
 	fontBundlePath,
@@ -101,8 +106,7 @@ export async function resolveFontBundlePrefix(
 }
 
 /** Default stream-URL builder: route bytes through the editor-gated `/api/editor/asset`. */
-const editorAssetUrl = (key: string): string =>
-	`/api/editor/asset?key=${encodeURIComponent(key)}`;
+const editorAssetUrl = (key: string): string => `/api/editor/asset?key=${encodeURIComponent(key)}`;
 
 /** One font, resolved into the editor-gated stream URLs (relative filenames → URLs). */
 export interface EditorFont {
@@ -116,6 +120,8 @@ export interface EditorFont {
 	pages?: { file: string; url: string }[];
 	/** Web: each font file's stream URL + `@font-face` format token. */
 	files?: { url: string; format: string; weight?: string; style?: string }[];
+	/** Bitmap only: the font carries an authoring recipe, so the Font Maker can re-bake it. */
+	editable?: boolean;
 }
 
 /**
@@ -163,6 +169,7 @@ export async function resolveEditorFonts(
 				descriptorUrl: f.descriptorFile ? assetUrl(`${prefix}/${f.descriptorFile}`) : undefined,
 				descriptorFormat: f.descriptorFormat,
 				pages: (f.pageFiles ?? []).map((file) => ({ file, url: assetUrl(`${prefix}/${file}`) })),
+				editable: !!f.recipe,
 			});
 		} else {
 			out.push({

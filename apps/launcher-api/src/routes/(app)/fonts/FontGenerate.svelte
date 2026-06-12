@@ -3,9 +3,11 @@
 	import { Application, BitmapText, Container } from 'pixi.js';
 	import {
 		fetchFontCatalog,
+		fetchFontRecipe,
 		fitCanvasToObject,
 		loadLocalBitmapFont,
 		saveBitmapFont,
+		type FontRecipeDoc,
 		type FontTarget,
 		type LocalBitmapFont,
 	} from './fonts.client';
@@ -28,9 +30,13 @@
 		canPublishShared: boolean;
 		/** Called after a successful save so the parent refreshes + switches to View. */
 		onsaved: () => void;
+		/** When set to a catalog id, load that font's recipe for re-baking (then clear it). */
+		editId?: string | null;
+		/** Called once an `editId` has been consumed so the parent can clear it. */
+		oneditconsumed?: () => void;
 	}
 
-	let { sample, size, canPublishShared, onsaved }: Props = $props();
+	let { sample, size, canPublishShared, onsaved, editId = null, oneditconsumed }: Props = $props();
 
 	let target = $state<FontTarget>('project');
 
@@ -40,6 +46,10 @@
 	// ---- Source font ----
 	let font = $state<Font | null>(null);
 	let fontFileName = $state('');
+	// Keep the original TTF/OTF bytes so every save can persist a re-bake recipe.
+	let sourceBytes = $state<ArrayBuffer | null>(null);
+	let sourceFileName = $state('');
+	let sourceContentType = $state('font/ttf');
 	let face = $state('');
 	let folder = $state('');
 	let folderTouched = $state(false);
@@ -121,13 +131,22 @@
 			const parsed = parseFont(buf);
 			font = parsed;
 			fontFileName = file.name;
+			sourceBytes = buf;
+			sourceFileName = file.name;
+			sourceContentType = mimeForFont(file.name);
 			const family = parsed.names.fontFamily?.en?.trim() ?? '';
 			face = family || file.name.replace(/\.[^.]+$/, '');
 			clearResult();
 		} catch (e) {
 			font = null;
+			sourceBytes = null;
 			errors = [`Failed to parse "${file.name}": ${e instanceof Error ? e.message : String(e)}`];
 		}
+	}
+
+	/** Infer the `@font-face`-grade MIME for a TTF/OTF by extension (recipe upload). */
+	function mimeForFont(name: string): string {
+		return ext(name) === 'otf' ? 'font/otf' : 'font/ttf';
 	}
 
 	function revokeAtlasUrls(): void {
@@ -264,6 +283,69 @@
 		};
 	});
 
+	// ---- Reopen an existing font for re-baking ----
+	let loadingEdit = $state(false);
+
+	$effect(() => {
+		const id = editId;
+		if (!id) return;
+		let cancelled = false;
+		void (async () => {
+			loadingEdit = true;
+			errors = [];
+			savedNote = null;
+			try {
+				const res = await fetchFontRecipe(id);
+				if (cancelled) return;
+				if (!res) {
+					errors = ['Could not load this font for editing — its recipe is unavailable.'];
+					return;
+				}
+				const srcRes = await fetch(res.sourceUrl);
+				if (cancelled) return;
+				if (!srcRes.ok) throw new Error(`source font request failed (${srcRes.status}).`);
+				const buf = await srcRes.arrayBuffer();
+				if (cancelled) return;
+				const parsed = parseFont(buf);
+				const { doc } = res;
+				clearResult();
+				font = parsed;
+				sourceBytes = buf;
+				sourceFileName = doc.sourceFileName;
+				sourceContentType = mimeForFont(doc.sourceFileName);
+				fontFileName = doc.sourceFileName;
+				face = doc.face;
+				folder = res.folder;
+				folderTouched = true;
+				preset = doc.preset;
+				custom = doc.custom;
+				bakeSize = doc.bakeSize;
+				pageMaxWidth = doc.pageMaxWidth;
+				pageMaxHeight = doc.pageMaxHeight;
+				kerning = doc.kerning;
+				effects = doc.effects;
+				overwrite = true;
+				await bake();
+			} catch (e) {
+				if (!cancelled) {
+					errors = [
+						`Failed to open the font for editing: ${e instanceof Error ? e.message : String(e)}`,
+					];
+				}
+			} finally {
+				if (!cancelled) {
+					loadingEdit = false;
+					// Consume the request only now — clearing `editId` re-runs this effect, and
+					// doing it at the top would let the re-run's cleanup cancel our own load.
+					oneditconsumed?.();
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	});
+
 	async function save(): Promise<void> {
 		if (!result || !canSave) return;
 		saving = true;
@@ -271,12 +353,34 @@
 		savedNote = null;
 		try {
 			const descriptorFile = `${folder}.xml`;
+			// Persist a re-bake recipe whenever we still hold the source bytes (always, for a
+			// freshly loaded or edited font). If somehow absent, save without one — never block.
+			const recipe = sourceBytes
+				? {
+						sourceBlob: new Blob([sourceBytes]),
+						sourceFileName,
+						sourceContentType,
+						doc: {
+							version: 1 as const,
+							face: face.trim(),
+							sourceFileName,
+							preset,
+							custom,
+							bakeSize,
+							pageMaxWidth,
+							pageMaxHeight,
+							kerning,
+							effects,
+						} satisfies FontRecipeDoc,
+					}
+				: undefined;
 			const saved = await saveBitmapFont({
 				folder,
 				descriptorFile,
 				descriptorFormat: 'xml',
 				target,
 				overwrite,
+				recipe,
 				files: [
 					{
 						name: descriptorFile,
@@ -335,7 +439,11 @@
 			Choose a TTF/OTF…
 			<input type="file" accept=".ttf,.otf" onchange={onPick} />
 		</label>
-		{#if fontFileName}<p class="muted small">Loaded <code>{fontFileName}</code></p>{/if}
+		{#if loadingEdit}
+			<p class="muted small">Loading the existing font for editing…</p>
+		{:else if fontFileName}
+			<p class="muted small">Loaded <code>{fontFileName}</code></p>
+		{/if}
 	</div>
 
 	{#if errors.length}
@@ -369,8 +477,8 @@
 				</label>
 				{#if !folderValid}
 					<p class="warn small">
-						Use 1–64 chars: letters, digits, <code>-</code> or <code>_</code>, starting with a letter
-						or digit.
+						Use 1–64 chars: letters, digits, <code>-</code> or <code>_</code>, starting with a
+						letter or digit.
 					</p>
 				{:else if folderCollision}
 					<p class="warn small">
@@ -386,7 +494,12 @@
 				<h2 class="spaced">Characters</h2>
 				<div class="presets">
 					{#each presets as p (p)}
-						<button class="chip" class:active={preset === p} type="button" onclick={() => (preset = p)}>
+						<button
+							class="chip"
+							class:active={preset === p}
+							type="button"
+							onclick={() => (preset = p)}
+						>
 							{CHARSET_LABELS[p]}
 						</button>
 					{/each}
@@ -455,7 +568,13 @@
 						<div class="effect-body row">
 							<label class="field narrow">
 								Width
-								<input type="number" min="0" max="32" step="0.5" bind:value={effects.outline.width} />
+								<input
+									type="number"
+									min="0"
+									max="32"
+									step="0.5"
+									bind:value={effects.outline.width}
+								/>
 							</label>
 							<label class="color">
 								Color
@@ -564,7 +683,11 @@
 
 					<div class="actions">
 						<button class="primary" type="button" disabled={!canSave} onclick={save}>
-							{saving ? 'Saving…' : target === 'shared' ? 'Save to shared library' : 'Save to project'}
+							{saving
+								? 'Saving…'
+								: target === 'shared'
+									? 'Save to shared library'
+									: 'Save to project'}
 						</button>
 						{#if saveError}<span class="err small">{saveError}</span>{/if}
 						{#if savedNote}<span class="ok small">{savedNote}</span>{/if}

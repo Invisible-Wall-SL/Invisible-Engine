@@ -7,6 +7,8 @@
  */
 import type { FontDescriptorFormat } from 'engine-layout';
 import { loadCatalogBitmapFont } from '$lib/fontLoad.client';
+import type { BakeEffects } from './fontBake.client';
+import type { CharsetPreset } from './charsets.client';
 
 export type {
 	CatalogFont,
@@ -46,6 +48,24 @@ export async function fetchFontCatalog(): Promise<FontCatalogResult> {
 	}
 }
 
+/**
+ * The AUTHORING-ONLY re-bake recipe persisted next to a generated bitmap font (as
+ * `recipe.json`) so the Generate tab can reopen + re-bake it with tweaked params.
+ * Captures every bake input. NOT shipped to a game.
+ */
+export interface FontRecipeDoc {
+	version: 1;
+	face: string;
+	sourceFileName: string;
+	preset: CharsetPreset;
+	custom: string;
+	bakeSize: number;
+	pageMaxWidth: number;
+	pageMaxHeight: number;
+	kerning: boolean;
+	effects: BakeEffects;
+}
+
 /** One file to upload as part of a bitmap-font save (descriptor or page image). */
 export interface SaveFile {
 	/** Filename — must match a `<page file>` ref for pages, or the descriptor name. */
@@ -70,9 +90,45 @@ export async function saveBitmapFont(args: {
 	target?: FontTarget;
 	/** Replace an existing entry with the same id (the server rejects collisions otherwise). */
 	overwrite?: boolean;
+	/**
+	 * Optional AUTHORING-ONLY re-bake sidecar: the original source TTF/OTF + the bake
+	 * params. Uploaded alongside the font (as `_src.<ext>` + `recipe.json`) and recorded
+	 * in the catalog so the Generate tab can reopen it. Never shipped to a game.
+	 */
+	recipe?: {
+		sourceBlob: Blob;
+		sourceFileName: string;
+		sourceContentType: string;
+		doc: FontRecipeDoc;
+	};
 }): Promise<{ id: string; name: string }> {
-	const { folder, descriptorFile, descriptorFormat, files, target = 'project', overwrite } = args;
-	await putFiles(folder, files, target);
+	const {
+		folder,
+		descriptorFile,
+		descriptorFormat,
+		files,
+		target = 'project',
+		overwrite,
+		recipe,
+	} = args;
+
+	const upload = [...files];
+	let recipeRef: { file: string; sourceFile: string } | undefined;
+	if (recipe) {
+		const srcName = '_src.' + (ext(recipe.sourceFileName) || 'ttf');
+		const recipeName = 'recipe.json';
+		upload.push(
+			{ name: srcName, blob: recipe.sourceBlob, contentType: recipe.sourceContentType },
+			{
+				name: recipeName,
+				blob: new Blob([JSON.stringify(recipe.doc)], { type: 'application/json' }),
+				contentType: 'application/json',
+			},
+		);
+		recipeRef = { file: recipeName, sourceFile: srcName };
+	}
+
+	await putFiles(folder, upload, target);
 
 	const saveRes = await fetch('/api/fonts/save', {
 		method: 'POST',
@@ -84,6 +140,7 @@ export async function saveBitmapFont(args: {
 			descriptorFile,
 			descriptorFormat,
 			overwrite,
+			recipe: recipeRef,
 		}),
 	});
 	if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
@@ -181,6 +238,40 @@ export async function deleteFont(id: string, target: FontTarget): Promise<void> 
 		body: JSON.stringify({ id, target }),
 	});
 	if (!res.ok) throw new Error(await errText(res, 'Delete failed.'));
+}
+
+/** Lowercased file extension (no dot), or `''` when there is none. */
+function ext(name: string): string {
+	return name.split('.').pop()?.toLowerCase() ?? '';
+}
+
+/**
+ * Fetch a generated bitmap font's AUTHORING re-bake recipe (`GET /api/fonts/recipe`):
+ * the parsed bake-params doc + a gated stream URL for the original source TTF/OTF.
+ * Returns `null` on any non-ok / parse failure / throw (no recipe ⇒ not editable).
+ */
+export async function fetchFontRecipe(
+	id: string,
+): Promise<{ doc: FontRecipeDoc; sourceUrl: string; name: string; folder: string } | null> {
+	try {
+		const res = await fetch('/api/fonts/recipe?id=' + encodeURIComponent(id));
+		if (!res.ok) return null;
+		const body = (await res.json()) as {
+			recipe?: FontRecipeDoc;
+			sourceUrl?: string;
+			name?: string;
+			folder?: string;
+		};
+		if (!body.recipe || !body.sourceUrl || !body.folder) return null;
+		return {
+			doc: body.recipe,
+			sourceUrl: body.sourceUrl,
+			name: body.name ?? '',
+			folder: body.folder,
+		};
+	} catch {
+		return null;
+	}
 }
 
 /** Read a JSON error `message` off a failed response, falling back to a default. */

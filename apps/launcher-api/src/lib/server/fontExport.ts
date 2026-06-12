@@ -100,8 +100,12 @@ export async function exportEditorFonts(
 			written.add(destKey);
 			copied++;
 		}
-		// Only advertise a font whose files actually shipped.
-		if (copied > 0) exported.push({ ...f });
+		// Only advertise a font whose files actually shipped. Strip the authoring-only
+		// `recipe` (source TTF + bake params) — it must never reach the shipped bundle.
+		if (copied > 0) {
+			const { recipe, ...rest } = f;
+			exported.push(rest);
+		}
 	}
 
 	const outCatalog: FontCatalog = { prefix: EXPORT_SUBTREE, fonts: exported };

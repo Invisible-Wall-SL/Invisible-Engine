@@ -17,6 +17,15 @@ export type FontKind = 'bitmap' | 'web';
 /** A bitmap font's descriptor format (the glyph/page table the editor parses). */
 export type FontDescriptorFormat = 'xml' | 'fnt' | 'json';
 
+/** Authoring-only sidecar refs (relative to `folder`) that let the Font Maker
+ *  reopen + re-bake a generated bitmap font. NOT shipped to games. */
+export interface FontRecipe {
+	/** The bake-params JSON filename. */
+	file: string;
+	/** The original source TTF/OTF filename. */
+	sourceFile: string;
+}
+
 /** One downloadable file of a web font (woff2/woff/ttf/otf). */
 export interface FontFile {
 	/** Filename relative to the font's `folder`. */
@@ -53,6 +62,12 @@ export interface FontEntry {
 	pageFiles?: string[];
 	/** Web only: the downloadable font files. */
 	files?: FontFile[];
+	/**
+	 * Bitmap only, AUTHORING-ONLY: sidecar refs (a bake-params JSON + the original
+	 * source TTF/OTF) that let the Font Maker reopen + re-bake the font with tweaked
+	 * params. Stripped on export — never shipped to a game.
+	 */
+	recipe?: FontRecipe;
 }
 
 /** The `fonts.json` manifest the sync writes + `/api/editor/fonts` serves. */
