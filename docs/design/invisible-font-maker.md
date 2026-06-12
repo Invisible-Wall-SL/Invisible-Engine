@@ -123,9 +123,20 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
      multi), `<common pages="N">` + per-`<char page>`; `BakeResult.pages: {file,blob,canvas}[]`.
      Preview + `saveBitmapFont` already multi-page-capable (no server change; `loadLocalBitmapFont`
      iterates `<page>`s). `pnpm --filter launcher-api build` GREEN.
-   - **Round 2 (next):** delete/rename a font (View), web-font import (Import accepts
-     woff2/woff/ttf/otf → `kind:'web'`), shared-library (`_shared/fonts/`) save target
-     behind an admin-gated capability.
+   - **Round 2 ✅ LANDED 2026-06-12 (code-only): delete + web-font import + shared target.**
+     (a) **Delete** — `POST /api/fonts/delete` removes the entry + its R2 files; View cards
+     get a confirm-Delete button (hidden for shared fonts unless the user can publish);
+     `/api/fonts/catalog` now returns `source: 'project'|'shared'`. (b) **Web-font import** —
+     `FontImport.svelte` accepts woff2/woff/ttf/otf → `kind:'web'` (user-supplied family
+     name + per-file weight/style, format from ext); `/api/fonts/save` gained a `web` branch
+     (no descriptor parse; validates each file exists + format token); `saveWebFont` client
+     helper. (c) **Shared library** — new admin-gated capability `fontPublish` (`roles.ts`,
+     default admin-only); a `target: 'project'|'shared'` on `upload-urls`/`save`/`delete`
+     routed through one `resolveFontTarget` helper (`lib/server/fonts.ts`) that enforces the
+     capability for shared — **the real write gate**, since `includeSharedFonts` only widens
+     the `assertAllowed` READ allow-list; the Save-target selector shows only to publishers
+     (`+page.server.ts` `canPublishShared`). `pnpm --filter launcher-api build` GREEN.
+     **Deferred: rename** (means moving R2 objects — its own task).
 
 ## 6. Touch-points (Phase 0–2)
 

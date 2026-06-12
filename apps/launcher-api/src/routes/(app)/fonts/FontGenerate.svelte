@@ -5,7 +5,7 @@
 		fetchFontCatalog,
 		loadLocalBitmapFont,
 		saveBitmapFont,
-		type CatalogFont,
+		type FontTarget,
 		type LocalBitmapFont,
 	} from './fonts.client';
 	import {
@@ -23,11 +23,15 @@
 		sample: string;
 		/** Render size in px for the live preview. */
 		size: number;
+		/** Whether the user holds `fontPublish` (shows the shared save target). */
+		canPublishShared: boolean;
 		/** Called after a successful save so the parent refreshes + switches to View. */
 		onsaved: () => void;
 	}
 
-	let { sample, size, onsaved }: Props = $props();
+	let { sample, size, canPublishShared, onsaved }: Props = $props();
+
+	let target = $state<FontTarget>('project');
 
 	const VECTOR_EXT = new Set(['ttf', 'otf']);
 	const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -62,8 +66,8 @@
 
 	const presets: CharsetPreset[] = ['digits', 'currency', 'alphanumeric', 'ascii', 'custom'];
 
-	void fetchFontCatalog().then((list: CatalogFont[]) => {
-		existingIds = new Set(list.map((f) => f.id));
+	void fetchFontCatalog().then((res) => {
+		existingIds = new Set(res.fonts.map((f) => f.id));
 	});
 
 	const chars = $derived(charsForPreset(preset, custom));
@@ -265,6 +269,7 @@
 				folder,
 				descriptorFile,
 				descriptorFormat: 'xml',
+				target,
 				files: [
 					{
 						name: descriptorFile,
@@ -519,9 +524,35 @@
 						{/each}
 					</div>
 
+					{#if canPublishShared}
+						<div class="target" role="radiogroup" aria-label="Save target">
+							<span class="target-label">Save target</span>
+							<button
+								class="seg"
+								class:active={target === 'project'}
+								type="button"
+								role="radio"
+								aria-checked={target === 'project'}
+								onclick={() => (target = 'project')}
+							>
+								Project
+							</button>
+							<button
+								class="seg"
+								class:active={target === 'shared'}
+								type="button"
+								role="radio"
+								aria-checked={target === 'shared'}
+								onclick={() => (target = 'shared')}
+							>
+								Shared library
+							</button>
+						</div>
+					{/if}
+
 					<div class="actions">
 						<button class="primary" type="button" disabled={!canSave} onclick={save}>
-							{saving ? 'Saving…' : 'Save to project'}
+							{saving ? 'Saving…' : target === 'shared' ? 'Save to shared library' : 'Save to project'}
 						</button>
 						{#if saveError}<span class="err small">{saveError}</span>{/if}
 						{#if savedNote}<span class="ok small">{savedNote}</span>{/if}
@@ -765,6 +796,32 @@
 		border-radius: 6px;
 		background: repeating-conic-gradient(#1a1a20 0% 25%, #14141a 0% 50%) 50% / 16px 16px;
 		image-rendering: pixelated;
+	}
+	.target {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin-top: 16px;
+	}
+	.target-label {
+		font-size: 12px;
+		color: #999;
+		margin-right: 4px;
+	}
+	.seg {
+		background: #1f1f28;
+		border: 1px solid #333;
+		border-radius: 999px;
+		padding: 5px 14px;
+		color: #bbb;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.seg.active {
+		background: #23203a;
+		border-color: #6b5bff;
+		color: #c8a3ff;
 	}
 	.actions {
 		display: flex;

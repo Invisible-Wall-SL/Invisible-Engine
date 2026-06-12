@@ -1,5 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import { fontBundlePath } from '$lib/server/projectPaths';
+import { parseFontTarget, resolveFontTarget } from '$lib/server/fonts';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import { presignPut } from '$lib/server/r2';
 import { assertAllowed, gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -16,6 +18,7 @@ interface UploadFile {
 interface UploadRequest {
 	folder?: unknown;
 	files?: unknown;
+	target?: unknown;
 }
 
 /** A name must be a single safe filename segment (no path separators / escapes). */
@@ -31,10 +34,13 @@ function isSafeName(name: string): boolean {
  * adapter-node's tiny `BODY_SIZE_LIMIT` (512 KB), so a multipart POST through the
  * node server would 413. Mirrors the spine-upload pattern.
  *
- * Every key is `${fontBundlePath(client, project, folder)}/${name}` — `fontBundlePath`
+ * Every key is `${dest.bundleFor(folder)}/${name}` — the target's bundle helper
  * validates `folder` (rejects path escapes / bad segments) and `assertAllowed` then
  * confirms the key stays inside this session's project (or shared-fonts) prefix, so
- * a caller can never sign a key outside its own project tree.
+ * a caller can never sign a key outside its own tree. A `shared` target additionally
+ * requires the `fontPublish` capability (checked in `resolveFontTarget`) — the
+ * shared `_shared/fonts/` prefix is in the allow-list for READS, so `assertAllowed`
+ * alone would not stop a non-publisher from signing a shared write.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, prefixes } = await gate(locals, cookies, {
@@ -62,10 +68,23 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		throw error(400, `Too many files (max ${MAX_FILES} per request).`);
 	}
 
+	// Resolve the write target (shared ⇒ `fontPublish`-gated; project ⇒ unrestricted).
+	const role = locals.user!.role;
+	const roleOverrides = await getRoleOverrides(role);
+	const userOverrides = await getToolOverrides(locals.user!.id);
+	const dest = resolveFontTarget(
+		parseFontTarget(body.target),
+		clientKey,
+		projectKey,
+		role,
+		roleOverrides,
+		userOverrides,
+	);
+
 	// Throws (caught by SvelteKit → 400/500) on a bad folder segment.
 	let bundle: string;
 	try {
-		bundle = fontBundlePath(clientKey, projectKey, folder);
+		bundle = dest.bundleFor(folder);
 	} catch (e) {
 		throw error(400, e instanceof Error ? e.message : 'Invalid folder.');
 	}

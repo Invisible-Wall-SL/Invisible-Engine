@@ -1,5 +1,13 @@
+import { error } from '@sveltejs/kit';
 import type { FontCatalog, FontDescriptorFormat, FontKind } from 'engine-layout';
-import { SUB, sharedFontsPrefix } from './projectPaths';
+import { FONT_PUBLISH_CAPABILITY, roleHasCapability, type Role, type ToolOverrides } from '$lib/roles';
+import {
+	SUB,
+	fontBundlePath,
+	fontBundleSharedPath,
+	fontCatalogKey,
+	sharedFontsPrefix,
+} from './projectPaths';
 import { getObjectText, objectExists } from './r2';
 
 /**
@@ -9,6 +17,58 @@ import { getObjectText, objectExists } from './r2';
  * without a synced catalog returns `null` so the endpoint degrades to "no fonts",
  * never a 500.
  */
+
+/** Where a font write/delete lands: the active project, or the shared library. */
+export type FontTarget = 'project' | 'shared';
+
+/** The single non-string default. */
+export function parseFontTarget(value: unknown): FontTarget {
+	return value === 'shared' ? 'shared' : 'project';
+}
+
+/** A resolved write target: where the bundle/catalog live + the prefix it occupies. */
+export interface ResolvedFontTarget {
+	/** R2 bundle prefix for a font folder (no trailing slash). */
+	bundleFor(folder: string): string;
+	/** The `fonts.json` key for this target's catalog. */
+	catalogKey: string;
+	/** The catalog's `prefix` field + the root used for `assertAllowed` widening. */
+	prefix: string;
+}
+
+/**
+ * Resolve where a Font Maker WRITE/DELETE lands. `project` is unrestricted (the
+ * tool gate already scopes it to the active project). `shared` is the cross-project
+ * `_shared/fonts/` library — and it is the REAL write gate: `includeSharedFonts`
+ * merely adds `_shared/fonts/` to the `assertAllowed` allow-list (so any Font Maker
+ * user COULD otherwise PUT/delete there), so a shared target requires the explicit
+ * `fontPublish` capability. `assertAllowed` still runs on every key downstream as
+ * defense in depth, but it is NOT sufficient on its own for shared writes.
+ */
+export function resolveFontTarget(
+	target: FontTarget,
+	clientKey: string,
+	projectKey: string,
+	role: Role,
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): ResolvedFontTarget {
+	if (target === 'shared') {
+		if (!roleHasCapability(role, FONT_PUBLISH_CAPABILITY, roleOverrides, userOverrides)) {
+			throw error(403, 'You cannot publish to the shared font library.');
+		}
+		return {
+			bundleFor: (folder) => fontBundleSharedPath(folder),
+			catalogKey: '_shared/fonts/fonts.json',
+			prefix: '_shared/fonts',
+		};
+	}
+	return {
+		bundleFor: (folder) => fontBundlePath(clientKey, projectKey, folder),
+		catalogKey: fontCatalogKey(clientKey, projectKey),
+		prefix: SUB.fonts(clientKey, projectKey),
+	};
+}
 
 /** Per-project `fonts.json` key, with a `_shared/fonts/` library fallback root. */
 export async function resolveFontCatalogRoot(

@@ -21,15 +21,25 @@ export interface CatalogFont {
 	files?: { url: string; format: string; weight?: string; style?: string }[];
 }
 
-/** Fetch the active project's font catalog. Empty list on any failure. */
-export async function fetchFontCatalog(): Promise<CatalogFont[]> {
+/** Where a font write/delete lands: the active project, or the shared library. */
+export type FontTarget = 'project' | 'shared';
+
+/** The catalog + which source it resolved from (so a delete knows its target). */
+export interface FontCatalogResult {
+	fonts: CatalogFont[];
+	/** Whether the catalog came from the project or the `_shared/fonts/` fallback. */
+	source: FontTarget;
+}
+
+/** Fetch the active project's font catalog + its source. Empty on any failure. */
+export async function fetchFontCatalog(): Promise<FontCatalogResult> {
 	try {
 		const res = await fetch('/api/fonts/catalog');
-		if (!res.ok) return [];
-		const body = (await res.json()) as { fonts?: CatalogFont[] };
-		return body.fonts ?? [];
+		if (!res.ok) return { fonts: [], source: 'project' };
+		const body = (await res.json()) as { fonts?: CatalogFont[]; source?: FontTarget };
+		return { fonts: body.fonts ?? [], source: body.source === 'shared' ? 'shared' : 'project' };
 	} catch {
-		return [];
+		return { fonts: [], source: 'project' };
 	}
 }
 
@@ -53,15 +63,81 @@ export async function saveBitmapFont(args: {
 	descriptorFile: string;
 	descriptorFormat: FontDescriptorFormat;
 	files: SaveFile[];
+	/** Where to save (default `project`; `shared` needs the `fontPublish` capability). */
+	target?: FontTarget;
 }): Promise<{ id: string; name: string }> {
-	const { folder, descriptorFile, descriptorFormat, files } = args;
-	const byName = new Map(files.map((f) => [f.name, f]));
+	const { folder, descriptorFile, descriptorFormat, files, target = 'project' } = args;
+	await putFiles(folder, files, target);
 
+	const saveRes = await fetch('/api/fonts/save', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ folder, target, kind: 'bitmap', descriptorFile, descriptorFormat }),
+	});
+	if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
+	const { font } = (await saveRes.json()) as { font: { name: string; id: string } };
+	return { id: font.id, name: font.name };
+}
+
+/** One web-font file to upload + register: blob + its `@font-face` format token. */
+export interface WebSaveFile {
+	name: string;
+	blob: Blob;
+	contentType: string;
+	format: string;
+	weight?: string;
+	style?: string;
+}
+
+/**
+ * Save a WEB font (woff2/woff/ttf/otf) via the SAME presign → PUT → save sequence as
+ * `saveBitmapFont`, but the save call carries `kind: 'web'` + the family `name` + each
+ * file's `format`/`weight`/`style` (web fonts have no embedded descriptor, so the
+ * server can't re-derive them). Throws on failure; resolves to the committed entry.
+ */
+export async function saveWebFont(args: {
+	folder: string;
+	name: string;
+	files: WebSaveFile[];
+	target?: FontTarget;
+}): Promise<{ id: string; name: string }> {
+	const { folder, name, files, target = 'project' } = args;
+	await putFiles(folder, files, target);
+
+	const saveRes = await fetch('/api/fonts/save', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			folder,
+			target,
+			kind: 'web',
+			name,
+			files: files.map((f) => ({
+				file: f.name,
+				format: f.format,
+				weight: f.weight,
+				style: f.style,
+			})),
+		}),
+	});
+	if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
+	const { font } = (await saveRes.json()) as { font: { name: string; id: string } };
+	return { id: font.id, name: font.name };
+}
+
+/** Mint presigned PUT URLs for `files` and upload each blob straight to R2. */
+async function putFiles(
+	folder: string,
+	files: { name: string; blob: Blob; contentType: string }[],
+	target: FontTarget,
+): Promise<void> {
+	const byName = new Map(files.map((f) => [f.name, f]));
 	const urlsRes = await fetch('/api/fonts/upload-urls', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({
 			folder,
+			target,
 			files: files.map((f) => ({ name: f.name, contentType: f.contentType })),
 		}),
 	});
@@ -80,15 +156,16 @@ export async function saveBitmapFont(args: {
 		});
 		if (!put.ok) throw new Error(`Upload of "${up.name}" failed (${put.status}).`);
 	}
+}
 
-	const saveRes = await fetch('/api/fonts/save', {
+/** Delete a font (by catalog id) from the given target. Throws on failure. */
+export async function deleteFont(id: string, target: FontTarget): Promise<void> {
+	const res = await fetch('/api/fonts/delete', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ folder, descriptorFile, descriptorFormat }),
+		body: JSON.stringify({ id, target }),
 	});
-	if (!saveRes.ok) throw new Error(await errText(saveRes, 'Save failed.'));
-	const { font } = (await saveRes.json()) as { font: { name: string; id: string } };
-	return { id: font.id, name: font.name };
+	if (!res.ok) throw new Error(await errText(res, 'Delete failed.'));
 }
 
 /** Read a JSON error `message` off a failed response, falling back to a default. */

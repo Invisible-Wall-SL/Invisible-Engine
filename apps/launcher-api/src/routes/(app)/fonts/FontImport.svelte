@@ -7,10 +7,12 @@
 		loadLocalBitmapFont,
 		parseDescriptorClient,
 		saveBitmapFont,
-		type CatalogFont,
+		saveWebFont,
+		type FontTarget,
 		type LocalBitmapFont,
 		type ParsedDescriptor,
 		type SaveFile,
+		type WebSaveFile,
 	} from './fonts.client';
 
 	interface Props {
@@ -18,16 +20,20 @@
 		sample: string;
 		/** Render size in px. */
 		size: number;
+		/** Whether the user holds `fontPublish` (shows the shared save target). */
+		canPublishShared: boolean;
 		/** Called after a successful save so the parent can refresh + switch to View. */
 		onsaved: () => void;
 	}
 
-	let { sample, size, onsaved }: Props = $props();
+	let { sample, size, canPublishShared, onsaved }: Props = $props();
+
+	let target = $state<FontTarget>('project');
 
 	const DESC_EXT: Record<string, FontDescriptorFormat> = { xml: 'xml', fnt: 'fnt', json: 'json' };
 	const IMAGE_EXT = new Set(['png', 'webp', 'jpg', 'jpeg']);
-	const VECTOR_EXT = new Set(['ttf', 'otf']);
-	const WEBFONT_EXT = new Set(['woff', 'woff2']);
+	/** Web-font file extensions Import accepts as `kind: 'web'` (no BMFont contract). */
+	const WEBFONT_EXT = new Set(['woff2', 'woff', 'ttf', 'otf']);
 	const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 	const IMAGE_CONTENT_TYPE: Record<string, string> = {
@@ -40,6 +46,19 @@
 		xml: 'application/xml',
 		fnt: 'application/octet-stream',
 		json: 'application/json',
+	};
+	/** `@font-face` `format` token per web-font extension. */
+	const WEB_FORMAT: Record<string, string> = {
+		woff2: 'woff2',
+		woff: 'woff',
+		ttf: 'truetype',
+		otf: 'opentype',
+	};
+	const WEB_CONTENT_TYPE: Record<string, string> = {
+		woff2: 'font/woff2',
+		woff: 'font/woff',
+		ttf: 'font/ttf',
+		otf: 'font/otf',
 	};
 
 	interface PickedDescriptor {
@@ -54,11 +73,29 @@
 		url: string;
 	}
 
+	/** One picked web-font file + its derived `@font-face` metadata. */
+	interface PickedWebFile {
+		file: File;
+		name: string;
+		format: string;
+		url: string;
+		weight: string;
+		style: string;
+	}
+
+	/** `bitmap` = BMFont descriptor + page; `web` = woff2/woff/ttf/otf files. */
+	let mode = $state<'bitmap' | 'web'>('bitmap');
+
 	let descriptor = $state<PickedDescriptor | null>(null);
 	let images = $state<PickedImage[]>([]);
 	let folder = $state('');
 	let folderTouched = $state(false);
 	let existingIds = $state<Set<string>>(new Set());
+
+	// Web-font sub-mode state.
+	let webFiles = $state<PickedWebFile[]>([]);
+	let family = $state('');
+	let familyTouched = $state(false);
 
 	let errors = $state<string[]>([]);
 	let saving = $state(false);
@@ -69,6 +106,10 @@
 	let host = $state<HTMLDivElement | null>(null);
 	let previewError = $state<string | null>(null);
 
+	// Web-font preview: a FontFace registered under a unique alias + a DOM span.
+	let webPreviewFamily = $state<string | null>(null);
+	let webPreviewFaces: FontFace[] = [];
+
 	let app: Application | null = null;
 	let world: Container | null = null;
 	let obj: BitmapText | null = null;
@@ -76,8 +117,8 @@
 	// Bump to force the preview effect to re-run when the file set changes.
 	let previewToken = $state(0);
 
-	void fetchFontCatalog().then((list: CatalogFont[]) => {
-		existingIds = new Set(list.map((f) => f.id));
+	void fetchFontCatalog().then((res) => {
+		existingIds = new Set(res.fonts.map((f) => f.id));
 	});
 
 	const ext = (name: string): string => name.split('.').pop()?.toLowerCase() ?? '';
@@ -106,10 +147,19 @@
 
 	const folderValid = $derived(ID_RE.test(folder));
 	const folderCollision = $derived(folderValid && existingIds.has(folder));
+	const familyValid = $derived(family.trim().length > 0);
 	const canSave = $derived(
-		!!descriptor && folderValid && missingPages.length === 0 && !saving,
+		mode === 'web'
+			? webFiles.length > 0 && familyValid && folderValid && !saving
+			: !!descriptor && folderValid && missingPages.length === 0 && !saving,
 	);
 
+	/**
+	 * Sort dropped files into bitmap-import (descriptor + page images) or web-import
+	 * (woff2/woff/ttf/otf). The Import tab treats TTF/OTF as a WEB font (the Generate
+	 * tab bakes them to bitmap instead) — so dropping any web-font file switches this
+	 * panel into web sub-mode. The first web file dropped seeds the family + folder.
+	 */
 	function classify(files: FileList | File[]): void {
 		errors = [];
 		savedNote = null;
@@ -118,12 +168,8 @@
 
 		for (const file of Array.from(files)) {
 			const e = ext(file.name);
-			if (VECTOR_EXT.has(e)) {
-				newErrors.push(`"${file.name}" is a TTF/OTF — use Generate (Phase 3) to bake those.`);
-				continue;
-			}
 			if (WEBFONT_EXT.has(e)) {
-				newErrors.push(`"${file.name}" is a web font — web-font import lands in Phase 4.`);
+				addWebFile(file, e);
 				continue;
 			}
 			if (DESC_EXT[e]) {
@@ -134,9 +180,41 @@
 				addImage(file);
 				continue;
 			}
-			newErrors.push(`"${file.name}" is not a BMFont descriptor or page image.`);
+			newErrors.push(`"${file.name}" is not a BMFont descriptor, page image, or web font.`);
 		}
 		errors = newErrors;
+	}
+
+	function addWebFile(file: File, e: string): void {
+		mode = 'web';
+		const dup = webFiles.find((w) => w.name === file.name);
+		if (dup) {
+			URL.revokeObjectURL(dup.url);
+			webFiles = webFiles.filter((w) => w !== dup);
+		}
+		const stem = file.name.replace(/\.[^.]+$/, '');
+		if (!familyTouched && !family) family = stem;
+		if (!folderTouched && !folder) folder = slug(stem);
+		webFiles = [
+			...webFiles,
+			{
+				file,
+				name: file.name,
+				format: WEB_FORMAT[e] ?? 'truetype',
+				url: URL.createObjectURL(file),
+				weight: 'normal',
+				style: 'normal',
+			},
+		];
+		previewToken += 1;
+	}
+
+	function removeWebFile(name: string): void {
+		const hit = webFiles.find((w) => w.name === name);
+		if (hit) URL.revokeObjectURL(hit.url);
+		webFiles = webFiles.filter((w) => w.name !== name);
+		if (webFiles.length === 0) mode = 'bitmap';
+		previewToken += 1;
 	}
 
 	async function readDescriptor(file: File, format: FontDescriptorFormat): Promise<void> {
@@ -182,12 +260,18 @@
 		descriptor = null;
 		for (const img of images) URL.revokeObjectURL(img.url);
 		images = [];
+		for (const w of webFiles) URL.revokeObjectURL(w.url);
+		webFiles = [];
+		mode = 'bitmap';
+		family = '';
+		familyTouched = false;
 		folder = '';
 		folderTouched = false;
 		errors = [];
 		saveError = null;
 		savedNote = null;
 		previewError = null;
+		webPreviewFamily = null;
 		previewToken += 1;
 	}
 
@@ -231,8 +315,9 @@
 	});
 
 	$effect(() => {
-		// (Re)load the local font whenever the descriptor or page set changes.
+		// (Re)load the local BITMAP font whenever the descriptor or page set changes.
 		void previewToken;
+		if (mode !== 'bitmap') return;
 		const desc = descriptor;
 		previewError = null;
 		teardownFont();
@@ -252,6 +337,53 @@
 				}
 				localFont = lf;
 				drawSample();
+			})
+			.catch((e: unknown) => {
+				if (!cancelled) previewError = e instanceof Error ? e.message : String(e);
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	function teardownWebFaces(): void {
+		for (const face of webPreviewFaces) {
+			try {
+				document.fonts.delete(face);
+			} catch {
+				/* not added */
+			}
+		}
+		webPreviewFaces = [];
+		webPreviewFamily = null;
+	}
+
+	$effect(() => {
+		// Register the dropped web-font files under a unique preview alias so the DOM
+		// span renders the real face (and never clobbers a same-named installed font).
+		void previewToken;
+		if (mode !== 'web') {
+			teardownWebFaces();
+			return;
+		}
+		previewError = null;
+		teardownWebFaces();
+		const files = webFiles;
+		if (files.length === 0) return;
+
+		const alias = `fm-web-preview-${Math.random().toString(36).slice(2)}`;
+		let cancelled = false;
+		void Promise.all(
+			files.map(async (wf) => {
+				const face = new FontFace(alias, `url(${wf.url})`, { weight: wf.weight, style: wf.style });
+				await face.load();
+				if (cancelled) return;
+				document.fonts.add(face);
+				webPreviewFaces.push(face);
+			}),
+		)
+			.then(() => {
+				if (!cancelled) webPreviewFamily = alias;
 			})
 			.catch((e: unknown) => {
 				if (!cancelled) previewError = e instanceof Error ? e.message : String(e);
@@ -293,35 +425,12 @@
 	});
 
 	async function save(): Promise<void> {
-		if (!descriptor || !canSave) return;
+		if (!canSave) return;
 		saving = true;
 		saveError = null;
 		savedNote = null;
 		try {
-			const files: SaveFile[] = [
-				{
-					name: descriptor.file.name,
-					blob: descriptor.file,
-					contentType: DESC_CONTENT_TYPE[descriptor.format],
-				},
-			];
-			for (const page of descriptor.parsed.pageFiles) {
-				const img = images.find((i) => i.name === page);
-				if (!img) throw new Error(`Internal: no local file for "${page}".`);
-				files.push({
-					name: page,
-					blob: img.file,
-					contentType: IMAGE_CONTENT_TYPE[ext(page)] ?? 'application/octet-stream',
-				});
-			}
-
-			const font = await saveBitmapFont({
-				folder,
-				descriptorFile: descriptor.file.name,
-				descriptorFormat: descriptor.format,
-				files,
-			});
-
+			const font = mode === 'web' ? await saveWeb() : await saveBitmap();
 			savedNote = `Saved "${font.name}" as ${font.id}.`;
 			existingIds = new Set([...existingIds, font.id]);
 			onsaved();
@@ -332,9 +441,50 @@
 		}
 	}
 
+	async function saveBitmap(): Promise<{ id: string; name: string }> {
+		if (!descriptor) throw new Error('No descriptor.');
+		const files: SaveFile[] = [
+			{
+				name: descriptor.file.name,
+				blob: descriptor.file,
+				contentType: DESC_CONTENT_TYPE[descriptor.format],
+			},
+		];
+		for (const page of descriptor.parsed.pageFiles) {
+			const img = images.find((i) => i.name === page);
+			if (!img) throw new Error(`Internal: no local file for "${page}".`);
+			files.push({
+				name: page,
+				blob: img.file,
+				contentType: IMAGE_CONTENT_TYPE[ext(page)] ?? 'application/octet-stream',
+			});
+		}
+		return saveBitmapFont({
+			folder,
+			descriptorFile: descriptor.file.name,
+			descriptorFormat: descriptor.format,
+			target,
+			files,
+		});
+	}
+
+	async function saveWeb(): Promise<{ id: string; name: string }> {
+		const files: WebSaveFile[] = webFiles.map((w) => ({
+			name: w.name,
+			blob: w.file,
+			contentType: WEB_CONTENT_TYPE[ext(w.name)] ?? 'application/octet-stream',
+			format: w.format,
+			weight: w.weight,
+			style: w.style,
+		}));
+		return saveWebFont({ folder, name: family.trim(), target, files });
+	}
+
 	onDestroy(() => {
 		teardownFont();
+		teardownWebFaces();
 		for (const img of images) URL.revokeObjectURL(img.url);
+		for (const w of webFiles) URL.revokeObjectURL(w.url);
 		try {
 			app?.destroy(true);
 		} catch {
@@ -358,15 +508,22 @@
 		ondragleave={() => (dragging = false)}
 		ondrop={onDrop}
 	>
-		<p class="drop-title">Drop a BMFont descriptor + its page image(s)</p>
+		<p class="drop-title">Drop a BMFont descriptor + page image(s), or a web font</p>
 		<p class="muted">
 			Accepts <code>.xml</code>/<code>.fnt</code>/<code>.json</code> + <code>.png</code>/<code
 				>.webp</code
-			>/<code>.jpg</code>. TTF/OTF go through Generate; web fonts arrive in Phase 4.
+			>/<code>.jpg</code> (BMFont), or <code>.woff2</code>/<code>.woff</code>/<code>.ttf</code>/<code
+				>.otf</code
+			> (web font). TTF/OTF can also be baked to a bitmap on the Generate tab.
 		</p>
 		<label class="file-btn">
 			Choose files…
-			<input type="file" multiple accept=".xml,.fnt,.json,.png,.webp,.jpg,.jpeg" onchange={onPick} />
+			<input
+				type="file"
+				multiple
+				accept=".xml,.fnt,.json,.png,.webp,.jpg,.jpeg,.woff2,.woff,.ttf,.otf"
+				onchange={onPick}
+			/>
 		</label>
 	</div>
 
@@ -378,7 +535,122 @@
 		</ul>
 	{/if}
 
-	{#if descriptor}
+	{#if mode === 'web'}
+		<div class="grid">
+			<div class="panel meta-panel">
+				<h2>Web font</h2>
+				<label class="folder-field">
+					Family name (the CSS family the game references)
+					<input
+						bind:value={family}
+						oninput={() => (familyTouched = true)}
+						spellcheck="false"
+						placeholder="My Font"
+					/>
+				</label>
+				{#if !familyValid}
+					<p class="warn small">A family name is required — it becomes the catalog name.</p>
+				{/if}
+
+				<label class="folder-field">
+					Folder / id
+					<input
+						class="mono"
+						bind:value={folder}
+						oninput={() => (folderTouched = true)}
+						spellcheck="false"
+						placeholder="myfont"
+					/>
+				</label>
+				{#if !folderValid}
+					<p class="warn small">
+						Use 1–64 chars: letters, digits, <code>-</code> or <code>_</code>, starting with a letter
+						or digit.
+					</p>
+				{:else if folderCollision}
+					<p class="warn small">
+						An entry with id <code>{folder}</code> exists — saving overwrites it.
+					</p>
+				{/if}
+
+				<h2 class="spaced">Files</h2>
+				<ul class="webfiles">
+					{#each webFiles as wf (wf.name)}
+						<li>
+							<div class="webfile-head">
+								<span class="mono">{wf.name}</span>
+								<span class="badge-fmt">{wf.format}</span>
+								<button class="rm" type="button" onclick={() => removeWebFile(wf.name)}>Remove</button>
+							</div>
+							<div class="webfile-attrs">
+								<label class="attr">
+									Weight
+									<input bind:value={wf.weight} spellcheck="false" placeholder="normal" />
+								</label>
+								<label class="attr">
+									Style
+									<select bind:value={wf.style}>
+										<option value="normal">normal</option>
+										<option value="italic">italic</option>
+										<option value="oblique">oblique</option>
+									</select>
+								</label>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</div>
+
+			<div class="panel preview-panel">
+				<h2>Live preview</h2>
+				<div class="canvas-wrap">
+					{#if webPreviewFamily}
+						<span class="web-sample" style="font-family: '{webPreviewFamily}'; font-size: {size}px"
+							>{sample}</span
+						>
+					{:else if previewError}
+						<p class="warn small">Live render failed: {previewError}</p>
+					{:else}
+						<p class="muted small">Loading face…</p>
+					{/if}
+				</div>
+			</div>
+		</div>
+
+		<div class="actions">
+			{#if canPublishShared}
+				<div class="target" role="radiogroup" aria-label="Save target">
+					<span class="target-label">Save target</span>
+					<button
+						class="seg"
+						class:active={target === 'project'}
+						type="button"
+						role="radio"
+						aria-checked={target === 'project'}
+						onclick={() => (target = 'project')}
+					>
+						Project
+					</button>
+					<button
+						class="seg"
+						class:active={target === 'shared'}
+						type="button"
+						role="radio"
+						aria-checked={target === 'shared'}
+						onclick={() => (target = 'shared')}
+					>
+						Shared library
+					</button>
+				</div>
+			{/if}
+			<button class="primary" type="button" disabled={!canSave} onclick={save}>
+				{saving ? 'Saving…' : target === 'shared' ? 'Save to shared library' : 'Save to project'}
+			</button>
+			<button class="ghost" type="button" disabled={saving} onclick={reset}>Clear</button>
+			{#if saveError}<span class="err small">{saveError}</span>{/if}
+			{#if savedNote}<span class="ok small">{savedNote}</span>{/if}
+		</div>
+	{:else if descriptor}
 		<div class="grid">
 			<div class="panel meta-panel">
 				<h2>Detected font</h2>
@@ -458,8 +730,33 @@
 		</div>
 
 		<div class="actions">
+			{#if canPublishShared}
+				<div class="target" role="radiogroup" aria-label="Save target">
+					<span class="target-label">Save target</span>
+					<button
+						class="seg"
+						class:active={target === 'project'}
+						type="button"
+						role="radio"
+						aria-checked={target === 'project'}
+						onclick={() => (target = 'project')}
+					>
+						Project
+					</button>
+					<button
+						class="seg"
+						class:active={target === 'shared'}
+						type="button"
+						role="radio"
+						aria-checked={target === 'shared'}
+						onclick={() => (target = 'shared')}
+					>
+						Shared library
+					</button>
+				</div>
+			{/if}
 			<button class="primary" type="button" disabled={!canSave} onclick={save}>
-				{saving ? 'Saving…' : 'Save to project'}
+				{saving ? 'Saving…' : target === 'shared' ? 'Save to shared library' : 'Save to project'}
 			</button>
 			<button class="ghost" type="button" disabled={saving} onclick={reset}>Clear</button>
 			{#if missingPages.length}
@@ -653,6 +950,92 @@
 	}
 	.rm:hover {
 		color: #e06b6b;
+	}
+	h2.spaced {
+		margin-top: 22px;
+	}
+	.webfiles {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+	.webfile-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+	.badge-fmt {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		padding: 2px 7px;
+		border-radius: 999px;
+		border: 1px solid #44345a;
+		background: #2a2430;
+		color: #c8a3ff;
+	}
+	.webfile-attrs {
+		display: flex;
+		gap: 12px;
+		margin-top: 8px;
+	}
+	.attr {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		font-size: 12px;
+		color: #999;
+	}
+	.attr input,
+	.attr select {
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		padding: 7px 9px;
+		color: #e8e8ee;
+		font-size: 13px;
+		font-family: inherit;
+		width: 120px;
+	}
+	.attr input:focus,
+	.attr select:focus {
+		outline: none;
+		border-color: #6b5bff;
+	}
+	.web-sample {
+		display: inline-block;
+		color: #e8e8ee;
+		white-space: nowrap;
+		line-height: 1.2;
+	}
+	.target {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.target-label {
+		font-size: 12px;
+		color: #999;
+		margin-right: 4px;
+	}
+	.seg {
+		background: #1f1f28;
+		border: 1px solid #333;
+		border-radius: 999px;
+		padding: 5px 14px;
+		color: #bbb;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.seg.active {
+		background: #23203a;
+		border-color: #6b5bff;
+		color: #c8a3ff;
 	}
 	.actions {
 		display: flex;
