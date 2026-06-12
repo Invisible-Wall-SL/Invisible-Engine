@@ -151,3 +151,24 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
 Reuses (do **not** re-create): `r2.ts` writers, `projectPaths.ts` font helpers,
 `toolScope.ts` `gate`/`assertAllowed`/`includeSharedFonts`, `fontCatalog.ts`,
 `auth.ts` `getActiveScope`.
+
+## 7. Shared client font loader (`$lib/fontLoad.client.ts`)
+
+Client-side font loading is **shared by every launcher tool that previews real game
+fonts** — the Scene Editor's text overlay AND the Font Maker. It lives in
+`apps/launcher-api/src/lib/fontLoad.client.ts`: the BMFont descriptor parse, the PIXI
+`BitmapFont` build, the page-image loading, the catalog bitmap loader, and the
+web-`FontFace` registration. Both `editor/fonts.client.ts` and `fonts/fonts.client.ts`
+are now thin tool-specific layers (their own catalog endpoint + the Font Maker's
+save/delete helpers) that re-export the shared loaders. **Fix a font-loading bug here
+once and every tool gets it.**
+
+**Key gotcha baked in (2026-06-12):** never load a catalog bitmap font via
+`Assets.load(descriptorUrl, { loadParser: 'loadBitmapFont' })` — PIXI resolves the
+descriptor's `<page file>` refs **relative to the descriptor's request URL**, and our
+gated stream URLs are query-string based (`/api/<tool>/asset?key=…`), so that
+resolution mangles each page into a doubled `/api/…/api/…asset?…?key=…` path that 404s
+(symptom: "Failed to load this font" / `frame of null`). `loadCatalogBitmapFont`
+fetches the raw descriptor text and builds the font from the catalog's **explicit**
+page URLs instead. The server `?font=1` descriptor page-rewrite (`assetStream.ts`) is
+now unused by these loaders (kept harmless).
