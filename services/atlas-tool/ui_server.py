@@ -254,7 +254,7 @@ LOGO_CANDIDATES = [
 PY = sys.executable
 PORT = int(os.environ.get("PORT", "8765"))
 HOST = os.environ.get("ATLAS_BIND_HOST", "0.0.0.0")
-BUILD = "v15-extra-prompts"  # shown in the header so you can verify the live code
+BUILD = "v15-extra-prompts"  # shown in the startup banner so you can verify the live code
 
 _render_state = {"running": False, "log": "", "done": False, "cur": 0,
                  "total": 0, "diagnostics": []}
@@ -2014,9 +2014,6 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
 <style>
  body{{font-family:system-ui,Arial;background:#1d1d22;color:#e8e8ea;margin:0;padding:0 20px 40px}}
- header{{display:flex;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid #333}}
- header img.logo{{height:42px;width:42px;object-fit:contain}}
- header .t{{font-size:18px;font-weight:600}} header .s{{font-size:12px;color:#888}}
  /* unified tool bar — visual twin of the launcher $lib/ToolTopBar.svelte */
  .iw-toolbar{{display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:1px solid #333}}
  .iw-brand{{display:flex;align-items:center;gap:9px;flex:none;font-weight:700;
@@ -2169,11 +2166,6 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .diag-info .diag-ic{{color:#5db0ff}}
 </style></head><body>
 {iw_toolbar}
-<header>
- <img class="logo" src="/logo" alt="IW">
- <div><div class="t">Invisible Atlas Maker</div>
- <div class="s">by Invisible Wall SL &nbsp;·&nbsp; Manifest: {manifest_name} &nbsp;·&nbsp; <b style="color:#6a9">build {build}</b></div></div>
-</header>
 {notice}
 <div class="bar">
  <div class="bargrp" title="Atlas-level actions: edit, save, compose, view, deploy">
@@ -4908,7 +4900,6 @@ class Handler(BaseHTTPRequestHandler):
             global_neg=html.escape(_style.get("negative", "")),
             global_pre=html.escape(_style.get("positive_prefix", "")),
             global_suf=html.escape(_style.get("positive_suffix", "")),
-            build=BUILD,
             flash_region=json.dumps(dl_region),
             notice="".join(notices),
         )
