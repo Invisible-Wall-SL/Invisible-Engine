@@ -706,6 +706,20 @@
 		markDirty();
 	}
 
+	/** Create a fresh full-bleed background screen — a `background`-space scene whose
+	 * sprites/spines are cover-fit to the window (§10.2). Empty to start: drag any atlas
+	 * region onto it and it fills edge-to-edge (`coverScale 1`). Switches to the new
+	 * screen so the author can drop art straight away. */
+	function addBackgroundScreen(): void {
+		const id = 's_' + Math.random().toString(36).slice(2, 10);
+		const n = scenes.filter((s) => s.space === 'background').length;
+		const name = n === 0 ? 'Background' : `Background ${n + 1}`;
+		scenes = [...scenes, { id, name, space: 'background', nodes: [] }];
+		activeSceneIdx = scenes.length - 1;
+		selectedId = null;
+		markDirty();
+	}
+
 	function removeNode(nodes: LayoutNode[], id: string): boolean {
 		const i = nodes.findIndex((n) => n.id === id);
 		if (i !== -1) {
@@ -1543,6 +1557,15 @@
 							{/if}
 						</div>
 					{/if}
+
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge."
+						onclick={addBackgroundScreen}
+					>
+						＋ New background screen
+					</button>
 
 					<button
 						class="add-hud-btn"
