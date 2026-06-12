@@ -2,10 +2,20 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
+	import { TOOL_BAR_ORDER } from '$lib/roles';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	const online = $derived(data.tools.filter((t) => t.kind === 'online'));
+	// Online tools follow the same canonical order as the shared top-bar switcher
+	// (`TOOL_BAR_ORDER`); any online tool not listed there falls to the end so it
+	// can never silently disappear from the home grid.
+	const barRank = (id: string) => {
+		const i = TOOL_BAR_ORDER.indexOf(id);
+		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+	};
+	const online = $derived(
+		data.tools.filter((t) => t.kind === 'online').sort((a, b) => barRank(a.id) - barRank(b.id)),
+	);
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
 
 	// A local tool is "configured" once the user has saved an install path for it.
