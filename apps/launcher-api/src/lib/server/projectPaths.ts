@@ -88,6 +88,20 @@ export function editorTemplateKey(gameType: string): string {
 }
 
 /**
+ * A custom game KIND authored in the editor (§21) is GLOBAL/shared, like a game
+ * template — its engine-skeleton `LayoutDoc` lives at
+ * `_shared/editor-kinds/<id>.json`. This is the source the "New game from kind"
+ * picker reads alongside the built-in kinds. The id runs through `r2Slug` to match
+ * the launcher/Python normalization everywhere else.
+ */
+export function editorKindKey(id: string): string {
+	return `_shared/editor-kinds/${r2Slug(id)}.json`;
+}
+
+/** Prefix for listing the shared custom-kind library (§21). */
+export const sharedKindsPrefix = '_shared/editor-kinds/';
+
+/**
  * Editor components (the prefab tier — §8.3) come in two scopes, symmetric with
  * scenes/templates:
  *

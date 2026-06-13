@@ -1102,3 +1102,50 @@ step: make the runtime render doc scenes generically (by id-driven slots that re
 `{#each scenes}` pass for non-special ids) so new screens + reorder ship automatically — then reorder truly
 "reflects the position in the game", not just the editor. Scope this against the per-game special scenes
 (`loading`/`hudBar`/`hudCorners`/`basegame` split around the reel) before generalizing.
+
+## 21. Addendum — Author a brand-new game KIND in the editor (owner direction 2026-06-13)
+
+Completes §19.8 / the §7.5 + §19.3 "Template-mode for a new kind" loose end: the "New game from kind" picker
+is sourced from a **code const** (`FULL_SCENE_SOURCES`: lines/ways/cluster/scatter/bookOf), so an author
+can't invent a new kind (e.g. "Crash") without a code change. Make the picker source built-ins **plus**
+author-created custom kinds saved to R2.
+
+### 21.1 Model — a custom kind is a stored engine-skeleton `LayoutDoc`
+Per §19, a kind's source of truth is its slot-tagged reference layout (a `LayoutDoc`), and the scaffold is
+`engineOwnedOnly(doc)`. A **custom kind** is exactly that: `{ id, name, doc: LayoutDoc }`, where `doc` is the
+engine skeleton the author composed on the canvas. The scaffold runs `engineOwnedOnly(doc)` over it just like
+a built-in — so a custom kind behaves identically to a built-in, computed from one source (no drift). This is
+the §19.3 "fold `GameTemplate` authoring into 'save the engine-owned projection of a composition as a new
+kind'": a custom kind is a `LayoutDoc`, NOT a `GameTemplate` slot-skeleton (that older artifact stays only for
+slot-validation metadata).
+
+### 21.2 Identity + scope
+- `id` = a slug (`^[a-z0-9][a-z0-9_-]{0,63}$`), must NOT collide with a built-in kind id.
+- `name` = human label shown in the picker.
+- **Shared/global scope** (kinds are platform-level like game types, matching the owner's "auto-add to the type
+  dropdown"). Stored at R2 `_shared/editor-kinds/<id>.json`.
+
+### 21.3 Storage + API (mirrors `templateStorage` / `/api/editor/template`)
+- `kindStorage.ts`: `listKinds()` → `[{ id, name }]`; `loadKind(id)` → `{ id, name, doc }`; `saveKind({ id,
+  name, doc })` (validates slug + non-collision + `LayoutDoc` shape). R2 `_shared/editor-kinds/<id>.json`.
+- `GET /api/editor/kinds` (list) · `GET /api/editor/kind?id=` (doc) · `POST /api/editor/kind` (save) — all
+  `toolScope.gate('editor')`.
+
+### 21.4 Editor UI (reuses scene mode — no new surface)
+Authoring a kind = composing its scenes (start from an existing kind via the picker, tweak), then a scene-bar
+**"Save as new game kind…"** action → prompt `name` (slug derived/validated) → `POST` the current `{ scenes,
+mainSizesMap }` as the kind's `doc`. The picker's "New game from kind" group merges built-ins
+(`listFullSceneSets()`) + the R2 custom kinds (from the `+page.server.ts` load); choosing a custom kind fetches
+its doc (`GET /api/editor/kind?id=`), runs `engineOwnedOnly`, and `adoptScenes` (same clobber-guard path).
+
+### 21.5 Build order
+1. `kindStorage.ts` + the three endpoints (gated). 2. `+page.server.ts` load returns `customKinds`. 3. picker
+merges built-ins + customs; custom scaffold fetches doc → `engineOwnedOnly` → adopt. 4. "Save as new game
+kind…" action. Build-green gate (authed pages owner-verified online).
+
+### 21.6 Deferred (NOT in this slice)
+Server-side **new-project scaffold from a custom kind** + admin assigning a custom kind: `projectGameType`
+validates against the 5 built-in `GAME_KINDS` (a custom id → falls back to lines), and `getFullSceneSet` is
+code-only. To let a NEW project be created as a custom kind, `projectGameType` must accept custom ids and the
+server scaffold must resolve custom kinds from R2 (`loadKind`). This slice ships the **editor picker** path
+(compose-from-custom-kind in an open project) only; the new-project/admin path is a follow-on.

@@ -20,6 +20,7 @@
 		ComponentInstanceNode,
 		ContainerNode,
 		GameTemplate,
+		LayoutDoc,
 		LayoutNode,
 		LayoutType,
 		Scene,
@@ -76,6 +77,11 @@
 	 * `referenceLayouts`: the engine-owned scaffold drops the frame art, so `bookOf`
 	 * is offerable here even though it's held back from the filled import (§19.6). */
 	const fullSceneSets = listFullSceneSets();
+	/** Author-created custom game KINDS (§21) — engine-skeleton `LayoutDoc`s saved to
+	 * R2 — joining the built-in `fullSceneSets` in the "New game from kind" picker.
+	 * Local `$state` (seeded from the load) so "Save as new game kind…" can refresh
+	 * the list in place without a full page reload. */
+	let customKinds = $state<{ id: string; name: string }[]>(data.customKinds);
 	/** Hoisted selection. `selectedIds` is the source of truth (multi-select via
 	 * shift-click in the canvas + outliner); `<EditorCanvas>` binds it. `selectedId`
 	 * is the PRIMARY (last-picked) id — what the properties panel + outline highlight
@@ -827,20 +833,36 @@
 		resetHistory(); // a deliberate layout swap is a clean new baseline
 	}
 
-	/** Load the game scene chosen in the scene-bar picker (§19.5). Both branches
-	 * derive from the one slot-tagged reference layout per kind:
-	 * - `scaffold:<type>` — "New game from kind": the engine-owned projection
-	 *   (`engineOwnedOnly`) — correct screens + engine pieces, no artist art.
+	/** Load the game scene chosen in the scene-bar picker (§19.5 / §21). All
+	 * branches derive from one slot-tagged source per kind:
+	 * - `scaffold:<type>` — built-in "New game from kind": the engine-owned
+	 *   projection (`engineOwnedOnly`) — correct screens + engine pieces, no art.
+	 * - `kind:<id>` — author-created custom kind (§21): fetch its stored `doc` from
+	 *   R2, then run the SAME `engineOwnedOnly` scaffold + `adoptScenes` clobber path.
 	 * - `ref:<type>` — "Import composed reference": the filled layout as-is. */
-	function loadChosen(): void {
+	async function loadChosen(): Promise<void> {
 		const choice = loadChoice;
 		if (!choice) return;
-		const [kind, gameType] = choice.split(':');
+		const sep = choice.indexOf(':');
+		const kind = choice.slice(0, sep);
+		const gameType = choice.slice(sep + 1);
 		// Scaffold reads the full scene set (covers bookOf); import reads the filled
 		// reference layout (lines only today — bookOf import deferred, §19.6).
 		if (kind === 'scaffold') {
 			const full = getFullSceneSet(gameType);
 			if (full) adoptScenes(engineOwnedOnly(full), gameType);
+		} else if (kind === 'kind') {
+			try {
+				const res = await fetch(`/api/editor/kind?id=${encodeURIComponent(gameType)}`);
+				if (res.ok) {
+					const { doc } = (await res.json()) as { doc: LayoutDoc };
+					adoptScenes(engineOwnedOnly(doc), gameType);
+				} else {
+					lastError = `Couldn't load that game kind (${res.status}).`;
+				}
+			} catch (e) {
+				lastError = e instanceof Error ? e.message : "Couldn't load that game kind.";
+			}
 		} else if (kind === 'ref') {
 			const ref = getReferenceLayout(gameType);
 			if (ref) adoptScenes(ref, gameType);
@@ -852,6 +874,68 @@
 	function discardCrossType(): void {
 		if (!confirm("Discard the loaded layout and restore your project's saved layout?")) return;
 		location.reload();
+	}
+
+	/** Derive a kind-id slug from a human name (matches the server slug rule). */
+	function slugifyKind(name: string): string {
+		return name
+			.toLowerCase()
+			.replace(/[^a-z0-9_-]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 64);
+	}
+
+	/** Save the current canvas (scenes + mainSizesMap) as a NEW shared game kind
+	 * (§21.4). The server stores the doc and `engineOwnedOnly` scaffolds it on use,
+	 * exactly like a built-in kind, so it appears in "New game from kind" with no
+	 * code change. Prompts for a name, derives a slug, POSTs, then refreshes the
+	 * picker list in place. The server re-validates (slug + non-collision); its 400
+	 * message is surfaced. */
+	async function saveAsNewKind(): Promise<void> {
+		const name = prompt('Name this new game kind (e.g. "Crash"):')?.trim();
+		if (!name) return;
+		const id = slugifyKind(name);
+		if (!id) {
+			alert('That name has no usable slug characters — try a different name.');
+			return;
+		}
+		const doc: LayoutDoc = {
+			version: data.doc.version,
+			projectKey: data.projectKey,
+			gameType: id,
+			mainSizesMap: structuredClone($state.snapshot(mainSizesMap)),
+			scenes: structuredClone($state.snapshot(scenes)) as Scene[],
+			updatedAt: '',
+		};
+		try {
+			const res = await fetch('/api/editor/kind', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ id, name, doc }),
+			});
+			if (!res.ok) {
+				let msg = `Save failed (${res.status}).`;
+				try {
+					const body = (await res.json()) as { message?: string };
+					if (body.message) msg = body.message;
+				} catch {
+					/* keep the status fallback */
+				}
+				alert(msg);
+				return;
+			}
+			// Refresh the picker list so the new kind appears immediately.
+			try {
+				const list = await fetch('/api/editor/kinds');
+				if (list.ok) customKinds = (await list.json()) as { id: string; name: string }[];
+			} catch {
+				/* non-fatal: the kind saved; the list just won't refresh until reload */
+			}
+			lastError = '';
+			alert(`Saved "${name}" as a new game kind. It now appears in "New game from kind".`);
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Save failed.');
+		}
 	}
 
 	/** Whether the HUD scenes (logo/name corners + bottom bar) are present. */
@@ -1954,10 +2038,13 @@
 				<div class="load-row">
 					<select class="load-select" bind:value={loadChoice} aria-label="Load scenes">
 						<option value="">＋ Load scenes…</option>
-						{#if fullSceneSets.length > 0}
+						{#if fullSceneSets.length > 0 || customKinds.length > 0}
 							<optgroup label="New game from kind">
 								{#each fullSceneSets as r (r.gameType)}
 									<option value={`scaffold:${r.gameType}`}>New {r.name} (engine pieces)</option>
+								{/each}
+								{#each customKinds as k (k.id)}
+									<option value={`kind:${k.id}`}>New {k.name} (engine pieces)</option>
 								{/each}
 							</optgroup>
 						{/if}
@@ -1973,7 +2060,7 @@
 						class="load-btn"
 						type="button"
 						disabled={!loadChoice}
-						onclick={() => loadChosen()}
+						onclick={() => void loadChosen()}
 					>
 						Load
 					</button>
@@ -2216,6 +2303,15 @@
 							＋ Add missing screens ({missingScreens.length})
 						</button>
 					{/if}
+
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Save the current screens + engine pieces on this canvas as a NEW reusable game kind. It joins the built-ins in 'New game from kind' (the scaffold drops your artist art — engine pieces only)."
+						onclick={() => void saveAsNewKind()}
+					>
+						⧉ Save as new game kind…
+					</button>
 				</PanelSection>
 			</div>
 
