@@ -529,9 +529,26 @@ guaranteed path; auto-weights (§5.2, Spike 2 OPEN) is only a convenience on top
   ⏳ owner-verify the UI live (and that a re-weighted vertex deforms correctly under
   animation).
 
-**The Rigger now covers the full headline feature set: bones + mesh topology +
-weights (manual).** Next — **Phase 4.2:** a visual **weight brush** (paint weights
-across vertices with falloff, colour-mapped per bone). And **auto-weights** (Spike 2)
-remains the OPEN research item — needs a representative embedded-skeleton character
-mesh + a better algorithm (geodesic/heat); manual weighting + the brush are the
-guaranteed fallback meanwhile.
+**Phase 4.2 — visual weight brush landed** (code; build GREEN; dab math verified
+headlessly). Paint weights instead of typing them.
+- Toggle **🖊 Weight brush** on a weighted mesh → pick a target **bone**, **radius**
+  (screen-px → world via zoom), **strength**, and a **subtract** (erase) toggle.
+  Dragging on the mesh paints: every vertex within the brush radius gets its weight
+  toward the target bone pushed up (linear falloff), adding the bone where missing
+  (bone-local = `worldToLocal(P)`), then renormalising — same invariant as 4.1, so
+  vertices never move.
+- **Heatmap:** in brush mode the vertex handles are colour-mapped (blue→red) by their
+  weight toward the target bone, so the weight map is visible while painting.
+- Dabs are throttled (sample every ~0.4·radius of cursor travel) to bound the
+  per-dab `rebuildFromRawDoc`.
+- **Verified:** `tools/rigger-spike/brush.mjs` — apply a dab to the verts in a radius,
+  reload: every painted vertex carries the target bone with weight > 0, each vertex's
+  weights sum to 1, and no vertex moved. Full mesh+weights suite re-run = no
+  regression. Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the brush
+  UI live (cursor/heatmap, paint feel, per-dab rebuild perf on large skeletons).
+
+**Weight painting is complete: bind + manual per-vertex + visual brush.** The Rigger
+now covers the full headline set — **bones + mesh (create/topology/UV) + weights**.
+Remaining: **auto-weights** (Spike 2, OPEN — needs a representative character mesh +
+a better algorithm; manual + brush are the guaranteed fallback), the **Phase 3.6**
+visual texture-panel UV editor + hull editing, and **animation authoring (Phase 5)**.
