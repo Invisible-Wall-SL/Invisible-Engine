@@ -36,14 +36,30 @@ export interface SpineInstance {
 	firstAnimation: string | null;
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
-	return new Promise((resolve, reject) => {
+function loadImage(url: string): Promise<HTMLImageElement | null> {
+	return new Promise((resolve) => {
 		const img = new Image();
 		img.onload = () => resolve(img);
-		img.onerror = () => reject(new Error(`failed to load page image ${url}`));
+		// Tolerate a missing/404 page image (e.g. an atlas that names a second page
+		// the export never produced) — resolve null so the skeleton still builds from
+		// the pages that DID load, with a 1×1 placeholder for the missing one. Beats
+		// failing the whole spine (and, in the grid, hammering the network).
+		img.onerror = () => resolve(null);
 		img.crossOrigin = 'anonymous';
 		img.src = url;
 	});
+}
+
+/** 1×1 transparent stand-in for an atlas page whose image failed to load — keeps the
+ *  runtime happy; regions packed on that page simply draw nothing. */
+let placeholderCanvas: HTMLCanvasElement | null = null;
+function placeholderImage(): HTMLCanvasElement {
+	if (!placeholderCanvas) {
+		placeholderCanvas = document.createElement('canvas');
+		placeholderCanvas.width = 1;
+		placeholderCanvas.height = 1;
+	}
+	return placeholderCanvas;
 }
 
 async function fetchDescriptor(assetKey: string): Promise<SpineDescriptor | null> {
@@ -75,14 +91,13 @@ function buildSkeleton(
 	spine: SpineRuntime,
 	gl: WebGLRenderingContext,
 	descriptor: SpineDescriptor,
-	pageImages: Map<string, HTMLImageElement>,
+	pageImages: Map<string, HTMLImageElement | null>,
 	skeletonBytes: ArrayBuffer | string,
 ): SpineInstance {
 	const atlas = new spine.TextureAtlas(descriptor.atlasText);
 	for (const page of atlas.pages) {
-		const image = pageImages.get(page.name);
-		if (!image) throw new Error(`atlas page image missing: ${page.name}`);
-		page.setTexture(new spine.GLTexture(gl, image));
+		const image = pageImages.get(page.name) ?? placeholderImage();
+		page.setTexture(new spine.GLTexture(gl, image as unknown as HTMLImageElement));
 	}
 	if (descriptor.pma) premultiplyPages(gl, atlas);
 
@@ -145,8 +160,10 @@ export async function loadSpineInstance(
 		...descriptor.pageUrls.map((u) => loadImage(bust(u))),
 	]);
 
-	const pageImages = new Map<string, HTMLImageElement>();
-	descriptor.pageNames.forEach((name, i) => pageImages.set(name, images[i]));
+	const pageImages = new Map<string, HTMLImageElement | null>();
+	descriptor.pageNames.forEach((name, i) =>
+		pageImages.set(name, images[i] as HTMLImageElement | null),
+	);
 
 	return buildSkeleton(spine, gl, descriptor, pageImages, skeletonBytes);
 }
