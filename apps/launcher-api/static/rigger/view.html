@@ -702,6 +702,14 @@ function renderSlotDetail(){
       h.style.cssText = "margin-top:4px;color:var(--dim);";
       det.appendChild(h);
     }
+    if (!(att.bones && att.bones.length)){
+      const bind = document.createElement("button");
+      bind.textContent = "Bind to slot bone (make weighted)";
+      bind.title = "Convert this unweighted mesh to a weighted one bound 100% to the slot's bone, then paint weights per vertex";
+      bind.style.cssText = "margin-top:8px;";
+      bind.onclick = bindMeshToSlotBone;
+      det.appendChild(bind);
+    }
     // selected-vertex UV editor
     if (selMeshVert != null && att.regionUVs && selMeshVert < att.worldVerticesLength / 2){
       const i = selMeshVert;
@@ -723,6 +731,40 @@ function renderSlotDetail(){
       };
       det.appendChild(uvField("u (0–1)", "u"));
       det.appendChild(uvField("v (0–1)", "v"));
+      // per-vertex bone weights (weighted meshes)
+      if (att.bones && att.bones.length){
+        const rd = rawDocMeshEntry();
+        if (rd){
+          const { influences } = rdVertexAt(rd, i);
+          const wl = document.createElement("div"); wl.textContent = "weights (auto-normalised)";
+          wl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;"; det.appendChild(wl);
+          influences.forEach((inf, j) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+            const nm = document.createElement("span");
+            nm.textContent = skeletonData.bones[inf.bone] ? skeletonData.bones[inf.bone].name : "#" + inf.bone;
+            nm.style.cssText = "flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+            const inp = document.createElement("input");
+            inp.type = "number"; inp.step = "0.05"; inp.min = "0"; inp.max = "1"; inp.value = inf.weight.toFixed(3);
+            inp.style.cssText = "width:62px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 5px;font-size:12px;";
+            inp.onchange = () => setVertexWeight(i, j, parseFloat(inp.value));
+            const rm = document.createElement("button");
+            rm.textContent = "✕"; rm.title = "remove influence"; rm.disabled = influences.length <= 1;
+            rm.style.cssText = "padding:0 6px;";
+            rm.onclick = () => removeInfluence(i, j);
+            row.appendChild(nm); row.appendChild(inp); row.appendChild(rm); det.appendChild(row);
+          });
+          const add = document.createElement("select");
+          add.style.cssText = "margin-top:4px;width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+          const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "+ add bone influence…"; add.appendChild(o0);
+          skeletonData.bones.forEach((b, bi) => {
+            if (influences.some((inf) => inf.bone === bi)) return;
+            const o = document.createElement("option"); o.value = String(bi); o.textContent = b.name; add.appendChild(o);
+          });
+          add.onchange = () => { if (add.value !== "") addInfluence(i, parseInt(add.value, 10)); };
+          det.appendChild(add);
+        }
+      }
     } else if (!meshAddMode && !meshRemoveMode){
       const h = document.createElement("div");
       h.textContent = "click a vertex to select it (then edit its UV here)";
@@ -1027,6 +1069,98 @@ function convertRegionToMesh(){
   if (region.path) mesh.path = region.path;
   if (region.color) mesh.color = region.color;
   skinEntry.attachments[selSlot][attName] = mesh;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// ---- weight editing (Phase 4.1) -------------------------------------------
+// Read vertex k's influences from a rawDoc PACKED weighted-vertices array.
+function rdVertexAt(rd, k){
+  let ri = 0;
+  for (let v = 0; v < k; v++){ const n = rd.vertices[ri]; ri += 1 + n * 4; }
+  const count = rd.vertices[ri], influences = [];
+  for (let j = 0; j < count; j++){ const o = ri + 1 + j * 4; influences.push({ bone: rd.vertices[o], x: rd.vertices[o + 1], y: rd.vertices[o + 2], weight: rd.vertices[o + 3] }); }
+  return { offset: ri, count, influences };
+}
+// Rewrite vertex k's influences in the packed array (count may change).
+function rdSetVertexInfluences(rd, k, influences){
+  let ri = 0;
+  for (let v = 0; v < k; v++){ const n = rd.vertices[ri]; ri += 1 + n * 4; }
+  const oldLen = 1 + rd.vertices[ri] * 4;
+  const flat = [influences.length];
+  for (const inf of influences) flat.push(inf.bone, inf.x, inf.y, inf.weight);
+  rd.vertices.splice(ri, oldLen, ...flat);
+}
+// Set influence j to weight w; scale the OTHER influences to fill (1−w).
+function normalizeKeeping(influences, j, w){
+  w = Math.max(0, Math.min(1, w));
+  influences[j].weight = w;
+  let other = 0; for (let i = 0; i < influences.length; i++) if (i !== j) other += influences[i].weight;
+  const rem = 1 - w;
+  if (other > 1e-9){ for (let i = 0; i < influences.length; i++) if (i !== j) influences[i].weight *= rem / other; }
+  else { const n = influences.length - 1; if (n > 0) for (let i = 0; i < influences.length; i++) if (i !== j) influences[i].weight = rem / n; }
+}
+// Update the live runtime weights for vertex k (weight-only, count unchanged).
+function liveSetVertexWeights(k, weights){
+  const att = meshCtx.attachment;
+  if (!att.bones || !att.bones.length) return;
+  let bi = 0, vi = 0;
+  for (let v = 0; v < k; v++){ const n = att.bones[bi]; bi += 1 + n; vi += n * 3; }
+  const n = att.bones[bi];
+  for (let j = 0; j < n && j < weights.length; j++) att.vertices[vi + j * 3 + 2] = weights[j];
+}
+
+function setVertexWeight(k, j, w){
+  if (!meshCtx || !rawDoc || Number.isNaN(w)) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const { influences } = rdVertexAt(rd, k);
+  if (j >= influences.length) return;
+  normalizeKeeping(influences, j, w);
+  rdSetVertexInfluences(rd, k, influences); // count unchanged
+  liveSetVertexWeights(k, influences.map((i) => i.weight));
+  markDirty();
+  renderSlotDetail(); // refresh the other inputs' displayed values
+}
+
+function addInfluence(k, boneIdx){
+  if (!meshCtx || !rawDoc) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const w = meshWorldVerts(); if (!w) return;
+  const loc = skeleton.bones[boneIdx].worldToLocal(new SPINE.Vector2(w[k * 2], w[k * 2 + 1]));
+  const { influences } = rdVertexAt(rd, k);
+  influences.push({ bone: boneIdx, x: loc.x, y: loc.y, weight: 0 }); // 0 weight → vertex doesn't move
+  rdSetVertexInfluences(rd, k, influences);
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function removeInfluence(k, j){
+  if (!meshCtx || !rawDoc) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const { influences } = rdVertexAt(rd, k);
+  if (influences.length <= 1) return;
+  influences.splice(j, 1);
+  let s = 0; for (const i of influences) s += i.weight;
+  if (s > 1e-9) for (const i of influences) i.weight /= s;
+  else { const n = influences.length; for (const i of influences) i.weight = 1 / n; }
+  rdSetVertexInfluences(rd, k, influences);
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// Convert an UNWEIGHTED mesh to weighted, binding every vertex 100% to the slot's
+// bone (its existing [x,y] are already in that bone's local space — exact, no move).
+function bindMeshToSlotBone(){
+  if (!meshCtx || !rawDoc) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const att = meshCtx.attachment;
+  if (att.bones && att.bones.length) return; // already weighted
+  const slot = skeleton.slots[meshCtx.slotIndex];
+  const bi = skeletonData.bones.findIndex((b) => b.name === slot.bone.data.name);
+  if (bi < 0) return;
+  const vc = rd.uvs.length / 2, nv = [];
+  for (let k = 0; k < vc; k++) nv.push(1, bi, rd.vertices[k * 2], rd.vertices[k * 2 + 1], 1);
+  rd.vertices = nv;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }

@@ -501,5 +501,37 @@ UV round-trip verified headlessly). Scoped to the *verifiable* half of a UV edit
 **Deferred to Phase 3.6 (a larger, inherently-visual build):** a **visual UV editor
 panel** (show the region's texture image, drag vertices in UV space) + **hull/edge
 editing**. These need real in-browser verification — best done after the live `/rigger`
-check. Then **Phase 4 (weights)** remains gated on the auto-weights question (real
-character mesh + better algorithm; manual brush is the fallback).
+check.
+
+## 15. Phase 4 progress — weights (2026-06-13)
+
+**Phase 4.1 — manual per-vertex weight editing + bind-to-bone landed** (code; build
+GREEN; verified headlessly). The headline non-negotiable feature, in its precise
+(numeric) form. **Not gated on auto-weights** — manual weighting was always the
+guaranteed path; auto-weights (§5.2, Spike 2 OPEN) is only a convenience on top.
+- **Bind** — an unweighted mesh (e.g. a freshly-converted region-mesh, §3.4) gets a
+  *Bind to slot bone (make weighted)* button: every vertex bound 100% to the slot's
+  bone, reusing its existing bone-local `[x,y]` (exact, no move). This is the bridge
+  from a static quad into a deformable weighted mesh.
+- **Per-vertex weights** — selecting a vertex of a weighted mesh lists its bone
+  influences with weight inputs (auto-normalised: editing one scales the others to
+  fill 1−w), an `✕` to remove an influence (remaining renormalised), and a dropdown
+  to add a bone (its bone-local pos = `bone.worldToLocal(P)`, weight 0). The packed
+  `rawDoc` array is read/written via `rdVertexAt`/`rdSetVertexInfluences`; weight-only
+  edits update the live runtime weights in place (no rebuild), add/remove/bind rebuild.
+- **Key invariant (why it's safe):** in the setup pose every influence stores the
+  *same* world point P in its bone's local space, so the vertex sits at P for **any**
+  weights summing to 1 — weight edits change deformation behaviour, never the
+  setup-pose position. Verified: `tools/rigger-spike/weights.mjs` — set a weight to
+  0.7 → reload → weights sum to 1 and the vertex world pos is unchanged (0.0000);
+  bind an unweighted mesh → reload → now weighted, all world positions unchanged.
+  Full mesh suite re-run = no regression. Viewer `<script>` blocks pass `node --check`.
+  ⏳ owner-verify the UI live (and that a re-weighted vertex deforms correctly under
+  animation).
+
+**The Rigger now covers the full headline feature set: bones + mesh topology +
+weights (manual).** Next — **Phase 4.2:** a visual **weight brush** (paint weights
+across vertices with falloff, colour-mapped per bone). And **auto-weights** (Spike 2)
+remains the OPEN research item — needs a representative embedded-skeleton character
+mesh + a better algorithm (geodesic/heat); manual weighting + the brush are the
+guaranteed fallback meanwhile.
