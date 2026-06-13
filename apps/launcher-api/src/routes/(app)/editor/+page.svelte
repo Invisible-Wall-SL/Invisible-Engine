@@ -1343,6 +1343,9 @@
 	}
 	let undoStack = $state<DocSnapshot[]>([]);
 	let redoStack = $state<DocSnapshot[]>([]);
+	/** Bumped on undo/redo to force the canvas to repaint (a position-only restore
+	 * reassigns `scenes` but changes no node count, so the composite can stay stale). */
+	let canvasRedrawNonce = $state(0);
 	/** The last committed snapshot — the baseline a new burst is recorded against. */
 	let historyBaseline: DocSnapshot = snapshotDoc();
 	let burstActive = false;
@@ -1392,6 +1395,7 @@
 		loadedPreview = false;
 		lastError = '';
 		restartAutosave();
+		canvasRedrawNonce += 1; // force the canvas to repaint the restored positions
 	}
 	function undo(): void {
 		settleBurst();
@@ -2530,6 +2534,7 @@
 					onDirty={markDirty}
 					onDelete={onDeleteNode}
 					onDeleteMany={onDeleteNodes}
+					redrawNonce={canvasRedrawNonce}
 					{fillRequest}
 					hiddenSceneIds={hiddenScenes}
 					projectGameName={data.gameName}

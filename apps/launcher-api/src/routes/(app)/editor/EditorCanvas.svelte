@@ -96,6 +96,11 @@
 		/** Remove several nodes in one transaction (Delete with a multi-selection) — a
 		 * single undo step. Falls back to per-id `onDelete` when not provided. */
 		onDeleteMany?: (ids: string[]) => void;
+		/** Bump to force a full repaint. The page increments this on undo/redo, which
+		 * reassigns `scenes` to a clone but can leave node POSITIONS changed with no
+		 * other tracked dependency (the count is unchanged) — so this guarantees the
+		 * per-scene composites repaint to the restored state. */
+		redrawNonce?: number;
 		/**
 		 * Drag-onto-a-slot request from the page: spawn `payload` at frame centre,
 		 * tagged with `slotId`. `seq` dedupes (bump it to fire a new fill); a null
@@ -139,6 +144,7 @@
 		onDirty,
 		onDelete,
 		onDeleteMany,
+		redrawNonce = 0,
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
 		projectGameName = null,
@@ -2493,10 +2499,13 @@
 	// Invariant: each per-scene canvas action also calls schedule() on mount, so a
 	// new scene self-heals on the next frame even if this effect's RAF wins first.
 	$effect(() => {
-		hiddenSceneIds;
-		scenes;
-		scene;
-		layoutType;
+		void hiddenSceneIds;
+		void scenes;
+		void scene;
+		void layoutType;
+		// Forced repaint signal (undo/redo): a position-only restore reassigns `scenes`
+		// but changes no node count, so without this the composite can stay stale.
+		void redrawNonce;
 		schedule();
 	});
 
