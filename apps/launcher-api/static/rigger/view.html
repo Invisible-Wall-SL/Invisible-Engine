@@ -1104,14 +1104,9 @@ function renderSlotDetail(){
     det.appendChild(ar);
   }
 
-  {
-    const del = document.createElement("button");
-    del.textContent = "🗑 Delete slot";
-    del.style.cssText = "margin:2px 0 8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
-    del.onclick = () => { if (confirm('Delete slot "' + sd.name + '" and its attachments?')) deleteSlot(sd.name); };
-    det.appendChild(del);
-  }
-
+  // attachment tools (mesh / region placement + Convert-to-mesh / Draw mesh) render
+  // right under the image picker; the Delete-slot button is appended last (below).
+  const renderAtt = () => {
   if (!attName){
     const t = document.createElement("div"); t.textContent = "no setup attachment — attach an image above"; det.appendChild(t); return;
   }
@@ -1294,6 +1289,14 @@ function renderSlotDetail(){
     const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawMesh;
     row.appendChild(fin); row.appendChild(can); det.appendChild(row);
   }
+  };
+  renderAtt();
+
+  const del = document.createElement("button");
+  del.textContent = "🗑 Delete slot";
+  del.style.cssText = "margin:12px 0 8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.onclick = () => { if (confirm('Delete slot "' + sd.name + '" and its attachments?')) deleteSlot(sd.name); };
+  det.appendChild(del);
 }
 
 // Edit a region attachment's placement: mutate the live RegionAttachment (+
