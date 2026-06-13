@@ -285,6 +285,37 @@ clear to proceed. Phase 4 (weights) stays gated on resolving the auto-weights
 question with proper test data — the brush makes the *tool* viable even if
 auto-weights only ever reaches "decent starting point."
 
+## 12. Phase 1 progress (2026-06-13)
+
+**Read-model + viewer landed (code; build GREEN; not browser-verified — authed
+launcher page needs Postgres/R2/auth).**
+
+- **Inspector read-model** (`tools/rigger-spike/inspectModel.mjs`, committed
+  `757b6d5`): pure `buildInspector(skeletonData)` → bone hierarchy tree, setup-pose
+  bone world transforms (origin→tip→rotation = the overlay geometry), slots in draw
+  order, skins (with weighted-mesh flags), animations, constraints. Verified
+  headlessly on the anticipation skeleton.
+- **`/rigger` launcher tool** — registered in `roles.ts` (tool + icon +
+  `TOOL_BAR_ORDER` + doc slug; granted to admin/developer/animator), gated redirect
+  `routes/(app)/rigger/+page.server.ts` mirroring `/spine`, and the static WebGL app
+  `static/rigger/view.html`. **Reuse, not rebuild:** forked the proven Spine Viewer
+  (rendering, pan/zoom, scrubber, anim/skin, debug overlay) and reuses its
+  `/spine/skeletons` + `/spine/file` endpoints + vendored `spine-webgl-4.2` (the
+  access gate `requireSpineAccess` was widened to accept `spineViewer` OR `rigger`).
+  The Rigger's **delta** is the structured **Inspector panel** (hierarchy / slots /
+  skins / animations / constraints), bone **selection** (tree highlight + detail +
+  a defensive world-space marker), and bones-overlay-on — the seed of Phase 2 edit.
+- Verified: `pnpm --filter launcher-api build` GREEN; both inline `<script>` blocks
+  pass `node --check`. **Owner-verify live at `/rigger`** (skeleton list loads, a
+  skeleton renders with bone overlay, inspector populates, bone click selects).
+- **Reuse finding (recorded):** the Spine Viewer already covers most *read-only*
+  viewing (render + debug bone/mesh overlay + scrubber). The Rigger's real value is
+  the inspector + (Phase 2+) editing, so it extends the viewer rather than cloning it.
+
+Next: **Phase 2** — make bones editable (select on canvas, move/rotate/scale,
+reparent, edit slots/draw-order/attachment placement) on our own editable document,
+and **export `.irig`** (wire in the Phase 0 serializer).
+
 ## 11. Model note (Fable 5 vs Opus 4.8 for building this)
 
 Default the build to **Opus 4.8** — it's state-of-the-art at long-horizon agentic

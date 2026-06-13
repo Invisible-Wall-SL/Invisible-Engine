@@ -16,8 +16,12 @@ export async function requireSpineAccess(locals: App.Locals): Promise<void> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'spineViewer', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to the Invisible Spine Viewer.');
+	// The Spine Viewer AND the Rigger both read project skeletons through this gate
+	// (same R2 spines + skeletons.json), so either grant suffices.
+	const hasViewer = roleHasTool(locals.user.role, 'spineViewer', roleOverrides, overrides);
+	const hasRigger = roleHasTool(locals.user.role, 'rigger', roleOverrides, overrides);
+	if (!hasViewer && !hasRigger) {
+		throw error(403, 'Your role does not have access to the Spine Viewer or Rigger.');
 	}
 }
 

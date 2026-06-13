@@ -65,6 +65,12 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/>' +
 			'<line x1="7.6" y1="16.4" x2="16.4" y2="7.6"/><circle cx="12" cy="12" r="1.3"/>',
 	),
+	// armature with an edit-handle (rigging)
+	rigger: I(
+		'<circle cx="5" cy="19" r="1.8"/><line x1="6.3" y1="17.7" x2="11.5" y2="12.5"/>' +
+			'<circle cx="13" cy="11" r="1.8"/><line x1="14.3" y1="9.7" x2="17" y2="7"/>' +
+			'<rect x="16" y="4" width="3.5" height="3.5" rx="0.6"/>',
+	),
 	// rocket / launch glyph
 	invisibleLauncher: I('<path d="M12 3l4 6h-3v7h-2v-7H8z"/><line x1="7" y1="20" x2="17" y2="20"/>'),
 	// bone (two lobes each end)
@@ -133,6 +139,15 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/spine',
 		icon: TOOL_ICONS.spineViewer,
+	},
+	rigger: {
+		id: 'rigger',
+		name: 'Invisible Rigger',
+		description:
+			'Online Spine skeleton inspector and rig editor — browse bones, slots, skins, meshes and weights.',
+		kind: 'online',
+		url: '/rigger',
+		icon: TOOL_ICONS.rigger,
 	},
 	invisibleLauncher: {
 		id: 'invisibleLauncher',
@@ -250,6 +265,7 @@ export const TOOL_BAR_ORDER: string[] = [
 	'componentEditor',
 	'storybook',
 	'spineViewer',
+	'rigger',
 	'fontMaker',
 	'localization',
 	'ftpBrowser',
@@ -274,6 +290,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 	developer: [
 		'atlasTool',
 		'spineViewer',
+		'rigger',
 		'invisibleLauncher',
 		'localization',
 		'editor',
@@ -293,7 +310,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'componentEditor',
 		'fontMaker',
 	],
-	animator: ['spineViewer', 'spine'],
+	animator: ['spineViewer', 'rigger', 'spine'],
 };
 
 /**
@@ -438,6 +455,7 @@ export function localToolsForRole(
 const TOOL_DOC_SLUG: Record<string, string> = {
 	atlasTool: 'atlas-maker',
 	spineViewer: 'spine-viewer',
+	rigger: 'rigger',
 	invisibleLauncher: 'invisible-launcher',
 	spine: 'spine-editor',
 	sheetMaker: 'sheet-maker',
