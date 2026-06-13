@@ -32,5 +32,6 @@ export * from './boundComponentCatalog';
 export * from './componentCatalog';
 export * from './validateTemplate';
 export * from './seedScenes';
+export * from './engineOwnedOnly';
 export * from './referenceLayouts';
 export * from './templates';

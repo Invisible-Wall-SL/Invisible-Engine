@@ -3,6 +3,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		buttonBindToInstance,
+		engineOwnedOnly,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
 		getReferenceLayout,
@@ -11,7 +12,6 @@
 		listReferenceLayouts,
 		mountAnchor,
 		resolveAnchorPreviewArt,
-		seedScenesFromTemplate,
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
 	import type {
@@ -821,22 +821,24 @@
 		resetHistory(); // a deliberate layout swap is a clean new baseline
 	}
 
-	/** Load the game scene chosen in the scene-bar picker. `ref:<type>` loads a
-	 * built-in PLACED layout (sprites positioned + layered); `skel:<type>` loads
-	 * that type's blank scenes from its template. */
-	async function loadChosen(): Promise<void> {
+	/** Load the game scene chosen in the scene-bar picker (§19.5). Both branches
+	 * derive from the one slot-tagged reference layout per kind:
+	 * - `scaffold:<type>` — "New game from kind": the engine-owned projection
+	 *   (`engineOwnedOnly`) — correct screens + engine pieces, no artist art.
+	 * - `ref:<type>` — "Import composed reference": the filled layout as-is. */
+	function loadChosen(): void {
 		const choice = loadChoice;
 		if (!choice) return;
 		const [kind, gameType] = choice.split(':');
-		if (kind === 'ref') {
-			const doc = getReferenceLayout(gameType);
-			if (doc) adoptScenes(doc, gameType);
-		} else if (kind === 'skel') {
-			// Resolve the template first (R2 override or built-in) so the skeleton
-			// matches the saved template, then seed blank scenes from it.
-			const res = await fetch(`/api/editor/template?gameType=${encodeURIComponent(gameType)}`);
-			const template = res.ok ? ((await res.json()) as GameTemplate) : undefined;
-			adoptScenes({ scenes: seedScenesFromTemplate(template), gameType }, gameType);
+		const ref = getReferenceLayout(gameType);
+		if (!ref) {
+			loadChoice = '';
+			return;
+		}
+		if (kind === 'scaffold') {
+			adoptScenes(engineOwnedOnly(ref), gameType);
+		} else if (kind === 'ref') {
+			adoptScenes(ref, gameType);
 		}
 		loadChoice = '';
 	}
@@ -1015,7 +1017,9 @@
 	let dragSceneIdx = $state<number | null>(null);
 	let dropInfo = $state<{ idx: number; after: boolean } | null>(null);
 	function sameGroup(a: number, b: number): boolean {
-		return Boolean(scenes[a]) && Boolean(scenes[b]) && isHudScene(scenes[a]) === isHudScene(scenes[b]);
+		return (
+			Boolean(scenes[a]) && Boolean(scenes[b]) && isHudScene(scenes[a]) === isHudScene(scenes[b])
+		);
 	}
 	function onSceneDragStart(e: DragEvent, idx: number): void {
 		dragSceneIdx = idx;
@@ -1943,26 +1947,26 @@
 		<aside class="left">
 			<div class="scene-bar">
 				<div class="load-row">
-					<select class="load-select" bind:value={loadChoice} aria-label="Load a game scene">
-						<option value="">＋ Load a game scene…</option>
+					<select class="load-select" bind:value={loadChoice} aria-label="Load scenes">
+						<option value="">＋ Load scenes…</option>
 						{#if referenceLayouts.length > 0}
-							<optgroup label="Placed game layouts">
+							<optgroup label="New game from kind">
+								{#each referenceLayouts as r (r.gameType)}
+									<option value={`scaffold:${r.gameType}`}>New {r.gameType} (engine pieces)</option>
+								{/each}
+							</optgroup>
+							<optgroup label="Import composed reference">
 								{#each referenceLayouts as r (r.gameType)}
 									<option value={`ref:${r.gameType}`}>{r.name}</option>
 								{/each}
 							</optgroup>
 						{/if}
-						<optgroup label="Blank scenes (from template)">
-							{#each GAME_TYPES as gt (gt)}
-								<option value={`skel:${gt}`}>{gt} — blank scenes</option>
-							{/each}
-						</optgroup>
 					</select>
 					<button
 						class="load-btn"
 						type="button"
 						disabled={!loadChoice}
-						onclick={() => void loadChosen()}
+						onclick={() => loadChosen()}
 					>
 						Load
 					</button>

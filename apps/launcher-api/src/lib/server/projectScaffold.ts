@@ -4,7 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
-import { type GameTemplate } from 'engine-layout';
+import { type GameTemplate, engineOwnedOnly, getReferenceLayout } from 'engine-layout';
 import { normalizeDoc } from './localization';
 import {
 	SUB,
@@ -23,15 +23,28 @@ interface Seed {
 	contentType: string;
 }
 
-function buildSeeds(client: string, project: string, template: GameTemplate | undefined): Seed[] {
+function buildSeeds(
+	client: string,
+	project: string,
+	gameType: string,
+	template: GameTemplate | undefined,
+): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
+	// §19.3: seed the editor doc from the engine-owned projection of the kind's
+	// reference layout (correct screens + engine pieces, no artist art). Kinds
+	// without a reference layout (ways/cluster/scatter today) fall back to the
+	// empty template skeleton so nothing regresses.
+	const reference = getReferenceLayout(gameType);
+	const seededScenes = reference
+		? engineOwnedOnly(reference).scenes
+		: seedScenesFromTemplate(template);
 	const scenes = {
 		version: 1,
 		projectKey: project,
-		gameType: template?.gameType,
-		scenes: seedScenesFromTemplate(template),
+		gameType: reference ? gameType : template?.gameType,
+		scenes: seededScenes,
 	};
 
 	return [
@@ -70,8 +83,9 @@ function buildSeeds(client: string, project: string, template: GameTemplate | un
 
 /** Write any missing seed files for `(client, project)` into R2. */
 export async function scaffoldProject(client: string, project: string): Promise<void> {
-	const template = await loadTemplate(await projectGameType(project));
-	for (const seed of buildSeeds(client, project, template)) {
+	const gameType = await projectGameType(project);
+	const template = await loadTemplate(gameType);
+	for (const seed of buildSeeds(client, project, gameType, template)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
 	}

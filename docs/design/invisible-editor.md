@@ -966,16 +966,29 @@ kind's source (and therefore both projections). For the existing kinds (`lines`/
 ### 19.4 The classifier (what counts as "engine-owned")
 
 A pure `engineOwnedOnly(doc)` filter in `engine-layout` (sibling to `seedScenesFromTemplate`, which it
-replaces as the scaffold source). A node is **kept** iff any of:
-- `kind === 'container'` with a `bind` (coded mount/overlay anchor) **or** a `slotId` whose template slot
-  `kind === 'mount'`;
-- `kind === 'componentInstance'` whose def is engine-bound (a param binds a registered value `source` /
-  `action` — HUD readouts, buttons);
-- it belongs to the HUD layer (`isHudScene` / reserved hud ids).
+replaces as the scaffold source). It operates on a bare `LayoutDoc` — it does NOT resolve component defs — so
+the classifier is intentionally a simple, structural rule (no def lookup): a node is **kept** iff any of:
+- it has a `bind` (a coded mount / overlay / loading / free-spin anchor), regardless of node kind — `bind`
+  lives on `BaseNode`, and in practice it's on the anchor containers;
+- `kind === 'reelGrid'` (the reel/board grid);
+- `kind === 'componentInstance'` (the parametric engine pieces — HUD readouts/buttons, the free-spin counter).
+  These are engine-bound *by construction* in a reference layout; the filter keeps all of them unconditionally
+  rather than resolving each def's bindings (which it can't, having no def access here);
+- it belongs to the HUD layer — the whole scene is kept verbatim when `isHudScene(scene.id)` is true
+  (belt-and-suspenders: every current HUD node already qualifies above, but this guarantees the HUD survives
+  even if a future HUD node is a plain decorative sprite).
 
-Otherwise (plain `sprite`/`spine`/`text` with no `bind`, no engine binding) it is **dropped**. Empty scenes
-are still emitted (the screen exists; it's just unfurnished). This is computable from existing metadata — no
-schema change.
+A plain `container` WITHOUT `bind` is a structural/author grouping: recurse into its children and keep it
+only if some child survives (drop empty groups). Otherwise (plain `sprite`/`spine`/`text` with no `bind`) it
+is **dropped** — `slotId` ALONE never keeps a node (an artist `boardFrame` sprite has a `slotId` but no
+`bind`, so it drops). Empty scenes are still emitted (the screen exists; it's just unfurnished). Computable
+from existing metadata — no schema change.
+
+> NOTE (as-built, 2026-06-12): this structural rule is broader than an "engine-bound `componentInstance`
+> only" reading — it would also retain a hypothetical *decorative* authored `componentInstance` or a stray
+> `bind` on a plain sprite. That's harmless for every reference layout that exists (all their
+> `componentInstance`/`reelGrid`/`bind` nodes are genuinely engine-owned) and is the rule the code + its
+> JSDoc implement. Revisit only if a reference layout ever ships a non-engine-bound `componentInstance`.
 
 ### 19.5 UI collapse (the menu)
 

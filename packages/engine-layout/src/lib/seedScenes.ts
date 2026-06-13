@@ -10,6 +10,11 @@ import type { ContainerNode, GameTemplate, Scene, TemplateSlot } from './types';
  *
  * Pure + isomorphic: shared by the launcher's project scaffold, the in-editor
  * "Load game structure" action, and any future importer, so they never diverge.
+ *
+ * @deprecated Superseded by `engineOwnedOnly` (§19) as the scaffold source — a
+ * new project now seeds from `engineOwnedOnly(referenceLayout(gameType))`, the
+ * engine-owned projection of the one real composition, instead of this parallel
+ * empty-`GameTemplate` scene list. Kept for back-compat.
  */
 export function seedScenesFromTemplate(template: GameTemplate | undefined): Scene[] {
 	if (!template) return [];
