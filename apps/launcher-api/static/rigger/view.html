@@ -440,6 +440,14 @@ function buildInspector(entry){
 
   // ---- bone hierarchy tree ----
   const tree = $("#boneTree"); clearChildren(tree);
+  if (editMode){
+    const ab = document.createElement("button");
+    ab.textContent = "＋ Add bone";
+    ab.title = "Add a bone as a child of the selected bone (or root)";
+    ab.style.cssText = "margin:6px 14px 2px;";
+    ab.onclick = () => addBone(selBone != null ? skeletonData.bones[selBone].name : null);
+    tree.appendChild(ab);
+  }
   const bones = skeletonData.bones;
   const childrenOf = new Map();
   bones.forEach((b, i) => {
@@ -467,6 +475,14 @@ function buildInspector(entry){
 
   // ---- slots in draw order (setup order = skeletonData.slots = rawDoc.slots) ----
   const slotList = $("#slotList"); clearChildren(slotList);
+  if (editMode){
+    const as = document.createElement("button");
+    as.textContent = "＋ Add slot";
+    as.title = "Add a slot on the selected bone (or root)";
+    as.style.cssText = "margin:6px 14px 2px;";
+    as.onclick = () => addSlot(selBone != null ? skeletonData.bones[selBone].name : null);
+    slotList.appendChild(as);
+  }
   const slots = skeletonData.slots;
   slots.forEach((sd, z) => {
     const row = document.createElement("div");
@@ -500,6 +516,13 @@ function buildInspector(entry){
 
   // ---- skins + attachment counts (flag weighted meshes) ----
   const skinList = $("#skinList"); clearChildren(skinList);
+  if (editMode){
+    const ak = document.createElement("button");
+    ak.textContent = "＋ Add skin";
+    ak.style.cssText = "margin:6px 14px 2px;";
+    ak.onclick = addSkin;
+    skinList.appendChild(ak);
+  }
   skeletonData.skins.forEach(sk => {
     const atts = sk.getAttachments ? sk.getAttachments() : [];
     let weighted = 0, meshes = 0;
@@ -642,6 +665,40 @@ function applyBoneEdit(key, value){
 function markDirty(){
   dirty = true;
   $("#resetBtn").disabled = false;
+}
+
+// ---- authoring primitives (Phase 5.1) -------------------------------------
+function uniqueName(base, existing){ let n = 1; while (existing.has(base + n)) n++; return base + n; }
+
+// Add a new bone as a child of `parentName` (or root). Positioned at the parent
+// origin (drag/numeric-edit to place). Selects the new bone.
+function addBone(parentName){
+  if (!rawDoc || !Array.isArray(rawDoc.bones) || !rawDoc.bones.length) return;
+  const name = uniqueName("bone", new Set(rawDoc.bones.map((b) => b.name)));
+  rawDoc.bones.push({ name, parent: parentName || rawDoc.bones[0].name, x: 0, y: 0 });
+  rebuildFromRawDoc(name); // reselects by name
+  markDirty();
+}
+
+// Add a new slot on `boneName` (or root). Selects it.
+function addSlot(boneName){
+  if (!rawDoc || !Array.isArray(rawDoc.bones) || !rawDoc.bones.length) return;
+  rawDoc.slots = rawDoc.slots || [];
+  const name = uniqueName("slot", new Set(rawDoc.slots.map((s) => s.name)));
+  rawDoc.slots.push({ name, bone: boneName || rawDoc.bones[0].name });
+  selSlot = name;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// Add a new (empty) skin.
+function addSkin(){
+  if (!rawDoc) return;
+  rawDoc.skins = rawDoc.skins || [];
+  const name = uniqueName("skin", new Set(rawDoc.skins.map((s) => s.name)));
+  rawDoc.skins.push({ name, attachments: {} });
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
 }
 
 // ---- slot selection: draw-order + region attachment placement -------------

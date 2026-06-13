@@ -552,3 +552,32 @@ now covers the full headline set — **bones + mesh (create/topology/UV) + weigh
 Remaining: **auto-weights** (Spike 2, OPEN — needs a representative character mesh +
 a better algorithm; manual + brush are the guaranteed fallback), the **Phase 3.6**
 visual texture-panel UV editor + hull editing, and **animation authoring (Phase 5)**.
+
+## 16. Authoring from scratch (new-rig workflow) — owner priority 2026-06-13
+
+Owner's top priority: **create a NEW rig — import images, create bones/skins — then
+save + reopen.** Honest status when raised: the tool was a deep *editor of existing*
+rigs; the from-scratch + image-import flow was mostly unbuilt. Owner decisions: image
+source = **both** (place from existing project atlases *and* raw upload later); build
+the authoring workflow next.
+
+**Entanglement found:** a new rig needs an **atlas** to be indexed (`buildSkeletonsIndex`
+skips atlas-less folders) and loaded (the viewer needs a `TextureAtlas`). So
+"import images" is on the critical path for "new rig", not optional. Sequence:
+**(A1) structural primitives → (A2) new-rig + attach images from an existing atlas
+(end-to-end) → (A3) raw image upload (creates the atlas).**
+
+**A1 — structural authoring primitives landed** (code; build GREEN; verified
+headlessly). In edit mode the inspector sections gain **＋ Add bone** (child of the
+selected bone/root), **＋ Add slot** (on the selected bone/root), **＋ Add skin** —
+all `rawDoc` mutations + rebuild + auto-unique names; the new bone/slot is selected
+and editable via the existing transform/drag/weight tools.
+- **Verified:** `tools/rigger-spike/authoring.mjs` — from a MINIMAL blank skeleton
+  (`root` + empty `default` skin), add bone→bone, slot, skin, serialize → the
+  official loader accepts it with the right hierarchy (bone2.parent=bone1, slot on
+  bone1, skins default+skin1). Viewer `<script>` blocks pass `node --check`.
+
+Next — **A2:** a **New rig** flow (create a blank skeleton bound to a chosen existing
+project atlas, save to R2, open it) + an **atlas-region picker** that creates a slot
++ region attachment from a packed image (the "import from existing atlas" path).
+Then **A3:** raw image upload → builds a single-page atlas + regions in R2.
