@@ -2123,6 +2123,12 @@ function renderList(){
       '<div class="meta">' + fmt + (e.version ? ' · ' + e.version : '') +
       '<span class="badge">rt ' + e.runtime + '</span></div>';
     d.onclick = () => selectSkeleton(e);
+    const del = document.createElement("button");
+    del.textContent = "🗑"; del.title = "delete this rig";
+    del.style.cssText = "position:absolute;top:6px;right:6px;padding:0 6px;font-size:12px;opacity:.55;";
+    del.onclick = (ev) => { ev.stopPropagation(); deleteRig(e); };
+    d.style.position = "relative";
+    d.appendChild(del);
     list.appendChild(d);
   });
   $("#count").textContent = "(" + shown + ")";
@@ -2151,6 +2157,21 @@ async function loadSkeletons(refresh){
     const target = skeletons.find(x => x.id === parseInt(id, 10));
     if (target){ history.replaceState(null, "", location.pathname); selectSkeleton(target); }
   }
+}
+
+async function deleteRig(e){
+  if (!confirm('Delete the rig "' + e.name + '"?\n\nThis removes its skeleton file' +
+    ' (and, if nothing else uses the folder, its atlas + images too). This cannot be undone.')) return;
+  try {
+    const r = await fetch("/api/rigger/delete", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir: e.dir_b64 || "", skeleton_file: e.skeleton_file }),
+    });
+    if (!r.ok){ showErr("Delete failed: " + r.status + " " + (await r.text())); return; }
+    // if the deleted rig is the one on stage, reload to clear it (query params persist)
+    if (selected && selected.id === e.id){ location.reload(); return; }
+    await loadSkeletons(true);
+  } catch (err){ showErr("Delete failed: " + (err && err.message ? err.message : err)); }
 }
 
 function hexToRGB(hex){

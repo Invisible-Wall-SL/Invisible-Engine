@@ -684,6 +684,24 @@ skeleton stays valid (no dangling refs through the official loader).
   Build GREEN; viewer `node --check` OK; full suite no regression. UI not browser-
   verified (authed) — owner-verify live.
 
+### A-delete-rig — delete a whole rig from the list (owner: 2 same-name rigs, can't delete)
+
+Owner created two rigs that differed only by case (`Test1/` vs `test1/` — R2 keys are
+case-sensitive, so `/api/rigger/new`'s `objectExists` guard saw them as distinct) and
+had no way to remove either. Added per-row delete:
+- `🗑` on each skeleton-list row → `deleteRig` → `POST /api/rigger/delete
+  { dir, skeleton_file }` (`rigger`-gated, path-guarded). Deletes ONLY that skeleton
+  file, then — if `dir` is a named bundle sub-dir (never the spines root) and NO
+  skeleton (`.irig`/`.skel`/`.json`) remains in it — purges the now-orphaned support
+  files (`.atlas`, page images) in that exact dir. So a from-scratch rig folder is fully
+  removed, but an artist's source `.json` (or a second rig sharing the dir) is never
+  touched. Reindexes `skeletons.json`. Deleting the on-stage rig reloads the page (query
+  params persist) to clear the canvas.
+- **Verified:** the purge-decision predicate on 6 scenarios (from-scratch / edited-with-
+  source / shared-dir / TexturePacker-json / spines-root / empty) — purges ONLY when no
+  skeleton/source remains. Build GREEN; viewer `node --check` OK. (R2 I/O itself, like
+  save/new/upload, is owner-verified live.)
+
 **A3 — raw image upload landed** (2026-06-13, owner ask "insert images"; code; build
 GREEN; packer + synth verified headlessly). Start a rig from **brand-new art** with no
 Atlas Maker step. In the New-rig panel, **or upload images** (file input, multi):
