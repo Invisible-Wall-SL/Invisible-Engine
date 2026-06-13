@@ -654,5 +654,27 @@ project has those but no spine bundles, so the picker showed nothing. Fixed:
   present / old gone, the child's `parent` + the renamed slot updated (anticipation,
   transition, symbols). Full suite (9 tests) no regression; viewer `node --check` OK.
 
-Next — **A3:** raw image **upload** in the Rigger → builds a single-page atlas +
-regions in R2 (unblocks rigs with brand-new art, no prior atlas).
+**A3 — raw image upload landed** (2026-06-13, owner ask "insert images"; code; build
+GREEN; packer + synth verified headlessly). Start a rig from **brand-new art** with no
+Atlas Maker step. In the New-rig panel, **or upload images** (file input, multi):
+- The **browser** loads the images, **shelf-packs** them onto one page (tallest-first,
+  wrap at 2048px, 2px pad), draws them to a `<canvas>`, and reads the region rects;
+  region names come from the filenames (deduped).
+- It POSTs the page PNG (data URL) + `{pageWidth,pageHeight,regions:[{name,x,y,w,h}]}`
+  to **`POST /api/rigger/upload`** (`rigger`-gated), which decodes the PNG, writes it +
+  a synthesised `.atlas` (`regionsToSpineAtlas`) + a blank `.irig` into
+  `spines/<name>/`, then reindexes. The new rig opens in edit mode; its uploaded
+  images are immediately attachable.
+- **Verified:** `tools/rigger-spike/upload.mjs` — the packer yields non-overlapping
+  rects within the page; the packed regions → synth `.atlas` → official `TextureAtlas`
+  re-parse with the region count + every rect round-tripping. Build GREEN; viewer
+  `node --check` OK; full 11-test suite no regression. ⏳ owner-verify the upload UI
+  live.
+
+**Image sourcing is now complete (the owner's "both"): attach from an existing atlas
+(A2) AND raw upload (A3).** The from-scratch authoring loop is end-to-end from either
+source: new rig → bones/slots/skins → attach/draw meshes → weights → save → reopen.
+
+Remaining (lower priority / larger): the **Phase 3.6** visual texture-panel UV editor
++ hull editing; **auto-weights** (Spike 2 — needs a character mesh + better algorithm;
+manual + brush are the fallback); **animation authoring (Phase 5)**.

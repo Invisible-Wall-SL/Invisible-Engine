@@ -189,6 +189,9 @@
           <button id="newRigCreate" style="flex:1;">Create</button>
           <button id="newRigCancel">Cancel</button>
         </div>
+        <label style="margin-top:9px;">or upload images</label>
+        <input type="file" id="newRigFiles" accept="image/png,image/webp,image/jpeg" multiple
+          style="width:100%;font-size:11px;color:var(--dim);">
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
     </div>
@@ -840,6 +843,63 @@ async function createNewRig(){
     if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
     const j = await r.json();
     $("#newRig").style.display = "none"; $("#newRigName").value = "";
+    await loadSkeletons(true);
+    const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
+    if (target){ await selectSkeleton(target); setEditMode(true); }
+  } catch (e){ note.textContent = "failed: " + (e.message || e); }
+}
+
+function loadImageFile(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad image " + file.name)); };
+    img.src = url;
+  });
+}
+
+// Create a NEW rig from RAW uploaded images: pack them onto one page (shelf pack,
+// browser Canvas), then POST the page PNG + region rects to /api/rigger/upload,
+// which synthesises the .atlas + writes the bundle. No Atlas Maker step needed.
+async function createRigFromImages(files){
+  const note = $("#newRigNote");
+  const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  if (!name){ note.textContent = "enter a rig name first"; return; }
+  if (!files || !files.length) return;
+  note.textContent = "packing " + files.length + " image(s)…";
+  try {
+    const loaded = [], seen = new Set();
+    for (const f of files){
+      const img = await loadImageFile(f);
+      let base = f.name.replace(/\.[^.]+$/, "").replace(/[^\w\-]/g, "_") || "img";
+      let nm = base, k = 1; while (seen.has(nm)) nm = base + "_" + k++;
+      seen.add(nm); loaded.push({ name: nm, img });
+    }
+    // shelf pack (tallest first, wrap at MAX_W)
+    const MAX_W = 2048, pad = 2;
+    loaded.sort((a, b) => b.img.height - a.img.height);
+    let x = pad, y = pad, rowH = 0, pageW = 0;
+    const regions = [];
+    for (const it of loaded){
+      const w = it.img.width, h = it.img.height;
+      if (x + w + pad > MAX_W && x > pad){ y += rowH + pad; x = pad; rowH = 0; }
+      regions.push({ name: it.name, x, y, w, h, img: it.img });
+      x += w + pad; rowH = Math.max(rowH, h); pageW = Math.max(pageW, x + pad);
+    }
+    const pageH = y + rowH + pad;
+    const cv = document.createElement("canvas"); cv.width = pageW; cv.height = pageH;
+    const ctx = cv.getContext("2d");
+    for (const r of regions) ctx.drawImage(r.img, r.x, r.y);
+    const page = cv.toDataURL("image/png");
+    note.textContent = "uploading…";
+    const resp = await fetch("/api/rigger/upload", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }),
+    });
+    if (!resp.ok) throw new Error((await resp.text()) || ("HTTP " + resp.status));
+    const j = await resp.json();
+    $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#newRigFiles").value = "";
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target){ await selectSkeleton(target); setEditMode(true); }
@@ -2007,6 +2067,7 @@ function wire(){
   };
   $("#newRigCancel").onclick = () => { $("#newRig").style.display = "none"; };
   $("#newRigCreate").onclick = createNewRig;
+  $("#newRigFiles").onchange = (e) => { if (e.target.files && e.target.files.length) createRigFromImages(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
