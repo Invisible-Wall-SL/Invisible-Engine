@@ -78,6 +78,14 @@
 	const selectedId = $derived(selectedIds.at(-1) ?? null);
 	/** Anchor for outliner range (Shift) selection — the last single-clicked row. */
 	let selectionAnchorId = $state<string | null>(null);
+	// Keep the range anchor in sync when the selection collapses to a single node —
+	// crucially this also catches CANVAS clicks (which mutate `selectedIds` via the
+	// binding but can't touch `selectionAnchorId`), so a following Shift-click in the
+	// outliner ranges from what's actually selected, not a stale row.
+	$effect(() => {
+		if (selectedIds.length === 1) selectionAnchorId = selectedIds[0];
+		else if (selectedIds.length === 0) selectionAnchorId = null;
+	});
 	/** Select exactly one node (or clear, with `null`) — the common single-pick path. */
 	function selectOnly(id: string | null): void {
 		selectedIds = id ? [id] : [];
@@ -1272,11 +1280,13 @@
 		mainSizesMap = structuredClone(snap.mainSizesMap);
 		pruneSelection();
 		activeSceneIdx = Math.min(activeSceneIdx, Math.max(0, scenes.length - 1));
-		// The apply itself is not a new edit (don't recordEdit) — but it does need
-		// persisting, so flip dirty directly to trigger the autosave effect.
+		// The apply itself is not a new edit (don't recordEdit) — but it must persist.
+		// `dirty` may already be true (a `true→true` write triggers no effect), so
+		// (re)start the autosave timer imperatively rather than relying on the effect.
 		dirty = true;
 		loadedPreview = false;
 		lastError = '';
+		restartAutosave();
 	}
 	function undo(): void {
 		settleBurst();
@@ -1371,10 +1381,10 @@
 	}
 
 	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
-	$effect(() => {
-		// Re-running this effect when `dirty` flips true starts/restarts the
-		// autosave timer. Mutations bump `dirty` again -> debounce resets.
-		if (!dirty) return;
+	/** (Re)start the debounced autosave timer. Called reactively from the `dirty`
+	 * effect AND imperatively from `applySnapshot` (undo/redo) — the latter can't rely
+	 * on the effect, since a `true→true` `dirty` write is a no-op that re-runs nothing. */
+	function restartAutosave(): void {
 		// A cross-type load must never autosave — only an explicit Save persists it.
 		if (crossTypeLoaded) return;
 		if (autosaveTimer) clearTimeout(autosaveTimer);
@@ -1382,6 +1392,12 @@
 			autosaveTimer = null;
 			void save();
 		}, AUTOSAVE_MS);
+	}
+	$effect(() => {
+		// Re-running this effect when `dirty` flips true starts/restarts the
+		// autosave timer. Mutations bump `dirty` again -> debounce resets.
+		if (!dirty) return;
+		restartAutosave();
 		return () => {
 			if (autosaveTimer) {
 				clearTimeout(autosaveTimer);
