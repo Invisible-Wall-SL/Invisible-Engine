@@ -86,12 +86,16 @@
 		 * registry). Absent / unknown id → a labelled placeholder. */
 		componentMap?: Map<string, ComponentDef>;
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
-		/** Hoisted selection — bound from the page so the properties panel can read it. */
-		selectedId?: string | null;
+		/** Hoisted selection — bound from the page. The LAST id is the "primary"
+		 * (drives the properties panel + transform handles); shift-click adds/removes. */
+		selectedIds?: string[];
 		/** Called once after any doc-mutating gesture (drag-spawn, translate/scale/rotate end). */
 		onDirty?: () => void;
 		/** Remove the node with this id from the active scene + clear selection. */
 		onDelete?: (id: string) => void;
+		/** Remove several nodes in one transaction (Delete with a multi-selection) — a
+		 * single undo step. Falls back to per-id `onDelete` when not provided. */
+		onDeleteMany?: (ids: string[]) => void;
 		/**
 		 * Drag-onto-a-slot request from the page: spawn `payload` at frame centre,
 		 * tagged with `slotId`. `seq` dedupes (bump it to fire a new fill); a null
@@ -131,15 +135,31 @@
 		assets,
 		componentMap = new Map(),
 		onSpawn,
-		selectedId = $bindable(null),
+		selectedIds = $bindable([]),
 		onDirty,
 		onDelete,
+		onDeleteMany,
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
 		projectGameName = null,
 		componentParams = {},
 		onSpineMeta,
 	}: Props = $props();
+
+	/** The "primary" selected id — the last one picked. Drives the properties panel,
+	 * the transform handles, and single-node hit-tests. Most internal code reads this;
+	 * the full set (`selectedIds`) only matters for the multi-outline + group drag. */
+	const selectedId = $derived(selectedIds.at(-1) ?? null);
+	/** Replace the selection with a single node (the common click path). */
+	function selectOnly(id: string | null): void {
+		selectedIds = id ? [id] : [];
+	}
+	/** Shift-click: add the node to the selection, or remove it if already in. */
+	function toggleSelected(id: string): void {
+		selectedIds = selectedIds.includes(id)
+			? selectedIds.filter((x) => x !== id)
+			: [...selectedIds, id];
+	}
 
 	/** B3 numeric readout format: thousands-grouped integer — matches B2's
 	 * `ParamReadoutText`/`LayoutNodeView` (`maximumFractionDigits: 0`) so the editor
@@ -547,7 +567,15 @@
 	let dragOver = $state(false);
 
 	type DragMode =
-		| { kind: 'translate'; nodeId: string; startWorld: Vec2; startNode: Vec2 }
+		| {
+				kind: 'translate';
+				nodeId: string;
+				startWorld: Vec2;
+				startNode: Vec2;
+				/** Start positions of every node moved by this drag (the multi-selection,
+				 * minus locked/background-cover nodes), so the group translates as one. */
+				group: { id: string; sx: number; sy: number }[];
+		  }
 		| {
 				kind: 'scale';
 				nodeId: string;
@@ -1857,9 +1885,21 @@
 	}
 
 	function drawSelectionOverlay(ctx: CanvasRenderingContext2D): void {
-		if (!selectedId) return;
-		const node = findNodeById(selectedId);
-		if (!node) return;
+		if (selectedIds.length === 0) return;
+		// Handles (scale/rotate) only make sense for a single node; a multi-selection
+		// gets outline-only on every member (it can still be group-translated).
+		const single = selectedIds.length === 1;
+		for (const id of selectedIds) {
+			const node = findNodeById(id);
+			if (node) drawNodeSelection(ctx, node, single);
+		}
+	}
+
+	function drawNodeSelection(
+		ctx: CanvasRenderingContext2D,
+		node: LayoutNode,
+		withHandles: boolean,
+	): void {
 		const t = nodeTransform(node);
 		if (!t.visible) return;
 		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
@@ -1888,6 +1928,9 @@
 		for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
 		ctx.closePath();
 		ctx.stroke();
+
+		// Outline-only for a multi-selection — no transform handles.
+		if (!withHandles) return;
 
 		// Rotation handle stem.
 		const rot = t.rotation ?? 0;
@@ -1918,7 +1961,7 @@
 	// ---------- hit-test ----------
 
 	function hitTestHandle(screen: Vec2): HandleHit | null {
-		if (!selectedId) return null;
+		if (selectedIds.length !== 1 || !selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node || node.locked || isBackgroundCover(node)) return null;
 		const t = nodeTransform(node);
@@ -1966,11 +2009,22 @@
 
 	function startTranslate(node: LayoutNode, world: Vec2): void {
 		const start = effectiveXY(node);
+		// The group is every selected node that can actually move (locked + background-
+		// cover nodes stay put). `node` (the grabbed one) is always included.
+		const movableIds = selectedIds.includes(node.id) ? selectedIds : [node.id];
+		const group: { id: string; sx: number; sy: number }[] = [];
+		for (const id of movableIds) {
+			const n = findNodeById(id);
+			if (!n || n.locked || isBackgroundCover(n)) continue;
+			const xy = effectiveXY(n);
+			group.push({ id, sx: xy.x, sy: xy.y });
+		}
 		dragMode = {
 			kind: 'translate',
 			nodeId: node.id,
 			startWorld: world,
 			startNode: start,
+			group,
 		};
 	}
 	function startScale(node: LayoutNode, cornerIdx: number, world: Vec2): void {
@@ -2009,12 +2063,15 @@
 			if (Math.abs(dx) > Math.abs(dy)) dy = 0;
 			else dx = 0;
 		}
-		let nx = dragMode.startNode.x + dx;
-		let ny = dragMode.startNode.y + dy;
-		const snapped = snapTranslate(node, nx, ny);
-		nx = snapped.x;
-		ny = snapped.y;
-		writeXY(node, nx, ny);
+		// Snap the grabbed (primary) node, then move the whole group by the SAME snapped
+		// delta so their relative layout is preserved.
+		const snapped = snapTranslate(node, dragMode.startNode.x + dx, dragMode.startNode.y + dy);
+		const ddx = snapped.x - dragMode.startNode.x;
+		const ddy = snapped.y - dragMode.startNode.y;
+		for (const g of dragMode.group) {
+			const n = findNodeById(g.id);
+			if (n) writeXY(n, g.sx + ddx, g.sy + ddy);
+		}
 	}
 
 	function applyScale(node: LayoutNode, world: Vec2, shift: boolean): void {
@@ -2172,7 +2229,8 @@
 	}
 
 	function onMouseDown(e: MouseEvent): void {
-		if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
+		// Middle / right always pan.
+		if (e.button === 1 || e.button === 2) {
 			panning = true;
 			lastXY = [e.clientX, e.clientY];
 			e.preventDefault();
@@ -2184,22 +2242,34 @@
 		const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 		const world = clientToWorld(e.clientX, e.clientY);
 
-		// 1) handle hit
-		const hh = hitTestHandle(screen);
-		if (hh && selectedId) {
-			const node = findNodeById(selectedId);
-			if (node) {
-				if (hh.kind === 'corner') startScale(node, hh.idx, world);
-				else if (hh.kind === 'rotate') startRotate(node, world);
-				else startTranslate(node, world);
-				e.preventDefault();
-				return;
+		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
+		// Shift+click is reserved for multi-select / pan, not scale/rotate.
+		if (!e.shiftKey) {
+			const hh = hitTestHandle(screen);
+			if (hh && selectedId) {
+				const node = findNodeById(selectedId);
+				if (node) {
+					if (hh.kind === 'corner') startScale(node, hh.idx, world);
+					else if (hh.kind === 'rotate') startRotate(node, world);
+					else startTranslate(node, world);
+					e.preventDefault();
+					return;
+				}
 			}
 		}
 		// 2) body hit on any node
 		const node = hitTestNode(world);
 		if (node) {
-			selectedId = node.id;
+			if (e.shiftKey) {
+				// Shift+click toggles this node in/out of the selection (no drag).
+				toggleSelected(node.id);
+				schedule();
+				e.preventDefault();
+				return;
+			}
+			// Plain click: keep an existing multi-selection if you grabbed a member
+			// (so you can group-drag it); otherwise select just this node.
+			if (!selectedIds.includes(node.id)) selectOnly(node.id);
 			// Locked nodes select but never move; background-cover nodes select but
 			// never drag (transform is synthesised). Only movement is locked, not selection.
 			if (!node.locked && !isBackgroundCover(node)) startTranslate(node, world);
@@ -2207,9 +2277,15 @@
 			e.preventDefault();
 			return;
 		}
-		// 3) empty space
-		if (selectedId !== null) {
-			selectedId = null;
+		// 3) empty space — Shift+drag still pans the canvas (unchanged gesture).
+		if (e.shiftKey) {
+			panning = true;
+			lastXY = [e.clientX, e.clientY];
+			e.preventDefault();
+			return;
+		}
+		if (selectedIds.length > 0) {
+			selectedIds = [];
 			schedule();
 		}
 	}
@@ -2276,17 +2352,21 @@
 				tgt.isContentEditable);
 		if (typing) return;
 
-		if (e.key === 'Escape' && selectedId !== null) {
-			selectedId = null;
+		if (e.key === 'Escape' && selectedIds.length > 0) {
+			selectedIds = [];
 			schedule();
 			return;
 		}
-		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId !== null) {
-			const node = findNodeById(selectedId);
-			if (node && !node.locked) {
-				e.preventDefault();
-				onDelete?.(selectedId);
-			}
+		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
+			// Delete every selected node that isn't locked, in one transaction.
+			const ids = selectedIds.filter((id) => {
+				const n = findNodeById(id);
+				return n && !n.locked;
+			});
+			if (ids.length === 0) return;
+			e.preventDefault();
+			if (ids.length === 1 || !onDeleteMany) ids.forEach((id) => onDelete?.(id));
+			else onDeleteMany(ids);
 		}
 	}
 
@@ -2579,7 +2659,8 @@
 		void scene.align?.horizontal;
 		void frameWidth;
 		void frameHeight;
-		void selectedId;
+		void selectedIds.length;
+		void selectedIds;
 		void snapLines.length;
 		void layoutType;
 		// Re-draw the param-aware text preview when a default changes (§13.4, B3).

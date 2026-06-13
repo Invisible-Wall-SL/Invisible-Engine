@@ -4,8 +4,14 @@
 	interface Props {
 		scene: Scene | undefined;
 		template: GameTemplate | undefined;
+		/** The primary (last-picked) selected id — drives the strong highlight. */
 		selectedId: string | null;
-		onSelect: (id: string) => void;
+		/** The full multi-selection (Shift = range, Ctrl/Cmd = toggle). Every member
+		 * gets a highlight; the primary gets the strong one. */
+		selectedIds?: string[];
+		/** Select a row. The MouseEvent carries the Shift/Ctrl/Cmd modifiers so the
+		 * page can do range / toggle selection. */
+		onSelect: (id: string, e?: MouseEvent) => void;
 		/** Fill a slot by dropping a Library asset onto its row (drag-to-slot). */
 		onFillSlot?: (sceneId: string, sceneName: string, slotId: string, payload: unknown) => void;
 		/** Materialise an engine `mount` anchor for an empty mount slot, so it shows
@@ -14,8 +20,16 @@
 		/** Rename a node (its outline `label`). Double-click a row to edit it inline. */
 		onRename?: (id: string, label: string) => void;
 	}
-	let { scene, template, selectedId, onSelect, onFillSlot, onAddAnchor, onRename }: Props =
-		$props();
+	let {
+		scene,
+		template,
+		selectedId,
+		selectedIds = [],
+		onSelect,
+		onFillSlot,
+		onAddAnchor,
+		onRename,
+	}: Props = $props();
 
 	/** `slotId` of the slot row a Library asset is hovering over. */
 	let dragSlotId = $state<string | null>(null);
@@ -119,10 +133,11 @@
 				type="button"
 				class="row"
 				class:selected={selectedId === node.id}
+				class:multi={selectedId !== node.id && selectedIds.includes(node.id)}
 				style:padding-left="{8 + depth * 14}px"
-				onclick={() => onSelect(node.id)}
+				onclick={(e) => onSelect(node.id, e)}
 				ondblclick={() => startRename(node)}
-				title={onRename ? 'Double-click to rename' : undefined}
+				title={onRename ? 'Shift/Ctrl-click to multi-select · double-click to rename' : undefined}
 			>
 				<span class="glyph">{kindGlyph(node.kind)}</span>
 				<span class="label">{node.label ?? node.id}</span>
@@ -223,6 +238,11 @@
 	.row.selected {
 		background: #1a1a22;
 		border-color: #5db0ff;
+		color: #e8e8ee;
+	}
+	.row.multi {
+		background: #14202c;
+		border-color: #2f5d7a;
 		color: #e8e8ee;
 	}
 	.rename {

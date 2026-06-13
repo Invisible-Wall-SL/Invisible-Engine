@@ -58,8 +58,11 @@
 	let saveBusy = $state(false);
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
-	/** Hoisted active selection — bound from the canvas, read by Properties. */
-	let selectedId = $state<string | null>(null);
+	/** Hoisted active selection — bound from the canvas, read by Properties.
+	 * `selectedIds` is the source of truth (shift-click multi-select); `selectedId` is
+	 * the primary (last-picked) id the Properties panel reads. */
+	let selectedIds = $state<string[]>([]);
+	const selectedId = $derived(selectedIds.at(-1) ?? null);
 	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
 	let spineMeta = $state<Map<string, { animations: string[]; skins: string[] }>>(new Map());
@@ -156,7 +159,7 @@
 		savedSnapshot = components.some((c) => c.id === def.id)
 			? JSON.stringify($state.snapshot(componentDraft))
 			: null;
-		selectedId = null;
+		selectedIds = [];
 		saveStatus = null;
 		leftTab = 'outline';
 	}
@@ -229,7 +232,7 @@
 		}
 		componentDraft = null;
 		savedSnapshot = null;
-		selectedId = null;
+		selectedIds = [];
 		saveStatus = null;
 	}
 
@@ -270,7 +273,7 @@
 		const nodes = componentDraft.root.children.slice();
 		if (!removeNode(nodes, id)) return;
 		componentDraft.root.children = nodes;
-		if (selectedId === id) selectedId = null;
+		if (selectedIds.includes(id)) selectedIds = selectedIds.filter((x) => x !== id);
 	}
 
 	/** Set a node's outline `label` (or clear it to fall back to the node id). Walks
@@ -838,7 +841,13 @@
 							scene={componentScene}
 							template={undefined}
 							{selectedId}
-							onSelect={(id) => (selectedId = id)}
+							{selectedIds}
+							onSelect={(id, e) =>
+								e && (e.shiftKey || e.metaKey || e.ctrlKey)
+									? (selectedIds = selectedIds.includes(id)
+											? selectedIds.filter((x) => x !== id)
+											: [...selectedIds, id])
+									: (selectedIds = [id])}
 							onRename={renameNode}
 						/>
 					{/if}
@@ -858,7 +867,7 @@
 					assets={data.assets}
 					{componentMap}
 					{onSpawn}
-					bind:selectedId
+					bind:selectedIds
 					onDelete={onDeleteNode}
 					projectGameName={null}
 					componentParams={resolvedParams}

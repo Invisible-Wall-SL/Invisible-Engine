@@ -70,9 +70,148 @@
 	let loadChoice = $state('');
 	/** Built-in placed layouts the picker offers ("Lines — base game", …). */
 	const referenceLayouts = listReferenceLayouts();
-	/** Hoisted so the properties panel can read the active selection.
-	 * `<EditorCanvas>` binds this via `bind:selectedId`. */
-	let selectedId = $state<string | null>(null);
+	/** Hoisted selection. `selectedIds` is the source of truth (multi-select via
+	 * shift-click in the canvas + outliner); `<EditorCanvas>` binds it. `selectedId`
+	 * is the PRIMARY (last-picked) id — what the properties panel + outline highlight
+	 * read. Assigning `selectedId` is sugar for replacing the whole selection. */
+	let selectedIds = $state<string[]>([]);
+	const selectedId = $derived(selectedIds.at(-1) ?? null);
+	/** Anchor for outliner range (Shift) selection — the last single-clicked row. */
+	let selectionAnchorId = $state<string | null>(null);
+	/** Select exactly one node (or clear, with `null`) — the common single-pick path. */
+	function selectOnly(id: string | null): void {
+		selectedIds = id ? [id] : [];
+		selectionAnchorId = id;
+	}
+	/** Clear the whole selection. */
+	function clearSelection(): void {
+		selectedIds = [];
+		selectionAnchorId = null;
+	}
+	/** Pre-order (depth-first) ids of a scene's nodes — the order the outliner shows
+	 * rows, so a Shift range-select matches what the user sees. */
+	function flattenSceneIds(nodes: LayoutNode[], out: string[] = []): string[] {
+		for (const n of nodes) {
+			out.push(n.id);
+			if (n.kind === 'container') flattenSceneIds(n.children, out);
+		}
+		return out;
+	}
+	/** Outliner row click with modifiers: Shift = contiguous range from the anchor,
+	 * Ctrl/Cmd = toggle this row, plain = select only this row. */
+	function selectFromOutline(id: string, e?: MouseEvent): void {
+		if (e?.shiftKey && selectionAnchorId && editScene) {
+			const order = flattenSceneIds(editScene.nodes);
+			const a = order.indexOf(selectionAnchorId);
+			const b = order.indexOf(id);
+			if (a !== -1 && b !== -1) {
+				const [lo, hi] = a < b ? [a, b] : [b, a];
+				const rangeIds = order.slice(lo, hi + 1);
+				selectedIds = [...rangeIds.filter((x) => x !== id), id]; // id stays primary
+				return;
+			}
+		}
+		if (e?.metaKey || e?.ctrlKey) {
+			selectedIds = selectedIds.includes(id)
+				? selectedIds.filter((x) => x !== id)
+				: [...selectedIds, id];
+			selectionAnchorId = id;
+			return;
+		}
+		selectOnly(id);
+	}
+
+	// ---------- clipboard: copy / cut / paste / duplicate ----------
+	// In-memory clipboard of plain node clones. Paste/duplicate mint fresh ids and a
+	// small offset, then drop the copies into the ACTIVE scene (so paste also moves a
+	// node between screens). Each op is ONE markDirty -> one undo step.
+	const PASTE_OFFSET = 24;
+	let clipboard = $state<LayoutNode[]>([]);
+	function freshNodeId(): string {
+		return 'n_' + Math.random().toString(36).slice(2, 10);
+	}
+	/** Recursively give a (plain) node + its descendants new ids, and drop `slotId`
+	 * (a clone can't fill the same template slot). Mutates in place. */
+	function reassignNodeIds(node: LayoutNode): void {
+		node.id = freshNodeId();
+		delete node.slotId;
+		if (node.kind === 'container') for (const c of node.children) reassignNodeIds(c);
+	}
+	/** A fresh-id deep clone of a node, optionally nudged by PASTE_OFFSET. */
+	function cloneNodeFresh(node: LayoutNode, offset: boolean): LayoutNode {
+		const copy = $state.snapshot(node) as LayoutNode;
+		reassignNodeIds(copy);
+		if (offset) {
+			copy.x = (copy.x ?? 0) + PASTE_OFFSET;
+			copy.y = (copy.y ?? 0) + PASTE_OFFSET;
+		}
+		return copy;
+	}
+	/** The selected nodes minus any nested UNDER another selected node (so a selected
+	 * container + its child copies once, not twice), in tree order. */
+	function topLevelSelectedNodes(): LayoutNode[] {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return [];
+		const sel = new Set(selectedIds);
+		const out: LayoutNode[] = [];
+		const walk = (nodes: LayoutNode[], underSelected: boolean): void => {
+			for (const n of nodes) {
+				const isSel = sel.has(n.id);
+				if (isSel && !underSelected) out.push(n);
+				if (n.kind === 'container') walk(n.children, underSelected || isSel);
+			}
+		};
+		walk(sc.nodes, false);
+		return out;
+	}
+	/** Append fresh clones to the active scene + select them. Shared by paste/duplicate. */
+	function addClonesToActive(sources: LayoutNode[]): boolean {
+		const sc = scenes[activeSceneIdx];
+		if (!sc || sources.length === 0) return false;
+		const fresh = sources.map((n) => cloneNodeFresh(n, true));
+		const next = scenes.slice();
+		next[activeSceneIdx] = { ...sc, nodes: [...sc.nodes, ...fresh] };
+		scenes = next;
+		selectedIds = fresh.map((n) => n.id);
+		selectionAnchorId = selectedIds.at(-1) ?? null;
+		markDirty();
+		return true;
+	}
+	function copySelection(): boolean {
+		const nodes = topLevelSelectedNodes();
+		if (nodes.length === 0) return false;
+		clipboard = nodes.map((n) => $state.snapshot(n) as LayoutNode);
+		return true;
+	}
+	function cutSelection(): boolean {
+		const nodes = topLevelSelectedNodes();
+		if (nodes.length === 0) return false;
+		clipboard = nodes.map((n) => $state.snapshot(n) as LayoutNode);
+		onDeleteNodes(nodes.map((n) => n.id));
+		return true;
+	}
+	function pasteClipboard(): boolean {
+		return addClonesToActive(clipboard);
+	}
+	function duplicateSelection(): boolean {
+		return addClonesToActive(topLevelSelectedNodes());
+	}
+
+	/** Duplicate a whole screen (fresh scene + node ids), inserted right after it. */
+	function duplicateScene(idx: number): void {
+		const sc = scenes[idx];
+		if (!sc) return;
+		const copy = $state.snapshot(sc) as Scene;
+		copy.id = (isHudScene(sc) ? 'hud_' : 's_') + Math.random().toString(36).slice(2, 10);
+		copy.name = `${sc.name || sc.id} copy`;
+		for (const n of copy.nodes) reassignNodeIds(n);
+		const next = scenes.slice();
+		next.splice(idx + 1, 0, copy);
+		scenes = next;
+		activeSceneIdx = idx + 1;
+		clearSelection();
+		markDirty();
+	}
 	/** Hoisted active layoutType. `'desktop'` is the base; anything else routes edits
 	 * into `node.overrides[layoutType]` (override mode). */
 	let currentLayoutType = $state<LayoutType>('desktop');
@@ -345,7 +484,7 @@
 			anchor: { x: 0.5, y: 0.5 },
 		};
 		onSpawn(node);
-		selectedId = node.id;
+		selectOnly(node.id);
 	}
 
 	/**
@@ -372,7 +511,7 @@
 	function insertReelGrid(): void {
 		if (existingReelGrid) {
 			activeSceneIdx = existingReelGrid.sceneIdx;
-			selectedId = existingReelGrid.node.id;
+			selectOnly(existingReelGrid.node.id);
 			return;
 		}
 		const main = mainSizesMap[currentLayoutType];
@@ -393,7 +532,7 @@
 			gapY: 0,
 		};
 		onSpawn(node);
-		selectedId = node.id;
+		selectOnly(node.id);
 	}
 
 	/** Open the standalone Component Editor in THIS window (optionally on `id`).
@@ -560,7 +699,7 @@
 			markDirty();
 		}
 		activeSceneIdx = idx;
-		selectedId = null;
+		clearSelection();
 	}
 
 	/** Bumped each drag-onto-a-slot so the canvas spawns the asset exactly once. */
@@ -605,14 +744,14 @@
 					};
 		const node = mountAnchor(sc.id, slot, init);
 		onSpawn(node);
-		selectedId = node.id;
+		selectOnly(node.id);
 	}
 
 	/** Switch the canvas to a screen (scene) by index — the screen list picker. */
 	function selectScene(idx: number): void {
 		if (idx < 0 || idx >= scenes.length) return;
 		activeSceneIdx = idx;
-		selectedId = null;
+		clearSelection();
 	}
 
 	/** Set the active scene's coordinate space. `'game'` is the default → omit it
@@ -663,7 +802,7 @@
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
 		authoringGameType = gameType;
 		activeSceneIdx = 0;
-		selectedId = null;
+		clearSelection();
 		void loadTemplateFor(gameType);
 		// A same-type load stays a non-destructive preview (the first edit commits it
 		// via autosave). A cross-type load is held back from autosave entirely — only
@@ -671,6 +810,7 @@
 		crossTypeLoaded = crossType;
 		crossTypeFrom = crossType ? gameType : '';
 		loadedPreview = !crossType;
+		resetHistory(); // a deliberate layout swap is a clean new baseline
 	}
 
 	/** Load the game scene chosen in the scene-bar picker. `ref:<type>` loads a
@@ -729,7 +869,7 @@
 			scenes = [...scenes, ...fresh];
 		}
 		activeSceneIdx = scenes.length - fresh.length; // focus the first HUD screen
-		selectedId = null;
+		clearSelection();
 		markDirty();
 	}
 
@@ -750,7 +890,7 @@
 		if (toAdd.length === 0) return;
 		scenes = [...scenes, ...structuredClone(toAdd)];
 		activeSceneIdx = scenes.length - toAdd.length; // focus the first added screen
-		selectedId = null;
+		clearSelection();
 		markDirty();
 	}
 
@@ -764,7 +904,7 @@
 		const name = n === 0 ? 'Background' : `Background ${n + 1}`;
 		scenes = [...scenes, { id, name, space: 'background', nodes: [] }];
 		activeSceneIdx = scenes.length - 1;
-		selectedId = null;
+		clearSelection();
 		markDirty();
 	}
 
@@ -789,7 +929,7 @@
 		const id = 's_' + Math.random().toString(36).slice(2, 10);
 		scenes = [...scenes, { id, name: nextScreenName('Screen'), nodes: [] }];
 		activeSceneIdx = scenes.length - 1;
-		selectedId = null;
+		clearSelection();
 		markDirty();
 	}
 
@@ -801,7 +941,7 @@
 		const id = 'hud_' + Math.random().toString(36).slice(2, 10);
 		scenes = [...scenes, { id, name: nextScreenName('HUD'), space: 'standard', nodes: [] }];
 		activeSceneIdx = scenes.length - 1;
-		selectedId = null;
+		clearSelection();
 		markDirty();
 	}
 
@@ -827,7 +967,7 @@
 			const ni = next.findIndex((s) => s.id === activeId);
 			activeSceneIdx = ni === -1 ? Math.min(activeSceneIdx, next.length - 1) : ni;
 		}
-		selectedId = null;
+		clearSelection();
 		markDirty();
 	}
 
@@ -937,7 +1077,24 @@
 		if (!removeNode(nodes, id)) return;
 		next[activeSceneIdx] = { ...sc, nodes };
 		scenes = next;
-		if (selectedId === id) selectedId = null;
+		if (selectedIds.includes(id)) selectedIds = selectedIds.filter((x) => x !== id);
+		markDirty();
+	}
+
+	/** Delete several nodes (a multi-selection) in ONE transaction → a single undo
+	 * step. Walks the active scene removing each id, then clears them from selection. */
+	function onDeleteNodes(ids: string[]): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		const nodes = sc.nodes.slice();
+		let removed = false;
+		for (const id of ids) if (removeNode(nodes, id)) removed = true;
+		if (!removed) return;
+		const next = scenes.slice();
+		next[activeSceneIdx] = { ...sc, nodes };
+		scenes = next;
+		const set = new Set(ids);
+		selectedIds = selectedIds.filter((x) => !set.has(x));
 		markDirty();
 	}
 
@@ -1056,7 +1213,98 @@
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
 	let nowTick = $state(Date.now());
 
+	// ---------- undo / redo history ----------
+	// Snapshot-based: every edit funnels through `markDirty()`, so we record the doc
+	// (scenes + mainSizesMap) there. Rapid edits within HISTORY_COALESCE_MS — one drag,
+	// a burst of typing in a property field — collapse into ONE undo step. Canvas drags
+	// already commit `onDirty` once on mouse-up, so they're naturally a single step.
+	type DocSnapshot = { scenes: Scene[]; mainSizesMap: typeof mainSizesMap };
+	const HISTORY_MAX = 80;
+	const HISTORY_COALESCE_MS = 350;
+	/** A plain (non-proxied) deep clone of the current doc — safe to push on a stack. */
+	function snapshotDoc(): DocSnapshot {
+		return {
+			scenes: $state.snapshot(scenes) as Scene[],
+			mainSizesMap: $state.snapshot(mainSizesMap) as typeof mainSizesMap,
+		};
+	}
+	let undoStack = $state<DocSnapshot[]>([]);
+	let redoStack = $state<DocSnapshot[]>([]);
+	/** The last committed snapshot — the baseline a new burst is recorded against. */
+	let historyBaseline: DocSnapshot = snapshotDoc();
+	let burstActive = false;
+	let burstTimer: ReturnType<typeof setTimeout> | null = null;
+	const canUndo = $derived(undoStack.length > 0);
+	const canRedo = $derived(redoStack.length > 0);
+
+	/** Record one edit into history (called from `markDirty`). The first edit of a
+	 * burst pushes the pre-burst baseline; the burst settles (committing the new
+	 * baseline) once edits stop for HISTORY_COALESCE_MS. */
+	function recordEdit(): void {
+		if (!burstActive) {
+			undoStack = [...undoStack, historyBaseline].slice(-HISTORY_MAX);
+			redoStack = [];
+			burstActive = true;
+		}
+		if (burstTimer) clearTimeout(burstTimer);
+		burstTimer = setTimeout(settleBurst, HISTORY_COALESCE_MS);
+	}
+	/** Close the current burst: the live doc becomes the new baseline. */
+	function settleBurst(): void {
+		if (burstTimer) {
+			clearTimeout(burstTimer);
+			burstTimer = null;
+		}
+		if (!burstActive) return;
+		historyBaseline = snapshotDoc();
+		burstActive = false;
+	}
+	/** Reset history to a clean baseline (after a wholesale load that replaces the doc,
+	 * so you can't "undo" past a deliberate layout swap). */
+	function resetHistory(): void {
+		settleBurst();
+		undoStack = [];
+		redoStack = [];
+		historyBaseline = snapshotDoc();
+	}
+	function applySnapshot(snap: DocSnapshot): void {
+		scenes = structuredClone(snap.scenes);
+		mainSizesMap = structuredClone(snap.mainSizesMap);
+		pruneSelection();
+		activeSceneIdx = Math.min(activeSceneIdx, Math.max(0, scenes.length - 1));
+		// The apply itself is not a new edit (don't recordEdit) — but it does need
+		// persisting, so flip dirty directly to trigger the autosave effect.
+		dirty = true;
+		loadedPreview = false;
+		lastError = '';
+	}
+	function undo(): void {
+		settleBurst();
+		if (undoStack.length === 0) return;
+		const prev = undoStack[undoStack.length - 1];
+		undoStack = undoStack.slice(0, -1);
+		redoStack = [...redoStack, snapshotDoc()];
+		applySnapshot(prev);
+		historyBaseline = snapshotDoc();
+	}
+	function redo(): void {
+		settleBurst();
+		if (redoStack.length === 0) return;
+		const nextSnap = redoStack[redoStack.length - 1];
+		redoStack = redoStack.slice(0, -1);
+		undoStack = [...undoStack, snapshotDoc()].slice(-HISTORY_MAX);
+		applySnapshot(nextSnap);
+		historyBaseline = snapshotDoc();
+	}
+	/** Drop any selected ids that no longer exist (e.g. after an undo removed them). */
+	function pruneSelection(): void {
+		if (selectedIds.length === 0) return;
+		const kept = selectedIds.filter((id) => scenes.some((sc) => findById(sc.nodes, id) !== null));
+		if (kept.length !== selectedIds.length) selectedIds = kept;
+	}
+
 	function markDirty(): void {
+		recordEdit();
 		dirty = true;
 		loadedPreview = false; // a real edit commits the (possibly loaded) layout
 		lastError = '';
@@ -1371,17 +1619,56 @@
 		}
 	}
 
+	/** True when a keystroke is destined for a text field — so editor shortcuts
+	 * (undo, copy/paste, duplicate) don't hijack typing in the panels. */
+	function isTypingTarget(t: EventTarget | null): boolean {
+		const el = t as HTMLElement | null;
+		return (
+			!!el &&
+			(el.tagName === 'INPUT' ||
+				el.tagName === 'TEXTAREA' ||
+				el.tagName === 'SELECT' ||
+				el.isContentEditable)
+		);
+	}
+
+	/** Page-level editor shortcuts (the canvas owns Delete/Escape on its own listener).
+	 * Undo/redo here; copy/cut/paste/duplicate are added in the clipboard block. */
+	function onEditorKeyDown(e: KeyboardEvent): void {
+		if (isTypingTarget(e.target)) return;
+		const mod = e.ctrlKey || e.metaKey;
+		if (!mod) return;
+		const k = e.key.toLowerCase();
+		if (k === 'z' && !e.shiftKey) {
+			e.preventDefault();
+			undo();
+		} else if ((k === 'z' && e.shiftKey) || k === 'y') {
+			e.preventDefault();
+			redo();
+		} else if (k === 'c') {
+			if (copySelection()) e.preventDefault();
+		} else if (k === 'x') {
+			if (cutSelection()) e.preventDefault();
+		} else if (k === 'v') {
+			if (pasteClipboard()) e.preventDefault();
+		} else if (k === 'd') {
+			if (duplicateSelection()) e.preventDefault();
+		}
+	}
+
 	onMount(() => {
 		loadUiState();
 		uiLoaded = true;
 		window.addEventListener('beforeunload', onBeforeUnload);
 		document.addEventListener('visibilitychange', onVisibilityChange);
 		window.addEventListener('focus', onVisibilityChange);
+		window.addEventListener('keydown', onEditorKeyDown);
 		const id = window.setInterval(() => (nowTick = Date.now()), RELATIVE_TICK_MS);
 		return () => {
 			window.removeEventListener('beforeunload', onBeforeUnload);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
 			window.removeEventListener('focus', onVisibilityChange);
+			window.removeEventListener('keydown', onEditorKeyDown);
 			window.clearInterval(id);
 			if (autosaveTimer) clearTimeout(autosaveTimer);
 		};
@@ -1461,6 +1748,28 @@
 					{lt}
 				</button>
 			{/each}
+		</div>
+		<div class="history-btns" role="group" aria-label="Undo / redo">
+			<button
+				class="hist-btn"
+				type="button"
+				disabled={!canUndo}
+				title="Undo (Ctrl/⌘+Z)"
+				aria-label="Undo"
+				onclick={undo}
+			>
+				↶
+			</button>
+			<button
+				class="hist-btn"
+				type="button"
+				disabled={!canRedo}
+				title="Redo (Ctrl/⌘+Shift+Z)"
+				aria-label="Redo"
+				onclick={redo}
+			>
+				↷
+			</button>
 		</div>
 		<div class="meta">
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
@@ -1595,7 +1904,7 @@
 							onclick={() => {
 								const idx = scenes.findIndex((s) => s.id === w.sceneId);
 								if (idx !== -1) activeSceneIdx = idx;
-								selectedId = w.nodeId;
+								selectOnly(w.nodeId);
 							}}
 						>
 							{w.message}
@@ -1714,6 +2023,33 @@
 									<circle cx="12" cy="12" r="3" fill="currentColor" />
 								</svg>
 							{/if}
+						</button>
+						<button
+							type="button"
+							class="dup"
+							title="Duplicate this screen"
+							aria-label="Duplicate this screen"
+							onclick={() => duplicateScene(i)}
+						>
+							<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+								<rect
+									x="8"
+									y="8"
+									width="11"
+									height="11"
+									rx="2"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								/>
+								<path
+									d="M5 15V6a1 1 0 011-1h9"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+								/>
+							</svg>
 						</button>
 						<button
 							type="button"
@@ -2033,7 +2369,8 @@
 						scene={editScene}
 						template={activeTemplate}
 						{selectedId}
-						onSelect={(id) => (selectedId = id)}
+						{selectedIds}
+						onSelect={selectFromOutline}
 						{onFillSlot}
 						onAddAnchor={onAddMountAnchor}
 						onRename={onRenameNode}
@@ -2054,9 +2391,10 @@
 					assets={data.assets}
 					{componentMap}
 					{onSpawn}
-					bind:selectedId
+					bind:selectedIds
 					onDirty={markDirty}
 					onDelete={onDeleteNode}
+					onDeleteMany={onDeleteNodes}
 					{fillRequest}
 					hiddenSceneIds={hiddenScenes}
 					projectGameName={data.gameName}
@@ -2066,7 +2404,12 @@
 		</main>
 
 		<aside class="properties">
-			<h2>Properties</h2>
+			<h2>
+				Properties
+				{#if selectedIds.length > 1}
+					<span class="multi-pill">{selectedIds.length} selected</span>
+				{/if}
+			</h2>
 			<EditorProperties
 				node={selectedNode}
 				layoutType={currentLayoutType}
@@ -2313,6 +2656,34 @@
 		border-color: #6b5bff;
 		color: #c8a3ff;
 	}
+	.history-btns {
+		display: inline-flex;
+		gap: 4px;
+		margin-right: 4px;
+	}
+	.hist-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		border: 1px solid #2a2a33;
+		background: transparent;
+		color: #c8c8d0;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 15px;
+		line-height: 1;
+		font-family: inherit;
+	}
+	.hist-btn:hover:not(:disabled) {
+		border-color: #5db0ff;
+		color: #e8e8ee;
+	}
+	.hist-btn:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
 	.scene-bar {
 		padding: 12px 16px;
 		border-bottom: 1px solid #1c1c24;
@@ -2481,6 +2852,36 @@
 		border-color: #b3434f;
 		background: #241417;
 		color: #ff8a96;
+	}
+	.dup {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		flex: none;
+		border-radius: 6px;
+		border: 1px solid #1f1f28;
+		background: #16161c;
+		color: #8aa0b4;
+		cursor: pointer;
+		padding: 0;
+	}
+	.dup:hover {
+		border-color: #2f5d7a;
+		background: #14202c;
+		color: #cfe0ee;
+	}
+	.multi-pill {
+		font-size: 10px;
+		font-weight: 600;
+		color: #cfe0ee;
+		background: #14202c;
+		border: 1px solid #2f5d7a;
+		border-radius: 999px;
+		padding: 1px 8px;
+		margin-left: 8px;
+		vertical-align: middle;
 	}
 	.screens-subhead {
 		display: flex;

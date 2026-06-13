@@ -1048,6 +1048,30 @@ The `/editor` SCREENS list was view-only (select + hide). Now it manages the scr
   HUD screen groups under the top-layer HUD section. `isHudScene` is editor-only (not in the game runtime), so
   this is non-breaking.
 
+### 20.2 Undo/redo + clipboard + multi-select (owner direction 2026-06-13)
+
+Three editor-wide capabilities, added on top of the panel work:
+
+- **Undo/redo.** Snapshot history hung off the single `markDirty()` choke point — so it
+  records every edit (canvas drag, property panel, screen ops) without touching the 60+ call
+  sites. A burst of edits within `HISTORY_COALESCE_MS` (350 ms) collapses into ONE step;
+  canvas drags already fire `onDirty` once on mouse-up, so they're naturally one step.
+  Snapshots clone `scenes` + `mainSizesMap` via `$state.snapshot` (reactive proxies throw in
+  `structuredClone`). `resetHistory()` runs on a wholesale layout load (`adoptScenes`) so you
+  can't undo past a deliberate swap. `Ctrl/⌘+Z` / `Shift+Z` / `Ctrl+Y` + toolbar buttons.
+- **Copy/cut/paste/duplicate** (`Ctrl/⌘+C/X/V/D`). Operates on the multi-selection; clones get
+  fresh ids (recursive; `slotId` dropped since a clone can't fill the same slot) + a 24px
+  nudge. Paste targets the ACTIVE scene, so it doubles as "move a node to another screen."
+  Screen-level duplicate is a row button. Clipboard is in-memory (cross-tab not wired).
+- **Multi-select.** `selectedIds[]` is the source of truth; `selectedId` becomes a derived
+  "primary" (last-picked) that the Properties panel + transform handles read. Canvas:
+  Shift+click toggles a node (Shift+drag on empty still pans; Shift mid-drag still constrains
+  the axis); dragging a member of a multi-selection moves the whole group by one snapped
+  delta; the overlay outlines every member but shows handles only when exactly one is picked;
+  Delete removes all in one transaction (`onDeleteMany`). Outliner: Shift = contiguous range
+  (pre-order flatten of the node tree), Ctrl/⌘ = toggle. The `/components` Component Editor
+  shares `EditorCanvas`/`EditorOutline`, so it was migrated to `selectedIds` too.
+
 ### 20.1 Deferred engine wiring (owner: "keep this change for later")
 
 The reference games mount scenes by **hardcoded id** in a fixed JSX order (`apps/lines/Game.svelte`
