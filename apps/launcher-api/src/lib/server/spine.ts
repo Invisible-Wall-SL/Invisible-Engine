@@ -222,17 +222,22 @@ export async function resolveEditorSpine(
 	preferPng: boolean,
 ): Promise<EditorSpineDescriptor | null> {
 	const entries = await loadSkeletonIndex(clientKey, projectKey);
-	// A full R2 bundle-PREFIX assetKey resolves to the FIRST skeleton in its folder
-	// (the editor's by-folder model — one skeleton per placed spine node). A short
-	// `<folder>/<stem>` key (the Symbols tool's published `previewKey`, e.g.
-	// `symbols/h1`, matching a `skeletons.json` entry `name`) resolves the SPECIFIC
-	// skeleton — so a default symbol spine sharing a multi-skeleton atlas previews the
-	// right one (e.g. h1 vs h2 in `symbols/`).
+	// Resolve the skeleton, most-specific first:
+	//  1. a full R2 bundle PREFIX → the FIRST skeleton in that folder (the editor's
+	//     by-folder model — one skeleton per placed spine node);
+	//  2. a `<folder>/<stem>` key (the Symbols tool's published `previewKey`, e.g.
+	//     `symbols/h1`) → the exact `skeletons.json` entry by `name`;
+	//  3. a bare engine key (e.g. `H1`, `explosion` — a coded symbol whose defaults
+	//     were published WITHOUT previewKeys) → the entry whose SKELETON FILE stem
+	//     matches case-insensitively (`H1` → `h1.json`). This makes a shared-atlas
+	//     symbol spine previewable straight from its coded assetKey.
+	const stemOf = (file: string): string => file.replace(/\.[^.]+$/, '').toLowerCase();
 	const bundle = bundleFromAssetKey(clientKey, projectKey, assetKey);
 	const entry =
 		bundle !== null
 			? entries.find((e) => e.folder === bundle)
-			: entries.find((e) => e.name === assetKey);
+			: (entries.find((e) => e.name === assetKey) ??
+				entries.find((e) => stemOf(e.skeleton_file) === assetKey.toLowerCase()));
 	if (!entry) return null;
 
 	const atlas = await fetchSpineBundleFile(
