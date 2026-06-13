@@ -1,14 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
+import { listFullSceneSets } from 'engine-layout';
 import {
 	ADMIN_PANEL_CAPABILITY,
 	CAPABILITIES,
-	GAME_KINDS,
 	ROLES,
 	TOOLS,
 	ROLE_TOOLS,
-	isGameKind,
 	roleHasCapability,
 } from '$lib/roles';
 import { hashPassword } from '$lib/server/auth';
@@ -48,6 +47,7 @@ import {
 	setProjectGameType,
 } from '$lib/server/projects';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { listKinds } from '$lib/server/kindStorage';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	assignProjectToClient,
@@ -90,6 +90,26 @@ async function requireAdmin(locals: App.Locals) {
 	return locals.user;
 }
 
+/**
+ * The selectable game kinds for the project create/edit selects (§21.6): the
+ * built-ins (id + display name from `listFullSceneSets()`) PLUS author-created
+ * custom kinds (from R2 via `listKinds()`). De-duped by id, built-ins winning, so
+ * a custom kind can never shadow a built-in. Used by the load (to render the
+ * options) and by the create/setProjectGameType actions (to validate the posted
+ * value) — one source so the offered set and the accepted set stay identical.
+ */
+async function selectableGameKinds(): Promise<{ id: string; name: string }[]> {
+	const builtins = listFullSceneSets().map((s) => ({ id: s.gameType, name: s.name }));
+	const seen = new Set(builtins.map((b) => b.id));
+	const out = [...builtins];
+	for (const k of await listKinds()) {
+		if (seen.has(k.id)) continue;
+		seen.add(k.id);
+		out.push(k);
+	}
+	return out;
+}
+
 const MIN_PASSWORD = 8;
 
 function parseExpiry(raw: string): Date | null | undefined {
@@ -124,6 +144,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const clients = await listClients();
 	const clientAccess = await clientAccessFor(userList.map((u) => u.id));
 	const games = await listGames();
+	const gameKinds = await selectableGameKinds();
 
 	// Deploy-token status only — the raw secret is NEVER sent on load; it is masked
 	// by default and revealed only on demand via the reveal/set/rotate actions.
@@ -152,7 +173,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		clients,
 		clientAccess,
 		games,
-		gameKinds: GAME_KINDS,
+		gameKinds,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
 		deployToken: {
@@ -338,7 +359,10 @@ export const actions: Actions = {
 			});
 		}
 		if (!name) return fail(400, { action: 'createProject', error: 'Name is required.' });
-		if (rawGameType !== '' && !isGameKind(rawGameType)) {
+		// §21.6: validate against the SAME union the picker offers — built-ins + the
+		// current custom kind ids (resolved server-side, never a client-only const).
+		const known = new Set((await selectableGameKinds()).map((k) => k.id));
+		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'createProject', error: 'Unknown game kind.' });
 		}
 		if (await projectExists(key)) {
@@ -348,7 +372,7 @@ export const actions: Actions = {
 			return fail(400, { action: 'createProject', error: 'Unknown client.' });
 		}
 
-		await createProject(key, name, clientKey, isGameKind(rawGameType) ? rawGameType : undefined);
+		await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
 		return { action: 'createProject', ok: `Created project ${key}.` };
 	},
@@ -390,7 +414,9 @@ export const actions: Actions = {
 		if (!(await projectExists(key))) {
 			return fail(400, { action: 'setProjectGameType', error: 'Unknown project.' });
 		}
-		if (!isGameKind(gameType)) {
+		// §21.6: accept any kind the picker offers — built-in or custom.
+		const known = new Set((await selectableGameKinds()).map((k) => k.id));
+		if (!known.has(gameType)) {
 			return fail(400, { action: 'setProjectGameType', error: 'Unknown game kind.' });
 		}
 

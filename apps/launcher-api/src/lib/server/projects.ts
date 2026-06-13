@@ -2,8 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import { clients, projects, userClientAccess, userProjectAccess } from './db/schema';
 import type { Project } from './db/schema';
-import type { GameKind, Role } from '$lib/roles';
-import { DEFAULT_GAME_KIND, isGameKind } from '$lib/roles';
+import type { Role } from '$lib/roles';
+import { DEFAULT_GAME_KIND } from '$lib/roles';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
@@ -48,29 +48,32 @@ export async function projectName(key: string): Promise<string | null> {
 
 /**
  * The game kind a project targets — used to pick its Invisible Editor template
- * + scaffold projection (see `docs/design/invisible-editor.md` §7.4 / §19.8).
+ * + scaffold projection (see `docs/design/invisible-editor.md` §7.4 / §19.8 / §21.6).
  *
- * Reads the per-project `game_type` column and returns it when it is a known
- * kind; otherwise (null / unknown / legacy rows) falls back to the default
- * `'lines'`. The DB read is wrapped in try/catch returning the default — a
- * TRANSITIONAL guard for the brief deploy window where the running code knows
- * the column but the `0010` migration has not yet been applied in prod. Remove
- * the guard once the migration is confirmed applied.
+ * Returns the stored `game_type` verbatim when non-empty (a built-in kind id OR
+ * an author-created custom kind id — §21.6), otherwise (null / legacy rows) falls
+ * back to the default `'lines'`. No `isGameKind` restriction: a custom kind id is a
+ * valid value now, and the admin actions are the gatekeeper that validate against
+ * the built-in + custom union before writing. The DB read is wrapped in try/catch
+ * returning the default — a TRANSITIONAL guard for the brief deploy window where the
+ * running code knows the column but the `0010` migration has not yet been applied in
+ * prod. Remove the guard once the migration is confirmed applied.
  */
-export async function projectGameType(key: string): Promise<GameKind> {
+export async function projectGameType(key: string): Promise<string> {
 	try {
 		const [row] = await getDb()
 			.select({ gameType: projects.gameType })
 			.from(projects)
 			.where(eq(projects.key, key));
-		return isGameKind(row?.gameType) ? row.gameType : DEFAULT_GAME_KIND;
+		return row?.gameType ? row.gameType : DEFAULT_GAME_KIND;
 	} catch {
 		return DEFAULT_GAME_KIND;
 	}
 }
 
-/** Set (or change) an existing project's game kind. */
-export async function setProjectGameType(key: string, gameType: GameKind): Promise<void> {
+/** Set (or change) an existing project's game kind (built-in or custom — the
+ * admin action validates against the known union before calling). */
+export async function setProjectGameType(key: string, gameType: string): Promise<void> {
 	await getDb().update(projects).set({ gameType }).where(eq(projects.key, key));
 }
 
@@ -223,7 +226,7 @@ export async function createProject(
 	key: string,
 	name: string,
 	clientKey: string | null = null,
-	gameType?: GameKind,
+	gameType?: string,
 ): Promise<void> {
 	await getDb()
 		.insert(projects)

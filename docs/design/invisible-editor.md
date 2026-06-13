@@ -1143,9 +1143,17 @@ its doc (`GET /api/editor/kind?id=`), runs `engineOwnedOnly`, and `adoptScenes` 
 merges built-ins + customs; custom scaffold fetches doc → `engineOwnedOnly` → adopt. 4. "Save as new game
 kind…" action. Build-green gate (authed pages owner-verified online).
 
-### 21.6 Deferred (NOT in this slice)
-Server-side **new-project scaffold from a custom kind** + admin assigning a custom kind: `projectGameType`
-validates against the 5 built-in `GAME_KINDS` (a custom id → falls back to lines), and `getFullSceneSet` is
-code-only. To let a NEW project be created as a custom kind, `projectGameType` must accept custom ids and the
-server scaffold must resolve custom kinds from R2 (`loadKind`). This slice ships the **editor picker** path
-(compose-from-custom-kind in an open project) only; the new-project/admin path is a follow-on.
+### 21.6 New-project scaffold + admin from a custom kind (BUILT 2026-06-13)
+Originally deferred; shipped as a follow-on so a brand-new PROJECT can be created as a custom kind, not just
+composed in an open editor. As-built (parity-safe):
+- `projectGameType(key): Promise<string>` returns the stored `game_type` **verbatim when non-empty**, else
+  `'lines'` (dropped the `isGameKind`-only restriction — a custom kind id is now a valid stored value; the
+  admin is the gatekeeper). `createProject`/`setProjectGameType` widened `GameKind` → `string`.
+- `projectScaffold` resolves the reference doc `getFullSceneSet(gameType) ?? (await loadKind(gameType))?.doc`
+  (built-in registry first, then the R2 custom-kind store) → `engineOwnedOnly(...).scenes`. `objectExists`
+  guard unchanged (existing projects never re-seeded).
+- Admin: one server helper `selectableGameKinds()` = built-ins (`listFullSceneSets()`, id+name) + `listKinds()`
+  (custom), de-duped (built-ins win); the create + per-project kind `<select>`s render it, and both actions
+  validate the posted kind against the SAME union (offered set == accepted set, resolved server-side).
+Parity: `game_type = null` still → lines; built-in kinds unchanged; only a project explicitly set to a custom
+kind newly resolves via `loadKind`. Build-green gate (authed/R2 paths owner-verified online).

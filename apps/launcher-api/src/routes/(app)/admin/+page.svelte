@@ -661,8 +661,8 @@
 								onchange={(e) => e.currentTarget.form?.requestSubmit()}
 							>
 								<option value="" disabled>— kind —</option>
-								{#each data.gameKinds as gk (gk)}
-									<option value={gk}>{gk}</option>
+								{#each data.gameKinds as gk (gk.id)}
+									<option value={gk.id}>{gk.name}</option>
 								{/each}
 							</select>
 						</form>
@@ -696,8 +696,8 @@
 						{/each}
 					</select>
 					<select name="gameType" title="Game kind">
-						{#each data.gameKinds as gk (gk)}
-							<option value={gk}>{gk}</option>
+						{#each data.gameKinds as gk (gk.id)}
+							<option value={gk.id}>{gk.name}</option>
 						{/each}
 					</select>
 					<button type="submit">Create project</button>
