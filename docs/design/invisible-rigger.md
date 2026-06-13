@@ -454,7 +454,19 @@ the mesh inserts a vertex via **local triangle split** (no global re-triangulati
   `payframe`, symbols `t1_glow`) + unweighted (`payframe_particles`). The new vertex
   is then draggable via 3.1. ⏳ owner-verify the UI live.
 
-Next — **Phase 3.3:** remove a vertex (re-triangulate the hole) + hull/edge editing +
-a UV editor + mesh attachment placement (deferred non-region case). Then **Phase 4
-(weights)** remains gated on the auto-weights question (real character mesh + better
-algorithm; manual brush is the fallback).
+**Phase 3.3 — remove a mesh vertex landed** (code; build GREEN; validity verified
+headlessly). A `－ Remove vertex` toggle; clicking an **interior** vertex removes it:
+- Collect the triangle fan around the vertex, chain its outer edges into the hole's
+  boundary ring, **ear-clip** the ring (using setup-pose world positions) to fill the
+  hole, drop the vertex from `uvs` + `vertices` (packed/unweighted), and **reindex**
+  every later triangle index. Hull vertices (index < `hull`) are refused (hull-edit =
+  3.4); the derived `edges` hint is dropped on the topology change.
+- **Verified:** `tools/rigger-spike/meshremove.mjs` — remove an interior vertex,
+  reload: vertex count −1, triangles a valid multiple of 3 with all indices in range,
+  mesh poses with all-finite verts, loader accepts (weighted anticipation `payframe`,
+  symbols `t1_glow`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify UI.
+
+**Mesh topology editing is now add + move + remove.** Next — **Phase 3.4:** UV
+editor (map verts onto the region image) + hull/edge editing + new-mesh-from-scratch.
+Then **Phase 4 (weights)** remains gated on the auto-weights question (real character
+mesh + better algorithm; manual brush is the fallback).

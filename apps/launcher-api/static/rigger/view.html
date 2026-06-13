@@ -266,6 +266,7 @@ let selSlot = null; // selected slot NAME (for draw-order + attachment placement
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
 let meshDragVert = null; // index of the mesh vertex being dragged
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
+let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -642,7 +643,7 @@ function markDirty(){
 // ---- slot selection: draw-order + region attachment placement -------------
 function selectSlot(name){
   selSlot = name;
-  meshAddMode = false;
+  meshAddMode = false; meshRemoveMode = false;
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   renderSlotDetail();
 }
@@ -681,12 +682,25 @@ function renderSlotDetail(){
       (meshCtx.weighted ? " · weighted" : "") + " — drag the points on the canvas to reshape";
     t.style.color = "var(--accent2)";
     det.appendChild(t);
+    const tools = document.createElement("div");
+    tools.style.cssText = "margin-top:7px;display:flex;gap:6px;";
     const addBtn = document.createElement("button");
-    addBtn.textContent = meshAddMode ? "＋ adding… (click inside the mesh)" : "＋ Add vertex";
+    addBtn.textContent = meshAddMode ? "＋ adding…" : "＋ Add vertex";
     if (meshAddMode) addBtn.className = "active";
-    addBtn.style.cssText = "margin-top:7px;";
-    addBtn.onclick = () => { meshAddMode = !meshAddMode; renderSlotDetail(); };
-    det.appendChild(addBtn);
+    addBtn.onclick = () => { meshAddMode = !meshAddMode; meshRemoveMode = false; renderSlotDetail(); };
+    const remBtn = document.createElement("button");
+    remBtn.textContent = meshRemoveMode ? "－ removing…" : "－ Remove vertex";
+    if (meshRemoveMode) remBtn.className = "active";
+    remBtn.onclick = () => { meshRemoveMode = !meshRemoveMode; meshAddMode = false; renderSlotDetail(); };
+    tools.appendChild(addBtn); tools.appendChild(remBtn);
+    det.appendChild(tools);
+    if (meshAddMode || meshRemoveMode){
+      const h = document.createElement("div");
+      h.textContent = meshAddMode ? "click inside the mesh to add a vertex"
+        : "click an interior vertex to remove (hull vertices can't be removed yet)";
+      h.style.cssText = "margin-top:4px;color:var(--dim);";
+      det.appendChild(h);
+    }
     return;
   }
   if (!att || att.constructor.name !== "RegionAttachment"){
@@ -826,18 +840,18 @@ function cursorWorld(e){
   } catch { return null; }
 }
 
-// If the cursor is near a mesh vertex, start dragging it. Returns true if grabbed.
-function tryStartMeshDrag(e){
+// Index of the mesh vertex nearest the cursor (within a screen-scaled threshold), else -1.
+function nearestMeshVert(e){
   const cw = cursorWorld(e), w = meshWorldVerts();
-  if (!cw || !w) return false;
+  if (!cw || !w) return -1;
   let best = -1, bestD = Infinity;
   for (let k = 0; k < w.length / 2; k++){
     const d = Math.hypot(w[k * 2] - cw.x, w[k * 2 + 1] - cw.y);
     if (d < bestD){ bestD = d; best = k; }
   }
-  if (best >= 0 && bestD < renderer.camera.zoom * 11){ meshDragVert = best; return true; }
-  return false;
+  return best >= 0 && bestD < renderer.camera.zoom * 11 ? best : -1;
 }
+function tryStartMeshDrag(e){ const k = nearestMeshVert(e); if (k >= 0){ meshDragVert = k; return true; } return false; }
 
 // Draw the selected mesh's vertices as handles (world space, via the shape API).
 function drawMeshOverlay(){
@@ -917,6 +931,96 @@ function addMeshVertex(Px, Py){
 
   // replace the containing triangle with three fanned to the new vertex
   rd.triangles.splice(bc.t, 3, bc.ia, bc.ib, n, bc.ib, bc.ic, n, bc.ic, bc.ia, n);
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+  return true;
+}
+
+// Ear-clip a polygon (ordered ring of vertex indices, positions from worldPos) into
+// triangles of those indices. Returns null if it can't triangulate (degenerate).
+function earClip(ring, worldPos){
+  const P = ring.map((i) => ({ i, x: worldPos[i * 2], y: worldPos[i * 2 + 1] }));
+  let area = 0;
+  for (let i = 0; i < P.length; i++){ const j = (i + 1) % P.length; area += P[i].x * P[j].y - P[j].x * P[i].y; }
+  if (area < 0) P.reverse();
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const inTri = (p, a, b, c) => {
+    const d1 = cross(a, b, p), d2 = cross(b, c, p), d3 = cross(c, a, p);
+    return !(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)));
+  };
+  const v = P.slice(), tris = [];
+  let guard = 0;
+  while (v.length > 3 && guard++ < 2000){
+    let clipped = false;
+    for (let i = 0; i < v.length; i++){
+      const a = v[(i - 1 + v.length) % v.length], b = v[i], c = v[(i + 1) % v.length];
+      if (cross(a, b, c) <= 0) continue; // reflex/collinear → not an ear
+      let ear = true;
+      for (const q of v){ if (q === a || q === b || q === c) continue; if (inTri(q, a, b, c)){ ear = false; break; } }
+      if (!ear) continue;
+      tris.push([a.i, b.i, c.i]); v.splice(i, 1); clipped = true; break;
+    }
+    if (!clipped) return null;
+  }
+  if (v.length === 3) tris.push([v[0].i, v[1].i, v[2].i]);
+  return tris;
+}
+
+// Remove an INTERIOR mesh vertex k: ear-clip the hole left by its triangle fan, drop
+// the vertex from uvs/vertices, reindex triangles, then rebuild. Hull vertices
+// (index < hull) are not removable yet.
+function removeMeshVertex(k){
+  if (!meshCtx || !rawDoc) return false;
+  const rd = rawDocMeshEntry();
+  if (!rd || !Array.isArray(rd.triangles)) return false;
+  const hull = rd.hull || 0;
+  if (k < hull){ showErr("Hull vertices can't be removed yet."); return false; }
+  if (rd.uvs.length / 2 <= 3) return false;
+  const w = meshWorldVerts();
+  if (!w) return false;
+  const tris = rd.triangles;
+
+  // directed boundary edges of the fan around k (the two non-k verts, in winding order)
+  const edges = [];
+  for (let t = 0; t < tris.length; t += 3){
+    const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+    if (a !== k && b !== k && c !== k) continue;
+    if (a === k) edges.push([b, c]); else if (b === k) edges.push([c, a]); else edges.push([a, b]);
+  }
+  if (edges.length < 3){ showErr("Can't remove this vertex (not a simple interior fan)."); return false; }
+  // chain edges into one ordered ring
+  const nxt = new Map(); for (const [f, to] of edges) nxt.set(f, to);
+  const startV = edges[0][0], ring = [startV];
+  let cur = nxt.get(startV), guard = 0;
+  while (cur !== undefined && cur !== startV && guard++ < edges.length + 2){ ring.push(cur); cur = nxt.get(cur); }
+  if (cur !== startV || ring.length !== edges.length){ showErr("Can't remove this vertex (non-manifold ring)."); return false; }
+
+  const filled = earClip(ring, w);
+  if (!filled){ showErr("Re-triangulation failed for this vertex."); return false; }
+
+  // keep triangles not using k, add the fill
+  const kept = [];
+  for (let t = 0; t < tris.length; t += 3){
+    const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+    if (a !== k && b !== k && c !== k) kept.push(a, b, c);
+  }
+  for (const tri of filled) kept.push(tri[0], tri[1], tri[2]);
+
+  // drop vertex k from uvs + vertices (packed/unweighted)
+  rd.uvs.splice(k * 2, 2);
+  const att = meshCtx.attachment;
+  if (!att.bones || !att.bones.length){
+    rd.vertices.splice(k * 2, 2);
+  } else {
+    let ri = 0; for (let vtx = 0; vtx < k; vtx++){ const n = rd.vertices[ri]; ri += 1 + n * 4; }
+    const n = rd.vertices[ri]; rd.vertices.splice(ri, 1 + n * 4);
+  }
+  // reindex triangles referencing a vertex after k
+  for (let i = 0; i < kept.length; i++) if (kept[i] > k) kept[i]--;
+  rd.triangles = kept;
+  // `edges` is a derived editor hint indexed by 2×vertex — drop it on topology change
+  delete rd.edges;
+
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
   return true;
@@ -1252,6 +1356,7 @@ function wire(){
     // Edit mode priority: add/grab a mesh vertex, else move the selected bone; Shift+drag pans.
     if (editMode && meshCtx && !e.shiftKey){
       if (meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
+      if (meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
     if (editMode && selBone != null && rawDoc && !e.shiftKey) boneDragging = true;
