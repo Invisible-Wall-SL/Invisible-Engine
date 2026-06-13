@@ -702,6 +702,22 @@ had no way to remove either. Added per-row delete:
   skeleton/source remains. Build GREEN; viewer `node --check` OK. (R2 I/O itself, like
   save/new/upload, is owner-verified live.)
 
+### A-delete follow-ups — case-insensitive name guard + skin discoverability
+
+- **Case-insensitive new-rig guard** (`spineBundleNameTaken` in `spineIndex.ts`, used by
+  `/api/rigger/new` + `/api/rigger/upload`): R2 keys are case-sensitive, so the old
+  `objectExists` check let `Test1` and `test1` coexist as separate bundles (how the dupes
+  happened). Now New-rig / upload 409 if a bundle dir matches the name case-insensitively.
+  Verified the prefix-segment match logic on 6 cases.
+- **Skin discoverability:** the active skin is what shows a skin's images/meshes/weights,
+  but the only control was the easy-to-miss top-bar `Skin` dropdown. The inspector SKINS
+  rows are now CLICKABLE (`setActiveSkin`) with the active skin highlighted + an "active"
+  badge + a hint line; the top-bar dropdown routes through the same `setActiveSkin`, which
+  syncs both, re-renders the rows, and refreshes the open slot's mesh/weight UI under the
+  newly-active skin. (Model reminder: bones drive SLOTS, not skins; a skin is a per-slot
+  set of attachments — switch the active skin to inspect/paint that skin's meshes.)
+  Build GREEN; viewer `node --check` OK. UI owner-verify live.
+
 **A3 — raw image upload landed** (2026-06-13, owner ask "insert images"; code; build
 GREEN; packer + synth verified headlessly). Start a rig from **brand-new art** with no
 Atlas Maker step. In the New-rig panel, **or upload images** (file input, multi):

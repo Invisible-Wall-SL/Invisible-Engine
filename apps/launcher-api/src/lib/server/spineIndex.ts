@@ -13,6 +13,22 @@
  */
 import { getObjectBytes, getObjectText, listAllKeys } from './r2';
 
+/**
+ * Is a spine bundle dir named `name` already present under `spinesPrefix` —
+ * CASE-INSENSITIVELY? R2 keys are case-sensitive, so a plain existence check lets
+ * `Test1` and `test1` coexist as separate bundles; the Rigger's New-rig / upload use
+ * this so a fresh rig can't shadow an existing one by case alone.
+ */
+export async function spineBundleNameTaken(spinesPrefix: string, name: string): Promise<boolean> {
+	const lower = name.toLowerCase();
+	const keys = await listAllKeys(`${spinesPrefix}/`);
+	for (const k of keys) {
+		const seg = k.slice(spinesPrefix.length + 1).split('/')[0];
+		if (seg && seg.toLowerCase() === lower) return true;
+	}
+	return false;
+}
+
 /** Asset extensions the spine sync uploads — everything else is skipped.
  * `.irig` = the Invisible Rigger's edited-skeleton format (Spine JSON under our
  * extension); indexed as a first-class JSON skeleton so saved edits re-open. */

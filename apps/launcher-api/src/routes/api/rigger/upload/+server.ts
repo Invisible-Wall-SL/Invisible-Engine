@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
-import { objectExists, putObjectBytes, putObjectText } from '$lib/server/r2';
+import { putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas, type SynthRegion } from '$lib/server/spine';
-import { buildSkeletonsIndex } from '$lib/server/spineIndex';
+import { buildSkeletonsIndex, spineBundleNameTaken } from '$lib/server/spineIndex';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const spinesPrefix = SUB.spines(clientKey, projectKey);
 	const bundle = `${spinesPrefix}/${name}`;
-	if (await objectExists(`${bundle}/${name}.irig`)) throw error(409, `a rig named "${name}" already exists`);
+	if (await spineBundleNameTaken(spinesPrefix, name)) throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
 	const pageName = `${name}.png`;
 	const atlasText = regionsToSpineAtlas(pageName, pageWidth, pageHeight, regions);

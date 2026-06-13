@@ -550,10 +550,17 @@ function buildInspector(entry){
 
   // ---- skins + attachment counts (flag weighted meshes) ----
   const skinList = $("#skinList"); clearChildren(skinList);
+  const activeSkinName = (skeleton && skeleton.skin && skeleton.skin.name) || "default";
+  {
+    const hint = document.createElement("div");
+    hint.textContent = "click a skin to view its images / meshes / weights";
+    hint.style.cssText = "margin:4px 14px;color:var(--dim);font-size:11px;";
+    skinList.appendChild(hint);
+  }
   if (editMode){
     const ak = document.createElement("button");
     ak.textContent = "＋ Add skin";
-    ak.style.cssText = "margin:6px 14px 2px;";
+    ak.style.cssText = "margin:2px 14px 2px;";
     ak.onclick = addSkin;
     skinList.appendChild(ak);
   }
@@ -567,8 +574,11 @@ function buildInspector(entry){
       }
     }
     const row = document.createElement("div");
-    row.className = "trow";
-    row.textContent = sk.name;
+    row.className = "trow" + (sk.name === activeSkinName ? " sel" : "");
+    row.dataset.skin = sk.name;
+    row.onclick = () => setActiveSkin(sk.name);
+    const nm = document.createElement("span"); nm.textContent = sk.name; row.appendChild(nm);
+    if (sk.name === activeSkinName){ const a = document.createElement("span"); a.className = "tag"; a.textContent = "active"; a.style.color = "var(--accent)"; row.appendChild(a); }
     const t = document.createElement("span"); t.className = "tag";
     t.textContent = atts.length + " attachments";
     row.appendChild(t);
@@ -913,6 +923,20 @@ function deleteSkin(name){
   rawDoc.skins = rawDoc.skins.filter((s) => s.name !== name);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
+}
+
+// Set the on-stage skin — this is how you VIEW a skin's images/meshes/weights. Syncs
+// the top-bar selector + the SKINS-list highlight, and refreshes the open slot detail
+// so its mesh/weight tools track the newly-active skin's attachment.
+function setActiveSkin(name){
+  if (!skeleton) return;
+  skeleton.setSkinByName(name);
+  skeleton.setSlotsToSetupPose();
+  updateWorld();
+  const top = $("#skin"); if (top) top.value = name;
+  buildInspector(selected); // re-render skin rows (active badge/highlight) under this skin
+  if (selBone != null) selectBone(selBone);
+  if (selSlot) selectSlot(selSlot); // refresh the slot's mesh/weight UI for this skin
 }
 
 // Attach a packed image (atlas region) to the selected slot in the active skin —
@@ -2183,7 +2207,7 @@ function wire(){
   $("#play").onclick = () => { playing = !playing; $("#play").textContent = playing ? "❚❚ Pause" : "▶ Play"; };
   $("#loop").onclick = () => { looping = !looping; $("#loop").classList.toggle("active", looping); if (curEntry) curEntry.loop = looping; };
   $("#anim").onchange = e => setAnim(e.target.value);
-  $("#skin").onchange = e => { skeleton.setSkinByName(e.target.value); skeleton.setSlotsToSetupPose(); updateWorld(); };
+  $("#skin").onchange = e => setActiveSkin(e.target.value);
   $("#speed").oninput = e => { const v = e.target.value/100; if (animState) animState.timeScale = v; $("#speedv").textContent = v.toFixed(1) + "×"; };
   $("#scrub").oninput = e => {
     if (!curEntry || !curEntry.animation) return;
