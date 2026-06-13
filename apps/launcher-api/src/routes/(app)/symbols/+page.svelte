@@ -2,12 +2,9 @@
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
-	import {
-		fetchRegions,
-		type EditorRegion,
-		type RegionSet,
-	} from '../editor/editorRegions.client';
+	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
+	import SymbolSpineStage from './SymbolSpineStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
 	import {
 		STATE_LABELS,
@@ -106,8 +103,8 @@
 	let saveError = $state<string | null>(null);
 	let savedAt = $state<string | null>(data.doc.updatedAt ?? null);
 
-	// The focused cell — drives the live spine preview (only ONE spine renders at a
-	// time, the heavy bit) and the cell editor panel.
+	// The focused cell — opens the cell editor panel (with its single live spine
+	// preview). Grid spine cells animate via the shared <SymbolSpineStage>, not focus.
 	let focus = $state<{ symbol: string; state: SymbolState } | null>(null);
 	const focusCell = $derived(
 		focus ? effectiveCell(doc, data.defaults, focus.symbol, focus.state) : null,
@@ -225,81 +222,84 @@
 	</header>
 
 	<div class="body" class:has-panel={!!focus}>
-		<div class="grid-scroll" bind:this={gridScroll}>
-			{#if symbolNames.length === 0}
-				<p class="muted">No symbols defined for this game type.</p>
-			{:else}
-				<table class="grid" style="--cell: {previewSize}px">
-					<thead>
-						<tr>
-							<th class="corner">Symbol</th>
-							{#each SYMBOL_STATES as state (state)}
-								<th>{STATE_LABELS[state]}</th>
-							{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#each symbolNames as symbol (symbol)}
+		<div class="grid-area">
+			<div class="grid-scroll" bind:this={gridScroll}>
+				{#if symbolNames.length === 0}
+					<p class="muted">No symbols defined for this game type.</p>
+				{:else}
+					<table class="grid" style="--cell: {previewSize}px">
+						<thead>
 							<tr>
-								<th class="rowhead">{symbol}</th>
+								<th class="corner">Symbol</th>
 								{#each SYMBOL_STATES as state (state)}
-									{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
-									<td>
-										<button
-											type="button"
-											class="cell"
-											class:overridden={eff.overridden}
-											class:focused={isFocused(symbol, state)}
-											class:empty={!eff.cell}
-											onclick={() => openCell(symbol, state)}
-											title={cellLabel(eff.cell)}
-										>
-											<div class="preview">
-												{#if !eff.cell}
-													<span class="chip">unset</span>
-												{:else if eff.cell.type === 'sprite'}
-													<SymbolSpritePreview
-														frame={eff.cell.assetKey}
-														index={spriteIndex}
-														size={previewSize}
-													/>
-												{:else if isFocused(symbol, state)}
-													<SymbolSpinePreview
-														assetKey={eff.cell.previewKey ?? eff.cell.assetKey}
-														animationName={eff.cell.animationName}
-														size={previewSize}
-													/>
-												{:else}
-													<span class="chip spine" title={cellLabel(eff.cell)}>
-														<span class="chip-key">{displayKey(eff.cell)}</span>
-														{#if eff.cell.animationName}
-															<span class="chip-anim">{eff.cell.animationName}</span>
-														{/if}
-													</span>
-												{/if}
-											</div>
-											<div class="cell-foot">
-												{#if eff.overridden}<span class="badge">edited</span>{/if}
-											</div>
-										</button>
-										{#if eff.overridden}
-											<button
-												type="button"
-												class="reset"
-												title="Reset to default"
-												onclick={(e) => {
-													e.stopPropagation();
-													resetCell(symbol, state);
-												}}>↺</button
-											>
-										{/if}
-									</td>
+									<th>{STATE_LABELS[state]}</th>
 								{/each}
 							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
+						</thead>
+						<tbody>
+							{#each symbolNames as symbol (symbol)}
+								<tr>
+									<th class="rowhead">{symbol}</th>
+									{#each SYMBOL_STATES as state (state)}
+										{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
+										<td>
+											<button
+												type="button"
+												class="cell"
+												class:overridden={eff.overridden}
+												class:focused={isFocused(symbol, state)}
+												class:empty={!eff.cell}
+												onclick={() => openCell(symbol, state)}
+												title={cellLabel(eff.cell)}
+											>
+												<div class="preview">
+													{#if !eff.cell}
+														<span class="chip">unset</span>
+													{:else if eff.cell.type === 'sprite'}
+														<SymbolSpritePreview
+															frame={eff.cell.assetKey}
+															index={spriteIndex}
+															size={previewSize}
+														/>
+													{:else}
+														<div
+															class="spine-target"
+															data-spine-key={eff.cell.previewKey ?? eff.cell.assetKey}
+															data-spine-anim={eff.cell.animationName ?? ''}
+														>
+															<span class="chip spine" title={cellLabel(eff.cell)}>
+																<span class="chip-key">{displayKey(eff.cell)}</span>
+																{#if eff.cell.animationName}
+																	<span class="chip-anim">{eff.cell.animationName}</span>
+																{/if}
+															</span>
+														</div>
+													{/if}
+												</div>
+												<div class="cell-foot">
+													{#if eff.overridden}<span class="badge">edited</span>{/if}
+												</div>
+											</button>
+											{#if eff.overridden}
+												<button
+													type="button"
+													class="reset"
+													title="Reset to default"
+													onclick={(e) => {
+														e.stopPropagation();
+														resetCell(symbol, state);
+													}}>↺</button
+												>
+											{/if}
+										</td>
+									{/each}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+			</div>
+			<SymbolSpineStage container={gridScroll} />
 		</div>
 
 		{#if focus && draft}
@@ -510,7 +510,15 @@
 	.body.has-panel {
 		grid-template-columns: 1fr 320px;
 	}
+	.grid-area {
+		position: relative;
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+	}
 	.grid-scroll {
+		position: absolute;
+		inset: 0;
 		overflow: auto;
 		padding: 18px;
 	}
@@ -577,6 +585,15 @@
 		opacity: 0.7;
 	}
 	.preview {
+		width: var(--cell, 56px);
+		height: var(--cell, 56px);
+		display: grid;
+		place-items: center;
+	}
+	/* Spine cells render a chip placeholder here; the shared <SymbolSpineStage> canvas
+	   draws the live animation ON TOP, tracking this box's screen rect as the grid scrolls. */
+	.spine-target {
+		position: relative;
 		width: var(--cell, 56px);
 		height: var(--cell, 56px);
 		display: grid;
