@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import { clients, projects, userClientAccess, userProjectAccess } from './db/schema';
 import type { Project } from './db/schema';
-import type { Role } from '$lib/roles';
+import type { GameKind, Role } from '$lib/roles';
+import { DEFAULT_GAME_KIND, isGameKind } from '$lib/roles';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
@@ -46,16 +47,31 @@ export async function projectName(key: string): Promise<string | null> {
 }
 
 /**
- * The game type a project targets — used to pick its Invisible Editor template
- * (see `docs/design/invisible-editor.md` §7.4).
+ * The game kind a project targets — used to pick its Invisible Editor template
+ * + scaffold projection (see `docs/design/invisible-editor.md` §7.4 / §19.8).
  *
- * TODO: the `projects` table has no `game_type` column yet, so there is nowhere
- * to record this per-project. Until that schema lands (a deliberate migration,
- * not invented here) every project falls back to the only built-in template,
- * `'lines'`. When the column exists, read it here and only fall back when unset.
+ * Reads the per-project `game_type` column and returns it when it is a known
+ * kind; otherwise (null / unknown / legacy rows) falls back to the default
+ * `'lines'`. The DB read is wrapped in try/catch returning the default — a
+ * TRANSITIONAL guard for the brief deploy window where the running code knows
+ * the column but the `0010` migration has not yet been applied in prod. Remove
+ * the guard once the migration is confirmed applied.
  */
-export async function projectGameType(_key: string): Promise<string> {
-	return 'lines';
+export async function projectGameType(key: string): Promise<GameKind> {
+	try {
+		const [row] = await getDb()
+			.select({ gameType: projects.gameType })
+			.from(projects)
+			.where(eq(projects.key, key));
+		return isGameKind(row?.gameType) ? row.gameType : DEFAULT_GAME_KIND;
+	} catch {
+		return DEFAULT_GAME_KIND;
+	}
+}
+
+/** Set (or change) an existing project's game kind. */
+export async function setProjectGameType(key: string, gameType: GameKind): Promise<void> {
+	await getDb().update(projects).set({ gameType }).where(eq(projects.key, key));
 }
 
 /**
@@ -207,8 +223,11 @@ export async function createProject(
 	key: string,
 	name: string,
 	clientKey: string | null = null,
+	gameType?: GameKind,
 ): Promise<void> {
-	await getDb().insert(projects).values({ key, name, clientKey });
+	await getDb()
+		.insert(projects)
+		.values({ key, name, clientKey, gameType: gameType ?? null });
 }
 
 export async function renameProject(key: string, name: string): Promise<void> {

@@ -29,6 +29,13 @@ export const projects = pgTable('projects', {
 	/** Owning client; null = unassigned (the default `cloud` and legacy projects). */
 	clientKey: text('client_key').references(() => clients.key, { onDelete: 'set null' }),
 	/**
+	 * Game kind this project targets (lines/ways/cluster/scatter/bookOf — see
+	 * `GAME_KINDS` in `$lib/roles`). Picks the editor template + scaffold
+	 * projection. Nullable + no default: legacy rows and the seeded `cloud`
+	 * project stay null and fall back to `'lines'` via `projectGameType`.
+	 */
+	gameType: text('game_type'),
+	/**
 	 * Machine-independent "launcher profile" published by the owner from the desktop
 	 * launcher. Opaque JSON — the shape is owned by the desktop client; the server
 	 * stores and returns it as-is. Null until first published.

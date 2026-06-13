@@ -140,12 +140,16 @@
 			{
 				id: 'online',
 				label: 'Online tools',
-				rows: data.tools.filter((t) => t.kind === 'online').map((t) => ({ key: t.id, name: t.name })),
+				rows: data.tools
+					.filter((t) => t.kind === 'online')
+					.map((t) => ({ key: t.id, name: t.name })),
 			},
 			{
 				id: 'local',
 				label: 'Local tools',
-				rows: data.tools.filter((t) => t.kind === 'local').map((t) => ({ key: t.id, name: t.name })),
+				rows: data.tools
+					.filter((t) => t.kind === 'local')
+					.map((t) => ({ key: t.id, name: t.name })),
 			},
 		];
 		return groups.filter((g) => g.rows.length > 0);
@@ -590,13 +594,9 @@
 				The platform tool registry (read-only here). Each tool's per-role and per-user availability
 				is managed in the <button type="button" class="link" onclick={() => (tab = 'roles')}>
 					Roles
-				</button> tab and the per-user panel in <button
-					type="button"
-					class="link"
-					onclick={() => (tab = 'users')}
-				>
-					Users
-				</button>.
+				</button>
+				tab and the per-user panel in
+				<button type="button" class="link" onclick={() => (tab = 'users')}> Users </button>.
 			</p>
 			<div class="table tools-table">
 				<div class="row head tools-head">
@@ -647,6 +647,25 @@
 								{/each}
 							</select>
 						</form>
+						<form
+							method="POST"
+							action="?/setProjectGameType"
+							use:enhance
+							class="gametype"
+							title="Game kind — picks the editor template + scaffold"
+						>
+							<input type="hidden" name="key" value={p.key} />
+							<select
+								name="gameType"
+								value={p.gameType ?? ''}
+								onchange={(e) => e.currentTarget.form?.requestSubmit()}
+							>
+								<option value="" disabled>— kind —</option>
+								{#each data.gameKinds as gk (gk)}
+									<option value={gk}>{gk}</option>
+								{/each}
+							</select>
+						</form>
 						<form method="POST" action="?/rescaffoldProject" use:enhance>
 							<input type="hidden" name="key" value={p.key} />
 							<button type="submit" class="small">Rescaffold</button>
@@ -662,12 +681,23 @@
 					</div>
 				{/each}
 				<form method="POST" action="?/createProject" use:enhance class="project-row create">
-					<input name="key" type="text" placeholder="key (e.g. borut)" autocomplete="off" required />
+					<input
+						name="key"
+						type="text"
+						placeholder="key (e.g. borut)"
+						autocomplete="off"
+						required
+					/>
 					<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
 					<select name="clientKey">
 						<option value="">— unassigned —</option>
 						{#each data.clients as c (c.key)}
 							<option value={c.key}>{c.name}</option>
+						{/each}
+					</select>
+					<select name="gameType" title="Game kind">
+						{#each data.gameKinds as gk (gk)}
+							<option value={gk}>{gk}</option>
 						{/each}
 					</select>
 					<button type="submit">Create project</button>
@@ -708,7 +738,13 @@
 					<p class="muted">No clients yet.</p>
 				{/each}
 				<form method="POST" action="?/createClient" use:enhance class="project-row create">
-					<input name="key" type="text" placeholder="key (e.g. borut)" autocomplete="off" required />
+					<input
+						name="key"
+						type="text"
+						placeholder="key (e.g. borut)"
+						autocomplete="off"
+						required
+					/>
 					<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
 					<button type="submit">Create client</button>
 				</form>
@@ -729,12 +765,13 @@
 			<p class="muted hint">
 				Each game has its own name + launch URL, and is scoped to a project: it appears on the home
 				Games grid only when that project (or its client) is selected. Leave the project as
-				<em>Global</em> to show it on every selection. The launch URL gets the active project appended
-				(<code>?project=…</code>). Games will live on a future dedicated game server.
-				<strong>Leave the URL blank when creating</strong> and it auto-fills the standard test-server
-				URL for the key (<code>{data.gamesBaseUrl}/&lt;key&gt;/?sessionID=demo&amp;rgs_url=…/api/&lt;key&gt;&amp;lang=en</code>);
-				enter a URL only for games hosted elsewhere. The game still has to be published to that path to
-				actually load.
+				<em>Global</em> to show it on every selection. The launch URL gets the active project
+				appended (<code>?project=…</code>). Games will live on a future dedicated game server.
+				<strong>Leave the URL blank when creating</strong> and it auto-fills the standard
+				test-server URL for the key (<code
+					>{data.gamesBaseUrl}/&lt;key&gt;/?sessionID=demo&amp;rgs_url=…/api/&lt;key&gt;&amp;lang=en</code
+				>); enter a URL only for games hosted elsewhere. The game still has to be published to that
+				path to actually load.
 			</p>
 			<div class="projects">
 				{#each data.games as g (g.key)}
@@ -747,7 +784,13 @@
 						</form>
 						<form method="POST" action="?/setGameUrl" use:enhance class="rename">
 							<input type="hidden" name="key" value={g.key} />
-							<input name="url" type="text" value={g.url} placeholder="https://…" autocomplete="off" />
+							<input
+								name="url"
+								type="text"
+								value={g.url}
+								placeholder="https://…"
+								autocomplete="off"
+							/>
 							<button type="submit">Save URL</button>
 						</form>
 						<form method="POST" action="?/setGameProject" use:enhance class="rename">
@@ -769,7 +812,13 @@
 					<p class="muted">No games yet.</p>
 				{/each}
 				<form method="POST" action="?/createGame" use:enhance class="project-row create">
-					<input name="key" type="text" placeholder="key (e.g. lines)" autocomplete="off" required />
+					<input
+						name="key"
+						type="text"
+						placeholder="key (e.g. lines)"
+						autocomplete="off"
+						required
+					/>
 					<input name="name" type="text" placeholder="Display name" autocomplete="off" required />
 					<input
 						name="url"
@@ -802,8 +851,8 @@
 			<p class="muted hint">
 				Select a user in the <button type="button" class="link" onclick={() => (tab = 'users')}>
 					Users
-				</button> tab, then load their active sessions there to revoke individual or all sessions. The session
-				list shows a colour + icon badge per state (active, expiring, expired).
+				</button> tab, then load their active sessions there to revoke individual or all sessions. The
+				session list shows a colour + icon badge per state (active, expiring, expired).
 			</p>
 			{#if selected}
 				<div class="card">
@@ -914,7 +963,12 @@
 				<form method="POST" action="?/setDeployToken" use:enhance class="inline token-set">
 					<label class="grow">
 						Set token (typed value)
-						<input name="token" type="text" autocomplete="off" placeholder="paste or type a token" />
+						<input
+							name="token"
+							type="text"
+							autocomplete="off"
+							placeholder="paste or type a token"
+						/>
 					</label>
 					<button type="submit">Save</button>
 				</form>
@@ -1386,6 +1440,9 @@
 	}
 	.assign select {
 		min-width: 160px;
+	}
+	.gametype select {
+		min-width: 110px;
 	}
 	.project-row.create {
 		border-top: 1px solid #1d1d24;

@@ -4,9 +4,11 @@ import { eq } from 'drizzle-orm';
 import {
 	ADMIN_PANEL_CAPABILITY,
 	CAPABILITIES,
+	GAME_KINDS,
 	ROLES,
 	TOOLS,
 	ROLE_TOOLS,
+	isGameKind,
 	roleHasCapability,
 } from '$lib/roles';
 import { hashPassword } from '$lib/server/auth';
@@ -43,6 +45,7 @@ import {
 	projectExists,
 	renameProject,
 	revokeProjectAccess,
+	setProjectGameType,
 } from '$lib/server/projects';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { scaffoldProject } from '$lib/server/projectScaffold';
@@ -149,6 +152,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		clients,
 		clientAccess,
 		games,
+		gameKinds: GAME_KINDS,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
 		deployToken: {
@@ -292,7 +296,8 @@ export const actions: Actions = {
 		// 'grant' | 'revoke' | 'default'
 		const mode = String(data.get('mode') ?? '');
 
-		if (!isValidRole(role)) return fail(400, { action: 'setRoleToolAccess', error: 'Invalid role.' });
+		if (!isValidRole(role))
+			return fail(400, { action: 'setRoleToolAccess', error: 'Invalid role.' });
 
 		const isCapability = CAPABILITIES.some((c) => c.key === toolKey);
 		if (!isCapability && !TOOLS[toolKey]) {
@@ -324,6 +329,7 @@ export const actions: Actions = {
 		const name = String(data.get('name') ?? '').trim();
 		const rawClient = String(data.get('clientKey') ?? '').trim();
 		const clientKey = rawClient === '' ? null : rawClient;
+		const rawGameType = String(data.get('gameType') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
 			return fail(400, {
@@ -332,6 +338,9 @@ export const actions: Actions = {
 			});
 		}
 		if (!name) return fail(400, { action: 'createProject', error: 'Name is required.' });
+		if (rawGameType !== '' && !isGameKind(rawGameType)) {
+			return fail(400, { action: 'createProject', error: 'Unknown game kind.' });
+		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
 		}
@@ -339,7 +348,7 @@ export const actions: Actions = {
 			return fail(400, { action: 'createProject', error: 'Unknown client.' });
 		}
 
-		await createProject(key, name, clientKey);
+		await createProject(key, name, clientKey, isGameKind(rawGameType) ? rawGameType : undefined);
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
 		return { action: 'createProject', ok: `Created project ${key}.` };
 	},
@@ -372,13 +381,33 @@ export const actions: Actions = {
 		return { action: 'renameProject', ok: 'Project renamed.' };
 	},
 
+	setProjectGameType: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const gameType = String(data.get('gameType') ?? '').trim();
+
+		if (!(await projectExists(key))) {
+			return fail(400, { action: 'setProjectGameType', error: 'Unknown project.' });
+		}
+		if (!isGameKind(gameType)) {
+			return fail(400, { action: 'setProjectGameType', error: 'Unknown game kind.' });
+		}
+
+		await setProjectGameType(key, gameType);
+		return { action: 'setProjectGameType', ok: `Set ${key} to ${gameType}.` };
+	},
+
 	deleteProject: async ({ request, locals }) => {
 		await requireAdmin(locals);
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
 		if (key === DEFAULT_PROJECT_KEY) {
-			return fail(400, { action: 'deleteProject', error: 'The default project cannot be deleted.' });
+			return fail(400, {
+				action: 'deleteProject',
+				error: 'The default project cannot be deleted.',
+			});
 		}
 		if (!(await projectExists(key))) {
 			return fail(400, { action: 'deleteProject', error: 'Unknown project.' });
@@ -504,7 +533,10 @@ export const actions: Actions = {
 		const project = String(data.get('project') ?? '').trim();
 
 		if (!isValidGameKey(key)) {
-			return fail(400, { action: 'createGame', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
+			return fail(400, {
+				action: 'createGame',
+				error: 'Key must match a-z, 0-9, _ or - (max 64).',
+			});
 		}
 		if (!name) return fail(400, { action: 'createGame', error: 'Name is required.' });
 		if (await gameExists(key)) {
