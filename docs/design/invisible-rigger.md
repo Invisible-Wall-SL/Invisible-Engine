@@ -577,7 +577,26 @@ and editable via the existing transform/drag/weight tools.
   official loader accepts it with the right hierarchy (bone2.parent=bone1, slot on
   bone1, skins default+skin1). Viewer `<script>` blocks pass `node --check`.
 
-Next — **A2:** a **New rig** flow (create a blank skeleton bound to a chosen existing
-project atlas, save to R2, open it) + an **atlas-region picker** that creates a slot
-+ region attachment from a packed image (the "import from existing atlas" path).
-Then **A3:** raw image upload → builds a single-page atlas + regions in R2.
+**A2 — new-rig + attach-images-from-existing-atlas landed** (code; build GREEN;
+parser + attach verified headlessly). The from-scratch loop now works via the
+existing-atlas path:
+- **`＋ New rig`** (sidebar) → name it + pick an existing project **atlas** → POSTs a
+  blank skeleton (`root` + `default` skin) to `/api/rigger/save` saved **into that
+  atlas's folder** (so it indexes + loads and that atlas's images are attachable) →
+  opens in edit mode. `GET /api/rigger/atlases` lists the project's atlases + region
+  names (`rigger`-gated; `atlasRegionNames` parses them — page lines are identified
+  *structurally*, since region names can have extensions like `heart_shadow.png`).
+- **Attach image** — a selected slot's detail shows an `image` picker of the loaded
+  atlas's regions; choosing one creates a region attachment in the active skin
+  (size from the atlas, position at the bone origin, then editable / convertible to
+  a mesh). This is the "import image" action.
+- **Verified:** `tools/rigger-spike/attach.mjs` — the parser matches the official
+  `TextureAtlas` regions exactly (0 missing/extra) across 3 atlases; attaching a
+  region to a slot on a blank skeleton → the loader resolves it to a
+  `RegionAttachment`. Build GREEN; viewer `<script>` blocks pass `node --check`.
+  ⏳ owner-verify the New-rig + attach UI live.
+
+**The from-scratch authoring loop exists end-to-end** (new rig → bones/slots/skins →
+attach images → save → reopen) using images already packed in the Atlas Maker.
+Next — **A3:** raw image **upload** in the Rigger → builds a single-page atlas +
+regions in R2 (unblocks rigs with brand-new art, no prior atlas).

@@ -167,6 +167,23 @@ export function atlasPageNames(atlasText: string): string[] {
 	return out;
 }
 
+/** Region names declared by an atlas (the Rigger lists these so a new rig can attach
+ * packed images). A page block starts at file start / after a blank line with the
+ * image filename, then page properties (`size:`…); every other non-indented, no-`:`
+ * line is a region name. NOTE region names CAN have image extensions (e.g.
+ * `heart_shadow.png`), so pages are identified structurally, not by extension. */
+export function atlasRegionNames(atlasText: string): string[] {
+	const out: string[] = [];
+	let expectPage = true; // first non-empty line is a page image; also after a blank line
+	for (const line of atlasText.split(/\r?\n/)) {
+		if (line.trim() === '') { expectPage = true; continue; }
+		if (/^\s/.test(line) || line.includes(':')) { expectPage = false; continue; } // property line
+		if (expectPage) { expectPage = false; continue; } // page image filename
+		out.push(line.trim()); // region name
+	}
+	return out;
+}
+
 /** The editor needs the skeleton stream URL, the (PNG-preferred) atlas text, and
  * each page image URL — all routed through the editor-gated `/api/editor/asset`
  * streamer so no extra tool grant is required. */

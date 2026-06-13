@@ -179,6 +179,19 @@
         <button id="rescan" style="float:right;padding:1px 7px;font-size:11px;">rescan</button></label>
       <input type="text" id="filter" placeholder="filter…">
     </div>
+    <div class="row">
+      <button id="newRigBtn" style="width:100%;">＋ New rig</button>
+      <div id="newRig" style="display:none;margin-top:6px;">
+        <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
+        <label>Atlas (images)</label>
+        <select id="newRigAtlas"></select>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button id="newRigCreate" style="flex:1;">Create</button>
+          <button id="newRigCancel">Cancel</button>
+        </div>
+        <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
+      </div>
+    </div>
     <div id="list"></div>
   </aside>
 
@@ -701,6 +714,50 @@ function addSkin(){
   markDirty();
 }
 
+// Attach a packed image (atlas region) to the selected slot in the active skin —
+// the "import image" action. Creates a region attachment (size from the atlas;
+// position defaults to the bone origin, then editable / convertible to a mesh).
+function attachRegion(regionName){
+  if (!rawDoc || selSlot == null || !regionName) return;
+  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const region = atlas && atlas.findRegion ? atlas.findRegion(regionName) : null;
+  const w = region ? region.originalWidth || region.width || 0 : 0;
+  const h = region ? region.originalHeight || region.height || 0 : 0;
+  const skinName = $("#skin").value || (skeletonData.skins[0] && skeletonData.skins[0].name) || "default";
+  rawDoc.skins = rawDoc.skins || [];
+  let sk = rawDoc.skins.find((s) => s.name === skinName);
+  if (!sk){ sk = { name: skinName, attachments: {} }; rawDoc.skins.push(sk); }
+  sk.attachments = sk.attachments || {};
+  sk.attachments[selSlot] = sk.attachments[selSlot] || {};
+  sk.attachments[selSlot][regionName] = { width: w, height: h }; // type defaults to region; path defaults to name
+  const slot = rawDoc.slots.find((s) => s.name === selSlot);
+  if (slot) slot.attachment = regionName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// Create a NEW rig: a blank skeleton (root + default skin) saved INTO an existing
+// atlas folder (so it's indexed + loaded and that atlas's images are attachable),
+// then opened. dir = the chosen atlas folder's base64url token.
+async function createNewRig(){
+  const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  const dir = $("#newRigAtlas").value;
+  const note = $("#newRigNote");
+  if (!name){ note.textContent = "enter a name"; return; }
+  if (dir === "" && $("#newRigAtlas").options.length === 0){ note.textContent = "no atlas available"; return; }
+  const doc = { skeleton: { spine: "4.2" }, bones: [{ name: "root" }], slots: [], skins: [{ name: "default", attachments: {} }], animations: {} };
+  note.textContent = "creating…";
+  try {
+    const r = await fetch("/api/rigger/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dir, stem: name, skeleton: doc }) });
+    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    await r.json();
+    $("#newRig").style.display = "none"; $("#newRigName").value = "";
+    await loadSkeletons(true);
+    const target = skeletons.find((s) => s.skeleton_file === name + ".irig" && s.dir_b64 === dir);
+    if (target){ await selectSkeleton(target); setEditMode(true); }
+  } catch (e){ note.textContent = "failed: " + (e.message || e); }
+}
+
 // ---- slot selection: draw-order + region attachment placement -------------
 function selectSlot(name){
   selSlot = name;
@@ -732,8 +789,23 @@ function renderSlotDetail(){
   title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
   det.appendChild(title);
 
+  // attach / change the slot's image from the loaded atlas ("import image")
+  const atlasForAttach = selected ? assetMgr.require(selected.atlas_file) : null;
+  const regionNames = atlasForAttach && atlasForAttach.regions ? atlasForAttach.regions.map((rg) => rg.name) : [];
+  if (regionNames.length){
+    const ar = document.createElement("label");
+    ar.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0 7px;color:var(--dim);";
+    const al = document.createElement("span"); al.textContent = "image"; al.style.cssText = "width:54px;font-size:11px;";
+    const asel = document.createElement("select");
+    asel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    const o0 = document.createElement("option"); o0.value = ""; o0.textContent = attName ? "change image…" : "+ attach image…"; asel.appendChild(o0);
+    regionNames.forEach((n) => { const o = document.createElement("option"); o.value = n; o.textContent = n; asel.appendChild(o); });
+    asel.onchange = () => { if (asel.value) attachRegion(asel.value); };
+    ar.appendChild(al); ar.appendChild(asel); det.appendChild(ar);
+  }
+
   if (!attName){
-    const t = document.createElement("div"); t.textContent = "no setup attachment"; det.appendChild(t); return;
+    const t = document.createElement("div"); t.textContent = "no setup attachment — attach an image above"; det.appendChild(t); return;
   }
   const att = skeleton.getAttachment(slotIndex, attName);
   // mesh → vertex editing (Phase 3): drag the points on the canvas
@@ -1702,6 +1774,26 @@ function wire(){
   };
   $("#filter").oninput = renderList;
   $("#rescan").onclick = () => loadSkeletons(true);
+  $("#newRigBtn").onclick = async () => {
+    const p = $("#newRig");
+    if (p.style.display !== "none"){ p.style.display = "none"; return; }
+    p.style.display = "block";
+    $("#newRigNote").textContent = "loading atlases…";
+    try {
+      const r = await (await fetch("/api/rigger/atlases")).json();
+      const sel = $("#newRigAtlas"); sel.innerHTML = "";
+      (r.atlases || []).forEach((a) => {
+        const o = document.createElement("option");
+        o.value = a.dir; o.textContent = (a.folder || "(root)") + " — " + a.regions.length + " images";
+        sel.appendChild(o);
+      });
+      $("#newRigNote").textContent = (r.atlases && r.atlases.length)
+        ? "pick an atlas to draw images from, name the rig, Create"
+        : "no atlases yet — pack images in the Atlas Maker first";
+    } catch (e){ $("#newRigNote").textContent = "failed to list atlases"; }
+  };
+  $("#newRigCancel").onclick = () => { $("#newRig").style.display = "none"; };
+  $("#newRigCreate").onclick = createNewRig;
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
