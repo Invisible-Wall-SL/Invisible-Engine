@@ -438,7 +438,23 @@ browser-verified).
   `payframe_particles`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify
   the drag UI live.
 
-Next — **Phase 3.2:** add/remove mesh vertices + edit hull/triangulation/UV (the
-rest of mesh geometry), and **mesh attachment placement** (the deferred non-region
-case). Then **Phase 4 (weights)** remains gated on resolving auto-weights with a real
-character mesh.
+**Phase 3.2 — add a mesh vertex landed** (code; build GREEN; math verified headlessly,
+weighted + unweighted). A `＋ Add vertex` toggle in the mesh detail; clicking inside
+the mesh inserts a vertex via **local triangle split** (no global re-triangulation):
+- Find the triangle containing the click (barycentric test over world verts), split
+  it into three fanned to the new vertex (`triangles` +6, hull untouched — the new
+  vertex is interior, appended last).
+- The new vertex's **UV** = barycentric blend of the triangle's corner UVs. For a
+  **weighted** mesh, its **bone influences** = barycentric blend of the corners'
+  influences (normalised), each influence's bone-local pos = `bone.worldToLocal(P)`.
+  Unweighted: append slot-bone-local `[x,y]`. Mutates `rawDoc`, then rebuilds.
+- **Verified:** `tools/rigger-spike/meshadd.mjs` — split a triangle at its centroid,
+  reload: vertex count +1, triangles +6, new vertex lands at the centroid (off by
+  0.000), mesh poses with all-finite verts, loader accepts — weighted (anticipation
+  `payframe`, symbols `t1_glow`) + unweighted (`payframe_particles`). The new vertex
+  is then draggable via 3.1. ⏳ owner-verify the UI live.
+
+Next — **Phase 3.3:** remove a vertex (re-triangulate the hole) + hull/edge editing +
+a UV editor + mesh attachment placement (deferred non-region case). Then **Phase 4
+(weights)** remains gated on the auto-weights question (real character mesh + better
+algorithm; manual brush is the fallback).

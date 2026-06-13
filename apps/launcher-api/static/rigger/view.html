@@ -265,6 +265,7 @@ let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
 let meshDragVert = null; // index of the mesh vertex being dragged
+let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -641,6 +642,7 @@ function markDirty(){
 // ---- slot selection: draw-order + region attachment placement -------------
 function selectSlot(name){
   selSlot = name;
+  meshAddMode = false;
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   renderSlotDetail();
 }
@@ -679,6 +681,12 @@ function renderSlotDetail(){
       (meshCtx.weighted ? " · weighted" : "") + " — drag the points on the canvas to reshape";
     t.style.color = "var(--accent2)";
     det.appendChild(t);
+    const addBtn = document.createElement("button");
+    addBtn.textContent = meshAddMode ? "＋ adding… (click inside the mesh)" : "＋ Add vertex";
+    if (meshAddMode) addBtn.className = "active";
+    addBtn.style.cssText = "margin-top:7px;";
+    addBtn.onclick = () => { meshAddMode = !meshAddMode; renderSlotDetail(); };
+    det.appendChild(addBtn);
     return;
   }
   if (!att || att.constructor.name !== "RegionAttachment"){
@@ -841,6 +849,77 @@ function drawMeshOverlay(){
   const r = renderer.camera.zoom * 4;
   for (let k = 0; k < w.length / 2; k++)
     renderer.circle(true, w[k * 2], w[k * 2 + 1], r, k === meshDragVert ? sel : col, 12);
+}
+
+// Barycentric coords of (px,py) in triangle a/b/c — {u,v,w} weight a/b/c.
+function bary(px, py, ax, ay, bx, by, cx, cy){
+  const v0x = bx - ax, v0y = by - ay, v1x = cx - ax, v1y = cy - ay, v2x = px - ax, v2y = py - ay;
+  const d00 = v0x * v0x + v0y * v0y, d01 = v0x * v1x + v0y * v1y, d11 = v1x * v1x + v1y * v1y;
+  const d20 = v2x * v0x + v2y * v0y, d21 = v2x * v1x + v2y * v1y;
+  const denom = d00 * d11 - d01 * d01;
+  if (Math.abs(denom) < 1e-9) return null;
+  const v = (d11 * d20 - d01 * d21) / denom, w = (d00 * d21 - d01 * d20) / denom;
+  return { u: 1 - v - w, v, w };
+}
+
+// Influences of weighted-mesh vertex i, read from a rawDoc PACKED vertices array.
+function packedInfluences(verts, i){
+  let ri = 0;
+  for (let v = 0; v < i; v++){ const n = verts[ri]; ri += 1 + n * 4; }
+  const n = verts[ri], out = [];
+  for (let j = 0; j < n; j++) out.push({ bone: verts[ri + 1 + j * 4], w: verts[ri + 1 + j * 4 + 3] });
+  return out;
+}
+
+// Add a mesh vertex at world (Px,Py): find the containing triangle, split it into
+// three, and barycentric-interpolate the new vertex's UV and (weighted) bone
+// influences from the triangle's corners. Mutates rawDoc + rebuilds. The hull is
+// untouched (the new vertex is interior, appended after existing vertices).
+function addMeshVertex(Px, Py){
+  if (!meshCtx || !rawDoc) return false;
+  const att = meshCtx.attachment;
+  const rd = rawDocMeshEntry();
+  if (!rd || !Array.isArray(rd.triangles) || !Array.isArray(rd.uvs)) return false;
+  const w = meshWorldVerts();
+  if (!w) return false;
+
+  let bc = null;
+  for (let t = 0; t < rd.triangles.length; t += 3){
+    const ia = rd.triangles[t], ib = rd.triangles[t + 1], ic = rd.triangles[t + 2];
+    const r = bary(Px, Py, w[ia * 2], w[ia * 2 + 1], w[ib * 2], w[ib * 2 + 1], w[ic * 2], w[ic * 2 + 1]);
+    if (r && r.u >= -1e-4 && r.v >= -1e-4 && r.w >= -1e-4){ bc = { t, ia, ib, ic, ...r }; break; }
+  }
+  if (!bc) return false; // clicked outside the mesh
+
+  const n = rd.uvs.length / 2; // new vertex index
+  rd.uvs.push(
+    bc.u * rd.uvs[bc.ia * 2] + bc.v * rd.uvs[bc.ib * 2] + bc.w * rd.uvs[bc.ic * 2],
+    bc.u * rd.uvs[bc.ia * 2 + 1] + bc.v * rd.uvs[bc.ib * 2 + 1] + bc.w * rd.uvs[bc.ic * 2 + 1],
+  );
+
+  if (!att.bones || !att.bones.length){
+    const bone = skeleton.slots[meshCtx.slotIndex].bone;
+    const loc = bone.worldToLocal(new SPINE.Vector2(Px, Py));
+    rd.vertices.push(loc.x, loc.y);
+  } else {
+    const map = new Map();
+    for (const [corner, cw] of [[bc.ia, bc.u], [bc.ib, bc.v], [bc.ic, bc.w]])
+      for (const inf of packedInfluences(rd.vertices, corner))
+        map.set(inf.bone, (map.get(inf.bone) || 0) + cw * inf.w);
+    const entries = [...map.entries()].filter(([, wt]) => wt > 1e-6);
+    let sum = 0; for (const [, wt] of entries) sum += wt; if (sum <= 0) sum = 1;
+    rd.vertices.push(entries.length);
+    for (const [boneIdx, wt] of entries){
+      const loc = skeleton.bones[boneIdx].worldToLocal(new SPINE.Vector2(Px, Py));
+      rd.vertices.push(boneIdx, loc.x, loc.y, wt / sum);
+    }
+  }
+
+  // replace the containing triangle with three fanned to the new vertex
+  rd.triangles.splice(bc.t, 3, bc.ia, bc.ib, n, bc.ib, bc.ic, n, bc.ic, bc.ia, n);
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+  return true;
 }
 
 function setEditMode(on){
@@ -1170,8 +1249,11 @@ function wire(){
     renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
   }, {passive:false});
   cv.addEventListener("mousedown", e => {
-    // Edit mode priority: grab a mesh vertex, else move the selected bone; Shift+drag pans.
-    if (editMode && meshCtx && !e.shiftKey && tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
+    // Edit mode priority: add/grab a mesh vertex, else move the selected bone; Shift+drag pans.
+    if (editMode && meshCtx && !e.shiftKey){
+      if (meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
+      if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
+    }
     if (editMode && selBone != null && rawDoc && !e.shiftKey) boneDragging = true;
     else dragging = true;
     lastXY = [e.clientX, e.clientY];
