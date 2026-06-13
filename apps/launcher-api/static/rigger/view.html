@@ -725,6 +725,12 @@ function renderSlotDetail(){
   det.appendChild(field("rotation", "rotation", 1));
   det.appendChild(field("scaleX", "scaleX", 0.01));
   det.appendChild(field("scaleY", "scaleY", 0.01));
+  const conv = document.createElement("button");
+  conv.textContent = "▸ Convert to mesh";
+  conv.title = "Replace this region with an editable quad mesh covering the same image";
+  conv.style.cssText = "margin-top:8px;";
+  conv.onclick = convertRegionToMesh;
+  det.appendChild(conv);
 }
 
 // Edit a region attachment's placement: mutate the live RegionAttachment (+
@@ -934,6 +940,42 @@ function addMeshVertex(Px, Py){
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
   return true;
+}
+
+// Convert the selected slot's region attachment into an editable quad MESH that
+// covers the same image: 4 corner vertices (the region's bone-local corners, from
+// its computed offset), unit-square UVs in the same corner order, 2 triangles, hull
+// 4. Geometry is identical to the region; afterwards the mesh-edit tools apply.
+function convertRegionToMesh(){
+  if (selSlot == null || !rawDoc) return;
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  const sd = skeletonData.slots[slotIndex];
+  const attName = sd && sd.attachmentName;
+  if (!attName) return;
+  const att = skeleton.getAttachment(slotIndex, attName);
+  if (!att || att.constructor.name !== "RegionAttachment") return;
+  if (att.updateRegion) att.updateRegion();
+  if (!att.offset) return;
+  let skinEntry = null;
+  for (const sk of rawDoc.skins)
+    if (sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName]){ skinEntry = sk; break; }
+  if (!skinEntry) return;
+  const region = skinEntry.attachments[selSlot][attName];
+  const mesh = {
+    type: "mesh",
+    // corner order BL, UL, UR, BR (RegionAttachment.offset order) → matching UVs
+    uvs: [0, 1, 0, 0, 1, 0, 1, 1],
+    triangles: [0, 1, 2, 2, 3, 0],
+    vertices: Array.from(att.offset),
+    hull: 4,
+    width: att.width,
+    height: att.height,
+  };
+  if (region.path) mesh.path = region.path;
+  if (region.color) mesh.color = region.color;
+  skinEntry.attachments[selSlot][attName] = mesh;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
 }
 
 // Ear-clip a polygon (ordered ring of vertex indices, positions from worldPos) into

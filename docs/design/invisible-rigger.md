@@ -466,7 +466,23 @@ headlessly). A `－ Remove vertex` toggle; clicking an **interior** vertex remov
   mesh poses with all-finite verts, loader accepts (weighted anticipation `payframe`,
   symbols `t1_glow`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify UI.
 
-**Mesh topology editing is now add + move + remove.** Next — **Phase 3.4:** UV
-editor (map verts onto the region image) + hull/edge editing + new-mesh-from-scratch.
-Then **Phase 4 (weights)** remains gated on the auto-weights question (real character
-mesh + better algorithm; manual brush is the fallback).
+**Mesh topology editing is now add + move + remove.**
+
+**Phase 3.4 — region→mesh conversion landed** (code; build GREEN; geometry verified
+headlessly). The practical "new mesh" entry point: a `▸ Convert to mesh` button on a
+region attachment's detail replaces it with an editable **quad mesh** covering the
+same image — 4 corner vertices (the region's bone-local corners from its computed
+`offset`, order BL/UL/UR/BR), unit-square UVs in matching order, 2 triangles, hull 4.
+Afterwards the 3.1–3.3 mesh tools apply (move/add/remove verts) → the full
+create-a-mesh workflow.
+- **Verified:** `tools/rigger-spike/convertmesh.mjs` — convert a region, reload: the
+  attachment is now a `MeshAttachment` with 4 verts whose world corners match the
+  region's original world corners **exactly** (max off 0.0000), loader accepts
+  (anticipation `radial1`, transition `dust1`). Viewer `<script>` blocks pass
+  `node --check`. ⏳ owner-verify the UI + texel mapping live (UV orientation for
+  rotated atlas regions is best-effort — confirm visually).
+
+**Mesh editing is now create (from a region) + topology (add/move/remove).** Next —
+**Phase 3.5:** a UV editor (drag verts in texture space over the region image) +
+hull/edge editing. Then **Phase 4 (weights)** remains gated on the auto-weights
+question (real character mesh + better algorithm; manual brush is the fallback).
