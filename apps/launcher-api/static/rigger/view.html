@@ -282,6 +282,8 @@ let selMeshVert = null; // selected mesh vertex (for UV editing, Phase 3.5)
 // Phase 4.2 weight brush
 let weightBrush = false, brushBone = null, brushRadiusPx = 50, brushStrength = 0.15;
 let brushSubtract = false, brushPainting = false, lastDabWorld = null;
+// Phase A-canvas: draw-a-mesh-from-scratch
+let drawMeshMode = false, drawPoints = [];
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
@@ -763,6 +765,7 @@ function selectSlot(name){
   selSlot = name;
   meshAddMode = false; meshRemoveMode = false; selMeshVert = null;
   weightBrush = false; brushBone = null; brushPainting = false;
+  drawMeshMode = false; drawPoints = [];
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   renderSlotDetail();
 }
@@ -969,6 +972,23 @@ function renderSlotDetail(){
   conv.style.cssText = "margin-top:8px;";
   conv.onclick = convertRegionToMesh;
   det.appendChild(conv);
+  const draw = document.createElement("button");
+  draw.textContent = drawMeshMode ? "✎ drawing…" : "✎ Draw mesh";
+  draw.title = "Draw a custom mesh outline over this image (click boundary points)";
+  if (drawMeshMode) draw.className = "active";
+  draw.style.cssText = "margin-top:8px;margin-left:6px;";
+  draw.onclick = () => { drawMeshMode = !drawMeshMode; drawPoints = []; renderSlotDetail(); };
+  det.appendChild(draw);
+  if (drawMeshMode){
+    const info = document.createElement("div");
+    info.textContent = "click boundary points on the canvas (" + drawPoints.length + "), then Finish";
+    info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;";
+    det.appendChild(info);
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin-top:5px;";
+    const fin = document.createElement("button"); fin.textContent = "Finish mesh"; fin.disabled = drawPoints.length < 3; fin.style.flex = "1"; fin.onclick = finishDrawMesh;
+    const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawMesh;
+    row.appendChild(fin); row.appendChild(can); det.appendChild(row);
+  }
 }
 
 // Edit a region attachment's placement: mutate the live RegionAttachment (+
@@ -1012,6 +1032,102 @@ function invWorldVec(bone, wx, wy){
   const det = bone.a * bone.d - bone.b * bone.c;
   if (Math.abs(det) < 1e-8) return { x: wx, y: wy };
   return { x: (bone.d * wx - bone.b * wy) / det, y: (bone.a * wy - bone.c * wx) / det };
+}
+
+// squared distance from (px,py) to segment a→b
+function segDist2(px, py, ax, ay, bx, by){
+  const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+}
+
+// Bone nearest the cursor (by its setup-pose segment / origin), within a
+// screen-scaled threshold; -1 if none. Lets you click a bone on the canvas.
+function nearestBone(e){
+  if (!skeleton) return -1;
+  const cw = cursorWorld(e);
+  if (!cw) return -1;
+  const thr = renderer.camera.zoom * 12;
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < skeleton.bones.length; i++){
+    const b = skeleton.bones[i];
+    const tipX = b.worldX + b.data.length * b.a, tipY = b.worldY + b.data.length * b.c;
+    const d = b.data.length > 0
+      ? Math.sqrt(segDist2(cw.x, cw.y, b.worldX, b.worldY, tipX, tipY))
+      : Math.hypot(cw.x - b.worldX, cw.y - b.worldY);
+    if (d < bestD){ bestD = d; best = i; }
+  }
+  return bestD < thr ? best : -1;
+}
+
+// UV of world point P within the region quad (corners flat BL,UL,UR,BR — 8 floats),
+// via the affine inverse (region placement is affine: rotate/scale/shear). UL→(0,0),
+// UR→(1,0), BL→(0,1), so uv = (s,t) in that basis.
+function affineUV(c, Px, Py){
+  const ulx = c[2], uly = c[3], urx = c[4], ury = c[5], blx = c[0], bly = c[1];
+  const eux = urx - ulx, euy = ury - uly, evx = blx - ulx, evy = bly - uly;
+  const det = eux * evy - evx * euy;
+  if (Math.abs(det) < 1e-8) return { u: 0.5, v: 0.5 };
+  const rx = Px - ulx, ry = Py - uly;
+  return { u: (rx * evy - evx * ry) / det, v: (eux * ry - rx * euy) / det };
+}
+
+// Finish "draw mesh from scratch": turn the clicked boundary points into a MESH on
+// the selected slot's region — vertices in bone-local space, UVs via affineUV over
+// the region quad, triangles by ear-clipping the polygon. Replaces the region.
+function finishDrawMesh(){
+  const done = () => { drawMeshMode = false; drawPoints = []; };
+  if (!rawDoc || selSlot == null || drawPoints.length < 3){ done(); renderSlotDetail(); return; }
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  const sd = skeletonData.slots[slotIndex];
+  const attName = sd && sd.attachmentName;
+  const att = attName ? skeleton.getAttachment(slotIndex, attName) : null;
+  if (!att || att.constructor.name !== "RegionAttachment"){ done(); renderSlotDetail(); return; }
+  const slot = skeleton.slots[slotIndex];
+  const corners = new Array(8).fill(0);
+  att.computeWorldVertices(slot, corners, 0, 2); // region world quad (BL,UL,UR,BR)
+  const bone = slot.bone;
+  const verts = [], uvs = [], worldFlat = [];
+  for (const p of drawPoints){
+    const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y));
+    verts.push(loc.x, loc.y);
+    const uv = affineUV(corners, p.x, p.y);
+    uvs.push(uv.u, uv.v);
+    worldFlat.push(p.x, p.y);
+  }
+  const tris = earClip(drawPoints.map((_, i) => i), worldFlat) || [];
+  const flatTris = [];
+  for (const t of tris) flatTris.push(t[0], t[1], t[2]);
+  let skinEntry = null;
+  for (const sk of rawDoc.skins)
+    if (sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName]){ skinEntry = sk; break; }
+  if (!skinEntry){ done(); renderSlotDetail(); return; }
+  const region = skinEntry.attachments[selSlot][attName];
+  const mesh = { type: "mesh", uvs, triangles: flatTris, vertices: verts, hull: drawPoints.length, width: att.width, height: att.height };
+  if (region.path) mesh.path = region.path;
+  skinEntry.attachments[selSlot][attName] = mesh;
+  done();
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+function cancelDrawMesh(){ drawMeshMode = false; drawPoints = []; renderSlotDetail(); }
+
+// Draw the in-progress boundary polygon while drawing a mesh from scratch.
+function drawDrawingOverlay(){
+  if (!editMode || !drawMeshMode || !drawPoints.length || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const col = new SPINE.Color(0.49, 0.88, 0.75, 1);
+  const r = renderer.camera.zoom * 4;
+  const hasLine = typeof renderer.line === "function";
+  for (let i = 0; i < drawPoints.length; i++){
+    renderer.circle(true, drawPoints[i].x, drawPoints[i].y, r, col, 12);
+    if (i > 0 && hasLine) renderer.line(drawPoints[i - 1].x, drawPoints[i - 1].y, drawPoints[i].x, drawPoints[i].y, col);
+  }
+  if (drawPoints.length > 2 && hasLine){
+    const a = drawPoints[drawPoints.length - 1], b = drawPoints[0];
+    renderer.line(a.x, a.y, b.x, b.y, col);
+  }
 }
 
 // Setup-pose WORLD positions of the selected mesh's vertices ([x0,y0,x1,y1,…]).
@@ -1694,6 +1810,7 @@ function frame(now){
       renderer.drawSkeletonDebug(skeleton, false);
     }
     drawMeshOverlay();
+    drawDrawingOverlay();
     renderer.end();
     updateBoneMarker();
     syncScrub();
@@ -1818,15 +1935,25 @@ function wire(){
     renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
   }, {passive:false});
   cv.addEventListener("mousedown", e => {
-    // Edit mode priority: add/grab a mesh vertex, else move the selected bone; Shift+drag pans.
+    // Drawing a mesh: each click adds a boundary point.
+    if (editMode && drawMeshMode && !e.shiftKey){
+      const cw = cursorWorld(e);
+      if (cw){ drawPoints.push({ x: cw.x, y: cw.y }); renderSlotDetail(); }
+      lastXY = [e.clientX, e.clientY]; return;
+    }
+    // Mesh interactions (only when a mesh slot is active) — each returns only if it hits.
     if (editMode && meshCtx && !e.shiftKey){
       if (weightBrush && brushBone != null){ const cw = cursorWorld(e); if (cw){ brushPainting = true; paintDab(cw.x, cw.y); lastDabWorld = cw; } lastXY = [e.clientX, e.clientY]; return; }
       if (meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
       if (meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
-    if (editMode && selBone != null && rawDoc && !e.shiftKey) boneDragging = true;
-    else dragging = true;
+    // Click a bone on the canvas to select + move it.
+    if (editMode && rawDoc && !e.shiftKey){
+      const bi = nearestBone(e);
+      if (bi >= 0){ if (selBone !== bi) selectBone(bi); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
+    }
+    dragging = true;
     lastXY = [e.clientX, e.clientY];
   });
   window.addEventListener("mouseup", () => {

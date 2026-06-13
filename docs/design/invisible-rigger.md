@@ -619,5 +619,25 @@ project has those but no spine bundles, so the picker showed nothing. Fixed:
   owner-verify live (the `test1` project's atlas should now appear; New rig → it
   loads with that atlas's images).
 
+**A-canvas (2026-06-13, owner ask) — direct canvas manipulation + draw-a-mesh.**
+- **Click a bone on the canvas to select + move it** (was inspector-tree-only):
+  `nearestBone(e)` hit-tests the setup-pose bone segment/origin (screen-scaled
+  threshold) → selects + starts the drag. Mesh-vertex select+move on canvas already
+  worked once a mesh slot is active; mousedown priority is now draw-point → mesh
+  vertex (if hit) → bone (if hit) → pan, so a missed mesh-vertex click falls through
+  to bone-pick instead of dead-ending.
+- **Create a mesh from scratch by drawing its outline:** on a slot with a region
+  attachment, **✎ Draw mesh** → click boundary points on the canvas (drawn as a live
+  polygon) → **Finish**. Each point becomes a bone-local vertex; its **UV** comes from
+  the **affine inverse of the region quad** (`affineUV` — exact for any
+  rotation/scale/shear since a region placement is affine); the polygon is
+  **ear-clipped** to triangles; the region is replaced by the mesh (then editable via
+  the 3.x tools).
+- **Verified:** `tools/rigger-spike/drawmesh.mjs` — affine UVs hit the exact corner
+  UVs ((0,0)/(1,0)/(0,1)) + centre (0.5,0.5); a mesh built from drawn points loads as
+  a `MeshAttachment` whose vertices land exactly where placed (0.0000 off) and
+  triangulates. Full mesh+weights+authoring suite (8 tests) re-run = no regression.
+  Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the canvas UI live.
+
 Next — **A3:** raw image **upload** in the Rigger → builds a single-page atlas +
 regions in R2 (unblocks rigs with brand-new art, no prior atlas).
