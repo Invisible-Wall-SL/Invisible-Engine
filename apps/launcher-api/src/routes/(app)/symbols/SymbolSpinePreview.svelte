@@ -33,17 +33,19 @@
 	let playingAnim: string | null = null;
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 
-	/** Reload whenever the bundle key changes (a new spine cell focuses). */
+	// Attempt the load ONCE per key. `ensure()` runs every animation frame, so the
+	// guard must short-circuit after the FIRST attempt whether it succeeded or FAILED
+	// — otherwise a failing key (missing spine, 404, network) re-fetches every frame
+	// and floods the browser (ERR_INSUFFICIENT_RESOURCES). `loadedKey` is set
+	// synchronously before the await, so the very next frame already short-circuits.
 	let loadedKey = '';
 	async function ensure(): Promise<void> {
-		if (loadedKey === assetKey && instance) return;
-		teardownInstance();
+		// Canvas/GL not ready yet → don't claim the key; retry next frame.
+		if (!ensureGl() || !gl) return;
+		if (loadedKey === assetKey) return;
 		loadedKey = assetKey;
+		teardownInstance();
 		status = 'loading';
-		if (!ensureGl() || !gl) {
-			status = 'error';
-			return;
-		}
 		const inst = await loadSpineInstance(assetKey, gl);
 		if (loadedKey !== assetKey) {
 			// A newer key won the race — drop this stale instance.
@@ -54,7 +56,7 @@
 			status = 'error';
 			return;
 		}
-		if (!renderer && canvas && gl) renderer = createSceneRenderer(canvas, gl);
+		if (!renderer && canvas) renderer = createSceneRenderer(canvas, gl);
 		instance = inst;
 		playingAnim = null;
 		status = 'ready';
