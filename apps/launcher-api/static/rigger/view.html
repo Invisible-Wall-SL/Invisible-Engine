@@ -276,6 +276,7 @@ let playing = true, looping = true, showBones = true, pma = true, preferPng = tr
 let showMesh = false;
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
+let collapsedBones = new Set(); // bone names whose subtree is collapsed in the tree
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
 let meshDragVert = null; // index of the mesh vertex being dragged
 let selMeshVert = null; // selected mesh vertex (for UV editing, Phase 3.5)
@@ -429,6 +430,7 @@ function buildSkeleton(entry){
 
   selBone = null;
   selSlot = null;
+  collapsedBones.clear();
   buildInspector(entry);
 
   if (skeletonData.animations.length){
@@ -473,15 +475,29 @@ function buildInspector(entry){
   const renderBoneRows = (parentIdx, depth) => {
     for (const i of (childrenOf.get(parentIdx) || [])){
       const b = bones[i];
+      const kids = childrenOf.get(i) || [];
+      const collapsed = collapsedBones.has(b.name);
       const row = document.createElement("div");
-      row.className = "trow";
+      row.className = "trow" + (selBone === i ? " sel" : "");
       row.dataset.bone = i;
       row.style.paddingLeft = (14 + depth * 13) + "px";
-      row.textContent = b.name;
+      const tog = document.createElement("span");
+      tog.textContent = kids.length ? (collapsed ? "▸ " : "▾ ") : "   ";
+      tog.style.cssText = "cursor:" + (kids.length ? "pointer" : "default") + ";color:var(--accent);";
+      if (kids.length) tog.onclick = (e) => {
+        e.stopPropagation();
+        if (collapsed) collapsedBones.delete(b.name); else collapsedBones.add(b.name);
+        buildInspector(selected);
+        if (selBone != null) selectBone(selBone);
+        if (selSlot) selectSlot(selSlot);
+      };
+      row.appendChild(tog);
+      const nm = document.createElement("span"); nm.textContent = b.name;
+      row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
-      row.onclick = () => selectBone(i);
+      nm.onclick = () => selectBone(i);
       tree.appendChild(row);
-      renderBoneRows(i, depth + 1);
+      if (!collapsed) renderBoneRows(i, depth + 1);
     }
   };
   renderBoneRows(-1, 0);
@@ -558,6 +574,12 @@ function buildInspector(entry){
       w.textContent = "  " + meshes + " mesh" + (weighted ? " · " + weighted + " weighted" : "");
       row.appendChild(w);
     }
+    if (editMode){
+      const rn = document.createElement("button");
+      rn.textContent = "✎"; rn.title = "rename skin"; rn.style.cssText = "float:right;padding:0 6px;";
+      rn.onclick = (e) => { e.stopPropagation(); const nn = prompt("Rename skin", sk.name); if (nn) renameSkin(sk.name, nn); };
+      row.appendChild(rn);
+    }
     skinList.appendChild(row);
   });
   $("#cSkins").textContent = "(" + skeletonData.skins.length + ")";
@@ -625,6 +647,16 @@ function renderBoneDetail(){
   title.textContent = bd.name + "  · parent " + (bd.parent ? bd.parent.name : "—");
   title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
   det.appendChild(title);
+
+  {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;gap:6px;align-items:center;margin:3px 0;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = "name"; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input"); inp.type = "text"; inp.value = bd.name;
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.onchange = () => renameBone(bd.name, inp.value);
+    row.appendChild(lb); row.appendChild(inp); det.appendChild(row);
+  }
 
   // reparent control — excludes self + descendants (no cycles); "(root)" = no parent
   const desc = descendantNames(bd.name);
@@ -716,6 +748,60 @@ function addSkin(){
   markDirty();
 }
 
+const cleanName = (n) => (n || "").trim().replace(/[^\w\-. ]/g, "_");
+
+// Rename a bone, rewriting every reference: child parents, slot bones, IK/transform/
+// path constraint bones+targets, and animation `bones` timeline keys.
+function renameBone(oldName, newName){
+  if (!rawDoc) return;
+  newName = cleanName(newName);
+  if (!newName || newName === oldName || rawDoc.bones.some((b) => b.name === newName)) return;
+  for (const b of rawDoc.bones){ if (b.name === oldName) b.name = newName; if (b.parent === oldName) b.parent = newName; }
+  for (const s of rawDoc.slots || []) if (s.bone === oldName) s.bone = newName;
+  for (const grp of ["ik", "transform", "path"]) for (const c of rawDoc[grp] || []){
+    if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (n === oldName ? newName : n));
+    if (c.target === oldName) c.target = newName;
+    if (c.bone === oldName) c.bone = newName;
+  }
+  for (const an of Object.values(rawDoc.animations || {}))
+    if (an.bones && an.bones[oldName]){ an.bones[newName] = an.bones[oldName]; delete an.bones[oldName]; }
+  if (collapsedBones.has(oldName)){ collapsedBones.delete(oldName); collapsedBones.add(newName); }
+  rebuildFromRawDoc(newName);
+  markDirty();
+}
+
+// Rename a slot, rewriting skin attachment keys + animation slot/deform/drawOrder refs.
+function renameSlot(oldName, newName){
+  if (!rawDoc) return;
+  newName = cleanName(newName);
+  if (!newName || newName === oldName || (rawDoc.slots || []).some((s) => s.name === newName)) return;
+  for (const s of rawDoc.slots || []) if (s.name === oldName) s.name = newName;
+  for (const sk of rawDoc.skins || [])
+    if (sk.attachments && sk.attachments[oldName]){ sk.attachments[newName] = sk.attachments[oldName]; delete sk.attachments[oldName]; }
+  for (const an of Object.values(rawDoc.animations || {})){
+    if (an.slots && an.slots[oldName]){ an.slots[newName] = an.slots[oldName]; delete an.slots[oldName]; }
+    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[oldName]){ sm[newName] = sm[oldName]; delete sm[oldName]; }
+    if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) for (const o of fr.offsets) if (o.slot === oldName) o.slot = newName;
+  }
+  if (selSlot === oldName) selSlot = newName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// Rename a skin (+ any linkedmesh `skin` refs pointing at it).
+function renameSkin(oldName, newName){
+  if (!rawDoc) return;
+  newName = cleanName(newName);
+  if (!newName || newName === oldName || (rawDoc.skins || []).some((s) => s.name === newName)) return;
+  for (const sk of rawDoc.skins || []){
+    if (sk.name === oldName) sk.name = newName;
+    for (const slot of Object.values(sk.attachments || {}))
+      for (const att of Object.values(slot)) if (att && att.type === "linkedmesh" && att.skin === oldName) att.skin = newName;
+  }
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
 // Attach a packed image (atlas region) to the selected slot in the active skin —
 // the "import image" action. Creates a region attachment (size from the atlas;
 // position defaults to the bone origin, then editable / convertible to a mesh).
@@ -791,6 +877,16 @@ function renderSlotDetail(){
   title.textContent = sd.name + (attName ? "  · " + attName : "");
   title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
   det.appendChild(title);
+
+  {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;gap:6px;align-items:center;margin:3px 0 6px;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = "name"; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input"); inp.type = "text"; inp.value = sd.name;
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.onchange = () => renameSlot(sd.name, inp.value);
+    row.appendChild(lb); row.appendChild(inp); det.appendChild(row);
+  }
 
   // attach / change the slot's image from the loaded atlas ("import image")
   const atlasForAttach = selected ? assetMgr.require(selected.atlas_file) : null;

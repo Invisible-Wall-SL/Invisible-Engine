@@ -639,5 +639,20 @@ project has those but no spine bundles, so the picker showed nothing. Fixed:
   triangulates. Full mesh+weights+authoring suite (8 tests) re-run = no regression.
   Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the canvas UI live.
 
+**A-usability (2026-06-13, owner ask) — rename + collapse.**
+- **Collapsible bone tree:** each bone with children gets a ▸/▾ toggle (`collapsedBones`
+  Set, persists across rebuilds, cleared on skeleton load); collapsed bones hide their
+  subtree. (The inspector *sections* — Slots/Skins/Animations/Constraints — were
+  already `<details>`.)
+- **Rename bones / slots / skins:** name fields in the bone + slot detail panels and a
+  ✎ on each skin row. Each rename **rewrites every reference** so the skeleton stays
+  valid — bone: child `parent`, slot `bone`, IK/transform/path constraint `bones`/
+  `target`/`bone`, animation `bones` keys; slot: skin attachment keys, animation
+  `slots`/`deform`/`drawOrder`; skin: linked-mesh `skin` refs — then rebuild.
+- **Verified:** `tools/rigger-spike/rename.mjs` — rename a bone (with children) + a
+  slot, reload through the official loader: it accepts (no dangling refs), new names
+  present / old gone, the child's `parent` + the renamed slot updated (anticipation,
+  transition, symbols). Full suite (9 tests) no regression; viewer `node --check` OK.
+
 Next — **A3:** raw image **upload** in the Rigger → builds a single-page atlas +
 regions in R2 (unblocks rigs with brand-new art, no prior atlas).
