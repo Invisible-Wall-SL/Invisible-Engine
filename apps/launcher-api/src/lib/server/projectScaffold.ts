@@ -4,7 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
-import { type GameTemplate, engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { normalizeDoc } from './localization';
 import {
 	SUB,
@@ -15,7 +15,6 @@ import {
 } from './projectPaths';
 import { projectGameType } from './projects';
 import { objectExists, putObjectText } from './r2';
-import { loadTemplate, seedScenesFromTemplate } from './templateStorage';
 
 interface Seed {
 	key: string;
@@ -23,28 +22,20 @@ interface Seed {
 	contentType: string;
 }
 
-function buildSeeds(
-	client: string,
-	project: string,
-	gameType: string,
-	template: GameTemplate | undefined,
-): Seed[] {
+function buildSeeds(client: string, project: string, gameType: string): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
 	// §19.3: seed the editor doc from the engine-owned projection of the kind's
-	// full scene set (correct screens + engine pieces, no artist art) — covers
-	// `lines` + `bookOf`. Kinds without a scene set (ways/cluster/scatter today)
-	// fall back to the empty template skeleton so nothing regresses.
+	// full scene set (correct screens + engine pieces, no artist art). Every known
+	// GameKind ships a scene set, so this resolves for any real project kind; the
+	// `?? []` is a defensive default for an unknown/legacy type.
 	const reference = getFullSceneSet(gameType);
-	const seededScenes = reference
-		? engineOwnedOnly(reference).scenes
-		: seedScenesFromTemplate(template);
 	const scenes = {
 		version: 1,
 		projectKey: project,
-		gameType: reference ? gameType : template?.gameType,
-		scenes: seededScenes,
+		gameType,
+		scenes: reference ? engineOwnedOnly(reference).scenes : [],
 	};
 
 	return [
@@ -84,8 +75,7 @@ function buildSeeds(
 /** Write any missing seed files for `(client, project)` into R2. */
 export async function scaffoldProject(client: string, project: string): Promise<void> {
 	const gameType = await projectGameType(project);
-	const template = await loadTemplate(gameType);
-	for (const seed of buildSeeds(client, project, gameType, template)) {
+	for (const seed of buildSeeds(client, project, gameType)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
 	}

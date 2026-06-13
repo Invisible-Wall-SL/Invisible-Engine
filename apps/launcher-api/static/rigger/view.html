@@ -214,6 +214,11 @@
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
         <button id="fit">Reset view</button>
       </div>
+      <div class="grp">
+        <button id="editBtn" title="Edit the setup pose (bone transforms)">✎ Edit</button>
+        <button id="exportBtn" title="Export the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
+        <button id="resetBtn" title="Discard edits" disabled>Reset</button>
+      </div>
       <span id="rt" class="pill"></span>
     </div>
   </main>
@@ -255,6 +260,7 @@ let skeleton, animState, skeletonData, lastFrame = 0;
 let playing = true, looping = true, showBones = true, pma = true, preferPng = true;
 let showMesh = false;
 let selBone = null; // index into skeleton.bones / skeletonData.bones
+let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let curEntry = null, dragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
@@ -383,6 +389,17 @@ function buildSkeleton(entry){
   }
   skeleton.setToSetupPose();
   updateWorld();
+
+  // Editable source of truth: the parsed skeleton JSON. We mutate this in place per
+  // edit and export it verbatim (preserves animations + every field exactly). Only
+  // JSON skeletons are editable; binary `.skel` is view-only in Phase 2.
+  let parsed = entry.format === "json" ? assetMgr.require(entry.skeleton_file) : null;
+  if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
+  rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
+  rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
+  dirty = false;
+  $("#editBtn").disabled = !rawDoc;
+  setEditMode(false);
 
   selBone = null;
   buildInspector(entry);
@@ -514,15 +531,118 @@ function selectBone(i){
   document.querySelectorAll('#boneTree .trow').forEach(r => {
     r.classList.toggle("sel", parseInt(r.dataset.bone, 10) === i);
   });
-  const bd = skeletonData.bones[i], bw = skeleton.bones[i];
+  renderBoneDetail();
+}
+
+function renderBoneDetail(){
   const det = $("#boneDetail");
+  if (selBone == null){ det.style.display = "none"; return; }
+  const bd = skeletonData.bones[selBone], bw = skeleton.bones[selBone];
   det.style.display = "block";
-  det.textContent =
-    bd.name + "\n" +
-    "parent: " + (bd.parent ? bd.parent.name : "—") + "   length: " + Math.round(bd.length) + "\n" +
-    "local:  x " + bd.x.toFixed(1) + "  y " + bd.y.toFixed(1) + "  rot " + bd.rotation.toFixed(1) + "°\n" +
-    "scale:  " + bd.scaleX.toFixed(2) + " × " + bd.scaleY.toFixed(2) +
-    "   world: " + Math.round(bw.worldX) + ", " + Math.round(bw.worldY);
+
+  if (!editMode){
+    det.textContent =
+      bd.name + "\n" +
+      "parent: " + (bd.parent ? bd.parent.name : "—") + "   length: " + Math.round(bd.length) + "\n" +
+      "local:  x " + bd.x.toFixed(1) + "  y " + bd.y.toFixed(1) + "  rot " + bd.rotation.toFixed(1) + "°\n" +
+      "scale:  " + bd.scaleX.toFixed(2) + " × " + bd.scaleY.toFixed(2) +
+      "   world: " + Math.round(bw.worldX) + ", " + Math.round(bw.worldY);
+    return;
+  }
+
+  // edit mode: numeric transform editors for the selected bone's setup pose
+  det.innerHTML = "";
+  const title = document.createElement("div");
+  title.textContent = bd.name + "  · parent " + (bd.parent ? bd.parent.name : "—");
+  title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
+  det.appendChild(title);
+
+  const field = (label, key, step) => {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.step = String(step); inp.value = bd[key];
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.oninput = () => applyBoneEdit(key, inp.value);
+    row.appendChild(lb); row.appendChild(inp);
+    return row;
+  };
+  det.appendChild(field("x", "x", 1));
+  det.appendChild(field("y", "y", 1));
+  det.appendChild(field("rotation", "rotation", 1));
+  det.appendChild(field("scaleX", "scaleX", 0.01));
+  det.appendChild(field("scaleY", "scaleY", 0.01));
+  det.appendChild(field("length", "length", 1));
+}
+
+// Apply a setup-pose transform edit: mutate the live BoneData (instant render) AND
+// the export source (rawDoc, matched by bone NAME so index drift can't corrupt it).
+function applyBoneEdit(key, value){
+  if (selBone == null || !rawDoc) return;
+  const v = parseFloat(value);
+  if (Number.isNaN(v)) return;
+  const bd = skeletonData.bones[selBone];
+  bd[key] = v;
+  const rb = rawDoc.bones.find((b) => b.name === bd.name);
+  if (rb) rb[key] = v;
+  skeleton.setToSetupPose();
+  updateWorld();
+  markDirty();
+}
+
+function markDirty(){
+  dirty = true;
+  $("#resetBtn").disabled = false;
+}
+
+function setEditMode(on){
+  editMode = on && !!rawDoc;
+  const btn = $("#editBtn");
+  btn.classList.toggle("active", editMode);
+  btn.textContent = editMode ? "✎ Editing" : "✎ Edit";
+  $("#exportBtn").disabled = !rawDoc;
+  $("#resetBtn").disabled = !dirty;
+  $("#hint").textContent = editMode
+    ? "edit mode · setup pose · select a bone, edit its transform"
+    : "scroll = zoom · drag = pan · click a bone in the inspector";
+  if (editMode && skeleton){ playing = false; $("#play").textContent = "▶ Play"; skeleton.setToSetupPose(); updateWorld(); }
+  renderBoneDetail();
+}
+
+// Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
+// extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
+function exportIrig(){
+  if (!rawDoc) return;
+  const stem = (selected && selected.skeleton_file ? selected.skeleton_file : "skeleton").replace(/\.[^.]+$/, "");
+  const blob = new Blob([JSON.stringify(rawDoc)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = stem + ".irig";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Discard edits: restore bone transforms from the untouched original (Phase 2.1
+// edits only bone transforms; structural edits in 2.2 will need a full reload).
+function resetEdits(){
+  if (!rawDocOriginal || !rawDoc) return;
+  const KEYS = ["x", "y", "rotation", "scaleX", "scaleY", "shearX", "shearY", "length"];
+  const DEF = { scaleX: 1, scaleY: 1 };
+  rawDoc.bones.forEach((rb) => {
+    const ob = rawDocOriginal.bones.find((b) => b.name === rb.name);
+    if (!ob) return;
+    const bd = skeletonData.bones.find((b) => b.name === rb.name);
+    KEYS.forEach((f) => {
+      if (f in ob) rb[f] = ob[f]; else delete rb[f];
+      if (bd) bd[f] = f in ob ? ob[f] : (DEF[f] ?? 0);
+    });
+  });
+  skeleton.setToSetupPose();
+  updateWorld();
+  dirty = false;
+  $("#resetBtn").disabled = true;
+  renderBoneDetail();
 }
 
 // 2D marker over the selected bone's world origin (defensive — never breaks render)
@@ -571,8 +691,11 @@ function frame(now){
   gl.viewport(0, 0, cv.width, cv.height);
 
   if (skeleton && animState){
-    if (playing) animState.update(delta);
-    animState.apply(skeleton);
+    // In edit mode we hold the (edited) setup pose — skip animation so edits stay visible.
+    if (!editMode){
+      if (playing) animState.update(delta);
+      animState.apply(skeleton);
+    }
     updateWorld();
     renderer.begin();
     renderer.drawSkeleton(skeleton, pma);
@@ -670,6 +793,9 @@ function wire(){
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
+  $("#editBtn").onclick = () => setEditMode(!editMode);
+  $("#exportBtn").onclick = exportIrig;
+  $("#resetBtn").onclick = resetEdits;
 
   const cv = $("#cv");
   cv.addEventListener("wheel", e => {

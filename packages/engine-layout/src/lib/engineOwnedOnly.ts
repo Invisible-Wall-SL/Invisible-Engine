@@ -8,8 +8,8 @@ import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
  * anchors), with ALL plain artist art removed. This is the `scaffold`
  * projection — "create a game from a kind" gets the right screens + wired
  * engine pieces + no art — computed from the single reference-layout source so
- * nothing can drift (it replaces `seedScenesFromTemplate` as the scaffold
- * source).
+ * nothing can drift (it is THE scaffold source, replacing the old parallel
+ * empty-`GameTemplate` seeding).
  *
  * Pure: never mutates the input. Returns a fresh `LayoutDoc` preserving the
  * doc-level header verbatim; every input scene is still emitted (the screen

@@ -312,9 +312,36 @@ launcher page needs Postgres/R2/auth).**
   viewing (render + debug bone/mesh overlay + scrubber). The Rigger's real value is
   the inspector + (Phase 2+) editing, so it extends the viewer rather than cloning it.
 
-Next: **Phase 2** — make bones editable (select on canvas, move/rotate/scale,
-reparent, edit slots/draw-order/attachment placement) on our own editable document,
-and **export `.irig`** (wire in the Phase 0 serializer).
+## 13. Phase 2 progress (2026-06-13)
+
+**Phase 2.1 — bone transform editing + `.irig` export landed** (code; build GREEN;
+edit→export contract verified headlessly; UI not browser-verified).
+
+The Rigger now *writes* skeletons. In `static/rigger/view.html`:
+- **Edit mode** (`✎ Edit` button) — pauses animation and holds the (editable) setup
+  pose; the frame loop skips `animState.apply` so edits stay visible.
+- **Editable source of truth = the parsed skeleton JSON** (`rawDoc`, from
+  `assetMgr.require`). Per-edit we mutate `rawDoc` **matched by bone name** (index
+  drift can't corrupt it) AND the live runtime `BoneData` (instant render via
+  `setToSetupPose`). The selected bone gets numeric editors (x/y/rotation/
+  scaleX/scaleY/length) in the inspector detail.
+- **Export `.irig`** (`⤓ .irig`) — `JSON.stringify(rawDoc)` downloaded as
+  `<stem>.irig`: byte-valid Spine 4.2 JSON under our extension. **Edit-existing uses
+  in-place mutation, NOT the Phase-0 normalized serializer** — strictly more
+  fidelity-safe (preserves animations + every untested field verbatim). The
+  serializer stays for synthesis/mesh paths (Phase 3+).
+- **Reset** restores bone transforms from the untouched original. JSON-only (binary
+  `.skel` is view-only in Phase 2).
+- **Verified:** `editexport.mjs` mutates a real bone → stringify → reload via the
+  official loader: edit present, loader accepts, every OTHER bone + all slots +
+  animations unchanged (drift=0), on anticipation (73 bones) and transition.
+  Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the UI live at
+  `/rigger` (Edit → tweak a bone → see it move → Export → reopen the `.irig`).
+
+Next — **Phase 2.2/2.3:** canvas drag-to-move a bone (screen→parent-local), bone
+**reparent** (rebuilds the runtime skeleton), then slot/draw-order/attachment-
+placement edits. Then save `.irig` to R2 (toward the Phase 7 pipeline) instead of
+download-only.
 
 ## 11. Model note (Fable 5 vs Opus 4.8 for building this)
 
