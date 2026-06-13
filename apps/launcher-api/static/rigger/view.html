@@ -498,7 +498,7 @@ function buildInspector(entry){
       const nm = document.createElement("span"); nm.textContent = b.name;
       row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
-      nm.onclick = () => selectBone(i);
+      row.onclick = () => selectBone(i); // whole row, not just the name
       tree.appendChild(row);
       if (!collapsed) renderBoneRows(i, depth + 1);
     }
@@ -523,9 +523,9 @@ function buildInspector(entry){
     row.className = "trow" + (selSlot === sd.name ? " sel" : "");
     row.dataset.slot = sd.name;
     const nm = document.createElement("span");
-    nm.textContent = sd.name; nm.style.cursor = "pointer";
-    nm.onclick = () => selectSlot(sd.name);
+    nm.textContent = sd.name;
     row.appendChild(nm);
+    row.onclick = () => selectSlot(sd.name); // whole row, not just the name
     const t = document.createElement("span"); t.className = "tag";
     t.textContent = "→ " + (sd.boneData ? sd.boneData.name : "") + (sd.attachmentName ? " · " + sd.attachmentName : "");
     row.appendChild(t);

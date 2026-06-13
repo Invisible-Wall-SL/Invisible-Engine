@@ -653,6 +653,10 @@ project has those but no spine bundles, so the picker showed nothing. Fixed:
   slot, reload through the official loader: it accepts (no dangling refs), new names
   present / old gone, the child's `parent` + the renamed slot updated (anticipation,
   transition, symbols). Full suite (9 tests) no regression; viewer `node --check` OK.
+- **Fix (owner-reported):** selecting a bone/slot only worked when you clicked the
+  small NAME span — the rest of the row (tag, ↑/↓ area) did nothing, so the detail
+  kept showing the last-selected item. Now the WHOLE row selects (`row.onclick`); the
+  ↑/↓ buttons + collapse toggle + skin ✎ `stopPropagation` so they don't double-fire.
 
 **A3 — raw image upload landed** (2026-06-13, owner ask "insert images"; code; build
 GREEN; packer + synth verified headlessly). Start a rig from **brand-new art** with no
