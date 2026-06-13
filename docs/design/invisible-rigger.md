@@ -410,3 +410,35 @@ for the genuinely research-grade pieces where the intelligence ceiling pays for
 itself: the **auto-weights algorithm** (Phase 0/4) and gnarly **serializer
 round-trip debugging** (Phase 0). Blanket-using Fable 5 for the whole build would be
 a waste of tokens.
+
+## 14. Phase 3 progress (2026-06-13)
+
+Phase 3 (mesh geometry) is unblocked — only Phase 4 (weights) is gated on the
+Spike-2 auto-weights question.
+
+**Phase 3.1 — mesh vertex editing landed** (code; build GREEN; the move math
+verified headlessly across weighted + unweighted meshes; overlay/drag UI not
+browser-verified).
+- Selecting a slot whose attachment is a **mesh** enters mesh-edit: the vertices are
+  drawn as handles on the canvas (world-space, via the runtime's shape API —
+  `renderer.circle`), and dragging a handle moves that vertex.
+- **Move math (the crux):** screen→world (`camera.screenToWorld`), then the vertex
+  snaps to the cursor. The world delta is pushed into the geometry differently per
+  format — **unweighted:** add `inv(slotBoneLinear)·delta` to the bone-local `[x,y]`;
+  **weighted:** for each influence, add `inv(boneLinear)·delta` to that influence's
+  bone-local `[x,y]` (so the weighted world sum shifts by exactly the delta). Both
+  the live `MeshAttachment.vertices` (instant render) and the `rawDoc` packed array
+  (export/save) are updated — note the **two layouts differ**: runtime splits
+  `bones[count,idx…]` + `vertices[x,y,weight]`; rawDoc is the combined packed
+  `[count,(idx,x,y,weight)…]`.
+- **Verified:** `tools/rigger-spike/meshedit.mjs` — move a vertex by a world delta
+  via the rawDoc packed edit, reload through the official loader, recompute setup
+  world verts: the vertex moved by *exactly* the delta and others were unchanged, on
+  weighted (anticipation `payframe`, symbols `t1_glow`) and unweighted (anticipation
+  `payframe_particles`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify
+  the drag UI live.
+
+Next — **Phase 3.2:** add/remove mesh vertices + edit hull/triangulation/UV (the
+rest of mesh geometry), and **mesh attachment placement** (the deferred non-region
+case). Then **Phase 4 (weights)** remains gated on resolving auto-weights with a real
+character mesh.

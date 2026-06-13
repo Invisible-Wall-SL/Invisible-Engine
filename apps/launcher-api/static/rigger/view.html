@@ -263,6 +263,8 @@ let playing = true, looping = true, showBones = true, pma = true, preferPng = tr
 let showMesh = false;
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
+let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
+let meshDragVert = null; // index of the mesh vertex being dragged
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -645,6 +647,7 @@ function selectSlot(name){
 
 function renderSlotDetail(){
   const det = $("#slotDetail");
+  meshCtx = null; meshDragVert = null; // recomputed below if a mesh slot is selected
   if (selSlot == null){ det.style.display = "none"; return; }
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
   if (slotIndex < 0){ det.style.display = "none"; return; }
@@ -668,10 +671,20 @@ function renderSlotDetail(){
     const t = document.createElement("div"); t.textContent = "no setup attachment"; det.appendChild(t); return;
   }
   const att = skeleton.getAttachment(slotIndex, attName);
+  // mesh → vertex editing (Phase 3): drag the points on the canvas
+  if (att && att.constructor.name === "MeshAttachment"){
+    meshCtx = { slotIndex, attName, attachment: att, weighted: !!(att.bones && att.bones.length) };
+    const t = document.createElement("div");
+    t.textContent = "mesh · " + (att.worldVerticesLength / 2) + " verts" +
+      (meshCtx.weighted ? " · weighted" : "") + " — drag the points on the canvas to reshape";
+    t.style.color = "var(--accent2)";
+    det.appendChild(t);
+    return;
+  }
   if (!att || att.constructor.name !== "RegionAttachment"){
     const t = document.createElement("div");
     t.textContent = (att ? att.constructor.name.replace("Attachment", "").toLowerCase() : "missing") +
-      " — placement edit is region-only (mesh = Phase 3)";
+      " — no placement editor";
     det.appendChild(t); return;
   }
   const field = (label, key, step) => {
@@ -724,6 +737,110 @@ function moveSlot(z, dir){
   selSlot = movedName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
+}
+
+// ---- mesh vertex editing (Phase 3.1) --------------------------------------
+// Transform a WORLD vector delta into a bone's local space (inverse of the bone's
+// world linear matrix [a b; c d]) — used to update bone-local vertex coords.
+function invWorldVec(bone, wx, wy){
+  const det = bone.a * bone.d - bone.b * bone.c;
+  if (Math.abs(det) < 1e-8) return { x: wx, y: wy };
+  return { x: (bone.d * wx - bone.b * wy) / det, y: (bone.a * wy - bone.c * wx) / det };
+}
+
+// Setup-pose WORLD positions of the selected mesh's vertices ([x0,y0,x1,y1,…]).
+function meshWorldVerts(){
+  if (!meshCtx) return null;
+  const att = meshCtx.attachment;
+  const slot = skeleton.slots[meshCtx.slotIndex];
+  const out = new Array(att.worldVerticesLength).fill(0);
+  att.computeWorldVertices(slot, 0, att.worldVerticesLength, out, 0, 2);
+  return out;
+}
+
+// The rawDoc skin entry for the selected mesh attachment (the persisted geometry).
+function rawDocMeshEntry(){
+  if (!rawDoc || !meshCtx) return null;
+  for (const sk of rawDoc.skins){
+    const a = sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][meshCtx.attName];
+    if (a) return a;
+  }
+  return null;
+}
+
+// Move mesh vertex k by a WORLD delta. Updates BOTH the live MeshAttachment (for
+// instant render) and the rawDoc packed array (for export/save). Handles weighted
+// (per-influence, in each bone's local space) and unweighted (slot-bone local).
+function applyMeshVertexDelta(k, wdx, wdy){
+  if (!meshCtx || !rawDoc) return;
+  const att = meshCtx.attachment;
+  const rd = rawDocMeshEntry();
+  if (!rd || !Array.isArray(rd.vertices)) return;
+
+  if (!att.bones || !att.bones.length){
+    // unweighted: vertices are [x,y] in the slot bone's local space
+    const bone = skeleton.slots[meshCtx.slotIndex].bone;
+    const lv = invWorldVec(bone, wdx, wdy);
+    att.vertices[k * 2] += lv.x; att.vertices[k * 2 + 1] += lv.y;
+    rd.vertices[k * 2] += lv.x; rd.vertices[k * 2 + 1] += lv.y;
+    markDirty();
+    return;
+  }
+
+  // weighted: runtime layout = bones[count,idx…] + vertices[x,y,weight per influence];
+  // rawDoc packed layout = [count, (idx,x,y,weight)…]. Walk both to vertex k.
+  let rtB = 0, rtV = 0;
+  for (let v = 0; v < k; v++){ const n = att.bones[rtB]; rtB += 1 + n; rtV += n * 3; }
+  const n = att.bones[rtB];
+  let ri = 0;
+  for (let v = 0; v < k; v++){ const nn = rd.vertices[ri]; ri += 1 + nn * 4; }
+  for (let j = 0; j < n; j++){
+    const boneIdx = att.bones[rtB + 1 + j];
+    const lv = invWorldVec(skeleton.bones[boneIdx], wdx, wdy);
+    att.vertices[rtV + j * 3] += lv.x;       // runtime x
+    att.vertices[rtV + j * 3 + 1] += lv.y;   // runtime y
+    rd.vertices[ri + 1 + j * 4 + 1] += lv.x; // rawDoc x (after idx)
+    rd.vertices[ri + 1 + j * 4 + 2] += lv.y; // rawDoc y
+  }
+  markDirty();
+}
+
+// Cursor → world coordinates (inverse of the camera projection).
+function cursorWorld(e){
+  const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
+  const rect = cv.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * dpr;
+  const y = (e.clientY - rect.top) * dpr;
+  try {
+    const v = new SPINE.Vector3(x, cv.height - y, 0); // GL screen y is bottom-up
+    renderer.camera.screenToWorld(v, cv.width, cv.height);
+    return v;
+  } catch { return null; }
+}
+
+// If the cursor is near a mesh vertex, start dragging it. Returns true if grabbed.
+function tryStartMeshDrag(e){
+  const cw = cursorWorld(e), w = meshWorldVerts();
+  if (!cw || !w) return false;
+  let best = -1, bestD = Infinity;
+  for (let k = 0; k < w.length / 2; k++){
+    const d = Math.hypot(w[k * 2] - cw.x, w[k * 2 + 1] - cw.y);
+    if (d < bestD){ bestD = d; best = k; }
+  }
+  if (best >= 0 && bestD < renderer.camera.zoom * 11){ meshDragVert = best; return true; }
+  return false;
+}
+
+// Draw the selected mesh's vertices as handles (world space, via the shape API).
+function drawMeshOverlay(){
+  if (!editMode || !meshCtx || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const w = meshWorldVerts();
+  if (!w) return;
+  const col = new SPINE.Color(0.36, 0.69, 1, 1);
+  const sel = new SPINE.Color(0.49, 0.88, 0.75, 1);
+  const r = renderer.camera.zoom * 4;
+  for (let k = 0; k < w.length / 2; k++)
+    renderer.circle(true, w[k * 2], w[k * 2 + 1], r, k === meshDragVert ? sel : col, 12);
 }
 
 function setEditMode(on){
@@ -948,6 +1065,7 @@ function frame(now){
       }
       renderer.drawSkeletonDebug(skeleton, false);
     }
+    drawMeshOverlay();
     renderer.end();
     updateBoneMarker();
     syncScrub();
@@ -1052,12 +1170,14 @@ function wire(){
     renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
   }, {passive:false});
   cv.addEventListener("mousedown", e => {
-    // Edit mode with a bone selected: plain drag MOVES the bone; Shift+drag pans.
+    // Edit mode priority: grab a mesh vertex, else move the selected bone; Shift+drag pans.
+    if (editMode && meshCtx && !e.shiftKey && tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     if (editMode && selBone != null && rawDoc && !e.shiftKey) boneDragging = true;
     else dragging = true;
     lastXY = [e.clientX, e.clientY];
   });
   window.addEventListener("mouseup", () => {
+    if (meshDragVert != null) meshDragVert = null;
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
     dragging = false;
   });
@@ -1065,7 +1185,11 @@ function wire(){
     if (!renderer || !lastXY) return;
     const dpr = window.devicePixelRatio || 1;
     const dxCss = e.clientX - lastXY[0], dyCss = e.clientY - lastXY[1];
-    if (boneDragging){
+    if (meshDragVert != null){
+      const cw = cursorWorld(e), w = meshWorldVerts();
+      if (cw && w){ const k = meshDragVert; applyMeshVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); }
+      lastXY = [e.clientX, e.clientY];
+    } else if (boneDragging){
       moveSelectedBoneByScreen(dxCss, dyCss, dpr);
       lastXY = [e.clientX, e.clientY];
     } else if (dragging){
