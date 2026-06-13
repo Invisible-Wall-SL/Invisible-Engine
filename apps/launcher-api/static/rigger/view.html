@@ -261,7 +261,7 @@ let playing = true, looping = true, showBones = true, pma = true, preferPng = tr
 let showMesh = false;
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
-let curEntry = null, dragging = false, lastXY = null;
+let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
 // ---- runtime loading (one spine-webgl global at a time) -------------------
@@ -557,6 +557,23 @@ function renderBoneDetail(){
   title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
   det.appendChild(title);
 
+  // reparent control — excludes self + descendants (no cycles); "(root)" = no parent
+  const desc = descendantNames(bd.name);
+  const prow = document.createElement("label");
+  prow.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0 7px;color:var(--dim);";
+  const plb = document.createElement("span"); plb.textContent = "parent"; plb.style.cssText = "width:54px;font-size:11px;";
+  const psel = document.createElement("select");
+  psel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+  const oRoot = document.createElement("option"); oRoot.value = ""; oRoot.textContent = "(root — no parent)"; psel.appendChild(oRoot);
+  skeletonData.bones.forEach((b) => {
+    if (b.name === bd.name || desc.has(b.name)) return;
+    const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; psel.appendChild(o);
+  });
+  psel.value = bd.parent ? bd.parent.name : "";
+  psel.onchange = () => reparentBone(selBone, psel.value);
+  prow.appendChild(plb); prow.appendChild(psel);
+  det.appendChild(prow);
+
   const field = (label, key, step) => {
     const row = document.createElement("label");
     row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
@@ -604,7 +621,7 @@ function setEditMode(on){
   $("#exportBtn").disabled = !rawDoc;
   $("#resetBtn").disabled = !dirty;
   $("#hint").textContent = editMode
-    ? "edit mode · setup pose · select a bone, edit its transform"
+    ? "edit · select a bone · drag it to move · shift+drag = pan · set parent/transform at right"
     : "scroll = zoom · drag = pan · click a bone in the inspector";
   if (editMode && skeleton){ playing = false; $("#play").textContent = "▶ Play"; skeleton.setToSetupPose(); updateWorld(); }
   renderBoneDetail();
@@ -623,26 +640,104 @@ function exportIrig(){
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// Discard edits: restore bone transforms from the untouched original (Phase 2.1
-// edits only bone transforms; structural edits in 2.2 will need a full reload).
-function resetEdits(){
-  if (!rawDocOriginal || !rawDoc) return;
-  const KEYS = ["x", "y", "rotation", "scaleX", "scaleY", "shearX", "shearY", "length"];
-  const DEF = { scaleX: 1, scaleY: 1 };
-  rawDoc.bones.forEach((rb) => {
-    const ob = rawDocOriginal.bones.find((b) => b.name === rb.name);
-    if (!ob) return;
-    const bd = skeletonData.bones.find((b) => b.name === rb.name);
-    KEYS.forEach((f) => {
-      if (f in ob) rb[f] = ob[f]; else delete rb[f];
-      if (bd) bd[f] = f in ob ? ob[f] : (DEF[f] ?? 0);
-    });
+// Names of every bone whose parent chain passes through `boneName` (its subtree) —
+// used to forbid reparenting onto a descendant (would create a cycle).
+function descendantNames(boneName){
+  const set = new Set();
+  skeletonData.bones.forEach((b) => {
+    for (let p = b.parent; p; p = p.parent){ if (p.name === boneName){ set.add(b.name); break; } }
   });
+  return set;
+}
+
+// Spine requires a bone's parent to be defined BEFORE it in the JSON `bones` array.
+// Reorder so every parent precedes its children (stable depth-first from roots).
+function topoSortBones(doc){
+  const byName = new Map(doc.bones.map((b) => [b.name, b]));
+  const out = [], seen = new Set();
+  const visit = (b) => {
+    if (!b || seen.has(b.name)) return;
+    seen.add(b.name);
+    const p = b.parent && byName.get(b.parent);
+    if (p) visit(p);
+    out.push(b);
+  };
+  doc.bones.forEach(visit);
+  doc.bones = out;
+}
+
+// Re-read skeletonData from the edited rawDoc using the already-loaded atlas, then
+// rebuild the runtime skeleton + anim state (needed after a STRUCTURAL edit like
+// reparent). Pass a CLONE so the loader never mutates our editable source. Restores
+// the active skin + the selected bone by name.
+function rebuildFromRawDoc(selName){
+  const atlas = assetMgr.require(selected.atlas_file);
+  const sj = new SPINE.SkeletonJson(new SPINE.AtlasAttachmentLoader(atlas));
+  skeletonData = sj.readSkeletonData(JSON.parse(JSON.stringify(rawDoc)));
+  skeleton = new SPINE.Skeleton(skeletonData);
+  animState = new SPINE.AnimationState(new SPINE.AnimationStateData(skeletonData));
+  if (skeletonData.skins.length){
+    const want = $("#skin").value;
+    const def = skeletonData.skins.find((s) => s.name === want)
+      || skeletonData.skins.find((s) => s.name === "default") || skeletonData.skins[0];
+    skeleton.setSkinByName(def.name);
+  }
   skeleton.setToSetupPose();
   updateWorld();
+  buildInspector(selected);
+  const idx = selName != null ? skeletonData.bones.findIndex((b) => b.name === selName) : -1;
+  selBone = idx >= 0 ? idx : null;
+  if (selBone != null) selectBone(selBone); else renderBoneDetail();
+}
+
+// Change a bone's parent (structural) → mutate rawDoc + topo-sort + rebuild.
+function reparentBone(i, newParentName){
+  if (!rawDoc) return;
+  const bd = skeletonData.bones[i];
+  if (newParentName === bd.name) return;
+  if (descendantNames(bd.name).has(newParentName)) return; // would create a cycle
+  const rb = rawDoc.bones.find((b) => b.name === bd.name);
+  if (!rb) return;
+  if (newParentName) rb.parent = newParentName; else delete rb.parent;
+  topoSortBones(rawDoc);
+  rebuildFromRawDoc(bd.name);
+  markDirty();
+}
+
+// Drag the selected bone in the viewport: screen delta → world delta → parent-local
+// delta (inverse of the parent's world matrix), added to the bone's local x/y.
+function moveSelectedBoneByScreen(dxScreen, dyScreen, dpr){
+  if (selBone == null || !rawDoc) return;
+  const zoom = renderer.camera.zoom;
+  const worldDX = dxScreen * dpr * zoom;
+  const worldDY = -dyScreen * dpr * zoom;
+  const p = skeleton.bones[selBone].parent;
+  let lx = worldDX, ly = worldDY;
+  if (p){
+    const det = p.a * p.d - p.b * p.c;
+    if (Math.abs(det) > 1e-8){
+      lx = (p.d * worldDX - p.b * worldDY) / det;
+      ly = (p.a * worldDY - p.c * worldDX) / det;
+    }
+  }
+  const bd = skeletonData.bones[selBone];
+  bd.x += lx; bd.y += ly;
+  const rb = rawDoc.bones.find((b) => b.name === bd.name);
+  if (rb){ rb.x = bd.x; rb.y = bd.y; }
+  skeleton.setToSetupPose();
+  updateWorld();
+  markDirty();
+}
+
+// Discard ALL edits (transforms + structure): restore rawDoc from the untouched
+// original and rebuild.
+function resetEdits(){
+  if (!rawDocOriginal) return;
+  const selName = selBone != null ? skeletonData.bones[selBone].name : null;
+  rawDoc = JSON.parse(JSON.stringify(rawDocOriginal));
+  rebuildFromRawDoc(selName);
   dirty = false;
   $("#resetBtn").disabled = true;
-  renderBoneDetail();
 }
 
 // 2D marker over the selected bone's world origin (defensive — never breaks render)
@@ -804,15 +899,28 @@ function wire(){
     const f = e.deltaY > 0 ? 1.1 : 0.9;
     renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
   }, {passive:false});
-  cv.addEventListener("mousedown", e => { dragging = true; lastXY = [e.clientX, e.clientY]; });
-  window.addEventListener("mouseup", () => dragging = false);
-  window.addEventListener("mousemove", e => {
-    if (!dragging || !renderer) return;
-    const dpr = window.devicePixelRatio || 1;
-    const dx = (e.clientX - lastXY[0]) * dpr, dy = (e.clientY - lastXY[1]) * dpr;
-    renderer.camera.position.x -= dx * renderer.camera.zoom;
-    renderer.camera.position.y += dy * renderer.camera.zoom;
+  cv.addEventListener("mousedown", e => {
+    // Edit mode with a bone selected: plain drag MOVES the bone; Shift+drag pans.
+    if (editMode && selBone != null && rawDoc && !e.shiftKey) boneDragging = true;
+    else dragging = true;
     lastXY = [e.clientX, e.clientY];
+  });
+  window.addEventListener("mouseup", () => {
+    if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
+    dragging = false;
+  });
+  window.addEventListener("mousemove", e => {
+    if (!renderer || !lastXY) return;
+    const dpr = window.devicePixelRatio || 1;
+    const dxCss = e.clientX - lastXY[0], dyCss = e.clientY - lastXY[1];
+    if (boneDragging){
+      moveSelectedBoneByScreen(dxCss, dyCss, dpr);
+      lastXY = [e.clientX, e.clientY];
+    } else if (dragging){
+      renderer.camera.position.x -= dxCss * dpr * renderer.camera.zoom;
+      renderer.camera.position.y += dyCss * dpr * renderer.camera.zoom;
+      lastXY = [e.clientX, e.clientY];
+    }
   });
 }
 

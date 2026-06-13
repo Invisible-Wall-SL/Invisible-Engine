@@ -338,10 +338,29 @@ The Rigger now *writes* skeletons. In `static/rigger/view.html`:
   Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the UI live at
   `/rigger` (Edit → tweak a bone → see it move → Export → reopen the `.irig`).
 
-Next — **Phase 2.2/2.3:** canvas drag-to-move a bone (screen→parent-local), bone
-**reparent** (rebuilds the runtime skeleton), then slot/draw-order/attachment-
-placement edits. Then save `.irig` to R2 (toward the Phase 7 pipeline) instead of
-download-only.
+**Phase 2.2 — canvas drag-to-move + bone reparent landed** (code; build GREEN;
+contracts verified headlessly; UI not browser-verified).
+- **Drag-to-move:** in edit mode, dragging the canvas moves the selected bone
+  (Shift+drag still pans). Screen delta → world delta (`×dpr×zoom`) → **parent-local
+  delta** via the inverse of the parent bone's world matrix `[a b; c d]`, added to
+  the bone's local x/y (mutates `rawDoc` by name + live `BoneData`).
+- **Reparent:** the inspector's selected-bone detail gains a **parent `<select>`**
+  (excludes self + descendants, so no cycles; `(root)` = no parent). Changing it is
+  STRUCTURAL → mutate `rawDoc.bones[i].parent`, **topo-sort** the bones array
+  (parents must precede children in Spine JSON), then `rebuildFromRawDoc` re-reads
+  the skeleton from the edited JSON (clone, so the loader never touches our source),
+  rebuilds the runtime + anim state, restores skin + selection by name.
+- **Reset** now restores the full original `rawDoc` and rebuilds (covers structural
+  edits too, not just transforms).
+- **Verified:** `reparent.mjs` — reparent a bone + topo-sort + reload via the
+  official loader: parent-precedes-child invariant holds (0 violations), loader
+  accepts, new parent applied, no bone lost, animations intact (anticipation +
+  transition). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the UI
+  live (drag a bone, reparent it, Export, reopen).
+
+Next — **Phase 2.3:** slot/draw-order + attachment-placement edits; then **save
+`.irig` to R2** (a `rigger`-gated `POST /api/rigger/save` using the existing `r2.ts`
+writers) instead of download-only — toward the Phase 7 pipeline.
 
 ## 11. Model note (Fable 5 vs Opus 4.8 for building this)
 
