@@ -6,11 +6,10 @@
 		engineOwnedOnly,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
-		getReferenceLayout,
 		hudScenes,
 		isHudScene,
 		listFullSceneSets,
-		listReferenceLayouts,
+		listImportableKinds,
 		mountAnchor,
 		resolveAnchorPreviewArt,
 		STANDARD_MAIN_SIZES_MAP,
@@ -70,12 +69,14 @@
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
 	/** Which built-in game layout to load — bound to the scene-bar picker. */
 	let loadChoice = $state('');
-	/** Filled placed layouts the "Import composed reference" group offers
-	 * ("Lines — base game", …). Only kinds whose frame art the editor can render. */
-	const referenceLayouts = listReferenceLayouts();
-	/** Kinds the "New game from kind" group offers (lines + bookOf). Broader than
-	 * `referenceLayouts`: the engine-owned scaffold drops the frame art, so `bookOf`
-	 * is offerable here even though it's held back from the filled import (§19.6). */
+	/** Kinds the "Import composed reference" group offers (lines + bookOf) — those
+	 * shipping a FILLED, art-bearing reference layout. The import fetch
+	 * (`GET /api/editor/import`) returns the filled doc with its bare board-frame
+	 * names rewritten to THIS project's atlas region, so the frame renders (§19.6). */
+	const importableKinds = listImportableKinds();
+	/** Kinds the "New game from kind" group offers. Broader than `importableKinds`:
+	 * the engine-owned scaffold drops the frame art, so the art-less engine-skeleton
+	 * kinds (ways/cluster/scatter) are scaffoldable here too (§19.5). */
 	const fullSceneSets = listFullSceneSets();
 	/** Author-created custom game KINDS (§21) — engine-skeleton `LayoutDoc`s saved to
 	 * R2 — joining the built-in `fullSceneSets` in the "New game from kind" picker.
@@ -839,15 +840,17 @@
 	 *   projection (`engineOwnedOnly`) — correct screens + engine pieces, no art.
 	 * - `kind:<id>` — author-created custom kind (§21): fetch its stored `doc` from
 	 *   R2, then run the SAME `engineOwnedOnly` scaffold + `adoptScenes` clobber path.
-	 * - `ref:<type>` — "Import composed reference": the filled layout as-is. */
+	 * - `ref:<type>` — "Import composed reference": the FILLED layout (art kept),
+	 *   fetched from `/api/editor/import` so the server rewrites its bare board-frame
+	 *   names to THIS project's atlas region (§19.6) — NO `engineOwnedOnly`. */
 	async function loadChosen(): Promise<void> {
 		const choice = loadChoice;
 		if (!choice) return;
 		const sep = choice.indexOf(':');
 		const kind = choice.slice(0, sep);
 		const gameType = choice.slice(sep + 1);
-		// Scaffold reads the full scene set (covers bookOf); import reads the filled
-		// reference layout (lines only today — bookOf import deferred, §19.6).
+		// Scaffold reads the full scene set (covers bookOf); import fetches the
+		// project-aware FILLED reference layout (lines + bookOf, §19.6).
 		if (kind === 'scaffold') {
 			const full = getFullSceneSet(gameType);
 			if (full) adoptScenes(engineOwnedOnly(full), gameType);
@@ -864,8 +867,17 @@
 				lastError = e instanceof Error ? e.message : "Couldn't load that game kind.";
 			}
 		} else if (kind === 'ref') {
-			const ref = getReferenceLayout(gameType);
-			if (ref) adoptScenes(ref, gameType);
+			try {
+				const res = await fetch(`/api/editor/import?gameType=${encodeURIComponent(gameType)}`);
+				if (res.ok) {
+					const doc = (await res.json()) as LayoutDoc;
+					adoptScenes(doc, gameType);
+				} else {
+					lastError = `Couldn't import that reference layout (${res.status}).`;
+				}
+			} catch (e) {
+				lastError = e instanceof Error ? e.message : "Couldn't import that reference layout.";
+			}
 		}
 		loadChoice = '';
 	}
@@ -2048,10 +2060,10 @@
 								{/each}
 							</optgroup>
 						{/if}
-						{#if referenceLayouts.length > 0}
+						{#if importableKinds.length > 0}
 							<optgroup label="Import composed reference">
-								{#each referenceLayouts as r (r.gameType)}
-									<option value={`ref:${r.gameType}`}>{r.name}</option>
+								{#each importableKinds as r (r.id)}
+									<option value={`ref:${r.id}`}>{r.name}</option>
 								{/each}
 							</optgroup>
 						{/if}

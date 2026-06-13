@@ -1143,6 +1143,21 @@ its doc (`GET /api/editor/kind?id=`), runs `engineOwnedOnly`, and `adoptScenes` 
 merges built-ins + customs; custom scaffold fetches doc → `engineOwnedOnly` → adopt. 4. "Save as new game
 kind…" action. Build-green gate (authed pages owner-verified online).
 
+### 19.6-as-built — Project-aware filled import (BUILT 2026-06-13)
+The §19.6 deferral is closed. "Import composed reference" now offers the FILLED (art-bearing) kinds
+(`listImportableKinds()` = `lines` + `bookOf`; the engine-skeleton kinds have no art so import==scaffold and
+are omitted). `loadChosen()`'s `ref:` branch fetches `GET /api/editor/import?gameType=<kind>` instead of the
+client `getReferenceLayout`: the endpoint (gated `editor`, session active project) takes
+`getReferenceLayout(gameType)` (filled-only → 404s a skeleton kind) and **rewrites bare board-frame sprite
+names to the active project's atlas region** — for each `sprite` with a bare image `assetKey` + no `region`,
+it scans the project's atlas manifests (`listProjectAssets` + `editorRegions.loadRegionSet`) and, where a
+region of that name exists, sets `region = assetKey` + `assetKey = <that manifest key>` (identical to the
+seed's `frameNode()`; in-game unchanged, editor-renderable). Best-effort: an unmatched name is left bare
+(previews as a placeholder). So the frame renders for a project whose atlas has it (e.g. Borut's `reels_frame`)
+and degrades gracefully elsewhere. `adoptScenes` keeps the cross-type clobber guard; the imported doc is FILLED
+(no `engineOwnedOnly`). `getFullSceneSet`/`getReferenceLayout` folded onto one `FULL_SCENE_SOURCES` (`filled`
+flag); `listReferenceLayouts` removed (no callers).
+
 ### 21.6 New-project scaffold + admin from a custom kind (BUILT 2026-06-13)
 Originally deferred; shipped as a follow-on so a brand-new PROJECT can be created as a custom kind, not just
 composed in an open editor. As-built (parity-safe):
