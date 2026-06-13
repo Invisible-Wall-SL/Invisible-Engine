@@ -1,62 +1,29 @@
 <script lang="ts">
-	import {
-		fetchRegions,
-		type EditorRegion,
-		type RegionSet,
-	} from '../editor/editorRegions.client';
+	import { type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import CellLoading from './CellLoading.svelte';
 
-	interface Sheet {
-		key: string;
-		name: string;
-	}
 	interface Props {
 		/** Sprite frame name to render (the cell's `assetKey`). */
 		frame: string;
-		/** Project atlases/sheets to search for the frame. */
-		sheets: Sheet[];
+		/**
+		 * Shared frame→region index, built ONCE by the page (every sheet fetched in
+		 * parallel) instead of each cell scanning the sheet list. `null` while that
+		 * first build is in flight → show a loading bar. Default-art frames often
+		 * won't be in the project's R2 until a seeding step — when the built index
+		 * has no entry we show a labelled placeholder rather than erroring.
+		 */
+		index: Map<string, { set: RegionSet; region: EditorRegion }> | null;
 		size: number;
 	}
-	let { frame, sheets, size }: Props = $props();
+	let { frame, index, size }: Props = $props();
 
-	let resolved = $state<{ set: RegionSet; region: EditorRegion } | null>(null);
-	let searching = $state(true);
-
-	/**
-	 * Resolve the frame to a region by scanning the project's sheets (lazy, cached
-	 * per-sheet by `fetchRegions`). Default-art frames often won't be in the
-	 * project's R2 until a seeding step — when nothing matches we show a labeled
-	 * placeholder chip rather than erroring (see `SymbolCell` in the page).
-	 */
-	$effect(() => {
-		const target = frame;
-		const list = sheets;
-		searching = true;
-		resolved = null;
-		let cancelled = false;
-		void (async () => {
-			for (const sheet of list) {
-				const set = await fetchRegions(sheet.key);
-				if (cancelled) return;
-				const region = set.regions.find((r) => r.name === target);
-				if (region) {
-					resolved = { set, region };
-					searching = false;
-					return;
-				}
-			}
-			if (!cancelled) searching = false;
-		})();
-		return () => {
-			cancelled = true;
-		};
-	});
+	const hit = $derived(index?.get(frame) ?? null);
 </script>
 
-{#if resolved}
-	<RegionThumb set={resolved.set} region={resolved.region} {size} />
-{:else if searching}
+{#if hit}
+	<RegionThumb set={hit.set} region={hit.region} {size} />
+{:else if index === null}
 	<CellLoading {size} />
 {:else}
 	<div class="ph" style:width="{size}px" style:height="{size}px" title={frame}>

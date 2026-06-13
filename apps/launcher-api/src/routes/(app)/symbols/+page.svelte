@@ -2,6 +2,11 @@
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
+	import {
+		fetchRegions,
+		type EditorRegion,
+		type RegionSet,
+	} from '../editor/editorRegions.client';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
 	import {
@@ -64,6 +69,33 @@
 
 	/** Spine bundles available for spine cells (project + shared). */
 	const spineBundles = $derived(data.assets.spines.map((s) => ({ name: s.name, key: s.key })));
+
+	// Frame name → its region, built ONCE for the whole grid by fetching every sheet
+	// in PARALLEL. Previously each sprite cell scanned the sheet list itself, and
+	// because they all awaited the shared region cache in the same order the fetches
+	// serialised (everyone blocked on sheet 1 before requesting sheet 2) — ~N heavy
+	// `/api/editor/regions` calls back-to-back. Now it's one parallel burst; cells are
+	// O(1) lookups. `null` while the first build is in flight → cells show a loading bar.
+	let spriteIndex = $state<Map<string, { set: RegionSet; region: EditorRegion }> | null>(null);
+	$effect(() => {
+		const list = pickSheets;
+		let cancelled = false;
+		spriteIndex = null;
+		void (async () => {
+			const sets = await Promise.all(list.map((s) => fetchRegions(s.key)));
+			if (cancelled) return;
+			const idx = new Map<string, { set: RegionSet; region: EditorRegion }>();
+			for (const set of sets) {
+				for (const region of set.regions) {
+					if (!idx.has(region.name)) idx.set(region.name, { set, region });
+				}
+			}
+			spriteIndex = idx;
+		})();
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	// The working doc (sparse overrides). Cloned so edits don't mutate `data`.
 	let doc = $state<SymbolsDoc>(structuredClone(data.doc) as SymbolsDoc);
@@ -228,7 +260,7 @@
 												{:else if eff.cell.type === 'sprite'}
 													<SymbolSpritePreview
 														frame={eff.cell.assetKey}
-														sheets={pickSheets}
+														index={spriteIndex}
 														size={previewSize}
 													/>
 												{:else if isFocused(symbol, state)}
