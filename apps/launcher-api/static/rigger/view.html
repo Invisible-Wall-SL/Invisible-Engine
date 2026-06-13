@@ -578,10 +578,19 @@ function buildInspector(entry){
       row.appendChild(w);
     }
     if (editMode){
+      const ctl = document.createElement("span");
+      ctl.style.cssText = "float:right;display:inline-flex;gap:2px;";
       const rn = document.createElement("button");
-      rn.textContent = "✎"; rn.title = "rename skin"; rn.style.cssText = "float:right;padding:0 6px;";
+      rn.textContent = "✎"; rn.title = "rename skin"; rn.style.cssText = "padding:0 6px;";
       rn.onclick = (e) => { e.stopPropagation(); const nn = prompt("Rename skin", sk.name); if (nn) renameSkin(sk.name, nn); };
-      row.appendChild(rn);
+      ctl.appendChild(rn);
+      if (skeletonData.skins.length > 1){
+        const del = document.createElement("button");
+        del.textContent = "🗑"; del.title = "delete skin"; del.style.cssText = "padding:0 6px;";
+        del.onclick = (e) => { e.stopPropagation(); if (confirm('Delete skin "' + sk.name + '" and all its attachments?')) deleteSkin(sk.name); };
+        ctl.appendChild(del);
+      }
+      row.appendChild(ctl);
     }
     skinList.appendChild(row);
   });
@@ -695,6 +704,14 @@ function renderBoneDetail(){
   det.appendChild(field("scaleX", "scaleX", 0.01));
   det.appendChild(field("scaleY", "scaleY", 0.01));
   det.appendChild(field("length", "length", 1));
+
+  const del = document.createElement("button");
+  del.textContent = "🗑 Delete bone";
+  del.style.cssText = "margin-top:8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.disabled = selBone === 0 || !bd.parent; // never the root
+  del.title = del.disabled ? "the root bone can't be deleted" : "children + slots reparent to " + (bd.parent ? bd.parent.name : "—");
+  del.onclick = () => { if (confirm('Delete bone "' + bd.name + '"? Its children and slots move to ' + (bd.parent ? bd.parent.name : "root") + ".")) deleteBone(bd.name); };
+  det.appendChild(del);
 }
 
 // Apply a setup-pose transform edit: mutate the live BoneData (instant render) AND
@@ -801,6 +818,99 @@ function renameSkin(oldName, newName){
     for (const slot of Object.values(sk.attachments || {}))
       for (const att of Object.values(slot)) if (att && att.type === "linkedmesh" && att.skin === oldName) att.skin = newName;
   }
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// ---- delete (Phase A-delete) ----------------------------------------------
+// Delete a bone (not root). Children + slots reparent to its parent; constraints
+// that reference it are cleaned/dropped; animation track removed; and CRITICALLY
+// every weighted mesh's bone INDICES are remapped by name (the deleted bone's
+// influences dropped + weights renormalised — bone indices are positional).
+function deleteBone(name){
+  if (!rawDoc) return;
+  const idx = rawDoc.bones.findIndex((b) => b.name === name);
+  if (idx <= 0) return; // root (index 0) or not found
+  const parentName = rawDoc.bones[idx].parent;
+  const oldNames = rawDoc.bones.map((b) => b.name); // index→name BEFORE removal
+  for (const b of rawDoc.bones) if (b.parent === name) b.parent = parentName;
+  for (const s of rawDoc.slots || []) if (s.bone === name) s.bone = parentName;
+  for (const grp of ["ik", "transform", "path"]){
+    if (!Array.isArray(rawDoc[grp])) continue;
+    rawDoc[grp] = rawDoc[grp].filter((c) => {
+      if (Array.isArray(c.bones)) c.bones = c.bones.filter((n) => n !== name);
+      const broken = c.target === name || c.bone === name || (Array.isArray(c.bones) && c.bones.length === 0);
+      return !broken;
+    });
+    if (!rawDoc[grp].length) delete rawDoc[grp];
+  }
+  rawDoc.bones.splice(idx, 1);
+  for (const an of Object.values(rawDoc.animations || {})) if (an.bones) delete an.bones[name];
+
+  // remap weighted-mesh bone indices by name
+  const newIndexByName = new Map(rawDoc.bones.map((b, i) => [b.name, i]));
+  const parentIdx = newIndexByName.get(parentName);
+  for (const sk of rawDoc.skins || []) for (const slot of Object.values(sk.attachments || {})) for (const att of Object.values(slot)){
+    if (!att || att.type !== "mesh" || !Array.isArray(att.vertices) || !Array.isArray(att.uvs)) continue;
+    if (att.vertices.length === att.uvs.length) continue; // unweighted — no bone indices
+    const vc = att.uvs.length / 2, out = [];
+    let ri = 0;
+    for (let v = 0; v < vc; v++){
+      const n = att.vertices[ri++], infl = [];
+      for (let j = 0; j < n; j++){ const bi = att.vertices[ri++], x = att.vertices[ri++], y = att.vertices[ri++], w = att.vertices[ri++]; infl.push({ bi, x, y, w }); }
+      let dropped = false;
+      let kept = infl
+        .filter((f) => { const keep = oldNames[f.bi] !== name; if (!keep) dropped = true; return keep; })
+        .map((f) => ({ bone: newIndexByName.get(oldNames[f.bi]), x: f.x, y: f.y, w: f.w }))
+        .filter((f) => { if (f.bone === undefined){ dropped = true; return false; } return true; });
+      if (!kept.length && parentIdx !== undefined){ const r = infl[0] || { x: 0, y: 0 }; kept = [{ bone: parentIdx, x: r.x, y: r.y, w: 1 }]; dropped = true; }
+      // only renormalise vertices that actually lost an influence — leave the rest
+      // bit-identical (the source weights may not sum to exactly 1; don't disturb them)
+      if (dropped){
+        let sum = 0; for (const k of kept) sum += k.w;
+        if (sum > 1e-9) for (const k of kept) k.w /= sum; else { const eq = kept.length ? 1 / kept.length : 1; for (const k of kept) k.w = eq; }
+      }
+      out.push(kept.length); for (const k of kept) out.push(k.bone, k.x, k.y, k.w);
+    }
+    att.vertices = out;
+  }
+  if (collapsedBones.has(name)) collapsedBones.delete(name);
+  selBone = null;
+  rebuildFromRawDoc(parentName);
+  markDirty();
+}
+
+// Delete a slot + its attachments (all skins) + animation slot/deform/drawOrder refs.
+function deleteSlot(name){
+  if (!rawDoc) return;
+  rawDoc.slots = (rawDoc.slots || []).filter((s) => s.name !== name);
+  for (const sk of rawDoc.skins || []) if (sk.attachments) delete sk.attachments[name];
+  for (const an of Object.values(rawDoc.animations || {})){
+    if (an.slots) delete an.slots[name];
+    if (an.deform) for (const sm of Object.values(an.deform)) if (sm) delete sm[name];
+    if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) fr.offsets = fr.offsets.filter((o) => o.slot !== name);
+  }
+  if (selSlot === name) selSlot = null;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// Delete an attachment (image) from a slot in every skin; clear the slot's setup
+// attachment if it pointed there.
+function deleteAttachment(slotName, attName){
+  if (!rawDoc) return;
+  for (const sk of rawDoc.skins || []) if (sk.attachments && sk.attachments[slotName]) delete sk.attachments[slotName][attName];
+  const slot = (rawDoc.slots || []).find((s) => s.name === slotName);
+  if (slot && slot.attachment === attName) delete slot.attachment;
+  for (const an of Object.values(rawDoc.animations || {})) if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) delete sm[slotName][attName];
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// Delete a skin (keep at least one).
+function deleteSkin(name){
+  if (!rawDoc || (rawDoc.skins || []).length <= 1) return;
+  rawDoc.skins = rawDoc.skins.filter((s) => s.name !== name);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -960,7 +1070,22 @@ function renderSlotDetail(){
     const o0 = document.createElement("option"); o0.value = ""; o0.textContent = attName ? "change image…" : "+ attach image…"; asel.appendChild(o0);
     regionNames.forEach((n) => { const o = document.createElement("option"); o.value = n; o.textContent = n; asel.appendChild(o); });
     asel.onchange = () => { if (asel.value) attachRegion(asel.value); };
-    ar.appendChild(al); ar.appendChild(asel); det.appendChild(ar);
+    ar.appendChild(al); ar.appendChild(asel);
+    if (attName){
+      const rm = document.createElement("button");
+      rm.textContent = "✕"; rm.title = 'remove image "' + attName + '" from this slot'; rm.style.cssText = "padding:0 7px;";
+      rm.onclick = () => { if (confirm('Remove image "' + attName + '" from slot "' + sd.name + '"?')) deleteAttachment(sd.name, attName); };
+      ar.appendChild(rm);
+    }
+    det.appendChild(ar);
+  }
+
+  {
+    const del = document.createElement("button");
+    del.textContent = "🗑 Delete slot";
+    del.style.cssText = "margin:2px 0 8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
+    del.onclick = () => { if (confirm('Delete slot "' + sd.name + '" and its attachments?')) deleteSlot(sd.name); };
+    det.appendChild(del);
   }
 
   if (!attName){

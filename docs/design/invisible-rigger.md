@@ -658,6 +658,32 @@ project has those but no spine bundles, so the picker showed nothing. Fixed:
   kept showing the last-selected item. Now the WHOLE row selects (`row.onclick`); the
   ↑/↓ buttons + collapse toggle + skin ✎ `stopPropagation` so they don't double-fire.
 
+### A-delete — delete bones / slots / images / skins (owner: "delete any item?")
+
+Authoring was add+rename only; this adds removal with full reference cleanup so the
+skeleton stays valid (no dangling refs through the official loader).
+- **Delete bone** (`deleteBone`, "🗑 Delete bone" in the bone editor, disabled for
+  root): children + slots reparent to the bone's parent; ik/transform/path constraints
+  that reference it are cleaned (name pulled from `bones[]`) or dropped (lost their
+  target/`bone`/all bones); its animation track is removed. CRITICAL: weighted-mesh
+  vertices reference bones by INDEX, so removing one shifts every higher index — we
+  remap each influence BY NAME (`oldNames[idx]` → new index), drop the deleted bone's
+  influences, and **renormalise only the vertices that actually lost an influence** so
+  untouched vertices stay bit-identical (source weights aren't always exactly 1).
+- **Delete slot** (`deleteSlot`, "🗑 Delete slot"): removes the slot + its attachments
+  in every skin + animation slot/deform/drawOrder-offset refs.
+- **Delete image** (`deleteAttachment`, "✕" by the image picker): removes the
+  attachment from every skin and clears the slot's setup attachment if it pointed there.
+- **Delete skin** (`deleteSkin`, "🗑" on the skin row): removes a skin; the last
+  remaining skin can't be deleted.
+- **Verified:** `tools/rigger-spike/delete.mjs` on h1 / anticipation / loader / W —
+  delete a leaf bone referenced by a weighted mesh, reload: loader accepts, bone gone,
+  all weighted indices in range, every vertex keeps ≥1 influence summing to 1, and
+  vertices NOT influenced by the bone are UNCHANGED (0 moved, 0.00000 — caught + fixed
+  an over-renormalisation that nudged untouched verts ~0.009px). Slot delete clean.
+  Build GREEN; viewer `node --check` OK; full suite no regression. UI not browser-
+  verified (authed) — owner-verify live.
+
 **A3 — raw image upload landed** (2026-06-13, owner ask "insert images"; code; build
 GREEN; packer + synth verified headlessly). Start a rig from **brand-new art** with no
 Atlas Maker step. In the New-rig panel, **or upload images** (file input, multi):
