@@ -216,7 +216,8 @@
       </div>
       <div class="grp">
         <button id="editBtn" title="Edit the setup pose (bone transforms)">✎ Edit</button>
-        <button id="exportBtn" title="Export the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
+        <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
+        <button id="saveBtn" title="Save edits to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
         <button id="resetBtn" title="Discard edits" disabled>Reset</button>
       </div>
       <span id="rt" class="pill"></span>
@@ -619,6 +620,7 @@ function setEditMode(on){
   btn.classList.toggle("active", editMode);
   btn.textContent = editMode ? "✎ Editing" : "✎ Edit";
   $("#exportBtn").disabled = !rawDoc;
+  $("#saveBtn").disabled = !rawDoc;
   $("#resetBtn").disabled = !dirty;
   $("#hint").textContent = editMode
     ? "edit · select a bone · drag it to move · shift+drag = pan · set parent/transform at right"
@@ -638,6 +640,32 @@ function exportIrig(){
   a.download = stem + ".irig";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Save edits to the project in R2 as <stem>.irig (server rebuilds the skeleton
+// index so it re-appears in the list). Non-destructive — the source .json stays.
+async function saveToR2(){
+  if (!rawDoc || !selected) return;
+  const stem = (selected.skeleton_file || "skeleton").replace(/\.[^.]+$/, "");
+  const btn = $("#saveBtn"); const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "saving…";
+  clearErr();
+  try {
+    const r = await fetch("/api/rigger/save", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir: selected.dir_b64, stem, skeleton: rawDoc }),
+    });
+    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    await r.json();
+    dirty = false; $("#resetBtn").disabled = true;
+    btn.textContent = "✓ saved";
+    setTimeout(() => { btn.textContent = label; btn.disabled = !rawDoc; }, 1500);
+    loadSkeletons(true); // refresh list so the new <stem>.irig appears
+  } catch (e){
+    showErr("Save failed: " + (e.message || e));
+    btn.textContent = label; btn.disabled = !rawDoc;
+  }
 }
 
 // Names of every bone whose parent chain passes through `boneName` (its subtree) —
@@ -832,8 +860,10 @@ function renderList(){
     shown++;
     const d = document.createElement("div");
     d.className = "item" + (selected && selected.id === e.id ? " sel" : "");
+    const ext = (e.skeleton_file || "").split(".").pop();
+    const fmt = ext === "irig" ? "irig · edited" : e.format;
     d.innerHTML = '<div class="nm">' + e.name + '</div>' +
-      '<div class="meta">' + e.format + (e.version ? ' · ' + e.version : '') +
+      '<div class="meta">' + fmt + (e.version ? ' · ' + e.version : '') +
       '<span class="badge">rt ' + e.runtime + '</span></div>';
     d.onclick = () => selectSkeleton(e);
     list.appendChild(d);
@@ -890,6 +920,7 @@ function wire(){
   $("#fit").onclick = fitView;
   $("#editBtn").onclick = () => setEditMode(!editMode);
   $("#exportBtn").onclick = exportIrig;
+  $("#saveBtn").onclick = saveToR2;
   $("#resetBtn").onclick = resetEdits;
 
   const cv = $("#cv");

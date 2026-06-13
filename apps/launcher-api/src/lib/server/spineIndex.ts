@@ -13,10 +13,13 @@
  */
 import { getObjectBytes, getObjectText, listAllKeys } from './r2';
 
-/** Asset extensions the spine sync uploads — everything else is skipped. */
+/** Asset extensions the spine sync uploads — everything else is skipped.
+ * `.irig` = the Invisible Rigger's edited-skeleton format (Spine JSON under our
+ * extension); indexed as a first-class JSON skeleton so saved edits re-open. */
 export const SPINE_ASSET_EXT = new Set([
 	'.atlas',
 	'.json',
+	'.irig',
 	'.skel',
 	'.png',
 	'.webp',
@@ -28,6 +31,7 @@ export const SPINE_ASSET_EXT = new Set([
 export const SPINE_CONTENT_TYPE: Record<string, string> = {
 	'.atlas': 'text/plain; charset=utf-8',
 	'.json': 'application/json',
+	'.irig': 'application/json',
 	'.skel': 'application/octet-stream',
 	'.png': 'image/png',
 	'.webp': 'image/webp',
@@ -66,7 +70,8 @@ function isSkeletonJson(head: string): boolean {
 }
 
 function detectVersion(file: string, head: string): string {
-	if (spineExt(file) === '.json') {
+	const ext = spineExt(file);
+	if (ext === '.json' || ext === '.irig') {
 		const m = head.match(/"spine"\s*:\s*"([^"]+)"/);
 		if (m) return m[1];
 	}
@@ -145,7 +150,11 @@ export async function buildSkeletonsIndex(
 
 		const dirKey = dir ? `${root}${dir}/` : root;
 		const jsons: string[] = [];
-		for (const n of names.filter((n) => n.toLowerCase().endsWith('.json'))) {
+		// `.json` AND `.irig` are JSON skeletons (the Rigger writes `.irig`).
+		for (const n of names.filter((n) => {
+			const low = n.toLowerCase();
+			return low.endsWith('.json') || low.endsWith('.irig');
+		})) {
 			const obj = await getObjectBytes(`${dirKey}${n}`);
 			if (!obj) continue;
 			const head = new TextDecoder().decode(obj.body.subarray(0, 512));

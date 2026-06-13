@@ -358,9 +358,27 @@ contracts verified headlessly; UI not browser-verified).
   transition). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the UI
   live (drag a bone, reparent it, Export, reopen).
 
-Next — **Phase 2.3:** slot/draw-order + attachment-placement edits; then **save
-`.irig` to R2** (a `rigger`-gated `POST /api/rigger/save` using the existing `r2.ts`
-writers) instead of download-only — toward the Phase 7 pipeline.
+**Phase 2.3 — save to R2 as a first-class `.irig` landed** (code; build GREEN; not
+browser-verified). Edits now persist server-side, not just download.
+- **`.irig` is a first-class skeleton.** Taught the shared `spineIndex.ts` about
+  `.irig` (added to `SPINE_ASSET_EXT` + `SPINE_CONTENT_TYPE=application/json`; the
+  JSON-skeleton detection + `detectVersion` now include `.irig`). So a saved `.irig`
+  is listed by `skeletons.json` and re-opens in the tool (and the Spine Viewer) —
+  it's just Spine JSON the extension-agnostic loader reads (proven in Phase 0).
+- **`POST /api/rigger/save`** (`routes/api/rigger/save/+server.ts`) — `rigger`-gated
+  via `gate()`, path-guarded, validates `bones[]`, writes `<bundle>/<stem>.irig`
+  with `putObjectText`, then rebuilds `skeletons.json` via `buildSkeletonsIndex`
+  (same final step as the editor's spine reindex). **Non-destructive:** the artist's
+  source `.json` is untouched; the edit is the sibling `.irig`.
+- **Viewer:** `💾 Save` button → POSTs `{dir, stem, skeleton: rawDoc}`, then
+  refreshes the list (the new `.irig` appears, tagged "irig · edited").
+- Verified: `pnpm --filter launcher-api build` GREEN; viewer `<script>` blocks pass
+  `node --check`. ⏳ owner-verify live (edit → 💾 Save → the `.irig` appears in the
+  list and re-opens with the edits).
+
+Next — **Phase 2.4:** slot/draw-order reorder + attachment-placement (region x/y/
+rotation/scale) edits — the remaining structural editing — then the open Spike-2
+auto-weights question before Phase 3/4 (mesh + weights).
 
 ## 11. Model note (Fable 5 vs Opus 4.8 for building this)
 
