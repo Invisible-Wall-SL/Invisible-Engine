@@ -1,18 +1,18 @@
 import { json } from '@sveltejs/kit';
+import { loadRegionSet } from '$lib/server/editorRegions';
 import { SUB } from '$lib/server/projectPaths';
-import { getObjectText, listAllKeys } from '$lib/server/r2';
-import { atlasRegionNames } from '$lib/server/spine';
+import { listObjects } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
+const basename = (k: string): string => { const i = k.lastIndexOf('/'); return i === -1 ? k : k.slice(i + 1); };
+
 /**
- * List the project's packed atlases (from the spines prefix) with their region
- * names, so the Rigger can (a) bind a NEW rig to an existing atlas folder and
- * (b) attach packed images to slots. Gated by `rigger` access.
- *
- * Returns `{ atlases: [{ folder, atlas_file, dir, regions }] }` where `dir` is the
- * base64url of the bundle folder (the same token `/spine/file` + `/api/rigger/save`
- * use) and `folder` is the human-readable relative path under `<spines>/`.
+ * List the project's atlases the Rigger can build a new rig from — sourced from the
+ * Atlas Maker / Sheet Maker MANIFESTS (`<project>/manifests/*.json`), the same way
+ * the editor finds them (NOT the `spines/` prefix, which is empty for a fresh
+ * project). Each entry that has resolvable regions + a page is returned with its
+ * manifest key + region names. `rigger`-gated.
  */
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -20,25 +20,20 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const root = `${SUB.spines(clientKey, projectKey)}/`;
-	const keys = await listAllKeys(root);
-	const atlasKeys = keys.filter((k) => k.toLowerCase().endsWith('.atlas'));
+	const manifestsPrefix = `${SUB.manifests(clientKey, projectKey)}/`;
+	const listed = await listObjects(manifestsPrefix, 500);
+	const manifestKeys = listed.keys.filter((k) => k.toLowerCase().endsWith('.json'));
 
 	const atlases = [];
-	for (const key of atlasKeys) {
-		const rel = key.slice(root.length); // e.g. "symbols/symbols.atlas"
-		const slash = rel.lastIndexOf('/');
-		const folder = slash === -1 ? '' : rel.slice(0, slash);
-		const atlas_file = slash === -1 ? rel : rel.slice(slash + 1);
-		const text = await getObjectText(key);
-		if (text === null) continue;
+	for (const manifestKey of manifestKeys) {
+		const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
+		if (!rs.regions.length || !rs.pageKey) continue; // unusable (no regions or no page)
 		atlases.push({
-			folder,
-			atlas_file,
-			dir: Buffer.from(folder, 'utf8').toString('base64url'),
-			regions: atlasRegionNames(text),
+			manifestKey,
+			label: basename(manifestKey).replace(/^atlas_manifest_/, '').replace(/\.json$/i, ''),
+			regions: rs.regions.map((r) => r.name),
 		});
 	}
-	atlases.sort((a, b) => a.folder.localeCompare(b.folder));
+	atlases.sort((a, b) => a.label.localeCompare(b.label));
 	return json({ atlases });
 };

@@ -598,5 +598,26 @@ existing-atlas path:
 
 **The from-scratch authoring loop exists end-to-end** (new rig → bones/slots/skins →
 attach images → save → reopen) using images already packed in the Atlas Maker.
+**A2 FIX (2026-06-13) — the atlas list was empty.** First cut scanned `spines/` for
+`.atlas` files and saved a new rig there; but the Atlas Maker writes **manifests**
+(`<project>/manifests/atlas_manifest_*.json`, pages preferring `deploy/`) — a fresh
+project has those but no spine bundles, so the picker showed nothing. Fixed:
+- `/api/rigger/atlases` now lists the project's **manifests** via the editor's
+  `loadRegionSet` (handles Invisible + TexturePacker shapes), returning each usable
+  atlas's `manifestKey` + region names.
+- **`POST /api/rigger/new`** assembles a self-contained spine bundle: synthesise a
+  Spine `.atlas` from the manifest's regions (`regionsToSpineAtlas` in `spine.ts`,
+  byte-format-compatible with the Atlas Maker's own `atlas_format.write_atlas` —
+  `bounds:`/`offsets:`/`rotate:90`), copy the packed page image, write a blank
+  `.irig`, all into `spines/<name>/`, then reindex. So a new rig is a normal spine
+  bundle that indexes + loads + has its images attachable. Works **post-compose** (no
+  deploy needed — `loadRegionSet` resolves the page from `deploy/` or the source).
+- **Verified:** `tools/rigger-spike/synth.mjs` — real atlas → regions → synthesise →
+  re-parse with the official `TextureAtlas`: region count + on-page rects + original
+  sizes round-trip with **0 mismatch incl. rotated regions** (15/10/8 rotated across
+  symbols/anticipation/transition). Build GREEN; viewer `node --check` OK. ⏳
+  owner-verify live (the `test1` project's atlas should now appear; New rig → it
+  loads with that atlas's images).
+
 Next — **A3:** raw image **upload** in the Rigger → builds a single-page atlas +
 regions in R2 (unblocks rigs with brand-new art, no prior atlas).

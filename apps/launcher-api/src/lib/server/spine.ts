@@ -105,6 +105,50 @@ export async function fetchSpineBundleFile(
 	return { body: obj.body, contentType: obj.contentType };
 }
 
+/** Region geometry for synthesising a `.atlas` (matches `EditorRegion` from
+ * `editorRegions.ts` — on-page rect + optional trim/orig). */
+export interface SynthRegion {
+	name: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	rotated?: boolean;
+	offX?: number;
+	offY?: number;
+	origW?: number;
+	origH?: number;
+}
+
+/**
+ * Synthesise a modern Spine 4.x `.atlas` from a manifest's regions, byte-compatible
+ * with what the Atlas Maker itself emits (`atlas_format.py` `write_atlas`): page
+ * line, `size:`/`filter:`, then per region `<name>` + `bounds:x,y,w,h`, optional
+ * `offsets:ox,oy,ow,oh` (only when trimmed), `rotate:90` when rotated. Lets the
+ * Rigger turn any composed atlas (manifest) into a loadable spine bundle.
+ */
+export function regionsToSpineAtlas(
+	pageImage: string,
+	pageWidth: number,
+	pageHeight: number,
+	regions: SynthRegion[],
+): string {
+	const out: string[] = [pageImage, `size:${Math.round(pageWidth)},${Math.round(pageHeight)}`, 'filter:Linear,Linear'];
+	for (const r of regions) {
+		const w = Math.round(r.w);
+		const h = Math.round(r.h);
+		out.push(r.name);
+		out.push(`bounds:${Math.round(r.x)},${Math.round(r.y)},${w},${h}`);
+		const ow = Math.round(r.origW ?? r.w);
+		const oh = Math.round(r.origH ?? r.h);
+		const ox = Math.round(r.offX ?? 0);
+		const oy = Math.round(r.offY ?? 0);
+		if (ox !== 0 || oy !== 0 || ow !== w || oh !== h) out.push(`offsets:${ox},${oy},${ow},${oh}`);
+		if (r.rotated) out.push('rotate:90');
+	}
+	return out.join('\n') + '\n';
+}
+
 /** One skeleton's index entry, as written into `skeletons.json` by the sync. */
 export interface SkeletonIndexEntry {
 	name: string;
