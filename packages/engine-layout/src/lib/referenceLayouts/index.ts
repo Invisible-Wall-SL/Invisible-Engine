@@ -1,9 +1,15 @@
 import type { LayoutDoc } from '../types';
 import { bookofReferenceLayout } from './bookof';
+import { clusterReferenceLayout } from './cluster';
 import { defaultLayout } from './lines';
+import { scatterReferenceLayout } from './scatter';
+import { waysReferenceLayout } from './ways';
 
 export { defaultLayout } from './lines';
 export { bookofReferenceLayout } from './bookof';
+export { waysReferenceLayout } from './ways';
+export { clusterReferenceLayout } from './cluster';
+export { scatterReferenceLayout } from './scatter';
 // The game HUD as editor scenes (identical across game types) — used by the
 // editor's "Add HUD layer" action + a game's fallback doc.
 export {
@@ -65,6 +71,11 @@ export function getReferenceLayout(gameType: string): LayoutDoc | undefined {
 const FULL_SCENE_SOURCES: Record<string, { name: string; build: () => LayoutDoc }> = {
 	lines: { name: 'Lines', build: () => defaultLayout('lines') },
 	bookOf: { name: 'Book of', build: () => bookofReferenceLayout() },
+	// Engine-skeleton kinds (§19.8): no filled `import` (not in REFERENCE_LAYOUTS),
+	// but offered in the "New game from kind" picker via the scaffold projection.
+	ways: { name: 'Ways', build: () => waysReferenceLayout() },
+	cluster: { name: 'Cluster', build: () => clusterReferenceLayout() },
+	scatter: { name: 'Scatter', build: () => scatterReferenceLayout() },
 };
 
 export function getFullSceneSet(gameType: string): LayoutDoc | undefined {

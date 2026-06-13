@@ -15,7 +15,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const bundled = await esbuild.build({
 	stdin: {
-		contents: `export { defaultLayout, engineOwnedOnly } from '../src/lib/index.ts';`,
+		contents: `export { defaultLayout, engineOwnedOnly, getFullSceneSet } from '../src/lib/index.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
 		sourcefile: 'test-engine-owned-only.entry.ts',
@@ -97,6 +97,68 @@ assert(!!findNode(out, 'hud-balance'), 'HUD balance readout (componentInstance) 
 assert(!!findNode(out, 'hud-btn-menu'), 'HUD menu button node retained');
 assert(!!findNode(out, 'hud-gamename'), 'HUD game-name corner retained');
 assert(!!findNode(out, 'hud-logo'), 'HUD logo corner retained');
+
+// --- §19.8 engine-skeleton kinds: ways / cluster / scatter ---
+// Each must (a) return a full scene set, and (b) survive the scaffold projection
+// keeping its reelGrid + HUD scenes, dropping nothing it shouldn't (every scene
+// still emitted, since the skeletons carry only engine-owned nodes).
+const SKELETON_BOARDS = {
+	ways: { reels: 5, rows: 3, cellSize: 120 },
+	cluster: { reels: 7, rows: 7, cellSize: 80 },
+	scatter: { reels: 6, rows: 5, cellSize: 100 },
+};
+
+for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
+	const full = mod.getFullSceneSet(kind);
+	assert(!!full, `getFullSceneSet('${kind}') returns a doc`);
+	if (!full) continue;
+	assert(full.gameType === kind, `${kind} doc gameType is '${kind}'`);
+
+	const scaffold = mod.engineOwnedOnly(full);
+
+	// (a) every scene survives the projection (skeleton = engine-owned only).
+	const fullIds = full.scenes.map((s) => s.id);
+	const scaffoldIds = scaffold.scenes.map((s) => s.id);
+	assert(
+		fullIds.length === scaffoldIds.length && fullIds.every((id, i) => id === scaffoldIds[i]),
+		`${kind} scaffold emits every scene (${scaffoldIds.join(', ')})`,
+	);
+
+	// (b) reelGrid retained with the kind's real board shape.
+	const grid = findNode(scaffold, 'reel-grid');
+	assert(grid?.kind === 'reelGrid', `${kind} reelGrid retained`);
+	assert(
+		grid?.reels === board.reels && grid?.rows === board.rows && grid?.cellSize === board.cellSize,
+		`${kind} reelGrid is ${board.reels}×${board.rows} @ ${board.cellSize}px`,
+	);
+
+	// (c) HUD scenes retained intact (whole-scene engine-owned).
+	const hudBar = sceneById(scaffold, 'hudBar');
+	const hudCorners = sceneById(scaffold, 'hudCorners');
+	assert(!!hudBar && hudBar.nodes.length > 0, `${kind} HUD bar retained`);
+	assert(!!hudCorners && hudCorners.nodes.length > 0, `${kind} HUD corners retained`);
+	assert(!!findNode(scaffold, 'hud-btn-menu'), `${kind} HUD button retained`);
+
+	// (d) overlay + free-spin bind anchors retained.
+	for (const id of [
+		'loading-screen',
+		'bg',
+		'bound-win',
+		'bound-transition',
+		'fs-intro',
+		'fs-counter',
+		'fs-outro',
+	]) {
+		assert(!!findNode(scaffold, id), `${kind} bind anchor '${id}' retained`);
+	}
+
+	// (e) nothing dropped — the skeleton has no plain artist art, so node count holds.
+	const countNodes = (doc) => doc.scenes.reduce((n, s) => n + allNodes(s.nodes).length, 0);
+	assert(
+		countNodes(scaffold) === countNodes(full),
+		`${kind} scaffold drops nothing (${countNodes(scaffold)} nodes retained)`,
+	);
+}
 
 if (failures > 0) {
 	console.error(`\n✗ ${failures} assertion(s) failed.`);
