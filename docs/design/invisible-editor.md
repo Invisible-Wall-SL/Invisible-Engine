@@ -993,22 +993,30 @@ from existing metadata — no schema change.
 ### 19.5 UI collapse (the menu)
 
 Replace the two-group "＋ Load a game scene…" dropdown with an honest split:
-- **New game from kind** → `lines / ways / cluster / scatter / bookOf` — runs the **scaffold** projection
-  (engine pieces only). This is the owner's "create a template from zero."
-- **Import composed reference** → the kinds that ship a reference layout — runs the **import** projection
-  (filled), clobber-guarded (PR #23). bookOf is included here via the project-aware path (see 19.6), no longer
+- **New game from kind** → the kinds with a full scene set (`listFullSceneSets()` — `lines` + `bookOf` today)
+  — runs the **scaffold** projection (`getFullSceneSet`→`engineOwnedOnly`, engine pieces only). This is the
+  owner's "create a template from zero." **bookOf belongs HERE, not in import** (as-built 2026-06-12): the
+  scaffold drops its frame art so the §19.6 atlas-frame problem doesn't arise — no longer
   excluded-then-offered-empty.
+- **Import composed reference** → the kinds that ship a FILLED reference layout (`listReferenceLayouts()` —
+  `lines` only today) — runs the **import** projection (filled), clobber-guarded (PR #23). bookOf's filled
+  import stays deferred (see 19.6).
 - The non-destructive top-ups stay as their own controls (Add missing screens / Add HUD layer / New
   background), visually grouped as "add to this project," not competing entries in the load menu.
+- `adoptScenes` already satisfies §19.8's "never silently overwrite": a same-type load confirms ("replaces the
+  layout on screen; nothing saved until you edit") and stays a non-autosaving preview until the first edit; a
+  cross-type load is held back from autosave entirely. So "New game from kind" into a composed project (e.g.
+  Borut) is non-destructive without a new guard.
 
 ### 19.6 bookOf's board-frame caveat (carried over, not regressed)
 
 `bookofReferenceLayout` was excluded from the picker because its board frame is an atlas FRAME living inside
 the project's `reels_frame` atlas — a generic standalone-key layout can't render it, and loading it blind
-could clobber a real seeded doc (`referenceLayouts/index.ts`). Under 19.3 this mostly dissolves: the
-**scaffold** projection *drops* the board frame (it's artist art), so the frame-atlas problem doesn't arise
-for "new bookOf game." The **import** projection still needs the project's own manifest for the frame — so
-import stays project-aware (reuse the seed's manifest-pointing logic) and clobber-guarded.
+could clobber a real seeded doc (`referenceLayouts/index.ts`). Under 19.3 this dissolves for the common case:
+the **scaffold** projection *drops* the board frame (it's artist art), so the frame-atlas problem doesn't
+arise for "new bookOf game" — which is why **bookOf is offered in "New game from kind"** (as-built). Only the
+**filled import** projection still needs the project's own manifest for the frame, so it stays deferred until
+the project-aware path lands (reuse the seed's manifest-pointing logic) — bookOf is NOT in the import group.
 
 ### 19.7 Build order (parity-gated; engine-layout first, launcher second)
 

@@ -62,11 +62,21 @@ export function getReferenceLayout(gameType: string): LayoutDoc | undefined {
  * the generic layout can't reproduce), since a seeded project already has
  * `basegame`. Returns `undefined` for an unknown game type.
  */
-const FULL_SCENE_SOURCES: Record<string, () => LayoutDoc> = {
-	lines: () => defaultLayout('lines'),
-	bookOf: () => bookofReferenceLayout(),
+const FULL_SCENE_SOURCES: Record<string, { name: string; build: () => LayoutDoc }> = {
+	lines: { name: 'Lines', build: () => defaultLayout('lines') },
+	bookOf: { name: 'Book of', build: () => bookofReferenceLayout() },
 };
 
 export function getFullSceneSet(gameType: string): LayoutDoc | undefined {
-	return FULL_SCENE_SOURCES[gameType]?.();
+	return FULL_SCENE_SOURCES[gameType]?.build();
+}
+
+/**
+ * The game types that have a full scene set (for the editor's "New game from
+ * kind" picker). Broader than {@link listReferenceLayouts}: it includes `bookOf`,
+ * because the engine-owned scaffold projection (`engineOwnedOnly`) drops the
+ * board-frame art that kept `bookOf` out of the placed-import picker (§19.6).
+ */
+export function listFullSceneSets(): { gameType: string; name: string }[] {
+	return Object.entries(FULL_SCENE_SOURCES).map(([gameType, { name }]) => ({ gameType, name }));
 }

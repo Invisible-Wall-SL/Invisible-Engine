@@ -4,7 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
-import { type GameTemplate, engineOwnedOnly, getReferenceLayout } from 'engine-layout';
+import { type GameTemplate, engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { normalizeDoc } from './localization';
 import {
 	SUB,
@@ -33,10 +33,10 @@ function buildSeeds(
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
 	// §19.3: seed the editor doc from the engine-owned projection of the kind's
-	// reference layout (correct screens + engine pieces, no artist art). Kinds
-	// without a reference layout (ways/cluster/scatter today) fall back to the
-	// empty template skeleton so nothing regresses.
-	const reference = getReferenceLayout(gameType);
+	// full scene set (correct screens + engine pieces, no artist art) — covers
+	// `lines` + `bookOf`. Kinds without a scene set (ways/cluster/scatter today)
+	// fall back to the empty template skeleton so nothing regresses.
+	const reference = getFullSceneSet(gameType);
 	const seededScenes = reference
 		? engineOwnedOnly(reference).scenes
 		: seedScenesFromTemplate(template);

@@ -9,6 +9,7 @@
 		getReferenceLayout,
 		hudScenes,
 		isHudScene,
+		listFullSceneSets,
 		listReferenceLayouts,
 		mountAnchor,
 		resolveAnchorPreviewArt,
@@ -68,8 +69,13 @@
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
 	/** Which built-in game layout to load — bound to the scene-bar picker. */
 	let loadChoice = $state('');
-	/** Built-in placed layouts the picker offers ("Lines — base game", …). */
+	/** Filled placed layouts the "Import composed reference" group offers
+	 * ("Lines — base game", …). Only kinds whose frame art the editor can render. */
 	const referenceLayouts = listReferenceLayouts();
+	/** Kinds the "New game from kind" group offers (lines + bookOf). Broader than
+	 * `referenceLayouts`: the engine-owned scaffold drops the frame art, so `bookOf`
+	 * is offerable here even though it's held back from the filled import (§19.6). */
+	const fullSceneSets = listFullSceneSets();
 	/** Hoisted selection. `selectedIds` is the source of truth (multi-select via
 	 * shift-click in the canvas + outliner); `<EditorCanvas>` binds it. `selectedId`
 	 * is the PRIMARY (last-picked) id — what the properties panel + outline highlight
@@ -830,15 +836,14 @@
 		const choice = loadChoice;
 		if (!choice) return;
 		const [kind, gameType] = choice.split(':');
-		const ref = getReferenceLayout(gameType);
-		if (!ref) {
-			loadChoice = '';
-			return;
-		}
+		// Scaffold reads the full scene set (covers bookOf); import reads the filled
+		// reference layout (lines only today — bookOf import deferred, §19.6).
 		if (kind === 'scaffold') {
-			adoptScenes(engineOwnedOnly(ref), gameType);
+			const full = getFullSceneSet(gameType);
+			if (full) adoptScenes(engineOwnedOnly(full), gameType);
 		} else if (kind === 'ref') {
-			adoptScenes(ref, gameType);
+			const ref = getReferenceLayout(gameType);
+			if (ref) adoptScenes(ref, gameType);
 		}
 		loadChoice = '';
 	}
@@ -1949,12 +1954,14 @@
 				<div class="load-row">
 					<select class="load-select" bind:value={loadChoice} aria-label="Load scenes">
 						<option value="">＋ Load scenes…</option>
-						{#if referenceLayouts.length > 0}
+						{#if fullSceneSets.length > 0}
 							<optgroup label="New game from kind">
-								{#each referenceLayouts as r (r.gameType)}
-									<option value={`scaffold:${r.gameType}`}>New {r.gameType} (engine pieces)</option>
+								{#each fullSceneSets as r (r.gameType)}
+									<option value={`scaffold:${r.gameType}`}>New {r.name} (engine pieces)</option>
 								{/each}
 							</optgroup>
+						{/if}
+						{#if referenceLayouts.length > 0}
 							<optgroup label="Import composed reference">
 								{#each referenceLayouts as r (r.gameType)}
 									<option value={`ref:${r.gameType}`}>{r.name}</option>
