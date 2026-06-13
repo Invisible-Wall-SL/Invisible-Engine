@@ -294,6 +294,22 @@ let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
+// Attachment type tests that survive the vendored runtime mangling class names
+// (the minified spine-webgl names them `_RegionAttachment`/`_MeshAttachment`, so a
+// `constructor.name === "RegionAttachment"` check fails in the browser even though it
+// passes against the un-mangled core in the headless tests). Prefer instanceof against
+// the runtime's exported class; fall back to a name substring (covers the `_` prefix).
+function isRegionAtt(a){
+  if (!a) return false;
+  if (SPINE && SPINE.RegionAttachment && a instanceof SPINE.RegionAttachment) return true;
+  return /Region/.test((a.constructor && a.constructor.name) || "");
+}
+function isMeshAtt(a){
+  if (!a) return false;
+  if (SPINE && SPINE.MeshAttachment && a instanceof SPINE.MeshAttachment) return true;
+  return /Mesh/.test((a.constructor && a.constructor.name) || "");
+}
+
 // ---- runtime loading (one spine-webgl global at a time) -------------------
 // Reuses the Spine Viewer's vendored runtimes + R2 endpoints (same project spines).
 function loadRuntime(line){
@@ -569,7 +585,7 @@ function buildInspector(entry){
     let weighted = 0, meshes = 0;
     for (const e of atts){
       const a = e.attachment;
-      if (a && a.constructor && a.constructor.name === "MeshAttachment"){
+      if (isMeshAtt(a)){
         meshes++; if (a.bones && a.bones.length) weighted++;
       }
     }
@@ -1112,7 +1128,7 @@ function renderSlotDetail(){
   }
   const att = skeleton.getAttachment(slotIndex, attName);
   // mesh → vertex editing (Phase 3): drag the points on the canvas
-  if (att && att.constructor.name === "MeshAttachment"){
+  if (isMeshAtt(att)){
     meshCtx = { slotIndex, attName, attachment: att, weighted: !!(att.bones && att.bones.length) };
     const t = document.createElement("div");
     t.textContent = "mesh · " + (att.worldVerticesLength / 2) + " verts" +
@@ -1244,9 +1260,9 @@ function renderSlotDetail(){
     }
     return;
   }
-  if (!att || att.constructor.name !== "RegionAttachment"){
+  if (!isRegionAtt(att)){
     const t = document.createElement("div");
-    t.textContent = (att ? att.constructor.name.replace("Attachment", "").toLowerCase() : "missing") +
+    t.textContent = (att ? att.constructor.name.replace(/^_/, "").replace("Attachment", "").toLowerCase() : "missing") +
       " — no placement editor";
     det.appendChild(t); return;
   }
@@ -1310,7 +1326,7 @@ function applyAttachmentEdit(key, value){
   const attName = sd && sd.attachmentName;
   if (!attName) return;
   const att = skeleton.getAttachment(slotIndex, attName);
-  if (!att || att.constructor.name !== "RegionAttachment") return;
+  if (!isRegionAtt(att)) return;
   att[key] = v;
   if (att.updateRegion) att.updateRegion();
   // mirror into the skin entry that actually defines this slot/attachment
@@ -1392,7 +1408,7 @@ function finishDrawMesh(){
   const sd = skeletonData.slots[slotIndex];
   const attName = sd && sd.attachmentName;
   const att = attName ? skeleton.getAttachment(slotIndex, attName) : null;
-  if (!att || att.constructor.name !== "RegionAttachment"){ done(); renderSlotDetail(); return; }
+  if (!isRegionAtt(att)){ done(); renderSlotDetail(); return; }
   const slot = skeleton.slots[slotIndex];
   const corners = new Array(8).fill(0);
   att.computeWorldVertices(slot, corners, 0, 2); // region world quad (BL,UL,UR,BR)
@@ -1644,7 +1660,7 @@ function convertRegionToMesh(){
   const attName = sd && sd.attachmentName;
   if (!attName) return;
   const att = skeleton.getAttachment(slotIndex, attName);
-  if (!att || att.constructor.name !== "RegionAttachment") return;
+  if (!isRegionAtt(att)) return;
   if (att.updateRegion) att.updateRegion();
   if (!att.offset) return;
   let skinEntry = null;
