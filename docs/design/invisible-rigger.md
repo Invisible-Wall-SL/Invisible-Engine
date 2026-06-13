@@ -376,9 +376,29 @@ browser-verified). Edits now persist server-side, not just download.
   `node --check`. ⏳ owner-verify live (edit → 💾 Save → the `.irig` appears in the
   list and re-opens with the edits).
 
-Next — **Phase 2.4:** slot/draw-order reorder + attachment-placement (region x/y/
-rotation/scale) edits — the remaining structural editing — then the open Spike-2
-auto-weights question before Phase 3/4 (mesh + weights).
+**Phase 2.4 — slot draw-order + region attachment placement landed** (code; build
+GREEN; contracts verified headlessly). Structural editing is now complete.
+- **Draw-order reorder:** slot rows get ↑/↓ in edit mode → swap in `rawDoc.slots`
+  (the array order IS the setup draw order) → `rebuildFromRawDoc`, keeping the slot
+  selected. Slots iterate `skeletonData.slots` (setup order = `rawDoc.slots`).
+- **Region attachment placement:** clicking a slot selects it; for a region
+  attachment its x/y/rotation/scaleX/scaleY get numeric editors. Edits mutate the
+  live `RegionAttachment` (+ `updateRegion()` to recompute geometry — no rebuild,
+  instant) and the `rawDoc` skin entry (found by skin→slot→attachment). Mesh
+  attachments show a "region-only (mesh = Phase 3)" note.
+- Edit toggle re-renders the inspector so the ↑/↓ controls appear/disappear; both
+  bone and slot selections survive rebuilds.
+- **Verified:** `tools/rigger-spike/slotedit.mjs` — swap slots[] + reload = order
+  changed, all present, loader accepts; mutate a region attachment's x/rotation +
+  reload = values present on the reloaded `RegionAttachment` (anticipation +
+  transition). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify live.
+
+**Phase 2 is complete** (transform edit, drag-move, reparent, slot order, attachment
+placement, `.irig` export + R2 save). Next — the real gate before **Phase 3/4 (mesh
+geometry + weight painting): resolve the open Spike-2 auto-weights question** — needs
+a representative embedded-skeleton character mesh as ground truth + a better
+algorithm (geodesic/heat, bone-length-aware). The manual weight brush remains the
+guaranteed fallback regardless.
 
 ## 11. Model note (Fable 5 vs Opus 4.8 for building this)
 

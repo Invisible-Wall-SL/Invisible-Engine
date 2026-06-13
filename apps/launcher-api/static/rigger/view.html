@@ -94,7 +94,7 @@
   .trow.sel { background:#2f3a48; color:#fff; }
   .trow .tag { color:var(--dim); font-size:10px; margin-left:6px; }
   .trow .wm { color:var(--accent2); font-size:10px; }
-  #boneDetail { padding:6px 14px; color:var(--dim); font-size:11px; border-top:1px dashed var(--line);
+  #boneDetail, #slotDetail { padding:6px 14px; color:var(--dim); font-size:11px; border-top:1px dashed var(--line);
     white-space:pre-wrap; display:none; }
   .empty { padding:6px 14px; color:var(--dim); font-size:11px; font-style:italic; }
 </style>
@@ -237,6 +237,7 @@
     <details class="sec" id="secSlots">
       <summary>Slots (draw order) <span class="pill" id="cSlots"></span></summary>
       <div class="body" id="slotList"></div>
+      <div id="slotDetail"></div>
     </details>
     <details class="sec" id="secSkins">
       <summary>Skins <span class="pill" id="cSkins"></span></summary>
@@ -261,6 +262,7 @@ let skeleton, animState, skeletonData, lastFrame = 0;
 let playing = true, looping = true, showBones = true, pma = true, preferPng = true;
 let showMesh = false;
 let selBone = null; // index into skeleton.bones / skeletonData.bones
+let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -403,6 +405,7 @@ function buildSkeleton(entry){
   setEditMode(false);
 
   selBone = null;
+  selSlot = null;
   buildInspector(entry);
 
   if (skeletonData.animations.length){
@@ -454,19 +457,38 @@ function buildInspector(entry){
   $("#cBones").textContent = "(" + bones.length + ")";
   $("#boneDetail").style.display = "none";
 
-  // ---- slots in draw order ----
+  // ---- slots in draw order (setup order = skeletonData.slots = rawDoc.slots) ----
   const slotList = $("#slotList"); clearChildren(slotList);
-  skeleton.drawOrder.forEach((slot, z) => {
+  const slots = skeletonData.slots;
+  slots.forEach((sd, z) => {
     const row = document.createElement("div");
-    row.className = "trow";
-    const boneName = (slot.bone && slot.bone.data) ? slot.bone.data.name : "";
-    row.textContent = slot.data.name;
+    row.className = "trow" + (selSlot === sd.name ? " sel" : "");
+    row.dataset.slot = sd.name;
+    const nm = document.createElement("span");
+    nm.textContent = sd.name; nm.style.cursor = "pointer";
+    nm.onclick = () => selectSlot(sd.name);
+    row.appendChild(nm);
     const t = document.createElement("span"); t.className = "tag";
-    t.textContent = "→ " + boneName + (slot.data.attachmentName ? " · " + slot.data.attachmentName : "");
+    t.textContent = "→ " + (sd.boneData ? sd.boneData.name : "") + (sd.attachmentName ? " · " + sd.attachmentName : "");
     row.appendChild(t);
+    if (editMode){
+      const ctl = document.createElement("span");
+      ctl.style.cssText = "float:right;display:inline-flex;gap:2px;";
+      const mk = (txt, d, dis, title) => {
+        const b = document.createElement("button");
+        b.textContent = txt; b.title = title; b.disabled = dis;
+        b.style.cssText = "padding:0 5px;font-size:11px;line-height:16px;";
+        b.onclick = (e) => { e.stopPropagation(); moveSlot(z, d); };
+        return b;
+      };
+      ctl.appendChild(mk("↑", -1, z === 0, "move back (earlier in draw order)"));
+      ctl.appendChild(mk("↓", 1, z === slots.length - 1, "move forward (later in draw order)"));
+      row.appendChild(ctl);
+    }
     slotList.appendChild(row);
   });
-  $("#cSlots").textContent = "(" + skeleton.drawOrder.length + ")";
+  $("#cSlots").textContent = "(" + slots.length + ")";
+  renderSlotDetail();
 
   // ---- skins + attachment counts (flag weighted meshes) ----
   const skinList = $("#skinList"); clearChildren(skinList);
@@ -614,6 +636,96 @@ function markDirty(){
   $("#resetBtn").disabled = false;
 }
 
+// ---- slot selection: draw-order + region attachment placement -------------
+function selectSlot(name){
+  selSlot = name;
+  document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
+  renderSlotDetail();
+}
+
+function renderSlotDetail(){
+  const det = $("#slotDetail");
+  if (selSlot == null){ det.style.display = "none"; return; }
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  if (slotIndex < 0){ det.style.display = "none"; return; }
+  const sd = skeletonData.slots[slotIndex];
+  det.style.display = "block";
+
+  if (!editMode){
+    det.textContent = sd.name + "\n→ bone " + (sd.boneData ? sd.boneData.name : "") +
+      "\nattachment: " + (sd.attachmentName || "∅");
+    return;
+  }
+
+  det.innerHTML = "";
+  const attName = sd.attachmentName;
+  const title = document.createElement("div");
+  title.textContent = sd.name + (attName ? "  · " + attName : "");
+  title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
+  det.appendChild(title);
+
+  if (!attName){
+    const t = document.createElement("div"); t.textContent = "no setup attachment"; det.appendChild(t); return;
+  }
+  const att = skeleton.getAttachment(slotIndex, attName);
+  if (!att || att.constructor.name !== "RegionAttachment"){
+    const t = document.createElement("div");
+    t.textContent = (att ? att.constructor.name.replace("Attachment", "").toLowerCase() : "missing") +
+      " — placement edit is region-only (mesh = Phase 3)";
+    det.appendChild(t); return;
+  }
+  const field = (label, key, step) => {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.step = String(step); inp.value = att[key];
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.oninput = () => applyAttachmentEdit(key, inp.value);
+    row.appendChild(lb); row.appendChild(inp);
+    return row;
+  };
+  det.appendChild(field("x", "x", 1));
+  det.appendChild(field("y", "y", 1));
+  det.appendChild(field("rotation", "rotation", 1));
+  det.appendChild(field("scaleX", "scaleX", 0.01));
+  det.appendChild(field("scaleY", "scaleY", 0.01));
+}
+
+// Edit a region attachment's placement: mutate the live RegionAttachment (+
+// updateRegion to recompute its geometry) and the export source (rawDoc skin entry).
+function applyAttachmentEdit(key, value){
+  if (selSlot == null || !rawDoc) return;
+  const v = parseFloat(value);
+  if (Number.isNaN(v)) return;
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  const sd = skeletonData.slots[slotIndex];
+  const attName = sd && sd.attachmentName;
+  if (!attName) return;
+  const att = skeleton.getAttachment(slotIndex, attName);
+  if (!att || att.constructor.name !== "RegionAttachment") return;
+  att[key] = v;
+  if (att.updateRegion) att.updateRegion();
+  // mirror into the skin entry that actually defines this slot/attachment
+  for (const sk of rawDoc.skins){
+    const a = sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName];
+    if (a){ a[key] = v; break; }
+  }
+  markDirty();
+}
+
+// Reorder a slot in the draw order (structural — slots[] order IS draw order).
+function moveSlot(z, dir){
+  if (!rawDoc) return;
+  const j = z + dir;
+  if (j < 0 || j >= rawDoc.slots.length) return;
+  const movedName = rawDoc.slots[z].name;
+  const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp;
+  selSlot = movedName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
 function setEditMode(on){
   editMode = on && !!rawDoc;
   const btn = $("#editBtn");
@@ -627,6 +739,7 @@ function setEditMode(on){
     : "scroll = zoom · drag = pan · click a bone in the inspector";
   if (editMode && skeleton){ playing = false; $("#play").textContent = "▶ Play"; skeleton.setToSetupPose(); updateWorld(); }
   renderBoneDetail();
+  renderSlotDetail();
 }
 
 // Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
@@ -918,7 +1031,15 @@ function wire(){
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
-  $("#editBtn").onclick = () => setEditMode(!editMode);
+  $("#editBtn").onclick = () => {
+    setEditMode(!editMode);
+    // re-render the inspector so slot ↑/↓ controls appear/disappear, then restore selections
+    if (skeletonData && selected){
+      buildInspector(selected);
+      if (selBone != null) selectBone(selBone);
+      if (selSlot) selectSlot(selSlot);
+    }
+  };
   $("#exportBtn").onclick = exportIrig;
   $("#saveBtn").onclick = saveToR2;
   $("#resetBtn").onclick = resetEdits;
