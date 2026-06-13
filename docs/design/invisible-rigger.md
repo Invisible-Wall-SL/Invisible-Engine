@@ -482,7 +482,24 @@ create-a-mesh workflow.
   `node --check`. ⏳ owner-verify the UI + texel mapping live (UV orientation for
   rotated atlas regions is best-effort — confirm visually).
 
-**Mesh editing is now create (from a region) + topology (add/move/remove).** Next —
-**Phase 3.5:** a UV editor (drag verts in texture space over the region image) +
-hull/edge editing. Then **Phase 4 (weights)** remains gated on the auto-weights
-question (real character mesh + better algorithm; manual brush is the fallback).
+**Mesh editing is now create (from a region) + topology (add/move/remove).**
+
+**Phase 3.5 — UV editing (numeric) + mesh visualization landed** (code; build GREEN;
+UV round-trip verified headlessly). Scoped to the *verifiable* half of a UV editor:
+- **Vertex selection:** clicking a mesh vertex selects it (`selMeshVert`); the
+  selected/dragged handle is highlighted.
+- **Numeric UV editor:** the selected vertex's region UV (u, v ∈ 0–1) gets numeric
+  inputs; editing updates `rawDoc.uvs` + the live `MeshAttachment.regionUVs` (+
+  `updateRegion()` to recompute page uvs).
+- **Triangulation wireframe:** the mesh's triangle edges now draw on the canvas (via
+  `renderer.line`) so the topology being edited is visible.
+- **Verified:** `tools/rigger-spike/uvedit.mjs` — change a vertex's u in rawDoc,
+  reload: the new u is present on the mesh's `regionUVs` and page uvs recompute
+  finite; loader accepts. Full mesh suite (edit/add/remove/convert) re-run = no
+  regression. Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify live.
+
+**Deferred to Phase 3.6 (a larger, inherently-visual build):** a **visual UV editor
+panel** (show the region's texture image, drag vertices in UV space) + **hull/edge
+editing**. These need real in-browser verification — best done after the live `/rigger`
+check. Then **Phase 4 (weights)** remains gated on the auto-weights question (real
+character mesh + better algorithm; manual brush is the fallback).

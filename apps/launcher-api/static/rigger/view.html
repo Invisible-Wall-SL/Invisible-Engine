@@ -265,6 +265,7 @@ let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
 let meshDragVert = null; // index of the mesh vertex being dragged
+let selMeshVert = null; // selected mesh vertex (for UV editing, Phase 3.5)
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
@@ -643,7 +644,7 @@ function markDirty(){
 // ---- slot selection: draw-order + region attachment placement -------------
 function selectSlot(name){
   selSlot = name;
-  meshAddMode = false; meshRemoveMode = false;
+  meshAddMode = false; meshRemoveMode = false; selMeshVert = null;
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   renderSlotDetail();
 }
@@ -699,6 +700,33 @@ function renderSlotDetail(){
       h.textContent = meshAddMode ? "click inside the mesh to add a vertex"
         : "click an interior vertex to remove (hull vertices can't be removed yet)";
       h.style.cssText = "margin-top:4px;color:var(--dim);";
+      det.appendChild(h);
+    }
+    // selected-vertex UV editor
+    if (selMeshVert != null && att.regionUVs && selMeshVert < att.worldVerticesLength / 2){
+      const i = selMeshVert;
+      const vl = document.createElement("div");
+      vl.textContent = "vertex " + i + " · UV";
+      vl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;";
+      det.appendChild(vl);
+      const uvField = (label, key) => {
+        const row = document.createElement("label");
+        row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+        const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "width:54px;font-size:11px;";
+        const inp = document.createElement("input");
+        inp.type = "number"; inp.step = "0.01";
+        inp.value = att.regionUVs[key === "u" ? i * 2 : i * 2 + 1];
+        inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+        inp.oninput = () => applyVertexUV(key, inp.value);
+        row.appendChild(lb); row.appendChild(inp);
+        return row;
+      };
+      det.appendChild(uvField("u (0–1)", "u"));
+      det.appendChild(uvField("v (0–1)", "v"));
+    } else if (!meshAddMode && !meshRemoveMode){
+      const h = document.createElement("div");
+      h.textContent = "click a vertex to select it (then edit its UV here)";
+      h.style.cssText = "margin-top:6px;color:var(--dim);";
       det.appendChild(h);
     }
     return;
@@ -857,7 +885,21 @@ function nearestMeshVert(e){
   }
   return best >= 0 && bestD < renderer.camera.zoom * 11 ? best : -1;
 }
-function tryStartMeshDrag(e){ const k = nearestMeshVert(e); if (k >= 0){ meshDragVert = k; return true; } return false; }
+function tryStartMeshDrag(e){ const k = nearestMeshVert(e); if (k >= 0){ meshDragVert = k; selMeshVert = k; return true; } return false; }
+
+// Edit the selected mesh vertex's region UV (0..1). Updates rawDoc + live regionUVs.
+function applyVertexUV(key, value){
+  if (selMeshVert == null || !meshCtx || !rawDoc) return;
+  const v = parseFloat(value);
+  if (Number.isNaN(v)) return;
+  const rd = rawDocMeshEntry();
+  if (!rd || !Array.isArray(rd.uvs)) return;
+  const idx = key === "u" ? selMeshVert * 2 : selMeshVert * 2 + 1;
+  rd.uvs[idx] = v;
+  const att = meshCtx.attachment;
+  if (att.regionUVs){ att.regionUVs[idx] = v; if (att.updateRegion) att.updateRegion(); }
+  markDirty();
+}
 
 // Draw the selected mesh's vertices as handles (world space, via the shape API).
 function drawMeshOverlay(){
@@ -866,9 +908,20 @@ function drawMeshOverlay(){
   if (!w) return;
   const col = new SPINE.Color(0.36, 0.69, 1, 1);
   const sel = new SPINE.Color(0.49, 0.88, 0.75, 1);
+  const edge = new SPINE.Color(0.36, 0.69, 1, 0.45);
+  // triangulation wireframe
+  const tris = meshCtx.attachment.triangles;
+  if (tris && typeof renderer.line === "function")
+    for (let t = 0; t < tris.length; t += 3){
+      const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+      renderer.line(w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], edge);
+      renderer.line(w[b * 2], w[b * 2 + 1], w[c * 2], w[c * 2 + 1], edge);
+      renderer.line(w[c * 2], w[c * 2 + 1], w[a * 2], w[a * 2 + 1], edge);
+    }
+  // vertex handles (selected/dragged highlighted)
   const r = renderer.camera.zoom * 4;
   for (let k = 0; k < w.length / 2; k++)
-    renderer.circle(true, w[k * 2], w[k * 2 + 1], r, k === meshDragVert ? sel : col, 12);
+    renderer.circle(true, w[k * 2], w[k * 2 + 1], r, (k === meshDragVert || k === selMeshVert) ? sel : col, 12);
 }
 
 // Barycentric coords of (px,py) in triangle a/b/c — {u,v,w} weight a/b/c.
@@ -1406,8 +1459,10 @@ function wire(){
     lastXY = [e.clientX, e.clientY];
   });
   window.addEventListener("mouseup", () => {
-    if (meshDragVert != null) meshDragVert = null;
+    const wasMeshDrag = meshDragVert != null;
+    if (wasMeshDrag) meshDragVert = null;
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
+    if (wasMeshDrag) renderSlotDetail(); // show the selected vertex's UV editors
     dragging = false;
   });
   window.addEventListener("mousemove", e => {
