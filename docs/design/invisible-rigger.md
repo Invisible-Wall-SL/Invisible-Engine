@@ -804,6 +804,14 @@ tag (⦿/▤) and amber slot dots; retime/delete/seek/selection dispatch on kind
 spine-core (`tools/rigger-spike/slotanim.mjs`): `slots[slot].attachment=[{time,name}]`
 (stepped), `slots[slot].rgba=[{time,color:"rrggbbaa",curve?}]`.
 
+**Graph (curve) editor — Phase 5.3b, iteration 1 LANDED (`ece46c7`):** a separate view
+from the dopesheet (Dopesheet ⇄ Graph switch in the timeline legend; dopesheet code
+untouched). `renderGraphBody` plots the selected bone's channels (rotation/x/y/scaleX/
+scaleY) as SVG value-over-time curves sampled via `sampleChannel` (linear/stepped/bezier
+render true), auto-fit value axis, draggable keyframe handles (X = retime, Y = revalue;
+range frozen mid-drag, channel re-sorts live), channel show/hide toggles, click-to-seek.
+Next iters: bezier tangent handles, multi-select + marquee, right-click easing.
+
 **Remaining non-bone channels (each its own follow-up):** draw-order timeline, events,
 mesh deform. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
 disable until an editable rig loads. Animation settings (working length / stretch / speed)
