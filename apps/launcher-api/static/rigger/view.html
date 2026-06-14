@@ -615,8 +615,8 @@ function buildInspector(entry){
       row.dataset.bone = i;
       row.style.paddingLeft = (14 + depth * 13) + "px";
       const tog = document.createElement("span");
-      tog.textContent = kids.length ? (collapsed ? "▸ " : "▾ ") : "   ";
-      tog.style.cssText = "cursor:" + (kids.length ? "pointer" : "default") + ";color:var(--accent);";
+      tog.textContent = kids.length ? (collapsed ? "▸" : "▾") : "";
+      tog.style.cssText = "display:inline-block;width:14px;text-align:center;cursor:" + (kids.length ? "pointer" : "default") + ";color:var(--accent);";
       if (kids.length) tog.onclick = (e) => {
         e.stopPropagation();
         if (collapsed) collapsedBones.delete(b.name); else collapsedBones.add(b.name);
