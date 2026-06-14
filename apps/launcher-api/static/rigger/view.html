@@ -342,6 +342,7 @@ let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
+let gizmoDrag = null; // transform gizmo rotate-drag state
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -2886,6 +2887,33 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
   posingBone.x += lx; posingBone.y += ly;
 }
 
+// ---- transform gizmo (move + rotate the selected bone on the canvas) -------
+function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode)); }
+function gizmoCenter(){ const b = skeleton && selBone != null ? skeleton.bones[selBone] : null; return b ? { x: b.worldX, y: b.worldY } : null; }
+function gizmoGeom(){ const z = renderer ? renderer.camera.zoom : 1; return { ringR: z * 58, centerR: z * 13, tol: z * 9 }; }
+// Which gizmo part is under the cursor: "move" (centre) / "rotate" (ring) / null.
+function gizmoHit(e){
+  if (!gizmoActive()) return null;
+  const c = gizmoCenter(), cw = cursorWorld(e); if (!c || !cw) return null;
+  const d = Math.hypot(cw.x - c.x, cw.y - c.y), G = gizmoGeom();
+  if (d <= G.centerR + G.tol) return "move";
+  if (Math.abs(d - G.ringR) <= G.tol) return "rotate";
+  return null;
+}
+// Draw the gizmo (rotate ring + move centre) at the selected bone's world origin.
+function drawGizmo(){
+  if (!gizmoActive() || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const c = gizmoCenter(); if (!c) return;
+  const G = gizmoGeom();
+  const ring = new SPINE.Color(0.36, 0.66, 1, 0.95), move = new SPINE.Color(1, 0.84, 0.3, 0.95);
+  renderer.circle(false, c.x, c.y, G.ringR, ring, 48);     // rotate ring
+  renderer.circle(true, c.x, c.y, G.centerR, move, 24);    // move handle
+  if (gizmoDrag && typeof renderer.line === "function"){   // rotate feedback spoke
+    const cw = lastGizmoCursor; if (cw) renderer.line(c.x, c.y, cw.x, cw.y, ring);
+  }
+}
+let lastGizmoCursor = null;
+
 // 2D marker over the selected bone's world origin (defensive — never breaks render)
 function updateBoneMarker(){
   const mk = $("#bonemark");
@@ -2974,6 +3002,7 @@ function frame(now){
     }
     drawMeshOverlay();
     drawDrawingOverlay();
+    drawGizmo();
     renderer.end();
     updateBoneMarker();
     if (animMode) syncPlayhead(); else syncScrub();
@@ -3162,6 +3191,20 @@ function wire(){
       if (meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
+    // Transform gizmo on the SELECTED bone: move (centre) or rotate (ring).
+    if (!e.shiftKey){
+      const hit = gizmoHit(e);
+      if (hit){
+        const b = skeleton.bones[selBone];
+        if (animMode){ ensureCurAnim(); posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY, mode: hit }; }
+        if (hit === "rotate"){
+          const c = gizmoCenter(), cw = cursorWorld(e);
+          gizmoDrag = { startAngle: Math.atan2(cw.y - c.y, cw.x - c.x) * 180 / Math.PI, startRot: b.rotation, cx: c.x, cy: c.y };
+          lastGizmoCursor = cw;
+        } else if (!animMode){ boneDragging = true; } // setup move reuses the bone-drag path
+        lastXY = [e.clientX, e.clientY]; return;
+      }
+    }
     // Click a bone on the canvas to select + move it.
     if (editMode && rawDoc && !e.shiftKey){
       const bi = nearestBone(e);
@@ -3186,12 +3229,15 @@ function wire(){
     const wasMeshDrag = meshDragVert != null;
     if (wasMeshDrag) meshDragVert = null;
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
-    if (posingBone){ // commit the posed bone as a translate keyframe at the playhead
-      const b = posingBone.bone; b.x = posingBone.x; b.y = posingBone.y;
-      const name = b.data.name; posingBone = null;
-      keyBone(name, { translate: true }, true);
+    const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
+    gizmoDrag = null; lastGizmoCursor = null;
+    if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
+      const b = posingBone.bone; b.x = posingBone.x; b.y = posingBone.y; b.rotation = posingBone.rotation;
+      const name = b.data.name, mode = posingBone.mode; posingBone = null;
+      keyBone(name, mode === "rotate" ? { rotate: true } : { translate: true }, true);
     }
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
+    if (wasSetupGizmoRotate) renderBoneDetail();
     if (wasMeshDrag) renderSlotDetail(); // show the selected vertex's UV editors
     dragging = false;
   });
@@ -3214,7 +3260,17 @@ function wire(){
     if (!renderer || !lastXY) return;
     const dpr = window.devicePixelRatio || 1;
     const dxCss = e.clientX - lastXY[0], dyCss = e.clientY - lastXY[1];
-    if (drawDragIdx != null){
+    if (gizmoDrag){ // rotate the selected bone around its origin
+      const cw = cursorWorld(e);
+      if (cw){
+        lastGizmoCursor = cw;
+        const ang = Math.atan2(cw.y - gizmoDrag.cy, cw.x - gizmoDrag.cx) * 180 / Math.PI;
+        const newRot = gizmoDrag.startRot + (ang - gizmoDrag.startAngle);
+        if (animMode && posingBone){ posingBone.rotation = newRot; }
+        else { const bd = skeletonData.bones[selBone]; bd.rotation = newRot; const rb = rawDoc.bones.find((b) => b.name === bd.name); if (rb) rb.rotation = newRot; skeleton.setToSetupPose(); updateWorld(); markDirty(); }
+      }
+      lastXY = [e.clientX, e.clientY];
+    } else if (drawDragIdx != null){
       const cw = cursorWorld(e);
       if (cw){ drawPoints[drawDragIdx].x = cw.x; drawPoints[drawDragIdx].y = cw.y; }
       lastXY = [e.clientX, e.clientY];
