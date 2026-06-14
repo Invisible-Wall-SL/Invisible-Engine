@@ -784,6 +784,17 @@ and can extend past the old end (duration grows). Double-click a dot deletes the
 click a gutter/dot selects the bone. A dopesheet key = one time on a bone row (union of
 its rotate/translate/scale keys). `retimeBoneKey` verified headlessly.
 
-**Next sub-phases:** 5.3 curves (stepped + bezier graph editor — until then Animate
-previews LINEAR while Preview honours real curves); 5.4 non-bone channels (attachment
-swap, slot color, draw order, events, mesh deform). UI is owner-verified live.
+**5.3 LANDED (2026-06-14, `db198b0`) — keyframe curves.** Animate mode honours per-key
+interpolation: `sampleChannel` reads the FROM key's `curve` (linear default / "stepped" /
+bezier array; `bezierValue` solves the cubic X(s)=t → Y(s)), so the preview now matches
+the runtime for curved keys (incl. existing imported anims). The bone-animate panel shows
+easing buttons (Linear / Stepped / Ease In / Out / In-Out) for the key under the playhead —
+they set the OUTGOING interpolation across all the bone's channels; bezier presets bake
+ABSOLUTE control points from the segment (the last key stays linear). Dopesheet: stepped
+keys = upright squares, eased = teal. Verified vs spine-core (`tools/rigger-spike/curve.mjs`).
+Known limit (noted in-UI): a baked bezier uses absolute coords → re-apply easing after a
+large retime/re-pose. A draggable bezier graph editor can refine presets later.
+
+**Next sub-phase:** 5.4 non-bone channels (attachment swap, slot color, draw order,
+events, mesh deform). The mode switcher is a floating top-centre pill (`#modeBar`); Setup/
+Animate disable until an editable rig loads. UI is owner-verified live.
