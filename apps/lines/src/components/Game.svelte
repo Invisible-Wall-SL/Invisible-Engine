@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	import { EnablePixiExtension } from 'components-pixi';
+	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
@@ -20,7 +20,7 @@
 		ButtonLabel,
 		i18nDerived,
 	} from 'components-ui-pixi';
-	import { GameVersion, Modals } from 'components-ui-html';
+	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
@@ -75,7 +75,13 @@
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
-	import SymbolDebug from './SymbolDebug.svelte';
+
+	// Invisible Debug — register this game's debug tools (symbol overlay + win-state
+	// probe). Dynamic-imported only under the build switch so the tools + their
+	// component modules tree-shake out of a player build (docs/design/invisible-debug-framework.md).
+	if (__IE_DEBUG__) {
+		void import('../game/debugTools');
+	}
 
 	// `HudTicker`/`HudCaption`/`HudValue` are the three coded parts the `hudReadout`
 	// ComponentDef MOUNTS (§14.3 separate-coded-parts path): the def's `root` has one
@@ -587,8 +593,9 @@
 		<InfoOverlay manifest={infoManifest} />
 
 		<I18nTest />
-		<SymbolDebug />
 	{/if}
+
+	<DebugStage />
 </App>
 
 <Modals disabledModals={['payTable', 'gameRules']}>
@@ -596,3 +603,5 @@
 		<GameVersion version="0.0.0" />
 	{/snippet}
 </Modals>
+
+<DebugMenu />

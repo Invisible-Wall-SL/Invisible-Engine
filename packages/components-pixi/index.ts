@@ -9,6 +9,7 @@ import Amount, { type Props as AmountProps } from './src/components/Amount.svelt
 import SymbolDebugOverlay, {
 	type Props as SymbolDebugOverlayProps,
 } from './src/components/SymbolDebugOverlay.svelte';
+import DebugStage from './src/components/DebugStage.svelte';
 
 export {
 	EnablePixiExtension,
@@ -20,6 +21,7 @@ export {
 	Amount,
 	Button,
 	SymbolDebugOverlay,
+	DebugStage,
 };
 
 export type { ButtonProps, AmountProps, SymbolDebugOverlayProps };

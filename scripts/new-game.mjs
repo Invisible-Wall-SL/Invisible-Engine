@@ -182,28 +182,39 @@ const files = {
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import baseConfig from 'config-vite';
-import { mergeConfig } from 'vite';
+import { defineConfig, mergeConfig } from 'vite';
 
-const cfg = baseConfig();
 const here = dirname(fileURLToPath(import.meta.url));
 
-// Engine packages live under engine/ (the submodule) and resolve some
-// transitive deps through engine's own pnpm store, outside this project root —
-// open Vite's fs.allow to engine/ so it can serve them.
-const overrides = {
-	server: { fs: { allow: [here, resolve(here, 'engine')] } },
-};
+export default defineConfig(({ mode }) => {
+	const cfg = baseConfig();
 
-// Optional Play4Fun transport, same switch the engine games use.
-if (process.env.PUBLIC_RGS_TRANSPORT === 'play4fun') {
-	overrides.resolve = {
-		alias: {
-			'rgs-requests': resolve(here, './engine/packages/rgs-translator-eagaming/stake-facade.ts'),
+	// Engine packages live under engine/ (the submodule) and resolve some
+	// transitive deps through engine's own pnpm store, outside this project root —
+	// open Vite's fs.allow to engine/ so it can serve them.
+	const overrides = {
+		server: { fs: { allow: [here, resolve(here, 'engine')] } },
+		// Invisible Debug build switch (docs/design/invisible-debug-framework.md).
+		// On during dev + when PUBLIC_IE_DEBUG=1 (debug publish); a static false
+		// otherwise, so the debug framework + tools tree-shake out of player builds.
+		define: {
+			__IE_DEBUG__: JSON.stringify(
+				mode !== 'production' || process.env.PUBLIC_IE_DEBUG === '1',
+			),
 		},
 	};
-}
 
-export default mergeConfig(cfg, overrides);
+	// Optional Play4Fun transport, same switch the engine games use.
+	if (process.env.PUBLIC_RGS_TRANSPORT === 'play4fun') {
+		overrides.resolve = {
+			alias: {
+				'rgs-requests': resolve(here, './engine/packages/rgs-translator-eagaming/stake-facade.ts'),
+			},
+		};
+	}
+
+	return mergeConfig(cfg, overrides);
+});
 `,
 
 	'tsconfig.json':
