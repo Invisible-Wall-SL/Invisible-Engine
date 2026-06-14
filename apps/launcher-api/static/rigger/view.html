@@ -375,6 +375,16 @@ let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone
 let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
 let tlSelOnly = false; // dopesheet: show only the selected bone/slot's keys
+let tlView = "dope"; // "dope" (dopesheet) | "graph" (curve editor) — separate views
+let graphDrag = null, graphMap = null; // graph keyframe drag state + value↔y mapping
+const GRAPH_CHANS = [
+  { ch: "rotate", field: "value", label: "rotation", color: "#ff6b6b" },
+  { ch: "translate", field: "x", label: "x", color: "#5cc8ff" },
+  { ch: "translate", field: "y", label: "y", color: "#9b8cff" },
+  { ch: "scale", field: "x", label: "scaleX", color: "#7ee0c0" },
+  { ch: "scale", field: "y", label: "scaleY", color: "#ffd24a" },
+];
+let graphHide = {}; // channel label → hidden?
 let gizmoDrag = null; // transform gizmo rotate-drag state
 let curProjectLabel = "", restoringState = false; // persisted-selection helpers
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
@@ -2722,11 +2732,27 @@ function renderTimeline(){
   const selBoneName = selBone != null ? skeletonData.bones[selBone].name : null;
   const gut = (extra) => "width:" + gutter + "px;flex:0 0 " + gutter + "px;position:sticky;left:0;z-index:2;background:var(--panel);border-right:1px solid var(--line);" + (extra || "");
 
-  // legend (sticky top-left): what the key colours/shapes mean
+  // legend bar (sticky): mode-specific legend on the left + Dopesheet/Graph switch right
   const legend = document.createElement("div");
   legend.style.cssText = "position:sticky;top:0;left:0;z-index:5;width:" + Math.max(tl.clientWidth - 2, 200) + "px;height:21px;display:flex;align-items:center;padding:0 10px;font-size:10px;color:var(--dim);background:var(--panel);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;";
-  const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
-  legend.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#ffd24a", "◆", "at playhead");
+  const lc = document.createElement("span"); lc.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;";
+  if (tlView === "dope"){
+    const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
+    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#ffd24a", "◆", "at playhead");
+  } else {
+    GRAPH_CHANS.forEach((c) => {
+      const t = document.createElement("span"); t.textContent = c.label;
+      t.style.cssText = "margin-right:12px;cursor:pointer;color:" + (graphHide[c.label] ? "var(--dim)" : c.color) + ";" + (graphHide[c.label] ? "text-decoration:line-through;opacity:.6;" : "");
+      t.title = "click to show/hide this channel";
+      t.onclick = () => { graphHide[c.label] = !graphHide[c.label]; renderTimeline(); };
+      lc.appendChild(t);
+    });
+  }
+  legend.appendChild(lc);
+  const seg = document.createElement("span"); seg.className = "seg"; seg.style.cssText = "flex:none;";
+  const tab = (id, label) => { const b = document.createElement("button"); b.textContent = label; b.style.cssText = "padding:1px 9px;font-size:10px;"; if (tlView === id) b.className = "active"; b.onclick = (e) => { e.stopPropagation(); tlView = id; renderTimeline(); }; return b; };
+  seg.appendChild(tab("dope", "Dopesheet")); seg.appendChild(tab("graph", "Graph"));
+  legend.appendChild(seg);
   tl.appendChild(legend);
 
   const head = document.createElement("div");
@@ -2750,6 +2776,9 @@ function renderTimeline(){
   }
   ruler.onmousedown = (e) => startScrub(ruler, e.clientX);
   head.appendChild(ruler); tl.appendChild(head);
+  const ph = document.createElement("div"); ph.id = "tlPlayhead"; tl.appendChild(ph); // shared by both views
+
+  if (tlView === "graph"){ renderGraphBody(tl, dur, pps, contentW, gutter); positionPlayhead(); return; }
 
   timelineTracks().forEach((tr) => {
     const isSel = tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot;
@@ -2780,8 +2809,63 @@ function renderTimeline(){
     row.appendChild(g); row.appendChild(track); tl.appendChild(row);
   });
 
-  const ph = document.createElement("div"); ph.id = "tlPlayhead"; tl.appendChild(ph);
   positionPlayhead();
+}
+
+// ---- Graph (curve) editor — a separate view from the dopesheet -------------
+const SVGNS = "http://www.w3.org/2000/svg";
+const svgEl = (name, attrs) => { const e = document.createElementNS(SVGNS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+function renderGraphBody(tl, dur, pps, contentW, gutter){
+  const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:" + (gutter + contentW) + "px;";
+  if (selBone == null){
+    const m = document.createElement("div"); m.style.cssText = "padding:14px;color:var(--dim);font-size:12px;position:sticky;left:0;";
+    m.textContent = "select a bone to graph its animation curves"; wrap.appendChild(m); tl.appendChild(wrap); return;
+  }
+  const boneName = skeletonData.bones[selBone].name;
+  const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[boneName];
+  const curves = GRAPH_CHANS.filter((c) => !graphHide[c.label] && cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)
+    .map((c) => ({ ...c, keys: cb[c.ch] }));
+  const bodyH = Math.max((tl.clientHeight || 200) - 46, 120);
+  // value range — frozen while dragging so the scale doesn't chase the cursor
+  let minV = Infinity, maxV = -Infinity;
+  for (const c of curves) for (const k of c.keys){ const v = k[c.field] ?? 0; if (v < minV) minV = v; if (v > maxV) maxV = v; }
+  if (graphDrag && graphMap){ minV = graphMap.minV; maxV = graphMap.maxV; }
+  else { if (!isFinite(minV)){ minV = 0; maxV = 1; } if (maxV - minV < 1e-6){ minV -= 1; maxV += 1; } const p = (maxV - minV) * 0.14; minV -= p; maxV += p; }
+  const top = 8, areaH = bodyH - 16;
+  const valueToY = (v) => top + (maxV - v) / (maxV - minV) * areaH;
+  const timeToX = (t) => gutter + t * pps;
+
+  const svg = svgEl("svg", { width: gutter + contentW, height: bodyH, style: "display:block;" });
+  graphMap = { svg, pps, gutter, top, areaH, minV, maxV, boneName };
+  // value-axis labels (sticky-ish in the gutter region)
+  for (const val of [maxV, (maxV + minV) / 2, minV]){
+    const y = valueToY(val);
+    svg.appendChild(svgEl("line", { x1: gutter, y1: y, x2: gutter + contentW, y2: y, stroke: "#ffffff", "stroke-opacity": val === 0 ? 0.18 : 0.06 }));
+    const tx = svgEl("text", { x: 4, y: y + 3, fill: "#8b90a0", "font-size": 9 }); tx.textContent = roundN(val, 2); svg.appendChild(tx);
+  }
+  // background: click to seek the playhead
+  svg.addEventListener("mousedown", (e) => {
+    if (e.target.dataset && e.target.dataset.key) return; // a keyframe handle
+    const r = svg.getBoundingClientRect();
+    animTime = roundN(clamp01(((e.clientX - r.left) - gutter) / (pps * dur || 1)) * dur, 4);
+    playing = false; $("#play").textContent = "▶ Play"; syncPlayhead();
+    if (selBone != null) renderBoneDetail();
+  });
+  // curves + keyframe handles
+  for (const c of curves){
+    let pts = "";
+    const steps = Math.max(40, Math.min(400, Math.round(contentW / 4)));
+    for (let i = 0; i <= steps; i++){ const t = dur * i / steps; const k = sampleChannel(c.keys, t, [c.field]); pts += timeToX(t) + "," + valueToY(k[c.field] ?? 0) + " "; }
+    svg.appendChild(svgEl("polyline", { points: pts, fill: "none", stroke: c.color, "stroke-width": 1.5, "stroke-opacity": 0.9 }));
+    for (const k of c.keys){
+      const cx = timeToX(k.time), cy = valueToY(k[c.field] ?? 0), atPh = Math.abs(k.time - animTime) < 1e-3;
+      const dot = svgEl("circle", { cx, cy, r: atPh ? 5 : 4, fill: atPh ? "#ffd24a" : c.color, stroke: "#0c0f14", "stroke-width": 1, style: "cursor:move;" });
+      dot.dataset.key = "1";
+      dot.addEventListener("mousedown", (e) => { e.stopPropagation(); e.preventDefault(); graphDrag = { ch: c.ch, field: c.field, keyObj: k }; });
+      svg.appendChild(dot);
+    }
+  }
+  wrap.appendChild(svg); tl.appendChild(wrap);
 }
 
 // Seek the playhead from a click/drag x on the ruler or a track (no full re-render, so
@@ -3420,8 +3504,18 @@ function wire(){
       lastXY = [e.clientX, e.clientY];
     }
   });
-  // Dopesheet key drag + playhead scrub (independent of the canvas — not gated by lastXY).
+  // Dopesheet key drag + playhead scrub + graph keyframe drag (not gated by lastXY).
   window.addEventListener("mousemove", (e) => {
+    if (graphDrag && graphMap){ // drag a graph keyframe: x = time, y = value
+      const r = graphMap.svg.getBoundingClientRect();
+      graphDrag.keyObj.time = Math.max(0, roundN(((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1), 4));
+      const v = graphMap.maxV - ((e.clientY - r.top) - graphMap.top) / (graphMap.areaH || 1) * (graphMap.maxV - graphMap.minV);
+      graphDrag.keyObj[graphDrag.field] = roundN(v, graphDrag.field === "value" ? 2 : 3);
+      const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
+      if (cb && Array.isArray(cb[graphDrag.ch])) cb[graphDrag.ch].sort((a, b) => a.time - b.time);
+      markDirty(); animsDirty = true; renderTimeline();
+      return;
+    }
     if (tlScrub){ seekFromTrack(tlScrub, e.clientX); return; }
     if (!tlDrag) return;
     const r = tlDrag.track.getBoundingClientRect();
@@ -3435,6 +3529,7 @@ function wire(){
     e.preventDefault(); tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   window.addEventListener("mouseup", () => {
+    if (graphDrag){ graphDrag = null; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); return; }
     if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
     if (!tlDrag) return;
     const d = tlDrag; tlDrag = null;
