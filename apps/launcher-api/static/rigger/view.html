@@ -306,6 +306,7 @@
       </div>
       <div class="grp">
         <button id="bonesBtn" class="active" title="Toggle bone overlay">Bones</button>
+        <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
         <button id="fit">Reset view</button>
       </div>
@@ -352,6 +353,7 @@ let gl, renderer, assetMgr;
 let skeleton, animState, skeletonData, lastFrame = 0;
 let playing = true, looping = true, showBones = true, pma = true, preferPng = true;
 let showMesh = false;
+let boneScale = 1; // bone overlay marker size (dots + arrowheads)
 let showAttachments = true; // when false, the skin's images/meshes are hidden (bones only) for unobstructed bone editing
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
@@ -2956,10 +2958,12 @@ let lastGizmoCursor = null;
 // selected bone is highlighted. Replaces the runtime debug renderer's plain red lines.
 function drawBonesOverlay(){
   if (!skeleton || typeof renderer.circle !== "function" || typeof renderer.line !== "function" || !SPINE.Color) return;
-  const z = renderer.camera.zoom;
+  const z = renderer.camera.zoom, s = boneScale;
   const red = new SPINE.Color(1, 0.28, 0.22, 0.95), green = new SPINE.Color(0.3, 1, 0.4, 0.95);
-  const sel = new SPINE.Color(1, 0.84, 0.25, 1);
-  const hl = z * 9, hw = z * 4.5; // arrowhead length/half-width (screen-constant)
+  const sel = new SPINE.Color(1, 0.84, 0.25, 1), link = new SPINE.Color(0.6, 0.66, 0.82, 0.38);
+  // hierarchy connectors: faint line from each bone's parent origin to its own origin
+  for (const b of skeleton.bones) if (b.parent) renderer.line(b.parent.worldX, b.parent.worldY, b.worldX, b.worldY, link);
+  const hl = z * 9 * s, hw = z * 4.5 * s; // arrowhead length/half-width (scales with the size control)
   for (let i = 0; i < skeleton.bones.length; i++){
     const b = skeleton.bones[i], isSel = i === selBone, lineCol = isSel ? sel : red, len = b.data.length;
     if (len > 0.001){
@@ -2970,7 +2974,7 @@ function drawBonesOverlay(){
       renderer.line(tipX, tipY, bx + px * hw, by + py * hw, lineCol);
       renderer.line(tipX, tipY, bx - px * hw, by - py * hw, lineCol);
     }
-    renderer.circle(true, b.worldX, b.worldY, z * (isSel ? 5 : 3.5), isSel ? sel : green, 12);
+    renderer.circle(true, b.worldX, b.worldY, z * (isSel ? 5 : 3.5) * s, isSel ? sel : green, 12);
   }
 }
 
@@ -3261,6 +3265,7 @@ function wire(){
   $("#newRigCreate").onclick = createNewRig;
   $("#newRigFiles").onchange = (e) => { if (e.target.files && e.target.files.length) createRigFromImages(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
+  $("#boneSize").oninput = e => { boneScale = parseFloat(e.target.value) || 1; };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
   $("#exportBtn").onclick = exportIrig;
