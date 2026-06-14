@@ -288,6 +288,7 @@ let weightBrush = false, brushBone = null, brushRadiusPx = 50, brushStrength = 0
 let brushSubtract = false, brushPainting = false, lastDabWorld = null;
 // Phase A-canvas: draw-a-mesh-from-scratch
 let drawMeshMode = false, drawPoints = [];
+let drawDragIdx = null, selDrawPoint = null; // drag/select a boundary point while drawing
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
@@ -1293,15 +1294,24 @@ function renderSlotDetail(){
   draw.title = "Draw a custom mesh outline over this image (click boundary points)";
   if (drawMeshMode) draw.className = "active";
   draw.style.cssText = "margin-top:8px;margin-left:6px;";
-  draw.onclick = () => { drawMeshMode = !drawMeshMode; drawPoints = []; renderSlotDetail(); };
+  draw.onclick = () => {
+    if (drawMeshMode){
+      // clicking the button again COMMITS the polygon (≥3 points) rather than discarding it
+      if (drawPoints.length >= 3){ finishDrawMesh(); return; }
+      drawMeshMode = false; drawPoints = []; selDrawPoint = null; renderSlotDetail();
+    } else {
+      drawMeshMode = true; drawPoints = []; selDrawPoint = null; renderSlotDetail();
+    }
+  };
   det.appendChild(draw);
   if (drawMeshMode){
     const info = document.createElement("div");
-    info.textContent = "click boundary points on the canvas (" + drawPoints.length + "), then Finish";
-    info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;";
+    info.innerHTML = "click to add boundary points (" + drawPoints.length + ") · drag a point to move it · " +
+      "<b>Delete</b>/<b>Backspace</b> removes the last point · <b>Esc</b> cancels, then <b>Finish</b>";
+    info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;";
     det.appendChild(info);
     const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin-top:5px;";
-    const fin = document.createElement("button"); fin.textContent = "Finish mesh"; fin.disabled = drawPoints.length < 3; fin.style.flex = "1"; fin.onclick = finishDrawMesh;
+    const fin = document.createElement("button"); fin.textContent = "✓ Finish mesh"; fin.disabled = drawPoints.length < 3; fin.style.flex = "1"; fin.onclick = finishDrawMesh;
     const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawMesh;
     row.appendChild(fin); row.appendChild(can); det.appendChild(row);
   }
@@ -1433,19 +1443,23 @@ function finishDrawMesh(){
   if (region.path) mesh.path = region.path;
   skinEntry.attachments[selSlot][attName] = mesh;
   done();
+  selDrawPoint = null;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot); // re-open the slot so its new mesh + tools show at once
   markDirty();
 }
-function cancelDrawMesh(){ drawMeshMode = false; drawPoints = []; renderSlotDetail(); }
+function cancelDrawMesh(){ drawMeshMode = false; drawPoints = []; selDrawPoint = null; renderSlotDetail(); }
 
 // Draw the in-progress boundary polygon while drawing a mesh from scratch.
 function drawDrawingOverlay(){
   if (!editMode || !drawMeshMode || !drawPoints.length || typeof renderer.circle !== "function" || !SPINE.Color) return;
   const col = new SPINE.Color(0.49, 0.88, 0.75, 1);
+  const selCol = new SPINE.Color(1, 0.85, 0.3, 1); // selected boundary point
   const r = renderer.camera.zoom * 4;
   const hasLine = typeof renderer.line === "function";
   for (let i = 0; i < drawPoints.length; i++){
-    renderer.circle(true, drawPoints[i].x, drawPoints[i].y, r, col, 12);
+    const sel = i === selDrawPoint;
+    renderer.circle(true, drawPoints[i].x, drawPoints[i].y, sel ? r * 1.6 : r, sel ? selCol : col, 12);
     if (i > 0 && hasLine) renderer.line(drawPoints[i - 1].x, drawPoints[i - 1].y, drawPoints[i].x, drawPoints[i].y, col);
   }
   if (drawPoints.length > 2 && hasLine){
@@ -1538,6 +1552,18 @@ function nearestMeshVert(e){
   return best >= 0 && bestD < renderer.camera.zoom * 11 ? best : -1;
 }
 function tryStartMeshDrag(e){ const k = nearestMeshVert(e); if (k >= 0){ meshDragVert = k; selMeshVert = k; return true; } return false; }
+
+// Index of the in-progress draw-mesh boundary point nearest the cursor (else -1).
+function nearestDrawPoint(e){
+  if (!drawPoints.length) return -1;
+  const cw = cursorWorld(e); if (!cw) return -1;
+  let best = -1, bestD = Infinity;
+  for (let k = 0; k < drawPoints.length; k++){
+    const d = Math.hypot(drawPoints[k].x - cw.x, drawPoints[k].y - cw.y);
+    if (d < bestD){ bestD = d; best = k; }
+  }
+  return best >= 0 && bestD < renderer.camera.zoom * 11 ? best : -1;
+}
 
 // Edit the selected mesh vertex's region UV (0..1). Updates rawDoc + live regionUVs.
 function applyVertexUV(key, value){
@@ -2283,10 +2309,12 @@ function wire(){
     renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
   }, {passive:false});
   cv.addEventListener("mousedown", e => {
-    // Drawing a mesh: each click adds a boundary point.
+    // Drawing a mesh: click an existing boundary point to select+drag it; else add one.
     if (editMode && drawMeshMode && !e.shiftKey){
-      const cw = cursorWorld(e);
-      if (cw){ drawPoints.push({ x: cw.x, y: cw.y }); renderSlotDetail(); }
+      const hit = nearestDrawPoint(e);
+      if (hit >= 0){ drawDragIdx = hit; selDrawPoint = hit; }
+      else { const cw = cursorWorld(e); if (cw){ drawPoints.push({ x: cw.x, y: cw.y }); selDrawPoint = drawPoints.length - 1; } }
+      renderSlotDetail();
       lastXY = [e.clientX, e.clientY]; return;
     }
     // Mesh interactions (only when a mesh slot is active) — each returns only if it hits.
@@ -2308,15 +2336,35 @@ function wire(){
     brushPainting = false;
     const wasMeshDrag = meshDragVert != null;
     if (wasMeshDrag) meshDragVert = null;
+    if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
     if (wasMeshDrag) renderSlotDetail(); // show the selected vertex's UV editors
     dragging = false;
+  });
+  window.addEventListener("keydown", e => {
+    if (!editMode || !drawMeshMode) return;
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return; // don't hijack typing
+    if (e.key === "Backspace" || e.key === "Delete"){
+      e.preventDefault();
+      if (!drawPoints.length) return;
+      const idx = (selDrawPoint != null && selDrawPoint < drawPoints.length) ? selDrawPoint : drawPoints.length - 1;
+      drawPoints.splice(idx, 1);
+      selDrawPoint = drawPoints.length ? Math.min(idx, drawPoints.length - 1) : null;
+      renderSlotDetail();
+    } else if (e.key === "Escape"){
+      cancelDrawMesh();
+    }
   });
   window.addEventListener("mousemove", e => {
     if (!renderer || !lastXY) return;
     const dpr = window.devicePixelRatio || 1;
     const dxCss = e.clientX - lastXY[0], dyCss = e.clientY - lastXY[1];
-    if (brushPainting){
+    if (drawDragIdx != null){
+      const cw = cursorWorld(e);
+      if (cw){ drawPoints[drawDragIdx].x = cw.x; drawPoints[drawDragIdx].y = cw.y; }
+      lastXY = [e.clientX, e.clientY];
+    } else if (brushPainting){
       const cw = cursorWorld(e);
       if (cw){
         const rw = brushRadiusPx * renderer.camera.zoom;
