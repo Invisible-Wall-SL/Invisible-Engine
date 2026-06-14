@@ -3596,6 +3596,7 @@ function wire(){
     if (p.style.display !== "none"){ p.style.display = "none"; return; }
     p.style.display = "block";
     $("#newRigNote").textContent = "loading atlases…";
+    showLoading("Loading atlases…");
     try {
       const r = await (await fetch("/api/rigger/atlases")).json();
       const sel = $("#newRigAtlas"); sel.innerHTML = "";
@@ -3608,6 +3609,7 @@ function wire(){
         ? "pick an atlas to draw images from, name the rig, Create"
         : "no atlases yet — pack images in the Atlas Maker first";
     } catch (e){ $("#newRigNote").textContent = "failed to list atlases"; }
+    finally { hideLoading(); }
   };
   $("#newRigCancel").onclick = () => { $("#newRig").style.display = "none"; };
   $("#newRigCreate").onclick = createNewRig;
