@@ -2951,6 +2951,29 @@ function drawGizmo(){
 }
 let lastGizmoCursor = null;
 
+// Draw bones as direction ARROWS: a line from the origin (green dot) to the bone's tip
+// with an arrowhead. Zero-length bones (control/deform handles) show just the dot. The
+// selected bone is highlighted. Replaces the runtime debug renderer's plain red lines.
+function drawBonesOverlay(){
+  if (!skeleton || typeof renderer.circle !== "function" || typeof renderer.line !== "function" || !SPINE.Color) return;
+  const z = renderer.camera.zoom;
+  const red = new SPINE.Color(1, 0.28, 0.22, 0.95), green = new SPINE.Color(0.3, 1, 0.4, 0.95);
+  const sel = new SPINE.Color(1, 0.84, 0.25, 1);
+  const hl = z * 9, hw = z * 4.5; // arrowhead length/half-width (screen-constant)
+  for (let i = 0; i < skeleton.bones.length; i++){
+    const b = skeleton.bones[i], isSel = i === selBone, lineCol = isSel ? sel : red, len = b.data.length;
+    if (len > 0.001){
+      const tipX = b.worldX + len * b.a, tipY = b.worldY + len * b.c;
+      renderer.line(b.worldX, b.worldY, tipX, tipY, lineCol);
+      const dx = tipX - b.worldX, dy = tipY - b.worldY, m = Math.hypot(dx, dy) || 1;
+      const ux = dx / m, uy = dy / m, px = -uy, py = ux, bx = tipX - ux * hl, by = tipY - uy * hl;
+      renderer.line(tipX, tipY, bx + px * hw, by + py * hw, lineCol);
+      renderer.line(tipX, tipY, bx - px * hw, by - py * hw, lineCol);
+    }
+    renderer.circle(true, b.worldX, b.worldY, z * (isSel ? 5 : 3.5), isSel ? sel : green, 12);
+  }
+}
+
 // 2D marker over the selected bone's world origin (defensive — never breaks render)
 function updateBoneMarker(){
   const mk = $("#bonemark");
@@ -3024,14 +3047,14 @@ function frame(now){
     updateWorld();
     renderer.begin();
     if (showAttachments) renderer.drawSkeleton(skeleton, pma);
-    if (showBones || showMesh){
+    if (showMesh){ // mesh hull + triangles via the debug renderer (bones we draw ourselves)
       const d = renderer.skeletonDebugRenderer;
       if (d){
-        d.drawBones = showBones;
+        d.drawBones = false;
         d.drawRegionAttachments = false;
         d.drawBoundingBoxes = false;
-        d.drawMeshHull = showMesh;
-        d.drawMeshTriangles = showMesh;
+        d.drawMeshHull = true;
+        d.drawMeshTriangles = true;
         d.drawClipping = false;
         d.drawPaths = false;
       }
@@ -3039,6 +3062,7 @@ function frame(now){
     }
     drawMeshOverlay();
     drawDrawingOverlay();
+    if (showBones) drawBonesOverlay();
     drawGizmo();
     renderer.end();
     updateBoneMarker();
