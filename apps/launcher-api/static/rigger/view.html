@@ -906,8 +906,12 @@ function renderBoneAnimDetail(det, i){
   info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;";
   det.appendChild(info);
 
-  // curve (easing) of the key at the playhead — applies to the segment to the NEXT key
+  // curve (easing) + delete for the key at the playhead
   if (times.some((t) => Math.abs(t - animTime) < 1e-3)){
+    const del = document.createElement("button");
+    del.textContent = "✕ Delete key"; del.style.cssText = "margin-top:6px;color:var(--bad,#e66);border-color:var(--bad,#e66);";
+    del.onclick = () => deleteBoneKeyAt(bd.name, animTime);
+    det.appendChild(del);
     const cur = keyCurveType(bd.name, animTime);
     const cl = document.createElement("div");
     cl.textContent = "easing out of this key:"; cl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;font-size:11px;";
@@ -1408,9 +1412,9 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     r.appendChild(l); r.appendChild(cp); r.appendChild(av); r.appendChild(aPct); det.appendChild(r);
   }
   const times = slotKeyTimes(sd.name);
-  if (times.length){
+  if (times.some((t) => Math.abs(t - animTime) < 1e-3)){ // only when a key sits at the playhead
     const del = document.createElement("button");
-    del.textContent = "✕ key @ " + animTime.toFixed(2) + "s"; del.style.cssText = "margin-top:6px;";
+    del.textContent = "✕ Delete key"; del.style.cssText = "margin-top:6px;color:var(--bad,#e66);border-color:var(--bad,#e66);";
     del.onclick = () => deleteSlotKeyAt(sd.name, animTime);
     det.appendChild(del);
   }
