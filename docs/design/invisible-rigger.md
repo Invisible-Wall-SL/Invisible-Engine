@@ -741,4 +741,41 @@ source: new rig → bones/slots/skins → attach/draw meshes → weights → sav
 
 Remaining (lower priority / larger): the **Phase 3.6** visual texture-panel UV editor
 + hull editing; **auto-weights** (Spike 2 — needs a character mesh + better algorithm;
-manual + brush are the fallback); **animation authoring (Phase 5)**.
+manual + brush are the fallback).
+
+## 17. Phase 5 — animation authoring (owner priority 2026-06-14)
+
+Owner direction: add the animation layer — animate with bones, support many animations
+per file (Spine allows this), and split the anim vs edit workflows clearly in the UI.
+
+**Mode model (the UI split).** One `Preview | Setup | Animate` segmented toggle replaces
+the ✎ Edit button. `editMode` stays the "setup" flag (every rig-editing guard keeps
+working); `animMode` is new. mode = "preview" | "setup" | "animate":
+- **Preview** — full `AnimationState` playback (honours bezier curves + mixing), read-only.
+- **Setup** — edit the rest pose (bones/meshes/weights/attachments) = the old edit mode.
+- **Animate** — author ONE animation at a playhead, posed over the setup pose.
+
+**Keyframe data model (verified `tools/rigger-spike/anim.mjs`).** Bone timelines:
+`rotate.value` + `translate.x/y` are OFFSETS from the setup pose; `scale.x/y` are
+MULTIPLIERS of setup (1 = setup). Confirmed against spine-core: authored keys load and
+play exactly as our own linear interpolation predicts (midpoint + endpoints). Animations
+live in the skeleton JSON, so the existing 💾 Save (`.irig`) persists them for free; the
+format natively holds many animations, so multi-anim is CRUD on `rawDoc.animations`.
+
+**5.0 + 5.1 LANDED (2026-06-14, `09da996`):**
+- Mode toggle + per-mode inspector/bottom-bar behaviour. Frame loop: animate mode does
+  `setToSetupPose()` then `poseAtTime(curAnim, animTime)` (our linear interp) each frame;
+  an in-progress bone drag overrides the posed value so it tracks the cursor.
+- Animation CRUD in the Animations section: ＋ New / ✎ rename / ⧉ duplicate / 🗑 delete.
+- Bone keyframing: the bone detail in animate mode shows the POSE at the playhead (the
+  animated local values); editing a field keys that channel. Canvas drag poses a bone
+  (keys translate on release). ◆ Key (bar + panel) keys rotate+translate+scale; |◀ / ▶|
+  prev/next key; ✕ Key deletes the key at the playhead. `animDuration` is derived from
+  the max key time; the scrub bar is the playhead.
+- Sync: entering Preview rebuilds the runtime from `rawDoc` (if anims edited) so playback
+  reflects authored keys + honours curves; `animsDirty` gates that rebuild.
+
+**Next sub-phases:** 5.2 dopesheet timeline (per-bone/channel key dots, drag-to-retime);
+5.3 curves (stepped + bezier graph editor — until then Animate previews LINEAR while
+Preview honours real curves); 5.4 non-bone channels (attachment swap, slot color, draw
+order, events, mesh deform). UI is owner-verified live (authed page).
