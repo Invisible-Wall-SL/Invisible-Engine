@@ -374,6 +374,7 @@ let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
+let tlSelOnly = false; // dopesheet: show only the selected bone/slot's keys
 let gizmoDrag = null; // transform gizmo rotate-drag state
 let curProjectLabel = "", restoringState = false; // persisted-selection helpers
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
@@ -2688,6 +2689,11 @@ function retimeBoneKey(boneName, oldTime, newTime){
 // Tracks shown as rows: bones + slots with keys in the current anim, plus the selection.
 function timelineTracks(){
   const a = animOf(curAnim), out = [];
+  if (tlSelOnly){ // solo: just the selected bone/slot
+    if (selBone != null) out.push({ kind: "bone", name: skeletonData.bones[selBone].name });
+    if (selSlot) out.push({ kind: "slot", name: selSlot });
+    return out;
+  }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
@@ -2731,6 +2737,9 @@ function renderTimeline(){
   hg.appendChild(zb("－", "zoom out", () => tlZoom(1 / 1.4)));
   hg.appendChild(zb("＋", "zoom in", () => tlZoom(1.4)));
   hg.appendChild(zb("⊡", "fit to width", () => { tlPxPerSec = null; renderTimeline(); }));
+  const solo = zb("sel", "show only the selected bone/slot's keys", () => { tlSelOnly = !tlSelOnly; renderTimeline(); });
+  if (tlSelOnly) solo.className = "active";
+  hg.appendChild(solo);
   head.appendChild(hg);
   const ruler = document.createElement("div");
   ruler.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;background:var(--panel);border-bottom:1px solid var(--line);";
