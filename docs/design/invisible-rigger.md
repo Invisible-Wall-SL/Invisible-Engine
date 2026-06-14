@@ -795,6 +795,16 @@ keys = upright squares, eased = teal. Verified vs spine-core (`tools/rigger-spik
 Known limit (noted in-UI): a baked bezier uses absolute coords → re-apply easing after a
 large retime/re-pose. A draggable bezier graph editor can refine presets later.
 
-**Next sub-phase:** 5.4 non-bone channels (attachment swap, slot color, draw order,
-events, mesh deform). The mode switcher is a floating top-centre pill (`#modeBar`); Setup/
-Animate disable until an editable rig loads. UI is owner-verified live.
+**5.4 LANDED (2026-06-14, `05bb7f4`) — slot animation (attachment swap + colour).** First
+half of the non-bone channels: `poseAtTime` also applies slot timelines — attachment swap
+(stepped, which image/mesh shows) + rgba colour (curve-aware fade via `sampleColor`). The
+Animate-mode slot panel keys the attachment ("shows" dropdown) + colour (swatch + alpha)
+at the playhead. The dopesheet generalised bone-only → TRACKS (bones + slots) with a kind
+tag (⦿/▤) and amber slot dots; retime/delete/seek/selection dispatch on kind. Verified vs
+spine-core (`tools/rigger-spike/slotanim.mjs`): `slots[slot].attachment=[{time,name}]`
+(stepped), `slots[slot].rgba=[{time,color:"rrggbbaa",curve?}]`.
+
+**Remaining non-bone channels (each its own follow-up):** draw-order timeline, events,
+mesh deform. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
+disable until an editable rig loads. Animation settings (working length / stretch / speed)
+landed alongside 5.3 (`83073da`). UI is owner-verified live.
