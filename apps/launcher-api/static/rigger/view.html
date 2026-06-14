@@ -255,10 +255,14 @@
       </div>
       <input type="range" id="scrub" min="0" max="1000" value="0">
       <span id="time" class="pill">0.00s</span>
+      <input type="number" id="timeNum" step="0.01" min="0" title="current time (s) — type for precision"
+        style="width:64px;display:none;">
       <div class="grp">
         <label>Speed</label>
         <input type="range" id="speed" min="0" max="200" value="100">
-        <span id="speedv" class="pill">1.0×</span>
+        <input type="number" id="speedNum" step="0.1" min="0" max="4" value="1" title="playback speed (×)"
+          style="width:54px;">
+        <span id="speedv" class="pill" style="display:none;">1.0×</span>
       </div>
       <div class="grp">
         <button id="bonesBtn" class="active" title="Toggle bone overlay">Bones</button>
@@ -274,7 +278,6 @@
       <div class="grp">
         <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
         <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
-        <button id="resetBtn" title="Discard edits" disabled>Reset</button>
       </div>
       <span id="rt" class="pill"></span>
     </div>
@@ -337,6 +340,7 @@ let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
+let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -983,7 +987,6 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
-  $("#resetBtn").disabled = false;
 }
 
 // ---- authoring primitives (Phase 5.1) -------------------------------------
@@ -2304,9 +2307,9 @@ function setMode(m){
     if (b.dataset.mode !== "preview") b.disabled = !rawDoc; // setup/animate need an editable rig
   });
   $("#animTools").style.display = animMode ? "flex" : "none";
+  $("#timeNum").style.display = animMode ? "inline-block" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
-  $("#resetBtn").disabled = !dirty;
   $("#hint").textContent =
     m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
     : m === "animate" ? "animate · scrub the playhead · pose a bone → ◆ Key · drag a bone keys it at the playhead"
@@ -2425,7 +2428,7 @@ const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) /
 
 function setCurAnim(name){
   curAnim = name && animHasName(name) ? name : null;
-  animTime = 0;
+  animTime = 0; tlPxPerSec = null; // re-fit the timeline for the new animation
   $("#anim").value = curAnim || "";
   syncPlayhead();
   renderTimeline();
@@ -2442,10 +2445,21 @@ function upsertKey(arr, time, fields){
 // Key the bone's CURRENT posed local transform at the playhead. rotate/translate store
 // the offset from setup, scale the multiplier (the model verified in anim.mjs).
 // refresh=false avoids re-rendering (keeps input focus while typing a value).
-function keyBone(boneName, channels, refresh){
-  if (!rawDoc || !curAnim || !animMode) return;
-  const bone = skeleton.findBone(boneName); if (!bone) return; const bd = bone.data;
+// Ensure there's a current animation to key into — auto-create one so posing/keying never
+// silently no-ops. Returns the animation name (or null if there's no editable doc).
+function ensureCurAnim(){
+  if (!rawDoc) return null;
+  if (curAnim && animHasName(curAnim)) return curAnim;
   rawDoc.animations = rawDoc.animations || {};
+  let nm = firstAnimName();
+  if (!nm){ nm = uniqueAnimName("animation"); rawDoc.animations[nm] = { bones: {} }; }
+  curAnim = nm; animsDirty = true; markDirty();
+  refreshAnimSelect(); $("#anim").value = nm;
+  return nm;
+}
+function keyBone(boneName, channels, refresh){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const bone = skeleton.findBone(boneName); if (!bone) return; const bd = bone.data;
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const ab = (a.bones = a.bones || {});
   const cb = (ab[boneName] = ab[boneName] || {});
@@ -2453,7 +2467,8 @@ function keyBone(boneName, channels, refresh){
   if (channels.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
   if (channels.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
   markDirty();
-  if (refresh){ refreshAnimCounts(); if (selBone != null) renderBoneDetail(); }
+  refreshAnimCounts();              // always refresh the dopesheet so the key shows immediately
+  if (refresh && selBone != null) renderBoneDetail();
 }
 
 // Delete the bone's keys at a time (all channels) in the current animation.
@@ -2564,7 +2579,7 @@ function slotColorAt(slotName, t){
 }
 // Key a slot's attachment (stepped) / colour at the playhead.
 function keySlotAttachment(slotName, name){
-  if (!rawDoc || !curAnim || !animMode) return;
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
   cs.attachment = cs.attachment || [];
@@ -2574,7 +2589,7 @@ function keySlotAttachment(slotName, name){
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 function keySlotColor(slotName, hex){
-  if (!rawDoc || !curAnim || !animMode) return;
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
   cs.rgba = cs.rgba || [];
@@ -2649,36 +2664,45 @@ function renderTimeline(){
   const dur = workLen(curAnim);
   tlDur = dur;
   const gutter = tlGutter;
+  const fitPps = Math.max((tl.clientWidth - gutter - 6) / dur, 1);
+  const pps = tlPxPerSec ? Math.max(2, Math.min(6000, tlPxPerSec)) : fitPps;
+  tlPps = pps;
+  const contentW = Math.max(dur * pps, 1);
   const selBoneName = selBone != null ? skeletonData.bones[selBone].name : null;
+  const gut = (extra) => "width:" + gutter + "px;flex:0 0 " + gutter + "px;position:sticky;left:0;z-index:2;background:var(--panel);border-right:1px solid var(--line);" + (extra || "");
 
   const head = document.createElement("div");
-  head.style.cssText = "position:sticky;top:0;display:flex;height:22px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2;";
+  head.style.cssText = "position:sticky;top:0;display:flex;height:22px;z-index:3;width:" + (gutter + contentW) + "px;";
   const hg = document.createElement("div");
-  hg.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);color:var(--dim);font-size:10px;display:flex;align-items:center;padding-left:8px;";
-  hg.textContent = "track · " + dur.toFixed(2) + "s"; head.appendChild(hg);
+  hg.style.cssText = gut("z-index:4;display:flex;align-items:center;gap:2px;padding-left:4px;");
+  const zb = (txt, title, fn) => { const b = document.createElement("button"); b.textContent = txt; b.title = title; b.style.cssText = "padding:0 5px;font-size:10px;line-height:16px;"; b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
+  hg.appendChild(zb("－", "zoom out", () => tlZoom(1 / 1.4)));
+  hg.appendChild(zb("＋", "zoom in", () => tlZoom(1.4)));
+  hg.appendChild(zb("⊡", "fit to width", () => { tlPxPerSec = null; renderTimeline(); }));
+  head.appendChild(hg);
   const ruler = document.createElement("div");
-  ruler.style.cssText = "flex:1;position:relative;cursor:pointer;";
+  ruler.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;background:var(--panel);border-bottom:1px solid var(--line);";
   for (let t = 0; t <= dur + 1e-6; t += niceStep(dur)){
     const tk = document.createElement("div");
     tk.style.cssText = "position:absolute;top:0;bottom:0;left:" + (t / dur) * 100 + "%;border-left:1px solid var(--line);font-size:9px;color:var(--dim);padding-left:2px;";
     tk.textContent = t.toFixed(2); ruler.appendChild(tk);
   }
-  ruler.onmousedown = (e) => seekFromTrack(ruler, e.clientX);
+  ruler.onmousedown = (e) => startScrub(ruler, e.clientX);
   head.appendChild(ruler); tl.appendChild(head);
 
   timelineTracks().forEach((tr) => {
     const isSel = tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot;
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;" + (isSel ? "background:#2a2f3a;" : "");
+    row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
-    g.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:8px;overflow:hidden;white-space:nowrap;cursor:pointer;";
+    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:8px;overflow:hidden;white-space:nowrap;cursor:pointer;" + (isSel ? "background:#2a2f3a;" : ""));
     const tag = document.createElement("span"); tag.textContent = tr.kind === "slot" ? "▤" : "⦿"; tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
     const nm = document.createElement("span"); nm.textContent = tr.name; nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;";
     g.appendChild(tag); g.appendChild(nm);
     g.onclick = () => { if (tr.kind === "slot") selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
     const track = document.createElement("div");
-    track.style.cssText = "flex:1;position:relative;cursor:pointer;";
-    track.onmousedown = (e) => { if (e.target === track) seekFromTrack(track, e.clientX); };
+    track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
+    track.onmousedown = (e) => { if (e.target === track) startScrub(track, e.clientX); };
     trackKeyTimes(tr).forEach((kt) => {
       const ct = tr.kind === "bone" ? keyCurveType(tr.name, kt) : "linear";
       const dot = document.createElement("div");
@@ -2699,18 +2723,27 @@ function renderTimeline(){
   positionPlayhead();
 }
 
+// Seek the playhead from a click/drag x on the ruler or a track (no full re-render, so
+// it stays smooth during a scrub and the dragged element survives).
 function seekFromTrack(el, clientX){
   const r = el.getBoundingClientRect();
   animTime = roundN(clamp01((clientX - r.left) / r.width) * tlDur, 4);
   playing = false; $("#play").textContent = "▶ Play";
-  syncPlayhead(); renderTimeline();
+  syncPlayhead();
   if (selBone != null) renderBoneDetail();
   if (selSlot) renderSlotDetail();
 }
+// Grab the timeline to scratch: mousedown on the ruler/track scrubs and starts a drag.
+function startScrub(el, clientX){ tlScrub = el; seekFromTrack(el, clientX); }
+function tlZoom(factor){
+  const tl = $("#timeline"); if (!tl || !curAnim) return;
+  const base = tlPxPerSec || Math.max((tl.clientWidth - tlGutter - 6) / workLen(curAnim), 1);
+  tlPxPerSec = Math.max(2, Math.min(6000, base * factor));
+  renderTimeline();
+}
 function positionPlayhead(){
-  const ph = $("#tlPlayhead"), tl = $("#timeline"); if (!ph || !tl) return;
-  const trackW = tl.clientWidth - tlGutter;
-  ph.style.left = (tlGutter + clamp01(animTime / (tlDur || 1)) * trackW) + "px";
+  const ph = $("#tlPlayhead"); if (!ph) return;
+  ph.style.left = (tlGutter + clamp01(animTime / (tlDur || 1)) * (tlDur * tlPps)) + "px";
 }
 
 // Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
@@ -2742,7 +2775,7 @@ async function saveToR2(){
     });
     if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
     await r.json();
-    dirty = false; $("#resetBtn").disabled = true;
+    dirty = false;
     btn.textContent = "✓ saved";
     setTimeout(() => { btn.textContent = label; btn.disabled = !rawDoc; }, 1500);
     loadSkeletons(true); // refresh list so the new <stem>.irig appears
@@ -2852,17 +2885,6 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
   posingBone.x += lx; posingBone.y += ly;
 }
 
-// Discard ALL edits (transforms + structure): restore rawDoc from the untouched
-// original and rebuild.
-function resetEdits(){
-  if (!rawDocOriginal) return;
-  const selName = selBone != null ? skeletonData.bones[selBone].name : null;
-  rawDoc = JSON.parse(JSON.stringify(rawDocOriginal));
-  rebuildFromRawDoc(selName);
-  dirty = false;
-  $("#resetBtn").disabled = true;
-}
-
 // 2D marker over the selected bone's world origin (defensive — never breaks render)
 function updateBoneMarker(){
   const mk = $("#bonemark");
@@ -2970,6 +2992,7 @@ function syncPlayhead(){
   const dur = curAnim ? workLen(curAnim) : 0;
   $("#scrub").value = dur > 0 ? Math.round((animTime / dur) * 1000) : 0;
   $("#time").textContent = animTime.toFixed(2) + "s / " + dur.toFixed(2) + "s";
+  const tn = $("#timeNum"); if (tn && document.activeElement !== tn) tn.value = roundN(animTime, 3);
   positionPlayhead();
 }
 
@@ -3050,7 +3073,21 @@ function wire(){
   $("#loop").onclick = () => { looping = !looping; $("#loop").classList.toggle("active", looping); if (curEntry) curEntry.loop = looping; };
   $("#anim").onchange = e => { if (animMode){ setCurAnim(e.target.value); } else setAnim(e.target.value); };
   $("#skin").onchange = e => setActiveSkin(e.target.value);
-  $("#speed").oninput = e => { const v = e.target.value/100; playSpeed = v; if (animState) animState.timeScale = v; $("#speedv").textContent = v.toFixed(1) + "×"; };
+  const setSpeed = (v) => {
+    v = Math.max(0, Math.min(4, Number(v) || 0)); playSpeed = v;
+    if (animState) animState.timeScale = v;
+    $("#speed").value = Math.round(v * 100); $("#speedNum").value = v;
+    $("#speedv").textContent = v.toFixed(1) + "×";
+  };
+  $("#speed").oninput = e => setSpeed(e.target.value / 100);
+  $("#speedNum").onchange = e => setSpeed(e.target.value);
+  $("#timeNum").onchange = e => {
+    if (!animMode || !curAnim) return;
+    animTime = Math.max(0, Math.min(workLen(curAnim), parseFloat(e.target.value) || 0));
+    playing = false; $("#play").textContent = "▶ Play";
+    syncPlayhead(); renderTimeline();
+    if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
+  };
   $("#scrub").oninput = e => {
     if (animMode){
       playing = false; $("#play").textContent = "▶ Play";
@@ -3096,7 +3133,6 @@ function wire(){
   $("#fit").onclick = fitView;
   $("#exportBtn").onclick = exportIrig;
   $("#saveBtn").onclick = saveToR2;
-  $("#resetBtn").onclick = resetEdits;
 
   const cv = $("#cv");
   cv.addEventListener("wheel", e => {
@@ -3127,9 +3163,10 @@ function wire(){
       if (bi >= 0){ if (selBone !== bi) selectBone(bi); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
     }
     // Animate mode: click a bone to pose it (drag translates → keys at the playhead).
-    if (animMode && rawDoc && curAnim && !e.shiftKey){
+    if (animMode && rawDoc && !e.shiftKey){
       const bi = nearestBone(e);
       if (bi >= 0){
+        ensureCurAnim();
         if (selBone !== bi) selectBone(bi);
         const b = skeleton.bones[bi];
         posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY };
@@ -3199,15 +3236,22 @@ function wire(){
       lastXY = [e.clientX, e.clientY];
     }
   });
-  // Dopesheet key drag (independent of the canvas — not gated by lastXY).
+  // Dopesheet key drag + playhead scrub (independent of the canvas — not gated by lastXY).
   window.addEventListener("mousemove", (e) => {
+    if (tlScrub){ seekFromTrack(tlScrub, e.clientX); return; }
     if (!tlDrag) return;
     const r = tlDrag.track.getBoundingClientRect();
     const t = Math.max(0, roundN(clamp01((e.clientX - r.left) / r.width) * tlDrag.dur, 4));
     tlDrag.newTime = t;
     tlDrag.dot.style.left = (t / tlDrag.dur) * 100 + "%";
   });
+  // Ctrl/⌘ + wheel over the timeline zooms; plain wheel scrolls (native).
+  $("#timeline").addEventListener("wheel", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault(); tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
+  }, { passive: false });
   window.addEventListener("mouseup", () => {
+    if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
     if (!tlDrag) return;
     const d = tlDrag; tlDrag = null;
     if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
