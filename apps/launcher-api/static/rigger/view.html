@@ -73,6 +73,8 @@
   #timeline .tl-key { position:absolute; top:5px; width:11px; height:11px; margin-left:-6px;
     transform:rotate(45deg); background:var(--accent); border:1px solid #0c0f14; cursor:ew-resize; }
   #timeline .tl-key.sel { background:#ffd24a; }
+  #timeline .tl-key.stepped { transform:none; border-radius:1px; } /* upright square = stepped */
+  #timeline .tl-key.bez { background:#7ee0c0; } /* eased segment */
   #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
     pointer-events:none; z-index:3; }
   /* controls bar */
@@ -837,6 +839,27 @@ function renderBoneAnimDetail(det, i){
   info.textContent = times.length ? ("keys (" + times.length + "): " + times.map((t) => t.toFixed(2) + "s").join(", ")) : "no keys yet — pose the bone (drag on canvas or edit above), then ◆ Key";
   info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;";
   det.appendChild(info);
+
+  // curve (easing) of the key at the playhead — applies to the segment to the NEXT key
+  if (times.some((t) => Math.abs(t - animTime) < 1e-3)){
+    const cur = keyCurveType(bd.name, animTime);
+    const cl = document.createElement("div");
+    cl.textContent = "easing out of this key:"; cl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;font-size:11px;";
+    det.appendChild(cl);
+    const row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;";
+    const mk = (label, preset, on) => {
+      const b = document.createElement("button"); b.textContent = label; b.style.cssText = "padding:2px 7px;font-size:11px;";
+      if (on) b.className = "active";
+      b.onclick = () => setKeyCurve(bd.name, animTime, preset); return b;
+    };
+    row.appendChild(mk("Linear", "linear", cur === "linear"));
+    row.appendChild(mk("Stepped", "stepped", cur === "stepped"));
+    row.appendChild(mk("Ease In", "easein", false));
+    row.appendChild(mk("Ease Out", "easeout", false));
+    row.appendChild(mk("Ease In-Out", "easeinout", cur === "bezier"));
+    det.appendChild(row);
+    if (cur === "bezier"){ const h = document.createElement("div"); h.textContent = "(curved — re-apply after retiming/re-posing this key)"; h.style.cssText = "margin-top:3px;color:var(--dim);font-size:10px;"; det.appendChild(h); }
+  }
 }
 
 function renderBoneDetail(){
@@ -2239,15 +2262,29 @@ function animDuration(name){
   scan(a);
   return dur;
 }
-// Linear interpolation of a keyframe list at time t (hold at the ends). Curves come in 5.3.
-function lerpKeys(keys, t, fields){
+// Cubic-bezier value (Spine curve): control points absolute (time,value). Solve X(s)=t.
+function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
+  if (t <= t1) return v1; if (t >= t2) return v2;
+  const X = (s) => { const u = 1 - s; return u * u * u * t1 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s * s * s * t2; };
+  const Y = (s) => { const u = 1 - s; return u * u * u * v1 + 3 * u * u * s * cy1 + 3 * u * s * s * cy2 + s * s * s * v2; };
+  let lo = 0, hi = 1; for (let it = 0; it < 32; it++){ const m = (lo + hi) / 2; if (X(m) < t) lo = m; else hi = m; }
+  return Y((lo + hi) / 2);
+}
+// Sample a keyframe list at t honouring the FROM key's `curve` (linear default, "stepped",
+// or a bezier array — controls[v*4..] per value index). Verified vs spine-core (curve.mjs).
+function sampleChannel(keys, t, fields){
   if (!keys || !keys.length) return null;
   if (t <= keys[0].time) return keys[0];
   if (t >= keys[keys.length - 1].time) return keys[keys.length - 1];
   let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
-  const a = keys[i], b = keys[i + 1], u = (b.time - a.time) > 0 ? (t - a.time) / (b.time - a.time) : 0;
-  const out = { time: t };
-  for (const f of fields) out[f] = (a[f] ?? 0) + ((b[f] ?? 0) - (a[f] ?? 0)) * u;
+  const a = keys[i], b = keys[i + 1], out = { time: t };
+  const u = (b.time - a.time) > 0 ? (t - a.time) / (b.time - a.time) : 0;
+  for (let fi = 0; fi < fields.length; fi++){
+    const f = fields[fi], va = a[f] ?? 0, vb = b[f] ?? 0;
+    if (a.curve === "stepped") out[f] = va;
+    else if (Array.isArray(a.curve)){ const c = fi << 2; out[f] = bezierValue(a.time, va, a.curve[c], a.curve[c + 1], a.curve[c + 2], a.curve[c + 3], b.time, vb, t); }
+    else out[f] = va + (vb - va) * u;
+  }
   return out;
 }
 // Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
@@ -2258,10 +2295,10 @@ function poseAtTime(name, t){
   for (const [bn, ch] of Object.entries(a.bones)){
     const bone = skeleton.findBone(bn); if (!bone) continue; const bd = bone.data;
     let k;
-    if (ch.rotate && (k = lerpKeys(ch.rotate, t, ["value"]))) bone.rotation = bd.rotation + (k.value || 0);
-    if (ch.translate && (k = lerpKeys(ch.translate, t, ["x", "y"]))){ bone.x = bd.x + (k.x || 0); bone.y = bd.y + (k.y || 0); }
-    if (ch.scale && (k = lerpKeys(ch.scale, t, ["x", "y"]))){ bone.scaleX = bd.scaleX * (k.x ?? 1); bone.scaleY = bd.scaleY * (k.y ?? 1); }
-    if (ch.shear && (k = lerpKeys(ch.shear, t, ["x", "y"]))){ bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+    if (ch.rotate && (k = sampleChannel(ch.rotate, t, ["value"]))) bone.rotation = bd.rotation + (k.value || 0);
+    if (ch.translate && (k = sampleChannel(ch.translate, t, ["x", "y"]))){ bone.x = bd.x + (k.x || 0); bone.y = bd.y + (k.y || 0); }
+    if (ch.scale && (k = sampleChannel(ch.scale, t, ["x", "y"]))){ bone.scaleX = bd.scaleX * (k.x ?? 1); bone.scaleY = bd.scaleY * (k.y ?? 1); }
+    if (ch.shear && (k = sampleChannel(ch.shear, t, ["x", "y"]))){ bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
   }
 }
 
@@ -2309,6 +2346,41 @@ function deleteBoneKeyAt(boneName, time){
   }
   if (!Object.keys(cb).length) delete a.bones[boneName];
   markDirty(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
+}
+
+// Current outgoing-curve type of a bone's key at a time ("linear" | "stepped" | "bezier").
+function keyCurveType(boneName, time){
+  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return "linear";
+  for (const ch of ["rotate", "translate", "scale", "shear"]){
+    const keys = cb[ch]; if (!Array.isArray(keys)) continue;
+    const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) continue;
+    if (k.curve === "stepped") return "stepped";
+    if (Array.isArray(k.curve)) return "bezier";
+    return "linear";
+  }
+  return "linear";
+}
+// Set the OUTGOING interpolation of a bone's key at `time` (all its channels). presets:
+// linear (drop curve), stepped, easein/easeout/easeinout (bezier baked from the segment).
+function setKeyCurve(boneName, time, preset){
+  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return;
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  for (const chName of ["rotate", "translate", "scale", "shear"]){
+    const keys = cb[chName]; if (!Array.isArray(keys)) continue;
+    const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) continue;
+    const a0 = keys[idx];
+    if (idx >= keys.length - 1 || preset === "linear"){ delete a0.curve; continue; } // last key has no outgoing segment
+    if (preset === "stepped"){ a0.curve = "stepped"; continue; }
+    if (!F){ delete a0.curve; continue; }
+    const b0 = keys[idx + 1], fields = chName === "rotate" ? ["value"] : ["x", "y"], curve = [];
+    fields.forEach((fn, vi) => {
+      const va = a0[fn] ?? 0, vb = b0[fn] ?? 0, dt = b0.time - a0.time, dv = vb - va;
+      curve[vi * 4 + 0] = roundN(a0.time + dt * F[0], 4); curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
+      curve[vi * 4 + 2] = roundN(a0.time + dt * F[2], 4); curve[vi * 4 + 3] = roundN(va + dv * F[3], 4);
+    });
+    a0.curve = curve;
+  }
+  markDirty(); animsDirty = true; renderBoneDetail(); renderTimeline();
 }
 
 // Union of a bone's key times across channels (current anim), sorted.
@@ -2408,10 +2480,11 @@ function renderTimeline(){
     track.style.cssText = "flex:1;position:relative;cursor:pointer;";
     track.onmousedown = (e) => { if (e.target === track) seekFromTrack(track, e.clientX); };
     boneKeyTimes(bn).forEach((kt) => {
+      const ct = keyCurveType(bn, kt);
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "");
       dot.style.left = (kt / dur) * 100 + "%";
-      dot.title = bn + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
+      dot.title = bn + " @ " + kt.toFixed(3) + "s · " + ct + " — drag to retime · double-click to delete";
       dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { bone: bn, oldTime: kt, newTime: kt, dot, track, dur }; };
       dot.ondblclick = (e) => { e.stopPropagation(); const i = skeletonData.bones.findIndex((b) => b.name === bn); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(bn, kt); };
       track.appendChild(dot);
