@@ -1572,9 +1572,9 @@ function renderSlotDetail(){
     }
     if (!(att.bones && att.bones.length)){
       const hint = document.createElement("div");
-      hint.innerHTML = "<b>Not attached to bones yet.</b> Step 1: bind it to its slot's bone (“" +
-        (sd.boneData ? sd.boneData.name : "?") + "”) below — then the <b>🖊 Weight brush</b> appears so you " +
-        "can paint how much each bone pulls each vertex.";
+      hint.innerHTML = "<b>Not attached to bones yet.</b> Bind to a single bone (paint weights after), " +
+        "or <b>auto-weight to a chain</b>: select the chain's root bone in the inspector, then smooth-skin " +
+        "this mesh across that bone and all its children at once.";
       hint.style.cssText = "margin-top:8px;color:var(--dim);font-size:11px;line-height:1.4;";
       det.appendChild(hint);
       const bind = document.createElement("button");
@@ -1583,6 +1583,20 @@ function renderSlotDetail(){
       bind.style.cssText = "margin-top:6px;";
       bind.onclick = bindMeshToSlotBone;
       det.appendChild(bind);
+      const chainN = selBone != null ? chainBoneIndices(skeletonData.bones[selBone].name).length : 0;
+      const auto = document.createElement("button");
+      auto.textContent = "② Auto-weight to chain" + (selBone != null ? " (" + chainN + " bone" + (chainN === 1 ? "" : "s") + ")" : "");
+      auto.title = "Smooth-skin this mesh across the selected bone AND all its child bones (the chain) using inverse-distance weights — instead of binding 100% to one bone";
+      auto.style.cssText = "margin-top:6px;";
+      auto.disabled = selBone == null;
+      auto.onclick = autoWeightMeshToChain;
+      det.appendChild(auto);
+      if (selBone == null){
+        const note = document.createElement("div");
+        note.textContent = "select a bone (the chain's root) in the inspector to enable auto-weight";
+        note.style.cssText = "margin-top:4px;color:var(--dim);font-size:11px;";
+        det.appendChild(note);
+      }
     }
     // weight brush (weighted meshes)
     if (att.bones && att.bones.length){
@@ -1592,6 +1606,14 @@ function renderSlotDetail(){
       bt.style.cssText = "margin-top:8px;";
       bt.onclick = () => { weightBrush = !weightBrush; renderSlotDetail(); };
       det.appendChild(bt);
+      const reChainN = selBone != null ? chainBoneIndices(skeletonData.bones[selBone].name).length : 0;
+      const reauto = document.createElement("button");
+      reauto.textContent = "↻ Auto-weight to chain" + (selBone != null ? " (" + reChainN + ")" : "");
+      reauto.title = "Re-bind: smooth-skin this mesh across the selected bone + all its child bones (replaces the current weights)";
+      reauto.style.cssText = "margin-top:8px;margin-left:6px;";
+      reauto.disabled = selBone == null;
+      reauto.onclick = autoWeightMeshToChain;
+      det.appendChild(reauto);
       if (weightBrush){
         const trow = document.createElement("label");
         trow.style.cssText = "display:flex;gap:6px;align-items:center;margin-top:5px;color:var(--dim);";
@@ -2232,6 +2254,65 @@ function bindMeshToSlotBone(){
   for (let k = 0; k < vc; k++) nv.push(1, bi, rd.vertices[k * 2], rd.vertices[k * 2 + 1], 1);
   rd.vertices = nv;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+// The bone "chain" rooted at `rootName`: the bone itself + every descendant (its
+// subtree), as skeletonData indices. This is what an auto-weight skins across when
+// the user has built a chain (root → children) and selected its root.
+function chainBoneIndices(rootName){
+  const names = new Set([rootName]);
+  descendantNames(rootName).forEach((n) => names.add(n));
+  const out = [];
+  skeletonData.bones.forEach((b, i) => { if (names.has(b.name)) out.push(i); });
+  return out;
+}
+
+// World-space segment of bone i: origin → tip (tip = origin + length along the bone's
+// local x-axis, mapped through its world transform). Zero-length bones collapse to a point.
+function boneWorldSegment(i){
+  const b = skeleton.bones[i];
+  const len = (b.data && b.data.length) || 0;
+  return { x0: b.worldX, y0: b.worldY, x1: b.worldX + b.a * len, y1: b.worldY + b.c * len };
+}
+
+// Shortest distance from point (px,py) to a bone segment.
+function distToSegment(px, py, s){
+  const dx = s.x1 - s.x0, dy = s.y1 - s.y0, L2 = dx * dx + dy * dy;
+  let t = L2 > 1e-9 ? ((px - s.x0) * dx + (py - s.y0) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s.x0 + t * dx), py - (s.y0 + t * dy));
+}
+
+// Smooth-skin the mesh across the selected bone's CHAIN (it + its descendants):
+// every vertex gets inverse-square-distance weights toward the nearest bones in the
+// chain (top MAXINF influences, normalised). Re-binds from scratch, so it works on a
+// mesh that's unweighted OR already weighted — replacing the single-bone bind.
+function autoWeightMeshToChain(){
+  if (!meshCtx || !rawDoc || selBone == null) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const rootName = skeletonData.bones[selBone].name;
+  const chain = chainBoneIndices(rootName);
+  if (!chain.length) return;
+  const w = meshWorldVerts(); if (!w) return;
+  const segs = chain.map((idx) => ({ idx, seg: boneWorldSegment(idx) }));
+  const MAXINF = 4, EPS = 1e-3;
+  const vc = w.length / 2, nv = [];
+  for (let k = 0; k < vc; k++){
+    const px = w[k * 2], py = w[k * 2 + 1];
+    let cand = segs.map(({ idx, seg }) => { const d = distToSegment(px, py, seg); return { idx, wgt: 1 / (d * d + EPS) }; });
+    cand.sort((a, b) => b.wgt - a.wgt);
+    cand = cand.slice(0, MAXINF);
+    let sum = 0; for (const c of cand) sum += c.wgt;
+    if (sum < 1e-12){ cand = [{ idx: chain[0], wgt: 1 }]; sum = 1; }
+    nv.push(cand.length);
+    for (const c of cand){
+      const loc = skeleton.bones[c.idx].worldToLocal(new SPINE.Vector2(px, py));
+      nv.push(c.idx, loc.x, loc.y, c.wgt / sum);
+    }
+  }
+  rd.vertices = nv;
+  rebuildFromRawDoc(rootName);
   markDirty();
 }
 
@@ -3546,6 +3627,8 @@ function wire(){
     renderer.camera.zoom = Math.max(0.01, Math.min(50, renderer.camera.zoom * f));
   }, {passive:false});
   cv.addEventListener("mousedown", e => {
+    // Middle mouse button always pans the canvas (never edits) — regardless of mode.
+    if (e.button === 1){ e.preventDefault(); dragging = true; lastXY = [e.clientX, e.clientY]; return; }
     // Drawing a mesh: click an existing boundary point to select+drag it; else add one.
     if (editMode && drawMeshMode && !e.shiftKey){
       const hit = nearestDrawPoint(e);
