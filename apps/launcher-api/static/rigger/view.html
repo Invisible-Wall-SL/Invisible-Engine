@@ -141,6 +141,9 @@
     overflow:hidden; text-overflow:ellipsis; }
   .trow:hover { background:var(--panel2); }
   .trow.sel { background:#2f3a48; color:#fff; }
+  .trow.drag-src { opacity:.45; }
+  .trow.drop-into { background:#2c4a36; box-shadow:inset 0 0 0 1px var(--accent); }
+  #boneTree.drop-root { box-shadow:inset 0 0 0 1px var(--accent); border-radius:6px; }
   .trow .tag { color:var(--dim); font-size:10px; margin-left:6px; }
   .trow .wm { color:var(--accent2); font-size:10px; }
   #boneDetail, #slotDetail { padding:6px 14px; color:var(--dim); font-size:11px; border-top:1px dashed var(--line);
@@ -370,6 +373,7 @@ let showAttachments = true; // when false, the skin's images/meshes are hidden (
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let collapsedBones = new Set(); // bone names whose subtree is collapsed in the tree
+let dragBoneIdx = null; // bone index being drag-reparented in the hierarchy tree
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
 let meshDragVert = null; // index of the mesh vertex being dragged
 let selMeshVert = null; // selected mesh vertex (for UV editing, Phase 3.5)
@@ -597,6 +601,10 @@ function buildInspector(entry){
     ab.style.cssText = "margin:6px 14px 2px;";
     ab.onclick = () => addBone(selBone != null ? skeletonData.bones[selBone].name : null);
     tree.appendChild(ab);
+    const dh = document.createElement("div");
+    dh.textContent = "drag a bone onto another to reparent it · onto the empty area to make it a root";
+    dh.style.cssText = "margin:0 14px 4px;color:var(--dim);font-size:10px;line-height:1.3;";
+    tree.appendChild(dh);
   }
   const bones = skeletonData.bones;
   const childrenOf = new Map();
@@ -629,11 +637,65 @@ function buildInspector(entry){
       row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
       row.onclick = () => selectBone(i); // whole row, not just the name
+      if (editMode){
+        // drag a bone onto another to reparent it (onto the tree background = make root)
+        row.draggable = true;
+        row.ondragstart = (e) => {
+          dragBoneIdx = i;
+          row.classList.add("drag-src");
+          e.dataTransfer.effectAllowed = "move";
+          try { e.dataTransfer.setData("text/plain", b.name); } catch {}
+          e.stopPropagation();
+        };
+        row.ondragend = () => {
+          dragBoneIdx = null;
+          row.classList.remove("drag-src");
+          tree.querySelectorAll(".drop-into").forEach((el) => el.classList.remove("drop-into"));
+          tree.classList.remove("drop-root");
+        };
+        row.ondragover = (e) => {
+          if (dragBoneIdx == null) return;
+          e.stopPropagation(); // a bone over a row never bubbles to the make-root drop
+          if (!canReparentTo(dragBoneIdx, i)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          tree.classList.remove("drop-root");
+          if (!row.classList.contains("drop-into")){
+            tree.querySelectorAll(".drop-into").forEach((el) => el.classList.remove("drop-into"));
+            row.classList.add("drop-into");
+          }
+        };
+        row.ondragleave = () => row.classList.remove("drop-into");
+        row.ondrop = (e) => {
+          if (dragBoneIdx == null || !canReparentTo(dragBoneIdx, i)) return;
+          e.preventDefault(); e.stopPropagation();
+          row.classList.remove("drop-into");
+          reparentBone(dragBoneIdx, b.name);
+          dragBoneIdx = null;
+        };
+      }
       tree.appendChild(row);
       if (!collapsed) renderBoneRows(i, depth + 1);
     }
   };
   renderBoneRows(-1, 0);
+  if (editMode){
+    // drop on the tree background (not on a row) → make the dragged bone a root
+    tree.ondragover = (e) => {
+      if (dragBoneIdx == null || !bones[dragBoneIdx].parent) return; // already a root
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      tree.classList.add("drop-root");
+    };
+    tree.ondragleave = (e) => { if (e.target === tree) tree.classList.remove("drop-root"); };
+    tree.ondrop = (e) => {
+      if (dragBoneIdx == null || !bones[dragBoneIdx].parent) return;
+      e.preventDefault();
+      tree.classList.remove("drop-root");
+      reparentBone(dragBoneIdx, null);
+      dragBoneIdx = null;
+    };
+  }
   $("#cBones").textContent = "(" + bones.length + ")";
   $("#boneDetail").style.display = "none";
 
@@ -3225,6 +3287,16 @@ function rebuildFromRawDoc(selName){
 }
 
 // Change a bone's parent (structural) → mutate rawDoc + topo-sort + rebuild.
+// Can bone `childIdx` be reparented onto bone `parentIdx`? Not onto itself, not onto
+// one of its own descendants (would cycle), and not onto its current parent (no-op).
+function canReparentTo(childIdx, parentIdx){
+  if (childIdx === parentIdx) return false;
+  const child = skeletonData.bones[childIdx], parent = skeletonData.bones[parentIdx];
+  if (!child || !parent) return false;
+  if (child.parent && child.parent.name === parent.name) return false;
+  return !descendantNames(child.name).has(parent.name);
+}
+
 function reparentBone(i, newParentName){
   if (!rawDoc) return;
   const bd = skeletonData.bones[i];
