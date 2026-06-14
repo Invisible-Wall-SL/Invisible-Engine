@@ -1946,6 +1946,24 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
 SPLASH = splash_html("ATLAS MAKER")
 
 
+# Blueprint exposed-params panel (B43 Phase 8). A static container the client
+# fills with editable controls for the ACTIVE blueprint's params (re-rendered on
+# pipeline change). Injected as a PAGE.format() VALUE slot so its braces are NOT
+# reprocessed; the rendering JS lives inside PAGE (braces doubled there).
+_BP_PARAMS_PANEL_HTML = (
+    '<details class="settings" id="bpParamsPanel" style="display:none">'
+    '<summary>🎛 Blueprint settings — '
+    '<span id="bpParamsTitle"></span></summary>'
+    '<div style="font-size:12px;color:#888;padding:2px 0 8px">'
+    'Tunable knobs this blueprint exposes. Blank a field to fall back to its '
+    'baked default. Saved per-atlas, per-blueprint.</div>'
+    '<div class="cfggrid" id="bpParamsGrid"></div>'
+    '<button onclick="saveBpParams(this)" style="margin-bottom:14px">'
+    'Save blueprint settings</button>'
+    '<span id="bpParamsStat" style="margin-left:12px;color:#999"></span>'
+    '</details>')
+
+
 # Unified tool bar — HTML/CSS/JS twin of the launcher's $lib/ToolTopBar.svelte.
 # Kept as a SEPARATE non-`.format()` string because its inline SVG / JS objects
 # are full of literal braces; injected into PAGE via the {iw_toolbar} slot so we
@@ -2243,6 +2261,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <span id="gnegstat" style="margin-left:12px;color:#999"></span>
  </div>
 </details>
+{bp_params_panel}
 {blueprints_panel}
 <div class="grid">{cards}</div>
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
@@ -2303,6 +2322,10 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     </label>
     <div style="color:#aaa;font-weight:600;margin-top:2px">Bindings (role → node)</div>
     <div id="bpBindings" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="color:#aaa;font-weight:600;margin-top:8px;display:flex;align-items:center;gap:10px">Exposed settings (optional)
+     <button type="button" onclick="addBpParam()" style="font-size:11px;padding:3px 8px">＋ Add</button></div>
+    <div style="color:#888;font-size:11px">Tunable knobs (steps, cfg, sampler…) the author exposes. Each carries a default — the "general setting" — and renders as an editable control in the Settings panel. Pick a node + input that ISN'T already bound as a role.</div>
+    <div id="bpParams" style="display:flex;flex-direction:column;gap:10px"></div>
    </div>
    <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
     <button id="bpSave" onclick="saveBlueprint()" style="display:none">Publish blueprint</button>
@@ -2417,6 +2440,10 @@ const BUILTIN_PIPES=['sdxl','flux','gpt_image'];
 // excluded — they use the Python path). Drives which ref fields a blueprint
 // pipeline shows (a blueprint that doesn't bind shape_ref hides its UI).
 const BP_BOUND_ROLES={bp_bound_roles_js};
+// id -> [param def, …] for every blueprint that exposes params; and this
+// manifest's saved overrides (id -> {{key: value}}), namespaced by blueprint id.
+const BP_PARAMS={bp_params_js};
+const BP_PARAM_VALUES={bp_param_values_js};
 function isBlueprintPipe(p){{ return !!p && BUILTIN_PIPES.indexOf(p)<0; }}
 function bpBinds(p,role){{
  let r=BP_BOUND_ROLES[p]; return !!r && r.indexOf(role)>=0;
@@ -2436,7 +2463,71 @@ function applyPipe(){{                 // Settings panel (global + per-atlas)
  document.querySelectorAll('.cfggrid [data-pipe]').forEach(l=>{{
   l.style.display=pipeVisible(l.getAttribute('data-pipe'),p)?'':'none';
  }});
+ renderBpParams(p);  // exposed-param controls for the active blueprint
  applyCardPipes();   // a card inheriting the global pipeline follows it
+}}
+// Render the active blueprint's exposed-param controls into the Blueprint
+// settings panel. Hidden unless the active pipeline is a blueprint with params.
+// Pre-filled from this manifest's saved overrides, else each param's default.
+function renderBpParams(p){{
+ let panel=document.getElementById('bpParamsPanel');
+ let grid=document.getElementById('bpParamsGrid');
+ if(!panel||!grid) return;
+ let defs=(isBlueprintPipe(p)&&BP_PARAMS[p])||null;
+ if(!defs||!defs.length){{ panel.style.display='none'; grid.innerHTML=''; return; }}
+ panel.dataset.bpid=p;
+ document.getElementById('bpParamsTitle').textContent=p;
+ let saved=(BP_PARAM_VALUES[p])||{{}};
+ grid.innerHTML='';
+ defs.forEach(d=>{{
+  let key=d.key; if(!key) return;
+  let val=(key in saved)?saved[key]:d.default;
+  let lab=document.createElement('label');
+  let cap=document.createElement('span'); cap.className='lblrow';
+  cap.textContent=(d.label||key);
+  let ctl;
+  if(d.type==='bool'){{
+   ctl=document.createElement('select');
+   // Blank '— default —' option so a bool can be UNSET (fall back to the baked
+   // default) just like the blank-a-field rule for the other types; the save
+   // path drops a blank value. Only an explicit true/false is an override.
+   [['','— default —'],['true','true'],['false','false']].forEach(o=>{{let op=document.createElement('option');op.value=o[0];op.textContent=o[1];ctl.appendChild(op);}});
+   ctl.value=(key in saved)?((val===true||val==='true'||val===1||val==='1')?'true':'false'):'';
+  }} else if(d.type==='select'){{
+   ctl=document.createElement('select');
+   (d.options||[]).forEach(o=>{{let op=document.createElement('option');op.value=o;op.textContent=o;ctl.appendChild(op);}});
+   if(val!=null) ctl.value=String(val);
+  }} else {{
+   ctl=document.createElement('input');
+   if(d.type==='int'||d.type==='float'){{
+    ctl.type='number';
+    if(d.min!=null) ctl.min=d.min;
+    if(d.max!=null) ctl.max=d.max;
+    if(d.step!=null) ctl.step=d.step; else if(d.type==='float') ctl.step='any';
+   }}
+   ctl.value=(val==null)?'':String(val);
+  }}
+  ctl.dataset.bpparam=key;
+  lab.appendChild(cap); lab.appendChild(ctl); grid.appendChild(lab);
+ }});
+ panel.style.display='';
+}}
+async function saveBpParams(btn){{
+ let panel=document.getElementById('bpParamsPanel');
+ let stat=document.getElementById('bpParamsStat');
+ if(!panel) return;
+ let bpid=panel.dataset.bpid||globalPipe();
+ let vals={{}};
+ document.querySelectorAll('#bpParamsGrid [data-bpparam]').forEach(el=>{{
+  vals[el.dataset.bpparam]=el.value;
+ }});
+ let body={{bpParams:{{[bpid]:vals}}}};
+ let r=await fetch('/saveconfig',{{method:'POST',body:JSON.stringify(body)}});
+ let msg=await r.text();
+ if(stat) stat.textContent=msg;
+ // Keep the in-page saved map in sync so a later pipeline switch + return shows
+ // the just-saved values without a reload.
+ BP_PARAM_VALUES[bpid]=vals;
 }}
 function applyCardPipes(){{            // each card uses its OWN effective pipe
  let gp=globalPipe();
@@ -2531,6 +2622,7 @@ function openNewBlueprint(){{
  document.getElementById('bpName').value='';
  document.getElementById('bpDesc').value='';
  document.getElementById('bpstat').textContent='';
+ let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
  document.getElementById('bpmodal').classList.add('open');
 }}
 function closeBp(){{document.getElementById('bpmodal').classList.remove('open');}}
@@ -2575,6 +2667,115 @@ function buildBpBindings(){{
   row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
  }});
 }}
+// Current role->{{node,field}} map (from the binding selects) so a param can't
+// offer a (node,field) already driven by a role (no double-drive).
+function bpBoundTargets(){{
+ let s=new Set();
+ document.querySelectorAll('#bpBindings [data-bprole]').forEach(sel=>{{
+  let role=sel.dataset.bprole, node=sel.value;
+  if(!node||role==='output') return;
+  s.add(node+'\\u0000'+(BP_FIELD[role]||''));
+ }});
+ return s;
+}}
+// Scalar/enum inputs on a node that are NOT graph links (links are arrays) —
+// the candidates a param can drive. Skips inputs already bound as a role.
+function bpParamFields(nodeId){{
+ let n=(_bpGraph||{{}})[nodeId]||{{}}; let inp=n.inputs||{{}};
+ let bound=bpBoundTargets(); let out=[];
+ for(const f of Object.keys(inp)){{
+  let v=inp[f];
+  if(Array.isArray(v)) continue;                 // a wired link, not a knob
+  if(bound.has(nodeId+'\\u0000'+f)) continue;     // already a role target
+  out.push(f);
+ }}
+ return out;
+}}
+// Infer a param type from a node input's baked value (the author can change it).
+function bpInferType(v){{
+ if(typeof v==='boolean') return 'bool';
+ if(typeof v==='number') return Number.isInteger(v)?'int':'float';
+ return 'text';
+}}
+function addBpParam(){{
+ let wrap=document.getElementById('bpParams'); if(!wrap||!_bpGraph) return;
+ let row=document.createElement('div');
+ row.className='bpparam';
+ row.style.cssText='display:flex;flex-direction:column;gap:5px;border:1px solid #2a2a2e;border-radius:5px;padding:8px';
+ // node select (only nodes with at least one unbound scalar input)
+ let nodes=Object.keys(_bpGraph).filter(id=>bpParamFields(id).length>0);
+ let nodeSel=document.createElement('select'); nodeSel.dataset.pnode='1';
+ nodeSel.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
+ nodes.forEach(id=>{{ let o=document.createElement('option'); o.value=id;
+  o.textContent='node '+id+' — '+String((_bpGraph[id]||{{}}).class_type||''); nodeSel.appendChild(o); }});
+ let fieldSel=document.createElement('select'); fieldSel.dataset.pfield='1';
+ fieldSel.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
+ let typeSel=document.createElement('select'); typeSel.dataset.ptype='1';
+ typeSel.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
+ ['int','float','text','bool','select'].forEach(t=>{{ let o=document.createElement('option'); o.value=t; o.textContent=t; typeSel.appendChild(o); }});
+ let key=document.createElement('input'); key.dataset.pkey='1'; key.placeholder='key (e.g. steps)';
+ key.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
+ let label=document.createElement('input'); label.dataset.plabel='1'; label.placeholder='label (e.g. Steps)';
+ label.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
+ let def=document.createElement('input'); def.dataset.pdefault='1'; def.placeholder='default';
+ def.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
+ let opts=document.createElement('input'); opts.dataset.poptions='1'; opts.placeholder='options (comma-sep, select only)';
+ opts.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;display:none';
+ let mn=document.createElement('input'); mn.dataset.pmin='1'; mn.placeholder='min'; mn.type='number';
+ mn.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;width:70px';
+ let mx=document.createElement('input'); mx.dataset.pmax='1'; mx.placeholder='max'; mx.type='number';
+ mx.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;width:70px';
+ let rm=document.createElement('button'); rm.type='button'; rm.textContent='✕'; rm.title='remove';
+ rm.style.cssText='font-size:11px;padding:3px 7px'; rm.onclick=()=>row.remove();
+ // when node changes, repopulate fields + prefill key/default/type from the baked value
+ function refreshFields(){{
+  fieldSel.innerHTML='';
+  bpParamFields(nodeSel.value).forEach(f=>{{ let o=document.createElement('option'); o.value=f; o.textContent=f; fieldSel.appendChild(o); }});
+  syncFromField();
+ }}
+ function syncFromField(){{
+  let v=((_bpGraph[nodeSel.value]||{{}}).inputs||{{}})[fieldSel.value];
+  if(!key.value) key.value=fieldSel.value||'';
+  if(!label.value && fieldSel.value) label.value=fieldSel.value.charAt(0).toUpperCase()+fieldSel.value.slice(1);
+  if(def.value==='' && v!==undefined && v!==null && !Array.isArray(v)) def.value=String(v);
+  typeSel.value=bpInferType(v);
+  opts.style.display=(typeSel.value==='select')?'':'none';
+ }}
+ nodeSel.onchange=refreshFields; fieldSel.onchange=syncFromField;
+ typeSel.onchange=()=>{{ opts.style.display=(typeSel.value==='select')?'':'none'; }};
+ let r1=document.createElement('div'); r1.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+ r1.appendChild(nodeSel); r1.appendChild(fieldSel); r1.appendChild(typeSel); r1.appendChild(rm);
+ let r2=document.createElement('div'); r2.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+ r2.appendChild(key); r2.appendChild(label); r2.appendChild(def); r2.appendChild(mn); r2.appendChild(mx);
+ row.appendChild(r1); row.appendChild(r2); row.appendChild(opts);
+ wrap.appendChild(row);
+ refreshFields();
+}}
+function collectBpParams(){{
+ let out=[];
+ document.querySelectorAll('#bpParams .bpparam').forEach(row=>{{
+  let g=s=>{{ let el=row.querySelector(s); return el?el.value.trim():''; }};
+  let key=g('[data-pkey]'); let node=g('[data-pnode]'); let field=g('[data-pfield]');
+  if(!key||!node||!field) return;
+  let type=g('[data-ptype]')||'text';
+  let p={{key:key,type:type,node:node,field:field,label:g('[data-plabel]')||key}};
+  let dv=g('[data-pdefault]');
+  if(dv!==''){{
+   if(type==='int') p.default=parseInt(dv,10);
+   else if(type==='float') p.default=parseFloat(dv);
+   else if(type==='bool') p.default=(dv==='true'||dv==='1'||dv==='on');
+   else p.default=dv;
+  }}
+  let mn=g('[data-pmin]'),mx=g('[data-pmax]');
+  if(mn!=='') p.min=parseFloat(mn);
+  if(mx!=='') p.max=parseFloat(mx);
+  if(type==='select'){{
+   let o=g('[data-poptions]'); if(o) p.options=o.split(',').map(s=>s.trim()).filter(Boolean);
+  }}
+  out.push(p);
+ }});
+ return out;
+}}
 async function saveBlueprint(overwrite){{
  if(!_bpGraph) return;
  let st=document.getElementById('bpstat'); st.textContent='⬆ Publishing…';
@@ -2590,7 +2791,7 @@ async function saveBlueprint(overwrite){{
   description:document.getElementById('bpDesc').value,
   base:document.getElementById('bpBase').value,
   workflow_text:JSON.stringify(_bpGraph),
-  bindings:bindings, overwrite:!!overwrite}};
+  bindings:bindings, params:collectBpParams(), overwrite:!!overwrite}};
  let msg;
  try{{ let r=await fetch('/uploadblueprint',{{method:'POST',body:JSON.stringify(body)}});
   msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
@@ -3832,6 +4033,35 @@ class Handler(BaseHTTPRequestHandler):
                 entry["field"] = field
             clean_bindings[role] = entry
 
+        # Exposed params ("general settings") — optional. Each carries a baked
+        # default + the node/field it drives. We keep only the recognized shape
+        # here; blueprints._validate_params does the real validation (key/type,
+        # role/key collisions, no double-drive) and validate_against_graph
+        # checks the node/field exist. Anything malformed surfaces as a readable
+        # string, never a 500.
+        raw_params = payload.get("params")
+        clean_params: list = []
+        if raw_params is not None:
+            if not isinstance(raw_params, list):
+                return "✖ 'params' must be a list."
+            for i, p in enumerate(raw_params):
+                if not isinstance(p, dict):
+                    return f"✖ params[{i}] must be an object."
+                key = str(p.get("key", "")).strip()
+                if not key:
+                    return f"✖ params[{i}] needs a key."
+                ptype = str(p.get("type", "")).strip().lower()
+                node = str(p.get("node", "")).strip()
+                field = str(p.get("field", "")).strip()
+                entry = {"key": key, "type": ptype, "node": node,
+                         "field": field,
+                         "label": str(p.get("label", "")).strip() or key,
+                         "default": p.get("default")}
+                for opt in ("min", "max", "step", "options", "group"):
+                    if p.get(opt) not in (None, ""):
+                        entry[opt] = p[opt]
+                clean_params.append(entry)
+
         # Validate the graph is parseable, API-format, and the bindings resolve.
         try:
             graph = json.loads(workflow_text)
@@ -3860,6 +4090,7 @@ class Handler(BaseHTTPRequestHandler):
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "base": base,
             "bindings": clean_bindings,
+            "params": clean_params,
             "models": [],
         }
         try:
@@ -4875,6 +5106,11 @@ class Handler(BaseHTTPRequestHandler):
         # ref-field show/hide logic (a blueprint hides a ref field it doesn't
         # bind). Best-effort — empty map on any R2 trouble.
         bp_bound: dict[str, list[str]] = {}
+        # Exposed-param defs per blueprint id (for the client to render editable
+        # controls when that blueprint is the active pipeline) + THIS manifest's
+        # saved overrides (namespaced by blueprint id). Best-effort — empty on
+        # any R2 trouble so the page still renders.
+        bp_params: dict[str, list] = {}
         try:
             for _b in blueprints.list_blueprints():
                 _bid = str(_b.get("id", ""))
@@ -4883,13 +5119,24 @@ class Handler(BaseHTTPRequestHandler):
                 _full = blueprints.get_blueprint(_bid)
                 if _full:
                     bp_bound[_bid] = list((_full.get("bindings") or {}).keys())
+                    _ps = _full.get("params") or []
+                    if _ps:
+                        bp_params[_bid] = _ps
         except Exception:  # noqa: BLE001 — never break the page render
             bp_bound = {}
+            bp_params = {}
+        bp_param_values = (
+            (load_manifest().get("settings") or {}).get("bpParams") or {})
+        if not isinstance(bp_param_values, dict):
+            bp_param_values = {}
         return PAGE.format(
             iw_toolbar=IW_TOOLBAR,
             cards="".join(cards),
             blueprints_panel=blueprints_panel,
+            bp_params_panel=_BP_PARAMS_PANEL_HTML,
             bp_bound_roles_js=json.dumps(bp_bound),
+            bp_params_js=json.dumps(bp_params),
+            bp_param_values_js=json.dumps(bp_param_values),
             global_fields="".join(global_fields),
             atlas_fields="".join(atlas_fields),
             spine_link=spine_link,
@@ -5509,7 +5756,39 @@ class Handler(BaseHTTPRequestHandler):
                 return v
 
         for k, v in edits.items():
-            if k in ("deploy_path", "deploy_basename"):
+            if k == "bpParams":
+                # Blueprint exposed-param overrides (B43 Phase 8). Namespaced by
+                # blueprint id under settings["bpParams"][<bpId>] so switching
+                # blueprints never cross-contaminates. The client posts only the
+                # ACTIVE blueprint's submap; we MERGE per-blueprint (other ids'
+                # saved values are preserved). A blank value drops that key
+                # (falls back to the param's baked default at generate time).
+                if not isinstance(v, dict):
+                    continue
+                bp_all = settings.get("bpParams")
+                if not isinstance(bp_all, dict):
+                    bp_all = {}
+                for bp_id, vals in v.items():
+                    if not isinstance(vals, dict):
+                        continue
+                    cur = bp_all.get(str(bp_id))
+                    if not isinstance(cur, dict):
+                        cur = {}
+                    for pk, pv in vals.items():
+                        if str(pv).strip() == "":
+                            cur.pop(pk, None)
+                        else:
+                            cur[pk] = pv
+                    if cur:
+                        bp_all[str(bp_id)] = cur
+                    else:
+                        bp_all.pop(str(bp_id), None)
+                if bp_all:
+                    settings["bpParams"] = bp_all
+                else:
+                    settings.pop("bpParams", None)
+                manifest_dirty = True
+            elif k in ("deploy_path", "deploy_basename"):
                 sv = str(v).strip()
                 if sv:
                     m[k] = sv

@@ -394,6 +394,99 @@ def apply_manifest_settings(manifest: dict) -> dict:
 # geometry is unaffected (back-compat for multi-region atlases).
 ATLAS_META: dict = {}
 
+# Per-manifest blueprint exposed-param overrides (B43 Phase 8): key -> raw value,
+# resolved in main() from manifest["settings"]["bpParams"][<active blueprint>].
+# Empty by default so headless/built-in paths and a blueprint with no params are
+# byte-identical (build_workflow_blueprint falls back to each param's default).
+BP_PARAM_OVERRIDES: dict = {}
+
+# Sentinel: "no usable value" — _effective_param_value returns this when even the
+# param's default can't be coerced, so the runner leaves the node input at the
+# graph's baked value instead of injecting garbage.
+_UNSET = object()
+
+
+class _CoerceError(Exception):
+    """Raised by _coerce_param when a value can't be coerced to the declared
+    type, so callers can fall back to the param's default instead of injecting
+    a wrong-typed value onto a node input."""
+
+
+def _coerce_param(value, ptype: str):
+    """Coerce a raw param value (string from the UI, or a JSON literal) to the
+    type the blueprint declared, so it lands on the node input as the right
+    Python type. Raises _CoerceError on an uncoercible numeric/bool so the
+    caller can fall back to the param's default rather than passing garbage
+    onto the node (which would make remote ComfyUI reject the whole prompt)."""
+    if value is None:
+        return None
+    t = (ptype or "").lower()
+    try:
+        if t == "int":
+            return int(float(value)) if isinstance(value, str) else int(value)
+        if t == "float":
+            return float(value)
+        if t == "bool":
+            return _truthy(value, False)
+        # text / select / unknown -> string
+        return str(value)
+    except (TypeError, ValueError) as e:
+        raise _CoerceError(str(e)) from e
+
+
+def _effective_param_value(p: dict, raw):
+    """Resolve the EFFECTIVE value to inject for one declared blueprint param.
+
+    `raw` is the override (when set) else the param's default. Degrades
+    gracefully so a bad/out-of-range user value never reaches the node input:
+      - coercion to the declared `type` fails  -> fall back to the param's
+        `default` (re-coerced);
+      - numeric value out of declared `min`/`max` -> clamp into range;
+      - `select` value not in `options`        -> fall back to `default`.
+    If even the default is unusable, returns the _UNSET sentinel so the caller
+    leaves the node input at whatever the graph shipped with (never garbage).
+    Validation guarantees the param structure, so the default is normally valid.
+    """
+    ptype = str(p.get("type", "text")).lower()
+    default = p.get("default")
+
+    def _coerce_or_default(val):
+        try:
+            return _coerce_param(val, ptype)
+        except _CoerceError:
+            if val is default or default is None:
+                return _UNSET
+            try:
+                return _coerce_param(default, ptype)
+            except _CoerceError:
+                return _UNSET
+
+    value = _coerce_or_default(raw)
+    if value is _UNSET or value is None:
+        return value
+
+    if ptype in ("int", "float"):
+        lo = p.get("min")
+        hi = p.get("max")
+        try:
+            if lo is not None and value < (lo := _coerce_param(lo, ptype)):
+                value = lo
+            if hi is not None and value > (hi := _coerce_param(hi, ptype)):
+                value = hi
+        except (_CoerceError, TypeError):
+            pass
+    elif ptype == "select":
+        options = p.get("options")
+        if isinstance(options, list) and options and value not in [
+                str(o) for o in options]:
+            # Out-of-domain select value -> fall back to the (valid) default.
+            try:
+                dv = _coerce_param(default, ptype) if default is not None else _UNSET
+            except _CoerceError:
+                dv = _UNSET
+            value = dv if (dv is _UNSET or dv in [str(o) for o in options]) else _UNSET
+    return value
+
 
 def region_box(region: dict) -> tuple[int, int, int, int]:
     """Resolve a region's (x, y, w, h). Explicit region values win; missing
@@ -1265,7 +1358,7 @@ def _set_node_input(graph: dict, binding: dict | None, value) -> None:
 
 
 def build_workflow_blueprint(
-    region: dict, style: dict, blueprint: dict
+    region: dict, style: dict, blueprint: dict, overrides: dict | None = None
 ) -> tuple[dict, str]:
     """Generic, data-driven pipeline runner: drive ANY ComfyUI graph via its
     blueprint bindings instead of a hardcoded Python builder.
@@ -1310,6 +1403,33 @@ def build_workflow_blueprint(
     if raw_shape_ref:
         _set_node_input(
             wf, bindings.get("shape_ref"), normalize_shape_ref(raw_shape_ref))
+
+    # Exposed params ("general settings"): each declared param sets its EFFECTIVE
+    # value onto its bound node input — a per-manifest override if present, else
+    # the param's baked default. Coerced by the declared type. A blueprint with
+    # no params, or no overrides, leaves the graph's baked values untouched (so
+    # built-in/headless paths are byte-identical). Applied AFTER bindings so a
+    # param can't accidentally clobber a role's injection (validation already
+    # forbids targeting a role's (node, field)).
+    ov = overrides if isinstance(overrides, dict) else {}
+    for p in (blueprint.get("params") or []):
+        if not isinstance(p, dict):
+            continue
+        key = str(p.get("key", "")).strip()
+        if not key:
+            continue
+        raw = ov[key] if (key in ov and ov[key] not in ("", None)) else p.get("default")
+        if raw is None:
+            continue
+        # Resolve the effective value with graceful fallback: a bad override
+        # drops to the param's default; numeric values clamp to min/max; an
+        # out-of-domain select falls back to the default. _UNSET => leave the
+        # node input at whatever the graph shipped with (never inject garbage).
+        value = _effective_param_value(p, raw)
+        if value is _UNSET:
+            continue
+        _set_node_input(
+            wf, {"node": p.get("node"), "field": p.get("field")}, value)
 
     # Output: set the SaveImage filename_prefix to this project's prefix (same
     # as the builders) and resolve the node id run_region reads from.
@@ -1704,7 +1824,8 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
     out_node = "17"
     bp = blueprints.get_blueprint(pipe) if pipe not in ("sdxl", "flux", "gpt_image") else None
     if bp:
-        wf, out_node = build_workflow_blueprint(region, style, bp)
+        wf, out_node = build_workflow_blueprint(
+            region, style, bp, BP_PARAM_OVERRIDES)
     else:
         wf = build_workflow(region, style, atlas_path)
     # Cloud: the remote ComfyUI can't read our staging refs — upload each
@@ -2053,6 +2174,25 @@ def main() -> None:
     if applied:
         print("Per-atlas settings overriding globals: "
               + ", ".join(f"{k}={v}" for k, v in applied.items()))
+
+    # Blueprint exposed-param overrides (B43 Phase 8): when the active pipeline
+    # is a blueprint, pull this manifest's saved overrides for THAT blueprint id
+    # (namespaced so switching blueprints doesn't cross-contaminate) into the
+    # module global the generic runner reads. A built-in pipeline or a blueprint
+    # with no saved overrides leaves it empty (defaults apply) — no behavior
+    # change for the proven paths.
+    BP_PARAM_OVERRIDES.clear()
+    _active_pipe = str(PIPELINE).strip().lower()
+    if _active_pipe not in ("sdxl", "flux", "gpt_image"):
+        _bp_params = ((manifest.get("settings") or {}).get("bpParams") or {})
+        _this = _bp_params.get(_active_pipe)
+        if isinstance(_this, dict):
+            BP_PARAM_OVERRIDES.update(_this)
+            if BP_PARAM_OVERRIDES:
+                print("Blueprint param overrides for "
+                      f"'{_active_pipe}': "
+                      + ", ".join(f"{k}={v}"
+                                  for k, v in BP_PARAM_OVERRIDES.items()))
 
     if atlas_bound:
         # Rotation is per-region metadata from the `.atlas`; everything is

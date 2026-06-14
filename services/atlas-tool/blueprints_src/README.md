@@ -64,6 +64,20 @@ That's it — no Python change. Adding a pipeline = dropping two files.
     "shape_ref": { "node": "4",  "field": "image" }    // optional — a LoadImage node
   },
 
+  // Exposed settings ("general settings") — OPTIONAL, defaults to []. Tunable
+  // knobs the author surfaces in the Atlas Maker Settings panel. Each carries a
+  // baked DEFAULT (the general setting) and drives ONE node input. A param key
+  // may NOT collide with a binding role or another param key, and a param may
+  // NOT target a (node, field) already driven by a binding (no double-drive).
+  "params": [
+    { "key": "steps", "label": "Steps", "type": "int",
+      "default": 35, "min": 1, "max": 150, "step": 1,
+      "node": "13", "field": "steps", "group": "Sampler" },
+    { "key": "sampler_name", "label": "Sampler", "type": "select",
+      "default": "dpmpp_2m", "options": ["euler", "dpmpp_2m"],
+      "node": "13", "field": "sampler_name" }
+  ],
+
   // What ComfyUI must have installed. v1 is read-only metadata; auto-download
   // (ComfyUI-Manager) is a later phase. `source` blank = "must be pre-installed".
   "models": [
@@ -71,6 +85,36 @@ That's it — no Python change. Adding a pipeline = dropping two files.
   ]
 }
 ```
+
+### Exposed params (`params[]`) — "general settings"
+
+`params` lets a blueprint author surface tunable knobs that are NOT one of the
+fixed semantic roles. Each entry:
+
+| field | meaning |
+| --- | --- |
+| `key` | unique id (also the per-manifest override key). Must not equal a binding role name or another param key. |
+| `type` | `int` \| `float` \| `text` \| `bool` \| `select` — controls the editor widget + value coercion. |
+| `default` | the baked value (the "general setting"); used when the manifest has no override. |
+| `node` / `field` | the node input it drives. Must exist in `workflow.json` and must NOT already be a binding target. |
+| `label` | display label (defaults to `key`). |
+| `min` / `max` / `step` | numeric bounds for `int`/`float` (optional). |
+| `options` | choices for `select` (required for `select`). |
+| `group` | optional UI grouping hint. |
+
+At generate time `batch_atlas.build_workflow_blueprint` sets each param's
+EFFECTIVE value onto its bound node input — the per-manifest override
+(`manifest.settings.bpParams.<blueprintId>.<key>`, edited in the Settings
+panel's "Blueprint settings" section) if present, else the param `default`.
+A blueprint with no `params`, and a built-in pipeline, are unaffected.
+
+The runner degrades gracefully so a bad user value never reaches the node (and
+never opaquely fails the whole ComfyUI prompt): an override that can't be coerced
+to the declared `type` falls back to the param's `default`; numeric values are
+clamped into `min`/`max`; a `select` value outside `options` falls back to the
+`default`. If even the default is unusable, the node input is left at whatever
+the graph shipped with — never a wrong-typed/out-of-domain value. A blank value
+in the UI (including the bool control's "— default —") is treated as no override.
 
 ### How the generic runner applies bindings
 

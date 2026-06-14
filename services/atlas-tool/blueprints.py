@@ -48,6 +48,14 @@ REQUIRED_ROLES = ("positive", "seed", "output")
 OPTIONAL_ROLES = ("negative", "width", "height", "style_ref", "shape_ref")
 KNOWN_ROLES = REQUIRED_ROLES + OPTIONAL_ROLES
 
+# Exposed-parameter ("general settings") types a blueprint author may declare.
+# A param carries a baked DEFAULT (the "general setting") and renders as an
+# editable control in the Atlas Maker Settings panel; the generic runner sets
+# its effective value (per-manifest override, else default) onto the bound
+# node input. `select`/`text`/`bool` are strings/booleans; `int`/`float` are
+# numeric (with optional min/max/step bounds).
+PARAM_TYPES = ("int", "float", "text", "bool", "select")
+
 # Hydrate the shared tree once per process (cheap, incremental pull thereafter).
 _HYDRATED = False
 _HYDRATE_LOCK = threading.Lock()
@@ -101,7 +109,88 @@ def _validate_manifest(bp_id: str, manifest: dict) -> dict:
         if not str(b.get("field", "")).strip():
             raise ValueError(
                 f"blueprint '{bp_id}': role '{role}' has no 'field'")
+    _validate_params(bp_id, manifest, bindings)
     return manifest
+
+
+def _validate_params(bp_id: str, manifest: dict, bindings: dict) -> list:
+    """Validate the OPTIONAL `params[]` array (exposed "general settings").
+
+    `params` defaults to `[]`; a blueprint without it is unchanged. Each entry
+    must have a unique `key`, a known `type`, and a `node`+`field` it drives.
+    A param key may NOT collide with a binding role or another param key, and a
+    param may NOT target a (node, field) already driven by a binding (no
+    double-drive). Returns the normalized list (also stored back on the
+    manifest so loaders/callers see a clean `params`). Raises ValueError with a
+    readable message on any problem (the loader skips a bad blueprint, the
+    upload handler returns the message verbatim)."""
+    params = manifest.get("params")
+    if params in (None, ""):
+        manifest["params"] = []
+        return []
+    if not isinstance(params, list):
+        raise ValueError(f"blueprint '{bp_id}': 'params' must be an array")
+    # (node, field) pairs already driven by a binding — a param can't re-drive.
+    bound_targets = set()
+    for role, b in bindings.items():
+        if role == "output" or not isinstance(b, dict):
+            continue
+        n = str(b.get("node", "")).strip()
+        f = str(b.get("field", "")).strip()
+        if n and f:
+            bound_targets.add((n, f))
+    seen_keys = set()
+    out = []
+    for i, p in enumerate(params):
+        if not isinstance(p, dict):
+            raise ValueError(
+                f"blueprint '{bp_id}': params[{i}] is not an object")
+        key = str(p.get("key", "")).strip()
+        if not key:
+            raise ValueError(
+                f"blueprint '{bp_id}': params[{i}] has no 'key'")
+        if key in KNOWN_ROLES:
+            raise ValueError(
+                f"blueprint '{bp_id}': param key '{key}' collides with a "
+                "binding role name — pick a different key")
+        if key in seen_keys:
+            raise ValueError(
+                f"blueprint '{bp_id}': duplicate param key '{key}'")
+        seen_keys.add(key)
+        ptype = str(p.get("type", "")).strip().lower()
+        if ptype not in PARAM_TYPES:
+            raise ValueError(
+                f"blueprint '{bp_id}': param '{key}' has invalid type "
+                f"'{ptype}' (one of {', '.join(PARAM_TYPES)})")
+        node = str(p.get("node", "")).strip()
+        field = str(p.get("field", "")).strip()
+        if not node or not field:
+            raise ValueError(
+                f"blueprint '{bp_id}': param '{key}' needs a 'node' and "
+                "'field' (the node input it drives)")
+        if (node, field) in bound_targets:
+            raise ValueError(
+                f"blueprint '{bp_id}': param '{key}' targets node {node}."
+                f"{field}, which is already driven by a binding — a node "
+                "input can't be driven by both a role and a param")
+        if ptype == "select" and not (
+                isinstance(p.get("options"), list) and p.get("options")):
+            raise ValueError(
+                f"blueprint '{bp_id}': select param '{key}' needs a non-empty "
+                "'options' array")
+        # Normalize: keep only recognized keys (drop noise), default missing
+        # label to the key. Bounds/options/step are passed through untouched.
+        norm = {
+            "key": key, "type": ptype, "node": node, "field": field,
+            "label": str(p.get("label", "")).strip() or key,
+            "default": p.get("default"),
+        }
+        for opt in ("min", "max", "step", "options", "group"):
+            if opt in p:
+                norm[opt] = p[opt]
+        out.append(norm)
+    manifest["params"] = out
+    return out
 
 
 def validate_against_graph(bp_id: str, manifest: dict, graph: dict) -> dict:
@@ -131,6 +220,22 @@ def validate_against_graph(bp_id: str, manifest: dict, graph: dict) -> dict:
             raise ValueError(
                 f"blueprint '{bp_id}': role '{role}' is bound to node "
                 f"'{node_id}', which is not in the workflow graph")
+    # Every exposed param must point at a node/field that actually exists in
+    # the graph (so the runner can set it). `params` was normalized in
+    # `_validate_manifest`.
+    for p in manifest.get("params", []):
+        node_id = str(p.get("node", "")).strip()
+        field = str(p.get("field", "")).strip()
+        node = graph.get(node_id)
+        if not isinstance(node, dict):
+            raise ValueError(
+                f"blueprint '{bp_id}': param '{p.get('key')}' targets node "
+                f"'{node_id}', which is not in the workflow graph")
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict) or field not in inputs:
+            raise ValueError(
+                f"blueprint '{bp_id}': param '{p.get('key')}' targets input "
+                f"'{field}' on node '{node_id}', which that node doesn't have")
     return manifest
 
 
@@ -158,9 +263,14 @@ def _read_blueprint_dir(d: Path) -> dict | None:
               flush=True)
         return None
     bindings = manifest["bindings"]
+    params = manifest.get("params") or []
+    # meta carries everything except bindings (incl. the normalized params), so
+    # list_blueprints()/get_blueprint() surface params to the UI. params is also
+    # promoted to the top level for the runner.
     meta = {k: v for k, v in manifest.items() if k != "bindings"}
     meta.setdefault("id", bp_id)
-    return {"id": bp_id, "graph": graph, "bindings": bindings, "meta": meta}
+    return {"id": bp_id, "graph": graph, "bindings": bindings,
+            "params": params, "meta": meta}
 
 
 def list_blueprints() -> list[dict]:

@@ -14,6 +14,11 @@
     "style_ref":  { "node": "3",  "field": "image" },
     "output":     { "node": "17" }
   },
+  "params": [
+    { "key": "steps", "label": "Steps", "type": "int", "default": 35, "min": 1, "max": 150, "step": 1, "node": "13", "field": "steps", "group": "Sampler" },
+    { "key": "cfg", "label": "CFG scale", "type": "float", "default": 8.5, "min": 1, "max": 20, "step": 0.5, "node": "13", "field": "cfg", "group": "Sampler" },
+    { "key": "sampler_name", "label": "Sampler", "type": "select", "default": "dpmpp_2m", "options": ["euler", "euler_ancestral", "dpmpp_2m", "dpmpp_sde", "ddim"], "node": "13", "field": "sampler_name", "group": "Sampler" }
+  ],
   "models": [
     { "field": "ckpt_name", "filename": "juggernautXL_ragnarokBy.safetensors", "dir": "checkpoints", "source": "" },
     { "field": "lora_name", "filename": "gameIconInstitute3d_v10.safetensors", "dir": "loras", "source": "" }

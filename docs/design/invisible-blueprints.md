@@ -57,6 +57,22 @@ same slug rule already used for client/project keys.
     "output":     { "node": "17" }                      // the SaveImage node
   },
 
+  // OPTIONAL exposed parameters ("general settings"): tunable knobs the author
+  // surfaces, beyond the fixed roles above. Each carries a baked DEFAULT (the
+  // "general setting"), renders as an editable control in the Atlas Maker
+  // Settings panel when the blueprint is selected, and drives ONE node input.
+  // A param key must NOT collide with a binding role / another param key, and a
+  // param must NOT target a (node, field) already driven by a binding.
+  // type: int | float | text | bool | select.
+  "params": [
+    { "key": "steps", "label": "Steps", "type": "int",
+      "default": 30, "min": 1, "max": 150, "step": 1,
+      "node": "10", "field": "steps", "group": "General" },
+    { "key": "sampler_name", "label": "Sampler", "type": "select",
+      "default": "dpmpp_2m", "options": ["euler", "dpmpp_2m"],
+      "node": "10", "field": "sampler_name" }
+  ],
+
   // What ComfyUI must have installed for this graph to run.
   // Each entry: where it goes + where to fetch it from.
   "models": [
@@ -150,6 +166,18 @@ The blueprint picker lives at the top of the Settings panel, next to the existin
 So the blueprint changes *which graph* and *which models* — nothing downstream
 (persistence, compose, slice, R2 layout) changes.
 
+**Exposed-param controls (Phase 8).** When the active pipeline is a blueprint
+that declares `params[]`, the Settings panel grows a **"Blueprint settings"**
+section rendering each param as the right control (number / text / checkbox /
+select). Values persist per-manifest, **namespaced by blueprint id**
+(`manifest.settings.bpParams.<blueprintId>.<key>`) through the existing
+`/saveconfig` path, so switching blueprints never cross-contaminates. The
+authoring modal ("＋ New blueprint") gains an **"Exposed settings"** step where
+the author picks a node + scalar/enum input (filtered to inputs NOT already
+bound as a role), a type, label, default, and bounds/options. At generate time
+the generic runner sets each param's effective value (per-manifest override,
+else the baked default) onto its bound node input.
+
 ## 6. Sharing / auth
 
 - Storage: one global `_shared/blueprints/` prefix, mirroring `_shared/spines/`.
@@ -188,8 +216,41 @@ So the blueprint changes *which graph* and *which models* — nothing downstream
    binding step, model-source entry, save to R2.
 7. **Publish gating + docs.** Role permission for publishing; ONBOARDING note that local
    ComfyUI needs ComfyUI-Manager; STATUS update.
+8. ✅ **Blueprint exposed params / "general settings"** *(DONE-code 2026-06-14,
+   live-verify owed.)* Strictly-additive follow-on: a blueprint may declare an
+   OPTIONAL `params[]` array — author-tunable knobs (steps/cfg/sampler/denoise/
+   any node input) each carrying a baked DEFAULT (the "general setting").
+   - `blueprints.py` parses + validates `params[]` (`_validate_params`; node/field
+     existence checked in `validate_against_graph`); rejects key↔role / key↔key
+     collisions and double-driving a binding's (node, field). `get_blueprint` /
+     `list_blueprints` surface `params`.
+   - `batch_atlas.build_workflow_blueprint(region, style, blueprint, overrides=None)`
+     applies each param's effective value (per-manifest override else default,
+     coerced by type) onto its bound node input AFTER the role bindings;
+     `run_region` threads `BP_PARAM_OVERRIDES` (resolved in `main()` from
+     `manifest.settings.bpParams[<activeBlueprint>]`). A blueprint with no
+     `params`, and the built-in Python paths, are byte-identical.
+   - **Graceful fallback** (`_effective_param_value`): a bad user value never
+     reaches the node (no opaque remote-ComfyUI prompt rejection) — an override
+     that won't coerce to the declared `type` falls back to the param `default`,
+     numeric values are clamped into `min`/`max`, and a `select` value outside
+     `options` falls back to the `default`. If even the default is unusable the
+     node input is left at the graph's baked value (never garbage). The bool
+     generate-time control carries a blank "— default —" option so a saved bool
+     can be unset like every other type (the save path drops blanks).
+   - `ui_server.py`: the "＋ New blueprint" modal grows an "Exposed settings"
+     authoring step (`addBpParam`/`collectBpParams`), `_uploadblueprint` persists
+     `params[]`; the Settings panel renders the active blueprint's params
+     (`renderBpParams`/`saveBpParams`) and `_saveconfig` merges
+     `settings.bpParams[<id>]` (namespaced). Seeded `blueprints_src/sdxl` carries
+     steps/cfg/sampler_name as a worked example; `blueprints_src/README.md`
+     documents the schema.
+   - **Verify owed (owner-side):** seed (`py seed_blueprints.py`) + restart, then
+     a live generate THROUGH the `sdxl` blueprint id with a changed `steps`/`cfg`
+     to confirm the override lands on the KSampler in the remote ComfyUI graph.
 
-Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve and safe.
+Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve and safe;
+8 lets a blueprint expose its own tunable settings.
 
 > **Backbone status (2026-06-06):** phases **2–3 DONE** for BUILT-IN pipelines
 > (`services/atlas-tool/blueprints.py`, `batch_atlas.build_workflow_blueprint`, the
