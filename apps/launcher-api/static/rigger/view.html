@@ -42,9 +42,19 @@
   select, input[type=text] { width:100%; background:var(--panel2); color:var(--txt);
     border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:12px; }
   #filter { margin-bottom:6px; }
-  #list { flex:1; overflow:auto; }
+  #outline { flex:1; overflow:auto; }
+  #list { flex:1; min-height:0; overflow:auto; }
   .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
   .item:hover { background:var(--panel2); }
+  /* Load-spine modal */
+  #spineModal { position:fixed; inset:0; z-index:60; display:none; background:rgba(0,0,0,.55);
+    align-items:flex-start; justify-content:center; }
+  #spineModal.open { display:flex; }
+  .modal-box { margin-top:8vh; width:min(560px,92vw); max-height:80vh; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 40px rgba(0,0,0,.5);
+    padding:12px 14px; }
+  .modal-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .modal-head b { letter-spacing:.06em; }
   .item.sel { background:#2f3a48; border-left:3px solid var(--accent); padding-left:11px; }
   .item .nm { font-size:12px; word-break:break-all; }
   .item .meta { color:var(--dim); font-size:10px; margin-top:2px; }
@@ -110,9 +120,9 @@
   /* inspector (right) */
   #inspector { width:320px; flex:0 0 320px; background:var(--panel); border-left:1px solid var(--line);
     display:flex; flex-direction:column; overflow:auto; }
-  #insHead { padding:10px 14px; border-bottom:1px solid var(--line); }
-  #insHead b { letter-spacing:.1em; font-size:11px; color:var(--accent2); text-transform:uppercase; }
-  #insHead small { display:block; color:var(--dim); font-size:11px; margin-top:3px; }
+  #insHead, #propHead { padding:10px 14px; border-bottom:1px solid var(--line); }
+  #insHead b, #propHead b { letter-spacing:.1em; font-size:11px; color:var(--accent2); text-transform:uppercase; }
+  #insHead small, #propHead small { display:block; color:var(--dim); font-size:11px; margin-top:3px; }
   details.sec { border-bottom:1px solid var(--line); }
   details.sec > summary { padding:8px 14px; cursor:pointer; color:var(--dim);
     font-size:11px; text-transform:uppercase; letter-spacing:.06em; user-select:none; }
@@ -206,12 +216,10 @@
       <div id="projNote" class="pill" style="margin-top:5px;"></div>
     </div>
     <div class="row">
-      <label>Skeletons <span id="count" class="pill"></span>
-        <button id="rescan" style="float:right;padding:1px 7px;font-size:11px;">rescan</button></label>
-      <input type="text" id="filter" placeholder="filter…">
-    </div>
-    <div class="row">
-      <button id="newRigBtn" style="width:100%;">＋ New rig</button>
+      <div style="display:flex;gap:6px;">
+        <button id="newRigBtn" style="flex:1;">＋ New rig</button>
+        <button id="loadSpineBtn" style="flex:1;">⤓ Load spine <span id="count" class="pill"></span></button>
+      </div>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
         <label>Atlas (images)</label>
@@ -226,7 +234,33 @@
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
     </div>
-    <div id="list"></div>
+    <!-- outline: the rig's structure (skeleton list lives in the Load-spine modal) -->
+    <div id="outline">
+      <div id="insHead">
+        <b id="insName">No rig loaded</b>
+        <small id="insSub">＋ New rig or ⤓ Load spine to begin</small>
+      </div>
+      <details class="sec" id="secBones" open>
+        <summary>Bone hierarchy <span class="pill" id="cBones"></span></summary>
+        <div class="body" id="boneTree"></div>
+      </details>
+      <details class="sec" id="secSlots">
+        <summary>Slots (draw order) <span class="pill" id="cSlots"></span></summary>
+        <div class="body" id="slotList"></div>
+      </details>
+      <details class="sec" id="secSkins">
+        <summary>Skins <span class="pill" id="cSkins"></span></summary>
+        <div class="body" id="skinList"></div>
+      </details>
+      <details class="sec" id="secAnims">
+        <summary>Animations <span class="pill" id="cAnims"></span></summary>
+        <div class="body" id="animList"></div>
+      </details>
+      <details class="sec" id="secConstraints">
+        <summary>Constraints <span class="pill" id="cCons"></span></summary>
+        <div class="body" id="consList"></div>
+      </details>
+    </div>
   </aside>
   <div class="resizer" id="resSide" title="drag to resize"></div>
 
@@ -291,33 +325,24 @@
   <div class="resizer" id="resIns" title="drag to resize"></div>
 
   <aside id="inspector">
-    <div id="insHead">
-      <b id="insName">Inspector</b>
-      <small id="insSub">Select a skeleton to inspect its rig</small>
-    </div>
-    <details class="sec" id="secBones" open>
-      <summary>Bone hierarchy <span class="pill" id="cBones"></span></summary>
-      <div class="body" id="boneTree"></div>
-      <div id="boneDetail"></div>
-    </details>
-    <details class="sec" id="secSlots">
-      <summary>Slots (draw order) <span class="pill" id="cSlots"></span></summary>
-      <div class="body" id="slotList"></div>
-      <div id="slotDetail"></div>
-    </details>
-    <details class="sec" id="secSkins">
-      <summary>Skins <span class="pill" id="cSkins"></span></summary>
-      <div class="body" id="skinList"></div>
-    </details>
-    <details class="sec" id="secAnims">
-      <summary>Animations <span class="pill" id="cAnims"></span></summary>
-      <div class="body" id="animList"></div>
-    </details>
-    <details class="sec" id="secConstraints">
-      <summary>Constraints <span class="pill" id="cCons"></span></summary>
-      <div class="body" id="consList"></div>
-    </details>
+    <div id="propHead"><b>Properties</b><small id="propSub">select a bone or slot</small></div>
+    <div id="boneDetail"></div>
+    <div id="slotDetail"></div>
   </aside>
+
+  <!-- Load-spine modal: the project's skeleton list -->
+  <div id="spineModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <b>Load a spine <span id="count2" class="pill"></span></b>
+        <span style="flex:1;"></span>
+        <button id="rescan" style="padding:1px 8px;font-size:11px;">rescan</button>
+        <button id="spineModalClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <input type="text" id="filter" placeholder="filter…" style="margin:0 0 8px;">
+      <div id="list"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -410,6 +435,7 @@ function updateWorld(){
 async function selectSkeleton(entry){
   selected = entry;
   renderList();
+  closeSpineModal();
   clearErr();
   $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · spine " + entry.version : "");
 
@@ -3061,8 +3087,11 @@ function renderList(){
     d.appendChild(del);
     list.appendChild(d);
   });
-  $("#count").textContent = "(" + shown + ")";
+  $("#count2").textContent = "(" + shown + ")";
+  $("#count").textContent = "(" + skeletons.length + ")";
 }
+function openSpineModal(){ $("#spineModal").classList.add("open"); renderList(); const f = $("#filter"); if (f){ f.value = ""; f.focus(); } }
+function closeSpineModal(){ $("#spineModal").classList.remove("open"); }
 
 function setActiveProject(client, project){
   if (!project) return;
@@ -3182,6 +3211,10 @@ function wire(){
   $("#nextKey").onclick = () => gotoKey(1);
   $("#filter").oninput = renderList;
   $("#rescan").onclick = () => loadSkeletons(true);
+  $("#loadSpineBtn").onclick = openSpineModal;
+  $("#spineModalClose").onclick = closeSpineModal;
+  $("#spineModal").onmousedown = (e) => { if (e.target === $("#spineModal")) closeSpineModal(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#spineModal").classList.contains("open")) closeSpineModal(); });
   $("#newRigBtn").onclick = async () => {
     const p = $("#newRig");
     if (p.style.display !== "none"){ p.style.display = "none"; return; }

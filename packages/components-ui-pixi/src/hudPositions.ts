@@ -12,6 +12,8 @@ export interface HudPos {
 	y: number;
 	scaleX: number;
 	scaleY: number;
+	/** Authored rotation in radians (resolved base + override). 0 when unset. */
+	rotation: number;
 	visible: boolean;
 }
 
@@ -36,6 +38,7 @@ export function hudPos(
 			y: fallback.y,
 			scaleX: fallback.scaleX ?? 1,
 			scaleY: fallback.scaleY ?? 1,
+			rotation: 0,
 			visible: true,
 		};
 	}
@@ -51,6 +54,7 @@ export function hudPos(
 		y,
 		scaleX: t.scale?.x ?? 1,
 		scaleY: t.scale?.y ?? 1,
+		rotation: t.rotation ?? 0,
 		visible: t.visible,
 	};
 }

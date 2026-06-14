@@ -359,6 +359,7 @@
 			x={instance.pos.x}
 			y={instance.pos.y}
 			scale={{ x: instance.pos.scaleX, y: instance.pos.scaleY }}
+			rotation={instance.pos.rotation}
 		>
 			<ComponentInstance node={instance.node} space="standard" />
 		</Container>
@@ -372,12 +373,12 @@
 
 <!-- Corners (canvas space) -->
 {#if pos.gameName.visible}
-	<Container x={pos.gameName.x} y={pos.gameName.y}>
+	<Container x={pos.gameName.x} y={pos.gameName.y} rotation={pos.gameName.rotation}>
 		{@render props.gameName(gameNameOverride)}
 	</Container>
 {/if}
 {#if pos.logo.visible}
-	<Container x={pos.logo.x} y={pos.logo.y}>
+	<Container x={pos.logo.x} y={pos.logo.y} rotation={pos.logo.rotation}>
 		{@render props.logo(logoOverride)}
 	</Container>
 {/if}
@@ -398,7 +399,7 @@
 		     decrease / increase / bet (or the free-spin counter) stay put. -->
 		<Container y={drawerTween.current}>
 			{#if pos.menu.visible && !mounted('hud-btn-menu')}
-				<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }}>
+				<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }} rotation={pos.menu.rotation}>
 					{@render props.buttonMenu({ anchor: 0.5, tint: ovr.menu })}
 				</Container>
 			{/if}
@@ -406,7 +407,7 @@
 				<Container
 					x={pos.buyBonus.x}
 					y={pos.buyBonus.y}
-					scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}
+					scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }} rotation={pos.buyBonus.rotation}
 				>
 					{@render props.buttonBuyBonus({ anchor: 0.5, tint: ovr.buyBonus })}
 				</Container>
@@ -415,7 +416,7 @@
 				<Container
 					x={pos.betBtn.x}
 					y={pos.betBtn.y}
-					scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}
+					scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }} rotation={pos.betBtn.rotation}
 				>
 					{@render props.buttonBet({ anchor: 0.5, tint: ovr.betBtn })}
 				</Container>
@@ -424,7 +425,7 @@
 				<Container
 					x={pos.autoSpin.x}
 					y={pos.autoSpin.y}
-					scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}
+					scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }} rotation={pos.autoSpin.rotation}
 				>
 					{@render props.buttonAutoSpin({ anchor: 0.5, tint: ovr.autoSpin })}
 				</Container>
@@ -433,7 +434,7 @@
 				<Container
 					x={pos.turbo.x}
 					y={pos.turbo.y}
-					scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }}
+					scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }} rotation={pos.turbo.rotation}
 				>
 					{@render props.buttonTurbo({ anchor: 0.5, tint: ovr.turbo })}
 				</Container>
@@ -442,7 +443,7 @@
 				<Container
 					x={pos.balance.x}
 					y={pos.balance.y}
-					scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}
+					scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }} rotation={pos.balance.rotation}
 				>
 					{@render props.amountBalance({ stacked: true, ...ovr.balance })}
 				</Container>
@@ -456,7 +457,7 @@
 
 		<Container y={Math.min(drawerTween.current, 350)}>
 			{#if pos.win.visible && !mounted('hud-win')}
-				<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }}>
+				<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }} rotation={pos.win.rotation}>
 					{@render props.amountWin({ stacked: true, ...ovr.win })}
 				</Container>
 			{/if}
@@ -474,13 +475,13 @@
 			     position (`pos.bet` is the seeded `hud-bet` coord even when a readout
 			     covers the slot). -->
 			{#if pos.bet.visible}
-				<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
+				<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }} rotation={pos.bet.rotation}>
 					<LabelFreeSpinCounter stacked />
 				</Container>
 			{/if}
 		{:else}
 			{#if pos.bet.visible && !mounted('hud-bet')}
-				<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
+				<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }} rotation={pos.bet.rotation}>
 					{@render props.amountBet({ stacked: true, ...ovr.bet })}
 				</Container>
 			{/if}
@@ -493,7 +494,7 @@
 				<Container
 					x={pos.decrease.x}
 					y={pos.decrease.y}
-					scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}
+					scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }} rotation={pos.decrease.rotation}
 				>
 					{@render props.buttonDecrease({ anchor: 0.5, tint: ovr.decrease })}
 				</Container>
@@ -502,7 +503,7 @@
 				<Container
 					x={pos.increase.x}
 					y={pos.increase.y}
-					scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}
+					scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }} rotation={pos.increase.rotation}
 				>
 					{@render props.buttonIncrease({ anchor: 0.5, tint: ovr.increase })}
 				</Container>
@@ -518,7 +519,11 @@
 			oncomplete={drawerButtonFadeComplete}
 			y={drawerButtonTween.current}
 		>
-			<Container x={pos.drawerButton.x} y={pos.drawerButton.y}>
+			<Container
+				x={pos.drawerButton.x}
+				y={pos.drawerButton.y}
+				rotation={pos.drawerButton.rotation}
+			>
 				<ButtonDrawer disabled={!stateUi.drawerButtonShow} anchor={0.5} />
 			</Container>
 		</FadeContainer>
@@ -527,23 +532,23 @@
 			<Container
 				x={pos.balance.x}
 				y={pos.balance.y}
-				scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }}
+				scale={{ x: pos.balance.scaleX, y: pos.balance.scaleY }} rotation={pos.balance.rotation}
 			>
 				{@render props.amountBalance({ stacked: true, ...ovr.balance })}
 			</Container>
 		{/if}
 		{#if pos.win.visible && !mounted('hud-win')}
-			<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }}>
+			<Container x={pos.win.x} y={pos.win.y} scale={{ x: pos.win.scaleX, y: pos.win.scaleY }} rotation={pos.win.rotation}>
 				{@render props.amountWin({ stacked: true, ...ovr.win })}
 			</Container>
 		{/if}
 		{#if pos.bet.visible && !mounted('hud-bet')}
-			<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }}>
+			<Container x={pos.bet.x} y={pos.bet.y} scale={{ x: pos.bet.scaleX, y: pos.bet.scaleY }} rotation={pos.bet.rotation}>
 				{@render props.amountBet({ stacked: true, ...ovr.bet })}
 			</Container>
 		{/if}
 		{#if pos.menu.visible && !mounted('hud-btn-menu')}
-			<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }}>
+			<Container x={pos.menu.x} y={pos.menu.y} scale={{ x: pos.menu.scaleX, y: pos.menu.scaleY }} rotation={pos.menu.rotation}>
 				{@render props.buttonMenu({ anchor: 0.5, tint: ovr.menu })}
 			</Container>
 		{/if}
@@ -551,7 +556,7 @@
 			<Container
 				x={pos.buyBonus.x}
 				y={pos.buyBonus.y}
-				scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }}
+				scale={{ x: pos.buyBonus.scaleX, y: pos.buyBonus.scaleY }} rotation={pos.buyBonus.rotation}
 			>
 				{@render props.buttonBuyBonus({ anchor: 0.5, tint: ovr.buyBonus })}
 			</Container>
@@ -560,7 +565,7 @@
 			<Container
 				x={pos.autoSpin.x}
 				y={pos.autoSpin.y}
-				scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }}
+				scale={{ x: pos.autoSpin.scaleX, y: pos.autoSpin.scaleY }} rotation={pos.autoSpin.rotation}
 			>
 				{@render props.buttonAutoSpin({ anchor: 0.5, tint: ovr.autoSpin })}
 			</Container>
@@ -569,7 +574,7 @@
 			<Container
 				x={pos.betBtn.x}
 				y={pos.betBtn.y}
-				scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }}
+				scale={{ x: pos.betBtn.scaleX, y: pos.betBtn.scaleY }} rotation={pos.betBtn.rotation}
 			>
 				{@render props.buttonBet({ anchor: 0.5, tint: ovr.betBtn })}
 			</Container>
@@ -578,7 +583,7 @@
 			<Container
 				x={pos.turbo.x}
 				y={pos.turbo.y}
-				scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }}
+				scale={{ x: pos.turbo.scaleX, y: pos.turbo.scaleY }} rotation={pos.turbo.rotation}
 			>
 				{@render props.buttonTurbo({ anchor: 0.5, tint: ovr.turbo })}
 			</Container>
@@ -587,7 +592,7 @@
 			<Container
 				x={pos.decrease.x}
 				y={pos.decrease.y}
-				scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }}
+				scale={{ x: pos.decrease.scaleX, y: pos.decrease.scaleY }} rotation={pos.decrease.rotation}
 			>
 				{@render props.buttonDecrease({ anchor: 0.5, tint: ovr.decrease })}
 			</Container>
@@ -596,7 +601,7 @@
 			<Container
 				x={pos.increase.x}
 				y={pos.increase.y}
-				scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }}
+				scale={{ x: pos.increase.scaleX, y: pos.increase.scaleY }} rotation={pos.increase.rotation}
 			>
 				{@render props.buttonIncrease({ anchor: 0.5, tint: ovr.increase })}
 			</Container>
