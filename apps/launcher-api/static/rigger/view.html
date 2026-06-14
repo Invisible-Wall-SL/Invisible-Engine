@@ -966,7 +966,42 @@ function deleteAttachment(slotName, attName){
   if (slot && slot.attachment === attName) delete slot.attachment;
   for (const an of Object.values(rawDoc.animations || {})) if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) delete sm[slotName][attName];
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot);
   markDirty();
+}
+
+// Every attachment defined on a slot (active skin first, then default) — a slot can
+// hold MANY attachments (Spine allows this; only one shows at a time / swaps in anims).
+function slotAttachmentList(slotName){
+  if (!rawDoc) return [];
+  const out = [], seen = new Set();
+  const activeSkin = ($("#skin") && $("#skin").value) || "default";
+  const pushFrom = (skName) => {
+    const sk = rawDoc.skins && rawDoc.skins.find((s) => s.name === skName);
+    if (!sk || !sk.attachments || !sk.attachments[slotName]) return;
+    for (const an of Object.keys(sk.attachments[slotName])){
+      if (seen.has(an)) continue; seen.add(an);
+      out.push({ skin: skName, name: an, def: sk.attachments[slotName][an] });
+    }
+  };
+  pushFrom(activeSkin);
+  if (activeSkin !== "default") pushFrom("default");
+  return out;
+}
+
+// Make `attName` the slot's shown/edited attachment (setup attachment), without a full
+// rebuild — updates the live slot + SlotData + rawDoc so the editor edits THIS one.
+function selectSlotAttachment(attName){
+  if (!rawDoc || selSlot == null) return;
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  if (slotIndex < 0) return;
+  skeletonData.slots[slotIndex].attachmentName = attName;
+  const att = skeleton.getAttachment(slotIndex, attName);
+  skeleton.slots[slotIndex].setAttachment(att || null);
+  const slot = rawDoc.slots.find((s) => s.name === selSlot);
+  if (slot) slot.attachment = attName;
+  markDirty();
+  renderSlotDetail();
 }
 
 // Delete a skin (keep at least one).
@@ -1143,17 +1178,41 @@ function renderSlotDetail(){
     const al = document.createElement("span"); al.textContent = "image"; al.style.cssText = "width:54px;font-size:11px;";
     const asel = document.createElement("select");
     asel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
-    const o0 = document.createElement("option"); o0.value = ""; o0.textContent = attName ? "change image…" : "+ attach image…"; asel.appendChild(o0);
+    const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "＋ add image…"; asel.appendChild(o0);
     regionNames.forEach((n) => { const o = document.createElement("option"); o.value = n; o.textContent = n; asel.appendChild(o); });
     asel.onchange = () => { if (asel.value) attachRegion(asel.value); };
     ar.appendChild(al); ar.appendChild(asel);
-    if (attName){
-      const rm = document.createElement("button");
-      rm.textContent = "✕"; rm.title = 'remove image "' + attName + '" from this slot'; rm.style.cssText = "padding:0 7px;";
-      rm.onclick = () => { if (confirm('Remove image "' + attName + '" from slot "' + sd.name + '"?')) deleteAttachment(sd.name, attName); };
-      ar.appendChild(rm);
-    }
     det.appendChild(ar);
+  }
+
+  // attachments on this slot — a slot can hold several (Spine allows it; only one shows
+  // at a time). Click one to edit it; 🗑 deletes just that attachment.
+  {
+    const defs = slotAttachmentList(selSlot);
+    if (defs.length){
+      const wrap = document.createElement("div"); wrap.style.cssText = "margin:2px 0 8px;";
+      const hdr = document.createElement("div");
+      hdr.textContent = "attachments on this slot (" + defs.length + ")" + (defs.length > 1 ? " — only one shows at a time" : "");
+      hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:3px;";
+      wrap.appendChild(hdr);
+      defs.forEach((d) => {
+        const rt = skeleton.getAttachment(slotIndex, d.name);
+        const type = isMeshAtt(rt) ? (rt.bones && rt.bones.length ? "weighted mesh" : "mesh") : (isRegionAtt(rt) ? "image" : "?");
+        const row = document.createElement("div");
+        row.className = "trow" + (d.name === attName ? " sel" : "");
+        row.style.cssText = "display:flex;align-items:center;gap:6px;";
+        const nm = document.createElement("span"); nm.textContent = d.name; nm.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = type + (d.name === attName ? " · editing" : "");
+        row.appendChild(nm); row.appendChild(tg);
+        row.onclick = () => selectSlotAttachment(d.name);
+        const del = document.createElement("button");
+        del.textContent = "🗑"; del.title = 'delete attachment "' + d.name + '"'; del.style.cssText = "padding:0 6px;";
+        del.onclick = (e) => { e.stopPropagation(); if (confirm('Delete attachment "' + d.name + '" from slot "' + selSlot + '"?')) deleteAttachment(selSlot, d.name); };
+        row.appendChild(del);
+        wrap.appendChild(row);
+      });
+      det.appendChild(wrap);
+    }
   }
 
   // attachment tools (mesh / region placement + Convert-to-mesh / Draw mesh) render
