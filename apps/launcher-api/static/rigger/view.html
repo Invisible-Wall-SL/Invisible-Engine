@@ -55,6 +55,14 @@
     padding:12px 14px; }
   .modal-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
   .modal-head b { letter-spacing:.06em; }
+  /* loading overlay — blocks clicks during async loads */
+  #loadingOverlay { position:fixed; inset:0; z-index:200; display:none; align-items:center;
+    justify-content:center; flex-direction:column; gap:14px; background:rgba(10,12,16,.62); }
+  #loadingOverlay.on { display:flex; }
+  #loadingOverlay .spinner { width:40px; height:40px; border:3px solid var(--line);
+    border-top-color:var(--accent); border-radius:50%; animation:iwspin .8s linear infinite; }
+  #loadingMsg { color:var(--txt); font-size:13px; letter-spacing:.02em; }
+  @keyframes iwspin { to { transform:rotate(360deg); } }
   .item.sel { background:#2f3a48; border-left:3px solid var(--accent); padding-left:11px; }
   .item .nm { font-size:12px; word-break:break-all; }
   .item .meta { color:var(--dim); font-size:10px; margin-top:2px; }
@@ -344,10 +352,14 @@
       <div id="list"></div>
     </div>
   </div>
+
+  <div id="loadingOverlay"><div class="spinner"></div><div id="loadingMsg">Loading…</div></div>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
+function showLoading(msg){ const o = $("#loadingMsg"); if (o) o.textContent = msg || "Loading…"; const ov = $("#loadingOverlay"); if (ov) ov.classList.add("on"); }
+function hideLoading(){ const ov = $("#loadingOverlay"); if (ov) ov.classList.remove("on"); }
 let SPINE = null, loadedLine = null;
 let gl, renderer, assetMgr;
 let skeleton, animState, skeletonData, lastFrame = 0;
@@ -451,6 +463,7 @@ async function selectSkeleton(entry){
   renderList();
   closeSpineModal();
   clearErr();
+  showLoading("Loading " + (entry.name || "skeleton") + "…");
   $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · spine " + entry.version : "");
 
   if (loadedLine && loadedLine !== entry.runtime){
@@ -459,7 +472,7 @@ async function selectSkeleton(entry){
     return;
   }
   try { await loadRuntime(entry.runtime); }
-  catch(e){ showErr(String(e.message || e)); return; }
+  catch(e){ showErr(String(e.message || e)); hideLoading(); return; }
 
   if (!gl) initGL();
 
@@ -473,6 +486,7 @@ async function selectSkeleton(entry){
   await waitAssets();
   try { buildSkeleton(entry); saveRiggerState(); }
   catch(e){ showErr("Build failed: " + (e.message || e)); }
+  finally { hideLoading(); }
 }
 
 function waitAssets(){
@@ -1305,6 +1319,7 @@ async function createNewRig(){
   if (!name){ note.textContent = "enter a name"; return; }
   if (!manifestKey){ note.textContent = "pick an atlas"; return; }
   note.textContent = "creating…";
+  showLoading("Creating rig…");
   try {
     // Server assembles a spine bundle (synth .atlas + page copy + blank .irig) from the atlas.
     const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ manifestKey, name }) });
@@ -1315,6 +1330,7 @@ async function createNewRig(){
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target){ await selectSkeleton(target); setEditMode(true); }
   } catch (e){ note.textContent = "failed: " + (e.message || e); }
+  finally { hideLoading(); }
 }
 
 function loadImageFile(file){
@@ -1336,6 +1352,7 @@ async function createRigFromImages(files){
   if (!name){ note.textContent = "enter a rig name first"; return; }
   if (!files || !files.length) return;
   note.textContent = "packing " + files.length + " image(s)…";
+  showLoading("Packing " + files.length + " image(s)…");
   try {
     const loaded = [], seen = new Set();
     for (const f of files){
@@ -1372,6 +1389,7 @@ async function createRigFromImages(files){
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target){ await selectSkeleton(target); setEditMode(true); }
   } catch (e){ note.textContent = "failed: " + (e.message || e); }
+  finally { hideLoading(); }
 }
 
 // ---- slot selection: draw-order + region attachment placement -------------
