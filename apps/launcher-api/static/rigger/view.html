@@ -67,6 +67,14 @@
   #err { position:absolute; left:12px; right:12px; top:10px; background:#3a2326;
     border:1px solid var(--danger); color:#ffd4d4; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; white-space:pre-wrap; }
+  /* dopesheet timeline (animate mode) */
+  #timeline { display:none; flex:0 0 160px; height:160px; background:var(--panel);
+    border-top:1px solid var(--line); overflow:auto; position:relative; }
+  #timeline .tl-key { position:absolute; top:5px; width:11px; height:11px; margin-left:-6px;
+    transform:rotate(45deg); background:var(--accent); border:1px solid #0c0f14; cursor:ew-resize; }
+  #timeline .tl-key.sel { background:#ffd24a; }
+  #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
+    pointer-events:none; z-index:3; }
   /* controls bar */
   #bar { background:var(--panel); border-top:1px solid var(--line); padding:8px 12px;
     display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
@@ -215,6 +223,7 @@
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
       <div id="err"></div>
     </div>
+    <div id="timeline"></div>
     <div id="bar">
       <div class="grp">
         <button id="play">❚❚ Pause</button>
@@ -316,6 +325,7 @@ let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
+let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
@@ -780,6 +790,7 @@ function selectBone(i){
   document.querySelectorAll('#boneTree .trow').forEach(r => {
     r.classList.toggle("sel", parseInt(r.dataset.bone, 10) === i);
   });
+  if (animMode) renderTimeline();
   renderBoneDetail();
 }
 
@@ -2202,6 +2213,7 @@ function setMode(m){
     if (curAnim && skeleton && animHasName(curAnim)) setAnim(curAnim);
   }
   if (selected){ buildInspector(selected); if (selBone != null) selectBone(selBone); if (selSlot) selectSlot(selSlot); }
+  renderTimeline();
 }
 // Back-compat: existing callers say setEditMode(true/false).
 function setEditMode(on){ setMode(on ? "setup" : "preview"); }
@@ -2250,6 +2262,7 @@ function setCurAnim(name){
   animTime = 0;
   $("#anim").value = curAnim || "";
   syncPlayhead();
+  renderTimeline();
   if (selBone != null) renderBoneDetail();
 }
 
@@ -2310,11 +2323,107 @@ function gotoKey(dir){
   if (dir < 0){ for (let i = times.length - 1; i >= 0; i--) if (times[i] < animTime - 1e-4){ target = times[i]; break; } }
   else { for (let i = 0; i < times.length; i++) if (times[i] > animTime + 1e-4){ target = times[i]; break; } }
   if (target == null) return;
-  animTime = target; syncPlayhead(); if (selBone != null) renderBoneDetail();
+  animTime = target; syncPlayhead(); renderTimeline(); if (selBone != null) renderBoneDetail();
 }
 
 // Light refresh of the Animations section key counts (without rebuilding everything).
-function refreshAnimCounts(){ if (skeletonData && selected) renderAnimSection(); }
+function refreshAnimCounts(){ if (skeletonData && selected) renderAnimSection(); renderTimeline(); }
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+// a "nice" ruler step so we draw ~4–8 labelled ticks across the duration
+function niceStep(dur){ const raw = dur / 6; const pow = Math.pow(10, Math.floor(Math.log10(raw || 0.1))); const m = raw / pow; const s = m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10; return Math.max(s * pow, 0.05); }
+
+// Move ALL of a bone's channel keys at oldTime → newTime (a dopesheet key = one time).
+function retimeBoneKey(boneName, oldTime, newTime){
+  const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
+  newTime = Math.max(0, roundN(newTime, 4));
+  const cb = a.bones[boneName];
+  for (const ch of ["rotate", "translate", "scale", "shear"]){
+    if (!Array.isArray(cb[ch])) continue;
+    const k = cb[ch].find((x) => Math.abs(x.time - oldTime) < 1e-4);
+    if (!k) continue;
+    cb[ch] = cb[ch].filter((x) => x === k || Math.abs(x.time - newTime) >= 1e-4); // drop a clashing key
+    k.time = newTime;
+    cb[ch].sort((x, y) => x.time - y.time);
+  }
+  markDirty(); animsDirty = true;
+}
+
+// Bones shown as rows: those with keys in the current anim, plus the selected bone.
+function timelineBones(){
+  const a = animOf(curAnim);
+  const names = a && a.bones ? Object.keys(a.bones).filter((bn) => boneKeyTimes(bn).length) : [];
+  if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!names.includes(sn)) names.push(sn); }
+  return names;
+}
+
+// Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
+function renderTimeline(){
+  const tl = $("#timeline"); if (!tl) return;
+  if (!animMode){ tl.style.display = "none"; return; }
+  tl.style.display = "block";
+  tl.innerHTML = "";
+  if (!curAnim){
+    const e = document.createElement("div"); e.style.cssText = "padding:12px;color:var(--dim);font-size:12px;";
+    e.textContent = "no animation — ＋ New animation in the Animations panel"; tl.appendChild(e); return;
+  }
+  const dur = Math.max(animDuration(curAnim), 0.001);
+  tlDur = dur;
+  const gutter = tlGutter;
+  const selName = selBone != null ? skeletonData.bones[selBone].name : null;
+
+  const head = document.createElement("div");
+  head.style.cssText = "position:sticky;top:0;display:flex;height:22px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2;";
+  const hg = document.createElement("div");
+  hg.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);color:var(--dim);font-size:10px;display:flex;align-items:center;padding-left:8px;";
+  hg.textContent = "bone · " + dur.toFixed(2) + "s"; head.appendChild(hg);
+  const ruler = document.createElement("div");
+  ruler.style.cssText = "flex:1;position:relative;cursor:pointer;";
+  for (let t = 0; t <= dur + 1e-6; t += niceStep(dur)){
+    const tk = document.createElement("div");
+    tk.style.cssText = "position:absolute;top:0;bottom:0;left:" + (t / dur) * 100 + "%;border-left:1px solid var(--line);font-size:9px;color:var(--dim);padding-left:2px;";
+    tk.textContent = t.toFixed(2); ruler.appendChild(tk);
+  }
+  ruler.onmousedown = (e) => seekFromTrack(ruler, e.clientX);
+  head.appendChild(ruler); tl.appendChild(head);
+
+  timelineBones().forEach((bn) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;" + (bn === selName ? "background:#2a2f3a;" : "");
+    const g = document.createElement("div");
+    g.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);font-size:11px;color:var(--txt);display:flex;align-items:center;padding-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;";
+    g.textContent = bn;
+    g.onclick = () => { const i = skeletonData.bones.findIndex((b) => b.name === bn); if (i >= 0) selectBone(i); };
+    const track = document.createElement("div");
+    track.style.cssText = "flex:1;position:relative;cursor:pointer;";
+    track.onmousedown = (e) => { if (e.target === track) seekFromTrack(track, e.clientX); };
+    boneKeyTimes(bn).forEach((kt) => {
+      const dot = document.createElement("div");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "");
+      dot.style.left = (kt / dur) * 100 + "%";
+      dot.title = bn + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
+      dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { bone: bn, oldTime: kt, newTime: kt, dot, track, dur }; };
+      dot.ondblclick = (e) => { e.stopPropagation(); const i = skeletonData.bones.findIndex((b) => b.name === bn); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(bn, kt); };
+      track.appendChild(dot);
+    });
+    row.appendChild(g); row.appendChild(track); tl.appendChild(row);
+  });
+
+  const ph = document.createElement("div"); ph.id = "tlPlayhead"; tl.appendChild(ph);
+  positionPlayhead();
+}
+
+function seekFromTrack(el, clientX){
+  const r = el.getBoundingClientRect();
+  animTime = roundN(clamp01((clientX - r.left) / r.width) * tlDur, 4);
+  playing = false; $("#play").textContent = "▶ Play";
+  syncPlayhead(); if (selBone != null) renderBoneDetail();
+}
+function positionPlayhead(){
+  const ph = $("#tlPlayhead"), tl = $("#timeline"); if (!ph || !tl) return;
+  const trackW = tl.clientWidth - tlGutter;
+  ph.style.left = (tlGutter + clamp01(animTime / (tlDur || 1)) * trackW) + "px";
+}
 
 // Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
 // extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
@@ -2573,6 +2682,7 @@ function syncPlayhead(){
   const dur = curAnim ? animDuration(curAnim) : 0;
   $("#scrub").value = dur > 0 ? Math.round((animTime / dur) * 1000) : 0;
   $("#time").textContent = animTime.toFixed(2) + "s / " + dur.toFixed(2) + "s";
+  positionPlayhead();
 }
 
 // ---- skeleton list --------------------------------------------------------
@@ -2800,6 +2910,24 @@ function wire(){
       renderer.camera.position.y += dyCss * dpr * renderer.camera.zoom;
       lastXY = [e.clientX, e.clientY];
     }
+  });
+  // Dopesheet key drag (independent of the canvas — not gated by lastXY).
+  window.addEventListener("mousemove", (e) => {
+    if (!tlDrag) return;
+    const r = tlDrag.track.getBoundingClientRect();
+    const t = Math.max(0, roundN(clamp01((e.clientX - r.left) / r.width) * tlDrag.dur, 4));
+    tlDrag.newTime = t;
+    tlDrag.dot.style.left = (t / tlDrag.dur) * 100 + "%";
+  });
+  window.addEventListener("mouseup", () => {
+    if (!tlDrag) return;
+    const d = tlDrag; tlDrag = null;
+    if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
+      retimeBoneKey(d.bone, d.oldTime, d.newTime);
+      animTime = d.newTime; syncPlayhead();
+    }
+    renderTimeline(); refreshAnimCounts();
+    if (selBone != null) renderBoneDetail();
   });
 }
 
