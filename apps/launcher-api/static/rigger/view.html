@@ -2716,8 +2716,15 @@ function renderTimeline(){
   const selBoneName = selBone != null ? skeletonData.bones[selBone].name : null;
   const gut = (extra) => "width:" + gutter + "px;flex:0 0 " + gutter + "px;position:sticky;left:0;z-index:2;background:var(--panel);border-right:1px solid var(--line);" + (extra || "");
 
+  // legend (sticky top-left): what the key colours/shapes mean
+  const legend = document.createElement("div");
+  legend.style.cssText = "position:sticky;top:0;left:0;z-index:5;width:" + Math.max(tl.clientWidth - 2, 200) + "px;height:21px;display:flex;align-items:center;padding:0 10px;font-size:10px;color:var(--dim);background:var(--panel);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;";
+  const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
+  legend.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#ffd24a", "◆", "at playhead");
+  tl.appendChild(legend);
+
   const head = document.createElement("div");
-  head.style.cssText = "position:sticky;top:0;display:flex;height:22px;z-index:3;width:" + (gutter + contentW) + "px;";
+  head.style.cssText = "position:sticky;top:21px;display:flex;height:22px;z-index:3;width:" + (gutter + contentW) + "px;";
   const hg = document.createElement("div");
   hg.style.cssText = gut("z-index:4;display:flex;align-items:center;gap:2px;padding-left:4px;");
   const zb = (txt, title, fn) => { const b = document.createElement("button"); b.textContent = txt; b.title = title; b.style.cssText = "padding:0 5px;font-size:10px;line-height:16px;"; b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
