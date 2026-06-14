@@ -50,6 +50,11 @@
   .item .meta { color:var(--dim); font-size:10px; margin-top:2px; }
   .badge { display:inline-block; background:#384150; color:var(--accent2);
     border-radius:4px; padding:0 5px; font-size:10px; margin-left:4px; }
+  /* resizable panel handles */
+  .resizer { flex:0 0 6px; cursor:col-resize; background:transparent; align-self:stretch;
+    position:relative; z-index:6; }
+  .resizer::after { content:""; position:absolute; left:2px; top:0; bottom:0; width:2px; background:transparent; }
+  .resizer:hover::after, .resizer.dragging::after { background:var(--accent); }
   /* main */
   #main { flex:1; display:flex; flex-direction:column; min-width:0; }
   #stage { flex:1; position:relative; overflow:hidden; }
@@ -197,6 +202,7 @@
     </div>
     <div id="list"></div>
   </aside>
+  <div class="resizer" id="resSide" title="drag to resize"></div>
 
   <main id="main">
     <div id="stage">
@@ -239,6 +245,7 @@
       <span id="rt" class="pill"></span>
     </div>
   </main>
+  <div class="resizer" id="resIns" title="drag to resize"></div>
 
   <aside id="inspector">
     <div id="insHead">
@@ -2495,8 +2502,44 @@ function wire(){
   });
 }
 
+// Drag the handles between panels to resize the left list / right inspector.
+// Width persists per-panel in localStorage. The canvas re-fits each frame (resizeCanvas).
+function applyPanelW(aside, w){ aside.style.flex = "0 0 " + w + "px"; aside.style.width = w + "px"; }
+function setupResizer(handleId, asideId, edge){
+  const handle = document.getElementById(handleId), aside = document.getElementById(asideId);
+  if (!handle || !aside) return;
+  const key = "rigger.w." + asideId;
+  const saved = parseInt(localStorage.getItem(key), 10);
+  if (saved > 0) applyPanelW(aside, Math.max(180, Math.min(720, saved)));
+  let startX = 0, startW = 0, on = false;
+  const move = (e) => {
+    if (!on) return;
+    const dx = e.clientX - startX;
+    const w = Math.max(180, Math.min(window.innerWidth - 360, edge === "left" ? startW + dx : startW - dx));
+    applyPanelW(aside, w);
+  };
+  const up = () => {
+    if (!on) return;
+    on = false; handle.classList.remove("dragging");
+    document.body.style.userSelect = ""; document.body.style.cursor = "";
+    try { localStorage.setItem(key, String(aside.offsetWidth)); } catch {}
+    window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+  };
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    on = true; startX = e.clientX; startW = aside.offsetWidth;
+    handle.classList.add("dragging");
+    document.body.style.userSelect = "none"; document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  });
+  // double-click resets to the CSS default
+  handle.addEventListener("dblclick", () => { aside.style.flex = ""; aside.style.width = ""; try { localStorage.removeItem(key); } catch {} });
+}
+function initResizers(){ setupResizer("resSide", "side", "left"); setupResizer("resIns", "inspector", "right"); }
+
 async function boot(){
   wire();
+  initResizers();
   const h = new URLSearchParams(location.hash.slice(1));
   const rt = h.get("rt");
   if (rt){ try { await loadRuntime(rt); initGL(); } catch(e){ showErr(String(e)); } }
