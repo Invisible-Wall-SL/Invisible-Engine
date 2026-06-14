@@ -5,7 +5,15 @@
 </script>
 
 <script lang="ts">
-	import { BitmapText, Container, Sprite, SpineProvider, SpineTrack, Text } from 'pixi-svelte';
+	import {
+		BitmapText,
+		Container,
+		Sprite,
+		SpineProvider,
+		SpineTrack,
+		Text,
+		getContextApp,
+	} from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
 
 	import { isBitmapFont } from './fontCatalog';
@@ -13,7 +21,12 @@
 	import { resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
-	import { backgroundCoverScale, backgroundCoverStretch, backgroundFit } from './coverTransform';
+	import {
+		backgroundCoverScale,
+		backgroundCoverStretch,
+		backgroundFit,
+		coverTransform,
+	} from './coverTransform';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { resolveBoundValue } from './componentParams';
@@ -23,6 +36,7 @@
 
 	const { node, space }: Props = $props();
 	const layoutContext = getContextLayout();
+	const appContext = getContextApp();
 
 	// Signal-driven spine-anim overrides (§8.5, spine-only). `undefined` when this
 	// node has no `componentInstance` ancestor providing the context — a scene-level
@@ -47,48 +61,51 @@
 	// `background`-space sprites/spine cover- or contain-fit the canvas, driven by the
 	// SAME canonical doc readers the editor preview uses (`backgroundCoverScale` =
 	// `scale.x`, default 1 = exact cover; `backgroundFit` = `'cover'`/`'contain'`,
-	// default `'cover'`) so editor == game for any authored scale/fit. The sprite path
-	// reuses the layout context's `normalBackgroundLayout` (sets exactly one of
-	// width/height — the texture keeps aspect on the other axis); for `'contain'` it
-	// sets the OPPOSITE axis so the art fits INSIDE the canvas. Sprites take a centre
-	// anchor (their origin is top-left); the spine path feeds the canvas box +
-	// `bgFit` to `<SpineProvider>`, which does a true UNIFORM cover/contain from
-	// `skeleton.data` dims (the pixi-svelte `fit`) — matching `coverTransform`'s
-	// `max/min(targetW/artW, targetH/artH) * coverScale`. A background skeleton is
+	// default `'cover'`) so editor == game for any authored scale/fit. Both the sprite
+	// and spine paths now compute a TRUE cover (max/min(targetW/artW, targetH/artH))
+	// from the art's natural dimensions via the shared `coverTransform` — exactly what
+	// the editor preview does. The spine path expresses it through `<SpineProvider>`'s
+	// `fit` (which `spineSizeScale` turns into the same uniform cover from
+	// `skeleton.data` dims); the sprite path reads the loaded texture's natural size
+	// and feeds the per-axis cover scale to the `<Sprite>`. A background skeleton is
 	// authored around its own origin, matching apps/lines `Background.svelte`.
 	const isBackground = $derived(space === 'background');
 	const bgCoverScale = $derived(backgroundCoverScale(node));
 	const bgStretch = $derived(backgroundCoverStretch(node));
 	const bgFit = $derived(backgroundFit(node));
-	// The sprite background reuses the ratio-based `normalBackgroundLayout` (it sets
-	// exactly ONE of width/height; the texture keeps aspect on the other axis). The
-	// free per-axis stretch multiplies the SET dimension by its own axis; the
-	// unconstrained (texture-natural) axis carries the other stretch through `scale`.
-	// PIXI's width/height setter only clobbers the matching scale axis, so the cross
-	// axis on `scale` survives — default stretch {1,1} is byte-identical to before.
+	// A background SPRITE covers the canvas via a true `coverTransform` from the
+	// loaded texture's NATURAL size (both axes) — never the old ratio-based
+	// `normalBackgroundLayout`, which set only one axis and left a sprite's other axis
+	// at natural pixels (PIXI's `width`/`height` setter only touches the matching
+	// `scale` axis), visibly stretching whenever the configured `backgroundRatio` ≠ the
+	// art's real aspect. The fitted cover lives entirely in `scale` (centred, origin
+	// anchor 0.5), so `coverScale` zooms it and `stretchX/Y` stretch it — matching the
+	// editor's 2D draw (`natural × scale`). Until the texture resolves, natural dims are
+	// `0` and `coverTransform` falls back to a centred `coverScale × stretch`.
+	const bgTexture = $derived.by(() => {
+		if (!isBackground || node.kind !== 'sprite') return undefined;
+		const assets = appContext.stateApp.loadedAssets;
+		const tex =
+			(spriteKey ? assets?.[spriteKey] : undefined) ??
+			(spriteFallbackKey ? assets?.[spriteFallbackKey] : undefined);
+		return tex as unknown as { width?: number; height?: number } | undefined;
+	});
 	const bg = $derived.by(() => {
-		if (!isBackground) return undefined;
-		const cover = layoutContext.stateLayoutDerived.normalBackgroundLayout({ scale: bgCoverScale });
-		const box =
-			bgFit === 'cover'
-				? cover
-				: (() => {
-						// `contain`: swap which axis is constrained so the art fits inside.
-						const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
-						return cover.width !== undefined
-							? { x: cover.x, y: cover.y, height: canvasBox.height * bgCoverScale }
-							: { x: cover.x, y: cover.y, width: canvasBox.width * bgCoverScale };
-					})();
-		const hasWidth = (box as { width?: number }).width !== undefined;
-		return {
-			x: box.x,
-			y: box.y,
-			width: hasWidth ? (box as { width: number }).width * bgStretch.x : undefined,
-			height: !hasWidth ? (box as { height: number }).height * bgStretch.y : undefined,
-			// Stretch the texture-natural (unconstrained) axis via `scale`: the SET
-			// dimension already folds in its own stretch above.
-			scale: { x: hasWidth ? 1 : bgStretch.x, y: hasWidth ? bgStretch.y : 1 },
-		};
+		if (!isBackground || node.kind !== 'sprite') return undefined;
+		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+		const artWidth = bgTexture?.width && bgTexture.width > 0 ? bgTexture.width : 0;
+		const artHeight = bgTexture?.height && bgTexture.height > 0 ? bgTexture.height : 0;
+		const cover = coverTransform({
+			artWidth,
+			artHeight,
+			targetWidth: canvasBox.width,
+			targetHeight: canvasBox.height,
+			coverScale: bgCoverScale,
+			stretchX: bgStretch.x,
+			stretchY: bgStretch.y,
+			fit: bgFit,
+		});
+		return { x: cover.x, y: cover.y, scale: { x: cover.scaleX, y: cover.scaleY } };
 	});
 
 	// A sized sprite/spine (explicit width/height) carries BOTH `width` and `scale`,
@@ -308,8 +325,8 @@
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={bg ? bg.width : sizedWidth}
-			height={bg ? bg.height : sizedHeight}
+			width={bg ? undefined : sizedWidth}
+			height={bg ? undefined : sizedHeight}
 			tint={spriteTint}
 		/>
 	{:else if node.kind === 'spine'}
