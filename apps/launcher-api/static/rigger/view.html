@@ -76,6 +76,10 @@
     border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; }
   button:hover { border-color:var(--accent); }
   button.active { background:#2f3a48; border-color:var(--accent); color:#fff; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; border-right:1px solid var(--line); }
+  .seg button:last-child { border-right:none; }
+  .seg button.active { background:var(--accent); color:#0c0f14; font-weight:700; }
   #scrub { flex:1; min-width:140px; }
   #speed { width:90px; }
   .pill { color:var(--dim); font-size:11px; }
@@ -236,10 +240,20 @@
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
         <button id="fit">Reset view</button>
       </div>
+      <div class="grp" id="animTools" style="display:none;">
+        <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale)">◆ Key</button>
+        <button id="prevKey" title="Jump to previous key">|◀</button>
+        <button id="nextKey" title="Jump to next key">▶|</button>
+        <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
+      </div>
       <div class="grp">
-        <button id="editBtn" title="Edit the setup pose (bone transforms)">✎ Edit</button>
+        <span id="modeSeg" class="seg">
+          <button data-mode="preview" class="active" title="Play animations (read-only)">▶ Preview</button>
+          <button data-mode="setup" title="Edit the rest pose: bones, meshes, weights, attachments">✎ Setup</button>
+          <button data-mode="animate" title="Animate: pose bones over time into keyframes">◆ Animate</button>
+        </span>
         <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
-        <button id="saveBtn" title="Save edits to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
+        <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
         <button id="resetBtn" title="Discard edits" disabled>Reset</button>
       </div>
       <span id="rt" class="pill"></span>
@@ -300,6 +314,8 @@ let drawDragIdx = null, selDrawPoint = null; // drag/select a boundary point whi
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
+// Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
+let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
@@ -453,8 +469,8 @@ function buildSkeleton(entry){
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   dirty = false;
-  $("#editBtn").disabled = !rawDoc;
-  setEditMode(false);
+  curAnim = null; animTime = 0;
+  setMode("preview");
 
   selBone = null;
   selSlot = null;
@@ -665,19 +681,8 @@ function buildInspector(entry){
   });
   $("#cSkins").textContent = "(" + skeletonData.skins.length + ")";
 
-  // ---- animations (click to play) ----
-  const animList = $("#animList"); clearChildren(animList);
-  skeletonData.animations.forEach(a => {
-    const row = document.createElement("div");
-    row.className = "trow";
-    row.textContent = a.name;
-    const t = document.createElement("span"); t.className = "tag";
-    t.textContent = a.duration.toFixed(2) + "s";
-    row.appendChild(t);
-    row.onclick = () => setAnim(a.name);
-    animList.appendChild(row);
-  });
-  $("#cAnims").textContent = "(" + skeletonData.animations.length + ")";
+  // ---- animations (preview: click to play · animate: click to edit + CRUD) ----
+  renderAnimSection();
 
   // ---- constraints ----
   const consList = $("#consList"); clearChildren(consList);
@@ -698,6 +703,78 @@ function buildInspector(entry){
   if (!cCount){ const e = document.createElement("div"); e.className = "empty"; e.textContent = "none"; consList.appendChild(e); }
 }
 
+// Fill the bottom-bar animation <select> from the editable doc (so new anims appear).
+function refreshAnimSelect(){
+  const sel = $("#anim"); if (!sel) return;
+  const names = rawDoc && rawDoc.animations ? Object.keys(rawDoc.animations) : (skeletonData ? skeletonData.animations.map((a) => a.name) : []);
+  const keep = sel.value;
+  sel.innerHTML = "";
+  names.forEach((n) => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+  if (animMode && curAnim) sel.value = curAnim; else if (names.includes(keep)) sel.value = keep;
+}
+
+// Animations section: list + (with an editable doc) CRUD. In animate mode a click
+// selects the animation to edit; in preview a click plays it.
+function renderAnimSection(){
+  const animList = $("#animList"); if (!animList) return; clearChildren(animList);
+  const names = rawDoc && rawDoc.animations ? Object.keys(rawDoc.animations) : (skeletonData ? skeletonData.animations.map((a) => a.name) : []);
+  if (rawDoc){
+    const add = document.createElement("button");
+    add.textContent = "＋ New animation"; add.style.cssText = "margin:6px 14px 4px;";
+    add.onclick = newAnimation; animList.appendChild(add);
+    if (animMode){ const h = document.createElement("div"); h.textContent = "click an animation to edit it"; h.style.cssText = "margin:0 14px 4px;color:var(--dim);font-size:11px;"; animList.appendChild(h); }
+  }
+  names.forEach((name) => {
+    const row = document.createElement("div");
+    row.className = "trow" + (animMode && name === curAnim ? " sel" : "");
+    const nm = document.createElement("span"); nm.textContent = name; row.appendChild(nm);
+    const t = document.createElement("span"); t.className = "tag"; t.textContent = animDuration(name).toFixed(2) + "s"; row.appendChild(t);
+    if (animMode && name === curAnim){ const a = document.createElement("span"); a.className = "tag"; a.textContent = "editing"; a.style.color = "var(--accent)"; row.appendChild(a); }
+    row.onclick = () => { if (animMode) setCurAnim(name); else setAnim(name); };
+    if (rawDoc){
+      const ctl = document.createElement("span"); ctl.style.cssText = "float:right;display:inline-flex;gap:2px;";
+      const mk = (txt, title, fn) => { const b = document.createElement("button"); b.textContent = txt; b.title = title; b.style.cssText = "padding:0 6px;"; b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
+      ctl.appendChild(mk("✎", "rename animation", () => { const nn = prompt("Rename animation", name); if (nn) renameAnimation(name, nn); }));
+      ctl.appendChild(mk("⧉", "duplicate animation", () => duplicateAnimation(name)));
+      ctl.appendChild(mk("🗑", "delete animation", () => { if (confirm('Delete animation "' + name + '"?')) deleteAnimation(name); }));
+      row.appendChild(ctl);
+    }
+    animList.appendChild(row);
+  });
+  $("#cAnims").textContent = "(" + names.length + ")";
+  refreshAnimSelect();
+}
+
+function uniqueAnimName(base){ let n = base, i = 2; const has = (x) => rawDoc.animations && rawDoc.animations[x]; while (has(n)){ n = base + "_" + i; i++; } return n; }
+function newAnimation(){
+  if (!rawDoc) return;
+  rawDoc.animations = rawDoc.animations || {};
+  const name = uniqueAnimName("animation");
+  rawDoc.animations[name] = { bones: {} };
+  animsDirty = true; markDirty();
+  if (!animMode) setMode("animate");
+  setCurAnim(name); renderAnimSection();
+}
+function renameAnimation(oldN, newN){
+  if (!rawDoc || !rawDoc.animations || !rawDoc.animations[oldN]) return;
+  newN = (newN || "").trim(); if (!newN || newN === oldN) return;
+  if (rawDoc.animations[newN]){ alert('An animation named "' + newN + '" already exists.'); return; }
+  rawDoc.animations[newN] = rawDoc.animations[oldN]; delete rawDoc.animations[oldN];
+  if (curAnim === oldN) curAnim = newN;
+  animsDirty = true; markDirty(); renderAnimSection();
+}
+function duplicateAnimation(name){
+  if (!rawDoc || !rawDoc.animations || !rawDoc.animations[name]) return;
+  rawDoc.animations[uniqueAnimName(name + "_copy")] = JSON.parse(JSON.stringify(rawDoc.animations[name]));
+  animsDirty = true; markDirty(); renderAnimSection();
+}
+function deleteAnimation(name){
+  if (!rawDoc || !rawDoc.animations) return;
+  delete rawDoc.animations[name];
+  if (curAnim === name){ curAnim = firstAnimName(); animTime = 0; }
+  animsDirty = true; markDirty(); renderAnimSection();
+}
+
 function selectBone(i){
   selBone = i;
   document.querySelectorAll('#boneTree .trow').forEach(r => {
@@ -706,11 +783,51 @@ function selectBone(i){
   renderBoneDetail();
 }
 
+// Animate-mode bone editor: shows the bone's POSE at the playhead (animated local
+// values); editing a field sets the live bone + keys that channel at the playhead.
+function renderBoneAnimDetail(det, i){
+  const bone = skeleton.bones[i], bd = bone.data;
+  det.innerHTML = "";
+  const title = document.createElement("div");
+  title.textContent = bd.name + "  · pose @ " + animTime.toFixed(2) + "s";
+  title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
+  det.appendChild(title);
+  if (!curAnim){
+    const t = document.createElement("div");
+    t.textContent = "no animation selected — ＋ New animation in the Animations section";
+    t.style.cssText = "color:var(--dim);font-size:11px;"; det.appendChild(t); return;
+  }
+  const field = (label, get, set, step) => {
+    const row = document.createElement("label"); row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = String(step); inp.value = roundN(get(), 3);
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.oninput = () => { const v = parseFloat(inp.value); if (!Number.isNaN(v)) set(v); };
+    row.appendChild(lb); row.appendChild(inp); return row;
+  };
+  det.appendChild(field("rotation", () => bone.rotation, (v) => { bone.rotation = v; keyBone(bd.name, { rotate: true }, false); }, 1));
+  det.appendChild(field("x", () => bone.x, (v) => { bone.x = v; keyBone(bd.name, { translate: true }, false); }, 1));
+  det.appendChild(field("y", () => bone.y, (v) => { bone.y = v; keyBone(bd.name, { translate: true }, false); }, 1));
+  det.appendChild(field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = v; keyBone(bd.name, { scale: true }, false); }, 0.01));
+  det.appendChild(field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = v; keyBone(bd.name, { scale: true }, false); }, 0.01));
+  const btn = document.createElement("button");
+  btn.textContent = "◆ Key this bone @ " + animTime.toFixed(2) + "s"; btn.style.cssText = "margin-top:8px;width:100%;";
+  btn.onclick = () => keyBone(bd.name, { rotate: true, translate: true, scale: true }, true);
+  det.appendChild(btn);
+  const times = boneKeyTimes(bd.name);
+  const info = document.createElement("div");
+  info.textContent = times.length ? ("keys (" + times.length + "): " + times.map((t) => t.toFixed(2) + "s").join(", ")) : "no keys yet — pose the bone (drag on canvas or edit above), then ◆ Key";
+  info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;";
+  det.appendChild(info);
+}
+
 function renderBoneDetail(){
   const det = $("#boneDetail");
   if (selBone == null){ det.style.display = "none"; return; }
   const bd = skeletonData.bones[selBone], bw = skeleton.bones[selBone];
   det.style.display = "block";
+
+  if (animMode){ renderBoneAnimDetail(det, selBone); return; }
 
   if (!editMode){
     det.textContent =
@@ -2055,21 +2172,149 @@ function removeMeshVertex(k){
   return true;
 }
 
-function setEditMode(on){
-  editMode = on && !!rawDoc;
-  const btn = $("#editBtn");
-  btn.classList.toggle("active", editMode);
-  btn.textContent = editMode ? "✎ Editing" : "✎ Edit";
+// Three workflows: preview (play, read-only) · setup (edit rest pose) · animate (author
+// keyframes). editMode stays the "setup" flag so every rig-editing guard keeps working.
+function setMode(m){
+  if (!rawDoc && m !== "preview") m = "preview"; // setup/animate need an editable doc
+  mode = m;
+  editMode = (m === "setup");
+  animMode = (m === "animate");
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
+  $("#animTools").style.display = animMode ? "flex" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
   $("#resetBtn").disabled = !dirty;
-  $("#hint").textContent = editMode
-    ? "edit · select a bone · drag it to move · shift+drag = pan · set parent/transform at right"
-    : "scroll = zoom · drag = pan · click a bone in the inspector";
-  if (editMode && skeleton){ playing = false; $("#play").textContent = "▶ Play"; skeleton.setToSetupPose(); updateWorld(); }
-  renderBoneDetail();
-  renderSlotDetail();
+  $("#hint").textContent =
+    m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
+    : m === "animate" ? "animate · scrub the playhead · pose a bone → ◆ Key · drag a bone keys it at the playhead"
+    : "preview · scroll = zoom · drag = pan · pick an animation to play";
+  if (m === "setup" && skeleton){ playing = false; $("#play").textContent = "▶ Play"; skeleton.setToSetupPose(); updateWorld(); }
+  if (m === "animate"){
+    playing = false; $("#play").textContent = "▶ Play";
+    if (!curAnim || !animHasName(curAnim)) curAnim = firstAnimName();
+    animTime = 0;
+    refreshAnimSelect(); $("#anim").value = curAnim || "";
+  }
+  if (m === "preview"){
+    // sync the runtime to authored keyframes so playback reflects edits (honours curves)
+    if (animsDirty && rawDoc){ rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null); animsDirty = false; }
+    refreshAnimSelect();
+    if (curAnim && skeleton && animHasName(curAnim)) setAnim(curAnim);
+  }
+  if (selected){ buildInspector(selected); if (selBone != null) selectBone(selBone); if (selSlot) selectSlot(selSlot); }
 }
+// Back-compat: existing callers say setEditMode(true/false).
+function setEditMode(on){ setMode(on ? "setup" : "preview"); }
+
+// ---- animation model (Phase 5) --------------------------------------------
+const animOf = (name) => (rawDoc && rawDoc.animations && rawDoc.animations[name]) || null;
+function animHasName(name){ return !!animOf(name); }
+function firstAnimName(){ const a = rawDoc && rawDoc.animations ? Object.keys(rawDoc.animations) : []; return a.length ? a[0] : null; }
+function animDuration(name){
+  const a = animOf(name); let dur = 0;
+  if (!a) return 0;
+  const scan = (obj) => { for (const v of Object.values(obj || {})) if (Array.isArray(v)){ for (const k of v) if (k && typeof k.time === "number" && k.time > dur) dur = k.time; } else if (v && typeof v === "object") scan(v); };
+  scan(a);
+  return dur;
+}
+// Linear interpolation of a keyframe list at time t (hold at the ends). Curves come in 5.3.
+function lerpKeys(keys, t, fields){
+  if (!keys || !keys.length) return null;
+  if (t <= keys[0].time) return keys[0];
+  if (t >= keys[keys.length - 1].time) return keys[keys.length - 1];
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1], u = (b.time - a.time) > 0 ? (t - a.time) / (b.time - a.time) : 0;
+  const out = { time: t };
+  for (const f of fields) out[f] = (a[f] ?? 0) + ((b[f] ?? 0) - (a[f] ?? 0)) * u;
+  return out;
+}
+// Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
+// the runtime: rotate/translate are offsets from setup, scale is a multiplier. (Verified
+// against spine-core in tools/rigger-spike/anim.mjs.)
+function poseAtTime(name, t){
+  const a = animOf(name); if (!a || !a.bones) return;
+  for (const [bn, ch] of Object.entries(a.bones)){
+    const bone = skeleton.findBone(bn); if (!bone) continue; const bd = bone.data;
+    let k;
+    if (ch.rotate && (k = lerpKeys(ch.rotate, t, ["value"]))) bone.rotation = bd.rotation + (k.value || 0);
+    if (ch.translate && (k = lerpKeys(ch.translate, t, ["x", "y"]))){ bone.x = bd.x + (k.x || 0); bone.y = bd.y + (k.y || 0); }
+    if (ch.scale && (k = lerpKeys(ch.scale, t, ["x", "y"]))){ bone.scaleX = bd.scaleX * (k.x ?? 1); bone.scaleY = bd.scaleY * (k.y ?? 1); }
+    if (ch.shear && (k = lerpKeys(ch.shear, t, ["x", "y"]))){ bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+  }
+}
+
+const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; };
+
+function setCurAnim(name){
+  curAnim = name && animHasName(name) ? name : null;
+  animTime = 0;
+  $("#anim").value = curAnim || "";
+  syncPlayhead();
+  if (selBone != null) renderBoneDetail();
+}
+
+// upsert a keyframe (replace at the same time within epsilon, else insert sorted by time)
+function upsertKey(arr, time, fields){
+  const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4);
+  const key = Object.assign({ time: roundN(time, 4) }, fields);
+  if (i >= 0) arr[i] = key; else { arr.push(key); arr.sort((a, b) => a.time - b.time); }
+}
+
+// Key the bone's CURRENT posed local transform at the playhead. rotate/translate store
+// the offset from setup, scale the multiplier (the model verified in anim.mjs).
+// refresh=false avoids re-rendering (keeps input focus while typing a value).
+function keyBone(boneName, channels, refresh){
+  if (!rawDoc || !curAnim || !animMode) return;
+  const bone = skeleton.findBone(boneName); if (!bone) return; const bd = bone.data;
+  rawDoc.animations = rawDoc.animations || {};
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  const ab = (a.bones = a.bones || {});
+  const cb = (ab[boneName] = ab[boneName] || {});
+  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation, 3) }); }
+  if (channels.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
+  if (channels.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
+  markDirty();
+  if (refresh){ refreshAnimCounts(); if (selBone != null) renderBoneDetail(); }
+}
+
+// Delete the bone's keys at a time (all channels) in the current animation.
+function deleteBoneKeyAt(boneName, time){
+  const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
+  const cb = a.bones[boneName];
+  for (const ch of ["rotate", "translate", "scale", "shear"]){
+    if (Array.isArray(cb[ch])){ cb[ch] = cb[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cb[ch].length) delete cb[ch]; }
+  }
+  if (!Object.keys(cb).length) delete a.bones[boneName];
+  markDirty(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
+}
+
+// Union of a bone's key times across channels (current anim), sorted.
+function boneKeyTimes(boneName){
+  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return [];
+  const set = new Set();
+  for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch])) for (const k of cb[ch]) set.add(roundN(k.time, 4));
+  return [...set].sort((x, y) => x - y);
+}
+
+// Jump the playhead to the prev/next key (of the selected bone, else any bone).
+function gotoKey(dir){
+  if (!curAnim) return;
+  let times = selBone != null ? boneKeyTimes(skeletonData.bones[selBone].name) : [];
+  if (!times.length){
+    const a = animOf(curAnim), set = new Set();
+    if (a && a.bones) for (const bn of Object.keys(a.bones)) for (const t of boneKeyTimes(bn)) set.add(t);
+    times = [...set].sort((x, y) => x - y);
+  }
+  if (!times.length) return;
+  let target = null;
+  if (dir < 0){ for (let i = times.length - 1; i >= 0; i--) if (times[i] < animTime - 1e-4){ target = times[i]; break; } }
+  else { for (let i = 0; i < times.length; i++) if (times[i] > animTime + 1e-4){ target = times[i]; break; } }
+  if (target == null) return;
+  animTime = target; syncPlayhead(); if (selBone != null) renderBoneDetail();
+}
+
+// Light refresh of the Animations section key counts (without rebuilding everything).
+function refreshAnimCounts(){ if (skeletonData && selected) renderAnimSection(); }
 
 // Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
 // extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
@@ -2199,6 +2444,17 @@ function moveSelectedBoneByScreen(dxScreen, dyScreen, dpr){
   markDirty();
 }
 
+// Animate mode: drag adds a parent-local translation to the bone's POSE (not setup).
+function poseBoneByScreen(dxScreen, dyScreen, dpr){
+  if (!posingBone) return;
+  const zoom = renderer.camera.zoom;
+  const worldDX = dxScreen * dpr * zoom, worldDY = -dyScreen * dpr * zoom;
+  const p = posingBone.bone.parent;
+  let lx = worldDX, ly = worldDY;
+  if (p){ const det = p.a * p.d - p.b * p.c; if (Math.abs(det) > 1e-8){ lx = (p.d * worldDX - p.b * worldDY) / det; ly = (p.a * worldDY - p.c * worldDX) / det; } }
+  posingBone.x += lx; posingBone.y += ly;
+}
+
 // Discard ALL edits (transforms + structure): restore rawDoc from the untouched
 // original and rebuild.
 function resetEdits(){
@@ -2256,11 +2512,30 @@ function frame(now){
   gl.viewport(0, 0, cv.width, cv.height);
 
   if (skeleton && animState){
-    // In edit mode we hold the (edited) setup pose — skip animation so edits stay visible.
-    if (!editMode){
+    if (animMode){
+      // Author/preview ONE animation at the playhead, posed over the setup pose.
+      skeleton.setToSetupPose();
+      if (curAnim){
+        if (playing){
+          const dur = animDuration(curAnim);
+          animTime += delta;
+          if (dur > 0){ if (looping) animTime %= dur; else if (animTime >= dur){ animTime = dur; playing = false; $("#play").textContent = "▶ Play"; } }
+          else animTime = 0;
+        }
+        poseAtTime(curAnim, animTime);
+        if (posingBone){ // in-progress bone drag overrides the posed value so it tracks the cursor
+          const b = posingBone.bone;
+          b.rotation = posingBone.rotation; b.x = posingBone.x; b.y = posingBone.y;
+          b.scaleX = posingBone.scaleX; b.scaleY = posingBone.scaleY;
+        }
+      }
+      syncPlayhead();
+    } else if (!editMode){
+      // preview: full animation-state playback (honours curves/mixing)
       if (playing) animState.update(delta);
       animState.apply(skeleton);
     }
+    // setup mode: hold whatever pose the edits set (no per-frame reset)
     updateWorld();
     renderer.begin();
     if (showAttachments) renderer.drawSkeleton(skeleton, pma);
@@ -2281,7 +2556,7 @@ function frame(now){
     drawDrawingOverlay();
     renderer.end();
     updateBoneMarker();
-    syncScrub();
+    if (animMode) syncPlayhead(); else syncScrub();
   }
 }
 
@@ -2292,6 +2567,12 @@ function syncScrub(){
   const t = curEntry.trackTime % dur;
   $("#scrub").value = Math.round((t/dur)*1000);
   $("#time").textContent = t.toFixed(2) + "s / " + dur.toFixed(2) + "s";
+}
+// Animate-mode playhead readout (animTime over the current animation's duration).
+function syncPlayhead(){
+  const dur = curAnim ? animDuration(curAnim) : 0;
+  $("#scrub").value = dur > 0 ? Math.round((animTime / dur) * 1000) : 0;
+  $("#time").textContent = animTime.toFixed(2) + "s / " + dur.toFixed(2) + "s";
 }
 
 // ---- skeleton list --------------------------------------------------------
@@ -2369,15 +2650,26 @@ function hexToRGB(hex){
 function wire(){
   $("#play").onclick = () => { playing = !playing; $("#play").textContent = playing ? "❚❚ Pause" : "▶ Play"; };
   $("#loop").onclick = () => { looping = !looping; $("#loop").classList.toggle("active", looping); if (curEntry) curEntry.loop = looping; };
-  $("#anim").onchange = e => setAnim(e.target.value);
+  $("#anim").onchange = e => { if (animMode){ setCurAnim(e.target.value); } else setAnim(e.target.value); };
   $("#skin").onchange = e => setActiveSkin(e.target.value);
   $("#speed").oninput = e => { const v = e.target.value/100; if (animState) animState.timeScale = v; $("#speedv").textContent = v.toFixed(1) + "×"; };
   $("#scrub").oninput = e => {
+    if (animMode){
+      playing = false; $("#play").textContent = "▶ Play";
+      animTime = (e.target.value/1000) * animDuration(curAnim);
+      if (selBone != null) renderBoneDetail(); // reflect the posed values at the new time
+      return;
+    }
     if (!curEntry || !curEntry.animation) return;
     playing = false; $("#play").textContent = "▶ Play";
     curEntry.trackTime = (e.target.value/1000)*curEntry.animation.duration;
     animState.apply(skeleton); updateWorld();
   };
+  document.querySelectorAll('#modeSeg button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+  $("#keyBtn").onclick = () => { if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate:true, translate:true, scale:true }); };
+  $("#delKey").onclick = () => { if (selBone != null) deleteBoneKeyAt(skeletonData.bones[selBone].name, animTime); };
+  $("#prevKey").onclick = () => gotoKey(-1);
+  $("#nextKey").onclick = () => gotoKey(1);
   $("#filter").oninput = renderList;
   $("#rescan").onclick = () => loadSkeletons(true);
   $("#newRigBtn").onclick = async () => {
@@ -2404,15 +2696,6 @@ function wire(){
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
-  $("#editBtn").onclick = () => {
-    setEditMode(!editMode);
-    // re-render the inspector so slot ↑/↓ controls appear/disappear, then restore selections
-    if (skeletonData && selected){
-      buildInspector(selected);
-      if (selBone != null) selectBone(selBone);
-      if (selSlot) selectSlot(selSlot);
-    }
-  };
   $("#exportBtn").onclick = exportIrig;
   $("#saveBtn").onclick = saveToR2;
   $("#resetBtn").onclick = resetEdits;
@@ -2445,6 +2728,16 @@ function wire(){
       const bi = nearestBone(e);
       if (bi >= 0){ if (selBone !== bi) selectBone(bi); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
     }
+    // Animate mode: click a bone to pose it (drag translates → keys at the playhead).
+    if (animMode && rawDoc && curAnim && !e.shiftKey){
+      const bi = nearestBone(e);
+      if (bi >= 0){
+        if (selBone !== bi) selectBone(bi);
+        const b = skeleton.bones[bi];
+        posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY };
+        lastXY = [e.clientX, e.clientY]; return;
+      }
+    }
     dragging = true;
     lastXY = [e.clientX, e.clientY];
   });
@@ -2453,6 +2746,11 @@ function wire(){
     const wasMeshDrag = meshDragVert != null;
     if (wasMeshDrag) meshDragVert = null;
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
+    if (posingBone){ // commit the posed bone as a translate keyframe at the playhead
+      const b = posingBone.bone; b.x = posingBone.x; b.y = posingBone.y;
+      const name = b.data.name; posingBone = null;
+      keyBone(name, { translate: true }, true);
+    }
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
     if (wasMeshDrag) renderSlotDetail(); // show the selected vertex's UV editors
     dragging = false;
@@ -2490,6 +2788,9 @@ function wire(){
     } else if (meshDragVert != null){
       const cw = cursorWorld(e), w = meshWorldVerts();
       if (cw && w){ const k = meshDragVert; applyMeshVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); }
+      lastXY = [e.clientX, e.clientY];
+    } else if (posingBone){
+      poseBoneByScreen(dxCss, dyCss, dpr);
       lastXY = [e.clientX, e.clientY];
     } else if (boneDragging){
       moveSelectedBoneByScreen(dxCss, dyCss, dpr);
