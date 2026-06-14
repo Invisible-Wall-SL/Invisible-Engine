@@ -348,6 +348,7 @@ let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone
 let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
 let gizmoDrag = null; // transform gizmo rotate-drag state
+let curProjectLabel = "", restoringState = false; // persisted-selection helpers
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -430,7 +431,7 @@ async function selectSkeleton(entry){
   else assetMgr.loadJson(entry.skeleton_file);
 
   await waitAssets();
-  try { buildSkeleton(entry); }
+  try { buildSkeleton(entry); saveRiggerState(); }
   catch(e){ showErr("Build failed: " + (e.message || e)); }
 }
 
@@ -837,6 +838,7 @@ function selectBone(i){
   });
   if (animMode) renderTimeline();
   renderBoneDetail();
+  saveRiggerState();
 }
 
 // Animate-mode bone editor: shows the bone's POSE at the playhead (animated local
@@ -1336,6 +1338,7 @@ function selectSlot(name){
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   if (animMode) renderTimeline();
   renderSlotDetail();
+  saveRiggerState();
 }
 
 // Animate-mode slot editor: key the slot's ATTACHMENT (which image shows) and COLOUR
@@ -2337,6 +2340,7 @@ function setMode(m){
   }
   if (selected){ buildInspector(selected); if (selBone != null) selectBone(selBone); if (selSlot) selectSlot(selSlot); }
   renderTimeline();
+  saveRiggerState();
 }
 // Back-compat: existing callers say setEditMode(true/false).
 function setEditMode(on){ setMode(on ? "setup" : "preview"); }
@@ -2441,6 +2445,7 @@ function setCurAnim(name){
   syncPlayhead();
   renderTimeline();
   if (selBone != null) renderBoneDetail();
+  saveRiggerState();
 }
 
 // upsert a keyframe (replace at the same time within epsilon, else insert sorted by time)
@@ -3061,12 +3066,41 @@ function renderList(){
 
 function setActiveProject(client, project){
   if (!project) return;
+  curProjectLabel = client ? client + " / " + project : project;
   $("#sub").textContent = project;
-  const label = client ? client + " / " + project : project;
   const psel = $("#project"); psel.innerHTML = "";
   const o = document.createElement("option");
-  o.value = project; o.textContent = label; o.selected = true;
+  o.value = project; o.textContent = curProjectLabel; o.selected = true;
   psel.appendChild(o);
+}
+
+// Persist the current selection (rig + mode + bone/slot/anim) per project, so reopening
+// the Rigger restores where you left off — matching the other tools.
+function riggerStateKey(){ return "rigger.lastSel:" + (curProjectLabel || "default"); }
+function saveRiggerState(){
+  if (restoringState || !selected) return;
+  try {
+    localStorage.setItem(riggerStateKey(), JSON.stringify({
+      dir: selected.dir_b64 || "", file: selected.skeleton_file || "",
+      mode, bone: selBone != null ? skeletonData.bones[selBone].name : null,
+      slot: selSlot || null, anim: curAnim || null, time: roundN(animTime || 0, 4),
+    }));
+  } catch {}
+}
+async function restoreRiggerState(){
+  let saved; try { saved = JSON.parse(localStorage.getItem(riggerStateKey()) || "null"); } catch {}
+  if (!saved) return false;
+  const target = skeletons.find((s) => (s.dir_b64 || "") === saved.dir && s.skeleton_file === saved.file);
+  if (!target) return false;
+  restoringState = true;
+  try {
+    await selectSkeleton(target);
+    if (saved.mode && saved.mode !== "preview") setMode(saved.mode);
+    if (animMode && saved.anim && animHasName(saved.anim)){ setCurAnim(saved.anim); animTime = Math.max(0, Math.min(workLen(saved.anim), saved.time || 0)); syncPlayhead(); renderTimeline(); }
+    if (saved.bone){ const i = skeletonData.bones.findIndex((b) => b.name === saved.bone); if (i >= 0) selectBone(i); }
+    if (saved.slot && skeletonData.slots.some((s) => s.name === saved.slot)) selectSlot(saved.slot);
+  } finally { restoringState = false; }
+  return true;
 }
 
 async function loadSkeletons(refresh){
@@ -3080,8 +3114,9 @@ async function loadSkeletons(refresh){
   const id = h.get("id");
   if (id !== null){
     const target = skeletons.find(x => x.id === parseInt(id, 10));
-    if (target){ history.replaceState(null, "", location.pathname); selectSkeleton(target); }
+    if (target){ history.replaceState(null, "", location.pathname); selectSkeleton(target); return; }
   }
+  if (!selected) await restoreRiggerState(); // reopen where we left off
 }
 
 async function deleteRig(e){
