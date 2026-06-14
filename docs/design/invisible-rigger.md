@@ -813,8 +813,14 @@ range frozen mid-drag, channel re-sorts live), channel show/hide toggles, click-
 **Iter 2 LANDED (`e25d210`):** draggable bezier TANGENT handles — eased segments draw
 their two control points as square handles (dashed leaders to the anchor key); dragging
 clamps X within the segment and writes `curve[vi*4 + ctrl*2..]` per value index. Set a
-key's easing in the Properties panel, then fine-tune the handle in the graph. Next iters:
-multi-select + marquee, right-click easing menu.
+key's easing in the Properties panel, then fine-tune the handle in the graph.
+**Iter 3 LANDED (`88944f2`):** multi-select (shift-click + marquee box on empty graph;
+selected points = white fill + colour ring), move-selection-together (absolute-from-
+snapshot delta so a key backing multiple field-curves isn't double-moved), and a
+right-click easing menu (Linear/Stepped/Ease In/Out/In-Out → setKeyCurve). Plain click
+seeks + clears; selection clears on bone/anim change (per-bone). The graph editor now has
+the classic curve-editor set: value curves · draggable keys · bezier handles · multi-
+select · marquee · easing menu.
 
 **Remaining non-bone channels (each its own follow-up):** draw-order timeline, events,
 mesh deform. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
