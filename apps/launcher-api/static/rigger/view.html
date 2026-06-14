@@ -98,6 +98,10 @@
   #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; }
   #modeBar .seg { background:rgba(20,23,28,.85); box-shadow:0 2px 10px rgba(0,0,0,.45); backdrop-filter:blur(3px); }
   #modeBar .seg button { padding:7px 14px; font-size:13px; }
+  /* horizontal resize handle (timeline height) */
+  .resizer-h { flex:0 0 6px; height:6px; cursor:row-resize; background:transparent; position:relative; z-index:6; }
+  .resizer-h::after { content:""; position:absolute; top:2px; left:0; right:0; height:2px; background:transparent; }
+  .resizer-h:hover::after, .resizer-h.dragging::after { background:var(--accent); }
   #scrub { flex:1; min-width:140px; }
   #speed { width:90px; }
   .pill { color:var(--dim); font-size:11px; }
@@ -240,6 +244,7 @@
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
       <div id="err"></div>
     </div>
+    <div class="resizer-h" id="resTimeline" title="drag to resize the timeline · double-click to reset" style="display:none;"></div>
     <div id="timeline"></div>
     <div id="bar">
       <div class="grp">
@@ -2310,6 +2315,7 @@ function setMode(m){
   });
   $("#animTools").style.display = animMode ? "flex" : "none";
   $("#timeNum").style.display = animMode ? "inline-block" : "none";
+  $("#resTimeline").style.display = animMode ? "block" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
   $("#hint").textContent =
@@ -3358,7 +3364,34 @@ function setupResizer(handleId, asideId, edge){
   // double-click resets to the CSS default
   handle.addEventListener("dblclick", () => { aside.style.flex = ""; aside.style.width = ""; try { localStorage.removeItem(key); } catch {} });
 }
-function initResizers(){ setupResizer("resSide", "side", "left"); setupResizer("resIns", "inspector", "right"); }
+function initResizers(){ setupResizer("resSide", "side", "left"); setupResizer("resIns", "inspector", "right"); setupTimelineResizer(); }
+
+// Drag the handle above the timeline to set its height (more room for many layers).
+function setupTimelineResizer(){
+  const handle = $("#resTimeline"), tl = $("#timeline");
+  if (!handle || !tl) return;
+  const key = "rigger.timelineH";
+  const apply = (h) => { tl.style.flex = "0 0 " + h + "px"; tl.style.height = h + "px"; };
+  const saved = parseInt(localStorage.getItem(key), 10);
+  if (saved > 0) apply(Math.max(90, Math.min(700, saved)));
+  let startY = 0, startH = 0, on = false;
+  const move = (e) => { if (!on) return; apply(Math.max(90, Math.min(window.innerHeight - 220, startH - (e.clientY - startY)))); };
+  const up = () => {
+    if (!on) return;
+    on = false; handle.classList.remove("dragging");
+    document.body.style.userSelect = ""; document.body.style.cursor = "";
+    try { localStorage.setItem(key, String(tl.offsetHeight)); } catch {}
+    window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+  };
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    on = true; startY = e.clientY; startH = tl.offsetHeight;
+    handle.classList.add("dragging");
+    document.body.style.userSelect = "none"; document.body.style.cursor = "row-resize";
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  });
+  handle.addEventListener("dblclick", () => { tl.style.flex = ""; tl.style.height = ""; try { localStorage.removeItem(key); } catch {} });
+}
 
 async function boot(){
   wire();
