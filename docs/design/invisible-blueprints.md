@@ -116,36 +116,87 @@ ComfyUI exports a graph two ways: the editor `workflow.json` (UI positions) and 
 5. **Save:** server writes `workflow.json` + `blueprint.json` (+ optional `thumb.png`) to
    `_shared/blueprints/<id>/` and pushes to R2. Visible to everyone immediately.
 
-## 4. Model auto-download (ComfyUI-Manager API)
+## 4. Model auto-download (ComfyUI-Manager API) — **confirmed (spike done)**
 
-Locked approach: drive **ComfyUI-Manager's** model-install endpoints over the existing
-tunnel. Manager runs inside ComfyUI, so it writes to the correct local `models/<dir>/`
-and exposes an HTTP API we can already reach (same base URL + CF Access headers as every
-other ComfyUI call).
+Locked approach: drive **ComfyUI-Manager's** model-install **queue** endpoints over the
+existing tunnel. Manager runs inside ComfyUI, so it writes to the correct local
+`models/<save_path>/` and exposes an HTTP API we already reach (same base URL + CF Access
+headers + the `InvisibleAtlas/1.0` UA as every other ComfyUI call).
 
-**"Prepare blueprint" step** (runs before/at generate time):
+> **Spike result (2026-06-14).** The endpoints below were read from the ACTUAL installed
+> Manager source (`glob/manager_server.py`: status `:1303`, start `:1399`, install_model
+> `:1588`, reboot `:1799`, whitelist check `:1572`) — no longer "to confirm". The API is
+> **queue-based** (enqueue → start worker → poll status), and gated by a **catalog
+> whitelist** + a **security level**.
+
+### Confirmed endpoints
+
+| call | behaviour |
+| --- | --- |
+| `POST /manager/queue/install_model` | Body **is the model dict** (JSON; `Content-Type: application/json` required). Consumes `url`, `filename`, `save_path`, `base`, optional `ui_id`. **200 = QUEUED** (not yet downloaded). **400 "Invalid model install request is detected"** unless the model matches Manager's curated `model-list.json` by *(`save_path`, `base`, `filename`)*. **403** if Manager's security level is above `middle`. |
+| `POST /manager/queue/start` | Starts the worker thread. **200** normally, **201 if already in progress**. Rejects simple-form content-types → send `application/json` (body `{}`). |
+| `GET /manager/queue/status` | → `{total_count, done_count, in_progress_count, is_processing}`. Poll until `is_processing` is false **and** `in_progress_count == 0`. |
+| `POST /manager/reboot` | Restarts ComfyUI via `os.execv` → **the HTTP connection DROPS / times out; treat a dropped/empty response as expected success**. Then poll `/system_stats` until ComfyUI is back. Rejects simple-form content-types; requires security level `middle`. |
+| `GET /object_info/<node>` | Already used (`batch_atlas._available`) — the installed-check. |
+
+### The catalog-only (whitelist) constraint — the key finding
+
+`check_whitelist_for_model` (`:1572`) only accepts a model whose *(`save_path`, `base`,
+`filename`)* triple is present in Manager's curated `model-list.json` (cache or local).
+**Custom-URL models that aren't in that catalog return 400 and cannot be auto-installed** —
+they fall to the manual checklist. (Non-`.safetensors` files additionally require the
+`url` itself to be whitelisted unless security is `high`.) So a blueprint's `models[]`
+entry is only auto-installable when its catalog triple is in the curated list; otherwise
+the prepare step surfaces it as a manual download. This is why per-user Civitai/HF URLs
+that aren't catalogued still need a manual drop (see §9 download-auth).
+
+### Security level
+
+Both `install_model` and `reboot` require Manager's security level to be **"middle" or
+below** (else 403 / refused). That's a documented prerequisite for auto-install to work.
+
+### "Prepare blueprint" step (runs before generate time)
+
+Implemented in `services/atlas-tool/blueprint_models.py`
+(`prepare_blueprint_models(...)`, the pure/injectable core) + `batch_atlas.py`
+(`prepare_blueprint_models_for_run` binds the stdlib `/manager/*` HTTP twins;
+`_prepare_blueprint_models_or_fail` wires it into `main()`):
 
 1. Read the blueprint's `models[]`.
-2. For each, check the live `/object_info` enum for its `field` (reuse `batch_atlas._available`). If the `filename` is already listed → installed, skip.
-3. For each missing model, POST to Manager's model-install endpoint with the `source`
-   URL + target `dir`/`filename`. (Exact route to confirm against the installed Manager
-   version — historically `/customnode/...` / `/manager/...` style endpoints; verify and
-   pin the version. This is the **one external dependency to nail down in a spike**.)
-4. Poll Manager for download progress; surface it in the same diagnostics/progress panel
-   `run_render` already streams into.
-5. ComfyUI only scans `models/` at startup → after installs, trigger a **rescan/restart**
-   (Manager has a reboot endpoint) and re-check `/object_info` until all `models[]` resolve.
-6. Only then submit the generation. If any model can't be fetched, fail with a readable
-   checklist (filename + dir + source) — the same shape as today's `preflight_models` error.
+2. For each, check the live `/object_info` enum for its `field` (reuse
+   `batch_atlas._available`, mapped field→loader-node). If the `filename` is already
+   listed → installed, skip.
+3. Partition the MISSING into **installable** (has all of `url`/`save_path`/`base`/
+   `filename`) vs **non-installable** (missing catalog keys) → non-installable go straight
+   to the manual checklist.
+4. For each installable-missing: `POST /manager/queue/install_model`. Per-model **400**
+   (not in catalog) / **403** (security level) → add to the checklist with the specific
+   reason; do **not** abort the others.
+5. If any queued OK: `POST /manager/queue/start`; poll `/manager/queue/status` until idle
+   (progress logged to stdout — `run_render` streams it into the diagnostics panel). Then
+   `POST /manager/reboot` **once** (batched). Then poll `/system_stats` until ComfyUI is
+   back. Then re-check `/object_info`; anything still missing → checklist.
+6. Return `{ready, installed, still_missing:[{filename, save_path, base, url, reason}]}`.
+   The caller (`_prepare_blueprint_models_or_fail`) **fails the run with the readable
+   checklist** if a required model is still missing — same contract as `preflight_models`
+   — rather than submitting a doomed prompt.
+
+**Fail-safe everywhere.** A missing Manager (404 on `/manager/*`), an unreachable ComfyUI,
+a per-model 400/403, a download timeout, or a model still-invisible after reboot all
+degrade to a readable checklist — the prepare step **never raises**.
+
+**Kill-switch.** `BLUEPRINT_AUTO_INSTALL_MODELS` (env, default **ENABLED**). When disabled,
+the step does **not** install or reboot — it only emits the checklist of missing models
+(the safer, non-disruptive behaviour, because the reboot interrupts in-flight ComfyUI work).
 
 **Caching:** installs are idempotent — once a model is in the local `models/` dir it shows
 up in `/object_info` forever, so the prepare step is a near-instant no-op on subsequent
 runs. Downloads happen once per machine.
 
-**Boundary note:** this assumes ComfyUI-Manager is installed in the user's local ComfyUI.
-That becomes a documented pipeline prerequisite (add to `docs/ONBOARDING.md` / the ComfyUI
-launcher setup). No new local process is required beyond Manager itself — that's why this
-beat the "local downloader companion" option.
+**Boundary note:** this assumes ComfyUI-Manager is installed in the user's local ComfyUI
+at security level "middle" or below. That's a documented pipeline prerequisite (add to
+`docs/ONBOARDING.md` / the ComfyUI launcher setup). No new local process is required beyond
+Manager itself — that's why this beat the "local downloader companion" option.
 
 ## 5. Atlas Maker integration
 
@@ -191,9 +242,13 @@ else the baked default) onto its bound node input.
 
 ## 7. Build plan (phased)
 
-1. **Spike — ComfyUI-Manager model install.** Confirm the installed Manager version's
-   model-download + reboot endpoints over the tunnel; install one model end-to-end and
-   verify it appears in `/object_info` after a rescan. *De-risks the whole feature.*
+1. ✅ **Spike — ComfyUI-Manager model install.** *(DONE-code 2026-06-14, LIVE verify
+   owed.)* The installed Manager's queue API was confirmed against source (§4): the
+   queue-based `install_model` → `queue/start` → `queue/status` → `reboot` →
+   `/system_stats` sequence, the **catalog-only (whitelist)** constraint, the **security
+   level ≥ middle** requirement, and reboot's **connection-drop = success** behaviour. The
+   live end-to-end (real download of one catalog model + reboot + `/object_info` reappear
+   on the owner's GPU) is owner-side verify-owed.
 2. ✅ **Blueprint format + storage.** *(DONE 2026-06-06, built-in scope.)* `blueprint.json`
    defined + validated in `services/atlas-tool/blueprints.py` (loader: `list_blueprints` /
    `get_blueprint` / `blueprint_exists`); `_shared/blueprints/<id>/` layout + a `seed`-style
@@ -208,8 +263,17 @@ else the baked default) onto its bound node input.
    dispatches to it for a non-built-in `pipeline` id and reads the result from
    `bindings.output.node` (generalizing the hardcoded `"17"`). Bindings injection
    unit-tested against the seeded `sdxl` graph.
-4. **Prepare step.** Implement model check + Manager install + rescan loop (§4), with
-   progress streamed into the existing diagnostics panel and the readable-failure checklist.
+4. ✅ **Prepare step.** *(DONE-code 2026-06-14, LIVE verify owed.)* Model check + Manager
+   install + status-poll + reboot + recheck loop (§4) in
+   `services/atlas-tool/blueprint_models.py` (`prepare_blueprint_models` — pure, injectable
+   HTTP for offline testing) + `batch_atlas.py` (`prepare_blueprint_models_for_run`,
+   `_prepare_blueprint_models_or_fail` wired into `main()` AFTER `preflight_models`, only
+   for blueprint pipelines with a non-empty `models[]`). Progress streams to stdout (the
+   diagnostics panel); a required-model shortfall fails the run with the readable checklist
+   exactly like `preflight_models`. Kill-switch `BLUEPRINT_AUTO_INSTALL_MODELS` (default on).
+   `blueprints._validate_models` accepts the aligned `models[]` shape (`url`/`save_path`/
+   `base`/`filename` catalog keys, optional; legacy `{dir, source}` still loads). Covered by
+   an offline self-test (8 scenarios, mocked Manager HTTP) — see the commit/report.
 5. **Atlas Maker UI — pick & generate.** Blueprint dropdown in Settings; wire selection
    into `/saveconfig` and the `/render` branch.
 6. **Atlas Maker UI — upload & bind.** The `Blueprints → New` page: API-JSON upload, the
@@ -284,10 +348,19 @@ Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve an
 
 ## 9. Open questions / risks
 
-- **Manager API surface** (phase 1 spike): exact endpoints + version pinning; behaviour if
-  Manager isn't installed (clear error + setup link).
-- **Download auth:** Civitai/gated-HF models may need a token. v1 = public URLs only;
-  later, per-user tokens stored launcher-side and passed to the prepare step.
+- ✅ **Manager API surface** (phase 1 spike): **RESOLVED** — the confirmed queue endpoints
+  are `POST /manager/queue/install_model`, `POST /manager/queue/start`, `GET
+  /manager/queue/status`, `POST /manager/reboot` (see §4 for shapes + statuses). Manager
+  absence is detected as a 404 on `/manager/*` and degraded to a readable manual checklist
+  (no crash). A version note: the API is the **queue** family (`/manager/queue/*`), not the
+  older one-shot `/manager/install_model`.
+- **Download auth + the whitelist constraint:** Manager only auto-installs models whose
+  *(`save_path`, `base`, `filename`)* triple is in its **curated `model-list.json`**
+  (`check_whitelist_for_model`). **This is why custom-URL models aren't auto-installable** —
+  an arbitrary Civitai/gated-HF URL that isn't catalogued returns 400 and falls to the
+  manual checklist. v1 = catalog/public models auto-install, everything else is a
+  documented manual drop; per-user tokens + a way to install non-catalog URLs are later
+  work (would need a different Manager path or a local downloader companion).
 - **Restart cost:** a rescan/reboot interrupts in-flight work on the user's local ComfyUI.
   Prepare should batch all installs, then reboot once.
 - **Graph drift:** if a blueprint's `base` conventions (ref node count, output node) don't

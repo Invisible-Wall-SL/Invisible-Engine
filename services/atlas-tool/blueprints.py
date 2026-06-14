@@ -110,7 +110,51 @@ def _validate_manifest(bp_id: str, manifest: dict) -> dict:
             raise ValueError(
                 f"blueprint '{bp_id}': role '{role}' has no 'field'")
     _validate_params(bp_id, manifest, bindings)
+    _validate_models(bp_id, manifest)
     return manifest
+
+
+def _validate_models(bp_id: str, manifest: dict) -> list:
+    """Validate + normalize the OPTIONAL `models[]` array.
+
+    Each entry declares what ComfyUI must have installed. The catalog match keys
+    (`url`, `save_path`, `base`, `filename`) gate AUTO-INSTALL via
+    ComfyUI-Manager (B43 §4): a model carrying all of them is installable from
+    Manager's curated catalog; one missing any is simply not auto-installable
+    and falls to the manual checklist — so they are OPTIONAL here, NOT hard-
+    required. `field` (the /object_info enum field, e.g. `ckpt_name`) is kept
+    for the installed-check. Back-compat: the older `{source, dir}` shape maps
+    onto `{url, save_path}` (source→url, dir→save_path) when the aligned keys
+    are absent. Raises ValueError only on a structurally broken entry."""
+    models = manifest.get("models")
+    if models in (None, ""):
+        manifest["models"] = []
+        return []
+    if not isinstance(models, list):
+        raise ValueError(f"blueprint '{bp_id}': 'models' must be an array")
+    out = []
+    for i, m in enumerate(models):
+        if not isinstance(m, dict):
+            raise ValueError(
+                f"blueprint '{bp_id}': models[{i}] is not an object")
+        # Aligned keys win; fall back to the legacy {source, dir} names so old
+        # blueprint.json files keep loading.
+        url = str(m.get("url") or m.get("source") or "").strip()
+        save_path = str(m.get("save_path") or m.get("dir") or "").strip()
+        norm = {
+            "field": str(m.get("field", "")).strip(),
+            "filename": str(m.get("filename", "")).strip(),
+            "save_path": save_path,
+            "base": str(m.get("base", "")).strip(),
+            "url": url,
+        }
+        # Optional verify/progress metadata + catalog niceties, passed through.
+        for opt in ("sha256", "size", "name", "type"):
+            if m.get(opt) not in (None, ""):
+                norm[opt] = m[opt]
+        out.append(norm)
+    manifest["models"] = out
+    return out
 
 
 def _validate_params(bp_id: str, manifest: dict, bindings: dict) -> list:

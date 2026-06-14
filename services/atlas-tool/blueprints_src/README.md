@@ -78,13 +78,49 @@ That's it — no Python change. Adding a pipeline = dropping two files.
       "node": "13", "field": "sampler_name" }
   ],
 
-  // What ComfyUI must have installed. v1 is read-only metadata; auto-download
-  // (ComfyUI-Manager) is a later phase. `source` blank = "must be pre-installed".
+  // What ComfyUI must have installed. The catalog match keys (url/save_path/
+  // base/filename) gate AUTO-DOWNLOAD via ComfyUI-Manager (see below); `field`
+  // is the /object_info enum field used to check if it's already installed.
   "models": [
-    { "field": "ckpt_name", "filename": "model.safetensors", "dir": "checkpoints", "source": "" }
+    { "field": "ckpt_name", "filename": "model.safetensors",
+      "save_path": "checkpoints", "base": "SDXL",
+      "url": "https://huggingface.co/.../model.safetensors" }
   ]
 }
 ```
+
+### Model requirements (`models[]`) — auto-download (B43)
+
+Each entry tells the "prepare models" step (which runs before generation when a
+blueprint is selected) what ComfyUI must have, and whether it can be fetched
+automatically via **ComfyUI-Manager**:
+
+| field | meaning |
+| --- | --- |
+| `field` | the `/object_info` enum field (e.g. `ckpt_name`, `lora_name`, `vae_name`) — used to check if the file is ALREADY installed (skip if so). |
+| `filename` | the exact filename ComfyUI expects (incl. extension). |
+| `save_path` | the ComfyUI `models/<folder>` it goes in (a catalog match key). |
+| `base` | the model family (e.g. `SDXL`, `FLUX.1`) — a catalog match key. |
+| `url` | the download URL (a catalog match key + where the bytes come from). |
+| `sha256` / `size` | optional verify / progress metadata. |
+
+**Catalog-only (whitelist) constraint.** ComfyUI-Manager only auto-installs
+models present in its **curated `model-list.json`**, matched by the
+*(`save_path`, `base`, `filename`)* triple. A model whose triple isn't in the
+catalog — or that's missing any of `url`/`save_path`/`base`/`filename` — can NOT
+be auto-installed; the prepare step lists it in a **manual checklist** instead
+(put the file in `models/<save_path>/`, restart ComfyUI, retry). This is why a
+custom Civitai/HF URL that isn't in Manager's catalog still needs a manual drop.
+
+A model with an empty `url` (or only the legacy `{dir, source}` keys) is treated
+as "must be pre-installed" → checklist if absent. The legacy
+`{ "dir": ..., "source": ... }` shape still loads (mapped to `save_path`/`url`).
+
+**Kill-switch.** `BLUEPRINT_AUTO_INSTALL_MODELS` (default ENABLED) gates
+auto-install. When set to `off`/`0`/`false`, the prepare step does NOT install
+or reboot ComfyUI — it only emits the checklist of missing models (the safer,
+non-disruptive behaviour, since installing reboots ComfyUI once at the end to
+rescan `models/`).
 
 ### Exposed params (`params[]`) — "general settings"
 

@@ -155,6 +155,7 @@ import atlas_format  # noqa: E402
 import storage  # noqa: E402
 import shine  # noqa: E402
 import blueprints  # noqa: E402
+import blueprint_models  # noqa: E402
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
 
@@ -896,6 +897,17 @@ def _available(node: str, field: str) -> list[str] | None:
     return val
 
 
+def _bust_comfy_caches() -> None:
+    """Drop the time-cached ComfyUI verdicts so the NEXT `_comfy_alive()` /
+    `_available()` re-probes the live server instead of returning a stale
+    value. Called right after a Manager reboot: the pre-reboot cache may say a
+    model is missing (or Comfy is down) when the freshly-restarted server now
+    has it — trusting that stale read would falsely fail the run."""
+    _avail_cache.clear()
+    _comfy_alive_cache["t"] = 0.0
+    _comfy_alive_cache["ok"] = False
+
+
 def preflight_models(regions: list[dict]) -> None:
     """Fail early with a readable message (not a raw HTTP 400 traceback) if a
     checkpoint / LoRA name isn't one ComfyUI actually has. ComfyUI only sees
@@ -960,6 +972,101 @@ def preflight_models(regions: list[dict]) -> None:
         print("\n=== Model preflight failed ===")
         print("\n".join(problems))
         raise SystemExit(2)
+
+
+# --------------------------------------------------------------------------
+# Blueprint model auto-download (B43 phase 4) — drives ComfyUI-Manager's queue
+# API over the SAME tunnel + CF headers + UA. The stdlib HTTP twins below are
+# injected into blueprint_models.prepare_blueprint_models so that pure helper
+# stays network-free + unit-testable. Manager routes that 404 mean Manager
+# isn't installed → ManagerAbsent; a torn-down connection on /reboot is the
+# expected os.execv case (handled inside the prepare step).
+# --------------------------------------------------------------------------
+def _manager_post(path: str, body: dict) -> tuple[int, str]:
+    """POST JSON to a /manager/* route. Returns (status, text). Maps a 404 to
+    ManagerAbsent (Manager not installed) and a connection failure to
+    ComfyUnreachable; other HTTP statuses (400/403/200/201) come back as
+    (status, text) so the caller can branch per-model."""
+    data = json.dumps(body or {}).encode("utf-8")
+    req = Request(
+        f"{COMFY_BASE}{path}", data=data,
+        headers={"Content-Type": "application/json", **CF_HEADERS},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=30) as r:
+            return r.getcode(), r.read().decode("utf-8", "replace")
+    except HTTPError as e:
+        if e.code == 404:
+            raise blueprint_models.ManagerAbsent(path)
+        return e.code, e.read().decode("utf-8", "replace")
+    except (URLError, ConnectionError, OSError) as e:
+        raise blueprint_models.ComfyUnreachable(str(e))
+
+
+def _manager_get(path: str) -> dict:
+    """GET a /manager/* (or /system_stats) route → parsed JSON. 404 →
+    ManagerAbsent; transport failure → ComfyUnreachable."""
+    req = Request(f"{COMFY_BASE}{path}", headers=CF_HEADERS)
+    try:
+        with urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except HTTPError as e:
+        if e.code == 404:
+            raise blueprint_models.ManagerAbsent(path)
+        raise blueprint_models.ComfyUnreachable(f"HTTP {e.code}")
+    except (URLError, ConnectionError, OSError) as e:
+        raise blueprint_models.ComfyUnreachable(str(e))
+
+
+def _model_installed(field: str, filename: str) -> bool:
+    """Is `filename` already a valid value for `field` in some loader's
+    /object_info enum? Reuses the cached `_available` reader. `field` is the
+    enum field name (ckpt_name/lora_name/vae_name/…); we map it to the loader
+    node that exposes it. Unknown field → unverifiable → treat as not installed
+    (the prepare step then tries to install, and a redundant install on an
+    already-present file is a near no-op for Manager)."""
+    if not _comfy_alive():
+        raise blueprint_models.ComfyUnreachable("ComfyUI not answering")
+    node = _MODEL_FIELD_NODES.get(field)
+    if not node:
+        return False
+    avail = _available(node, field)
+    if avail is None:
+        return False
+    return filename in avail
+
+
+# Maps a model's /object_info enum field → a loader node that exposes it, so the
+# installed-check can read the right dropdown. Mirrors the loader fields the
+# built-in graphs use; extend as new blueprint loaders appear.
+_MODEL_FIELD_NODES = {
+    "ckpt_name": "CheckpointLoaderSimple",
+    "lora_name": "LoraLoader",
+    "vae_name": "VAELoader",
+    "control_net_name": "ControlNetLoader",
+    "unet_name": "UNETLoader",
+    "clip_name": "CLIPVisionLoader",
+    "clip_name1": "DualCLIPLoader",
+    "clip_name2": "DualCLIPLoader",
+    "style_model_name": "StyleModelLoader",
+}
+
+
+def prepare_blueprint_models_for_run(models: list) -> blueprint_models.PrepareResult:
+    """Make the local ComfyUI have every model a blueprint declares before its
+    graph is submitted (B43 §4). Returns a structured PrepareResult; NEVER
+    raises (a missing Manager / dead ComfyUI / per-model rejection all degrade
+    to PrepareResult.still_missing). The caller fails the run if required models
+    remain missing — mirroring preflight_models — rather than submitting a
+    doomed prompt."""
+    return blueprint_models.prepare_blueprint_models(
+        models or [],
+        http_post=_manager_post,
+        http_get=_manager_get,
+        is_installed=_model_installed,
+        on_rebooted=_bust_comfy_caches,
+    )
 
 
 def comfy_view(filename: str, subfolder: str, type_: str) -> bytes:
@@ -1111,9 +1218,13 @@ def _resolve_text(region: dict, style: dict) -> tuple[str, str, int]:
 
 
 def region_pipeline(region: dict) -> str:
-    """Effective pipeline for one region: its own 'pipeline' override (set in
+    """Effective pipeline id for one region: its own 'pipeline' override (set in
     the advanced popup) if present, else the global/per-atlas PIPELINE.
-    One of 'sdxl', 'flux', 'gpt_image'."""
+
+    Returns the raw pipeline id string — a built-in keyword ('sdxl', 'flux',
+    'gpt_image') OR a blueprint id (anything else). Callers branch on the three
+    built-ins and treat any other value as a blueprint id (e.g.
+    `_prepare_blueprint_models_or_fail`, which feeds it to `blueprints.get_blueprint`)."""
     rp = str(region.get("pipeline", "")).strip().lower()
     return rp or str(PIPELINE).lower()
 
@@ -2118,6 +2229,52 @@ def already_generated(batch_dir: Path, region: dict) -> Path | None:
     return None
 
 
+def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
+    """Run the blueprint model prepare step for every blueprint pipeline used by
+    the regions about to generate, and FAIL the run (readable checklist) if a
+    required model is still missing afterwards.
+
+    Built-in pipelines (sdxl/flux/gpt_image) are skipped — their models are
+    handled by preflight_models. Only blueprints with a non-empty `models[]`
+    trigger any work; a blueprint with no declared models is a no-op."""
+    # Distinct blueprint ids in play (region override else global PIPELINE),
+    # excluding the three built-ins.
+    bp_ids: list[str] = []
+    for r in gen_regions:
+        pipe = region_pipeline(r)
+        if pipe in ("sdxl", "flux", "gpt_image"):
+            continue
+        if pipe not in bp_ids:
+            bp_ids.append(pipe)
+    if not bp_ids:
+        return
+
+    failures: list[str] = []
+    for bp_id in bp_ids:
+        bp = blueprints.get_blueprint(bp_id)
+        if not bp:
+            continue  # run_region falls back to sdxl for a missing blueprint
+        models = (bp.get("meta") or {}).get("models") or []
+        if not models:
+            continue  # blueprint declares no models → nothing to prepare
+        print(f"\n=== Preparing models for blueprint '{bp_id}' "
+              f"({len(models)} declared) ===", flush=True)
+        result = prepare_blueprint_models_for_run(models)
+        if result.installed:
+            print(f"[prepare] '{bp_id}': installed "
+                  f"{', '.join(result.installed)}", flush=True)
+        if not result.ready:
+            checklist = blueprint_models.format_checklist(result)
+            failures.append(f"Blueprint '{bp_id}':\n{checklist}")
+
+    if failures:
+        bar = "=" * 64
+        print(f"\n{bar}\n  BLUEPRINT MODELS MISSING\n", flush=True)
+        print("\n\n".join(failures), flush=True)
+        print(bar, flush=True)
+        raise SystemExit(2)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", default=MANIFEST_REL)
@@ -2364,6 +2521,16 @@ def main() -> None:
         return
 
     preflight_models(gen_regions)
+
+    # Blueprint model auto-download (B43 §4): for every BLUEPRINT pipeline in
+    # play (a region/atlas `pipeline` that isn't a built-in id), ensure the
+    # local ComfyUI has the models the blueprint declares — installing missing
+    # catalog models via ComfyUI-Manager (kill-switch:
+    # BLUEPRINT_AUTO_INSTALL_MODELS). Built-in sdxl/flux/gpt_image regions keep
+    # using preflight_models above, untouched. If a required model can't be
+    # provided, fail with a readable checklist rather than submitting a doomed
+    # prompt — same contract as preflight_models.
+    _prepare_blueprint_models_or_fail(gen_regions)
 
     for i, region in enumerate(jobs, start=1):
         label = f"{region['name']} ({region.get('fruit', '?')})"

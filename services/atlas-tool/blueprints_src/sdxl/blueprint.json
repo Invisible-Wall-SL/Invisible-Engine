@@ -20,7 +20,7 @@
     { "key": "sampler_name", "label": "Sampler", "type": "select", "default": "dpmpp_2m", "options": ["euler", "euler_ancestral", "dpmpp_2m", "dpmpp_sde", "ddim"], "node": "13", "field": "sampler_name", "group": "Sampler" }
   ],
   "models": [
-    { "field": "ckpt_name", "filename": "juggernautXL_ragnarokBy.safetensors", "dir": "checkpoints", "source": "" },
-    { "field": "lora_name", "filename": "gameIconInstitute3d_v10.safetensors", "dir": "loras", "source": "" }
+    { "field": "ckpt_name", "filename": "juggernautXL_ragnarokBy.safetensors", "save_path": "checkpoints", "base": "SDXL", "url": "" },
+    { "field": "lora_name", "filename": "gameIconInstitute3d_v10.safetensors", "save_path": "loras", "base": "SDXL", "url": "" }
   ]
 }
