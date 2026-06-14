@@ -23,9 +23,12 @@
  *                  be unique across exported sheets (no namespace to disambiguate) —
  *                  cross-sheet collisions are surfaced as a build warning.
  *   spine cell   → `assetKey` is the FULL R2 BUNDLE PREFIX. Copy that bundle's own
- *                  atlas + skeleton + page files VERBATIM (preserving names so the
- *                  atlas's page refs resolve once mirrored), and add
+ *                  atlas + skeleton + page files (preserving names so the atlas's
+ *                  page refs resolve once mirrored), and add
  *                  `index.spines += { key: <assetKey>, atlas, skeleton, scale: 2 }`.
+ *                  A Rigger `.irig` skeleton is shipped under a `.json` name — the
+ *                  game's `PIXI.Assets.load` resolves the spine parser by extension
+ *                  and `.irig` is unknown to it (bytes are valid Spine JSON).
  *
  *   <client>/<project>/deploy/editor-symbols/<stem>/<files…>
  *   <client>/<project>/deploy/editor-symbols/index.json   ← the index the game registers
@@ -300,15 +303,25 @@ export async function exportEditorSymbols(
 		);
 		written.add(`${deployPrefix}${dir}/${entry.atlas_file}`);
 
-		// Skeleton (.json or .skel) — copied verbatim.
+		// Skeleton (.json / .skel / .irig) — bytes copied verbatim, but a Rigger
+		// `.irig` MUST ship under a `.json` name. The game loads spines through
+		// `PIXI.Assets.load`, which resolves the skeleton parser by FILE EXTENSION;
+		// `.irig` is unknown to it, so a shipped `.irig` loads as `null` and crashes
+		// `readSkeletonData` (the bytes are valid Spine JSON, only the extension is
+		// ours). The `.atlas` references page images, never the skeleton, so renaming
+		// the skeleton is safe.
 		const skel = await getObjectBytes(`${prefix}/${entry.skeleton_file}`);
 		if (!skel) continue;
+		const isIrig = entry.skeleton_file.toLowerCase().endsWith('.irig');
+		const skeletonOut = isIrig
+			? entry.skeleton_file.replace(/\.irig$/i, '.json')
+			: entry.skeleton_file;
 		await putObjectBytes(
-			`${deployPrefix}${dir}/${entry.skeleton_file}`,
+			`${deployPrefix}${dir}/${skeletonOut}`,
 			skel.body,
-			skel.contentType,
+			isIrig ? 'application/json' : skel.contentType,
 		);
-		written.add(`${deployPrefix}${dir}/${entry.skeleton_file}`);
+		written.add(`${deployPrefix}${dir}/${skeletonOut}`);
 
 		// Page images the atlas references — copied verbatim under their own names.
 		for (const pageName of atlasPageNames(atlasText)) {
@@ -321,7 +334,7 @@ export async function exportEditorSymbols(
 		spines.push({
 			key: assetKey,
 			atlas: `${dir}/${entry.atlas_file}`,
-			skeleton: `${dir}/${entry.skeleton_file}`,
+			skeleton: `${dir}/${skeletonOut}`,
 			scale: 2,
 		});
 	}
