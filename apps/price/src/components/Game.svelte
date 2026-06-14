@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	import { EnablePixiExtension } from 'components-pixi';
+	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Text, REM } from 'pixi-svelte';
 	import { stateModal } from 'state-shared';
 
 	import { UI, UiGameName } from 'components-ui-pixi';
-	import { GameVersion, Modals } from 'components-ui-html';
+	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
 
 	import { getContext } from '../game/context';
 	import EnableSound from './EnableSound.svelte';
@@ -28,6 +28,13 @@
 	import ExpandingWilds from './ExpandingWilds.svelte';
 	import StickyBoard from './StickyBoard.svelte';
 	import I18nTest from './I18nTest.svelte';
+
+	// Invisible Debug — register this game's debug tools (symbol overlay). Dynamic-
+	// imported only under the build switch so the tools + their component modules
+	// tree-shake out of a player build (docs/design/invisible-debug-framework.md).
+	if (__IE_DEBUG__) {
+		void import('../game/debugTools');
+	}
 
 	const context = getContext();
 
@@ -98,6 +105,8 @@
 
 		<I18nTest />
 	{/if}
+
+	<DebugStage />
 </App>
 
 <Modals>
@@ -105,3 +114,5 @@
 		<GameVersion version="0.0.0" />
 	{/snippet}
 </Modals>
+
+<DebugMenu />

@@ -2,7 +2,16 @@
 	  import './app.css';
 		import { getContext } from '../game/context';
 		import EnableGameActor from './EnableGameActor.svelte';
+		import { DebugMenu } from 'components-ui-html';
 		import { waitForTimeout } from 'utils-shared/wait';
+
+		// Invisible Debug — register this game's debug tools. number-picker has no Pixi
+		// board, so no `surface:'pixi'` symbol overlay is registered; the menu is still
+		// mounted so future tools can register. Dynamic-imported only under the build
+		// switch (docs/design/invisible-debug-framework.md).
+		if (__IE_DEBUG__) {
+			void import('../game/debugTools');
+		}
 
 		const context = getContext();
 
@@ -123,3 +132,5 @@
 	<h2>You Lost</h2>
 	<button class="play-style" on:click={playGame} disabled={isProcessing}> Bet Again? </button>
 {/if}
+
+<DebugMenu />
