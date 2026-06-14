@@ -810,7 +810,11 @@ untouched). `renderGraphBody` plots the selected bone's channels (rotation/x/y/s
 scaleY) as SVG value-over-time curves sampled via `sampleChannel` (linear/stepped/bezier
 render true), auto-fit value axis, draggable keyframe handles (X = retime, Y = revalue;
 range frozen mid-drag, channel re-sorts live), channel show/hide toggles, click-to-seek.
-Next iters: bezier tangent handles, multi-select + marquee, right-click easing.
+**Iter 2 LANDED (`e25d210`):** draggable bezier TANGENT handles — eased segments draw
+their two control points as square handles (dashed leaders to the anchor key); dragging
+clamps X within the segment and writes `curve[vi*4 + ctrl*2..]` per value index. Set a
+key's easing in the Properties panel, then fine-tune the handle in the graph. Next iters:
+multi-select + marquee, right-click easing menu.
 
 **Remaining non-bone channels (each its own follow-up):** draw-order timeline, events,
 mesh deform. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
