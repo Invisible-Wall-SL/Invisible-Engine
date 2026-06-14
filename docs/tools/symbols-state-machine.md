@@ -1,0 +1,118 @@
+# Invisible Symbols State Machine
+
+The editable twin of the in-game **Symbol Debug** grid: for each symbol, in each
+animation state, rebind the cell to a sprite frame or a spine animation that already
+lives in R2 — then ship those bindings to the game through the standard deploy chain.
+
+## What it is
+
+A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
+`SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
+of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`).
+This tool turns that map into an editable surface: each cell is either a **sprite** (a
+sheet frame) or a **spine** (a bundle + animation name) with width/height size ratios.
+Edits are stored as a **sparse override doc** in R2 — only the cells you change are
+recorded; everything else falls through to the game's coded default.
+
+It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, gated on
+`localStorage.IE_DEBUG=1` + the `d` hotkey), which renders this exact grid read-only.
+
+- **Where it runs:** the launcher itself, at `/symbols` — a real full-page route inside
+  `(app)`, behind the auth + role gate. It is not a redirect and never an iframe. The
+  grid is client-rendered (the route sets `ssr = false`) because each cell draws a canvas
+  thumbnail and the focused cell mounts a live WebGL spine preview.
+- **Access:** the `symbols` tool (registry name "Invisible Symbols State Machine", bar
+  name "Symbols SM"). Granted to `admin`, `developer`, and `artist` roles by default;
+  overridable per role/user from the admin panel like any other tool.
+
+The grid is scaffolded from the **active project's** symbol set. The launcher is cloud
+and can't import a game's source, so each game publishes its coded `SYMBOL_INFO_MAP` to
+R2 at build time and the tool reads it. A project that has built once with a deploy token
+shows its own symbols; an un-published project (or `apps/lines` dev) falls back to the
+committed `lines` set.
+
+## How to use it
+
+You always work in the context of the **active client/project** (shown top-left, with the
+tool top bar). Switch projects from the launcher before opening the tool.
+
+1. **Read the grid.** Rows are the game's symbols; the six columns are the states
+   (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Each cell shows its
+   **effective binding** — your override if you've made one, otherwise the game's coded
+   default. Sprite cells render a frame thumbnail; spine cells render a live animation
+   on the shared spine canvas (a chip labels the bundle + animation). A cell with no
+   binding shows `unset`.
+2. **Spot your edits.** A cell you've overridden gets a blue border and an **edited**
+   badge. A small **↺** button in its corner **resets that cell to the coded default**
+   (removing the override). The whole grid scrolls vertically; cells resize with the
+   window.
+3. **Open the cell editor.** Click any cell to open the side panel for that
+   `symbol · state`. The panel loads a draft of the cell's current binding.
+4. **Choose the type.** Toggle between **Sprite** and **Spine**. Switching type clears
+   the asset binding, since a frame name is not a spine bundle.
+   - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
+     choose a frame from any of the project's atlases/sheets.
+   - **Spine:** pick a **Spine bundle** from the project's (and shared) bundles, then pick
+     an **Animation**. Once the bundle loads, the animation list is populated from the
+     skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
+     plays the skeleton's first animation. A live **Preview** plays the chosen animation.
+5. **Set the size ratios.** Enter numeric **Width ratio** and **Height ratio** (the cell's
+   `sizeRatios`, fine-grained, step `0.001`). These control how the asset is sized in its
+   board slot.
+6. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
+   an asset to be chosen). The cell updates immediately and is marked **edited**. The
+   panel also has a **Reset to default** action for an overridden cell.
+7. **Save.** The header **Save** button is enabled whenever the doc differs from what's
+   on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
+   stamps it, and shows **Saved**. Save errors surface inline next to the button.
+
+### Saving is not the last step — shipping a rebind
+
+Save only persists the override doc to R2. For a rebind to actually reach the running
+game it must travel the standard live-assets chain, exactly like editor art and fonts:
+
+- **Export** — the bound assets are mirrored into the project's `deploy/editor-symbols/`
+  subtree: sprite cells export the frame's sheet (TexturePacker JSON + page); spine cells
+  copy the bundle's atlas + skeleton(s) + page(s) verbatim so the relative names still
+  resolve. An `index.json` records what was exported. Triggered by
+  `POST /api/editor/export-symbols` (deploy-token gated), which `bake-editor-doc.mjs`
+  calls alongside the other exports.
+- **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored
+  overrides + the asset index).
+- **Pull** — `pull-project-assets.mjs` mirrors `deploy/editor-symbols/` into the game's
+  `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
+- **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded
+  `SYMBOL_INFO_MAP`, and `bakedSymbolAssets()` registers any new sprite sheet / image /
+  spine bundle the overrides introduce. Un-baked repos render byte-identical to today.
+
+So a complete rebind is: edit in the tool → **Save** → a tokened game build (export →
+bake → pull → register) → republish.
+
+## Known limitations / TODOs
+
+- **S5 (prove end-to-end) is still pending.** S1–S4 (engine contract, doc schema +
+  endpoints, the tool page, and the export/bake/pull chain) have landed, but the full
+  round-trip has not yet been proven on Book of Borut. That requires (1) mirroring the S1
+  engine contract (`symbolMap.ts` / `getSymbolInfo`) into Book of Borut's own `src/game/*`,
+  (2) keeping its symbol frame names unique across bound sheets (the bake step warns on
+  collisions), (3) verifying the shared-spine fallback, and (4) actually rebinding a symbol
+  online, rebuilding, republishing, and confirming the new asset/animation appears in-game.
+- **Preview endpoints are still `editor`-gated.** The sprite/spine preview endpoints
+  (`/api/editor/regions`, `/api/editor/spine`) are gated on the `editor` tool, so a user
+  who holds **only** the `symbols` tool will get a 403 on previews. The default roles
+  (`admin`, `developer`, `artist`) hold both, so this only bites a narrowly-scoped role.
+- **Default-art cells render as placeholder chips until project assets are seeded.** The
+  tool previews **only** from R2 (sprites under the project's `sheets/`/`manifests/`,
+  spines under `spines/`). A game's base symbol art lives in its repo, not those prefixes,
+  so until the art is synced into R2 a sprite default shows a labelled placeholder instead
+  of a thumbnail. Spine **default** cells also stay chips, because the coded map's short
+  keys (e.g. `H1`) aren't real R2 bundle prefixes — only a **rebind** (which stores the
+  full bundle prefix) gets a live spine preview.
+- **Bindings only.** v1 edits asset bindings within the fixed symbol set and six states.
+  Payline geometry, adding/removing symbols or states, and creating/editing spine
+  animations are all out of scope (the tool only references existing animations).
+- **Existing standalone games must build once to publish their symbols.** A game that
+  predates this tool needs the S1 contract mirrored into its own source plus one tokened
+  build (or a manual `publish:symbols` run) before the grid shows its real symbols;
+  otherwise it falls back to the coded `lines` set. New games get this from the scaffolder
+  automatically.

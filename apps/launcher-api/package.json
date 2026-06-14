@@ -7,7 +7,10 @@
 	"scripts": {
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint \"src\"",
+		"copy:tool-docs": "node scripts/copy-tool-docs.mjs",
+		"predev": "node scripts/copy-tool-docs.mjs",
 		"dev": "vite dev --host --port 3010",
+		"prebuild": "node scripts/copy-tool-docs.mjs",
 		"build": "vite build",
 		"preview": "vite preview",
 		"start": "node build/index.js",
@@ -34,6 +37,7 @@
 		"@sveltejs/kit": "2.17.3",
 		"drizzle-orm": "0.39.3",
 		"engine-layout": "workspace:*",
+		"marked": "^18.0.5",
 		"opentype.js": "^2.0.0",
 		"pixi.js": "8.8.1",
 		"postgres": "3.4.5",

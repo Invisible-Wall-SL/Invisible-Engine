@@ -468,7 +468,11 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	symbols: 'symbols-state-machine',
 };
 
-/** Repo-relative path to a tool's documentation (authored by the docs effort). */
+/**
+ * Launcher route that renders a tool's documentation. The guide markdown is
+ * authored in-repo under `docs/tools/<slug>.md`; `/docs/<slug>` serves it as a
+ * full page behind the auth gate (see `src/routes/(app)/docs/[slug]`).
+ */
 export function toolDocPath(id: string): string {
-	return `docs/tools/${TOOL_DOC_SLUG[id] ?? id}.md`;
+	return `docs/${TOOL_DOC_SLUG[id] ?? id}`;
 }
