@@ -821,6 +821,12 @@ right-click easing menu (Linear/Stepped/Ease In/Out/In-Out → setKeyCurve). Pla
 seeks + clears; selection clears on bone/anim change (per-bone). The graph editor now has
 the classic curve-editor set: value curves · draggable keys · bezier handles · multi-
 select · marquee · easing menu.
+**Iter 4 LANDED (`0810678`):** box-select scaling (≥2 keys → dashed bbox with 8
+edge/corner handles; L/R edges stretch timing, T/B edges scale values = the value-scale
+handle, corners both, scaling around the opposite edge) + snapping (⇥ toggle, on by
+default; key/box-edge times snap to playhead/grid/nearby keys via `graphSnapTime`). Also
+a **loading overlay** (`36cbbe7`) blocks input during new-rig / image-upload / skeleton
+load.
 
 **Remaining non-bone channels (each its own follow-up):** draw-order timeline, events,
 mesh deform. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
