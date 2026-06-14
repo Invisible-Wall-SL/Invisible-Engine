@@ -808,3 +808,16 @@ spine-core (`tools/rigger-spike/slotanim.mjs`): `slots[slot].attachment=[{time,n
 mesh deform. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
 disable until an editable rig loads. Animation settings (working length / stretch / speed)
 landed alongside 5.3 (`83073da`). UI is owner-verified live.
+
+**Animate-mode UX pass (2026-06-14, owner live-testing):**
+- Timeline ZOOM (px/sec, － / ＋ / ⊡ fit + Ctrl/⌘-wheel, horizontal scroll, sticky name
+  gutter), grab-to-SCRUB the playhead, numeric TIME + SPEED inputs in the bar, Reset
+  button removed (`7008e24`).
+- **Key-recording fix (`94b6f3d`):** `keyBone` bailed with no current animation →
+  `ensureCurAnim()` auto-creates one on first key/pose, and keys always refresh the
+  dopesheet. `◆ Key` needs a selected bone/slot (else a hint); t=0 keys clamp clear of
+  the sticky gutter so they're visible.
+- **Transform gizmo (`096aec7`):** rotate ring + move-centre on the selected bone's
+  origin (Setup + Animate). Ring = rotate (world-angle delta → local rotation; the first
+  canvas rotation control), centre = translate. Animate holds via `posingBone` + keys on
+  release by `posingBone.mode` (rotate→rotate channel, move→translate).
