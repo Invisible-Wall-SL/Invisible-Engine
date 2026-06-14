@@ -1,7 +1,8 @@
 <script lang="ts">
 	type Props = {
-		// `fixed` renders the always-on tiny build stamp pinned to the screen corner;
-		// omitted/false renders inline (the in-modal footer use).
+		// `fixed` renders the tiny build stamp pinned to the screen corner — DEBUG builds
+		// only, so player builds stay clean. Omitted/false renders inline (the in-modal
+		// footer use), which is shown on any build.
 		fixed?: boolean;
 	};
 
@@ -29,7 +30,7 @@
 	});
 </script>
 
-{#if label}
+{#if label && (!fixed || build.debug)}
 	{#if fixed}
 		<span class="ie-build-stamp">{label}</span>
 	{:else}
