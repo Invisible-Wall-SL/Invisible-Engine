@@ -277,6 +277,7 @@ let gl, renderer, assetMgr;
 let skeleton, animState, skeletonData, lastFrame = 0;
 let playing = true, looping = true, showBones = true, pma = true, preferPng = true;
 let showMesh = false;
+let showAttachments = true; // when false, the skin's images/meshes are hidden (bones only) for unobstructed bone editing
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let collapsedBones = new Set(); // bone names whose subtree is collapsed in the tree
@@ -569,10 +570,21 @@ function buildInspector(entry){
   const skinList = $("#skinList"); clearChildren(skinList);
   const activeSkinName = (skeleton && skeleton.skin && skeleton.skin.name) || "default";
   {
-    const hint = document.createElement("div");
+    const bar = document.createElement("div");
+    bar.style.cssText = "margin:4px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;";
+    const hint = document.createElement("span");
     hint.textContent = "click a skin to view its images / meshes / weights";
-    hint.style.cssText = "margin:4px 14px;color:var(--dim);font-size:11px;";
-    skinList.appendChild(hint);
+    hint.style.cssText = "color:var(--dim);font-size:11px;flex:1;";
+    bar.appendChild(hint);
+    const tg = document.createElement("button");
+    const lbl = () => showAttachments ? "🙈 Hide skin" : "👁 Show skin";
+    tg.textContent = lbl();
+    tg.title = "Hide the skin's images/meshes so you can position bones unobstructed — display only, changes nothing";
+    tg.style.cssText = "padding:0 7px;font-size:11px;";
+    if (!showAttachments) tg.className = "active";
+    tg.onclick = () => { showAttachments = !showAttachments; tg.textContent = lbl(); tg.classList.toggle("active", !showAttachments); };
+    bar.appendChild(tg);
+    skinList.appendChild(bar);
   }
   if (editMode){
     const ak = document.createElement("button");
@@ -620,6 +632,29 @@ function buildInspector(entry){
       row.appendChild(ctl);
     }
     skinList.appendChild(row);
+    // For the ACTIVE skin, list what it influences: each slot it provides an attachment
+    // for, the attachment + type, and (for weighted meshes) which bones pull it.
+    if (sk.name === activeSkinName){
+      const det = document.createElement("div");
+      det.style.cssText = "margin:2px 14px 7px;padding:5px 8px;border-left:2px solid var(--line);font-size:11px;color:var(--dim);line-height:1.5;";
+      if (!atts.length){
+        det.textContent = "(this skin defines no attachments — it shows nothing)";
+      } else {
+        const hdr = document.createElement("div");
+        hdr.textContent = "influences these slots:"; hdr.style.cssText = "color:var(--txt);margin-bottom:2px;";
+        det.appendChild(hdr);
+        atts.slice().sort((p, q) => p.slotIndex - q.slotIndex).forEach((e) => {
+          const slotName = skeletonData.slots[e.slotIndex] ? skeletonData.slots[e.slotIndex].name : "#" + e.slotIndex;
+          const a = e.attachment;
+          const type = isMeshAtt(a) ? (a.bones && a.bones.length ? "weighted mesh" : "mesh") : "image";
+          let txt = slotName + " → " + e.name + " · " + type;
+          if (isMeshAtt(a) && a.bones && a.bones.length){ const bn = meshBoneNames(a); if (bn.length) txt += "  ⟵ bones: " + bn.join(", "); }
+          const line = document.createElement("div"); line.textContent = txt; line.style.margin = "1px 0";
+          det.appendChild(line);
+        });
+      }
+      skinList.appendChild(det);
+    }
   });
   $("#cSkins").textContent = "(" + skeletonData.skins.length + ")";
 
@@ -1156,10 +1191,16 @@ function renderSlotDetail(){
       det.appendChild(h);
     }
     if (!(att.bones && att.bones.length)){
+      const hint = document.createElement("div");
+      hint.innerHTML = "<b>Not attached to bones yet.</b> Step 1: bind it to its slot's bone (“" +
+        (sd.boneData ? sd.boneData.name : "?") + "”) below — then the <b>🖊 Weight brush</b> appears so you " +
+        "can paint how much each bone pulls each vertex.";
+      hint.style.cssText = "margin-top:8px;color:var(--dim);font-size:11px;line-height:1.4;";
+      det.appendChild(hint);
       const bind = document.createElement("button");
-      bind.textContent = "Bind to slot bone (make weighted)";
-      bind.title = "Convert this unweighted mesh to a weighted one bound 100% to the slot's bone, then paint weights per vertex";
-      bind.style.cssText = "margin-top:8px;";
+      bind.textContent = "① Bind to bone “" + (sd.boneData ? sd.boneData.name : "slot bone") + "”";
+      bind.title = "Attach this mesh to its slot's bone (every vertex 100% to that bone), then paint weights for other bones";
+      bind.style.cssText = "margin-top:6px;";
       bind.onclick = bindMeshToSlotBone;
       det.appendChild(bind);
     }
@@ -1466,6 +1507,15 @@ function drawDrawingOverlay(){
     const a = drawPoints[drawPoints.length - 1], b = drawPoints[0];
     renderer.line(a.x, a.y, b.x, b.y, col);
   }
+}
+
+// Distinct bone names a weighted mesh is bound to (walks the runtime packed `bones`
+// array: per vertex [count, boneIdx×count]).
+function meshBoneNames(att){
+  if (!att || !att.bones || !att.bones.length) return [];
+  const set = new Set(), b = att.bones; let i = 0;
+  while (i < b.length){ const n = b[i++]; for (let k = 0; k < n; k++) set.add(b[i++]); }
+  return [...set].map((bi) => (skeletonData.bones[bi] ? skeletonData.bones[bi].name : "#" + bi));
 }
 
 // Setup-pose WORLD positions of the selected mesh's vertices ([x0,y0,x1,y1,…]).
@@ -2147,7 +2197,7 @@ function frame(now){
     }
     updateWorld();
     renderer.begin();
-    renderer.drawSkeleton(skeleton, pma);
+    if (showAttachments) renderer.drawSkeleton(skeleton, pma);
     if (showBones || showMesh){
       const d = renderer.skeletonDebugRenderer;
       if (d){
