@@ -775,7 +775,15 @@ format natively holds many animations, so multi-anim is CRUD on `rawDoc.animatio
 - Sync: entering Preview rebuilds the runtime from `rawDoc` (if anims edited) so playback
   reflects authored keys + honours curves; `animsDirty` gates that rebuild.
 
-**Next sub-phases:** 5.2 dopesheet timeline (per-bone/channel key dots, drag-to-retime);
-5.3 curves (stepped + bezier graph editor — until then Animate previews LINEAR while
-Preview honours real curves); 5.4 non-bone channels (attachment swap, slot color, draw
-order, events, mesh deform). UI is owner-verified live (authed page).
+**5.2 LANDED (2026-06-14, `320ad02`) — dopesheet timeline** docked below the stage in
+Animate mode: a time ruler (auto-stepped ticks), one row per keyed bone (+ the selected
+bone) with diamond key dots, a draggable red playhead (click/drag ruler or track to
+scrub; tracks playback each frame). Drag a key dot to RETIME it — `retimeBoneKey` moves
+all of that bone's channel keys at that time together, drops a clashing key, re-sorts,
+and can extend past the old end (duration grows). Double-click a dot deletes the key;
+click a gutter/dot selects the bone. A dopesheet key = one time on a bone row (union of
+its rotate/translate/scale keys). `retimeBoneKey` verified headlessly.
+
+**Next sub-phases:** 5.3 curves (stepped + bezier graph editor — until then Animate
+previews LINEAR while Preview honours real curves); 5.4 non-bone channels (attachment
+swap, slot color, draw order, events, mesh deform). UI is owner-verified live.
