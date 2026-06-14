@@ -378,11 +378,11 @@ let tlSelOnly = false; // dopesheet: show only the selected bone/slot's keys
 let tlView = "dope"; // "dope" (dopesheet) | "graph" (curve editor) — separate views
 let graphDrag = null, graphMap = null; // graph keyframe drag state + value↔y mapping
 const GRAPH_CHANS = [
-  { ch: "rotate", field: "value", label: "rotation", color: "#ff6b6b" },
-  { ch: "translate", field: "x", label: "x", color: "#5cc8ff" },
-  { ch: "translate", field: "y", label: "y", color: "#9b8cff" },
-  { ch: "scale", field: "x", label: "scaleX", color: "#7ee0c0" },
-  { ch: "scale", field: "y", label: "scaleY", color: "#ffd24a" },
+  { ch: "rotate", field: "value", vi: 0, label: "rotation", color: "#ff6b6b" },
+  { ch: "translate", field: "x", vi: 0, label: "x", color: "#5cc8ff" },
+  { ch: "translate", field: "y", vi: 1, label: "y", color: "#9b8cff" },
+  { ch: "scale", field: "x", vi: 0, label: "scaleX", color: "#7ee0c0" },
+  { ch: "scale", field: "y", vi: 1, label: "scaleY", color: "#ffd24a" },
 ];
 let graphHide = {}; // channel label → hidden?
 let gizmoDrag = null; // transform gizmo rotate-drag state
@@ -2851,12 +2851,29 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
     playing = false; $("#play").textContent = "▶ Play"; syncPlayhead();
     if (selBone != null) renderBoneDetail();
   });
-  // curves + keyframe handles
+  // curves + tangent handles + keyframe handles
   for (const c of curves){
     let pts = "";
     const steps = Math.max(40, Math.min(400, Math.round(contentW / 4)));
     for (let i = 0; i <= steps; i++){ const t = dur * i / steps; const k = sampleChannel(c.keys, t, [c.field]); pts += timeToX(t) + "," + valueToY(k[c.field] ?? 0) + " "; }
     svg.appendChild(svgEl("polyline", { points: pts, fill: "none", stroke: c.color, "stroke-width": 1.5, "stroke-opacity": 0.9 }));
+    // bezier tangent handles for eased segments (curve = control points in abs time/value)
+    for (let i = 0; i < c.keys.length - 1; i++){
+      const a = c.keys[i], b = c.keys[i + 1];
+      if (!Array.isArray(a.curve)) continue;
+      const o = c.vi * 4;
+      const ctrls = [{ ctrl: 0, ax: a.time, av: a[c.field] ?? 0, cxr: a.curve[o], cyr: a.curve[o + 1] },
+                     { ctrl: 1, ax: b.time, av: b[c.field] ?? 0, cxr: a.curve[o + 2], cyr: a.curve[o + 3] }];
+      for (const h of ctrls){
+        if (typeof h.cxr !== "number") continue;
+        const ax = timeToX(h.ax), ay = valueToY(h.av), hx = timeToX(h.cxr), hy = valueToY(h.cyr);
+        svg.appendChild(svgEl("line", { x1: ax, y1: ay, x2: hx, y2: hy, stroke: c.color, "stroke-opacity": 0.5, "stroke-dasharray": "2,2" }));
+        const hd = svgEl("rect", { x: hx - 3, y: hy - 3, width: 6, height: 6, fill: "#0c0f14", stroke: c.color, "stroke-width": 1.5, style: "cursor:move;" });
+        hd.dataset.key = "1";
+        hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, vi: c.vi, ctrl: h.ctrl }; });
+        svg.appendChild(hd);
+      }
+    }
     for (const k of c.keys){
       const cx = timeToX(k.time), cy = valueToY(k[c.field] ?? 0), atPh = Math.abs(k.time - animTime) < 1e-3;
       const dot = svgEl("circle", { cx, cy, r: atPh ? 5 : 4, fill: atPh ? "#ffd24a" : c.color, stroke: "#0c0f14", "stroke-width": 1, style: "cursor:move;" });
@@ -3506,13 +3523,21 @@ function wire(){
   });
   // Dopesheet key drag + playhead scrub + graph keyframe drag (not gated by lastXY).
   window.addEventListener("mousemove", (e) => {
-    if (graphDrag && graphMap){ // drag a graph keyframe: x = time, y = value
+    if (graphDrag && graphMap){
       const r = graphMap.svg.getBoundingClientRect();
-      graphDrag.keyObj.time = Math.max(0, roundN(((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1), 4));
+      const t = roundN(((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1), 4);
       const v = graphMap.maxV - ((e.clientY - r.top) - graphMap.top) / (graphMap.areaH || 1) * (graphMap.maxV - graphMap.minV);
-      graphDrag.keyObj[graphDrag.field] = roundN(v, graphDrag.field === "value" ? 2 : 3);
-      const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
-      if (cb && Array.isArray(cb[graphDrag.ch])) cb[graphDrag.ch].sort((a, b) => a.time - b.time);
+      if (graphDrag.isHandle){ // drag a bezier tangent control point (clamped within its segment)
+        const cx = Math.max(graphDrag.keyObj.time, Math.min(graphDrag.nextObj.time, t));
+        const o = graphDrag.vi * 4 + graphDrag.ctrl * 2;
+        graphDrag.keyObj.curve[o] = roundN(cx, 4);
+        graphDrag.keyObj.curve[o + 1] = roundN(v, 3);
+      } else { // drag a keyframe: x = time, y = value
+        graphDrag.keyObj.time = Math.max(0, t);
+        graphDrag.keyObj[graphDrag.field] = roundN(v, graphDrag.field === "value" ? 2 : 3);
+        const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
+        if (cb && Array.isArray(cb[graphDrag.ch])) cb[graphDrag.ch].sort((a, b) => a.time - b.time);
+      }
       markDirty(); animsDirty = true; renderTimeline();
       return;
     }
