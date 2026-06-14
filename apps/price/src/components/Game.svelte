@@ -111,8 +111,10 @@
 
 <Modals>
 	{#snippet version()}
-		<GameVersion version="0.0.0" />
+		<GameVersion />
 	{/snippet}
 </Modals>
+
+<GameVersion fixed />
 
 <DebugMenu />
