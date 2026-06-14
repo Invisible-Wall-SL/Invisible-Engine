@@ -70,8 +70,9 @@
   /* dopesheet timeline (animate mode) */
   #timeline { display:none; flex:0 0 160px; height:160px; background:var(--panel);
     border-top:1px solid var(--line); overflow:auto; position:relative; }
-  #timeline .tl-key { position:absolute; top:5px; width:11px; height:11px; margin-left:-6px;
-    transform:rotate(45deg); background:var(--accent); border:1px solid #0c0f14; cursor:ew-resize; }
+  #timeline .tl-key { position:absolute; top:4px; width:13px; height:13px; margin-left:-7px;
+    transform:rotate(45deg); background:var(--accent); border:1px solid #0c0f14;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4); cursor:ew-resize; z-index:1; }
   #timeline .tl-key.sel { background:#ffd24a; }
   #timeline .tl-key.stepped { transform:none; border-radius:1px; } /* upright square = stepped */
   #timeline .tl-key.bez { background:#7ee0c0; } /* eased segment */
@@ -2707,7 +2708,7 @@ function renderTimeline(){
       const ct = tr.kind === "bone" ? keyCurveType(tr.name, kt) : "linear";
       const dot = document.createElement("div");
       dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (tr.kind === "slot" ? " slot" : "");
-      dot.style.left = (kt / dur) * 100 + "%";
+      dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.title = tr.name + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
       dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, oldTime: kt, newTime: kt, dot, track, dur }; };
       dot.ondblclick = (e) => { e.stopPropagation();
@@ -3101,7 +3102,11 @@ function wire(){
     animState.apply(skeleton); updateWorld();
   };
   $("#modeSeg").onclick = (e) => { const b = e.target.closest("button[data-mode]"); if (b && !b.disabled) setMode(b.dataset.mode); };
-  $("#keyBtn").onclick = () => { if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate:true, translate:true, scale:true }); };
+  $("#keyBtn").onclick = () => {
+    if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate: true, translate: true, scale: true }, true);
+    else if (selSlot){ keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); }
+    else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
+  };
   $("#delKey").onclick = () => { if (selBone != null) deleteBoneKeyAt(skeletonData.bones[selBone].name, animTime); };
   $("#prevKey").onclick = () => gotoKey(-1);
   $("#nextKey").onclick = () => gotoKey(1);
