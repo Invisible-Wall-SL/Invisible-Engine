@@ -7,8 +7,10 @@ import {
 	isValidGameKey,
 	isValidGameUrl,
 	renameGame,
+	setGameBuildInfo,
 	setGameProject,
 	setGameUrl,
+	type GameBuildInfo,
 } from '$lib/server/games';
 import { projectExists } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
@@ -43,7 +45,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
-	let body: { key?: unknown; name?: unknown; url?: unknown; project?: unknown };
+	let body: {
+		key?: unknown;
+		name?: unknown;
+		url?: unknown;
+		project?: unknown;
+		version?: unknown;
+		builtAt?: unknown;
+		debug?: unknown;
+	};
 	try {
 		body = await request.json();
 	} catch {
@@ -58,6 +68,18 @@ export const POST: RequestHandler = async ({ request }) => {
 	// NULL), which made it show under every client/project selection. Fail loud instead —
 	// a global game is a deliberate choice made by hand in `/admin → Games`, never here.
 	const project = typeof body.project === 'string' ? body.project.trim() : '';
+
+	// Optional build metadata stamped at publish time. Parsed defensively: missing /
+	// malformed fields fall back to the column defaults ('' / null / false). A bad
+	// ISO timestamp is dropped (null), never rejected — build info is informational.
+	const version = typeof body.version === 'string' ? body.version.trim() : '';
+	let builtAt: Date | null = null;
+	if (typeof body.builtAt === 'string' && body.builtAt.trim()) {
+		const parsed = new Date(body.builtAt.trim());
+		if (!Number.isNaN(parsed.getTime())) builtAt = parsed;
+	}
+	const debug = Boolean(body.debug);
+	const build: GameBuildInfo = { version, builtAt, debug };
 
 	if (!isValidGameKey(key)) {
 		return json({ error: 'Invalid game key' }, { status: 400, headers: NO_STORE });
@@ -81,8 +103,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		await setGameUrl(key, url);
 		await renameGame(key, name);
 		await setGameProject(key, projectKey);
+		await setGameBuildInfo(key, build);
 	} else {
-		await createGame(key, name, url, projectKey);
+		await createGame(key, name, url, projectKey, build);
 	}
 
 	// Auto-purge the Cloudflare edge cache for this game so a republish is

@@ -49,13 +49,51 @@ export async function gameExists(key: string): Promise<boolean> {
 	return Boolean(row);
 }
 
+/** Build metadata stamped by the desktop launcher at publish time. All optional;
+ *  `builtAt` accepts an ISO string or Date and is stored as a Date (null when absent). */
+export type GameBuildInfo = {
+	version?: string;
+	builtAt?: string | Date | null;
+	debug?: boolean;
+};
+
+/** Coerce a `builtAt` input (ISO string | Date | null/undefined) to a Date or null. */
+function toBuiltAt(value: string | Date | null | undefined): Date | null {
+	if (value == null || value === '') return null;
+	const date = value instanceof Date ? value : new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export async function createGame(
 	key: string,
 	name: string,
 	url: string,
 	projectKey: string | null = null,
+	build: GameBuildInfo = {},
 ): Promise<void> {
-	await getDb().insert(games).values({ key, name, url, projectKey });
+	await getDb()
+		.insert(games)
+		.values({
+			key,
+			name,
+			url,
+			projectKey,
+			version: build.version ?? '',
+			builtAt: toBuiltAt(build.builtAt),
+			debug: build.debug ?? false,
+		});
+}
+
+/** Persist build metadata on an existing game (used by the desktop publish upsert). */
+export async function setGameBuildInfo(key: string, build: GameBuildInfo): Promise<void> {
+	await getDb()
+		.update(games)
+		.set({
+			version: build.version ?? '',
+			builtAt: toBuiltAt(build.builtAt),
+			debug: build.debug ?? false,
+		})
+		.where(eq(games.key, key));
 }
 
 /** Scope a game to a project (or `null` to make it global). */

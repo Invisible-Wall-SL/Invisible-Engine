@@ -55,6 +55,16 @@ export const games = pgTable('games', {
 	url: text('url').notNull().default(''),
 	/** Owning project; null = global (the game shows on every project selection). */
 	projectKey: text('project_key').references(() => projects.key, { onDelete: 'set null' }),
+	/**
+	 * Build metadata stamped by the desktop launcher at publish time (optional —
+	 * legacy rows and hand-added games leave these at their defaults). `version` is
+	 * a per-project build number string; `builtAt` the build's ISO timestamp;
+	 * `debug` whether the published bundle is a debug build. The engine bakes a
+	 * matching in-game stamp so portal + game agree on what's live.
+	 */
+	version: text('version').notNull().default(''),
+	builtAt: timestamp('built_at', { withTimezone: true }),
+	debug: boolean('debug').notNull().default(false),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

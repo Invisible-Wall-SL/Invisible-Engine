@@ -41,6 +41,27 @@
 		return out;
 	};
 
+	// Compact build stamp under a game name (e.g. `v13 · Jun 14, 14:32 🐞`). Built from
+	// the publish-time metadata the desktop launcher POSTs; empty when none is present.
+	const buildStamp = (game: (typeof data.games)[number]) => {
+		const parts: string[] = [];
+		if (game.version) parts.push(`v${game.version}`);
+		if (game.builtAt) {
+			const d = new Date(game.builtAt);
+			parts.push(
+				d.toLocaleString(undefined, {
+					month: 'short',
+					day: 'numeric',
+					hour: '2-digit',
+					minute: '2-digit',
+				}),
+			);
+		}
+		let out = parts.join(' · ');
+		if (game.debug) out = out ? `${out} 🐞` : '🐞 debug';
+		return out;
+	};
+
 	type SelectorProject = (typeof data.projects)[number];
 
 	// Sentinel for "projects with no owning client" — the Client step always has
@@ -198,10 +219,12 @@
 		<h2>Games</h2>
 		<div class="grid">
 			{#each data.games as game (game.key)}
+				{@const stamp = buildStamp(game)}
 				{#if game.url}
 					<a class="tool" href={gameUrl(game.url)} target="_blank" rel="noopener">
 						<span class="ico">{@html GAME_ICON}</span>
 						<strong>{game.name}</strong>
+						{#if stamp}<span class="muted build">{stamp}</span>{/if}
 						<span class="muted">Launch for project '{projectKey}'</span>
 						<span class="tag games">launch</span>
 					</a>
@@ -209,6 +232,7 @@
 					<div class="tool disabled">
 						<span class="ico">{@html GAME_ICON}</span>
 						<strong>{game.name}</strong>
+						{#if stamp}<span class="muted build">{stamp}</span>{/if}
 						<span class="muted">No URL set — configure in Admin.</span>
 						<span class="tag games">launch</span>
 					</div>
@@ -433,6 +457,12 @@
 	}
 	.tool .muted {
 		font-size: 13px;
+	}
+	.tool .build {
+		font-size: 11px;
+		letter-spacing: 0.02em;
+		color: #6f6f78;
+		margin-top: -2px;
 	}
 	.tag {
 		position: absolute;
