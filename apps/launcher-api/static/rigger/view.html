@@ -2698,12 +2698,23 @@ function retimeBoneKey(boneName, oldTime, newTime){
   markDirty(); animsDirty = true;
 }
 
-// Tracks shown as rows: bones + slots with keys in the current anim, plus the selection.
+const BONE_CH_LABEL = { rotate: "rotation", translate: "translate", scale: "scale", shear: "shear" };
+const SLOT_CH_LABEL = { attachment: "image", rgba: "colour" };
+// Tracks shown as rows. Overview ("sel" off) = one collapsed row per keyed bone/slot.
+// Focused ("sel" on) = the selected bone/slot EXPANDED into per-channel rows, so each
+// keyframe is clearly tied to a property (rotation / translate / scale / image / colour).
 function timelineTracks(){
   const a = animOf(curAnim), out = [];
-  if (tlSelOnly){ // solo: just the selected bone/slot
-    if (selBone != null) out.push({ kind: "bone", name: skeletonData.bones[selBone].name });
-    if (selSlot) out.push({ kind: "slot", name: selSlot });
+  if (tlSelOnly){
+    if (selBone != null){
+      const bn = skeletonData.bones[selBone].name, cb = (a && a.bones && a.bones[bn]) || {};
+      for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch]) && cb[ch].length) out.push({ kind: "bonech", name: bn, ch, label: BONE_CH_LABEL[ch] });
+      if (!out.length) out.push({ kind: "bonech", name: bn, ch: "rotate", label: "rotation" }); // empty row to key into
+    }
+    if (selSlot){
+      const cs = (a && a.slots && a.slots[selSlot]) || {};
+      for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
+    }
     return out;
   }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
@@ -2712,7 +2723,29 @@ function timelineTracks(){
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
   return out;
 }
-const trackKeyTimes = (tr) => (tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name));
+const chArr = (tr) => { const grp = (tr.kind === "slotch") ? (animOf(curAnim) || {}).slots : (animOf(curAnim) || {}).bones; const n = grp && grp[tr.name]; return n && Array.isArray(n[tr.ch]) ? n[tr.ch] : null; };
+const trackKeyTimes = (tr) => {
+  if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
+  return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
+};
+const trackKeyCurve = (tr, time) => {
+  if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  return tr.kind === "bone" ? keyCurveType(tr.name, time) : "linear";
+};
+// Retime / delete a single channel's key (used by the expanded per-channel rows).
+function retimeChannelKey(tr, oldTime, newTime){
+  const arr = chArr(tr); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
+  const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  const grp = (tr.kind === "slotch" ? (animOf(curAnim)).slots : (animOf(curAnim)).bones)[tr.name];
+  grp[tr.ch] = arr.filter((x) => x === k || Math.abs(x.time - newTime) >= 1e-4); k.time = newTime; grp[tr.ch].sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+function deleteChannelKeyAt(tr, time){
+  const arr = chArr(tr); if (!arr) return;
+  const node = (tr.kind === "slotch" ? (animOf(curAnim)).slots : (animOf(curAnim)).bones)[tr.name];
+  node[tr.ch] = arr.filter((k) => Math.abs(k.time - time) >= 1e-3); if (!node[tr.ch].length) delete node[tr.ch];
+  markDirty(); animsDirty = true; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
+}
 
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
 function renderTimeline(){
@@ -2783,27 +2816,30 @@ function renderTimeline(){
   if (tlView === "graph"){ renderGraphBody(tl, dur, pps, contentW, gutter); positionPlayhead(); return; }
 
   timelineTracks().forEach((tr) => {
-    const isSel = tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot;
+    const isChan = tr.kind === "bonech" || tr.kind === "slotch";
+    const isSlotKind = tr.kind === "slot" || tr.kind === "slotch";
+    const isSel = isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
-    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:8px;overflow:hidden;white-space:nowrap;cursor:pointer;" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = tr.kind === "slot" ? "▤" : "⦿"; tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = tr.name; nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;";
+    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:pointer;" + (isSel ? "background:#2a2f3a;" : ""));
+    const tag = document.createElement("span"); tag.textContent = isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isChan ? tr.label : tr.name; nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
-    g.onclick = () => { if (tr.kind === "slot") selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
+    g.onclick = () => { if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
     const track = document.createElement("div");
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
     track.onmousedown = (e) => { if (e.target === track) startScrub(track, e.clientX); };
     trackKeyTimes(tr).forEach((kt) => {
-      const ct = tr.kind === "bone" ? keyCurveType(tr.name, kt) : "linear";
+      const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (tr.kind === "slot" ? " slot" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
-      dot.title = tr.name + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
-      dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, oldTime: kt, newTime: kt, dot, track, dur }; };
+      dot.title = (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
+      dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, ch: tr.ch, oldTime: kt, newTime: kt, dot, track, dur }; };
       dot.ondblclick = (e) => { e.stopPropagation();
-        if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
+        if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
+        else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
       };
       track.appendChild(dot);
@@ -3627,7 +3663,9 @@ function wire(){
     if (!tlDrag) return;
     const d = tlDrag; tlDrag = null;
     if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
-      if (d.kind === "slot") retimeSlotKey(d.name, d.oldTime, d.newTime); else retimeBoneKey(d.name, d.oldTime, d.newTime);
+      if (d.kind === "bonech" || d.kind === "slotch") retimeChannelKey(d, d.oldTime, d.newTime);
+      else if (d.kind === "slot") retimeSlotKey(d.name, d.oldTime, d.newTime);
+      else retimeBoneKey(d.name, d.oldTime, d.newTime);
       animTime = d.newTime; syncPlayhead();
     }
     renderTimeline(); refreshAnimCounts();
