@@ -75,6 +75,8 @@
   #timeline .tl-key.sel { background:#ffd24a; }
   #timeline .tl-key.stepped { transform:none; border-radius:1px; } /* upright square = stepped */
   #timeline .tl-key.bez { background:#7ee0c0; } /* eased segment */
+  #timeline .tl-key.slot { background:#e0a64a; } /* slot (attachment/colour) key */
+  #timeline .tl-key.slot.sel { background:#ffd24a; }
   #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
     pointer-events:none; z-index:3; }
   /* controls bar */
@@ -1322,7 +1324,59 @@ function selectSlot(name){
   weightBrush = false; brushBone = null; brushPainting = false;
   drawMeshMode = false; drawPoints = [];
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
+  if (animMode) renderTimeline();
   renderSlotDetail();
+}
+
+// Animate-mode slot editor: key the slot's ATTACHMENT (which image shows) and COLOUR
+// at the playhead. Stepped attachment swaps + rgba colour fades.
+function renderSlotAnimDetail(det, slotIndex, sd){
+  det.innerHTML = "";
+  const title = document.createElement("div");
+  title.textContent = sd.name + "  · @ " + animTime.toFixed(2) + "s";
+  title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
+  det.appendChild(title);
+  if (!curAnim){
+    const t = document.createElement("div"); t.textContent = "no animation — ＋ New animation in the Animations panel";
+    t.style.cssText = "color:var(--dim);font-size:11px;"; det.appendChild(t); return;
+  }
+  // attachment (stepped): pick which image/mesh shows at the playhead
+  const defs = slotAttachmentList(sd.name);
+  const curAtt = slotAttachmentAt(sd.name, animTime);
+  {
+    const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
+    const l = document.createElement("span"); l.textContent = "shows"; l.style.cssText = "width:54px;";
+    const sel = document.createElement("select"); sel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    const o0 = document.createElement("option"); o0.value = " none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
+    defs.forEach((d) => { const o = document.createElement("option"); o.value = d.name; o.textContent = d.name; sel.appendChild(o); });
+    sel.value = curAtt == null ? " none" : curAtt;
+    sel.onchange = () => keySlotAttachment(sd.name, sel.value === " none" ? null : sel.value);
+    r.appendChild(l); r.appendChild(sel); det.appendChild(r);
+  }
+  // colour (rgba): tint + alpha at the playhead
+  {
+    const hex = slotColorAt(sd.name, animTime);
+    const rgb = "#" + hex.slice(0, 6), alpha = parseInt(hex.slice(6, 8) || "ff", 16) / 255;
+    const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
+    const l = document.createElement("span"); l.textContent = "colour"; l.style.cssText = "width:54px;";
+    const cp = document.createElement("input"); cp.type = "color"; cp.value = rgb; cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
+    const av = document.createElement("input"); av.type = "range"; av.min = "0"; av.max = "100"; av.value = Math.round(alpha * 100); av.style.flex = "1";
+    const aPct = document.createElement("span"); aPct.textContent = Math.round(alpha * 100) + "%"; aPct.style.cssText = "width:36px;text-align:right;";
+    const commit = () => { const a = hex2(parseInt(av.value, 10) / 100); aPct.textContent = av.value + "%"; keySlotColor(sd.name, cp.value.slice(1) + a); };
+    cp.oninput = commit; av.oninput = () => { aPct.textContent = av.value + "%"; }; av.onchange = commit;
+    r.appendChild(l); r.appendChild(cp); r.appendChild(av); r.appendChild(aPct); det.appendChild(r);
+  }
+  const times = slotKeyTimes(sd.name);
+  if (times.length){
+    const del = document.createElement("button");
+    del.textContent = "✕ key @ " + animTime.toFixed(2) + "s"; del.style.cssText = "margin-top:6px;";
+    del.onclick = () => deleteSlotKeyAt(sd.name, animTime);
+    det.appendChild(del);
+  }
+  const info = document.createElement("div");
+  info.textContent = times.length ? ("keys (" + times.length + "): " + times.map((t) => t.toFixed(2) + "s").join(", ")) : "no keys yet — set the image/colour above to key it at the playhead";
+  info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;";
+  det.appendChild(info);
 }
 
 function renderSlotDetail(){
@@ -1333,6 +1387,8 @@ function renderSlotDetail(){
   if (slotIndex < 0){ det.style.display = "none"; return; }
   const sd = skeletonData.slots[slotIndex];
   det.style.display = "block";
+
+  if (animMode){ renderSlotAnimDetail(det, slotIndex, sd); return; }
 
   if (!editMode){
     det.textContent = sd.name + "\n→ bone " + (sd.boneData ? sd.boneData.name : "") +
@@ -2297,17 +2353,18 @@ function setWorkLen(name, secs){
 // Stretch/squash: scale ALL key times (and bezier control times) of an animation to a new
 // duration. This is the persistent "make it N seconds" — keyed duration actually changes.
 function stretchAnimation(name, newDur){
-  const a = animOf(name); if (!a || !a.bones) return;
+  const a = animOf(name); if (!a) return;
   const old = animDuration(name); newDur = Number(newDur) || 0;
   if (!(old > 0) || !(newDur > 0)) return;
   const f = newDur / old;
-  for (const ch of Object.values(a.bones)) for (const keys of Object.values(ch)){
+  const scaleGroup = (group) => { for (const ch of Object.values(group || {})) for (const keys of Object.values(ch)){
     if (!Array.isArray(keys)) continue;
     for (const k of keys){
       k.time = roundN(k.time * f, 4);
       if (Array.isArray(k.curve)) for (let i = 0; i < k.curve.length; i += 4){ k.curve[i] = roundN(k.curve[i] * f, 4); k.curve[i + 2] = roundN(k.curve[i + 2] * f, 4); }
     }
-  }
+  } };
+  scaleGroup(a.bones); scaleGroup(a.slots);
   animWorkLen[name] = newDur;
   animTime = Math.min(animTime * f, newDur);
   markDirty(); animsDirty = true; syncPlayhead(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
@@ -2349,6 +2406,18 @@ function poseAtTime(name, t){
     if (ch.translate && (k = sampleChannel(ch.translate, t, ["x", "y"]))){ bone.x = bd.x + (k.x || 0); bone.y = bd.y + (k.y || 0); }
     if (ch.scale && (k = sampleChannel(ch.scale, t, ["x", "y"]))){ bone.scaleX = bd.scaleX * (k.x ?? 1); bone.scaleY = bd.scaleY * (k.y ?? 1); }
     if (ch.shear && (k = sampleChannel(ch.shear, t, ["x", "y"]))){ bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+  }
+  // slot channels (5.4): attachment swap (stepped) + rgba colour
+  if (a.slots){
+    for (const [sn, ch] of Object.entries(a.slots)){
+      const slot = skeleton.findSlot(sn); if (!slot) continue;
+      const si = skeletonData.slots.findIndex((s) => s.name === sn);
+      if (ch.attachment && ch.attachment.length){
+        let nm, set = false; for (const key of ch.attachment){ if (key.time <= t + 1e-6){ nm = key.name ?? null; set = true; } else break; }
+        if (set) slot.setAttachment(nm ? skeleton.getAttachment(si, nm) : null);
+      }
+      if (ch.rgba && ch.rgba.length){ const c = sampleColor(ch.rgba, t); if (c) slot.color.set(c.r, c.g, c.b, c.a); }
+    }
   }
 }
 
@@ -2461,6 +2530,81 @@ function gotoKey(dir){
 // Light refresh of the Animations section key counts (without rebuilding everything).
 function refreshAnimCounts(){ if (skeletonData && selected) renderAnimSection(); renderTimeline(); }
 
+// ---- slot timelines (Phase 5.4): attachment swap + rgba colour -------------
+const hexToRGBA = (h) => ({ r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt((h.slice(6, 8) || "ff"), 16) / 255 });
+const hex2 = (v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0");
+const rgbaToHex = (c) => hex2(c.r) + hex2(c.g) + hex2(c.b) + hex2(c.a);
+function slotChannel(slotName){ const a = animOf(curAnim); return (a && a.slots && a.slots[slotName]) || null; }
+// Sample an rgba keyframe list at t (curve-aware, like sampleChannel but on colour hex).
+function sampleColor(keys, t){
+  if (!keys || !keys.length) return null;
+  if (t <= keys[0].time) return hexToRGBA(keys[0].color);
+  if (t >= keys[keys.length - 1].time) return hexToRGBA(keys[keys.length - 1].color);
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1], ca = hexToRGBA(a.color), cb = hexToRGBA(b.color);
+  const u = (b.time - a.time) > 0 ? (t - a.time) / (b.time - a.time) : 0;
+  const out = {};
+  ["r", "g", "b", "a"].forEach((f, vi) => {
+    if (a.curve === "stepped") out[f] = ca[f];
+    else if (Array.isArray(a.curve)){ const c = vi << 2; out[f] = bezierValue(a.time, ca[f], a.curve[c], a.curve[c + 1], a.curve[c + 2], a.curve[c + 3], b.time, cb[f], t); }
+    else out[f] = ca[f] + (cb[f] - ca[f]) * u;
+  });
+  return out;
+}
+// Resolved attachment name / colour for a slot at the playhead (timeline over setup).
+function slotAttachmentAt(slotName, t){
+  const cs = slotChannel(slotName);
+  if (cs && cs.attachment && cs.attachment.length){ let nm; let set = false; for (const k of cs.attachment){ if (k.time <= t + 1e-6){ nm = k.name ?? null; set = true; } else break; } if (set) return nm; }
+  const sd = rawDoc.slots.find((s) => s.name === slotName); return sd ? (sd.attachment ?? null) : null;
+}
+function slotColorAt(slotName, t){
+  const cs = slotChannel(slotName);
+  if (cs && cs.rgba && cs.rgba.length){ const c = sampleColor(cs.rgba, t); if (c) return rgbaToHex(c); }
+  const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff";
+}
+// Key a slot's attachment (stepped) / colour at the playhead.
+function keySlotAttachment(slotName, name){
+  if (!rawDoc || !curAnim || !animMode) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  cs.attachment = cs.attachment || [];
+  const i = cs.attachment.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
+  const key = { time: roundN(animTime, 4), name: name || null };
+  if (i >= 0) cs.attachment[i] = key; else { cs.attachment.push(key); cs.attachment.sort((x, y) => x.time - y.time); }
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+function keySlotColor(slotName, hex){
+  if (!rawDoc || !curAnim || !animMode) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  cs.rgba = cs.rgba || [];
+  const i = cs.rgba.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
+  const key = { time: roundN(animTime, 4), color: hex };
+  if (i >= 0){ if (cs.rgba[i].curve) key.curve = cs.rgba[i].curve; cs.rgba[i] = key; } else { cs.rgba.push(key); cs.rgba.sort((x, y) => x.time - y.time); }
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+function slotKeyTimes(slotName){
+  const cs = slotChannel(slotName); if (!cs) return [];
+  const set = new Set();
+  for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch])) for (const k of cs[ch]) set.add(roundN(k.time, 4));
+  return [...set].sort((x, y) => x - y);
+}
+function deleteSlotKeyAt(slotName, time){
+  const cs = slotChannel(slotName); if (!cs) return;
+  for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch])){ cs[ch] = cs[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cs[ch].length) delete cs[ch]; }
+  const a = animOf(curAnim); if (a && a.slots && a.slots[slotName] && !Object.keys(a.slots[slotName]).length) delete a.slots[slotName];
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+function retimeSlotKey(slotName, oldTime, newTime){
+  const cs = slotChannel(slotName); if (!cs) return; newTime = Math.max(0, roundN(newTime, 4));
+  for (const ch of ["attachment", "rgba"]){
+    const keys = cs[ch]; if (!Array.isArray(keys)) continue;
+    const k = keys.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) continue;
+    cs[ch] = keys.filter((x) => x === k || Math.abs(x.time - newTime) >= 1e-4); k.time = newTime; cs[ch].sort((x, y) => x.time - y.time);
+  }
+  markDirty(); animsDirty = true;
+}
+
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // a "nice" ruler step so we draw ~4–8 labelled ticks across the duration
 function niceStep(dur){ const raw = dur / 6; const pow = Math.pow(10, Math.floor(Math.log10(raw || 0.1))); const m = raw / pow; const s = m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10; return Math.max(s * pow, 0.05); }
@@ -2481,13 +2625,16 @@ function retimeBoneKey(boneName, oldTime, newTime){
   markDirty(); animsDirty = true;
 }
 
-// Bones shown as rows: those with keys in the current anim, plus the selected bone.
-function timelineBones(){
-  const a = animOf(curAnim);
-  const names = a && a.bones ? Object.keys(a.bones).filter((bn) => boneKeyTimes(bn).length) : [];
-  if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!names.includes(sn)) names.push(sn); }
-  return names;
+// Tracks shown as rows: bones + slots with keys in the current anim, plus the selection.
+function timelineTracks(){
+  const a = animOf(curAnim), out = [];
+  if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
+  if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
+  if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
+  if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
+  return out;
 }
+const trackKeyTimes = (tr) => (tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name));
 
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
 function renderTimeline(){
@@ -2502,13 +2649,13 @@ function renderTimeline(){
   const dur = workLen(curAnim);
   tlDur = dur;
   const gutter = tlGutter;
-  const selName = selBone != null ? skeletonData.bones[selBone].name : null;
+  const selBoneName = selBone != null ? skeletonData.bones[selBone].name : null;
 
   const head = document.createElement("div");
   head.style.cssText = "position:sticky;top:0;display:flex;height:22px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2;";
   const hg = document.createElement("div");
   hg.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);color:var(--dim);font-size:10px;display:flex;align-items:center;padding-left:8px;";
-  hg.textContent = "bone · " + dur.toFixed(2) + "s"; head.appendChild(hg);
+  hg.textContent = "track · " + dur.toFixed(2) + "s"; head.appendChild(hg);
   const ruler = document.createElement("div");
   ruler.style.cssText = "flex:1;position:relative;cursor:pointer;";
   for (let t = 0; t <= dur + 1e-6; t += niceStep(dur)){
@@ -2519,24 +2666,30 @@ function renderTimeline(){
   ruler.onmousedown = (e) => seekFromTrack(ruler, e.clientX);
   head.appendChild(ruler); tl.appendChild(head);
 
-  timelineBones().forEach((bn) => {
+  timelineTracks().forEach((tr) => {
+    const isSel = tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot;
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;" + (bn === selName ? "background:#2a2f3a;" : "");
+    row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
-    g.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);font-size:11px;color:var(--txt);display:flex;align-items:center;padding-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;";
-    g.textContent = bn;
-    g.onclick = () => { const i = skeletonData.bones.findIndex((b) => b.name === bn); if (i >= 0) selectBone(i); };
+    g.style.cssText = "width:" + gutter + "px;flex:0 0 " + gutter + "px;border-right:1px solid var(--line);font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:8px;overflow:hidden;white-space:nowrap;cursor:pointer;";
+    const tag = document.createElement("span"); tag.textContent = tr.kind === "slot" ? "▤" : "⦿"; tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = tr.name; nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;";
+    g.appendChild(tag); g.appendChild(nm);
+    g.onclick = () => { if (tr.kind === "slot") selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
     const track = document.createElement("div");
     track.style.cssText = "flex:1;position:relative;cursor:pointer;";
     track.onmousedown = (e) => { if (e.target === track) seekFromTrack(track, e.clientX); };
-    boneKeyTimes(bn).forEach((kt) => {
-      const ct = keyCurveType(bn, kt);
+    trackKeyTimes(tr).forEach((kt) => {
+      const ct = tr.kind === "bone" ? keyCurveType(tr.name, kt) : "linear";
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (tr.kind === "slot" ? " slot" : "");
       dot.style.left = (kt / dur) * 100 + "%";
-      dot.title = bn + " @ " + kt.toFixed(3) + "s · " + ct + " — drag to retime · double-click to delete";
-      dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { bone: bn, oldTime: kt, newTime: kt, dot, track, dur }; };
-      dot.ondblclick = (e) => { e.stopPropagation(); const i = skeletonData.bones.findIndex((b) => b.name === bn); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(bn, kt); };
+      dot.title = tr.name + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
+      dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, oldTime: kt, newTime: kt, dot, track, dur }; };
+      dot.ondblclick = (e) => { e.stopPropagation();
+        if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
+        else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
+      };
       track.appendChild(dot);
     });
     row.appendChild(g); row.appendChild(track); tl.appendChild(row);
@@ -2550,7 +2703,9 @@ function seekFromTrack(el, clientX){
   const r = el.getBoundingClientRect();
   animTime = roundN(clamp01((clientX - r.left) / r.width) * tlDur, 4);
   playing = false; $("#play").textContent = "▶ Play";
-  syncPlayhead(); if (selBone != null) renderBoneDetail();
+  syncPlayhead(); renderTimeline();
+  if (selBone != null) renderBoneDetail();
+  if (selSlot) renderSlotDetail();
 }
 function positionPlayhead(){
   const ph = $("#tlPlayhead"), tl = $("#timeline"); if (!ph || !tl) return;
@@ -3056,11 +3211,12 @@ function wire(){
     if (!tlDrag) return;
     const d = tlDrag; tlDrag = null;
     if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
-      retimeBoneKey(d.bone, d.oldTime, d.newTime);
+      if (d.kind === "slot") retimeSlotKey(d.name, d.oldTime, d.newTime); else retimeBoneKey(d.name, d.oldTime, d.newTime);
       animTime = d.newTime; syncPlayhead();
     }
     renderTimeline(); refreshAnimCounts();
     if (selBone != null) renderBoneDetail();
+    if (selSlot) renderSlotDetail();
   });
 }
 
