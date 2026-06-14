@@ -40,23 +40,31 @@ pipeline.
 
 ## How it's distributed
 
-- The source is `C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py` (a
-  customtkinter app — lives outside the engine repo because it manages the local
-  ComfyUI install).
-- It's packaged into a one-file Windows `.exe` with
-  [`scripts/build-launcher-exe.py`](../../scripts/build-launcher-exe.py)
-  (PyInstaller `--onefile`), then uploaded to R2 at
+- The source lives in its own git repo **`invisible-launcher`**
+  (`Invisible-Wall-SL/invisible-launcher`) — a customtkinter app, kept out of the
+  engine repo because it manages the local ComfyUI install. On the owner's box it's
+  checked out at both `C:\Invisible Wall SL\Projects\invisible-launcher` and
+  `C:\Invisible Wall SL\ComfyUI`; keep whichever you release from level with
+  `origin/main` first.
+- It's packaged into a one-file Windows `.exe` by **`build_and_publish.py` in that
+  repo** (PyInstaller `--onefile`), then uploaded to R2 at
   `tools/invisible-launcher/Invisible_Launcher.exe` together with a manifest
-  `tools/invisible-launcher/latest.json` (`{version, size, sha256, notes}`).
+  `tools/invisible-launcher/latest.json` (`{version, size, sha256, notes}`). The
+  script builds from its OWN repo copy (so it can't go stale) and reads R2 creds
+  from the saved launcher config or `R2_*` env. (Replaces the former engine-side
+  `scripts/build-launcher-exe.py`, removed 2026-06-14 — it built from a clone that
+  could drift behind `main` and silently re-ship a stale version.)
 - The web launcher serves both over **open** routes (no portal login, since the
   desktop app has no session): `/api/launcher/download` (the exe, also what the
   portal card links to) and `/api/launcher/latest` (the manifest, polled by the
   self-update check).
 
 ```
-py scripts/build-launcher-exe.py                       # build only (artifact in %TEMP%)
-py scripts/build-launcher-exe.py --upload              # build + push exe + manifest to R2
-py scripts/build-launcher-exe.py --upload --notes "…"  # include release notes in the prompt
+# run from the invisible-launcher repo, after bumping LAUNCHER_VERSION
+py build_and_publish.py                 # build + publish (exe + manifest to R2)
+py build_and_publish.py --build-only    # build only (artifact in dist/)
+py build_and_publish.py --skip-build    # publish an already-built dist exe
+py build_and_publish.py --notes "…"     # release notes recorded in latest.json
 ```
 
 ## Self-update
