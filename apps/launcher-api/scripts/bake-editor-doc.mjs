@@ -152,7 +152,7 @@ async function main() {
 	// game build pulls it, and embed the index so the game registers the sheets.
 	// This is what makes editor-placed sprites/images reach the shipped game
 	// automatically — without it they render as empty textures.
-	let editorArt = { sheets: [], images: [] };
+	let editorArt = { sheets: [], images: [], spines: [] };
 	const artUrl =
 		`${base}/api/editor/export-art?project=${encodeURIComponent(project)}` +
 		`&k=${encodeURIComponent(token)}`;
@@ -168,6 +168,7 @@ async function main() {
 			editorArt = {
 				sheets: Array.isArray(art?.sheets) ? art.sheets : [],
 				images: Array.isArray(art?.images) ? art.images : [],
+				spines: Array.isArray(art?.spines) ? art.spines : [],
 			};
 			// Loud (non-fatal) warning when two referenced sheets share a region name.
 			// Rendering is correct (each sheet is scoped by its manifest), but it

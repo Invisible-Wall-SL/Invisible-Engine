@@ -42,20 +42,8 @@
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
-import {
-	atlasPageNames,
-	bundleFromAssetKey,
-	loadSkeletonIndex,
-	resolveBundlePrefix,
-} from './spine';
-import {
-	deleteObjects,
-	getObjectBytes,
-	getObjectText,
-	listAllKeys,
-	putObjectBytes,
-	putObjectText,
-} from './r2';
+import { exportSpineBundle, loadSkeletonIndex } from './spine';
+import { deleteObjects, getObjectBytes, listAllKeys, putObjectBytes, putObjectText } from './r2';
 import { loadSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
 
 /** A sprite sheet a symbol binding references. `key` is the source manifest (kept
@@ -264,14 +252,11 @@ export async function exportEditorSymbols(
 		}
 	}
 
-	// ── Spine cells: copy each referenced bundle's own files VERBATIM ──
-	// `assetKey` is the full R2 bundle prefix. Resolve its `skeletons.json` entry
-	// (folder → atlas_file, skeleton_file), read the page names from the atlas text,
-	// and copy atlas + skeleton + pages preserving names so the atlas's relative
-	// page refs resolve once mirrored. Dedup by assetKey (W.win + W.land share one
-	// bundle → copy once). We deliberately copy the bundle's OWN files (not
-	// `resolveEditorSpine`'s deploy-page-preferring path, which can swap a page name
-	// the .atlas does not reference).
+	// ── Spine cells: copy each referenced bundle into deploy/ via the shared helper ──
+	// `assetKey` is the full R2 bundle prefix; `exportSpineBundle` copies the bundle's
+	// own atlas + skeleton + pages (renaming a Rigger `.irig` skeleton to `.json` so
+	// `PIXI.Assets.load` can parse it), preserving page names so the atlas refs resolve
+	// once mirrored. Dedup by assetKey (W.win + W.land share one bundle → copy once).
 	const spines: SymbolSpine[] = [];
 	const exportedSpines = new Set<string>();
 	const skeletonIndex =
@@ -281,62 +266,19 @@ export async function exportEditorSymbols(
 		if (exportedSpines.has(assetKey)) continue;
 		exportedSpines.add(assetKey);
 
-		const folder = bundleFromAssetKey(clientKey, projectKey, assetKey);
-		if (folder === null) continue;
-		const entry = skeletonIndex.find((e) => e.folder === folder);
-		if (!entry) continue;
-
-		const prefix = await resolveBundlePrefix(clientKey, projectKey, folder, entry.atlas_file);
-		if (!prefix) continue;
-
-		const atlasText = await getObjectText(`${prefix}/${entry.atlas_file}`);
-		if (atlasText === null) continue;
-
-		const stem = claimStem(assetKey.replace(/\/$/, ''));
-		const dir = `${EXPORT_SUBTREE}/${stem}`;
-
-		// Atlas — copied verbatim (its page refs are names relative to the bundle dir).
-		await putObjectText(
-			`${deployPrefix}${dir}/${entry.atlas_file}`,
-			atlasText,
-			'text/plain; charset=utf-8',
-		);
-		written.add(`${deployPrefix}${dir}/${entry.atlas_file}`);
-
-		// Skeleton (.json / .skel / .irig) — bytes copied verbatim, but a Rigger
-		// `.irig` MUST ship under a `.json` name. The game loads spines through
-		// `PIXI.Assets.load`, which resolves the skeleton parser by FILE EXTENSION;
-		// `.irig` is unknown to it, so a shipped `.irig` loads as `null` and crashes
-		// `readSkeletonData` (the bytes are valid Spine JSON, only the extension is
-		// ours). The `.atlas` references page images, never the skeleton, so renaming
-		// the skeleton is safe.
-		const skel = await getObjectBytes(`${prefix}/${entry.skeleton_file}`);
-		if (!skel) continue;
-		const isIrig = entry.skeleton_file.toLowerCase().endsWith('.irig');
-		const skeletonOut = isIrig
-			? entry.skeleton_file.replace(/\.irig$/i, '.json')
-			: entry.skeleton_file;
-		await putObjectBytes(
-			`${deployPrefix}${dir}/${skeletonOut}`,
-			skel.body,
-			isIrig ? 'application/json' : skel.contentType,
-		);
-		written.add(`${deployPrefix}${dir}/${skeletonOut}`);
-
-		// Page images the atlas references — copied verbatim under their own names.
-		for (const pageName of atlasPageNames(atlasText)) {
-			const obj = await getObjectBytes(`${prefix}/${pageName}`);
-			if (!obj) continue;
-			await putObjectBytes(`${deployPrefix}${dir}/${pageName}`, obj.body, obj.contentType);
-			written.add(`${deployPrefix}${dir}/${pageName}`);
-		}
-
-		spines.push({
-			key: assetKey,
-			atlas: `${dir}/${entry.atlas_file}`,
-			skeleton: `${dir}/${skeletonOut}`,
+		const result = await exportSpineBundle({
+			clientKey,
+			projectKey,
+			assetKey,
+			deployPrefix,
+			subtree: EXPORT_SUBTREE,
+			stem: claimStem(assetKey.replace(/\/$/, '')),
+			skeletonIndex,
 			scale: 2,
 		});
+		if (!result) continue;
+		for (const k of result.written) written.add(k);
+		spines.push(result.entry);
 	}
 
 	// Cross-sheet frame-name collisions. Symbol sheet frames register with NO

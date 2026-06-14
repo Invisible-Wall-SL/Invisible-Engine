@@ -7,6 +7,8 @@ import {
 	getObjectText,
 	listAllObjects,
 	objectExists,
+	putObjectBytes,
+	putObjectText,
 	type ListedObject,
 } from './r2';
 import { getRoleOverrides } from './roleToolAccess';
@@ -133,7 +135,11 @@ export function regionsToSpineAtlas(
 	pageHeight: number,
 	regions: SynthRegion[],
 ): string {
-	const out: string[] = [pageImage, `size:${Math.round(pageWidth)},${Math.round(pageHeight)}`, 'filter:Linear,Linear'];
+	const out: string[] = [
+		pageImage,
+		`size:${Math.round(pageWidth)},${Math.round(pageHeight)}`,
+		'filter:Linear,Linear',
+	];
 	for (const r of regions) {
 		const w = Math.round(r.w);
 		const h = Math.round(r.h);
@@ -220,9 +226,18 @@ export function atlasRegionNames(atlasText: string): string[] {
 	const out: string[] = [];
 	let expectPage = true; // first non-empty line is a page image; also after a blank line
 	for (const line of atlasText.split(/\r?\n/)) {
-		if (line.trim() === '') { expectPage = true; continue; }
-		if (/^\s/.test(line) || line.includes(':')) { expectPage = false; continue; } // property line
-		if (expectPage) { expectPage = false; continue; } // page image filename
+		if (line.trim() === '') {
+			expectPage = true;
+			continue;
+		}
+		if (/^\s/.test(line) || line.includes(':')) {
+			expectPage = false;
+			continue;
+		} // property line
+		if (expectPage) {
+			expectPage = false;
+			continue;
+		} // page image filename
 		out.push(line.trim()); // region name
 	}
 	return out;
@@ -332,5 +347,111 @@ export async function resolveEditorSpine(
 		// layout); falls back to the spine bundle's own page when nothing is deployed.
 		pageKeys: await resolveSpinePageKeys(pageNames, clientKey, projectKey, prefix),
 		pageNames,
+	};
+}
+
+/** A spine bundle copied into a game-loadable `deploy/` subtree. `key` is the
+ * binding/node `assetKey` (the engine's lookup key); `atlas`/`skeleton` are paths
+ * relative to `deploy/` (= relative to `static/assets/`). */
+export interface ExportedSpineEntry {
+	key: string;
+	atlas: string;
+	skeleton: string;
+	scale: number;
+}
+
+export interface ExportedSpineBundle {
+	entry: ExportedSpineEntry;
+	/** Full R2 keys written under `deployPrefix` — fold into the caller's prune set. */
+	written: string[];
+}
+
+/**
+ * Copy ONE spine bundle (named by a full R2 bundle-prefix `assetKey`) into
+ * `<deployPrefix><subtree>/<stem>/…`: the bundle's own atlas + skeleton + page
+ * files, names preserved so the atlas's relative page refs resolve once mirrored.
+ *
+ * The ONE rewrite: a Rigger `.irig` skeleton is shipped under a `.json` name. The
+ * game loads spines via `PIXI.Assets.load`, which resolves the skeleton parser by
+ * FILE EXTENSION — `.irig` is unknown to it, so a shipped `.irig` loads as `null`
+ * and crashes `readSkeletonData`. The bytes are valid Spine JSON, and the `.atlas`
+ * never references the skeleton, so renaming is safe.
+ *
+ * Returns the index entry + the keys written, or `null` when the bundle can't be
+ * resolved (unknown `assetKey`, no `skeletons.json` entry, or missing files — e.g.
+ * a coded spine key that isn't an R2 bundle). Shared by `symbolExport` +
+ * `editorArtExport` so both ship spines identically.
+ */
+export async function exportSpineBundle(opts: {
+	clientKey: string;
+	projectKey: string;
+	/** Full R2 bundle prefix, e.g. `<client>/<project>/spines/<bundle>/`. */
+	assetKey: string;
+	/** Deploy root, ending in `/` (e.g. `<client>/<project>/deploy/`). */
+	deployPrefix: string;
+	/** Subtree under `deploy/` (e.g. `editor-symbols` | `editor-art`). */
+	subtree: string;
+	/** Caller-claimed, collision-free folder stem for this bundle. */
+	stem: string;
+	skeletonIndex: SkeletonIndexEntry[];
+	/** Spine scale; defaults to 2 (the symbols/editor convention). */
+	scale?: number;
+}): Promise<ExportedSpineBundle | null> {
+	const { clientKey, projectKey, assetKey, deployPrefix, subtree, stem, skeletonIndex } = opts;
+	const scale = opts.scale ?? 2;
+	const written: string[] = [];
+
+	const folder = bundleFromAssetKey(clientKey, projectKey, assetKey);
+	if (folder === null) return null;
+	const entry = skeletonIndex.find((e) => e.folder === folder);
+	if (!entry) return null;
+
+	const prefix = await resolveBundlePrefix(clientKey, projectKey, folder, entry.atlas_file);
+	if (!prefix) return null;
+
+	const atlasText = await getObjectText(`${prefix}/${entry.atlas_file}`);
+	if (atlasText === null) return null;
+
+	const skel = await getObjectBytes(`${prefix}/${entry.skeleton_file}`);
+	if (!skel) return null;
+
+	const dir = `${subtree}/${stem}`;
+
+	// Atlas — copied verbatim (its page refs are names relative to the bundle dir).
+	await putObjectText(
+		`${deployPrefix}${dir}/${entry.atlas_file}`,
+		atlasText,
+		'text/plain; charset=utf-8',
+	);
+	written.push(`${deployPrefix}${dir}/${entry.atlas_file}`);
+
+	// Skeleton — bytes verbatim, but a Rigger `.irig` ships under a `.json` name.
+	const isIrig = entry.skeleton_file.toLowerCase().endsWith('.irig');
+	const skeletonOut = isIrig
+		? entry.skeleton_file.replace(/\.irig$/i, '.json')
+		: entry.skeleton_file;
+	await putObjectBytes(
+		`${deployPrefix}${dir}/${skeletonOut}`,
+		skel.body,
+		isIrig ? 'application/json' : skel.contentType,
+	);
+	written.push(`${deployPrefix}${dir}/${skeletonOut}`);
+
+	// Page images the atlas references — copied verbatim under their own names.
+	for (const pageName of atlasPageNames(atlasText)) {
+		const obj = await getObjectBytes(`${prefix}/${pageName}`);
+		if (!obj) continue;
+		await putObjectBytes(`${deployPrefix}${dir}/${pageName}`, obj.body, obj.contentType);
+		written.push(`${deployPrefix}${dir}/${pageName}`);
+	}
+
+	return {
+		entry: {
+			key: assetKey,
+			atlas: `${dir}/${entry.atlas_file}`,
+			skeleton: `${dir}/${skeletonOut}`,
+			scale,
+		},
+		written,
 	};
 }

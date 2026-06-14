@@ -31,6 +31,10 @@ type BakedBundle = {
 	editorArt?: {
 		sheets: { key: string; json: string }[];
 		images: { key: string; file: string }[];
+		/** Spine bundles editor-placed `spine` nodes reference (atlas + skeleton +
+		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
+		 * `scale` defaults to 2. */
+		spines?: { key: string; atlas: string; skeleton: string; scale?: number }[];
 	};
 	/** Fonts (Font Maker output) the project uses, exported to `deploy/editor-fonts/`
 	 * and mirrored into `static/assets/` by the deploy pull. The catalog's `prefix`
@@ -94,14 +98,12 @@ export function registerBakedComponents(): void {
  * `LayoutNodeView` looks up. Empty when un-baked (dev keeps its own assets).
  * The src is page-relative (`assets/…`), matching how the static dir is served.
  */
-export function bakedEditorArtAssets(): Record<
-	string,
-	{ type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
-> {
-	const out: Record<
-		string,
-		{ type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
-	> = {};
+type EditorArtAssetEntry =
+	| { type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
+	| { type: 'spine'; src: { atlas: string; skeleton: string; scale: number }; preload: boolean };
+
+export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
+	const out: Record<string, EditorArtAssetEntry> = {};
 	if (!hasBakedDoc()) return out;
 	for (const sheet of bakedBundle.editorArt?.sheets ?? []) {
 		// Scope each sheet's frames by its manifest key (the value sprite nodes store
@@ -118,6 +120,19 @@ export function bakedEditorArtAssets(): Record<
 	// the engine's lookup key for a region-less sprite node.
 	for (const image of bakedBundle.editorArt?.images ?? []) {
 		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
+	}
+	// Spine bundles register under the spine node's full assetKey — the value
+	// `LayoutNodeView` passes to `<SpineProvider key=…>`.
+	for (const spine of bakedBundle.editorArt?.spines ?? []) {
+		out[spine.key] = {
+			type: 'spine',
+			src: {
+				atlas: `assets/${spine.atlas}`,
+				skeleton: `assets/${spine.skeleton}`,
+				scale: spine.scale ?? 2,
+			},
+			preload: true,
+		};
 	}
 	return out;
 }

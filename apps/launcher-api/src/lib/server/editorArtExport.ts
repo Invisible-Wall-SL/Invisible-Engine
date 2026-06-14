@@ -17,6 +17,11 @@
  * embeds the index in the baked bundle; `pull-project-assets.mjs` mirrors
  * `deploy/` → `static/assets/`; the game's `bakedEditorArtAssets()` registers
  * each sheet. Stale `editor-art/` objects from a previous export are pruned.
+ *
+ * Editor-placed SPINE nodes ride the same chain: each referenced bundle is copied
+ * (via the shared `exportSpineBundle`, which also renames a Rigger `.irig` skeleton
+ * to `.json`) and listed in `index.spines`, which the game registers as a spine
+ * asset under the node's `assetKey` — the same value `LayoutNodeView` looks up.
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
 import { collectComponentIds } from 'engine-layout';
@@ -25,6 +30,7 @@ import { loadDoc } from './editorStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
+import { exportSpineBundle, loadSkeletonIndex, type ExportedSpineEntry } from './spine';
 import { deleteObjects, getObjectBytes, listAllKeys, putObjectText, putObjectBytes } from './r2';
 
 export interface EditorArtSheet {
@@ -55,9 +61,15 @@ export interface EditorArtCollision {
 	used: boolean;
 }
 
+/** A spine bundle an editor-doc `spine` node references. `key` is the node's full
+ * R2 bundle-prefix `assetKey` (the engine's lookup key, as `LayoutNodeView` passes
+ * it to `<SpineProvider>`). */
+export type EditorArtSpine = ExportedSpineEntry;
+
 export interface EditorArtIndex {
 	sheets: EditorArtSheet[];
 	images: EditorArtImage[];
+	spines: EditorArtSpine[];
 	collisions: EditorArtCollision[];
 }
 
@@ -78,6 +90,9 @@ function isImageAssetKey(assetKey: unknown): assetKey is string {
 interface ArtRefs {
 	manifestKeys: Set<string>;
 	imageKeys: Set<string>;
+	/** `spine`-node `assetKey`s (full R2 bundle prefixes). A coded spine key (no R2
+	 * bundle) resolves to nothing in `exportSpineBundle` and is skipped there. */
+	spineKeys: Set<string>;
 	/** Region names referenced ONLY by name (image-kind component params) — their
 	 * containing manifest must be found among the project's atlases. */
 	regionNames: Set<string>;
@@ -100,6 +115,7 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 	const refs: ArtRefs = {
 		manifestKeys: new Set(),
 		imageKeys: new Set(),
+		spineKeys: new Set(),
 		regionNames: new Set(),
 		usedRegions: new Set(),
 	};
@@ -123,6 +139,8 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 			refs.manifestKeys.add(node.assetKey);
 		} else if (node.kind === 'sprite' && !node.region && isImageAssetKey(node.assetKey)) {
 			refs.imageKeys.add(node.assetKey);
+		} else if (node.kind === 'spine' && typeof node.assetKey === 'string' && node.assetKey) {
+			refs.spineKeys.add(node.assetKey);
 		}
 		if (node.kind === 'componentInstance' && node.params) {
 			const keys = imageParamKeys.get(node.componentId);
@@ -309,6 +327,43 @@ export async function exportEditorArt(
 		images.push({ key: imageKey, file });
 	}
 
+	// Spine nodes: copy each referenced bundle into deploy/editor-art/ via the shared
+	// helper (atlas + skeleton + pages; a Rigger `.irig` skeleton is shipped as `.json`
+	// so PIXI's loader can parse it). `key` is the node's full R2 bundle-prefix
+	// `assetKey` — the same value `LayoutNodeView` hands `<SpineProvider>`. A coded
+	// spine key (no R2 bundle) resolves to nothing and is skipped. Stems share the
+	// `usedStems` pool with the sheets so a spine/sheet name clash can't collide.
+	const spines: EditorArtSpine[] = [];
+	if (refs.spineKeys.size > 0) {
+		const skeletonIndex = await loadSkeletonIndex(clientKey, projectKey);
+		const exportedSpines = new Set<string>();
+		const spineStem = (assetKey: string): string => {
+			const base = assetKey.replace(/\/$/, '');
+			const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
+			return tail || 'spine';
+		};
+		for (const assetKey of refs.spineKeys) {
+			if (exportedSpines.has(assetKey)) continue;
+			exportedSpines.add(assetKey);
+			let stem = spineStem(assetKey);
+			for (let i = 2; usedStems.has(stem); i++) stem = `${spineStem(assetKey)}_${i}`;
+			usedStems.add(stem);
+			const result = await exportSpineBundle({
+				clientKey,
+				projectKey,
+				assetKey,
+				deployPrefix,
+				subtree: 'editor-art',
+				stem,
+				skeletonIndex,
+				scale: 2,
+			});
+			if (!result) continue;
+			for (const k of result.written) written.add(k);
+			spines.push(result.entry);
+		}
+	}
+
 	// Cross-sheet region-name collisions. Each sheet is registered scoped by its
 	// manifest so a collision no longer mis-renders, but it usually flags a stale
 	// sheet (e.g. a 2D original still referenced behind a 3D remake) worth retiring.
@@ -332,7 +387,7 @@ export async function exportEditorArt(
 	}
 	collisions.sort((a, b) => a.region.localeCompare(b.region));
 
-	const index: EditorArtIndex = { sheets, images, collisions };
+	const index: EditorArtIndex = { sheets, images, spines, collisions };
 	const indexKey = `${artPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);
