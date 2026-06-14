@@ -84,10 +84,15 @@
     border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; }
   button:hover { border-color:var(--accent); }
   button.active { background:#2f3a48; border-color:var(--accent); color:#fff; }
-  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   .seg button { border:none; border-radius:0; border-right:1px solid var(--line); }
   .seg button:last-child { border-right:none; }
   .seg button.active { background:var(--accent); color:#0c0f14; font-weight:700; }
+  .seg button:disabled { opacity:.4; cursor:not-allowed; }
+  /* floating mode switcher — top-centre of the canvas */
+  #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; }
+  #modeBar .seg { background:rgba(20,23,28,.85); box-shadow:0 2px 10px rgba(0,0,0,.45); backdrop-filter:blur(3px); }
+  #modeBar .seg button { padding:7px 14px; font-size:13px; }
   #scrub { flex:1; min-width:140px; }
   #speed { width:90px; }
   .pill { color:var(--dim); font-size:11px; }
@@ -220,6 +225,13 @@
     <div id="stage">
       <canvas id="cv"></canvas>
       <div id="bonemark"></div>
+      <div id="modeBar">
+        <span id="modeSeg" class="seg">
+          <button data-mode="preview" class="active" title="Play animations (read-only)">▶ Preview</button>
+          <button data-mode="setup" title="Edit the rest pose: bones, meshes, weights, attachments">✎ Setup</button>
+          <button data-mode="animate" title="Animate: pose bones over time into keyframes">◆ Animate</button>
+        </span>
+      </div>
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
       <div id="err"></div>
     </div>
@@ -256,11 +268,6 @@
         <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
       </div>
       <div class="grp">
-        <span id="modeSeg" class="seg">
-          <button data-mode="preview" class="active" title="Play animations (read-only)">▶ Preview</button>
-          <button data-mode="setup" title="Edit the rest pose: bones, meshes, weights, attachments">✎ Setup</button>
-          <button data-mode="animate" title="Animate: pose bones over time into keyframes">◆ Animate</button>
-        </span>
         <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
         <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
         <button id="resetBtn" title="Discard edits" disabled>Reset</button>
@@ -480,11 +487,11 @@ function buildSkeleton(entry){
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   dirty = false;
   curAnim = null; animTime = 0;
-  setMode("preview");
-
-  selBone = null;
+  selBone = null;          // reset selection BEFORE setMode (its tail restores selBone)
   selSlot = null;
   collapsedBones.clear();
+  setMode("preview");
+
   buildInspector(entry);
 
   if (skeletonData.animations.length){
@@ -2190,7 +2197,10 @@ function setMode(m){
   mode = m;
   editMode = (m === "setup");
   animMode = (m === "animate");
-  document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
+  document.querySelectorAll('#modeSeg button').forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === m);
+    if (b.dataset.mode !== "preview") b.disabled = !rawDoc; // setup/animate need an editable rig
+  });
   $("#animTools").style.display = animMode ? "flex" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
@@ -2775,7 +2785,7 @@ function wire(){
     curEntry.trackTime = (e.target.value/1000)*curEntry.animation.duration;
     animState.apply(skeleton); updateWorld();
   };
-  document.querySelectorAll('#modeSeg button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+  $("#modeSeg").onclick = (e) => { const b = e.target.closest("button[data-mode]"); if (b && !b.disabled) setMode(b.dataset.mode); };
   $("#keyBtn").onclick = () => { if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate:true, translate:true, scale:true }); };
   $("#delKey").onclick = () => { if (selBone != null) deleteBoneKeyAt(skeletonData.bones[selBone].name, animTime); };
   $("#prevKey").onclick = () => gotoKey(-1);
