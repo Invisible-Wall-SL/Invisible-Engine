@@ -335,6 +335,7 @@ let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
+let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
@@ -760,6 +761,28 @@ function renderAnimSection(){
     }
     animList.appendChild(row);
   });
+  // current-animation settings (Animate mode): length + speed + stretch
+  if (animMode && curAnim){
+    const box = document.createElement("div");
+    box.style.cssText = "margin:6px 14px 8px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;";
+    const hdr = document.createElement("div"); hdr.textContent = "“" + curAnim + "” settings"; hdr.style.cssText = "color:var(--txt);font-weight:600;font-size:11px;margin-bottom:5px;"; box.appendChild(hdr);
+    const numRow = (label, value, title, onset) => {
+      const r = document.createElement("label"); r.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);font-size:11px;"; r.title = title || "";
+      const l = document.createElement("span"); l.textContent = label; l.style.cssText = "flex:1;";
+      const inp = document.createElement("input"); inp.type = "number"; inp.step = "0.1"; inp.min = "0"; inp.value = value;
+      inp.style.cssText = "width:74px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+      inp.onchange = () => onset(parseFloat(inp.value));
+      r.appendChild(l); r.appendChild(inp); return r;
+    };
+    box.appendChild(numRow("working length (s)", roundN(workLen(curAnim), 3), "How far the timeline + scrubber reach, so you can key past the last keyframe (session-only).", (v) => setWorkLen(curAnim, v)));
+    const stretchRow = numRow("stretch all keys to (s)", roundN(animDuration(curAnim) || 1, 3), "Scale every keyframe time so the keyed animation becomes this many seconds (persists).", (v) => stretchAnimation(curAnim, v));
+    box.appendChild(stretchRow);
+    const note = document.createElement("div");
+    note.innerHTML = "keyed length (exported) = <b>" + animDuration(curAnim).toFixed(2) + "s</b> (the last keyframe) · speed is the <b>Speed</b> slider below";
+    note.style.cssText = "margin-top:5px;color:var(--dim);font-size:10px;line-height:1.4;";
+    box.appendChild(note);
+    animList.appendChild(box);
+  }
   $("#cAnims").textContent = "(" + names.length + ")";
   refreshAnimSelect();
 }
@@ -2262,6 +2285,33 @@ function animDuration(name){
   scan(a);
   return dur;
 }
+// Working length = the timeline/scrub range: at least the last key (the exported duration),
+// but the user can set it longer to scrub + key past the end. Session-only (not persisted).
+function workLen(name){ return Math.max(animDuration(name), animWorkLen[name] || 0, 0.001); }
+function setWorkLen(name, secs){
+  secs = Math.max(animDuration(name), Number(secs) || 0); // can't be shorter than the last key
+  animWorkLen[name] = secs;
+  if (animTime > secs) animTime = secs;
+  syncPlayhead(); renderTimeline();
+}
+// Stretch/squash: scale ALL key times (and bezier control times) of an animation to a new
+// duration. This is the persistent "make it N seconds" — keyed duration actually changes.
+function stretchAnimation(name, newDur){
+  const a = animOf(name); if (!a || !a.bones) return;
+  const old = animDuration(name); newDur = Number(newDur) || 0;
+  if (!(old > 0) || !(newDur > 0)) return;
+  const f = newDur / old;
+  for (const ch of Object.values(a.bones)) for (const keys of Object.values(ch)){
+    if (!Array.isArray(keys)) continue;
+    for (const k of keys){
+      k.time = roundN(k.time * f, 4);
+      if (Array.isArray(k.curve)) for (let i = 0; i < k.curve.length; i += 4){ k.curve[i] = roundN(k.curve[i] * f, 4); k.curve[i + 2] = roundN(k.curve[i + 2] * f, 4); }
+    }
+  }
+  animWorkLen[name] = newDur;
+  animTime = Math.min(animTime * f, newDur);
+  markDirty(); animsDirty = true; syncPlayhead(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
+}
 // Cubic-bezier value (Spine curve): control points absolute (time,value). Solve X(s)=t.
 function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
   if (t <= t1) return v1; if (t >= t2) return v2;
@@ -2449,7 +2499,7 @@ function renderTimeline(){
     const e = document.createElement("div"); e.style.cssText = "padding:12px;color:var(--dim);font-size:12px;";
     e.textContent = "no animation — ＋ New animation in the Animations panel"; tl.appendChild(e); return;
   }
-  const dur = Math.max(animDuration(curAnim), 0.001);
+  const dur = workLen(curAnim);
   tlDur = dur;
   const gutter = tlGutter;
   const selName = selBone != null ? skeletonData.bones[selBone].name : null;
@@ -2709,8 +2759,8 @@ function frame(now){
       skeleton.setToSetupPose();
       if (curAnim){
         if (playing){
-          const dur = animDuration(curAnim);
-          animTime += delta;
+          const dur = workLen(curAnim);
+          animTime += delta * playSpeed;
           if (dur > 0){ if (looping) animTime %= dur; else if (animTime >= dur){ animTime = dur; playing = false; $("#play").textContent = "▶ Play"; } }
           else animTime = 0;
         }
@@ -2762,7 +2812,7 @@ function syncScrub(){
 }
 // Animate-mode playhead readout (animTime over the current animation's duration).
 function syncPlayhead(){
-  const dur = curAnim ? animDuration(curAnim) : 0;
+  const dur = curAnim ? workLen(curAnim) : 0;
   $("#scrub").value = dur > 0 ? Math.round((animTime / dur) * 1000) : 0;
   $("#time").textContent = animTime.toFixed(2) + "s / " + dur.toFixed(2) + "s";
   positionPlayhead();
@@ -2845,11 +2895,11 @@ function wire(){
   $("#loop").onclick = () => { looping = !looping; $("#loop").classList.toggle("active", looping); if (curEntry) curEntry.loop = looping; };
   $("#anim").onchange = e => { if (animMode){ setCurAnim(e.target.value); } else setAnim(e.target.value); };
   $("#skin").onchange = e => setActiveSkin(e.target.value);
-  $("#speed").oninput = e => { const v = e.target.value/100; if (animState) animState.timeScale = v; $("#speedv").textContent = v.toFixed(1) + "×"; };
+  $("#speed").oninput = e => { const v = e.target.value/100; playSpeed = v; if (animState) animState.timeScale = v; $("#speedv").textContent = v.toFixed(1) + "×"; };
   $("#scrub").oninput = e => {
     if (animMode){
       playing = false; $("#play").textContent = "▶ Play";
-      animTime = (e.target.value/1000) * animDuration(curAnim);
+      animTime = (e.target.value/1000) * workLen(curAnim);
       if (selBone != null) renderBoneDetail(); // reflect the posed values at the new time
       return;
     }
