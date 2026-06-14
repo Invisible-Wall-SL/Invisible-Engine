@@ -385,6 +385,7 @@ const GRAPH_CHANS = [
   { ch: "scale", field: "y", vi: 1, label: "scaleY", color: "#ffd24a" },
 ];
 let graphHide = {}; // channel label → hidden?
+let graphSel = [], graphMarquee = null; // selected graph points [{keyObj,ch,field,vi}] + box-select state
 let gizmoDrag = null; // transform gizmo rotate-drag state
 let curProjectLabel = "", restoringState = false; // persisted-selection helpers
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
@@ -871,6 +872,7 @@ function deleteAnimation(name){
 }
 
 function selectBone(i){
+  if (i !== selBone) graphSel = []; // graph selection is per-bone
   selBone = i;
   document.querySelectorAll('#boneTree .trow').forEach(r => {
     r.classList.toggle("sel", parseInt(r.dataset.bone, 10) === i);
@@ -2483,7 +2485,7 @@ const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) /
 
 function setCurAnim(name){
   curAnim = name && animHasName(name) ? name : null;
-  animTime = 0; tlPxPerSec = null; // re-fit the timeline for the new animation
+  animTime = 0; tlPxPerSec = null; graphSel = []; // re-fit the timeline + clear graph selection
   $("#anim").value = curAnim || "";
   syncPlayhead();
   renderTimeline();
@@ -2815,6 +2817,38 @@ function renderTimeline(){
 // ---- Graph (curve) editor — a separate view from the dopesheet -------------
 const SVGNS = "http://www.w3.org/2000/svg";
 const svgEl = (name, attrs) => { const e = document.createElementNS(SVGNS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const graphSelHas = (k, field) => graphSel.some((s) => s.keyObj === k && s.field === field);
+function toggleGraphSel(k, c){
+  const i = graphSel.findIndex((s) => s.keyObj === k && s.field === c.field);
+  if (i >= 0) graphSel.splice(i, 1); else graphSel.push({ keyObj: k, ch: c.ch, field: c.field, vi: c.vi });
+}
+// Begin moving the current selection together: snapshot each point's start time + value,
+// plus the grab point under the cursor, so the move is absolute-from-start (no double-add
+// when one key object backs multiple field-curves).
+function startGraphMove(e){
+  if (!graphMap) return;
+  const r = graphMap.svg.getBoundingClientRect();
+  const grabStartT = ((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1);
+  const grabStartV = graphMap.maxV - ((e.clientY - r.top) - graphMap.top) / (graphMap.areaH || 1) * (graphMap.maxV - graphMap.minV);
+  const items = graphSel.map((s) => ({ keyObj: s.keyObj, ch: s.ch, field: s.field, startT: s.keyObj.time, startV: s.keyObj[s.field] ?? 0 }));
+  graphDrag = { isMulti: true, grabStartT, grabStartV, items };
+}
+// Floating easing menu (right-click a graph keyframe).
+function showCurveMenu(x, y, boneName, time){
+  closeCurveMenu();
+  const m = document.createElement("div"); m.id = "curveMenu";
+  m.style.cssText = "position:fixed;left:" + x + "px;top:" + y + "px;z-index:90;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:4px;min-width:120px;";
+  [["Linear", "linear"], ["Stepped", "stepped"], ["Ease In", "easein"], ["Ease Out", "easeout"], ["Ease In-Out", "easeinout"]].forEach(([label, preset]) => {
+    const b = document.createElement("button"); b.textContent = label;
+    b.style.cssText = "display:block;width:100%;text-align:left;border:none;background:none;padding:5px 9px;font-size:12px;";
+    b.onmouseenter = () => b.style.background = "var(--panel2)"; b.onmouseleave = () => b.style.background = "none";
+    b.onclick = () => { setKeyCurve(boneName, time, preset); closeCurveMenu(); };
+    m.appendChild(b);
+  });
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener("mousedown", closeCurveMenu, { once: true }), 0);
+}
+function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
 function renderGraphBody(tl, dur, pps, contentW, gutter){
   const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:" + (gutter + contentW) + "px;";
   if (selBone == null){
@@ -2836,20 +2870,18 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   const timeToX = (t) => gutter + t * pps;
 
   const svg = svgEl("svg", { width: gutter + contentW, height: bodyH, style: "display:block;" });
-  graphMap = { svg, pps, gutter, top, areaH, minV, maxV, boneName };
+  graphMap = { svg, pps, gutter, top, areaH, minV, maxV, boneName, curves };
   // value-axis labels (sticky-ish in the gutter region)
   for (const val of [maxV, (maxV + minV) / 2, minV]){
     const y = valueToY(val);
     svg.appendChild(svgEl("line", { x1: gutter, y1: y, x2: gutter + contentW, y2: y, stroke: "#ffffff", "stroke-opacity": val === 0 ? 0.18 : 0.06 }));
     const tx = svgEl("text", { x: 4, y: y + 3, fill: "#8b90a0", "font-size": 9 }); tx.textContent = roundN(val, 2); svg.appendChild(tx);
   }
-  // background: click to seek the playhead
+  // background: drag = marquee box-select; plain click = seek + clear selection (mouseup decides)
   svg.addEventListener("mousedown", (e) => {
-    if (e.target.dataset && e.target.dataset.key) return; // a keyframe handle
-    const r = svg.getBoundingClientRect();
-    animTime = roundN(clamp01(((e.clientX - r.left) - gutter) / (pps * dur || 1)) * dur, 4);
-    playing = false; $("#play").textContent = "▶ Play"; syncPlayhead();
-    if (selBone != null) renderBoneDetail();
+    if (e.target.dataset && e.target.dataset.key) return; // a keyframe/handle
+    const r = svg.getBoundingClientRect(), lx = e.clientX - r.left, ly = e.clientY - r.top;
+    graphMarquee = { x0: lx, y0: ly, x1: lx, y1: ly, moved: false };
   });
   // curves + tangent handles + keyframe handles
   for (const c of curves){
@@ -2875,12 +2907,25 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
       }
     }
     for (const k of c.keys){
-      const cx = timeToX(k.time), cy = valueToY(k[c.field] ?? 0), atPh = Math.abs(k.time - animTime) < 1e-3;
-      const dot = svgEl("circle", { cx, cy, r: atPh ? 5 : 4, fill: atPh ? "#ffd24a" : c.color, stroke: "#0c0f14", "stroke-width": 1, style: "cursor:move;" });
+      const cx = timeToX(k.time), cy = valueToY(k[c.field] ?? 0), atPh = Math.abs(k.time - animTime) < 1e-3, sel = graphSelHas(k, c.field);
+      const dot = svgEl("circle", { cx, cy, r: sel ? 6 : (atPh ? 5 : 4), fill: sel ? "#ffffff" : (atPh ? "#ffd24a" : c.color), stroke: sel ? c.color : "#0c0f14", "stroke-width": sel ? 2 : 1, style: "cursor:move;" });
       dot.dataset.key = "1";
-      dot.addEventListener("mousedown", (e) => { e.stopPropagation(); e.preventDefault(); graphDrag = { ch: c.ch, field: c.field, keyObj: k }; });
+      dot.addEventListener("mousedown", (e) => {
+        e.stopPropagation(); e.preventDefault();
+        if (e.button === 2) return; // right-click handled by contextmenu
+        if (e.shiftKey){ toggleGraphSel(k, c); renderTimeline(); return; }
+        if (!graphSelHas(k, c.field)) graphSel = [{ keyObj: k, ch: c.ch, field: c.field, vi: c.vi }];
+        startGraphMove(e);
+      });
+      dot.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); showCurveMenu(e.clientX, e.clientY, boneName, k.time); });
       svg.appendChild(dot);
     }
+  }
+  // marquee box-select rectangle
+  if (graphMarquee && graphMarquee.moved){
+    const x = Math.min(graphMarquee.x0, graphMarquee.x1), y = Math.min(graphMarquee.y0, graphMarquee.y1);
+    const w = Math.abs(graphMarquee.x1 - graphMarquee.x0), h = Math.abs(graphMarquee.y1 - graphMarquee.y0);
+    svg.appendChild(svgEl("rect", { x, y, width: w, height: h, fill: "#7ee0c0", "fill-opacity": 0.12, stroke: "#7ee0c0", "stroke-opacity": 0.7, "stroke-dasharray": "3,2" }));
   }
   wrap.appendChild(svg); tl.appendChild(wrap);
 }
@@ -3523,6 +3568,12 @@ function wire(){
   });
   // Dopesheet key drag + playhead scrub + graph keyframe drag (not gated by lastXY).
   window.addEventListener("mousemove", (e) => {
+    if (graphMarquee && graphMap){ // dragging a box-select rectangle
+      const r = graphMap.svg.getBoundingClientRect();
+      graphMarquee.x1 = e.clientX - r.left; graphMarquee.y1 = e.clientY - r.top;
+      if (Math.hypot(graphMarquee.x1 - graphMarquee.x0, graphMarquee.y1 - graphMarquee.y0) > 3) graphMarquee.moved = true;
+      renderTimeline(); return;
+    }
     if (graphDrag && graphMap){
       const r = graphMap.svg.getBoundingClientRect();
       const t = roundN(((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1), 4);
@@ -3532,11 +3583,11 @@ function wire(){
         const o = graphDrag.vi * 4 + graphDrag.ctrl * 2;
         graphDrag.keyObj.curve[o] = roundN(cx, 4);
         graphDrag.keyObj.curve[o + 1] = roundN(v, 3);
-      } else { // drag a keyframe: x = time, y = value
-        graphDrag.keyObj.time = Math.max(0, t);
-        graphDrag.keyObj[graphDrag.field] = roundN(v, graphDrag.field === "value" ? 2 : 3);
+      } else if (graphDrag.isMulti){ // move the whole selection together (absolute from snapshot)
+        const dT = t - graphDrag.grabStartT, dV = v - graphDrag.grabStartV;
+        for (const it of graphDrag.items){ it.keyObj.time = Math.max(0, roundN(it.startT + dT, 4)); it.keyObj[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); }
         const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
-        if (cb && Array.isArray(cb[graphDrag.ch])) cb[graphDrag.ch].sort((a, b) => a.time - b.time);
+        if (cb){ for (const ch of new Set(graphDrag.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time); }
       }
       markDirty(); animsDirty = true; renderTimeline();
       return;
@@ -3554,6 +3605,23 @@ function wire(){
     e.preventDefault(); tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   window.addEventListener("mouseup", () => {
+    if (graphMarquee){
+      const m = graphMarquee; graphMarquee = null;
+      if (m.moved && graphMap){ // select every point inside the box
+        const xa = Math.min(m.x0, m.x1), xb = Math.max(m.x0, m.x1), ya = Math.min(m.y0, m.y1), yb = Math.max(m.y0, m.y1), sel = [];
+        for (const c of (graphMap.curves || [])) for (const k of c.keys){
+          const px = graphMap.gutter + k.time * graphMap.pps;
+          const py = graphMap.top + (graphMap.maxV - (k[c.field] ?? 0)) / (graphMap.maxV - graphMap.minV) * graphMap.areaH;
+          if (px >= xa && px <= xb && py >= ya && py <= yb) sel.push({ keyObj: k, ch: c.ch, field: c.field, vi: c.vi });
+        }
+        graphSel = sel;
+      } else if (graphMap){ // plain click → seek + clear selection
+        animTime = roundN(clamp01((m.x0 - graphMap.gutter) / (graphMap.pps * tlDur || 1)) * tlDur, 4);
+        playing = false; $("#play").textContent = "▶ Play"; graphSel = []; syncPlayhead();
+      }
+      renderTimeline(); if (selBone != null) renderBoneDetail();
+      return;
+    }
     if (graphDrag){ graphDrag = null; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); return; }
     if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
     if (!tlDrag) return;
