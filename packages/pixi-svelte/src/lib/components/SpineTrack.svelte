@@ -21,11 +21,24 @@
 
 	let track = $state(spine.state.tracks[props.trackIndex]);
 
+	// Fall back to the skeleton's first animation when no name is given — matches the
+	// Symbols tool's "(first animation)" option and its preview (SymbolSpinePreview),
+	// and guards `setAnimation(_, null)` which throws "animationName cannot be null"
+	// (e.g. a symbol spine bound without an explicit animation, or a Rigger rig whose
+	// sole animation is the default `animation`).
+	const resolvedAnimationName = $derived(
+		props.animationName || spine?.state?.data?.skeletonData?.animations?.[0]?.name || null,
+	);
+
 	$effect(() => {
-		if (props.trackIndex !== track?.trackIndex || props.animationName !== track?.animation?.name) {
+		if (
+			props.trackIndex !== track?.trackIndex ||
+			resolvedAnimationName !== track?.animation?.name
+		) {
 			if (track) spine.state.setEmptyAnimation(track.trackIndex, 0);
+			if (!resolvedAnimationName) return; // skeleton has no animations — nothing to play
 			try {
-				track = spine.state.setAnimation(props.trackIndex, props.animationName, props.loop);
+				track = spine.state.setAnimation(props.trackIndex, resolvedAnimationName, props.loop);
 			} catch (error) {
 				console.error(error);
 				const animations = spine?.state?.data?.skeletonData?.animations;
