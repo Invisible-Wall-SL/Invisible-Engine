@@ -805,8 +805,10 @@
 	const SNAP_PX = 6;
 
 	// Bumped by "Reload art" to bust the per-session asset caches. The asset
-	// endpoint is `no-store`, but a distinct `?v=` also defeats any HTTP/disk
-	// cache, so updated R2 art re-fetches without a full page reload.
+	// endpoint is now ETag-cacheable, so a stable `?v=` is the CONTENT-version
+	// token: it stays constant across renders (the browser revalidates cheaply
+	// via If-None-Match) and changes ONLY on "Reload art" — forcing a fresh
+	// fetch after the underlying R2 art actually changed, without a page reload.
 	// `spineReload` is forwarded to the spine layer to drop its bundle cache.
 	let assetVersion = $state(0);
 	let spineReload = $state(0);

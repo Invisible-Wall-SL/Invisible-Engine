@@ -29,11 +29,15 @@ function s3(): S3Client {
 
 export async function getObjectBytes(
 	key: string,
-): Promise<{ body: Uint8Array; contentType: string } | null> {
+): Promise<{ body: Uint8Array; contentType: string; etag: string | null } | null> {
 	try {
 		const res = await s3().send(new GetObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
 		const body = await res.Body!.transformToByteArray();
-		return { body, contentType: res.ContentType ?? 'application/octet-stream' };
+		return {
+			body,
+			contentType: res.ContentType ?? 'application/octet-stream',
+			etag: res.ETag ?? null,
+		};
 	} catch (e) {
 		if (isNotFound(e)) return null;
 		throw e;

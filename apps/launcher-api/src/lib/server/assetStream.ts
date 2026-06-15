@@ -94,21 +94,35 @@ export interface StreamAssetOptions {
 	rewriteFont: boolean;
 	/** Stream-URL prefix the endpoint exposes, e.g. `/api/fonts/asset?key=`. */
 	assetUrlBase: string;
+	/**
+	 * The incoming `If-None-Match` header (if any). When it matches the streamed
+	 * object's ETag, the verbatim branch returns a bodyless `304 Not Modified`.
+	 * Pass `request.headers.get('if-none-match')` from the endpoint.
+	 */
+	ifNoneMatch?: string | null;
 }
 
 /**
- * Stream a (pre-gated) R2 key as an HTTP `Response`. 404s on a missing object —
- * never 500. With `rewriteFont` set on a BMFont descriptor key, rewrites the page
- * refs to absolute gated URLs via `assetUrlBase`; otherwise streams the bytes
- * verbatim.
+ * These responses are auth-gated and per-user (the gate + project-prefix
+ * allow-list run on EVERY request, including conditional ones), so the cache is
+ * `private` — never shared across users by a proxy. A short `max-age` with
+ * `must-revalidate` means the browser may reuse a cached image for a few minutes
+ * without a request, then revalidate via `If-None-Match`. A 304 is safe because
+ * the endpoint has already re-run its gate before we get here — caching never
+ * bypasses auth, it only saves re-streaming bytes the client already holds.
  */
+const VERBATIM_CACHE_CONTROL = 'private, max-age=300, must-revalidate';
+
 export async function streamAsset(opts: StreamAssetOptions): Promise<Response> {
-	const { key, rewriteFont, assetUrlBase } = opts;
+	const { key, rewriteFont, assetUrlBase, ifNoneMatch } = opts;
 	const obj = await getObjectBytes(key);
 	if (!obj) throw error(404, 'not found');
 
 	const ext = extOf(key);
 	if (rewriteFont && BITMAP_DESCRIPTOR_EXT.has(ext)) {
+		// The rewritten descriptor is request-base-dependent (page refs are
+		// absolutised against `assetUrlBase`), so it is NOT byte-stable per R2
+		// ETag — leave it uncacheable rather than serve a stale/mismatched rewrite.
 		const rewritten = rewriteDescriptorPages(
 			new TextDecoder().decode(obj.body),
 			ext,
@@ -123,10 +137,31 @@ export async function streamAsset(opts: StreamAssetOptions): Promise<Response> {
 		});
 	}
 
-	return new Response(obj.body, {
-		headers: {
-			'content-type': contentTypeFor(key, obj.contentType),
-			'cache-control': 'no-store',
-		},
-	});
+	// Verbatim image/binary branch: cacheable + conditionally revalidated. R2's
+	// ETag identifies the exact bytes, so a matching `If-None-Match` means the
+	// client already holds this object — answer `304` (no body) after the gate.
+	const headers: Record<string, string> = {
+		'content-type': contentTypeFor(key, obj.contentType),
+		'cache-control': VERBATIM_CACHE_CONTROL,
+	};
+	if (obj.etag) {
+		headers['etag'] = obj.etag;
+		if (ifNoneMatch && etagMatches(ifNoneMatch, obj.etag)) {
+			return new Response(null, { status: 304, headers });
+		}
+	}
+
+	return new Response(obj.body, { headers });
+}
+
+/**
+ * Does the client's `If-None-Match` value match our ETag? Handles the comma-
+ * separated list form and the `W/` weak prefix on either side (R2's GET ETag is
+ * strong, but a previous revalidation may echo it weakly).
+ */
+function etagMatches(ifNoneMatch: string, etag: string): boolean {
+	const norm = (t: string): string => t.trim().replace(/^W\//, '');
+	const ours = norm(etag);
+	if (ifNoneMatch.trim() === '*') return true;
+	return ifNoneMatch.split(',').some((candidate) => norm(candidate) === ours);
 }

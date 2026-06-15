@@ -2,8 +2,10 @@
 	/** One shared <img> per page key, across all thumbnails — many reuse the same decode. */
 	const pageImages = new Map<string, HTMLImageElement>();
 
-	/** Bumped by "Reload art" (EditorCanvas.refreshAssets) — also feeds `?v=` so the
-	 * HTTP cache is busted, mirroring the canvas's own `assetVersion` mechanism. */
+	/** Bumped by "Reload art" (EditorCanvas.refreshAssets) — feeds the `?v=` content
+	 * token, which stays constant across renders (the ETag-cacheable asset endpoint
+	 * revalidates cheaply) and changes only on reload, mirroring the canvas's own
+	 * `assetVersion` mechanism. */
 	let pageVersion = $state(0);
 
 	/** Drop the shared page decodes so Library thumbnails repaint from fresh R2 art. */

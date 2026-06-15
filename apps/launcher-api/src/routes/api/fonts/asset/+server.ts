@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
  * THIS endpoint (`/api/fonts/asset?key=`). Allows the project's tree + the shared
  * `_shared/fonts/` library. Never 500s on a missing object — 404.
  */
-export const GET: RequestHandler = async ({ url, locals, cookies }) => {
+export const GET: RequestHandler = async ({ url, locals, cookies, request }) => {
 	const { prefixes } = await gate(locals, cookies, {
 		tool: 'fontMaker',
 		forbiddenMessage: 'Your role does not have access to the Invisible Font Maker.',
@@ -25,5 +25,6 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		key,
 		rewriteFont: url.searchParams.get('font') === '1',
 		assetUrlBase: '/api/fonts/asset?key=',
+		ifNoneMatch: request.headers.get('if-none-match'),
 	});
 };

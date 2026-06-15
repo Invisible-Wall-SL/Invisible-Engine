@@ -14,7 +14,7 @@ import type { RequestHandler } from './$types';
  * `$lib/server/assetStream`, shared with the Font Maker's `/api/fonts/asset`. The
  * page refs are rewritten back through THIS endpoint (`/api/editor/asset?key=`).
  */
-export const GET: RequestHandler = async ({ url, locals, cookies }) => {
+export const GET: RequestHandler = async ({ url, locals, cookies, request }) => {
 	const { prefixes } = await gate(locals, cookies, {
 		tool: 'editor',
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
@@ -30,5 +30,6 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		key,
 		rewriteFont: url.searchParams.get('font') === '1',
 		assetUrlBase: '/api/editor/asset?key=',
+		ifNoneMatch: request.headers.get('if-none-match'),
 	});
 };
