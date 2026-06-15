@@ -206,13 +206,31 @@ export async function loadSkeletonIndex(
 	}
 }
 
-/** Page-image filenames referenced by an atlas (lines with an image extension). */
-const ATLAS_PAGE_LINE = /^(\S.*\.(?:png|webp|jpg|jpeg))\s*$/i;
+/** Page-image filenames declared by an atlas. A page block starts at file start /
+ * after a blank line: the FIRST non-property line there is the page image; every
+ * other non-indented, no-`:` line is a region name. Region names CAN carry an image
+ * extension (e.g. `heart_shadow.png`), so pages MUST be identified structurally by
+ * position, never by extension — otherwise such a region is mis-loaded as a texture
+ * page (a 404 that leaves the spine with a blank placeholder). Inverse of
+ * `atlasRegionNames`; the two share one structural model. */
 export function atlasPageNames(atlasText: string): string[] {
 	const out: string[] = [];
+	let expectPage = true; // first non-empty line is a page image; also after a blank line
 	for (const line of atlasText.split(/\r?\n/)) {
-		const m = line.match(ATLAS_PAGE_LINE);
-		if (m && !line.includes(':')) out.push(m[1].trim());
+		if (line.trim() === '') {
+			expectPage = true;
+			continue;
+		}
+		if (/^\s/.test(line) || line.includes(':')) {
+			expectPage = false;
+			continue;
+		} // property line
+		if (expectPage) {
+			expectPage = false;
+			out.push(line.trim()); // page image filename
+			continue;
+		}
+		// region name — not a page
 	}
 	return out;
 }
