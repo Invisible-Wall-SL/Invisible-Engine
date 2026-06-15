@@ -6,9 +6,10 @@ models it needs. Anyone can upload one, everyone can see it, and selecting it in
 Atlas Maker means "generate with this network" — with the required models
 auto-downloaded into the local ComfyUI first.
 
-> Status: **not built.** This is the scoped plan. Decisions locked (2026-06-04):
-> model download via **ComfyUI-Manager API**, authoring via **API-JSON export + a
-> binding step**, scope is a **single global library visible to everyone**.
+> Status: **code-complete (all 8 phases), owner-side live-verify owed** (as of
+> 2026-06-15 — see §7). Decisions locked (2026-06-04): model download via
+> **ComfyUI-Manager API**, authoring via **API-JSON export + a binding step**, scope is a
+> **single global library visible to everyone**.
 
 ## 1. Why this is net-new
 
@@ -200,14 +201,19 @@ Manager itself — that's why this beat the "local downloader companion" option.
 
 ## 5. Atlas Maker integration
 
-The blueprint picker lives at the top of the Settings panel, next to the existing
-`pipeline` selector (`ui_server.py` `PIPELINE_OPTIONS` / the `"all"` group).
+The blueprint picker is **folded into the existing `pipeline` selector** rather than
+being a separate dropdown — the cleanest implementation in the end. `_pipeline_options_html`
+(`ui_server.py`) renders a **"Built-in"** optgroup (sdxl / flux / gpt_image) plus a
+**"Blueprints"** optgroup listing every `_shared/blueprints/*` id (name shown). So a
+blueprint id is just another value of `pipeline`; "Built-in pipeline" = picking one of the
+three built-in keywords.
 
-- **Blueprint dropdown** lists `_shared/blueprints/*` (id + name + thumb). Default option
-  is "Built-in pipeline" (today's behaviour, unchanged).
-- **Selecting a blueprint** sets `manifest["settings"].blueprint = "<id>"` (saved via
-  `/saveconfig`, same plumbing as other settings). It hides the per-field model `<select>`s
-  (the blueprint pins its own models) but keeps prompt/seed/size/refs editable.
+- **Selecting a blueprint** sets `manifest["settings"].pipeline = "<id>"` (NOT a separate
+  `settings.blueprint` key — `pipeline` is `PER_ATLAS_KEYS`, so it saves verbatim via the
+  existing `/saveconfig` plumbing and supports per-slot overrides for free). The client
+  hides the per-field model `<select>`s when the active pipeline is a blueprint
+  (`pipeVisible` / `isBlueprintPipe`), and shows a ref field only if the blueprint binds
+  that role (`bpBinds` + `BP_BOUND_ROLES`); prompt/seed/size stay editable.
 - **Generate** (`/render` → `run_render` → `batch_atlas.py` subprocess) branches: when a
   blueprint is set, instead of `build_workflow_*` it loads `workflow.json`, runs the
   **prepare** step (§4), applies the **bindings** (§2) to inject prompt/seed/size/refs and
@@ -274,12 +280,28 @@ else the baked default) onto its bound node input.
    `blueprints._validate_models` accepts the aligned `models[]` shape (`url`/`save_path`/
    `base`/`filename` catalog keys, optional; legacy `{dir, source}` still loads). Covered by
    an offline self-test (8 scenarios, mocked Manager HTTP) — see the commit/report.
-5. **Atlas Maker UI — pick & generate.** Blueprint dropdown in Settings; wire selection
-   into `/saveconfig` and the `/render` branch.
-6. **Atlas Maker UI — upload & bind.** The `Blueprints → New` page: API-JSON upload, the
-   binding step, model-source entry, save to R2.
-7. **Publish gating + docs.** Role permission for publishing; ONBOARDING note that local
-   ComfyUI needs ComfyUI-Manager; STATUS update.
+5. ✅ **Atlas Maker UI — pick & generate.** *(DONE `f00ffd5` 2026-06-06, code-audited
+   2026-06-15.)* The blueprint picker is folded into the `pipeline` `<select>`
+   (`_pipeline_options_html`: "Built-in" + "Blueprints" optgroups). Selection saves as
+   `manifest.settings.pipeline = "<id>"` through the unchanged `/saveconfig` path
+   (`pipeline` is `PER_ATLAS_KEYS` → stored verbatim, per-slot overridable). `run_region`
+   (`batch_atlas.py:1926`) dispatches any non-built-in id to `build_workflow_blueprint`
+   (with the §4 prepare step running first in `main()`). The client hides the built-in
+   model `<select>`s for a blueprint pipeline (`pipeVisible`/`isBlueprintPipe`) and gates
+   ref fields on the blueprint's bound roles (`bpBinds`/`BP_BOUND_ROLES`, applied in the
+   per-slot advanced popup). **Live verify owed:** an end-to-end generate THROUGH a
+   blueprint id on the owner's GPU (proves pick→save→dispatch→output).
+6. ✅ **Atlas Maker UI — upload & bind.** *(DONE `f00ffd5` 2026-06-06, live-verify owed.)*
+   The "＋ New blueprint" modal: API-JSON upload, the binding step (role→node, candidate-
+   filtered by `class_type`), model-source entry, save to R2 via `/uploadblueprint`;
+   `blueprints.validate_against_graph` checks each binding against the uploaded graph.
+   Phase 8 later added the "Exposed settings" authoring step to this same modal.
+7. ✅ **Publish gating + docs.** *(Gating DONE `f00ffd5`; docs owed.)* Publishing is gated
+   behind `bp=<ATLAS_BLUEPRINT_SECRET>` (per-session `atlas_bp` cookie; unset secret ⇒
+   publishing off, fail-safe) — `can_publish` in `ui_server.py`. **Still owed:** the
+   `blueprintPublish` role wiring in the launcher (`toolScope.ts` `includeBlueprints`), the
+   ONBOARDING note that local ComfyUI needs ComfyUI-Manager at security ≤ middle, and the
+   STATUS update.
 8. ✅ **Blueprint exposed params / "general settings"** *(DONE-code 2026-06-14,
    live-verify owed.)* Strictly-additive follow-on: a blueprint may declare an
    OPTIONAL `params[]` array — author-tunable knobs (steps/cfg/sampler/denoise/
@@ -316,12 +338,14 @@ else the baked default) onto its bound node input.
 Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve and safe;
 8 lets a blueprint expose its own tunable settings.
 
-> **Backbone status (2026-06-06):** phases **2–3 DONE** for BUILT-IN pipelines
-> (`services/atlas-tool/blueprints.py`, `batch_atlas.build_workflow_blueprint`, the
-> `blueprints_src/{sdxl,flux,gpt_image}/` reference set, `seed_blueprints.py`,
-> `blueprints_src/README.md`). Phase **1** (ComfyUI-Manager model-download spike) is
-> still the next external unknown — `blueprint.json.models[]` is read-only metadata
-> until then. Phases **4–7** unbuilt. Code is in the working tree, uncommitted.
+> **Status (2026-06-15):** all eight phases are **code-complete and committed**.
+> Backbone **2–3** (`blueprints.py`, `build_workflow_blueprint`, the
+> `blueprints_src/{sdxl,flux,gpt_image}/` reference set, `seed_blueprints.py`); UI **5–7**
+> in `f00ffd5` (picker + upload/bind modal + publish gating); model auto-install **1+4** in
+> `dc3f647`; exposed params **8** in `a3bf684`. What remains is **owner-side live verifies**
+> (a real generate through a blueprint id; a real catalog-model auto-install + reboot) and
+> the **phase-7 docs/launcher-role tail** (`toolScope.ts includeBlueprints` +
+> `blueprintPublish`, ONBOARDING ComfyUI-Manager note).
 
 ## 8. Anchor points in current code
 
