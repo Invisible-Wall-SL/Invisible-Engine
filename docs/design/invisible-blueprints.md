@@ -206,14 +206,20 @@ being a separate dropdown — the cleanest implementation in the end. `_pipeline
 (`ui_server.py`) renders a **"Built-in"** optgroup (sdxl / flux / gpt_image) plus a
 **"Blueprints"** optgroup listing every `_shared/blueprints/*` id (name shown). So a
 blueprint id is just another value of `pipeline`; "Built-in pipeline" = picking one of the
-three built-in keywords.
+three built-in keywords. The same selector appears in **two UI spots**: the **`⚙ Global
+settings`** panel (the atlas-wide default) and each region card's **`⚙` advanced popup**
+(`Pipeline (this slot)`, a per-region override; blank = inherit global).
 
-- **Selecting a blueprint** sets `manifest["settings"].pipeline = "<id>"` (NOT a separate
-  `settings.blueprint` key — `pipeline` is `PER_ATLAS_KEYS`, so it saves verbatim via the
-  existing `/saveconfig` plumbing and supports per-slot overrides for free). The client
-  hides the per-field model `<select>`s when the active pipeline is a blueprint
-  (`pipeVisible` / `isBlueprintPipe`), and shows a ref field only if the blueprint binds
-  that role (`bpBinds` + `BP_BOUND_ROLES`); prompt/seed/size stay editable.
+- **Selecting a blueprint** stores the id as the `pipeline` value through the existing
+  `/saveconfig` (or per-region `/saveadv`) plumbing — NOT a separate `settings.blueprint`
+  key. **`pipeline` is NOT in `PER_ATLAS_KEYS`:** the Global-settings selection saves to
+  `atlas_config.json` (`cfg["pipeline"]`, the global default `PIPELINE`); the per-slot
+  override saves onto that region's entry in the manifest (`region["pipeline"]`). At
+  generate time `batch_atlas.region_pipeline(region)` resolves the effective id = the
+  region override else the global. The client hides the per-field model `<select>`s when
+  the active pipeline is a blueprint (`pipeVisible` / `isBlueprintPipe`), and shows a ref
+  field only if the blueprint binds that role (`bpBinds` + `BP_BOUND_ROLES`);
+  prompt/seed/size stay editable.
 - **Generate** (`/render` → `run_render` → `batch_atlas.py` subprocess) branches: when a
   blueprint is set, instead of `build_workflow_*` it loads `workflow.json`, runs the
   **prepare** step (§4), applies the **bindings** (§2) to inject prompt/seed/size/refs and
@@ -282,9 +288,11 @@ else the baked default) onto its bound node input.
    an offline self-test (8 scenarios, mocked Manager HTTP) — see the commit/report.
 5. ✅ **Atlas Maker UI — pick & generate.** *(DONE `f00ffd5` 2026-06-06, code-audited
    2026-06-15.)* The blueprint picker is folded into the `pipeline` `<select>`
-   (`_pipeline_options_html`: "Built-in" + "Blueprints" optgroups). Selection saves as
-   `manifest.settings.pipeline = "<id>"` through the unchanged `/saveconfig` path
-   (`pipeline` is `PER_ATLAS_KEYS` → stored verbatim, per-slot overridable). `run_region`
+   (`_pipeline_options_html`: "Built-in" + "Blueprints" optgroups), in the `⚙ Global
+   settings` panel and each card's `⚙` advanced popup. Selection stores the blueprint id as
+   the `pipeline` value: the global default to `atlas_config.json` (`cfg["pipeline"]`) via
+   `/saveconfig`, a per-region override onto `region["pipeline"]` via `/saveadv`
+   (`region_pipeline()` resolves region-else-global at run time). `run_region`
    (`batch_atlas.py:1926`) dispatches any non-built-in id to `build_workflow_blueprint`
    (with the §4 prepare step running first in `main()`). The client hides the built-in
    model `<select>`s for a blueprint pipeline (`pipeVisible`/`isBlueprintPipe`) and gates
