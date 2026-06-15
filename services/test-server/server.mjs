@@ -87,6 +87,8 @@ let registry = {};
 let bundles = {};
 /** gameKey -> mock instance ({ handle }) */
 let mocks = {};
+/** in-flight guard so overlapping POST /refresh calls coalesce into one hydrate */
+let refreshing = false;
 
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
@@ -270,13 +272,21 @@ const handleRequest = async (req, res) => {
 		if (SECRET && url.searchParams.get('secret') !== SECRET) {
 			return sendJson(res, 403, { error: 'forbidden' });
 		}
-		try {
-			await hydrate();
-			return sendJson(res, 200, { ok: true, games: Object.keys(registry) });
-		} catch (e) {
-			console.error('[test-server] refresh failed:', e);
-			return sendJson(res, 500, { error: 'refresh failed' });
-		}
+		// Respond IMMEDIATELY and hydrate in the BACKGROUND. hydrate() pulls every game
+		// bundle from R2 (several seconds); the Cloudflare/Railway edge drops a POST whose
+		// response is that slow, so the desktop launcher saw the connection abort (HTTP 000)
+		// and reported "will refresh on next deploy" — i.e. a publish never went live
+		// without a manual Railway redeploy. An instant 202 keeps the edge happy; the
+		// in-flight guard coalesces overlapping refreshes (a publish + its retry).
+		if (refreshing) return sendJson(res, 202, { status: 'already-refreshing' });
+		refreshing = true;
+		hydrate()
+			.then(() => console.info('[test-server] refreshed via POST /refresh'))
+			.catch((e) => console.error('[test-server] refresh failed:', e))
+			.finally(() => {
+				refreshing = false;
+			});
+		return sendJson(res, 202, { status: 'refreshing' });
 	}
 
 	// mock RGS: /api/<gameKey>/...  → dispatch to that game's mock (matches by suffix)
