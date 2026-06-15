@@ -34,6 +34,7 @@ import packer              # noqa: E402
 import atlas_writers       # noqa: E402
 import storage             # noqa: E402  (R2 object storage + staging mirror)
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
+from iw_common import imgcache  # noqa: E402  (ETag/304 cache headers for images)
 
 SELF = Path(__file__).resolve().parent
 
@@ -1352,14 +1353,36 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_bytes(self, data: bytes, ctype: str, code=200):
+    def _send_bytes(self, data: bytes, ctype: str, code=200,
+                    extra_headers: dict | None = None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        # Default to no-store (HTML/JSON/dynamic). Image routes pass their own
+        # Cache-Control (via imgcache.cache_headers) for ETag revalidation — let
+        # that win instead of emitting an uncacheable no-store alongside it.
+        headers = extra_headers or {}
+        if "Cache-Control" not in headers:
+            self.send_header("Cache-Control", "no-store")
+        for k, v in headers.items():
+            self.send_header(k, v)
         self._apply_cookie()
         self.end_headers()
         self.wfile.write(data)
+
+    def _serve_sprite(self, p: Path, ctype: str):
+        """Serve a sprite file with ETag-based revalidation so a many-sprite
+        canvas reload returns cheap 304s instead of re-sending every full-size
+        image — the many-thumbnail 502-storm fix. The ETag is the source file's
+        mtime+size, so a re-uploaded sprite (file rewritten → new mtime) yields a
+        new ETag and refreshes in place; the client also keeps its explicit
+        `?t=` bust on replace, which already forces the revalidation."""
+        etag = imgcache.etag_for_path(p)
+        inm = self.headers.get("If-None-Match")
+        if etag and imgcache.not_modified(inm, etag):
+            self._send_bytes(b"", ctype, 304, imgcache.cache_headers(etag))
+            return
+        self._send_bytes(p.read_bytes(), ctype, 200, imgcache.cache_headers(etag))
 
     def _apply_cookie(self):
         cookie = getattr(self, "_set_cookie", None)
@@ -1456,7 +1479,7 @@ class Handler(BaseHTTPRequestHandler):
             p = uploads_dir(sheet) / fn
             if fn and p.exists():
                 ctype = "image/webp" if p.suffix.lower() == ".webp" else "image/png"
-                self._send_bytes(p.read_bytes(), ctype)
+                self._serve_sprite(p, ctype)
             else:
                 self._send_bytes(b"", "image/png", 404)
             return

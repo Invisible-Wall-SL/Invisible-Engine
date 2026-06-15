@@ -45,6 +45,7 @@ import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import storage  # noqa: E402  (R2 object storage + staging mirror)
 from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
+from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpers)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -1565,13 +1566,17 @@ def seed_of(path: Path) -> int | None:
 
 
 def thumb_bytes(path: Path, box: int = 240) -> bytes:
-    img = Image.open(path).convert("RGBA")
-    img.thumbnail((box, box), Image.LANCZOS)
-    bg = Image.new("RGBA", img.size, (32, 32, 36, 255))
-    bg.alpha_composite(img)
-    buf = io.BytesIO()
-    bg.convert("RGB").save(buf, "JPEG", quality=85)
-    return buf.getvalue()
+    """Disk-cached thumbnail. Routes through the shared cache (keyed on src
+    path+mtime+size+box) so a many-thumbnail page reads cheap JPEGs instead of
+    re-decoding every full-size image on each request — the 502-storm fix. The
+    cache lives under THIS request's staging root (request-thread-local context;
+    never a module-global), so it stays inside the active (client, project) tree
+    and is invalidated structurally when the source mtime changes."""
+    try:
+        cache_dir = project_paths.resolve().get("staging_root")
+    except Exception:  # noqa: BLE001 — fall back to OS temp if context is unset
+        cache_dir = None
+    return imgcache.cached_thumb(path, box, cache_dir=cache_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -3440,9 +3445,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         merged = dict(getattr(self, "_set_cookie", None) or {})
         merged.update(extra_headers or {})
+        # Default to no-store (config/JSON/HTML are dynamic). A caller that wants
+        # a cacheable response (image routes, via imgcache.cache_headers) passes
+        # its own Cache-Control, which then wins — don't emit both.
+        if "Cache-Control" not in merged:
+            self.send_header("Cache-Control", "no-store")
         for k, v in merged.items():
             self.send_header(k, v)
         # Additional Set-Cookie headers (a dict can't hold two) — e.g. the
@@ -3857,10 +3866,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def _serve_img(self, p: Path | None, thumb: bool, label: str):
         if p and p.exists():
+            # ETag from the source file's mtime+size: cheap (a stat, no read) and
+            # changes whenever the image is rewritten (re-render / re-upload), so
+            # a freshly regenerated image still refreshes in place. For the full
+            # image we can 304 BEFORE reading the file; for a thumb we can 304
+            # before the (cached) decode — both skip the body when unchanged.
+            etag = imgcache.etag_for_path(p)
+            inm = self.headers.get("If-None-Match")
+            if etag and imgcache.not_modified(inm, etag):
+                self._send(304, "image/jpeg" if thumb else "image/png", b"",
+                           imgcache.cache_headers(etag))
+                return
+            headers = imgcache.cache_headers(etag)
             if thumb:
-                self._send(200, "image/jpeg", thumb_bytes(p))
+                self._send(200, "image/jpeg", thumb_bytes(p), headers)
             else:
-                self._send(200, "image/png", p.read_bytes())
+                self._send(200, "image/png", p.read_bytes(), headers)
             return
         svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="160">'
                f'<rect width="220" height="160" fill="#1a1a1e"/><text x="110" y="84" '
@@ -4834,7 +4855,6 @@ class Handler(BaseHTTPRequestHandler):
         m = load_manifest()
         _style = m.get("style", {})
         cfg = load_config()
-        cb = int(time.time())
         cards = []
         g_pipe = str(cfg.get("pipeline", "sdxl")).lower() or "sdxl"
         for r in all_regions(m):
@@ -4860,19 +4880,29 @@ class Handler(BaseHTTPRequestHandler):
             # (its embedded seed may be shared with other variants, so the
             # file id — not the seed — is the source of truth for the pick).
             picked = str(r.get("variant", ""))
-            has_override = batch_atlas.override_image_path(r) is not None
+            override_p = batch_atlas.override_image_path(r)
+            has_override = override_p is not None
+            # Per-image cache-bust tokens derived from the SOURCE file's
+            # mtime+size — NOT a per-page-load timestamp. So a plain reload stays
+            # fully cacheable (no thumbnail re-decode storm), yet the URL changes
+            # the moment a slot's image actually changes (re-render / new pick /
+            # re-upload), refreshing it in place.
             if has_override:
-                bigthumb = f"/outthumb/{name}?t={cb}"
-                biglink = f"/outfull/{name}?t={cb}"
+                ot = imgcache.thumb_token(override_p)
+                bigthumb = f"/outthumb/{name}?t={ot}"
+                biglink = f"/outfull/{name}?t={ot}"
                 out_cap = "★ your image · NOT processed"
             elif picked and variant_path(name, picked):
-                bigthumb = f"/vthumb/{name}?id={picked}&t={cb}"
-                biglink = f"/vfull/{name}?id={picked}&t={cb}"
+                ot = imgcache.thumb_token(variant_path(name, picked))
+                bigthumb = f"/vthumb/{name}?id={picked}&t={ot}"
+                biglink = f"/vfull/{name}?id={picked}&t={ot}"
                 out_cap = f"output · seed {us if us is not None else '—'}"
             else:
-                bigthumb = f"/thumb/{name}?t={cb}"
-                biglink = f"/full/{name}?t={cb}"
+                ot = imgcache.thumb_token(p) if p else "0"
+                bigthumb = f"/thumb/{name}?t={ot}"
+                biglink = f"/full/{name}?t={ot}"
                 out_cap = f"output · seed {us if us is not None else '—'}"
+            ref_token = imgcache.thumb_token(self._refpath(f"/ref/{name}"))
             rneg = str(r.get("negative", ""))
             rneg_replace = bool(r.get("negative_replace", False))
             rpos_replace = bool(r.get("positive_replace", False))
@@ -4931,7 +4961,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<span class='gptbadge' title='This slot is edited by "
                     "GPT-Image-1, not the local pipeline'>GPT</span>"
                     if eff_pipe == "gpt_image" else ""),
-                cb=cb,
+                cb=ref_token,
             ))
         msettings = m.get("settings") or {}
         matlas = m.get("atlas") or {}
