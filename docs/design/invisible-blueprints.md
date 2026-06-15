@@ -296,12 +296,14 @@ else the baked default) onto its bound node input.
    filtered by `class_type`), model-source entry, save to R2 via `/uploadblueprint`;
    `blueprints.validate_against_graph` checks each binding against the uploaded graph.
    Phase 8 later added the "Exposed settings" authoring step to this same modal.
-7. ✅ **Publish gating + docs.** *(Gating DONE `f00ffd5`; docs owed.)* Publishing is gated
-   behind `bp=<ATLAS_BLUEPRINT_SECRET>` (per-session `atlas_bp` cookie; unset secret ⇒
-   publishing off, fail-safe) — `can_publish` in `ui_server.py`. **Still owed:** the
-   `blueprintPublish` role wiring in the launcher (`toolScope.ts` `includeBlueprints`), the
-   ONBOARDING note that local ComfyUI needs ComfyUI-Manager at security ≤ middle, and the
-   STATUS update.
+7. ✅ **Publish gating + docs.** *(DONE — gating `f00ffd5`, launcher role landed, docs
+   2026-06-15.)* Publishing is gated behind `bp=<ATLAS_BLUEPRINT_SECRET>` (per-session
+   `atlas_bp` cookie; unset secret ⇒ publishing off, fail-safe) — `can_publish` in
+   `ui_server.py`. Launcher side: the `blueprintPublish` capability (`roles.ts`, admin-default
+   ON) + `_shared/blueprints/` read-scope (`toolScope.ts` `includeBlueprints`). The
+   local-ComfyUI prerequisite (ComfyUI-Manager at security ≤ middle, the catalog-only
+   constraint, the kill-switch) is documented in **`docs/INFRA.md`** under "ComfyUI tunnel"
+   (ONBOARDING doesn't cover ComfyUI; INFRA is where all local-ComfyUI setup lives).
 8. ✅ **Blueprint exposed params / "general settings"** *(DONE-code 2026-06-14,
    live-verify owed.)* Strictly-additive follow-on: a blueprint may declare an
    OPTIONAL `params[]` array — author-tunable knobs (steps/cfg/sampler/denoise/
@@ -338,14 +340,15 @@ else the baked default) onto its bound node input.
 Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve and safe;
 8 lets a blueprint expose its own tunable settings.
 
-> **Status (2026-06-15):** all eight phases are **code-complete and committed**.
+> **Status (2026-06-15):** all eight phases are **code-complete, committed, and documented**.
 > Backbone **2–3** (`blueprints.py`, `build_workflow_blueprint`, the
 > `blueprints_src/{sdxl,flux,gpt_image}/` reference set, `seed_blueprints.py`); UI **5–7**
-> in `f00ffd5` (picker + upload/bind modal + publish gating); model auto-install **1+4** in
-> `dc3f647`; exposed params **8** in `a3bf684`. What remains is **owner-side live verifies**
-> (a real generate through a blueprint id; a real catalog-model auto-install + reboot) and
-> the **phase-7 docs/launcher-role tail** (`toolScope.ts includeBlueprints` +
-> `blueprintPublish`, ONBOARDING ComfyUI-Manager note).
+> in `f00ffd5` (picker + upload/bind modal + publish gating) with the launcher role
+> (`blueprintPublish` + `toolScope.includeBlueprints`) + the INFRA ComfyUI-Manager note now
+> landed; model auto-install **1+4** in `dc3f647`; exposed params **8** in `a3bf684`. The
+> ONLY thing left is **owner-side live verifies** (a real generate through a blueprint id; a
+> real catalog-model auto-install + reboot; an exposed-param override reaching the KSampler)
+> — each needs the local GPU/tunnel and can't be done from the cloud side.
 
 ## 8. Anchor points in current code
 
