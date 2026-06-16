@@ -2189,59 +2189,81 @@ function packedInfluences(verts, i){
 // three, and barycentric-interpolate the new vertex's UV and (weighted) bone
 // influences from the triangle's corners. Mutates rawDoc + rebuilds. The hull is
 // untouched (the new vertex is interior, appended after existing vertices).
-// ---- Delaunay re-triangulation (interior "floating" vertices) -------------
-// Weave the whole mesh through every vertex: Bowyer-Watson Delaunay over the hull
-// boundary + all interior points, then clip triangles whose centroid falls outside
-// the (possibly concave) hull polygon so concavities are carved out. Interior points
-// the artist dropped in the middle become real triangulation nodes the mesh passes
-// through. Verified in tools/rigger-spike/retriangulate.mjs (exact convex tiling,
-// every interior point referenced, concave notch carved).
-function pointInPolygon(px, py, poly){
-  let inside = false; const n = poly.length / 2;
-  for (let i = 0, j = n - 1; i < n; j = i++){
-    const xi = poly[i * 2], yi = poly[i * 2 + 1], xj = poly[j * 2], yj = poly[j * 2 + 1];
-    if (((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)) inside = !inside;
-  }
-  return inside;
-}
+// ---- constrained re-triangulation (interior "floating" vertices) ----------
+// Weave the whole mesh through every vertex with a CONSTRAINED Delaunay triangulation:
+// ear-clip the hull polygon (every hull vertex referenced, boundary edges respected by
+// construction), insert interior points by splitting the triangle they land in, then a
+// Delaunay flip pass that NEVER flips a hull boundary edge. Unlike plain Delaunay +
+// centroid-clip, this cannot orphan a (reflex) hull vertex or let a triangle jump a
+// concavity. Verified in tools/rigger-spike/retriangulate-cdt.mjs (cactus + armpits:
+// every vertex referenced, all hull edges present, exact cover, no slivers).
 function circumcircleContains(ax, ay, bx, by, cx, cy, px, py){
+  const orient = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (Math.abs(orient) < 1e-9) return false; // degenerate triangle → never "contains"
   const adx = ax - px, ady = ay - py, bdx = bx - px, bdy = by - py, cdx = cx - px, cdy = cy - py;
   const ad = adx * adx + ady * ady, bd = bdx * bdx + bdy * bdy, cd = cdx * cdx + cdy * cdy;
   const det = adx * (bdy * cd - bd * cdy) - ady * (bdx * cd - bd * cdx) + ad * (bdx * cdy - bdy * cdx);
-  const orient = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
   return orient > 0 ? det > 1e-9 : det < -1e-9;
 }
-function delaunayTriangles(pts){
-  const n = pts.length / 2;
-  if (n < 3) return [];
-  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-  for (let i = 0; i < n; i++){ const x = pts[i * 2], y = pts[i * 2 + 1]; if (x < minx) minx = x; if (y < miny) miny = y; if (x > maxx) maxx = x; if (y > maxy) maxy = y; }
-  const dx = maxx - minx || 1, dy = maxy - miny || 1, dmax = Math.max(dx, dy), midx = (minx + maxx) / 2, midy = (miny + maxy) / 2;
-  const X = new Float64Array(n + 3), Y = new Float64Array(n + 3);
-  for (let i = 0; i < n; i++){ X[i] = pts[i * 2]; Y[i] = pts[i * 2 + 1]; }
-  X[n] = midx - 20 * dmax; Y[n] = midy - dmax;
-  X[n + 1] = midx; Y[n + 1] = midy + 20 * dmax;
-  X[n + 2] = midx + 20 * dmax; Y[n + 2] = midy - dmax;
-  let tris = [[n, n + 1, n + 2]];
-  for (let p = 0; p < n; p++){
-    const px = X[p], py = Y[p];
-    const bad = [], good = [];
-    for (const t of tris){
-      if (circumcircleContains(X[t[0]], Y[t[0]], X[t[1]], Y[t[1]], X[t[2]], Y[t[2]], px, py)) bad.push(t);
-      else good.push(t);
+const edgeKey = (u, v) => (u < v ? u + "," + v : v + "," + u);
+const sideOf = (w, p, q, r) => (w[q * 2] - w[p * 2]) * (w[r * 2 + 1] - w[p * 2 + 1]) - (w[q * 2 + 1] - w[p * 2 + 1]) * (w[r * 2] - w[p * 2]);
+// do segments (a,b) and (c,d) properly cross? (→ quad a,c,b,d is convex → diagonal flip is valid)
+function segmentsCross(w, a, b, c, d){
+  const d1 = sideOf(w, c, d, a), d2 = sideOf(w, c, d, b), d3 = sideOf(w, a, b, c), d4 = sideOf(w, a, b, d);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+// CDT over world verts `w`; first `hull` verts are the boundary loop. Returns [[a,b,c],…] or null.
+function cdtTriangulate(w, hull){
+  const m = w.length / 2;
+  if (m < 3) return null;
+  const ring = []; for (let i = 0; i < hull; i++) ring.push(i);
+  let tris = earClip(ring, w);
+  if (!tris) return null;
+  // insert each interior point by splitting the triangle that contains it (fan into 3)
+  for (let p = hull; p < m; p++){
+    let placed = -1;
+    for (let ti = 0; ti < tris.length; ti++){
+      const [a, b, c] = tris[ti];
+      const r = bary(w[p * 2], w[p * 2 + 1], w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], w[c * 2], w[c * 2 + 1]);
+      if (r && r.u >= -1e-7 && r.v >= -1e-7 && r.w >= -1e-7){ placed = ti; break; }
     }
-    const edges = [];
-    for (const t of bad) edges.push([t[0], t[1]], [t[1], t[2]], [t[2], t[0]]);
-    const boundary = [];
-    for (let i = 0; i < edges.length; i++){
-      let shared = false;
-      for (let j = 0; j < edges.length; j++) if (i !== j && edges[i][0] === edges[j][1] && edges[i][1] === edges[j][0]){ shared = true; break; }
-      if (!shared) boundary.push(edges[i]);
+    if (placed < 0){ // not strictly inside (rounding) → attach to nearest triangle by centroid
+      let bestD = Infinity;
+      for (let ti = 0; ti < tris.length; ti++){
+        const [a, b, c] = tris[ti];
+        const cx = (w[a * 2] + w[b * 2] + w[c * 2]) / 3, cy = (w[a * 2 + 1] + w[b * 2 + 1] + w[c * 2 + 1]) / 3;
+        const dd = (cx - w[p * 2]) ** 2 + (cy - w[p * 2 + 1]) ** 2;
+        if (dd < bestD){ bestD = dd; placed = ti; }
+      }
     }
-    tris = good;
-    for (const e of boundary) tris.push([e[0], e[1], p]);
+    if (placed < 0) continue;
+    const [a, b, c] = tris[placed];
+    tris.splice(placed, 1, [a, b, p], [b, c, p], [c, a, p]);
   }
-  return tris.filter((t) => t[0] < n && t[1] < n && t[2] < n);
+  // constraint edges = hull boundary loop (never flip these)
+  const constraints = new Set();
+  for (let i = 0; i < hull; i++) constraints.add(edgeKey(i, (i + 1) % hull));
+  // Delaunay flip pass: flip any non-constraint interior edge whose opposite vertex
+  // violates the empty-circumcircle condition AND whose quad is convex.
+  let guard = 0, changed = true;
+  while (changed && guard++ < 4000){
+    changed = false;
+    const edge = new Map();
+    for (let ti = 0; ti < tris.length; ti++){
+      const [a, b, c] = tris[ti];
+      for (const [u, v, opp] of [[a, b, c], [b, c, a], [c, a, b]]){ const k = edgeKey(u, v); if (!edge.has(k)) edge.set(k, []); edge.get(k).push({ ti, u, v, opp }); }
+    }
+    for (const [k, recs] of edge){
+      if (recs.length !== 2 || constraints.has(k)) continue;
+      const a = recs[0].u, b = recs[0].v, c = recs[0].opp, d = recs[1].opp;
+      if (!circumcircleContains(w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], w[c * 2], w[c * 2 + 1], w[d * 2], w[d * 2 + 1])) continue;
+      if (!segmentsCross(w, a, b, c, d)) continue;
+      tris[recs[0].ti] = [a, c, d];
+      tris[recs[1].ti] = [b, d, c];
+      changed = true; break;
+    }
+  }
+  return tris;
 }
 // Two vertices at the SAME position can't both be in a non-degenerate triangulation —
 // Bowyer-Watson silently drops one, so it looks "merged" onto its twin. They're really
@@ -2285,17 +2307,9 @@ function retriangulateMesh(){
   const w = ded.w;
   const m = w.length / 2;
   if (m < 3){ showErr("Too few distinct vertices to triangulate."); return; }
-  const hull = rd.hull || m;
-  let tris = delaunayTriangles(w);
-  if (hull >= 3){
-    const poly = [];
-    for (let i = 0; i < hull; i++) poly.push(w[i * 2], w[i * 2 + 1]);
-    tris = tris.filter(([a, b, c]) => {
-      const cx = (w[a * 2] + w[b * 2] + w[c * 2]) / 3, cy = (w[a * 2 + 1] + w[b * 2 + 1] + w[c * 2 + 1]) / 3;
-      return pointInPolygon(cx, cy, poly);
-    });
-  }
-  if (!tris.length){ showErr("Re-triangulation produced no triangles."); return; }
+  const hull = Math.min(rd.hull || m, m);
+  const tris = cdtTriangulate(w, hull);
+  if (!tris || !tris.length){ showErr("Re-triangulation failed (couldn't ear-clip the hull — check for a self-crossing outline)."); return; }
   rd.triangles = tris.flat();
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   if (selSlot) selectSlot(selSlot);
