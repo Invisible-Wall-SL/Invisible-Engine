@@ -832,11 +832,14 @@ load.
 add an event at the playhead (auto-defines `rawDoc.events[name]`); purple keys, retime/
 delete like others. Format `events:{name:{int,float,string}}` + `animations[a].events=
 [{time,name}]`, saved in the .irig; verified firing vs spine-core (`eventanim.mjs`).
-**Remaining non-bone channels (each its own focused follow-up — both need a spike first):**
-draw-order timeline (the `offsets:[{slot,offset}]` reconstruction is fiddly — replicate
-Spine's reader exactly) and free-form mesh deform (per-vertex `deform` timelines, the
-largest). Ship-from-Rigger (export rig → `deploy/` as `.json` + register) is the separate
-open gap. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
+**Draw-order channel LANDED (`b04b9be`):** "▦ draw order" dopesheet track (cyan) + ✎ opens
+a reorder popover (slots in order-at-playhead, ↑/↓, reset, Key @ t). `keyDrawOrder`
+generates minimal Spine `offsets` (newDrawPos−setupIndex, moved-only); `poseAtTime`
+reconstructs via `reconstructDrawOrder` (mirrors SkeletonJson) for live preview. Offsets
+format verified vs spine-core (`draworder.mjs`, 5 random 68-slot perms exact).
+**Non-bone channels done: attachment · colour · events · draw order.** Remaining: free-form
+mesh deform (per-vertex `deform` timelines — the largest). Ship-from-Rigger (export rig →
+`deploy/` as `.json` + register) is the separate open gap. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
 disable until an editable rig loads. Animation settings (working length / stretch / speed)
 landed alongside 5.3 (`83073da`). UI is owner-verified live.
 
