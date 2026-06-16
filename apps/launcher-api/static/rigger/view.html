@@ -96,6 +96,7 @@
   #timeline .tl-key.bez { background:#7ee0c0; } /* eased segment */
   #timeline .tl-key.slot { background:#e0a64a; } /* slot (attachment/colour) key */
   #timeline .tl-key.slot.sel { background:#ffd24a; }
+  #timeline .tl-key.evt { background:#c98bff; } /* event key */
   #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
     pointer-events:none; z-index:3; }
   /* controls bar */
@@ -2867,6 +2868,7 @@ const SLOT_CH_LABEL = { attachment: "image", rgba: "colour" };
 // keyframe is clearly tied to a property (rotation / translate / scale / image / colour).
 function timelineTracks(){
   const a = animOf(curAnim), out = [];
+  const evt = [{ kind: "events", name: "events" }]; // animation-level event track, always at top
   if (tlSelOnly){
     if (selBone != null){
       const bn = skeletonData.bones[selBone].name, cb = (a && a.bones && a.bones[bn]) || {};
@@ -2877,16 +2879,17 @@ function timelineTracks(){
       const cs = (a && a.slots && a.slots[selSlot]) || {};
       for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
     }
-    return out;
+    return evt.concat(out);
   }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
-  return out;
+  return evt.concat(out);
 }
 const chArr = (tr) => { const grp = (tr.kind === "slotch") ? (animOf(curAnim) || {}).slots : (animOf(curAnim) || {}).bones; const n = grp && grp[tr.name]; return n && Array.isArray(n[tr.ch]) ? n[tr.ch] : null; };
 const trackKeyTimes = (tr) => {
+  if (tr.kind === "events") return eventKeyTimes();
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
 };
@@ -2907,6 +2910,36 @@ function deleteChannelKeyAt(tr, time){
   const node = (tr.kind === "slotch" ? (animOf(curAnim)).slots : (animOf(curAnim)).bones)[tr.name];
   node[tr.ch] = arr.filter((k) => Math.abs(k.time - time) >= 1e-3); if (!node[tr.ch].length) delete node[tr.ch];
   markDirty(); animsDirty = true; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
+}
+
+// ---- event channel (Phase 5.4): named events fired at keyframes -------------
+const animEventArr = () => { const a = animOf(curAnim); return a && Array.isArray(a.events) ? a.events : null; };
+const eventDefNames = () => (rawDoc && rawDoc.events ? Object.keys(rawDoc.events) : []);
+function eventKeyTimes(){ const arr = animEventArr(); return arr ? [...new Set(arr.map((e) => roundN(e.time, 4)))].sort((a, b) => a - b) : []; }
+function eventsAt(time){ const arr = animEventArr(); return arr ? arr.filter((e) => Math.abs(e.time - time) < 1e-3) : []; }
+function keyEvent(name, time){
+  if (!rawDoc || !curAnim) return;
+  rawDoc.events = rawDoc.events || {}; if (!rawDoc.events[name]) rawDoc.events[name] = { int: 0, float: 0, string: "" }; // define if new
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.events = a.events || [];
+  if (!a.events.some((e) => Math.abs(e.time - time) < 1e-4 && e.name === name)){ a.events.push({ time: roundN(time, 4), name }); a.events.sort((x, y) => x.time - y.time); }
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function deleteEventKeyAt(time){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.events)) return;
+  a.events = a.events.filter((e) => Math.abs(e.time - time) >= 1e-3); if (!a.events.length) delete a.events;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function retimeEventKey(oldTime, newTime){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.events)) return; newTime = Math.max(0, roundN(newTime, 4));
+  for (const e of a.events) if (Math.abs(e.time - oldTime) < 1e-4) e.time = newTime;
+  a.events.sort((x, y) => x.time - y.time); markDirty(); animsDirty = true;
+}
+function addEventAtPlayhead(){
+  if (!rawDoc || !curAnim) return;
+  const existing = eventDefNames();
+  const name = (prompt("Event name (fires at " + animTime.toFixed(2) + "s)" + (existing.length ? "\nexisting: " + existing.join(", ") : ""), existing[0] || "event") || "").trim();
+  if (name) keyEvent(name, animTime);
 }
 
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
@@ -2935,7 +2968,7 @@ function renderTimeline(){
   const lc = document.createElement("span"); lc.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;";
   if (tlView === "dope"){
     const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
-    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#ffd24a", "◆", "at playhead");
+    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ffd24a", "◆", "at playhead");
   } else {
     GRAPH_CHANS.forEach((c) => {
       const t = document.createElement("span"); t.textContent = c.label;
@@ -2981,29 +3014,33 @@ function renderTimeline(){
   if (tlView === "graph"){ renderGraphBody(tl, dur, pps, contentW, gutter); positionPlayhead(); return; }
 
   timelineTracks().forEach((tr) => {
+    const isEvents = tr.kind === "events";
     const isChan = tr.kind === "bonech" || tr.kind === "slotch";
     const isSlotKind = tr.kind === "slot" || tr.kind === "slotch";
-    const isSel = isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
+    const isSel = isEvents ? false : isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
-    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:pointer;" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isChan ? tr.label : tr.name; nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan ? "color:var(--dim);" : "");
+    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isEvents ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
-    g.onclick = () => { if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
+    if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
+    else g.onclick = () => { if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
     const track = document.createElement("div");
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
     track.onmousedown = (e) => { if (e.target === track) startScrub(track, e.clientX); };
     trackKeyTimes(tr).forEach((kt) => {
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
-      dot.title = (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
+      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete")
+        : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
       dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, ch: tr.ch, oldTime: kt, newTime: kt, dot, track, dur }; };
       dot.ondblclick = (e) => { e.stopPropagation();
-        if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
+        if (isEvents) deleteEventKeyAt(kt);
+        else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
       };
@@ -3904,7 +3941,8 @@ function wire(){
     if (!tlDrag) return;
     const d = tlDrag; tlDrag = null;
     if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
-      if (d.kind === "bonech" || d.kind === "slotch") retimeChannelKey(d, d.oldTime, d.newTime);
+      if (d.kind === "events") retimeEventKey(d.oldTime, d.newTime);
+      else if (d.kind === "bonech" || d.kind === "slotch") retimeChannelKey(d, d.oldTime, d.newTime);
       else if (d.kind === "slot") retimeSlotKey(d.name, d.oldTime, d.newTime);
       else retimeBoneKey(d.name, d.oldTime, d.newTime);
       animTime = d.newTime; syncPlayhead();
