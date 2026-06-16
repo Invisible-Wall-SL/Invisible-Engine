@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+	import { App } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate } from 'components-storybook';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import { registerComponents } from 'engine-layout';
@@ -109,7 +110,9 @@
 <Story name="inline == instanced (parity)">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<LayoutScene scene={parityScene} />
+			<App>
+				<LayoutScene scene={parityScene} />
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>
@@ -117,7 +120,9 @@
 <Story name="cycle guard (renders nothing)">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<LayoutScene scene={cycleScene} />
+			<App>
+				<LayoutScene scene={cycleScene} />
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>

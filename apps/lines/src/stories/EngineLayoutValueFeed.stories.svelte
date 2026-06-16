@@ -9,6 +9,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
+	import { App } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate } from 'components-storybook';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
@@ -124,7 +125,9 @@
 <Story name="balance tracks + win counts up">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<LayoutScene {scene} />
+			<App>
+				<LayoutScene {scene} />
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>

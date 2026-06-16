@@ -9,7 +9,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	import { Text, REM } from 'pixi-svelte';
+	import { App, Text, REM } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate } from 'components-storybook';
 	import { UI, UiGameName, HudReadout } from 'components-ui-pixi';
 	import {
@@ -102,25 +102,27 @@
 <Story name="scratch readout mounts in the HUD bar">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<UI hud={{ bar: barWithScratch, corners }}>
-				{#snippet gameName(override)}
-					<UiGameName name="LINES GAME" {override} />
-				{/snippet}
-				{#snippet logo(override)}
-					<Text
-						anchor={{ x: 1, y: 0 }}
-						text={override?.text ?? 'ADD YOUR LOGO'}
-						style={{
-							fontFamily: 'proxima-nova',
-							fontSize: REM * 1.5,
-							fontWeight: '600',
-							lineHeight: REM * 2,
-							fill: 0xffffff,
-							...override?.style,
-						}}
-					/>
-				{/snippet}
-			</UI>
+			<App>
+				<UI hud={{ bar: barWithScratch, corners }}>
+					{#snippet gameName(override)}
+						<UiGameName name="LINES GAME" {override} />
+					{/snippet}
+					{#snippet logo(override)}
+						<Text
+							anchor={{ x: 1, y: 0 }}
+							text={override?.text ?? 'ADD YOUR LOGO'}
+							style={{
+								fontFamily: 'proxima-nova',
+								fontSize: REM * 1.5,
+								fontWeight: '600',
+								lineHeight: REM * 2,
+								fill: 0xffffff,
+								...override?.style,
+							}}
+						/>
+					{/snippet}
+				</UI>
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>

@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { Text } from 'pixi-svelte';
+	import { App, Text } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate } from 'components-storybook';
 	import { LayoutScene } from 'engine-layout/svelte';
 	import {
@@ -104,7 +104,9 @@
 <Story name="frame + FREE SPIN + 3 OF 10 render">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<LayoutScene {scene} />
+			<App>
+				<LayoutScene {scene} />
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>
@@ -112,18 +114,20 @@
 <Story name="visibleSource hides + shows the instance">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<LayoutScene scene={visibilityScene} />
-			<!-- Tap to flip the registered bool source: true → counter shows, false → it hides. -->
-			<Text
-				anchor={0.5}
-				x={480}
-				y={520}
-				eventMode="static"
-				cursor="pointer"
-				text={`freeSpinCounterShow: ${shown} (tap to toggle)`}
-				style={{ fontFamily: 'proxima-nova', fontSize: 24, fontWeight: '600', fill: 0x7fd8ff }}
-				onpointerup={toggleShown}
-			/>
+			<App>
+				<LayoutScene scene={visibilityScene} />
+				<!-- Tap to flip the registered bool source: true → counter shows, false → it hides. -->
+				<Text
+					anchor={0.5}
+					x={480}
+					y={520}
+					eventMode="static"
+					cursor="pointer"
+					text={`freeSpinCounterShow: ${shown} (tap to toggle)`}
+					style={{ fontFamily: 'proxima-nova', fontSize: 24, fontWeight: '600', fill: 0x7fd8ff }}
+					onpointerup={toggleShown}
+				/>
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>

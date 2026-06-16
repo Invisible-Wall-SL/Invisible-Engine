@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { i18n } from '@lingui/core';
-	import { Text } from 'pixi-svelte';
+	import { App, Text } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate, StoryPixiApp } from 'components-storybook';
 	import { ButtonFrame, ButtonLabel } from 'components-ui-pixi';
 	import { LayoutScene } from 'engine-layout/svelte';
@@ -185,8 +185,8 @@
 	// each state is unmistakable): h1 resting, h2 hover, h3 pressed, s selected
 	// (active), l1 downstate (disabled). Hover/press the button + tap the toggles to
 	// watch `ButtonFrame` swap the bg sprite. Mounted via `StoryPixiApp` (its OWN
-	// `<App>` + just the one atlas) in a `canvas`-space scene — the game-template
-	// harness above provides no `<App>`, so it can't show a live render.
+	// `<App>` + just the one atlas) in a `canvas`-space scene — a lighter harness than
+	// the game-template story above (which renders the game's full-asset `<App>`).
 	const stateStoryAssets = { symbolsStatic: { ...assets.symbolsStatic, preload: true } };
 	const statesScene: Scene = {
 		id: 'button-states',
@@ -243,25 +243,27 @@
 <Story name="scratch button mounts + presses + greys">
 	<StoryGameTemplate skipLoadingScreen={true} action={async () => {}}>
 		<StoryLocale lang="en">
-			<LayoutScene {scene} />
-			<!-- Press counter + disabled toggle, so the proof is observable on canvas. -->
-			<Text
-				anchor={0.5}
-				x={960}
-				y={700}
-				text={`presses: ${presses}`}
-				style={{ fontFamily: 'proxima-nova', fontSize: 28, fontWeight: '600', fill: 0xffffff }}
-			/>
-			<Text
-				anchor={0.5}
-				x={960}
-				y={750}
-				eventMode="static"
-				cursor="pointer"
-				text={`disabled: ${disabledLabel} (tap to toggle)`}
-				style={{ fontFamily: 'proxima-nova', fontSize: 24, fontWeight: '600', fill: 0x7fd8ff }}
-				onpointerup={toggleDisabled}
-			/>
+			<App>
+				<LayoutScene {scene} />
+				<!-- Press counter + disabled toggle, so the proof is observable on canvas. -->
+				<Text
+					anchor={0.5}
+					x={960}
+					y={700}
+					text={`presses: ${presses}`}
+					style={{ fontFamily: 'proxima-nova', fontSize: 28, fontWeight: '600', fill: 0xffffff }}
+				/>
+				<Text
+					anchor={0.5}
+					x={960}
+					y={750}
+					eventMode="static"
+					cursor="pointer"
+					text={`disabled: ${disabledLabel} (tap to toggle)`}
+					style={{ fontFamily: 'proxima-nova', fontSize: 24, fontWeight: '600', fill: 0x7fd8ff }}
+					onpointerup={toggleDisabled}
+				/>
+			</App>
 		</StoryLocale>
 	</StoryGameTemplate>
 </Story>
