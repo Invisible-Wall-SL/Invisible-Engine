@@ -72,6 +72,47 @@ type BakedBundle = {
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
 
+/**
+ * Live-runtime bundle (Invisible Game Maker, Phase 0). OPT-IN via `?runtime=1`: a
+ * prebuilt generic engine bundle boots an arbitrary project by fetching ONE payload
+ * from the launcher (`GET /api/editor/runtime`) — the same logical shape as
+ * {@link BakedBundle} PLUS an `assetBase` (the absolute `/api/deploy?…&rel=` prefix
+ * the runtime prepends to every deploy-relative asset path). When the param is
+ * absent this stays `null` and EVERY function below is byte-identical to today
+ * (baked-doc games and `apps/lines` live `/api/editor/doc` dev are untouched).
+ */
+type RuntimeBundle = BakedBundle & { assetBase: string };
+let runtimeBundle: RuntimeBundle | null = null;
+
+/** True only when `?runtime=1` is in the game URL — the single opt-in gate. Absent
+ * (or server-side) ⇒ false ⇒ the runtime path is entirely inert (strict parity). */
+function runtimeModeEnabled(): boolean {
+	if (typeof window === 'undefined') return false;
+	return new URLSearchParams(window.location.search).get('runtime') === '1';
+}
+
+/** True once a runtime bundle has been fetched + accepted. Drives every asset/doc
+ * function below to read from the live bundle instead of the baked json. Never true
+ * unless `?runtime=1` AND the fetch succeeded — so off-mode is unaffected. */
+function hasRuntimeBundle(): boolean {
+	return runtimeBundle !== null;
+}
+
+/** Public form of {@link hasRuntimeBundle} for the boot path — true only after a
+ * successful runtime fetch, so the game knows to re-merge the live asset entries
+ * into `stateApp.assets` (which `createApp` built at import, before the fetch). */
+export function isRuntimeBundleActive(): boolean {
+	return hasRuntimeBundle();
+}
+
+/** Asset URL prefix: the launcher's absolute `/api/deploy?…&rel=` base in runtime
+ * mode (so cross-origin deploy files resolve), else the page-relative `assets/`
+ * (the deploy mirror) used by the baked path. Keeps every registration KEY identical
+ * across the two modes — only the resolved `src` URL differs. */
+function srcBase(): string {
+	return hasRuntimeBundle() ? runtimeBundle!.assetBase : 'assets/';
+}
+
 function hasBakedDoc(): boolean {
 	const doc = bakedBundle.doc;
 	return !!(doc && Array.isArray(doc.scenes) && doc.scenes.length > 0);
@@ -84,9 +125,10 @@ function hasBakedDoc(): boolean {
  * with an extra background node) shadows the coded built-in.
  */
 export function registerBakedComponents(): void {
-	if (!hasBakedDoc()) return;
-	if (bakedBundle.componentDefs) registerComponents(bakedBundle.componentDefs);
-	if (bakedBundle.componentDefaults) registerComponentDefaults(bakedBundle.componentDefaults);
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return;
+	if (source.componentDefs) registerComponents(source.componentDefs);
+	if (source.componentDefaults) registerComponentDefaults(source.componentDefaults);
 }
 
 /**
@@ -104,31 +146,36 @@ type EditorArtAssetEntry =
 
 export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	const out: Record<string, EditorArtAssetEntry> = {};
-	if (!hasBakedDoc()) return out;
-	for (const sheet of bakedBundle.editorArt?.sheets ?? []) {
+	// In runtime mode the live bundle supplies the same `editorArt` index; the only
+	// difference is the `src` URL prefix (`srcBase()`). Registration keys + namespaces
+	// stay identical so `LayoutNodeView` lookups resolve in both modes.
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return out;
+	const base = srcBase();
+	for (const sheet of source.editorArt?.sheets ?? []) {
 		// Scope each sheet's frames by its manifest key (the value sprite nodes store
 		// as `assetKey`) so two sheets that reuse a region name don't collide in the
 		// flat loadedAssets map. `LayoutNodeView` resolves the matching scoped key.
 		out[`editorArt/${sheet.json}`] = {
 			type: 'sprites',
-			src: `assets/${sheet.json}`,
+			src: `${base}${sheet.json}`,
 			preload: true,
 			namespace: editorArtNamespace(sheet.key),
 		};
 	}
 	// Standalone images register under the sprite node's full assetKey — that IS
 	// the engine's lookup key for a region-less sprite node.
-	for (const image of bakedBundle.editorArt?.images ?? []) {
-		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
+	for (const image of source.editorArt?.images ?? []) {
+		out[image.key] = { type: 'sprite', src: `${base}${image.file}`, preload: true };
 	}
 	// Spine bundles register under the spine node's full assetKey — the value
 	// `LayoutNodeView` passes to `<SpineProvider key=…>`.
-	for (const spine of bakedBundle.editorArt?.spines ?? []) {
+	for (const spine of source.editorArt?.spines ?? []) {
 		out[spine.key] = {
 			type: 'spine',
 			src: {
-				atlas: `assets/${spine.atlas}`,
-				skeleton: `assets/${spine.skeleton}`,
+				atlas: `${base}${spine.atlas}`,
+				skeleton: `${base}${spine.skeleton}`,
 				scale: spine.scale ?? 2,
 			},
 			preload: true,
@@ -143,6 +190,7 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
  * keeps the coded map byte-for-byte (dev parity).
  */
 export function bakedSymbolMap(): SymbolInfoMap | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.map;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.map;
 }
@@ -165,25 +213,27 @@ type SymbolAssetEntry =
  */
 export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 	const out: Record<string, SymbolAssetEntry> = {};
-	if (!hasBakedDoc()) return out;
-	const index = bakedBundle.symbols?.index;
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return out;
+	const index = source.symbols?.index;
 	if (!index) return out;
+	const base = srcBase();
 	for (const sheet of index.sheets ?? []) {
 		out[`editorSymbols/${sheet.json}`] = {
 			type: 'sprites',
-			src: `assets/${sheet.json}`,
+			src: `${base}${sheet.json}`,
 			preload: true,
 		};
 	}
 	for (const image of index.images ?? []) {
-		out[image.key] = { type: 'sprite', src: `assets/${image.file}`, preload: true };
+		out[image.key] = { type: 'sprite', src: `${base}${image.file}`, preload: true };
 	}
 	for (const spine of index.spines ?? []) {
 		out[spine.key] = {
 			type: 'spine',
 			src: {
-				atlas: `assets/${spine.atlas}`,
-				skeleton: `assets/${spine.skeleton}`,
+				atlas: `${base}${spine.atlas}`,
+				skeleton: `${base}${spine.skeleton}`,
 				scale: spine.scale ?? 2,
 			},
 			preload: true,
@@ -200,6 +250,7 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
  * `engine-layout` so every game shares one implementation).
  */
 export function bakedFontCatalog(): FontCatalog | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.fonts?.catalog;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.fonts?.catalog;
 }
@@ -210,6 +261,7 @@ export function bakedFontCatalog(): FontCatalog | undefined {
  * code catalog on key clash). Empty when un-baked / nothing localized — parity.
  */
 export function bakedLocalizationMessagesMap(): MessagesMap {
+	if (hasRuntimeBundle()) return (runtimeBundle!.localization?.messages ?? {}) as MessagesMap;
 	return (bakedBundle.localization?.messages ?? {}) as MessagesMap;
 }
 
@@ -260,6 +312,70 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 const DEFAULT_DOC_BASE = 'https://app.invisiblewall.org';
 
 /**
+ * The asset-URL prefix the baked-font helpers ({@link bakedFontAssets} /
+ * {@link registerBakedWebFonts}, shared in `engine-layout`) must prepend. In live
+ * runtime mode the project's fonts live behind the launcher's `/api/deploy`, so the
+ * game passes this absolute base instead of the default page-relative `assets/`. Off
+ * mode returns `'assets/'` so the engine helpers behave exactly as before (parity).
+ */
+export function bakedFontSrcBase(): string {
+	return srcBase();
+}
+
+/**
+ * Fetch the live runtime bundle (Invisible Game Maker, Phase 0) ONCE, before
+ * `createApp` registers assets, and stash it module-level so every `baked*` function
+ * above reads from it. OPT-IN: a no-op unless `?runtime=1` is in the game URL. On any
+ * failure (no `k`, non-200, bad shape) it leaves `runtimeBundle` null and returns
+ * false, so boot transparently falls back to the live `/api/editor/doc` path (and
+ * ultimately {@link fallbackEditorScenes}) — never a black screen.
+ *
+ * Call + AWAIT this from `+layout.ts`'s client `load()`, which SvelteKit resolves
+ * before the page component (and therefore `AssetsLoader`) mounts, so the runtime
+ * assets are present when the game re-merges them into `stateApp.assets`.
+ */
+export async function prepareRuntimeBundle(): Promise<boolean> {
+	if (!runtimeModeEnabled()) return false;
+	try {
+		const params = new URLSearchParams(window.location.search);
+		const base = params.get('editorDocBase') || DEFAULT_DOC_BASE;
+		const project = params.get('project') || 'lines';
+		const token = params.get('k');
+		if (!token) {
+			console.warn('[runtime] ?runtime=1 but no ?k= token — falling back to live doc fetch');
+			return false;
+		}
+		const url =
+			`${base}/api/editor/runtime?project=${encodeURIComponent(project)}` +
+			`&k=${encodeURIComponent(token)}`;
+		const res = await fetch(url);
+		if (!res.ok) {
+			console.warn(`[runtime] bundle fetch ${res.status} ${res.statusText} (${url}) — falling back`);
+			return false;
+		}
+		const data = (await res.json()) as Partial<RuntimeBundle>;
+		const doc = data.doc;
+		const valid =
+			typeof data.assetBase === 'string' &&
+			!!doc &&
+			Array.isArray(doc.scenes) &&
+			doc.scenes.some((scene) => scene.id === 'basegame');
+		if (!valid) {
+			console.warn('[runtime] bundle shape invalid (no assetBase / basegame scene) — falling back');
+			return false;
+		}
+		runtimeBundle = data as RuntimeBundle;
+		console.info(`[runtime] live runtime bundle ready for "${project}" — generic-bundle boot active`);
+		return true;
+	} catch (err) {
+		console.warn(
+			`[runtime] bundle fetch threw: ${err instanceof Error ? err.message : String(err)} — falling back`,
+		);
+		return false;
+	}
+}
+
+/**
  * Fetch the project's editor `LayoutDoc` from the launcher at game boot. The
  * launcher appends `?project=<active>` to the game URL; the endpoint resolves
  * the client itself. Falls back to {@link fallbackEditorScenes} on any failure
@@ -277,6 +393,14 @@ function fellBack(reason: string): LayoutDoc {
 }
 
 export async function loadEditorScenes(): Promise<LayoutDoc> {
+	// Live runtime (Game Maker, Phase 0): `prepareRuntimeBundle()` already fetched +
+	// validated the doc (it has a `basegame` scene), so render it directly. The asset
+	// registrations above are already reading from the same bundle. Off mode (no
+	// `?runtime=1` / failed fetch) leaves `runtimeBundle` null and this is skipped.
+	if (hasRuntimeBundle()) {
+		console.info('[runtime] using live runtime bundle doc — editor edits are active');
+		return runtimeBundle!.doc as LayoutDoc;
+	}
 	// Build-time freeze: a baked doc is the authored layout snapshotted into the
 	// bundle, so production renders it instantly with no fetch + no launcher
 	// dependency. `registerBakedComponents()` (boot) has already registered its defs.

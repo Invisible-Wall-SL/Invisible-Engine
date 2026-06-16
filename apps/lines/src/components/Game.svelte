@@ -32,6 +32,7 @@
 		registerFontCatalog,
 		mergeBakedFontCatalog,
 		registerBakedWebFonts,
+		bakedFontAssets,
 		HUD_READOUT_DEF,
 		BUTTON_DEF,
 		TEXT_BOX_DEF,
@@ -51,8 +52,12 @@
 	import { eventSignal } from '../game/signalSource';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
+		bakedEditorArtAssets,
 		bakedFontCatalog,
+		bakedFontSrcBase,
+		bakedSymbolAssets,
 		fallbackEditorScenes,
+		isRuntimeBundleActive,
 		loadEditorScenes,
 		registerBakedComponents,
 		registerEditorTextLocalization,
@@ -60,6 +65,7 @@
 	import messagesMap from '../i18n/messagesMap';
 
 	import { getContext } from '../game/context';
+	import { stateApp } from '../game/stateApp';
 	import EnableSound from './EnableSound.svelte';
 	import EnableGameActor from './EnableGameActor.svelte';
 	import ResumeBet from './ResumeBet.svelte';
@@ -81,6 +87,24 @@
 	// component modules tree-shake out of a player build (docs/design/invisible-debug-framework.md).
 	if (__IE_DEBUG__) {
 		void import('../game/debugTools');
+	}
+
+	// Live runtime (Invisible Game Maker, Phase 0). `stateApp.assets` was built at
+	// import time by `createApp` (`game/stateApp.ts`), BEFORE `+layout.ts`'s `load()`
+	// fetched the runtime bundle — so its editor-art/font/symbol entries were empty.
+	// Now that the bundle is ready, re-merge those entries (now resolving to the
+	// launcher's absolute `/api/deploy` URLs) so `AssetsLoader` (mounts below) loads
+	// them. The registration KEYS are identical to the baked path, so `LayoutNodeView`
+	// lookups resolve unchanged. Gated on `isRuntimeBundleActive()` ⇒ a complete no-op
+	// for baked + live-doc dev (parity); `stateApp.assets` is `$state`, so the spread
+	// reactively refreshes `AssetsLoader`'s pre/post asset lists before first paint.
+	if (isRuntimeBundleActive()) {
+		stateApp.assets = {
+			...stateApp.assets,
+			...bakedEditorArtAssets(),
+			...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase()),
+			...bakedSymbolAssets(),
+		};
 	}
 
 	// `HudTicker`/`HudCaption`/`HudValue` are the three coded parts the `hudReadout`
@@ -152,8 +176,10 @@
 		{ id: 'purple', name: 'purple', kind: 'bitmap' as const, folder: '' },
 	];
 	registerFontCatalog(mergeBakedFontCatalog(builtinFonts, bakedFontCatalog()));
-	// Load any baked WEB fonts (FontFace) so a `<Text>` renders the real face.
-	void registerBakedWebFonts(bakedFontCatalog());
+	// Load any baked WEB fonts (FontFace) so a `<Text>` renders the real face. The
+	// src base is the default `assets/` for baked/dev (parity); in live runtime mode
+	// it's the launcher's absolute `/api/deploy` base so cross-origin fonts resolve.
+	void registerBakedWebFonts(bakedFontCatalog(), bakedFontSrcBase());
 	// Build-time freeze: register any custom/edited ComponentDefs baked into the
 	// bundle AFTER the built-ins, so a baked def (e.g. a customized `button` with an
 	// author-added background node) shadows the coded one. No-op when not baked

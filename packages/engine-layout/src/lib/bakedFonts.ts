@@ -24,18 +24,23 @@ export interface BakedFontAsset {
  * `bakedFont/<id>`. Spread into `createApp({assets})`: `AssetsLoader` preloads the
  * descriptor before first paint and pixi installs the `BitmapFont` under its
  * `<info face>` — exactly what `<BitmapText fontFamily={name}>` then resolves. The
- * `src` is page-relative (`assets/<prefix>/<folder>/<descriptor>`), matching the
- * deploy mirror. Web fonts load via {@link registerBakedWebFonts}. Empty catalog
- * (un-baked / no fonts) ⇒ `{}`.
+ * `src` is `<srcBase><prefix>/<folder>/<descriptor>`; `srcBase` defaults to the
+ * page-relative `assets/` (the deploy mirror), and the live-runtime path
+ * (Invisible Game Maker) passes the launcher's absolute `/api/deploy?…&rel=` base
+ * so a cross-origin generic bundle resolves the same files. Web fonts load via
+ * {@link registerBakedWebFonts}. Empty catalog (un-baked / no fonts) ⇒ `{}`.
  */
-export function bakedFontAssets(catalog: FontCatalog | undefined): Record<string, BakedFontAsset> {
+export function bakedFontAssets(
+	catalog: FontCatalog | undefined,
+	srcBase = 'assets/',
+): Record<string, BakedFontAsset> {
 	const out: Record<string, BakedFontAsset> = {};
 	if (!catalog) return out;
 	for (const f of catalog.fonts) {
 		if (f.kind !== 'bitmap' || !f.descriptorFile) continue;
 		out[`bakedFont/${f.id}`] = {
 			type: 'font',
-			src: `assets/${catalog.prefix}/${f.folder}/${f.descriptorFile}`,
+			src: `${srcBase}${catalog.prefix}/${f.folder}/${f.descriptorFile}`,
 			preload: true,
 		};
 	}
@@ -61,17 +66,22 @@ export function mergeBakedFontCatalog(
 /**
  * Load a baked catalog's WEB fonts via the FontFace API (bitmap fonts go through
  * the pixi asset loader in {@link bakedFontAssets} instead). Best-effort +
- * idempotent: each `@font-face` is loaded from `assets/<prefix>/<folder>/<file>`
- * and added to `document.fonts` so a `<Text fontFamily={name}>` renders the real
- * face. No-op server-side / un-baked / when the project has no web fonts.
+ * idempotent: each `@font-face` is loaded from `<srcBase><prefix>/<folder>/<file>`
+ * (`srcBase` defaults to the page-relative `assets/`; the live-runtime path passes
+ * the launcher's absolute `/api/deploy?…&rel=` base) and added to `document.fonts`
+ * so a `<Text fontFamily={name}>` renders the real face. No-op server-side /
+ * un-baked / when the project has no web fonts.
  */
-export async function registerBakedWebFonts(catalog: FontCatalog | undefined): Promise<void> {
+export async function registerBakedWebFonts(
+	catalog: FontCatalog | undefined,
+	srcBase = 'assets/',
+): Promise<void> {
 	if (typeof document === 'undefined' || !catalog) return;
 	for (const f of catalog.fonts) {
 		if (f.kind !== 'web') continue;
 		for (const wf of f.files ?? []) {
 			try {
-				const face = new FontFace(f.name, `url(assets/${catalog.prefix}/${f.folder}/${wf.file})`, {
+				const face = new FontFace(f.name, `url(${srcBase}${catalog.prefix}/${f.folder}/${wf.file})`, {
 					weight: wf.weight ?? 'normal',
 					style: wf.style ?? 'normal',
 				});

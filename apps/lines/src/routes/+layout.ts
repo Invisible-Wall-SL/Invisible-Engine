@@ -14,3 +14,17 @@ export const ssr = false;
 // the URL for about page witll be /about/ with 'always'
 // https://kit.svelte.dev/docs/page-options#trailingslash
 export const trailingSlash = 'ignore';
+
+import { prepareRuntimeBundle } from '../editor-scenes';
+
+/**
+ * Live runtime (Invisible Game Maker, Phase 0). OPT-IN via `?runtime=1`: fetch the
+ * project's complete runtime bundle (doc + assets) BEFORE the page component (and
+ * therefore the pixi `AssetsLoader`) mounts, so the game registers live assets from
+ * the launcher instead of the empty baked placeholder. A no-op (instant resolve)
+ * when the param is absent, so byte-identical to today for baked + live-doc dev.
+ */
+export const load = async () => {
+	await prepareRuntimeBundle();
+	return {};
+};
