@@ -1640,11 +1640,15 @@ function renderSlotDetail(){
     remBtn.textContent = meshRemoveMode ? "－ removing…" : "－ Remove vertex";
     if (meshRemoveMode) remBtn.className = "active";
     remBtn.onclick = () => { meshRemoveMode = !meshRemoveMode; meshAddMode = false; renderSlotDetail(); };
-    tools.appendChild(addBtn); tools.appendChild(remBtn);
+    const retriBtn = document.createElement("button");
+    retriBtn.textContent = "⟁ Re-triangulate";
+    retriBtn.title = "Re-weave the whole mesh through every vertex — Delaunay over the hull boundary + all interior (floating) points. Drop points in the middle, then re-triangulate so the triangles pass through them.";
+    retriBtn.onclick = retriangulateMesh;
+    tools.appendChild(addBtn); tools.appendChild(remBtn); tools.appendChild(retriBtn);
     det.appendChild(tools);
     if (meshAddMode || meshRemoveMode){
       const h = document.createElement("div");
-      h.textContent = meshAddMode ? "click inside the mesh to add a vertex"
+      h.textContent = meshAddMode ? "click inside the mesh to drop an interior point — then ⟁ Re-triangulate to weave the mesh through all your points"
         : "click an interior vertex to remove (hull vertices can't be removed yet)";
       h.style.cssText = "margin-top:4px;color:var(--dim);";
       det.appendChild(h);
@@ -2185,6 +2189,83 @@ function packedInfluences(verts, i){
 // three, and barycentric-interpolate the new vertex's UV and (weighted) bone
 // influences from the triangle's corners. Mutates rawDoc + rebuilds. The hull is
 // untouched (the new vertex is interior, appended after existing vertices).
+// ---- Delaunay re-triangulation (interior "floating" vertices) -------------
+// Weave the whole mesh through every vertex: Bowyer-Watson Delaunay over the hull
+// boundary + all interior points, then clip triangles whose centroid falls outside
+// the (possibly concave) hull polygon so concavities are carved out. Interior points
+// the artist dropped in the middle become real triangulation nodes the mesh passes
+// through. Verified in tools/rigger-spike/retriangulate.mjs (exact convex tiling,
+// every interior point referenced, concave notch carved).
+function pointInPolygon(px, py, poly){
+  let inside = false; const n = poly.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++){
+    const xi = poly[i * 2], yi = poly[i * 2 + 1], xj = poly[j * 2], yj = poly[j * 2 + 1];
+    if (((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function circumcircleContains(ax, ay, bx, by, cx, cy, px, py){
+  const adx = ax - px, ady = ay - py, bdx = bx - px, bdy = by - py, cdx = cx - px, cdy = cy - py;
+  const ad = adx * adx + ady * ady, bd = bdx * bdx + bdy * bdy, cd = cdx * cdx + cdy * cdy;
+  const det = adx * (bdy * cd - bd * cdy) - ady * (bdx * cd - bd * cdx) + ad * (bdx * cdy - bdy * cdx);
+  const orient = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  return orient > 0 ? det > 1e-9 : det < -1e-9;
+}
+function delaunayTriangles(pts){
+  const n = pts.length / 2;
+  if (n < 3) return [];
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (let i = 0; i < n; i++){ const x = pts[i * 2], y = pts[i * 2 + 1]; if (x < minx) minx = x; if (y < miny) miny = y; if (x > maxx) maxx = x; if (y > maxy) maxy = y; }
+  const dx = maxx - minx || 1, dy = maxy - miny || 1, dmax = Math.max(dx, dy), midx = (minx + maxx) / 2, midy = (miny + maxy) / 2;
+  const X = new Float64Array(n + 3), Y = new Float64Array(n + 3);
+  for (let i = 0; i < n; i++){ X[i] = pts[i * 2]; Y[i] = pts[i * 2 + 1]; }
+  X[n] = midx - 20 * dmax; Y[n] = midy - dmax;
+  X[n + 1] = midx; Y[n + 1] = midy + 20 * dmax;
+  X[n + 2] = midx + 20 * dmax; Y[n + 2] = midy - dmax;
+  let tris = [[n, n + 1, n + 2]];
+  for (let p = 0; p < n; p++){
+    const px = X[p], py = Y[p];
+    const bad = [], good = [];
+    for (const t of tris){
+      if (circumcircleContains(X[t[0]], Y[t[0]], X[t[1]], Y[t[1]], X[t[2]], Y[t[2]], px, py)) bad.push(t);
+      else good.push(t);
+    }
+    const edges = [];
+    for (const t of bad) edges.push([t[0], t[1]], [t[1], t[2]], [t[2], t[0]]);
+    const boundary = [];
+    for (let i = 0; i < edges.length; i++){
+      let shared = false;
+      for (let j = 0; j < edges.length; j++) if (i !== j && edges[i][0] === edges[j][1] && edges[i][1] === edges[j][0]){ shared = true; break; }
+      if (!shared) boundary.push(edges[i]);
+    }
+    tris = good;
+    for (const e of boundary) tris.push([e[0], e[1], p]);
+  }
+  return tris.filter((t) => t[0] < n && t[1] < n && t[2] < n);
+}
+function retriangulateMesh(){
+  if (!meshCtx || !rawDoc) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const w = meshWorldVerts(); if (!w) return;
+  const m = w.length / 2;
+  if (m < 3){ showErr("Need at least 3 vertices to triangulate."); return; }
+  const hull = rd.hull || m;
+  let tris = delaunayTriangles(w);
+  if (hull >= 3){
+    const poly = [];
+    for (let i = 0; i < hull; i++) poly.push(w[i * 2], w[i * 2 + 1]);
+    tris = tris.filter(([a, b, c]) => {
+      const cx = (w[a * 2] + w[b * 2] + w[c * 2]) / 3, cy = (w[a * 2 + 1] + w[b * 2 + 1] + w[c * 2 + 1]) / 3;
+      return pointInPolygon(cx, cy, poly);
+    });
+  }
+  if (!tris.length){ showErr("Re-triangulation produced no triangles."); return; }
+  rd.triangles = tris.flat();
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot);
+  markDirty();
+}
+
 function addMeshVertex(Px, Py){
   if (!meshCtx || !rawDoc) return false;
   const att = meshCtx.attachment;

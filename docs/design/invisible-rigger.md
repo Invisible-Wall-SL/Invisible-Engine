@@ -466,7 +466,24 @@ headlessly). A `－ Remove vertex` toggle; clicking an **interior** vertex remov
   mesh poses with all-finite verts, loader accepts (weighted anticipation `payframe`,
   symbols `t1_glow`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify UI.
 
-**Mesh topology editing is now add + move + remove.**
+**Phase 3.6 — global re-triangulation landed** (code; algorithm verified headlessly).
+The `＋ Add vertex` split is good for local refinement, but the artist's mental model
+(from Spine) is "drop interior *floating* points in the middle, then weave the mesh
+through them." A `⟁ Re-triangulate` button now does exactly that:
+- **Bowyer-Watson Delaunay** over the hull boundary + all interior points, then **clip
+  triangles whose centroid falls outside the (possibly concave) hull polygon** so
+  concavities are carved out. Rewrites `triangles` only — `vertices`/`uvs`/weights are
+  untouched, so existing weights survive. Refreshes the slot detail + heatmap after.
+- **Verified:** `tools/rigger-spike/retriangulate.mjs` — convex hull + interior grid
+  tiles the hull **exactly** (Σarea == hull area, no overlaps/gaps), every interior
+  point is referenced (woven in), a concave L-hull leaves its notch uncovered while
+  covering the solid body, and a real mesh's verts re-triangulate + reload through
+  spine-core. Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify UI.
+- **Limitation:** centroid-clip is concavity-aware but not a *true* constrained
+  Delaunay (a deeply concave hull edge could be crossed). Fine for typical Spine
+  meshes; revisit with edge-constrained insertion if a pathological hull shows up.
+
+**Mesh topology editing is now add + move + remove + re-triangulate.**
 
 **Phase 3.4 — region→mesh conversion landed** (code; build GREEN; geometry verified
 headlessly). The practical "new mesh" entry point: a `▸ Convert to mesh` button on a
