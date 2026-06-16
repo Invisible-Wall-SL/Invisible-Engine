@@ -189,14 +189,31 @@ that orchestrates it. Needed:
 
 Each phase is independently shippable and leaves the pipeline working.
 
-### Phase 0 — Generic runtime spike (gate)
+### Phase 0 — Generic runtime spike (gate) — ✅ CLEARED (headless) 2026-06-16
 Prove one game-type (`lines`) can boot as a **single prebuilt bundle** that
-renders a real project purely from `?project=<client>/<project>&k=<token>` live
-fetch — no per-game `src/`. Build `apps/lines` once with `doc: null`, deploy it to
-the test server as `test_server/_runtime/lines/`, and load it pointed at an
-existing project (e.g. a `test1`). **Gate:** does it render the project's layout +
-assets correctly with zero per-game code? If yes, the model holds; if no, the
-remaining engine gaps are bigger than audited — stop and re-scope.
+renders a real project purely from a live fetch — no per-game `src/`.
+
+**Built:** `GET /api/editor/runtime` serves a project's full `BakedBundle` live
+(`runtimeBundle.ts`); `apps/lines` gains opt-in `?runtime=1` boot that registers
+assets from live `/api/deploy` URLs, parity-guaranteed when off.
+
+**Gate finding (the bug this gate existed to catch):** the first `assetBase` was a
+query-string URL (`/api/deploy?…&rel=…`). A Spine atlas page — and any spritesheet
+or bitmap-font sub-page — is named *inside* its parent file and loaded by the
+runtime **relative to the parent's URL**; relative resolution against a
+query-string URL drops the `rel`/token → 404. This is the exact issue STATUS
+open-item #6 predicted. **Fix:** serve `/api/deploy` via a **path-form** route
+`/api/deploy/f/<token>/<client>/<project>/<...rel>` (shared serving in
+`deployServe.ts`; query form kept for build CI) and emit a path-form `assetBase`,
+so the token + project survive as leading path segments and relative sub-file
+resolution works.
+
+**Gate result:** headless test against `test1` — runtime `200`, `basegame`
+present, all indexed assets AND the Spine page (resolved relative to the atlas URL
+exactly as spine-pixi does in the browser) load cross-origin. PASS. Remaining:
+on-screen Pixi render / boot-order timing = a live browser confirm; runtime-mode
+localization merge is a known deferred gap (i18n inits at module-eval, before the
+bundle fetch).
 
 ### Phase 1 — Server-side Publish for reskin games
 - Extract publish/upload/manifest logic into `$lib/server/publishGame.ts`.
