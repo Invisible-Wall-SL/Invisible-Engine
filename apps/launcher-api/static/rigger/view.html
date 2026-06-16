@@ -2359,7 +2359,13 @@ function autoWeightMeshToChain(){
   const chain = chainBoneIndices(rootName);
   if (!chain.length) return;
   const w = meshWorldVerts(); if (!w) return;
-  const segs = chain.map((idx) => ({ idx, seg: boneWorldSegment(idx) }));
+  // Weight only to the LENGTH-BEARING links of the chain. Zero-length bones (control/
+  // deform handles, a structural root) have no segment — as points they wrongly attract
+  // nearby vertices and pull weight off the real chain. Fall back to all if none have length.
+  const hasLen = (i) => (((skeleton.bones[i].data && skeleton.bones[i].data.length) || 0) > 1e-3);
+  let weightBones = chain.filter(hasLen);
+  if (!weightBones.length) weightBones = chain;
+  const segs = weightBones.map((idx) => ({ idx, seg: boneWorldSegment(idx) }));
   const MAXINF = 4, EPS = 1e-3;
   const vc = w.length / 2, nv = [];
   for (let k = 0; k < vc; k++){
@@ -2368,7 +2374,7 @@ function autoWeightMeshToChain(){
     cand.sort((a, b) => b.wgt - a.wgt);
     cand = cand.slice(0, MAXINF);
     let sum = 0; for (const c of cand) sum += c.wgt;
-    if (sum < 1e-12){ cand = [{ idx: chain[0], wgt: 1 }]; sum = 1; }
+    if (sum < 1e-12){ cand = [{ idx: weightBones[0], wgt: 1 }]; sum = 1; }
     nv.push(cand.length);
     for (const c of cand){
       const loc = skeleton.bones[c.idx].worldToLocal(new SPINE.Vector2(px, py));
