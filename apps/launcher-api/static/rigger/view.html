@@ -2243,12 +2243,48 @@ function delaunayTriangles(pts){
   }
   return tris.filter((t) => t[0] < n && t[1] < n && t[2] < n);
 }
+// Two vertices at the SAME position can't both be in a non-degenerate triangulation —
+// Bowyer-Watson silently drops one, so it looks "merged" onto its twin. They're really
+// one point: collapse exact-coincident verts (relative EPS, so genuinely-close-but-
+// distinct points are kept) by removing the orphan from uvs + vertices (weighted/packed
+// or plain) + adjusting hull. Mutates rd; returns the deduped world verts + count.
+function dedupMeshVertices(rd, w){
+  const m = w.length / 2;
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (let i = 0; i < m; i++){ const x = w[i * 2], y = w[i * 2 + 1]; if (x < minx) minx = x; if (y < miny) miny = y; if (x > maxx) maxx = x; if (y > maxy) maxy = y; }
+  const diag = Math.hypot(maxx - minx, maxy - miny);
+  const EPS = Math.max(1e-4, diag * 1e-5), EPS2 = EPS * EPS;
+  const keep = [], remap = new Array(m);
+  for (let i = 0; i < m; i++){
+    let dupOf = -1;
+    for (const k of keep){ const dx = w[i * 2] - w[k * 2], dy = w[i * 2 + 1] - w[k * 2 + 1]; if (dx * dx + dy * dy < EPS2){ dupOf = k; break; } }
+    if (dupOf < 0){ remap[i] = keep.length; keep.push(i); } else remap[i] = remap[dupOf];
+  }
+  const w2 = [];
+  for (const k of keep) w2.push(w[k * 2], w[k * 2 + 1]);
+  const removed = m - keep.length;
+  if (removed === 0) return { w: w2, removed: 0 };
+  const uvs = []; for (const k of keep) uvs.push(rd.uvs[k * 2], rd.uvs[k * 2 + 1]); rd.uvs = uvs;
+  if (meshCtx.weighted){
+    const blocks = []; let ri = 0;
+    for (let v = 0; v < m; v++){ const n = rd.vertices[ri]; blocks.push(rd.vertices.slice(ri, ri + 1 + n * 4)); ri += 1 + n * 4; }
+    const out = []; for (const k of keep) out.push(...blocks[k]); rd.vertices = out;
+  } else {
+    const out = []; for (const k of keep) out.push(rd.vertices[k * 2], rd.vertices[k * 2 + 1]); rd.vertices = out;
+  }
+  if (rd.hull){ let h = 0; for (const k of keep) if (k < rd.hull) h++; rd.hull = h; }
+  if (rd.edges) delete rd.edges; // indices changed — drop the derived edge hint
+  return { w: w2, removed };
+}
 function retriangulateMesh(){
   if (!meshCtx || !rawDoc) return;
   const rd = rawDocMeshEntry(); if (!rd) return;
-  const w = meshWorldVerts(); if (!w) return;
+  const w0 = meshWorldVerts(); if (!w0) return;
+  if (w0.length / 2 < 3){ showErr("Need at least 3 vertices to triangulate."); return; }
+  const ded = dedupMeshVertices(rd, w0); // merge exact-coincident verts (the "merge" bug)
+  const w = ded.w;
   const m = w.length / 2;
-  if (m < 3){ showErr("Need at least 3 vertices to triangulate."); return; }
+  if (m < 3){ showErr("Too few distinct vertices to triangulate."); return; }
   const hull = rd.hull || m;
   let tris = delaunayTriangles(w);
   if (hull >= 3){
@@ -2264,6 +2300,7 @@ function retriangulateMesh(){
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   if (selSlot) selectSlot(selSlot);
   markDirty();
+  if (ded.removed) showErr("Merged " + ded.removed + " duplicate vertex" + (ded.removed > 1 ? "es" : "") + " at the same position.");
 }
 
 function addMeshVertex(Px, Py){
