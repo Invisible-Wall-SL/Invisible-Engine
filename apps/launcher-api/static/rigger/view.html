@@ -97,6 +97,7 @@
   #timeline .tl-key.slot { background:#e0a64a; } /* slot (attachment/colour) key */
   #timeline .tl-key.slot.sel { background:#ffd24a; }
   #timeline .tl-key.evt { background:#c98bff; } /* event key */
+  #timeline .tl-key.draw { background:#5cc8ff; } /* draw-order key */
   #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
     pointer-events:none; z-index:3; }
   /* controls bar */
@@ -2642,6 +2643,14 @@ function poseAtTime(name, t){
       if (ch.rgba && ch.rgba.length){ const c = sampleColor(ch.rgba, t); if (c) slot.color.set(c.r, c.g, c.b, c.a); }
     }
   }
+  // draw-order channel: reorder the live draw order to the last key ≤ t (setup otherwise)
+  if (a.drawOrder && a.drawOrder.length){
+    let key = null; for (const k of a.drawOrder){ if (k.time <= t + 1e-6) key = k; else break; }
+    if (key && Array.isArray(key.offsets) && key.offsets.length){
+      const order = reconstructDrawOrder(key.offsets, skeleton.slots.length);
+      skeleton.drawOrder = order.map((oi) => skeleton.slots[oi]);
+    }
+  }
 }
 
 const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; };
@@ -2868,7 +2877,7 @@ const SLOT_CH_LABEL = { attachment: "image", rgba: "colour" };
 // keyframe is clearly tied to a property (rotation / translate / scale / image / colour).
 function timelineTracks(){
   const a = animOf(curAnim), out = [];
-  const evt = [{ kind: "events", name: "events" }]; // animation-level event track, always at top
+  const evt = [{ kind: "events", name: "events" }, { kind: "draworder", name: "draworder" }]; // animation-level tracks, always at top
   if (tlSelOnly){
     if (selBone != null){
       const bn = skeletonData.bones[selBone].name, cb = (a && a.bones && a.bones[bn]) || {};
@@ -2890,6 +2899,7 @@ function timelineTracks(){
 const chArr = (tr) => { const grp = (tr.kind === "slotch") ? (animOf(curAnim) || {}).slots : (animOf(curAnim) || {}).bones; const n = grp && grp[tr.name]; return n && Array.isArray(n[tr.ch]) ? n[tr.ch] : null; };
 const trackKeyTimes = (tr) => {
   if (tr.kind === "events") return eventKeyTimes();
+  if (tr.kind === "draworder") return drawOrderKeyTimes();
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
 };
@@ -2942,6 +2952,75 @@ function addEventAtPlayhead(){
   if (name) keyEvent(name, animTime);
 }
 
+// ---- draw-order channel (Phase 5.4): animate slot front/back order ----------
+const drawOrderArr = () => { const a = animOf(curAnim); return a && Array.isArray(a.drawOrder) ? a.drawOrder : null; };
+const drawOrderKeyTimes = () => { const arr = drawOrderArr(); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; };
+// Rebuild a draw order (newPos→setupIndex) from Spine `offsets` — mirrors SkeletonJson.
+function reconstructDrawOrder(offsets, n){
+  const order = new Array(n).fill(-1), unchanged = new Array(Math.max(n - offsets.length, 0));
+  let oi = 0, ui = 0;
+  const sorted = offsets.map((o) => ({ idx: skeletonData.slots.findIndex((s) => s.name === o.slot), offset: o.offset })).filter((o) => o.idx >= 0).sort((a, b) => a.idx - b.idx);
+  for (const o of sorted){ while (oi !== o.idx) unchanged[ui++] = oi++; order[oi + o.offset] = oi++; }
+  while (oi < n) unchanged[ui++] = oi++;
+  for (let ii = n - 1; ii >= 0; ii--) if (order[ii] === -1) order[ii] = unchanged[--ui];
+  return order;
+}
+// Draw order (array of setup slot indices) resolved at time t = last key ≤ t, else setup.
+function resolveDrawOrder(t){
+  const n = skeletonData.slots.length, arr = drawOrderArr();
+  let key = null; if (arr) for (const k of arr){ if (k.time <= t + 1e-6) key = k; else break; }
+  if (!key || !Array.isArray(key.offsets) || !key.offsets.length) return Array.from({ length: n }, (_, i) => i);
+  return reconstructDrawOrder(key.offsets, n);
+}
+// Write a draw-order key: order[drawPos] = setup slot index → minimal Spine offsets.
+function keyDrawOrder(time, order){
+  if (!rawDoc || !curAnim) return;
+  const n = order.length, drawPosOf = new Array(n);
+  for (let pos = 0; pos < n; pos++) drawPosOf[order[pos]] = pos;
+  const offsets = [];
+  for (let i = 0; i < n; i++){ const off = drawPosOf[i] - i; if (off !== 0) offsets.push({ slot: skeletonData.slots[i].name, offset: off }); }
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.drawOrder = a.drawOrder || [];
+  const i = a.drawOrder.findIndex((k) => Math.abs(k.time - time) < 1e-4);
+  const key = { time: roundN(time, 4), offsets };
+  if (i >= 0) a.drawOrder[i] = key; else { a.drawOrder.push(key); a.drawOrder.sort((x, y) => x.time - y.time); }
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function deleteDrawOrderKeyAt(time){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.drawOrder)) return;
+  a.drawOrder = a.drawOrder.filter((k) => Math.abs(k.time - time) >= 1e-3); if (!a.drawOrder.length) delete a.drawOrder;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function retimeDrawOrderKey(oldTime, newTime){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.drawOrder)) return; newTime = Math.max(0, roundN(newTime, 4));
+  for (const k of a.drawOrder) if (Math.abs(k.time - oldTime) < 1e-4) k.time = newTime;
+  a.drawOrder.sort((x, y) => x.time - y.time); markDirty(); animsDirty = true;
+}
+// Reorder editor popover for a draw-order key at the playhead.
+function showDrawOrderEditor(){
+  if (!rawDoc || !curAnim) return;
+  closeCurveMenu();
+  const order = resolveDrawOrder(animTime).slice(); // local working copy (newPos → setup index)
+  const m = document.createElement("div"); m.id = "curveMenu";
+  m.style.cssText = "position:fixed;right:18px;top:80px;z-index:90;width:230px;max-height:60vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);";
+  const hd = document.createElement("div"); hd.textContent = "Draw order @ " + animTime.toFixed(2) + "s"; hd.style.cssText = "padding:8px 10px;font-weight:600;font-size:12px;border-bottom:1px solid var(--line);"; m.appendChild(hd);
+  const list = document.createElement("div"); list.style.cssText = "flex:1;overflow:auto;padding:4px;"; m.appendChild(list);
+  const draw = () => { list.innerHTML = ""; order.forEach((slotIdx, pos) => {
+    const row = document.createElement("div"); row.style.cssText = "display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;";
+    const nm = document.createElement("span"); nm.textContent = (pos + 1) + ". " + skeletonData.slots[slotIdx].name; nm.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    const up = document.createElement("button"); up.textContent = "↑"; up.style.cssText = "padding:0 5px;"; up.disabled = pos === 0; up.onclick = () => { [order[pos - 1], order[pos]] = [order[pos], order[pos - 1]]; draw(); };
+    const dn = document.createElement("button"); dn.textContent = "↓"; dn.style.cssText = "padding:0 5px;"; dn.disabled = pos === order.length - 1; dn.onclick = () => { [order[pos + 1], order[pos]] = [order[pos], order[pos + 1]]; draw(); };
+    row.appendChild(nm); row.appendChild(up); row.appendChild(dn); list.appendChild(row);
+  }); };
+  draw();
+  const foot = document.createElement("div"); foot.style.cssText = "display:flex;gap:6px;padding:8px;border-top:1px solid var(--line);";
+  const keyBtn = document.createElement("button"); keyBtn.textContent = "◆ Key @ " + animTime.toFixed(2) + "s"; keyBtn.style.flex = "1"; keyBtn.onclick = () => { keyDrawOrder(animTime, order); closeCurveMenu(); };
+  const reset = document.createElement("button"); reset.textContent = "setup"; reset.title = "reset list to the setup order"; reset.onclick = () => { for (let i = 0; i < order.length; i++) order[i] = i; draw(); };
+  const close = document.createElement("button"); close.textContent = "✕"; close.onclick = closeCurveMenu;
+  foot.appendChild(keyBtn); foot.appendChild(reset); foot.appendChild(close); m.appendChild(foot);
+  document.body.appendChild(m);
+}
+
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
 function renderTimeline(){
   const tl = $("#timeline"); if (!tl) return;
@@ -2968,7 +3047,7 @@ function renderTimeline(){
   const lc = document.createElement("span"); lc.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;";
   if (tlView === "dope"){
     const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
-    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ffd24a", "◆", "at playhead");
+    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#5cc8ff", "◆", "draw order") + sw("#ffd24a", "◆", "playhead");
   } else {
     GRAPH_CHANS.forEach((c) => {
       const t = document.createElement("span"); t.textContent = c.label;
@@ -3014,18 +3093,19 @@ function renderTimeline(){
   if (tlView === "graph"){ renderGraphBody(tl, dur, pps, contentW, gutter); positionPlayhead(); return; }
 
   timelineTracks().forEach((tr) => {
-    const isEvents = tr.kind === "events";
+    const isEvents = tr.kind === "events", isDraw = tr.kind === "draworder", isAnim = isEvents || isDraw;
     const isChan = tr.kind === "bonech" || tr.kind === "slotch";
     const isSlotKind = tr.kind === "slot" || tr.kind === "slotch";
-    const isSel = isEvents ? false : isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
+    const isSel = isAnim ? false : isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
-    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isEvents ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan ? "color:var(--dim);" : "");
+    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
+    else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
     else g.onclick = () => { if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
     const track = document.createElement("div");
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
@@ -3033,13 +3113,15 @@ function renderTimeline(){
     trackKeyTimes(tr).forEach((kt) => {
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (isDraw ? " draw" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete")
+        : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete (✎ to edit)")
         : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
       dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, ch: tr.ch, oldTime: kt, newTime: kt, dot, track, dur }; };
       dot.ondblclick = (e) => { e.stopPropagation();
         if (isEvents) deleteEventKeyAt(kt);
+        else if (isDraw) deleteDrawOrderKeyAt(kt);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
@@ -3942,6 +4024,7 @@ function wire(){
     const d = tlDrag; tlDrag = null;
     if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
       if (d.kind === "events") retimeEventKey(d.oldTime, d.newTime);
+      else if (d.kind === "draworder") retimeDrawOrderKey(d.oldTime, d.newTime);
       else if (d.kind === "bonech" || d.kind === "slotch") retimeChannelKey(d, d.oldTime, d.newTime);
       else if (d.kind === "slot") retimeSlotKey(d.name, d.oldTime, d.newTime);
       else retimeBoneKey(d.name, d.oldTime, d.newTime);
