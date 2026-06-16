@@ -136,6 +136,46 @@ export async function listComponents(opts: ListComponentsOptions): Promise<Compo
 	return defs;
 }
 
+/** One authored component plus the project it lives under (`null` = shared library). */
+export interface AuthoredComponentEntry {
+	/** The R2 project key the component is scoped to, or `null` for the shared library. */
+	projectKey: string | null;
+	def: ComponentDef;
+}
+
+/** `editor/<projectKey>/components/<id>.json` — the project-component key shape. */
+const PROJECT_COMPONENT_KEY = /^editor\/([^/]+)\/components\/[^/]+\.json$/;
+
+/**
+ * List every AUTHORED component across ALL projects + the shared library, each
+ * annotated with the project it belongs to. Built-ins are excluded (they are
+ * engine code, not authored content). Used by the Storybook "Authored Components"
+ * gallery so a single fetch surfaces everything saved in the Component Editor.
+ *
+ * Cross-project enumeration walks the `editor/` prefix and matches the
+ * `editor/<projectKey>/components/<id>.json` shape — no project registry needed.
+ * Malformed entries are skipped, never thrown.
+ */
+export async function listAllComponents(): Promise<AuthoredComponentEntry[]> {
+	const out: AuthoredComponentEntry[] = [];
+	for (const def of await listFromPrefix(sharedComponentsPrefix)) {
+		out.push({ projectKey: null, def });
+	}
+	let keys: string[];
+	try {
+		keys = await listAllKeys('editor/');
+	} catch {
+		keys = [];
+	}
+	for (const key of keys) {
+		const match = PROJECT_COMPONENT_KEY.exec(key);
+		if (!match) continue;
+		const def = await readComponent(key);
+		if (def) out.push({ projectKey: match[1], def });
+	}
+	return out;
+}
+
 /** List + parse every `*.json` directly under a component prefix, skipping bad ones. */
 async function listFromPrefix(prefix: string): Promise<ComponentDef[]> {
 	let keys: string[];
