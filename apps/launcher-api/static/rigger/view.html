@@ -1615,6 +1615,21 @@ function renderSlotDetail(){
       (meshCtx.weighted ? " · weighted" : "") + " — drag the points on the canvas to reshape";
     t.style.color = "var(--accent2)";
     det.appendChild(t);
+    // Editing a non-default skin that INHERITS this mesh from default? Edits would land
+    // on default (shared by every skin). Offer a one-click skin-specific copy so this
+    // skin can be weighted/reshaped independently.
+    if (activeSkinName() !== "default" && !meshInActiveSkin()){
+      const warn = document.createElement("div");
+      warn.style.cssText = "margin-top:7px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);font-size:11px;line-height:1.4;";
+      warn.innerHTML = "<b>Inherited from “default”.</b> Edits here change the mesh on <i>every</i> skin. " +
+        "To weight/reshape it just for “" + activeSkinName() + "”, make it skin-specific first.";
+      const mk = document.createElement("button");
+      mk.textContent = "⎘ Make skin-specific (copy to “" + activeSkinName() + "”)";
+      mk.style.cssText = "margin-top:6px;";
+      mk.onclick = () => { copyMeshToActiveSkin(); };
+      warn.appendChild(mk);
+      det.appendChild(warn);
+    }
     const tools = document.createElement("div");
     tools.style.cssText = "margin-top:7px;display:flex;gap:6px;";
     const addBtn = document.createElement("button");
@@ -1995,13 +2010,37 @@ function meshWorldVerts(){
 }
 
 // The rawDoc skin entry for the selected mesh attachment (the persisted geometry).
+// The rawDoc mesh entry for the selected slot's attachment, resolved in the ACTIVE skin
+// first, then default — mirroring skeleton.getAttachment, so edits/weights land on the
+// skin you're actually viewing (not whichever skin happens to be first in the array).
 function rawDocMeshEntry(){
   if (!rawDoc || !meshCtx) return null;
-  for (const sk of rawDoc.skins){
-    const a = sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][meshCtx.attName];
-    if (a) return a;
-  }
-  return null;
+  const active = (skeleton && skeleton.skin && skeleton.skin.name) || ($("#skin") && $("#skin").value) || "default";
+  const inSkin = (skName) => { const sk = rawDoc.skins.find((s) => s.name === skName); return (sk && sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][meshCtx.attName]) || null; };
+  return inSkin(active) || inSkin("default") || null;
+}
+
+const activeSkinName = () => (skeleton && skeleton.skin && skeleton.skin.name) || ($("#skin") && $("#skin").value) || "default";
+// Does the slot's mesh attachment have its OWN entry in the active skin (vs inherited
+// from default)? If not, edits/weights on a non-default skin fall through to default.
+function meshInActiveSkin(){
+  if (!rawDoc || !meshCtx) return true;
+  const sk = rawDoc.skins.find((s) => s.name === activeSkinName());
+  return !!(sk && sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][meshCtx.attName]);
+}
+// Copy the default skin's attachment into the active skin so it can be weighted
+// independently (a skin-specific override). Then rawDocMeshEntry resolves to it.
+function copyMeshToActiveSkin(){
+  if (!rawDoc || !meshCtx) return;
+  const name = activeSkinName(); if (name === "default") return;
+  const src = (() => { const d = rawDoc.skins.find((s) => s.name === "default"); return d && d.attachments && d.attachments[selSlot] && d.attachments[selSlot][meshCtx.attName]; })();
+  if (!src) return;
+  let sk = rawDoc.skins.find((s) => s.name === name); if (!sk){ sk = { name, attachments: {} }; rawDoc.skins.push(sk); }
+  sk.attachments = sk.attachments || {}; sk.attachments[selSlot] = sk.attachments[selSlot] || {};
+  sk.attachments[selSlot][meshCtx.attName] = JSON.parse(JSON.stringify(src));
+  markDirty();
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot);
 }
 
 // Move mesh vertex k by a WORLD delta. Updates BOTH the live MeshAttachment (for
@@ -2383,6 +2422,7 @@ function autoWeightMeshToChain(){
   }
   rd.vertices = nv;
   rebuildFromRawDoc(rootName);
+  if (selSlot) selectSlot(selSlot); // refresh meshCtx + the weight heatmap (else it shows stale weights until re-click)
   markDirty();
 }
 
