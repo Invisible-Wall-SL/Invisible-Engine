@@ -1127,46 +1127,6 @@ def _import_asset_map_deploy(stem: str) -> tuple[str, str]:
     return deploy_path, deploy_basename
 
 
-def _page_only_hint(m: dict, stem: str) -> bool:
-    """Best-effort: does the active manifest resolve to a Spine target, so the
-    Deploy UI should pre-check "Page-only (Spine page)"? Mirrors triggers 1 & 2
-    of _deployatlas' page-only detection (manifest flag + asset-map kind), the
-    two cheap/no-network-after-startup checks. Trigger 3 (probing the deployed
-    `.json` in R2) is intentionally skipped here — it's the server's safety net
-    at deploy time, too heavy/uncertain for a UI hint. Never raises."""
-    try:
-        if m.get("deploy_page_only") or m.get("page_only"):
-            return True
-        prefix = str(R2_PREFIX) if R2_PREFIX else ""
-        if not prefix:
-            return False
-        blob = storage.get(f"{prefix}/asset-map.json")
-        if not blob:
-            return False
-        amap = json.loads(blob)
-        if not isinstance(amap, dict):
-            return False
-        man_base = str(m.get("deploy_basename", "")).strip()
-        cands = [c for c in (man_base, stem) if c]
-        entry = None
-        for c in cands:
-            if c in amap:
-                entry = amap[c]
-                break
-        if entry is None:  # case-insensitive fallback
-            lowered = {str(k).lower(): v for k, v in amap.items()}
-            for c in cands:
-                hit = lowered.get(c.lower())
-                if hit is not None:
-                    entry = hit
-                    break
-        if isinstance(entry, dict):
-            return str(entry.get("kind", "")).strip().lower() == "spine"
-    except Exception:  # noqa: BLE001 — asset-map is optional, never fatal
-        pass
-    return False
-
-
 def import_sheet_to_manifest(atlas: str) -> str | None:
     """Auto-import an existing TexturePacker / editor sheet into a NEW Atlas
     Maker generation manifest and make it active. Returns the new manifest
@@ -2061,7 +2021,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .fsrow{{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer}}
  .fsrow:hover{{background:#33333a}} .fsrow .ic{{width:18px;text-align:center}}
  .fsrow.file{{color:#cfeede}} .fsrow.up{{color:#9bb;font-weight:600}}
- .bar{{position:sticky;top:0;background:#1d1d22;padding:10px 6px;border-bottom:1px solid #333;margin-bottom:16px;z-index:50;display:flex;flex-wrap:wrap;align-items:center;gap:8px}}
+ .bar{{position:sticky;top:0;background:#1d1d22;padding:10px 6px;border-bottom:1px solid #333;margin-bottom:16px;z-index:50;display:flex;flex-wrap:wrap;align-items:center;gap:14px}}
  .bargrp{{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 8px;border-radius:8px;background:#23232a;border:1px solid #2f2f37;position:relative}}
  .bargrp > .glbl{{font-size:10px;color:#8a8a95;text-transform:uppercase;letter-spacing:.6px;font-weight:700;padding:0 6px 0 2px;border-right:1px solid #34343d;margin-right:4px;align-self:stretch;display:flex;align-items:center}}
  .barspacer{{flex:1}}
@@ -2070,6 +2030,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  button:hover,a.btnlink:hover{{background:#4f8aae}} button:disabled{{cursor:wait}}
  a.btnlink{{text-decoration:none;display:inline-block;line-height:normal;box-sizing:border-box}}
  button.alt,a.btnlink.alt{{background:#444}} button.alt:hover,a.btnlink.alt:hover{{background:#555}}
+ button.done{{background:#2e8b46 !important}}
  #rbtn .fill{{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.22);width:0%;transition:width .4s}}
  #rbtn span.lbl{{position:relative;z-index:1}}
  .toast{{display:none;margin-left:14px;padding:6px 12px;border-radius:6px;background:#2e6b3e;color:#cfeede;font-size:13px}}
@@ -2194,22 +2155,21 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 {iw_toolbar}
 {notice}
 <div class="bar">
- <div class="bargrp" title="Atlas-level actions: edit, save, compose, view, deploy">
-  <span class="glbl">Atlas</span>
-  <button onclick="saveAll()" class="alt">💾 Save changes</button>
+ <div class="bargrp" title="Save edits and pick which regions render">
+  <button onclick="saveAll()" id="saveBtn" style="background:#629432">💾 Save changes</button>
   <button onclick="selAll(true)" class="alt">Select all</button>
   <button onclick="selAll(false)" class="alt">Select none</button>
-  <button onclick="createAtlas()" id="abtn" style="background:#629432">🧩 Create Atlas</button>
-  <button onclick="useRefAll()" class="alt" title="Seed every EMPTY region's atlas tile from its own reference image (verbatim — no AI). Never overwrites a region that already has a generated image. ✕ revert restores generation per region.">⤵ Refs → generated</button>
+ </div>
+ <div class="bargrp" title="Prepare per-region reference art from the source page">
+  <span class="glbl">Source / Refs</span>
   <button onclick="sliceAtlas()" class="alt" title="Cut the Atlas source image into per-region crops and set them as each region's IPAdapter style ref">✂ Slice source → refs</button>
-  <button onclick="uploadAtlas()" class="alt" title="Upload a .atlas geometry file (and its source page image) into R2 and repoint this manifest, so Slice/Compose resolve in the cloud">⬆ Upload .atlas</button>
-  <input type="file" id="uplAtlasFile" accept=".atlas" style="display:none" onchange="onAtlasFilePicked()">
-  <input type="file" id="uplAtlasImg" accept="image/*" style="display:none" onchange="onAtlasImgPicked()">
-  <button onclick="viewAtlas()" class="alt">🖼 View atlas</button>
-  <button onclick="deployAtlas()" class="alt" title="Copy the built atlas (.png/.webp) to this manifest's Deploy folder, overwriting <stem>.png/.webp there. Set the folder in Atlas settings.">📦 Deploy atlas</button>
-  <label id="pageOnlyLbl" style="margin:0 2px 0 6px;font-size:13px;color:#bbb;display:inline-flex;align-items:center;gap:4px" title="Write only the page image (.webp/.png); skip the .json/.atlas so a Spine skeleton isn't overwritten. Auto-on for Spine targets.">
-   <input type="checkbox" id="pageOnly"{page_only_attrs} style="margin:0">Page-only (Spine page)</label>
-  {page_only_note}
+  <button onclick="useRefAll()" class="alt" title="Seed every EMPTY region's atlas tile from its own reference image (verbatim — no AI). Never overwrites a region that already has a generated image. ✕ revert restores generation per region.">⤵ Refs → generated</button>
+ </div>
+ <div class="bargrp" title="Atlas-level actions: compose, view, deploy">
+  <span class="glbl">Atlas</span>
+  <button onclick="createAtlas()" id="abtn" style="background:#629432">🧩 Create Atlas</button>
+  <button onclick="viewAtlas()" id="vbtn" class="alt">🖼 View atlas</button>
+  <button onclick="deployAtlas()" id="dbtn" class="alt" title="Copy the built atlas (.png/.webp) to this manifest's Deploy folder, overwriting <stem>.png/.webp there. Set the folder in Atlas settings.">📦 Deploy atlas</button>
   {spine_link}
  </div>
  <div class="bargrp" title="Generation/rendering controls — talks to ComfyUI">
@@ -2217,13 +2177,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <button onclick="renderSel()" id="rbtn"><span class="fill"></span><span class="lbl">▶ Render selected</span></button>
   <button onclick="stopRender()" id="sbtn" style="background:#9e3f3f;display:none">■ Stop</button>
   <label style="margin:0 4px 0 6px;font-size:13px;color:#bbb">variants/symbol
-   <input type="number" id="variants" value="4" min="1" max="30" style="width:56px;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;margin-left:4px"></label>
+   <input type="number" id="variants" value="1" min="1" max="30" style="width:56px;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;margin-left:4px"></label>
  </div>
- <div class="bargrp" title="Reference & account links">
-  <span class="glbl">Docs/credits</span>
-  <a class="alt" href="/docs" target="_blank" title="What every control does — opens a self-contained reference page" style="display:inline-block;padding:9px 16px;border-radius:6px;color:#fff;background:#444;text-decoration:none;font-size:14px">📖 Docs</a>
-  <a id="credits" class="credits" href="https://platform.comfy.org" target="_blank" title="comfy.org API-node credit balance (click to top up). Refreshes automatically.">◆ credits …</a>
- </div>
+ {blueprint_grp}
  <div class="barstatus">
   <span id="cppill" class="cppill" style="display:none"></span>
   <span id="toast" class="toast">✓ Done</span>
@@ -2267,7 +2223,6 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  </div>
 </details>
 {bp_params_panel}
-{blueprints_panel}
 <div class="grid">{cards}</div>
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
  <div class="modalbox">
@@ -2548,9 +2503,20 @@ document.addEventListener('DOMContentLoaded',function(){{
  if(p)p.addEventListener('change',applyPipe);
  applyPipe();
 }});
+// Flash a green "✓ Done" on an action button, then restore its label. The real
+// label is captured once (dataset.lbl) so rapid re-clicks never freeze on Done.
+function flashDone(btn){{
+ if(!btn)return;
+ if(!btn.dataset.lbl)btn.dataset.lbl=btn.innerHTML;
+ if(btn._t)clearTimeout(btn._t);
+ btn.innerHTML='✓ Done';btn.classList.add('done');
+ btn._t=setTimeout(()=>{{btn.innerHTML=btn.dataset.lbl;btn.classList.remove('done');btn._t=null;}},1800);
+}}
 async function saveAll(){{
  let r=await fetch('/save',{{method:'POST',body:JSON.stringify(collect())}});
- document.getElementById('stat').textContent=await r.text();
+ let msg=await r.text();
+ flashDone(document.getElementById('saveBtn'));
+ return msg;
 }}
 async function saveGlobalStyle(){{
  let body={{positive_prefix:document.getElementById('gpre').value,
@@ -2558,38 +2524,6 @@ async function saveGlobalStyle(){{
   negative:document.getElementById('gneg').value}};
  let r=await fetch('/saveglobalstyle',{{method:'POST',body:JSON.stringify(body)}});
  document.getElementById('gnegstat').textContent=await r.text();
-}}
-let _uplAtlas=null;   // {{name,text}} held between the two file pickers
-function uploadAtlas(){{ _uplAtlas=null; document.getElementById('uplAtlasFile').value=''; document.getElementById('uplAtlasFile').click(); }}
-function onAtlasFilePicked(){{
- let f=document.getElementById('uplAtlasFile').files[0]; if(!f)return;
- let rd=new FileReader();
- rd.onload=()=>{{ _uplAtlas={{name:f.name,text:rd.result}};
-  if(confirm('Also upload the source page image for '+f.name+'? (needed for Slice / Compose to resolve the atlas page in the cloud)')){{
-   let im=document.getElementById('uplAtlasImg'); im.value=''; im.click();
-  }} else {{ sendAtlasUpload(null); }}
- }};
- rd.readAsText(f);
-}}
-function onAtlasImgPicked(){{
- let f=document.getElementById('uplAtlasImg').files[0];
- if(!f){{ sendAtlasUpload(null); return; }}
- let rd=new FileReader();
- rd.onload=()=>{{ let b64=String(rd.result).split(',')[1]||''; sendAtlasUpload({{name:f.name,data:b64}}); }};
- rd.readAsDataURL(f);
-}}
-async function sendAtlasUpload(img){{
- if(!_uplAtlas)return;
- let st=document.getElementById('stat'); if(st)st.textContent='⬆ Uploading .atlas…';
- let body={{atlas_name:_uplAtlas.name,atlas_text:_uplAtlas.text}};
- if(img){{ body.image_name=img.name; body.image_data=img.data; }}
- let msg;
- try{{ let r=await fetch('/uploadatlas',{{method:'POST',body:JSON.stringify(body)}});
-  msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
- }}catch(e){{ msg='Upload failed: '+e; }}
- if(st)st.textContent=msg;
- _uplAtlas=null;
- if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),2200);
 }}
 // --- Blueprints: upload an API-format ComfyUI graph + bind roles ----------
 let _bpGraph=null;   // parsed API/prompt node dict from the picked file
@@ -3216,26 +3150,28 @@ async function renderSel(){{
  await fetch('/render',{{method:'POST',body:JSON.stringify({{names:sel,variants:v}})}});
  poll();
 }}
+// Button to flash "✓ Done" on when the create/compose poll loop finishes.
+let _atlasDoneBtn=null;
 async function createAtlas(){{
  await saveAll();
+ _atlasDoneBtn=document.getElementById('abtn');
  document.getElementById('rbtn').disabled=true;
  document.getElementById('toast').style.display='none';
  document.getElementById('log').style.display='block';
  await fetch('/createatlas',{{method:'POST',body:'{{}}'}});
  poll();
 }}
-function viewAtlas(){{window.open('/atlasimg?t='+Date.now(),'_blank');}}
+function viewAtlas(){{window.open('/atlasimg?t='+Date.now(),'_blank');flashDone(document.getElementById('vbtn'));}}
 async function deployAtlas(){{
  let t=document.getElementById('toast');
  t.style.display='inline-block'; t.textContent='📦 Deploying…';
  let st=document.getElementById('stat'); if(st)st.textContent='📦 Deploying…';
  let msg;
- let pb=document.getElementById('pageOnly');
- let url='/deployatlas'+((pb&&pb.checked)?'?page_only=1':'');
- try{{ let r=await fetch(url,{{method:'POST',body:'{{}}'}});
+ try{{ let r=await fetch('/deployatlas',{{method:'POST',body:'{{}}'}});
   msg=(r.status===404)?'Deploy endpoint missing — restart run_ui.bat':await r.text();
  }}catch(e){{ msg='Deploy failed: '+e; }}
  t.textContent=msg; if(st)st.textContent=msg; flashDiag(msg);
+ if(msg.indexOf('✓')===0) flashDone(document.getElementById('dbtn'));
 }}
 async function stopRender(){{
  let sb=document.getElementById('sbtn'); sb.disabled=true; sb.textContent='■ Stopping…';
@@ -3257,6 +3193,7 @@ async function poll(){{
   sb.style.display='none'; sb.disabled=false; sb.textContent='■ Stop';
   document.getElementById('stat').textContent='';
   let t=document.getElementById('toast'); t.style.display='inline-block';
+  if(_atlasDoneBtn){{ flashDone(_atlasDoneBtn); _atlasDoneBtn=null; }}
   refreshCards();
   refreshCredits();   // a render/compose may have spent credits
  }}
@@ -4419,13 +4356,12 @@ class Handler(BaseHTTPRequestHandler):
                             page_only = True
             except Exception:  # noqa: BLE001 — missing/invalid = not detectable
                 pass
-        # STICKY PAGE-ONLY — once a deploy resolves to page-only (by checkbox OR
-        # any auto-detect trigger above), persist `deploy_page_only` on the
-        # manifest so the decision survives. Next deploy hits trigger #1 with no
-        # network probe, and the UI hint (`_page_only_hint`) pre-checks the box.
-        # Net effect: a spine reskin is ticked at most once — and a real spine
-        # target auto-detects on the first deploy, so usually never. Best-effort;
-        # a save failure must never block the deploy.
+        # STICKY PAGE-ONLY — once a deploy resolves to page-only (via any
+        # auto-detect trigger above), persist `deploy_page_only` on the manifest
+        # so the decision survives. Next deploy hits trigger #1 with no network
+        # probe. Net effect: a real spine target auto-detects on the first deploy
+        # and stays page-only thereafter. Best-effort; a save failure must never
+        # block the deploy.
         if page_only and not m.get("deploy_page_only"):
             try:
                 m["deploy_page_only"] = True
@@ -5090,19 +5026,6 @@ class Handler(BaseHTTPRequestHandler):
                 f'title="Open this skeleton in the Invisible Spine Viewer '
                 f'({html.escape(str(_spine.get("name", "")), quote=True)})">🦴 View in Spine</a>'
             )
-        # Page-only (Spine page) hint: pre-check the Deploy checkbox + show a
-        # small note when the active manifest resolves to a Spine target. This is
-        # only a HINT — server-side auto-detect still forces page-only for spines
-        # even if the user unchecks it, and the checkbox forces it for any target.
-        _po_stem = manifest_path().stem.replace("atlas_manifest_", "")
-        page_only_hint = _page_only_hint(load_manifest(), _po_stem)
-        page_only_attrs = " checked" if page_only_hint else ""
-        page_only_note = (
-            '<span id="pageOnlyNote" style="font-size:12px;color:#7fd6a0;'
-            'margin-left:2px" title="This manifest maps to a Spine skeleton; '
-            'page-only is on so the .json/.atlas skeleton is not overwritten.">'
-            'Spine target &rarr; page-only</span>'
-            if page_only_hint else "")
         # Deep-link state (set by _handle_deeplink before render; defaults so a
         # plain page load is unaffected).
         dl_region = getattr(self, "_deeplink_region", "") or ""
@@ -5130,8 +5053,15 @@ class Handler(BaseHTTPRequestHandler):
                 f'background:#1d3a4a;border:1px solid #2f7fb9;'
                 f'border-radius:6px;color:#a0d6ff;font-size:13px;'
                 f'white-space:pre-line">{html.escape(dl_notice)}</div>')
-        blueprints_panel = self._blueprints_panel_html(
-            getattr(self, "can_publish", False), g_pipe)
+        # Toolbar "Upload blueprint" group — only for users who may publish to
+        # the shared library (server-side `_uploadblueprint` enforces the same).
+        blueprint_grp = (
+            '<div class="bargrp" title="Publish a ComfyUI workflow as a shared '
+            'blueprint"><span class="glbl">Blueprint</span>'
+            '<button onclick="openNewBlueprint()" class="alt" title="Upload a '
+            'ComfyUI API-format workflow and bind its roles as a new shared '
+            'blueprint">⬆ Upload blueprint</button></div>'
+            if getattr(self, "can_publish", False) else "")
         # role-binding map for every non-built-in blueprint, for the client's
         # ref-field show/hide logic (a blueprint hides a ref field it doesn't
         # bind). Best-effort — empty map on any R2 trouble.
@@ -5162,7 +5092,7 @@ class Handler(BaseHTTPRequestHandler):
         return PAGE.format(
             iw_toolbar=IW_TOOLBAR,
             cards="".join(cards),
-            blueprints_panel=blueprints_panel,
+            blueprint_grp=blueprint_grp,
             bp_params_panel=_BP_PARAMS_PANEL_HTML,
             bp_bound_roles_js=json.dumps(bp_bound),
             bp_params_js=json.dumps(bp_params),
@@ -5170,8 +5100,6 @@ class Handler(BaseHTTPRequestHandler):
             global_fields="".join(global_fields),
             atlas_fields="".join(atlas_fields),
             spine_link=spine_link,
-            page_only_attrs=page_only_attrs,
-            page_only_note=page_only_note,
             manifest_select=manifest_select,
             project_select=project_select,
             proj_qm=f'<span class="qm" title="{html.escape(help_for("project", cfg), quote=True)}">&#9432;</span>',
@@ -5183,58 +5111,6 @@ class Handler(BaseHTTPRequestHandler):
             flash_region=json.dumps(dl_region),
             notice="".join(notices),
         )
-
-    def _blueprints_panel_html(self, can_publish: bool, active_pipe: str) -> str:
-        """The "Blueprints" settings section: the shared library list + (when
-        the request may publish) the "＋ New blueprint" button that opens the
-        upload/bind modal. Read-only for everyone; the create affordance is
-        hidden when `can_publish` is false (server-side too — `_uploadblueprint`
-        refuses). Best-effort list — an R2 hiccup just shows none."""
-        try:
-            bps = blueprints.list_blueprints()
-        except Exception:  # noqa: BLE001 — never break the page on R2 trouble
-            bps = []
-        rows = []
-        for b in bps:
-            bid = str(b.get("id", ""))
-            name = str(b.get("name", "") or bid)
-            desc = str(b.get("description", ""))
-            base = str(b.get("base", ""))
-            builtin = bid in PIPELINE_OPTIONS
-            tag = " · built-in reference" if builtin else ""
-            active = " · ● selected" if bid == active_pipe else ""
-            rows.append(
-                f'<div style="padding:7px 0;border-top:1px solid #2a2a2e">'
-                f'<b style="color:#ddd">{html.escape(name)}</b> '
-                f'<code style="color:#7fa">{html.escape(bid)}</code>'
-                f'<span style="color:#888;font-size:11px"> · base '
-                f'{html.escape(base)}{tag}{active}</span>'
-                f'<div style="color:#999;font-size:12px;margin-top:2px">'
-                f'{html.escape(desc)}</div></div>')
-        listing = ("".join(rows) if rows else
-                   '<div style="color:#888;font-size:13px;padding:6px 0">'
-                   'No blueprints in the shared library yet.</div>')
-        new_btn = ""
-        if can_publish:
-            new_btn = (
-                '<button onclick="openNewBlueprint()" style="margin:10px 0 0" '
-                'title="Upload a ComfyUI API-format workflow and bind its roles '
-                'as a new shared blueprint">＋ New blueprint</button>')
-        note = ("" if can_publish else
-                '<div style="color:#777;font-size:12px;margin-top:8px">'
-                'Publishing new blueprints needs the &ldquo;Publish '
-                'blueprints&rdquo; permission.</div>')
-        return (
-            '<details class="settings">'
-            '<summary>🧩 Blueprints — shared ComfyUI pipeline library</summary>'
-            '<div style="padding-top:6px">'
-            '<div style="font-size:13px;color:#bbb;margin-bottom:6px">'
-            'Data-driven pipelines anyone can publish and everyone can run. '
-            'Select one in the <b>Pipeline</b> dropdown (Global settings) to '
-            'generate with it. Built-in sdxl/flux/gpt_image use their proven '
-            'Python path even though they appear here as references.</div>'
-            f'<div>{listing}</div>{new_btn}{note}'
-            '</div></details>')
 
     def _save(self, edits: list[dict]) -> str:
         m = load_manifest()
