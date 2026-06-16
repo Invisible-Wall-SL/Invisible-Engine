@@ -469,19 +469,25 @@ headlessly). A `－ Remove vertex` toggle; clicking an **interior** vertex remov
 **Phase 3.6 — global re-triangulation landed** (code; algorithm verified headlessly).
 The `＋ Add vertex` split is good for local refinement, but the artist's mental model
 (from Spine) is "drop interior *floating* points in the middle, then weave the mesh
-through them." A `⟁ Re-triangulate` button now does exactly that:
-- **Bowyer-Watson Delaunay** over the hull boundary + all interior points, then **clip
-  triangles whose centroid falls outside the (possibly concave) hull polygon** so
-  concavities are carved out. Rewrites `triangles` only — `vertices`/`uvs`/weights are
-  untouched, so existing weights survive. Refreshes the slot detail + heatmap after.
-- **Verified:** `tools/rigger-spike/retriangulate.mjs` — convex hull + interior grid
-  tiles the hull **exactly** (Σarea == hull area, no overlaps/gaps), every interior
-  point is referenced (woven in), a concave L-hull leaves its notch uncovered while
-  covering the solid body, and a real mesh's verts re-triangulate + reload through
-  spine-core. Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify UI.
-- **Limitation:** centroid-clip is concavity-aware but not a *true* constrained
-  Delaunay (a deeply concave hull edge could be crossed). Fine for typical Spine
-  meshes; revisit with edge-constrained insertion if a pathological hull shows up.
+through them." A `⟁ Re-triangulate` button now does exactly that. Rewrites `triangles`
+only — `vertices`/`uvs`/weights are untouched, so existing weights survive; refreshes
+the slot detail + heatmap after.
+- **Dedup first:** two verts at the *same* position can't both sit in a non-degenerate
+  triangulation, so they're collapsed (relative EPS — genuinely close-but-distinct
+  points are kept) by removing the orphan from `uvs`/`vertices`/`hull`. (Without this
+  the dropped twin looked "merged.")
+- **Constrained Delaunay (CDT)**, NOT Delaunay + centroid-clip. The first attempt clipped
+  triangles by centroid-in-polygon; on a concave shape (cactus armpits = reflex hull
+  verts) that could clip away *every* triangle touching a reflex vert → it dropped/merged
+  a HULL vertex. CDT instead: **ear-clip the hull polygon** (every hull vert referenced,
+  boundary edges present by construction) → **insert interior points** by splitting the
+  containing triangle → **Delaunay flip pass** that never flips a hull boundary edge.
+  Cannot orphan a hull vert or jump a concavity.
+- **Verified:** `tools/rigger-spike/retriangulate-cdt.mjs` (cactus body + 2 arms + reflex
+  armpits, 0–20 interior pts): every vertex referenced, **all hull edges present**, exact
+  cover (Σtri == polygon area), no degenerate slivers. Plus `retriangulate-degenerate.mjs`
+  (dedup: exact/near-coincident/collinear/on-edge/cocircular) and the earlier
+  `retriangulate.mjs`. Viewer `<script>` blocks pass `node --check`; build GREEN.
 
 **Mesh topology editing is now add + move + remove + re-triangulate.**
 
