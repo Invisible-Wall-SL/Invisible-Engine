@@ -1,0 +1,70 @@
+import { error, json } from '@sveltejs/kit';
+import { getDeployToken } from '$lib/server/appSettings';
+import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { buildRuntimeBundle } from '$lib/server/runtimeBundle';
+import type { RequestHandler } from './$types';
+
+/**
+ * Generic-runtime boot endpoint (Invisible Game Maker, Phase 0). Returns — in ONE
+ * payload — everything a prebuilt "generic engine runtime" needs to boot an
+ * arbitrary project purely from a live fetch: the layout doc, its referenced
+ * ComponentDefs + per-project param defaults, and the project's editor-art / fonts
+ * / symbols / localization assets. The logical shape matches the build-time
+ * `BakedBundle` the game's `editor-scenes.ts` consumes (the canonical contract),
+ * PLUS an `assetBase` — the absolute URL prefix the runtime prepends to every asset
+ * file ref below, resolving to THIS launcher's `/api/deploy` for this project+token.
+ *
+ * This is the LIVE equivalent of `scripts/bake-editor-doc.mjs`'s build-time freeze
+ * (`runtimeBundle.ts` extracts the shared assembly), so changing a project's doc /
+ * art / fonts / strings / symbols re-publishes with no rebuild.
+ *
+ * A deployed runtime runs on its own origin with no launcher session, so this is
+ * NOT cookie-authed: it is gated by the SAME shared read token (`?k=` vs
+ * `getDeployToken()`) as `/api/editor/doc` + `/api/deploy`. When the secret is
+ * unset the endpoint refuses to serve (503) so it is never public. CORS is open
+ * because the token, not the origin, is the gate.
+ *
+ *   GET /api/editor/runtime?project=<projectKey>&k=<token>
+ *
+ * `project` is the BARE launcher project key (the client is DB-resolved), matching
+ * `/api/editor/doc` — NOT `<client>/<project>`.
+ */
+const CORS_HEADERS = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Allow-Methods': 'GET, OPTIONS',
+	'Cache-Control': 'no-store',
+};
+
+export const GET: RequestHandler = async ({ url }) => {
+	const secret = await getDeployToken();
+	if (!secret) throw error(503, 'Runtime endpoint is not configured.');
+	const token = url.searchParams.get('k');
+	if (token !== secret) throw error(401, 'Invalid or missing token.');
+
+	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
+	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+
+	try {
+		const bundle = await buildRuntimeBundle(projectKey);
+
+		// Absolute prefix the runtime prepends to every deploy-relative asset path
+		// (`json`/`file`/`atlas`/`skeleton` below). `/api/deploy` serves one file as
+		// `?project=<client>/<project>&k=<token>&rel=<relpath>`, so we bake project +
+		// token in and end with `rel=` for the runtime to append the relative path.
+		// `<client>/<project>` (not the bare key) is the deploy address; the token is
+		// reused verbatim (same shared deploy token gates both endpoints).
+		const deployProject = `${clientKey}/${projectKey}`;
+		const assetBase =
+			`${url.origin}/api/deploy?project=${encodeURIComponent(deployProject)}` +
+			`&k=${encodeURIComponent(token)}&rel=`;
+
+		return json({ assetBase, ...bundle }, { headers: CORS_HEADERS });
+	} catch (e) {
+		console.error('runtime bundle failed:', e);
+		throw error(502, 'Failed to assemble the runtime bundle.');
+	}
+};
+
+export const OPTIONS: RequestHandler = async () =>
+	new Response(null, { status: 204, headers: CORS_HEADERS });
