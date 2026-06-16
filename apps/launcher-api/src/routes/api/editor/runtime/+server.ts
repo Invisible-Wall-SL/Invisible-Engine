@@ -48,16 +48,17 @@ export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const bundle = await buildRuntimeBundle(projectKey);
 
-		// Absolute prefix the runtime prepends to every deploy-relative asset path
-		// (`json`/`file`/`atlas`/`skeleton` below). `/api/deploy` serves one file as
-		// `?project=<client>/<project>&k=<token>&rel=<relpath>`, so we bake project +
-		// token in and end with `rel=` for the runtime to append the relative path.
-		// `<client>/<project>` (not the bare key) is the deploy address; the token is
-		// reused verbatim (same shared deploy token gates both endpoints).
-		const deployProject = `${clientKey}/${projectKey}`;
+		// Absolute PATH prefix the runtime prepends to every deploy-relative asset
+		// path (`json`/`file`/`atlas`/`skeleton` below). MUST be the path form
+		// (`/api/deploy/f/<token>/<client>/<project>/`) — NOT the query form — so a
+		// sub-file named inside a parent (Spine atlas page, spritesheet page, bitmap
+		// font page) resolves correctly when the runtime loads it RELATIVE to the
+		// parent's URL. The token + project survive as leading path segments; the
+		// query form would drop them on relative resolution. Ends with `/` so the
+		// runtime appends the relative path directly.
 		const assetBase =
-			`${url.origin}/api/deploy?project=${encodeURIComponent(deployProject)}` +
-			`&k=${encodeURIComponent(token)}&rel=`;
+			`${url.origin}/api/deploy/f/${encodeURIComponent(token)}` +
+			`/${encodeURIComponent(clientKey)}/${encodeURIComponent(projectKey)}/`;
 
 		return json({ assetBase, ...bundle }, { headers: CORS_HEADERS });
 	} catch (e) {
