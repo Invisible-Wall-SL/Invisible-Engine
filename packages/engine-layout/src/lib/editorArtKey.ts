@@ -34,3 +34,33 @@ export function editorArtNamespace(assetKey: string): string {
 export function editorArtTextureKey(assetKey: string, region: string): string {
 	return `${editorArtNamespace(assetKey)}${region}`;
 }
+
+/**
+ * Atlas-scoped FRAME REFERENCE — the value an `image`-kind component param stores so
+ * a picked frame carries the atlas it came from. A bare region name is atlas-blind
+ * (a name packed by two atlases is ambiguous — the picker highlights both, the
+ * runtime's flat texture map lets the last-loaded sheet win, and the exporter guesses
+ * the first project atlas that packs it). Encoding the manifest with the name pins
+ * all three. The format is identical to `editorArtTextureKey` (`<assetKey>::<region>`).
+ */
+export function scopedFrameRef(assetKey: string, region: string): string {
+	return editorArtTextureKey(assetKey, region);
+}
+
+/**
+ * Split a stored frame ref into its atlas + region. A value WITHOUT a manifest prefix
+ * (a legacy bare name, or one that merely happens to contain `::`) returns just the
+ * region with no `assetKey`, so old bindings resolve exactly as before.
+ */
+export function parseScopedFrameRef(value: string | undefined): {
+	assetKey?: string;
+	region: string;
+} {
+	if (typeof value !== 'string' || value === '') return { region: value ?? '' };
+	const i = value.indexOf('::');
+	if (i <= 0) return { region: value };
+	const assetKey = value.slice(0, i);
+	const region = value.slice(i + 2);
+	if (!region || !isManifestAssetKey(assetKey)) return { region: value };
+	return { assetKey, region };
+}

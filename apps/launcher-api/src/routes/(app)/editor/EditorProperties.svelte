@@ -967,6 +967,7 @@
 							<RegionPicker
 								sheets={pickSheets}
 								value={(node.params?.[p.key] as string) ?? ''}
+								scoped
 								onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
 							/>
 						{:else if p.kind === 'string' && instanceFontParamKeys.has(p.key)}

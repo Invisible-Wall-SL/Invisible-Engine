@@ -24,7 +24,7 @@
  * asset under the node's `assetKey` — the same value `LayoutNodeView` looks up.
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
-import { collectComponentIds } from 'engine-layout';
+import { collectComponentIds, parseScopedFrameRef } from 'engine-layout';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
@@ -108,9 +108,23 @@ function walkNodes(nodes: LayoutNode[], visit: (node: LayoutNode) => void): void
 	}
 }
 
+/** Record an image-kind param value. A SCOPED ref (`<assetKey>::<region>`, from the
+ * region picker) pins the source atlas — export that exact manifest. A legacy BARE
+ * name carries no atlas, so it joins the name-guess pool resolved against the project's
+ * atlases below. Either way the region counts as "used" for the collision report. */
+function addImageRef(refs: ArtRefs, value: string): void {
+	const { assetKey, region } = parseScopedFrameRef(value);
+	if (assetKey) {
+		refs.manifestKeys.add(assetKey);
+		refs.usedRegions.add(region);
+	} else {
+		refs.regionNames.add(value);
+	}
+}
+
 /** Collect every art reference in the doc + the defs' roots: sprite-node manifest
- * keys, and region names set through image-kind params (instance overrides and
- * def defaults), which carry no atlas key of their own. */
+ * keys, and frames set through image-kind params (instance overrides and def
+ * defaults) — scoped refs pin their atlas, bare names are resolved by name below. */
 function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): ArtRefs {
 	const refs: ArtRefs = {
 		manifestKeys: new Set(),
@@ -125,7 +139,7 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		for (const p of def.params ?? []) {
 			if (p.kind === 'image') {
 				keys.add(p.key);
-				if (typeof p.default === 'string' && p.default) refs.regionNames.add(p.default);
+				if (typeof p.default === 'string' && p.default) addImageRef(refs, p.default);
 			}
 		}
 		imageParamKeys.set(id, keys);
@@ -146,7 +160,7 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 			const keys = imageParamKeys.get(node.componentId);
 			if (keys) {
 				for (const [k, v] of Object.entries(node.params)) {
-					if (keys.has(k) && typeof v === 'string' && v) refs.regionNames.add(v);
+					if (keys.has(k) && typeof v === 'string' && v) addImageRef(refs, v);
 				}
 			}
 		}

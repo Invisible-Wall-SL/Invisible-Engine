@@ -8,6 +8,7 @@
 		coverTransform,
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
+		parseScopedFrameRef,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
@@ -1472,11 +1473,14 @@
 			const boundRegion = hasParams ? boundString(bound, 'region', effParams) : undefined;
 			const boundAssetKey = hasParams ? boundString(bound, 'assetKey', effParams) : undefined;
 			const boundTint = hasParams ? boundNumber(bound, 'tint', effParams) : undefined;
-			const region = boundRegion ?? node.region;
+			// An atlas-scoped image-param value (`<assetKey>::<region>`, from the picker)
+			// pins the atlas; a legacy bare name leaves `assetKey` from the node.
+			const scopedFrame = parseScopedFrameRef(boundRegion ?? node.region);
+			const region = scopedFrame.region;
 			// Cross-atlas resolution lives in `findRegion` now (a frame missing from this
 			// `assetKey` is looked up by name across atlases) — so a bound `image`-param swap
 			// OR a static region whose atlas no longer packs it both render.
-			const assetKey = boundAssetKey ?? node.assetKey;
+			const assetKey = scopedFrame.assetKey ?? boundAssetKey ?? node.assetKey;
 			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
 			if (region) {
 				drawRegionSprite(ctx, node, t, region, assetKey, tint);
