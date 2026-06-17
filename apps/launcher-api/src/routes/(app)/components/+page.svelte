@@ -4,6 +4,7 @@
 	import {
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
+		pruneOrphanParamBindings,
 		resolveComponentParams,
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
@@ -348,11 +349,14 @@
 		componentDraft.params = [...params, { key: k, kind, author: true }];
 	}
 
-	/** Remove a declared PARAM from the draft by key. */
+	/** Remove a declared PARAM from the draft by key — and any node bindings that
+	 * pointed at it, so we never leave an orphan binding behind (the bound field reverts
+	 * to its own static value). */
 	function removeComponentParam(key: string): void {
 		if (!componentDraft?.params) return;
 		componentDraft.params = componentDraft.params.filter((p) => p.key !== key);
 		if (componentDraft.params.length === 0) delete componentDraft.params;
+		pruneOrphanParamBindings(componentDraft);
 	}
 
 	/** Set (or clear) a param's DEFAULT — the value the preview + every placed instance

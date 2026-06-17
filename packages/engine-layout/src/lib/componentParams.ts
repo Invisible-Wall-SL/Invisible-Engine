@@ -84,3 +84,32 @@ export function fontParamKeysOf(def: ComponentDef | null | undefined): Set<strin
 	}
 	return set;
 }
+
+/**
+ * Drop node `paramBindings` entries that reference a param key NOT declared in
+ * `def.params` — an "orphan" binding, left behind when a param is deleted while a
+ * node still binds a field to it (the bound field then silently can't be edited per
+ * instance, because the param no longer exists to render a control). Mutates the
+ * def's node tree in place; returns `true` if anything was removed. A binding to a
+ * missing param is inert at runtime (`resolveBoundValue` finds nothing and the field
+ * keeps its static value), so pruning it is loss-free and restores a clean,
+ * self-consistent def. Pure + Svelte-free — shared by the editors + the save/load
+ * normalizer so the invariant "no binding without its param" holds everywhere.
+ */
+export function pruneOrphanParamBindings(def: ComponentDef): boolean {
+	const valid = new Set((def.params ?? []).map((p) => p.key));
+	let changed = false;
+	const walk = (n: LayoutNode): void => {
+		if (n.paramBindings) {
+			const next: Record<string, string> = {};
+			for (const [field, key] of Object.entries(n.paramBindings)) {
+				if (valid.has(key)) next[field] = key;
+				else changed = true;
+			}
+			n.paramBindings = Object.keys(next).length ? next : undefined;
+		}
+		if (n.kind === 'container') for (const child of n.children) walk(child);
+	};
+	walk(def.root);
+	return changed;
+}

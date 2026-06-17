@@ -7,7 +7,7 @@ import type {
 	SlotKind,
 	TemplateSlot,
 } from 'engine-layout';
-import { BUILTIN_COMPONENTS } from 'engine-layout';
+import { BUILTIN_COMPONENTS, pruneOrphanParamBindings } from 'engine-layout';
 import {
 	editorComponentKey,
 	projectComponentKey,
@@ -244,6 +244,10 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	if (signals.length) def.signals = signals;
 	const slots = normalizeSlots(raw.slots);
 	if (slots.length) def.slots = slots;
+	// Enforce "no binding without its param": drop node bindings that point at a param
+	// dropped above (or deleted in the editor), so a corrupt def can't be saved and an
+	// already-orphaned one self-heals on its next load/save.
+	pruneOrphanParamBindings(def);
 	return def;
 }
 
