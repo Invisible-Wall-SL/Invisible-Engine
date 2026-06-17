@@ -120,6 +120,12 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>' +
 			'<rect x="9.6" y="9.6" width="4.8" height="4.8" rx="0.6" fill="currentColor" stroke="none"/>',
 	),
+	// game controller / play (create + publish a playable game)
+	gameMaker: I(
+		'<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/>' +
+			'<line x1="8" y1="11" x2="8" y2="13"/><circle cx="15.5" cy="11" r="0.9" fill="currentColor" stroke="none"/>' +
+			'<circle cx="17.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>',
+	),
 };
 
 /** Registry of every tool the platform knows about. */
@@ -248,6 +254,15 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/symbols',
 		icon: TOOL_ICONS.symbols,
 	},
+	gameMaker: {
+		id: 'gameMaker',
+		name: 'Invisible Game Maker',
+		barName: 'Game Maker',
+		description: 'Create a project from a game-type template and publish it as a playable game.',
+		kind: 'online',
+		url: '/game-maker',
+		icon: TOOL_ICONS.gameMaker,
+	},
 };
 
 /**
@@ -258,6 +273,7 @@ export const TOOLS: Record<string, ToolDef> = {
  * `docs/design/unified-tool-bar.md`.
  */
 export const TOOL_BAR_ORDER: string[] = [
+	'gameMaker',
 	'editor',
 	'symbols',
 	'sheetMaker',
@@ -288,6 +304,7 @@ export function toolBarItems(tools: ToolDef[], currentId?: string): ToolDef[] {
 export const ROLE_TOOLS: Record<Role, string[]> = {
 	admin: Object.keys(TOOLS),
 	developer: [
+		'gameMaker',
 		'atlasTool',
 		'spineViewer',
 		'rigger',
@@ -466,6 +483,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	fontMaker: 'font-maker',
 	storybook: 'storybook',
 	symbols: 'symbols-state-machine',
+	gameMaker: 'game-maker',
 };
 
 /**

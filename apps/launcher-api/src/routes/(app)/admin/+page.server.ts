@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
-import { listFullSceneSets } from 'engine-layout';
 import {
 	ADMIN_PANEL_CAPABILITY,
 	CAPABILITIES,
@@ -47,7 +46,7 @@ import {
 	setProjectGameType,
 } from '$lib/server/projects';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { listKinds } from '$lib/server/kindStorage';
+import { selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	assignProjectToClient,
@@ -88,26 +87,6 @@ async function requireAdmin(locals: App.Locals) {
 		throw error(403, 'Admins only.');
 	}
 	return locals.user;
-}
-
-/**
- * The selectable game kinds for the project create/edit selects (§21.6): the
- * built-ins (id + display name from `listFullSceneSets()`) PLUS author-created
- * custom kinds (from R2 via `listKinds()`). De-duped by id, built-ins winning, so
- * a custom kind can never shadow a built-in. Used by the load (to render the
- * options) and by the create/setProjectGameType actions (to validate the posted
- * value) — one source so the offered set and the accepted set stay identical.
- */
-async function selectableGameKinds(): Promise<{ id: string; name: string }[]> {
-	const builtins = listFullSceneSets().map((s) => ({ id: s.gameType, name: s.name }));
-	const seen = new Set(builtins.map((b) => b.id));
-	const out = [...builtins];
-	for (const k of await listKinds()) {
-		if (seen.has(k.id)) continue;
-		seen.add(k.id);
-		out.push(k);
-	}
-	return out;
 }
 
 const MIN_PASSWORD = 8;

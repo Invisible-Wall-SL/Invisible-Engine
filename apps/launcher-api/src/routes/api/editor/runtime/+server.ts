@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { getDeployToken } from '$lib/server/appSettings';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { DEFAULT_PROJECT_KEY, projectAllowsRead, projectClientKey } from '$lib/server/projects';
 import { buildRuntimeBundle } from '$lib/server/runtimeBundle';
 import type { RequestHandler } from './$types';
 
@@ -39,10 +39,13 @@ const CORS_HEADERS = {
 export const GET: RequestHandler = async ({ url }) => {
 	const secret = await getDeployToken();
 	if (!secret) throw error(503, 'Runtime endpoint is not configured.');
-	const token = url.searchParams.get('k');
-	if (token !== secret) throw error(401, 'Invalid or missing token.');
-
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
+	// Accept the shared deploy token (build CI) OR this project's own read token —
+	// so a public Game Maker game URL embeds the per-project read-only token, never
+	// the shared build/deploy secret (design doc gap #3).
+	const token = url.searchParams.get('k') ?? '';
+	if (!(await projectAllowsRead(projectKey, token))) throw error(401, 'Invalid or missing token.');
+
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {

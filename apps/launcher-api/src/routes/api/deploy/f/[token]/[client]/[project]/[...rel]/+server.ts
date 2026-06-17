@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
 import { DEPLOY_CORS_HEADERS, serveDeployFile } from '$lib/server/deployServe';
+import { projectAllowsRead } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
 /**
@@ -15,15 +15,17 @@ import type { RequestHandler } from './$types';
  * `deployServe.ts`. The runtime's `assetBase` is everything up to and including
  * the trailing `/`, and it appends the deploy-relative path.
  *
- * Token note: the path segment is the shared deploy token, which is path-safe
- * today. Phase 1 replaces it with a per-project read-only token (design doc gap
- * #3); keep this a single segment so that swap is a one-line change.
+ * Token note: the leading path segment is EITHER the shared deploy token (build
+ * CI / pull scripts) OR the read token belonging to THIS `<client>/<project>`
+ * (the public Game Maker runtime — design doc gap #3). Both are path-safe single
+ * segments, so the swap stayed a one-line gate change. `projectAllowsRead` scopes
+ * the read token to its own project, so one project's token can't read another's.
  */
 export const GET: RequestHandler = async ({ params }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Deploy endpoint is not configured.');
-	if (params.token !== secret) throw error(401, 'Invalid or missing token.');
 	if (!params.rel) throw error(400, 'missing path');
+	if (!(await projectAllowsRead(params.project, params.token))) {
+		throw error(401, 'Invalid or missing token.');
+	}
 	return serveDeployFile(params.client, params.project, params.rel);
 };
 
