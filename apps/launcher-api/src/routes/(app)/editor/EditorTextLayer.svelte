@@ -338,9 +338,16 @@
 			fontSize: style?.fontSize ?? 24,
 			align: style?.align ?? 'left',
 			letterSpacing: style?.letterSpacing ?? 0,
+			// Colour the glyphs through `style.fill`, EXACTLY like the game's
+			// `<BitmapText style={…} />`. A style object that omits `fill` makes PIXI
+			// default it to BLACK, which multiplies the baked glyphs to black no matter
+			// what `tint` is — that was the "all fonts render black" bug. `toColor` keeps
+			// an unset fill white so the baked colour shows. No stroke/dropShadow on bitmap.
+			fill: toColor(style?.fill),
 		} as ConstructorParameters<typeof BitmapText>[0]['style'];
-		// Bitmap fonts are baked atlases: tint recolours, but no stroke/dropShadow.
-		obj.tint = toColor(style?.fill);
+		// Leave the object tint neutral — the colour lives in `style.fill` (game parity),
+		// not a separate multiply that would double-apply on a reused object.
+		obj.tint = 0xffffff;
 		return obj;
 	}
 
