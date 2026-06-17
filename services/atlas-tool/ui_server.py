@@ -2553,6 +2553,15 @@ function bpCandidates(role,graph){{
 // Default node-input field per role (the binding's `field`). output has none.
 const BP_FIELD={{positive:'text',negative:'text',seed:'seed',width:'width',
  height:'height',style_ref:'image',shape_ref:'image'}};
+// Human label for a node option. Prefers the title the author gave the node in
+// ComfyUI (API exports carry it as `_meta.title`); falls back to class_type. The
+// id is kept (#id) so identically-titled nodes stay distinguishable.
+function bpNodeOpt(id){{
+ const n=(_bpGraph||{{}})[id]||{{}};
+ const ct=String(n.class_type||'');
+ const t=(n._meta&&n._meta.title)?String(n._meta.title).trim():'';
+ return (t&&t!==ct) ? (t+' — '+ct+' (#'+id+')') : ('node '+id+' — '+ct);
+}}
 function openNewBlueprint(){{
  _bpGraph=null;
  document.getElementById('bpFile').value='';
@@ -2601,7 +2610,7 @@ function buildBpBindings(){{
   sel.dataset.bprole=role;
   sel.style.cssText='flex:1;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:6px';
   if(!req){{ let o=document.createElement('option'); o.value=''; o.textContent='(not used)'; sel.appendChild(o); }}
-  cands.forEach(([id,ct])=>{{ let o=document.createElement('option'); o.value=id; o.textContent='node '+id+' — '+ct; sel.appendChild(o); }});
+  cands.forEach(([id,ct])=>{{ let o=document.createElement('option'); o.value=id; o.textContent=bpNodeOpt(id); sel.appendChild(o); }});
   if(req&&!cands.length){{ let o=document.createElement('option'); o.value=''; o.textContent='⚠ no matching node'; sel.appendChild(o); }}
   row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
  }});
@@ -2646,7 +2655,7 @@ function addBpParam(){{
  let nodeSel=document.createElement('select'); nodeSel.dataset.pnode='1';
  nodeSel.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
  nodes.forEach(id=>{{ let o=document.createElement('option'); o.value=id;
-  o.textContent='node '+id+' — '+String((_bpGraph[id]||{{}}).class_type||''); nodeSel.appendChild(o); }});
+  o.textContent=bpNodeOpt(id); nodeSel.appendChild(o); }});
  let fieldSel=document.createElement('select'); fieldSel.dataset.pfield='1';
  fieldSel.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
  let typeSel=document.createElement('select'); typeSel.dataset.ptype='1';
