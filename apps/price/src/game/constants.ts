@@ -1,6 +1,13 @@
 import _ from 'lodash';
 
-import type { RawSymbol, SymbolState } from './types';
+import config from './config';
+import type { RawSymbol, SymbolState, GameType } from './types';
+
+// Reel-strip padding boards, typed. config.ts is a plain data export so its
+// symbol `name`s widen to `string`; the strips only ever hold real symbol ids,
+// so we assert the engine's `RawSymbol[][]` shape once here instead of at each
+// call site (the board API wants `RawSymbol[][]`, not `{ name: string }[][]`).
+export const PADDING_REELS = config.paddingReels as Record<GameType, RawSymbol[][]>;
 
 export const SYMBOL_SIZE = 90;
 

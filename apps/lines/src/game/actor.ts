@@ -8,7 +8,7 @@ import type { Bet } from './typesBookEvent';
 import { stateXstateDerived } from './stateXstate';
 import { playBet, convertTorResumableBet } from './utils';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
-import config from './config';
+import { PADDING_REELS } from './constants';
 
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),
@@ -24,7 +24,7 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;
 		await stateGameDerived.enhancedBoard.preSpin({
-			paddingBoard: config.paddingReels[stateGame.gameType],
+			paddingBoard: PADDING_REELS[stateGame.gameType],
 		});
 	},
 	onNewGameError: () => stateGameDerived.enhancedBoard.settle(),

@@ -18,7 +18,7 @@
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
 	import { eventEmitter } from '../game/eventEmitter';
-	import config from '../game/config';
+	import { PADDING_REELS } from '../game/constants';
 
 	setContext();
 </script>
@@ -49,7 +49,7 @@
 		data: {},
 		action: async () => {
 			await stateGameDerived.enhancedBoard.preSpin({
-				paddingBoard: config.paddingReels[stateGame.gameType],
+				paddingBoard: PADDING_REELS[stateGame.gameType],
 			});
 		},
 	})}
