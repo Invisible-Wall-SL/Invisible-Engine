@@ -30,7 +30,7 @@
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { resolveBoundValue } from './componentParams';
-	import { editorArtTextureKey, isManifestAssetKey } from './editorArtKey';
+	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 
@@ -231,8 +231,15 @@
 	// sheets + any registration predating the namespacing).
 	const spriteRef = $derived.by(() => {
 		if (node.kind !== 'sprite') return undefined;
-		const region = typeof boundRegion === 'string' ? boundRegion : node.region;
-		const assetKey = typeof boundAssetKey === 'string' ? boundAssetKey : node.assetKey;
+		const rawRegion = typeof boundRegion === 'string' ? boundRegion : node.region;
+		const rawAssetKey = typeof boundAssetKey === 'string' ? boundAssetKey : node.assetKey;
+		// An atlas-scoped image-param value (`<assetKey>::<region>`, from the region
+		// picker) pins the atlas, so a region name packed by several atlases resolves to
+		// the picked one instead of whichever sheet loaded last. A legacy bare name keeps
+		// `assetKey` from the node (parity).
+		const scoped = parseScopedFrameRef(rawRegion);
+		const region = scoped.region;
+		const assetKey = scoped.assetKey ?? rawAssetKey;
 		if (region && isManifestAssetKey(assetKey)) {
 			return { key: editorArtTextureKey(assetKey, region), fallbackKey: region };
 		}

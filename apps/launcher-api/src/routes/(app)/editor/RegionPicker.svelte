@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 	import { fetchRegions, type RegionSet } from './editorRegions.client';
 	import RegionThumb from './RegionThumb.svelte';
 
@@ -9,12 +10,20 @@
 	interface Props {
 		/** Atlas/sheet manifests whose frames can be picked. */
 		sheets: Sheet[];
-		/** Current frame name (the param value). */
+		/** Current value — a bare frame name, or a scoped `<assetKey>::<region>` ref. */
 		value?: string;
-		/** Called with the chosen frame name, or '' to clear. */
+		/** When set, the chosen value carries the source atlas (`<assetKey>::<region>`) so
+		 * a region name packed by several atlases stays unambiguous. Off ⇒ emit the bare
+		 * frame name (legacy callers, e.g. the Symbols tool). */
+		scoped?: boolean;
+		/** Called with the chosen value (scoped ref or bare name), or '' to clear. */
 		onSelect: (region: string) => void;
 	}
-	let { sheets, value = '', onSelect }: Props = $props();
+	let { sheets, value = '', scoped = false, onSelect }: Props = $props();
+
+	/** The selected frame split into atlas + region. A scoped value pins the atlas, so
+	 * only that sheet's frame highlights; a bare value matches the name in every sheet. */
+	const selected = $derived(parseScopedFrameRef(value));
 
 	let open = $state(false);
 	let expanded = $state<Record<string, boolean>>({});
@@ -31,8 +40,8 @@
 		}
 	}
 
-	function pick(region: string): void {
-		onSelect(region);
+	function pick(sheetKey: string, region: string): void {
+		onSelect(scoped ? scopedFrameRef(sheetKey, region) : region);
 		open = false;
 	}
 </script>
@@ -40,7 +49,7 @@
 <div class="region-picker">
 	<div class="bar">
 		<button type="button" class="current" onclick={() => (open = !open)}>
-			<span class="cur-name">{value || 'Pick a frame…'}</span>
+			<span class="cur-name">{selected.region || 'Pick a frame…'}</span>
 			<span class="caret">{open ? '▾' : '▸'}</span>
 		</button>
 		{#if value}
@@ -70,9 +79,10 @@
 									<button
 										type="button"
 										class="frame"
-										class:sel={r.name === value}
+										class:sel={r.name === selected.region &&
+											(!selected.assetKey || selected.assetKey === sheet.key)}
 										title={r.name}
-										onclick={() => pick(r.name)}
+										onclick={() => pick(sheet.key, r.name)}
 									>
 										<RegionThumb {set} region={r} size={44} />
 										<span class="fname">{r.name}</span>
