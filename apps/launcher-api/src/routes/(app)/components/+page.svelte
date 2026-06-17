@@ -181,37 +181,39 @@
 	 * the authored art becomes clickable with zero extra wiring. */
 	let newType = $state<'blank' | 'button' | 'readout'>('blank');
 
-	/** Recursively give every node in a cloned tree a fresh id, so a component seeded
-	 * from a built-in template (which ships fixed ids) doesn't reuse them. Bindings
-	 * reference param KEYS, not node ids, so only the structural ids need renumbering. */
-	function freshNodeIds(node: LayoutNode): void {
-		node.id = `${genComponentId()}_${node.kind}`;
-		if (node.kind === 'container') for (const child of node.children) freshNodeIds(child);
-	}
-
 	/**
 	 * Create a component + open it. `blank` = empty root; `button` = empty root pre-wired
-	 * with the `action` param; `readout` = a copy of the built-in HUD Readout (caption +
-	 * value + ticker bg with its source/value/font/size/colour params), so the author has
-	 * a working value readout to customise instead of rebuilding it by hand.
+	 * with the `action` param; `readout` = empty root pre-wired with the value-feed
+	 * CONTRACT only — the `source` selector, the engine-fed `value`, and the `countUp`
+	 * toggle. The engine feeds ANY component carrying a `source`+`value` pair (it keys on
+	 * the source NAME, not the component id), so the author just drops their own art + text
+	 * on the empty root and binds a text node's `text` to `value`. No coded parts to delete.
 	 */
 	function createComponent(): void {
 		const name = newName.trim();
 		if (!name) return;
 		let def: ComponentDef;
 		if (newType === 'readout') {
-			const tpl = structuredClone(HUD_READOUT_DEF);
-			freshNodeIds(tpl.root);
-			tpl.root.x = 0;
-			tpl.root.y = 0;
+			// Reuse the built-in's exact `source` (with its options) + engine `value` +
+			// `countUp` params; drop the coded-part style params (the author styles their
+			// own text) and ship an empty root.
+			const keep = new Set(['source', 'value', 'countUp']);
+			const params = (structuredClone(HUD_READOUT_DEF).params ?? []).filter((p) => keep.has(p.key));
+			const root: ContainerNode = {
+				id: genComponentId() + '_root',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				children: [],
+			};
 			def = {
 				id: genComponentId(),
 				name,
 				version: 1,
 				scope: 'project',
 				category: 'ui',
-				root: tpl.root,
-				params: tpl.params,
+				root,
+				params,
 			};
 		} else {
 			const root: ContainerNode = {
@@ -772,10 +774,11 @@
 								</p>
 							{:else if newType === 'readout'}
 								<p class="muted small">
-									Starts as a copy of the built-in <strong>HUD Readout</strong> — a caption + live
-									value on a ticker background, with <strong>source</strong> (balance / win / bet…),
-									font, size and colour params. Customise the parts on the canvas; pick the
-									<strong>source</strong> on each placed instance. Listed under <strong>UI</strong>.
+									Empty, but pre-wired as a value readout: declares <strong>source</strong> (balance
+									/ win / bet…) + the engine-fed <strong>value</strong>. Drop your own background +
+									text on the canvas, then on the text that shows the number set
+									<strong>Bind to param → Text ← value</strong>. Pick the <strong>source</strong> on
+									each placed instance. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>
