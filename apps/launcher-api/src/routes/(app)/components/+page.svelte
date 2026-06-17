@@ -4,6 +4,7 @@
 	import {
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
+		HUD_READOUT_DEF,
 		pruneOrphanParamBindings,
 		resolveComponentParams,
 		STANDARD_MAIN_SIZES_MAP,
@@ -178,29 +179,59 @@
 	 * instance picks its action from the registered-action dropdown, and the engine
 	 * provides the hit surface for an action-bound def with no coded part (§18.4) —
 	 * the authored art becomes clickable with zero extra wiring. */
-	let newType = $state<'blank' | 'button'>('blank');
+	let newType = $state<'blank' | 'button' | 'readout'>('blank');
 
-	/** Create a component (blank root; a Button additionally declares `action`) + open it. */
+	/** Recursively give every node in a cloned tree a fresh id, so a component seeded
+	 * from a built-in template (which ships fixed ids) doesn't reuse them. Bindings
+	 * reference param KEYS, not node ids, so only the structural ids need renumbering. */
+	function freshNodeIds(node: LayoutNode): void {
+		node.id = `${genComponentId()}_${node.kind}`;
+		if (node.kind === 'container') for (const child of node.children) freshNodeIds(child);
+	}
+
+	/**
+	 * Create a component + open it. `blank` = empty root; `button` = empty root pre-wired
+	 * with the `action` param; `readout` = a copy of the built-in HUD Readout (caption +
+	 * value + ticker bg with its source/value/font/size/colour params), so the author has
+	 * a working value readout to customise instead of rebuilding it by hand.
+	 */
 	function createComponent(): void {
 		const name = newName.trim();
 		if (!name) return;
-		const root: ContainerNode = {
-			id: genComponentId() + '_root',
-			kind: 'container',
-			x: 0,
-			y: 0,
-			children: [],
-		};
-		const def: ComponentDef = {
-			id: genComponentId(),
-			name,
-			version: 1,
-			scope: 'project',
-			category: newType === 'button' ? 'ui' : newCategory,
-			root,
-		};
-		if (newType === 'button') {
-			def.params = [{ key: 'action', kind: 'string', options: ENGINE_ACTION_CATALOG }];
+		let def: ComponentDef;
+		if (newType === 'readout') {
+			const tpl = structuredClone(HUD_READOUT_DEF);
+			freshNodeIds(tpl.root);
+			tpl.root.x = 0;
+			tpl.root.y = 0;
+			def = {
+				id: genComponentId(),
+				name,
+				version: 1,
+				scope: 'project',
+				category: 'ui',
+				root: tpl.root,
+				params: tpl.params,
+			};
+		} else {
+			const root: ContainerNode = {
+				id: genComponentId() + '_root',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				children: [],
+			};
+			def = {
+				id: genComponentId(),
+				name,
+				version: 1,
+				scope: 'project',
+				category: newType === 'button' ? 'ui' : newCategory,
+				root,
+			};
+			if (newType === 'button') {
+				def.params = [{ key: 'action', kind: 'string', options: ENGINE_ACTION_CATALOG }];
+			}
 		}
 		openComponent(def);
 		newName = '';
@@ -713,6 +744,7 @@
 								>
 									<option value="blank">Blank</option>
 									<option value="button">Button</option>
+									<option value="readout">HUD readout</option>
 								</select>
 								{#if newType === 'blank'}
 									<select bind:value={newCategory} aria-label="Component category">
@@ -737,6 +769,13 @@
 									placed instance in the scene editor. Click <strong>Save component</strong> when
 									done — it is listed under
 									<strong>UI</strong>.
+								</p>
+							{:else if newType === 'readout'}
+								<p class="muted small">
+									Starts as a copy of the built-in <strong>HUD Readout</strong> — a caption + live
+									value on a ticker background, with <strong>source</strong> (balance / win / bet…),
+									font, size and colour params. Customise the parts on the canvas; pick the
+									<strong>source</strong> on each placed instance. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>
