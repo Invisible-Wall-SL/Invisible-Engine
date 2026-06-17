@@ -845,6 +845,11 @@
 		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
 		clearPageImages(); // drop the Library thumbnails' shared page decodes (+ bust their HTTP cache)
 		clearFontCatalogCache(); // drop the module-level font catalog so it re-fetches
+		// Drop the cross-atlas name→manifest map too, else a name-resolved sprite keeps
+		// pointing at the manifest the previous scan locked onto — Reload art would do
+		// nothing for it. Cleared + flagged for rebuild on the next draw().
+		spriteRegionIndex = new Map();
+		regionScanStarted = false;
 		assetVersion++;
 		spineReload++;
 		fontReload++;
@@ -963,29 +968,38 @@
 	function ensureRegionIndex(): void {
 		if (regionScanStarted) return;
 		regionScanStarted = true;
-		for (const key of regionContainerKeys()) {
-			void fetchRegions(key)
-				.then((set) => {
-					if (!set.regions.length) return;
-					const next = new Map(spriteRegionIndex);
-					let added = false;
-					for (const r of set.regions) {
-						// First manifest that packs a region name wins (stable + deterministic
-						// over the listing order); the resolved key is what `findRegion` loads.
-						if (!next.has(r.name)) {
-							next.set(r.name, set.assetKey);
-							added = true;
-						}
+		const keys = regionContainerKeys();
+		// Fetch every manifest in parallel but FOLD them in listing order, so the
+		// winner for a region name packed by more than one atlas is deterministic
+		// (first container in `regionContainerKeys()` wins) — not whichever fetch
+		// happens to resolve first, which silently flip-flopped which art a sprite drew.
+		void Promise.all(
+			keys.map((key) => fetchRegions(key).catch(() => null)), // a bad manifest contributes nothing
+		).then((sets) => {
+			const next = new Map<string, string>();
+			const warned = new Set<string>();
+			for (const set of sets) {
+				if (!set?.regions.length) continue;
+				for (const r of set.regions) {
+					const owner = next.get(r.name);
+					if (owner === undefined) {
+						next.set(r.name, set.assetKey);
+					} else if (owner !== set.assetKey && !warned.has(r.name)) {
+						// Two atlases pack the same region name → the sprite can only draw one.
+						// Surface it instead of silently shadowing the loser (the bug that made
+						// edits to one atlas look ignored). Rename/remove the dup to disambiguate.
+						warned.add(r.name);
+						console.warn(
+							`[editor] region "${r.name}" is packed by multiple atlases — using "${owner}", ` +
+								`shadowing "${set.assetKey}". Rename or remove the duplicate to control ` +
+								`which atlas a name-resolved sprite draws from.`,
+						);
 					}
-					if (added) {
-						spriteRegionIndex = next;
-						draw();
-					}
-				})
-				.catch(() => {
-					/* a bad manifest just contributes no regions */
-				});
-		}
+				}
+			}
+			spriteRegionIndex = next;
+			draw();
+		});
 	}
 
 	/** Resolved stand-in art for a `bind` anchor (explicit override → catalog default
