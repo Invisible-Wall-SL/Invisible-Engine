@@ -26,6 +26,7 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 import uuid
 import urllib.parse
@@ -1552,6 +1553,196 @@ def build_workflow_blueprint(
             f"{COMFY_PREFIX_BASE}/batch/{region['name']}")
 
     return wf, out_node_id
+
+
+# Serializes the snapshot/apply/restore of the manifest-settings module globals
+# below. `build_workflow_blueprint` reads a few plain module globals
+# (GEN_WIDTH/GEN_HEIGHT/MOCKUP_IMAGE) that `apply_manifest_settings` mutates.
+# In the ui_server process (ThreadingHTTPServer = one thread per request) the
+# resolved-workflow export runs IN-PROCESS, concurrently with other request
+# threads — so two requests applying different manifests would clobber each
+# other's globals mid-resolve. We hold this lock for the whole apply→build→
+# restore window so a real run/another export can't observe a half-applied
+# state. COMFY_PREFIX_BASE is a thread-local _StrProxy (safe already) and the
+# (client,project) path context is the caller's thread-local, untouched here.
+_RESOLVE_GLOBALS_LOCK = threading.Lock()
+
+
+def _binding_source_labels(blueprint: dict) -> dict:
+    """(node_id, field) -> human source label, derived from a blueprint's
+    bindings + params. Used by the resolved-workflow diff to say WHAT drove each
+    changed input: a role name (positive/negative/seed/width/height/style_ref/
+    shape_ref/output), `param:<key>`, or — for the SaveImage prefix — set by the
+    caller. A node/field can be driven by at most one binding OR one param
+    (validation forbids double-drive), so this map is unambiguous."""
+    out: dict = {}
+    bindings = blueprint.get("bindings") or {}
+    for role, b in bindings.items():
+        if role == "output" or not isinstance(b, dict):
+            continue
+        n = str(b.get("node", "")).strip()
+        f = str(b.get("field", "")).strip()
+        if n and f:
+            out[(n, f)] = role
+    for p in (blueprint.get("params") or []):
+        if not isinstance(p, dict):
+            continue
+        n = str(p.get("node", "")).strip()
+        f = str(p.get("field", "")).strip()
+        key = str(p.get("key", "")).strip()
+        if n and f and key:
+            out[(n, f)] = f"param:{key}"
+    return out
+
+
+def _node_title(node: dict, fallback: str = "") -> str:
+    """A node's display title: its `_meta.title` if present, else its
+    `class_type`. Mirrors the loader's `bpNodeOpt` titling so the diff table and
+    the binder dropdown name the same node identically."""
+    if not isinstance(node, dict):
+        return fallback
+    meta = node.get("_meta")
+    if isinstance(meta, dict):
+        t = str(meta.get("title", "")).strip()
+        if t:
+            return t
+    return str(node.get("class_type", "")).strip() or fallback
+
+
+def resolve_blueprint_workflow(
+    manifest: dict, region_name: str | None = None,
+    blueprint_id: str | None = None,
+) -> tuple[dict, str, list[dict]]:
+    """Resolve the EXACT API/prompt graph a real run POSTs to ComfyUI for one
+    region, plus a baked→injected changes diff. The single source of truth is
+    `build_workflow_blueprint` (no duplicated injection logic) — the returned
+    graph is byte-identical to what generation sends.
+
+    Returns (wf, output_node_id, changes). `changes` is a list of
+    {node, title, field, baked, resolved, source} for every scalar input that
+    the pipeline set differently from (or in addition to) the baked blueprint
+    graph. Wired links (array-valued inputs) are skipped.
+
+    Faithful gen size + settings: a real run calls `apply_manifest_settings`,
+    overlaying `manifest["settings"]` onto the module globals the runner reads
+    (GEN_WIDTH/GEN_HEIGHT/MOCKUP_IMAGE/PIPELINE/…). We replicate that here under
+    `_RESOLVE_GLOBALS_LOCK`, snapshotting EVERY settings-driven global (plus
+    ATLAS_META, used by other resolvers) and restoring them in `finally` — so a
+    concurrent request never sees a half-applied state and the export reflects
+    THIS manifest's gen size, not the process default. Overrides are passed
+    explicitly to the runner (not via the BP_PARAM_OVERRIDES global), matching
+    how main() reads them but avoiding that shared mutable global entirely.
+    Raises ValueError with a readable message on any user-facing problem."""
+    import copy
+
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest is not an object")
+    style = manifest.get("style") or {}
+
+    with _RESOLVE_GLOBALS_LOCK:
+        # Snapshot the globals a real run mutates, apply this manifest's
+        # settings, then restore in finally — the whole window is locked.
+        snapshot = {gname: globals().get(gname)
+                    for gname in _SETTINGS_GLOBALS.values()}
+        atlas_meta_snapshot = dict(ATLAS_META)
+        try:
+            ATLAS_META.clear()
+            ATLAS_META.update(manifest.get("atlas") or {})
+            apply_manifest_settings(manifest)
+
+            # The region list a real run would build (atlas-bound vs creative).
+            regions = list(manifest.get("regions") or [])
+
+            # Pick the region: by name, else the first non-hidden region (the
+            # default selection a run starts from).
+            region = None
+            if region_name:
+                region = next(
+                    (r for r in regions if r.get("name") == region_name), None)
+                if region is None:
+                    raise ValueError(
+                        f"region '{region_name}' not found in this manifest")
+            else:
+                region = next(
+                    (r for r in regions
+                     if not r.get("skip_unless_explicit")), None)
+                if region is None and regions:
+                    region = regions[0]
+            if region is None:
+                raise ValueError("this manifest has no regions to resolve")
+
+            # Blueprint id: explicit arg, else the region's effective pipeline,
+            # else the manifest's active pipeline (apply_manifest_settings put it
+            # on PIPELINE). A built-in keyword is not a blueprint.
+            bp_id = (blueprint_id or "").strip() or region_pipeline(region)
+            if str(bp_id).lower() in ("sdxl", "flux", "gpt_image"):
+                raise ValueError(
+                    f"pipeline '{bp_id}' is a built-in (hardcoded Python "
+                    "builder), not a blueprint — resolved-workflow export "
+                    "applies to blueprint pipelines only")
+            blueprint = blueprints.get_blueprint(bp_id)
+            if not blueprint:
+                raise ValueError(
+                    f"blueprint '{bp_id}' not found in the shared library")
+
+            # Overrides EXACTLY as main() loads them: main() reads
+            # settings.bpParams[<active GLOBAL pipeline>] into BP_PARAM_OVERRIDES
+            # (apply_manifest_settings just put that pipeline on PIPELINE) and
+            # feeds the SAME dict to every region — regardless of a per-region
+            # `pipeline` override. So key overrides by the active pipeline, NOT
+            # by bp_id, or the export would diverge from a real run for a region
+            # whose pipeline differs from the manifest's. Passed explicitly so we
+            # never touch the BP_PARAM_OVERRIDES global.
+            active_pipe = str(PIPELINE).strip().lower()
+            overrides = ((manifest.get("settings") or {})
+                         .get("bpParams") or {}).get(active_pipe)
+            if not isinstance(overrides, dict):
+                overrides = None
+
+            baked = copy.deepcopy(blueprint.get("graph") or {})
+            wf, out_node_id = build_workflow_blueprint(
+                region, style, blueprint, overrides)
+        finally:
+            for gname, val in snapshot.items():
+                globals()[gname] = val
+            ATLAS_META.clear()
+            ATLAS_META.update(atlas_meta_snapshot)
+
+    # Diff baked vs resolved — scalar inputs only (skip wired array links).
+    sources = _binding_source_labels(blueprint)
+    out_binding = (blueprint.get("bindings") or {}).get("output") or {}
+    out_node = str(out_binding.get("node", "")).strip() or out_node_id
+    changes: list[dict] = []
+    for node_id, node in wf.items():
+        if not isinstance(node, dict):
+            continue
+        r_inputs = node.get("inputs") or {}
+        b_node = baked.get(node_id) if isinstance(baked.get(node_id), dict) else {}
+        b_inputs = b_node.get("inputs") or {}
+        title = _node_title(node, fallback=str(node_id))
+        for field, r_val in r_inputs.items():
+            if isinstance(r_val, list):
+                continue  # wired link, not a scalar the runner sets
+            b_val = b_inputs.get(field, _UNSET)
+            if b_val is not _UNSET and b_val == r_val:
+                continue  # unchanged
+            if (node_id, field) in sources:
+                source = sources[(node_id, field)]
+            elif node_id == out_node and field == "filename_prefix":
+                source = "filename_prefix"
+            elif b_val is _UNSET:
+                source = "new"
+            else:
+                source = ""
+            changes.append({
+                "node": str(node_id),
+                "title": title,
+                "field": field,
+                "baked": (None if b_val is _UNSET else b_val),
+                "resolved": r_val,
+                "source": source,
+            })
+    return wf, out_node_id, changes
 
 
 def build_workflow(region: dict, style: dict, atlas_path: str) -> dict:

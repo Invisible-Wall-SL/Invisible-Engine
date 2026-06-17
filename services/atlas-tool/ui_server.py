@@ -1926,6 +1926,18 @@ _BP_PARAMS_PANEL_HTML = (
     '<button onclick="saveBpParams(this)" style="margin-bottom:14px">'
     'Save blueprint settings</button>'
     '<span id="bpParamsStat" style="margin-left:12px;color:#999"></span>'
+    '<div style="border-top:1px solid #36363d;margin-top:10px;padding-top:10px">'
+    '<div style="font-size:12px;color:#888;padding-bottom:6px">'
+    'See EXACTLY the ComfyUI graph this pipeline POSTs to /prompt for a real '
+    'run — width/height, seed, prompts, refs and params are all injected, so '
+    'copying your blueprint into ComfyUI by hand does NOT reproduce it.</div>'
+    '<label class="lblrow" style="display:inline-block;margin-right:8px">Region '
+    '<select id="bpResRegion" style="margin-left:4px"></select></label>'
+    '<button onclick="resolveBpWorkflow(this)">'
+    '⤓ Resolved workflow (as the pipeline sends it)</button>'
+    '<span id="bpResStat" style="margin-left:12px;color:#999"></span>'
+    '<div id="bpResOut" style="display:none;margin-top:10px"></div>'
+    '</div>'
     '</details>')
 
 
@@ -2488,6 +2500,86 @@ async function saveBpParams(btn){{
  // Keep the in-page saved map in sync so a later pipeline switch + return shows
  // the just-saved values without a reload.
  BP_PARAM_VALUES[bpid]=vals;
+}}
+// --- Resolved workflow export: show EXACTLY the graph the pipeline POSTs ----
+function activeManifestName(){{
+ let s=document.querySelector('[data-cfg="manifest_path"]');
+ return (s&&s.value)||'';
+}}
+function bpResEsc(s){{
+ return String(s).replace(/[&<>]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;'}}[c]));
+}}
+function bpResShow(v){{
+ if(v===null||v===undefined) return '<span style="color:#777">—</span>';
+ if(typeof v==='object') return bpResEsc(JSON.stringify(v));
+ let s=String(v); if(s==='') return '<span style="color:#777">(empty)</span>';
+ return bpResEsc(s);
+}}
+async function resolveBpWorkflow(btn){{
+ let stat=document.getElementById('bpResStat');
+ let out=document.getElementById('bpResOut');
+ let panel=document.getElementById('bpParamsPanel');
+ let bpid=(panel&&panel.dataset.bpid)||globalPipe();
+ let man=activeManifestName();
+ if(!man){{ if(stat)stat.textContent='No active manifest.'; return; }}
+ let reg=(document.getElementById('bpResRegion')||{{}}).value||'';
+ if(stat)stat.textContent='Resolving…';
+ let qs='manifest='+encodeURIComponent(man)
+   +(bpid?'&blueprint='+encodeURIComponent(bpid):'')
+   +(reg?'&region='+encodeURIComponent(reg):'');
+ let j;
+ try{{ j=await (await fetch('/blueprintresolved?'+qs)).json(); }}
+ catch(e){{ if(stat)stat.textContent='Request failed: '+e; return; }}
+ if(!j||!j.ok){{ if(stat)stat.textContent=(j&&j.error)||'Failed.'; return; }}
+ if(stat)stat.textContent='';
+ // Populate / refresh the region picker from the returned region list.
+ let sel=document.getElementById('bpResRegion');
+ if(sel&&Array.isArray(j.regions)){{
+  let had=sel.value;
+  sel.innerHTML='';
+  j.regions.forEach(n=>{{ let o=document.createElement('option');
+    o.value=n; o.textContent=n; sel.appendChild(o); }});
+  if(had&&j.regions.indexOf(had)>=0) sel.value=had;
+ }}
+ // Build the changes table: Node / Field / Baked → Pipeline value / Source.
+ let rows=(j.changes||[]).map(c=>
+  '<tr><td style="white-space:nowrap"><b>'+bpResEsc(c.title)+'</b>'
+  +' <span style="color:#777">#'+bpResEsc(c.node)+'</span></td>'
+  +'<td>'+bpResEsc(c.field)+'</td>'
+  +'<td style="color:#c88">'+bpResShow(c.baked)+'</td>'
+  +'<td style="color:#8c8">'+bpResShow(c.resolved)+'</td>'
+  +'<td style="color:#88a">'+bpResEsc(c.source||'')+'</td></tr>'
+ ).join('');
+ if(!rows) rows='<tr><td colspan="5" style="color:#888">'
+  +'No injected changes — the pipeline sends this blueprint graph as baked.'
+  +'</td></tr>';
+ let notes=(j.notes||[]).map(n=>'<li>'+bpResEsc(n)+'</li>').join('');
+ let seedTxt=(j.seed!==null&&j.seed!==undefined)
+  ?('<b>Seed:</b> '+bpResEsc(j.seed)) : '';
+ out.innerHTML=
+  '<div style="font-size:12px;color:#aaa;margin-bottom:6px">'+seedTxt
+  +(seedTxt?' &nbsp;·&nbsp; ':'')+'<b>Output node:</b> #'
+  +bpResEsc(j.output_node)+'</div>'
+  +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+  +'<thead><tr style="text-align:left;color:#999;border-bottom:1px solid #444">'
+  +'<th>Node</th><th>Field</th><th>Baked</th><th>Pipeline value</th>'
+  +'<th>Source</th></tr></thead><tbody>'+rows+'</tbody></table>'
+  +(notes?('<ul style="font-size:12px;color:#999;margin:8px 0 0;'
+    +'padding-left:18px">'+notes+'</ul>'):'')
+  +'<button style="margin-top:10px" onclick=\'bpResDownload()\'>'
+  +'⬇ Download workflow.json</button>';
+ out.style.display='';
+ window._bpResWf=j.workflow;
+}}
+function bpResDownload(){{
+ if(!window._bpResWf){{ return; }}
+ let blob=new Blob([JSON.stringify(window._bpResWf,null,2)],
+   {{type:'application/json'}});
+ let a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);
+ a.download='workflow.json';
+ document.body.appendChild(a); a.click();
+ setTimeout(()=>{{ URL.revokeObjectURL(a.href); a.remove(); }},0);
 }}
 function applyCardPipes(){{            // each card uses its OWN effective pipe
  let gp=globalPipe();
@@ -3664,6 +3756,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json",
                        self._fsbrowse(qs.get("path", [""])[0],
                                       qs.get("key", [""])[0]))
+        elif path == "/blueprintresolved":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            self._send(200, "application/json",
+                       self._blueprintresolved(
+                           qs.get("manifest", [""])[0],
+                           qs.get("region", [""])[0],
+                           qs.get("blueprint", [""])[0]))
         elif path == "/cardsdata":
             self._send(200, "application/json", self._cardsdata())
         elif path.startswith("/regionadv/"):
@@ -4099,6 +4198,112 @@ class Handler(BaseHTTPRequestHandler):
         unless an env (`IW_USER_NAME`) carries one. Kept as a single seam so a
         future handoff field only changes here."""
         return (os.environ.get("IW_USER_NAME", "").strip() or "uploaded")
+
+    def _blueprintresolved(self, manifest_name: str, region: str = "",
+                           blueprint: str = "") -> bytes:
+        """Resolve the EXACT API/prompt graph the blueprint pipeline POSTs to
+        ComfyUI for a real run of `manifest_name`, plus a baked→injected diff.
+
+        Read-only debugging seam: loads the named manifest from staging (same
+        resolver compose/slice use), then calls
+        `batch_atlas.resolve_blueprint_workflow` — the single source of truth for
+        injection. The (client, project) context is THIS request thread's
+        (already set by `_resolve_context`), so the manifest + blueprint library
+        resolve under the right prefix, exactly like sibling endpoints.
+
+        Returns JSON {ok, workflow, output_node, seed, changes, regions, notes}.
+        Any failure is reported as {ok:false, error:<message>} (never a 500),
+        consistent with the other handlers."""
+        try:
+            sel = Path((manifest_name or "").replace("\\", "/")).name
+            if not sel:
+                return json.dumps(
+                    {"ok": False, "error": "no manifest specified"}).encode()
+            mp = batch_atlas.resolve_manifest_arg(sel)
+            if not mp.exists():
+                # Lazy-pull from R2 by name (manifests hydrate at startup, but a
+                # just-created one may only be on R2 in this worker's view).
+                # _hydrate_from_r2_by_name writes the pulled blob to its OWN
+                # location (refs/atlas/<name>) and returns that path — it does
+                # NOT populate the MANIFEST_DIR slot — so read the manifest from
+                # the returned path rather than re-checking `mp`.
+                pulled = batch_atlas._hydrate_from_r2_by_name(sel)
+                if pulled is not None and pulled.exists():
+                    mp = pulled
+            if not mp.exists() or mp.suffix.lower() == ".atlas":
+                return json.dumps({
+                    "ok": False,
+                    "error": (f"manifest '{sel}' not found, or is a bare .atlas "
+                              "with no creative recipe to resolve"),
+                }).encode()
+            manifest = json.loads(mp.read_text(encoding="utf-8"))
+
+            # Region picker source: every region the manifest carries (atlas-
+            # bound manifests merge geometry from their `.atlas`, so reflect that
+            # too — the names are what the UI dropdown needs).
+            regions = [r.get("name") for r in (manifest.get("regions") or [])
+                       if r.get("name")]
+            try:
+                ap = batch_atlas.atlas_file_path(manifest, mp)
+                if ap and ap.exists():
+                    merged = batch_atlas.merge_atlas_regions(
+                        manifest, atlas_format.parse_atlas(ap))
+                    regions = [r["name"] for r in merged if r.get("name")]
+            except (OSError, ValueError):
+                pass
+
+            wf, out_node, changes = batch_atlas.resolve_blueprint_workflow(
+                manifest, region or None, blueprint or None)
+
+            seed = None
+            # The concrete seed baked into the resolved wf is the authoritative
+            # value — read it back from a 'seed' change entry if present.
+            for c in changes:
+                if c.get("source") == "seed":
+                    seed = c.get("resolved")
+                    break
+
+            notes = [
+                "The exported JSON is ComfyUI API/prompt format: POST it to "
+                "ComfyUI's /prompt and it runs identically to the pipeline. "
+                "Loading it onto the canvas needs ComfyUI's API-format loader.",
+            ]
+            # Warn when the resolved seed is random (unpinned region): a real run
+            # would draw a fresh one each time, so this export is one sample.
+            pinned = False
+            try:
+                reg = None
+                if region:
+                    reg = next((r for r in (manifest.get("regions") or [])
+                                if r.get("name") == region), None)
+                else:
+                    reg = next((r for r in (manifest.get("regions") or [])
+                                if not r.get("skip_unless_explicit")), None)
+                pinned = bool(reg and reg.get("seed") is not None)
+            except Exception:  # noqa: BLE001
+                pinned = False
+            if not pinned and seed is not None:
+                notes.append(
+                    f"This region has no pinned seed — the pipeline draws a "
+                    f"fresh random seed every run, so seed {seed} is just this "
+                    "export's sample. Pin the region's seed (or set it in "
+                    "ComfyUI) to reproduce.")
+
+            return json.dumps({
+                "ok": True,
+                "workflow": wf,
+                "output_node": out_node,
+                "seed": seed,
+                "changes": changes,
+                "regions": regions,
+                "notes": notes,
+            }).encode()
+        except ValueError as e:
+            return json.dumps({"ok": False, "error": str(e)}).encode()
+        except Exception as e:  # noqa: BLE001 — never 500 a debug seam
+            return json.dumps(
+                {"ok": False,
+                 "error": f"{type(e).__name__}: {e}"}).encode()
 
     def _sliceatlas(self) -> str:
         # Pass the FULL staging manifest path (not just .name) so the subprocess

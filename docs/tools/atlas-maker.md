@@ -71,6 +71,41 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
    refs (needs the `.atlas` geometry + source image in R2, see limitations).
 6. **Deploy** — `/deployatlas` copies the finished result to R2.
 
+## Blueprints: resolved-workflow export (debugging)
+
+When the active pipeline is a **blueprint** (a shareable ComfyUI graph + role
+bindings, not a built-in `sdxl`/`flux`/`gpt_image` builder), the Settings
+panel's **🎛 Blueprint settings** section gains a region picker plus a **⤓
+Resolved workflow (as the pipeline sends it)** button. It answers the question
+"what does the pipeline actually send to ComfyUI?" — because copying your
+blueprint's params into ComfyUI by hand does **not** reproduce a run. The
+generic runner deep-copies the baked graph and overwrites:
+
+- **positive / negative** — composed from the style prefix/suffix + the region's
+  prompt (and replace flags);
+- **seed** — the region's locked seed, else a fresh random one each run;
+- **width / height** — this **manifest's configured gen size** (its
+  `settings.gen_width/height`), not the graph's baked latent size and not the
+  process default;
+- **style_ref / shape_ref** — the region's reference image paths;
+- each declared **param** — coerced to its type and clamped to min/max (a saved
+  per-atlas override, else the param's baked default);
+- the SaveImage **filename_prefix** — this project's output prefix.
+
+The button fetches `GET /blueprintresolved?manifest=<name>&blueprint=<id>&region=<name>`
+and shows:
+
+- a **changes table** (Node / Field / Baked → Pipeline value / Source) — the
+  at-a-glance diff of what the pipeline changed versus your blueprint;
+- the concrete **seed** baked into the export (with a note when the region is
+  unpinned, since a real run draws a new random seed each time);
+- a **Download workflow.json** button.
+
+The downloaded JSON is ComfyUI **API/prompt** format: POST it to ComfyUI's
+`/prompt` and it runs identically to the pipeline. Loading it back onto the
+canvas needs ComfyUI's API-format loader (it is not the editor's
+save/drag-drop format).
+
 ## Prerequisites
 
 - Your local **ComfyUI** must be running and reachable through the tunnel.
