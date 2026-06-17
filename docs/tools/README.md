@@ -16,6 +16,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | Tool | Opens at | Default roles | Doc |
 |---|---|---|---|
 | **The Launcher** (the portal itself) | `app.invisiblewall.org` | all | [launcher.md](launcher.md) |
+| **Invisible Game Maker** | `/game-maker` | admin · developer | [game-maker.md](game-maker.md) |
 | **Invisible Scene Editor** | `/editor` | admin · developer · artist | [invisible-editor.md](invisible-editor.md) |
 | **Invisible Symbols State Machine** | `/symbols` | admin · developer · artist | [symbols-state-machine.md](symbols-state-machine.md) |
 | **Invisible Sheet Maker** | `/sheet` | admin · artist | [sheet-maker.md](sheet-maker.md) |
