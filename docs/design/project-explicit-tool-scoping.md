@@ -1,9 +1,20 @@
 # Project-explicit tool scoping
 
-> Status: **DRAFT / scoping** (2026-06-17). Owner-reported flaw: you can **edit one
-> project and publish another** without any signal. Root cause below. Decision:
-> make every tool bind to an **explicit** project, with the current project always
-> visible — kill the invisible global context. Related: [[invisible-game-maker]].
+> Status: **SHIPPED** (2026-06-17, `467e1c3`). Phases 1–3 below all landed in one
+> change. Owner-reported flaw: you can **edit one project and publish another**
+> without any signal. Root cause below. Fix: every tool binds to an **explicit**
+> project (`?project=`, access-checked), the current project is always visible, and
+> Game Maker is the project hub. Related: [[invisible-game-maker]].
+>
+> **Shipped:** `resolveToolScope()` (`$lib/server/toolScope.ts`) — explicit
+> `?project=` is authoritative when `canAccessProject` passes (same per-user rule as
+> the selector), synced into the session; else falls back to `getActiveScope`
+> (byte-identical). All 7 tool routes use it; the editor + localization **save**
+> actions resolve from their own `url` and the form POST preserves `?project=`, so
+> saves hit the right project (the actual bug). Game Maker hub: per-project
+> Edit/Atlas/Fonts/Symbols/Localization launch links + a Publish confirmation
+> (project + scenes' last-edited time). `ToolTopBar` shows `<client> / <project>`.
+> Open-question #4 (retire the global selector) deferred.
 
 ## The flaw (a real incident)
 
