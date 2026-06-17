@@ -75,7 +75,12 @@
 
 <div class="shell">
 	<header>
-		<ToolTopBar current="fontMaker" tools={data.tools} />
+		<ToolTopBar
+			current="fontMaker"
+			tools={data.tools}
+			clientKey={data.clientKey}
+			projectKey={data.projectKey}
+		/>
 		<div class="meta">
 			<span class="project">
 				{#if data.clientKey}<span class="client">{data.clientKey}</span> /

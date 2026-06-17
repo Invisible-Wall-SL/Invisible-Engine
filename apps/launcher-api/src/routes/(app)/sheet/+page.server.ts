@@ -1,10 +1,11 @@
 import { error, redirect } from '@sveltejs/kit';
-import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import { toolBarParams } from '$lib/server/toolBar';
+import { resolveToolScope } from '$lib/server/toolScope';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
+export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	// The parent layout already resolved the effective tool manifest; reuse it
 	// instead of re-querying the role/user overrides (same gate, fewer queries).
@@ -21,9 +22,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 	// to look the client up itself.
 	const base = ENV.SHEET_TOOL_URL.replace(/\/$/, '');
 	if (base) {
-		const { projectKey: project, clientKey: client } = await getActiveScope(
-			cookies.get(SESSION_COOKIE),
-		);
+		const { projectKey: project, clientKey: client } = await resolveToolScope({
+			url,
+			sessionToken: cookies.get(SESSION_COOKIE),
+			user: locals.user,
+		});
 		const params = new URLSearchParams();
 		if (ENV.SHEET_TOOL_SECRET) params.set('k', ENV.SHEET_TOOL_SECRET);
 		params.set('client', client);

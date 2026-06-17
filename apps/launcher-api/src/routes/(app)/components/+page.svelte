@@ -607,7 +607,12 @@
 <div class="shell">
 	<header class="topbar">
 		<div class="brandwrap">
-			<ToolTopBar current="componentEditor" tools={data.tools} />
+			<ToolTopBar
+				current="componentEditor"
+				tools={data.tools}
+				clientKey={data.clientKey}
+				projectKey={data.projectKey}
+			/>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
 

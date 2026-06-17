@@ -110,7 +110,13 @@
 	async function postAction(action: string, body: Record<string, string>): Promise<unknown> {
 		const fd = new FormData();
 		for (const [k, v] of Object.entries(body)) fd.set(k, v);
-		const res = await fetch(`?/${action}`, { method: 'POST', body: fd });
+		// Preserve the page's explicit `?project=` (project-explicit scoping) so the
+		// save targets the SAME project the page loaded; a bare `?/save` would drop
+		// the query and fall back to the session scope. No `?project=` ⇒ `?/save`,
+		// byte-identical to before.
+		const existing = location.search.replace(/^\?/, '');
+		const target = existing ? `?/${action}&${existing}` : `?/${action}`;
+		const res = await fetch(target, { method: 'POST', body: fd });
 		const json = (await res.json()) as { type: string; data?: string };
 		// SvelteKit serializes action results as a flattened, indexed array under
 		// `data`; the first element is the top-level object with index refs.
@@ -188,7 +194,7 @@
 
 <div class="shell">
 	<header>
-		<ToolTopBar current="localization" tools={data.tools} />
+		<ToolTopBar current="localization" tools={data.tools} projectKey={data.projectKey} />
 		<div class="meta">
 			<span class="project">Project: <strong>{data.projectKey}</strong></span>
 			{#if status}<span class="status">{status}</span>{/if}

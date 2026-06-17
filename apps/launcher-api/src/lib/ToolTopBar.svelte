@@ -7,7 +7,20 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOLS, toolBarItems, type ToolDef } from '$lib/roles';
 
-	let { current, tools }: { current: string; tools: ToolDef[] } = $props();
+	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
+	// scoping). Optional so a page that doesn't resolve a project can omit them; when
+	// present the bar shows `<client> / <project>` so the target is never invisible.
+	let {
+		current,
+		tools,
+		clientKey,
+		projectKey,
+	}: {
+		current: string;
+		tools: ToolDef[];
+		clientKey?: string;
+		projectKey?: string;
+	} = $props();
 
 	const name = $derived(TOOLS[current]?.name ?? '');
 	const items = $derived(toolBarItems(tools, current));
@@ -17,6 +30,14 @@
 	<Emblem height={18} />
 	<span class="brand-name">{name}</span>
 </a>
+
+{#if projectKey}
+	<div class="scope" title="Current project — every action on this page targets it">
+		<span class="scope-label">Project</span>
+		{#if clientKey}<span class="scope-client">{clientKey}</span><span class="scope-sep">/</span>{/if}
+		<span class="scope-project">{projectKey}</span>
+	</div>
+{/if}
 
 {#if items.length}
 	<nav class="switcher" aria-label="Switch tool">
@@ -42,6 +63,38 @@
 		font-size: 15px;
 		text-decoration: none;
 		white-space: nowrap;
+	}
+	.scope {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex: none;
+		padding: 4px 10px;
+		border-radius: 8px;
+		border: 1px solid #2b6f5a;
+		background: #14241d;
+		white-space: nowrap;
+	}
+	.scope-label {
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: #5f8f7c;
+	}
+	.scope-client {
+		font-size: 13px;
+		font-weight: 600;
+		color: #b9b9c4;
+	}
+	.scope-sep {
+		color: #4a6357;
+	}
+	.scope-project {
+		font-size: 13px;
+		font-weight: 700;
+		color: #7ee0c0;
+		font-family: ui-monospace, monospace;
 	}
 	.switcher {
 		display: flex;

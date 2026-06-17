@@ -203,7 +203,12 @@
 <div class="shell">
 	<header>
 		<div class="topbar">
-			<ToolTopBar current="symbols" tools={data.tools} />
+			<ToolTopBar
+				current="symbols"
+				tools={data.tools}
+				clientKey={data.clientKey}
+				projectKey={data.projectKey}
+			/>
 		</div>
 		<div class="meta">
 			<span class="project">

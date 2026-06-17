@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { findUnfilledRequiredSlots, reelGridWarnings, type LayoutDoc } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
-import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
@@ -9,6 +9,7 @@ import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadTemplate } from '$lib/server/templateStorage';
+import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,6 +30,7 @@ export const ssr = false;
 async function gate(
 	locals: App.Locals,
 	cookies: import('@sveltejs/kit').Cookies,
+	url: URL,
 ): Promise<{ clientKey: string; projectKey: string }> {
 	if (!locals.user) throw redirect(303, '/login');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
@@ -36,16 +38,22 @@ async function gate(
 	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Editor.');
 	}
-	return getActiveScope(cookies.get(SESSION_COOKIE));
+	// The save MUST target the SAME explicit project the page was loaded with, so the
+	// action resolves scope from its own `url` (`?project=`) — not the session alone.
+	return resolveToolScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
 }
 
-export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
+export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();
 	if (!tools.some((t) => t.id === 'editor')) {
 		throw error(403, 'Your role does not have access to Invisible Editor.');
 	}
-	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
+	const { clientKey, projectKey } = await resolveToolScope({
+		url,
+		sessionToken: cookies.get(SESSION_COOKIE),
+		user: locals.user,
+	});
 	const [doc, assets, components, customKinds] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
@@ -88,8 +96,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
 };
 
 export const actions: Actions = {
-	save: async ({ request, locals, cookies }) => {
-		const { clientKey, projectKey } = await gate(locals, cookies);
+	save: async ({ request, locals, cookies, url }) => {
+		const { clientKey, projectKey } = await gate(locals, cookies, url);
 		const raw = (await request.formData()).get('doc');
 		if (typeof raw !== 'string') {
 			return fail(400, { action: 'save' as const, error: 'Missing doc payload.' });

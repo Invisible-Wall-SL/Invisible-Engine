@@ -1,9 +1,10 @@
 import { error, redirect } from '@sveltejs/kit';
 import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { toolBarParams } from '$lib/server/toolBar';
+import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
@@ -24,9 +25,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// to look the client up itself.
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
 	if (base) {
-		const { projectKey: project, clientKey: client } = await getActiveScope(
-			cookies.get(SESSION_COOKIE),
-		);
+		const { projectKey: project, clientKey: client } = await resolveToolScope({
+			url,
+			sessionToken: cookies.get(SESSION_COOKIE),
+			user: locals.user,
+		});
 		const params = new URLSearchParams();
 		if (ENV.ATLAS_TOOL_SECRET) params.set('k', ENV.ATLAS_TOOL_SECRET);
 		params.set('client', client);

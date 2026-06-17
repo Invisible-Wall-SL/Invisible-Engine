@@ -20,6 +20,32 @@
 	let publishErr = $state<Record<string, string>>({});
 	let copied = $state<string>('');
 
+	// Publish confirmation: the project pending confirmation (null = no dialog).
+	let confirmProject = $state<(typeof data.projects)[number] | null>(null);
+
+	// "3 days ago" / "just now" from an epoch-ms timestamp. Null ⇒ never edited.
+	function relativeTime(ms: number | null): string {
+		if (!ms) return 'never edited';
+		const diff = Date.now() - ms;
+		if (diff < 60_000) return 'just now';
+		const mins = Math.floor(diff / 60_000);
+		if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+		const days = Math.floor(hours / 24);
+		if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+		const months = Math.floor(days / 30);
+		if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+		const years = Math.floor(months / 12);
+		return `${years} year${years === 1 ? '' : 's'} ago`;
+	}
+
+	// Build a `?project=<key>` launch URL for a tool, so the opened tool binds to
+	// THIS project (project-explicit scoping) instead of the hidden session scope.
+	function launchUrl(tool: string, projectKey: string): string {
+		return `/${tool}?project=${encodeURIComponent(projectKey)}`;
+	}
+
 	// Auto-derive a key slug from the typed name until the user edits the key.
 	let keyTouched = $state(false);
 	function onNameInput(value: string) {
@@ -31,6 +57,20 @@
 				.replace(/^-+|-+$/g, '')
 				.slice(0, 64);
 		}
+	}
+
+	// Open the confirmation dialog naming the project + its scenes' last-edited time
+	// before publishing — the decouple makes the wrong project structurally hard, and
+	// this makes the RIGHT one obvious (catches a stale publish).
+	function requestPublish(project: (typeof data.projects)[number]) {
+		publishErr = { ...publishErr, [project.key]: '' };
+		confirmProject = project;
+	}
+
+	async function confirmPublish() {
+		const project = confirmProject;
+		confirmProject = null;
+		if (project) await publish(project.key);
 	}
 
 	async function publish(projectKey: string) {
@@ -167,11 +207,29 @@
 								<span class="pname">{p.name}</span>
 								<span class="pkey">{p.key}</span>
 								{#if p.clientName}<span class="pclient">{p.clientName}</span>{/if}
+								<span class="pedited">scenes edited {relativeTime(p.scenesUpdatedAt)}</span>
+							</div>
+							<div class="launch">
+								{#if data.launchTools.editor}
+									<a class="tool" href={launchUrl('editor', p.key)}>Edit</a>
+								{/if}
+								{#if data.launchTools.atlasTool}
+									<a class="tool" href={launchUrl('atlas', p.key)}>Atlas</a>
+								{/if}
+								{#if data.launchTools.fontMaker}
+									<a class="tool" href={launchUrl('fonts', p.key)}>Fonts</a>
+								{/if}
+								{#if data.launchTools.symbols}
+									<a class="tool" href={launchUrl('symbols', p.key)}>Symbols</a>
+								{/if}
+								{#if data.launchTools.localization}
+									<a class="tool" href={launchUrl('localization', p.key)}>Localization</a>
+								{/if}
 							</div>
 							<div class="pub">
 								<button
 									class="primary"
-									onclick={() => publish(p.key)}
+									onclick={() => requestPublish(p)}
 									disabled={publishing[p.key]}
 								>
 									{#if publishing[p.key]}
@@ -199,6 +257,39 @@
 			{/if}
 		</section>
 	</main>
+
+	{#if confirmProject}
+		<div
+			class="modal-backdrop"
+			role="presentation"
+			onclick={() => (confirmProject = null)}
+		>
+			<div
+				class="modal"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="confirm-title"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<h3 id="confirm-title">Publish {confirmProject.name}?</h3>
+				<p class="confirm-body">
+					You are about to publish <strong>{confirmProject.name}</strong>
+					<span class="ckey">({confirmProject.key})</span>.<br />
+					Its scenes were last edited <strong>{relativeTime(confirmProject.scenesUpdatedAt)}</strong>.
+				</p>
+				<p class="confirm-note">
+					Publishing builds and deploys this project's current saved scenes — make sure this is
+					the project you intend to ship.
+				</p>
+				<div class="confirm-actions">
+					<button onclick={() => (confirmProject = null)}>Cancel</button>
+					<button class="primary" onclick={confirmPublish}>
+						{confirmProject.published ? 'Re-publish' : 'Publish'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -352,11 +443,81 @@
 		border-radius: 999px;
 		padding: 1px 8px;
 	}
+	.pedited {
+		font-size: 11px;
+		color: #7a7a86;
+		margin-left: auto;
+	}
+	.launch {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	.launch .tool {
+		display: inline-flex;
+		align-items: center;
+		padding: 4px 10px;
+		border-radius: 7px;
+		border: 1px solid #2c2c38;
+		background: #16161d;
+		color: #b9b9c4;
+		text-decoration: none;
+		font-size: 12px;
+		font-weight: 600;
+	}
+	.launch .tool:hover {
+		border-color: #3a8f74;
+		color: #e8e8ee;
+	}
 	.pub {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		flex-wrap: wrap;
+	}
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+		z-index: 50;
+	}
+	.modal {
+		background: #14141b;
+		border: 1px solid #2b8d6f;
+		border-radius: 12px;
+		padding: 22px 24px;
+		max-width: 440px;
+		width: 100%;
+	}
+	.modal h3 {
+		margin: 0 0 12px;
+		font-size: 16px;
+	}
+	.confirm-body {
+		margin: 0 0 10px;
+		font-size: 14px;
+		line-height: 1.5;
+		color: #e8e8ee;
+	}
+	.confirm-body .ckey {
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
+		color: #8a8a96;
+	}
+	.confirm-note {
+		margin: 0 0 18px;
+		font-size: 12px;
+		color: #9a9aa6;
+		line-height: 1.5;
+	}
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 10px;
 	}
 	.play {
 		color: #7ee0c0;

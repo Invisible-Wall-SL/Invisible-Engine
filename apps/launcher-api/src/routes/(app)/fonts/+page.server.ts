@@ -1,8 +1,9 @@
 import { error, redirect } from '@sveltejs/kit';
 import { FONT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
@@ -14,13 +15,17 @@ import type { PageServerLoad } from './$types';
  */
 export const ssr = false;
 
-export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
+export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();
 	if (!tools.some((t) => t.id === 'fontMaker')) {
 		throw error(403, 'Your role does not have access to the Invisible Font Maker.');
 	}
-	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
+	const { clientKey, projectKey } = await resolveToolScope({
+		url,
+		sessionToken: cookies.get(SESSION_COOKIE),
+		user: locals.user,
+	});
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const userOverrides = await getToolOverrides(locals.user.id);
 	const canPublishShared = roleHasCapability(

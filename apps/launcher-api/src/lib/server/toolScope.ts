@@ -1,8 +1,13 @@
 import { error, type Cookies } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
-import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
+import {
+	SESSION_COOKIE,
+	getActiveProjectKey,
+	getActiveScope,
+	setActiveProjectKey,
+} from '$lib/server/auth';
 import { UNASSIGNED_CLIENT, projectPrefix } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { DEFAULT_PROJECT_KEY, canAccessProject, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 
@@ -99,4 +104,53 @@ export async function gate(
 		includeBlueprints: opts.includeBlueprints,
 	});
 	return { clientKey, projectKey, prefixes };
+}
+
+/**
+ * Project-explicit tool scoping (see `docs/design/project-explicit-tool-scoping.md`).
+ *
+ * Resolves the `(client, project)` a full-page tool route should bind to:
+ *
+ * - When `url` carries a non-empty `?project=<key>` that the authenticated `user` may
+ *   ACCESS, that project is **authoritative**: its scope is SYNCED into the session
+ *   (`setActiveProjectKey`) so every surface — the top bar, the global selector, and
+ *   a later tool opened without a param — now agrees, and `{clientKey, projectKey}`
+ *   is returned.
+ * - Otherwise (no `?project=`, or one the user can't reach) this falls back to
+ *   `getActiveScope(sessionToken)` — **byte-identical to today's behavior**. A bad,
+ *   stale, or RESTRICTED `?project=` can never 500 or leak a client; it is silently
+ *   ignored.
+ *
+ * Accessibility uses the SAME per-user rule the home/layout/global selector apply:
+ * `canAccessProject` (which wraps `accessibleProjects`). So a non-admin can never
+ * deep-link `?project=` into a project their grants don't cover — `projectExists`
+ * alone (mere existence) would have been an authorization gap.
+ *
+ * Purely additive: routes that never receive `?project=` are unchanged. Returns the
+ * SAME `{clientKey, projectKey}` shape as `getActiveScope` (the `prefixes` of the
+ * gate above is a separate concern for the R2 endpoints, not these page loaders).
+ */
+export async function resolveToolScope({
+	url,
+	sessionToken,
+	user,
+}: {
+	url: URL;
+	sessionToken: string | undefined;
+	user: App.Locals['user'];
+}): Promise<{ clientKey: string; projectKey: string }> {
+	const requested = url.searchParams.get('project')?.trim();
+	if (requested && user && (await canAccessProject(user.id, user.role, requested))) {
+		// The project is real AND this user may reach it. Mirror `getActiveScope`'s
+		// client resolution: a null `clientKey` means an UNASSIGNED project (not
+		// unknown), so map it to `UNASSIGNED_CLIENT` exactly as the active-scope path
+		// does — explicit scoping must work for unassigned projects too. An unknown,
+		// stale, or RESTRICTED `?project=` (failed `canAccessProject`) is silently
+		// ignored below so a hand-typed param can never 500 or surface a bad pairing.
+		const clientKey = (await projectClientKey(requested)) ?? UNASSIGNED_CLIENT;
+		// Sync the explicit choice into the session so the whole UI agrees.
+		await setActiveProjectKey(sessionToken, requested);
+		return { clientKey, projectKey: requested };
+	}
+	return getActiveScope(sessionToken);
 }

@@ -1443,7 +1443,16 @@
 	async function postAction(action: string, body: Record<string, string>): Promise<unknown> {
 		const fd = new FormData();
 		for (const [k, v] of Object.entries(body)) fd.set(k, v);
-		const res = await fetch(`?/${action}`, { method: 'POST', body: fd });
+		// Preserve the page's explicit `?project=` (project-explicit scoping) so the
+		// save action targets the SAME project the page was loaded for. A bare
+		// `?/save` would resolve to `/editor?/save` and DROP the query, making the
+		// save fall back to the session scope — the exact wrong-project footgun.
+		// SvelteKit's action selector must stay the literal `/<action>` key, so the
+		// existing query is appended as extra params (not re-encoded). No
+		// `?project=` ⇒ this is just `?/save`, byte-identical to before.
+		const existing = location.search.replace(/^\?/, '');
+		const target = existing ? `?/${action}&${existing}` : `?/${action}`;
+		const res = await fetch(target, { method: 'POST', body: fd });
 		const json = (await res.json()) as { type: string; data?: string };
 		if (!json.data) return {};
 		const parsed = JSON.parse(json.data) as unknown[];
@@ -1857,7 +1866,12 @@
 <div class="shell">
 	<header>
 		<div class="brand-wrap">
-			<ToolTopBar current="editor" tools={data.tools} />
+			<ToolTopBar
+			current="editor"
+			tools={data.tools}
+			clientKey={data.clientKey}
+			projectKey={data.projectKey}
+		/>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
 		<div class="layout-pills" role="tablist" aria-label="Authoring layoutType">

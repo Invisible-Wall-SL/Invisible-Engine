@@ -1,10 +1,11 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
-import { SESSION_COOKIE, getActiveScope } from '$lib/server/auth';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { listComponents } from '$lib/server/componentStorage';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
@@ -29,7 +30,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to the Invisible Component Editor.');
 	}
-	const { clientKey, projectKey } = await getActiveScope(cookies.get(SESSION_COOKIE));
+	const { clientKey, projectKey } = await resolveToolScope({
+		url,
+		sessionToken: cookies.get(SESSION_COOKIE),
+		user: locals.user,
+	});
 	const [components, assets, componentDefaults] = await Promise.all([
 		// Components the project can use (shared + project, project shadowing shared, §8.3).
 		listComponents({ projectKey }),
@@ -39,8 +44,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		listComponentDefaults(projectKey),
 	]);
 	// Optional deep-link target: `/components?id=<id>` opens that component on mount.
-	// `/editor`'s "Open in Component Editor" sends `&project=` too, but the project
-	// is resolved from the session scope here, so we only read the id.
+	// `/editor`'s "Open in Component Editor" sends `&project=` too — that param is now
+	// honoured by `resolveToolScope` above (project-explicit scoping), so the page
+	// binds to the editor's project; here we only need to read the id.
 	const openId = url.searchParams.get('id') || null;
 	return { clientKey, projectKey, components, assets, componentDefaults, openId };
 };
