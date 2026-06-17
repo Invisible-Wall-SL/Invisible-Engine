@@ -91,6 +91,20 @@ chosen spine bundle travels the same chain as a per-symbol spine cell (its bundl
 copied into `deploy/editor-symbols/` and registered), and the bundle records the
 highlight pointer so the game loads the authored win frame by `assetKey`.
 
+### Show win lines
+
+Next to the highlight is a single **global** on/off toggle, **Show win lines**, that
+controls the in-game winning-payline overlay (the lines that trace each winning payline).
+It is a pure flag — no asset, no preview. The toggle is **On by default**; flip it off to
+hide the win-line overlay for the whole project.
+
+The flag is an optional top-level field on the doc: `winLine: { enabled: boolean }`. To
+keep the doc and the baked bundle sparse, the field is written **only when you turn it
+off** (`{ enabled: false }`); turning it back on clears the field. The game reads
+`bundle.symbols.winLine?.enabled ?? true`, so a project that never touches this toggle is
+byte-identical to before and the overlay stays on. On export/bake the flag is passed
+straight through to `bundle.symbols.winLine` (omitted when on) — there is no asset work.
+
 ### Saving is not the last step — shipping a rebind
 
 Save only persists the override doc to R2. For a rebind to actually reach the running
@@ -103,7 +117,9 @@ game it must travel the standard live-assets chain, exactly like editor art and 
   `POST /api/editor/export-symbols` (deploy-token gated), which `bake-editor-doc.mjs`
   calls alongside the other exports.
 - **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored
-  overrides + the asset index).
+  overrides + the asset index), plus the optional global flags `symbols.highlight` and
+  `symbols.winLine` (each omitted when unset — `winLine` is written only as
+  `{ enabled: false }`).
 - **Pull** — `pull-project-assets.mjs` mirrors `deploy/editor-symbols/` into the game's
   `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
 - **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded

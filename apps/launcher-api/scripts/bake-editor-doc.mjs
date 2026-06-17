@@ -225,6 +225,7 @@ async function main() {
 		map: {},
 		index: { sheets: [], images: [], spines: [], collisions: [] },
 		highlight: undefined,
+		winLine: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -251,6 +252,13 @@ async function main() {
 								: {}),
 						}
 					: undefined;
+			// The global "show win lines" flag — a pure flag (no asset). The game defaults
+			// to enabled when absent (`bundle.symbols.winLine?.enabled ?? true`), so keep the
+			// bundle sparse: only embed it when the author turned it OFF (enabled === false).
+			const winLine =
+				s?.winLine && typeof s.winLine === 'object' && s.winLine.enabled === false
+					? { enabled: false }
+					: undefined;
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -260,6 +268,7 @@ async function main() {
 					collisions: Array.isArray(s?.index?.collisions) ? s.index.collisions : [],
 				},
 				highlight,
+				winLine,
 			};
 			// Loud (non-fatal) warning when a bound frame name lives in two sheets.
 			// Symbol sheet frames register with NO namespace, so a colliding name is
@@ -330,6 +339,7 @@ async function main() {
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
+	const winLineNote = symbols.winLine ? ' winLines=OFF,' : '';
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
@@ -337,7 +347,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}

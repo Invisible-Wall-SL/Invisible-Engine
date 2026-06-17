@@ -77,6 +77,29 @@ hardcodes a local spine named `payframe`, spine key `anticipation`).
   by `assetKey` like any per-symbol spine; an un-overridden project ships no `highlight`
   and renders byte-identical to before.
 
+## Global "show win lines" toggle — added 2026-06-17
+
+Alongside the highlight, the doc carries ONE more optional global setting: a plain on/off
+flag for the in-game winning-payline overlay. Unlike the highlight it is a **pure flag —
+no asset, no preview, no export work**.
+
+```jsonc
+{
+  "version": 1,
+  "symbols": { /* … */ },
+  "winLine": { "enabled": false }   // present ONLY when turned OFF
+}
+```
+
+- **Contract field (end to end):** `winLine?: { enabled: boolean }` on `SymbolsDoc`
+  (schema in `symbolsStorage.ts`). The EFFECTIVE value is `doc.winLine?.enabled ?? true`.
+- **Sparse on purpose.** Default (on) writes nothing — the field is persisted only when
+  the author turns it OFF (`{ enabled: false }`); turning it back on clears the field.
+- **Export/bake.** `symbolExport.ts` passes `winLine` straight through (no asset);
+  `bake-editor-doc.mjs` embeds it at `bundle.symbols.winLine`, OMITTING it when absent or
+  enabled. The game reads `bundle.symbols.winLine?.enabled ?? true`, so an untouched
+  project is byte-identical to before and the overlay stays on.
+
 ## "Spine export" demystified
 
 A spine asset is a **bundle of sibling files that travel together**, e.g. for `H1`

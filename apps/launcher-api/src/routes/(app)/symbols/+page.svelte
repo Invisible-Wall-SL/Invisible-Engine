@@ -17,6 +17,8 @@
 		saveSymbolsDoc,
 		setHighlight,
 		setOverride,
+		setWinLineEnabled,
+		winLineEnabled,
 		type SymbolCell,
 		type SymbolState,
 		type SymbolsDoc,
@@ -247,6 +249,16 @@
 		doc = clearHighlight(doc);
 		closeHighlight();
 	}
+
+	// ── Global "show win lines" toggle ────────────────────────────────────────
+	// A plain on/off for the in-game winning-payline overlay (no asset). Effective
+	// value defaults to ON when the doc has no `winLine`; flipping it OFF persists
+	// `{ enabled: false }`, flipping it back ON clears the field (keeps the doc sparse).
+	const winLineOn = $derived(winLineEnabled(doc));
+
+	function toggleWinLine(enabled: boolean): void {
+		doc = setWinLineEnabled(doc, enabled);
+	}
 </script>
 
 <div class="shell">
@@ -400,6 +412,25 @@
 							</div>
 						{/if}
 					</div>
+				</section>
+
+				<section class="winline">
+					<div class="wl-text">
+						<h2>Show win lines</h2>
+						<p class="wl-sub">
+							Global on/off for the in-game winning-payline overlay. On by default; turn it off to
+							hide the lines that trace each winning payline.
+						</p>
+					</div>
+					<label class="switch" class:on={winLineOn}>
+						<input
+							type="checkbox"
+							checked={winLineOn}
+							onchange={(e) => toggleWinLine(e.currentTarget.checked)}
+						/>
+						<span class="track"><span class="knob"></span></span>
+						<span class="switch-label">{winLineOn ? 'On' : 'Off'}</span>
+					</label>
 				</section>
 
 				{#if symbolNames.length === 0}
@@ -1073,5 +1104,82 @@
 		border-radius: 3px;
 		padding: 2px 6px;
 		align-self: center;
+	}
+
+	.winline {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 24px;
+		margin-bottom: 16px;
+		padding: 14px 16px;
+		background: #101018;
+		border: 1px solid #24242e;
+		border-radius: 10px;
+	}
+	.wl-text h2 {
+		margin: 0;
+		font-size: 15px;
+		color: #e0e0e8;
+	}
+	.wl-sub {
+		margin: 2px 0 0;
+		font-size: 12px;
+		color: #8a8a96;
+		max-width: 640px;
+	}
+	.switch {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex: none;
+		cursor: pointer;
+		user-select: none;
+	}
+	.switch input {
+		position: absolute;
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+	.track {
+		position: relative;
+		width: 44px;
+		height: 24px;
+		border-radius: 12px;
+		background: #24242e;
+		border: 1px solid #33333f;
+		transition:
+			background 0.15s ease,
+			border-color 0.15s ease;
+	}
+	.switch.on .track {
+		background: #163a2c;
+		border-color: #2c6a52;
+	}
+	.knob {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: #b9b9c4;
+		transition:
+			transform 0.15s ease,
+			background 0.15s ease;
+	}
+	.switch.on .knob {
+		transform: translateX(20px);
+		background: #8fe6c0;
+	}
+	.switch-label {
+		font-size: 12px;
+		font-weight: 600;
+		color: #9a9aa6;
+		min-width: 24px;
+	}
+	.switch.on .switch-label {
+		color: #8fe6c0;
 	}
 </style>

@@ -103,6 +103,9 @@ export interface SymbolExportResult {
 	index: SymbolExportIndex;
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
+	/** The global "show win lines" flag, passed through (no asset work). Absent → the
+	 *  game keeps its default (enabled); `{ enabled: false }` turns the overlay OFF. */
+	winLine?: { enabled: boolean };
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -335,5 +338,14 @@ export async function exportEditorSymbols(
 			? { assetKey: doc.highlight.assetKey, animationName: doc.highlight.animationName }
 			: undefined;
 
-	return { map: doc.symbols, index, ...(highlight ? { highlight } : {}) };
+	// The global "show win lines" flag — a pure pass-through (no asset). Only present
+	// when the author turned it OFF; absent means the game keeps its default (enabled).
+	const winLine = doc.winLine ? { enabled: doc.winLine.enabled } : undefined;
+
+	return {
+		map: doc.symbols,
+		index,
+		...(highlight ? { highlight } : {}),
+		...(winLine ? { winLine } : {}),
+	};
 }

@@ -59,11 +59,16 @@ const highlightCellSchema = z
 	})
 	.strict();
 
+/** Global on/off for the in-game winning-payline overlay. A pure flag (no asset):
+ *  absent means enabled (the game default); `{ enabled: false }` turns it OFF. */
+const winLineSchema = z.object({ enabled: z.boolean() }).strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
 		highlight: highlightCellSchema.optional(),
+		winLine: winLineSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -90,6 +95,7 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	}
 	const next: SymbolsDoc = { version: 1, symbols };
 	if (doc.highlight) next.highlight = doc.highlight;
+	if (doc.winLine) next.winLine = doc.winLine;
 	return next;
 }
 

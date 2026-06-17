@@ -54,6 +54,10 @@ export interface SymbolsDoc {
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
 	 *  it with an R2 spine bundle; never written for the default. */
 	highlight?: SymbolCell;
+	/** Global on/off for the in-game winning-payline overlay. A pure flag, no asset.
+	 *  Absent = enabled (the game default); set `{ enabled: false }` ONLY to turn the
+	 *  win-line overlay OFF. The effective value is `doc.winLine?.enabled ?? true`. */
+	winLine?: { enabled: boolean };
 	updatedAt?: string;
 }
 
@@ -123,6 +127,23 @@ export function clearHighlight(doc: SymbolsDoc): SymbolsDoc {
 	return next;
 }
 
+/** The effective "show win lines" flag = the doc's value ?? `true` (game default). */
+export function winLineEnabled(doc: SymbolsDoc): boolean {
+	return doc.winLine?.enabled ?? true;
+}
+
+/** Set the global "show win lines" flag, returning a NEW doc (immutable update).
+ *  Kept sparse: turning it ON clears the field; only OFF persists `{ enabled: false }`. */
+export function setWinLineEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	if (enabled) {
+		if (!doc.winLine) return doc;
+		const next = { ...doc };
+		delete next.winLine;
+		return next;
+	}
+	return { ...doc, winLine: { enabled: false } };
+}
+
 /** Stable JSON for dirty-tracking (key order is fixed by `SYMBOL_STATES`). */
 export function docSignature(doc: SymbolsDoc): string {
 	const symbols: Record<string, SymbolStateMap> = {};
@@ -139,7 +160,8 @@ export function docSignature(doc: SymbolsDoc): string {
 				animationName: doc.highlight.animationName ?? '',
 			}
 		: null;
-	return JSON.stringify({ symbols, highlight });
+	const winLine = doc.winLine ? { enabled: doc.winLine.enabled } : null;
+	return JSON.stringify({ symbols, highlight, winLine });
 }
 
 /** Persist the doc to R2 via the S2 endpoint; returns the stamped doc. */
@@ -151,6 +173,7 @@ export async function saveSymbolsDoc(project: string, doc: SymbolsDoc): Promise<
 			version: 1,
 			symbols: doc.symbols,
 			...(doc.highlight ? { highlight: doc.highlight } : {}),
+			...(doc.winLine ? { winLine: doc.winLine } : {}),
 		}),
 	});
 	if (!res.ok) {
