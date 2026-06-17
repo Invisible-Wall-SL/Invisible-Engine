@@ -205,11 +205,25 @@
 	}
 
 	// ── Global highlight (win frame) ──────────────────────────────────────────
-	// A single spine that loops over winning symbols. The game's built-in default
-	// is a LOCAL spine (`anticipation`/`payframe`) that isn't in R2, so it can't be
-	// previewed; we surface it as a "Default (payframe)" label and let the user
-	// OVERRIDE it with an R2 spine bundle (same picker the grid spine cells use).
+	// A single spine that loops over winning symbols. The game's built-in default is the
+	// engine's coded frame (`anticipation`/`payframe`, see SymbolSpine.svelte). That key
+	// ships as a LOCAL game asset, but most projects ALSO have the bundle in R2 — so when a
+	// matching R2 bundle exists we preview the real default; otherwise we fall back to a
+	// "Default (payframe)" label. The user can still OVERRIDE with any R2 spine.
+	const BUILTIN_FRAME = { assetKey: 'anticipation', animationName: 'payframe' };
 	const highlight = $derived(effectiveHighlight(doc, data.defaults));
+	// The project's R2 bundle that matches the built-in default frame, if any (matched by
+	// name/key so we don't depend on the exact prefix). Used to preview the default.
+	const defaultFrameBundle = $derived(
+		highlight.overridden
+			? undefined
+			: spineBundles.find(
+					(b) =>
+						b.name === BUILTIN_FRAME.assetKey ||
+						b.key === BUILTIN_FRAME.assetKey ||
+						b.key.split('/').includes(BUILTIN_FRAME.assetKey),
+				),
+	);
 	let highlightEditing = $state(false);
 	let highlightDraft = $state<SymbolCell | null>(null);
 	let highlightAnimations = $state<string[]>([]);
@@ -329,6 +343,19 @@
 									{#if highlight.cell.animationName}
 										<span class="hl-anim">{highlight.cell.animationName}</span>
 									{/if}
+								</div>
+							{:else if defaultFrameBundle}
+								<div class="hl-preview">
+									<SymbolSpinePreview
+										assetKey={defaultFrameBundle.key}
+										animationName={BUILTIN_FRAME.animationName}
+										size={96}
+									/>
+								</div>
+								<div class="hl-meta">
+									<span class="hl-label">Default (payframe)</span>
+									<span class="hl-chip">{defaultFrameBundle.name}</span>
+									<span class="hl-anim">{BUILTIN_FRAME.animationName}</span>
 								</div>
 							{:else}
 								<div class="hl-preview default">
