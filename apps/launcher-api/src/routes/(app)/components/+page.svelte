@@ -389,11 +389,49 @@
 	 * `group`/`label` are re-synced, never the `key` — a key rename would orphan the
 	 * per-instance overrides scenes store by key.
 	 */
+	/** Map each param key → the set of node ids that bind it anywhere in the tree, so
+	 * expose can tell a node's OWN params (bound only by it) from ones it merely shares
+	 * because the node was duplicated/copied off another (which carried the bindings). */
+	function bindingOwners(root: LayoutNode): Map<string, Set<string>> {
+		const map = new Map<string, Set<string>>();
+		const walk = (n: LayoutNode): void => {
+			if (n.paramBindings) {
+				for (const key of Object.values(n.paramBindings)) {
+					let set = map.get(key);
+					if (!set) {
+						set = new Set();
+						map.set(key, set);
+					}
+					set.add(n.id);
+				}
+			}
+			if (n.kind === 'container') for (const c of n.children) walk(c);
+		};
+		walk(root);
+		return map;
+	}
+
 	function exposeTextParams(node: LayoutNode): void {
 		if (!componentDraft || node.kind !== 'text') return;
-		const group = node.label?.trim() || 'Text';
-		const slug = group.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'text';
 		const params = componentDraft.params ?? [];
+		// A param is THIS node's own only if it's bound solely by this node — a binding
+		// shared with another node (a duplicated text node carries the original's
+		// bindings) must NOT be re-grouped/stolen; this node gets its own fresh param.
+		const owners = bindingOwners(componentDraft.root);
+		const ownedByThis = (key: string): boolean => {
+			const set = owners.get(key);
+			return !!set && set.size === 1 && set.has(node.id);
+		};
+		// Each text node gets a DISTINCT group, even when two nodes share the label
+		// ("Text"): if the base group is already used by params this node doesn't own,
+		// suffix it ("Text 2") so the instance editor keeps them in separate sections.
+		const baseGroup = node.label?.trim() || 'Text';
+		const otherGroups = new Set(
+			params.filter((p) => p.group && !ownedByThis(p.key)).map((p) => p.group),
+		);
+		let group = baseGroup;
+		for (let i = 2; otherGroups.has(group); i++) group = `${baseGroup} ${i}`;
+		const slug = group.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'text';
 		const keys = new Set(params.map((p) => p.key));
 		const uniqueKey = (base: string): string => {
 			let k = base;
@@ -413,8 +451,8 @@
 			def: unknown,
 		): void => {
 			const existingKey = bindings[fieldPath];
-			if (existingKey) {
-				// Already bound — re-group the existing AUTHORED param under the current node
+			if (existingKey && ownedByThis(existingKey)) {
+				// Genuinely this node's own param — re-group/re-label it under the current node
 				// name (handles a node renamed after its first expose). Key stays put. Skip
 				// engine-provided binds (e.g. a value node bound to `value`): those aren't
 				// author params and don't belong in a node group.
@@ -430,6 +468,8 @@
 				}
 				return;
 			}
+			// Unbound, OR bound to a param shared with another node (copied) — give THIS
+			// node its own fresh param and rebind the field to it, so the two stay separate.
 			const key = uniqueKey(slug + suffix);
 			const p: ComponentParam = { key, kind, group, label, author: true };
 			if (def !== undefined) p.default = def;
