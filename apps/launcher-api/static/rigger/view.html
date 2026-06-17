@@ -99,6 +99,7 @@
   #timeline .tl-key.evt { background:#c98bff; } /* event key */
   #timeline .tl-key.draw { background:#5cc8ff; } /* draw-order key */
   #timeline .tl-key.msel { background:#fff; box-shadow:0 0 0 2px var(--accent),0 0 0 3px #0c0f14; z-index:2; } /* multi-selected */
+  #timeline .tl-key.ghost { opacity:.5; box-shadow:0 0 0 1px var(--accent); pointer-events:none; z-index:3; } /* Alt-drag duplicate preview */
   #dopeMarquee { position:fixed; z-index:80; pointer-events:none;
     border:1px dashed #7ee0c0; background:rgba(126,224,192,.12); }
   #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
@@ -3493,22 +3494,23 @@ function startGraphMove(e, anchorKey){
   const items = graphSel.map((s) => ({ keyObj: s.keyObj, ch: s.ch, field: s.field, startT: s.keyObj.time, startV: s.keyObj[s.field] ?? 0 }));
   graphDrag = { isMulti: true, grabStartT, grabStartV, anchorT: anchorKey ? anchorKey.time : grabStartT, items, duplicate: !!e.altKey };
 }
-// Finish an Alt-drag in the graph: the dragged keys are sitting at the drop position —
-// clone them there, restore the originals to their start time/value, and select the clones.
+// Finish an Alt-drag in the graph: the originals never moved (we only tracked a ghost
+// offset), so clone each selected key at start+offset and select the clones.
 function finalizeGraphDuplicate(g){
   const cb = (animOf(curAnim) || {}).bones && graphMap && animOf(curAnim).bones[graphMap.boneName];
   if (!cb) return;
-  const moved = g.items.some((it) => Math.abs(it.keyObj.time - it.startT) > 1e-4 || Math.abs((it.keyObj[it.field] ?? 0) - it.startV) > 1e-4);
-  if (!moved) return;
+  const dT = g.dT || 0, dV = g.dV || 0;
+  if (Math.abs(dT) < 1e-4 && Math.abs(dV) < 1e-4) return; // never dragged → nothing to duplicate
   const cloneOf = new Map(); // a key object may back several field-curves — clone it once
   for (const it of g.items){
     const arr = cb[it.ch]; if (!Array.isArray(arr) || cloneOf.has(it.keyObj)) continue;
-    const copy = JSON.parse(JSON.stringify(it.keyObj)); // currently at the dropped position
+    const copy = JSON.parse(JSON.stringify(it.keyObj));
+    copy.time = Math.max(0, roundN(it.startT + dT, 4));
     cloneOf.set(it.keyObj, copy);
     for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== it.keyObj && Math.abs(arr[i].time - copy.time) < 1e-4) arr.splice(i, 1);
     arr.push(copy);
   }
-  for (const it of g.items){ it.keyObj.time = it.startT; it.keyObj[it.field] = it.startV; } // restore the originals
+  for (const it of g.items){ const c = cloneOf.get(it.keyObj); if (c) c[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); } // shift each selected field's value
   for (const ch of new Set(g.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time);
   graphSel = g.items.map((it) => ({ keyObj: cloneOf.get(it.keyObj) || it.keyObj, ch: it.ch, field: it.field, vi: it.vi }));
   markDirty(); animsDirty = true;
@@ -3642,6 +3644,14 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
     const x = Math.min(graphMarquee.x0, graphMarquee.x1), y = Math.min(graphMarquee.y0, graphMarquee.y1);
     const w = Math.abs(graphMarquee.x1 - graphMarquee.x0), h = Math.abs(graphMarquee.y1 - graphMarquee.y0);
     svg.appendChild(svgEl("rect", { x, y, width: w, height: h, fill: "#7ee0c0", "fill-opacity": 0.12, stroke: "#7ee0c0", "stroke-opacity": 0.7, "stroke-dasharray": "3,2" }));
+  }
+  // Alt-drag duplicate: ghost circles at the drop offset (originals stay put until release)
+  if (graphDrag && graphDrag.isMulti && graphDrag.duplicate){
+    const dT = graphDrag.dT || 0, dV = graphDrag.dV || 0;
+    for (const it of graphDrag.items){
+      const gx = timeToX(Math.max(0, it.startT + dT)), gy = valueToY(it.startV + dV);
+      svg.appendChild(svgEl("circle", { cx: gx, cy: gy, r: 5, fill: "#ffffff", "fill-opacity": 0.5, stroke: "var(--accent)", "stroke-opacity": 0.9, style: "pointer-events:none;" }));
+    }
   }
   wrap.appendChild(svg); tl.appendChild(wrap);
 }
@@ -4363,6 +4373,7 @@ function wire(){
         let dT = t - graphDrag.grabStartT;
         if (graphSnap){ dT = graphSnapTime(graphDrag.anchorT + dT) - graphDrag.anchorT; } // snap the grabbed key's time
         const dV = v - graphDrag.grabStartV;
+        if (graphDrag.duplicate){ graphDrag.dT = dT; graphDrag.dV = dV; renderTimeline(); return; } // ghost only — originals untouched until drop
         for (const it of graphDrag.items){ it.keyObj.time = Math.max(0, roundN(it.startT + dT, 4)); it.keyObj[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); }
         const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
         if (cb){ for (const ch of new Set(graphDrag.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time); }
@@ -4381,7 +4392,11 @@ function wire(){
       if (Math.abs(e.clientX - dopeDrag.startX) > 2) dopeDrag.moved = true;
       for (const it of dopeDrag.items){
         const nt = Math.max(0, roundN(it.startTime + dT, 4)); it.newTime = nt;
-        if (it.el) it.el.style.left = "max(6px, " + ((nt / dopeDrag.dur) * 100).toFixed(3) + "%)";
+        const leftCss = "max(6px, " + ((nt / dopeDrag.dur) * 100).toFixed(3) + "%)";
+        if (dopeDrag.duplicate){ // leave the original in place; move a ghost clone to the drop spot
+          if (it.el && !it.ghost){ it.ghost = it.el.cloneNode(false); it.ghost.classList.add("ghost"); it.el.parentNode.appendChild(it.ghost); }
+          if (it.ghost) it.ghost.style.left = leftCss;
+        } else if (it.el) it.el.style.left = leftCss;
       }
       return;
     }
