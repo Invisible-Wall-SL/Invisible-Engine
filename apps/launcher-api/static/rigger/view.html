@@ -325,6 +325,7 @@
       </div>
       <div class="grp" id="animTools" style="display:none;">
         <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale)">◆ Key</button>
+        <button id="keyAllBtn" title="Key EVERYTHING on stage at the playhead — every bone's pose + every slot's attachment & colour">◆ Key all</button>
         <button id="prevKey" title="Jump to previous key">|◀</button>
         <button id="nextKey" title="Jump to next key">▶|</button>
         <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
@@ -983,13 +984,29 @@ function renderBoneAnimDetail(det, i){
     inp.oninput = () => { const v = parseFloat(inp.value); if (!Number.isNaN(v)) set(v); };
     row.appendChild(lb); row.appendChild(inp); return row;
   };
-  det.appendChild(field("rotation", () => bone.rotation, (v) => { bone.rotation = v; keyBone(bd.name, { rotate: true }, false); }, 1));
-  det.appendChild(field("x", () => bone.x, (v) => { bone.x = v; keyBone(bd.name, { translate: true }, false); }, 1));
-  det.appendChild(field("y", () => bone.y, (v) => { bone.y = v; keyBone(bd.name, { translate: true }, false); }, 1));
-  det.appendChild(field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = v; keyBone(bd.name, { scale: true }, false); }, 0.01));
-  det.appendChild(field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = v; keyBone(bd.name, { scale: true }, false); }, 0.01));
+  // group fields with a per-channel "Key" button that keys just that channel at the playhead
+  const group = (rows, channels, title) => {
+    const wrap = document.createElement("div"); wrap.style.cssText = "display:flex;align-items:center;gap:6px;";
+    const col = document.createElement("div"); col.style.cssText = "flex:1;min-width:0;";
+    rows.forEach((r) => col.appendChild(r)); wrap.appendChild(col);
+    const kb = document.createElement("button"); kb.textContent = "Key"; kb.title = title;
+    kb.style.cssText = "padding:3px 9px;font-size:11px;align-self:center;";
+    kb.onclick = () => keyBone(bd.name, channels, true);
+    wrap.appendChild(kb); return wrap;
+  };
+  det.appendChild(group(
+    [field("rotation", () => bone.rotation, (v) => { bone.rotation = v; keyBone(bd.name, { rotate: true }, false); }, 1)],
+    { rotate: true }, "Key rotation @ " + animTime.toFixed(2) + "s"));
+  det.appendChild(group([
+    field("x", () => bone.x, (v) => { bone.x = v; keyBone(bd.name, { translate: true }, false); }, 1),
+    field("y", () => bone.y, (v) => { bone.y = v; keyBone(bd.name, { translate: true }, false); }, 1),
+  ], { translate: true }, "Key x / y @ " + animTime.toFixed(2) + "s"));
+  det.appendChild(group([
+    field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = v; keyBone(bd.name, { scale: true }, false); }, 0.01),
+    field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = v; keyBone(bd.name, { scale: true }, false); }, 0.01),
+  ], { scale: true }, "Key scaleX / scaleY @ " + animTime.toFixed(2) + "s"));
   const btn = document.createElement("button");
-  btn.textContent = "◆ Key this bone @ " + animTime.toFixed(2) + "s"; btn.style.cssText = "margin-top:8px;width:100%;";
+  btn.textContent = "◆ Key all transforms @ " + animTime.toFixed(2) + "s"; btn.style.cssText = "margin-top:8px;width:100%;";
   btn.onclick = () => keyBone(bd.name, { rotate: true, translate: true, scale: true }, true);
   det.appendChild(btn);
   const times = boneKeyTimes(bd.name);
@@ -2879,6 +2896,18 @@ function keyBone(boneName, channels, refresh){
   if (refresh && selBone != null) renderBoneDetail();
 }
 
+// Key everything on stage at the playhead — every bone's pose (rotate+translate+scale)
+// plus every slot's current attachment + colour. Wired to "◆ Key all" on the toolbar.
+function keyAll(){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  for (const b of skeleton.bones) keyBone(b.data.name, { rotate: true, translate: true, scale: true }, false);
+  const slots = (rawDoc.slots || []);
+  for (const s of slots){ keySlotAttachment(s.name, slotAttachmentAt(s.name, animTime)); keySlotColor(s.name, slotColorAt(s.name, animTime)); }
+  refreshAnimCounts();
+  if (selBone != null) renderBoneDetail(); else if (selSlot) renderSlotDetail();
+  $("#hint").textContent = "◆ Keyed all " + skeleton.bones.length + " bones + " + slots.length + " slots @ " + animTime.toFixed(2) + "s";
+}
+
 // Delete the bone's keys at a time (all channels) in the current animation.
 function deleteBoneKeyAt(boneName, time){
   const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
@@ -3951,6 +3980,7 @@ function wire(){
     else if (selSlot){ keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); }
     else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
   };
+  $("#keyAllBtn").onclick = keyAll;
   $("#delKey").onclick = () => { if (selBone != null) deleteBoneKeyAt(skeletonData.bones[selBone].name, animTime); };
   $("#prevKey").onclick = () => gotoKey(-1);
   $("#nextKey").onclick = () => gotoKey(1);

@@ -109,9 +109,14 @@ A floating segmented toggle at the top of the stage switches the workflow:
   ✎ rename, ⧉ duplicate, 🗑 delete. A rig can hold many animations.
 - With an animation selected, the bone/slot Properties show the **pose at the
   playhead**. Editing a field — or dragging a bone on the canvas — keys that
-  channel. Bottom-bar tools: **◆ Key** (keys rotate+translate+scale of the
-  selected bone), **|◀ / ▶|** prev/next key, **✕ Key** deletes the key at the
-  playhead. The rotate/move gizmo also keys on release.
+  channel. The bone Properties also give per-channel **Key** buttons (one beside
+  `rotation`, one beside `x`/`y`, one beside `scaleX`/`scaleY`) that key only that
+  channel, plus a **◆ Key all transforms** button that keys all three at once for
+  the selected bone. Bottom-bar tools: **◆ Key** (keys rotate+translate+scale of the
+  selected bone, or attachment+colour of the selected slot), **◆ Key all** (keys
+  *every* bone's pose plus *every* slot's attachment + colour at the playhead),
+  **|◀ / ▶|** prev/next key, **✕ Key** deletes the key at the playhead. The
+  rotate/move gizmo also keys on release.
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
