@@ -715,14 +715,18 @@
 						<label class="param-default">
 							<span>default</span>
 							{#if p.kind === 'string' && fontParamKeys.has(p.key)}
+								{@const cur = typeof p.default === 'string' ? p.default : ''}
 								<select
-									value={typeof p.default === 'string' ? p.default : ''}
+									value={cur}
 									onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
 								>
 									<option value="">(game default)</option>
 									{#each fontList as f (f.id)}
 										<option value={f.name}>{f.name} [{f.kind}]</option>
 									{/each}
+									{#if cur && !fontList.some((f) => f.name === cur)}
+										<option value={cur}>{cur} (custom)</option>
+									{/if}
 								</select>
 							{:else if p.kind === 'number'}
 								<input
@@ -971,8 +975,9 @@
 								onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
 							/>
 						{:else if p.kind === 'string' && instanceFontParamKeys.has(p.key)}
+							{@const cur = (node.params?.[p.key] as string) ?? ''}
 							<select
-								value={(node.params?.[p.key] as string) ?? ''}
+								value={cur}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
 							>
 								<option value=""
@@ -983,6 +988,9 @@
 								{#each fontList as f (f.id)}
 									<option value={f.name}>{f.name} [{f.kind}]</option>
 								{/each}
+								{#if cur && !fontList.some((f) => f.name === cur)}
+									<option value={cur}>{cur} (custom)</option>
+								{/if}
 							</select>
 						{:else}
 							<input
