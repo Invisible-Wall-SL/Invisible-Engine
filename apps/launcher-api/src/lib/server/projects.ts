@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import { clients, projects, userClientAccess, userProjectAccess } from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 import { DEFAULT_GAME_KIND } from '$lib/roles';
+import { getDeployToken } from './appSettings';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
@@ -190,6 +192,57 @@ export async function getLauncherProfile(key: string): Promise<unknown | null> {
 /** Store (or replace) a project's opaque launcher profile. */
 export async function setLauncherProfile(key: string, profile: unknown): Promise<void> {
 	await getDb().update(projects).set({ launcherProfile: profile }).where(eq(projects.key, key));
+}
+
+/**
+ * A PATH-SAFE 32-char random token (`[A-Za-z0-9]`) from CSPRNG bytes. Used for the
+ * per-project read token, which must survive as a single leading PATH segment in
+ * `/api/deploy/f/<token>/...` — so no `+`/`/`/`=` (rules out raw base64).
+ */
+function mintReadToken(): string {
+	const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	const bytes = randomBytes(32);
+	let out = '';
+	for (let i = 0; i < 32; i++) out += ALPHABET[bytes[i] % ALPHABET.length];
+	return out;
+}
+
+/**
+ * Return the project's existing read token, or mint + persist a new one. The read
+ * token is the PUBLIC, read-only credential a browser-served generic-runtime game
+ * uses for its live `/api/editor/runtime` + `/api/deploy/f/...` fetches — so the
+ * shared build/deploy token is never embedded in a public game URL. Idempotent:
+ * once minted the same token is returned forever (rotation is a future admin op).
+ * Returns `null` only when the project key is unknown.
+ */
+export async function getOrMintReadToken(projectKey: string): Promise<string | null> {
+	const db = getDb();
+	const [row] = await db
+		.select({ readToken: projects.readToken })
+		.from(projects)
+		.where(eq(projects.key, projectKey));
+	if (!row) return null;
+	if (row.readToken) return row.readToken;
+	const token = mintReadToken();
+	await db.update(projects).set({ readToken: token }).where(eq(projects.key, projectKey));
+	return token;
+}
+
+/**
+ * Whether `token` may READ the given project's runtime/deploy data. True when it
+ * equals EITHER the shared build/deploy token (so build CI + the existing tools
+ * keep working everywhere they did) OR the project's own read token. A blank
+ * token never matches. Used to gate the two public serving endpoints.
+ */
+export async function projectAllowsRead(projectKey: string, token: string): Promise<boolean> {
+	if (!token) return false;
+	const deployToken = await getDeployToken();
+	if (deployToken && token === deployToken) return true;
+	const [row] = await getDb()
+		.select({ readToken: projects.readToken })
+		.from(projects)
+		.where(eq(projects.key, projectKey));
+	return Boolean(row?.readToken) && token === row!.readToken;
 }
 
 /** Per-user project grants, keyed by userId (for the admin table). */

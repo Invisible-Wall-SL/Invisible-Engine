@@ -36,6 +36,14 @@ export const projects = pgTable('projects', {
 	 */
 	gameType: text('game_type'),
 	/**
+	 * Per-project READ-ONLY token for the public live-fetch runtime (Invisible Game
+	 * Maker). A browser-served generic-runtime game fetches this project's authoring
+	 * data from `/api/editor/runtime` + `/api/deploy/f/...` using THIS token, so the
+	 * shared build/deploy token is never embedded in a public game URL. Path-safe
+	 * (`[A-Za-z0-9]`). Minted lazily by `getOrMintReadToken`; null until first publish.
+	 */
+	readToken: text('read_token'),
+	/**
 	 * Machine-independent "launcher profile" published by the owner from the desktop
 	 * launcher. Opaque JSON — the shape is owned by the desktop client; the server
 	 * stores and returns it as-is. Null until first published.

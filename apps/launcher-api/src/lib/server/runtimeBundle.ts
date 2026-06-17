@@ -161,10 +161,8 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then
 	//    embed the returned indices (paths are deploy-relative; the endpoint prefixes
 	//    them with assetBase). Localization is read straight from R2 (no export step).
-	const [editorArt, fontIndex, symbols, localization] = await Promise.all([
-		exportEditorArt(clientKey, projectKey),
-		exportEditorFonts(clientKey, projectKey),
-		exportEditorSymbols(clientKey, projectKey),
+	const [{ editorArt, fonts, symbols }, localization] = await Promise.all([
+		ensureDeployExports(projectKey, clientKey),
 		loadLocalizationMessages(clientKey, projectKey),
 	]);
 
@@ -173,8 +171,33 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		componentDefs,
 		componentDefaults,
 		editorArt,
-		fonts: { catalog: fontIndex.catalog },
+		fonts: { catalog: fonts.catalog },
 		localization,
 		symbols,
 	};
+}
+
+/**
+ * Run the art / fonts / symbols exporters FRESH so the project's R2 `deploy/` tree
+ * mirrors the current doc, and return their indices. Shared by {@link buildRuntimeBundle}
+ * (the live runtime boot) and the server-side Publish (`publishGame.ts`) so a publish
+ * and a live fetch see the SAME exported assets — there is exactly one export path.
+ *
+ * @param clientKey  optional; DB-resolved from the project when omitted.
+ */
+export async function ensureDeployExports(
+	projectKey: string,
+	clientKey?: string,
+): Promise<{
+	editorArt: EditorArtIndex;
+	fonts: { catalog: FontCatalog };
+	symbols: SymbolExportResult;
+}> {
+	const client = clientKey ?? (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const [editorArt, fontIndex, symbols] = await Promise.all([
+		exportEditorArt(client, projectKey),
+		exportEditorFonts(client, projectKey),
+		exportEditorSymbols(client, projectKey),
+	]);
+	return { editorArt, fonts: { catalog: fontIndex.catalog }, symbols };
 }
