@@ -1,4 +1,4 @@
-import type { ComponentDef } from './types';
+import type { ComponentDef, LayoutNode } from './types';
 
 /**
  * Resolve a `componentInstance`'s effective params (§13.2 "param threading").
@@ -52,4 +52,35 @@ export function resolveBoundValue(
 	const paramKey = paramBindings?.[fieldPath];
 	if (paramKey === undefined) return undefined;
 	return params[paramKey];
+}
+
+/**
+ * The keys of a component's params that drive a FONT — so the editor renders them
+ * as a font dropdown (matching a text node's font field) instead of a free-text box.
+ * A param is a font when ANY of:
+ *  1. a text node binds its `style.fontFamily` to that param key (the "Expose text
+ *     as params" flow + manual Font binds), OR
+ *  2. its key is the engine's canonical font key `fontFamily` (a coded component —
+ *     e.g. the HUD Readout — declares its font as `{ key: 'fontFamily', kind: 'font' }`
+ *     in the bound-component catalog; `ComponentParam` has no `'font'` kind, so it is
+ *     stored as a plain `string` and would otherwise miss the binding-only check), OR
+ *  3. its `label` is `font` (the grouped label the expose flow stamps on the font param).
+ * Pure + Svelte-free so both editors share one definition.
+ */
+export function fontParamKeysOf(def: ComponentDef | null | undefined): Set<string> {
+	const set = new Set<string>();
+	if (!def) return set;
+	const walk = (n: LayoutNode): void => {
+		if (n.kind === 'text') {
+			const key = n.paramBindings?.['style.fontFamily'];
+			if (key) set.add(key);
+		} else if (n.kind === 'container') {
+			for (const child of n.children) walk(child);
+		}
+	};
+	walk(def.root);
+	for (const p of def.params ?? []) {
+		if (p.kind === 'string' && (p.key === 'fontFamily' || p.label === 'font')) set.add(p.key);
+	}
+	return set;
 }

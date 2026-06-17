@@ -6,6 +6,7 @@
 		ENGINE_ACTION_CATALOG,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
+		fontParamKeysOf,
 		getEditableParams,
 		isHudButtonBind,
 		resolveTransform,
@@ -134,24 +135,11 @@
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
 
-	/** Param keys the instance's def binds to a text node's `style.fontFamily` — i.e. the
-	 * params that drive a FONT. The instance editor renders these as a font dropdown (like
-	 * the component editor's font field) instead of a free-text box. */
-	const instanceFontParamKeys = $derived.by(() => {
-		const set = new Set<string>();
-		const root = instanceComponent?.root;
-		if (!root) return set;
-		const walk = (n: LayoutNode): void => {
-			if (n.kind === 'text') {
-				const key = n.paramBindings?.['style.fontFamily'];
-				if (key) set.add(key);
-			} else if (n.kind === 'container') {
-				for (const child of n.children) walk(child);
-			}
-		};
-		walk(root);
-		return set;
-	});
+	/** Param keys of the instance's def that drive a FONT — rendered as a font dropdown
+	 * (like a text node's font field) instead of a free-text box. Covers both bound
+	 * `style.fontFamily` params and the engine's canonical `fontFamily` key (a coded
+	 * component's font, stored as a plain string). See `fontParamKeysOf`. */
+	const instanceFontParamKeys = $derived(fontParamKeysOf(instanceComponent));
 
 	/** Text-style fields the "Expose text as params" flow binds (text content + the three
 	 * style knobs). Used to detect whether the selected text node is already exposed. */
@@ -986,7 +974,11 @@
 								value={(node.params?.[p.key] as string) ?? ''}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
 							>
-								<option value="">(inherit default)</option>
+								<option value=""
+									>{typeof p.default === 'string' && p.default
+										? `(default: ${p.default})`
+										: '(inherit default)'}</option
+								>
 								{#each fontList as f (f.id)}
 									<option value={f.name}>{f.name} [{f.kind}]</option>
 								{/each}
@@ -1770,7 +1762,9 @@
 				<summary>Spin tuning (advanced)</summary>
 				<p class="muted small">
 					Animation feel, not layout — blank = the game's coded default. Speeds are px/ms; stagger
-					is ms per reel; "length" scales how far the reel spins. Two profiles: <strong>Normal</strong>
+					is ms per reel; "length" scales how far the reel spins. Two profiles: <strong
+						>Normal</strong
+					>
 					(also drives anticipation) and <strong>Turbo</strong>.
 				</p>
 				{#each [{ profile: 'normal', title: 'Normal' }, { profile: 'fast', title: 'Turbo' }] as p (p.profile)}
@@ -1784,7 +1778,12 @@
 									step="0.01"
 									value={readSpin(node, p.profile as 'normal' | 'fast', f.key)}
 									oninput={(e) =>
-										writeSpin(node, p.profile as 'normal' | 'fast', f.key, e.currentTarget.valueAsNumber)}
+										writeSpin(
+											node,
+											p.profile as 'normal' | 'fast',
+											f.key,
+											e.currentTarget.valueAsNumber,
+										)}
 								/>
 							</label>
 						{/each}

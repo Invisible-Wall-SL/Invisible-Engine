@@ -3,6 +3,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		ENGINE_ACTION_CATALOG,
+		fontParamKeysOf,
 		resolveComponentParams,
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
@@ -116,23 +117,10 @@
 		componentDraft ? resolveComponentParams(componentDraft) : {},
 	);
 
-	/** Param keys the draft binds to a text node's `style.fontFamily` — so the Properties
-	 * panel renders their default as a font dropdown (not free text). */
-	const fontParamKeys = $derived.by(() => {
-		const set = new Set<string>();
-		const root = componentDraft?.root;
-		if (!root) return set;
-		const walk = (n: LayoutNode): void => {
-			if (n.kind === 'text') {
-				const key = n.paramBindings?.['style.fontFamily'];
-				if (key) set.add(key);
-			} else if (n.kind === 'container') {
-				for (const c of n.children) walk(c);
-			}
-		};
-		walk(root);
-		return set;
-	});
+	/** Param keys of the draft that drive a FONT — so the Properties panel renders their
+	 * default as a font dropdown (not free text). Covers bound `style.fontFamily` params
+	 * and the engine's canonical `fontFamily` key. See `fontParamKeysOf`. */
+	const fontParamKeys = $derived(fontParamKeysOf(componentDraft));
 
 	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
 		for (const n of nodes) {
