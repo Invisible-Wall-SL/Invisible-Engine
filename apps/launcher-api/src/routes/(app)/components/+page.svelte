@@ -2,6 +2,7 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
+		BUTTON_STATE_PARAMS,
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
 		HUD_READOUT_DEF,
@@ -370,6 +371,24 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 	}
 
+	/** Toggle a button STATE-IMAGE param (the "Show button params" picker) — adds/removes
+	 * the full `BUTTON_STATE_PARAMS` entry (kind/group/label/author) so the runtime state
+	 * cascade and the region pickers wire up exactly like the built-in button. Removing
+	 * prunes any node binding that pointed at it. */
+	function toggleButtonStateParam(key: string): void {
+		if (!componentDraft) return;
+		const params = componentDraft.params ?? [];
+		if (params.some((p) => p.key === key)) {
+			componentDraft.params = params.filter((p) => p.key !== key);
+			if (componentDraft.params.length === 0) delete componentDraft.params;
+			pruneOrphanParamBindings(componentDraft);
+			return;
+		}
+		const def = BUTTON_STATE_PARAMS.find((p) => p.key === key);
+		if (!def) return;
+		componentDraft.params = [...params, { ...def }];
+	}
+
 	/** Declare a custom (author-defined) PARAM on the draft — bindable per instance.
 	 * No `engineProvided` flag, so it shows in the Defaults panel + every instance's
 	 * override panel. Deduped by key. */
@@ -377,6 +396,9 @@
 		if (!componentDraft) return;
 		const k = key.trim();
 		if (!k) return;
+		// Reserve the button STATE-IMAGE keys — they're owned by the "Show button params"
+		// picker, so a hand-typed `image`/`imageHover`/… can't shadow or be clobbered by it.
+		if (BUTTON_STATE_PARAMS.some((p) => p.key === k)) return;
 		const params = componentDraft.params ?? [];
 		if (params.some((p) => p.key === k)) return;
 		componentDraft.params = [...params, { key: k, kind, author: true }];
@@ -982,6 +1004,7 @@
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}
 						onToggleParam={toggleComponentParam}
+						onToggleStateParam={toggleButtonStateParam}
 						onAddParam={addCustomParam}
 						onRemoveParam={removeComponentParam}
 						onSetParamDefault={setParamDefault}

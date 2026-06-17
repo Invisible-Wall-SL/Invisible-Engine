@@ -2,6 +2,7 @@
 	import {
 		backgroundCoverScale,
 		backgroundFit,
+		BUTTON_STATE_PARAMS,
 		defaultHudText,
 		ENGINE_ACTION_CATALOG,
 		ENGINE_PARAM_CATALOG,
@@ -76,6 +77,9 @@
 		onConvertToParametricButton?: (id: string) => void;
 		/** Toggle an engine-catalog param on the draft component (component mode). */
 		onToggleParam?: (key: string, kind: ComponentParam['kind']) => void;
+		/** Toggle a button STATE-IMAGE param (the "Show button params" picker) on the
+		 * draft component — adds/removes the full `BUTTON_STATE_PARAMS` entry by key. */
+		onToggleStateParam?: (key: string) => void;
 		/** Declare a custom (author-defined) param on the draft component (component mode). */
 		onAddParam?: (key: string, kind: ComponentParam['kind']) => void;
 		/** Remove a custom (author-defined) param from the draft component (component mode). */
@@ -121,6 +125,7 @@
 		onConvertToReelGrid,
 		onConvertToParametricButton,
 		onToggleParam,
+		onToggleStateParam,
 		onAddParam,
 		onRemoveParam,
 		onSetParamDefault,
@@ -179,9 +184,16 @@
 	 * the readout's `source`). When present the component is engine-fed THROUGH it, so
 	 * the literal engine-param checklist is inert — we show the binding instead. */
 	const sourceParam = $derived(componentParams.find((p) => (p.options?.length ?? 0) > 0));
+	/** The button STATE-IMAGE param keys — managed solely by the "Show button params"
+	 * picker (their own checkbox + inline region picker), so they're kept OUT of the
+	 * "Your params" list below even though they carry `author: true`. */
+	const STATE_PARAM_KEYS = new Set(BUTTON_STATE_PARAMS.map((p) => p.key));
 	/** Params the author added here (flagged `author`) — the only ones shown as
-	 * removable, so a component's built-in/coded params can't be deleted by mistake. */
-	const customParams = $derived(componentParams.filter((p) => p.author === true));
+	 * removable, so a component's built-in/coded params can't be deleted by mistake.
+	 * State images are excluded (the picker owns them). */
+	const customParams = $derived(
+		componentParams.filter((p) => p.author === true && !STATE_PARAM_KEYS.has(p.key)),
+	);
 	let newParamKey = $state('');
 	let newParamKind = $state<ComponentParam['kind']>('string');
 	function addCustomParam(): void {
@@ -194,6 +206,18 @@
 	function paramHas(key: string): boolean {
 		return componentParams.some((p) => p.key === key);
 	}
+	/** A state-image param's current default frame ref (for its inline region picker). */
+	function paramDefaultStr(key: string): string {
+		const p = componentParams.find((cp) => cp.key === key);
+		return typeof p?.default === 'string' ? p.default : '';
+	}
+	/** True when any button STATE-IMAGE param is already exposed — the "Show button
+	 * params" picker auto-opens so a re-opened button reveals its existing states. */
+	const hasButtonStateParams = $derived(BUTTON_STATE_PARAMS.some((sp) => paramHas(sp.key)));
+	/** `null` = follow `hasButtonStateParams` (collapsed unless states exist); once the
+	 * author clicks the toggle it pins to their explicit choice. */
+	let showButtonParamsManual = $state<boolean | null>(null);
+	const showButtonParams = $derived(showButtonParamsManual ?? hasButtonStateParams);
 	function signalHas(key: string): boolean {
 		return componentSignals.some((s) => s.key === key);
 	}
@@ -686,6 +710,44 @@
 					</li>
 				{/each}
 			</ul>
+			<h4>Button state images</h4>
+			<button
+				type="button"
+				class="ghost-sm"
+				onclick={() => (showButtonParamsManual = !showButtonParams)}
+			>
+				{showButtonParams ? 'Hide button params' : 'Show button params'}
+			</button>
+			{#if showButtonParams}
+				<p class="muted small">
+					For a button only. Tick just the interaction states you need — bind your bg sprite's
+					<code>region</code> to <strong>normal</strong>, and the engine swaps it on hover / press /
+					selected / down. Pick each state's art here, or override it per placement.
+				</p>
+				<ul class="picker">
+					{#each BUTTON_STATE_PARAMS as p (p.key)}
+						<li>
+							<label class="pick">
+								<input
+									type="checkbox"
+									checked={paramHas(p.key)}
+									onchange={() => onToggleStateParam?.(p.key)}
+								/>
+								<span class="pick-label">{p.label}</span>
+								<span class="pick-kind">image</span>
+							</label>
+							{#if paramHas(p.key)}
+								<RegionPicker
+									sheets={pickSheets}
+									value={paramDefaultStr(p.key)}
+									scoped
+									onSelect={(region) => onSetParamDefault?.(p.key, region || undefined)}
+								/>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		{/if}
 		<h4>Your params</h4>
 		<p class="muted small">
@@ -749,6 +811,13 @@
 									type="checkbox"
 									checked={p.default === true}
 									onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.checked)}
+								/>
+							{:else if p.kind === 'image'}
+								<RegionPicker
+									sheets={pickSheets}
+									value={typeof p.default === 'string' ? p.default : ''}
+									scoped
+									onSelect={(region) => onSetParamDefault?.(p.key, region || undefined)}
 								/>
 							{:else}
 								<input
