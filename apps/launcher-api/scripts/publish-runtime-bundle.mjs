@@ -6,9 +6,13 @@
 // (a deliberate runtime release), not per published game.
 //
 //   # build the generic lines runtime once, then upload it as `_runtime/lines`:
-//   pnpm --filter lines build
+//   PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build
 //   R2_ENDPOINT=... R2_BUCKET=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 //     node apps/launcher-api/scripts/publish-runtime-bundle.mjs lines apps/lines/build
+//
+// !! PUBLIC_RGS_TRANSPORT=play4fun IS REQUIRED. The test server's mock RGS speaks
+// Play4Fun; a bundle built without it uses the default Stake transport, never
+// completes the RGS handshake, and the game hangs on the loading screen (blank).
 //
 // The bundle is a normal `apps/lines` build (doc:null placeholder). A game URL
 // activates runtime mode with `?runtime=1&project=<key>&k=<readToken>`, so ONE
