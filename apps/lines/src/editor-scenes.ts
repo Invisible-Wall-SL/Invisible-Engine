@@ -68,6 +68,12 @@ type BakedBundle = {
 			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
 			spines: { key: string; atlas: string; skeleton: string; scale?: number }[];
 		};
+		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
+		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
+		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
+		 * per-symbol spine cells, so it is already loadable under its `assetKey`. Absent →
+		 * `SymbolSpine.svelte` keeps the coded `anticipation`/`payframe` frame. */
+		highlight?: { assetKey: string; animationName: string };
 	};
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
@@ -193,6 +199,19 @@ export function bakedSymbolMap(): SymbolInfoMap | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.map;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.map;
+}
+
+/**
+ * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine. When set,
+ * `SymbolSpine.svelte` draws this spine/animation for the win frame instead of the coded
+ * `anticipation`/`payframe`. Its spine bundle rides `symbols.index.spines` (registered like a
+ * per-symbol spine cell), so the `assetKey` is already loadable. Mirrors `bakedSymbolMap`'s
+ * runtime→baked→undefined resolution; undefined → the coded default frame.
+ */
+export function bakedHighlight(): { assetKey: string; animationName: string } | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.highlight;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.highlight;
 }
 
 type SymbolAssetEntry =
