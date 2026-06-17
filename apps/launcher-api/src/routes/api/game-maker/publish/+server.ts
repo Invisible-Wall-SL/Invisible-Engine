@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { projectExists } from '$lib/server/projects';
-import { publishGame } from '$lib/server/publishGame';
+import { PublishBlockedError, publishGame } from '$lib/server/publishGame';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
@@ -42,6 +42,11 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 		const result = await publishGame(project, url.origin);
 		return json({ ok: true, ...result }, { headers: NO_STORE });
 	} catch (e) {
+		// A blocked publish (e.g. a game with its own desktop build) is a 409 with the
+		// explanation, so the UI tells the user WHY instead of a generic failure.
+		if (e instanceof PublishBlockedError) {
+			return json({ error: e.message }, { status: 409, headers: NO_STORE });
+		}
 		console.error('publishGame failed:', e);
 		throw error(502, 'Publish failed.');
 	}

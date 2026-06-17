@@ -19,6 +19,7 @@ import { ENV } from './env';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
+import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
 import { upsertTestServerGame, type MockProtocol } from './testServerManifest';
 
@@ -28,6 +29,30 @@ export interface PublishResult {
 	/** The full playable game URL on the test server (also returned as `playUrl`). */
 	url: string;
 	playUrl: string;
+}
+
+/**
+ * Thrown when a project must NOT be published through the generic online runtime —
+ * e.g. it already has its own built bundle on the test server (a desktop-launcher
+ * game like Book of Borut / Hot Fruits). The endpoint surfaces the message as a 409
+ * so the UI explains why, instead of silently clobbering a real game.
+ */
+export class PublishBlockedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'PublishBlockedError';
+	}
+}
+
+/**
+ * True when a game key already has its OWN built bundle uploaded at
+ * `test_server/<key>/...` (the desktop-launcher publish path). Those games are
+ * served from their own files with their real `protocol` and NO `runtime` field;
+ * the online Game Maker (generic runtime) must never overwrite them.
+ */
+async function hasOwnBuiltBundle(key: string): Promise<boolean> {
+	const objects = await listAllObjects(`test_server/${key}/`);
+	return objects.some((o) => !o.key.endsWith('/'));
 }
 
 /**
@@ -70,6 +95,20 @@ export async function publishGame(projectKey: string, launcherOrigin: string): P
 	const protocol = protocolFor(gameType);
 	const runtime = runtimeFor(gameType);
 	const key = projectKey;
+
+	// GUARD: never clobber a game that has its OWN built bundle. Desktop-launcher
+	// games (Book of Borut, Hot Fruits) live at test_server/<key>/ and are served
+	// from there with their real protocol + NO runtime field. Stamping
+	// runtime:'lines' on one would shadow its real bundle with the generic lines
+	// runtime + the wrong mock RGS — exactly the Book-of-Borut regression. The online
+	// Game Maker only publishes games authored ENTIRELY online (no per-key bundle).
+	if (await hasOwnBuiltBundle(key)) {
+		throw new PublishBlockedError(
+			`"${name}" already has its own published build (a desktop-launcher game), so the ` +
+				`online Game Maker won't republish it — that would overwrite the real game with the ` +
+				`generic runtime. Re-publish it from the desktop launcher instead.`,
+		);
+	}
 
 	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 	await upsertTestServerGame(key, {
