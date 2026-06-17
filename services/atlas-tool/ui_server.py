@@ -2566,7 +2566,7 @@ async function resolveBpWorkflow(btn){{
   +'<th>Source</th></tr></thead><tbody>'+rows+'</tbody></table>'
   +(notes?('<ul style="font-size:12px;color:#999;margin:8px 0 0;'
     +'padding-left:18px">'+notes+'</ul>'):'')
-  +'<button style="margin-top:10px" onclick=\'bpResDownload()\'>'
+  +'<button style="margin-top:10px" onclick="bpResDownload()">'
   +'⬇ Download workflow.json</button>';
  out.style.display='';
  window._bpResWf=j.workflow;
