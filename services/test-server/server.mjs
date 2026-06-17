@@ -81,10 +81,15 @@ async function r2() {
 
 // ---------- in-memory state (rebuilt on hydrate) ----------
 
-/** gameKey -> { protocol, name } */
+/** gameKey -> { protocol, name, runtime } (runtime = shared bundle id, or null) */
 let registry = {};
-/** gameKey -> { '<relPath>': { body: Buffer, contentType: string } } */
+/** gameKey -> { '<relPath>': { body: Buffer, contentType: string } } (per-key bundles) */
 let bundles = {};
+/** runtimeId -> files map — ONE prebuilt generic engine bundle (test_server/_runtime/<id>/)
+ *  shared by every Game-Maker game whose manifest entry sets `runtime: "<id>"`. The game
+ *  boots that bundle with `?runtime=1&project=<key>&k=<readToken>` and fetches its layout +
+ *  assets live from the launcher — so publishing a game is a manifest entry, not a build. */
+let runtimeBundles = {};
 /** gameKey -> mock instance ({ handle }) */
 let mocks = {};
 /** in-flight guard so overlapping POST /refresh calls coalesce into one hydrate */
@@ -190,22 +195,41 @@ async function hydrate() {
 		console.warn(`[test-server] no manifest (${e.name ?? e.message}) — serving 0 games`);
 		registry = {};
 		bundles = {};
+		runtimeBundles = {};
 		mocks = {};
 		return;
 	}
 
 	const nextRegistry = {};
 	const nextBundles = {};
+	const runtimeIds = new Set();
 	for (const [key, meta] of Object.entries(source.games)) {
 		const protocol = meta.protocol === 'book' ? 'book' : 'lines';
-		nextRegistry[key] = { protocol, name: meta.name ?? key };
-		nextBundles[key] = Object.fromEntries(await source.readFiles(key));
-		console.info(`[test-server] hydrated '${key}' (${protocol}) — ${Object.keys(nextBundles[key]).length} file(s)`);
+		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
+		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime };
+		if (runtime) {
+			// Served from the shared runtime bundle (loaded once below) — no per-key files.
+			runtimeIds.add(runtime);
+			console.info(`[test-server] registered '${key}' (${protocol}) → runtime '_runtime/${runtime}'`);
+		} else {
+			nextBundles[key] = Object.fromEntries(await source.readFiles(key));
+			console.info(`[test-server] hydrated '${key}' (${protocol}) — ${Object.keys(nextBundles[key]).length} file(s)`);
+		}
+	}
+
+	// Load each referenced generic runtime bundle once (test_server/_runtime/<id>/).
+	const nextRuntimeBundles = {};
+	for (const id of runtimeIds) {
+		nextRuntimeBundles[id] = Object.fromEntries(await source.readFiles(`_runtime/${id}`));
+		const n = Object.keys(nextRuntimeBundles[id]).length;
+		if (n === 0) console.warn(`[test-server] runtime '_runtime/${id}' has 0 files — games using it won't load until it's published`);
+		else console.info(`[test-server] hydrated runtime '_runtime/${id}' — ${n} file(s)`);
 	}
 
 	// swap in atomically; recreate mocks so balances reset on a refresh
 	registry = nextRegistry;
 	bundles = nextBundles;
+	runtimeBundles = nextRuntimeBundles;
 	mocks = Object.fromEntries(
 		Object.entries(nextRegistry).map(([key, meta]) => [key, makeMock(meta.protocol, `mock:${key}`)]),
 	);
@@ -306,7 +330,10 @@ const handleRequest = async (req, res) => {
 	if (req.method === 'GET' || req.method === 'HEAD') {
 		const segments = pathname.replace(/^\/+/, '').split('/');
 		const gameKey = segments[0];
-		const files = own(bundles, gameKey);
+		// A game with a `runtime` is served from the shared generic bundle; otherwise
+		// from its own per-key files. Resolving via the registry keeps an unknown key 404.
+		const meta = own(registry, gameKey);
+		const files = meta ? (meta.runtime ? own(runtimeBundles, meta.runtime) : own(bundles, gameKey)) : undefined;
 		if (files) {
 			const rel = segments.slice(1).join('/') || 'index.html';
 			const file = own(files, rel) ?? (rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined);
