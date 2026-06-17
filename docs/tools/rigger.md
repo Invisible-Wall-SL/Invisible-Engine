@@ -120,10 +120,20 @@ A floating segmented toggle at the top of the stage switches the workflow:
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
-  (Linear / Stepped / Ease In / Out / In-Out) for interpolation. A separate
-  **Graph** view (Dopesheet ⇄ Graph switch) plots value-over-time curves with
-  draggable keyframe and bezier-tangent handles, multi-select, marquee, and a
-  right-click easing menu.
+  (Linear / Stepped / Ease In / Out / In-Out) for interpolation. **Multi-select
+  keys** to move them together: click a dot to select it, **Shift/Ctrl-click**
+  to add/remove, or **drag a box** across the rows to marquee-select (Shift adds
+  to the existing selection) — then drag any selected key to retime the whole
+  group, or press **Delete** to remove them. **Select a whole line** (all its
+  keys) by **Shift/Ctrl-clicking the track's name** in the gutter; do it on
+  several lines to build up a multi-line selection. Clicking an empty part of a
+  track moves the playhead; the ruler still scrubs.
+- A separate **Graph** view (Dopesheet ⇄ Graph switch) plots value-over-time
+  curves with draggable keyframe and bezier-tangent handles. Multi-select works
+  the same way — Shift-click points, marquee-drag the background, or **click a
+  curve line** to select all of its keys (Shift adds another curve); a selection
+  of ≥2 points shows a bounding box whose edges scale the timing/values, and
+  Delete removes the selected keys. Right-click a key for the easing menu.
 - Slot animation is supported too: key a slot's **attachment** (which image shows)
   and its **colour/alpha** at the playhead.
 

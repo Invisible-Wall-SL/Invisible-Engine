@@ -98,6 +98,9 @@
   #timeline .tl-key.slot.sel { background:#ffd24a; }
   #timeline .tl-key.evt { background:#c98bff; } /* event key */
   #timeline .tl-key.draw { background:#5cc8ff; } /* draw-order key */
+  #timeline .tl-key.msel { background:#fff; box-shadow:0 0 0 2px var(--accent),0 0 0 3px #0c0f14; z-index:2; } /* multi-selected */
+  #dopeMarquee { position:fixed; z-index:80; pointer-events:none;
+    border:1px dashed #7ee0c0; background:rgba(126,224,192,.12); }
   #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
     pointer-events:none; z-index:3; }
   /* controls bar */
@@ -391,9 +394,11 @@ let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
-let tlDrag = null, tlDur = 1, tlGutter = 96; // dopesheet (5.2): key-drag state + geometry
+let tlDur = 1, tlGutter = 96; // dopesheet (5.2): geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
 let tlSelOnly = false; // dopesheet: show only the selected bone/slot's keys
+// dopesheet multi-select: selected keys [{tid,time}] + group-drag + marquee + per-render lookups
+let dopeSel = [], dopeDrag = null, dopeMarquee = null, dopeTrackById = {}, dopeDotEls = {};
 let tlView = "dope"; // "dope" (dopesheet) | "graph" (curve editor) — separate views
 let graphDrag = null, graphMap = null; // graph keyframe drag state + value↔y mapping
 const GRAPH_CHANS = [
@@ -2852,7 +2857,7 @@ const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) /
 
 function setCurAnim(name){
   curAnim = name && animHasName(name) ? name : null;
-  animTime = 0; tlPxPerSec = null; graphSel = []; // re-fit the timeline + clear graph selection
+  animTime = 0; tlPxPerSec = null; graphSel = []; dopeSel = []; // re-fit the timeline + clear selections
   $("#anim").value = curAnim || "";
   syncPlayhead();
   renderTimeline();
@@ -3228,6 +3233,61 @@ function showDrawOrderEditor(){
   document.body.appendChild(m);
 }
 
+// ---- Dopesheet multi-select (keys + whole lines) ---------------------------
+// A dopesheet "key" is one (track, time): for a bone row that's all channels at
+// that time — matching how the retime* fns move keys.
+function trackId(tr){ return tr.kind + ":" + (tr.name || "") + ":" + (tr.ch || ""); }
+const dopeSelHas = (tid, time) => dopeSel.some((s) => s.tid === tid && Math.abs(s.time - time) < 1e-4);
+function toggleDopeSel(tid, time){
+  const i = dopeSel.findIndex((s) => s.tid === tid && Math.abs(s.time - time) < 1e-4);
+  if (i >= 0) dopeSel.splice(i, 1); else dopeSel.push({ tid, time });
+}
+// Select / toggle every key on one track (a "line"). Additive keeps other lines.
+function selectLineKeys(tr, additive){
+  const tid = trackId(tr), times = trackKeyTimes(tr);
+  const allSel = times.length > 0 && times.every((t) => dopeSelHas(tid, t));
+  if (!additive) dopeSel = [];
+  if (allSel) dopeSel = dopeSel.filter((s) => s.tid !== tid);
+  else for (const t of times) if (!dopeSelHas(tid, t)) dopeSel.push({ tid, time: t });
+}
+// Retime one selected key on its track, dispatched by kind (group-drag uses this).
+function retimeTrackKey(tr, oldTime, newTime){
+  if (tr.kind === "events") retimeEventKey(oldTime, newTime);
+  else if (tr.kind === "draworder") retimeDrawOrderKey(oldTime, newTime);
+  else if (tr.kind === "bonech" || tr.kind === "slotch") retimeChannelKey(tr, oldTime, newTime);
+  else if (tr.kind === "slot") retimeSlotKey(tr.name, oldTime, newTime);
+  else retimeBoneKey(tr.name, oldTime, newTime);
+}
+// Snap a dopesheet time to the playhead / ruler grid (when snap is on).
+function dopeSnap(t){
+  if (!graphSnap) return t;
+  let best = t, bestD = 7 / (tlPps || 1);
+  const tryC = (c) => { const d = Math.abs(c - t); if (d < bestD){ bestD = d; best = c; } };
+  tryC(animTime);
+  const step = niceStep(tlDur || 1); for (let g = 0; g <= (tlDur || 0) + 1e-6; g += step) tryC(g);
+  return roundN(best, 4);
+}
+function startDopeDrag(e, dur, anchorTid, anchorTime){
+  const items = [];
+  for (const s of dopeSel){
+    const tr = dopeTrackById[s.tid]; if (!tr) continue;
+    items.push({ tid: s.tid, tr, startTime: s.time, newTime: s.time, el: dopeDotEls[s.tid + "@" + s.time],
+      anchor: s.tid === anchorTid && Math.abs(s.time - anchorTime) < 1e-4 });
+  }
+  dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime };
+}
+function startDopeMarquee(e, track){ dopeMarquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false, additive: e.shiftKey || e.ctrlKey || e.metaKey, track }; }
+function positionDopeMarquee(){
+  let box = $("#dopeMarquee");
+  if (dopeMarquee && dopeMarquee.moved){
+    if (!box){ box = document.createElement("div"); box.id = "dopeMarquee"; document.body.appendChild(box); }
+    const x = Math.min(dopeMarquee.x0, dopeMarquee.x1), y = Math.min(dopeMarquee.y0, dopeMarquee.y1);
+    box.style.left = x + "px"; box.style.top = y + "px";
+    box.style.width = Math.abs(dopeMarquee.x1 - dopeMarquee.x0) + "px"; box.style.height = Math.abs(dopeMarquee.y1 - dopeMarquee.y0) + "px";
+  } else if (box) box.remove();
+}
+function removeDopeMarquee(){ const b = $("#dopeMarquee"); if (b) b.remove(); }
+
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
 function renderTimeline(){
   const tl = $("#timeline"); if (!tl) return;
@@ -3299,10 +3359,12 @@ function renderTimeline(){
 
   if (tlView === "graph"){ renderGraphBody(tl, dur, pps, contentW, gutter); positionPlayhead(); return; }
 
+  dopeTrackById = {}; dopeDotEls = {}; // rebuilt each render — tid→track + (tid@time)→dot
   timelineTracks().forEach((tr) => {
     const isEvents = tr.kind === "events", isDraw = tr.kind === "draworder", isAnim = isEvents || isDraw;
     const isChan = tr.kind === "bonech" || tr.kind === "slotch";
     const isSlotKind = tr.kind === "slot" || tr.kind === "slotch";
+    const tid = trackId(tr); dopeTrackById[tid] = tr;
     const isSel = isAnim ? false : isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
@@ -3313,19 +3375,31 @@ function renderTimeline(){
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
-    else g.onclick = () => { if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); } };
+    g.title = "click selects this " + (isAnim ? "line" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
+    g.onclick = (e) => {
+      if (e.shiftKey || e.ctrlKey || e.metaKey){ selectLineKeys(tr, true); renderTimeline(); return; }
+      if (isAnim) return;
+      if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
+    };
     const track = document.createElement("div");
-    track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
-    track.onmousedown = (e) => { if (e.target === track) startScrub(track, e.clientX); };
+    track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:crosshair;";
+    track.title = "drag to box-select keys (Shift adds) · click to move the playhead";
+    track.onmousedown = (e) => { if (e.target === track) startDopeMarquee(e, track); };
     trackKeyTimes(tr).forEach((kt) => {
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (isDraw ? " draw" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
-      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete")
-        : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete (✎ to edit)")
-        : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · double-click to delete";
-      dot.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); tlDrag = { kind: tr.kind, name: tr.name, ch: tr.ch, oldTime: kt, newTime: kt, dot, track, dur }; };
+      dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
+      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · Shift-click to multi-select · double-click to delete")
+        : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Shift-click to multi-select · double-click to delete (✎ to edit)")
+        : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Shift-click to multi-select · double-click to delete";
+      dot.onmousedown = (e) => {
+        e.stopPropagation(); e.preventDefault();
+        if (e.shiftKey || e.ctrlKey || e.metaKey){ toggleDopeSel(tid, kt); renderTimeline(); return; }
+        if (!dopeSelHas(tid, kt)){ dopeSel = [{ tid, time: kt }]; renderTimeline(); }
+        startDopeDrag(e, dur, tid, kt);
+      };
       dot.ondblclick = (e) => { e.stopPropagation();
         if (isEvents) deleteEventKeyAt(kt);
         else if (isDraw) deleteDrawOrderKeyAt(kt);
@@ -3444,6 +3518,16 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
     const steps = Math.max(40, Math.min(400, Math.round(contentW / 4)));
     for (let i = 0; i <= steps; i++){ const t = dur * i / steps; const k = sampleChannel(c.keys, t, [c.field]); pts += timeToX(t) + "," + valueToY(k[c.field] ?? 0) + " "; }
     svg.appendChild(svgEl("polyline", { points: pts, fill: "none", stroke: c.color, "stroke-width": 1.5, "stroke-opacity": 0.9 }));
+    // fat transparent hit-line: click the curve to select ALL its keys (Shift adds the line)
+    const hit = svgEl("polyline", { points: pts, fill: "none", stroke: "#000", "stroke-opacity": 0, "stroke-width": 10, style: "cursor:pointer;pointer-events:stroke;" });
+    hit.dataset.key = "1";
+    hit.addEventListener("mousedown", (e) => {
+      e.stopPropagation(); e.preventDefault();
+      if (!e.shiftKey) graphSel = [];
+      for (const k of c.keys) if (!graphSelHas(k, c.field)) graphSel.push({ keyObj: k, ch: c.ch, field: c.field, vi: c.vi });
+      renderTimeline();
+    });
+    svg.appendChild(hit);
     // bezier tangent handles for eased segments (curve = control points in abs time/value)
     for (let i = 0; i < c.keys.length - 1; i++){
       const a = c.keys[i], b = c.keys[i + 1];
@@ -4110,6 +4194,35 @@ function wire(){
       cancelDrawMesh();
     }
   });
+  // Animate mode: Delete/Backspace removes the multi-selected dopesheet/graph keys;
+  // Esc clears the selection.
+  window.addEventListener("keydown", (e) => {
+    if (!animMode) return;
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+    if (e.key === "Escape"){ if (dopeSel.length || graphSel.length){ dopeSel = []; graphSel = []; renderTimeline(); } return; }
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    if (tlView === "graph" && graphSel.length){
+      e.preventDefault();
+      const seen = new Set();
+      for (const s of graphSel){
+        const key = s.ch + "@" + roundN(s.keyObj.time, 4); if (seen.has(key)) continue; seen.add(key);
+        deleteChannelKeyAt({ kind: "bonech", name: graphMap ? graphMap.boneName : skeletonData.bones[selBone].name, ch: s.ch }, s.keyObj.time);
+      }
+      graphSel = []; renderTimeline();
+    } else if (dopeSel.length){
+      e.preventDefault();
+      for (const s of dopeSel){
+        const tr = dopeTrackById[s.tid]; if (!tr) continue;
+        if (tr.kind === "events") deleteEventKeyAt(s.time);
+        else if (tr.kind === "draworder") deleteDrawOrderKeyAt(s.time);
+        else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, s.time);
+        else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
+        else deleteBoneKeyAt(tr.name, s.time);
+      }
+      dopeSel = []; renderTimeline();
+    }
+  });
   window.addEventListener("mousemove", e => {
     if (!renderer || !lastXY) return;
     const dpr = window.devicePixelRatio || 1;
@@ -4195,12 +4308,22 @@ function wire(){
       markDirty(); animsDirty = true; renderTimeline();
       return;
     }
+    if (dopeMarquee){ // dragging a box-select rectangle across the dopesheet rows
+      dopeMarquee.x1 = e.clientX; dopeMarquee.y1 = e.clientY;
+      if (Math.hypot(e.clientX - dopeMarquee.x0, e.clientY - dopeMarquee.y0) > 3) dopeMarquee.moved = true;
+      positionDopeMarquee(); return;
+    }
+    if (dopeDrag){ // move every selected key together along time (DOM-only until mouseup)
+      let dT = (e.clientX - dopeDrag.startX) / (tlPps || 1);
+      if (graphSnap) dT = dopeSnap(dopeDrag.anchorStart + dT) - dopeDrag.anchorStart;
+      if (Math.abs(e.clientX - dopeDrag.startX) > 2) dopeDrag.moved = true;
+      for (const it of dopeDrag.items){
+        const nt = Math.max(0, roundN(it.startTime + dT, 4)); it.newTime = nt;
+        if (it.el) it.el.style.left = "max(6px, " + ((nt / dopeDrag.dur) * 100).toFixed(3) + "%)";
+      }
+      return;
+    }
     if (tlScrub){ seekFromTrack(tlScrub, e.clientX); return; }
-    if (!tlDrag) return;
-    const r = tlDrag.track.getBoundingClientRect();
-    const t = Math.max(0, roundN(clamp01((e.clientX - r.left) / r.width) * tlDrag.dur, 4));
-    tlDrag.newTime = t;
-    tlDrag.dot.style.left = (t / tlDrag.dur) * 100 + "%";
   });
   // Ctrl/⌘ + wheel over the timeline zooms; plain wheel scrolls (native).
   $("#timeline").addEventListener("wheel", (e) => {
@@ -4227,20 +4350,42 @@ function wire(){
       return;
     }
     if (graphDrag){ graphDrag = null; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); return; }
-    if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
-    if (!tlDrag) return;
-    const d = tlDrag; tlDrag = null;
-    if (d.newTime != null && Math.abs(d.newTime - d.oldTime) > 1e-4){
-      if (d.kind === "events") retimeEventKey(d.oldTime, d.newTime);
-      else if (d.kind === "draworder") retimeDrawOrderKey(d.oldTime, d.newTime);
-      else if (d.kind === "bonech" || d.kind === "slotch") retimeChannelKey(d, d.oldTime, d.newTime);
-      else if (d.kind === "slot") retimeSlotKey(d.name, d.oldTime, d.newTime);
-      else retimeBoneKey(d.name, d.oldTime, d.newTime);
-      animTime = d.newTime; syncPlayhead();
+    if (dopeMarquee){
+      const m = dopeMarquee; dopeMarquee = null; removeDopeMarquee();
+      if (m.moved){ // select every key whose dot centre falls inside the box (across all rows)
+        const xa = Math.min(m.x0, m.x1), xb = Math.max(m.x0, m.x1), ya = Math.min(m.y0, m.y1), yb = Math.max(m.y0, m.y1);
+        const sel = m.additive ? dopeSel.slice() : [];
+        $("#timeline").querySelectorAll(".tl-key").forEach((el) => {
+          const rc = el.getBoundingClientRect(), cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
+          if (cx >= xa && cx <= xb && cy >= ya && cy <= yb){
+            const tid = el.dataset.tid, t = parseFloat(el.dataset.t);
+            if (tid != null && !sel.some((s) => s.tid === tid && Math.abs(s.time - t) < 1e-4)) sel.push({ tid, time: t });
+          }
+        });
+        dopeSel = sel; renderTimeline(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
+      } else { // plain click on empty track → seek the playhead + clear the selection
+        if (m.track) seekFromTrack(m.track, m.x0);
+        dopeSel = []; renderTimeline();
+      }
+      return;
     }
-    renderTimeline(); refreshAnimCounts();
-    if (selBone != null) renderBoneDetail();
-    if (selSlot) renderSlotDetail();
+    if (dopeDrag){
+      const d = dopeDrag; dopeDrag = null;
+      if (d.moved && d.items.length){
+        // apply furthest-first so keys sliding past each other don't merge mid-batch
+        const dir = (d.items[0].newTime - d.items[0].startTime) >= 0 ? -1 : 1;
+        const ordered = d.items.slice().sort((a, b) => dir * (a.startTime - b.startTime));
+        for (const it of ordered) if (Math.abs(it.newTime - it.startTime) > 1e-4) retimeTrackKey(it.tr, it.startTime, it.newTime);
+        dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime })); // keep them selected at their new times
+        const anchor = d.items.find((it) => it.anchor);
+        if (anchor){ animTime = anchor.newTime; syncPlayhead(); }
+      }
+      renderTimeline(); refreshAnimCounts();
+      if (selBone != null) renderBoneDetail();
+      if (selSlot) renderSlotDetail();
+      return;
+    }
+    if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
   });
 }
 
