@@ -3382,9 +3382,9 @@ function renderTimeline(){
       if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
     };
     const track = document.createElement("div");
-    track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:crosshair;";
-    track.title = "drag to box-select keys (Shift adds) · click to move the playhead";
-    track.onmousedown = (e) => { if (e.target === track) startDopeMarquee(e, track); };
+    track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
+    track.title = "drag to scrub the playhead · Shift/Ctrl-drag to box-select keys";
+    track.onmousedown = (e) => { if (e.target !== track) return; if (e.shiftKey || e.ctrlKey || e.metaKey) startDopeMarquee(e, track); else startScrub(track, e.clientX); };
     trackKeyTimes(tr).forEach((kt) => {
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
@@ -3510,7 +3510,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   svg.addEventListener("mousedown", (e) => {
     if (e.target.dataset && e.target.dataset.key) return; // a keyframe/handle
     const r = svg.getBoundingClientRect(), lx = e.clientX - r.left, ly = e.clientY - r.top;
-    graphMarquee = { x0: lx, y0: ly, x1: lx, y1: ly, moved: false };
+    graphMarquee = { x0: lx, y0: ly, x1: lx, y1: ly, moved: false, additive: e.shiftKey || e.ctrlKey || e.metaKey };
   });
   // curves + tangent handles + keyframe handles
   for (const c of curves){
@@ -4341,7 +4341,8 @@ function wire(){
           const py = graphMap.top + (graphMap.maxV - (k[c.field] ?? 0)) / (graphMap.maxV - graphMap.minV) * graphMap.areaH;
           if (px >= xa && px <= xb && py >= ya && py <= yb) sel.push({ keyObj: k, ch: c.ch, field: c.field, vi: c.vi });
         }
-        graphSel = sel;
+        if (m.additive){ for (const it of sel) if (!graphSelHas(it.keyObj, it.field)) graphSel.push(it); }
+        else graphSel = sel;
       } else if (graphMap){ // plain click → seek + clear selection
         animTime = roundN(clamp01((m.x0 - graphMap.gutter) / (graphMap.pps * tlDur || 1)) * tlDur, 4);
         playing = false; $("#play").textContent = "▶ Play"; graphSel = []; syncPlayhead();
@@ -4363,10 +4364,7 @@ function wire(){
           }
         });
         dopeSel = sel; renderTimeline(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
-      } else { // plain click on empty track → seek the playhead + clear the selection
-        if (m.track) seekFromTrack(m.track, m.x0);
-        dopeSel = []; renderTimeline();
-      }
+      } // a modifier-click without a drag: leave the selection + playhead untouched
       return;
     }
     if (dopeDrag){
