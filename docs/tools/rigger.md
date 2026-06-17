@@ -126,14 +126,17 @@ A floating segmented toggle at the top of the stage switches the workflow:
   (adds to the existing selection) — then drag any selected key to retime the
   whole group, or press **Delete** to remove them. **Select a whole line** (all
   its keys) by **Shift/Ctrl-clicking the track's name** in the gutter; do it on
-  several lines to build up a multi-line selection. A plain drag on a track
+  several lines to build up a multi-line selection. **Alt-drag** any key (or a
+  whole selection) to **duplicate** it — copies land where you release, leaving
+  the originals in place, and the new keys stay selected. A plain drag on a track
   scrubs the playhead (as does the ruler).
 - A separate **Graph** view (Dopesheet ⇄ Graph switch) plots value-over-time
   curves with draggable keyframe and bezier-tangent handles. Multi-select works
   the same way — Shift-click points, marquee-drag the background, or **click a
   curve line** to select all of its keys (Shift adds another curve); a selection
   of ≥2 points shows a bounding box whose edges scale the timing/values, and
-  Delete removes the selected keys. Right-click a key for the easing menu.
+  Delete removes the selected keys. **Alt-drag** duplicates the selection
+  (copies drop where you release). Right-click a key for the easing menu.
 - Slot animation is supported too: key a slot's **attachment** (which image shows)
   and its **colour/alpha** at the playhead.
 

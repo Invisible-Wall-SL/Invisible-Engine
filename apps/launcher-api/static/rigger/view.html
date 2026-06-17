@@ -3258,6 +3258,46 @@ function retimeTrackKey(tr, oldTime, newTime){
   else if (tr.kind === "slot") retimeSlotKey(tr.name, oldTime, newTime);
   else retimeBoneKey(tr.name, oldTime, newTime);
 }
+// Duplicate one key (srcTime → destTime) on its track, leaving the source in place.
+// Mirrors retimeTrackKey; Alt-drag in the dopesheet uses this. Overwrites a clash at dest.
+function dupKeyInArr(arr, srcTime, destTime){
+  if (!Array.isArray(arr)) return;
+  const src = arr.find((x) => Math.abs(x.time - srcTime) < 1e-4); if (!src) return;
+  destTime = Math.max(0, roundN(destTime, 4));
+  const copy = JSON.parse(JSON.stringify(src)); copy.time = destTime;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== src && Math.abs(arr[i].time - destTime) < 1e-4) arr.splice(i, 1);
+  arr.push(copy); arr.sort((a, b) => a.time - b.time);
+}
+function copyChannelKey(tr, srcTime, destTime){ const arr = chArr(tr); if (!arr) return; dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; }
+function copyBoneKey(boneName, srcTime, destTime){
+  const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
+  const cb = a.bones[boneName];
+  for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch])) dupKeyInArr(cb[ch], srcTime, destTime);
+  markDirty(); animsDirty = true;
+}
+function copySlotKey(slotName, srcTime, destTime){
+  const cs = slotChannel(slotName); if (!cs) return;
+  for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch])) dupKeyInArr(cs[ch], srcTime, destTime);
+  markDirty(); animsDirty = true;
+}
+function copyDrawOrderKey(srcTime, destTime){ const a = animOf(curAnim); if (!a || !Array.isArray(a.drawOrder)) return; dupKeyInArr(a.drawOrder, srcTime, destTime); markDirty(); animsDirty = true; }
+function copyEventKey(srcTime, destTime){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.events)) return;
+  destTime = Math.max(0, roundN(destTime, 4));
+  const src = a.events.filter((e) => Math.abs(e.time - srcTime) < 1e-4); if (!src.length) return;
+  for (const s of src){
+    a.events = a.events.filter((e) => !(Math.abs(e.time - destTime) < 1e-4 && e.name === s.name));
+    a.events.push({ ...JSON.parse(JSON.stringify(s)), time: destTime });
+  }
+  a.events.sort((x, y) => x.time - y.time); markDirty(); animsDirty = true;
+}
+function copyTrackKey(tr, srcTime, destTime){
+  if (tr.kind === "events") copyEventKey(srcTime, destTime);
+  else if (tr.kind === "draworder") copyDrawOrderKey(srcTime, destTime);
+  else if (tr.kind === "bonech" || tr.kind === "slotch") copyChannelKey(tr, srcTime, destTime);
+  else if (tr.kind === "slot") copySlotKey(tr.name, srcTime, destTime);
+  else copyBoneKey(tr.name, srcTime, destTime);
+}
 // Snap a dopesheet time to the playhead / ruler grid (when snap is on).
 function dopeSnap(t){
   if (!graphSnap) return t;
@@ -3274,7 +3314,8 @@ function startDopeDrag(e, dur, anchorTid, anchorTime){
     items.push({ tid: s.tid, tr, startTime: s.time, newTime: s.time, el: dopeDotEls[s.tid + "@" + s.time],
       anchor: s.tid === anchorTid && Math.abs(s.time - anchorTime) < 1e-4 });
   }
-  dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime };
+  dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime, duplicate: !!e.altKey };
+  if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + items.length + " key(s) — release to drop";
 }
 function startDopeMarquee(e, track){ dopeMarquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false, additive: e.shiftKey || e.ctrlKey || e.metaKey, track }; }
 function positionDopeMarquee(){
@@ -3391,9 +3432,9 @@ function renderTimeline(){
       dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
-      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · Shift-click to multi-select · double-click to delete")
-        : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Shift-click to multi-select · double-click to delete (✎ to edit)")
-        : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Shift-click to multi-select · double-click to delete";
+      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete")
+        : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete (✎ to edit)")
+        : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete";
       dot.onmousedown = (e) => {
         e.stopPropagation(); e.preventDefault();
         if (e.shiftKey || e.ctrlKey || e.metaKey){ toggleDopeSel(tid, kt); renderTimeline(); return; }
@@ -3450,7 +3491,27 @@ function startGraphMove(e, anchorKey){
   const grabStartT = ((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1);
   const grabStartV = graphMap.maxV - ((e.clientY - r.top) - graphMap.top) / (graphMap.areaH || 1) * (graphMap.maxV - graphMap.minV);
   const items = graphSel.map((s) => ({ keyObj: s.keyObj, ch: s.ch, field: s.field, startT: s.keyObj.time, startV: s.keyObj[s.field] ?? 0 }));
-  graphDrag = { isMulti: true, grabStartT, grabStartV, anchorT: anchorKey ? anchorKey.time : grabStartT, items };
+  graphDrag = { isMulti: true, grabStartT, grabStartV, anchorT: anchorKey ? anchorKey.time : grabStartT, items, duplicate: !!e.altKey };
+}
+// Finish an Alt-drag in the graph: the dragged keys are sitting at the drop position —
+// clone them there, restore the originals to their start time/value, and select the clones.
+function finalizeGraphDuplicate(g){
+  const cb = (animOf(curAnim) || {}).bones && graphMap && animOf(curAnim).bones[graphMap.boneName];
+  if (!cb) return;
+  const moved = g.items.some((it) => Math.abs(it.keyObj.time - it.startT) > 1e-4 || Math.abs((it.keyObj[it.field] ?? 0) - it.startV) > 1e-4);
+  if (!moved) return;
+  const cloneOf = new Map(); // a key object may back several field-curves — clone it once
+  for (const it of g.items){
+    const arr = cb[it.ch]; if (!Array.isArray(arr) || cloneOf.has(it.keyObj)) continue;
+    const copy = JSON.parse(JSON.stringify(it.keyObj)); // currently at the dropped position
+    cloneOf.set(it.keyObj, copy);
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== it.keyObj && Math.abs(arr[i].time - copy.time) < 1e-4) arr.splice(i, 1);
+    arr.push(copy);
+  }
+  for (const it of g.items){ it.keyObj.time = it.startT; it.keyObj[it.field] = it.startV; } // restore the originals
+  for (const ch of new Set(g.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time);
+  graphSel = g.items.map((it) => ({ keyObj: cloneOf.get(it.keyObj) || it.keyObj, ch: it.ch, field: it.field, vi: it.vi }));
+  markDirty(); animsDirty = true;
 }
 // Start a box-scale drag from a selection-bounding-box edge/corner handle.
 function startGraphBox(edge, box){
@@ -3555,6 +3616,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
         if (e.shiftKey){ toggleGraphSel(k, c); renderTimeline(); return; }
         if (!graphSelHas(k, c.field)) graphSel = [{ keyObj: k, ch: c.ch, field: c.field, vi: c.vi }];
         startGraphMove(e, k);
+        if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + graphSel.length + " key(s) — release to drop";
       });
       dot.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); showCurveMenu(e.clientX, e.clientY, boneName, k.time); });
       svg.appendChild(dot);
@@ -4350,7 +4412,7 @@ function wire(){
       renderTimeline(); if (selBone != null) renderBoneDetail();
       return;
     }
-    if (graphDrag){ graphDrag = null; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); return; }
+    if (graphDrag){ const g = graphDrag; graphDrag = null; if (g.isMulti && g.duplicate) finalizeGraphDuplicate(g); refreshAnimCounts(); renderTimeline(); if (selBone != null) renderBoneDetail(); return; }
     if (dopeMarquee){
       const m = dopeMarquee; dopeMarquee = null; removeDopeMarquee();
       if (m.moved){ // select every key whose dot centre falls inside the box (across all rows)
@@ -4373,8 +4435,9 @@ function wire(){
         // apply furthest-first so keys sliding past each other don't merge mid-batch
         const dir = (d.items[0].newTime - d.items[0].startTime) >= 0 ? -1 : 1;
         const ordered = d.items.slice().sort((a, b) => dir * (a.startTime - b.startTime));
-        for (const it of ordered) if (Math.abs(it.newTime - it.startTime) > 1e-4) retimeTrackKey(it.tr, it.startTime, it.newTime);
-        dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime })); // keep them selected at their new times
+        const apply = d.duplicate ? copyTrackKey : retimeTrackKey; // Alt-drag duplicates; plain drag retimes
+        for (const it of ordered) if (Math.abs(it.newTime - it.startTime) > 1e-4) apply(it.tr, it.startTime, it.newTime);
+        dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime })); // select the new (or moved) keys
         const anchor = d.items.find((it) => it.anchor);
         if (anchor){ animTime = anchor.newTime; syncPlayhead(); }
       }
