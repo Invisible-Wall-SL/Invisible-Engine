@@ -9,10 +9,13 @@
 	import {
 		STATE_LABELS,
 		SYMBOL_STATES,
+		clearHighlight,
 		clearOverride,
 		docSignature,
 		effectiveCell,
+		effectiveHighlight,
 		saveSymbolsDoc,
+		setHighlight,
 		setOverride,
 		type SymbolCell,
 		type SymbolState,
@@ -198,6 +201,52 @@
 	function isFocused(symbol: string, state: SymbolState): boolean {
 		return !!focus && focus.symbol === symbol && focus.state === state;
 	}
+
+	// ── Global highlight (win frame) ──────────────────────────────────────────
+	// A single spine that loops over winning symbols. The game's built-in default
+	// is a LOCAL spine (`anticipation`/`payframe`) that isn't in R2, so it can't be
+	// previewed; we surface it as a "Default (payframe)" label and let the user
+	// OVERRIDE it with an R2 spine bundle (same picker the grid spine cells use).
+	const highlight = $derived(effectiveHighlight(doc, data.defaults));
+	let highlightEditing = $state(false);
+	let highlightDraft = $state<SymbolCell | null>(null);
+	let highlightAnimations = $state<string[]>([]);
+
+	function openHighlight(): void {
+		// Seed the draft from an existing override, else a blank spine cell (we never
+		// seed from the local default — it isn't an R2 bundle the picker can resolve).
+		highlightDraft = doc.highlight
+			? structuredClone(doc.highlight)
+			: { type: 'spine', assetKey: '', animationName: '', sizeRatios: { width: 1, height: 1 } };
+		highlightAnimations = [];
+		highlightEditing = true;
+	}
+
+	function closeHighlight(): void {
+		highlightEditing = false;
+		highlightDraft = null;
+		highlightAnimations = [];
+	}
+
+	function applyHighlight(): void {
+		if (!highlightDraft || !highlightDraft.assetKey) return;
+		const cell: SymbolCell = {
+			type: 'spine',
+			assetKey: highlightDraft.assetKey,
+			sizeRatios: {
+				width: Number(highlightDraft.sizeRatios.width) || 0,
+				height: Number(highlightDraft.sizeRatios.height) || 0,
+			},
+		};
+		if (highlightDraft.animationName) cell.animationName = highlightDraft.animationName;
+		doc = setHighlight(doc, cell);
+		closeHighlight();
+	}
+
+	function resetHighlight(): void {
+		doc = clearHighlight(doc);
+		closeHighlight();
+	}
 </script>
 
 <div class="shell">
@@ -229,6 +278,130 @@
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
 			<div class="grid-scroll" bind:this={gridScroll}>
+				<section class="highlight" class:editing={highlightEditing}>
+					<div class="hl-head">
+						<div class="hl-title">
+							<h2>Highlight (win frame)</h2>
+							<p class="hl-sub">
+								A single global spine that loops over winning symbols. Shared by every symbol.
+							</p>
+						</div>
+						<div class="hl-actions">
+							{#if highlight.overridden}<span class="badge">overridden</span>{/if}
+							{#if highlightEditing}
+								<button type="button" class="ghost" onclick={closeHighlight}>Cancel</button>
+							{:else}
+								<button type="button" class="hl-change" onclick={openHighlight}>Change</button>
+								{#if highlight.overridden}
+									<button type="button" class="ghost" onclick={resetHighlight}>
+										Reset to default
+									</button>
+								{/if}
+							{/if}
+						</div>
+					</div>
+
+					<div class="hl-body">
+						<div class="hl-current">
+							{#if highlight.overridden && highlight.cell}
+								<div class="hl-preview">
+									<SymbolSpinePreview
+										assetKey={highlight.cell.assetKey}
+										animationName={highlight.cell.animationName}
+										size={96}
+									/>
+								</div>
+								<div class="hl-meta">
+									<span class="hl-label">Override</span>
+									<span class="hl-chip">{displayKey(highlight.cell)}</span>
+									{#if highlight.cell.animationName}
+										<span class="hl-anim">{highlight.cell.animationName}</span>
+									{/if}
+								</div>
+							{:else}
+								<div class="hl-preview default">
+									<span class="hl-default-mark">payframe</span>
+								</div>
+								<div class="hl-meta">
+									<span class="hl-label">Default (payframe)</span>
+									<span class="hl-note">
+										Built-in local spine — not in R2, so it can't be previewed here. Pick an R2
+										spine to override it.
+									</span>
+								</div>
+							{/if}
+						</div>
+
+						{#if highlightEditing && highlightDraft}
+							<div class="hl-editor">
+								<div class="field">
+									<span class="label">Spine bundle</span>
+									<select
+										value={highlightDraft.assetKey}
+										onchange={(e) => {
+											if (!highlightDraft) return;
+											highlightDraft.assetKey = e.currentTarget.value;
+											highlightDraft.animationName = '';
+											highlightAnimations = [];
+										}}
+									>
+										<option value="">Pick a bundle…</option>
+										{#each spineBundles as b (b.key)}
+											<option value={b.key}>{b.name}</option>
+										{/each}
+									</select>
+								</div>
+								{#if highlightDraft.assetKey}
+									<div class="field">
+										<span class="label">Animation</span>
+										{#if highlightAnimations.length}
+											<select
+												value={highlightDraft.animationName ?? ''}
+												onchange={(e) => {
+													if (highlightDraft) highlightDraft.animationName = e.currentTarget.value;
+												}}
+											>
+												<option value="">(first animation)</option>
+												{#each highlightAnimations as anim (anim)}
+													<option value={anim}>{anim}</option>
+												{/each}
+											</select>
+										{:else}
+											<input
+												type="text"
+												placeholder="animation name"
+												value={highlightDraft.animationName ?? ''}
+												oninput={(e) => {
+													if (highlightDraft) highlightDraft.animationName = e.currentTarget.value;
+												}}
+											/>
+										{/if}
+									</div>
+									<div class="field">
+										<span class="label">Preview</span>
+										<div class="hl-preview">
+											<SymbolSpinePreview
+												assetKey={highlightDraft.assetKey}
+												animationName={highlightDraft.animationName}
+												size={96}
+												onAnimations={(names) => (highlightAnimations = names)}
+											/>
+										</div>
+									</div>
+								{/if}
+								<button
+									type="button"
+									class="apply"
+									disabled={!highlightDraft.assetKey}
+									onclick={applyHighlight}
+								>
+									Apply highlight
+								</button>
+							</div>
+						{/if}
+					</div>
+				</section>
+
 				{#if symbolNames.length === 0}
 					<p class="muted">No symbols defined for this game type.</p>
 				{:else}
@@ -785,5 +958,120 @@
 		background: transparent;
 		color: #b9b9c4;
 		cursor: pointer;
+	}
+
+	.highlight {
+		margin-bottom: 16px;
+		padding: 14px 16px;
+		background: #101018;
+		border: 1px solid #24242e;
+		border-radius: 10px;
+	}
+	.highlight.editing {
+		border-color: #4d6bd8;
+	}
+	.hl-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 16px;
+	}
+	.hl-title h2 {
+		margin: 0;
+		font-size: 15px;
+		color: #e0e0e8;
+	}
+	.hl-sub {
+		margin: 2px 0 0;
+		font-size: 12px;
+		color: #8a8a96;
+	}
+	.hl-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex: none;
+	}
+	.hl-change {
+		padding: 6px 14px;
+		border-radius: 6px;
+		border: 1px solid #2e3e6a;
+		background: #1b2236;
+		color: #cfe0ff;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.hl-body {
+		display: flex;
+		gap: 24px;
+		margin-top: 14px;
+		flex-wrap: wrap;
+	}
+	.hl-current {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+	.hl-preview {
+		width: 96px;
+		height: 96px;
+		display: grid;
+		place-items: center;
+		border-radius: 6px;
+		background: #0b0b10;
+		border: 1px solid #1d1d26;
+		flex: none;
+	}
+	.hl-preview.default {
+		border-style: dashed;
+		border-color: #33333f;
+	}
+	.hl-default-mark {
+		font-size: 13px;
+		color: #8a8a96;
+		font-style: italic;
+	}
+	.hl-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		max-width: 260px;
+	}
+	.hl-label {
+		font-size: 11px;
+		color: #8a8a96;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.hl-chip {
+		font-weight: 600;
+		color: #b9b9e0;
+	}
+	.hl-anim {
+		font-size: 12px;
+		color: #9a9aa6;
+	}
+	.hl-note {
+		font-size: 11px;
+		color: #777;
+		line-height: 1.4;
+	}
+	.hl-editor {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		min-width: 220px;
+		max-width: 280px;
+	}
+	.hl-editor .apply {
+		margin-top: 2px;
+	}
+	.highlight .badge {
+		font-size: 9px;
+		color: #9fb4ff;
+		background: #1c2240;
+		border-radius: 3px;
+		padding: 2px 6px;
+		align-self: center;
 	}
 </style>

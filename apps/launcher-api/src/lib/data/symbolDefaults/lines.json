@@ -1,6 +1,15 @@
 {
   "version": 1,
   "gameType": "lines",
+  "highlight": {
+    "type": "spine",
+    "assetKey": "anticipation",
+    "animationName": "payframe",
+    "sizeRatios": {
+      "width": 1,
+      "height": 1
+    }
+  },
   "symbols": {
     "H1": {
       "explosion": {

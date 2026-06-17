@@ -54,11 +54,24 @@ const defaultStatesSchema = z.record(z.enum(SYMBOL_STATES), defaultCellSchema);
 /** Symbol name → state → binding. */
 const defaultSymbolsSchema = z.record(z.string().min(1), defaultStatesSchema);
 
+/** The game's built-in global win-frame ("highlight") default — display only, so
+ *  the tool can show "current = default (payframe)". Spine-only, same cell shape. */
+const highlightDefaultSchema = z
+	.object({
+		type: z.literal('spine'),
+		assetKey: z.string().min(1),
+		animationName: z.string().min(1).optional(),
+		previewKey: z.string().min(1).optional(),
+		sizeRatios: sizeRatiosSchema,
+	})
+	.strict();
+
 export const symbolDefaultsSchema = z
 	.object({
 		version: z.number(),
 		gameType: z.string(),
 		symbols: defaultSymbolsSchema,
+		highlight: highlightDefaultSchema.optional(),
 	})
 	.strip();
 

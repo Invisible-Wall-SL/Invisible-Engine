@@ -48,10 +48,22 @@ const symbolStatesSchema = z.record(z.enum(SYMBOL_STATES), symbolCellSchema);
 /** Symbol name → state → binding. Symbol keys are arbitrary, sparse. */
 const symbolMapSchema = z.record(z.string().min(1), symbolStatesSchema);
 
+/** Global win-frame ("highlight") override — a single spine that loops over winning
+ *  symbols. Optional + spine-only: absent means the game uses its built-in default. */
+const highlightCellSchema = z
+	.object({
+		type: z.literal('spine'),
+		assetKey: z.string().min(1),
+		animationName: z.string().min(1).optional(),
+		sizeRatios: sizeRatiosSchema,
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
+		highlight: highlightCellSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -76,7 +88,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		if (states && Object.keys(states).length > 0) symbols[name] = states;
 	}
-	return { version: 1, symbols };
+	const next: SymbolsDoc = { version: 1, symbols };
+	if (doc.highlight) next.highlight = doc.highlight;
+	return next;
 }
 
 /**

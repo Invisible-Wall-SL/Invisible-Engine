@@ -45,7 +45,37 @@ live. This tool is that grid, **editable**, with the result authored to R2 and s
 - Payline geometry / which symbols pay on which lines.
 - Creating or editing spine animations (we only reference existing ones).
 - Adding/removing symbols or states (the symbol set + 6 states are fixed in v1; the tool
-  edits bindings within that fixed grid).
+  edits bindings within that fixed grid). NOTE: the **global highlight** below is the one
+  global binding now authorable on top of the fixed grid — it is not per-symbol-per-state.
+
+## Global highlight (win frame) — added 2026-06-17
+
+Separate from the per-symbol `symbols` map, the doc carries ONE optional global binding:
+the **highlight** — the win-frame spine that loops over winning symbols (today the game
+hardcodes a local spine named `payframe`, spine key `anticipation`).
+
+```jsonc
+{
+  "version": 1,
+  "symbols": { /* … */ },
+  "highlight": { "type": "spine", "assetKey": "<full R2 bundle prefix>", "animationName": "<loop anim>" }
+}
+```
+
+- **Optional + spine-only.** Absent → the game keeps its built-in `payframe`. The tool
+  shows the built-in default as a non-editable **Default (payframe)** placeholder (it's a
+  LOCAL game asset, not in R2, so it can't be previewed) and lets the user override it
+  with an R2 spine bundle via the SAME spine library picker the grid cells use.
+- **Contract field (end to end):** `highlight?: { type: 'spine'; assetKey; animationName }`
+  on `SymbolsDoc` (schema in `symbolsStorage.ts`). The coded default is represented on
+  `SymbolDefaults.highlight` (`symbolDefaults.ts` + `lines.json`) for the "current =
+  default" display only — never forced into an override.
+- **Export/bake.** `symbolExport.ts` adds the highlight's `assetKey` to the spine bundles
+  it copies into `deploy/editor-symbols/` (so it's in `index.spines`, keyed by the same
+  `assetKey`), and returns a `highlight: { assetKey, animationName }` pointer.
+  `bake-editor-doc.mjs` embeds it at `bundle.symbols.highlight`. The game loads the spine
+  by `assetKey` like any per-symbol spine; an un-overridden project ships no `highlight`
+  and renders byte-identical to before.
 
 ## "Spine export" demystified
 

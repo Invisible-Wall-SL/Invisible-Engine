@@ -221,7 +221,11 @@ async function main() {
 	// embed the returned `{ map, index }` so the game merges the binding overrides
 	// over its coded `SYMBOL_INFO_MAP` and registers the introduced assets. Without
 	// this a rebound symbol shows in the tool preview but ships its old asset.
-	let symbols = { map: {}, index: { sheets: [], images: [], spines: [], collisions: [] } };
+	let symbols = {
+		map: {},
+		index: { sheets: [], images: [], spines: [], collisions: [] },
+		highlight: undefined,
+	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
 		`&k=${encodeURIComponent(token)}`;
@@ -234,6 +238,19 @@ async function main() {
 				bail(`Symbols export failed: HTTP ${symRes.status} — ${await bodySnippet(symRes)}`);
 			}
 			const s = await symRes.json();
+			// The global win-frame highlight override (absent → game keeps its built-in
+			// payframe). `assetKey` is the full R2 spine-bundle prefix, whose bundle is
+			// already in `index.spines` (the exporter added it), so the game loads it the
+			// same way as a per-symbol spine.
+			const highlight =
+				s?.highlight && typeof s.highlight === 'object' && typeof s.highlight.assetKey === 'string'
+					? {
+							assetKey: s.highlight.assetKey,
+							...(typeof s.highlight.animationName === 'string'
+								? { animationName: s.highlight.animationName }
+								: {}),
+						}
+					: undefined;
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -242,6 +259,7 @@ async function main() {
 					spines: Array.isArray(s?.index?.spines) ? s.index.spines : [],
 					collisions: Array.isArray(s?.index?.collisions) ? s.index.collisions : [],
 				},
+				highlight,
 			};
 			// Loud (non-fatal) warning when a bound frame name lives in two sheets.
 			// Symbol sheet frames register with NO namespace, so a colliding name is
@@ -309,6 +327,9 @@ async function main() {
 	const symbolCount = Object.keys(symbols.map).length;
 	const symbolAssetCount =
 		symbols.index.sheets.length + symbols.index.images.length + symbols.index.spines.length;
+	const highlightNote = symbols.highlight
+		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
+		: '';
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
@@ -316,7 +337,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				` ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -327,7 +348,7 @@ async function main() {
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
-			` ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+			`${highlightNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 

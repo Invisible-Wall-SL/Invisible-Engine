@@ -66,6 +66,31 @@ tool top bar). Switch projects from the launcher before opening the tool.
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
 
+### Highlight (win frame)
+
+Above the grid is a dedicated **Highlight (win frame)** section. The highlight is a
+single, **global** spine (not per-symbol, not per-state) that loops over the winning
+symbols during a win — the win-frame animation. Every game ships a built-in default:
+the local `payframe` animation (spine key `anticipation`), which lives in the game's own
+repo, NOT in R2, so the tool can't preview it. It is shown as a clear **Default
+(payframe)** placeholder with an explanatory note.
+
+- **Change** opens an inline editor: pick a **Spine bundle** from the project's (and
+  shared) R2 bundles — the same library the grid's spine cells use — then pick an
+  **Animation** (or type the name; blank plays the bundle's first animation). A live
+  **Preview** plays the chosen animation.
+- **Apply highlight** records the override; the section then shows the override preview
+  and an **overridden** badge.
+- **Reset to default** removes the override, returning to the built-in `payframe`.
+
+The override is a single optional top-level field on the doc:
+`highlight: { type: 'spine', assetKey: <full R2 bundle prefix>, animationName }`. When no
+override is set, nothing is written and the game keeps its built-in `payframe` — so a
+project that never touches this section is byte-identical to before. On export/bake the
+chosen spine bundle travels the same chain as a per-symbol spine cell (its bundle is
+copied into `deploy/editor-symbols/` and registered), and the bundle records the
+highlight pointer so the game loads the authored win frame by `assetKey`.
+
 ### Saving is not the last step — shipping a rebind
 
 Save only persists the override doc to R2. For a rebind to actually reach the running

@@ -50,6 +50,10 @@ export type SymbolStateMap = Partial<Record<SymbolState, SymbolCell>>;
 export interface SymbolsDoc {
 	version: 1;
 	symbols: Record<string, SymbolStateMap>;
+	/** Global win-frame spine that loops over winning symbols. Absent = the game's
+	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
+	 *  it with an R2 spine bundle; never written for the default. */
+	highlight?: SymbolCell;
 	updatedAt?: string;
 }
 
@@ -57,6 +61,9 @@ export interface SymbolDefaults {
 	version: number;
 	gameType: string;
 	symbols: Record<string, SymbolStateMap>;
+	/** The game's built-in win-frame default — display only, so the tool can show
+	 *  "current = default (payframe)". Never forced into an override doc. */
+	highlight?: SymbolCell;
 }
 
 /** The effective binding for a cell = override ?? coded default (may be absent). */
@@ -94,6 +101,28 @@ export function clearOverride(doc: SymbolsDoc, symbol: string, state: SymbolStat
 	return { ...doc, symbols };
 }
 
+/** The effective global highlight = override ?? coded default (may be absent). */
+export function effectiveHighlight(
+	doc: SymbolsDoc,
+	defaults: SymbolDefaults,
+): { cell: SymbolCell | undefined; overridden: boolean } {
+	if (doc.highlight) return { cell: doc.highlight, overridden: true };
+	return { cell: defaults.highlight, overridden: false };
+}
+
+/** Set the global highlight override, returning a NEW doc (immutable update). */
+export function setHighlight(doc: SymbolsDoc, cell: SymbolCell): SymbolsDoc {
+	return { ...doc, highlight: cell };
+}
+
+/** Clear the global highlight override (reset to the built-in default). New doc. */
+export function clearHighlight(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.highlight) return doc;
+	const next = { ...doc };
+	delete next.highlight;
+	return next;
+}
+
 /** Stable JSON for dirty-tracking (key order is fixed by `SYMBOL_STATES`). */
 export function docSignature(doc: SymbolsDoc): string {
 	const symbols: Record<string, SymbolStateMap> = {};
@@ -103,7 +132,14 @@ export function docSignature(doc: SymbolsDoc): string {
 		for (const state of SYMBOL_STATES) if (states[state]) ordered[state] = states[state];
 		symbols[name] = ordered;
 	}
-	return JSON.stringify(symbols);
+	const highlight = doc.highlight
+		? {
+				type: doc.highlight.type,
+				assetKey: doc.highlight.assetKey,
+				animationName: doc.highlight.animationName ?? '',
+			}
+		: null;
+	return JSON.stringify({ symbols, highlight });
 }
 
 /** Persist the doc to R2 via the S2 endpoint; returns the stamped doc. */
@@ -111,7 +147,11 @@ export async function saveSymbolsDoc(project: string, doc: SymbolsDoc): Promise<
 	const res = await fetch(`/api/editor/symbols?project=${encodeURIComponent(project)}`, {
 		method: 'PUT',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ version: 1, symbols: doc.symbols }),
+		body: JSON.stringify({
+			version: 1,
+			symbols: doc.symbols,
+			...(doc.highlight ? { highlight: doc.highlight } : {}),
+		}),
 	});
 	if (!res.ok) {
 		const msg = await res.text().catch(() => '');

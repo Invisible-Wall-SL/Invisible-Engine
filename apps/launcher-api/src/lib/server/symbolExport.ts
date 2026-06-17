@@ -87,11 +87,22 @@ export interface SymbolExportIndex {
 	collisions: SymbolFrameCollision[];
 }
 
+/** The global win-frame highlight, passed through to the bundle so the game can
+ *  render the authored win frame instead of its built-in `payframe`. Only present
+ *  when the author overrode it; `assetKey` is the FULL R2 spine bundle prefix (its
+ *  bundle is exported alongside the per-symbol spines, keyed the same way). */
+export interface SymbolExportHighlight {
+	assetKey: string;
+	animationName?: string;
+}
+
 export interface SymbolExportResult {
 	/** The doc's `symbols` map, passed through VERBATIM (assetKeys already match the
 	 *  index keys, so the engine's `bakedSymbolMap()` needs zero rewriting). */
 	map: SymbolsDoc['symbols'];
 	index: SymbolExportIndex;
+	/** The authored global highlight override (absent → game uses built-in payframe). */
+	highlight?: SymbolExportHighlight;
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -113,6 +124,11 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 			if (cell.type === 'spine') refs.spineKeys.add(cell.assetKey);
 			else refs.frameNames.add(cell.assetKey);
 		}
+	}
+	// The global highlight is a spine bundle too — export it like any per-symbol
+	// spine cell so its `index.spines` entry (keyed by the same `assetKey`) ships.
+	if (doc.highlight?.type === 'spine' && doc.highlight.assetKey) {
+		refs.spineKeys.add(doc.highlight.assetKey);
 	}
 	return refs;
 }
@@ -311,5 +327,13 @@ export async function exportEditorSymbols(
 	const existing = await listAllKeys(symbolsPrefix);
 	await deleteObjects(existing.filter((k) => !written.has(k)));
 
-	return { map: doc.symbols, index };
+	// The global highlight override (if any). Its spine bundle was exported in the
+	// loop above (added to `refs.spineKeys`), so it's already in `index.spines` under
+	// this same `assetKey`; we only surface the pointer for the bundle's top level.
+	const highlight: SymbolExportHighlight | undefined =
+		doc.highlight?.type === 'spine' && doc.highlight.assetKey
+			? { assetKey: doc.highlight.assetKey, animationName: doc.highlight.animationName }
+			: undefined;
+
+	return { map: doc.symbols, index, ...(highlight ? { highlight } : {}) };
 }
