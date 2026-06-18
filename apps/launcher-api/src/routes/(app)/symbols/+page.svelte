@@ -9,13 +9,16 @@
 	import {
 		STATE_LABELS,
 		SYMBOL_STATES,
+		clearDefaultSizeRatios,
 		clearHighlight,
 		clearOverride,
 		clearWinLineStyle,
 		docSignature,
 		effectiveCell,
 		effectiveHighlight,
+		resolveCellSize,
 		saveSymbolsDoc,
+		setDefaultSizeRatios,
 		setHighlight,
 		setOverride,
 		setWinLineEnabled,
@@ -126,9 +129,8 @@
 	function openCell(symbol: string, state: SymbolState): void {
 		focus = { symbol, state };
 		const eff = effectiveCell(doc, data.defaults, symbol, state);
-		draft = eff.cell
-			? structuredClone(eff.cell)
-			: { type: 'sprite', assetKey: '', sizeRatios: { width: 1, height: 1 } };
+		// A brand-new override inherits the global size by default (no `sizeRatios`).
+		draft = eff.cell ? structuredClone(eff.cell) : { type: 'sprite', assetKey: '' };
 		draftAnimations = [];
 	}
 
@@ -156,14 +158,35 @@
 		const cell: SymbolCell = {
 			type: draft.type,
 			assetKey: draft.assetKey,
-			sizeRatios: {
+		};
+		// Only persist a per-cell size when the author opted out of the global (sparse:
+		// an absent `sizeRatios` = inherit `defaultSizeRatios`).
+		if (draft.sizeRatios) {
+			cell.sizeRatios = {
 				width: Number(draft.sizeRatios.width) || 0,
 				height: Number(draft.sizeRatios.height) || 0,
-			},
-		};
+			};
+		}
 		if (draft.type === 'spine' && draft.animationName) cell.animationName = draft.animationName;
 		doc = setOverride(doc, focus.symbol, focus.state, cell);
 		closeCell();
+	}
+
+	/** The size the focused cell would render at if it inherits (per-cell unset). Drives the
+	 *  "inherits W×H" hint + seeds the inputs when the author switches to a custom size. */
+	const draftInheritedSize = $derived(
+		focus ? resolveCellSize({ ...doc, symbols: {} }, data.defaults, focus.symbol, focus.state) : null,
+	);
+
+	/** Toggle the focused cell between inheriting the global size and a custom per-cell size. */
+	function setDraftCustomSize(custom: boolean): void {
+		if (!draft) return;
+		if (custom) {
+			const seed = draftInheritedSize ?? { width: 1, height: 1 };
+			draft.sizeRatios = { width: seed.width, height: seed.height };
+		} else {
+			draft.sizeRatios = undefined;
+		}
 	}
 
 	function resetCell(symbol: string, state: SymbolState): void {
@@ -205,6 +228,22 @@
 
 	function isFocused(symbol: string, state: SymbolState): boolean {
 		return !!focus && focus.symbol === symbol && focus.state === state;
+	}
+
+	// ── Global symbol size ────────────────────────────────────────────────────
+	// One default size every symbol inherits unless its cell sets a custom size. Sparse:
+	// absent = the game keeps its coded per-symbol sizes; setting it overrides ALL symbols
+	// (special ones included — give those a per-cell size to keep their bespoke sizing).
+	const globalSizeOn = $derived(!!doc.defaultSizeRatios);
+	const globalSize = $derived(doc.defaultSizeRatios ?? { width: 1, height: 1 });
+
+	function patchGlobalSize(patch: Partial<{ width: number; height: number }>): void {
+		const base = doc.defaultSizeRatios ?? { width: 1, height: 1 };
+		doc = setDefaultSizeRatios(doc, { width: base.width, height: base.height, ...patch });
+	}
+
+	function resetGlobalSize(): void {
+		doc = clearDefaultSizeRatios(doc);
 	}
 
 	// ── Global highlight (win frame) ──────────────────────────────────────────
@@ -249,12 +288,13 @@
 
 	function applyHighlight(): void {
 		if (!highlightDraft || !highlightDraft.assetKey) return;
+		const sr = highlightDraft.sizeRatios ?? { width: 1, height: 1 };
 		const cell: SymbolCell = {
 			type: 'spine',
 			assetKey: highlightDraft.assetKey,
 			sizeRatios: {
-				width: Number(highlightDraft.sizeRatios.width) || 0,
-				height: Number(highlightDraft.sizeRatios.height) || 0,
+				width: Number(sr.width) || 0,
+				height: Number(sr.height) || 0,
 			},
 		};
 		if (highlightDraft.animationName) cell.animationName = highlightDraft.animationName;
@@ -345,6 +385,49 @@
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
 			<div class="grid-scroll" bind:this={gridScroll}>
+				<section class="symsize">
+					<div class="ss-head">
+						<div class="ss-title">
+							<h2>Symbol size</h2>
+							<p class="ss-sub">
+								A global size every symbol inherits, as a ratio of one reel cell (1 = fills the
+								cell). Applies to every symbol — set a custom size on a cell below to override (e.g.
+								keep the scatter/book larger). Off → each symbol keeps its built-in size.
+							</p>
+						</div>
+						<div class="ss-actions">
+							{#if globalSizeOn}<span class="badge">on</span>{/if}
+							{#if globalSizeOn}
+								<button type="button" class="ghost" onclick={resetGlobalSize}>
+									Reset to default
+								</button>
+							{/if}
+						</div>
+					</div>
+					<div class="field row">
+						<label class="num">
+							<span class="label">Width ratio</span>
+							<input
+								type="number"
+								step="0.001"
+								placeholder="1"
+								value={globalSizeOn ? globalSize.width : ''}
+								oninput={(e) => patchGlobalSize({ width: Number(e.currentTarget.value) || 0 })}
+							/>
+						</label>
+						<label class="num">
+							<span class="label">Height ratio</span>
+							<input
+								type="number"
+								step="0.001"
+								placeholder="1"
+								value={globalSizeOn ? globalSize.height : ''}
+								oninput={(e) => patchGlobalSize({ height: Number(e.currentTarget.value) || 0 })}
+							/>
+						</label>
+					</div>
+				</section>
+
 				<section class="highlight" class:editing={highlightEditing}>
 					<div class="hl-head">
 						<div class="hl-title">
@@ -798,29 +881,45 @@
 					{/if}
 				{/if}
 
-				<div class="field row">
-					<label class="num">
-						<span class="label">Width ratio</span>
-						<input
-							type="number"
-							step="0.001"
-							value={draft.sizeRatios.width}
-							oninput={(e) => {
-								if (draft) draft.sizeRatios.width = Number(e.currentTarget.value);
-							}}
-						/>
-					</label>
-					<label class="num">
-						<span class="label">Height ratio</span>
-						<input
-							type="number"
-							step="0.001"
-							value={draft.sizeRatios.height}
-							oninput={(e) => {
-								if (draft) draft.sizeRatios.height = Number(e.currentTarget.value);
-							}}
-						/>
-					</label>
+				<div class="field">
+					<span class="label">Size</span>
+					{#if draft.sizeRatios}
+						<div class="field row">
+							<label class="num">
+								<span class="label">Width ratio</span>
+								<input
+									type="number"
+									step="0.001"
+									value={draft.sizeRatios.width}
+									oninput={(e) => {
+										if (draft?.sizeRatios) draft.sizeRatios.width = Number(e.currentTarget.value);
+									}}
+								/>
+							</label>
+							<label class="num">
+								<span class="label">Height ratio</span>
+								<input
+									type="number"
+									step="0.001"
+									value={draft.sizeRatios.height}
+									oninput={(e) => {
+										if (draft?.sizeRatios) draft.sizeRatios.height = Number(e.currentTarget.value);
+									}}
+								/>
+							</label>
+						</div>
+						<button type="button" class="link" onclick={() => setDraftCustomSize(false)}>
+							↩ Use global size
+						</button>
+					{:else}
+						<p class="hint">
+							Inherits the global symbol size{#if draftInheritedSize}
+								({draftInheritedSize.width}×{draftInheritedSize.height}){/if}.
+						</p>
+						<button type="button" class="link" onclick={() => setDraftCustomSize(true)}>
+							Set a custom size for this cell
+						</button>
+					{/if}
 				</div>
 
 				<div class="panel-actions">
@@ -1183,6 +1282,53 @@
 		cursor: pointer;
 	}
 
+	.symsize {
+		margin-bottom: 16px;
+		padding: 14px 16px;
+		background: #101018;
+		border: 1px solid #24242e;
+		border-radius: 10px;
+	}
+	.ss-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: 12px;
+	}
+	.ss-title h2 {
+		margin: 0;
+		font-size: 15px;
+		color: #e0e0e8;
+	}
+	.ss-sub {
+		margin: 2px 0 0;
+		font-size: 12px;
+		color: #8a8a96;
+	}
+	.ss-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex: none;
+	}
+	.hint {
+		margin: 2px 0 6px;
+		font-size: 12px;
+		color: #8a8a96;
+	}
+	.link {
+		align-self: flex-start;
+		padding: 0;
+		background: none;
+		border: none;
+		color: #7e9bff;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.link:hover {
+		text-decoration: underline;
+	}
 	.highlight {
 		margin-bottom: 16px;
 		padding: 14px 16px;

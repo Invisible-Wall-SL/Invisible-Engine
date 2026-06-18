@@ -22,8 +22,11 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const { map, index, highlight, winLine } = await exportEditorSymbols(clientKey, projectKey);
-		return json({ clientKey, projectKey, map, index, highlight, winLine });
+		const { map, index, defaultSizeRatios, highlight, winLine } = await exportEditorSymbols(
+			clientKey,
+			projectKey,
+		);
+		return json({ clientKey, projectKey, map, index, defaultSizeRatios, highlight, winLine });
 	} catch (e) {
 		console.error('export-symbols failed:', e);
 		throw error(502, 'Failed to export the symbol-bound assets.');

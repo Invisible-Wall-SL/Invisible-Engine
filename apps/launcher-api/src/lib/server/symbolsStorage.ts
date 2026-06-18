@@ -32,13 +32,15 @@ const sizeRatiosSchema = z.object({
 	height: z.number(),
 });
 
-/** A single symbol×state binding — sprite frame or spine animation. */
+/** A single symbol×state binding — sprite frame or spine animation. `sizeRatios` is
+ *  OPTIONAL on an override cell: absent means the cell inherits the doc-level
+ *  `defaultSizeRatios` global (and, failing that, the coded map size). */
 const symbolCellSchema = z
 	.object({
 		type: z.enum(['sprite', 'spine']),
 		assetKey: z.string().min(1),
 		animationName: z.string().min(1).optional(),
-		sizeRatios: sizeRatiosSchema,
+		sizeRatios: sizeRatiosSchema.optional(),
 	})
 	.strict();
 
@@ -97,6 +99,9 @@ export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
+		/** Global symbol size every symbol inherits unless a cell sets its own `sizeRatios`.
+		 *  Optional + sparse: absent → cells fall through to the coded map size. */
+		defaultSizeRatios: sizeRatiosSchema.optional(),
 		highlight: highlightCellSchema.optional(),
 		winLine: winLineSchema.optional(),
 		updatedAt: z.string().optional(),
@@ -135,6 +140,7 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 		if (states && Object.keys(states).length > 0) symbols[name] = states;
 	}
 	const next: SymbolsDoc = { version: 1, symbols };
+	if (doc.defaultSizeRatios) next.defaultSizeRatios = doc.defaultSizeRatios;
 	if (doc.highlight) next.highlight = doc.highlight;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;

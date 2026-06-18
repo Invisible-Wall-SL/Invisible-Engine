@@ -101,6 +101,9 @@ export interface SymbolExportResult {
 	 *  index keys, so the engine's `bakedSymbolMap()` needs zero rewriting). */
 	map: SymbolsDoc['symbols'];
 	index: SymbolExportIndex;
+	/** The authored global default symbol size (absent → game uses its coded sizes). Applied
+	 *  at render to every symbol that has no per-cell `sizeRatios`. */
+	defaultSizeRatios?: { width: number; height: number };
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
 	/** The global win-line config (on/off + line + text style), passed through VERBATIM
@@ -344,9 +347,15 @@ export async function exportEditorSymbols(
 	// all its coded defaults.
 	const winLine = doc.winLine;
 
+	// The global default symbol size — pure config, forwarded verbatim. The `map` stays
+	// sparse (cells may omit `sizeRatios`); the game applies this global at render so it
+	// reaches symbols the author never touched (which fall through to the coded map).
+	const defaultSizeRatios = doc.defaultSizeRatios;
+
 	return {
 		map: doc.symbols,
 		index,
+		...(defaultSizeRatios ? { defaultSizeRatios } : {}),
 		...(highlight ? { highlight } : {}),
 		...(winLine ? { winLine } : {}),
 	};
