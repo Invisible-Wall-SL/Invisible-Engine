@@ -30,7 +30,12 @@ import { loadDoc } from './editorStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
-import { exportSpineBundle, loadSkeletonIndex, type ExportedSpineEntry } from './spine';
+import {
+	bundleFromAssetKey,
+	exportSpineBundle,
+	loadSkeletonIndex,
+	type ExportedSpineEntry,
+} from './spine';
 import { deleteObjects, getObjectBytes, listAllKeys, putObjectText, putObjectBytes } from './r2';
 
 export interface EditorArtSheet {
@@ -373,6 +378,13 @@ export async function exportEditorArt(
 				scale: 2,
 			});
 			if (!result) continue;
+			// The game's doc has this spine node's `assetKey` rewritten from the full R2
+			// bundle prefix down to the plain bundle NAME (`resolveSpineKeysForGame` in
+			// `runtimeBundle.ts` + `api/editor/doc`), and `LayoutNodeView` looks the asset
+			// up by that name. Register under the SAME key — not the full prefix — or the
+			// lookup misses and the spine never loads in the built game.
+			const gameKey = bundleFromAssetKey(clientKey, projectKey, assetKey);
+			if (gameKey) result.entry.key = gameKey;
 			for (const k of result.written) written.add(k);
 			spines.push(result.entry);
 		}
