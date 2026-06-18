@@ -1774,6 +1774,58 @@
 					/>
 				</label>
 			</div>
+			<p class="muted small">
+				Symbol size (× cell) — the symbol art's size as a fraction of one cell, applied to EVERY
+				symbol. 1 = fills the cell. Reset to fall back to the game's built-in per-symbol sizes.
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>width ratio</span>
+					<input
+						type="number"
+						step="0.001"
+						placeholder="1"
+						value={node.symbolSizeRatios?.width ?? 1}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.symbolSizeRatios ??= { width: 1, height: 1 };
+								node.symbolSizeRatios.width = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>height ratio</span>
+					<input
+						type="number"
+						step="0.001"
+						placeholder="1"
+						value={node.symbolSizeRatios?.height ?? 1}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.symbolSizeRatios ??= { width: 1, height: 1 };
+								node.symbolSizeRatios.height = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+			</div>
+			{#if node.symbolSizeRatios}
+				<button
+					type="button"
+					class="ghost-sm"
+					onclick={() => {
+						delete node.symbolSizeRatios;
+						markDirty();
+					}}
+				>
+					Reset (use coded sizes)
+				</button>
+			{/if}
 			<div class="row">
 				<label class="field">
 					<span>gap X</span>

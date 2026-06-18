@@ -65,6 +65,24 @@
 		sheets: { name: string; key: string }[];
 	}
 
+	/** Structural twin of a symbol×state binding (mirrors `SymbolCell` in
+	 * `$lib/server/symbolsStorage`) — declared here so this client component never
+	 * imports a server module. Only the fields the canvas reads. */
+	interface SymbolStaticCell {
+		type: 'sprite' | 'spine';
+		assetKey: string;
+		sizeRatios?: { width: number; height: number };
+	}
+	type SymbolStateMap = Partial<Record<string, SymbolStaticCell>>;
+	/** The project's coded symbol defaults (dense: every symbol's `static` cell). */
+	interface SymbolDefaultsView {
+		symbols: Record<string, SymbolStateMap>;
+	}
+	/** The Symbols State Machine override doc (sparse per-symbol/state overrides). */
+	interface SymbolsDocView {
+		symbols: Record<string, SymbolStateMap>;
+	}
+
 	interface Props {
 		scene: Scene;
 		/** All doc scenes — used to locate the `boardFrame` node (which lives in the
@@ -81,6 +99,13 @@
 		/** The project's asset listing — used to resolve catalog-default preview art
 		 * for `bind` anchors (spine bundle by name, sprite region by manifest scan). */
 		assets: ProjectAssets;
+		/** The project's coded symbol defaults — the dense source of truth for each
+		 * symbol's STATIC binding (sprite frame / spine bundle). Lets the canvas draw the
+		 * real symbol art in each reel cell so the author sizes symbols in context. */
+		symbolDefaults?: SymbolDefaultsView | null;
+		/** The Symbols State Machine override doc — sparse per-symbol/state overrides
+		 * layered OVER `symbolDefaults` (parity with the tool's effective binding). */
+		symbolsDoc?: SymbolsDocView | null;
 		/** Loaded component defs by id (§8.4) — lets the canvas resolve + draw a
 		 * `componentInstance` node by expanding `def.root` under the instance transform.
 		 * The editor canvas is its OWN renderer, so it reads this map (NOT the engine
@@ -146,6 +171,8 @@
 		frameHeight,
 		layoutType,
 		assets,
+		symbolDefaults = null,
+		symbolsDoc = null,
 		componentMap = new Map(),
 		onSpawn,
 		selectedIds = $bindable([]),
@@ -163,6 +190,30 @@
 		onUndo,
 		onRedo,
 	}: Props = $props();
+
+	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
+	 * cell, with the override doc's `static` cell layered on top (sparse). Computed once
+	 * (not per draw), and cycled across the grid cells so the board looks populated. A
+	 * `spine` static can't be drawn on the 2D canvas — kept so those cells fall back to
+	 * the amber marker. Empty when no symbol data is present (graceful). */
+	const symbolStatics = $derived.by<
+		{ type: 'sprite' | 'spine'; assetKey: string; sizeRatios?: { width: number; height: number } }[]
+	>(() => {
+		if (!symbolDefaults) return [];
+		const out: {
+			type: 'sprite' | 'spine';
+			assetKey: string;
+			sizeRatios?: { width: number; height: number };
+		}[] = [];
+		for (const name of Object.keys(symbolDefaults.symbols)) {
+			const base = symbolDefaults.symbols[name]?.static;
+			const override = symbolsDoc?.symbols?.[name]?.static;
+			const cell = override ?? base;
+			if (!cell?.assetKey) continue;
+			out.push({ type: cell.type, assetKey: cell.assetKey, sizeRatios: cell.sizeRatios });
+		}
+		return out;
+	});
 
 	/** The "primary" selected id — the last one picked. Drives the properties panel,
 	 * the transform handles, and single-node hit-tests. Most internal code reads this;
@@ -1593,22 +1644,68 @@
 			}
 		}
 
-		// Inner symbol marker: a square seated inside each cell at the padding offset
-		// (reelPadding/rowPadding as a cell-fraction of the symbol centre). It mirrors
-		// the engine's `getSymbolX/Y` seat so the author sees position + padding, with
-		// gaps separating the cells. Symbol art keeps Stake sizing (square), so the
-		// marker is a square of the smaller cell axis.
+		// Real symbol art per cell: the static binding (sprite frame) drawn CENTRED in
+		// each cell and CLIPPED to it, at the effective size — reel-global
+		// (`symbolSizeRatios`) first, else the per-cell coded `sizeRatios`, else {1,1}
+		// (matches the engine's precedence now per-cell editing is gone). The static list
+		// is cycled across cells so the board looks populated. A spine static (can't draw
+		// on a 2D canvas) or an unresolved frame falls back to the amber marker square.
 		const padX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
 		const padY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
-		const symSize = Math.min(cellW, cellH);
-		ctx.fillStyle = 'rgba(255, 196, 93, 0.10)';
-		ctx.strokeStyle = 'rgba(255, 196, 93, 0.7)';
+		const statics = symbolStatics;
+		const drawMarker = (cx: number, cy: number, label?: string): void => {
+			const sym = Math.min(cellW, cellH);
+			ctx.fillStyle = 'rgba(255, 196, 93, 0.10)';
+			ctx.strokeStyle = 'rgba(255, 196, 93, 0.7)';
+			ctx.fillRect(cx - sym / 2, cy - sym / 2, sym, sym);
+			ctx.strokeRect(cx - sym / 2, cy - sym / 2, sym, sym);
+			if (label) {
+				ctx.fillStyle = 'rgba(255, 196, 93, 0.85)';
+				ctx.font = '10px sans-serif';
+				ctx.fillText(label, cx - sym / 2 + 4, cy - sym / 2 + 12);
+			}
+		};
 		for (let i = 0; i < reels; i++) {
 			for (let j = 0; j < rows; j++) {
-				const cx = left + i * pitchX + cellW * padX;
-				const cy = top + j * pitchY + cellH * padY;
-				ctx.fillRect(cx - symSize / 2, cy - symSize / 2, symSize, symSize);
-				ctx.strokeRect(cx - symSize / 2, cy - symSize / 2, symSize, symSize);
+				const cellX = left + i * pitchX;
+				const cellY = top + j * pitchY;
+				const cx = cellX + cellW * padX;
+				const cy = cellY + cellH * padY;
+				const cell = statics.length ? statics[(j * reels + i) % statics.length] : undefined;
+				if (!cell) {
+					drawMarker(cx, cy);
+					continue;
+				}
+				if (cell.type === 'spine') {
+					drawMarker(cx, cy, 'spine');
+					continue;
+				}
+				const found = findRegion(cell.assetKey, cell.assetKey);
+				if (!found) {
+					drawMarker(cx, cy);
+					continue;
+				}
+				const ratio = node.symbolSizeRatios ?? cell.sizeRatios ?? { width: 1, height: 1 };
+				const boxW = cellW * ratio.width;
+				const boxH = cellH * ratio.height;
+				// `drawArtRegionSprite` places the frame with its top-left at the origin offset by
+				// `-dw * anchor` — anchor {0.5,0.5} centres it on the origin, so translate to the
+				// cell's symbol seat (cx, cy). Clip to the cell rect so an oversize symbol crops.
+				ctx.save();
+				ctx.beginPath();
+				ctx.rect(cellX, cellY, cellW, cellH);
+				ctx.clip();
+				ctx.translate(cx, cy);
+				const symTransform: import('engine-layout').ResolvedTransform = {
+					x: 0,
+					y: 0,
+					anchor: { x: 0.5, y: 0.5 },
+					width: boxW,
+					height: boxH,
+					visible: true,
+				};
+				drawArtRegionSprite(ctx, cell.assetKey, cell.assetKey, symTransform);
+				ctx.restore();
 			}
 		}
 

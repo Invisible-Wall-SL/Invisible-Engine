@@ -2501,6 +2501,8 @@
 					frameHeight={frameSize.height}
 					layoutType={currentLayoutType}
 					assets={data.assets}
+					symbolDefaults={data.symbolDefaults}
+					symbolsDoc={data.symbolsDoc}
 					{componentMap}
 					{onSpawn}
 					bind:selectedIds
