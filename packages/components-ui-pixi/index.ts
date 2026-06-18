@@ -7,6 +7,7 @@ import HudCaption from './src/components/HudCaption.svelte';
 import HudValue from './src/components/HudValue.svelte';
 import ButtonFrame from './src/components/ButtonFrame.svelte';
 import ButtonLabel from './src/components/ButtonLabel.svelte';
+import LoadingBar from './src/components/LoadingBar.svelte';
 
 import messagesMap from './src/i18n/messagesMap';
 import { i18nDerived } from './src/i18n/i18nDerived';
@@ -25,4 +26,5 @@ export {
 	HudValue,
 	ButtonFrame,
 	ButtonLabel,
+	LoadingBar,
 };
