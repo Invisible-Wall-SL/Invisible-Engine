@@ -1283,3 +1283,106 @@ settings ⇒ engine defaults (all on), so older docs are parity-safe.
 - Rotation lives in `ButtonFrame` (the `button` def's coded part); a purely authored art-button (no
   coded part) swaps to `imageSpinning` but does not rotate. The spin button uses the `button` def, so
   it is covered.
+
+## 23. Addendum — Frames: lock screens together so they move + resize as one (owner direction 2026-06-18)
+
+The owner asked: *"can I anchor a screen to another screen so they move and resize the same way, to
+avoid offset in the game?"* Answer: yes — but **not** by a scene→scene pointer (`anchorTo: <sceneId>`).
+A pointer invites dangling refs (target deleted), chains (A→B→C), and "who's the source of truth"
+ambiguity. What two screens actually need to share isn't *each other* — it's a common **frame**.
+
+### 23.1 The core fact (why this is almost free)
+The scale model is a single uniform number per size-map box, computed once in `createMainLayout`
+(`packages/utils-layout/src/createLayout.svelte.ts:53-69`):
+`scale = min(canvasW / mainSizes.width, canvasH / mainSizes.height)`. `<MainContainer>`
+(`packages/components-layout/src/components/MainContainer.svelte:16-47`) centres that box at
+`(canvasW/2, canvasH/2)`, applies the scale, pivots by the anchor. **Two scenes that read the same
+`mainLayout` and live in the same `<MainContainer>` therefore move + resize identically, by
+construction — not by coincidence.** Today they only line up *if* they happen to share `space:'game'`;
+the instant one is on a different space (e.g. the `standard` HUD bar with its fixed
+`STANDARD_MAIN_SIZES_MAP`) it scales on its own curve and drifts. The drift bugs in
+`[[bug_editor_scenes_outside_maincontainer]]` and `[[gotcha_hud_scenes_separate_canvas]]` are exactly
+this: scenes that *should* be locked are computing independent transforms.
+
+### 23.2 Model — promote `space` to first-class named frames
+`Scene.space` (`packages/engine-layout/src/lib/types.ts:418`) is today a hardcoded enum where each value
+secretly carries a size-map + scale curve (`game`→doc `mainSizesMap`, `standard`→`STANDARD_MAIN_SIZES_MAP`,
+`canvas`/`background`→bespoke). Generalise it:
+
+- A **frame** is a *named layout box* with its own per-`LayoutType` size map. `game`, `standard`,
+  `canvas`, `background` become **built-in frames** (zero behaviour change); the doc may declare custom ones.
+- A **scene references a frame by name** (`Scene.frame?: string`, superseding `space`; the old enum maps
+  1:1 to built-in frame ids for back-compat — additive, every existing doc stays valid).
+- **All scenes on the same frame are reparented into ONE `<MainContainer>`** reading that frame's one
+  `mainLayout` → shared centre + scale + pivot on every resize, with **no new transform math**. "Anchor A
+  to B" *is* "put A and B on the same frame."
+
+```ts
+// packages/engine-layout/src/lib/types.ts (additions)
+export interface Frame {
+  id: string;                 // 'game' | 'standard' | 'canvas' | 'background' | custom
+  name: string;               // human label
+  kind: 'main' | 'canvas' | 'background';  // which wrapper/derivation drives it
+  sizes?: Record<LayoutType, { width: number; height: number }>;  // 'main' kind only
+  align?: { vertical?: 'center'|'bottom'; horizontal?: 'center'|'left'|'right' };
+}
+// LayoutDoc gains:  frames?: Frame[];   // absent ⇒ the four built-ins
+// Scene gains:      frame?: string;     // absent ⇒ derived from legacy `space` ⇒ 'game'
+```
+
+`kind:'main'` frames with no `sizes` default to the doc's `mainSizesMap` (so `game` needs no explicit
+entry). `canvas`/`background` kinds reuse the existing raw-canvas / cover-fit derivations unchanged.
+
+### 23.3 Engine consumption — group by frame, mount once
+`<LayoutScene>` is the single seam that picks a scene's wrapper today
+(`packages/engine-layout/src/lib/LayoutScene.svelte:14-37`). The change is to **lift the grouping a level**:
+instead of each scene self-wrapping, a new `<LayoutFrameGroup frame={…} scenes={[…]}>` mounts **one**
+`<MainContainer>` (resolving that frame's `mainLayout` via a `createMainLayout` variant parametrised by the
+frame's size map) and `{@render}`s every member scene's nodes inside it. `LayoutNodeView`
+(`LayoutNodeView.svelte:46-59`) is untouched — nodes still author in their frame's box coords. This rides
+directly on §20.1's deferred "render doc scenes generically" step: the games currently mount scenes by
+**hardcoded id** in `apps/lines/src/components/Game.svelte` (`:675-711`), so frame-grouping and generic
+ordering are the **same** runtime change and should land together — group the doc's scenes by `frame`,
+emit one `<LayoutFrameGroup>` per frame in doc order.
+
+Whether two scenes on one frame also sit at the **same position** is then just whether their nodes are
+authored at the same coords — so one concept ("frame") covers both flavours the owner might mean (true
+pixel-locked overlay vs same-scale-curve-but-own-offset) with no second knob.
+
+### 23.4 Editor consumption — mirror the grouping or the preview diverges
+The editor reproduces the framing math in two spots that MUST mirror the runtime
+(`apps/launcher-api/src/routes/(app)/editor/editorCanvas.helpers.ts` `nodeTransform` +
+`EditorCanvas.svelte:262-300` `mainToWorld`/`mainScale`). They gain a frame lookup: a scene's transform
+resolves through its frame's size map, not a hardcoded `space`. UI affordances (additive):
+- Draw the active scene's frame as a **visible boundary** you author inside.
+- A per-scene **frame picker** (built-ins + custom), and scenes sharing a frame are **visibly tagged as
+  locked together** in the scene bar / outliner.
+- Optional: author a custom frame (id/name/size-map) in a small Game-Settings-style panel
+  (parallels §22.4's `settings` round-trip — `editorStorage` normalises `frames[]` on save/load,
+  `buildDocPayload` includes them, `bake-editor-doc.mjs` embeds them).
+
+### 23.5 Build order
+1. **Types** — add `Frame`, `LayoutDoc.frames?`, `Scene.frame?`; a pure `resolveFrame(doc, scene)`
+   that maps legacy `space` → built-in frame id (additive, no behaviour change; assert every existing
+   doc + `editor-scenes.ts` fixture resolves to today's wrapper).
+2. **Runtime** — `<LayoutFrameGroup>` + a frame-parametrised `createMainLayout`; group scenes by frame.
+   Do this **with** §20.1's generic scene render (same change). Visual-parity gate against `apps/lines`.
+3. **Game wiring** — move the `standard` HUD bar onto the `game` frame where it should track the play
+   area (kills `[[gotcha_hud_scenes_separate_canvas]]` drift), leaving genuinely edge-hugging chrome on
+   `canvas`. `[[feedback_engine_extensibility]]`: defang by re-framing, don't gut the `standard` path.
+4. **Editor mirror** — frame lookup in `nodeTransform`/`mainToWorld`; frame boundary + picker + "locked"
+   tags; custom-frame authoring + `frames[]` persistence through normalise→bake.
+5. **Prove on Book of Borut** — overlay a screen onto the base game via a shared frame, run against the
+   RGS mock, confirm zero offset across desktop/portrait resizes.
+
+### 23.6 Open decisions
+- **Default-on safety** — recommend new gameplay scenes default to the `game` frame so co-located
+  screens lock automatically (drift becomes an explicit opt-out, the inverse of today). Confirm.
+- **Custom `sizes` vs inherit** — a custom `main` frame with no `sizes` inherits `mainSizesMap`; a frame
+  with its own `sizes` scales on its own curve (the deliberate "this screen is NOT locked to the game"
+  case). Confirm that's the only way to opt out (vs a separate `locked:false`).
+- **`standard` HUD migration** — moving the bottom bar onto the `game` frame changes its scale curve;
+  verify against the shipped HUD before flipping (could instead define a `hud` frame that inherits the
+  game size map but keeps `align:{vertical:'bottom'}`).
+- **Per-`LayoutType` frame switch** — out of scope for v1 (a scene keeps one frame across all form
+  factors); note it if a screen ever needs a different frame per orientation.
