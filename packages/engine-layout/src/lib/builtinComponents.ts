@@ -336,6 +336,12 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 				region: 'Frame_FSCounter.png',
 				width: FS_PANEL_WIDTH,
 				height: FS_PANEL_HEIGHT,
+				// Bind the frame texture to the `frameImage` param so the author can swap the
+				// panel art per instance (region picker) WITHOUT forking a project copy — the
+				// reason a custom frame previously needed one. Default `Frame_FSCounter.png`
+				// (bare name) resolves to the game-bundled frame ⇒ parity; a picked editor-art
+				// region (`<sheet>::<region>`) resolves scoped via `LayoutNodeView`'s spriteRef.
+				paramBindings: { region: 'frameImage' },
 			},
 			{
 				id: 'freeSpinCounter-caption',
@@ -428,6 +434,11 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 			default: 'freeSpinCounterShow',
 		},
 		{ key: 'label', kind: 'string', default: 'FREE SPIN' },
+		// The panel frame texture — pick a region from the project's atlases/sheets to
+		// use a custom frame (e.g. a WANTED poster) on the BUILT-IN counter, so a custom
+		// frame no longer requires forking a project copy. Default = the game-bundled
+		// `Frame_FSCounter.png` (parity).
+		{ key: 'frameImage', kind: 'image', default: 'Frame_FSCounter.png', label: 'frame image' },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: FS_FONT_SIZE },
 		{ key: 'fontFamily', kind: 'string', default: FS_FONT_FAMILY },
