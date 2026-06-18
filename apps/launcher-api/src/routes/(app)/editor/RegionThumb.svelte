@@ -22,8 +22,16 @@
 		set: RegionSet;
 		region: EditorRegion;
 		size: number;
+		/** Optional non-square box (defaults to `size`×`size`). The frame is contain-fit
+		 *  (aspect preserved, centred) into `w`×`h` — used by the symbol size gauge to show
+		 *  a frame at a width/height ratio of one reel cell. */
+		w?: number;
+		h?: number;
 	}
-	let { set, region, size }: Props = $props();
+	let { set, region, size, w, h }: Props = $props();
+
+	const cw = $derived(w ?? size);
+	const ch = $derived(h ?? size);
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 
@@ -46,12 +54,12 @@
 			const c = canvas.getContext('2d');
 			if (!c) return;
 			c.clearRect(0, 0, canvas.width, canvas.height);
-			// `w/h` are the upright (unrotated) size; fit that into the square.
-			const scale = Math.min(size / region.w, size / region.h);
+			// `region.w/h` are the upright (unrotated) size; contain-fit into the cw×ch box.
+			const scale = Math.min(cw / region.w, ch / region.h);
 			const dw = region.w * scale;
 			const dh = region.h * scale;
-			const dx = (size - dw) / 2;
-			const dy = (size - dh) / 2;
+			const dx = (cw - dw) / 2;
+			const dy = (ch - dh) / 2;
 			// On-page packed rect: a `rotated` frame is stored (h × w) — swap, then
 			// un-rotate (+90° clockwise) so the thumbnail shows it upright, matching
 			// the slicer's PIL rotate(-90).
@@ -74,7 +82,8 @@
 	$effect(() => {
 		void set.pageKey;
 		void region.name;
-		void size; // resizing the canvas clears it → repaint at the new size
+		void cw; // resizing the canvas clears it → repaint at the new size
+		void ch;
 		void pageVersion; // "Reload art" bump → re-fetch the page + repaint
 		paint();
 	});
@@ -83,13 +92,13 @@
 {#if set.pageKey}
 	<canvas
 		bind:this={canvas}
-		width={size}
-		height={size}
-		style:width="{size}px"
-		style:height="{size}px"
+		width={cw}
+		height={ch}
+		style:width="{cw}px"
+		style:height="{ch}px"
 	></canvas>
 {:else}
-	<div class="ph" style:width="{size}px" style:height="{size}px">?</div>
+	<div class="ph" style:width="{cw}px" style:height="{ch}px">?</div>
 {/if}
 
 <style>

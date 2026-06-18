@@ -15,18 +15,24 @@
 		 */
 		index: Map<string, { set: RegionSet; region: EditorRegion }> | null;
 		size: number;
+		/** Optional non-square box (defaults to `size`×`size`) — the size gauge passes a
+		 *  width/height ratio of one reel cell so the frame previews at its in-game size. */
+		w?: number;
+		h?: number;
 	}
-	let { frame, index, size }: Props = $props();
+	let { frame, index, size, w, h }: Props = $props();
 
+	const cw = $derived(w ?? size);
+	const ch = $derived(h ?? size);
 	const hit = $derived(index?.get(frame) ?? null);
 </script>
 
 {#if hit}
-	<RegionThumb set={hit.set} region={hit.region} {size} />
+	<RegionThumb set={hit.set} region={hit.region} {size} {w} {h} />
 {:else if index === null}
-	<CellLoading {size} />
+	<CellLoading size={Math.min(cw, ch)} />
 {:else}
-	<div class="ph" style:width="{size}px" style:height="{size}px" title={frame}>
+	<div class="ph" style:width="{cw}px" style:height="{ch}px" title={frame}>
 		<span class="ph-label">{frame}</span>
 	</div>
 {/if}

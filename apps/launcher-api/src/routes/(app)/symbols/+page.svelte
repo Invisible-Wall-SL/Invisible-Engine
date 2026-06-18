@@ -182,6 +182,15 @@
 		focus ? resolveCellSize({ ...doc, symbols: {} }, data.defaults, focus.symbol, focus.state) : null,
 	);
 
+	/** The size the focused cell ACTUALLY renders at — per-cell override if set, else the
+	 *  inherited global/coded size. Drives the live "Size on the reel cell" gauge. */
+	const draftEffectiveSize = $derived(
+		draft?.sizeRatios ?? draftInheritedSize ?? { width: 1, height: 1 },
+	);
+
+	/** Px size of one reel cell in the gauge (the dashed square = 1 cell, ratio 1.0). */
+	const GAUGE_CELL = 132;
+
 	/** Toggle the focused cell between inheriting the global size and a custom per-cell size. */
 	function setDraftCustomSize(custom: boolean): void {
 		if (!draft) return;
@@ -928,6 +937,42 @@
 					{/if}
 				</div>
 
+				{#if draft.assetKey}
+					<div class="field">
+						<span class="label">Size on the reel cell</span>
+						<div class="gauge-wrap">
+							<div class="gauge-cell" style:width="{GAUGE_CELL}px" style:height="{GAUGE_CELL}px">
+								<div
+									class="gauge-art"
+									style:width="{Math.round(GAUGE_CELL * draftEffectiveSize.width)}px"
+									style:height="{Math.round(GAUGE_CELL * draftEffectiveSize.height)}px"
+								>
+									{#if draft.type === 'sprite'}
+										<SymbolSpritePreview
+											frame={draft.assetKey}
+											index={spriteIndex}
+											size={GAUGE_CELL}
+											w={Math.round(GAUGE_CELL * draftEffectiveSize.width)}
+											h={Math.round(GAUGE_CELL * draftEffectiveSize.height)}
+										/>
+									{:else}
+										<SymbolSpinePreview
+											assetKey={draft.previewKey ?? draft.assetKey}
+											animationName={draft.animationName}
+											size={Math.round(GAUGE_CELL * draftEffectiveSize.height)}
+										/>
+									{/if}
+								</div>
+							</div>
+							<p class="gauge-cap">
+								Dashed = one reel cell. Renders at
+								<strong>{draftEffectiveSize.width}×{draftEffectiveSize.height}</strong>
+								{#if !draft.sizeRatios}(inherited){/if}
+							</p>
+						</div>
+					</div>
+				{/if}
+
 				<div class="panel-actions">
 					{#if focusCell?.overridden}
 						<button
@@ -1334,6 +1379,36 @@
 	}
 	.link:hover {
 		text-decoration: underline;
+	}
+	.gauge-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		align-items: center;
+	}
+	.gauge-cell {
+		position: relative;
+		display: grid;
+		place-items: center;
+		overflow: hidden;
+		border: 1px dashed #4d6bd8;
+		border-radius: 4px;
+		background:
+			linear-gradient(#0e0e13, #0e0e13) padding-box,
+			repeating-conic-gradient(#15151c 0% 25%, #101016 0% 50%) 0 / 16px 16px;
+	}
+	.gauge-art {
+		display: grid;
+		place-items: center;
+	}
+	.gauge-cap {
+		margin: 0;
+		font-size: 11px;
+		color: #8a8a96;
+		text-align: center;
+	}
+	.gauge-cap strong {
+		color: #cfd2e0;
 	}
 	.highlight {
 		margin-bottom: 16px;
