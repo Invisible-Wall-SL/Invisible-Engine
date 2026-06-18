@@ -34,11 +34,15 @@ export function getActiveSymbolInfoMap(): SymbolInfoMap {
 const DEFAULT_SIZE_RATIOS = { width: 1, height: 1 } as const;
 
 /**
- * The size a symbol×state cell renders at. Order: per-cell baked override (legacy — a baked
- * symbols doc that still carries a cell `sizeRatios`) > the reel's `symbolSizeRatios` (authored
- * on the reelGrid node in the Scene Editor) > coded `SYMBOL_INFO_MAP` size > {1,1}. Read from
- * the ORIGINAL layers (not the merged map, which replaces whole cells). Consumed via
- * `getSymbolInfo`, so render components read a fully-resolved `sizeRatios`.
+ * The size a symbol×state cell renders at. Order: the reel's `symbolSizeRatios` (Scene Editor
+ * "Symbol size (× cell)") > per-cell baked `sizeRatios` (Symbols State Machine) > coded
+ * `SYMBOL_INFO_MAP` size > {1,1}. The reel control wins FIRST because it is the explicit
+ * "applied to EVERY symbol" global the author set in the editor — and once a symbols doc is
+ * baked EVERY cell carries a (default `{1,1}`) `sizeRatios`, so checking the baked map first
+ * silently shadowed the reel control for every published game. This matches the editor
+ * preview's `node.symbolSizeRatios ?? cell.sizeRatios` precedence; clear the reel control to
+ * fall back to the per-symbol sizes. Read from the ORIGINAL layers (not the merged map, which
+ * replaces whole cells). Consumed via `getSymbolInfo`, so render components read a resolved size.
  *
  * `fit` signals provenance so the renderer knows how to apply the ratio: the reel-override
  * path is `'contain'` (the ratio is a bounding box; the symbol fits inside preserving its
@@ -49,10 +53,10 @@ export function resolveSymbolSizeRatios(
 	name: string,
 	state: string,
 ): { width: number; height: number; fit: 'contain' | 'stretch' } {
-	const override = bakedSymbolMap()?.[name]?.[state]?.sizeRatios;
-	if (override) return { ...override, fit: 'stretch' };
 	const reel = boardSymbolSizeRatios();
 	if (reel) return { ...reel, fit: 'contain' };
+	const override = bakedSymbolMap()?.[name]?.[state]?.sizeRatios;
+	if (override) return { ...override, fit: 'stretch' };
 	const coded =
 		(SYMBOL_INFO_MAP as SymbolInfoMap)[name]?.[state]?.sizeRatios ?? DEFAULT_SIZE_RATIOS;
 	return { ...coded, fit: 'stretch' };
