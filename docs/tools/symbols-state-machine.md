@@ -72,6 +72,13 @@ tool top bar). Switch projects from the launcher before opening the tool.
 7. **Save.** The header **Save** button is enabled whenever the doc differs from what's
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
+8. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
+   and their previews from R2. Use it after you re-export or replace a spine bundle (e.g.
+   re-rigging in the Invisible Rigger) — otherwise the grid + pickers keep showing the
+   *cached* skeleton, because spine art is loaded once per bundle and the skeleton/page
+   files are HTTP-cached. Reloading drops those caches (previews refresh with the new art +
+   animation names) and re-reads the project's bundle list (a brand-new bundle appears in
+   the spine pickers). Your unsaved cell edits are preserved.
 
 ### Symbol size
 
