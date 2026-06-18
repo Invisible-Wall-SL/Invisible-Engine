@@ -47,6 +47,34 @@ export interface SymbolCell {
 /** Symbol name → state → binding (sparse for the override doc, dense for defaults). */
 export type SymbolStateMap = Partial<Record<SymbolState, SymbolCell>>;
 
+/** Win-line overlay style — the line drawn across paying symbols. All optional/sparse:
+ *  unset fields fall through to the game's coded defaults. Colours are CSS hex strings;
+ *  `width` is a multiple of the symbol size; `speed` is a draw-speed multiplier. */
+export interface WinLineLineStyle {
+	color?: string;
+	width?: number;
+	glow?: boolean;
+	glowColor?: string;
+	animated?: boolean;
+	speed?: number;
+}
+
+/** Win-amount text style (a bitmap font, so `color` is a tint multiply). `size` is a
+ *  multiple of the symbol size. */
+export interface WinLineTextStyle {
+	font?: string;
+	size?: number;
+	color?: string;
+}
+
+/** Global win-line overlay config. Sparse: `enabled` absent = ON; only `{ enabled: false }`
+ *  persists the OFF state; `line`/`text` carry only the fields the author changed. */
+export interface WinLineConfig {
+	enabled?: boolean;
+	line?: WinLineLineStyle;
+	text?: WinLineTextStyle;
+}
+
 export interface SymbolsDoc {
 	version: 1;
 	symbols: Record<string, SymbolStateMap>;
@@ -54,10 +82,11 @@ export interface SymbolsDoc {
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
 	 *  it with an R2 spine bundle; never written for the default. */
 	highlight?: SymbolCell;
-	/** Global on/off for the in-game winning-payline overlay. A pure flag, no asset.
-	 *  Absent = enabled (the game default); set `{ enabled: false }` ONLY to turn the
-	 *  win-line overlay OFF. The effective value is `doc.winLine?.enabled ?? true`. */
-	winLine?: { enabled: boolean };
+	/** Global win-line overlay config (on/off + line + text style). A pure-config field,
+	 *  no asset. Absent = the game defaults (overlay ON, gold line). The effective on/off
+	 *  is `doc.winLine?.enabled ?? true`; every style field falls through to coded
+	 *  defaults when unset. */
+	winLine?: WinLineConfig;
 	updatedAt?: string;
 }
 
@@ -132,16 +161,68 @@ export function winLineEnabled(doc: SymbolsDoc): boolean {
 	return doc.winLine?.enabled ?? true;
 }
 
-/** Set the global "show win lines" flag, returning a NEW doc (immutable update).
- *  Kept sparse: turning it ON clears the field; only OFF persists `{ enabled: false }`. */
+/** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
+ *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
+ *  doc minimal so an untouched/reset project ships no `winLine`. */
+function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undefined {
+	if (!winLine) return undefined;
+	const prune = <T extends object>(style: T | undefined): T | undefined => {
+		if (!style) return undefined;
+		const out = Object.fromEntries(
+			Object.entries(style).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+		);
+		return Object.keys(out).length ? (out as T) : undefined;
+	};
+	const next: WinLineConfig = {};
+	if (winLine.enabled === false) next.enabled = false;
+	const line = prune(winLine.line);
+	const text = prune(winLine.text);
+	if (line) next.line = line;
+	if (text) next.text = text;
+	return Object.keys(next).length ? next : undefined;
+}
+
+/** Replace the doc's `winLine` with a pruned copy (or remove it). New doc. */
+function withWinLine(doc: SymbolsDoc, winLine: WinLineConfig): SymbolsDoc {
+	const pruned = pruneWinLine(winLine);
+	const next = { ...doc };
+	if (pruned) next.winLine = pruned;
+	else delete next.winLine;
+	return next;
+}
+
+/** Set the global "show win lines" flag, returning a NEW doc (immutable update). Kept
+ *  sparse: turning it ON drops the `enabled` field (preserving any style); only OFF
+ *  persists `enabled: false`. */
 export function setWinLineEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
-	if (enabled) {
-		if (!doc.winLine) return doc;
-		const next = { ...doc };
-		delete next.winLine;
-		return next;
-	}
-	return { ...doc, winLine: { enabled: false } };
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	if (enabled) delete winLine.enabled;
+	else winLine.enabled = false;
+	return withWinLine(doc, winLine);
+}
+
+/** Merge a patch into `winLine.line` (line style). Pass a field as `undefined` to reset
+ *  it to the coded default. New doc. */
+export function setWinLineLine(doc: SymbolsDoc, patch: Partial<WinLineLineStyle>): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	winLine.line = { ...(winLine.line ?? {}), ...patch };
+	return withWinLine(doc, winLine);
+}
+
+/** Merge a patch into `winLine.text` (win-amount text style). New doc. */
+export function setWinLineText(doc: SymbolsDoc, patch: Partial<WinLineTextStyle>): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	winLine.text = { ...(winLine.text ?? {}), ...patch };
+	return withWinLine(doc, winLine);
+}
+
+/** Reset the win-line STYLE to defaults (clears `line`/`text`), keeping the on/off
+ *  state. New doc. */
+export function clearWinLineStyle(doc: SymbolsDoc): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	delete winLine.line;
+	delete winLine.text;
+	return withWinLine(doc, winLine);
 }
 
 /** Stable JSON for dirty-tracking (key order is fixed by `SYMBOL_STATES`). */
@@ -160,7 +241,20 @@ export function docSignature(doc: SymbolsDoc): string {
 				animationName: doc.highlight.animationName ?? '',
 			}
 		: null;
-	const winLine = doc.winLine ? { enabled: doc.winLine.enabled } : null;
+	// Sort style keys so the signature is stable regardless of how fields were merged in.
+	const sortKeys = (style: object | undefined): Record<string, unknown> | null => {
+		if (!style) return null;
+		const out: Record<string, unknown> = {};
+		for (const k of Object.keys(style).sort()) out[k] = (style as Record<string, unknown>)[k];
+		return out;
+	};
+	const winLine = doc.winLine
+		? {
+				enabled: doc.winLine.enabled ?? null,
+				line: sortKeys(doc.winLine.line),
+				text: sortKeys(doc.winLine.text),
+			}
+		: null;
 	return JSON.stringify({ symbols, highlight, winLine });
 }
 

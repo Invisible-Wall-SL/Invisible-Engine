@@ -77,28 +77,46 @@ hardcodes a local spine named `payframe`, spine key `anticipation`).
   by `assetKey` like any per-symbol spine; an un-overridden project ships no `highlight`
   and renders byte-identical to before.
 
-## Global "show win lines" toggle — added 2026-06-17
+## Win-line overlay config — added 2026-06-17, styling added 2026-06-18
 
-Alongside the highlight, the doc carries ONE more optional global setting: a plain on/off
-flag for the in-game winning-payline overlay. Unlike the highlight it is a **pure flag —
-no asset, no preview, no export work**.
+Alongside the highlight, the doc carries ONE more optional global setting: the **win-line
+overlay** config — the line traced across each winning payline, with the win amount stamped
+under its end. It started (2026-06-17) as a plain on/off flag and was widened (2026-06-18)
+to also carry line + text **style**. It is still **pure config — no asset, no preview**
+(the chosen text font travels via the existing font pipeline, not here).
 
 ```jsonc
 {
   "version": 1,
   "symbols": { /* … */ },
-  "winLine": { "enabled": false }   // present ONLY when turned OFF
+  "winLine": {
+    "enabled": false,                       // present ONLY when turned OFF
+    "line": { "color": "#ff3366", "width": 0.04, "glow": true, "glowColor": "#ff88aa",
+              "animated": true, "speed": 1.5 },
+    "text": { "font": "silver", "size": 0.6, "color": "#ffffff" }
+  }
 }
 ```
 
-- **Contract field (end to end):** `winLine?: { enabled: boolean }` on `SymbolsDoc`
-  (schema in `symbolsStorage.ts`). The EFFECTIVE value is `doc.winLine?.enabled ?? true`.
-- **Sparse on purpose.** Default (on) writes nothing — the field is persisted only when
-  the author turns it OFF (`{ enabled: false }`); turning it back on clears the field.
-- **Export/bake.** `symbolExport.ts` passes `winLine` straight through (no asset);
-  `bake-editor-doc.mjs` embeds it at `bundle.symbols.winLine`, OMITTING it when absent or
-  enabled. The game reads `bundle.symbols.winLine?.enabled ?? true`, so an untouched
-  project is byte-identical to before and the overlay stays on.
+- **Contract field (end to end):** `winLine?: { enabled?; line?; text? }` on `SymbolsDoc`
+  (schema in `symbolsStorage.ts`; client type + sparse setters in `symbols.client.ts`).
+  Every field is optional; the EFFECTIVE on/off is `doc.winLine?.enabled ?? true` and each
+  style field falls through to the game's coded default. Colours are CSS hex strings
+  (Pixi 8 `ColorSource`); `line.width`/`text.size` are multiples of `SYMBOL_SIZE`;
+  `line.speed` scales the animated-draw duration.
+- **Sparse on purpose.** Default (on, default style) writes nothing. Only the off-state
+  (`enabled: false`) and the individual fields the author changes are persisted; "Reset
+  win-line style" clears `line`/`text`; turning the toggle back on clears `enabled`.
+- **Export/bake.** `symbolExport.ts` passes `winLine` straight through verbatim (no asset);
+  `bake-editor-doc.mjs` embeds it at `bundle.symbols.winLine`, OMITTING it when absent.
+- **Renderer (per-game).** Book of Borut's `WinLine.svelte` reads the resolved config via
+  `editor-scenes.ts#bakedWinLineConfig()` (coded defaults applied) — line colour/thickness,
+  an optional layered-stroke glow, an optional `svelte/motion` `Tween` draw (first→last,
+  *then* the amount), and the bitmap win-amount text (`style.fill` tint). The win-line
+  draw is awaited via `broadcastAsync` so an animated line completes before the symbol
+  glow; non-animated resolves instantly, preserving the original timing. `apps/lines` has
+  no win-line renderer (symbol-glow win model) — it carries the contract TYPE only, so an
+  untouched project is byte-identical to before and the overlay stays on.
 
 ## "Spine export" demystified
 

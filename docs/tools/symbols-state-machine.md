@@ -91,19 +91,39 @@ chosen spine bundle travels the same chain as a per-symbol spine cell (its bundl
 copied into `deploy/editor-symbols/` and registered), and the bundle records the
 highlight pointer so the game loads the authored win frame by `assetKey`.
 
-### Show win lines
+### Win lines
 
-Next to the highlight is a single **global** on/off toggle, **Show win lines**, that
-controls the in-game winning-payline overlay (the lines that trace each winning payline).
-It is a pure flag — no asset, no preview. The toggle is **On by default**; flip it off to
-hide the win-line overlay for the whole project.
+Below the highlight is the **Win lines** section: a single **global** on/off toggle plus
+the style of the in-game winning-payline overlay — the line traced across each winning
+payline, with the win amount stamped under its end. It is pure config (no asset, no
+preview). The toggle is **On by default**; flip it off to hide the overlay for the whole
+project. When it's on, two groups of controls appear:
 
-The flag is an optional top-level field on the doc: `winLine: { enabled: boolean }`. To
-keep the doc and the baked bundle sparse, the field is written **only when you turn it
-off** (`{ enabled: false }`); turning it back on clears the field. The game reads
-`bundle.symbols.winLine?.enabled ?? true`, so a project that never touches this toggle is
-byte-identical to before and the overlay stays on. On export/bake the flag is passed
-straight through to `bundle.symbols.winLine` (omitted when on) — there is no asset work.
+- **Line** — **Colour**; **Thickness** (a fraction of the symbol size); **Glow** on/off
+  and its **Glow colour**; **Animated draw** on/off (the line draws from the first paying
+  tile to the last, *then* the amount appears) and its **Speed** (a draw-speed multiplier;
+  disabled unless Animated is on).
+- **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
+  builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
+  fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
+  *tints* it — clean on a light font, but tinting an already-coloured font (e.g. gold) just
+  darkens it, so to recolour cleanly pick a differently-coloured font.
+
+A **Reset win-line style** button clears the style back to the game's coded defaults while
+leaving the on/off state alone.
+
+Every field is optional and **sparse**: only the on/off (when off) and the fields you
+actually change are written, under `winLine: { enabled?, line?, text? }` on the doc.
+Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
+scales the animated-draw duration. The game applies its coded defaults for every field the
+bundle omits, so a project that never opens this section is byte-identical to before and
+the overlay stays on with its default gold line. On export/bake the config is passed
+straight through to `bundle.symbols.winLine` (omitted when untouched) — there is no asset
+work; the chosen text font travels via the normal font pipeline.
+
+The renderer is per-game: Book of Borut's `WinLine.svelte` consumes this config (via
+`bakedWinLineConfig()`). The engine reference `apps/lines` uses a symbol-glow win model and
+has no win line, so the config has no effect there.
 
 ### Saving is not the last step — shipping a rebind
 

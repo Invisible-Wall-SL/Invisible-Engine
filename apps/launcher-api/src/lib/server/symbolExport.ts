@@ -103,9 +103,10 @@ export interface SymbolExportResult {
 	index: SymbolExportIndex;
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
-	/** The global "show win lines" flag, passed through (no asset work). Absent → the
-	 *  game keeps its default (enabled); `{ enabled: false }` turns the overlay OFF. */
-	winLine?: { enabled: boolean };
+	/** The global win-line config (on/off + line + text style), passed through VERBATIM
+	 *  (no asset work — the chosen text font travels via the font pipeline). Absent → the
+	 *  game keeps all its coded defaults. */
+	winLine?: SymbolsDoc['winLine'];
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -338,9 +339,10 @@ export async function exportEditorSymbols(
 			? { assetKey: doc.highlight.assetKey, animationName: doc.highlight.animationName }
 			: undefined;
 
-	// The global "show win lines" flag — a pure pass-through (no asset). Only present
-	// when the author turned it OFF; absent means the game keeps its default (enabled).
-	const winLine = doc.winLine ? { enabled: doc.winLine.enabled } : undefined;
+	// The global win-line config — a pure pass-through (no asset). The doc is already
+	// sparse (only authored fields), so forward it verbatim; absent means the game keeps
+	// all its coded defaults.
+	const winLine = doc.winLine;
 
 	return {
 		map: doc.symbols,

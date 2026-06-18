@@ -74,6 +74,23 @@ type BakedBundle = {
 		 * per-symbol spine cells, so it is already loadable under its `assetKey`. Absent →
 		 * `SymbolSpine.svelte` keeps the coded `anticipation`/`payframe` frame. */
 		highlight?: { assetKey: string; animationName: string };
+		/** Global win-line overlay config (Invisible Symbols State Machine output): on/off
+		 * plus line + win-amount-text style. Pure config, no asset (the chosen `text.font`
+		 * travels via the font pipeline). Sparse — every field falls through to the game's
+		 * coded defaults. `apps/lines` has no win-line renderer (it uses a symbol-glow win
+		 * model), so this type documents the shared contract; Book of Borut consumes it. */
+		winLine?: {
+			enabled?: boolean;
+			line?: {
+				color?: string;
+				width?: number;
+				glow?: boolean;
+				glowColor?: string;
+				animated?: boolean;
+				speed?: number;
+			};
+			text?: { font?: string; size?: number; color?: string };
+		};
 	};
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;

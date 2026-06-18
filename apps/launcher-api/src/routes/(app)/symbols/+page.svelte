@@ -11,6 +11,7 @@
 		SYMBOL_STATES,
 		clearHighlight,
 		clearOverride,
+		clearWinLineStyle,
 		docSignature,
 		effectiveCell,
 		effectiveHighlight,
@@ -18,6 +19,8 @@
 		setHighlight,
 		setOverride,
 		setWinLineEnabled,
+		setWinLineLine,
+		setWinLineText,
 		winLineEnabled,
 		type SymbolCell,
 		type SymbolState,
@@ -264,14 +267,52 @@
 		closeHighlight();
 	}
 
-	// ── Global "show win lines" toggle ────────────────────────────────────────
-	// A plain on/off for the in-game winning-payline overlay (no asset). Effective
-	// value defaults to ON when the doc has no `winLine`; flipping it OFF persists
-	// `{ enabled: false }`, flipping it back ON clears the field (keeps the doc sparse).
+	// ── Global win-line overlay (on/off + style) ──────────────────────────────
+	// A plain on/off plus line + win-amount-text styling for the in-game winning-payline
+	// overlay (pure config, no asset). Effective on/off defaults to ON when the doc has no
+	// `winLine`; every style field falls through to the coded defaults below when unset, so
+	// the doc stays sparse (only authored, non-default fields persist).
 	const winLineOn = $derived(winLineEnabled(doc));
+
+	// The game's coded win-line defaults (mirror Book of Borut's WinLine.svelte). Shown as
+	// the input values when the author hasn't overridden a field.
+	const WL_DEFAULTS = {
+		color: '#ffcc00',
+		width: 0.03,
+		glow: false,
+		glowColor: '#ffcc00',
+		animated: false,
+		speed: 1,
+		font: 'gold',
+		size: 0.5,
+		textColor: '#ffffff',
+	} as const;
+
+	// Engine builtin bitmap fonts (declared in each game's Game.svelte, not in the R2
+	// catalog) unioned with the project's Font-Maker fonts for the text font dropdown.
+	const BUILTIN_FONTS = ['gold', 'goldblur', 'silver', 'purple'];
+	const fontOptions = $derived.by(() => {
+		const names = new Set(BUILTIN_FONTS);
+		for (const f of data.fonts) names.add(f.name);
+		return [...names];
+	});
+
+	const wlLine = $derived(doc.winLine?.line ?? {});
+	const wlText = $derived(doc.winLine?.text ?? {});
+
+	function patchWinLineLine(patch: Partial<NonNullable<SymbolsDoc['winLine']>['line']>): void {
+		doc = setWinLineLine(doc, patch ?? {});
+	}
+	function patchWinLineText(patch: Partial<NonNullable<SymbolsDoc['winLine']>['text']>): void {
+		doc = setWinLineText(doc, patch ?? {});
+	}
 
 	function toggleWinLine(enabled: boolean): void {
 		doc = setWinLineEnabled(doc, enabled);
+	}
+
+	function resetWinLineStyle(): void {
+		doc = clearWinLineStyle(doc);
 	}
 </script>
 
@@ -441,23 +482,147 @@
 					</div>
 				</section>
 
-				<section class="winline">
-					<div class="wl-text">
-						<h2>Show win lines</h2>
-						<p class="wl-sub">
-							Global on/off for the in-game winning-payline overlay. On by default; turn it off to
-							hide the lines that trace each winning payline.
-						</p>
+				<section class="winline" class:expanded={winLineOn}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Win lines</h2>
+							<p class="wl-sub">
+								The line traced across each winning payline, with the win amount stamped under its
+								end. On by default; turn it off to hide the overlay, or style the line and the
+								amount text below.
+							</p>
+						</div>
+						<label class="switch" class:on={winLineOn}>
+							<input
+								type="checkbox"
+								checked={winLineOn}
+								onchange={(e) => toggleWinLine(e.currentTarget.checked)}
+							/>
+							<span class="track"><span class="knob"></span></span>
+							<span class="switch-label">{winLineOn ? 'On' : 'Off'}</span>
+						</label>
 					</div>
-					<label class="switch" class:on={winLineOn}>
-						<input
-							type="checkbox"
-							checked={winLineOn}
-							onchange={(e) => toggleWinLine(e.currentTarget.checked)}
-						/>
-						<span class="track"><span class="knob"></span></span>
-						<span class="switch-label">{winLineOn ? 'On' : 'Off'}</span>
-					</label>
+
+					{#if winLineOn}
+						<div class="wl-config">
+							<div class="wl-group">
+								<h3>Line</h3>
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Colour</span>
+										<input
+											type="color"
+											value={wlLine.color ?? WL_DEFAULTS.color}
+											oninput={(e) => patchWinLineLine({ color: e.currentTarget.value })}
+										/>
+									</label>
+									<label class="field">
+										<span class="label">Thickness {(wlLine.width ?? WL_DEFAULTS.width).toFixed(3)}</span>
+										<input
+											type="range"
+											min="0.005"
+											max="0.12"
+											step="0.005"
+											value={wlLine.width ?? WL_DEFAULTS.width}
+											oninput={(e) => patchWinLineLine({ width: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<div class="field">
+										<span class="label">Glow</span>
+										<label class="switch sm" class:on={wlLine.glow ?? WL_DEFAULTS.glow}>
+											<input
+												type="checkbox"
+												checked={wlLine.glow ?? WL_DEFAULTS.glow}
+												onchange={(e) => patchWinLineLine({ glow: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{(wlLine.glow ?? WL_DEFAULTS.glow) ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}>
+										<span class="label">Glow colour</span>
+										<input
+											type="color"
+											disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}
+											value={wlLine.glowColor ?? wlLine.color ?? WL_DEFAULTS.glowColor}
+											oninput={(e) => patchWinLineLine({ glowColor: e.currentTarget.value })}
+										/>
+									</label>
+									<div class="field">
+										<span class="label">Animated draw</span>
+										<label class="switch sm" class:on={wlLine.animated ?? WL_DEFAULTS.animated}>
+											<input
+												type="checkbox"
+												checked={wlLine.animated ?? WL_DEFAULTS.animated}
+												onchange={(e) => patchWinLineLine({ animated: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlLine.animated ?? WL_DEFAULTS.animated) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlLine.animated ?? WL_DEFAULTS.animated)}>
+										<span class="label">Speed ×{(wlLine.speed ?? WL_DEFAULTS.speed).toFixed(2)}</span>
+										<input
+											type="range"
+											min="0.25"
+											max="4"
+											step="0.25"
+											disabled={!(wlLine.animated ?? WL_DEFAULTS.animated)}
+											value={wlLine.speed ?? WL_DEFAULTS.speed}
+											oninput={(e) => patchWinLineLine({ speed: Number(e.currentTarget.value) })}
+										/>
+									</label>
+								</div>
+							</div>
+
+							<div class="wl-group">
+								<h3>Win amount text</h3>
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Font</span>
+										<select
+											value={wlText.font ?? WL_DEFAULTS.font}
+											onchange={(e) => patchWinLineText({ font: e.currentTarget.value })}
+										>
+											{#each fontOptions as name (name)}
+												<option value={name}>{name}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="field">
+										<span class="label">Size {(wlText.size ?? WL_DEFAULTS.size).toFixed(2)}</span>
+										<input
+											type="range"
+											min="0.2"
+											max="1.5"
+											step="0.05"
+											value={wlText.size ?? WL_DEFAULTS.size}
+											oninput={(e) => patchWinLineText({ size: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<label class="field">
+										<span class="label">Colour (tint)</span>
+										<input
+											type="color"
+											value={wlText.color ?? WL_DEFAULTS.textColor}
+											oninput={(e) => patchWinLineText({ color: e.currentTarget.value })}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									The amount uses a bitmap font, so the colour tints it — clean on a light font,
+									but tinting an already-coloured font (e.g. gold) just darkens it. To recolour
+									cleanly, pick a differently-coloured font.
+								</p>
+							</div>
+
+							<button type="button" class="ghost wl-reset" onclick={resetWinLineStyle}>
+								Reset win-line style
+							</button>
+						</div>
+					{/if}
 				</section>
 
 				{#if symbolNames.length === 0}
@@ -1135,14 +1300,85 @@
 
 	.winline {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 24px;
+		flex-direction: column;
+		gap: 16px;
 		margin-bottom: 16px;
 		padding: 14px 16px;
 		background: #101018;
 		border: 1px solid #24242e;
 		border-radius: 10px;
+	}
+	.winline.expanded {
+		border-color: #4d6bd8;
+	}
+	.wl-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 24px;
+	}
+	.wl-config {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		border-top: 1px solid #24242e;
+		padding-top: 16px;
+	}
+	.wl-group h3 {
+		margin: 0 0 10px;
+		font-size: 12px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #9a9aa6;
+	}
+	.wl-fields {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 14px 20px;
+		align-items: flex-end;
+	}
+	.wl-fields .field {
+		min-width: 132px;
+		max-width: 200px;
+	}
+	.wl-fields .field.disabled {
+		opacity: 0.4;
+	}
+	.wl-fields input[type='color'] {
+		width: 100%;
+		height: 30px;
+		padding: 2px;
+		background: #16161c;
+		border: 1px solid #2a2a33;
+		border-radius: 5px;
+		cursor: pointer;
+	}
+	.wl-fields input[type='range'] {
+		width: 100%;
+		accent-color: #5b8cff;
+	}
+	.switch.sm .track {
+		width: 38px;
+		height: 20px;
+		border-radius: 10px;
+	}
+	.switch.sm .knob {
+		width: 14px;
+		height: 14px;
+	}
+	.switch.sm.on .knob {
+		transform: translateX(18px);
+	}
+	.wl-note {
+		margin: 8px 0 0;
+		font-size: 11px;
+		color: #777;
+		line-height: 1.4;
+		max-width: 640px;
+	}
+	.wl-reset {
+		align-self: flex-start;
 	}
 	.wl-text h2 {
 		margin: 0;

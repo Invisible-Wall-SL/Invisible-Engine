@@ -252,13 +252,20 @@ async function main() {
 								: {}),
 						}
 					: undefined;
-			// The global "show win lines" flag — a pure flag (no asset). The game defaults
-			// to enabled when absent (`bundle.symbols.winLine?.enabled ?? true`), so keep the
-			// bundle sparse: only embed it when the author turned it OFF (enabled === false).
-			const winLine =
-				s?.winLine && typeof s.winLine === 'object' && s.winLine.enabled === false
-					? { enabled: false }
-					: undefined;
+			// The global win-line config — pure config (no asset): on/off + line + text
+			// style. The exporter already forwards it sparse (only authored, non-default
+			// fields), so embed it verbatim, keeping it sparse so an untouched project ships
+			// no `winLine` and renders byte-identical. The game applies coded defaults for
+			// every field the bundle omits.
+			const winLine = (() => {
+				const w = s?.winLine;
+				if (!w || typeof w !== 'object') return undefined;
+				const out = {};
+				if (w.enabled === false) out.enabled = false;
+				if (w.line && typeof w.line === 'object' && Object.keys(w.line).length) out.line = w.line;
+				if (w.text && typeof w.text === 'object' && Object.keys(w.text).length) out.text = w.text;
+				return Object.keys(out).length ? out : undefined;
+			})();
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -339,7 +346,11 @@ async function main() {
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
-	const winLineNote = symbols.winLine ? ' winLines=OFF,' : '';
+	const winLineNote = symbols.winLine
+		? symbols.winLine.enabled === false
+			? ' winLines=OFF,'
+			: ' winLines=styled,'
+		: '';
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {

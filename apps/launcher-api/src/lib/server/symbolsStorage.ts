@@ -59,9 +59,39 @@ const highlightCellSchema = z
 	})
 	.strict();
 
-/** Global on/off for the in-game winning-payline overlay. A pure flag (no asset):
- *  absent means enabled (the game default); `{ enabled: false }` turns it OFF. */
-const winLineSchema = z.object({ enabled: z.boolean() }).strict();
+/** Win-line overlay config (Invisible Symbols State Machine). All fields optional and
+ *  sparse — anything unset falls through to the game's coded defaults, so an untouched
+ *  project ships no `winLine` and renders byte-identical. `enabled` absent means ON;
+ *  `{ enabled: false }` turns the overlay OFF. Colours are CSS hex strings (Pixi 8
+ *  `ColorSource` consumes them directly); `width`/`size` are multiples of the symbol
+ *  size; `speed` is a draw-speed multiplier. No assets here — the chosen `text.font`
+ *  travels via the existing font pipeline. */
+const winLineLineSchema = z
+	.object({
+		color: z.string().optional(),
+		width: z.number().optional(),
+		glow: z.boolean().optional(),
+		glowColor: z.string().optional(),
+		animated: z.boolean().optional(),
+		speed: z.number().optional(),
+	})
+	.strict();
+
+const winLineTextSchema = z
+	.object({
+		font: z.string().optional(),
+		size: z.number().optional(),
+		color: z.string().optional(),
+	})
+	.strict();
+
+const winLineSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+		line: winLineLineSchema.optional(),
+		text: winLineTextSchema.optional(),
+	})
+	.strict();
 
 export const symbolsDocSchema = z
 	.object({
@@ -81,6 +111,17 @@ export function emptySymbolsDoc(): SymbolsDoc {
 	return { version: 1, symbols: {} };
 }
 
+/** Drop empty `line`/`text` style objects and a now-empty `winLine`, so a reset
+ *  round-trips to "no winLine" (sparse) rather than persisting `{}`. */
+function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
+	if (!winLine) return undefined;
+	const next: NonNullable<SymbolsDoc['winLine']> = {};
+	if (winLine.enabled === false) next.enabled = false;
+	if (winLine.line && Object.keys(winLine.line).length) next.line = winLine.line;
+	if (winLine.text && Object.keys(winLine.text).length) next.text = winLine.text;
+	return Object.keys(next).length ? next : undefined;
+}
+
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
  * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
@@ -95,7 +136,8 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	}
 	const next: SymbolsDoc = { version: 1, symbols };
 	if (doc.highlight) next.highlight = doc.highlight;
-	if (doc.winLine) next.winLine = doc.winLine;
+	const winLine = pruneWinLine(doc.winLine);
+	if (winLine) next.winLine = winLine;
 	return next;
 }
 
