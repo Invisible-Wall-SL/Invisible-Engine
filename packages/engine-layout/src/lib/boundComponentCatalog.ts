@@ -178,6 +178,17 @@ const TILE_PARAMS: EditableParam[] = [
  * component here (+ wire it to read the prop) to make it editor-configurable.
  */
 export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
+	// Free-spin intro overlay — swap the coded spine bundle + animation names + the
+	// number slot the count is injected into. The component reads these as $props()
+	// with the coded values as defaults, so an unauthored game renders identically.
+	// NB: a custom `introSpine` bundle MUST expose a slot matching `slotName`, else
+	// the count BitmapText has nowhere to mount.
+	FreeSpinIntro: [
+		{ key: 'introSpine', kind: 'string', label: 'Intro spine bundle', placeholder: 'fsIntroNumber' },
+		{ key: 'introAnimation', kind: 'string', label: 'Intro animation', placeholder: 'intro' },
+		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
+		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
+	],
 	// Readout background tile + the parametric button's frame — same tile knobs
 	// (texture / tint / outline / corner radius). The button's engine STATES
 	// (disabled grey, active border) override the authored resting style.

@@ -16,12 +16,19 @@
 	import PressToContinue from './PressToContinue.svelte';
 	import FreeSpinAnimation from './FreeSpinAnimation.svelte';
 
-	type AnimationName = 'intro' | 'idle';
+	type AnimationName = string;
+
+	const {
+		introSpine = 'fsIntroNumber',
+		introAnimation = 'intro',
+		idleAnimation = 'idle',
+		slotName = 'slot_number',
+	} = $props();
 
 	const context = getContext();
 
 	let show = $state(false);
-	let animationName = $state<AnimationName>('intro');
+	let animationName = $state<AnimationName>(introAnimation);
 	let freeSpinsFromEvent = $state(0);
 	let oncomplete = $state(() => {});
 
@@ -51,16 +58,16 @@
 				key="freespins_{stateUrlDerived.lang()}.png"
 			/>
 
-			<SpineProvider key="fsIntroNumber" width={sizes.width * 0.4}>
+			<SpineProvider key={introSpine} width={sizes.width * 0.4}>
 				<SpineTrack
 					trackIndex={0}
 					{animationName}
-					loop={animationName === 'idle'}
+					loop={animationName === idleAnimation}
 					listener={{
-						complete: () => (animationName = 'idle'),
+						complete: () => (animationName = idleAnimation),
 					}}
 				/>
-				<SpineSlot slotName="slot_number">
+				<SpineSlot {slotName}>
 					<BitmapText
 						anchor={{ x: 0.5, y: 0.5 }}
 						text={freeSpinsFromEvent}
