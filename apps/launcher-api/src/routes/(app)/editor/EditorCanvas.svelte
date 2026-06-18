@@ -1086,6 +1086,15 @@
 			if (found) return regionNaturalSize(found.region);
 			return null;
 		}
+		// A directly-placed spine node's natural size comes from the WebGL overlay's
+		// setup-pose bounds (the 2D canvas can't measure a skeleton), keyed by the bundle
+		// `assetKey` — the same map a `preview.art` spine anchor reads via `artNaturalSize`.
+		// Without this the box/hit-test falls back to a tiny default (the assetKey is a
+		// bundle prefix, never an image key, so the `images` lookup below always misses).
+		if (node.kind === 'spine') {
+			const sz = spineNaturalSizes.get(node.assetKey);
+			if (sz) return sz;
+		}
 		if (node.kind === 'sprite' || node.kind === 'spine') {
 			const img = images.get(node.assetKey);
 			if (img && img.naturalWidth > 0) return { w: img.naturalWidth, h: img.naturalHeight };

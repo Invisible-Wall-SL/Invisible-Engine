@@ -156,7 +156,13 @@ export function nodeBox(
 		return { w, h, ax, ay };
 	}
 	if (node.kind === 'spine') {
-		return { w: t.width ?? 160, h: t.height ?? 100, ax, ay };
+		// Frame the spine at its real setup-pose bounds (reported by the WebGL overlay via
+		// `naturalSize`), like a sprite — not a fixed 160×100, which leaves the transform
+		// box far smaller than the rendered skeleton.
+		const nat = naturalSize(node);
+		const w = t.width ?? nat?.w ?? 160;
+		const h = t.height ?? nat?.h ?? 100;
+		return { w, h, ax, ay };
 	}
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
