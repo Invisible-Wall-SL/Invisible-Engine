@@ -133,6 +133,13 @@ def build_manifest(sheet_image: str, width: int, height: int,
             "prompt": r.get("prompt", ""),
             "shape_ref": shape_ref,
             "seed": r.get("seed", ""),
+            # These are CELL-GRID slots, not Spine rigs: the art is centred at
+            # its own aspect inside the cell. Mark them `contain` so the Atlas
+            # Maker (which otherwise treats any .atlas-bound region as a Spine
+            # slot and `fill`s = stretches it) scales uniformly without
+            # distorting. fit_mode is a creative field, so it survives
+            # merge_atlas_regions and overrides the spine-slot `fill` default.
+            "fit_mode": "contain",
         })
     atlas: dict = {
         # Bare name only — NEVER a local OS/Windows staging path. The resolvable
