@@ -116,33 +116,43 @@ def pull_prefix(prefix: str, dest_root: Path, key_root: str) -> int:
     relative path below `key_root`. Concurrent (boto3 clients are thread-safe
     for calls) so large trees pull in seconds, not minutes.
 
-    Incremental hydrate: a key is SKIPPED when the local destination already
-    exists with a matching size (write-once / replace-whole assets, no cheap
-    content hash in R2 → size is the heuristic). A 0 / missing size never
-    skips (downloads to be safe). Returns the number of files ACTUALLY
-    downloaded (skips don't count). Best-effort: any per-file error counts as
-    not-downloaded, never raises."""
+    Incremental hydrate: a key is SKIPPED only when the local destination
+    exists, matches in size, AND is at least as new as the R2 object. Size
+    alone is not enough — an edited sprite that re-compresses to the same byte
+    count (e.g. a recolour at identical dimensions) would otherwise be skipped
+    forever, leaving stale pixels in staging and a stale ETag (the
+    "sheet editor shows old images after coming back" bug). Comparing R2's
+    LastModified against the local mtime catches that: a re-uploaded object has
+    a newer LastModified than the file we last downloaded, so it re-downloads.
+    A 0 / missing size never skips (downloads to be safe). Returns the number
+    of files ACTUALLY downloaded (skips don't count). Best-effort: any per-file
+    error counts as not-downloaded, never raises."""
     from concurrent.futures import ThreadPoolExecutor
 
     cli = _client()
     bucket = _bucket()
 
     def _one(item) -> int:
-        key, size = item
+        key, size, mtime = item
         if key.endswith("/"):
             return 0
         rel = key[len(key_root):].lstrip("/") if key.startswith(key_root) else key
         dest = dest_root / rel
         try:
             if size and dest.exists() and dest.stat().st_size == size:
-                return 0
+                # Same size — only trust the skip if our local copy is not older
+                # than the R2 object. download_file stamps the local mtime at
+                # fetch time, so an unchanged object stays skipped while a
+                # re-uploaded one (newer LastModified) re-downloads.
+                if not mtime or dest.stat().st_mtime >= mtime:
+                    return 0
             dest.parent.mkdir(parents=True, exist_ok=True)
             cli.download_file(bucket, key, str(dest))
             return 1
         except Exception:  # noqa: BLE001
             return 0
 
-    entries = [(e["key"], e.get("size")) for e in list_keys(prefix)]
+    entries = [(e["key"], e.get("size"), e.get("mtime")) for e in list_keys(prefix)]
     if not entries:
         return 0
     with ThreadPoolExecutor(max_workers=16) as pool:
