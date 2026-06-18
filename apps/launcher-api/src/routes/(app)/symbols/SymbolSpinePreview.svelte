@@ -21,8 +21,11 @@
 		size: number;
 		/** Reports the bundle's animation names once loaded (drives the cell editor). */
 		onAnimations?: (names: string[]) => void;
+		/** Bumped by the page's "Reload from R2" — re-fetches the skeleton + pages
+		 *  (with a fresh `?v=`) so a re-exported bundle refreshes without a reload. */
+		reloadToken?: number;
 	}
-	let { assetKey, animationName, size, onAnimations }: Props = $props();
+	let { assetKey, animationName, size, onAnimations, reloadToken = 0 }: Props = $props();
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -38,16 +41,20 @@
 	// — otherwise a failing key (missing spine, 404, network) re-fetches every frame
 	// and floods the browser (ERR_INSUFFICIENT_RESOURCES). `loadedKey` is set
 	// synchronously before the await, so the very next frame already short-circuits.
+	// Guard key folds in `reloadToken` so a "Reload from R2" bump re-runs the load
+	// (re-fetching the descriptor + skeleton + pages with the new `?v=`) for the
+	// SAME bundle key, exactly as a key change would.
 	let loadedKey = '';
+	const wantKey = $derived(`${assetKey}\n${reloadToken}`);
 	async function ensure(): Promise<void> {
 		// Canvas/GL not ready yet → don't claim the key; retry next frame.
 		if (!ensureGl() || !gl) return;
-		if (loadedKey === assetKey) return;
-		loadedKey = assetKey;
+		if (loadedKey === wantKey) return;
+		loadedKey = wantKey;
 		teardownInstance();
 		status = 'loading';
-		const inst = await loadSpineInstance(assetKey, gl);
-		if (loadedKey !== assetKey) {
+		const inst = await loadSpineInstance(assetKey, gl, reloadToken);
+		if (loadedKey !== wantKey) {
 			// A newer key won the race — drop this stale instance.
 			if (inst) disposeSpineInstance(inst);
 			return;

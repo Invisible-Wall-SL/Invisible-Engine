@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
@@ -110,6 +111,26 @@
 	let saving = $state(false);
 	let saveError = $state<string | null>(null);
 	let savedAt = $state<string | null>(data.doc.updatedAt ?? null);
+
+	// "Reload from R2": after re-exporting/replacing a spine in R2 (e.g. from the
+	// Rigger), the previews + picker would otherwise keep the cached bundle — the
+	// skeleton/page fetches are HTTP-cached and the bundle list comes from the server
+	// `load`. Bumping `reloadToken` drops the in-session spine caches and re-fetches
+	// with a fresh `?v=`; `invalidateAll()` re-runs `load` so a brand-new bundle
+	// (and refreshed animation names) shows up too. Local doc edits survive — `doc`
+	// is its own `$state`, not derived from `data`.
+	let reloadToken = $state(0);
+	let reloading = $state(false);
+	async function reloadFromR2(): Promise<void> {
+		if (reloading) return;
+		reloading = true;
+		reloadToken++;
+		try {
+			await invalidateAll();
+		} finally {
+			reloading = false;
+		}
+	}
 
 	// The focused cell — opens the cell editor panel (with its single live spine
 	// preview). Grid spine cells animate via the shared <SymbolSpineStage>, not focus.
@@ -346,6 +367,15 @@
 			<div class="save-area">
 				{#if saveError}<span class="save-err">{saveError}</span>{/if}
 				{#if !dirty && savedAt}<span class="saved">Saved</span>{/if}
+				<button
+					class="reload"
+					type="button"
+					disabled={reloading}
+					title="Re-fetch spine bundles + previews from R2 (after re-exporting art)"
+					onclick={reloadFromR2}
+				>
+					{reloading ? 'Reloading…' : '↻ Reload from R2'}
+				</button>
 				<button class="save" type="button" disabled={!dirty || saving} onclick={save}>
 					{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
 				</button>
@@ -387,6 +417,7 @@
 										assetKey={highlight.cell.assetKey}
 										animationName={highlight.cell.animationName}
 										size={96}
+										{reloadToken}
 									/>
 								</div>
 								<div class="hl-meta">
@@ -402,6 +433,7 @@
 										assetKey={defaultFrameBundle.key}
 										animationName={BUILTIN_FRAME.animationName}
 										size={96}
+										{reloadToken}
 									/>
 								</div>
 								<div class="hl-meta">
@@ -475,6 +507,7 @@
 												assetKey={highlightDraft.assetKey}
 												animationName={highlightDraft.animationName}
 												size={96}
+												{reloadToken}
 												onAnimations={(names) => (highlightAnimations = names)}
 											/>
 										</div>
@@ -711,7 +744,7 @@
 					</table>
 				{/if}
 			</div>
-			<SymbolSpineStage container={gridScroll} />
+			<SymbolSpineStage container={gridScroll} {reloadToken} />
 		</div>
 
 		{#if focus && draft}
@@ -802,6 +835,7 @@
 									assetKey={draft.previewKey ?? draft.assetKey}
 									animationName={draft.animationName}
 									size={120}
+									{reloadToken}
 									onAnimations={(names) => (draftAnimations = names)}
 								/>
 							</div>
@@ -886,6 +920,23 @@
 	}
 	.save:disabled {
 		opacity: 0.45;
+		cursor: default;
+	}
+	.reload {
+		padding: 6px 14px;
+		border-radius: 6px;
+		border: 1px solid #2a2a33;
+		background: #16161c;
+		color: #b9b9c4;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.reload:hover:not(:disabled) {
+		border-color: #3a3a48;
+		color: #d8d8e0;
+	}
+	.reload:disabled {
+		opacity: 0.55;
 		cursor: default;
 	}
 	.body {

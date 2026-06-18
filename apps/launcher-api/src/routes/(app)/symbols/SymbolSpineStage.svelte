@@ -6,7 +6,7 @@
 	// canvas overlays the grid's scroll viewport (pointer-events:none); each frame it
 	// finds the live screen rect of every `[data-spine-key]` cell (so it tracks
 	// scrolling) and draws that cell's animation, looping, into it.
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import {
 		disposeSpineInstance,
 		loadSpineInstance,
@@ -21,8 +21,11 @@
 	interface Props {
 		/** The scroll container whose `[data-spine-key]` cells this draws over. */
 		container: HTMLElement | null;
+		/** Bumped by the page's "Reload from R2" — drops every cached bundle so the
+		 *  rAF loop re-loads each one with a fresh `?v=` (mirrors EditorSpineLayer). */
+		reloadToken?: number;
 	}
-	let { container }: Props = $props();
+	let { container, reloadToken = 0 }: Props = $props();
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -90,7 +93,7 @@
 			return;
 		}
 		try {
-			const instance = await loadSpineInstance(resolveKey, gl);
+			const instance = await loadSpineInstance(resolveKey, gl, reloadToken);
 			if (!instance) {
 				instances.set(key, { state: 'error' });
 				return;
@@ -217,6 +220,23 @@
 			drawCell(entry, x, y, r.width, r.height, cw);
 		}
 	}
+
+	// "Reload from R2": when the token bumps, drop every cached bundle (freeing GPU)
+	// so the always-on rAF loop re-ensures them — re-fetching the skeleton + page
+	// textures from R2 with the new `?v=`. `untrack` so only `reloadToken` retriggers
+	// this (the `instances` map reads/writes aren't reactive dependencies).
+	let lastReloadToken = 0;
+	$effect(() => {
+		const t = reloadToken;
+		if (t === lastReloadToken) return;
+		lastReloadToken = t;
+		untrack(() => {
+			for (const entry of instances.values()) {
+				if (entry.state === 'ready') disposeSpineInstance(entry.instance);
+			}
+			instances.clear();
+		});
+	});
 
 	onMount(() => {
 		raf = requestAnimationFrame(frame);
