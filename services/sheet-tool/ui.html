@@ -231,13 +231,13 @@
       <div class="field"><label>Name</label><input id="i_name" oninput="renameSel(this.value)"></div>
       <div class="field">
         <label title="The packed / exported cell. Pack &amp; atlas frame use this size.">Region</label>
-        <span><input type="number" id="i_w" oninput="setSize('w',this.value)"> ×
-        <input type="number" id="i_h" oninput="setSize('h',this.value)"></span>
+        <span><input type="number" id="i_w" onchange="setSize('w',this.value)"> ×
+        <input type="number" id="i_h" onchange="setSize('h',this.value)"></span>
       </div>
       <div class="field">
         <label title="The artwork's draw size — centred inside the region box.">Image</label>
-        <span><input type="number" id="i_iw" oninput="setImageSize('w',this.value)"> ×
-        <input type="number" id="i_ih" oninput="setImageSize('h',this.value)"></span>
+        <span><input type="number" id="i_iw" onchange="setImageSize('w',this.value)"> ×
+        <input type="number" id="i_ih" onchange="setImageSize('h',this.value)"></span>
       </div>
       <div class="field"><label><input type="checkbox" id="i_aspect" checked> keep image aspect</label>
         <button class="sec" onclick="resetSize()">reset image</button></div>
