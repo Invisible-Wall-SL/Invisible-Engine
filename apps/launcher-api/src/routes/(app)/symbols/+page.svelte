@@ -129,8 +129,12 @@
 	function openCell(symbol: string, state: SymbolState): void {
 		focus = { symbol, state };
 		const eff = effectiveCell(doc, data.defaults, symbol, state);
-		// A brand-new override inherits the global size by default (no `sizeRatios`).
-		draft = eff.cell ? structuredClone(eff.cell) : { type: 'sprite', assetKey: '' };
+		// `$state.snapshot` (NOT `structuredClone`): an OVERRIDDEN cell is read from the `doc`
+		// `$state` proxy, and `structuredClone` throws `DataCloneError` on a proxy — which left the
+		// panel blank for any cell with a non-default binding. Default cells (plain page data) were
+		// unaffected, which is why only edited cells broke. A brand-new override inherits the global
+		// size by default (no `sizeRatios`).
+		draft = eff.cell ? ($state.snapshot(eff.cell) as SymbolCell) : { type: 'sprite', assetKey: '' };
 		draftAnimations = [];
 	}
 
@@ -273,8 +277,10 @@
 	function openHighlight(): void {
 		// Seed the draft from an existing override, else a blank spine cell (we never
 		// seed from the local default — it isn't an R2 bundle the picker can resolve).
+		// `$state.snapshot` (NOT `structuredClone`): `doc.highlight` is a `$state` proxy and
+		// `structuredClone` throws `DataCloneError` on a proxy (same bug as `openCell`).
 		highlightDraft = doc.highlight
-			? structuredClone(doc.highlight)
+			? ($state.snapshot(doc.highlight) as SymbolCell)
 			: { type: 'spine', assetKey: '', animationName: '', sizeRatios: { width: 1, height: 1 } };
 		highlightAnimations = [];
 		highlightEditing = true;
