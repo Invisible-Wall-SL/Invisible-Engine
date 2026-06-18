@@ -6,6 +6,7 @@
 	// See docs/design/unified-tool-bar.md.
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOLS, toolBarItems, type ToolDef } from '$lib/roles';
+	import { untrack } from 'svelte';
 
 	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
 	// scoping). Optional so a page that doesn't resolve a project can omit them; when
@@ -24,6 +25,36 @@
 
 	const name = $derived(TOOLS[current]?.name ?? '');
 	const items = $derived(toolBarItems(tools, current));
+
+	// Drop the tool labels (icon-only) only when the labelled row would actually
+	// overflow its track — not on a blunt viewport breakpoint. We watch the nav with a
+	// ResizeObserver and remember the labelled "natural" width so we can re-expand with
+	// hysteresis once the room comes back (in icon-only mode the row no longer overflows,
+	// so `scrollWidth` alone can't tell us whether expanding would fit again).
+	let nav = $state<HTMLElement | null>(null);
+	let compact = $state(false);
+	let naturalWidth = 0;
+
+	function measure(): void {
+		const el = nav;
+		if (!el) return;
+		if (untrack(() => compact)) {
+			// Labels hidden: re-expand only if the remembered full width fits with slack.
+			if (naturalWidth && el.clientWidth >= naturalWidth + 8) compact = false;
+		} else {
+			naturalWidth = el.scrollWidth;
+			if (el.scrollWidth > el.clientWidth + 1) compact = true;
+		}
+	}
+
+	$effect(() => {
+		const el = nav;
+		if (!el) return;
+		const ro = new ResizeObserver(() => measure());
+		ro.observe(el);
+		measure();
+		return () => ro.disconnect();
+	});
 </script>
 
 <a class="brand" href="/" title="Invisible Launcher">
@@ -40,7 +71,7 @@
 {/if}
 
 {#if items.length}
-	<nav class="switcher" aria-label="Switch tool">
+	<nav class="switcher" class:compact bind:this={nav} aria-label="Switch tool">
 		{#each items as tool (tool.id)}
 			<a class="tool" href={tool.url} title={tool.name}>
 				{#if tool.icon}<span class="ic">{@html tool.icon}</span>{/if}
@@ -139,13 +170,12 @@
 	.label {
 		display: inline;
 	}
-	/* Icon-only when the row gets tight: drop labels before anything collapses. */
-	@media (max-width: 1100px) {
-		.label {
-			display: none;
-		}
-		.tool {
-			padding: 6px;
-		}
+	/* Icon-only when the labelled row would overflow its track (driven by the
+	   ResizeObserver above): drop labels before anything else collapses. */
+	.switcher.compact .label {
+		display: none;
+	}
+	.switcher.compact .tool {
+		padding: 6px;
 	}
 </style>

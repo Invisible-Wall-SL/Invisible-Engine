@@ -129,6 +129,13 @@
 		 * bundle (union across the per-scene sublayers) up to the page, so the Properties
 		 * panel can offer animation/skin dropdowns instead of free-text. */
 		onSpineMeta?: (meta: Map<string, { animations: string[]; skins: string[] }>) => void;
+		/** Undo/redo wiring — when provided, the canvas-actions toolbar shows undo/redo
+		 * buttons next to "Reload art" (the history itself lives on the page). Omitted
+		 * by callers without a history stack (e.g. the Component Editor). */
+		canUndo?: boolean;
+		canRedo?: boolean;
+		onUndo?: () => void;
+		onRedo?: () => void;
 	}
 
 	let {
@@ -151,6 +158,10 @@
 		projectGameName = null,
 		componentParams = {},
 		onSpineMeta,
+		canUndo = false,
+		canRedo = false,
+		onUndo,
+		onRedo,
 	}: Props = $props();
 
 	/** The "primary" selected id — the last one picked. Drives the properties panel,
@@ -2845,6 +2856,30 @@
 		(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
 	</div>
 	<div class="canvas-actions">
+		{#if onUndo || onRedo}
+			<div class="hist-grp" role="group" aria-label="Undo / redo">
+				<button
+					class="fit hist"
+					type="button"
+					disabled={!canUndo}
+					title="Undo (Ctrl/⌘+Z)"
+					aria-label="Undo"
+					onclick={() => onUndo?.()}
+				>
+					↶
+				</button>
+				<button
+					class="fit hist"
+					type="button"
+					disabled={!canRedo}
+					title="Redo (Ctrl/⌘+Shift+Z)"
+					aria-label="Redo"
+					onclick={() => onRedo?.()}
+				>
+					↷
+				</button>
+			</div>
+		{/if}
 		<button
 			class="fit"
 			onclick={refreshAssets}
@@ -2853,7 +2888,6 @@
 		>
 			↻ Reload art
 		</button>
-		<button class="fit" onclick={fitView} type="button">Fit</button>
 	</div>
 </div>
 
@@ -2955,6 +2989,24 @@
 	}
 	.fit:hover {
 		border-color: #7ee0c0;
+	}
+	.hist-grp {
+		display: inline-flex;
+		gap: 4px;
+	}
+	.fit.hist {
+		width: 28px;
+		padding: 4px 0;
+		text-align: center;
+		font-size: 14px;
+		line-height: 1;
+	}
+	.fit:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.fit:disabled:hover {
+		border-color: #2a2430;
 	}
 	.load-overlay {
 		position: absolute;

@@ -77,3 +77,11 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 | Inline duplicate gates (editor, localization, atlas, sheet, spine, storybook) | A | each route's `+page.server.ts` / `+server.ts`; `lib/server/storybooks.ts` (`requireStorybookAccess`, mirrors spine's) | duplicated; consolidate (health-eval #4) |
 
 → Two divergent `allowedPrefixes()` exist (editor allows `spines/_shared/`, ftp doesn't). Reconcile into one parameterized definition.
+
+### 9. Floating canvas mode/device bar (segmented control over a canvas)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`CanvasModeBar.svelte`** — generic floating segmented control, top-centre of a `position:relative` canvas (`options`/`value`/`onChange`, generic over the value type) | A | `apps/launcher-api/src/lib/CanvasModeBar.svelte` | **canonical for domain A** — used by the editor's device selector (`DESKTOP/TABLET/LANDSCAPE/PORTRAIT`) |
+| Rigger `#modeBar` (`Preview/Setup/Animate`) — same `.seg` look, vanilla HTML/CSS | static | `apps/launcher-api/static/rigger/view.html` | the visual model `CanvasModeBar` mirrors; can't share code across the Svelte/static line |
+
+→ Build any new on-canvas mode/device switcher (Svelte tools) with `<CanvasModeBar>` — don't re-roll header pills. The static rigger twin is kept visually identical by convention (like the tool-bar twin in §7).

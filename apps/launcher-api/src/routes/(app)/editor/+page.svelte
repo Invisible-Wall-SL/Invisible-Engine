@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import {
 		buttonBindToInstance,
 		engineOwnedOnly,
@@ -650,6 +651,13 @@
 	const sheetCount = $derived(data.assets.sheets.length);
 
 	const layoutTypes: LayoutType[] = ['desktop', 'tablet', 'landscape', 'portrait'];
+	// Options for the floating canvas device bar. Non-`desktop` is a layout OVERRIDE,
+	// flagged so the bar tints it (mirrors the old `.pill.active.override` accent).
+	const layoutOptions = layoutTypes.map((lt) => ({
+		value: lt,
+		label: lt,
+		flagged: lt !== 'desktop',
+	}));
 
 	function onAssetDragStart(
 		e: DragEvent,
@@ -1874,42 +1882,6 @@
 		/>
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
-		<div class="layout-pills" role="tablist" aria-label="Authoring layoutType">
-			{#each layoutTypes as lt (lt)}
-				<button
-					role="tab"
-					aria-selected={currentLayoutType === lt}
-					class="pill"
-					class:active={currentLayoutType === lt}
-					class:override={currentLayoutType === lt && lt !== 'desktop'}
-					onclick={() => (currentLayoutType = lt)}
-				>
-					{lt}
-				</button>
-			{/each}
-		</div>
-		<div class="history-btns" role="group" aria-label="Undo / redo">
-			<button
-				class="hist-btn"
-				type="button"
-				disabled={!canUndo}
-				title="Undo (Ctrl/⌘+Z)"
-				aria-label="Undo"
-				onclick={undo}
-			>
-				↶
-			</button>
-			<button
-				class="hist-btn"
-				type="button"
-				disabled={!canRedo}
-				title="Redo (Ctrl/⌘+Shift+Z)"
-				aria-label="Redo"
-				onclick={redo}
-			>
-				↷
-			</button>
-		</div>
 		<div class="meta">
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
 			<span class="dot-sep">·</span>
@@ -1969,16 +1941,6 @@
 				</span>
 			{/if}
 			<span class="dot-sep">·</span>
-			<button
-				type="button"
-				class="save-btn"
-				class:active-mode={leftTab === 'component'}
-				aria-pressed={leftTab === 'component'}
-				title="Components — reusable prefabs (overlays, UI groups) you can drop across scenes. Author them in the Component Editor."
-				onclick={() => (leftTab = leftTab === 'component' ? 'library' : 'component')}
-			>
-				Components
-			</button>
 			<button
 				type="button"
 				class="save-btn"
@@ -2375,17 +2337,15 @@
 						Template
 					</button>
 				{/if}
-				{#if leftTab === 'component'}
-					<button
-						role="tab"
-						aria-selected={leftTab === 'component'}
-						class="tab"
-						class:active={leftTab === 'component'}
-						onclick={() => (leftTab = 'component')}
-					>
-						Components
-					</button>
-				{/if}
+				<button
+					role="tab"
+					aria-selected={leftTab === 'component'}
+					class="tab"
+					class:active={leftTab === 'component'}
+					onclick={() => (leftTab = 'component')}
+				>
+					Components
+				</button>
 			</div>
 
 			<div class="tab-body">
@@ -2553,8 +2513,17 @@
 					hiddenSceneIds={hiddenScenes}
 					projectGameName={data.gameName}
 					onSpineMeta={(meta) => (spineMeta = meta)}
+					{canUndo}
+					{canRedo}
+					onUndo={undo}
+					onRedo={redo}
 				/>
 			{/if}
+			<CanvasModeBar
+				options={layoutOptions}
+				bind:value={currentLayoutType}
+				ariaLabel="Authoring layout"
+			/>
 		</main>
 
 		<aside class="properties">
@@ -2645,36 +2614,6 @@
 	.subtitle strong {
 		color: #c8a3ff;
 		font-weight: 600;
-	}
-	.layout-pills {
-		display: flex;
-		gap: 4px;
-		background: #16161c;
-		border: 1px solid #1f1f28;
-		border-radius: 999px;
-		padding: 3px;
-	}
-	.pill {
-		background: transparent;
-		border: none;
-		color: #888;
-		padding: 4px 12px;
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		border-radius: 999px;
-		cursor: pointer;
-		font-family: inherit;
-	}
-	.pill:hover {
-		color: #ccc;
-	}
-	.pill.active {
-		background: #1a1a22;
-		color: #7ee0c0;
-	}
-	.pill.active.override {
-		color: #c8a3ff;
 	}
 	.meta {
 		display: flex;
@@ -2809,34 +2748,6 @@
 		background: #1a1622;
 		border-color: #6b5bff;
 		color: #c8a3ff;
-	}
-	.history-btns {
-		display: inline-flex;
-		gap: 4px;
-		margin-right: 4px;
-	}
-	.hist-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 26px;
-		border: 1px solid #2a2a33;
-		background: transparent;
-		color: #c8c8d0;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 15px;
-		line-height: 1;
-		font-family: inherit;
-	}
-	.hist-btn:hover:not(:disabled) {
-		border-color: #5db0ff;
-		color: #e8e8ee;
-	}
-	.hist-btn:disabled {
-		opacity: 0.35;
-		cursor: default;
 	}
 	.scene-bar {
 		padding: 12px 16px;
@@ -3401,6 +3312,7 @@
 		font-weight: 600;
 	}
 	.canvas-area {
+		position: relative;
 		min-width: 0;
 		min-height: 0;
 		background: #0b0b10;
