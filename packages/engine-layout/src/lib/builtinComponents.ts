@@ -1,4 +1,4 @@
-import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS } from './componentCatalog';
+import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS, VISIBILITY_SOURCE_KEYS } from './componentCatalog';
 import type { ComponentDef } from './types';
 
 /**
@@ -370,11 +370,19 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 		// The engine value feed this counter binds to — picked from the registered
 		// sources (the `freeSpins` composed-string source the game registers).
 		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS },
-		// The engine visibility feed this counter binds to: when set per-instance to a
-		// registered boolean source (e.g. `freeSpinCounterShow`, true only during free
-		// spins) the whole instance hides while that source is false. No default — the
-		// shared def stays game-agnostic; an instance opts in (slice 2b).
-		{ key: 'visibleSource', kind: 'string' },
+		// The engine visibility feed this counter binds to: when set to a registered
+		// boolean source (`freeSpinCounterShow`, true only during free spins) the whole
+		// instance hides while that source is false. DEFAULTS to `freeSpinCounterShow` —
+		// a free-spin counter that's always visible is almost never what's wanted, so the
+		// natural gate is the out-of-the-box behaviour (all games register that feed); an
+		// instance can clear it to render the counter ungated. `options` makes the editor
+		// render a dropdown (pick the feed) instead of an undiscoverable free-text box.
+		{
+			key: 'visibleSource',
+			kind: 'string',
+			options: VISIBILITY_SOURCE_KEYS,
+			default: 'freeSpinCounterShow',
+		},
 		{ key: 'label', kind: 'string', default: 'FREE SPIN' },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: FS_FONT_SIZE },

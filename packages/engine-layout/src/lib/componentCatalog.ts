@@ -75,6 +75,17 @@ export const VALUE_SOURCE_KEYS: string[] = [
 export const TEXT_SOURCE_KEYS: string[] = ENGINE_PARAM_CATALOG.map((p) => p.key);
 
 /**
+ * The boolean show/hide feeds a `visibleSource` param can bind to — the keys a game
+ * registers via `registerComponentVisibility`. The editor renders the `visibleSource`
+ * param as a dropdown of these (instead of a free-text box, where the exact source
+ * name is undiscoverable and a typo silently leaves the instance ungated → always
+ * visible). Currently just `freeSpinCounterShow` (true only during free spins, the
+ * free-spin counter's natural gate); a feed with no registered store leaves the
+ * instance ungated, same as an unbound param. A custom key is preserved as an option.
+ */
+export const VISIBILITY_SOURCE_KEYS: string[] = ['freeSpinCounterShow'];
+
+/**
  * Canonical HUD button action keys the parametric Button's `action` param selects
  * from — the editor renders the `action` param as a dropdown of these instead of a
  * free-text box (no more silent typos). The GAME must register a matching handler
