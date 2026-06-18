@@ -392,6 +392,46 @@ export type LayoutNode =
 	| ComponentInstanceNode
 	| ReelGridNode;
 
+/** Which wrapper / layout derivation a {@link Frame} drives. Mirrors the three
+ * shapes today's `<LayoutScene>` switch produces: a centred `<MainContainer>`
+ * box (`main`), a raw-canvas placement (`canvas`), or a cover-fit layer
+ * (`background`). */
+export type FrameKind = 'main' | 'canvas' | 'background';
+
+/**
+ * A **frame** — a named layout box scenes author into. The first-class form of
+ * the legacy {@link Scene.space} enum: `game`/`standard`/`canvas`/`background`
+ * are built-in frames (see `resolveFrame`), and a {@link LayoutDoc.frames} entry
+ * declares a custom one.
+ *
+ * The load-bearing property: **every scene on the same frame is reparented into
+ * ONE `<MainContainer>` reading that frame's single resolved layout**, so they
+ * share centre + scale + pivot and move/resize as one on every resize — by
+ * construction, not coincidence. "Anchor screen A to B" == "put A and B on the
+ * same frame". See `docs/design/invisible-editor.md` §23.
+ */
+export interface Frame {
+	id: string; // 'game' | 'standard' | 'canvas' | 'background' | custom slug
+	name: string; // human label shown in the editor
+	kind: FrameKind;
+	/**
+	 * Per-`LayoutType` design box. Only meaningful for `kind: 'main'`. Absent on
+	 * a `main` frame ⇒ inherit the doc's {@link LayoutDoc.mainSizesMap} (so the
+	 * built-in `game` frame tracks the play area). A custom `main` frame that
+	 * sets its OWN `sizes` scales on its own curve — the deliberate "this screen
+	 * is NOT locked to the game" opt-out.
+	 */
+	sizes?: Record<LayoutType, { width: number; height: number }>;
+	/** Frame-level alignment (forwarded to `<MainContainer standard align…>` for a
+	 * `main` frame whose box is smaller than the canvas, e.g. a bottom-anchored
+	 * HUD frame). A scene's own {@link Scene.align} still applies when the frame
+	 * leaves this unset. */
+	align?: {
+		vertical?: 'center' | 'bottom';
+		horizontal?: 'center' | 'left' | 'right';
+	};
+}
+
 export interface Scene {
 	id: string;
 	name: string;
@@ -416,6 +456,15 @@ export interface Scene {
 	 * Additive — absent = `game`.
 	 */
 	space?: 'game' | 'standard' | 'canvas' | 'background';
+	/**
+	 * Which {@link Frame} this scene authors into, by id. Supersedes (and
+	 * generalises) {@link Scene.space} — the four `space` values are the built-in
+	 * frame ids, so `resolveFrame` maps a legacy scene to the same frame and the
+	 * wrapper is byte-identical. Set to a {@link LayoutDoc.frames} id to LOCK this
+	 * scene to every other scene on that frame (shared position + scale on
+	 * resize). Absent ⇒ derived from `space` ⇒ `game`. Additive.
+	 */
+	frame?: string;
 	/**
 	 * Alignment of a `space: 'standard'` scene within the canvas — forwarded to
 	 * `<MainContainer standard alignVertical alignHorizontal>`. The HUD bottom bar
@@ -460,6 +509,15 @@ export interface LayoutDoc {
 	 */
 	gameType?: string;
 	mainSizesMap: Record<LayoutType, { width: number; height: number }>;
+	/**
+	 * Custom {@link Frame}s this doc declares (beyond the four built-ins). Scenes
+	 * reference them by id via {@link Scene.frame}. Absent ⇒ only the built-in
+	 * `game`/`standard`/`canvas`/`background` frames exist. Built-in ids are
+	 * reserved — a `frames` entry reusing one is ignored (`resolveFrame` returns
+	 * the built-in) so the core game frame can't be accidentally shadowed.
+	 * Additive — older docs omit it.
+	 */
+	frames?: Frame[];
 	scenes: Scene[];
 	/** Optional + additive game-level settings (speed-feature toggles / jurisdiction).
 	 * Absent in older docs — the runtime falls back to the engine defaults. */

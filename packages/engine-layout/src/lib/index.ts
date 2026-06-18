@@ -10,6 +10,7 @@ export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
 export * from './editorArtKey';
 export * from './coverTransform';
 export * from './resolveTransform';
+export * from './resolveFrame';
 export * from './componentParams';
 export * from './collectComponentIds';
 export * from './reelGrid';
