@@ -5,6 +5,7 @@
 		BUTTON_STATE_PARAMS,
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
+		FREE_SPIN_COUNTER_DEF,
 		HUD_READOUT_DEF,
 		pruneOrphanParamBindings,
 		resolveComponentParams,
@@ -180,7 +181,7 @@
 	 * instance picks its action from the registered-action dropdown, and the engine
 	 * provides the hit surface for an action-bound def with no coded part (§18.4) —
 	 * the authored art becomes clickable with zero extra wiring. */
-	let newType = $state<'blank' | 'button' | 'readout'>('blank');
+	let newType = $state<'blank' | 'button' | 'readout' | 'counter'>('blank');
 
 	/**
 	 * Create a component + open it. `blank` = empty root; `button` = empty root pre-wired
@@ -215,6 +216,29 @@
 				category: 'ui',
 				root,
 				params,
+			};
+		} else if (newType === 'counter') {
+			// Project-scoped clone of the built-in Free-Spin Counter: the full frame +
+			// "FREE SPIN" caption + "X OF Y" value structure, pre-wired with `source`
+			// (the engine value feed) + the engine-fed string `value` + `visibleSource` +
+			// `label` + font/fill params, so the author only swaps the art + text. Fresh
+			// node ids so two copies never collide.
+			const clone = structuredClone(FREE_SPIN_COUNTER_DEF);
+			const root = clone.root;
+			const reid = (n: LayoutNode): void => {
+				n.id = genComponentId();
+				if (n.kind === 'container') n.children.forEach(reid);
+			};
+			root.children.forEach(reid);
+			root.id = genComponentId() + '_root';
+			def = {
+				id: genComponentId(),
+				name,
+				version: 1,
+				scope: 'project',
+				category: 'ui',
+				root,
+				params: clone.params,
 			};
 		} else {
 			const root: ContainerNode = {
@@ -769,6 +793,7 @@
 									<option value="blank">Blank</option>
 									<option value="button">Button</option>
 									<option value="readout">HUD readout</option>
+									<option value="counter">Free-Spin Counter</option>
 								</select>
 								{#if newType === 'blank'}
 									<select bind:value={newCategory} aria-label="Component category">
@@ -801,6 +826,15 @@
 									text on the canvas, then on the text that shows the number set
 									<strong>Bind to param → Text ← value</strong>. Pick the <strong>source</strong> on
 									each placed instance. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'counter'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Free-Spin Counter</strong>: frame +
+									<strong>FREE SPIN</strong> caption + <strong>X OF Y</strong> value, already wired to
+									the engine (<strong>source</strong> feed → <strong>value</strong>,
+									<strong>visibleSource</strong> show/hide). Swap the frame art, restyle the text, or
+									edit the <strong>label</strong> — then <strong>Save component</strong>. Listed under
+									<strong>UI</strong>.
 								</p>
 							{/if}
 						</div>
