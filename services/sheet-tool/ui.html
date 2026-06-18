@@ -466,7 +466,21 @@ function computeBbox(src,im){
   render();   // re-position now that the content bounds are known
 }
 
+let _rendering=false, _renderQueued=false;
+/* Coalesce re-entrant render() calls. computeBbox() calls render() the moment a
+   sprite's opaque bounds are known; for a browser-cached image that fires
+   SYNCHRONOUSLY from inside this very render() pass. Letting it recurse mid-loop
+   created a second DOM node for the same sprite (the just-created node wasn't in
+   spriteEls yet), leaving an orphan the prune never removes → sprites visibly
+   duplicated on zoom/reload. Queue instead, run exactly one more pass at the end. */
 function render(){
+  if(_rendering){ _renderQueued=true; return; }
+  _rendering=true;
+  try{ _renderImpl(); }
+  finally{ _rendering=false; }
+  if(_renderQueued){ _renderQueued=false; render(); }
+}
+function _renderImpl(){
   const cv=$('canvas');
   cv.style.width=(canvasW*zoom)+'px';
   cv.style.height=(canvasH*zoom)+'px';
@@ -482,17 +496,18 @@ function render(){
       const wrap=document.createElement('div'); wrap.className='sprite';
       const img=document.createElement('img'); img.draggable=false;
       const csrc=r.src;
+      wrap.appendChild(img);
+      const lb=document.createElement('div'); lb.className='lockbadge'; lb.textContent='🔒'; wrap.appendChild(lb);
+      wrap.addEventListener('mousedown',e=>{ const rr=reg(wrap.dataset.src); if(rr) onSpriteDown(e,rr); });
+      cv.appendChild(wrap);
+      s=spriteEls[r.src]={wrap,img};   // register BEFORE the image can load: a cached
+      // image's synchronous computeBbox()→render() then reuses this node, not a dupe.
       img.addEventListener('load',()=>computeBbox(csrc,img));
       // `_cb` (set on upload) busts the URL when the file's pixels change, so a
       // re-uploaded sprite never shows a stale cached copy (the server also
       // forces revalidation, this is belt-and-suspenders vs intermediary caches).
       img.src=spriteUrl(r);
       if(img.complete&&img.naturalWidth) computeBbox(csrc,img);   // already cached
-      wrap.appendChild(img);
-      const lb=document.createElement('div'); lb.className='lockbadge'; lb.textContent='🔒'; wrap.appendChild(lb);
-      wrap.addEventListener('mousedown',e=>{ const rr=reg(wrap.dataset.src); if(rr) onSpriteDown(e,rr); });
-      cv.appendChild(wrap);
-      s=spriteEls[r.src]={wrap,img};
     }
     const wrap=s.wrap, img=s.img;
     wrap.dataset.src=r.src;
@@ -524,6 +539,9 @@ function render(){
     }
   });
   Object.keys(spriteEls).forEach(src=>{ if(!present.has(src)){ spriteEls[src].wrap.remove(); delete spriteEls[src]; } });
+  // Sweep any orphan sprite node not owned by spriteEls — cleans up duplicates a
+  // prior build's re-entrant render may have left, without needing a full reload.
+  cv.querySelectorAll('.sprite').forEach(el=>{ const o=spriteEls[el.dataset.src]; if(!o||o.wrap!==el) el.remove(); });
 }
 
 /* toolbar attached to the selection box: X/Y/W/H pixel inputs + lock toggle */
