@@ -39,14 +39,21 @@ const DEFAULT_SIZE_RATIOS = { width: 1, height: 1 } as const;
  * on the reelGrid node in the Scene Editor) > coded `SYMBOL_INFO_MAP` size > {1,1}. Read from
  * the ORIGINAL layers (not the merged map, which replaces whole cells). Consumed via
  * `getSymbolInfo`, so render components read a fully-resolved `sizeRatios`.
+ *
+ * `fit` signals provenance so the renderer knows how to apply the ratio: the reel-override
+ * path is `'contain'` (the ratio is a bounding box; the symbol fits inside preserving its
+ * native aspect), every other path is `'stretch'` (today's behavior — width/height applied
+ * directly to `SYMBOL_SIZE × ratio`). Parity for the stretch paths is non-negotiable.
  */
 export function resolveSymbolSizeRatios(
 	name: string,
 	state: string,
-): { width: number; height: number } {
+): { width: number; height: number; fit: 'contain' | 'stretch' } {
 	const override = bakedSymbolMap()?.[name]?.[state]?.sizeRatios;
-	if (override) return override;
+	if (override) return { ...override, fit: 'stretch' };
 	const reel = boardSymbolSizeRatios();
-	if (reel) return reel;
-	return (SYMBOL_INFO_MAP as SymbolInfoMap)[name]?.[state]?.sizeRatios ?? DEFAULT_SIZE_RATIOS;
+	if (reel) return { ...reel, fit: 'contain' };
+	const coded =
+		(SYMBOL_INFO_MAP as SymbolInfoMap)[name]?.[state]?.sizeRatios ?? DEFAULT_SIZE_RATIOS;
+	return { ...coded, fit: 'stretch' };
 }

@@ -1694,9 +1694,24 @@
 					drawMarker(cx, cy);
 					continue;
 				}
+				const isReelOverride = !!node.symbolSizeRatios;
 				const ratio = node.symbolSizeRatios ?? cell.sizeRatios ?? { width: 1, height: 1 };
 				const boxW = cellW * ratio.width;
 				const boxH = cellH * ratio.height;
+				// The reel override (`node.symbolSizeRatios`) treats the ratio as a BOUNDING BOX and
+				// contain-fits the region into it (single uniform scale, native aspect preserved) —
+				// matching the game's `Sprite contain` path. A per-cell `cell.sizeRatios` keeps today's
+				// stretch (independent scaleX/scaleY in `drawArtRegionSprite`).
+				let drawW = boxW;
+				let drawH = boxH;
+				if (isReelOverride) {
+					const nat = regionNaturalSize(found.region);
+					if (nat.w > 0 && nat.h > 0) {
+						const s = Math.min(boxW / nat.w, boxH / nat.h);
+						drawW = nat.w * s;
+						drawH = nat.h * s;
+					}
+				}
 				// `drawArtRegionSprite` places the frame with its top-left at the origin offset by
 				// `-dw * anchor` — anchor {0.5,0.5} centres it on the origin, so translate to the
 				// cell's symbol seat (cx, cy). Clip to the cell rect so an oversize symbol crops.
@@ -1709,8 +1724,8 @@
 					x: 0,
 					y: 0,
 					anchor: { x: 0.5, y: 0.5 },
-					width: boxW,
-					height: boxH,
+					width: drawW,
+					height: drawH,
 					visible: true,
 				};
 				drawArtRegionSprite(ctx, cell.assetKey, cell.assetKey, symTransform);

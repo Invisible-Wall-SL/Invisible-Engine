@@ -56,9 +56,21 @@ export const setBoardOverride = (node: ReelGridNode | null) => {
  * `undefined` ⇒ the symbol resolver falls through to the coded `SYMBOL_INFO_MAP` sizes.
  * Read by `resolveSymbolSizeRatios` (symbolMap.ts) — kept here because the reel node
  * lives on `boardOverride` and stateGame imports neither symbolMap nor utils (no cycle).
+ *
+ * The ratios define a bounding box of `cellWidth × ratio.width` by `cellHeight × ratio.height`
+ * in SCREEN px. `SymbolSprite` builds the box in board-LOCAL space as `SYMBOL_SIZE × ratio`,
+ * and the board container is scaled by `s_board = cellSize / SYMBOL_SIZE`, so the on-screen box
+ * is `cellSize × ratio`. To make it `cellWidth/cellHeight × ratio` for non-square cells we fold
+ * a `cellWidth/cellSize` (and `cellHeight/cellSize`) correction here. Square cells ⇒ correction
+ * 1 ⇒ byte-identical to today.
  */
-export const boardSymbolSizeRatios = (): { width: number; height: number } | undefined =>
-	boardOverride.node?.symbolSizeRatios;
+export const boardSymbolSizeRatios = (): { width: number; height: number } | undefined => {
+	const r = boardOverride.node?.symbolSizeRatios;
+	if (!r) return undefined;
+	const o = resolveReelGridFromNode(boardOverride.node ?? undefined, stateLayoutDerived.layoutType());
+	if (!o || !(o.cellSize > 0)) return r;
+	return { width: (r.width * o.cellWidth) / o.cellSize, height: (r.height * o.cellHeight) / o.cellSize };
+};
 
 /**
  * Board LATTICE derived from the override, in board-LOCAL space (before the

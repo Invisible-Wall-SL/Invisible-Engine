@@ -59,6 +59,13 @@ export const getSymbolInfo = ({
 }) => {
 	// Overlay the globally-resolved size (per-cell override > global default > coded), so render
 	// components always read a present, resolved `sizeRatios` regardless of the sparse override.
+	// `symbolFit` carries the resolver's provenance: `'contain'` (reel-override bounding box) or
+	// `'stretch'` (every other path — today's direct width/height).
 	const cell = getActiveSymbolInfoMap()[rawSymbol.name][state];
-	return { ...cell, sizeRatios: resolveSymbolSizeRatios(rawSymbol.name, state) };
+	const resolved = resolveSymbolSizeRatios(rawSymbol.name, state);
+	return {
+		...cell,
+		sizeRatios: { width: resolved.width, height: resolved.height },
+		symbolFit: resolved.fit,
+	};
 };
