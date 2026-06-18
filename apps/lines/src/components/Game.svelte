@@ -55,6 +55,7 @@
 		backgroundCoverStretch,
 		backgroundFit,
 	} from 'engine-layout';
+	import type { Scene } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
 	import { setBoardOverride } from '../game/stateGame.svelte';
@@ -544,13 +545,27 @@
 	// the whole splash in-game. `LoadingScreen` keeps its coded mount + required
 	// `onloaded` callback (it's an either/or with the game, so it can't be a generic
 	// `bind`), so we mirror LayoutNodeView's canvas-space mount here and WRAP it.
+	const loadingScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'loading'));
 	const loadingNode = $derived(
-		editorDoc.scenes
-			.find((scene) => scene.id === 'loading')
-			?.nodes.find(
-				(node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen',
-			),
+		loadingScene?.nodes.find(
+			(node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen',
+		),
 	);
+	// Authored splash VISUAL: every loading-scene node EXCEPT the inert `LoadingScreen`
+	// bind anchor (which the game renders as the coded splash, not as a scene node). When
+	// the author placed real content here (a `loadingIntro` component, a logo, …) we hand
+	// those nodes to `<LoadingScreen authoredScene>` so they ARE the splash visual; the
+	// coded logo+progress is suppressed and only the press-to-continue/transition shell
+	// stays coded. No authored content ⇒ `undefined` ⇒ the coded splash renders unchanged
+	// (parity for un-authored docs). The `loading-screen` anchor is dropped so it can't
+	// double-draw (it's inert in-game anyway — `LoadingScreen` isn't a bound component).
+	const authoredLoadingScene = $derived.by((): Scene | undefined => {
+		if (!loadingScene) return undefined;
+		const nodes = loadingScene.nodes.filter(
+			(node) => node.id !== 'loading-screen' && node.bind?.component !== 'LoadingScreen',
+		);
+		return nodes.length > 0 ? { ...loadingScene, nodes } : undefined;
+	});
 	const loadingTransform = $derived(
 		loadingNode
 			? resolveTransform(loadingNode, context.stateLayoutDerived.layoutType())
@@ -609,16 +624,31 @@
 			The coded mount + `onloaded` callback are kept verbatim (LoadingScreen is an
 			either/or with the game, so it can't be a generic `bind`).
 		-->
-		<Container
-			x={loadingPos.x}
-			y={loadingPos.y}
-			scale={loadingTransform?.scale}
-			rotation={loadingTransform?.rotation}
-			alpha={loadingTransform?.alpha}
-			zIndex={loadingTransform?.zIndex}
-		>
-			<LoadingScreen onloaded={() => (context.stateLayout.showLoadingScreen = false)} />
-		</Container>
+		{#if authoredLoadingScene}
+			<!--
+				AUTHORED splash: the editor's `loading` scene carries placed visual content
+				(a `loadingIntro` component = logo + progress + percentage, a bare logo, ...),
+				so it IS the splash. `<LoadingScreen authoredScene>` renders those nodes (each
+				self-positions via its own canvas-space transform) and keeps only the coded
+				press-to-continue / transition / `onloaded` shell. The `loadingIntro` bar
+				self-hides on `stateApp.loaded`, then the coded press-to-continue appears.
+			-->
+			<LoadingScreen
+				authoredScene={authoredLoadingScene}
+				onloaded={() => (context.stateLayout.showLoadingScreen = false)}
+			/>
+		{:else}
+			<Container
+				x={loadingPos.x}
+				y={loadingPos.y}
+				scale={loadingTransform?.scale}
+				rotation={loadingTransform?.rotation}
+				alpha={loadingTransform?.alpha}
+				zIndex={loadingTransform?.zIndex}
+			>
+				<LoadingScreen onloaded={() => (context.stateLayout.showLoadingScreen = false)} />
+			</Container>
+		{/if}
 	{:else}
 		<ResumeBet />
 		<!--
