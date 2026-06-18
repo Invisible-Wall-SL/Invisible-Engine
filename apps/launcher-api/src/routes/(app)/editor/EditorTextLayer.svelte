@@ -506,6 +506,12 @@
 
 	onMount(() => {
 		let disposed = false;
+		// Pixi's `resizeTo` only re-measures on WINDOW resize, so a side-panel drag (which
+		// resizes our host element without a window resize) leaves the renderer at its old
+		// logical size. Combined with the `width/height:100%` canvas below, the canvas then
+		// stretches while the stage still maps to the stale size — text drifts/scales off the
+		// 2D canvas. A ResizeObserver on the host re-syncs the renderer on every element resize.
+		let ro: ResizeObserver | null = null;
 		const a = new Application();
 		void a
 			.init({
@@ -530,6 +536,12 @@
 				a.canvas.style.height = '100%';
 				a.canvas.style.pointerEvents = 'none';
 				ready = true;
+				if (host) {
+					ro = new ResizeObserver(() => {
+						if (app) app.resize();
+					});
+					ro.observe(host);
+				}
 				void fetchFontCatalog().then((cat) => {
 					byName = cat.byName;
 					rebuild();
@@ -538,6 +550,8 @@
 		return () => {
 			disposed = true;
 			ready = false;
+			ro?.disconnect();
+			ro = null;
 			for (const obj of objects.values()) obj.destroy();
 			objects.clear();
 			try {
