@@ -255,8 +255,14 @@ def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
 
 def compose(regions: list[dict], width: int, height: int,
             image_for: dict[str, Image.Image | str | Path]) -> Image.Image:
-    """Paste each region's source image onto a transparent RGBA sheet, scaling
-    the source to the region's (w,h) display size.
+    """Paste each region's source image onto a transparent RGBA sheet.
+
+    Each region's FOOTPRINT on the sheet is its (w,h) box. The source image is
+    drawn at its own (iw,ih) image size (defaulting to the region size) and
+    CENTRED inside that box, so a region can be larger than its art — the
+    surrounding transparent margin is baked into the region's frame. The region
+    is always kept at least as large as the image so the art is never cropped
+    and never overflows its packed cell.
 
     image_for maps region name -> a PIL Image or a path. Rotated regions are
     stored rotated 90 degrees clockwise (Spine `rotate:90` convention)."""
@@ -270,9 +276,18 @@ def compose(regions: list[dict], width: int, height: int,
         try:
             if img.mode != "RGBA":
                 img = img.convert("RGBA")
-            w, h = int(r["w"]), int(r["h"])
-            if (img.width, img.height) != (w, h) and w > 0 and h > 0:
-                img = img.resize((w, h), Image.LANCZOS)
+            w, h = int(r["w"]), int(r["h"])               # region (footprint) box
+            iw = int(r.get("iw") or w)                    # image draw size
+            ih = int(r.get("ih") or h)
+            # The region never shrinks below the image — guards against an
+            # overflow that would spill into a neighbouring packed cell.
+            rw, rh = max(w, iw), max(h, ih)
+            if (img.width, img.height) != (iw, ih) and iw > 0 and ih > 0:
+                img = img.resize((iw, ih), Image.LANCZOS)
+            if (rw, rh) != (iw, ih):
+                tile = Image.new("RGBA", (rw, rh), (0, 0, 0, 0))
+                tile.alpha_composite(img, ((rw - iw) // 2, (rh - ih) // 2))
+                img = tile
             if r.get("rotated"):
                 img = img.rotate(-90, expand=True)  # clockwise
             sheet.alpha_composite(img, (int(r["x"]), int(r["y"])))

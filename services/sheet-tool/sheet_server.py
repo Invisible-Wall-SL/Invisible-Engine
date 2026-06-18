@@ -157,7 +157,7 @@ def load_session() -> dict | None:
 
 # Exactly the per-region fields the canvas needs to reconstruct itself; anything
 # else a (future/concurrent) client sends is dropped on save.
-_SESSION_REGION_KEYS = ("src", "name", "x", "y", "w", "h", "ow", "oh",
+_SESSION_REGION_KEYS = ("src", "name", "x", "y", "w", "h", "iw", "ih", "ow", "oh",
                         "rotated", "locked", "prompt", "shape_ref", "seed",
                         "unplaced")
 
@@ -418,11 +418,19 @@ def api_export(payload: dict) -> dict:
         src = r.get("src")
         if not src:
             continue
+        w = int(r.get("w", 0))
+        h = int(r.get("h", 0))
+        # Image draw size inside the region box (defaults to the box). The region
+        # is kept at least as large as the image so the centred art never spills
+        # into a neighbouring packed cell.
+        iw = max(int(r.get("iw") or w), 1)
+        ih = max(int(r.get("ih") or h), 1)
+        w, h = max(w, iw), max(h, ih)
         regions.append({
             "name": safe_name(r.get("name") or Path(src).stem, Path(src).stem),
             "src": src,
             "x": int(r.get("x", 0)), "y": int(r.get("y", 0)),
-            "w": int(r.get("w", 0)), "h": int(r.get("h", 0)),
+            "w": w, "h": h, "iw": iw, "ih": ih,
             "rotated": bool(r.get("rotated")),
             "prompt": r.get("prompt", ""),
             "shape_ref": r.get("shape_ref", ""),
@@ -745,10 +753,15 @@ def _parse_manifest(data: dict) -> dict:
     atlas = data.get("atlas", {})
     regions = []
     for r in data.get("regions", []) + data.get("rotated_regions", []):
+        w = int(r.get("w", 0))
+        h = int(r.get("h", 0))
         regions.append({
             "name": r.get("name", ""),
             "x": int(r.get("x", 0)), "y": int(r.get("y", 0)),
-            "w": int(r.get("w", 0)), "h": int(r.get("h", 0)),
+            "w": w, "h": h,
+            # Image draw size centred in the region; defaults to the region box
+            # for manifests authored before the region-size feature.
+            "iw": int(r.get("iw") or w), "ih": int(r.get("ih") or h),
             "rotated": bool(r.get("rotated")),
             "prompt": r.get("prompt", ""), "shape_ref": r.get("shape_ref", ""),
             "seed": str(r.get("seed", "") or ""),
@@ -1222,6 +1235,7 @@ def api_load_sheet(payload: dict) -> dict:
         # 1. the original loose sprite, via the manifest's shape_ref back-ref
         src = ""
         src_from_ref = False
+        resliced = False
         ref = (r.get("shape_ref") or "").replace("\\", "/")
         ref_is_ours = bool(input_prefix) and ref.startswith(input_prefix + "/")
         if ref_is_ours:
@@ -1249,6 +1263,7 @@ def api_load_sheet(payload: dict) -> dict:
         if not src:
             # 3. re-slice this region out of the packed sheet (api_load's crop:
             # clamp the rotated footprint to the page, skip zero-area regions).
+            resliced = True
             if page_img is None:
                 if page_path is None or not page_path.exists():
                     missing.append(r["name"] or "(unnamed)")
@@ -1289,9 +1304,18 @@ def api_load_sheet(payload: dict) -> dict:
         shape_ref = r.get("shape_ref", "")
         if ref_is_ours and not src_from_ref:
             shape_ref = ""
+        # Region-size split: when the ORIGINAL (unpadded) loose sprite was
+        # recovered, restore the recorded image draw size so the art stays
+        # centred in its (larger) region cell. A re-sliced sprite IS the padded
+        # cell already, so its image == region (no recoverable split).
+        if resliced:
+            iw, ih = w, h
+        else:
+            iw = min(w, int(r.get("iw") or w))
+            ih = min(h, int(r.get("ih") or h))
         regions_out.append({
             "src": src, "name": nm, "x": int(r["x"]), "y": int(r["y"]),
-            "w": w, "h": h, "ow": ow, "oh": oh,
+            "w": w, "h": h, "iw": iw, "ih": ih, "ow": ow, "oh": oh,
             # Loaded regions arrive LOCKED (when their geometry was sound) so
             # auto-arrange packs new uploads AROUND the existing layout instead
             # of reshuffling the whole sheet. Unlock per-sprite to repack.
