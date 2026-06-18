@@ -99,9 +99,6 @@ export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
-		/** Global symbol size every symbol inherits unless a cell sets its own `sizeRatios`.
-		 *  Optional + sparse: absent → cells fall through to the coded map size. */
-		defaultSizeRatios: sizeRatiosSchema.optional(),
 		highlight: highlightCellSchema.optional(),
 		winLine: winLineSchema.optional(),
 		updatedAt: z.string().optional(),
@@ -140,7 +137,6 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 		if (states && Object.keys(states).length > 0) symbols[name] = states;
 	}
 	const next: SymbolsDoc = { version: 1, symbols };
-	if (doc.defaultSizeRatios) next.defaultSizeRatios = doc.defaultSizeRatios;
 	if (doc.highlight) next.highlight = doc.highlight;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;

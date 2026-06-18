@@ -9,16 +9,13 @@
 	import {
 		STATE_LABELS,
 		SYMBOL_STATES,
-		clearDefaultSizeRatios,
 		clearHighlight,
 		clearOverride,
 		clearWinLineStyle,
 		docSignature,
 		effectiveCell,
 		effectiveHighlight,
-		resolveCellSize,
 		saveSymbolsDoc,
-		setDefaultSizeRatios,
 		setHighlight,
 		setOverride,
 		setWinLineEnabled,
@@ -176,31 +173,6 @@
 		closeCell();
 	}
 
-	/** The size the focused cell would render at if it inherits (per-cell unset). Drives the
-	 *  "inherits W×H" hint + seeds the inputs when the author switches to a custom size. */
-	const draftInheritedSize = $derived(
-		focus ? resolveCellSize({ ...doc, symbols: {} }, data.defaults, focus.symbol, focus.state) : null,
-	);
-
-	/** The size the focused cell ACTUALLY renders at — per-cell override if set, else the
-	 *  inherited global/coded size. Drives the live "Size on the reel cell" gauge. */
-	const draftEffectiveSize = $derived(
-		draft?.sizeRatios ?? draftInheritedSize ?? { width: 1, height: 1 },
-	);
-
-	/** Px size of one reel cell in the gauge (the dashed square = 1 cell, ratio 1.0). */
-	const GAUGE_CELL = 132;
-
-	/** Toggle the focused cell between inheriting the global size and a custom per-cell size. */
-	function setDraftCustomSize(custom: boolean): void {
-		if (!draft) return;
-		if (custom) {
-			const seed = draftInheritedSize ?? { width: 1, height: 1 };
-			draft.sizeRatios = { width: seed.width, height: seed.height };
-		} else {
-			draft.sizeRatios = undefined;
-		}
-	}
 
 	function resetCell(symbol: string, state: SymbolState): void {
 		doc = clearOverride(doc, symbol, state);
@@ -241,22 +213,6 @@
 
 	function isFocused(symbol: string, state: SymbolState): boolean {
 		return !!focus && focus.symbol === symbol && focus.state === state;
-	}
-
-	// ── Global symbol size ────────────────────────────────────────────────────
-	// One default size every symbol inherits unless its cell sets a custom size. Sparse:
-	// absent = the game keeps its coded per-symbol sizes; setting it overrides ALL symbols
-	// (special ones included — give those a per-cell size to keep their bespoke sizing).
-	const globalSizeOn = $derived(!!doc.defaultSizeRatios);
-	const globalSize = $derived(doc.defaultSizeRatios ?? { width: 1, height: 1 });
-
-	function patchGlobalSize(patch: Partial<{ width: number; height: number }>): void {
-		const base = doc.defaultSizeRatios ?? { width: 1, height: 1 };
-		doc = setDefaultSizeRatios(doc, { width: base.width, height: base.height, ...patch });
-	}
-
-	function resetGlobalSize(): void {
-		doc = clearDefaultSizeRatios(doc);
 	}
 
 	// ── Global highlight (win frame) ──────────────────────────────────────────
@@ -400,49 +356,6 @@
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
 			<div class="grid-scroll" bind:this={gridScroll}>
-				<section class="symsize">
-					<div class="ss-head">
-						<div class="ss-title">
-							<h2>Symbol size</h2>
-							<p class="ss-sub">
-								A global size every symbol inherits, as a ratio of one reel cell (1 = fills the
-								cell). Applies to every symbol — set a custom size on a cell below to override (e.g.
-								keep the scatter/book larger). Off → each symbol keeps its built-in size.
-							</p>
-						</div>
-						<div class="ss-actions">
-							{#if globalSizeOn}<span class="badge">on</span>{/if}
-							{#if globalSizeOn}
-								<button type="button" class="ghost" onclick={resetGlobalSize}>
-									Reset to default
-								</button>
-							{/if}
-						</div>
-					</div>
-					<div class="field row">
-						<label class="num">
-							<span class="label">Width ratio</span>
-							<input
-								type="number"
-								step="0.001"
-								placeholder="1"
-								value={globalSizeOn ? globalSize.width : ''}
-								oninput={(e) => patchGlobalSize({ width: Number(e.currentTarget.value) || 0 })}
-							/>
-						</label>
-						<label class="num">
-							<span class="label">Height ratio</span>
-							<input
-								type="number"
-								step="0.001"
-								placeholder="1"
-								value={globalSizeOn ? globalSize.height : ''}
-								oninput={(e) => patchGlobalSize({ height: Number(e.currentTarget.value) || 0 })}
-							/>
-						</label>
-					</div>
-				</section>
-
 				<section class="highlight" class:editing={highlightEditing}>
 					<div class="hl-head">
 						<div class="hl-title">
@@ -896,83 +809,6 @@
 					{/if}
 				{/if}
 
-				<div class="field">
-					<span class="label">Size</span>
-					{#if draft.sizeRatios}
-						<div class="field row">
-							<label class="num">
-								<span class="label">Width ratio</span>
-								<input
-									type="number"
-									step="0.001"
-									value={draft.sizeRatios.width}
-									oninput={(e) => {
-										if (draft?.sizeRatios) draft.sizeRatios.width = Number(e.currentTarget.value);
-									}}
-								/>
-							</label>
-							<label class="num">
-								<span class="label">Height ratio</span>
-								<input
-									type="number"
-									step="0.001"
-									value={draft.sizeRatios.height}
-									oninput={(e) => {
-										if (draft?.sizeRatios) draft.sizeRatios.height = Number(e.currentTarget.value);
-									}}
-								/>
-							</label>
-						</div>
-						<button type="button" class="link" onclick={() => setDraftCustomSize(false)}>
-							↩ Use global size
-						</button>
-					{:else}
-						<p class="hint">
-							Inherits the global symbol size{#if draftInheritedSize}
-								({draftInheritedSize.width}×{draftInheritedSize.height}){/if}.
-						</p>
-						<button type="button" class="link" onclick={() => setDraftCustomSize(true)}>
-							Set a custom size for this cell
-						</button>
-					{/if}
-				</div>
-
-				{#if draft.assetKey}
-					<div class="field">
-						<span class="label">Size on the reel cell</span>
-						<div class="gauge-wrap">
-							<div class="gauge-cell" style:width="{GAUGE_CELL}px" style:height="{GAUGE_CELL}px">
-								<div
-									class="gauge-art"
-									style:width="{Math.round(GAUGE_CELL * draftEffectiveSize.width)}px"
-									style:height="{Math.round(GAUGE_CELL * draftEffectiveSize.height)}px"
-								>
-									{#if draft.type === 'sprite'}
-										<SymbolSpritePreview
-											frame={draft.assetKey}
-											index={spriteIndex}
-											size={GAUGE_CELL}
-											w={Math.round(GAUGE_CELL * draftEffectiveSize.width)}
-											h={Math.round(GAUGE_CELL * draftEffectiveSize.height)}
-										/>
-									{:else}
-										<SymbolSpinePreview
-											assetKey={draft.previewKey ?? draft.assetKey}
-											animationName={draft.animationName}
-											size={Math.round(GAUGE_CELL * draftEffectiveSize.height)}
-										/>
-									{/if}
-								</div>
-							</div>
-							<p class="gauge-cap">
-								Dashed = one reel cell. Renders at
-								<strong>{draftEffectiveSize.width}×{draftEffectiveSize.height}</strong>
-								{#if !draft.sizeRatios}(inherited){/if}
-							</p>
-						</div>
-					</div>
-				{/if}
-
 				<div class="panel-actions">
 					{#if focusCell?.overridden}
 						<button
@@ -1333,83 +1169,6 @@
 		cursor: pointer;
 	}
 
-	.symsize {
-		margin-bottom: 16px;
-		padding: 14px 16px;
-		background: #101018;
-		border: 1px solid #24242e;
-		border-radius: 10px;
-	}
-	.ss-head {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 16px;
-		margin-bottom: 12px;
-	}
-	.ss-title h2 {
-		margin: 0;
-		font-size: 15px;
-		color: #e0e0e8;
-	}
-	.ss-sub {
-		margin: 2px 0 0;
-		font-size: 12px;
-		color: #8a8a96;
-	}
-	.ss-actions {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex: none;
-	}
-	.hint {
-		margin: 2px 0 6px;
-		font-size: 12px;
-		color: #8a8a96;
-	}
-	.link {
-		align-self: flex-start;
-		padding: 0;
-		background: none;
-		border: none;
-		color: #7e9bff;
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.link:hover {
-		text-decoration: underline;
-	}
-	.gauge-wrap {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		align-items: center;
-	}
-	.gauge-cell {
-		position: relative;
-		display: grid;
-		place-items: center;
-		overflow: hidden;
-		border: 1px dashed #4d6bd8;
-		border-radius: 4px;
-		background:
-			linear-gradient(#0e0e13, #0e0e13) padding-box,
-			repeating-conic-gradient(#15151c 0% 25%, #101016 0% 50%) 0 / 16px 16px;
-	}
-	.gauge-art {
-		display: grid;
-		place-items: center;
-	}
-	.gauge-cap {
-		margin: 0;
-		font-size: 11px;
-		color: #8a8a96;
-		text-align: center;
-	}
-	.gauge-cap strong {
-		color: #cfd2e0;
-	}
 	.highlight {
 		margin-bottom: 16px;
 		padding: 14px 16px;

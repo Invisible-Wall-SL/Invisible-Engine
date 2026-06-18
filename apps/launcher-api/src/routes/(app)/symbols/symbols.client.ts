@@ -41,8 +41,9 @@ export interface SymbolCell {
 	 *  DEFAULT cell, so the grid previews the specific skeleton of a shared-atlas
 	 *  bundle. Display/preview only — `applyDraft` never copies it into an override. */
 	previewKey?: string;
-	/** Per-cell size override. OPTIONAL: absent on an override cell = inherit the doc-level
-	 *  `defaultSizeRatios` global (then the coded map size). Always present on a DEFAULT cell. */
+	/** Per-cell size override (back-compat read only — the global symbol size now lives on
+	 *  the reel grid in the Scene Editor). OPTIONAL on an override cell; always present on a
+	 *  DEFAULT cell. */
 	sizeRatios?: SizeRatios;
 }
 
@@ -80,9 +81,6 @@ export interface WinLineConfig {
 export interface SymbolsDoc {
 	version: 1;
 	symbols: Record<string, SymbolStateMap>;
-	/** Global symbol size every symbol inherits. A per-cell `sizeRatios` overrides it; a
-	 *  symbol with neither falls through to the coded map. Absent = no global (coded sizes). */
-	defaultSizeRatios?: SizeRatios;
 	/** Global win-frame spine that loops over winning symbols. Absent = the game's
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
 	 *  it with an R2 spine bundle; never written for the default. */
@@ -137,33 +135,6 @@ export function clearOverride(doc: SymbolsDoc, symbol: string, state: SymbolStat
 	if (Object.keys(states).length === 0) delete symbols[symbol];
 	else symbols[symbol] = states;
 	return { ...doc, symbols };
-}
-
-/** The size a cell renders at, mirroring the engine resolver: per-cell override >
- *  doc global > coded default cell > {1,1}. Used for the editor's "inherited value" hint. */
-export function resolveCellSize(
-	doc: SymbolsDoc,
-	defaults: SymbolDefaults,
-	symbol: string,
-	state: SymbolState,
-): SizeRatios {
-	const override = doc.symbols[symbol]?.[state]?.sizeRatios;
-	if (override) return override;
-	if (doc.defaultSizeRatios) return doc.defaultSizeRatios;
-	return defaults.symbols[symbol]?.[state]?.sizeRatios ?? { width: 1, height: 1 };
-}
-
-/** Set the global default symbol size, returning a NEW doc (immutable update). */
-export function setDefaultSizeRatios(doc: SymbolsDoc, ratios: SizeRatios): SymbolsDoc {
-	return { ...doc, defaultSizeRatios: ratios };
-}
-
-/** Clear the global default symbol size (reset to coded-map sizes). New doc. */
-export function clearDefaultSizeRatios(doc: SymbolsDoc): SymbolsDoc {
-	if (!doc.defaultSizeRatios) return doc;
-	const next = { ...doc };
-	delete next.defaultSizeRatios;
-	return next;
 }
 
 /** The effective global highlight = override ?? coded default (may be absent). */
@@ -287,8 +258,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				text: sortKeys(doc.winLine.text),
 			}
 		: null;
-	const defaultSizeRatios = doc.defaultSizeRatios ?? null;
-	return JSON.stringify({ symbols, defaultSizeRatios, highlight, winLine });
+	return JSON.stringify({ symbols, highlight, winLine });
 }
 
 /** Persist the doc to R2 via the S2 endpoint; returns the stamped doc. */
@@ -299,7 +269,6 @@ export async function saveSymbolsDoc(project: string, doc: SymbolsDoc): Promise<
 		body: JSON.stringify({
 			version: 1,
 			symbols: doc.symbols,
-			...(doc.defaultSizeRatios ? { defaultSizeRatios: doc.defaultSizeRatios } : {}),
 			...(doc.highlight ? { highlight: doc.highlight } : {}),
 			...(doc.winLine ? { winLine: doc.winLine } : {}),
 		}),

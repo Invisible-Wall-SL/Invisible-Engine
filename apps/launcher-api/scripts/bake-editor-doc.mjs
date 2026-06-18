@@ -224,7 +224,6 @@ async function main() {
 	let symbols = {
 		map: {},
 		index: { sheets: [], images: [], spines: [], collisions: [] },
-		defaultSizeRatios: undefined,
 		highlight: undefined,
 		winLine: undefined,
 	};
@@ -267,16 +266,6 @@ async function main() {
 				if (w.text && typeof w.text === 'object' && Object.keys(w.text).length) out.text = w.text;
 				return Object.keys(out).length ? out : undefined;
 			})();
-			// The global default symbol size — pure config, applied at render to every symbol
-			// without a per-cell `sizeRatios`. Validate to {width,height} numbers; absent → the
-			// game keeps its coded sizes.
-			const defaultSizeRatios =
-				s?.defaultSizeRatios &&
-				typeof s.defaultSizeRatios === 'object' &&
-				typeof s.defaultSizeRatios.width === 'number' &&
-				typeof s.defaultSizeRatios.height === 'number'
-					? { width: s.defaultSizeRatios.width, height: s.defaultSizeRatios.height }
-					: undefined;
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -285,7 +274,6 @@ async function main() {
 					spines: Array.isArray(s?.index?.spines) ? s.index.spines : [],
 					collisions: Array.isArray(s?.index?.collisions) ? s.index.collisions : [],
 				},
-				defaultSizeRatios,
 				highlight,
 				winLine,
 			};
@@ -363,9 +351,6 @@ async function main() {
 			? ' winLines=OFF,'
 			: ' winLines=styled,'
 		: '';
-	const sizeNote = symbols.defaultSizeRatios
-		? ` symbolSize=${symbols.defaultSizeRatios.width}×${symbols.defaultSizeRatios.height},`
-		: '';
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
@@ -373,7 +358,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${sizeNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -384,7 +369,7 @@ async function main() {
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
-			`${highlightNote}${winLineNote}${sizeNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+			`${highlightNote}${winLineNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 
