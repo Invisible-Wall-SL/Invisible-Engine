@@ -924,6 +924,39 @@ keeping the drawer behaviour while driving its element positions from the doc. O
   intended outcome). Builds: `engine-layout` + `lines` GREEN; Prettier clean. Book of Borut picks this up on
   the next engine submodule bump.
 
+### 18.9 Info bar (win/info toast) as an editor-native component (owner direction 2026-06-18)
+**Owner ask:** control the in-game info bar (the "Win $1.00 — 2 of a kind" banner) from the Scene Editor —
+position, size, font, font size, colour. The bar was the coded HTML `MessageToast` (`components-ui-html`,
+a CSS pill fed by `showMessage`/`stateMessage` in `state-shared`): a DOM overlay in a separate render layer,
+so the editor (which only owns PIXI `LayoutScene` nodes) couldn't touch it. Re-homed as an editor-native
+`componentInstance`, mirroring the §14.3 free-spin-counter decomposition exactly — the same shape of "coded
+overlay → placeable, restyleable, source-fed component" conversion. Our fork-addition.
+- **`INFO_BAR_DEF` built-in** (`infoBar`, `engine-layout/builtinComponents.ts`): a PLAIN-NODE def (like
+  `FREE_SPIN_COUNTER_DEF`, not the HUD's coded-parts path) — a local-space container with two centred
+  children: a `kind:'sprite'` **Background** whose `region`/`tint` bind to an author-picked `background`
+  IMAGE param (the pill/plaque atlas frame), and a `kind:'text'` **Message** bound (`text → value`) to the
+  engine-fed STRING source so it renders the toast text verbatim (a `string` value routes through the
+  `<Text>`/`<BitmapText>` path, never the numeric readout). Params: `source` (default `message`),
+  `visibleSource` (default `messageShow`), `background`, `tint`, `fill` (default gold `#ffe9a8`, the toast's
+  `.win` colour), `fontSize`, `fontFamily`, `value` (engineProvided string). Empty static `assetKey` + no
+  picked `background` ⇒ no texture resolves ⇒ the bar renders TEXT-ONLY (no crash) — the pill image is an
+  asset the project authors + ships (export→deploy→bake→pull→register, rule #8), not a blocker to start.
+- **Catalog wiring** (`componentCatalog.ts`): added a `message` string entry to `ENGINE_PARAM_CATALOG` (so it
+  appears in `TEXT_SOURCE_KEYS`) + to `COMPOSED_STRING_SOURCE_KEYS` (so it lists in `VALUE_SOURCE_KEYS`, the
+  `infoBar` `source` dropdown); added `messageShow` to `VISIBILITY_SOURCE_KEYS` (the editor renders it as a
+  dropdown — true while a `showMessage` toast is active, so the bar shows only when there's a message and
+  hides on the existing auto-clear timer — the engine equivalent of the toast's self-show/hide).
+- **Game registration** (`apps/lines` reference; verified via the `InfoBarComponentInstance` story): register
+  the def beside the others (`getComponent('infoBar')`), feed `message: textSource(() =>
+  stateMessage.current?.text ?? '')`, gate `messageShow: boolSource(() => stateMessage.current !== null)`.
+- **Builds:** `engine-layout` lib typechecks GREEN; Prettier clean.
+- **Borut mirror (next, after the engine submodule bump):** register `INFO_BAR_DEF` + the `message`/
+  `messageShow` sources in `Game.svelte`, seed an `infoBar` scene in `defaultLayout('bookOf')` (canvas space,
+  `screenAnchor {0.5, 0.06}` to mirror the toast's `top:6%` centre) + mount it like `fsCounterScene`, and
+  REMOVE `<MessageToast />`. Then author the pill background + reposition/restyle in the editor and rebake.
+  `showMessage(...)` in `bookEventHandlerMap.ts` stays — it now feeds the PIXI bar. Per-`kind` recolour
+  (info/win/warn) is a later follow-on (a `messageKind` feed); the bar uses one authored `fill` for now.
+
 ---
 
 ## 19. Addendum — Reconcile the composition-seeding model: one slot-tagged source, two projections (owner direction 2026-06-12)

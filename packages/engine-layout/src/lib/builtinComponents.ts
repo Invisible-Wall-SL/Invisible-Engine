@@ -393,10 +393,268 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 	],
 };
 
+/** The default info-bar body size — readable over the reels without dwarfing them. */
+const INFO_BAR_FONT_SIZE = 36;
+/**
+ * Gold (`MessageToast` `.win` fill `#ffe9a8`) — the colour the toast used for win
+ * lines, the common case the bar shows ("Win $1.00 — 2 of a kind").
+ */
+const INFO_BAR_FILL = 0xffe9a8;
+
+/**
+ * The transient info / win bar (§18) — the editor-native, placeable replacement for
+ * the coded HTML `MessageToast` (`components-ui-html`, a CSS pill the scene editor
+ * can't touch). Mirrors the §14.3 free-spin-counter decomposition: a coded overlay
+ * re-homed as a `componentInstance` so the author owns its position, size, font,
+ * font-size and colour from the scene editor, fed by an engine source + gated on a
+ * visibility source.
+ *
+ * PLAIN-NODE path (NOT the HUD's separate-coded-parts path), like
+ * {@link FREE_SPIN_COUNTER_DEF}: `root` is a local-space container with two
+ * EDITOR-NATIVE children, both centred at the origin so they overlay —
+ * - a real `kind:'sprite'` Background whose `region`/`tint` bind to the author-picked
+ *   `background` image param (the pill/plaque atlas frame; §13.2 sprite param binding,
+ *   `LayoutNodeView`). Absent ⇒ the sprite resolves no texture and the bar renders
+ *   text-only — no crash, so the asset isn't a blocker to start;
+ * - a `kind:'text'` Message bound (`paramBindings.text → 'value'`) to the engine-fed
+ *   STRING source, so it renders the toast text verbatim (a `string` value routes
+ *   through the `<Text>`/`<BitmapText>` path, never the numeric readout).
+ *
+ * The GAME feeds it via `registerComponentValues({ message: textSource(() =>
+ * stateMessage.current?.text ?? '') })` and gates it via
+ * `registerComponentVisibility({ messageShow: boolSource(() => !!stateMessage.current)
+ * })` — the same `showMessage` state the HTML toast read, so the existing auto-clear
+ * timer hides the bar exactly as before. Per-`kind` recolour (info/win/warn) is a
+ * later follow-on; this uses one authored `fill` (gold, the win look).
+ */
+export const INFO_BAR_DEF: ComponentDef = {
+	id: 'infoBar',
+	name: 'Info Bar',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'infoBar-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'infoBar-bg',
+				label: 'Background',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				// No static texture: the author picks the pill/plaque frame via the `background`
+				// image param (region picker), which drives `region` below. `tint` recolours
+				// it. Empty static `assetKey` + no picked frame ⇒ no texture resolves ⇒ the bar
+				// renders text-only (no crash), so the asset isn't a blocker to start.
+				assetKey: '',
+				paramBindings: { region: 'background', tint: 'tint' },
+				// Editor preview hint: a tile so the slot reads as a background even before a
+				// frame is picked.
+				preview: { w: INFO_BAR_FONT_SIZE * 14, h: INFO_BAR_FONT_SIZE * 2.4, style: 'tile' },
+			},
+			{
+				id: 'infoBar-text',
+				label: 'Message',
+				kind: 'text',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Win $1.00 — 2 of a kind',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: INFO_BAR_FONT_SIZE,
+					fill: INFO_BAR_FILL,
+				},
+				paramBindings: {
+					text: 'value',
+					'style.fontFamily': 'fontFamily',
+					'style.fontSize': 'fontSize',
+					'style.fill': 'fill',
+				},
+				// Editor preview shows the engine-fed message string.
+				preview: { style: 'text', textParam: 'value' },
+			},
+		],
+	},
+	params: [
+		// The engine value feed the bar binds to — defaults to the `message` string source
+		// (the `showMessage` toast feed). Picked from the registered sources dropdown.
+		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS, default: 'message' },
+		// The engine visibility feed: DEFAULTS to `messageShow` (true only while a message
+		// is active), so the bar appears only when there's something to say — an
+		// always-visible info bar is almost never wanted. Clear it to render ungated.
+		{
+			key: 'visibleSource',
+			kind: 'string',
+			options: VISIBILITY_SOURCE_KEYS,
+			default: 'messageShow',
+		},
+		// The pill/plaque background frame (atlas region) + its tint.
+		{ key: 'background', kind: 'image', group: 'Background', label: 'background frame' },
+		{ key: 'tint', kind: 'color', default: HUD_FILL, group: 'Background' },
+		{ key: 'fill', kind: 'color', default: INFO_BAR_FILL },
+		{ key: 'fontSize', kind: 'number', default: INFO_BAR_FONT_SIZE },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		// Engine-fed message string (the `message` source); a `string` value so it renders
+		// verbatim through the text path, not the numeric readout.
+		{ key: 'value', kind: 'string', engineProvided: true },
+	],
+};
+
+/** The coded splash logo (`apps/lines` `LoadingScreen.svelte` `SpineProvider key="loader"`
+ * `width={300}`, animation `title_screen`). */
+const LOADING_LOGO_BUNDLE = 'loader';
+const LOADING_LOGO_ANIMATION = 'title_screen';
+const LOADING_LOGO_WIDTH = 300;
+/** Coded progress-bar offset below the logo centre (`LoadingProgress y={250}`). */
+const LOADING_BAR_Y = 250;
+/** Coded progress-bar size (`width={1967*0.2} height={346*0.2}`). */
+const LOADING_BAR_WIDTH = 393.4;
+const LOADING_BAR_HEIGHT = 69.2;
+/** The percentage readout under the bar — readable at splash scale. */
+const LOADING_PERCENT_FONT_SIZE = 40;
+
+/**
+ * The loading / intro SPLASH (the startup screen) as an editor-visible/editable
+ * component — the loading-screen analogue of {@link FREE_SPIN_COUNTER_DEF} /
+ * {@link INFO_BAR_DEF}: the coded `apps/lines` `LoadingScreen.svelte` splash content
+ * (logo over the progress bar) re-homed as a `componentInstance` so the author owns
+ * each piece's position / size / font / colour from the scene editor, with the boot
+ * asset-load wired in.
+ *
+ * HYBRID path — most parts are EDITOR-NATIVE plain nodes (like the free-spin counter),
+ * but the progress BAR can't be: its fill is a live mask whose width tracks the load,
+ * which the static node model can't express. So the bar is the ONE coded part — a
+ * `bind: { component: 'LoadingBar' }` child (the §14.3 HUD-readout decomposition),
+ * reusing the proven masked render; everything around it is a movable native node:
+ * - a `kind:'spine'` Logo (`loader` bundle, `title_screen` animation, looped) — the
+ *   centrepiece, drawn directly in the editor and fully draggable/resizable;
+ * - the bound `LoadingBar` (the masked fill, reading `barWidth`/`barHeight` + the
+ *   `image*` frame params off the param context, hiding itself once `stateApp.loaded`);
+ * - a `kind:'text'` Percent bound (`paramBindings.text → 'value'`) to the engine
+ *   `loadingProgress` value source, whose registered formatter renders "73%".
+ *
+ * The GAME feeds it via `registerComponentValues({ loadingProgress: valueSource(() =>
+ * context.stateApp.loadingProgress, (n) => Math.round(n) + '%') })` and registers the
+ * coded `LoadingBar` part via `registerBoundComponents`. It does NOT replace the coded
+ * `LoadingScreen` mount (which owns the interactive press-to-continue → transition
+ * flow + the `onloaded` callback the component can't carry); this is a placeable
+ * building block for composing the splash's static content in the editor. Defaults
+ * mirror the coded splash so a freshly placed instance reads like the original.
+ */
+export const LOADING_INTRO_DEF: ComponentDef = {
+	id: 'loadingIntro',
+	name: 'Loading / Intro',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'loadingIntro-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'loadingIntro-logo',
+				label: 'Logo',
+				kind: 'spine',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				assetKey: LOADING_LOGO_BUNDLE,
+				width: LOADING_LOGO_WIDTH,
+				defaultAnimation: LOADING_LOGO_ANIMATION,
+				loop: true,
+			},
+			{
+				id: 'loadingIntro-bar',
+				label: 'Progress bar',
+				kind: 'container',
+				x: 0,
+				y: LOADING_BAR_Y,
+				anchor: { x: 0.5, y: 0 },
+				bind: { component: 'LoadingBar' },
+				// Editor-only placeholder: a tile sized to the coded bar. The game ignores
+				// `preview` and mounts the real `LoadingBar` (the live masked fill).
+				preview: { w: LOADING_BAR_WIDTH, h: LOADING_BAR_HEIGHT, style: 'tile' },
+				children: [],
+			},
+			{
+				id: 'loadingIntro-percent',
+				label: 'Percent',
+				kind: 'text',
+				x: 0,
+				y: LOADING_BAR_Y + LOADING_BAR_HEIGHT * 0.5,
+				anchor: { x: 0.5, y: 0.5 },
+				text: '0%',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: LOADING_PERCENT_FONT_SIZE,
+					fill: HUD_FILL,
+				},
+				paramBindings: {
+					text: 'value',
+					'style.fontFamily': 'fontFamily',
+					'style.fontSize': 'fontSize',
+					'style.fill': 'fill',
+				},
+				// Editor preview shows the engine-fed percentage (0 until placed in-game).
+				preview: { style: 'text', textParam: 'value' },
+			},
+		],
+	},
+	params: [
+		// The engine value feed the percentage readout binds to — the boot asset-load
+		// progress 0–100, whose registered formatter renders "73%". Picked from the
+		// registered sources dropdown; defaults to `loadingProgress`.
+		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS, default: 'loadingProgress' },
+		// Progress-bar geometry — forwarded through the param context to the bound
+		// `LoadingBar`, so resizing the bar is an editor edit (no code change).
+		{ key: 'barWidth', kind: 'number', default: LOADING_BAR_WIDTH, group: 'Progress bar' },
+		{ key: 'barHeight', kind: 'number', default: LOADING_BAR_HEIGHT, group: 'Progress bar' },
+		// The three bar frames (atlas region names) the bound `LoadingBar` draws: the
+		// empty track, the fill (masked to the progress), and the frame over both.
+		// Defaults match the coded splash; a game with different art overrides them.
+		{
+			key: 'imageBackground',
+			kind: 'image',
+			default: 'progressBarBackground.png',
+			group: 'Progress bar',
+			label: 'track',
+		},
+		{
+			key: 'imageProgress',
+			kind: 'image',
+			default: 'progressBar.png',
+			group: 'Progress bar',
+			label: 'fill',
+		},
+		{
+			key: 'imageFrame',
+			kind: 'image',
+			default: 'progressBarFrame.png',
+			group: 'Progress bar',
+			label: 'frame',
+		},
+		// Percentage-readout styling.
+		{ key: 'fill', kind: 'color', default: HUD_FILL },
+		{ key: 'fontSize', kind: 'number', default: LOADING_PERCENT_FONT_SIZE },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		// Engine-fed load progress 0–100; rendered "73%" by the source formatter.
+		{ key: 'value', kind: 'number', engineProvided: true },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
 	BUTTON_DEF,
 	TEXT_BOX_DEF,
 	FREE_SPIN_COUNTER_DEF,
+	INFO_BAR_DEF,
+	LOADING_INTRO_DEF,
 ];

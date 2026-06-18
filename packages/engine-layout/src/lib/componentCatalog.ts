@@ -39,6 +39,18 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		label: 'Free Spins',
 		note: 'Composed "current OF total" free-spin counter string.',
 	},
+	{
+		key: 'message',
+		kind: 'string',
+		label: 'Message',
+		note: 'Transient win/info-bar text — the `showMessage` toast feed (e.g. "Win $1.00 — 2 of a kind").',
+	},
+	{
+		key: 'loadingProgress',
+		kind: 'number',
+		label: 'Loading Progress',
+		note: 'Asset-load progress 0–100 (the loading/intro splash). The source formatter renders it "73%".',
+	},
 ];
 
 /**
@@ -61,7 +73,7 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
  * they're kept OUT of the numeric-only {@link VALUE_SOURCE_CATALOG} but still listed
  * here so the editor's Source dropdown lists them.
  */
-const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins'];
+const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins', 'message'];
 export const VALUE_SOURCE_KEYS: string[] = [
 	...VALUE_SOURCE_CATALOG.map((p) => p.key),
 	...COMPOSED_STRING_SOURCE_KEYS,
@@ -79,11 +91,19 @@ export const TEXT_SOURCE_KEYS: string[] = ENGINE_PARAM_CATALOG.map((p) => p.key)
  * registers via `registerComponentVisibility`. The editor renders the `visibleSource`
  * param as a dropdown of these (instead of a free-text box, where the exact source
  * name is undiscoverable and a typo silently leaves the instance ungated → always
- * visible). Currently just `freeSpinCounterShow` (true only during free spins, the
- * free-spin counter's natural gate); a feed with no registered store leaves the
- * instance ungated, same as an unbound param. A custom key is preserved as an option.
+ * visible). `freeSpinCounterShow` is true only during free spins (the free-spin
+ * counter's natural gate); `messageShow` is true while a transient `showMessage`
+ * toast is active (the info bar's natural gate, so the bar shows only when there's a
+ * message); `assetsLoading` is true only while the boot asset-load is in flight (the
+ * loading/intro splash's natural gate — progress content hides the moment loading
+ * completes). A feed with no registered store leaves the instance ungated, same as an
+ * unbound param. A custom key is preserved as an option.
  */
-export const VISIBILITY_SOURCE_KEYS: string[] = ['freeSpinCounterShow'];
+export const VISIBILITY_SOURCE_KEYS: string[] = [
+	'freeSpinCounterShow',
+	'messageShow',
+	'assetsLoading',
+];
 
 /**
  * Canonical HUD button action keys the parametric Button's `action` param selects

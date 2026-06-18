@@ -9,6 +9,7 @@
 		stateBet,
 		stateBetDerived,
 		stateConfig,
+		stateMessage,
 		stateModal,
 		stateUi,
 		setUiFeatures,
@@ -26,6 +27,7 @@
 		HudValue,
 		ButtonFrame,
 		ButtonLabel,
+		LoadingBar,
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
@@ -45,6 +47,8 @@
 		BUTTON_DEF,
 		TEXT_BOX_DEF,
 		FREE_SPIN_COUNTER_DEF,
+		INFO_BAR_DEF,
+		LOADING_INTRO_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -143,6 +147,11 @@
 		FreeSpinIntro,
 		FreeSpinCounter,
 		FreeSpinOutro,
+		// The ONE coded part of the `loadingIntro` splash def — the masked progress
+		// fill the static node model can't express (the logo + percentage around it are
+		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its
+		// frame/size params off the instance, hiding itself once loading completes.
+		LoadingBar,
 	});
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
@@ -162,6 +171,17 @@
 		// frame/caption/value nodes. This IS the live render — the coded `FreeSpinCounter`
 		// stays registered only as a fallback (no longer referenced by the scene).
 		[FREE_SPIN_COUNTER_DEF.id]: FREE_SPIN_COUNTER_DEF,
+		// The InfoBar decomposition: registering the def makes `getComponent('infoBar')`
+		// resolve so an `infoBar` componentInstance expands into its background + message
+		// nodes. The editor-native replacement for the coded HTML `MessageToast`; fed by
+		// the `message` value source + gated on `messageShow` (registered below).
+		[INFO_BAR_DEF.id]: INFO_BAR_DEF,
+		// The loading/intro splash decomposition: registering the def makes
+		// `getComponent('loadingIntro')` resolve so a `loadingIntro` componentInstance
+		// expands into its logo + bound `LoadingBar` + percentage nodes. A placeable
+		// building block for composing the splash in the editor; the coded
+		// `LoadingScreen` still owns the press-to-continue/transition flow + `onloaded`.
+		[LOADING_INTRO_DEF.id]: LOADING_INTRO_DEF,
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
@@ -209,6 +229,21 @@
 		freeSpins: textSource(
 			() => `${stateUi.freeSpinCounterCurrent} OF ${stateUi.freeSpinCounterTotal}`,
 		),
+		// Composed-string feed for the `infoBar` def's `value` param — the transient
+		// `showMessage` toast text (e.g. "Win $1.00 — 2 of a kind"). A string source, so
+		// it renders verbatim through the text path. The `infoBar` scene's componentInstance
+		// binds its message node to this via `params.source: 'message'`. Empty until a game
+		// calls `showMessage`, gated invisible by `messageShow` below.
+		message: textSource(() => stateMessage.current?.text ?? ''),
+		// Numeric feed for the `loadingIntro` def's percentage readout — the boot
+		// asset-load progress 0–100 off `stateApp` (the SAME field the coded
+		// `LoadingProgress` mask reads). The formatter renders it "73%" so a plain text
+		// node bound to `value` shows the percentage; the `loadingIntro` instance binds
+		// its percent node to this via `params.source: 'loadingProgress'`.
+		loadingProgress: valueSource(
+			() => stateApp.loadingProgress,
+			(n) => `${Math.round(n)}%`,
+		),
 	});
 	// Visibility feed — register the boolean source that gates the `freeSpinCounter`
 	// componentInstance: `stateUi.freeSpinCounterShow` is true only
@@ -218,6 +253,14 @@
 	// self-show/hide.
 	registerComponentVisibility({
 		freeSpinCounterShow: boolSource(() => stateUi.freeSpinCounterShow),
+		// Gates the `infoBar` componentInstance: true while a transient `showMessage` toast
+		// is active, so the bar shows only when there's a message and hides on the existing
+		// auto-clear — the engine-layout equivalent of the coded HTML `MessageToast`.
+		messageShow: boolSource(() => stateMessage.current !== null),
+		// Gates loading-only content (e.g. the `loadingIntro` percentage readout): true
+		// only while the boot asset-load is in flight, so it hides the moment loading
+		// completes — the engine-layout equivalent of the coded splash's `{#if !loaded}`.
+		assetsLoading: boolSource(() => !stateApp.loaded),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
