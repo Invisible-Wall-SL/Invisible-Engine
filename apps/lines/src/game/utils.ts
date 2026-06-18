@@ -4,7 +4,7 @@ import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
 
 import { BOARD_DIMENSIONS } from './constants';
-import { getActiveSymbolInfoMap } from './symbolMap';
+import { getActiveSymbolInfoMap, resolveSymbolSizeRatios } from './symbolMap';
 import { eventEmitter } from './eventEmitter';
 import type { Bet, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
@@ -57,5 +57,8 @@ export const getSymbolInfo = ({
 	rawSymbol: RawSymbol;
 	state: SymbolState;
 }) => {
-	return getActiveSymbolInfoMap()[rawSymbol.name][state];
+	// Overlay the globally-resolved size (per-cell override > global default > coded), so render
+	// components always read a present, resolved `sizeRatios` regardless of the sparse override.
+	const cell = getActiveSymbolInfoMap()[rawSymbol.name][state];
+	return { ...cell, sizeRatios: resolveSymbolSizeRatios(rawSymbol.name, state) };
 };

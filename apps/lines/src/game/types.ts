@@ -29,7 +29,10 @@ export type SymbolCellInfo = {
 	type: 'sprite' | 'spine';
 	assetKey: string;
 	animationName?: string;
-	sizeRatios: { width: number; height: number };
+	/** Per-cell size. Optional on a baked OVERRIDE cell (absent = inherit the global
+	 *  `defaultSizeRatios`); the coded `SYMBOL_INFO_MAP` always supplies it. Render code
+	 *  reads the resolved size via `getSymbolInfo` (see `resolveSymbolSizeRatios`). */
+	sizeRatios?: { width: number; height: number };
 };
 
 /** Symbol name → state → binding. The coded `SYMBOL_INFO_MAP` IS one of these (the
