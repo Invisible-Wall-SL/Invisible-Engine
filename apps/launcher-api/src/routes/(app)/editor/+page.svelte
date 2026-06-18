@@ -1880,7 +1880,6 @@
 			clientKey={data.clientKey}
 			projectKey={data.projectKey}
 		/>
-			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 		</div>
 		<div class="meta">
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
@@ -2606,14 +2605,6 @@
 		gap: 18px;
 		min-width: 0;
 		flex: 1 1 auto;
-	}
-	.subtitle {
-		font-size: 12px;
-		color: #888;
-	}
-	.subtitle strong {
-		color: #c8a3ff;
-		font-weight: 600;
 	}
 	.meta {
 		display: flex;
