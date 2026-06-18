@@ -242,6 +242,7 @@
         <button id="saveRigLibBtn" title="Save this whole rig (bones + slots + skins + constraints + animations) to the shared library so it can be reused on another object" style="flex:1;font-size:11px;" disabled>📦 Save rig to library</button>
         <button id="rigLibBtn" title="Browse the shared rig library: apply a saved rig to a new rig, or import one into the open rig" style="flex:1;font-size:11px;">🗂 Rig library</button>
       </div>
+      <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from the source atlas (e.g. after recolouring it). Keeps your bones + animations." style="margin-top:6px;width:100%;font-size:11px;" disabled>⟳ Re-sync atlas</button>
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
@@ -397,6 +398,19 @@
     </div>
   </div>
 
+  <!-- Re-sync atlas modal: pick the source atlas for a rig with no remembered source -->
+  <div id="resyncModal" class="rigModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <b>Pick the atlas to re-sync from <span id="resyncCount" class="pill"></span></b>
+        <span style="flex:1;"></span>
+        <button id="resyncClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <input type="text" id="resyncFilter" placeholder="filter…" style="margin:0 0 8px;">
+      <div id="resyncList"></div>
+    </div>
+  </div>
+
   <!-- Compatibility report modal: matched vs missing bones/slots before import -->
   <div id="compatModal" class="rigModal">
     <div class="modal-box">
@@ -525,6 +539,7 @@ function updateWorld(){
 // ---- load a skeleton ------------------------------------------------------
 async function selectSkeleton(entry){
   selected = entry;
+  { const b = $("#resyncAtlasBtn"); if (b) b.disabled = !selected; }
   renderList();
   closeSpineModal();
   clearErr();
@@ -1353,6 +1368,70 @@ async function loadNewRigApplyOptions(){
       sel.appendChild(o);
     });
   } catch (e){ /* leave the "none" option */ }
+}
+
+// ---- re-sync atlas --------------------------------------------------------
+// Re-pull the rig's atlas image (+ re-synth the .atlas) from the SOURCE atlas, so a
+// recolour/edit in the Atlas Maker shows up here. The .irig (bones + animations) is
+// kept. One click once the source is remembered (sidecar); falls back to the picker
+// for older rigs, then remembers the choice. `manifestKey` undefined = use the sidecar.
+async function resyncAtlas(manifestKey){
+  if (!selected) return;
+  if (dirty && !confirm("Re-syncing reloads the rig from R2 and discards unsaved skeleton edits. Continue?")) return;
+  showLoading("Re-syncing atlas…");
+  try {
+    const body = { dir: selected.dir_b64 || "", atlasFile: selected.atlas_file };
+    if (manifestKey) body.manifestKey = manifestKey;
+    const r = await fetch("/api/rigger/resync-atlas", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok){ hideLoading(); showErr("Re-sync failed: " + r.status + " " + (await r.text())); return; }
+    const j = await r.json();
+    if (j && j.needsAtlas){ hideLoading(); openResyncModal(); return; }
+    // Re-select the rig: /spine/file is loaded cache-busted (v=Date.now()), so the
+    // newly written page shows the recoloured image.
+    await selectSkeleton(selected);
+  } catch (e){
+    showErr("Re-sync failed: " + (e && e.message ? e.message : e));
+  } finally { hideLoading(); }
+}
+
+let resyncAtlases = [];
+function openResyncModal(){
+  $("#resyncModal").classList.add("open");
+  const f = $("#resyncFilter"); if (f){ f.value = ""; f.focus(); }
+  loadResyncAtlases();
+}
+function closeResyncModal(){ $("#resyncModal").classList.remove("open"); }
+async function loadResyncAtlases(){
+  $("#resyncList").innerHTML = '<div class="empty" style="padding:10px 4px;color:var(--dim);">loading…</div>';
+  try {
+    const r = await (await fetch("/api/rigger/atlases")).json();
+    resyncAtlases = r.atlases || [];
+  } catch (e){ resyncAtlases = []; }
+  renderResyncList();
+}
+function renderResyncList(){
+  const q = ($("#resyncFilter").value || "").toLowerCase();
+  const list = $("#resyncList"); list.innerHTML = "";
+  const rows = resyncAtlases.filter((a) => !q || (a.label || "").toLowerCase().includes(q));
+  $("#resyncCount").textContent = "(" + rows.length + ")";
+  if (!rows.length){
+    const e = document.createElement("div");
+    e.className = "empty"; e.style.cssText = "padding:14px 4px;color:var(--dim);font-size:12px;line-height:1.5;";
+    e.textContent = resyncAtlases.length
+      ? "no atlases match the filter"
+      : "No atlases in this project — compose one in the Atlas Maker first.";
+    list.appendChild(e); return;
+  }
+  rows.forEach((a) => {
+    const d = document.createElement("div"); d.className = "item";
+    d.innerHTML = '<div class="nm">' + a.label + '</div>' +
+      '<div class="meta">' + (Array.isArray(a.regions) ? a.regions.length : 0) + ' images</div>';
+    d.onclick = () => { closeResyncModal(); resyncAtlas(a.manifestKey); };
+    list.appendChild(d);
+  });
 }
 
 // ---- D4: namespaced merge (import a whole rig into the open rig) ------------
@@ -4815,6 +4894,12 @@ function wire(){
   $("#rigLibFilter").oninput = renderRigLibrary;
   $("#rigLibModal").onmousedown = (e) => { if (e.target === $("#rigLibModal")) closeRigLibrary(); };
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#rigLibModal").classList.contains("open")) closeRigLibrary(); });
+  // re-sync atlas: one click (remembered source), else the atlas picker
+  $("#resyncAtlasBtn").onclick = () => resyncAtlas();
+  $("#resyncClose").onclick = closeResyncModal;
+  $("#resyncFilter").oninput = renderResyncList;
+  $("#resyncModal").onmousedown = (e) => { if (e.target === $("#resyncModal")) closeResyncModal(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#resyncModal").classList.contains("open")) closeResyncModal(); });
   // compatibility-report modal
   $("#compatClose").onclick = closeCompatModal;
   $("#compatCancel").onclick = closeCompatModal;

@@ -258,6 +258,27 @@ motion); you re-skin it to the new mesh with the normal Setup/weight tools.
 - **⤓ .irig** downloads the skeleton locally as Spine 4.2 JSON under the `.irig`
   extension.
 
+### Re-sync a rig's atlas (after editing the source atlas)
+
+Each rig is a self-contained spine bundle (`spines/<rig>/`) that holds its OWN
+**copy** of the atlas page image, snapshotted when the rig was created. So if you
+recolour or otherwise edit that atlas in the **Atlas Maker** afterwards, the rig
+keeps showing the OLD image — its copy is never auto-updated.
+
+- **⟳ Re-sync atlas** (sidebar, enabled once a rig is loaded) re-pulls the latest
+  page image from the SOURCE atlas and re-synthesises the rig's `.atlas`, then
+  reloads the rig so the new look shows. It does **not** touch your `.irig` (bones,
+  animations, attachments) — only the picture and the atlas geometry.
+- It's **one click** because the rig remembers which atlas it was created from (a
+  `source.json` sidecar written at New-rig time). For **older rigs** created before
+  that — or rigs made from uploaded images — it asks you to **pick the atlas once**;
+  after that the choice is remembered and it's one click thereafter.
+- **Region names must still match.** A colour change keeps them, so re-sync just
+  works. If the atlas was re-packed with renamed/removed regions, a re-synced rig's
+  attachments may no longer resolve and you'd re-attach by hand.
+- If you have unsaved skeleton edits, re-sync asks to confirm first (it reloads the
+  rig from R2, discarding those edits).
+
 ## Known limitations / TODOs
 
 - **Live verification is the main gap.** Most of the editing/authoring/animation

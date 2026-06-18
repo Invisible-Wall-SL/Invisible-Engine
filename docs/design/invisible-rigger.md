@@ -1060,3 +1060,65 @@ the new object's art and weights it to the imported bones. By design: the librar
 the rig (skeleton + motion); re-skinning to the new mesh uses the normal Setup/weight
 tools. Not wired to the game build pipeline: tool-side authoring data; the result ships
 through the existing `.irig` save→ship path, not as a new asset class.
+
+## Phase 5.9 — re-sync atlas / source remembering (2026-06-18)
+
+Problem: each rig is a self-contained spine bundle (`spines/<rig>/`) holding its OWN
+**copy** of the atlas page image, snapshotted at New-rig time (see §16 — the page is
+`getObjectBytes(rs.pageKey)` → `putObjectBytes(<bundle>/<pageName>)`). When the owner
+recolours/edits that atlas in the Atlas Maker afterwards, the rig keeps showing the OLD
+image — the bundle copy is never auto-updated. Owner-approved fix: a **⟳ Re-sync atlas**
+button that re-pulls the latest page + re-synthesises the `.atlas` from the SOURCE atlas,
+keeping the `.irig` (bones + animations + attachments) intact. It **remembers the source**
+so re-syncs are one click.
+
+**`source.json` sidecar (written by `new`).** After the rig bundle is written, `new`
+also writes `<bundle>/source.json = { manifestKey, pageName }` — the manifest the rig was
+created from + the page filename in the bundle. This is what makes future re-syncs
+one-click. It's harmless: `buildSkeletonsIndex` only indexes skeleton/atlas files (so it's
+ignored), and it's a valid `/spine/file` name. `upload/+server.ts` does NOT write one —
+uploaded-image rigs have no project-atlas source, so a re-sync there falls through to the
+picker.
+
+**Endpoint `src/routes/api/rigger/resync-atlas/+server.ts` (POST, `rigger`-gated).**
+Body `{ dir, atlasFile, manifestKey? }`. Mirrors `new`'s page-copy + atlas-synth calls:
+1. `gate()` for `rigger` (same forbiddenMessage idiom).
+2. Decode `dir` (base64url) → bundle under `spines/`, reject `..`; validate `atlasFile`
+   is a non-empty string with no `..`/`/`; build `bundlePrefix` like `save`.
+3. Resolve `manifestKey`: body override, else read `<bundle>/source.json`
+   (`getObjectText` → JSON.parse). If still none → return `json({ ok:false,
+   needsAtlas:true })` at **HTTP 200** (not a 4xx) so the client knows to show the picker.
+4. `loadRegionSet(manifestKey, …)`; validate `regions.length`/`pageKey`/`pageWidth`/
+   `pageHeight` (mirror `new`'s 400s); `getObjectBytes(rs.pageKey)` (404 if missing);
+   `pageName = basename(rs.pageKey)`.
+5. Read the bundle's CURRENT atlas; the old page filename = first non-empty trimmed line.
+6. Write the new page (`putObjectBytes`), the re-synthesised atlas
+   (`regionsToSpineAtlas(pageName, …)` → `putObjectText(<bundle>/<atlasFile>)`), and a
+   refreshed `source.json` (so a PICKED source becomes remembered).
+7. **Old-page cleanup:** if `oldPageName` exists and `!== pageName`, `deleteObject` it —
+   but only AFTER the new page is written, so a failure can't leave the rig page-less.
+8. Returns `{ ok:true, pageName, regions }`. Does NOT reindex `skeletons.json` (the
+   skeleton list + atlas filename are unchanged).
+
+**Client flow (one-click-then-picker).** `view.html`:
+- Sidebar **⟳ Re-sync atlas** (next to ↻ Refresh from R2 / the rig-library buttons),
+  enabled only when a rig is loaded (set in `selectSkeleton`).
+- `resyncAtlas(manifestKey?)`: requires `selected`; on `dirty`, a confirm (re-sync
+  reloads from R2, discarding unsaved skeleton edits). `showLoading`, POST
+  `{ dir: selected.dir_b64, atlasFile: selected.atlas_file }` + `manifestKey` when given.
+  On `!r.ok` → `showErr`. On `{ needsAtlas:true }` → `openResyncModal()`. On success →
+  `await selectSkeleton(selected)` — re-selecting reloads `/spine/file` cache-busted
+  (`v=Date.now()`), so the recoloured page shows.
+- The sidebar button calls `resyncAtlas()` with **no** manifestKey → the server uses the
+  remembered sidecar (one click). Only rigs without a sidecar (older rigs / uploads) fall
+  through to the picker; after the first picker-driven re-sync the sidecar is written, so
+  it's one click thereafter.
+- Picker modal `#resyncModal` (a `.rigModal`, same style as the rig/animation libraries):
+  lists `GET /api/rigger/atlases` (`{atlases:[{manifestKey,label,regions}]}`) with a
+  filter; choosing one closes the modal and calls `resyncAtlas(manifestKey)`. Empty state:
+  "No atlases in this project — compose one in the Atlas Maker first."
+
+**By-name caveat (same as §16/5.8).** Re-sync is safe for a colour change because region
+names are preserved. If the atlas was re-packed with renamed/removed regions, the rig's
+attachments may no longer resolve and the user re-attaches by hand. Not a new pipeline
+asset class — it ships through the existing `.irig` save→ship path.
