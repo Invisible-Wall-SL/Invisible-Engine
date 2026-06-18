@@ -148,11 +148,11 @@
 		[HUD_READOUT_DEF.id]: HUD_READOUT_DEF,
 		[BUTTON_DEF.id]: BUTTON_DEF,
 		[TEXT_BOX_DEF.id]: TEXT_BOX_DEF,
-		// Slice 1 of the FreeSpinCounter decomposition (additive): registering the def
-		// makes `getComponent('freeSpinCounter')` resolve so a `componentInstance` of it
-		// can expand into its frame/caption/value nodes. No live scene carries such an
-		// instance — the `freeSpinCounter` scene still mounts the coded `FreeSpinCounter`
-		// via its `bind` anchor — so this is pure registration with no render change.
+		// The FreeSpinCounter decomposition: registering the def makes
+		// `getComponent('freeSpinCounter')` resolve so the `freeSpinCounter` scene's
+		// `componentInstance` (see `referenceLayouts/lines.ts`) expands into its
+		// frame/caption/value nodes. This IS the live render — the coded `FreeSpinCounter`
+		// stays registered only as a fallback (no longer referenced by the scene).
 		[FREE_SPIN_COUNTER_DEF.id]: FREE_SPIN_COUNTER_DEF,
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
@@ -161,8 +161,9 @@
 	// `<Text>`. The names are the BMFont `<info face>` each `.xml` installs under (the
 	// runtime sibling of the editor's `/api/editor/fonts` catalog). Web fonts need no
 	// entry — absent ⇒ `<Text>` ⇒ parity. No live scene text node references a bitmap
-	// family yet (the `freeSpinCounter` def's `gold` text is unwired), so this is pure
-	// registration with no render change today.
+	// family — the `freeSpinCounter` scene's componentInstance renders its caption/value
+	// through `<BitmapText>` because `gold` is registered below as a bitmap family, which
+	// gives the engine-layout counter parity with the old coded `FreeSpinCounter`.
 	// The game's built-in bitmap fonts (shipped in `assets.ts`). Merged with the
 	// baked per-project font catalog (Font Maker output, frozen into the bundle by
 	// `bake-editor-doc.mjs`) via the engine's shared `mergeBakedFontCatalog` so an
@@ -193,20 +194,20 @@
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
 		bet: valueSource(() => stateBetDerived.betCost(), numberToCurrencyString),
 		// Composed-string feed for the `freeSpinCounter` def's `value` param — the live
-		// "current OF total" the coded `FreeSpinCounter` shows, sourced from the SAME
-		// `stateUi` fields the coded overlay reads (set in bookEventHandlerMap). A string
-		// source, so it renders verbatim through the text path. Unwired until a
-		// `freeSpinCounter` componentInstance is placed (parity with the coded mount).
+		// "current OF total" the counter shows, sourced from the SAME `stateUi` fields the
+		// old coded overlay read (set in bookEventHandlerMap). A string source, so it
+		// renders verbatim through the text path. The `freeSpinCounter` scene's
+		// componentInstance binds its value node to this via `params.source: 'freeSpins'`.
 		freeSpins: textSource(
 			() => `${stateUi.freeSpinCounterCurrent} OF ${stateUi.freeSpinCounterTotal}`,
 		),
 	});
-	// Visibility feed (slice 2a, additive) — register the boolean source that gates a
-	// `freeSpinCounter` componentInstance: `stateUi.freeSpinCounterShow` is true only
-	// during free spins. This makes the source available; nothing renders gated until
-	// an instance sets `visibleSource: 'freeSpinCounterShow'` (slice 2b), so this is
-	// pure registration with no render change (the coded `FreeSpinCounter` still
-	// self-shows off book events).
+	// Visibility feed — register the boolean source that gates the `freeSpinCounter`
+	// componentInstance: `stateUi.freeSpinCounterShow` is true only
+	// during free spins. The scene's instance sets `visibleSource:
+	// 'freeSpinCounterShow'`, so the whole counter hides while that source is false —
+	// the engine-layout equivalent of the coded `FreeSpinCounter`'s book-event
+	// self-show/hide.
 	registerComponentVisibility({
 		freeSpinCounterShow: boolSource(() => stateUi.freeSpinCounterShow),
 	});

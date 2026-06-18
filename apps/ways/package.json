@@ -34,6 +34,7 @@
 		"envs": "workspace:*",
 		"rgs-requests": "workspace:*",
 		"pixi-svelte": "workspace:*",
+		"engine-layout": "workspace:*",
 		"state-shared": "workspace:*",
 		"constants-shared": "workspace:*",
 		"components-storybook": "workspace:*",

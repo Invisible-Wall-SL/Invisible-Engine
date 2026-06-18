@@ -264,11 +264,12 @@ export const TEXT_BOX_DEF: ComponentDef = {
 
 /**
  * The free-spin counter panel (`apps/lines` `FreeSpinCounter.svelte`) as an
- * editor-visible/editable component — slice 1 of decomposing the coded overlay
- * (mirrors the §14.3 HUD-readout decomposition). PURELY ADDITIVE: the live game
- * still renders the coded `FreeSpinCounter` via its `bind` anchor in the
- * `freeSpinCounter` scene (parity), so this def is unwired until a later slice
- * flips that anchor to a `componentInstance`.
+ * editor-visible/editable component (mirrors the §14.3 HUD-readout decomposition).
+ * This is the LIVE in-game render: the `freeSpinCounter` scene carries a
+ * `componentInstance` of this def (`referenceLayouts/lines.ts`, Borut's editor
+ * doc), fed `value` from the game's `freeSpins` string source and gated on the
+ * `freeSpinCounterShow` bool source. The coded `FreeSpinCounter` stays registered
+ * as a fallback but is no longer referenced by the reference layouts.
  *
  * PLAIN-NODE path (NOT the HUD's separate-coded-parts path): `root` is a
  * local-space container with three EDITOR-NATIVE children —
@@ -279,15 +280,13 @@ export const TEXT_BOX_DEF: ComponentDef = {
  * - a `kind:'text'` Value bound (`paramBindings.text → 'value'`) to the
  *   engine-fed string source, so it shows "X OF Y" verbatim.
  *
- * Why plain text over reusing `HudCaption`/`HudValue`: the engine layout text
- * path (`LayoutNodeView`) renders text via `<Text>` only — it does NOT yet emit
- * `<BitmapText>` for a `kind:'bitmap'` font (design §9.4 Phase 3 is decided but
- * unlanded), and `HudValue` is hardwired to a NUMERIC currency formatter so it
- * can't render the "X OF Y" string at all. Plain text nodes are fully
- * editor-native + directly editable (the owner-preferred path), correctly express
- * the string value, and will pick up the `gold` bitmap font with no def change the
- * moment §9.4 Phase 3 lands. The coded `FreeSpinCounter` keeps owning the live
- * bitmap render until then.
+ * Why plain text over reusing `HudCaption`/`HudValue`: `HudValue` is hardwired to a
+ * NUMERIC currency formatter so it can't render the "X OF Y" string at all, whereas
+ * plain text nodes are fully editor-native + directly editable (the owner-preferred
+ * path) and correctly express the string value. The `gold` bitmap font renders at
+ * parity because `LayoutNodeView`'s text path now emits `<BitmapText>` for any
+ * `style.fontFamily` the boot-registered font catalog marks as a bitmap font (§9.4),
+ * exactly as the coded `FreeSpinCounter` did.
  */
 const FS_PANEL_RATIO = 824 / 622;
 /** Coded panel width (`SYMBOL_SIZE*2`, SYMBOL_SIZE = 120). */

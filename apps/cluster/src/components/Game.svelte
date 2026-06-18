@@ -9,8 +9,20 @@
 
 	import { UI, UiGameName } from 'components-ui-pixi';
 	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
+	import { LayoutScene } from 'engine-layout/svelte';
+	import {
+		registerComponents,
+		registerComponentValues,
+		registerComponentVisibility,
+		registerFontCatalog,
+		FREE_SPIN_COUNTER_DEF,
+		type Scene,
+	} from 'engine-layout';
 
 	import { getContext } from '../game/context';
+	import { SYMBOL_SIZE } from '../game/constants';
+	import { textSource } from '../game/textSource.svelte';
+	import { boolSource } from '../game/boolSource.svelte';
 	import EnableSound from './EnableSound.svelte';
 	import EnableGameActor from './EnableGameActor.svelte';
 	import ResumeBet from './ResumeBet.svelte';
@@ -27,7 +39,6 @@
 	import GlobalMultiplier from './GlobalMultiplier.svelte';
 	import Win from './Win.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
-	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
@@ -40,6 +51,75 @@
 	}
 
 	const context = getContext();
+
+	// Free-spin counter — render the REUSABLE engine-layout `freeSpinCounter`
+	// componentInstance (frame + "FREE SPIN" caption + "X OF Y" value) instead of the
+	// coded <FreeSpinCounter>. The def + its feeds are registered at boot; the live
+	// "current OF total" + show/hide are driven off the SAME `freeSpinCounter*` events
+	// the game already broadcasts (bookEventHandlerMap is untouched), held in local
+	// `$state` so the getters the sources capture stay reactive. The coded
+	// FreeSpinCounter.svelte stays in the repo as a fallback (no longer mounted).
+	let fsShow = $state(false);
+	let fsCurrent = $state(0);
+	let fsTotal = $state(0);
+	context.eventEmitter.subscribeOnMount({
+		freeSpinCounterShow: () => (fsShow = true),
+		freeSpinCounterHide: () => (fsShow = false),
+		freeSpinCounterUpdate: (emitterEvent) => {
+			if (emitterEvent.current !== undefined) fsCurrent = emitterEvent.current;
+			if (emitterEvent.total !== undefined) fsTotal = emitterEvent.total;
+		},
+	});
+	registerComponents({ [FREE_SPIN_COUNTER_DEF.id]: FREE_SPIN_COUNTER_DEF });
+	registerComponentValues({ freeSpins: textSource(() => `${fsCurrent} OF ${fsTotal}`) });
+	registerComponentVisibility({ freeSpinCounterShow: boolSource(() => fsShow) });
+	// Mark the game's built-in bitmap fonts so the engine-layout text path emits
+	// `<BitmapText>` (not a system `<Text>`) for the counter's `gold` caption/value —
+	// the same blitter the coded <FreeSpinCounter> used. Names are the BMFont
+	// `<info face>` each `.xml` installs under (shipped in `assets.ts`).
+	registerFontCatalog({
+		prefix: '',
+		fonts: [
+			{ id: 'gold', name: 'gold', kind: 'bitmap', folder: '' },
+			{ id: 'goldblur', name: 'goldblur', kind: 'bitmap', folder: '' },
+			{ id: 'silver', name: 'silver', kind: 'bitmap', folder: '' },
+			{ id: 'purple', name: 'purple', kind: 'bitmap', folder: '' },
+		],
+	});
+
+	// The def's Frame/caption/value are sized for SYMBOL_SIZE 120 (panel 240px, font
+	// 33); a uniform `scale` reproduces this game's `SYMBOL_SIZE*2` panel + `*0.275`
+	// font exactly. `space:'game'` wraps the instance in a MainContainer, so `x/y` is
+	// the panel TOP-LEFT in MAIN coords — the SAME `boardLayout()` formula the coded
+	// overlay used (the def's root is local-space, anchor {0,0}).
+	const FS_SCALE = SYMBOL_SIZE / 120;
+	const fsPanelWidth = SYMBOL_SIZE * 2;
+	const fsCounterScene = $derived<Scene>({
+		id: 'freeSpinCounter',
+		name: 'Free-spin counter',
+		space: 'game',
+		nodes: [
+			{
+				id: 'fs-counter',
+				kind: 'componentInstance',
+				componentId: 'freeSpinCounter',
+				x:
+					context.stateGameDerived.boardLayout().x -
+					context.stateGameDerived.boardLayout().width * 0.5 -
+					fsPanelWidth -
+					SYMBOL_SIZE * 0.7,
+				y:
+					context.stateGameDerived.boardLayout().y -
+					context.stateGameDerived.boardLayout().height * 0.5,
+				scale: { x: FS_SCALE, y: FS_SCALE },
+				params: {
+					source: 'freeSpins',
+					visibleSource: 'freeSpinCounterShow',
+					label: 'FREE SPIN',
+				},
+			},
+		],
+	});
 
 	onMount(() => (context.stateLayout.showLoadingScreen = true));
 
@@ -110,7 +190,7 @@
 		<Win />
 		<FreeSpinIntro />
 		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
-			<FreeSpinCounter />
+			<LayoutScene scene={fsCounterScene} />
 		{/if}
 		<FreeSpinOutro />
 		<Transition />
