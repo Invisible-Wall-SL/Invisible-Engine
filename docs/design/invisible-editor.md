@@ -569,6 +569,28 @@ where `columnExtraLocal`/`rowPitchLocal` come from `boardGeometry()`.
 
 **Scope:** only `apps/lines` carries the override pattern in this repo (cluster/ways/scatter/price/number-picker do not). `BoardMask` is a `BoardContainer` child (board-local space) so it now centres on the cluster too — strictly better than today's drift; its flush `SYMBOL_SIZE` height (vs the gap-expanded pitch) is a separate, pre-existing limitation. `Anticipation` is rendered OUTSIDE `BoardContainer` from `boardLayout().x/width` and already ignores the gap + scale (a pre-existing limitation, unchanged by this fix). **Book of Borut's own repo carries a separate copy of `stateGame.svelte.ts` (engine vendored as a submodule, game code outside this working dir) and needs the identical `boardLayout()` pivot edit.**
 
+### 11.5 Addendum — Symbol size on the reel (2026-06-18)
+
+**Supersedes the Phase-2 "Symbol sizing unchanged" note above.** Symbol render size is now an
+authorable reel property — it moved here from the Symbols State Machine (size is a *layout*
+concern, beside `cellSize`/gaps/padding, not the symbol→asset binding). `ReelGridNode` gained
+optional `symbolSizeRatios?: { width, height }` — the symbol art's size as a fraction of one
+cell (`1` = fills the cell); absent ⇒ the game's coded per-symbol sizes (parity). It travels
+on the layout doc like every other reelGrid field — **no bake step** beyond the normal scene
+bake, no symbols-doc involvement.
+
+- **Editor:** the reel's Properties panel gained a **"Symbol size (× cell)"** Width/Height pair
+  (writes `node.symbolSizeRatios` sparsely) + a **Reset (use coded sizes)** button; the reel
+  preview draws the project's real static symbols at their resolved size, clipped to each cell.
+- **Engine render (per-game):** the size resolver applies, strongest→weakest, a baked per-cell
+  `SymbolCell.sizeRatios` (legacy, back-compat) > the reel `symbolSizeRatios` > the coded
+  `SYMBOL_INFO_MAP` size > `{1,1}`. The short-lived `SymbolsDoc.defaultSizeRatios` global was
+  removed; the Symbols State Machine no longer authors size at any level (see
+  [`invisible-symbols-state-machine.md`](./invisible-symbols-state-machine.md), "Symbol size
+  lives on the reel").
+- **Scope:** `apps/lines` carries the render path; cluster/ways/scatter/price are self-contained
+  and unaffected; Book of Borut takes it when it bumps the engine submodule.
+
 ## 12. Addendum — Universal bound-component params (owner direction 2026-06-08)
 
 **Owner ask:** generalize the bespoke per-component appearance editing (the reelGrid params + the HUD logo/game-name text override) into ONE mechanism that works for ALL coded components — starting with the HUD.

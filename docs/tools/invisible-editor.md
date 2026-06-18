@@ -122,6 +122,21 @@ sprites, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
 
+#### Symbol size on the reel
+
+When the **reel grid** node is selected, its Properties panel includes a **"Symbol
+size (× cell)"** Width/Height control. This sets how big the symbol art renders
+*inside* each reel cell, as a fraction of one cell — `1` fills the cell, `0.9`
+insets it slightly. It applies to **every** symbol on the board, and a **Reset**
+button clears it so the game falls back to its built-in per-symbol sizes.
+
+This is the one place symbol size is authored. (It used to live in the Invisible
+Symbols State Machine, but size is a layout concern, so it moved here to the reel.)
+It is stored as `reelGrid.symbolSizeRatios` on the layout doc and travels to the
+game on the normal scene bake — no separate asset step. Resizing the reel cell
+itself (`cellSize`) scales the grid *and* the symbols together; this control
+changes only the symbol's size *within* its cell.
+
 ### 5. Author across device layouts
 
 The **layoutType** pills (`desktop · tablet · landscape · portrait`) switch which

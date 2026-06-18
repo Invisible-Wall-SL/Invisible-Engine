@@ -56,23 +56,13 @@ tool top bar). Switch projects from the launcher before opening the tool.
      an **Animation**. Once the bundle loads, the animation list is populated from the
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
      plays the skeleton's first animation. A live **Preview** plays the chosen animation.
-5. **Set the size.** By default a cell **inherits the global symbol size** (see the
-   **Symbol size** section below) — the panel shows an *"Inherits the global symbol size
-   (W×H)"* hint with the value it will render at. To size this one cell differently, click
-   **Set a custom size for this cell**: numeric **Width ratio** and **Height ratio** inputs
-   appear (fine-grained, step `0.001`), seeded from the inherited value. A **↩ Use global
-   size** link drops the per-cell size again so the cell goes back to inheriting the global.
-   A **Size on the reel cell** gauge below the inputs previews the result live: a dashed
-   square is one reel cell and the symbol is drawn at its effective size inside it (overflow
-   is clipped at the cell edge), so you can judge the fit — and tune the global or the
-   per-cell ratio — *before* publishing. It updates as you type.
-6. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
+5. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen). The cell updates immediately and is marked **edited**. The
    panel also has a **Reset to default** action for an overridden cell.
-7. **Save.** The header **Save** button is enabled whenever the doc differs from what's
+6. **Save.** The header **Save** button is enabled whenever the doc differs from what's
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
-8. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
+7. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
    and their previews from R2. Use it after you re-export or replace a spine bundle (e.g.
    re-rigging in the Invisible Rigger) — otherwise the grid + pickers keep showing the
    *cached* skeleton, because spine art is loaded once per bundle and the skeleton/page
@@ -80,23 +70,17 @@ tool top bar). Switch projects from the launcher before opening the tool.
    animation names) and re-reads the project's bundle list (a brand-new bundle appears in
    the spine pickers). Your unsaved cell edits are preserved.
 
-### Symbol size
+### Symbol size lives on the reel, not here
 
-At the very top of the page is the **Symbol size** panel — a single **global** size every
-symbol inherits, expressed as a ratio of one reel cell (`1` = the symbol fills its cell).
-It is the quick way to resize every symbol at once instead of editing each cell.
+This tool no longer sets symbol size — size is a *layout* concern. To change how big the
+symbol art renders inside each reel cell, open the **Invisible Scene Editor** (`/editor`),
+select the reel, and use the **"Symbol size (× cell)"** Width/Height control on the reel's
+properties (see [the Scene Editor guide](./invisible-editor.md#symbol-size-on-the-reel)).
+That value (`reelGrid.symbolSizeRatios`, `1` = the art fills one cell) applies to every
+symbol on the board; absent ⇒ the game's built-in per-symbol sizes.
 
-- Enter a **Width ratio** and a **Height ratio**. While the inputs are blank the global is
-  **off** and each symbol keeps its own built-in size; as soon as you type a value an **on**
-  badge appears and the global applies to **every** symbol.
-- **Reset to default** clears the global, returning all symbols to their built-in sizes.
-- The global applies to special symbols too (scatter / book / wild). To keep one of those at
-  a bespoke size, leave the global on and give that symbol a **custom size on its cell**
-  (step 5 above) — a per-cell size always wins over the global.
-
-Resolution order, from strongest to weakest: a cell's own custom size → this global symbol
-size → the game's built-in coded size. A project that never touches this panel ships no
-global size and renders byte-identical to before.
+A baked per-cell `sizeRatios` from before this change is still honoured by the engine (it
+wins over the reel value), but the tool no longer authors size at any level.
 
 ### Highlight (win frame)
 
@@ -169,9 +153,10 @@ game it must travel the standard live-assets chain, exactly like editor art and 
   `POST /api/editor/export-symbols` (deploy-token gated), which `bake-editor-doc.mjs`
   calls alongside the other exports.
 - **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored
-  overrides + the asset index), plus the optional globals `symbols.highlight`,
-  `symbols.winLine`, and `symbols.defaultSizeRatios` (each omitted when unset — `winLine` is
-  written only as `{ enabled: false }`).
+  overrides + the asset index), plus the optional globals `symbols.highlight` and
+  `symbols.winLine` (each omitted when unset — `winLine` is written only as
+  `{ enabled: false }`). Symbol size is not in this doc; it travels on the layout doc as
+  `reelGrid.symbolSizeRatios` (Scene Editor).
 - **Pull** — `pull-project-assets.mjs` mirrors `deploy/editor-symbols/` into the game's
   `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
 - **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded
