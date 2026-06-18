@@ -1,4 +1,11 @@
-import type { LayoutDoc, LayoutNode, LayoutType, Scene } from 'engine-layout';
+import type {
+	GameJurisdiction,
+	GameSettings,
+	LayoutDoc,
+	LayoutNode,
+	LayoutType,
+	Scene,
+} from 'engine-layout';
 import { editorDocKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 
@@ -59,10 +66,35 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	const scenes = Array.isArray(obj.scenes)
 		? obj.scenes.map(normalizeScene).filter((s): s is Scene => s !== null)
 		: [];
+	const settings = normalizeGameSettings(obj.settings);
 	const updatedAt = typeof obj.updatedAt === 'string' ? obj.updatedAt : '';
 	const doc: LayoutDoc = { version: 1, projectKey, mainSizesMap, scenes, updatedAt };
 	if (gameType) doc.gameType = gameType;
+	if (settings) doc.settings = settings;
 	return doc;
+}
+
+/**
+ * Coerce the optional game-level settings (speed-feature toggles / jurisdiction)
+ * into a valid {@link GameSettings}, dropping unknown values. Returns `undefined`
+ * when nothing meaningful is present so older docs (no `settings`) round-trip as
+ * absent rather than gaining an empty object.
+ */
+function normalizeGameSettings(input: unknown): GameSettings | undefined {
+	if (!isRecord(input)) return undefined;
+	const out: GameSettings = {};
+	if (input.jurisdiction === 'default' || input.jurisdiction === 'UK') {
+		out.jurisdiction = input.jurisdiction as GameJurisdiction;
+	}
+	if (isRecord(input.features)) {
+		const f = input.features;
+		const features: NonNullable<GameSettings['features']> = {};
+		if (typeof f.turbo === 'boolean') features.turbo = f.turbo;
+		if (typeof f.autoplay === 'boolean') features.autoplay = f.autoplay;
+		if (typeof f.spaceHold === 'boolean') features.spaceHold = f.spaceHold;
+		if (Object.keys(features).length > 0) out.features = features;
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function normalizeMainSizesMap(

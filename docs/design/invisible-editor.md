@@ -1172,3 +1172,59 @@ composed in an open editor. As-built (parity-safe):
   validate the posted kind against the SAME union (offered set == accepted set, resolved server-side).
 Parity: `game_type = null` still → lines; built-in kinds unchanged; only a project explicitly set to a custom
 kind newly resolves via `loadKind`. Build-green gate (authed/R2 paths owner-verified online).
+
+## 22. Addendum — Spin-button states + config-gated speed features (owner direction 2026-06-18)
+
+The owner asked for the spin button's icon to **rotate while the reels roll** (the universal slot
+convention) and, more broadly, "all kinds of functionality" around the spin button. Research +
+codebase audit settled the scope: the engine already ships turbo (`stateBet.isTurbo` + `ButtonTurbo`
++ space-hold), autoplay (`autoSpinsCounter` + loss/win limits + the `AutoSpins*` modal suite +
+`createIntermediateMachineAutoBet`), the BET→STOP morph, and Space-to-spin. So the new work was the
+rotating icon, a behaviour refinement, and a config layer — **not** rebuilding turbo/autoplay.
+
+### 22.1 Rotating per-game custom-art frame
+The spin frame is authored per game like every other button state image. `BUTTON_DEF` gains a sixth
+state image **`imageSpinning`** (`kind:'image'`, region picker) and an `engineProvided` boolean
+**`spinning`**. `buttonStateImage.ts`'s cascade checks `spinning` **first** (a single bet's roll sets
+BOTH `spinning` and `disabled`, and the rotating frame must win over the downstate grey).
+`ButtonFrame.svelte` rotates the art `Container` off the Pixi ticker (`getContextApp().stateApp.
+pixiApplication.ticker`, ~1 rev/s, `% 2π`, reset to 0 + detach on stop) **only when an `imageSpinning`
+frame is actually authored** — absent ⇒ no swap, no rotation (byte-identical parity). The flag flows
+action → param exactly like `disabled`/`active`: `ActionSource.spinning?: BoolSource` →
+`ComponentInstance` subscribes `liveSpinning` → provided-param getter.
+
+### 22.2 Autoplay-only stop model (owner refinement)
+*"The stop should happen only if autospin was selected — otherwise there's no reason to stop it."* A
+single bet finishes in ~1s, so while one bet rolls the button is now **inert** (icon spins, button
+disabled) and the **STOP only exists to cancel an autoplay sequence** (`hasAutoBetCounter()`).
+`getKey()` in `ButtonBetProvider` (and the mirrored `getSpinKey()` + Space hotkey in `apps/lines`
+`Game.svelte`) returns `spin_disabled` for a plain roll and `stop_*` only during autoplay; `spinning`
+= `isPlaying() && !hasAutoBetCounter()`. The double-bet guard holds (`ButtonFrame`/`Button`/`OnHotkey`
+all early-return on `disabled`). Player-led single-spin slam-stop is therefore removed by design — it
+is NOT a config flag.
+
+### 22.3 Config-gated speed features ("defang via config, never gut")
+`stateUi.config.features { turbo, autoplay, spaceHold }` (all default-on) gate the entry points while
+the machinery stays intact: `UIDefault.svelte` hides the turbo/autospin buttons and skips
+`<EnableSpaceHold/>` per flag. `UI_FEATURES_UK` + `setUiFeatures(...)` express the UK Gambling
+Commission profile (UKGC prohibits autoplay, turbo/quick-spin and player-led spin-stop on licensed
+slots), so a UK build forces the trio off; other jurisdictions stay on.
+
+### 22.4 Authorable in the editor (the pipeline)
+`LayoutDoc` gains optional `settings?: GameSettings` (`{ jurisdiction?: 'default'|'UK'; features?: {
+turbo?, autoplay?, spaceHold? } }`) in `engine-layout/types.ts`. A **"Game Settings"** panel in
+`/editor` (jurisdiction dropdown + three toggles; UK greys + forces them off) persists through the same
+path the global-symbol-size precedent uses: `editorStorage.normalizeGameSettings` round-trips it on
+save/load, `buildDocPayload()` includes it, `bake-editor-doc.mjs` embeds it verbatim into
+`baked-editor-bundle.json`, and the game applies it at boot — `Game.svelte` `onMount` calls
+`setUiFeatures(...)` from `doc.settings` (a `UK` jurisdiction overrides the individual flags). Absent
+settings ⇒ engine defaults (all on), so older docs are parity-safe.
+
+### 22.5 Known follow-ups
+- Gating a turbo/autoplay button leaves a **gap** in the coded layouts (no reflow) — cosmetic.
+- A fully-parametric `componentInstance(button)` bound to the `turbo`/`autoSpin` **actions** (not the
+  coded snippets) is not yet flag-gated — an editor-side concern for when a game authors those buttons
+  as instances.
+- Rotation lives in `ButtonFrame` (the `button` def's coded part); a purely authored art-button (no
+  coded part) swaps to `imageSpinning` but does not rotate. The spin button uses the `button` def, so
+  it is covered.

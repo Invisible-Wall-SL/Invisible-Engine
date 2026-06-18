@@ -57,10 +57,12 @@ export interface TextSource {
 
 /**
  * A named button behaviour. `onpress` is the click handler (read lazily by
- * `ButtonFrame` at click time, so a plain reference is enough). `disabled`/`active`
- * are OPTIONAL live flags: present only when the coded button being lifted has
- * them — when omitted the engine leaves the corresponding param to fall back to the
- * static map (false), exactly the value-feed parity discipline. `label` is an
+ * `ButtonFrame` at click time, so a plain reference is enough). `disabled`/`active`/
+ * `spinning` are OPTIONAL live flags: present only when the coded button being lifted
+ * has them — when omitted the engine leaves the corresponding param to fall back to
+ * the static map (false), exactly the value-feed parity discipline. `spinning` marks a
+ * round-in-progress (the spin button's reels are rolling): `ButtonFrame` swaps to the
+ * authored `imageSpinning` frame and rotates it until the flag clears. `label` is an
  * OPTIONAL live caption (§16.4 B6.4) — present only for a button whose text is
  * dynamic (the spin/stop flip); when omitted the static `label` param is untouched,
  * same parity discipline as `disabled`/`active`. When present it OVERRIDES the
@@ -71,6 +73,7 @@ export interface ActionSource {
 	onpress: () => void;
 	disabled?: BoolSource;
 	active?: BoolSource;
+	spinning?: BoolSource;
 	label?: TextSource;
 }
 

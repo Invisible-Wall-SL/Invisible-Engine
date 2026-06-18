@@ -118,6 +118,17 @@
 			liveActive = value;
 		});
 	});
+	// Round-in-progress flag (the spin button's reels are rolling). Drives the
+	// `imageSpinning` cascade + `ButtonFrame`'s rotation. Same parity discipline as
+	// `disabled`/`active`: undefined until the action feed registers it, falls back
+	// to the static map (false) otherwise.
+	let liveSpinning = $state<boolean | undefined>(undefined);
+	$effect(() => {
+		if (!actionSource?.spinning) return;
+		return actionSource.spinning.subscribe((value) => {
+			liveSpinning = value;
+		});
+	});
 	// Dynamic label (§16.4 B6.4): the string sibling of the flags above. If the
 	// action provides a `label` TextSource (only the spin/stop flip does), subscribe
 	// it into `liveLabel`; the getter below then OVERRIDES the static `label` param so
@@ -294,6 +305,12 @@
 				get: () => liveActive,
 			});
 		}
+		if (actionSource.spinning) {
+			Object.defineProperty(providedParams, 'spinning', {
+				enumerable: true,
+				get: () => liveSpinning,
+			});
+		}
 		// Live caption (§16.4 B6.4): OVERRIDES the static `label` param when the action
 		// provides a `label` TextSource (spin/stop flip). Reactive enumerable getter, so
 		// `ButtonLabel`'s `$derived` re-runs on each `liveLabel` emit. Only defined when
@@ -329,6 +346,7 @@
 					pressed,
 					disabled: liveDisabled === true,
 					active: liveActive === true,
+					spinning: liveSpinning === true,
 				}) ?? restingImage,
 		});
 	}

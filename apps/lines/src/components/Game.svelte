@@ -5,7 +5,15 @@
 	import { EnableHotkey, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
-	import { stateBet, stateBetDerived, stateConfig, stateModal, stateUi } from 'state-shared';
+	import {
+		stateBet,
+		stateBetDerived,
+		stateConfig,
+		stateModal,
+		stateUi,
+		setUiFeatures,
+		UI_FEATURES_UK,
+	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
 	import {
@@ -326,15 +334,18 @@
 			return 'spin_default';
 		}
 
-		if (!context.stateXstateDerived.isIdle()) {
-			if (stopDisabled) return 'stop_disabled';
-			if (stateBetDerived.hasAutoBetCounter()) return 'stop_default';
-			if (stateBet.isTurbo) return 'stop_disabled';
-			return 'stop_default';
+		// A round is in progress. Autoplay-only STOP (mirrors `ButtonBetProvider`): the
+		// button only acts as STOP to cancel an autoplay sequence; a single bet's roll
+		// is inert (and shows the rotating `imageSpinning` frame when one is authored).
+		if (stateBetDerived.hasAutoBetCounter()) {
+			return stopDisabled ? 'stop_disabled' : 'stop_default';
 		}
 
-		return 'spin_default';
+		return 'spin_disabled';
 	};
+	// Reels rolling on a plain bet (NOT an autoplay sequence) → spin the frame.
+	const isSpinning = () =>
+		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter();
 
 	// Phase B6.2 — register the 7 Borut button actions beside the value feed above.
 	// Each entry LIFTS the coded HUD button's `onpress`/`disabled`/`active` logic
@@ -457,6 +468,7 @@
 				}
 			},
 			disabled: boolSource(() => ['spin_disabled', 'stop_disabled'].includes(getSpinKey())),
+			spinning: boolSource(isSpinning),
 			label: textSource(() =>
 				getSpinKey().startsWith('spin_') ? i18nDerived.bet() : i18nDerived.stop(),
 			),
@@ -466,12 +478,13 @@
 	// §16.4 B6.4 — replacement Space hotkey for the spin button. Once the cluster is
 	// flipped to `componentInstance(button)` nodes (`HUD_BUTTON_INSTANCES`), the coded
 	// `ButtonBet` (and its own `<OnHotkey hotkey="Space">`) is no longer mounted, so
-	// Space would stop working. This mirrors `ButtonBet`'s binding — `disabled` =
-	// `!isBetCostAvailable()` (the coded provider's hotkey-disabled), `onpress` = the
-	// SAME spin handler the action registers (re-derived here so it reads the same
-	// `stopDisabled`/state). GATED on the flag so it never double-fires alongside the
-	// coded button's own hotkey while the cluster is still coded (parity when OFF).
-	const spinHotkeyDisabled = $derived(!stateBetDerived.isBetCostAvailable());
+	// Space would stop working. This mirrors `ButtonBet`'s binding — `disabled` tracks
+	// the spin key (inert during a single roll, enabled only to cancel autoplay), so
+	// Space can't re-fire mid-roll; `onpress` = the SAME spin handler the action
+	// registers (re-derived here so it reads the same `stopDisabled`/state). GATED on
+	// the flag so it never double-fires alongside the coded button's own hotkey while
+	// the cluster is still coded (parity when OFF).
+	const spinHotkeyDisabled = $derived(['spin_disabled', 'stop_disabled'].includes(getSpinKey()));
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast({ type: 'soundPressBet' });
 		if (context.stateXstateDerived.isIdle()) {
@@ -521,6 +534,12 @@
 		void loadEditorScenes().then((doc) => {
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
+			// Game-level settings (§ Game Settings): apply the authored speed-feature
+			// toggles. A `UK` jurisdiction forces every speed feature off (overrides the
+			// individual flags); otherwise the per-feature overrides merge in. Absent
+			// settings ⇒ engine defaults (all on) — parity for un-authored docs.
+			if (doc.settings?.jurisdiction === 'UK') setUiFeatures(UI_FEATURES_UK);
+			else if (doc.settings?.features) setUiFeatures(doc.settings.features);
 		});
 	});
 

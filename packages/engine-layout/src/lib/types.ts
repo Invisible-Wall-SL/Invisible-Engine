@@ -412,6 +412,27 @@ export interface Scene {
 	};
 }
 
+/** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed
+ * feature off (the UK Gambling Commission prohibits autoplay, turbo/quick spin and
+ * player-led spin-stop on licensed slots), overriding the individual `features`. */
+export type GameJurisdiction = 'default' | 'UK';
+
+/**
+ * Game-level UI settings authored in the editor's "Game Settings" — currently the
+ * player-led SPEED feature toggles. The engine always SHIPS the turbo/autoplay/
+ * space-hold machinery; these flags only decide whether its entry points are shown
+ * (the "defang via config, never gut" rule). Absent ⇒ engine defaults (all on).
+ * Applied at boot via `setUiFeatures` (see the game's `loadEditorScenes` consumer).
+ */
+export interface GameSettings {
+	jurisdiction?: GameJurisdiction;
+	features?: {
+		turbo?: boolean;
+		autoplay?: boolean;
+		spaceHold?: boolean;
+	};
+}
+
 export interface LayoutDoc {
 	version: 1;
 	projectKey: string;
@@ -425,6 +446,9 @@ export interface LayoutDoc {
 	gameType?: string;
 	mainSizesMap: Record<LayoutType, { width: number; height: number }>;
 	scenes: Scene[];
+	/** Optional + additive game-level settings (speed-feature toggles / jurisdiction).
+	 * Absent in older docs — the runtime falls back to the engine defaults. */
+	settings?: GameSettings;
 	updatedAt: string;
 }
 

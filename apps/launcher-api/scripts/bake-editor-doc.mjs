@@ -351,6 +351,17 @@ async function main() {
 			? ' winLines=OFF,'
 			: ' winLines=styled,'
 		: '';
+	// `doc.settings` rides the bundle verbatim (embedded in `doc`); log it so a bake
+	// surfaces the shipped jurisdiction / speed-feature toggles.
+	const settingsNote = doc.settings
+		? ` settings={${doc.settings.jurisdiction ?? 'default'}` +
+			(doc.settings.features
+				? `,features=${Object.entries(doc.settings.features)
+						.map(([k, v]) => `${k}:${v ? 'on' : 'off'}`)
+						.join('/')}`
+				: '') +
+			'},'
+		: '';
 	const json = `${JSON.stringify(bundle, null, '\t')}\n`;
 
 	if (dryRun) {
@@ -358,7 +369,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${settingsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -369,7 +380,7 @@ async function main() {
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
-			`${highlightNote}${winLineNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+			`${highlightNote}${winLineNote}${settingsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 

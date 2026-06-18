@@ -15,6 +15,8 @@
 				{
 					key: ButtonBetKey;
 					onpress: () => void;
+					disabled: boolean;
+					spinning: boolean;
 				},
 			]
 		>;
@@ -47,23 +49,32 @@
 		}
 	};
 
-	const getKey = () => {
+	// Autoplay-only STOP model: a single bet's roll finishes in ~1s and has nothing
+	// to stop, so the button is INERT while one spin rolls (and, with authored art,
+	// shows the rotating `imageSpinning` frame). The STOP only exists to cancel an
+	// AUTOPLAY sequence (`hasAutoBetCounter`).
+	const getKey = (): ButtonBetKey => {
 		if (context.stateXstateDerived.isIdle()) {
 			if (!stateBetDerived.isBetCostAvailable()) return 'spin_disabled';
 			return 'spin_default';
 		}
 
-		if (!context.stateXstateDerived.isIdle()) {
-			if (stopDisabled) return 'stop_disabled';
-			if (stateBetDerived.hasAutoBetCounter()) return 'stop_default';
-			if (stateBet.isTurbo) return 'stop_disabled';
-			return 'stop_default';
+		// A round is in progress.
+		if (stateBetDerived.hasAutoBetCounter()) {
+			// Autoplay running → the button stops the sequence.
+			return stopDisabled ? 'stop_disabled' : 'stop_default';
 		}
 
-		return 'spin_default';
+		// A single bet is rolling → nothing to stop, the button is inert.
+		return 'spin_disabled';
 	};
 
 	const key = $derived.by(getKey);
+	const disabled = $derived(['spin_disabled', 'stop_disabled'].includes(key));
+	// Reels rolling on a plain bet (NOT an autoplay sequence) → the spin frame spins.
+	const spinning = $derived(
+		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter(),
+	);
 
 	context.eventEmitter.subscribeOnMount({
 		stopButtonClick: () => (stopDisabled = true),
@@ -71,4 +82,4 @@
 	});
 </script>
 
-{@render props.children({ key, onpress })}
+{@render props.children({ key, onpress, disabled, spinning })}

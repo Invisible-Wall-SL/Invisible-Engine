@@ -19,6 +19,8 @@
 		ComponentDef,
 		ComponentInstanceNode,
 		ContainerNode,
+		GameJurisdiction,
+		GameSettings,
 		GameTemplate,
 		LayoutDoc,
 		LayoutNode,
@@ -1438,7 +1440,16 @@
 	}
 
 	function buildDocPayload() {
-		return {
+		const settings = buildGameSettings();
+		const payload: {
+			version: number;
+			projectKey: string;
+			gameType: string;
+			mainSizesMap: typeof mainSizesMap;
+			scenes: Scene[];
+			settings?: GameSettings;
+			updatedAt: string;
+		} = {
 			version: data.doc.version,
 			projectKey: data.projectKey,
 			gameType: authoringGameType,
@@ -1446,6 +1457,8 @@
 			scenes,
 			updatedAt: lastSavedAt,
 		};
+		if (settings) payload.settings = settings;
+		return payload;
 	}
 
 	async function postAction(action: string, body: Record<string, string>): Promise<unknown> {
@@ -1540,6 +1553,40 @@
 	const GAME_TYPES = ['lines', 'ways', 'cluster', 'scatter', 'bookOf'] as const;
 	/** The game type the authored template is saved under (§7.5). */
 	let authoringGameType = $state<string>(data.template?.gameType ?? 'lines');
+
+	// ---------- game settings (jurisdiction + player-led speed features) ----------
+	// Doc-level UI settings the engine reads at boot via `setUiFeatures`. Absent in the
+	// doc ⇒ engine defaults (all speed features on), so the editor initialises to all-on
+	// and `jurisdiction: 'default'`. `jurisdiction: 'UK'` forces every feature off (UKGC
+	// ban) regardless of the individual toggles — the runtime applies that override, but
+	// the panel also greys the toggles so the author sees the consequence.
+	let jurisdiction = $state<GameJurisdiction>(data.doc.settings?.jurisdiction ?? 'default');
+	let featureTurbo = $state<boolean>(data.doc.settings?.features?.turbo ?? true);
+	let featureAutoplay = $state<boolean>(data.doc.settings?.features?.autoplay ?? true);
+	let featureSpaceHold = $state<boolean>(data.doc.settings?.features?.spaceHold ?? true);
+	const ukLocked = $derived(jurisdiction === 'UK');
+
+	/** Build the doc's `settings` object from the panel state (omitted entirely when
+	 * it matches the engine default — `default` jurisdiction + every feature on — so a
+	 * pristine doc stays `settings`-free, additive/parity with older docs). */
+	function buildGameSettings(): GameSettings | undefined {
+		const allOn = featureTurbo && featureAutoplay && featureSpaceHold;
+		if (jurisdiction === 'default' && allOn) return undefined;
+		const settings: GameSettings = {};
+		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
+		if (!allOn) {
+			settings.features = {
+				turbo: featureTurbo,
+				autoplay: featureAutoplay,
+				spaceHold: featureSpaceHold,
+			};
+		}
+		return settings;
+	}
+
+	function onGameSettingChange(): void {
+		markDirty();
+	}
 
 	/** Load (and display) the chosen game type's template — R2 override or
 	 * built-in fallback, via the GET endpoint. 404 = no template for that type,
@@ -2561,6 +2608,68 @@
 				}}
 				onOpenComponentEditor={openComponentEditor}
 			/>
+
+			<div class="game-settings">
+				<PanelSection id="game-settings" title="Game Settings">
+					<div class="gs-body">
+						<label class="gs-field">
+							<span class="gs-label">Jurisdiction</span>
+							<select
+								class="gs-select"
+								bind:value={jurisdiction}
+								onchange={onGameSettingChange}
+							>
+								<option value="default">Default</option>
+								<option value="UK">UK (UKGC)</option>
+							</select>
+						</label>
+						<p class="gs-note">
+							Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay,
+							turbo and hold-to-spin).
+						</p>
+						<label class="gs-toggle" class:disabled={ukLocked}>
+							<input
+								type="checkbox"
+								checked={ukLocked ? false : featureTurbo}
+								disabled={ukLocked}
+								onchange={(e) => {
+									featureTurbo = e.currentTarget.checked;
+									onGameSettingChange();
+								}}
+							/>
+							<span>Turbo</span>
+						</label>
+						<label class="gs-toggle" class:disabled={ukLocked}>
+							<input
+								type="checkbox"
+								checked={ukLocked ? false : featureAutoplay}
+								disabled={ukLocked}
+								onchange={(e) => {
+									featureAutoplay = e.currentTarget.checked;
+									onGameSettingChange();
+								}}
+							/>
+							<span>Autoplay</span>
+						</label>
+						<label class="gs-toggle" class:disabled={ukLocked}>
+							<input
+								type="checkbox"
+								checked={ukLocked ? false : featureSpaceHold}
+								disabled={ukLocked}
+								onchange={(e) => {
+									featureSpaceHold = e.currentTarget.checked;
+									onGameSettingChange();
+								}}
+							/>
+							<span>Hold-to-spin (Space)</span>
+						</label>
+						{#if ukLocked}
+							<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
+						{/if}
+					</div>
+				</PanelSection>
+			</div>
+
 			<p class="muted hint">
 				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
 				{activeScene?.nodes.length ?? 0} nodes
@@ -3303,6 +3412,66 @@
 	.muted.hint strong {
 		color: #c8a3ff;
 		font-weight: 600;
+	}
+	.game-settings {
+		margin-top: 14px;
+		padding-top: 12px;
+		border-top: 1px solid #1c1c24;
+	}
+	.gs-body {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.gs-field {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+	}
+	.gs-label {
+		font-size: 12px;
+		color: #c8c8d0;
+	}
+	.gs-select {
+		background: #16161c;
+		border: 1px solid #1f1f28;
+		border-radius: 6px;
+		color: #e8e8ee;
+		padding: 5px 8px;
+		font-size: 12px;
+		font-family: inherit;
+	}
+	.gs-note {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.4;
+		color: #777;
+	}
+	.gs-note strong {
+		color: #c8a3ff;
+		font-weight: 600;
+	}
+	.gs-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: #c8c8d0;
+		cursor: pointer;
+	}
+	.gs-toggle.disabled {
+		color: #5a5a64;
+		cursor: not-allowed;
+	}
+	.gs-toggle input {
+		accent-color: #7ee0c0;
+		cursor: inherit;
+	}
+	.gs-locked {
+		margin: 0;
+		font-size: 11px;
+		color: #f0c878;
 	}
 	.canvas-area {
 		position: relative;

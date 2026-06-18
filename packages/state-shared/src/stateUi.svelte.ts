@@ -55,6 +55,38 @@ export const AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP = {
 
 export type UIConfigMode = 'default' | 'replay';
 
+/**
+ * Player-led SPEED features, each independently toggleable per game/jurisdiction
+ * (the "defang via config, never gut" rule — the machinery stays, config hides the
+ * entry points). `turbo` = the turbo toggle button; `autoplay` = the autospin button
+ * + its modal; `spaceHold` = hold-Space continuous betting. Note slam-stop is NOT a
+ * flag here — the autoplay-only stop model already removed player-led single-spin
+ * stopping by design.
+ */
+export type UIFeatureFlags = {
+	turbo: boolean;
+	autoplay: boolean;
+	spaceHold: boolean;
+};
+
+/** Default profile — every speed feature available (non-UK markets). */
+export const UI_FEATURES_DEFAULT: UIFeatureFlags = {
+	turbo: true,
+	autoplay: true,
+	spaceHold: true,
+};
+
+/**
+ * UK Gambling Commission profile: licensed UK slots PROHIBIT autoplay, turbo/quick
+ * spin and player-led spin-stop, so all speed features are off. Apply with
+ * `setUiFeatures(UI_FEATURES_UK)` for a UK build.
+ */
+export const UI_FEATURES_UK: UIFeatureFlags = {
+	turbo: false,
+	autoplay: false,
+	spaceHold: false,
+};
+
 export const stateUi = $state({
 	autoSpinsText: '10' as AutoSpinsText,
 	autoSpinsLossLimitText: INFINITY_MARK as LossLimitText,
@@ -67,5 +99,12 @@ export const stateUi = $state({
 	drawerButtonShow: false,
 	config: {
 		mode: 'default' as UIConfigMode,
-	}
+		features: { ...UI_FEATURES_DEFAULT } as UIFeatureFlags,
+	},
 });
+
+/** Merge a partial feature profile into the live UI config (e.g. a game's setup or
+ * the editor-authored game settings supplying a jurisdiction preset). */
+export const setUiFeatures = (features: Partial<UIFeatureFlags>) => {
+	stateUi.config.features = { ...stateUi.config.features, ...features };
+};

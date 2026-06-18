@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { Container, Sprite } from 'pixi-svelte';
+	import { Container, Sprite, getContextApp } from 'pixi-svelte';
 	import { resolveButtonStateImage } from 'engine-layout';
 	import { getComponentParams } from 'engine-layout/svelte';
 
 	import UiSprite from './UiSprite.svelte';
 	import { UI_BASE_SIZE } from '../constants';
+
+	/** Spin-frame rotation rate while a single bet rolls (radians/second). */
+	const SPIN_RADIANS_PER_SECOND = Math.PI * 2;
 
 	/**
 	 * Frame slice of the split `button` component (§16.2 "separate coded parts" —
@@ -20,7 +23,7 @@
 	 *
 	 * STATE IMAGES (the def's `image*` instance params, atlas frame names): when the
 	 * state's image is authored, the frame renders a real `<Sprite>` of that frame
-	 * INSTEAD of the variant tile — resolution order disabled (`imageDisabled`, the
+	 * INSTEAD of the variant tile — resolution order spinning (`imageSpinning`, rotated) then disabled (`imageDisabled`, the
 	 * downstate) → pressed (`imagePressed`, falls back to hover, then to selected
 	 * while active) → hovered (`imageHover`, falls back to selected while active) →
 	 * active (`imageSelected`) → resting (`image`). The coded painted states only
@@ -64,6 +67,11 @@
 	const tint = $derived(tintProp ?? numberParam('tint') ?? 0xffffff);
 	const disabled = $derived(boolParam('disabled'));
 	const active = $derived(boolParam('active'));
+	// Round-in-progress flag (engine-provided): the spin button's reels are rolling.
+	// Only spins the frame when an `imageSpinning` frame is actually authored —
+	// rotating the resting art would be a surprise (absent ⇒ no swap, no rotation).
+	const spinning = $derived(boolParam('spinning'));
+	const hasSpinningImage = $derived(stringParam('imageSpinning') !== undefined);
 
 	// Interaction state — same tracking + disabled-reset as the coded `Button.svelte`.
 	let hovered = $state(false);
@@ -80,8 +88,35 @@
 	// art-button path in `<ComponentInstance>`); undefined ⇒ the state has no image
 	// of its own.
 	const stateImage = $derived(
-		resolveButtonStateImage(getComponentParams(), { hovered, pressed, disabled, active }),
+		resolveButtonStateImage(getComponentParams(), {
+			hovered,
+			pressed,
+			disabled,
+			active,
+			spinning,
+		}),
 	);
+
+	// Continuous spin: while the round rolls AND a spin frame is authored, drive the
+	// frame's rotation off the Pixi ticker (the engine's continuous-motion idiom —
+	// see ParticleEmitter). Reset to upright and detach the moment it stops. The
+	// effect re-runs when `spinning`/`hasSpinningImage` or the app appears, so it
+	// self-attaches once the application is initialised.
+	const appContext = getContextApp();
+	let spinRotation = $state(0);
+	$effect(() => {
+		const ticker = appContext.stateApp.pixiApplication?.ticker;
+		if (!spinning || !hasSpinningImage || !ticker) {
+			spinRotation = 0;
+			return;
+		}
+		const tick = () => {
+			spinRotation =
+				(spinRotation + (ticker.deltaMS / 1000) * SPIN_RADIANS_PER_SECOND) % (Math.PI * 2);
+		};
+		ticker.add(tick);
+		return () => ticker.remove(tick);
+	});
 	const frameImage = $derived(stateImage ?? stringParam('image'));
 	// Coded painted states apply only where no authored image covers them.
 	const paintDisabled = $derived(disabled && stringParam('imageDisabled') === undefined);
@@ -114,7 +149,7 @@
 		onpress();
 	}}
 >
-	<Container {tint}>
+	<Container {tint} rotation={spinRotation}>
 		{#if frameImage}
 			<Sprite
 				key={frameImage}

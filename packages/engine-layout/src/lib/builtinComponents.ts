@@ -201,8 +201,14 @@ export const BUTTON_DEF: ComponentDef = {
 		{ key: 'imagePressed', kind: 'image', group: 'State images', label: 'pressed' },
 		{ key: 'imageSelected', kind: 'image', group: 'State images', label: 'selected' },
 		{ key: 'imageDisabled', kind: 'image', group: 'State images', label: 'downstate' },
+		// The round-in-progress frame: while the engine `spinning` flag is on (the
+		// spin button's reels are rolling), `ButtonFrame` renders this frame INSTEAD
+		// of the resting one and rotates it continuously until the flag clears. A
+		// circular/radially-symmetric icon reads best. Absent ⇒ no swap, no rotation.
+		{ key: 'imageSpinning', kind: 'image', group: 'State images', label: 'spinning' },
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
+		{ key: 'spinning', kind: 'boolean', engineProvided: true },
 	],
 };
 

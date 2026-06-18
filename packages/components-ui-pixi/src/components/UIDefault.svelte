@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import type { HudTextOverride } from 'engine-layout';
 
+	import { stateUi } from 'state-shared';
 	import { getContextLayout } from 'utils-layout';
 	import { EnableSpaceHold } from 'components-shared';
 
@@ -66,7 +67,11 @@
 	);
 </script>
 
-<EnableSpaceHold />
+<!-- Speed features are config-gated (`stateUi.config.features`) — the "defang via
+	config" rule. Hold-Space continuous betting only mounts when allowed. -->
+{#if stateUi.config.features.spaceHold}
+	<EnableSpaceHold />
+{/if}
 
 {#snippet gameName(override?: HudTextOverride)}
 	{@render props.gameName(override)}
@@ -97,11 +102,15 @@
 {/snippet}
 
 {#snippet buttonTurbo(buttonProps: UiButtonArgs)}
-	<ButtonTurbo {...buttonProps} />
+	{#if stateUi.config.features.turbo}
+		<ButtonTurbo {...buttonProps} />
+	{/if}
 {/snippet}
 
 {#snippet buttonAutoSpin(buttonProps: UiButtonArgs)}
-	<ButtonAutoSpin {...buttonProps} />
+	{#if stateUi.config.features.autoplay}
+		<ButtonAutoSpin {...buttonProps} />
+	{/if}
 {/snippet}
 
 {#snippet buttonIncrease(buttonProps: UiButtonArgs)}
