@@ -284,6 +284,16 @@ tool reads it. No hand-maintained per-game JSON.
    `POST`-sibling `PUT /api/editor/symbol-defaults?project=&k=` (deploy-token gated). The
    endpoint writes `<client>/<project>/symbols/defaults.json`. `--optional` keeps a build
    green when un-tokened (mirrors `bake:doc`/`pull:assets`).
+   - **Filtered to the in-play set (2026-06-18).** `SYMBOL_INFO_MAP` carries visual/animation
+     defaults for every symbol the engine *can* render (e.g. an unused `H5`). The script also
+     imports the game config module (`--config`, default `./src/game/config.ts`) and keeps
+     only the symbols whose names appear in its default-export `symbols` map — the authoritative
+     in-play set the game builds against — so the tool grid mirrors the game instead of showing
+     dead rows. Ordering follows `SYMBOL_INFO_MAP` (only absent keys are dropped). Best-effort:
+     a missing/odd config, an empty `symbols` map, or `--no-config-filter` publishes the full
+     set (prior behaviour) so a build never loses symbols to a config it couldn't read. A config
+     symbol with no map entry is warned (no silent gap). The committed `lines.json` fallback is
+     filtered the same way (no `H5`).
 2. **Scaffold (automatic for new games)** — `scripts/new-game.mjs` adds a `publish:symbols`
    script and chains it into `build` (`… && pnpm publish:symbols --optional && vite build`),
    so every new game publishes its symbol map on build with zero per-game wiring.

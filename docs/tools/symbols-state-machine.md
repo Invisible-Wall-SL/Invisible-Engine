@@ -31,6 +31,13 @@ R2 at build time and the tool reads it. A project that has built once with a dep
 shows its own symbols; an un-published project (or `apps/lines` dev) falls back to the
 committed `lines` set.
 
+The published set is **filtered to the symbols the game actually uses** — the publish step
+reads the game config (`src/game/config.ts` → its `symbols` map, the authoritative in-play
+set) and drops any symbol present in `SYMBOL_INFO_MAP` but not in the config (e.g. an unused
+`H5`), so the grid mirrors the built game rather than every symbol the engine *can* render.
+A project that published before this filter existed keeps its old full set until it
+**republishes** (any tokened build re-runs `publish:symbols`).
+
 ## How to use it
 
 You always work in the context of the **active client/project** (shown top-left, with the

@@ -219,58 +219,6 @@
         }
       }
     },
-    "H5": {
-      "explosion": {
-        "type": "spine",
-        "assetKey": "explosion",
-        "animationName": "explosion",
-        "sizeRatios": {
-          "width": 1,
-          "height": 1
-        }
-      },
-      "win": {
-        "type": "spine",
-        "assetKey": "H5",
-        "animationName": "h5",
-        "sizeRatios": {
-          "width": 0.45,
-          "height": 0.47700000000000004
-        }
-      },
-      "postWinStatic": {
-        "type": "sprite",
-        "assetKey": "h5.webp",
-        "sizeRatios": {
-          "width": 1,
-          "height": 1
-        }
-      },
-      "static": {
-        "type": "sprite",
-        "assetKey": "h5.webp",
-        "sizeRatios": {
-          "width": 1,
-          "height": 1
-        }
-      },
-      "spin": {
-        "type": "sprite",
-        "assetKey": "h5.webp",
-        "sizeRatios": {
-          "width": 1,
-          "height": 1
-        }
-      },
-      "land": {
-        "type": "sprite",
-        "assetKey": "h5.webp",
-        "sizeRatios": {
-          "width": 1,
-          "height": 1
-        }
-      }
-    },
     "L1": {
       "explosion": {
         "type": "spine",

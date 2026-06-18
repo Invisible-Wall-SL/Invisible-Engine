@@ -4,6 +4,13 @@
 // `PUT /api/editor/symbol-defaults` stores it at `symbols/defaults.json` in R2;
 // the tool's `+page.server.ts` reads it per-project (falling back to the coded
 // `lines` set when un-published). Mirrors bake-editor-doc.mjs's transport.
+//
+// The published set is filtered to the symbols the game actually USES, read from
+// the game config module (`--config`, default ./src/game/config.ts → its
+// default-export `symbols` keys). `SYMBOL_INFO_MAP` holds visual defaults for
+// every symbol the engine *can* render (e.g. an unused H5); the config is the
+// authoritative in-play set, so the tool grid mirrors the built game. Disable
+// with --no-config-filter.
 // See docs/design/invisible-symbols-state-machine.md.
 //
 // HTTP only: no R2 creds, no aws-sdk. A build runner needs the shared token +
@@ -45,10 +52,11 @@ const hasFlag = (name) => args.includes(`--${name}`);
 const DEFAULT_BASE = 'https://app.invisiblewall.org';
 const DEFAULT_SYMBOLS = './src/game/constants.ts';
 const DEFAULT_EXPORT = 'SYMBOL_INFO_MAP';
+const DEFAULT_CONFIG = './src/game/config.ts';
 
 const USAGE =
 	'Usage: node --experimental-strip-types publish-symbol-defaults.mjs --project <projectKey> \\\n' +
-	'         [--symbols <path>] [--export <name>] [--game-type <type>] \\\n' +
+	'         [--symbols <path>] [--export <name>] [--config <path>] [--game-type <type>] \\\n' +
 	'         [--base <url>] [--token <t>] [--dry-run] [--optional]\n' +
 	'\n' +
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
@@ -57,6 +65,10 @@ const USAGE =
 	'  --assets <path>               the game asset registry for spine previewKeys\n' +
 	'                                (default ./src/game/assets.ts)\n' +
 	`  --export <name>               named export to read (default ${DEFAULT_EXPORT})\n` +
+	`  --config <path>               the game config module whose default-export\n` +
+	`                                \`symbols\` keys select which symbols are in play\n` +
+	`                                (default ${DEFAULT_CONFIG})\n` +
+	'  --no-config-filter            publish every symbol in the map, unfiltered\n' +
 	'  --game-type <type>            informational gameType to stamp (default the project key)\n' +
 	`  --base <url>                  launcher base (default ${DEFAULT_BASE})\n` +
 	'  --token <t>                   shared deploy token; defaults to env\n' +
@@ -81,6 +93,9 @@ const symbolsArg = getFlag('symbols') || DEFAULT_SYMBOLS;
 const symbolsPath = isAbsolute(symbolsArg) ? symbolsArg : resolve(process.cwd(), symbolsArg);
 const assetsArg = getFlag('assets') || './src/game/assets.ts';
 const assetsPath = isAbsolute(assetsArg) ? assetsArg : resolve(process.cwd(), assetsArg);
+const configArg = getFlag('config') || DEFAULT_CONFIG;
+const configPath = isAbsolute(configArg) ? configArg : resolve(process.cwd(), configArg);
+const configFilter = !hasFlag('no-config-filter');
 const exportName = getFlag('export') || DEFAULT_EXPORT;
 const gameType = getFlag('game-type') || project;
 const base = (getFlag('base') || DEFAULT_BASE).replace(/\/+$/, '');
@@ -152,6 +167,66 @@ async function enrichSpinePreviewKeys(symbols) {
 	}
 }
 
+/**
+ * Restrict the published symbol set to the symbols the game actually USES, read
+ * from the game config module's default-export `symbols` map (the same data the
+ * game builds against). `SYMBOL_INFO_MAP` carries the visual/animation defaults
+ * for every symbol the engine *can* render (e.g. an unused `H5`); the config's
+ * `symbols` keys are the authoritative in-play set, so the Symbols tool grid
+ * mirrors the game instead of showing dead rows.
+ *
+ * Mutates `symbols` in place, preserving `SYMBOL_INFO_MAP`'s ordering (only
+ * dropping keys absent from the config). Best-effort: a missing/odd config
+ * module, an empty `symbols` map, or `--no-config-filter` leaves the full set
+ * (prior behaviour) so a build never loses symbols to a config it couldn't read.
+ */
+async function filterToGameConfig(symbols) {
+	if (!configFilter) {
+		console.info('Config filter disabled (--no-config-filter) — publishing every symbol.');
+		return;
+	}
+	let used;
+	try {
+		const mod = await import(pathToFileURL(configPath).href);
+		used = (mod?.default ?? mod)?.symbols;
+	} catch {
+		console.warn(
+			`⚠ publish-symbols: could not import game config ${configPath} — publishing every` +
+				' symbol (no config filter). Pass --config <path> or --no-config-filter to silence.',
+		);
+		return;
+	}
+	if (!used || typeof used !== 'object' || Object.keys(used).length === 0) {
+		console.warn(
+			`⚠ publish-symbols: game config ${configPath} has no \`symbols\` map — publishing` +
+				' every symbol (no config filter).',
+		);
+		return;
+	}
+
+	const inPlay = new Set(Object.keys(used));
+	const dropped = Object.keys(symbols).filter((name) => !inPlay.has(name));
+	for (const name of dropped) delete symbols[name];
+
+	// A config symbol with no visual map can't be rendered — flag it (no silent gaps).
+	const missingArt = [...inPlay].filter((name) => !(name in symbols));
+
+	if (dropped.length) {
+		console.info(
+			`Config filter: dropped ${dropped.length} unused symbol(s) not in ${configPath} — ` +
+				`${dropped.join(', ')}.`,
+		);
+	} else {
+		console.info(`Config filter: all mapped symbols are in play per ${configPath}.`);
+	}
+	if (missingArt.length) {
+		console.warn(
+			`⚠ publish-symbols: ${missingArt.length} config symbol(s) have no entry in the symbol` +
+				` map (no visual default) — ${missingArt.join(', ')}.`,
+		);
+	}
+}
+
 async function main() {
 	let mod;
 	try {
@@ -174,6 +249,9 @@ async function main() {
 	// defaults as chips (prior behaviour). `previewKey` is display/preview-only; it is
 	// never written into a saved override (applyDraft rebuilds the cell from scratch).
 	await enrichSpinePreviewKeys(symbols);
+	// Restrict to the symbols the game config marks as in-play, so the tool grid
+	// mirrors the built game (drops e.g. an unused H5). Best-effort — see helper.
+	await filterToGameConfig(symbols);
 	const doc = { version: 1, gameType, symbols };
 	const symbolNames = Object.keys(symbols);
 
