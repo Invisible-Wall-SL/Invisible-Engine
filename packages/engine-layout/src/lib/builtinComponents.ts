@@ -304,6 +304,15 @@ const FS_FONT_SIZE = 33;
 /** The bitmap font the coded counter renders (`<BitmapText fontFamily='gold'>`). */
 const FS_FONT_FAMILY = 'gold';
 
+/**
+ * The coded free-spin INTRO part (`FreeSpinIntro.svelte`) the counter def mounts as
+ * an UNGATED `bind` child (see below) when the author opts in. Registered per-game
+ * via `registerBoundComponents` (the intro art is game-specific — Borut's
+ * `freespins_{lang}.png` / `freespins.png` sprites + the `FreeSpinAnimation` wrapper),
+ * so this is just the bound-component NAME the def references.
+ */
+const FS_INTRO_BOUND_COMPONENT = 'FreeSpinIntro';
+
 export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 	id: 'freeSpinCounter',
 	name: 'Free-Spin Counter',
@@ -364,6 +373,39 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 				// Editor preview shows the engine-fed "X OF Y" value.
 				preview: { style: 'text', textParam: 'value' },
 			},
+			// The free-spin INTRO part (the full-screen press-to-continue splash that plays
+			// BEFORE the counter, injecting the spin count into a spine slot). It mounts the
+			// game's coded `FreeSpinIntro` (registered via `registerBoundComponents`), which
+			// self-shows/hides on the `freeSpinIntro{Show,Update,Hide}` book events and
+			// renders FULL-SCREEN (its own `MainContainer`/`CanvasSizeRectangle` path),
+			// independent of where the counter panel is placed.
+			//
+			// `ungated: true` is load-bearing: the intro and counter are SEQUENTIAL and
+			// gated on DIFFERENT sources — the intro plays while `freeSpinCounterShow` is
+			// still false, so it must escape this instance's `visibleSource` gate (which
+			// wraps the panel children above) or it'd be hidden exactly when it should play.
+			// `<ComponentInstance>` renders an `ungated` direct child of `root` OUTSIDE the
+			// gate wrapper for this reason.
+			//
+			// INERT BY DEFAULT (parity): the bound `FreeSpinIntro` only renders its overlay
+			// once `introSpine` is set (see the part) — absent ⇒ it draws nothing and the
+			// game's standalone `FreeSpinIntro` scene keeps owning the intro. The intro spine
+			// / animations / slot are forwarded from the params below via `bind.props`.
+			{
+				id: 'freeSpinCounter-intro',
+				label: 'Free-spin intro',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				ungated: true,
+				// `boundToCounter` tells the part it's the COUNTER's intro child (not a
+				// direct/standalone mount): in this mode it stays INERT until the counter's
+				// `introSpine` param is set, so the bind is parity-safe by default. A direct
+				// `<FreeSpinIntro/>` mount (no `boundToCounter`) keeps its own prop default and
+				// renders as before.
+				bind: { component: FS_INTRO_BOUND_COMPONENT, props: { boundToCounter: true } },
+				children: [],
+			},
 		],
 	},
 	params: [
@@ -377,6 +419,8 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 		// natural gate is the out-of-the-box behaviour (all games register that feed); an
 		// instance can clear it to render the counter ungated. `options` makes the editor
 		// render a dropdown (pick the feed) instead of an undiscoverable free-text box.
+		// NOTE: this gates only the PANEL children (frame/caption/value) — the intro part
+		// is `ungated` and self-gates on its own book events.
 		{
 			key: 'visibleSource',
 			kind: 'string',
@@ -390,6 +434,52 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 		// Engine-fed "X OF Y" string (the `freeSpins` source); a `string` value so it
 		// renders verbatim through the text path, not the numeric readout.
 		{ key: 'value', kind: 'string', engineProvided: true },
+		// FREE-SPIN INTRO params (opt-in). The counter OWNS the full free-spin intro when
+		// `introSpine` is set: the bound `FreeSpinIntro` part reads these off the param
+		// context and renders its press-to-continue splash, injecting the spin count into
+		// `introSlot`. UNSET `introSpine` ⇒ the part is inert (parity) — the game's
+		// separate "Free-spin intro" screen keeps owning the intro. The owner opts in by
+		// setting `introSpine` here AND deleting that standalone screen (else BOTH the
+		// counter part and the standalone overlay subscribe to the same `freeSpinIntro*`
+		// events and double-render).
+		{
+			key: 'introSpine',
+			kind: 'string',
+			group: 'Free-spin intro',
+			label: 'intro spine bundle',
+		},
+		{
+			key: 'introAnimation',
+			kind: 'string',
+			default: 'intro',
+			group: 'Free-spin intro',
+			label: 'intro animation',
+		},
+		{
+			key: 'idleAnimation',
+			kind: 'string',
+			default: 'idle',
+			group: 'Free-spin intro',
+			label: 'idle animation',
+		},
+		{
+			key: 'introSlot',
+			kind: 'string',
+			default: 'slot_number',
+			group: 'Free-spin intro',
+			label: 'spin-count slot',
+		},
+		// Uniform size of the counter-mounted intro: the bound `FreeSpinIntro` renders its
+		// spine LOCALLY at the counter's origin (not full-screen) and scales the whole
+		// local container by this factor, so the owner sizes the intro from the counter
+		// (the counter's transform positions it). Default 1.
+		{
+			key: 'introScale',
+			kind: 'number',
+			default: 1,
+			group: 'Free-spin intro',
+			label: 'intro scale',
+		},
 	],
 };
 

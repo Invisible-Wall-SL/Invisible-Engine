@@ -217,7 +217,21 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 						kind: 'container',
 						x: 0,
 						y: 0,
-						bind: { component: 'FreeSpinIntro' },
+						// Props reproduce the original hardcodes so the STANDALONE intro scene
+						// renders unchanged. The same part is now ALSO mountable as the free-spin
+						// counter's `ungated` intro child (reads its config from the counter's
+						// `introSpine`/… params instead); the counter instance above leaves those
+						// unset so its intro child stays inert (parity). To move the intro onto the
+						// counter, set the counter's `introSpine` AND delete THIS screen.
+						bind: {
+							component: 'FreeSpinIntro',
+							props: {
+								introSpine: 'fsIntroNumber',
+								introAnimation: 'intro',
+								idleAnimation: 'idle',
+								slotName: 'slot_number',
+							},
+						},
 						children: [],
 					},
 				],

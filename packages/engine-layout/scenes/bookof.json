@@ -233,7 +233,13 @@
 					"x": 0,
 					"y": 0,
 					"bind": {
-						"component": "FreeSpinIntro"
+						"component": "FreeSpinIntro",
+						"props": {
+							"introSpine": "fsIntroNumber",
+							"introAnimation": "intro",
+							"idleAnimation": "idle",
+							"slotName": "slot_number"
+						}
 					},
 					"children": []
 				}

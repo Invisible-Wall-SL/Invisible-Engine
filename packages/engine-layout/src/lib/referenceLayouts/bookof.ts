@@ -247,7 +247,20 @@ export function bookofReferenceLayout(): LayoutDoc {
 						kind: 'container',
 						x: 0,
 						y: 0,
-						bind: { component: 'FreeSpinIntro' },
+						// Props reproduce the original hardcodes so the STANDALONE intro renders
+						// unchanged. The same part is now also mountable as the free-spin counter's
+						// `ungated` intro child; the counter instance leaves its `introSpine` unset so
+						// that child stays inert (parity). To move the intro onto the counter, set the
+						// counter's `introSpine` AND delete this screen.
+						bind: {
+							component: 'FreeSpinIntro',
+							props: {
+								introSpine: 'fsIntroNumber',
+								introAnimation: 'intro',
+								idleAnimation: 'idle',
+								slotName: 'slot_number',
+							},
+						},
 						children: [],
 					},
 				],
