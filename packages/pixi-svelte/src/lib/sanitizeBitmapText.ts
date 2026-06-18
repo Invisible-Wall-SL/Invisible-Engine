@@ -48,6 +48,51 @@ export function resolveBitmapFont(
 	return undefined;
 }
 
+/**
+ * Guarantee the resolved bitmap `font` has a space glyph, synthesising a textureless one
+ * when it is missing. This is the CRASH-PROOFING half of the guard (sanitisation alone is
+ * not enough — see below).
+ *
+ * pixi's `getBitmapTextLayout` (verified against 8.8.1) resolves every character to
+ * `font.chars[char] || font.chars[' ']` and dereferences `.xAdvance` / `.kerning` on the
+ * result; its trim-end pass additionally reads `font.chars[' '].xAdvance` DIRECTLY (no
+ * fallback). A font baked WITHOUT a space glyph — e.g. a Font Maker charset that omits the
+ * space — therefore crashes the whole render loop the instant any text contains a space
+ * (and the layout's missing-glyph fallback is itself the missing space) → black screen.
+ * `sanitizeBitmapText` cannot cover this: it intentionally KEEPS whitespace (a space is
+ * meaningful layout), so a space always reaches a space-less font.
+ *
+ * With a space glyph guaranteed present, a space renders as blank width and any other
+ * missing glyph degrades to the space fallback in layout, then is skipped by the GPU pipe
+ * (`charData?.texture`) — i.e. "not drawn" instead of a dead render loop. Any STATIC font
+ * pixi can crash on is cached under `${fontFamily}-bitmap`, the exact key
+ * {@link resolveBitmapFont} resolves, so this guard always reaches the offending font.
+ *
+ * Idempotent + defensive: no-op when the font is unresolved, already has a space, or
+ * exposes an unexpected `chars` shape. The synthetic glyph carries a quarter-em advance
+ * (from `baseMeasurementFontSize`) and NO texture, so it occupies sensible width yet draws
+ * nothing.
+ */
+export function ensureBitmapFontSpaceGlyph(font: PIXI.BitmapFont | undefined): void {
+	const chars = font?.chars;
+	if (!chars || typeof chars !== 'object' || ' ' in chars) return;
+	try {
+		const base =
+			typeof font?.baseMeasurementFontSize === 'number' && font.baseMeasurementFontSize > 0
+				? font.baseMeasurementFontSize
+				: 100;
+		chars[' '] = {
+			id: 32,
+			xOffset: 0,
+			yOffset: 0,
+			xAdvance: Math.max(1, Math.round(base * 0.25)),
+			kerning: {},
+		};
+	} catch {
+		// Never let the guard itself crash the render loop.
+	}
+}
+
 /** True for characters that must always survive sanitisation (space, tab, CR, LF, …). */
 const isWhitespace = (char: string): boolean => /\s/.test(char);
 

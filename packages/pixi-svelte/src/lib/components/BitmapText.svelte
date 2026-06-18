@@ -13,18 +13,30 @@
 
 	import { propsSyncEffect } from '../utils.svelte';
 	import { getContextParent } from '../context.svelte';
-	import { resolveBitmapFont, sanitizeBitmapText } from '../sanitizeBitmapText';
+	import {
+		ensureBitmapFontSpaceGlyph,
+		resolveBitmapFont,
+		sanitizeBitmapText,
+	} from '../sanitizeBitmapText';
 
 	const props: Props = $props();
 	const parentContext = getContextParent();
 
-	// Engine guard: drop any glyph the resolved bitmap font lacks BEFORE it reaches pixi,
-	// so a missing glyph degrades to "not drawn" instead of crashing the render loop
-	// (black screen). See ../sanitizeBitmapText.ts. No-op when the font isn't resolved yet
-	// or it's a dynamic/system font ⇒ text passes through unchanged.
-	const safeText = $derived(
-		sanitizeBitmapText(props.text, resolveBitmapFont(props.style?.fontFamily)),
-	);
+	// Engine guard against a pixi black-screen: a BitmapText asked to render a glyph its
+	// font lacks crashes the whole render loop. See ../sanitizeBitmapText.ts. Two layers,
+	// applied to the resolved font synchronously here so the FIRST frame (drawn from the
+	// constructor below) is already safe:
+	//   1. ensureBitmapFontSpaceGlyph — guarantee a space glyph, which is also pixi's
+	//      fallback for any missing glyph, so the layout pass can never dereference
+	//      undefined (the crash). Idempotent.
+	//   2. sanitizeBitmapText — drop any remaining unbaked glyph so it degrades to "not
+	//      drawn" rather than a blank-space fallback.
+	// No-op until the font resolves / for dynamic/system fonts ⇒ text passes through.
+	const safeText = $derived.by(() => {
+		const font = resolveBitmapFont(props.style?.fontFamily);
+		ensureBitmapFontSpaceGlyph(font);
+		return sanitizeBitmapText(props.text, font);
+	});
 
 	const bitmapText = new PIXI.BitmapText({ text: safeText, style: props.style });
 
