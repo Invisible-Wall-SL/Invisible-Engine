@@ -564,7 +564,7 @@ export const INFO_BAR_DEF: ComponentDef = {
 				x: 0,
 				y: 0,
 				anchor: { x: 0.5, y: 0.5 },
-				text: 'Win $1.00 — 2 of a kind',
+				text: 'Win $1.00 - 2 of a kind',
 				style: {
 					fontFamily: HUD_FONT_FAMILY,
 					fontSize: INFO_BAR_FONT_SIZE,

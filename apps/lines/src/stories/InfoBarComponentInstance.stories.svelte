@@ -33,7 +33,7 @@
 	// the sprite resolves no texture — the bar renders text-only (the no-asset path).
 	const message: ValueSource = {
 		subscribe(run) {
-			run('Win $1.00 — 2 of a kind');
+			run('Win $1.00 - 2 of a kind');
 			return () => {};
 		},
 	};
