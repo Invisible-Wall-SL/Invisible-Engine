@@ -13,7 +13,6 @@
 	"scripts": {
 		"gen:scenes": "node scripts/gen-scene-sets.mjs",
 		"gen:scenes:check": "node scripts/gen-scene-sets.mjs --check",
-		"check:frames": "node scripts/check-frames.mjs",
 		"build": "node scripts/gen-scene-sets.mjs && svelte-package",
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint \"src\""
