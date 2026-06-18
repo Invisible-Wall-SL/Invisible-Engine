@@ -62,6 +62,10 @@ tool top bar). Switch projects from the launcher before opening the tool.
    **Set a custom size for this cell**: numeric **Width ratio** and **Height ratio** inputs
    appear (fine-grained, step `0.001`), seeded from the inherited value. A **↩ Use global
    size** link drops the per-cell size again so the cell goes back to inheriting the global.
+   A **Size on the reel cell** gauge below the inputs previews the result live: a dashed
+   square is one reel cell and the symbol is drawn at its effective size inside it (overflow
+   is clipped at the cell edge), so you can judge the fit — and tune the global or the
+   per-cell ratio — *before* publishing. It updates as you type.
 6. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen). The cell updates immediately and is marked **edited**. The
    panel also has a **Reset to default** action for an overridden cell.
