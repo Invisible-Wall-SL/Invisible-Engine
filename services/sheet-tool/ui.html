@@ -269,6 +269,7 @@ let regions=[];              // {src,name,x,y,w,h,iw,ih,ow,oh,rotated,locked,pro
 let sel=null;                // selected src
 let zoom=1, canvasW=1024, canvasH=1024, sheetName='newsheet';
 let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused across renders)
+let bboxCache={};            // src -> {x0,y0,x1,y1,nw,nh} opaque bounds (native px) for content-aware centring
 let activeSheet=null;        // which sheet the current canvas regions belong to
 let loadedPath=null, loadedDir=null, loadedName=null, isProject=false;  // loaded project identity
 let browseMode='projects';   // 'projects' (manifests only) | 'import' (any coords/image)
@@ -437,7 +438,28 @@ function fitView(){
 }
 function zoomBy(f){ zoom=Math.max(0.05,Math.min(4,zoom*f)); render(); }
 
-function clearCanvasDom(){ spriteEls={}; const cv=$('canvas'); if(cv) cv.innerHTML=''; }
+function clearCanvasDom(){ spriteEls={}; bboxCache={}; const cv=$('canvas'); if(cv) cv.innerHTML=''; }
+
+/* Opaque bounding box of a sprite (native px) → content-aware centring that
+   mirrors packer.compose. Same-origin /api/sprite, so the canvas isn't tainted
+   and getImageData works. Computed once per src on image load, then cached. */
+function computeBbox(src,im){
+  if(bboxCache[src]) return;
+  const nw=im.naturalWidth, nh=im.naturalHeight;
+  if(!nw||!nh) return;
+  try{
+    const c=document.createElement('canvas'); c.width=nw; c.height=nh;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(im,0,0);
+    const d=ctx.getImageData(0,0,nw,nh).data;
+    let x0=nw,y0=nh,x1=0,y1=0,found=false;
+    for(let y=0;y<nh;y++){ const row=y*nw;
+      for(let x=0;x<nw;x++){ if(d[(row+x)*4+3]>0){ found=true;
+        if(x<x0)x0=x; if(x>=x1)x1=x+1; if(y<y0)y0=y; if(y>=y1)y1=y+1; } } }
+    bboxCache[src]=found?{x0,y0,x1,y1,nw,nh}:{x0:0,y0:0,x1:nw,y1:nh,nw,nh};
+  }catch(e){ bboxCache[src]={x0:0,y0:0,x1:nw,y1:nh,nw,nh}; }   // tainted/odd → rectangle centre
+  render();   // re-position now that the content bounds are known
+}
 
 function render(){
   const cv=$('canvas');
@@ -454,7 +476,10 @@ function render(){
     if(!s){
       const wrap=document.createElement('div'); wrap.className='sprite';
       const img=document.createElement('img'); img.draggable=false;
+      const csrc=r.src;
+      img.addEventListener('load',()=>computeBbox(csrc,img));
       img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(r.src);
+      if(img.complete&&img.naturalWidth) computeBbox(csrc,img);   // already cached
       wrap.appendChild(img);
       const lb=document.createElement('div'); lb.className='lockbadge'; lb.textContent='🔒'; wrap.appendChild(lb);
       wrap.addEventListener('mousedown',e=>{ const rr=reg(wrap.dataset.src); if(rr) onSpriteDown(e,rr); });
@@ -470,8 +495,19 @@ function render(){
     wrap.style.transform='';
     wrap.className='sprite'+(r.src===sel?' sel':'')+(r.locked?' locked':'')
       +(r.unplaced?' unplaced':'')+((r.w>iw||r.h>ih)?' padded':'');
+    // Position the image inside the region footprint. When the region is padded
+    // (larger than the art) and we know the art's opaque bounds, centre the
+    // VISIBLE content — mirrors packer.compose, so a PNG with asymmetric
+    // transparent padding still lands centred. Otherwise centre the rectangle.
+    let left=(fw-iw)/2, top=(fh-ih)/2;
+    const bb=bboxCache[r.src];
+    if(bb && !r.rotated && (r.w>iw||r.h>ih)){
+      const sx=iw/bb.nw, sy=ih/bb.nh;
+      left=fw/2-((bb.x0+bb.x1)/2)*sx;     // image-left so content centre == region centre
+      top =fh/2-((bb.y0+bb.y1)/2)*sy;
+    }
     img.style.cssText='position:absolute;display:block;width:'+(iw*zoom)+'px;height:'+(ih*zoom)+'px;'
-      +'left:'+((fw-iw)*zoom/2)+'px;top:'+((fh-ih)*zoom/2)+'px'
+      +'left:'+(left*zoom)+'px;top:'+(top*zoom)+'px'
       +(r.rotated?';transform:rotate(90deg);transform-origin:center':'');
     if(r.src===sel){
       wrap.appendChild(makeSelBar(r));
@@ -661,6 +697,7 @@ async function upload(){
       // Same filename as a sprite already on canvas (e.g. on a loaded sheet):
       // the server overwrote the file, so refresh size + bust the thumbnail.
       ex.w=s.w; ex.h=s.h; ex.iw=s.w; ex.ih=s.h; ex.ow=s.w; ex.oh=s.h; ex.unplaced=false;
+      delete bboxCache[s.file];   // pixels changed → recompute opaque bounds on reload
       const el=spriteEls[s.file];
       if(el) el.img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(s.file)+'&t='+Date.now();
       replaced++;

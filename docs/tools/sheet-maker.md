@@ -46,10 +46,12 @@ binds `0.0.0.0:$PORT` (default **8766**).
 4. **Edit** region names, sizes, and the per-region AI fields in the UI.
    - Each region has two sizes in the **Selected sprite** inspector: a **Region**
      box (the packed/exported cell — what the `.atlas`/JSON/manifest frame uses)
-     and an **Image** size (the artwork's draw size). The image is **centred**
-     inside the region, so a region can be larger than its art with transparent
-     padding baked into the frame — handy for giving differently-sized icons a
-     uniform cell. The region never shrinks below the image. The corner drag
+     and an **Image** size (the artwork's draw size). The image's **visible art**
+     (its opaque bounds) is **centred** inside the region, so a region can be
+     larger than its art with transparent padding baked into the frame — handy
+     for giving differently-sized icons a uniform cell. Centring uses the opaque
+     bounding box, so source PNGs with asymmetric transparent padding still land
+     centred. The region never shrinks below the image. The corner drag
      handle and the on-canvas W/H inputs resize the **region**; the **Image**
      inputs (with optional keep-aspect + "reset image") resize the art.
 5. **Export** (`/api/export`) — choose `.atlas`, TexturePacker JSON, and/or the

@@ -285,9 +285,22 @@ def compose(regions: list[dict], width: int, height: int,
             if (img.width, img.height) != (iw, ih) and iw > 0 and ih > 0:
                 img = img.resize((iw, ih), Image.LANCZOS)
             if (rw, rh) != (iw, ih):
-                tile = Image.new("RGBA", (rw, rh), (0, 0, 0, 0))
-                tile.alpha_composite(img, ((rw - iw) // 2, (rh - ih) // 2))
-                img = tile
+                # Centre the VISIBLE art (its opaque bounding box), not the image
+                # rectangle — a source PNG with asymmetric transparent padding
+                # would otherwise land off-centre in a larger region. Rotated
+                # sprites fall back to rectangle centring (the bbox would be in
+                # pre-rotation space). crop() pads the region window with
+                # transparent pixels wherever the image is absent.
+                bbox = None if r.get("rotated") else img.getbbox()
+                if bbox:
+                    cw, ch = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    ox = (rw - cw) // 2 - bbox[0]
+                    oy = (rh - ch) // 2 - bbox[1]
+                    img = img.crop((-ox, -oy, -ox + rw, -oy + rh))
+                else:
+                    tile = Image.new("RGBA", (rw, rh), (0, 0, 0, 0))
+                    tile.alpha_composite(img, ((rw - iw) // 2, (rh - ih) // 2))
+                    img = tile
             if r.get("rotated"):
                 img = img.rotate(-90, expand=True)  # clockwise
             sheet.alpha_composite(img, (int(r["x"]), int(r["y"])))
