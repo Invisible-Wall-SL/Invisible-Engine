@@ -1391,18 +1391,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _serve_sprite(self, p: Path, ctype: str):
-        """Serve a sprite file with ETag-based revalidation so a many-sprite
-        canvas reload returns cheap 304s instead of re-sending every full-size
-        image — the many-thumbnail 502-storm fix. The ETag is the source file's
-        mtime+size, so a re-uploaded sprite (file rewritten → new mtime) yields a
-        new ETag and refreshes in place; the client also keeps its explicit
-        `?t=` bust on replace, which already forces the revalidation."""
+        """Serve a sprite file with ETag-based revalidation. Uses `max-age=0,
+        must-revalidate` so the browser ALWAYS revalidates before reusing a
+        cached copy: a re-uploaded sprite (same URL, new pixels → new mtime/size
+        → new ETag) is fetched fresh (200), while an unchanged one stays a cheap
+        stat-only 304. Without max-age=0 the browser would keep serving the stale
+        cached image for the whole max-age window after a re-upload — the bug
+        where a recoloured sprite kept showing its old version."""
         etag = imgcache.etag_for_path(p)
         inm = self.headers.get("If-None-Match")
         if etag and imgcache.not_modified(inm, etag):
-            self._send_bytes(b"", ctype, 304, imgcache.cache_headers(etag))
+            self._send_bytes(b"", ctype, 304, imgcache.cache_headers(etag, max_age=0))
             return
-        self._send_bytes(p.read_bytes(), ctype, 200, imgcache.cache_headers(etag))
+        self._send_bytes(p.read_bytes(), ctype, 200, imgcache.cache_headers(etag, max_age=0))
 
     def _apply_cookie(self):
         cookie = getattr(self, "_set_cookie", None)

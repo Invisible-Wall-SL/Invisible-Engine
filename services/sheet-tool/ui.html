@@ -278,6 +278,10 @@ const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'
 async function jget(u){return (await fetch(u)).json();}
 async function jpost(u,b){return (await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();}
 const reg=src=>regions.find(r=>r.src===src);
+/* Sprite image URL. `_cb` (a change token set on upload) is appended so a
+   re-uploaded file gets a fresh URL — no stale cached image after a recolour. */
+function spriteUrl(r){ return '/api/sprite?sheet='+encodeURIComponent(sheetName)
+  +'&file='+encodeURIComponent(r.src)+(r._cb?'&cb='+r._cb:''); }
 
 /* ---------- session persistence (refresh / restart survival) ----------
    The full editor state is snapshotted server-side (sheet_session.json in the
@@ -479,7 +483,10 @@ function render(){
       const img=document.createElement('img'); img.draggable=false;
       const csrc=r.src;
       img.addEventListener('load',()=>computeBbox(csrc,img));
-      img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(r.src);
+      // `_cb` (set on upload) busts the URL when the file's pixels change, so a
+      // re-uploaded sprite never shows a stale cached copy (the server also
+      // forces revalidation, this is belt-and-suspenders vs intermediary caches).
+      img.src=spriteUrl(r);
       if(img.complete&&img.naturalWidth) computeBbox(csrc,img);   // already cached
       wrap.appendChild(img);
       const lb=document.createElement('div'); lb.className='lockbadge'; lb.textContent='🔒'; wrap.appendChild(lb);
@@ -697,12 +704,14 @@ async function upload(){
       // Same filename as a sprite already on canvas (e.g. on a loaded sheet):
       // the server overwrote the file, so refresh size + bust the thumbnail.
       ex.w=s.w; ex.h=s.h; ex.iw=s.w; ex.ih=s.h; ex.ow=s.w; ex.oh=s.h; ex.unplaced=false;
+      ex._cb=Date.now();          // bust the cached image — pixels/size changed
+      fitImg(ex);
       delete bboxCache[s.file];   // pixels changed → recompute opaque bounds on reload
       const el=spriteEls[s.file];
-      if(el) el.img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(s.file)+'&t='+Date.now();
+      if(el) el.img.src=spriteUrl(ex);
       replaced++;
     } else { const nr={src:s.file,name:s.file.replace(/\.[^.]+$/,''),
-      x:0,y:0,w:s.w,h:s.h,iw:s.w,ih:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:''};
+      x:0,y:0,w:s.w,h:s.h,iw:s.w,ih:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:'',_cb:Date.now()};
       fitImg(nr); regions.push(nr); added++; }
   });
   $('files').value='';
