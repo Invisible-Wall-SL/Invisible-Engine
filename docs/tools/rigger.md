@@ -50,17 +50,17 @@ you create are scoped to the project you have selected.
    which lists the project's skeletons (`.json`, `.skel`, and saved `.irig`
    files; edited `.irig` rigs are tagged "irig · edited"). Use the **filter** box
    to narrow the list, or **rescan** to refresh it.
-2. Click a skeleton to load it.
+2. Click a skeleton to load it. It renders on the central WebGL stage and the
+   left **Inspector** populates with the rig's structure under collapsible
+   sections: **Bone hierarchy**, **Slots (draw order)**, **Skins**,
+   **Animations**, and **Constraints**.
 
 > **↻ Refresh from R2** (sidebar) re-reads the rig list — and reloads the rig
 > currently on stage — fresh from cloud storage, bypassing the browser cache.
 > Use it after creating/saving a rig (here or in another tool) if the list or the
 > loaded rig looks stale. The rig list endpoint is served `no-store` and the
 > client cache-busts every fetch, so this is belt-and-braces; unsaved edits to the
-> open rig are guarded by a confirm. It renders on the central WebGL stage and the
-   left **Inspector** populates with the rig's structure under collapsible
-   sections: **Bone hierarchy**, **Slots (draw order)**, **Skins**,
-   **Animations**, and **Constraints**.
+> open rig are guarded by a confirm.
 
 Stage controls: **scroll = zoom**, **drag = pan**, **Reset view** re-fits. The
 bottom bar toggles the **Bones** overlay (with a size slider) and the **Mesh**
@@ -176,18 +176,69 @@ straight away. In this version the clip is always imported **as-is** — no chan
 stripping and no name remapping (that's a later iteration); rename bones/slots to
 match first if you need the missing channels to drive.
 
+### Reuse a whole rig (rig library)
+
+Where the animation library reuses a single clip, the **rig library** reuses an
+**entire rig** — bones + slots + skins + constraints **and** all its animations. It's
+the transfer medium for "copy a rig (with animation) from one object to another":
+apply a saved rig to a new object, then attach that object's art, build a mesh, and
+weight it to the imported bones with the existing mesh/weight tools. Like the animation
+library it's **shared and cross-project** (stored under `_shared/rigs/` in R2).
+
+- **📦 Save rig to library** (sidebar, enabled once a rig is loaded) — prompts for a
+  name (defaulting to the current rig's stem) and saves the whole open skeleton to the
+  library. Re-saving a name overwrites that library entry.
+- **🗂 Rig library** (sidebar) — opens a modal listing every saved rig with its stats
+  (e.g. "12 bones · 3 anims") and a filter box. Each row offers:
+  - **Use in new rig** — closes the modal and opens the **＋ New rig** panel with this
+    rig pre-selected in the **Apply saved rig** dropdown; you then pick the art source
+    and **Create** (see below).
+  - **Import into open rig** — merges this rig into the rig currently on stage
+    (enabled only when a rig is loaded; see the namespaced merge below).
+  - **🗑** — deletes the rig from the library.
+
+**Apply at creation.** The **＋ New rig** panel has an **Apply saved rig (optional)**
+dropdown (first option "— none (blank skeleton) —"). With a rig selected, the new rig
+is created **carrying that rig's bones + animations + constraints** instead of a blank
+skeleton — for **both** art sources (project atlas and uploaded images). This is the
+"move the rig onto a new object" path: create against the new object's art, then attach
++ mesh + weight to the imported bones.
+
+**Import into the open rig (namespaced merge).** *Import into open rig* merges a saved
+rig into the live rig **without touching anything that's already there**. Every imported
+name (bones, slots, skins, constraints, **and** animations) is given a unique prefix —
+`<rigname>_…`, bumped with a counter if needed — so nothing can collide; the imported
+root bone is dropped and its top-level children re-parent onto your selected bone (or
+the current root); imported bones are appended and the bone list is re-topo-sorted so
+every parent still precedes its children. The imported animations show up in the
+**Animations** list (under their prefixed names) and play. The merge is lossless and
+**reversible by ↻ Refresh from R2** (reload discards the in-tab merge); it deletes
+nothing from the current rig.
+
+**The by-name / re-skin caveat (important).** A saved rig's attachments reference atlas
+**regions by name**. When you apply or import a rig onto a *different* object, those
+region names **won't resolve against the new object's atlas** — the bones and animations
+come over intact, but the imported art will be blank until you **re-attach the new
+object's art** to the imported slots, build/convert a mesh, and **weight it to the
+imported bones**. That's by design: the rig library moves the *rig* (skeleton +
+motion); you re-skin it to the new mesh with the normal Setup/weight tools.
+
 ### Create a rig from scratch
 
-1. Click **＋ New rig** in the sidebar, name it, and either:
+1. Click **＋ New rig** in the sidebar, name it, optionally pick an **Apply saved
+   rig** from the dropdown (see the rig library above — leave it on "— none —" for a
+   blank skeleton), and either:
    - pick an existing project **Atlas (images)** from the dropdown — the server
      assembles a self-contained spine bundle (a synthesised `.atlas` + the packed
-     page image + a blank `.irig`) from that atlas's manifest; **or**
+     page image + the chosen `.irig` body, blank or the applied rig) from that
+     atlas's manifest; **or**
    - use **or upload images** to select PNG/WebP/JPEG files — the browser packs
      them onto one page and uploads it as a new bundle (region names come from the
      filenames).
 2. The new rig opens in Setup mode. Add bones / slots / skins, **attach** images
    from the loaded atlas to slots (then place or convert them to meshes), paint
-   weights, and animate.
+   weights, and animate. (If you applied a saved rig, the bones + animations are
+   already present — re-attach this object's art and weight it to those bones.)
 
 ### Save / export
 

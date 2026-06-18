@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet } from '$lib/server/editorRegions';
+import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas } from '$lib/server/spine';
@@ -12,11 +13,15 @@ const basename = (k: string): string => { const i = k.lastIndexOf('/'); return i
 /**
  * Create a NEW rig as a self-contained spine bundle under `spines/<name>/`:
  * synthesise a Spine `.atlas` from the chosen manifest's regions, copy the packed
- * page image, and write a blank `.irig` (root bone + default skin). Then reindex so
- * it appears in the skeleton list. This is the Atlas-Maker→Rigger bridge — a fresh
- * project has manifests (post-compose) but no spine bundles yet. `rigger`-gated.
+ * page image, and write a `.irig`. When `rigId` is supplied the `.irig` body is a saved
+ * library rig's skeleton (bones + animations + constraints come over intact; its
+ * attachment region names intentionally won't resolve against the new atlas until the
+ * user re-attaches this object's art). Otherwise it is a blank skeleton (root bone +
+ * default skin). Then reindex so it appears in the skeleton list. This is the
+ * Atlas-Maker→Rigger bridge — a fresh project has manifests (post-compose) but no spine
+ * bundles yet. `rigger`-gated.
  *
- * Body: `{ manifestKey, name }`.
+ * Body: `{ manifestKey, name, rigId? }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -44,11 +49,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (await spineBundleNameTaken(spinesPrefix, name)) throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
 	const atlasText = regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
-	const blank = { skeleton: { spine: '4.2' }, bones: [{ name: 'root' }], slots: [], skins: [{ name: 'default', attachments: {} }], animations: {} };
+	const rigId = body && typeof body.rigId === 'string' ? body.rigId : '';
+	const skeleton = await resolveRigSkeletonBody(rigId);
 
 	await putObjectBytes(`${bundle}/${pageName}`, page.body, page.contentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
-	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(blank), 'application/json');
+	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(skeleton), 'application/json');
 
 	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);
 	await putObjectText(`${spinesPrefix}/skeletons.json`, JSON.stringify(index), 'application/json');

@@ -238,9 +238,16 @@
         <button id="loadSpineBtn" style="flex:1;">⤓ Load spine <span id="count" class="pill"></span></button>
       </div>
       <button id="refreshR2Btn" title="Re-read the rig list (and reload the open rig) fresh from R2, bypassing the browser cache" style="margin-top:6px;width:100%;font-size:11px;">↻ Refresh from R2</button>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button id="saveRigLibBtn" title="Save this whole rig (bones + slots + skins + constraints + animations) to the shared library so it can be reused on another object" style="flex:1;font-size:11px;" disabled>📦 Save rig to library</button>
+        <button id="rigLibBtn" title="Browse the shared rig library: apply a saved rig to a new rig, or import one into the open rig" style="flex:1;font-size:11px;">🗂 Rig library</button>
+      </div>
+      <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
-        <label>Atlas (images)</label>
+        <label>Apply saved rig (optional)</label>
+        <select id="newRigApply"></select>
+        <label style="margin-top:6px;">Atlas (images)</label>
         <select id="newRigAtlas"></select>
         <div style="display:flex;gap:6px;margin-top:6px;">
           <button id="newRigCreate" style="flex:1;">Create</button>
@@ -374,6 +381,19 @@
       </div>
       <input type="text" id="animLibFilter" placeholder="filter…" style="margin:0 0 8px;">
       <div id="animLibList"></div>
+    </div>
+  </div>
+
+  <!-- Rig library modal: the shared (cross-project) whole-rig library -->
+  <div id="rigLibModal" class="rigModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <b>Rig library <span id="rigLibCount" class="pill"></span></b>
+        <span style="flex:1;"></span>
+        <button id="rigLibClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <input type="text" id="rigLibFilter" placeholder="filter…" style="margin:0 0 8px;">
+      <div id="rigLibList"></div>
     </div>
   </div>
 
@@ -1200,6 +1220,302 @@ async function deleteAnimFromLibrary(a){
   } catch (e){ alert("Delete failed: " + (e && e.message ? e.message : e)); }
 }
 
+// ============================================================================
+//  Rig library (Phase 5.8) — reuse a WHOLE rig (bones + slots + skins +
+//  constraints + animations) across rigs/projects. Two paths:
+//   - Apply at creation: the New-rig "Apply saved rig" dropdown sends `rigId` to
+//     /api/rigger/new|upload, which writes the saved skeleton as the new .irig.
+//   - Import into open rig: importRig() namespaces every imported name (reusing the
+//     same ref-rewrite logic as rename) and merges it into the live rawDoc.
+// ============================================================================
+
+function setRigStatus(msg){
+  const el = $("#rigLibStatus"); if (!el) return;
+  el.textContent = msg || "";
+  if (msg){ clearTimeout(setRigStatus._t); setRigStatus._t = setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, 5000); }
+}
+
+// Best-effort current rig stem (for the save default + source tag).
+function currentRigStem(){
+  if (selected && selected.skeleton_file) return (selected.skeleton_file || "").replace(/\.[^.]+$/, "");
+  if (selected && selected.stem) return selected.stem;
+  if (selected && selected.name) return selected.name;
+  return "rig";
+}
+
+// D1 — save the whole open rig to the shared library.
+async function saveRigToLibrary(){
+  if (!rawDoc){ alert("Load a rig first."); return; }
+  const def = currentRigStem();
+  const name = prompt("Save this rig to the shared library as:", def);
+  if (name === null) return;
+  const nm = name.trim();
+  if (!nm){ setRigStatus("enter a name"); return; }
+  setRigStatus('saving "' + nm + '" to library…');
+  try {
+    const r = await fetch("/api/rigger/rigs/save", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem() }),
+    });
+    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    await r.json();
+    setRigStatus('saved "' + nm + '" to the rig library ✓');
+  } catch (e){ setRigStatus("rig save failed: " + (e && e.message ? e.message : e)); }
+}
+
+// D2 — rig library modal.
+let rigLib = [];
+function openRigLibrary(){
+  $("#rigLibModal").classList.add("open");
+  const f = $("#rigLibFilter"); if (f){ f.value = ""; f.focus(); }
+  loadRigLibrary();
+}
+function closeRigLibrary(){ $("#rigLibModal").classList.remove("open"); }
+async function loadRigLibrary(){
+  $("#rigLibList").innerHTML = '<div class="empty" style="padding:10px 4px;color:var(--dim);">loading…</div>';
+  try {
+    const r = await (await fetch("/api/rigger/rigs/list")).json();
+    rigLib = r.rigs || [];
+  } catch (e){ rigLib = []; }
+  renderRigLibrary();
+}
+function rigStatLabel(s){
+  s = s || {};
+  const an = Array.isArray(s.animations) ? s.animations.length : 0;
+  return (s.bones || 0) + " bones · " + an + " anims";
+}
+function renderRigLibrary(){
+  const q = ($("#rigLibFilter").value || "").toLowerCase();
+  const list = $("#rigLibList"); list.innerHTML = "";
+  const rows = rigLib.filter((a) => !q || (a.name || "").toLowerCase().includes(q));
+  $("#rigLibCount").textContent = "(" + rows.length + ")";
+  if (!rows.length){
+    const e = document.createElement("div");
+    e.className = "empty"; e.style.cssText = "padding:14px 4px;color:var(--dim);font-size:12px;line-height:1.5;";
+    e.textContent = rigLib.length
+      ? "no rigs match the filter"
+      : "No saved rigs yet — open a rig and use 📦 Save rig to library.";
+    list.appendChild(e); return;
+  }
+  rows.forEach((a) => {
+    const d = document.createElement("div"); d.className = "item"; d.style.position = "relative";
+    const proj = (a.source && a.source.project) || "—";
+    d.innerHTML = '<div class="nm">' + a.name + '</div>' +
+      '<div class="meta">' + rigStatLabel(a.stats) + ' · ' + proj + '</div>';
+    const ctl = document.createElement("div");
+    ctl.style.cssText = "display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;";
+    const mk = (txt, title, on, disabled) => {
+      const b = document.createElement("button"); b.textContent = txt; b.title = title;
+      b.style.cssText = "padding:2px 9px;font-size:11px;"; if (disabled) b.disabled = true;
+      b.onclick = (ev) => { ev.stopPropagation(); on(); }; return b;
+    };
+    ctl.appendChild(mk("Use in new rig", "open the New-rig panel with this rig pre-selected", () => useRigInNew(a)));
+    ctl.appendChild(mk("Import into open rig", rawDoc ? "merge this rig into the open rig (namespaced)" : "load a rig first", () => importRig(a.id), !rawDoc));
+    const del = document.createElement("button");
+    del.textContent = "🗑"; del.title = "delete from library";
+    del.style.cssText = "margin-left:auto;padding:2px 8px;font-size:12px;opacity:.6;";
+    del.onclick = (ev) => { ev.stopPropagation(); deleteRigFromLibrary(a); };
+    ctl.appendChild(del);
+    d.appendChild(ctl);
+    list.appendChild(d);
+  });
+}
+async function deleteRigFromLibrary(a){
+  if (!confirm('Delete rig "' + a.name + '" from the shared library? This cannot be undone.')) return;
+  try {
+    const r = await fetch("/api/rigger/rigs/delete", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: a.id }),
+    });
+    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    await loadRigLibrary();
+  } catch (e){ alert("Delete failed: " + (e && e.message ? e.message : e)); }
+}
+
+// D3 — "Use in new rig": open the New-rig panel with this rig pre-selected.
+async function useRigInNew(a){
+  closeRigLibrary();
+  await openNewRigPanel();
+  const sel = $("#newRigApply");
+  if (sel){ sel.value = a.id; if (sel.value !== a.id){ /* option not present (race) */ } }
+  const nameInp = $("#newRigName"); if (nameInp) nameInp.focus();
+}
+
+// Populate the New-rig "Apply saved rig" dropdown from the library.
+async function loadNewRigApplyOptions(){
+  const sel = $("#newRigApply"); if (!sel) return;
+  sel.innerHTML = '<option value="">— none (blank skeleton) —</option>';
+  try {
+    const r = await (await fetch("/api/rigger/rigs/list")).json();
+    (r.rigs || []).forEach((a) => {
+      const o = document.createElement("option");
+      o.value = a.id; o.textContent = a.name + " (" + rigStatLabel(a.stats) + ")";
+      sel.appendChild(o);
+    });
+  } catch (e){ /* leave the "none" option */ }
+}
+
+// ---- D4: namespaced merge (import a whole rig into the open rig) ------------
+// Prefix EVERY internal name of `src` (a cloned skeleton doc), rewriting the same
+// references the in-tool rename functions do — bones (name+parent), slots
+// (name+bone), skins (name + attachment keys + linkedmesh skin refs), constraints
+// (name + bone/target/bones), and every animation reference (bones/slots/ik/
+// transform/path keys, deform skin/slot keys, drawOrder slot offsets). Weighted-mesh
+// bone references are stored as INDICES (not names) so they need no rewrite — they
+// stay valid because the imported bones keep their relative order on append + topo.
+function prefixRigNames(src, p){
+  const bones = Array.isArray(src.bones) ? src.bones : [];
+  for (const b of bones){
+    if (typeof b.name === "string") b.name = p + b.name;
+    if (typeof b.parent === "string") b.parent = p + b.parent;
+  }
+  for (const s of src.slots || []){
+    if (typeof s.name === "string") s.name = p + s.name;
+    if (typeof s.bone === "string") s.bone = p + s.bone;
+  }
+  // skins: rename skin + every attachment-slot key; linkedmesh skin refs.
+  for (const sk of src.skins || []){
+    if (typeof sk.name === "string") sk.name = p + sk.name;
+    const att = sk.attachments || {};
+    const rekeyed = {};
+    for (const slotName of Object.keys(att)){
+      const slot = att[slotName];
+      for (const a of Object.values(slot || {}))
+        if (a && a.type === "linkedmesh" && typeof a.skin === "string") a.skin = p + a.skin;
+      rekeyed[p + slotName] = slot;
+    }
+    sk.attachments = rekeyed;
+  }
+  // constraints: name + bone/target/bones refs (ik/transform/path).
+  for (const grp of ["ik", "transform", "path"]) for (const c of src[grp] || []){
+    if (typeof c.name === "string") c.name = p + c.name;
+    if (typeof c.bone === "string") c.bone = p + c.bone;
+    if (typeof c.target === "string") c.target = p + c.target;
+    if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (typeof n === "string" ? p + n : n));
+  }
+  // animations: rekey every name-keyed timeline map + constraint timelines.
+  const rekey = (obj) => {
+    if (!obj || typeof obj !== "object") return obj;
+    const out = {}; for (const k of Object.keys(obj)) out[p + k] = obj[k]; return out;
+  };
+  // Prefix the animation NAMES too, so imported clips never collide with the open rig's.
+  if (src.animations) src.animations = rekey(src.animations);
+  for (const an of Object.values(src.animations || {})){
+    if (an.bones) an.bones = rekey(an.bones);
+    if (an.slots) an.slots = rekey(an.slots);
+    if (an.ik) an.ik = rekey(an.ik);
+    if (an.transform) an.transform = rekey(an.transform);
+    if (an.path) an.path = rekey(an.path);
+    if (an.deform){
+      const skinMap = {};
+      for (const skinName of Object.keys(an.deform)){
+        const slotMap = an.deform[skinName] || {};
+        // deform is keyed skin → slot → attachment; rename skin + slot keys (attachment
+        // names are within-slot identifiers, not slot names, so leave them).
+        skinMap[p + skinName] = rekey(slotMap);
+      }
+      an.deform = skinMap;
+    }
+    if (an.attachments){
+      // Spine 4.2 `attachments` channel: skin → slot → attachment → {deform|sequence}.
+      // Prefix the skin + slot keys (attachment-name keys are within-slot ids, left as-is).
+      const skinMap = {};
+      for (const skinName of Object.keys(an.attachments)) skinMap[p + skinName] = rekey(an.attachments[skinName] || {});
+      an.attachments = skinMap;
+    }
+    if (Array.isArray(an.drawOrder))
+      for (const fr of an.drawOrder) if (Array.isArray(fr.offsets))
+        for (const o of fr.offsets) if (typeof o.slot === "string") o.slot = p + o.slot;
+  }
+}
+
+// Merge a prefixed source skeleton into `dst` (the live rawDoc). Imported root bone is
+// dropped; its top-level children re-parent onto `attachBone` (the selected bone, or the
+// current rig's root). Bones are appended then topo-sorted so every parent precedes its
+// children. Returns nothing; mutates `dst`.
+function mergeRigInto(dst, src, attachBone){
+  const srcBones = Array.isArray(src.bones) ? src.bones : [];
+  const srcRoot = srcBones[0] ? srcBones[0].name : null;
+  // The imported root is DROPPED — re-point every reference to it onto attachBone so no
+  // slot/constraint/anim key dangles (the loader rejects a slot on a missing bone).
+  if (srcRoot && srcRoot !== attachBone){
+    for (const b of srcBones) if (b.parent === srcRoot) b.parent = attachBone;
+    for (const s of src.slots || []) if (s.bone === srcRoot) s.bone = attachBone;
+    for (const grp of ["ik", "transform", "path"]) for (const c of src[grp] || []){
+      if (c.bone === srcRoot) c.bone = attachBone;
+      if (c.target === srcRoot) c.target = attachBone;
+      if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (n === srcRoot ? attachBone : n));
+    }
+    for (const an of Object.values(src.animations || {})) if (an.bones && an.bones[srcRoot]){
+      an.bones[attachBone] = an.bones[attachBone] || an.bones[srcRoot];
+      delete an.bones[srcRoot];
+    }
+  }
+  for (const b of srcBones){
+    if (b.name === srcRoot) continue; // drop the imported root
+    if (!b.parent) b.parent = attachBone;
+    dst.bones.push(b);
+  }
+  topoSortBones(dst);
+  dst.slots = dst.slots || [];
+  for (const s of src.slots || []) dst.slots.push(s);
+  dst.skins = dst.skins || [];
+  for (const sk of src.skins || []) dst.skins.push(sk);
+  for (const grp of ["ik", "transform", "path"]) if (Array.isArray(src[grp])){
+    dst[grp] = dst[grp] || [];
+    for (const c of src[grp]) dst[grp].push(c);
+  }
+  dst.animations = dst.animations || {};
+  for (const k of Object.keys(src.animations || {})) dst.animations[k] = src.animations[k];
+}
+
+// D4 — import a saved rig into the OPEN rig, collision-safe via namespacing.
+async function importRig(id){
+  if (!rawDoc){ alert("Load a rig first."); return; }
+  if (dirty && !confirm("Importing a rig modifies the open rig. Continue? (Reload from R2 to undo.)")) return;
+  setRigStatus("importing rig…");
+  let entry;
+  try {
+    entry = await (await fetch("/api/rigger/rigs/get?id=" + encodeURIComponent(id))).json();
+  } catch (e){ setRigStatus("import failed: " + (e && e.message ? e.message : e)); return; }
+  if (!entry || !entry.skeleton || !Array.isArray(entry.skeleton.bones)){
+    setRigStatus("that rig entry is empty or invalid"); return;
+  }
+  const src = JSON.parse(JSON.stringify(entry.skeleton));
+
+  // Unique prefix: r2Slug(name)+"_", bumped until NO imported name collides.
+  const slug = (entry.name || "rig").toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 60) || "rig";
+  const existing = new Set();
+  for (const b of rawDoc.bones || []) existing.add("b:" + b.name);
+  for (const s of rawDoc.slots || []) existing.add("s:" + s.name);
+  for (const sk of rawDoc.skins || []) existing.add("k:" + sk.name);
+  for (const grp of ["ik", "transform", "path"]) for (const c of rawDoc[grp] || []) existing.add("c:" + c.name);
+  for (const k of Object.keys(rawDoc.animations || {})) existing.add("a:" + k);
+  const collides = (p) => {
+    for (const b of src.bones || []) if (existing.has("b:" + p + b.name)) return true;
+    for (const s of src.slots || []) if (existing.has("s:" + p + s.name)) return true;
+    for (const sk of src.skins || []) if (existing.has("k:" + p + sk.name)) return true;
+    for (const grp of ["ik", "transform", "path"]) for (const c of src[grp] || []) if (existing.has("c:" + p + c.name)) return true;
+    for (const k of Object.keys(src.animations || {})) if (existing.has("a:" + p + k)) return true;
+    return false;
+  };
+  let prefix = slug + "_", n = 2;
+  while (collides(prefix)){ prefix = slug + "_" + n + "_"; n++; }
+
+  prefixRigNames(src, prefix);
+  const attachBone = (selBone != null && skeletonData && skeletonData.bones[selBone])
+    ? skeletonData.bones[selBone].name
+    : (rawDoc.bones[0] && rawDoc.bones[0].name);
+  mergeRigInto(rawDoc, src, attachBone);
+
+  markDirty();
+  closeRigLibrary();
+  rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+  renderAnimSection();
+  const animCount = Object.keys(src.animations || {}).length;
+  setRigStatus('imported "' + (entry.name || id) + '" as "' + prefix + '…" (' + animCount + ' anims)');
+}
+
 function selectBone(i){
   if (i !== selBone) graphSel = []; // graph selection is per-bone
   selBone = i;
@@ -1643,9 +1959,32 @@ function attachRegion(regionName){
 // Create a NEW rig: a blank skeleton (root + default skin) saved INTO an existing
 // atlas folder (so it's indexed + loaded and that atlas's images are attachable),
 // then opened. dir = the chosen atlas folder's base64url token.
+// Open the New-rig panel: load the atlas dropdown AND the "Apply saved rig" dropdown.
+async function openNewRigPanel(){
+  const p = $("#newRig");
+  p.style.display = "block";
+  $("#newRigNote").textContent = "loading atlases…";
+  showLoading("Loading atlases…");
+  try {
+    loadNewRigApplyOptions(); // fire-and-forget; independent of the atlas list
+    const r = await (await fetch("/api/rigger/atlases")).json();
+    const sel = $("#newRigAtlas"); sel.innerHTML = "";
+    (r.atlases || []).forEach((a) => {
+      const o = document.createElement("option");
+      o.value = a.manifestKey; o.textContent = a.label + " — " + a.regions.length + " images";
+      sel.appendChild(o);
+    });
+    $("#newRigNote").textContent = (r.atlases && r.atlases.length)
+      ? "pick an atlas to draw images from, name the rig, Create"
+      : "no atlases yet — pack images in the Atlas Maker first";
+  } catch (e){ $("#newRigNote").textContent = "failed to list atlases"; }
+  finally { hideLoading(); }
+}
+
 async function createNewRig(){
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
   const manifestKey = $("#newRigAtlas").value;
+  const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
   const note = $("#newRigNote");
   if (!name){ note.textContent = "enter a name"; return; }
   if (!manifestKey){ note.textContent = "pick an atlas"; return; }
@@ -1653,7 +1992,7 @@ async function createNewRig(){
   showLoading("Creating rig…");
   try {
     // Server assembles a spine bundle (synth .atlas + page copy + blank .irig) from the atlas.
-    const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ manifestKey, name }) });
+    const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(rigId ? { manifestKey, name, rigId } : { manifestKey, name }) });
     if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
     const j = await r.json();
     $("#newRig").style.display = "none"; $("#newRigName").value = "";
@@ -1680,6 +2019,7 @@ function loadImageFile(file){
 async function createRigFromImages(files){
   const note = $("#newRigNote");
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
   if (!name){ note.textContent = "enter a rig name first"; return; }
   if (!files || !files.length) return;
   note.textContent = "packing " + files.length + " image(s)…";
@@ -1711,7 +2051,7 @@ async function createRigFromImages(files){
     note.textContent = "uploading…";
     const resp = await fetch("/api/rigger/upload", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }),
+      body: JSON.stringify(Object.assign({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }, rigId ? { rigId } : {})),
     });
     if (!resp.ok) throw new Error((await resp.text()) || ("HTTP " + resp.status));
     const j = await resp.json();
@@ -2974,6 +3314,7 @@ function setMode(m){
   $("#resTimeline").style.display = animMode ? "block" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
+  { const b = $("#saveRigLibBtn"); if (b) b.disabled = !rawDoc; }
   $("#hint").textContent =
     m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
     : m === "animate" ? "animate · scrub the playhead · pose a bone → ◆ Key · drag a bone keys it at the playhead"
@@ -4412,6 +4753,13 @@ function wire(){
   $("#animLibFilter").oninput = renderAnimLibrary;
   $("#animLibModal").onmousedown = (e) => { if (e.target === $("#animLibModal")) closeAnimLibrary(); };
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#animLibModal").classList.contains("open")) closeAnimLibrary(); });
+  // rig-library (whole-rig) modal + sidebar buttons
+  $("#saveRigLibBtn").onclick = saveRigToLibrary;
+  $("#rigLibBtn").onclick = openRigLibrary;
+  $("#rigLibClose").onclick = closeRigLibrary;
+  $("#rigLibFilter").oninput = renderRigLibrary;
+  $("#rigLibModal").onmousedown = (e) => { if (e.target === $("#rigLibModal")) closeRigLibrary(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#rigLibModal").classList.contains("open")) closeRigLibrary(); });
   // compatibility-report modal
   $("#compatClose").onclick = closeCompatModal;
   $("#compatCancel").onclick = closeCompatModal;
@@ -4420,22 +4768,7 @@ function wire(){
   $("#newRigBtn").onclick = async () => {
     const p = $("#newRig");
     if (p.style.display !== "none"){ p.style.display = "none"; return; }
-    p.style.display = "block";
-    $("#newRigNote").textContent = "loading atlases…";
-    showLoading("Loading atlases…");
-    try {
-      const r = await (await fetch("/api/rigger/atlases")).json();
-      const sel = $("#newRigAtlas"); sel.innerHTML = "";
-      (r.atlases || []).forEach((a) => {
-        const o = document.createElement("option");
-        o.value = a.manifestKey; o.textContent = a.label + " — " + a.regions.length + " images";
-        sel.appendChild(o);
-      });
-      $("#newRigNote").textContent = (r.atlases && r.atlases.length)
-        ? "pick an atlas to draw images from, name the rig, Create"
-        : "no atlases yet — pack images in the Atlas Maker first";
-    } catch (e){ $("#newRigNote").textContent = "failed to list atlases"; }
-    finally { hideLoading(); }
+    await openNewRigPanel();
   };
   $("#newRigCancel").onclick = () => { $("#newRig").style.display = "none"; };
   $("#newRigCreate").onclick = createNewRig;

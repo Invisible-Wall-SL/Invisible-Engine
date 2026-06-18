@@ -954,3 +954,97 @@ Fix, three parts:
 - **`view.html` — sidebar `↻ Refresh from R2` button** (`refreshFromR2`): re-reads the rig
   list and, if a rig is on stage, re-selects it (re-fetching its files cache-busted).
   Unsaved edits are guarded by a `dirty` confirm.
+
+## Phase 5.8 — rig library / whole-rig reuse (2026-06-18)
+
+Goal (owner-approved scope): **reuse an ENTIRE rig across rigs/projects** — bones +
+slots + skins + constraints **and** animations — so a rig "can be moved to a different
+object" and re-skinned to new art. The library is the transfer medium; applying a saved
+rig gives the new object the bones + animations, then the user attaches the new art,
+makes a mesh, and weights it to the imported bones with the EXISTING mesh/weight tools.
+Mirrors the Phase 5.6 animation library exactly (R2 layout, endpoint shapes, modal
+style); additive, no refactor of the rig CRUD.
+
+**R2 layout (global / project-agnostic, under `_shared/`)** — helpers in
+`projectPaths.ts`:
+- `sharedRigsPrefix = '_shared/rigs'`
+- `sharedRigsIndexKey = '_shared/rigs/index.json'`
+- `sharedRigKey(id) = '_shared/rigs/<r2Slug(id)>.json'`
+
+**Entry file** `_shared/rigs/<id>.json`:
+```
+{ schemaVersion:1, id, name, savedAt, source:{client,project,rig}, stats:{bones,slots,skins,animations:string[]}, skeleton: <full skeleton doc: skeleton block + bones + slots + skins + ik/transform/path + animations> }
+```
+**Index file** `_shared/rigs/index.json`: `{ rigs: [ <row> ] }`, a row being the entry
+MINUS the heavy `skeleton` (list view = one GET). `stats` is computed server-side; the
+stored `skeleton.skeleton.spine` is forced to a valid version (default `4.2`). The id
+runs through `r2Slug`; re-saving an id overwrites (the client confirms first).
+
+**Endpoints** (`src/routes/api/rigger/rigs/…`, all `rigger`-gated via `gate()` — copied
+from the animation endpoints):
+- `save/+server.ts` (POST) — body `{ id?, name, skeleton, sourceRig? }`; validates
+  `name` non-empty + `skeleton` an object with `Array.isArray(skeleton.bones)`; derives
+  `id = r2Slug(id||name)`; computes `stats` from the skeleton; `putObjectText` the entry,
+  upsert the index row. Returns `{ ok, id }`.
+- `list/+server.ts` (GET) — `{ rigs }` from the index, sorted by name (empty if none).
+- `get/+server.ts` (GET `?id=`) — full entry; 404 if missing.
+- `delete/+server.ts` (POST `{ id }`) — deletes the entry object + removes its index row.
+
+**Apply-at-creation hook on `new` + `upload`.** Both creation endpoints take an OPTIONAL
+`rigId`. A shared helper `src/lib/server/riggerNewRig.ts#resolveRigSkeletonBody(rigId)`
+returns the `.irig` body to write: the blank skeleton when `rigId` is empty (unchanged
+behavior), else the saved rig's `entry.skeleton` deep-cloned with `skeleton.spine` forced
+to `4.2` (404 if the rig is missing). Everything else (synth `.atlas` from the chosen art,
+page copy, reindex, response) is identical. The applied skeleton's attachment region names
+are NOT remapped to the new atlas — they intentionally don't resolve until the user
+re-attaches the new object's art (the by-name caveat below); bones/animations/constraints
+come over intact.
+
+**Import into the open rig — the namespaced merge (`view.html#importRig`).** The riskiest
+path; made collision-safe by ALWAYS namespacing the imported rig:
+- `prefixRigNames(src, p)` — prefixes EVERY internal name and rewrites EVERY reference,
+  reusing the same ref-rewrite shape as the in-tool `renameBone`/`renameSlot`: bones
+  (name + parent), slots (name + bone), skins (name + attachment-slot keys + linkedmesh
+  `skin` refs), constraints (name + bone/target/bones), the animation map keys
+  themselves, and every per-animation reference — `bones`/`slots`/`ik`/`transform`/`path`
+  keys, the **legacy `deform`** (skin→slot) and the **Spine 4.2 `attachments`**
+  (skin→slot→attachment) channels, and `drawOrder` slot offsets. Weighted-mesh bone refs
+  are stored as **indices** (not names) so they need no rewrite — they stay valid because
+  the imported bones keep their relative order on append + topo-sort.
+- `mergeRigInto(dst, src, attachBone)` — drops the imported root bone, re-points every
+  reference to it onto `attachBone` (the selected bone, else the current root) so no
+  slot/constraint/anim key dangles, appends the (prefixed) bones then `topoSortBones` so
+  every parent precedes its children, appends slots/skins/constraints, and folds the
+  prefixed animations into `rawDoc.animations`.
+- `importRig(id)` — guards on `rawDoc` + a `dirty` confirm, derives a unique prefix
+  (`r2Slug(name)_`, bumped with a counter until no imported name collides against the
+  open rig), runs the transform, `markDirty()`, `rebuildFromRawDoc(...)`,
+  `renderAnimSection()`. Lossless; reversible by **↻ Refresh from R2** (reload discards
+  the in-tab merge); deletes nothing from the current rig.
+
+**view.html UI.** Sidebar **📦 Save rig to library** (enabled when `rawDoc` exists) →
+`/api/rigger/rigs/save { name, skeleton: rawDoc, sourceRig }`. Sidebar **🗂 Rig library**
+→ a `.rigModal` (same style as the animation library) listing rows with stats ("N bones ·
+M anims") and per-row **Use in new rig** (opens the New-rig panel with the rig preset in
+the new **Apply saved rig** dropdown), **Import into open rig** (`importRig`), **🗑**.
+The New-rig panel gains an **Apply saved rig (optional)** `<select>` populated from
+`/api/rigger/rigs/list`; `createNewRig` / `createRigFromImages` include `rigId` in the
+POST when set.
+
+**Spike** (`tools/rigger-spike/rigmerge.mjs`). Replicates the SAME `prefixRigNames` +
+`mergeRigInto` transform, takes two real corpus skeletons, runs the merge, loads the
+result through the official `spine-core@4.2.74` loader (with a combined dst+src atlas so
+every region name exists for the structural load), and asserts: loader accepts it;
+parent-precedes-child holds; no bone/slot/skin name collisions; every imported animation
+present (prefixed); weighted-mesh bone indices in range; the ORIGINAL rig's bones + anims
+unchanged; bone count grew by exactly the imported-bone count. PASS on multiple pairs
+(e.g. `mm_bigwin` ← `anticipation` with 16 anims; `loader` ← weighted symbol `h1` with 40
+weighted meshes).
+
+**By-name / re-skin caveat.** A saved rig's attachments reference atlas regions by name;
+applied/imported onto a different object they won't resolve against the new atlas — bones
+and animations come over intact, but the imported art is blank until the user re-attaches
+the new object's art and weights it to the imported bones. By design: the library moves
+the rig (skeleton + motion); re-skinning to the new mesh uses the normal Setup/weight
+tools. Not wired to the game build pipeline: tool-side authoring data; the result ships
+through the existing `.irig` save→ship path, not as a new asset class.

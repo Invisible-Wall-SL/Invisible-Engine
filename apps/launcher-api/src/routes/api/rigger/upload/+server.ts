@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas, type SynthRegion } from '$lib/server/spine';
@@ -11,12 +12,13 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 /**
  * Create a NEW rig from RAW UPLOADED IMAGES. The browser packs the chosen images
  * onto one page (Canvas) and sends the page PNG + the region rects; this writes the
- * page, a synthesised Spine `.atlas` (`regionsToSpineAtlas`), and a blank `.irig`
- * into `spines/<name>/`, then reindexes. So a rig can be built from brand-new art
- * with no Atlas Maker step. `rigger`-gated.
+ * page, a synthesised Spine `.atlas` (`regionsToSpineAtlas`), and a `.irig` into
+ * `spines/<name>/`, then reindexes. When `rigId` is supplied the `.irig` body is a saved
+ * library rig's skeleton (same apply-at-creation hook as `new`); otherwise it is blank.
+ * So a rig can be built from brand-new art with no Atlas Maker step. `rigger`-gated.
  *
  * Body: `{ name, page (data URL or bare base64 PNG), pageWidth, pageHeight,
- *          regions: [{ name, x, y, w, h }] }`.
+ *          regions: [{ name, x, y, w, h }], rigId? }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -61,11 +63,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const pageName = `${name}.png`;
 	const atlasText = regionsToSpineAtlas(pageName, pageWidth, pageHeight, regions);
-	const blank = { skeleton: { spine: '4.2' }, bones: [{ name: 'root' }], slots: [], skins: [{ name: 'default', attachments: {} }], animations: {} };
+	const rigId = typeof body.rigId === 'string' ? body.rigId : '';
+	const skeleton = await resolveRigSkeletonBody(rigId);
 
 	await putObjectBytes(`${bundle}/${pageName}`, pageBytes, 'image/png');
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
-	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(blank), 'application/json');
+	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(skeleton), 'application/json');
 
 	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);
 	await putObjectText(`${spinesPrefix}/skeletons.json`, JSON.stringify(index), 'application/json');

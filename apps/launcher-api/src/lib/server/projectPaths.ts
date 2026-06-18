@@ -161,6 +161,22 @@ export function sharedAnimationKey(id: string): string {
 	return `${sharedAnimationsPrefix}/${r2Slug(id)}.json`;
 }
 
+/**
+ * Cross-project RIG library (Rigger §5.8). A saved rig is the WHOLE skeleton doc —
+ * bones + slots + skins + constraints + animations — so an author can reuse a rig
+ * (and its animations) on any other object: apply it at creation of a new rig, or
+ * import it into an already-open rig (namespaced merge). Like the animation library
+ * it is GLOBAL/project-agnostic and lives under `_shared/rigs/`. The per-rig file is
+ * `_shared/rigs/<id>.json`; the lightweight catalog is `_shared/rigs/index.json`. The
+ * id runs through `r2Slug` to match the launcher/Python normalization everywhere else.
+ * See `docs/design/invisible-rigger.md`.
+ */
+export const sharedRigsPrefix = '_shared/rigs';
+export const sharedRigsIndexKey = '_shared/rigs/index.json';
+export function sharedRigKey(id: string): string {
+	return `${sharedRigsPrefix}/${r2Slug(id)}.json`;
+}
+
 export function localizationDocKey(client: string, project: string): string {
 	return `${SUB.localization(client, project)}/strings.json`;
 }
