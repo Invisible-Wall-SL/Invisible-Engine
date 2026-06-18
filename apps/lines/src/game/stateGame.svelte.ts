@@ -52,6 +52,15 @@ export const setBoardOverride = (node: ReelGridNode | null) => {
 };
 
 /**
+ * Symbol size as a ratio of one cell, authored on the reel node in the Scene Editor.
+ * `undefined` ⇒ the symbol resolver falls through to the coded `SYMBOL_INFO_MAP` sizes.
+ * Read by `resolveSymbolSizeRatios` (symbolMap.ts) — kept here because the reel node
+ * lives on `boardOverride` and stateGame imports neither symbolMap nor utils (no cycle).
+ */
+export const boardSymbolSizeRatios = (): { width: number; height: number } | undefined =>
+	boardOverride.node?.symbolSizeRatios;
+
+/**
  * Board LATTICE derived from the override, in board-LOCAL space (before the
  * container `scale`). `columnExtraLocal` = extra x added per reel index for
  * non-square cell width + horizontal gap; `rowPitchLocal` = the reel's symbol

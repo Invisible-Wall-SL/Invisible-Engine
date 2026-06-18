@@ -68,11 +68,6 @@ type BakedBundle = {
 			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
 			spines: { key: string; atlas: string; skeleton: string; scale?: number }[];
 		};
-		/** Global default symbol size (Invisible Symbols State Machine output). Applied at render
-		 * to every symbol WITHOUT a per-cell `sizeRatios` in `map` (see `resolveSymbolSizeRatios`),
-		 * so it reaches symbols that fall through to the coded `SYMBOL_INFO_MAP`. Absent → the game
-		 * keeps its coded sizes. */
-		defaultSizeRatios?: { width: number; height: number };
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
@@ -234,18 +229,6 @@ export function bakedHighlight(): { assetKey: string; animationName: string } | 
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.highlight;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.highlight;
-}
-
-/**
- * The GLOBAL default symbol size authored in the Invisible Symbols State Machine. Applied by
- * `resolveSymbolSizeRatios` (game/symbolMap.ts) to every symbol without a per-cell `sizeRatios`,
- * BELOW a per-cell override and ABOVE the coded `SYMBOL_INFO_MAP` size. Mirrors `bakedSymbolMap`'s
- * runtime→baked→undefined resolution; undefined → the coded sizes (dev parity).
- */
-export function bakedSymbolDefaultSize(): { width: number; height: number } | undefined {
-	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.defaultSizeRatios;
-	if (!hasBakedDoc()) return undefined;
-	return bakedBundle.symbols?.defaultSizeRatios;
 }
 
 type SymbolAssetEntry =

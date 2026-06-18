@@ -1,4 +1,5 @@
-import { bakedSymbolDefaultSize, bakedSymbolMap } from '../editor-scenes';
+import { bakedSymbolMap } from '../editor-scenes';
+import { boardSymbolSizeRatios } from './stateGame.svelte';
 import { SYMBOL_INFO_MAP } from './constants';
 import type { SymbolInfoMap } from './types';
 
@@ -33,10 +34,10 @@ export function getActiveSymbolInfoMap(): SymbolInfoMap {
 const DEFAULT_SIZE_RATIOS = { width: 1, height: 1 } as const;
 
 /**
- * The size a symbol×state cell renders at, resolved from the ORIGINAL layers (NOT the merged
- * map — `mergeSymbolMap` replaces whole cells, so an override that omits `sizeRatios` would
- * keep the coded size and skip the global). Order: author per-cell override > author global
- * default (`bakedSymbolDefaultSize`) > coded `SYMBOL_INFO_MAP` size > {1,1}. Consumed via
+ * The size a symbol×state cell renders at. Order: per-cell baked override (legacy — a baked
+ * symbols doc that still carries a cell `sizeRatios`) > the reel's `symbolSizeRatios` (authored
+ * on the reelGrid node in the Scene Editor) > coded `SYMBOL_INFO_MAP` size > {1,1}. Read from
+ * the ORIGINAL layers (not the merged map, which replaces whole cells). Consumed via
  * `getSymbolInfo`, so render components read a fully-resolved `sizeRatios`.
  */
 export function resolveSymbolSizeRatios(
@@ -45,7 +46,7 @@ export function resolveSymbolSizeRatios(
 ): { width: number; height: number } {
 	const override = bakedSymbolMap()?.[name]?.[state]?.sizeRatios;
 	if (override) return override;
-	const global = bakedSymbolDefaultSize();
-	if (global) return global;
+	const reel = boardSymbolSizeRatios();
+	if (reel) return reel;
 	return (SYMBOL_INFO_MAP as SymbolInfoMap)[name]?.[state]?.sizeRatios ?? DEFAULT_SIZE_RATIOS;
 }
