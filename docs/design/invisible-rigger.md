@@ -936,3 +936,21 @@ channel stripping, no name remapping. A future iteration could add a remap UI (m
 missing source bone/slot onto a target name) and/or an option to drop dead channels on
 import. Not wired to the game build pipeline: the library is tool-side authoring data; a
 reused clip ships through the existing `.irig` save→ship path, not as a new asset class.
+
+## Phase 5.7 — fresh-read / "↻ Refresh from R2" (2026-06-18)
+
+Owner hit a stale rig list after creating a rig — the tool was reading a cached
+`/spine/skeletons` response. Root cause: that endpoint reads `skeletons.json` fresh from
+R2 server-side (the editing tools rewrite it on every save/new/upload/delete), but the
+response carried **no cache headers**, so the browser cached the GET — and the old client
+fetch used a constant `?refresh=1` URL, which a heuristic cache could still serve stale.
+(The per-file fetch was already fine — `/spine/file` is `no-store` and the client adds
+`&v=Date.now()`.)
+
+Fix, three parts:
+- **`routes/(app)/spine/skeletons/+server.ts`** — every response now sets
+  `cache-control: no-store` (shared by the Spine Viewer too; only upside there).
+- **`view.html#loadSkeletons`** — always cache-busts: `fetch('/spine/skeletons?t='+Date.now()+…, { cache:'no-store' })`.
+- **`view.html` — sidebar `↻ Refresh from R2` button** (`refreshFromR2`): re-reads the rig
+  list and, if a rig is on stage, re-selects it (re-fetching its files cache-busted).
+  Unsaved edits are guarded by a `dirty` confirm.

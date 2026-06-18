@@ -237,6 +237,7 @@
         <button id="newRigBtn" style="flex:1;">＋ New rig</button>
         <button id="loadSpineBtn" style="flex:1;">⤓ Load spine <span id="count" class="pill"></span></button>
       </div>
+      <button id="refreshR2Btn" title="Re-read the rig list (and reload the open rig) fresh from R2, bypassing the browser cache" style="margin-top:6px;width:100%;font-size:11px;">↻ Refresh from R2</button>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
         <label>Atlas (images)</label>
@@ -4306,7 +4307,9 @@ async function restoreRiggerState(){
 
 async function loadSkeletons(refresh){
   $("#count").textContent = "(scanning…)";
-  const r = await (await fetch("/spine/skeletons" + (refresh ? "?refresh=1" : ""))).json();
+  // Always cache-bust (timestamp + no-store): R2's skeletons.json is rewritten on
+  // every save/new/upload, so a cached list would hide a just-created rig.
+  const r = await (await fetch("/spine/skeletons?t=" + Date.now() + (refresh ? "&refresh=1" : ""), { cache: "no-store" })).json();
   setActiveProject(r.client, r.project);
   if (r.error){ showErr(r.error); skeletons = []; renderList(); return; }
   skeletons = r.skeletons || [];
@@ -4318,6 +4321,21 @@ async function loadSkeletons(refresh){
     if (target){ history.replaceState(null, "", location.pathname); selectSkeleton(target); return; }
   }
   if (!selected) await restoreRiggerState(); // reopen where we left off
+}
+
+// Force a fresh read from R2 (bypassing the browser cache): re-fetch the rig list
+// and, if a rig is on stage, reload it from the cloud. Unsaved edits are guarded.
+async function refreshFromR2(){
+  if (dirty && !confirm("Refresh from R2 reloads from the cloud and discards unsaved edits to this rig. Continue?")) return;
+  const cur = selected ? { dir_b64: selected.dir_b64, skeleton_file: selected.skeleton_file } : null;
+  showLoading("Refreshing from R2…");
+  try {
+    await loadSkeletons(true);
+    if (cur){
+      const t = skeletons.find(s => s.dir_b64 === cur.dir_b64 && s.skeleton_file === cur.skeleton_file);
+      if (t) await selectSkeleton(t); // re-fetches the rig's files cache-busted
+    }
+  } finally { hideLoading(); }
 }
 
 async function deleteRig(e){
@@ -4385,6 +4403,7 @@ function wire(){
   $("#filter").oninput = renderList;
   $("#rescan").onclick = () => loadSkeletons(true);
   $("#loadSpineBtn").onclick = openSpineModal;
+  $("#refreshR2Btn").onclick = refreshFromR2;
   $("#spineModalClose").onclick = closeSpineModal;
   $("#spineModal").onmousedown = (e) => { if (e.target === $("#spineModal")) closeSpineModal(); };
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#spineModal").classList.contains("open")) closeSpineModal(); });

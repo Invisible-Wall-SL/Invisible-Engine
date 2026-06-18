@@ -50,7 +50,14 @@ you create are scoped to the project you have selected.
    which lists the project's skeletons (`.json`, `.skel`, and saved `.irig`
    files; edited `.irig` rigs are tagged "irig · edited"). Use the **filter** box
    to narrow the list, or **rescan** to refresh it.
-2. Click a skeleton to load it. It renders on the central WebGL stage and the
+2. Click a skeleton to load it.
+
+> **↻ Refresh from R2** (sidebar) re-reads the rig list — and reloads the rig
+> currently on stage — fresh from cloud storage, bypassing the browser cache.
+> Use it after creating/saving a rig (here or in another tool) if the list or the
+> loaded rig looks stale. The rig list endpoint is served `no-store` and the
+> client cache-busts every fetch, so this is belt-and-braces; unsaved edits to the
+> open rig are guarded by a confirm. It renders on the central WebGL stage and the
    left **Inspector** populates with the rig's structure under collapsible
    sections: **Bone hierarchy**, **Slots (draw order)**, **Skins**,
    **Animations**, and **Constraints**.

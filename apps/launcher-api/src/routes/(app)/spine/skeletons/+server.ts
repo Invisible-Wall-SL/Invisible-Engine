@@ -6,6 +6,11 @@ import { getObjectText } from '$lib/server/r2';
 import { requireSpineAccess, resolveSkeletonsRoot } from '$lib/server/spine';
 import type { RequestHandler } from './$types';
 
+// The list is derived from `skeletons.json` in R2, which the editing tools rewrite
+// on every save/new/upload/delete. Never let the browser cache it, or a just-created
+// rig won't appear (the Rigger's "↻ Refresh from R2" relies on this being fresh).
+const NO_STORE = { 'cache-control': 'no-store' };
+
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	await requireSpineAccess(locals);
 	const projectKey =
@@ -22,14 +27,17 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		skeletons: [],
 	};
 	const hit = await resolveSkeletonsRoot(clientKey, projectKey);
-	if (!hit) return json(empty);
+	if (!hit) return json(empty, { headers: NO_STORE });
 	const text = await getObjectText(hit.key);
-	if (!text) return json(empty);
+	if (!text) return json(empty, { headers: NO_STORE });
 	const data = JSON.parse(text);
-	return json({
-		client: clientKey,
-		project: projectKey,
-		root: data.prefix ?? hit.root,
-		skeletons: data.skeletons ?? [],
-	});
+	return json(
+		{
+			client: clientKey,
+			project: projectKey,
+			root: data.prefix ?? hit.root,
+			skeletons: data.skeletons ?? [],
+		},
+		{ headers: NO_STORE },
+	);
 };
