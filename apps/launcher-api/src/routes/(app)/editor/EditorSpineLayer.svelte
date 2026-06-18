@@ -154,8 +154,12 @@
 			skel.scaleY = 1;
 			skel.setToSetupPose();
 			skel.updateWorldTransform(getSpinePhysics());
-			const offset = { x: 0, y: 0 };
-			const size = { x: 0, y: 0 };
+			// `getBounds` writes its result by CALLING `.set()` on these — a plain `{x,y}`
+			// makes it THROW (silently caught → null), which collapsed the transform box to
+			// the default for every rig WITHOUT a skeleton width/height (i.e. every Rigger
+			// `.irig`). Pass objects that implement `set()` so the real bounds come back.
+			const offset = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
+			const size = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
 			skel.getBounds(offset, size, []);
 			skel.scaleX = sx;
 			skel.scaleY = sy;
@@ -557,8 +561,10 @@
 		fit: 'cover' | 'contain',
 	): void {
 		const nat = naturalSizeOf(inst);
-		const offset = { x: 0, y: 0 };
-		const size = { x: 0, y: 0 };
+		// `getBounds` writes via `.set()`, so these MUST implement it (a plain `{x,y}`
+		// throws → the cover/contain/positioned math falls back to a degenerate box).
+		const offset = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
+		const size = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
 		try {
 			// Measure at unit scale (scale is re-set at the end of this fn + the loop
 			// bakes zoom into it), so offset/size are the art's true natural bounds.

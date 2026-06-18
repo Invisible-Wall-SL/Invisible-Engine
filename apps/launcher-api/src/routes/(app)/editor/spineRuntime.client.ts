@@ -13,6 +13,10 @@
 export interface SpineVector2 {
 	x: number;
 	y: number;
+	/** `Skeleton.getBounds` writes its result by CALLING `offset.set()/size.set()`
+	 * (it expects real spine `Vector2` instances) — a plain `{x,y}` makes it throw.
+	 * Callers must pass an object that implements this. */
+	set(x: number, y: number): void;
 }
 
 export interface SpineCamera {
