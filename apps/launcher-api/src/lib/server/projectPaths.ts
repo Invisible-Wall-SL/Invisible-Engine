@@ -146,6 +146,21 @@ export function projectComponentDefaultsPrefix(projectKey: string): string {
 /** Prefix for listing the shared component library. */
 export const sharedComponentsPrefix = '_shared/editor-components/';
 
+/**
+ * Cross-project animation library (Rigger §5.6). A saved animation is GLOBAL —
+ * project-agnostic — so authors can reuse a clip on any rig in any client/project.
+ * It lives under `_shared/animations/`, alongside the other `_shared/` libraries.
+ * The per-animation file is `_shared/animations/<id>.json`; the lightweight catalog
+ * is `_shared/animations/index.json`. The id runs through `r2Slug` to match the
+ * launcher/Python normalization everywhere else.
+ * See `docs/design/invisible-rigger.md`.
+ */
+export const sharedAnimationsPrefix = '_shared/animations';
+export const sharedAnimationsIndexKey = '_shared/animations/index.json';
+export function sharedAnimationKey(id: string): string {
+	return `${sharedAnimationsPrefix}/${r2Slug(id)}.json`;
+}
+
 export function localizationDocKey(client: string, project: string): string {
 	return `${SUB.localization(client, project)}/strings.json`;
 }

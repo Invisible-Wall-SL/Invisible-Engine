@@ -142,6 +142,33 @@ A floating segmented toggle at the top of the stage switches the workflow:
 - Slot animation is supported too: key a slot's **attachment** (which image shows)
   and its **colour/alpha** at the playhead.
 
+#### Reuse animations across rigs
+
+You can move an animation from one rig (or project) onto another. Animations are
+self-contained clips, so this is just a copy of the clip's keyframe data.
+
+- **📋 Copy / 📥 Paste (this session)** — the per-row **📋** button copies an
+  animation into an in-memory clipboard. Load a different rig, then click **📥 Paste
+  animation** at the top of the Animations section to drop it in. The clipboard lives
+  only in the open tab (nothing is saved), so this is the quick "rig A → rig B in one
+  sitting" path.
+- **📤 Save to library** — the per-row **📤** button saves the animation to a
+  **shared, cross-project** library in R2. It's reusable from any client/project, on
+  any rig. Re-saving a name overwrites the library copy (you're asked to confirm).
+- **🗂 Animation library** — opens a modal listing every saved clip (name, duration,
+  source project, bone count) with a filter box. **Load** imports a clip onto the
+  current rig; **🗑** deletes it from the library. Empty state tells you to use 📤.
+
+**Compatibility report (important).** Spine animations reference bones, slots,
+attachments and events **by name**. A pasted/loaded clip only fully drives a rig that
+has matching bone/slot names; channels that reference names the target rig lacks are
+imported harmlessly but **drive nothing** (silently). So before importing, if any
+referenced bone/slot is missing on the current rig, a report shows **matched vs
+missing** names and asks **Import anyway / Cancel**. A fully compatible clip imports
+straight away. In this version the clip is always imported **as-is** — no channel
+stripping and no name remapping (that's a later iteration); rename bones/slots to
+match first if you need the missing channels to drive.
+
 ### Create a rig from scratch
 
 1. Click **＋ New rig** in the sidebar, name it, and either:

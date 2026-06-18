@@ -878,3 +878,61 @@ landed alongside 5.3 (`83073da`). UI is owner-verified live.
   origin (Setup + Animate). Ring = rotate (world-angle delta → local rotation; the first
   canvas rotation control), centre = translate. Animate holds via `posingBone` + keys on
   release by `posingBone.mode` (rotate→rotate channel, move→translate).
+
+## Phase 5.6 — animation library / reuse (2026-06-18)
+
+Goal (owner-approved scope): **reuse an animation across rigs/projects**, via a shared
+R2 library PLUS an in-session copy/paste, with a **compatibility report + import-as-is**
+(no name-remap UI yet). Additive to Phase 5; no refactor of the anim CRUD.
+
+**Why a clip is portable.** An animation is the self-contained subtree
+`rawDoc.animations[<name>]` — `{ bones, slots, drawOrder, events, deform, ik/transform/
+path }` — keyed entirely **by name**. Importing it onto another rig is a deep-copy under a
+unique name (`uniqueAnimName`). It only *drives* a target rig where bone/slot/event names
+match; channels for names the target lacks import harmlessly but silently. So import is
+gated by a **compatibility report** that surfaces matched-vs-missing before committing.
+
+**R2 layout (global / project-agnostic, under `_shared/`)** — helpers in
+`projectPaths.ts`:
+- `sharedAnimationsPrefix = '_shared/animations'`
+- `sharedAnimationsIndexKey = '_shared/animations/index.json'`
+- `sharedAnimationKey(id) = '_shared/animations/<r2Slug(id)>.json'`
+
+The library is deliberately cross-project (the owner's requirement: reused between
+projects, nothing local).
+
+**Entry file** `_shared/animations/<id>.json`:
+```
+{ schemaVersion: 1, id, name, savedAt, source:{client,project,rig}, refs:{bones[],slots[],events[]}, duration, animation: <the rawDoc.animations[name] subtree, verbatim> }
+```
+**Index file** `_shared/animations/index.json`: `{ animations: [ <row> ] }` where a row is
+the entry MINUS the heavy `animation` body (so the list view is one GET). The id runs
+through `r2Slug` to match the launcher/Python normalization everywhere else; re-saving an
+id overwrites (the client confirms first).
+
+**Endpoints** (`src/routes/api/rigger/animations/…`, all `rigger`-gated via `gate()`):
+- `save/+server.ts` (POST) — body `{ id?, name, animation, refs?, duration?, sourceRig? }`;
+  derives `id = r2Slug(id||name)`, builds the entry (`savedAt = new Date().toISOString()`,
+  `source = {client, project, rig}` from the gate + body), `putObjectText` the entry, then
+  upsert the lightweight row into the index. Returns `{ ok, id }`.
+- `list/+server.ts` (GET) — reads the index, returns `{ animations }` sorted by name
+  (empty array if no index yet).
+- `get/+server.ts` (GET `?id=`) — returns the full entry; 404 if missing.
+- `delete/+server.ts` (POST `{ id }`) — deletes the entry object + removes its index row.
+
+**view.html** (`static/rigger/view.html`):
+- `animRefs(animation)` / `animCompatibility(animation)` — the by-name ref extraction +
+  matched/missing split vs the current rig's `rawDoc.bones`/`rawDoc.slots`.
+- `importAnimation(animation, desiredName)` — the shared insert path (compat report →
+  `Import anyway / Cancel`, then deep-copy under `uniqueAnimName`, `animsDirty`+`markDirty`,
+  `setMode('animate')`, `setCurAnim`, `renderAnimSection`). Used by both paste + library.
+- In-session **📋 Copy** (per row) → `animClipboard` (memory only) → **📥 Paste animation**
+  (top of the Animations section, shown when the clipboard is set + a rig is loaded).
+- R2 **📤 Save to library** (per row) + **🗂 Animation library** modal (list / filter /
+  Load / 🗑 delete), both reusing the Load-spine modal styling (`.rigModal`).
+
+**By-name approach (deferred work).** v1 reports compatibility and imports **as-is** — no
+channel stripping, no name remapping. A future iteration could add a remap UI (map a
+missing source bone/slot onto a target name) and/or an option to drop dead channels on
+import. Not wired to the game build pipeline: the library is tool-side authoring data; a
+reused clip ships through the existing `.irig` save→ship path, not as a new asset class.
