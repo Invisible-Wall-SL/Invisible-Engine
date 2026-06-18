@@ -827,6 +827,18 @@ tag (⦿/▤) and amber slot dots; retime/delete/seek/selection dispatch on kind
 spine-core (`tools/rigger-spike/slotanim.mjs`): `slots[slot].attachment=[{time,name}]`
 (stepped), `slots[slot].rgba=[{time,color:"rrggbbaa",curve?}]`.
 
+**5.4a (2026-06-18) — dedicated opacity control + slot-colour easing.** The slot Animate
+panel split the old combined colour-swatch+alpha row into a **colour** row (RGB tint only,
+preserving the current alpha) and a dedicated **opacity** row (0–100% slider + **◆ Key
+opacity @ t** button). Each commits through `keySlotColor` by re-reading the other channel
+from `slotColorAt` at the playhead, so retinting never drops opacity and vice-versa — still
+one `rgba` timeline (no conflicting standalone `alpha` channel, stays byte-valid Spine 4.2).
+Added per-key **easing** for the rgba/opacity key (`setSlotColorCurve` / `slotColorCurveType`,
+mirroring the bone `setKeyCurve`: linear drops the curve, stepped, or a per-channel bezier
+array baked from the segment). Verified headless: an Ease-In-Out 100→0% fade samples
+1.000 / 0.500 / 0.000 at t=0/0.5/1, monotonic, slow at both ends, 16-float curve;
+`stepped` holds the value through the segment.
+
 **Graph (curve) editor — Phase 5.3b, iteration 1 LANDED (`ece46c7`):** a separate view
 from the dopesheet (Dopesheet ⇄ Graph switch in the timeline legend; dopesheet code
 untouched). `renderGraphBody` plots the selected bone's channels (rotation/x/y/scaleX/

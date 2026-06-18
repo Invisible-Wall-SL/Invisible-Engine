@@ -2100,18 +2100,31 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     sel.onchange = () => keySlotAttachment(sd.name, sel.value === " none" ? null : sel.value);
     r.appendChild(l); r.appendChild(sel); det.appendChild(r);
   }
-  // colour (rgba): tint + alpha at the playhead
+  // colour (rgb tint): retint only, keeping the current opacity — keys at the playhead
   {
     const hex = slotColorAt(sd.name, animTime);
-    const rgb = "#" + hex.slice(0, 6), alpha = parseInt(hex.slice(6, 8) || "ff", 16) / 255;
     const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
     const l = document.createElement("span"); l.textContent = "colour"; l.style.cssText = "width:54px;";
-    const cp = document.createElement("input"); cp.type = "color"; cp.value = rgb; cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
+    const cp = document.createElement("input"); cp.type = "color"; cp.value = "#" + hex.slice(0, 6); cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
+    const note = document.createElement("span"); note.textContent = "tint"; note.style.cssText = "color:var(--dim);";
+    cp.oninput = () => keySlotColor(sd.name, cp.value.slice(1) + slotColorAt(sd.name, animTime).slice(6, 8));
+    r.appendChild(l); r.appendChild(cp); r.appendChild(note); det.appendChild(r);
+  }
+  // opacity (alpha): dedicated keyframable control — fade the object in / out over time
+  {
+    const alpha = parseInt(slotColorAt(sd.name, animTime).slice(6, 8) || "ff", 16) / 255;
+    const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
+    const l = document.createElement("span"); l.textContent = "opacity"; l.style.cssText = "width:54px;";
     const av = document.createElement("input"); av.type = "range"; av.min = "0"; av.max = "100"; av.value = Math.round(alpha * 100); av.style.flex = "1";
-    const aPct = document.createElement("span"); aPct.textContent = Math.round(alpha * 100) + "%"; aPct.style.cssText = "width:36px;text-align:right;";
-    const commit = () => { const a = hex2(parseInt(av.value, 10) / 100); aPct.textContent = av.value + "%"; keySlotColor(sd.name, cp.value.slice(1) + a); };
-    cp.oninput = commit; av.oninput = () => { aPct.textContent = av.value + "%"; }; av.onchange = commit;
-    r.appendChild(l); r.appendChild(cp); r.appendChild(av); r.appendChild(aPct); det.appendChild(r);
+    const aPct = document.createElement("span"); aPct.textContent = Math.round(alpha * 100) + "%"; aPct.style.cssText = "width:40px;text-align:right;";
+    const commit = () => keySlotColor(sd.name, slotColorAt(sd.name, animTime).slice(0, 6) + hex2(parseInt(av.value, 10) / 100));
+    av.oninput = () => { aPct.textContent = av.value + "%"; }; av.onchange = commit;
+    r.appendChild(l); r.appendChild(av); r.appendChild(aPct); det.appendChild(r);
+    const kb = document.createElement("button");
+    kb.textContent = "◆ Key opacity @ " + animTime.toFixed(2) + "s"; kb.style.cssText = "margin-top:2px;width:100%;";
+    kb.title = "Plant an opacity keyframe for this object at the playhead — scrub elsewhere and key again to animate a fade";
+    kb.onclick = commit;
+    det.appendChild(kb);
   }
   const times = slotKeyTimes(sd.name);
   if (times.some((t) => Math.abs(t - animTime) < 1e-3)){ // only when a key sits at the playhead
@@ -2119,9 +2132,23 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     del.textContent = "✕ Delete key"; del.style.cssText = "margin-top:6px;color:var(--bad,#e66);border-color:var(--bad,#e66);";
     del.onclick = () => deleteSlotKeyAt(sd.name, animTime);
     det.appendChild(del);
+    // easing out of a colour/opacity key — smooth fades vs an instant cut
+    const cs = slotChannel(sd.name);
+    if (cs && Array.isArray(cs.rgba) && cs.rgba.some((k) => Math.abs(k.time - animTime) < 1e-3)){
+      const cur = slotColorCurveType(sd.name, animTime);
+      const cl = document.createElement("div"); cl.textContent = "opacity / colour easing:"; cl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;font-size:11px;"; det.appendChild(cl);
+      const row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;";
+      const mk = (label, preset, on) => { const b = document.createElement("button"); b.textContent = label; b.style.cssText = "padding:2px 7px;font-size:11px;"; if (on) b.className = "active"; b.onclick = () => setSlotColorCurve(sd.name, animTime, preset); return b; };
+      row.appendChild(mk("Linear", "linear", cur === "linear"));
+      row.appendChild(mk("Stepped", "stepped", cur === "stepped"));
+      row.appendChild(mk("Ease In", "easein", false));
+      row.appendChild(mk("Ease Out", "easeout", false));
+      row.appendChild(mk("Ease In-Out", "easeinout", cur === "bezier"));
+      det.appendChild(row);
+    }
   }
   const info = document.createElement("div");
-  info.textContent = times.length ? ("keys (" + times.length + "): " + times.map((t) => t.toFixed(2) + "s").join(", ")) : "no keys yet — set the image/colour above to key it at the playhead";
+  info.textContent = times.length ? ("keys (" + times.length + "): " + times.map((t) => t.toFixed(2) + "s").join(", ")) : "no keys yet — set the image / colour / opacity above to key it at the playhead";
   info.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;";
   det.appendChild(info);
 }
@@ -3623,6 +3650,34 @@ function keySlotColor(slotName, hex){
   const i = cs.rgba.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
   const key = { time: roundN(animTime, 4), color: hex };
   if (i >= 0){ if (cs.rgba[i].curve) key.curve = cs.rgba[i].curve; cs.rgba[i] = key; } else { cs.rgba.push(key); cs.rgba.sort((x, y) => x.time - y.time); }
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+// Outgoing-curve type of a slot's rgba (colour/opacity) key at a time ("linear"|"stepped"|"bezier").
+function slotColorCurveType(slotName, time){
+  const cs = slotChannel(slotName); const keys = cs && cs.rgba; if (!Array.isArray(keys)) return "linear";
+  const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear";
+  if (k.curve === "stepped") return "stepped";
+  if (Array.isArray(k.curve)) return "bezier";
+  return "linear";
+}
+// Set the OUTGOING interpolation of a slot's rgba (colour/opacity) key at `time`. presets:
+// linear (drop curve), stepped, easein/easeout/easeinout (bezier baked per channel from the segment).
+function setSlotColorCurve(slotName, time, preset){
+  const cs = slotChannel(slotName); const keys = cs && cs.rgba; if (!Array.isArray(keys)) return;
+  const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
+  const a0 = keys[idx];
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  if (idx >= keys.length - 1 || preset === "linear" || (preset !== "stepped" && !F)){ delete a0.curve; }
+  else if (preset === "stepped"){ a0.curve = "stepped"; }
+  else {
+    const b0 = keys[idx + 1], ca = hexToRGBA(a0.color), cb = hexToRGBA(b0.color), curve = [];
+    ["r", "g", "b", "a"].forEach((fn, vi) => {
+      const va = ca[fn], vb = cb[fn], dt = b0.time - a0.time, dv = vb - va;
+      curve[vi * 4 + 0] = roundN(a0.time + dt * F[0], 4); curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
+      curve[vi * 4 + 2] = roundN(a0.time + dt * F[2], 4); curve[vi * 4 + 3] = roundN(va + dv * F[3], 4);
+    });
+    a0.curve = curve;
+  }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 function slotKeyTimes(slotName){

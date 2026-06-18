@@ -146,8 +146,17 @@ A floating segmented toggle at the top of the stage switches the workflow:
   Delete removes the selected keys. **Alt-drag** duplicates the selection — a
   ghost previews the drop and the originals stay put. Right-click a key for the
   easing menu.
-- Slot animation is supported too: key a slot's **attachment** (which image shows)
-  and its **colour/alpha** at the playhead.
+- Slot animation is supported too. With a slot (object) selected in Animate mode
+  its Properties give three keyable channels at the playhead:
+  - **shows** — which **attachment** (image/mesh) is visible (stepped swap).
+  - **colour** — the slot's **tint** (RGB only; opacity is preserved).
+  - **opacity** — a dedicated 0–100% slider plus a **◆ Key opacity** button to
+    animate the object fading in / out. Key it at two playhead positions to make a
+    fade. When a colour/opacity key sits at the playhead, **easing** buttons
+    (Linear / Stepped / Ease In / Out / In-Out) shape the interpolation out of it.
+
+  Colour and opacity share one `rgba` timeline under the hood (byte-valid Spine
+  4.2), so editing one never clobbers the other.
 
 #### Reuse animations across rigs
 
