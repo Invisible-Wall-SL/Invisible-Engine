@@ -56,15 +56,36 @@ tool top bar). Switch projects from the launcher before opening the tool.
      an **Animation**. Once the bundle loads, the animation list is populated from the
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
      plays the skeleton's first animation. A live **Preview** plays the chosen animation.
-5. **Set the size ratios.** Enter numeric **Width ratio** and **Height ratio** (the cell's
-   `sizeRatios`, fine-grained, step `0.001`). These control how the asset is sized in its
-   board slot.
+5. **Set the size.** By default a cell **inherits the global symbol size** (see the
+   **Symbol size** section below) — the panel shows an *"Inherits the global symbol size
+   (W×H)"* hint with the value it will render at. To size this one cell differently, click
+   **Set a custom size for this cell**: numeric **Width ratio** and **Height ratio** inputs
+   appear (fine-grained, step `0.001`), seeded from the inherited value. A **↩ Use global
+   size** link drops the per-cell size again so the cell goes back to inheriting the global.
 6. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen). The cell updates immediately and is marked **edited**. The
    panel also has a **Reset to default** action for an overridden cell.
 7. **Save.** The header **Save** button is enabled whenever the doc differs from what's
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
+
+### Symbol size
+
+At the very top of the page is the **Symbol size** panel — a single **global** size every
+symbol inherits, expressed as a ratio of one reel cell (`1` = the symbol fills its cell).
+It is the quick way to resize every symbol at once instead of editing each cell.
+
+- Enter a **Width ratio** and a **Height ratio**. While the inputs are blank the global is
+  **off** and each symbol keeps its own built-in size; as soon as you type a value an **on**
+  badge appears and the global applies to **every** symbol.
+- **Reset to default** clears the global, returning all symbols to their built-in sizes.
+- The global applies to special symbols too (scatter / book / wild). To keep one of those at
+  a bespoke size, leave the global on and give that symbol a **custom size on its cell**
+  (step 5 above) — a per-cell size always wins over the global.
+
+Resolution order, from strongest to weakest: a cell's own custom size → this global symbol
+size → the game's built-in coded size. A project that never touches this panel ships no
+global size and renders byte-identical to before.
 
 ### Highlight (win frame)
 
@@ -137,9 +158,9 @@ game it must travel the standard live-assets chain, exactly like editor art and 
   `POST /api/editor/export-symbols` (deploy-token gated), which `bake-editor-doc.mjs`
   calls alongside the other exports.
 - **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored
-  overrides + the asset index), plus the optional global flags `symbols.highlight` and
-  `symbols.winLine` (each omitted when unset — `winLine` is written only as
-  `{ enabled: false }`).
+  overrides + the asset index), plus the optional globals `symbols.highlight`,
+  `symbols.winLine`, and `symbols.defaultSizeRatios` (each omitted when unset — `winLine` is
+  written only as `{ enabled: false }`).
 - **Pull** — `pull-project-assets.mjs` mirrors `deploy/editor-symbols/` into the game's
   `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
 - **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded

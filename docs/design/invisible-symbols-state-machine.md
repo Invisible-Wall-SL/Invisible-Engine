@@ -48,6 +48,56 @@ live. This tool is that grid, **editable**, with the result authored to R2 and s
   edits bindings within that fixed grid). NOTE: the **global highlight** below is the one
   global binding now authorable on top of the fixed grid — it is not per-symbol-per-state.
 
+## Global symbol size (`defaultSizeRatios`) — added 2026-06-18
+
+Symbol render size is `SYMBOL_SIZE * sizeRatios`, set **per symbol AND per state** in the
+coded `SYMBOL_INFO_MAP`. There was no global knob: to resize every symbol an author had to
+edit each cell. (Resizing reel cells — `engine-layout` `cellSize` — scales symbols *and* the
+grid together and can't change a symbol's size *within* its cell; only `sizeRatios` can.) So
+the doc gained ONE optional global default size every symbol inherits.
+
+```jsonc
+{
+  "version": 1,
+  "symbols": {
+    "H1": {
+      // sizeRatios is now OPTIONAL on an override cell — absent = inherit the global.
+      "win": { "type": "spine", "assetKey": "<bundle>", "animationName": "h1" }
+    }
+  },
+  "defaultSizeRatios": { "width": 0.9, "height": 0.9 }
+}
+```
+
+- **Contract field (end to end):** `defaultSizeRatios?: { width; height }` on `SymbolsDoc`
+  (schema in `symbolsStorage.ts`; client type + `setDefaultSizeRatios`/`clearDefaultSizeRatios`
+  in `symbols.client.ts`). The per-cell `SymbolCell.sizeRatios` is now **optional** too
+  (absent on an override = inherit the global; always present on a DEFAULT cell).
+- **Sparse on purpose.** Absent → the game keeps its coded per-symbol sizes (byte-identical
+  to before). Setting it overrides ALL symbols — special ones (scatter / book / wild)
+  included; to keep a special symbol bespoke, give that cell its own per-cell size.
+- **Resolution order (at render):** `author per-cell override > author global default
+  (defaultSizeRatios) > coded SYMBOL_INFO_MAP size > { width: 1, height: 1 }`. The editor's
+  "inherited value" hint mirrors this via `symbols.client.ts#resolveCellSize`.
+- **Export/bake.** `symbolExport.ts` forwards `defaultSizeRatios` **verbatim** on
+  `SymbolExportResult` (no asset; the per-symbol `map` stays sparse, unchanged).
+  `export-symbols/+server.ts` carries it; `bake-editor-doc.mjs` validates it and embeds it at
+  `bundle.symbols.defaultSizeRatios`, omitting it when absent. The Game Maker runtime bundle
+  carries it automatically via `SymbolExportResult`.
+- **Engine accessor + resolver (per-game).** `editor-scenes.ts#bakedSymbolDefaultSize()`
+  returns `bundle.symbols.defaultSizeRatios` (or `undefined` when un-baked → coded sizes).
+  `game/symbolMap.ts#resolveSymbolSizeRatios(name, state)` applies the resolution order and is
+  overlaid in `game/utils.ts#getSymbolInfo`. **Subtlety worth keeping:** the resolver reads
+  the override layer and the coded-map layer **separately**, NOT the already-merged
+  `activeSymbolInfoMap`. A merged cell can't express "this size came from an override vs the
+  coded default", so the global default could only ever slot in correctly between the two
+  un-merged layers.
+- **Scope reality (verified).** The Symbols State Machine baked-doc stack is **lines-only** in
+  this repo (`apps/lines` is the reference). cluster / scatter / ways / price have
+  self-contained `SYMBOL_INFO_MAP`s and do NOT use the baked symbols pipeline, so they're
+  unaffected. Book of Borut (separate repo, on the lines/`bookOf` stack) needs the same
+  render-side mirror as a follow-up commit there.
+
 ## Global highlight (win frame) — added 2026-06-17
 
 Separate from the per-symbol `symbols` map, the doc carries ONE optional global binding:
@@ -151,11 +201,13 @@ lined up.
   "symbols": {
     "H1": {
       "static": { "type": "sprite", "assetKey": "h1.webp", "sizeRatios": { "width": 1, "height": 1 } },
-      "win":    { "type": "spine",  "assetKey": "H1", "animationName": "h1", "sizeRatios": { "width": 0.57, "height": 0.65 } },
-      // … one entry per authored state; unset states fall through to the coded map
+      "win":    { "type": "spine",  "assetKey": "H1", "animationName": "h1" },
+      // sizeRatios is OPTIONAL on an override cell (absent = inherit defaultSizeRatios,
+      // then the coded map). One entry per authored state; unset states fall through.
     }
     // … only symbols/states the user changed need appear (sparse overrides)
-  }
+  },
+  "defaultSizeRatios": { "width": 0.9, "height": 0.9 } // optional global, absent = coded sizes
 }
 ```
 
@@ -234,6 +286,14 @@ done when it travels **export → `deploy/` → bake → pull → register**.
   endpoint, `bake-editor-doc.mjs` wiring, `pull-project-assets.mjs` prune entry.
 - **S5 — Prove end-to-end** on Book of Borut: rebind a symbol state online → `pnpm build`
   → republish → new asset/animation shows in the game.
+- **S6 — Global config (post-v1).** The doc-level globals authored on top of the fixed grid:
+  `highlight` (2026-06-17), `winLine` (2026-06-17, styled 2026-06-18), and
+  `defaultSizeRatios` (2026-06-18) — see their sections above. Each is sparse (absent =
+  byte-identical to before), forwarded verbatim through `symbolExport.ts` →
+  `bake-editor-doc.mjs` → `bundle.symbols.*`, and consumed by the per-game engine accessor
+  (`bakedSymbolDefaultSize()` / `bakedWinLineConfig()`). The `apps/lines` render-side mirror
+  has landed; Book of Borut needs the same mirror as a follow-up (bump the engine submodule
+  for the launcher/bake changes).
 
 ## Per-project defaults — automatic publish (added 2026-06-12)
 
