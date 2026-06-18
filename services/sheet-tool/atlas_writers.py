@@ -125,7 +125,7 @@ def build_manifest(sheet_image: str, width: int, height: int,
         # Default shape_ref to the region's own trim (loose sprite) R2 key so
         # the Atlas Maker can ingest the silhouette without a manual re-pick.
         shape_ref = r.get("shape_ref") or shape_keys.get(r["name"], "")
-        mr = {
+        man_regions.append({
             "name": r["name"],
             "x": int(r["x"]), "y": int(r["y"]),
             "w": int(r["w"]), "h": int(r["h"]),
@@ -133,16 +133,7 @@ def build_manifest(sheet_image: str, width: int, height: int,
             "prompt": r.get("prompt", ""),
             "shape_ref": shape_ref,
             "seed": r.get("seed", ""),
-        }
-        # Image draw size centred inside the region box — recorded only when the
-        # region is padded (iw/ih < w/h) so a reload restores the art-vs-cell
-        # split. Omitted (== region) for the common unpadded case; the Atlas
-        # Maker ignores the extra keys.
-        iw = int(r.get("iw") or r["w"])
-        ih = int(r.get("ih") or r["h"])
-        if (iw, ih) != (int(r["w"]), int(r["h"])):
-            mr["iw"], mr["ih"] = iw, ih
-        man_regions.append(mr)
+        })
     atlas: dict = {
         # Bare name only — NEVER a local OS/Windows staging path. The resolvable
         # location is `source_image_path` (an R2 key); a local absolute path here

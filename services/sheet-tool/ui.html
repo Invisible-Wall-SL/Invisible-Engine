@@ -230,18 +230,16 @@
       <h2>Selected sprite</h2>
       <div class="field"><label>Name</label><input id="i_name" oninput="renameSel(this.value)"></div>
       <div class="field">
-        <label title="The packed / exported cell. Pack &amp; atlas frame use this size.">Region</label>
+        <label title="The packed / exported cell. Resize it freely; the image keeps its size and is centred inside.">Region</label>
         <span><input type="number" id="i_w" onchange="setSize('w',this.value)"> ×
         <input type="number" id="i_h" onchange="setSize('h',this.value)"></span>
       </div>
       <div class="field">
-        <label title="The artwork's draw size — centred inside the region box.">Image</label>
-        <span><input type="number" id="i_iw" onchange="setImageSize('w',this.value)"> ×
-        <input type="number" id="i_ih" onchange="setImageSize('h',this.value)"></span>
+        <label title="The artwork's original size (read-only). Centred in the region; only shrinks to fit if the region is smaller.">Image</label>
+        <span><input type="number" id="i_iw" disabled title="Original art size — resize the region, not the image"> ×
+        <input type="number" id="i_ih" disabled></span>
       </div>
-      <div class="field"><label><input type="checkbox" id="i_aspect" checked> keep image aspect</label>
-        <button class="sec" onclick="resetSize()">reset image</button></div>
-      <div class="hint">Region is the packed/exported cell; the image is centred inside it (region ≥ image).</div>
+      <div class="hint">Resize the region; the image keeps its original size and is centred inside it (it only shrinks to fit when the region is smaller).</div>
       <div class="field"><label><input type="checkbox" id="i_lock" onchange="setField('locked',this.checked)"> Locked</label></div>
       <div class="field"><label>Prompt</label></div>
       <input id="i_prompt" style="width:100%;margin-bottom:7px" oninput="setField('prompt',this.value)">
@@ -342,6 +340,9 @@ function restoreSession(s){
     rotated:!!r.rotated,locked:!!r.locked,
     prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
     unplaced:!!r.unplaced}));
+  // Re-derive image size from the native dims so a session saved by an older
+  // build (where the image had been stretched to the region) self-corrects.
+  regions.forEach(fitImg);
   sel=null;
   const m=$('uploadmsg');
   if(dropped.length){
@@ -535,9 +536,8 @@ function makeSelBar(r){
   bar.querySelectorAll('input').forEach(inp=>{
     inp.onchange=()=>{
       const k=inp.dataset.k, v=parseInt(inp.value)||0;
-      // W/H are the REGION box; never let it shrink below the centred image.
-      if(k==='w') r.w=Math.max(8,r.iw||1,v);
-      else if(k==='h') r.h=Math.max(8,r.ih||1,v);
+      // W/H are the REGION box; the image keeps its size and re-fits/centres.
+      if(k==='w'||k==='h'){ r[k]=Math.max(8,v); fitImg(r); }
       else r[k]=Math.max(0,v);
       r.unplaced=false; render(); syncInspector(); markDirty();
     };
@@ -566,7 +566,7 @@ function startResize(e,r){
   e.preventDefault(); e.stopPropagation();
   const el=e.currentTarget.parentElement;
   el.style.willChange='transform'; el.style.transformOrigin='top left';
-  drag={mode:'resize',r,sx:e.clientX,sy:e.clientY,ow:r.w,oh:r.h,iw:r.iw||r.w,ih:r.ih||r.h,el};
+  drag={mode:'resize',r,sx:e.clientX,sy:e.clientY,ow:r.w,oh:r.h,el};
   addDragListeners();
 }
 function addDragListeners(){
@@ -583,10 +583,9 @@ function applyDrag(){
     drag.nx=nx; drag.ny=ny;
     drag.el.style.transform='translate('+((nx-drag.ox)*zoom)+'px,'+((ny-drag.oy)*zoom)+'px)';
   }else{
-    // The handle resizes the REGION box freely; it never shrinks below the
-    // centred image (the art is set via the Image inputs / reset).
-    const nw=Math.max(8,drag.iw,Math.round(drag.ow+dx/zoom));
-    const nh=Math.max(8,drag.ih,Math.round(drag.oh+dy/zoom));
+    // The handle resizes the REGION box freely; the image re-fits and centres.
+    const nw=Math.max(8,Math.round(drag.ow+dx/zoom));
+    const nh=Math.max(8,Math.round(drag.oh+dy/zoom));
     drag.nw=nw; drag.nh=nh;
     drag.el.style.transform='scale('+(nw/drag.ow)+','+(nh/drag.oh)+')';
     $('i_w').value=nw; $('i_h').value=nh;
@@ -601,7 +600,7 @@ function endDrag(){
     const r=drag.r;
     drag.el.style.willChange=''; drag.el.style.transform='';
     if(drag.mode==='move'){ if(drag.nx!=null){ r.x=drag.nx; r.y=drag.ny; } }
-    else if(drag.nw!=null){ r.w=drag.nw; r.h=drag.nh; r.unplaced=false; }
+    else if(drag.nw!=null){ r.w=drag.nw; r.h=drag.nh; fitImg(r); r.unplaced=false; }
     drag=null; lastE=null;
     render(); syncInspector(); markDirty();
   }
@@ -648,19 +647,20 @@ function flagName(){
 }
 function renameSel(v){ const r=reg(sel); if(!r) return; r.name=v; flagName(); render(); markDirty(); }
 function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked') render(); markDirty(); }
-/* Region box (the packed/exported cell) — free per-axis, never below the image. */
-function setSize(k,v){ const r=reg(sel); if(!r) return; const n=parseInt(v)||0;
-  if(k==='w') r.w=Math.max(8,r.iw||1,n); else r.h=Math.max(8,r.ih||1,n);
-  r.unplaced=false; render(); syncInspector(); markDirty(); }
-/* Image draw size (centred in the region) — keep-aspect optional; the region
-   grows to contain it so the art never overflows its packed cell. */
-function setImageSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(1,parseInt(v)||1);
-  if($('i_aspect').checked){ if(k==='w'){ r.iw=n; r.ih=Math.max(1,Math.round(n*r.oh/r.ow)); } else { r.ih=n; r.iw=Math.max(1,Math.round(n*r.ow/r.oh)); } }
-  else { if(k==='w') r.iw=n; else r.ih=n; }
-  if(r.w<r.iw) r.w=r.iw; if(r.h<r.ih) r.h=r.ih;
-  r.unplaced=false; render(); syncInspector(); markDirty(); }
-function resetSize(){ const r=reg(sel); if(!r) return; r.iw=r.ow; r.ih=r.oh;
-  if(r.w<r.iw) r.w=r.iw; if(r.h<r.ih) r.h=r.ih;
+/* Image draw size = the art's NATIVE size, fitted into the region box:
+   aspect-preserved, only shrunk when the region is smaller, never stretched or
+   upscaled. Recomputed whenever the region (or the native size) changes, so the
+   art always keeps its original size centred in the cell. Mirrors compose(). */
+function fitImg(r){
+  const ow=r.ow||r.iw||r.w||1, oh=r.oh||r.ih||r.h||1;
+  const s=Math.min((r.w||ow)/ow,(r.h||oh)/oh,1);
+  r.iw=Math.max(1,Math.round(ow*s));
+  r.ih=Math.max(1,Math.round(oh*s));
+}
+/* Region box (the packed/exported cell) — freely resizable; the image keeps its
+   own size and re-fits/centres inside it. */
+function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(8,parseInt(v)||8);
+  r[k]=n; fitImg(r);
   r.unplaced=false; render(); syncInspector(); markDirty(); }
 function deleteSel(){ const i=regions.findIndex(r=>r.src===sel); if(i<0) return; regions.splice(i,1); sel=null; render(); syncInspector(); markDirty(); }
 
@@ -701,8 +701,9 @@ async function upload(){
       const el=spriteEls[s.file];
       if(el) el.img.src='/api/sprite?sheet='+encodeURIComponent(sheetName)+'&file='+encodeURIComponent(s.file)+'&t='+Date.now();
       replaced++;
-    } else { regions.push({src:s.file,name:s.file.replace(/\.[^.]+$/,''),
-      x:0,y:0,w:s.w,h:s.h,iw:s.w,ih:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:''}); added++; }
+    } else { const nr={src:s.file,name:s.file.replace(/\.[^.]+$/,''),
+      x:0,y:0,w:s.w,h:s.h,iw:s.w,ih:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:''};
+      fitImg(nr); regions.push(nr); added++; }
   });
   $('files').value='';
   $('uploadmsg').className='ok';
@@ -746,6 +747,7 @@ async function loadSheet(){
   $('cw').value=canvasW; $('ch').value=canvasH;
   clearCanvasDom();
   regions=j.regions.map(r=>({...r,iw:r.iw||r.w,ih:r.ih||r.h,ow:r.ow||r.w,oh:r.oh||r.h}));
+  regions.forEach(fitImg);   // image = native, fitted/centred in its region
   sel=null;
   // Key the session on the sheet's OWN name: uploads accumulate into the same
   // sheet_src/<sheet>/ pile (upload() only clears when the name changes) and
@@ -838,6 +840,7 @@ async function loadFile(path){
   $('cw').value=canvasW; $('ch').value=canvasH;
   clearCanvasDom();                          // drop any cached sprites from the previous sheet
   regions=j.regions.map(r=>({...r,iw:r.iw||r.w,ih:r.ih||r.h,ow:r.w,oh:r.h}));
+  regions.forEach(fitImg);   // image = native, fitted/centred in its region
   sel=null; activeSheet=sheetName;
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;

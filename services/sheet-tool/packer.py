@@ -257,12 +257,11 @@ def compose(regions: list[dict], width: int, height: int,
             image_for: dict[str, Image.Image | str | Path]) -> Image.Image:
     """Paste each region's source image onto a transparent RGBA sheet.
 
-    Each region's FOOTPRINT on the sheet is its (w,h) box. The source image is
-    drawn at its own (iw,ih) image size (defaulting to the region size) and
-    CENTRED inside that box, so a region can be larger than its art — the
-    surrounding transparent margin is baked into the region's frame. The region
-    is always kept at least as large as the image so the art is never cropped
-    and never overflows its packed cell.
+    Each region's FOOTPRINT on the sheet is its (w,h) box. The source art keeps
+    its ORIGINAL size and is CENTRED inside that box — only scaled DOWN
+    (aspect-preserved) when the region is smaller than the art. It is never
+    stretched and never upscaled, so a larger region just adds transparent
+    margin around the original image, baked into the region's frame.
 
     image_for maps region name -> a PIL Image or a path. Rotated regions are
     stored rotated 90 degrees clockwise (Spine `rotate:90` convention)."""
@@ -276,13 +275,19 @@ def compose(regions: list[dict], width: int, height: int,
         try:
             if img.mode != "RGBA":
                 img = img.convert("RGBA")
-            w, h = int(r["w"]), int(r["h"])               # region (footprint) box
-            iw = int(r.get("iw") or w)                    # image draw size
-            ih = int(r.get("ih") or h)
-            # The region never shrinks below the image — guards against an
-            # overflow that would spill into a neighbouring packed cell.
-            rw, rh = max(w, iw), max(h, ih)
-            if (img.width, img.height) != (iw, ih) and iw > 0 and ih > 0:
+            rw, rh = int(r["w"]), int(r["h"])             # region (footprint) box
+            # Draw the art at its native size, fitted into the region: shrink
+            # (aspect-preserved) only when it is bigger than the cell, otherwise
+            # leave it untouched. This is authoritative — the art can never be
+            # stretched regardless of any size hint in the payload.
+            nw, nh = img.width, img.height
+            if nw > 0 and nh > 0:
+                scale = min(rw / nw, rh / nh, 1.0)
+                iw = max(1, round(nw * scale))
+                ih = max(1, round(nh * scale))
+            else:
+                iw, ih = rw, rh
+            if (img.width, img.height) != (iw, ih):
                 img = img.resize((iw, ih), Image.LANCZOS)
             if (rw, rh) != (iw, ih):
                 # Centre the VISIBLE art (its opaque bounding box), not the image

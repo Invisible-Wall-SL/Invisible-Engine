@@ -44,16 +44,16 @@ binds `0.0.0.0:$PORT` (default **8766**).
 2. **Upload** your loose sprite PNGs (`/api/upload`).
 3. **Arrange** them into a packed sheet (`/api/arrange`).
 4. **Edit** region names, sizes, and the per-region AI fields in the UI.
-   - Each region has two sizes in the **Selected sprite** inspector: a **Region**
-     box (the packed/exported cell — what the `.atlas`/JSON/manifest frame uses)
-     and an **Image** size (the artwork's draw size). The image's **visible art**
-     (its opaque bounds) is **centred** inside the region, so a region can be
-     larger than its art with transparent padding baked into the frame — handy
-     for giving differently-sized icons a uniform cell. Centring uses the opaque
+   - Each region has a resizable **Region** box (the packed/exported cell — what
+     the `.atlas`/JSON/manifest frame uses) shown in the **Selected sprite**
+     inspector. The artwork keeps its **original size** and is **centred** inside
+     the region — only scaled *down* (aspect-preserved) when the region is
+     smaller than the art, never stretched or upscaled. So a larger region just
+     adds transparent margin around the original image — handy for giving
+     differently-sized icons a uniform cell. Centring uses the art's opaque
      bounding box, so source PNGs with asymmetric transparent padding still land
-     centred. The region never shrinks below the image. The corner drag
-     handle and the on-canvas W/H inputs resize the **region**; the **Image**
-     inputs (with optional keep-aspect + "reset image") resize the art.
+     centred. Resize the region with the corner drag handle or the on-canvas /
+     inspector **Region** W×H inputs; the **Image** size is shown read-only.
 5. **Export** (`/api/export`) — choose `.atlas`, TexturePacker JSON, and/or the
    AI manifest. The AI manifest is also pushed to the Atlas Maker's R2
    `manifests/` prefix.

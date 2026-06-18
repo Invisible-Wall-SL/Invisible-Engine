@@ -753,15 +753,10 @@ def _parse_manifest(data: dict) -> dict:
     atlas = data.get("atlas", {})
     regions = []
     for r in data.get("regions", []) + data.get("rotated_regions", []):
-        w = int(r.get("w", 0))
-        h = int(r.get("h", 0))
         regions.append({
             "name": r.get("name", ""),
             "x": int(r.get("x", 0)), "y": int(r.get("y", 0)),
-            "w": w, "h": h,
-            # Image draw size centred in the region; defaults to the region box
-            # for manifests authored before the region-size feature.
-            "iw": int(r.get("iw") or w), "ih": int(r.get("ih") or h),
+            "w": int(r.get("w", 0)), "h": int(r.get("h", 0)),
             "rotated": bool(r.get("rotated")),
             "prompt": r.get("prompt", ""), "shape_ref": r.get("shape_ref", ""),
             "seed": str(r.get("seed", "") or ""),
@@ -1304,15 +1299,16 @@ def api_load_sheet(payload: dict) -> dict:
         shape_ref = r.get("shape_ref", "")
         if ref_is_ours and not src_from_ref:
             shape_ref = ""
-        # Region-size split: when the ORIGINAL (unpadded) loose sprite was
-        # recovered, restore the recorded image draw size so the art stays
-        # centred in its (larger) region cell. A re-sliced sprite IS the padded
-        # cell already, so its image == region (no recoverable split).
-        if resliced:
+        # Image draw size = the loose sprite's NATIVE size, fitted into the
+        # region frame (aspect-preserved, shrink-only). The art keeps its
+        # original size and is centred in the cell — never stretched to the
+        # frame. A re-sliced sprite IS the padded cell already, so it fills it.
+        if resliced or ow <= 0 or oh <= 0:
             iw, ih = w, h
         else:
-            iw = min(w, int(r.get("iw") or w))
-            ih = min(h, int(r.get("ih") or h))
+            s = min(w / ow, h / oh, 1.0)
+            iw = max(1, round(ow * s))
+            ih = max(1, round(oh * s))
         regions_out.append({
             "src": src, "name": nm, "x": int(r["x"]), "y": int(r["y"]),
             "w": w, "h": h, "iw": iw, "ih": ih, "ow": ow, "oh": oh,
