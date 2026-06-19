@@ -6,7 +6,7 @@ import { createEnhanceBoard, createReelForSpinning } from 'utils-slots';
 import { createGetWinLevelDataByWinLevelAlias } from 'utils-shared/winLevel';
 import { resolveReelGridFromNode, resolveReelSpinProfile, type ReelGridNode } from 'engine-layout';
 
-import type { GameType, RawSymbol, SymbolState } from './types';
+import type { GameType, RawSymbol, SymbolState, SymbolName } from './types';
 import { stateLayoutDerived } from './stateLayout';
 import { winLevelMap } from './winLevelMap';
 import { eventEmitter } from './eventEmitter';
@@ -141,6 +141,7 @@ export const stateGame = $state({
 	gameType: 'basegame' as GameType,
 	multiplierBoard: [] as (MultiplierSymbol | undefined)[][],
 	scatterCounter: 0,
+	specialSymbol: null as SymbolName | null,
 });
 
 const boardLayout = () => {

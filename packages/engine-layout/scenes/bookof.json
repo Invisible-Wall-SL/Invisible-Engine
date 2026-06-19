@@ -265,6 +265,25 @@
 			]
 		},
 		{
+			"id": "specialBook",
+			"name": "Special Book",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "special-book",
+					"slotId": "specialBook",
+					"label": "Special Book",
+					"kind": "container",
+					"x": 0,
+					"y": 0,
+					"bind": {
+						"component": "SpecialBook"
+					},
+					"children": []
+				}
+			]
+		},
+		{
 			"id": "hudBar",
 			"name": "HUD — bottom bar",
 			"space": "standard",

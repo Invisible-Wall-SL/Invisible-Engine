@@ -111,6 +111,13 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		// no dedicated `fsOutro` spine — fall back to the intro frame so it previews.
 		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
 	},
+	SpecialBook: {
+		// The expanding-symbol reveal sits on the board centre; its art is the chosen
+		// symbol's spine (state machine), so there's no fixed preview bundle — the editor
+		// shows a board-centred placeholder until the game runs.
+		space: 'canvas',
+		placement: 'boardCentre',
+	},
 };
 
 /** The default editor treatment for a coded component name, if known. */
@@ -199,6 +206,9 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
 	],
+	// Special-Book bonus overlay — only a placement scale knob. The reveal symbol + its
+	// animations come from the symbol state machine (`bookIntro`/`bookIdle`), never params.
+	SpecialBook: [{ key: 'scale', kind: 'number', label: 'Scale', placeholder: '1.6' }],
 	// Readout background tile + the parametric button's frame — same tile knobs
 	// (texture / tint / outline / corner radius). The button's engine STATES
 	// (disabled grey, active border) override the authored resting style.

@@ -71,6 +71,12 @@ type BookEventWinInfo = {
 	}[];
 };
 
+type BookEventSetExpandingSymbol = {
+	index: number;
+	type: 'setExpandingSymbol';
+	symbol: SymbolName;
+};
+
 // customised
 type BookEventCreateBonusSnapshot = {
 	index: number;
@@ -88,6 +94,7 @@ export type BookEvent =
 	| BookEventFinalWin
 	| BookEventSetWin
 	| BookEventFreeSpinEnd
+	| BookEventSetExpandingSymbol
 	// customised
 	| BookEventCreateBonusSnapshot;
 

@@ -68,6 +68,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	setTotalWin: async (bookEvent: BookEventOfType<'setTotalWin'>) => {
 		stateBet.winBookEventAmount = bookEvent.amount;
 	},
+	setExpandingSymbol: async (bookEvent: BookEventOfType<'setExpandingSymbol'>) => {
+		stateGame.specialSymbol = bookEvent.symbol;
+		eventEmitter.broadcast({ type: 'specialBookReveal', symbol: bookEvent.symbol });
+	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
 		// animate scatters
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
@@ -126,6 +130,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		winLevelSoundsStop();
 		eventEmitter.broadcast({ type: 'freeSpinOutroHide' });
 		eventEmitter.broadcast({ type: 'freeSpinCounterHide' });
+		eventEmitter.broadcast({ type: 'specialBookHide' });
+		stateGame.specialSymbol = null;
 		stateUi.freeSpinCounterShow = false;
 		await eventEmitter.broadcastAsync({ type: 'transition' });
 		await eventEmitter.broadcastAsync({ type: 'uiShow' });

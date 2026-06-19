@@ -307,6 +307,28 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 					},
 				],
 			},
+			{
+				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →
+				// idle). A board-centred `canvas`-space bind anchor; the coded `SpecialBook`
+				// self-shows/animates off the `specialBookReveal`/`specialBookHide` book
+				// events and renders the chosen symbol via the symbol state machine. The
+				// editor only positions it.
+				id: 'specialBook',
+				name: sceneName('specialBook'),
+				space: 'canvas',
+				nodes: [
+					{
+						id: 'special-book',
+						slotId: 'specialBook',
+						label: 'Special Book',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'SpecialBook' },
+						children: [],
+					},
+				],
+			},
 			// The HUD layer (logo/name corners + bottom bar) as editor scenes. The
 			// game still renders `<UI>` from code today; these become live once the
 			// HUD render path (phase 2) consumes them. Shown in the editor now so the

@@ -281,6 +281,28 @@ export function bookofReferenceLayout(): LayoutDoc {
 					},
 				],
 			},
+			{
+				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →
+				// idle). A board-centred `canvas`-space bind anchor; the coded `SpecialBook`
+				// self-shows/animates off the `specialBookReveal`/`specialBookHide` book
+				// events and renders the chosen symbol via the symbol state machine. The
+				// editor only positions it.
+				id: 'specialBook',
+				name: 'Special Book',
+				space: 'canvas',
+				nodes: [
+					{
+						id: 'special-book',
+						slotId: 'specialBook',
+						label: 'Special Book',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'SpecialBook' },
+						children: [],
+					},
+				],
+			},
 			// HUD layer (logo/name corners + bottom bar) — universal across game
 			// types, appended so the reference doc matches the per-project seed.
 			// `{ readouts: true }` (B4.6): emit balance/win/bet as parametric

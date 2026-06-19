@@ -93,6 +93,7 @@
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
+	import SpecialBook from './SpecialBook.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
 
@@ -149,6 +150,9 @@
 		FreeSpinIntro,
 		FreeSpinCounter,
 		FreeSpinOutro,
+		// Special-Book bonus overlay — board-centred, self-shows/animates off the
+		// `specialBookReveal`/`specialBookHide` book events; the doc owns only placement.
+		SpecialBook,
 		// The ONE coded part of the `loadingIntro` splash def — the masked progress
 		// fill the static node model can't express (the logo + percentage around it are
 		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its
@@ -321,6 +325,10 @@
 	const fallbackFsOutro = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinOutro')!;
 	const fsOutroScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'freeSpinOutro') ?? fallbackFsOutro,
+	);
+	const fallbackSpecialBook = fallbackEditorScenes.scenes.find((s) => s.id === 'specialBook')!;
+	const specialBookScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'specialBook') ?? fallbackSpecialBook,
 	);
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -717,6 +725,7 @@
 			<LayoutScene scene={fsCounterScene} />
 		{/if}
 		<LayoutScene scene={fsOutroScene} />
+		<LayoutScene scene={specialBookScene} />
 		<InfoOverlay manifest={infoManifest} />
 
 		<I18nTest />

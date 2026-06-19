@@ -198,136 +198,185 @@ const wStatic = { type: 'sprite', assetKey: 'w.png', sizeRatios: { width: 1.12, 
 const wSizeRatios = { width: 1.5 * 0.9, height: SPECIAL_SYMBOL_SIZE * 1.15 };
 const sSizeRatios = { width: 2.5, height: SPECIAL_SYMBOL_SIZE * 2.3 };
 
+// Default Special-Book reveal bindings per symbol. The bonus's chosen expanding
+// symbol renders through `getSymbolInfo({ state: 'bookIntro'|'bookIdle' })`, so
+// every symbol needs both. The sensible coded default reuses the symbol's `win`
+// spine bundle/animation (intro = one-shot, idle = looping); a symbol with no
+// spine `win` (none today) would fall back to its `static` sprite. The Symbols
+// State Machine can override these per game.
+const h1Win = {
+	type: 'spine',
+	assetKey: 'H1',
+	animationName: 'h1',
+	sizeRatios: { width: 0.5 * 1.15, height: HIGH_SYMBOL_SIZE * 0.57 },
+} as const;
+const h2Win = {
+	type: 'spine',
+	assetKey: 'H2',
+	animationName: 'h2',
+	sizeRatios: { width: 0.5, height: HIGH_SYMBOL_SIZE * 0.57 },
+} as const;
+const h3Win = {
+	type: 'spine',
+	assetKey: 'H3',
+	animationName: 'h3',
+	sizeRatios: { width: 0.5 * 0.9, height: HIGH_SYMBOL_SIZE * 0.53 },
+} as const;
+const h4Win = {
+	type: 'spine',
+	assetKey: 'H4',
+	animationName: 'h4',
+	sizeRatios: { width: 0.5 * 0.9, height: HIGH_SYMBOL_SIZE * 0.53 },
+} as const;
+const h5Win = {
+	type: 'spine',
+	assetKey: 'H5',
+	animationName: 'h5',
+	sizeRatios: { width: 0.5 * 0.9, height: HIGH_SYMBOL_SIZE * 0.53 },
+} as const;
+const l1Win = {
+	type: 'spine',
+	assetKey: 'L1',
+	animationName: 'l1',
+	sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.65 },
+} as const;
+const l2Win = {
+	type: 'spine',
+	assetKey: 'L2',
+	animationName: 'l2',
+	sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.65 },
+} as const;
+const l3Win = {
+	type: 'spine',
+	assetKey: 'L3',
+	animationName: 'l3',
+	sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.63 },
+} as const;
+const l4Win = {
+	type: 'spine',
+	assetKey: 'L4',
+	animationName: 'l4',
+	sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.63 },
+} as const;
+const l5Win = {
+	type: 'spine',
+	assetKey: 'M',
+	animationName: 'low_multiplier_pay',
+	sizeRatios: { width: 0.3, height: 0.3 },
+} as const;
+const wWin = {
+	type: 'spine',
+	assetKey: 'W',
+	animationName: 'wild_dynamite',
+	sizeRatios: wSizeRatios,
+} as const;
+const sWin = {
+	type: 'spine',
+	assetKey: 'S',
+	animationName: 'scatter_win',
+	sizeRatios: sSizeRatios,
+} as const;
+
 export const SYMBOL_INFO_MAP = {
 	H1: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'H1',
-			animationName: 'h1',
-			sizeRatios: { width: 0.5 * 1.15, height: HIGH_SYMBOL_SIZE * 0.57 },
-		},
+		win: h1Win,
 		postWinStatic: h1Static,
 		static: h1Static,
 		spin: h1Static,
 		land: h1Static,
+		bookIntro: h1Win,
+		bookIdle: h1Win,
 	},
 	H2: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'H2',
-			animationName: 'h2',
-			sizeRatios: { width: 0.5, height: HIGH_SYMBOL_SIZE * 0.57 },
-		},
+		win: h2Win,
 		postWinStatic: h2Static,
 		static: h2Static,
 		spin: h2Static,
 		land: h2Static,
+		bookIntro: h2Win,
+		bookIdle: h2Win,
 	},
 	H3: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'H3',
-			animationName: 'h3',
-			sizeRatios: { width: 0.5 * 0.9, height: HIGH_SYMBOL_SIZE * 0.53 },
-		},
+		win: h3Win,
 		postWinStatic: h3Static,
 		static: h3Static,
 		spin: h3Static,
 		land: h3Static,
+		bookIntro: h3Win,
+		bookIdle: h3Win,
 	},
 	H4: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'H4',
-			animationName: 'h4',
-			sizeRatios: { width: 0.5 * 0.9, height: HIGH_SYMBOL_SIZE * 0.53 },
-		},
+		win: h4Win,
 		postWinStatic: h4Static,
 		static: h4Static,
 		spin: h4Static,
 		land: h4Static,
+		bookIntro: h4Win,
+		bookIdle: h4Win,
 	},
 	H5: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'H5',
-			animationName: 'h5',
-			sizeRatios: { width: 0.5 * 0.9, height: HIGH_SYMBOL_SIZE * 0.53 },
-		},
+		win: h5Win,
 		postWinStatic: h5Static,
 		static: h5Static,
 		spin: h5Static,
 		land: h5Static,
+		bookIntro: h5Win,
+		bookIdle: h5Win,
 	},
 	L1: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'L1',
-			animationName: 'l1',
-			sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.65 },
-		},
+		win: l1Win,
 		postWinStatic: l1Static,
 		static: l1Static,
 		spin: l1Static,
 		land: l1Static,
+		bookIntro: l1Win,
+		bookIdle: l1Win,
 	},
 	L2: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'L2',
-			animationName: 'l2',
-			sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.65 },
-		},
+		win: l2Win,
 		postWinStatic: l2Static,
 		static: l2Static,
 		spin: l2Static,
 		land: l2Static,
+		bookIntro: l2Win,
+		bookIdle: l2Win,
 	},
 	L3: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'L3',
-			animationName: 'l3',
-			sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.63 },
-		},
+		win: l3Win,
 		postWinStatic: l3Static,
 		static: l3Static,
 		spin: l3Static,
 		land: l3Static,
+		bookIntro: l3Win,
+		bookIdle: l3Win,
 	},
 	L4: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'L4',
-			animationName: 'l4',
-			sizeRatios: { width: 0.5 * 0.75, height: LOW_SYMBOL_SIZE * 0.63 },
-		},
+		win: l4Win,
 		postWinStatic: l4Static,
 		static: l4Static,
 		spin: l4Static,
 		land: l4Static,
+		bookIntro: l4Win,
+		bookIdle: l4Win,
 	},
 	L5: {
 		explosion,
-		win: {
-			type: 'spine',
-			assetKey: 'M',
-			animationName: 'low_multiplier_pay',
-			sizeRatios: { width: 0.3, height: 0.3 },
-		},
+		win: l5Win,
 		postWinStatic: l5Static,
 		static: l5Static,
 		spin: l5Static,
 		land: l5Static,
+		bookIntro: l5Win,
+		bookIdle: l5Win,
 	},
 	W: {
 		explosion,
@@ -338,13 +387,15 @@ export const SYMBOL_INFO_MAP = {
 		},
 		static: wStatic,
 		spin: wStatic,
-		win: { type: 'spine', assetKey: 'W', animationName: 'wild_dynamite', sizeRatios: wSizeRatios },
+		win: wWin,
 		land: {
 			type: 'spine',
 			assetKey: 'W',
 			animationName: 'wild_dynamite_land',
 			sizeRatios: wSizeRatios,
 		},
+		bookIntro: wWin,
+		bookIdle: wWin,
 	},
 	S: {
 		explosion,
@@ -356,13 +407,15 @@ export const SYMBOL_INFO_MAP = {
 			animationName: 'scatter_spin',
 			sizeRatios: sSizeRatios,
 		},
-		win: { type: 'spine', assetKey: 'S', animationName: 'scatter_win', sizeRatios: sSizeRatios },
+		win: sWin,
 		land: {
 			type: 'spine',
 			assetKey: 'S',
 			animationName: 'scatter_land',
 			sizeRatios: sSizeRatios,
 		},
+		bookIntro: sWin,
+		bookIdle: sWin,
 	},
 } as const;
 

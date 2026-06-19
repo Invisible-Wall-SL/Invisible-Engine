@@ -18,6 +18,8 @@ export const SYMBOL_STATES = [
 	'win',
 	'postWinStatic',
 	'explosion',
+	'bookIntro',
+	'bookIdle',
 ] as const;
 
 export type SymbolState = SpinningReelSymbolState | (typeof SYMBOL_STATES)[number];
