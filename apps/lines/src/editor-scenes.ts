@@ -10,7 +10,7 @@ import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
 import { defaultLayout } from './game/defaultLayout';
-import { HUD_BUTTON_INSTANCES } from './game/editorFlags';
+import { HUD_BUTTON_INSTANCES, TRANSITION_INSTANCE } from './game/editorFlags';
 import type { SymbolInfoMap } from './game/types';
 
 /**
@@ -338,6 +338,7 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
  */
 export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	buttons: HUD_BUTTON_INSTANCES,
+	transition: TRANSITION_INSTANCE,
 });
 
 /**
@@ -386,7 +387,9 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 			`&k=${encodeURIComponent(token)}`;
 		const res = await fetch(url);
 		if (!res.ok) {
-			console.warn(`[runtime] bundle fetch ${res.status} ${res.statusText} (${url}) — falling back`);
+			console.warn(
+				`[runtime] bundle fetch ${res.status} ${res.statusText} (${url}) — falling back`,
+			);
 			return false;
 		}
 		const data = (await res.json()) as Partial<RuntimeBundle>;
@@ -401,7 +404,9 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 			return false;
 		}
 		runtimeBundle = data as RuntimeBundle;
-		console.info(`[runtime] live runtime bundle ready for "${project}" — generic-bundle boot active`);
+		console.info(
+			`[runtime] live runtime bundle ready for "${project}" — generic-bundle boot active`,
+		);
 		return true;
 	} catch (err) {
 		console.warn(

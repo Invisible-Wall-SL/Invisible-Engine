@@ -1,5 +1,5 @@
 import { linesTemplate } from '../templates/lines';
-import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
+import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
 /**
@@ -81,6 +81,14 @@ export interface DefaultLayoutOptions {
 	 * for now — see `apps/lines/src/game/editorFlags.ts`) to drive its fallback doc.
 	 */
 	buttons?: boolean;
+	/**
+	 * Emit the `Transition` overlay as an editor-owned `componentInstance(transition)`
+	 * (§17.4 step 4) instead of the direct coded `bind:Transition`. The instance mounts
+	 * the SAME coded part but positions it via the node transform (the coded part renders
+	 * at local origin under this flag), so the author can move the wipe. Default-OFF =
+	 * the direct bind (parity); `apps/lines` forwards its `TRANSITION_INSTANCE` flag.
+	 */
+	transition?: boolean;
 }
 
 export function defaultLayout(gameType: string, options: DefaultLayoutOptions = {}): LayoutDoc {
@@ -89,6 +97,34 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 	}
 
 	const centre = frameCentre(MAIN_SIZES_MAP.desktop);
+
+	// §17.4 step 4 — the Transition overlay node: the direct coded `bind` by default
+	// (parity), or an editor-owned `componentInstance(transition)` when `options.transition`
+	// is set. The instance is `canvas`-centred via `screenAnchor {0.5,0.5}` to reproduce the
+	// coded centre; `Transition.svelte` renders at local origin under the flag so this node's
+	// transform places the wipe. Reversible (drop the flag).
+	const transitionNode: LayoutNode = options.transition
+		? {
+				id: 'instance-transition',
+				slotId: 'Transition',
+				label: 'Transition',
+				kind: 'componentInstance',
+				componentId: 'transition',
+				screenAnchor: { x: 0.5, y: 0.5 },
+				x: 0,
+				y: 0,
+				params: {},
+			}
+		: {
+				id: 'bound-transition',
+				slotId: 'Transition',
+				label: 'Transition overlay (coded)',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'Transition' },
+				children: [],
+			};
 
 	return {
 		version: 1,
@@ -193,16 +229,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 						bind: { component: 'Win' },
 						children: [],
 					},
-					{
-						id: 'bound-transition',
-						slotId: 'Transition',
-						label: 'Transition overlay (coded)',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'Transition' },
-						children: [],
-					},
+					transitionNode,
 				],
 			},
 			{

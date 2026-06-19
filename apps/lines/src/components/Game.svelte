@@ -49,6 +49,7 @@
 		FREE_SPIN_COUNTER_DEF,
 		INFO_BAR_DEF,
 		LOADING_INTRO_DEF,
+		TRANSITION_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -183,6 +184,13 @@
 		// building block for composing the splash in the editor; the coded
 		// `LoadingScreen` still owns the press-to-continue/transition flow + `onloaded`.
 		[LOADING_INTRO_DEF.id]: LOADING_INTRO_DEF,
+		// §17.4 step 4 — the Transition migrated off its direct coded `bind` to an
+		// editor-owned `componentInstance`. Registering the def makes
+		// `getComponent('transition')` resolve so a `transition` instance (placed only when
+		// `TRANSITION_INSTANCE` is on, see `editor-scenes.ts`) expands into its bound coded
+		// `Transition` part, now positioned by the editor node. Pure registration otherwise
+		// (no scene references it ⇒ no render change — parity).
+		[TRANSITION_DEF.id]: TRANSITION_DEF,
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose

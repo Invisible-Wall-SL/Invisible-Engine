@@ -661,6 +661,47 @@ export const LOADING_INTRO_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * The full-screen TRANSITION wipe (§17.4 step 4 — the FIRST animated overlay migrated
+ * off a direct coded `bind` to an editor-owned `componentInstance`; the proof of the
+ * HYBRID pattern the FS intro/outro will follow). A thin wrapper: the root holds ONE
+ * `bind` child mounting the coded `Transition`, which KEEPS its proven lifecycle (the
+ * `transition` event → play `TransitionAnimation` → spine `complete` → resolve the
+ * round-blocking `await broadcastAsync`). What the migration changes is OWNERSHIP OF
+ * POSITION: under the `TRANSITION_INSTANCE` flag the coded part renders at its LOCAL
+ * origin (see `Transition.svelte` / `TransitionAnimation.svelte`), so the editor node's
+ * transform places the wipe — drag/scale the instance to move it — instead of the coded
+ * part hardcoding canvas-centre. Placed `canvas`-space centred (`screenAnchor {0.5,0.5}`)
+ * to reproduce the coded centre, and the coded part still reads `canvasSizes()` for its
+ * height so sizing stays viewport-responsive (no baked size). Animation stays coded (no
+ * per-spine cue); the editor owns placement. The intro/outro extend this by also
+ * decomposing their count text into a sibling editor-native node.
+ */
+export const TRANSITION_DEF: ComponentDef = {
+	id: 'transition',
+	name: 'Transition',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'transition-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'transition-anim',
+				label: 'Transition',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'Transition' },
+				children: [],
+			},
+		],
+	},
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -669,4 +710,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_COUNTER_DEF,
 	INFO_BAR_DEF,
 	LOADING_INTRO_DEF,
+	TRANSITION_DEF,
 ];
