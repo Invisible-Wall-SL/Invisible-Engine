@@ -248,10 +248,9 @@ export function bookofReferenceLayout(): LayoutDoc {
 						x: 0,
 						y: 0,
 						// Props reproduce the original hardcodes so the STANDALONE intro renders
-						// unchanged. The same part is now also mountable as the free-spin counter's
-						// `ungated` intro child; the counter instance leaves its `introSpine` unset so
-						// that child stays inert (parity). To move the intro onto the counter, set the
-						// counter's `introSpine` AND delete this screen.
+						// unchanged. This is the standalone, board-centred free-spin intro overlay
+						// (it self-centres via `FreeSpinAnimation`'s own `<MainContainer>`) and owns
+						// the free-spin intro; the props pick its spine/animations/slot.
 						bind: {
 							component: 'FreeSpinIntro',
 							props: {

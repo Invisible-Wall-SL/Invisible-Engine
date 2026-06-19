@@ -15,18 +15,44 @@
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnMount } from 'components-shared';
 	import { stateUrlDerived } from 'state-shared';
+	import { getComponentParams } from 'engine-layout/svelte';
 
 	import { getContext } from '../game/context';
 	import FreeSpinAnimation from './FreeSpinAnimation.svelte';
 	import PressToContinue from './PressToContinue.svelte';
 	import WinCoins from './WinCoins.svelte';
 
-	type AnimationName = 'intro' | 'idle';
+	type AnimationName = string;
+
+	// Standalone, board-centred free-spin outro overlay (it self-centres via
+	// `FreeSpinAnimation`'s own `<MainContainer>`). Props/defaults reproduce the
+	// hardcodes; the editor can override the spine bundle / animations / slot.
+	const {
+		outroSpine: outroSpineProp = 'fsOutroNumber',
+		outroAnimation: outroAnimationProp = 'intro',
+		idleAnimation: idleAnimationProp = 'idle',
+		slotName: slotNameProp = 'slot_number',
+	}: {
+		outroSpine?: string;
+		outroAnimation?: string;
+		idleAnimation?: string;
+		slotName?: string;
+	} = $props();
 
 	const context = getContext();
 
+	const stringParam = (key: string): string | undefined => {
+		const value = getComponentParams()[key];
+		return typeof value === 'string' && value.length > 0 ? value : undefined;
+	};
+
+	const outroSpine = $derived(stringParam('outroSpine') ?? outroSpineProp);
+	const outroAnimation = $derived(stringParam('outroAnimation') ?? outroAnimationProp);
+	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
+	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
+
 	let show = $state(true);
-	let animationName = $state<AnimationName>('intro');
+	let animationName = $state<AnimationName>(outroAnimation);
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData>();
 	let oncomplete = $state(() => {});
@@ -71,16 +97,16 @@
 							/>
 						{/if}
 
-						<SpineProvider key="fsOutroNumber" width={sizes.width * 0.4}>
+						<SpineProvider key={outroSpine} width={sizes.width * 0.4}>
 							<SpineTrack
 								trackIndex={0}
 								{animationName}
-								loop={animationName === 'idle'}
+								loop={animationName === idleAnimation}
 								listener={{
-									complete: () => (animationName = 'idle'),
+									complete: () => (animationName = idleAnimation),
 								}}
 							/>
-							<SpineSlot slotName="slot_number">
+							<SpineSlot {slotName}>
 								<ResponsiveBitmapText
 									anchor={0.5}
 									style={{

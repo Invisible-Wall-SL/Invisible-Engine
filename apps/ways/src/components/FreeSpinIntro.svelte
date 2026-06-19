@@ -10,30 +10,25 @@
 	import { stateUrlDerived } from 'state-shared';
 	import { FadeContainer } from 'components-pixi';
 	import { waitForResolve } from 'utils-shared/wait';
-	import { BitmapText, Container, SpineProvider, SpineSlot, SpineTrack, Sprite } from 'pixi-svelte';
+	import { BitmapText, SpineProvider, SpineSlot, SpineTrack, Sprite } from 'pixi-svelte';
 
 	import { getComponentParams } from 'engine-layout/svelte';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
 	import PressToContinue from './PressToContinue.svelte';
 	import FreeSpinAnimation from './FreeSpinAnimation.svelte';
 
 	type AnimationName = string;
 
-	// Dual-mode part. Direct/standalone (`<FreeSpinIntro/>` or a bind scene — props/
-	// defaults reproduce the hardcodes, renders as before) OR the free-spin counter's
-	// UNGATED intro `bind` child (`boundToCounter`, reading its config off the counter's
-	// param context). In the counter-mounted mode it stays INERT until the counter's
-	// `introSpine` param is set, so the bind is parity-safe by default.
+	// Standalone, board-centred free-spin intro overlay (it self-centres via
+	// `FreeSpinAnimation`'s own `<MainContainer>`). Props/defaults reproduce the
+	// hardcodes; the editor can override the spine bundle / animations / slot.
 	const {
-		boundToCounter = false,
 		introSpine: introSpineProp = 'fsIntroNumber',
 		introAnimation: introAnimationProp = 'intro',
 		idleAnimation: idleAnimationProp = 'idle',
 		slotName: slotNameProp = 'slot_number',
 	}: {
-		boundToCounter?: boolean;
 		introSpine?: string;
 		introAnimation?: string;
 		idleAnimation?: string;
@@ -46,23 +41,11 @@
 		const value = getComponentParams()[key];
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
-	const numberParam = (key: string): number | undefined => {
-		const value = getComponentParams()[key];
-		return typeof value === 'number' ? value : undefined;
-	};
 
-	const introSpine = $derived(
-		boundToCounter ? stringParam('introSpine') : (stringParam('introSpine') ?? introSpineProp),
-	);
+	const introSpine = $derived(stringParam('introSpine') ?? introSpineProp);
 	const introAnimation = $derived(stringParam('introAnimation') ?? introAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
-	const slotName = $derived(stringParam('introSlot') ?? slotNameProp);
-	// Counter-mounted intro size: a uniform scale on the local spine container so the
-	// owner sizes the intro from the counter (the counter's transform positions it). The
-	// spine's base width is the game's symbol pitch — the same constant the standalone
-	// path's background width derives from — and `introScale` scales the whole container.
-	const introScale = $derived(numberParam('introScale') ?? 1);
-	const INTRO_SPINE_WIDTH = SYMBOL_SIZE;
+	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
 
 	let show = $state(false);
 	let animationName = $state<AnimationName>('intro');
@@ -76,11 +59,8 @@
 		freeSpinIntroShow: () => (show = true),
 		freeSpinIntroHide: () => (show = false),
 		freeSpinIntroUpdate: async (emitterEvent) => {
-			// INERT guard: an inactive part (`introSpine` unset — the counter's intro child
-			// before opt-in) renders no `PressToContinue`, so it must NOT block the
-			// `await broadcastAsync` press-gate in `freeSpinTrigger` — return immediately
-			// and let the ACTIVE standalone intro own the press. (`broadcastAsync`
-			// Promise.all-s every subscriber, so a never-resolving handler would hang.)
+			// `introSpine` defaults to a real bundle so this guard never trips; it only
+			// keeps a deliberately-cleared overlay from blocking the press-gate.
 			if (!introSpine) return;
 			// if (emitterEvent.extraSpins) {
 			// 	context.eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_fs_respins' });
@@ -92,43 +72,7 @@
 	});
 </script>
 
-{#if boundToCounter}
-	<!-- Counter-mounted mode: render the intro LOCALLY at the component origin (0,0) so
-		it sits where the counter instance is placed; the owner sizes it via `introScale`
-		and positions it via the counter's transform. NO full-screen `MainContainer`/
-		`FreeSpinAnimation` wrapper and NO `CanvasSizeRectangle` dim — just the spine +
-		count slot. A full-screen `PressToContinue` still catches the tap so the round's
-		`await broadcastAsync({type:'freeSpinIntroUpdate'})` gate resolves. -->
-	{#if introSpine}
-		<FadeContainer {show}>
-			<Container scale={{ x: introScale, y: introScale }}>
-				<SpineProvider key={introSpine} width={INTRO_SPINE_WIDTH}>
-					<SpineTrack
-						trackIndex={0}
-						{animationName}
-						loop={animationName === idleAnimation}
-						listener={{
-							complete: () => (animationName = idleAnimation),
-						}}
-					/>
-					<SpineSlot {slotName}>
-						<BitmapText
-							anchor={{ x: 0.5, y: 0.5 }}
-							text={freeSpinsFromEvent}
-							style={{
-								fontFamily: 'gold',
-								fontSize: SYMBOL_SIZE / 3,
-								fontWeight: 'bold',
-							}}
-						/>
-					</SpineSlot>
-				</SpineProvider>
-			</Container>
-
-			<PressToContinue onpress={() => oncomplete()} />
-		</FadeContainer>
-	{/if}
-{:else if introSpine}
+{#if introSpine}
 	<FadeContainer {show}>
 		<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
 

@@ -189,6 +189,16 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
 	],
+	// Free-spin outro overlay — same shape as the intro, for the outro spine. The
+	// component reads these as $props() with the coded values as defaults, so an
+	// unauthored game renders identically. A custom `outroSpine` bundle MUST expose a
+	// slot matching `slotName`, else the count BitmapText has nowhere to mount.
+	FreeSpinOutro: [
+		{ key: 'outroSpine', kind: 'string', label: 'Outro spine bundle', placeholder: 'fsOutroNumber' },
+		{ key: 'outroAnimation', kind: 'string', label: 'Outro animation', placeholder: 'intro' },
+		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
+		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
+	],
 	// Readout background tile + the parametric button's frame — same tile knobs
 	// (texture / tint / outline / corner radius). The button's engine STATES
 	// (disabled grey, active border) override the authored resting style.

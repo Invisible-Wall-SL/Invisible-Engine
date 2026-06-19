@@ -397,22 +397,8 @@
 		wrap the subtree in a `<Container visible={liveVisible}>` (hidden = mounted but
 		unrendered). With NO source `visibilitySource` is undefined and the snippet is
 		rendered bare — no extra Container, byte-identical to before the feed existed.
-
-		UNGATED escape (the free-spin counter's intro part): a DIRECT child of
-		`def.root` flagged `ungated` is split OUT of the gated wrapper and rendered
-		alongside it, so it stays visible while the gated panel hides. It self-gates on
-		its own book events (a coded `bind` part). No `ungated` child ⇒ the split is a
-		no-op and the whole root renders inside the wrapper exactly as before (parity).
 	-->
-	{#if visibilitySource && def.root.children.some((c) => c.ungated)}
-		{@const gatedRoot = { ...def.root, children: def.root.children.filter((c) => !c.ungated) }}
-		<Container visible={liveVisible}>
-			{@render rendered(gatedRoot)}
-		</Container>
-		{#each def.root.children.filter((c) => c.ungated) as ungatedChild (ungatedChild.id)}
-			<LayoutNodeView node={ungatedChild} {space} />
-		{/each}
-	{:else if visibilitySource}
+	{#if visibilitySource}
 		<Container visible={liveVisible}>
 			{@render rendered(def.root)}
 		</Container>

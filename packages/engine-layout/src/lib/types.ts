@@ -145,21 +145,6 @@ interface BaseNode {
 	 * node with no bindings, renders exactly as today — parity).
 	 */
 	paramBindings?: Record<string, string>;
-	/**
-	 * Escape the OWNING component instance's `visibleSource` gate. A
-	 * `componentInstance` whose params name a registered `visibleSource` wraps its
-	 * whole `def.root` in a `<Container visible={liveVisible}>` (§ComponentInstance).
-	 * A DIRECT child of `def.root` marked `ungated` is rendered OUTSIDE that wrapper,
-	 * so it stays visible while the gated panel hides — used by the free-spin
-	 * counter's intro part, which must play BEFORE the counter is shown (the intro
-	 * and counter are sequential and gated on different sources, so the intro can't
-	 * sit under the counter's `freeSpinCounterShow` gate). The escaped node
-	 * SELF-gates (it shows on its own book events via a coded `bind` part). Only
-	 * honoured on a direct child of `def.root` when the instance has an active
-	 * visibility source; ignored everywhere else (additive — absent = today's
-	 * behaviour, the node renders inside the gate as before).
-	 */
-	ungated?: boolean;
 }
 
 export interface ContainerNode extends BaseNode {
