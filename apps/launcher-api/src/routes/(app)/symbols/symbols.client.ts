@@ -130,6 +130,13 @@ export function effectiveCell(
 ): { cell: SymbolCell | undefined; overridden: boolean } {
 	const override = doc.symbols[symbol]?.[state];
 	if (override) return { cell: override, overridden: true };
+	// Book states (`bookIntro`/`bookIdle`) inherit the symbol's EFFECTIVE win binding
+	// (authored override > published/coded default) unless explicitly bound — mirroring
+	// the engine's `getSymbolInfo`, so the preview matches what ships in-game.
+	if (BOOK_STATE_SET.has(state)) {
+		const win = doc.symbols[symbol]?.['win'] ?? defaults.symbols[symbol]?.['win'];
+		return { cell: win, overridden: false };
+	}
 	return { cell: defaults.symbols[symbol]?.[state], overridden: false };
 }
 

@@ -61,8 +61,14 @@ export const getSymbolInfo = ({
 	// components always read a present, resolved `sizeRatios` regardless of the sparse override.
 	// `symbolFit` carries the resolver's provenance: `'contain'` (reel-override bounding box) or
 	// `'stretch'` (every other path — today's direct width/height).
-	const cell = getActiveSymbolInfoMap()[rawSymbol.name][state];
-	const resolved = resolveSymbolSizeRatios(rawSymbol.name, state);
+	// Special-Book states inherit the symbol's EFFECTIVE win binding (which includes any
+	// authored Symbols-State-Machine override) unless a book binding is explicitly authored,
+	// so the reveal/idle always mirrors the live win art rather than a stale coded default.
+	const map = getActiveSymbolInfoMap();
+	const resolveState =
+		(state === 'bookIntro' || state === 'bookIdle') && !map[rawSymbol.name][state] ? 'win' : state;
+	const cell = map[rawSymbol.name][resolveState];
+	const resolved = resolveSymbolSizeRatios(rawSymbol.name, resolveState);
 	return {
 		...cell,
 		sizeRatios: { width: resolved.width, height: resolved.height },

@@ -198,12 +198,10 @@ const wStatic = { type: 'sprite', assetKey: 'w.png', sizeRatios: { width: 1.12, 
 const wSizeRatios = { width: 1.5 * 0.9, height: SPECIAL_SYMBOL_SIZE * 1.15 };
 const sSizeRatios = { width: 2.5, height: SPECIAL_SYMBOL_SIZE * 2.3 };
 
-// Default Special-Book reveal bindings per symbol. The bonus's chosen expanding
-// symbol renders through `getSymbolInfo({ state: 'bookIntro'|'bookIdle' })`, so
-// every symbol needs both. The sensible coded default reuses the symbol's `win`
-// spine bundle/animation (intro = one-shot, idle = looping); a symbol with no
-// spine `win` (none today) would fall back to its `static` sprite. The Symbols
-// State Machine can override these per game.
+// Each symbol's `win` spine binding, hoisted to a named const. The Special-Book
+// reveal/idle states (`bookIntro`/`bookIdle`) are NOT coded here: they inherit the
+// symbol's EFFECTIVE win binding at resolve time (see `getSymbolInfo`), so they track
+// any authored win override instead of a frozen copy — unless explicitly bound.
 const h1Win = {
 	type: 'spine',
 	assetKey: 'H1',
@@ -285,8 +283,6 @@ export const SYMBOL_INFO_MAP = {
 		static: h1Static,
 		spin: h1Static,
 		land: h1Static,
-		bookIntro: h1Win,
-		bookIdle: h1Win,
 	},
 	H2: {
 		explosion,
@@ -295,8 +291,6 @@ export const SYMBOL_INFO_MAP = {
 		static: h2Static,
 		spin: h2Static,
 		land: h2Static,
-		bookIntro: h2Win,
-		bookIdle: h2Win,
 	},
 	H3: {
 		explosion,
@@ -305,8 +299,6 @@ export const SYMBOL_INFO_MAP = {
 		static: h3Static,
 		spin: h3Static,
 		land: h3Static,
-		bookIntro: h3Win,
-		bookIdle: h3Win,
 	},
 	H4: {
 		explosion,
@@ -315,8 +307,6 @@ export const SYMBOL_INFO_MAP = {
 		static: h4Static,
 		spin: h4Static,
 		land: h4Static,
-		bookIntro: h4Win,
-		bookIdle: h4Win,
 	},
 	H5: {
 		explosion,
@@ -325,8 +315,6 @@ export const SYMBOL_INFO_MAP = {
 		static: h5Static,
 		spin: h5Static,
 		land: h5Static,
-		bookIntro: h5Win,
-		bookIdle: h5Win,
 	},
 	L1: {
 		explosion,
@@ -335,8 +323,6 @@ export const SYMBOL_INFO_MAP = {
 		static: l1Static,
 		spin: l1Static,
 		land: l1Static,
-		bookIntro: l1Win,
-		bookIdle: l1Win,
 	},
 	L2: {
 		explosion,
@@ -345,8 +331,6 @@ export const SYMBOL_INFO_MAP = {
 		static: l2Static,
 		spin: l2Static,
 		land: l2Static,
-		bookIntro: l2Win,
-		bookIdle: l2Win,
 	},
 	L3: {
 		explosion,
@@ -355,8 +339,6 @@ export const SYMBOL_INFO_MAP = {
 		static: l3Static,
 		spin: l3Static,
 		land: l3Static,
-		bookIntro: l3Win,
-		bookIdle: l3Win,
 	},
 	L4: {
 		explosion,
@@ -365,8 +347,6 @@ export const SYMBOL_INFO_MAP = {
 		static: l4Static,
 		spin: l4Static,
 		land: l4Static,
-		bookIntro: l4Win,
-		bookIdle: l4Win,
 	},
 	L5: {
 		explosion,
@@ -375,8 +355,6 @@ export const SYMBOL_INFO_MAP = {
 		static: l5Static,
 		spin: l5Static,
 		land: l5Static,
-		bookIntro: l5Win,
-		bookIdle: l5Win,
 	},
 	W: {
 		explosion,
@@ -394,8 +372,6 @@ export const SYMBOL_INFO_MAP = {
 			animationName: 'wild_dynamite_land',
 			sizeRatios: wSizeRatios,
 		},
-		bookIntro: wWin,
-		bookIdle: wWin,
 	},
 	S: {
 		explosion,
@@ -414,8 +390,6 @@ export const SYMBOL_INFO_MAP = {
 			animationName: 'scatter_land',
 			sizeRatios: sSizeRatios,
 		},
-		bookIntro: sWin,
-		bookIdle: sWin,
 	},
 } as const;
 
