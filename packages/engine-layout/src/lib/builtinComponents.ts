@@ -708,6 +708,48 @@ export const TRANSITION_DEF: ComponentDef = {
 	},
 };
 
+/**
+ * The board-relative VISUAL of the free-spin INTRO (§17 Phase 3) — the editor-positioned
+ * half of the intro/gate split. Wraps the coded `FreeSpinIntroVisual` (the `FreeSpinAnimation`
+ * frame spine + the count spine, count in its slot) as a `bind` child with
+ * `boundToInstance:true`, so the coded part renders at THIS instance's node position
+ * instead of self-centring on the board — drag/scale the instance to move the intro art.
+ * The full-screen GATE (dim + press-to-continue + the round-blocking await) stays a coded
+ * `canvas` bind (`FreeSpinIntroGate`), so it isn't editor-positioned. Placed `game`-space,
+ * defaulted to board-centre (the scene node sets `x/y = boardLayout`), so parity holds at
+ * the default position. Params forward the spine bundle / animations / slot to the part.
+ */
+export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
+	id: 'freeSpinIntroVisual',
+	name: 'Free-spin intro',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'freeSpinIntroVisual-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'freeSpinIntroVisual-anim',
+				label: 'Free-spin intro',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'FreeSpinIntroVisual', props: { boundToInstance: true } },
+				children: [],
+			},
+		],
+	},
+	params: [
+		{ key: 'introSpine', kind: 'string', default: 'fsIntroNumber', label: 'intro spine bundle' },
+		{ key: 'introAnimation', kind: 'string', default: 'intro', label: 'intro animation' },
+		{ key: 'idleAnimation', kind: 'string', default: 'idle', label: 'idle animation' },
+		{ key: 'slotName', kind: 'string', default: 'slot_number', label: 'number slot' },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -717,4 +759,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	INFO_BAR_DEF,
 	LOADING_INTRO_DEF,
 	TRANSITION_DEF,
+	FREE_SPIN_INTRO_VISUAL_DEF,
 ];

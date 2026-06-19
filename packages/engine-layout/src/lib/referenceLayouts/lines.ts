@@ -1,5 +1,5 @@
 import { linesTemplate } from '../templates/lines';
-import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride } from '../types';
+import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
 import { hudScenes } from './hud';
 
 /**
@@ -89,6 +89,14 @@ export interface DefaultLayoutOptions {
 	 * the direct bind (parity); `apps/lines` forwards its `TRANSITION_INSTANCE` flag.
 	 */
 	transition?: boolean;
+	/**
+	 * §17 Phase 3 — split the free-spin INTRO/OUTRO into a full-screen GATE (`canvas`
+	 * `bind:FreeSpin{Intro,Outro}Gate`) + an editor-positioned VISUAL (a `game`-space
+	 * `componentInstance(freeSpin{Intro,Outro}Visual)`, defaulted to board-centre). Default-OFF
+	 * = the single composer `bind:FreeSpin{Intro,Outro}` (parity); `apps/lines` forwards its
+	 * `FREE_SPIN_OVERLAY_INSTANCES` flag.
+	 */
+	freeSpinOverlays?: boolean;
 }
 
 export function defaultLayout(gameType: string, options: DefaultLayoutOptions = {}): LayoutDoc {
@@ -125,6 +133,71 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				bind: { component: 'Transition' },
 				children: [],
 			};
+
+	// §17 Phase 3 — the free-spin INTRO scene's node. OFF: the single composer
+	// `bind:FreeSpinIntro` (board-centred, parity). ON: a full-screen GATE bind (dim + press
+	// + the round-blocking await), paired with the positionable `freeSpinIntroVisual` scene
+	// below.
+	const fsIntroNode: LayoutNode = options.freeSpinOverlays
+		? {
+				id: 'fs-intro-gate',
+				slotId: 'freeSpinIntro',
+				label: 'Free-spin intro (gate)',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'FreeSpinIntroGate' },
+				children: [],
+			}
+		: {
+				id: 'fs-intro',
+				slotId: 'freeSpinIntro',
+				label: 'Free-spin intro',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: {
+					component: 'FreeSpinIntro',
+					props: {
+						introSpine: 'fsIntroNumber',
+						introAnimation: 'intro',
+						idleAnimation: 'idle',
+						slotName: 'slot_number',
+					},
+				},
+				children: [],
+			};
+
+	// The positionable VISUAL scene(s), emitted only when the overlays are split (ON).
+	// `game`-space so the scene's `<MainContainer>` scales them; the instance is defaulted to
+	// board-centre (its `FreeSpinAnimation` renders at the node origin under `boundToInstance`),
+	// so the ON default reproduces the OFF board-centred placement. The owner drags to move it.
+	const freeSpinVisualScenes: Scene[] = options.freeSpinOverlays
+		? [
+				{
+					id: 'freeSpinIntroVisual',
+					name: sceneName('freeSpinIntroVisual'),
+					space: 'game',
+					nodes: [
+						{
+							id: 'fs-intro-visual',
+							slotId: 'freeSpinIntroVisual',
+							label: 'Free-spin intro',
+							kind: 'componentInstance',
+							componentId: 'freeSpinIntroVisual',
+							x: centre.x,
+							y: centre.y,
+							params: {
+								introSpine: 'fsIntroNumber',
+								introAnimation: 'intro',
+								idleAnimation: 'idle',
+								slotName: 'slot_number',
+							},
+						},
+					],
+				},
+			]
+		: [];
 
 	return {
 		version: 1,
@@ -236,31 +309,9 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				id: 'freeSpinIntro',
 				name: sceneName('freeSpinIntro'),
 				space: 'canvas',
-				nodes: [
-					{
-						id: 'fs-intro',
-						slotId: 'freeSpinIntro',
-						label: 'Free-spin intro',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						// Props reproduce the original hardcodes so the STANDALONE intro scene
-						// renders unchanged. This is the standalone, board-centred free-spin intro
-						// overlay (it self-centres via `FreeSpinAnimation`'s own `<MainContainer>`)
-						// and owns the free-spin intro; the props pick its spine/animations/slot.
-						bind: {
-							component: 'FreeSpinIntro',
-							props: {
-								introSpine: 'fsIntroNumber',
-								introAnimation: 'intro',
-								idleAnimation: 'idle',
-								slotName: 'slot_number',
-							},
-						},
-						children: [],
-					},
-				],
+				nodes: [fsIntroNode],
 			},
+			...freeSpinVisualScenes,
 			{
 				id: 'freeSpinCounter',
 				name: sceneName('freeSpinCounter'),

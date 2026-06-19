@@ -50,6 +50,7 @@
 		INFO_BAR_DEF,
 		LOADING_INTRO_DEF,
 		TRANSITION_DEF,
+		FREE_SPIN_INTRO_VISUAL_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -91,6 +92,8 @@
 	import Anticipations from './Anticipations.svelte';
 	import Win from './Win.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
+	import FreeSpinIntroGate from './FreeSpinIntroGate.svelte';
+	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import SpecialBook from './SpecialBook.svelte';
@@ -148,6 +151,12 @@
 		// `<LayoutScene>` (canvas-space bind anchors), so the editor can position
 		// them. They self-show/animate off book events; the doc owns only placement.
 		FreeSpinIntro,
+		// §17 Phase 3 — the intro split: the full-screen GATE (dim + press + round-await)
+		// and the board-relative VISUAL (the `freeSpinIntroVisual` componentInstance mounts
+		// this, positioned by its node). Registered for the ON path; the OFF composer
+		// `FreeSpinIntro` mounts both itself.
+		FreeSpinIntroGate,
+		FreeSpinIntroVisual,
 		FreeSpinCounter,
 		FreeSpinOutro,
 		// Special-Book bonus overlay — board-centred, self-shows/animates off the
@@ -195,6 +204,10 @@
 		// `Transition` part, now positioned by the editor node. Pure registration otherwise
 		// (no scene references it ⇒ no render change — parity).
 		[TRANSITION_DEF.id]: TRANSITION_DEF,
+		// §17 Phase 3 — makes `getComponent('freeSpinIntroVisual')` resolve so the
+		// `freeSpinIntroVisual` `game`-space scene (emitted only when the overlays are split)
+		// expands into its bound `FreeSpinIntroVisual` part, positioned by the editor node.
+		[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
@@ -317,6 +330,15 @@
 	const fallbackFsIntro = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinIntro')!;
 	const fsIntroScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'freeSpinIntro') ?? fallbackFsIntro,
+	);
+	// §17 Phase 3 — the board-relative VISUAL scene of the split intro (`game`-space, so
+	// <LayoutScene> wraps it in its own MainContainer for main-scaling). Present only when
+	// the overlays are split (the `FREE_SPIN_OVERLAY_INSTANCES` fallback emits it, or the
+	// owner authored it in the editor); `undefined` otherwise ⇒ the mount renders nothing
+	// (the OFF composer `FreeSpinIntro` draws the visual itself). Parity-safe.
+	const fsIntroVisualScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'freeSpinIntroVisual') ??
+			fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinIntroVisual'),
 	);
 	const fallbackFsCounter = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinCounter')!;
 	const fsCounterScene = $derived(
@@ -721,6 +743,9 @@
 		</UI>
 		<LayoutScene scene={basegameOverlaysScene} />
 		<LayoutScene scene={fsIntroScene} />
+		{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
+			<LayoutScene scene={fsIntroVisualScene} />
+		{/if}
 		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
 			<LayoutScene scene={fsCounterScene} />
 		{/if}

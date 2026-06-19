@@ -34,3 +34,19 @@ export const HUD_BUTTON_INSTANCES = false;
  * in the editor (no flag — it's editor-doc-driven; the shared def carries the prop).
  */
 export const TRANSITION_INSTANCE = false;
+
+/**
+ * §17 Phase 3 — split the free-spin INTRO/OUTRO into a full-screen coded GATE (dim +
+ * press-to-continue + round-await, stays a `canvas` bind) and an editor-positioned VISUAL
+ * (`freeSpinIntroVisual`/`freeSpinOutroVisual` `game`-space componentInstance). Gates the
+ * `defaultLayout` scene shapes:
+ *   OFF — the `freeSpinIntro`/`freeSpinOutro` scenes mount the single composer
+ *         `bind:FreeSpinIntro`/`bind:FreeSpinOutro` (board-centred), byte-identical to today.
+ *   ON  — those scenes mount the GATE bind (`FreeSpinIntroGate`/`FreeSpinOutroGate`), and a
+ *         separate `freeSpinIntroVisual`/`freeSpinOutroVisual` `game`-space scene mounts the
+ *         positionable visual (defaulted to board-centre; drag in the editor to move it).
+ *
+ * DEFAULT OFF (parity gate). Flip to `true` to verify locally; Book of Borut opts in by
+ * authoring the visual component in the editor (the shared defs carry `boundToInstance`).
+ */
+export const FREE_SPIN_OVERLAY_INSTANCES = false;

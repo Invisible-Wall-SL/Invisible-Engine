@@ -104,6 +104,15 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		placement: 'centre',
 		preview: { kind: 'spine', bundle: 'fsIntro' },
 	},
+	// §17 Phase 3 — the board-relative VISUAL half of the intro split (a `game`-space
+	// componentInstance the owner positions). Previews the `fsIntro` frame spine at board
+	// centre (the def's default node position), so the editor preview matches the in-game
+	// default; dragging the instance moves it.
+	FreeSpinIntroVisual: {
+		space: 'game',
+		placement: 'boardCentre',
+		preview: { kind: 'spine', bundle: 'fsIntro' },
+	},
 	FreeSpinOutro: {
 		space: 'canvas',
 		placement: 'centre',
@@ -191,7 +200,12 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 	// NB: a custom `introSpine` bundle MUST expose a slot matching `slotName`, else
 	// the count BitmapText has nowhere to mount.
 	FreeSpinIntro: [
-		{ key: 'introSpine', kind: 'string', label: 'Intro spine bundle', placeholder: 'fsIntroNumber' },
+		{
+			key: 'introSpine',
+			kind: 'string',
+			label: 'Intro spine bundle',
+			placeholder: 'fsIntroNumber',
+		},
 		{ key: 'introAnimation', kind: 'string', label: 'Intro animation', placeholder: 'intro' },
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
@@ -201,7 +215,12 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 	// unauthored game renders identically. A custom `outroSpine` bundle MUST expose a
 	// slot matching `slotName`, else the count BitmapText has nowhere to mount.
 	FreeSpinOutro: [
-		{ key: 'outroSpine', kind: 'string', label: 'Outro spine bundle', placeholder: 'fsOutroNumber' },
+		{
+			key: 'outroSpine',
+			kind: 'string',
+			label: 'Outro spine bundle',
+			placeholder: 'fsOutroNumber',
+		},
 		{ key: 'outroAnimation', kind: 'string', label: 'Outro animation', placeholder: 'intro' },
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
