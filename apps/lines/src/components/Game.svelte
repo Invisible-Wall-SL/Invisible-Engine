@@ -51,6 +51,7 @@
 		LOADING_INTRO_DEF,
 		TRANSITION_DEF,
 		FREE_SPIN_INTRO_VISUAL_DEF,
+		FREE_SPIN_OUTRO_VISUAL_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -96,6 +97,8 @@
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
+	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
+	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
@@ -159,6 +162,9 @@
 		FreeSpinIntroVisual,
 		FreeSpinCounter,
 		FreeSpinOutro,
+		// §17 Phase 3 — the outro split (gate + positionable visual), mirroring the intro.
+		FreeSpinOutroGate,
+		FreeSpinOutroVisual,
 		// Special-Book bonus overlay — board-centred, self-shows/animates off the
 		// `specialBookReveal`/`specialBookHide` book events; the doc owns only placement.
 		SpecialBook,
@@ -208,6 +214,8 @@
 		// `freeSpinIntroVisual` `game`-space scene (emitted only when the overlays are split)
 		// expands into its bound `FreeSpinIntroVisual` part, positioned by the editor node.
 		[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
+		// §17 Phase 3 — same for the outro's positionable visual.
+		[FREE_SPIN_OUTRO_VISUAL_DEF.id]: FREE_SPIN_OUTRO_VISUAL_DEF,
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
@@ -347,6 +355,13 @@
 	const fallbackFsOutro = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinOutro')!;
 	const fsOutroScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'freeSpinOutro') ?? fallbackFsOutro,
+	);
+	// §17 Phase 3 — the board-relative VISUAL scene of the split outro (`game`-space).
+	// Present only when the overlays are split; `undefined` otherwise ⇒ no mount (the OFF
+	// composer `FreeSpinOutro` draws the visual itself). Parity-safe.
+	const fsOutroVisualScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'freeSpinOutroVisual') ??
+			fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinOutroVisual'),
 	);
 	const fallbackSpecialBook = fallbackEditorScenes.scenes.find((s) => s.id === 'specialBook')!;
 	const specialBookScene = $derived(
@@ -750,6 +765,9 @@
 			<LayoutScene scene={fsCounterScene} />
 		{/if}
 		<LayoutScene scene={fsOutroScene} />
+		{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
+			<LayoutScene scene={fsOutroVisualScene} />
+		{/if}
 		<LayoutScene scene={specialBookScene} />
 		<InfoOverlay manifest={infoManifest} />
 

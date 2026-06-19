@@ -120,6 +120,13 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		// no dedicated `fsOutro` spine — fall back to the intro frame so it previews.
 		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
 	},
+	// §17 Phase 3 — the board-relative VISUAL half of the outro split (a `game`-space
+	// componentInstance the owner positions), previewed at board centre.
+	FreeSpinOutroVisual: {
+		space: 'game',
+		placement: 'boardCentre',
+		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
+	},
 	SpecialBook: {
 		// The expanding-symbol reveal sits on the board centre; its art is the chosen
 		// symbol's spine (state machine), so there's no fixed preview bundle — the editor

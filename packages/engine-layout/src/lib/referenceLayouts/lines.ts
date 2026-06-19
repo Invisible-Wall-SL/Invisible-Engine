@@ -168,6 +168,30 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				children: [],
 			};
 
+	// §17 Phase 3 — the free-spin OUTRO scene's node: the single composer `bind:FreeSpinOutro`
+	// (OFF, parity) or the full-screen GATE bind (ON, paired with `freeSpinOutroVisual` below).
+	const fsOutroNode: LayoutNode = options.freeSpinOverlays
+		? {
+				id: 'fs-outro-gate',
+				slotId: 'freeSpinOutro',
+				label: 'Free-spin outro (gate)',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'FreeSpinOutroGate' },
+				children: [],
+			}
+		: {
+				id: 'fs-outro',
+				slotId: 'freeSpinOutro',
+				label: 'Free-spin outro',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'FreeSpinOutro' },
+				children: [],
+			};
+
 	// The positionable VISUAL scene(s), emitted only when the overlays are split (ON).
 	// `game`-space so the scene's `<MainContainer>` scales them; the instance is defaulted to
 	// board-centre (its `FreeSpinAnimation` renders at the node origin under `boundToInstance`),
@@ -190,6 +214,28 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 							params: {
 								introSpine: 'fsIntroNumber',
 								introAnimation: 'intro',
+								idleAnimation: 'idle',
+								slotName: 'slot_number',
+							},
+						},
+					],
+				},
+				{
+					id: 'freeSpinOutroVisual',
+					name: sceneName('freeSpinOutroVisual'),
+					space: 'game',
+					nodes: [
+						{
+							id: 'fs-outro-visual',
+							slotId: 'freeSpinOutroVisual',
+							label: 'Free-spin outro',
+							kind: 'componentInstance',
+							componentId: 'freeSpinOutroVisual',
+							x: centre.x,
+							y: centre.y,
+							params: {
+								outroSpine: 'fsOutroNumber',
+								outroAnimation: 'intro',
 								idleAnimation: 'idle',
 								slotName: 'slot_number',
 							},
@@ -345,18 +391,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				id: 'freeSpinOutro',
 				name: sceneName('freeSpinOutro'),
 				space: 'canvas',
-				nodes: [
-					{
-						id: 'fs-outro',
-						slotId: 'freeSpinOutro',
-						label: 'Free-spin outro',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'FreeSpinOutro' },
-						children: [],
-					},
-				],
+				nodes: [fsOutroNode],
 			},
 			{
 				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →

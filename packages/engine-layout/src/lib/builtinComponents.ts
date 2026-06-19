@@ -750,6 +750,45 @@ export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * The board-relative VISUAL of the free-spin OUTRO (§17 Phase 3) — the editor-positioned
+ * half of the outro/gate split, mirroring {@link FREE_SPIN_INTRO_VISUAL_DEF}. Wraps the
+ * coded `FreeSpinOutroVisual` (the `FreeSpinAnimation` frame spine + win sprites + the
+ * count spine, count in its slot reading the gate's published count-up amount) as a `bind`
+ * child with `boundToInstance:true`. The full-screen GATE (dim + count-up driver + WinCoins
+ * + press + round-await) stays the coded `canvas` bind `FreeSpinOutroGate`.
+ */
+export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
+	id: 'freeSpinOutroVisual',
+	name: 'Free-spin outro',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'freeSpinOutroVisual-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'freeSpinOutroVisual-anim',
+				label: 'Free-spin outro',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'FreeSpinOutroVisual', props: { boundToInstance: true } },
+				children: [],
+			},
+		],
+	},
+	params: [
+		{ key: 'outroSpine', kind: 'string', default: 'fsOutroNumber', label: 'outro spine bundle' },
+		{ key: 'outroAnimation', kind: 'string', default: 'intro', label: 'outro animation' },
+		{ key: 'idleAnimation', kind: 'string', default: 'idle', label: 'idle animation' },
+		{ key: 'slotName', kind: 'string', default: 'slot_number', label: 'number slot' },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -760,4 +799,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	LOADING_INTRO_DEF,
 	TRANSITION_DEF,
 	FREE_SPIN_INTRO_VISUAL_DEF,
+	FREE_SPIN_OUTRO_VISUAL_DEF,
 ];
