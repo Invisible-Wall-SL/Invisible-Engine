@@ -39,8 +39,50 @@
 //     ./engine/apps/launcher-api/scripts/publish-symbol-defaults.mjs \
 //     --project bookofborut --token <t> --dry-run
 
+import { register } from 'node:module';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+// Resolve TypeScript-style relative imports that Node's ESM resolver leaves
+// unresolved. A game's `constants.ts` (the symbol map we import below) routinely
+// pulls in siblings with NO file extension — `import config from './config'` —
+// or with a `.js` extension that actually points at a `.ts` source. Node's
+// type-stripping runs the file but does NOT rewrite those specifiers, so the
+// import throws `ERR_MODULE_NOT_FOUND` and the whole publish bails (silently,
+// under --optional → the tool grid keeps a STALE published set forever). This
+// hook retries a failed RELATIVE resolution against the on-disk `.ts` sibling so
+// any standard game module graph imports cleanly. Self-contained configs (e.g.
+// apps/lines) never hit it — it only fires on a resolution failure.
+register(
+	'data:text/javascript,' +
+		encodeURIComponent(`
+		import { existsSync } from 'node:fs';
+		import { fileURLToPath } from 'node:url';
+		const APPEND = ['.ts', '.tsx', '.mts', '.cts', '/index.ts', '/index.tsx'];
+		const SWAP = { '.js': '.ts', '.mjs': '.mts', '.cjs': '.cts', '.jsx': '.tsx' };
+		const onDisk = (spec, parentURL) => {
+			try { return existsSync(fileURLToPath(new URL(spec, parentURL))); }
+			catch { return false; }
+		};
+		export async function resolve(spec, ctx, next) {
+			try { return await next(spec, ctx); }
+			catch (err) {
+				const rel = spec.startsWith('./') || spec.startsWith('../');
+				if (!rel || !ctx.parentURL) throw err;
+				const dot = spec.lastIndexOf('.');
+				const ext = dot > spec.lastIndexOf('/') ? spec.slice(dot) : '';
+				const candidates = ext in SWAP
+					? [spec.slice(0, dot) + SWAP[ext]]
+					: APPEND.map((e) => spec + e);
+				for (const cand of candidates) {
+					if (onDisk(cand, ctx.parentURL)) return next(cand, ctx);
+				}
+				throw err;
+			}
+		}
+	`),
+	import.meta.url,
+);
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
