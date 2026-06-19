@@ -34,6 +34,12 @@ const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JACK',
 /** Paying symbols eligible to become the free-spin special expanding symbol. */
 const PAY_SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JACK', 'TEN'];
 const NUM_LINES = 10;
+// When false (the production rule, surfaced in the config event), two paylines
+// whose winning combination lands on the IDENTICAL cells are the same win — it
+// must pay ONCE, not once per line that happens to cross those cells. E.g. lines
+// [2,2,2,2,2] and [2,2,1,0,0] both pay a 2-of-a-kind on cells (0,2)+(1,2): with
+// coinciding off, only one of them counts.
+const LINE_COINCIDING = false;
 const PAYLINES = [
 	[1, 1, 1, 1, 1],
 	[0, 0, 0, 0, 0],
@@ -85,7 +91,7 @@ const buildConfigContext = () => ({
 	betOptions: [10, 1000],
 	gameCost: 10,
 	lineAlign: 'left',
-	lineCoinciding: false,
+	lineCoinciding: LINE_COINCIDING,
 	maxWinMp: [10000],
 	paytable: {
 		line: PAY_SYMBOLS.map((of) => {
@@ -128,7 +134,29 @@ const evaluatePaylines = (reels, betPerLine) => {
 			});
 		}
 	}
-	return wins;
+	return LINE_COINCIDING ? wins : dedupeCoincidingWins(wins);
+};
+
+/** Identity of the cells that actually form a win: the symbol plus the leftmost
+ *  `occurs` reel/row positions of its payline. Two wins with the same key sit on
+ *  the exact same symbols — they coincide. */
+const winningCellsKey = ({ what, occurs, context }) =>
+	`${what}|${context.payline
+		.slice(0, occurs)
+		.map((row, reel) => `${reel}:${row}`)
+		.join(',')}`;
+
+/** With `lineCoinciding: false`, collapse wins that land on identical cells to a
+ *  single win (keeping the highest pay — they're equal here, but be safe), so a
+ *  symbol crossed by several paylines is paid once rather than once per line. */
+const dedupeCoincidingWins = (wins) => {
+	const best = new Map();
+	for (const w of wins) {
+		const key = winningCellsKey(w);
+		const prev = best.get(key);
+		if (!prev || w.pay > prev.pay) best.set(key, w);
+	}
+	return wins.filter((w) => best.get(winningCellsKey(w)) === w);
 };
 
 const scatterPositions = (reels) => {
@@ -218,7 +246,7 @@ const spinStartEvent = (round) => ({
 		},
 		wildSymbols: ['SCAT'],
 		lineAlign: 'left',
-		lineCoinciding: false,
+		lineCoinciding: LINE_COINCIDING,
 		gameCost: 10,
 		betOptions: [10, 1000],
 		maxWinMp: [10000],

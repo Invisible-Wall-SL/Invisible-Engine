@@ -33,6 +33,10 @@ import { pathToFileURL } from 'node:url';
 // not here — the mock stays faithful to real Play4Fun output.
 const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'PIC5', 'PIC6', 'PIC7', 'SCAT'];
 const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
+// When false (production rule, surfaced in the config event), paylines whose win
+// lands on the IDENTICAL cells are one win — pay it once, not once per crossing
+// line. See dedupeCoincidingWins below.
+const LINE_COINCIDING = false;
 const PAYLINES = [
 	[1, 1, 1, 1, 1],
 	[0, 0, 0, 0, 0],
@@ -100,7 +104,27 @@ const evaluatePaylines = (reels, betPerLine) => {
 			}
 		}
 	}
-	return wins;
+	return LINE_COINCIDING ? wins : dedupeCoincidingWins(wins);
+};
+
+/** Identity of the cells that actually form a win: the symbol plus the leftmost
+ *  `occurs` reel/row positions of its payline. Same key ⇒ the wins coincide. */
+const winningCellsKey = ({ what, occurs, context }) =>
+	`${what}|${context.payline
+		.slice(0, occurs)
+		.map((row, reel) => `${reel}:${row}`)
+		.join(',')}`;
+
+/** With `lineCoinciding: false`, collapse wins on identical cells to one (keeping
+ *  the highest pay), so a symbol crossed by several paylines pays once. */
+const dedupeCoincidingWins = (wins) => {
+	const best = new Map();
+	for (const w of wins) {
+		const key = winningCellsKey(w);
+		const prev = best.get(key);
+		if (!prev || w.pay > prev.pay) best.set(key, w);
+	}
+	return wins.filter((w) => best.get(winningCellsKey(w)) === w);
 };
 
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
@@ -343,7 +367,7 @@ export function createMockRgs(opts = {}) {
 							symbolsPay: { line: LINE_SYMBOLS, scatter: ['SCAT'] },
 							wildSymbols: [],
 							lineAlign: 'left',
-							lineCoinciding: false,
+							lineCoinciding: LINE_COINCIDING,
 						},
 					});
 					for (const w of wins) events.push({ event: 'spinWin', context: w });
