@@ -6,8 +6,8 @@
 		oncomplete: () => void;
 		/** Spine position. Defaults to canvas-centre (the coded overlay's hardcode); the
 		 * editor-owned `componentInstance` path passes `0,0` so the instance node's
-		 * transform places the wipe (see `TRANSITION_INSTANCE`). Height stays
-		 * viewport-relative either way, so sizing is unchanged. */
+		 * transform places the wipe (see `boundToInstance`). Height stays viewport-relative
+		 * either way, so sizing is unchanged. */
 		x?: number;
 		y?: number;
 	};
