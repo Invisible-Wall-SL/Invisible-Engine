@@ -109,13 +109,18 @@ const buildConfigContext = () => ({
 
 // ---------- pure win evaluation ----------
 
-const evaluatePaylines = (reels, betPerLine) => {
+const evaluatePaylines = (reels, betPerLine, excludeSymbol = null) => {
 	const wins = [];
 	for (let p = 0; p < PAYLINES.length; p++) {
 		const line = PAYLINES[p];
 		const seq = line.map((row, reel) => reels[reel][row]);
 		const first = seq[0];
 		if (!PAY_TABLE_LINE[first]) continue;
+		// During the bonus the chosen special expands across whole reels and pays
+		// scatter-style (evaluateSpecial). It must NOT also pay as a left-aligned
+		// payline, else the expanded symbol double-pays: a tiny line win on top of
+		// the boosted expansion (the spurious "3 of a kind" toast in free spins).
+		if (excludeSymbol && first === excludeSymbol) continue;
 		let count = 1;
 		for (let i = 1; i < seq.length; i++) {
 			if (seq[i] === first || seq[i] === 'SCAT') count++; // SCAT is wild
@@ -418,7 +423,7 @@ export function createMockRgs(opts = {}) {
 					if (round.bonus?.active) {
 						const reels = spinReels();
 						events.push(spinStartEvent(round));
-						const lineWins = evaluatePaylines(reels, round.betPerLine);
+						const lineWins = evaluatePaylines(reels, round.betPerLine, round.bonus.special);
 						const specialWin = evaluateSpecial(reels, round.bonus.special, round.betPerLine);
 						const wins = specialWin ? [...lineWins, specialWin] : lineWins;
 						for (const w of wins) {
