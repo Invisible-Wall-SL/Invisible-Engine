@@ -269,6 +269,26 @@ async function filterToGameConfig(symbols) {
 	}
 }
 
+// The fields the server's symbol-defaults schema accepts on a cell. A game's
+// coded `SYMBOL_INFO_MAP` may carry extra engine-only fields the tool doesn't
+// model (e.g. Book of Borut's `winFrame`); the server cell schema would reject
+// the whole payload, so strip each cell down to the known keys before sending.
+// `previewKey` is the tool-only enrichment added above — kept here.
+const ALLOWED_CELL_KEYS = ['type', 'assetKey', 'animationName', 'previewKey', 'sizeRatios'];
+
+/** Drop any cell field outside {@link ALLOWED_CELL_KEYS} so a game-specific extra
+ *  field never trips the server schema. Mutates `symbols` in place. */
+function sanitizeCells(symbols) {
+	for (const states of Object.values(symbols)) {
+		for (const [state, cell] of Object.entries(states)) {
+			if (!cell || typeof cell !== 'object') continue;
+			const clean = {};
+			for (const key of ALLOWED_CELL_KEYS) if (key in cell) clean[key] = cell[key];
+			states[state] = clean;
+		}
+	}
+}
+
 async function main() {
 	let mod;
 	try {
@@ -294,6 +314,8 @@ async function main() {
 	// Restrict to the symbols the game config marks as in-play, so the tool grid
 	// mirrors the built game (drops e.g. an unused H5). Best-effort — see helper.
 	await filterToGameConfig(symbols);
+	// Drop game-specific extra cell fields the tool schema doesn't model (e.g. winFrame).
+	sanitizeCells(symbols);
 	const doc = { version: 1, gameType, symbols };
 	const symbolNames = Object.keys(symbols);
 

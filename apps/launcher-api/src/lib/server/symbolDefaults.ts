@@ -45,7 +45,12 @@ const defaultCellSchema = z
 		previewKey: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema,
 	})
-	.strict();
+	// `.strip()` not `.strict()`: a game's coded `SYMBOL_INFO_MAP` may carry extra
+	// engine-only cell fields the tool doesn't model (e.g. Book of Borut's
+	// `winFrame`). Strict rejection 400s the whole publish, which a build swallows
+	// under `--optional` → the tool grid silently keeps a STALE set. Strip unknowns
+	// instead (the publish script also pre-strips; this is defence in depth).
+	.strip();
 
 /** State → binding. DENSE: a published default carries every state for a symbol,
  * so (unlike the sparse overrides doc) we don't drop or require sparseness. */
