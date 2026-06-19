@@ -212,6 +212,7 @@ export const { getWinLevelDataByWinLevelAlias } = createGetWinLevelDataByWinLeve
 export const stateGameDerived = {
 	onSymbolLand,
 	boardLayout,
+	boardGeometry,
 	boardRaw,
 	scatterLandIndex,
 	enhancedBoard,
