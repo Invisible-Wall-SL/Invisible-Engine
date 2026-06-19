@@ -107,24 +107,28 @@ const evaluatePaylines = (reels, betPerLine) => {
 	return LINE_COINCIDING ? wins : dedupeCoincidingWins(wins);
 };
 
-/** Identity of the cells that actually form a win: the symbol plus the leftmost
- *  `occurs` reel/row positions of its payline. Same key ⇒ the wins coincide. */
-const winningCellsKey = ({ what, occurs, context }) =>
-	`${what}|${context.payline
-		.slice(0, occurs)
-		.map((row, reel) => `${reel}:${row}`)
-		.join(',')}`;
+/** The board cells that actually form a win: the leftmost `occurs` reel/row
+ *  positions of its payline. */
+const winningCells = ({ occurs, context }) =>
+	context.payline.slice(0, occurs).map((row, reel) => `${reel}:${row}`);
 
-/** With `lineCoinciding: false`, collapse wins on identical cells to one (keeping
- *  the highest pay), so a symbol crossed by several paylines pays once. */
+const isSubset = (a, b) => a.every((c) => b.includes(c));
+
+/** With `lineCoinciding: false`, keep a line win only if its winning cells are
+ *  NOT contained in another winning line — collapses both identical-cell
+ *  coincidences AND a shorter run subsumed by a longer one (a 2 paid inside a 3).
+ *  Identical cells ⇒ identical symbols, so distinct/non-overlapping lines are
+ *  never merged. */
 const dedupeCoincidingWins = (wins) => {
-	const best = new Map();
-	for (const w of wins) {
-		const key = winningCellsKey(w);
-		const prev = best.get(key);
-		if (!prev || w.pay > prev.pay) best.set(key, w);
-	}
-	return wins.filter((w) => best.get(winningCellsKey(w)) === w);
+	const cells = wins.map(winningCells);
+	return wins.filter(
+		(w, i) =>
+			!wins.some((v, j) => {
+				if (j === i || !isSubset(cells[i], cells[j])) return false;
+				if (cells[j].length > cells[i].length) return true; // j strictly longer ⇒ i subsumed
+				return v.pay > w.pay || (v.pay === w.pay && j < i); // equal cells ⇒ keep one
+			}),
+	);
 };
 
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a

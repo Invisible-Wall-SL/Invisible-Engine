@@ -137,26 +137,32 @@ const evaluatePaylines = (reels, betPerLine) => {
 	return LINE_COINCIDING ? wins : dedupeCoincidingWins(wins);
 };
 
-/** Identity of the cells that actually form a win: the symbol plus the leftmost
- *  `occurs` reel/row positions of its payline. Two wins with the same key sit on
- *  the exact same symbols — they coincide. */
-const winningCellsKey = ({ what, occurs, context }) =>
-	`${what}|${context.payline
-		.slice(0, occurs)
-		.map((row, reel) => `${reel}:${row}`)
-		.join(',')}`;
+/** The board cells that actually form a win: the leftmost `occurs` reel/row
+ *  positions of its payline (`['0:2','1:2',…]`). */
+const winningCells = ({ occurs, context }) =>
+	context.payline.slice(0, occurs).map((row, reel) => `${reel}:${row}`);
 
-/** With `lineCoinciding: false`, collapse wins that land on identical cells to a
- *  single win (keeping the highest pay — they're equal here, but be safe), so a
- *  symbol crossed by several paylines is paid once rather than once per line. */
+const isSubset = (a, b) => a.every((c) => b.includes(c));
+
+/** With `lineCoinciding: false`, a line win is kept only if its winning cells
+ *  are NOT contained in another winning line. Collapses both flavours of the
+ *  same-symbols-paid-twice problem:
+ *   - coincidence — two lines pay the IDENTICAL cells (e.g. [2,2,2,2,2] and
+ *     [2,2,1,0,0] both 2-of-a-kind on (0,2)+(1,2)); keep the higher pay.
+ *   - subsumption — a 2-of-a-kind whose cells are the first two of a 3-of-a-kind
+ *     on another line; the shorter run is already paid inside the longer one.
+ *  Identical cells ⇒ identical board symbols, so this never merges genuinely
+ *  different symbols or non-overlapping lines. */
 const dedupeCoincidingWins = (wins) => {
-	const best = new Map();
-	for (const w of wins) {
-		const key = winningCellsKey(w);
-		const prev = best.get(key);
-		if (!prev || w.pay > prev.pay) best.set(key, w);
-	}
-	return wins.filter((w) => best.get(winningCellsKey(w)) === w);
+	const cells = wins.map(winningCells);
+	return wins.filter(
+		(w, i) =>
+			!wins.some((v, j) => {
+				if (j === i || !isSubset(cells[i], cells[j])) return false;
+				if (cells[j].length > cells[i].length) return true; // j strictly longer ⇒ i subsumed
+				return v.pay > w.pay || (v.pay === w.pay && j < i); // equal cells ⇒ keep one
+			}),
+	);
 };
 
 const scatterPositions = (reels) => {
