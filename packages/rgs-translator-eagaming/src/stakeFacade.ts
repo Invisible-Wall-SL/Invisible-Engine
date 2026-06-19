@@ -34,6 +34,7 @@ import {
 	translateBetResponse,
 	responseClosedRound,
 } from './translator';
+import { isPlay4FunError } from './types';
 import type { Play4FunBookEvent, Play4FunConfigContext, Play4FunResponse } from './types';
 import {
 	mapSymbol,
@@ -573,6 +574,26 @@ export const requestBet = async (options: {
 				});
 
 	const first = await fetcher.post({ body: betBody });
+
+	// A bet the RGS rejects (insufficient balance, bad round state, …) comes back
+	// error-shaped with NO events array. Surface the real reason: the engine
+	// (createPrimaryMachines.handleRequestBet) throws when `data.error` is truthy,
+	// and ModalError renders `error.error` + `error.message`. Without this the
+	// empty event stream below yields a SUCCESS round with state:[] and the engine
+	// throws the misleading generic "Empty state in data.round".
+	if (isPlay4FunError(first.response)) {
+		const raw = first.response;
+		const balanceCents = raw.platform?.balance;
+		return {
+			status: { statusCode: `ERR_${raw.errorCode}`, statusMessage: raw.error },
+			balance:
+				typeof balanceCents === 'number'
+					? { amount: play4FunToStake(balanceCents), currency: options.currency }
+					: undefined,
+			error: raw.error,
+			message: `${raw.error} (code ${raw.errorCode})`,
+		};
+	}
 
 	// If the server emits config on first bet (rather than at auth), capture it
 	// here so subsequent reveal/win events are validated against the right
