@@ -7,7 +7,12 @@
 
 	import TransitionAnimation from './TransitionAnimation.svelte';
 	import { getContext } from '../game/context';
-	import { TRANSITION_INSTANCE } from '../game/editorFlags';
+
+	// `boundToInstance` = mounted as the bound child of the `transition` componentInstance
+	// (§17): render the wipe at LOCAL origin so the instance node's transform places it.
+	// Absent (a direct `bind:Transition` scene anchor) ⇒ self-centre on the canvas,
+	// byte-identical to before the migration. Encoded on the def, so no per-game flag.
+	const { boundToInstance = false }: { boundToInstance?: boolean } = $props();
 
 	const context = getContext();
 
@@ -23,13 +28,9 @@
 </script>
 
 {#if transitioning}
-	<!-- Under `TRANSITION_INSTANCE` this coded part is the bound child of the
-		`transition` componentInstance: render at LOCAL origin (0,0) so the instance node's
-		transform places the wipe. OFF: pass `undefined` so it self-centres on the canvas —
-		byte-identical to before the migration. -->
 	<TransitionAnimation
-		x={TRANSITION_INSTANCE ? 0 : undefined}
-		y={TRANSITION_INSTANCE ? 0 : undefined}
+		x={boundToInstance ? 0 : undefined}
+		y={boundToInstance ? 0 : undefined}
 		oncomplete={() => {
 			oncomplete();
 			transitioning = false;

@@ -695,7 +695,13 @@ export const TRANSITION_DEF: ComponentDef = {
 				kind: 'container',
 				x: 0,
 				y: 0,
-				bind: { component: 'Transition' },
+				// `boundToInstance` tells the coded `Transition` it's the instance's child:
+				// render the wipe at LOCAL origin so THIS node's transform places it (the
+				// instance is centred via `screenAnchor`). A direct `bind:Transition` scene
+				// anchor passes no such prop ⇒ the coded part self-centres (parity). Encoding
+				// it on the def (not a per-game flag) means every game inherits it via the
+				// shared component — Book of Borut included.
+				bind: { component: 'Transition', props: { boundToInstance: true } },
 				children: [],
 			},
 		],
