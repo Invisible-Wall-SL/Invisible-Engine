@@ -38,6 +38,7 @@
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
 	import RegionThumb from './RegionThumb.svelte';
+	import type { SpineMeta } from './spineRuntime.client';
 	import {
 		fetchRegions,
 		regionNaturalSize,
@@ -241,7 +242,7 @@
 	let currentLayoutType = $state<LayoutType>('desktop');
 	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
-	let spineMeta = $state<Map<string, { animations: string[]; skins: string[] }>>(new Map());
+	let spineMeta = $state<Map<string, SpineMeta>>(new Map());
 	/** Left sidebar tab: which panel is shown. */
 	let leftTab = $state<'library' | 'outline' | 'template' | 'component'>('library');
 
@@ -1922,11 +1923,11 @@
 	<header>
 		<div class="brand-wrap">
 			<ToolTopBar
-			current="editor"
-			tools={data.tools}
-			clientKey={data.clientKey}
-			projectKey={data.projectKey}
-		/>
+				current="editor"
+				tools={data.tools}
+				clientKey={data.clientKey}
+				projectKey={data.projectKey}
+			/>
 		</div>
 		<div class="meta">
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
@@ -2591,6 +2592,7 @@
 				projectGameName={data.gameName}
 				isBackgroundCover={isBackgroundCoverSelected}
 				{spineMeta}
+				spines={data.assets.spines}
 				instanceComponent={selectedNode?.kind === 'componentInstance'
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}
@@ -2614,18 +2616,14 @@
 					<div class="gs-body">
 						<label class="gs-field">
 							<span class="gs-label">Jurisdiction</span>
-							<select
-								class="gs-select"
-								bind:value={jurisdiction}
-								onchange={onGameSettingChange}
-							>
+							<select class="gs-select" bind:value={jurisdiction} onchange={onGameSettingChange}>
 								<option value="default">Default</option>
 								<option value="UK">UK (UKGC)</option>
 							</select>
 						</label>
 						<p class="gs-note">
-							Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay,
-							turbo and hold-to-spin).
+							Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay, turbo
+							and hold-to-spin).
 						</p>
 						<label class="gs-toggle" class:disabled={ukLocked}>
 							<input

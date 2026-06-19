@@ -21,6 +21,7 @@
 	import {
 		createSceneRenderer,
 		getSpinePhysics,
+		type SpineMeta,
 		type SpineSceneRenderer,
 	} from './spineRuntime.client';
 
@@ -58,9 +59,9 @@
 		/** Reports each ready spine's setup-pose natural size per `assetKey`, so the
 		 * 2D canvas can cover-fit `preview.art` spine anchors by the art's aspect. */
 		onNaturalSizesChange?: (sizes: Map<string, { w: number; h: number }>) => void;
-		/** Reports each ready spine's animation + skin name lists per `assetKey`, so the
-		 * Properties panel can offer dropdowns instead of free-text. */
-		onSpineMetaChange?: (meta: Map<string, { animations: string[]; skins: string[] }>) => void;
+		/** Reports each ready spine's animation + skin + slot name lists per `assetKey`, so
+		 * the Properties panel can offer dropdowns instead of free-text. */
+		onSpineMetaChange?: (meta: Map<string, SpineMeta>) => void;
 		/** Monotonic spine-bundle load tally, so the 2D canvas can fold spine loads
 		 * into its global progress overlay. `started`/`settled` only ever grow. */
 		onLoadingChange?: (counts: { started: number; settled: number }) => void;
@@ -112,7 +113,7 @@
 	function publishReady(): void {
 		const next = new Set<string>();
 		const sizes = new Map<string, { w: number; h: number }>();
-		const meta = new Map<string, { animations: string[]; skins: string[] }>();
+		const meta = new Map<string, SpineMeta>();
 		for (const [key, entry] of entries) {
 			if (entry.state !== 'ready') continue;
 			next.add(key);
@@ -121,6 +122,7 @@
 			meta.set(key, {
 				animations: entry.instance.data.animations.map((a) => a.name),
 				skins: entry.instance.data.skins.map((s) => s.name),
+				slots: entry.instance.data.slots.map((s) => s.name),
 			});
 		}
 		if (next.size !== readyKeys.size || [...next].some((k) => !readyKeys.has(k))) {
@@ -158,8 +160,22 @@
 			// makes it THROW (silently caught → null), which collapsed the transform box to
 			// the default for every rig WITHOUT a skeleton width/height (i.e. every Rigger
 			// `.irig`). Pass objects that implement `set()` so the real bounds come back.
-			const offset = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
-			const size = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
+			const offset = {
+				x: 0,
+				y: 0,
+				set(x: number, y: number) {
+					this.x = x;
+					this.y = y;
+				},
+			};
+			const size = {
+				x: 0,
+				y: 0,
+				set(x: number, y: number) {
+					this.x = x;
+					this.y = y;
+				},
+			};
 			skel.getBounds(offset, size, []);
 			skel.scaleX = sx;
 			skel.scaleY = sy;
@@ -563,8 +579,22 @@
 		const nat = naturalSizeOf(inst);
 		// `getBounds` writes via `.set()`, so these MUST implement it (a plain `{x,y}`
 		// throws → the cover/contain/positioned math falls back to a degenerate box).
-		const offset = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
-		const size = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
+		const offset = {
+			x: 0,
+			y: 0,
+			set(x: number, y: number) {
+				this.x = x;
+				this.y = y;
+			},
+		};
+		const size = {
+			x: 0,
+			y: 0,
+			set(x: number, y: number) {
+				this.x = x;
+				this.y = y;
+			},
+		};
 		try {
 			// Measure at unit scale (scale is re-set at the end of this fn + the loop
 			// bakes zoom into it), so offset/size are the art's true natural bounds.

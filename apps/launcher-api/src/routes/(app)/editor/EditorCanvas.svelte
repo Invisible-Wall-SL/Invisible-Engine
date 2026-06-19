@@ -43,6 +43,7 @@
 	} from './editorRegions.client';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorSpineLayer from './EditorSpineLayer.svelte';
+	import type { SpineMeta } from './spineRuntime.client';
 	import EditorTextLayer from './EditorTextLayer.svelte';
 	import { clearFontCatalogCache } from './fonts.client';
 	import { clearPageImages } from './RegionThumb.svelte';
@@ -153,7 +154,7 @@
 		/** Bubbles the merged `assetKey → {animations,skins}` map for every ready spine
 		 * bundle (union across the per-scene sublayers) up to the page, so the Properties
 		 * panel can offer animation/skin dropdowns instead of free-text. */
-		onSpineMeta?: (meta: Map<string, { animations: string[]; skins: string[] }>) => void;
+		onSpineMeta?: (meta: Map<string, SpineMeta>) => void;
 		/** Undo/redo wiring — when provided, the canvas-actions toolbar shows undo/redo
 		 * buttons next to "Reload art" (the history itself lives on the page). Omitted
 		 * by callers without a history stack (e.g. the Component Editor). */
@@ -688,10 +689,7 @@
 	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
 	const spineReadyByScene = new Map<string, Set<string>>();
 	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
-	const spineMetaByScene = new Map<
-		string,
-		Map<string, { animations: string[]; skins: string[] }>
-	>();
+	const spineMetaByScene = new Map<string, Map<string, SpineMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
@@ -708,12 +706,9 @@
 		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		spineNaturalSizes = merged;
 	}
-	function mergeSpineMeta(
-		sceneId: string,
-		meta: Map<string, { animations: string[]; skins: string[] }>,
-	): void {
+	function mergeSpineMeta(sceneId: string, meta: Map<string, SpineMeta>): void {
 		spineMetaByScene.set(sceneId, meta);
-		const merged = new Map<string, { animations: string[]; skins: string[] }>();
+		const merged = new Map<string, SpineMeta>();
 		for (const m of spineMetaByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		onSpineMeta?.(merged);
 	}
@@ -756,7 +751,7 @@
 		spineLoadByScene.delete(id);
 		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
-		const meta = new Map<string, { animations: string[]; skins: string[] }>();
+		const meta = new Map<string, SpineMeta>();
 		for (const m of spineMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
 		onSpineMeta?.(meta);
 		const keys = new Set<string>();

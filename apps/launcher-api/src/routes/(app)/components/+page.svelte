@@ -29,6 +29,7 @@
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
+	import type { SpineMeta } from '../editor/spineRuntime.client';
 	import PanelResizers from '../editor/PanelResizers.svelte';
 	import PanelSection from '../editor/PanelSection.svelte';
 	import {
@@ -70,7 +71,7 @@
 	const selectedId = $derived(selectedIds.at(-1) ?? null);
 	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
-	let spineMeta = $state<Map<string, { animations: string[]; skins: string[] }>>(new Map());
+	let spineMeta = $state<Map<string, SpineMeta>>(new Map());
 	/** Components author in the fixed `desktop` design box — no per-layoutType
 	 * override switcher here (a component is one design; the scene editor owns
 	 * responsive overrides when the instance is placed). */
@@ -830,10 +831,11 @@
 							{:else if newType === 'counter'}
 								<p class="muted small">
 									A project copy of the built-in <strong>Free-Spin Counter</strong>: frame +
-									<strong>FREE SPIN</strong> caption + <strong>X OF Y</strong> value, already wired to
-									the engine (<strong>source</strong> feed → <strong>value</strong>,
-									<strong>visibleSource</strong> show/hide). Swap the frame art, restyle the text, or
-									edit the <strong>label</strong> — then <strong>Save component</strong>. Listed under
+									<strong>FREE SPIN</strong> caption + <strong>X OF Y</strong> value, already wired
+									to the engine (<strong>source</strong> feed → <strong>value</strong>,
+									<strong>visibleSource</strong> show/hide). Swap the frame art, restyle the text,
+									or edit the <strong>label</strong> — then <strong>Save component</strong>. Listed
+									under
 									<strong>UI</strong>.
 								</p>
 							{/if}
@@ -1031,6 +1033,7 @@
 						layoutType={currentLayoutType}
 						componentMode={true}
 						{spineMeta}
+						spines={data.assets.spines}
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
 						componentSignals={componentDraft.signals ?? []}

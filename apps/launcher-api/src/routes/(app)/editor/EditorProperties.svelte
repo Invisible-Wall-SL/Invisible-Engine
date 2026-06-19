@@ -29,6 +29,17 @@
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
+	import type { SpineMeta } from './spineRuntime.client';
+
+	/** Minimal structural view of a project spine bundle (mirrors the server-only
+	 * `SpineAsset` — its module can't be imported client-side). `key` is the R2 prefix
+	 * the spine `meta` map is keyed by; `name` is the bundle's short name (the value a
+	 * `spine`-kind param stores). */
+	interface SpineOption {
+		name: string;
+		key: string;
+		shared?: boolean;
+	}
 
 	interface Props {
 		node: LayoutNode | null;
@@ -63,10 +74,15 @@
 		/** Atlas/sheet manifests (`{ key, name }`) whose frames an `image`-kind param
 		 * can pick from — feeds the per-instance region picker. */
 		pickSheets?: { key: string; name: string }[];
-		/** Per-`assetKey` animation + skin name lists for every loaded spine bundle (from
-		 * the canvas). A selected `kind:'spine'` node looks up its key here to offer
-		 * animation/skin dropdowns; an unknown key falls back to free-text. */
-		spineMeta?: Map<string, { animations: string[]; skins: string[] }>;
+		/** Per-`assetKey` animation + skin + slot name lists for every loaded spine bundle
+		 * (from the canvas). A selected `kind:'spine'` node — or a `spine`/`spineAnimation`/
+		 * `spineSlot` component param — looks up its key here to offer dropdowns; an unknown
+		 * key falls back to free-text. */
+		spineMeta?: Map<string, SpineMeta>;
+		/** The project's spine bundles (`{ name, key, shared }`) — feeds the `spine`-kind
+		 * param dropdown and resolves a selected bundle name to the `assetKey` the
+		 * `spineMeta` map is keyed by (for the animation / slot dropdowns). */
+		spines?: SpineOption[];
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
@@ -121,6 +137,7 @@
 		instanceComponent = null,
 		pickSheets = [],
 		spineMeta = new Map(),
+		spines = [],
 		onEditAsComponent,
 		onConvertToReelGrid,
 		onConvertToParametricButton,
@@ -139,6 +156,28 @@
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+
+	/** Resolve a spine BUNDLE NAME (what a `spine`-kind param stores, e.g. `fsIntroNumber`)
+	 * to the `assetKey` the `spineMeta` map is keyed by. The map's key === `SpineAsset.key`
+	 * (the R2 prefix, with a trailing slash), set when the canvas resolves a bundle name →
+	 * `assets.spines.find((s) => s.name === name).key` (see `resolveAnchorPreviewArt`); so
+	 * the lookup is the same `name` match. Returns `''` when no bundle matches. */
+	function resolveSpineAssetKey(bundleName: string | undefined): string {
+		if (!bundleName) return '';
+		return spines.find((s) => s.name === bundleName)?.key ?? '';
+	}
+
+	/** The effective spine bundle a `spineAnimation`/`spineSlot` param reads its options
+	 * from: the value of its sibling `spineParam` on the selected instance, falling back to
+	 * that sibling param's DEFAULT from the def (so the dropdown populates before the spine
+	 * param is explicitly set). */
+	function effectiveSpineBundle(p: ComponentParam): string | undefined {
+		if (!p.spineParam || !node || node.kind !== 'componentInstance') return undefined;
+		const override = node.params?.[p.spineParam];
+		if (typeof override === 'string' && override) return override;
+		const sib = instanceComponent?.params?.find((q) => q.key === p.spineParam);
+		return typeof sib?.default === 'string' ? sib.default : undefined;
+	}
 
 	/** Param keys of the instance's def that drive a FONT — rendered as a font dropdown
 	 * (like a text node's font field) instead of a free-text box. Covers both bound
@@ -1043,6 +1082,62 @@
 								scoped
 								onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
 							/>
+						{:else if p.kind === 'spine'}
+							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							<select
+								value={cur}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value=""
+									>{typeof p.default === 'string' && p.default
+										? `(default: ${p.default})`
+										: '(inherit default)'}</option
+								>
+								{#each spines as s (s.key)}
+									<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
+								{/each}
+								{#if cur && !spines.some((s) => s.name === cur)}
+									<option value={cur}>{cur} (custom)</option>
+								{/if}
+							</select>
+						{:else if p.kind === 'spineAnimation' || p.kind === 'spineSlot'}
+							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							{@const bundle = effectiveSpineBundle(p)}
+							{@const meta = spineMeta.get(resolveSpineAssetKey(bundle))}
+							{@const opts = p.kind === 'spineSlot' ? meta?.slots : meta?.animations}
+							{#if opts && opts.length > 0}
+								<select
+									value={cur}
+									onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+								>
+									<option value=""
+										>{typeof p.default === 'string' && p.default
+											? `(default: ${p.default})`
+											: '(inherit default)'}</option
+									>
+									{#each opts as o (o)}
+										<option value={o}>{o}</option>
+									{/each}
+									{#if cur && !opts.includes(cur)}
+										<option value={cur}>{cur} (custom)</option>
+									{/if}
+								</select>
+							{:else}
+								<input
+									type="text"
+									value={cur}
+									placeholder={p.default !== undefined ? String(p.default) : ''}
+									oninput={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value)}
+								/>
+								{#if node.params?.[p.key] !== undefined}
+									<button
+										type="button"
+										class="reset"
+										title="Inherit default — clearing the field sets an explicit empty value"
+										onclick={() => onSetInstanceParam?.(p.key, undefined)}>×</button
+									>
+								{/if}
+							{/if}
 						{:else if p.kind === 'string' && instanceFontParamKeys.has(p.key)}
 							{@const cur = (node.params?.[p.key] as string) ?? ''}
 							<select

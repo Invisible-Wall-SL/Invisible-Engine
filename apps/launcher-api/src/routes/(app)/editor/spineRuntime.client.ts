@@ -55,9 +55,23 @@ export interface SpineAnimationMeta {
 export interface SpineSkinMeta {
 	name: string;
 }
+export interface SpineSlotMeta {
+	name: string;
+}
 export interface SpineSkeletonData {
 	animations: SpineAnimationMeta[];
 	skins: SpineSkinMeta[];
+	/** Setup-pose slots (`skeleton.data.slots`) — surfaced so the editor can offer a
+	 * slot dropdown for spine-related component params (e.g. the free-spin count slot). */
+	slots: SpineSlotMeta[];
+}
+
+/** Per-`assetKey` metadata the editor publishes for each loaded spine bundle — the
+ * animation / skin / slot name lists the Properties panel turns into dropdowns. */
+export interface SpineMeta {
+	animations: string[];
+	skins: string[];
+	slots: string[];
 }
 
 export interface SpineTexturePage {

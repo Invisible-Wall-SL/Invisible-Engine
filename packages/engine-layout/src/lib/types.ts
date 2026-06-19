@@ -545,10 +545,30 @@ export interface ComponentParam {
 	 * a region picker instead of a free-text box — bind a sprite's atlas-frame to it
 	 * to swap art per instance. The engine resolves it exactly like a `string` region
 	 * bind, so no runtime branch is needed; it's an editor input hint.
+	 *
+	 * `spine` / `spineAnimation` / `spineSlot` are likewise STRING values the editor
+	 * renders as DROPDOWNS instead of free-text: `spine` lists the project's spine
+	 * bundles; `spineAnimation` / `spineSlot` list the animations / slots of the bundle
+	 * selected by a sibling `spine`-kind param (named in {@link ComponentParam.spineParam}).
+	 * The engine resolves all three as plain strings — they're editor input hints, so
+	 * existing readers ignore the new kinds.
 	 */
-	kind: 'number' | 'string' | 'color' | 'boolean' | 'image';
+	kind:
+		| 'number'
+		| 'string'
+		| 'color'
+		| 'boolean'
+		| 'image'
+		| 'spine'
+		| 'spineAnimation'
+		| 'spineSlot';
 	default?: unknown;
 	engineProvided?: boolean;
+	/**
+	 * For `spineAnimation` / `spineSlot` — the key of the sibling `spine`-kind param
+	 * whose selected bundle's animations / slots populate this dropdown.
+	 */
+	spineParam?: string;
 	/**
 	 * Author-defined param — created by the user in the Component Editor (vs the
 	 * component's built-in/coded params or an engine-catalog value). Only these are

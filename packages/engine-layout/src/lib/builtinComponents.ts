@@ -743,10 +743,28 @@ export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
 		],
 	},
 	params: [
-		{ key: 'introSpine', kind: 'string', default: 'fsIntroNumber', label: 'intro spine bundle' },
-		{ key: 'introAnimation', kind: 'string', default: 'intro', label: 'intro animation' },
-		{ key: 'idleAnimation', kind: 'string', default: 'idle', label: 'idle animation' },
-		{ key: 'slotName', kind: 'string', default: 'slot_number', label: 'number slot' },
+		{ key: 'introSpine', kind: 'spine', default: 'fsIntroNumber', label: 'intro spine bundle' },
+		{
+			key: 'introAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'introSpine',
+			default: 'intro',
+			label: 'intro animation',
+		},
+		{
+			key: 'idleAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'introSpine',
+			default: 'idle',
+			label: 'idle animation',
+		},
+		{
+			key: 'slotName',
+			kind: 'spineSlot',
+			spineParam: 'introSpine',
+			default: 'slot_number',
+			label: 'number slot',
+		},
 	],
 };
 
@@ -782,10 +800,28 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
 		],
 	},
 	params: [
-		{ key: 'outroSpine', kind: 'string', default: 'fsOutroNumber', label: 'outro spine bundle' },
-		{ key: 'outroAnimation', kind: 'string', default: 'intro', label: 'outro animation' },
-		{ key: 'idleAnimation', kind: 'string', default: 'idle', label: 'idle animation' },
-		{ key: 'slotName', kind: 'string', default: 'slot_number', label: 'number slot' },
+		{ key: 'outroSpine', kind: 'spine', default: 'fsOutroNumber', label: 'outro spine bundle' },
+		{
+			key: 'outroAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'outroSpine',
+			default: 'intro',
+			label: 'outro animation',
+		},
+		{
+			key: 'idleAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'outroSpine',
+			default: 'idle',
+			label: 'idle animation',
+		},
+		{
+			key: 'slotName',
+			kind: 'spineSlot',
+			spineParam: 'outroSpine',
+			default: 'slot_number',
+			label: 'number slot',
+		},
 	],
 };
 
