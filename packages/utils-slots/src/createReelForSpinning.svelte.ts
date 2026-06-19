@@ -69,6 +69,14 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 
 	// reactive states
 	const reelY = new Tween(homeY());
+	// Height the reel was last HOMED to. Seeded here (reel-creation time) — NOT in
+	// `readyToSpinEffect` — so a reactive pitch change that lands BEFORE the board
+	// mounts (the editor's reelGrid override resolves while the loading screen is up,
+	// so `readyToSpinEffect` runs after the height already changed) is still detected
+	// and re-homed. Capturing the baseline at effect-setup missed that change, leaving
+	// the reel parked at the doc-less home (`-SYMBOL_SIZE`) — a padding row leaked until
+	// the first spin re-homed it.
+	let homedHeight = getSymbolHeight();
 	const reelState = $state({
 		symbols: createReelSymbols(reelOptions.initialSymbols),
 		motion: 'stopped' as SpinningReelMotion,
@@ -365,11 +373,12 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		// pre-spin has deliberately parked the reel off-home. (Depending on reelY made
 		// it snap the reel back to homeY mid pre-spin setup, landing the window straight
 		// on the new symbols instead of sliding into them.) Inert for a static number.
-		let lastHeight = getSymbolHeight();
+		// `homedHeight` is seeded at reel creation so a change that already happened
+		// before this effect was set up is still caught (see its declaration).
 		$effect(() => {
 			const height = getSymbolHeight();
-			if (!isReactiveHeight || height === lastHeight) return;
-			lastHeight = height;
+			if (!isReactiveHeight || height === homedHeight) return;
+			homedHeight = height;
 			if (reelState.motion === 'stopped') placeY(homeY());
 		});
 		$effect(() => {
