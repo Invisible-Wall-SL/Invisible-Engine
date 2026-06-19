@@ -17,7 +17,10 @@ import { getObjectText, putObjectText } from './r2';
  * See `docs/design/invisible-symbols-state-machine.md`.
  */
 
-/** The fixed v1 state set (matches `SYMBOL_STATES` in `apps/lines/src/game/types.ts`). */
+/** The fixed v1 state set (matches `SYMBOL_STATES` in `apps/lines/src/game/types.ts`).
+ *  `bookIntro`/`bookIdle` are book-only (the tool gates their grid columns by game
+ *  type — see the `/symbols` page), but the schema accepts them for EVERY game so a
+ *  book game's authored/published bindings always round-trip. */
 export const SYMBOL_STATES = [
 	'static',
 	'spin',
@@ -25,6 +28,8 @@ export const SYMBOL_STATES = [
 	'win',
 	'postWinStatic',
 	'explosion',
+	'bookIntro',
+	'bookIdle',
 ] as const;
 
 const sizeRatiosSchema = z.object({

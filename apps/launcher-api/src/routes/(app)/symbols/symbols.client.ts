@@ -14,8 +14,16 @@ export const SYMBOL_STATES = [
 	'win',
 	'postWinStatic',
 	'explosion',
+	'bookIntro',
+	'bookIdle',
 ] as const;
 export type SymbolState = (typeof SYMBOL_STATES)[number];
+
+/** The book-only states. They mirror new engine states and are valid in the doc for
+ *  every game (the schema accepts them), but the grid only SHOWS their columns for a
+ *  book game — see {@link visibleStatesFor}. */
+export const BOOK_STATES = ['bookIntro', 'bookIdle'] as const;
+const BOOK_STATE_SET = new Set<SymbolState>(BOOK_STATES);
 
 /** Human labels for the column headers. */
 export const STATE_LABELS: Record<SymbolState, string> = {
@@ -25,7 +33,18 @@ export const STATE_LABELS: Record<SymbolState, string> = {
 	win: 'Win',
 	postWinStatic: 'Post-win',
 	explosion: 'Explosion',
+	bookIntro: 'Book reveal',
+	bookIdle: 'Book idle',
 };
+
+/** The columns the grid renders for a given project game type: always the base
+ *  states, plus the two book states ONLY for a book game (`gameType === 'bookOf'`).
+ *  Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline because this
+ *  module is browser-side and the roles list is not worth importing for one literal. */
+export function visibleStatesFor(gameType: string | undefined): readonly SymbolState[] {
+	if (gameType === 'bookOf') return SYMBOL_STATES;
+	return SYMBOL_STATES.filter((s) => !BOOK_STATE_SET.has(s));
+}
 
 export interface SizeRatios {
 	width: number;

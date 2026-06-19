@@ -62,6 +62,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clientKey,
 		projectKey,
 		projectName: await projectName(projectKey),
+		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
+		// this — they show only for a book game (`gameType === 'bookOf'`).
+		gameType,
 		doc,
 		defaults,
 		assets,

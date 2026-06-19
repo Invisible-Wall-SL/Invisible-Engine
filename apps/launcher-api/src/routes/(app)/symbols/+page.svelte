@@ -9,7 +9,7 @@
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
 	import {
 		STATE_LABELS,
-		SYMBOL_STATES,
+		visibleStatesFor,
 		clearHighlight,
 		clearOverride,
 		clearWinLineStyle,
@@ -36,6 +36,11 @@
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
 
+	// The state columns the grid renders: the base 6, plus the two book-only states
+	// (`bookIntro`/`bookIdle`) ONLY for a book game. Gated on the server-provided
+	// `gameType`, so non-book games keep the original 6 columns unchanged.
+	const visibleStates = $derived(visibleStatesFor(data.gameType));
+
 	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
 	// in the top-left, and each preview scales with the 6 state columns. Width-driven
 	// (with vertical scroll for the symbol rows, like the in-game debug grid) so cells
@@ -50,7 +55,7 @@
 	let viewW = $state(1280);
 	let gridScroll = $state<HTMLElement | null>(null);
 	const previewSize = $derived.by(() => {
-		const cols = SYMBOL_STATES.length;
+		const cols = visibleStates.length;
 		const byWidth = (viewW - LABEL_COL - GRID_GAP * (cols + 1) - GRID_PAD) / cols;
 		return Math.round(Math.max(MIN_CELL, Math.min(MAX_CELL, byWidth)));
 	});
@@ -676,7 +681,7 @@
 						<thead>
 							<tr>
 								<th class="corner">Symbol</th>
-								{#each SYMBOL_STATES as state (state)}
+								{#each visibleStates as state (state)}
 									<th>{STATE_LABELS[state]}</th>
 								{/each}
 							</tr>
@@ -685,7 +690,7 @@
 							{#each symbolNames as symbol (symbol)}
 								<tr>
 									<th class="rowhead">{symbol}</th>
-									{#each SYMBOL_STATES as state (state)}
+									{#each visibleStates as state (state)}
 										{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
 										<td>
 											<button
