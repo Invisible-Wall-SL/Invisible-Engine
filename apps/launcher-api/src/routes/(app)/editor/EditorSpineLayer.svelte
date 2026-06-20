@@ -632,19 +632,33 @@
 			board: boardRect(),
 			art: { width: bw, height: bh },
 		});
-		// Setup-pose bounds centre (y-up runtime coords).
-		const cx = offset.x + size.x / 2;
-		const cy = offset.y + size.y / 2;
+		// Centre of the art's sizing rect, in y-up runtime coords. This MUST match the
+		// rect the size (`bw`/`bh`) was measured from, or the art lands off from the 2D
+		// selection box: that box centres the authored natural-size rect on the origin.
+		// `naturalSizeOf` prefers the authored `skeleton.data` canvas (origin-centred by
+		// Spine convention) — so when `nat` drove the size, centre on the ORIGIN too,
+		// NOT the live `getBounds` centre (an asymmetric setup pose, e.g. a number-frame
+		// spine, would otherwise drag the art to a corner while the box stays centred).
+		// Only when `nat` is absent (size came from raw `getBounds`) is the bounds centre
+		// the right one. Symmetric art is unaffected (its bounds centre ≈ origin).
+		const cx = nat ? 0 : offset.x + size.x / 2;
+		const cy = nat ? 0 : offset.y + size.y / 2;
 		if (result.mode === 'positioned') {
 			// Draw at natural size (s = MAIN→canvas scale), positioned so the result's
 			// anchor over the art's bounds sits at the mapped MAIN-coord spot.
 			const s = mainScale();
 			const world = mainToWorld({ x: result.x, y: result.y });
-			// The art's bounds span [offset, offset+size] in runtime (y-up) space. The
-			// anchor point within those bounds, expressed in runtime coords:
-			const anchorLocalX = offset.x + size.x * result.anchor.x;
-			// anchor.y is top-down (0=top); runtime y is up, so top = offset.y + size.y.
-			const anchorLocalY = offset.y + size.y * (1 - result.anchor.y);
+			// The sizing rect spans [originX, originX+bw] × [originY, originY+bh] in
+			// runtime (y-up) space. It MUST be the SAME rect `bw`/`bh` came from, to match
+			// the 2D box: when `nat` drove the size that rect is the authored canvas
+			// (origin-centred → originX/Y = -bw/2, -bh/2); only a pure-`getBounds` size
+			// uses the live offset. (Mirror of the cover/contain `cx`/`cy` choice above.)
+			const originX = nat ? -bw / 2 : offset.x;
+			const originY = nat ? -bh / 2 : offset.y;
+			// The anchor point within that rect, expressed in runtime coords:
+			const anchorLocalX = originX + bw * result.anchor.x;
+			// anchor.y is top-down (0=top); runtime y is up, so top = originY + bh.
+			const anchorLocalY = originY + bh * (1 - result.anchor.y);
 			// world = skeleton + s*(anchorLocal) with the y-flip → solve skeleton.
 			// The node's stored offset adds in world px on top of the placement.
 			inst.skeleton.x = world.x - s * anchorLocalX + posOffset.x;
