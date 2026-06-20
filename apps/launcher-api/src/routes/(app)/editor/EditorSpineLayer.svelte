@@ -132,8 +132,6 @@
 	// set changes (the animation/skin lists are fixed per `assetKey`), matching the
 	// idempotent style of `readyKeys` above so the parent's `$state` doesn't loop.
 	let metaKeys = new Set<string>();
-	// TEMP DEBUG (remove after capture): nested-spine node ids already logged.
-	const probedNested = new Set<string>();
 	function publishReady(): void {
 		const next = new Set<string>();
 		const sizes = new Map<string, { w: number; h: number }>();
@@ -437,53 +435,6 @@
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
 		const det = a * d - b * c;
-		// TEMP DEBUG (remove after capture): log the full render-side composition for a
-		// nested spine — the per-node raw transforms (incl. screenAnchor) + scene space +
-		// frame + composed world — to compare against where the 2D selection box lands.
-		if (!probedNested.has(node.id)) {
-			probedNested.add(node.id);
-			const raw = resolveTransform(node, layoutType);
-			const local = childLocalTransform(node, layoutType, sc.space, frameWidth, frameHeight);
-			// TEMP DEBUG: stringified so the WHOLE thing copies as one line of text (the
-			// console object viewer only copies expanded fields).
-			console.log(
-				'[IE nested-probe] ' +
-					JSON.stringify({
-						node: node.id,
-						sceneSpace: sc.space,
-						frame: { w: frameWidth, h: frameHeight },
-						spineRaw: {
-							x: raw.x,
-							y: raw.y,
-							scaleX: raw.scale?.x,
-							scaleY: raw.scale?.y,
-							anchorX: raw.anchor?.x,
-							anchorY: raw.anchor?.y,
-							screenAnchorX: raw.screenAnchor?.x,
-							screenAnchorY: raw.screenAnchor?.y,
-						},
-						spineChildLocal: { x: local.x, y: local.y },
-						chain: chain.map((n) => {
-							const rt = resolveTransform(n, layoutType);
-							return {
-								id: n.id,
-								kind: n.kind,
-								x: rt.x,
-								y: rt.y,
-								scaleX: rt.scale?.x,
-								scaleY: rt.scale?.y,
-								screenAnchorX: rt.screenAnchor?.x,
-								screenAnchorY: rt.screenAnchor?.y,
-							};
-						}),
-						topWorld: (() => {
-							const w = worldTransformOf(chain[0], sc);
-							return { x: w.x, y: w.y, scaleX: w.scale?.x, scaleY: w.scale?.y };
-						})(),
-						composedWorld: { a, b, c, d, tx, ty },
-					}),
-			);
-		}
 		return {
 			nodeId: node.id,
 			assetKey: node.assetKey,

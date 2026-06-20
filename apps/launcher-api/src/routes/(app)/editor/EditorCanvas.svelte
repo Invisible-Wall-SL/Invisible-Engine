@@ -285,12 +285,23 @@
 		if (space === 'standard') {
 			return standardToWorld(t, sceneCtx);
 		}
-		if (space === 'canvas' && t.screenAnchor) {
-			return {
-				...t,
-				x: t.screenAnchor.x * frameWidth + t.x,
-				y: t.screenAnchor.y * frameHeight + t.y,
-			};
+		if (space === 'canvas') {
+			// Canvas space = RAW window coords — the game renders these scenes with NO
+			// `<MainContainer>` (see `LayoutScene`), so x/y are window pixels, never the
+			// main→window mapping. A `screenAnchor` pins to a window edge; without one the
+			// x/y are used verbatim — matching the game's `LayoutNodeView`
+			// (`posX = screenAnchor ? screenAnchor·canvas + x : x`) and the spine render's
+			// canvas branch. Previously a canvas node WITHOUT a screenAnchor fell through to
+			// the game-space mapping below, so the editor placed it (and its selection box) at
+			// a DIFFERENT spot + scale than the game ships — every component dropped into a
+			// canvas-space scene mismatched. Returning here keeps editor == game.
+			return t.screenAnchor
+				? {
+						...t,
+						x: t.screenAnchor.x * frameWidth + t.x,
+						y: t.screenAnchor.y * frameHeight + t.y,
+					}
+				: t;
 		}
 		if (space === 'background' && (node.kind === 'sprite' || node.kind === 'spine')) {
 			return backgroundTransform(node, t);
