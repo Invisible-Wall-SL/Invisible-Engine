@@ -21,7 +21,6 @@
 	import { resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
-	import { getComponentVisibility } from './registerComponentVisibility';
 	import {
 		backgroundCoverScale,
 		backgroundCoverStretch,
@@ -45,26 +44,6 @@
 	const signalAnims = getComponentSignalAnims();
 
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
-
-	// Node-level visibility feed (the per-node sibling of the component-level
-	// `visibleSource`): when this node names a `visibleBinding` AND the game
-	// registered a `BoolSource` under it, subscribe and gate the render on it — so a
-	// single node (e.g. the `loadingIntro` percentage readout) hides on `loaded` in
-	// lockstep with the coded `LoadingBar`, while its siblings stay. The key + source
-	// are init-stable (a keyed node never swaps `visibleBinding`; the registry is
-	// populated once at boot), so this is a plain read; the subscription lives in an
-	// `$effect` so it tears down on unmount. No binding / no registered source (e.g.
-	// the editor preview, which has no game) ⇒ `nodeVisible` stays `true` (parity).
-	const nodeVisibilitySource = node.visibleBinding
-		? getComponentVisibility(node.visibleBinding)
-		: undefined;
-	let nodeVisible = $state(true);
-	$effect(() => {
-		if (!nodeVisibilitySource) return;
-		return nodeVisibilitySource.subscribe((value) => {
-			nodeVisible = value;
-		});
-	});
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
 
@@ -271,7 +250,7 @@
 	const spriteTint = $derived(typeof boundTint === 'number' ? boundTint : transform.tint);
 </script>
 
-{#if transform.visible && nodeVisible}
+{#if transform.visible}
 	{#if Bound}
 		<!--
 			Bound-component contract (read before migrating a coded component to a

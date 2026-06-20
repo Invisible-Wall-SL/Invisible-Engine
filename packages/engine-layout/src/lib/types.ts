@@ -145,19 +145,6 @@ interface BaseNode {
 	 * node with no bindings, renders exactly as today — parity).
 	 */
 	paramBindings?: Record<string, string>;
-	/**
-	 * Node-level visibility feed — the per-NODE analogue of a `componentInstance`'s
-	 * whole-instance `visibleSource` param. Names a boolean the game registered via
-	 * {@link registerComponentVisibility}; while that source emits `false` this node
-	 * (and its subtree) is hidden, mounted but unrendered. Lets ONE node inside a def
-	 * gate independently of its siblings — e.g. the `loadingIntro` percentage readout
-	 * binds `'assetsLoading'` so it vanishes the moment the boot load completes, in
-	 * lockstep with the coded `LoadingBar`, while the logo stays. Resolved against the
-	 * SAME registry the component-level feed uses. No binding / no registered source
-	 * (e.g. the editor preview, which has no game) ⇒ the node renders unconditionally
-	 * (parity).
-	 */
-	visibleBinding?: string;
 }
 
 export interface ContainerNode extends BaseNode {

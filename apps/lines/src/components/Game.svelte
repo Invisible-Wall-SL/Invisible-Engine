@@ -274,9 +274,16 @@
 		// `LoadingProgress` mask reads). The formatter renders it "73%" so a plain text
 		// node bound to `value` shows the percentage; the `loadingIntro` instance binds
 		// its percent node to this via `params.source: 'loadingProgress'`.
+		//
+		// The formatter yields '' once `stateApp.loaded` flips, so the readout BLANKS at
+		// load-complete — vanishing in lockstep with the coded `LoadingBar`'s own
+		// `{#if !loaded}`, instead of the "100%" lingering until press-to-continue. This
+		// gates from the LIVE feed (read here, reactive through `ParamReadoutText`) rather
+		// than a node attribute, so it reaches even a BAKED/customised `loadingIntro` def
+		// whose frozen percent node a coded-def change can't touch.
 		loadingProgress: valueSource(
 			() => stateApp.loadingProgress,
-			(n) => `${Math.round(n)}%`,
+			(n) => (stateApp.loaded ? '' : `${Math.round(n)}%`),
 		),
 	});
 	// Visibility feed — register the boolean source that gates the `freeSpinCounter`

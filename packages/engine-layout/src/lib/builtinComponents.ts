@@ -603,12 +603,6 @@ export const LOADING_INTRO_DEF: ComponentDef = {
 				y: LOADING_BAR_Y + LOADING_BAR_HEIGHT * 0.5,
 				anchor: { x: 0.5, y: 0.5 },
 				text: '0%',
-				// Hide the readout the instant the boot load completes, in lockstep with
-				// the coded `LoadingBar`'s own `{#if !loaded}` — otherwise the "100%" lingers
-				// after the bar vanishes (the bar self-hides; this static node can't). Gates
-				// on the game's `assetsLoading` feed (`!stateApp.loaded`); unregistered (e.g.
-				// the editor preview) ⇒ stays visible (parity), so the author still sees it.
-				visibleBinding: 'assetsLoading',
 				style: {
 					fontFamily: HUD_FONT_FAMILY,
 					fontSize: LOADING_PERCENT_FONT_SIZE,
