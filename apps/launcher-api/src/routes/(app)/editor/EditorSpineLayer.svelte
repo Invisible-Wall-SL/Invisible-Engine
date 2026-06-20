@@ -65,15 +65,6 @@
 		/** Reports each ready spine's setup-pose natural size per `assetKey`, so the
 		 * 2D canvas can cover-fit `preview.art` spine anchors by the art's aspect. */
 		onNaturalSizesChange?: (sizes: Map<string, { w: number; h: number }>) => void;
-		/** Reports each ready spine's TRUE setup-pose bounds rect per `assetKey` (offset
-		 * `x`/`y` + size `w`/`h`, in skeleton y-up coords). Unlike `onNaturalSizesChange`
-		 * (which prefers the origin-centred authored canvas), this is the live measured
-		 * bounds of the visible art — so the 2D canvas can frame a directly-placed spine
-		 * NODE's selection box around what actually renders, even when the skeleton's art
-		 * is offset from its bone origin (a symbol spine reused as a full-art element). */
-		onNaturalBoundsChange?: (
-			bounds: Map<string, { x: number; y: number; w: number; h: number }>,
-		) => void;
 		/** Reports each ready spine's animation + skin + slot name lists per `assetKey`, so
 		 * the Properties panel can offer dropdowns instead of free-text. */
 		onSpineMetaChange?: (meta: Map<string, SpineMeta>) => void;
@@ -119,7 +110,6 @@
 		playing,
 		onReadyKeysChange,
 		onNaturalSizesChange,
-		onNaturalBoundsChange,
 		onSpineMetaChange,
 		onLoadingChange,
 		reloadToken = 0,
@@ -145,15 +135,12 @@
 	function publishReady(): void {
 		const next = new Set<string>();
 		const sizes = new Map<string, { w: number; h: number }>();
-		const bounds = new Map<string, { x: number; y: number; w: number; h: number }>();
 		const meta = new Map<string, SpineMeta>();
 		for (const [key, entry] of entries) {
 			if (entry.state !== 'ready') continue;
 			next.add(key);
 			const nat = naturalSizeOf(entry.instance);
 			if (nat) sizes.set(key, nat);
-			const b = setupBoundsOf(entry.instance);
-			if (b) bounds.set(key, b);
 			meta.set(key, {
 				animations: entry.instance.data.animations.map((a) => a.name),
 				skins: entry.instance.data.skins.map((s) => s.name),
@@ -169,47 +156,6 @@
 			onSpineMetaChange?.(meta);
 		}
 		onNaturalSizesChange?.(sizes);
-		onNaturalBoundsChange?.(bounds);
-	}
-
-	/** The spine's TRUE setup-pose bounds rect (offset `x`/`y` + size `w`/`h`, skeleton
-	 * y-up coords) measured at unit scale — the live extent of the visible art relative
-	 * to the bone origin. The same `getBounds` measurement {@link placeArt} uses; here it
-	 * feeds the 2D canvas's selection box so a directly-placed spine NODE frames what
-	 * renders, even when the art sits off the bone origin. `null` if bounds are degenerate
-	 * (animation/skin-driven art with an empty setup pose) — the box then falls back to the
-	 * origin-centred natural size. The transient pose/scale it sets is overwritten by the
-	 * render loop on the next frame. */
-	function setupBoundsOf(
-		inst: SpineInstance,
-	): { x: number; y: number; w: number; h: number } | null {
-		const offset = {
-			x: 0,
-			y: 0,
-			set(x: number, y: number) {
-				this.x = x;
-				this.y = y;
-			},
-		};
-		const size = {
-			x: 0,
-			y: 0,
-			set(x: number, y: number) {
-				this.x = x;
-				this.y = y;
-			},
-		};
-		try {
-			inst.skeleton.scaleX = 1;
-			inst.skeleton.scaleY = 1;
-			inst.skeleton.setToSetupPose();
-			inst.skeleton.updateWorldTransform(getSpinePhysics());
-			inst.skeleton.getBounds(offset, size, []);
-		} catch {
-			return null;
-		}
-		if (!(size.x > 0) || !(size.y > 0)) return null;
-		return { x: offset.x, y: offset.y, w: size.x, h: size.y };
 	}
 
 	/** Natural size of an instance (for cover-fit ratio + the 2D canvas's hit-test box).
