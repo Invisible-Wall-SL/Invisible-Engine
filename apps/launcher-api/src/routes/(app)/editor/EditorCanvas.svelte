@@ -1170,10 +1170,19 @@
 	 * anchor whose resolved preview art is a spine)? Only such scenes mount a
 	 * (WebGL) spine sublayer in their group, so contexts stay bounded. */
 	function sceneHasSpine(s: Scene): boolean {
-		for (const n of s.nodes) {
+		return nodesHaveSpine(s.nodes, 0, []);
+	}
+	function nodesHaveSpine(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
+		for (const n of nodes) {
 			if (n.kind === 'spine') return true;
 			const art = anchorArt(n);
 			if (art?.kind === 'spine' && art.assetKey) return true;
+			if (n.kind === 'container' && nodesHaveSpine(n.children, depth, stack)) return true;
+			if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				if (nodesHaveSpine(def.root.children, depth + 1, [...stack, def.id])) return true;
+			}
 		}
 		return false;
 	}
@@ -2861,6 +2870,8 @@
 					{panY}
 					{zoom}
 					{assets}
+					{componentMap}
+					worldTransformOf={nodeTransform}
 					reloadToken={spineReload}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}

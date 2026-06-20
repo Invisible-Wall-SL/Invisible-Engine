@@ -8,11 +8,16 @@
 		coverTransform,
 		resolveAnchorPreviewArt,
 		resolveTransform,
+		MAX_COMPONENT_DEPTH,
+		type ComponentDef,
+		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
 		type PlacementGeometry,
+		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
+	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
 	import {
 		disposeSpineInstance,
@@ -82,6 +87,14 @@
 		 * THIS layer is filtered to the active scene, so the "see all screens" composite
 		 * never stacks several dims into a black-out. Unset = no scrim. */
 		activeSceneId?: string | null;
+		/** Loaded project component defs, so the overlay can EXPAND a `componentInstance`'s
+		 * tree and render spines nested inside it — the same `componentMap` the 2D canvas +
+		 * text overlay use. Without it, only directly-placed spines render. */
+		componentMap?: Map<string, ComponentDef>;
+		/** Frames a TOP-LEVEL node into canvas-world coords (the 2D canvas's `nodeTransform`),
+		 * so a nested spine's world transform composes from its ancestor chain identically to
+		 * the 2D canvas + text overlay + game runtime. */
+		worldTransformOf: (node: LayoutNode, scene: Scene) => ResolvedTransform;
 	}
 
 	let {
@@ -103,6 +116,8 @@
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
 		activeSceneId = null,
+		componentMap = new Map<string, ComponentDef>(),
+		worldTransformOf,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -300,6 +315,11 @@
 		coverScale?: number;
 		stretch?: { x: number; y: number };
 		fit?: 'cover' | 'contain';
+		/** A spine nested inside a container / component instance: its WORLD transform
+		 * (canvas coords, pre pan/zoom) already composed from the ancestor chain via
+		 * {@link composeWorldMatrix}, so the renderer places it directly and skips the
+		 * top-level space/placement mapping (the chain's top link already applied it). */
+		world?: { x: number; y: number; scaleX: number; scaleY: number };
 	}
 
 	/** Visible spine render targets in this scene: real spine nodes + `preview.art`
@@ -352,9 +372,79 @@
 						});
 					}
 				}
+				// Spines nested inside a container or a component instance: the 2D canvas
+				// expands these (drawComponentInstance), so the spine overlay must too — else
+				// a placed component's spine only ever shows its 2D placeholder box. Each
+				// nested spine's world transform is composed from its ancestor chain.
+				if (n.kind === 'container') {
+					collectNestedSpines(n.children, sc, out, [n], 0, []);
+				} else if (n.kind === 'componentInstance') {
+					const def = componentMap.get(n.componentId);
+					if (def) collectNestedSpines(def.root.children, sc, out, [n], 1, [def.id]);
+				}
 			}
 		}
 		return out;
+	}
+
+	/**
+	 * Recursively collect spine targets NESTED inside containers / component instances —
+	 * mirroring the 2D canvas's `drawComponentInstance` + the text overlay's
+	 * `collectTextTargets`. `chain` is the ancestor path (root-first); each nested spine's
+	 * world transform is composed from it via {@link composeWorldMatrix} so it lands
+	 * exactly where the 2D placeholder + game runtime put it.
+	 */
+	function collectNestedSpines(
+		nodes: LayoutNode[],
+		sc: Scene,
+		out: SpineRenderTarget[],
+		chain: LayoutNode[],
+		depth: number,
+		stack: string[],
+	): void {
+		for (const n of nodes) {
+			if (!resolveTransform(n, layoutType).visible) continue;
+			const nextChain = [...chain, n];
+			if (n.kind === 'spine') {
+				out.push(nestedSpineTarget(n, sc, nextChain));
+			} else if (n.kind === 'container') {
+				collectNestedSpines(n.children, sc, out, nextChain, depth, stack);
+			} else if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				collectNestedSpines(def.root.children, sc, out, nextChain, depth + 1, [...stack, def.id]);
+			}
+		}
+	}
+
+	/** Build a render target for a nested spine: its world transform composed from the
+	 * ancestor `chain` (top link framed via `worldTransformOf`, descendants pure-local via
+	 * `childLocalTransform` — the SAME rule the 2D canvas + game runtime use), decomposed
+	 * to x/y + scale. The spine preview ignores rotation (as the top-level path does), but
+	 * a single-axis flip in the chain (negative scale) is preserved via the determinant. */
+	function nestedSpineTarget(
+		node: Extract<LayoutNode, { kind: 'spine' }>,
+		sc: Scene,
+		chain: LayoutNode[],
+	): SpineRenderTarget {
+		const [a, b, c, d, tx, ty] = composeWorldMatrix(
+			chain,
+			(top) => worldTransformOf(top, sc),
+			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+		);
+		const sx = Math.hypot(a, b) || 1;
+		const sy = Math.hypot(c, d) || 1;
+		const det = a * d - b * c;
+		return {
+			nodeId: node.id,
+			assetKey: node.assetKey,
+			defaultAnimation: node.defaultAnimation,
+			skin: node.skin,
+			loop: node.loop,
+			transform: resolveTransform(node, layoutType),
+			space: sc.space,
+			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+		};
 	}
 
 	/**
@@ -518,7 +608,16 @@
 			syncPlayback(target, entry);
 			const t = target.transform;
 			const inst = entry.instance;
-			if (target.placement) {
+			if (target.world) {
+				// A spine nested in a container / component instance: its world transform was
+				// already composed from the ancestor chain (the top link applied the scene-space
+				// framing), so place it directly. Y is flipped like every other branch (runtime
+				// art is y-up; the camera is y-down).
+				inst.skeleton.x = target.world.x;
+				inst.skeleton.y = target.world.y;
+				inst.skeleton.scaleX = target.world.scaleX;
+				inst.skeleton.scaleY = -target.world.scaleY;
+			} else if (target.placement) {
 				// The node's raw x/y is a POSITIONAL OFFSET (scene-canvas px at the
 				// reference frame == world px) applied on top of the placement, matching
 				// the game's verbatim use of x/y for these canvas anchors. Offset 0 →
