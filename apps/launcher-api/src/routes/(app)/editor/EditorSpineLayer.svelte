@@ -132,9 +132,6 @@
 	// set changes (the animation/skin lists are fixed per `assetKey`), matching the
 	// idempotent style of `readyKeys` above so the parent's `$state` doesn't loop.
 	let metaKeys = new Set<string>();
-	// TEMP DEBUG (remove after capture): keys already probed, so the bounds log fires
-	// once per spine, not per publish.
-	const probedBounds = new Set<string>();
 	// TEMP DEBUG (remove after capture): nested-spine node ids already logged.
 	const probedNested = new Set<string>();
 	function publishReady(): void {
@@ -146,47 +143,6 @@
 			next.add(key);
 			const nat = naturalSizeOf(entry.instance);
 			if (nat) sizes.set(key, nat);
-			// TEMP DEBUG (remove after capture): force a real setup-pose getBounds measure +
-			// log it next to the authored data-canvas dims, once per spine. Pins the vendored
-			// spine-webgl getBounds offset/size convention vs the data canvas so the selection
-			// box can frame the visible art correctly (the prior derivation guessed it wrong).
-			if (!probedBounds.has(key)) {
-				probedBounds.add(key);
-				const sk = entry.instance.skeleton;
-				const off = {
-					x: 0,
-					y: 0,
-					set(x: number, y: number) {
-						this.x = x;
-						this.y = y;
-					},
-				};
-				const sz = {
-					x: 0,
-					y: 0,
-					set(x: number, y: number) {
-						this.x = x;
-						this.y = y;
-					},
-				};
-				try {
-					sk.scaleX = 1;
-					sk.scaleY = 1;
-					sk.setToSetupPose();
-					sk.updateWorldTransform(getSpinePhysics());
-					sk.getBounds(off, sz, []);
-				} catch (e) {
-					console.log('[IE spine-probe] getBounds threw for', key, e);
-				}
-				console.log('[IE spine-probe]', key, {
-					dataWidth: sk.data?.width,
-					dataHeight: sk.data?.height,
-					boundsOffsetX: off.x,
-					boundsOffsetY: off.y,
-					boundsW: sz.x,
-					boundsH: sz.y,
-				});
-			}
 			meta.set(key, {
 				animations: entry.instance.data.animations.map((a) => a.name),
 				skins: entry.instance.data.skins.map((s) => s.name),
