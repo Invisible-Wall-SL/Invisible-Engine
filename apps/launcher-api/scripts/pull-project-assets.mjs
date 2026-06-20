@@ -49,9 +49,10 @@ const USAGE =
 	'  --no-prune                    keep local generated files the deploy dropped\n' +
 	'                                (default: prune stale editor-art/, editor-fonts/,\n' +
 	'                                 editor-symbols/)\n' +
-	'  --optional                    on missing token / unreachable endpoint / empty deploy,\n' +
-	'                                warn loudly and keep the checked-in assets (exit 0)\n' +
-	'                                instead of failing the build';
+	'  --optional                    NO-token build only: warn + keep the checked-in\n' +
+	'                                assets (exit 0). WITH a token (a real publish) a\n' +
+	'                                missing/unreachable/empty deploy is a HARD failure\n' +
+	'                                — it never silently ships stale/missing assets.';
 
 if (args.length === 0 || hasFlag('help') || hasFlag('h')) {
 	console.info(USAGE);
@@ -79,16 +80,25 @@ const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
 const noPrune = hasFlag('no-prune');
 
-// In `--optional` mode a missing token / unreachable endpoint / empty deploy is
-// not fatal: warn loudly and keep the checked-in assets so the build proceeds.
-// Otherwise it's a hard failure so CI never silently ships stale art.
+// `--optional` stays lenient ONLY when there's NO token (a dev / no-credentials build
+// that keeps the checked-in assets). When a TOKEN is present we are doing a REAL PUBLISH:
+// a missing/unreachable endpoint or empty deploy means the editor-placed art + symbol
+// assets WON'T ship — which renders as broken/empty textures (e.g. blue-circle symbols).
+// So FAIL LOUDLY even with `--optional` rather than silently ship stale/missing assets.
+// (Matches the same guard in bake-editor-doc.mjs.)
 function bail(message) {
-	if (optional) {
+	if (optional && !token) {
 		console.warn(`⚠ live-assets: ${message}`);
-		console.warn('⚠ live-assets: keeping checked-in assets (--optional). Build may be STALE.');
+		console.warn('⚠ live-assets: no token + --optional → keeping checked-in assets (dev build).');
 		process.exit(0);
 	}
-	console.error(message);
+	console.error(`✖ live-assets: ${message}`);
+	if (optional) {
+		console.error(
+			'✖ live-assets: a token WAS provided, so this is a PUBLISH — refusing to ship missing/stale ' +
+				'assets (would render as broken textures). Fix the error above and re-publish.',
+		);
+	}
 	process.exit(1);
 }
 

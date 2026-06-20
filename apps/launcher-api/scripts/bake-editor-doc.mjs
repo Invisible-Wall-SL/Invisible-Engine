@@ -56,9 +56,10 @@ const USAGE =
 	'  --token <t>                   shared read token; defaults to env\n' +
 	'                                EDITOR_DOC_SECRET or LIVE_ASSETS_TOKEN\n' +
 	'  --dry-run                     print a summary, write nothing\n' +
-	'  --optional                    on missing token / unreachable endpoint / no doc,\n' +
-	'                                warn loudly and keep the checked-in bundle (exit 0)\n' +
-	'                                instead of failing the build';
+	'  --optional                    NO-token build only: warn + keep the checked-in\n' +
+	'                                bundle (exit 0). WITH a token (a real publish) a\n' +
+	'                                fetch/export/empty-doc error is still a HARD failure\n' +
+	'                                — it never silently ships the default layout.';
 
 if (args.length === 0 || hasFlag('help') || hasFlag('h')) {
 	console.info(USAGE);
@@ -87,9 +88,15 @@ const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.L
 const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
 
-// In `--optional` mode a missing token / unreachable endpoint / no authored doc is
-// not fatal: warn loudly and keep the checked-in bundle so the build proceeds.
-// Otherwise it's a hard failure so CI never silently ships a stale/empty layout.
+// `--optional` stays lenient ONLY when there's NO token — that's the intended dev /
+// no-credentials build, which keeps the checked-in `doc:null` placeholder and proceeds
+// (the game fetches the doc live, or is a reference app). When a TOKEN is present we are
+// doing a REAL PUBLISH: a missing/unreachable endpoint, a failed art/font/symbol export,
+// or an empty doc is exactly what silently ships the DEFAULT layout (old graphics,
+// nothing the author placed, broken symbol art). So in that case FAIL LOUDLY even with
+// `--optional` — a failed publish the author simply re-runs beats a published game that
+// fell back to defaults. This is the guard against the "publish silently shipped
+// defaults" class.
 //
 // We set `process.exitCode` and unwind rather than calling `process.exit()`: on
 // Windows, calling process.exit() while undici (the global `fetch`) still has a
@@ -98,12 +105,20 @@ const optional = hasFlag('optional');
 // the build even in --optional mode. Letting the event loop drain avoids it.
 class BakeBail {}
 function bail(message) {
-	if (optional) {
+	const lenient = optional && !token;
+	if (lenient) {
 		console.warn(`⚠ bake-doc: ${message}`);
-		console.warn('⚠ bake-doc: keeping checked-in bundle (--optional). Layout may be STALE.');
+		console.warn('⚠ bake-doc: no token + --optional → keeping the checked-in bundle (dev build).');
 		process.exitCode = 0;
 	} else {
-		console.error(message);
+		console.error(`✖ bake-doc: ${message}`);
+		if (optional) {
+			console.error(
+				'✖ bake-doc: a token WAS provided, so this is a PUBLISH — refusing to ship the default ' +
+					'layout. Fix the error above and re-publish. (Guard against silently shipping defaults; ' +
+					'pass no token for a deliberate dev build that keeps the placeholder.)',
+			);
+		}
 		process.exitCode = 1;
 	}
 	throw new BakeBail();
