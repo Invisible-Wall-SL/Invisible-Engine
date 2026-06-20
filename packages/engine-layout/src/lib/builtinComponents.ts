@@ -538,21 +538,23 @@ const LOADING_PERCENT_FONT_SIZE = 40;
  * each piece's position / size / font / colour from the scene editor, with the boot
  * asset-load wired in.
  *
- * HYBRID path — most parts are EDITOR-NATIVE plain nodes (like the free-spin counter),
+ * HYBRID path — the Logo is an EDITOR-NATIVE plain node (like the free-spin counter),
  * but the progress BAR can't be: its fill is a live mask whose width tracks the load,
  * which the static node model can't express. So the bar is the ONE coded part — a
  * `bind: { component: 'LoadingBar' }` child (the §14.3 HUD-readout decomposition),
- * reusing the proven masked render; everything around it is a movable native node:
+ * reusing the proven masked render:
  * - a `kind:'spine'` Logo (`loader` bundle, `title_screen` animation, looped) — the
  *   centrepiece, drawn directly in the editor and fully draggable/resizable;
  * - the bound `LoadingBar` (the masked fill, reading `barWidth`/`barHeight` + the
- *   `image*` frame params off the param context, hiding itself once `stateApp.loaded`);
- * - a `kind:'text'` Percent bound (`paramBindings.text → 'value'`) to the engine
- *   `loadingProgress` value source, whose registered formatter renders "73%".
+ *   `image*` frame params off the param context, hiding itself once `stateApp.loaded`),
+ *   which ALSO draws the optional PERCENTAGE readout (`showPercent` + `percent*` style
+ *   params) from the same live `loadingProgress`, inside the same `{#if !loaded}` — so
+ *   the number shares the bar's lifecycle and can't drift or linger at "100%". (The
+ *   percentage used to be a separate `kind:'text'` node; folding it into the bar fixed
+ *   it lingering after the bar vanished, and made it editable AS PART OF the bar.)
  *
- * The GAME feeds it via `registerComponentValues({ loadingProgress: valueSource(() =>
- * context.stateApp.loadingProgress, (n) => Math.round(n) + '%') })` and registers the
- * coded `LoadingBar` part via `registerBoundComponents`. It does NOT replace the coded
+ * The GAME registers the coded `LoadingBar` part via `registerBoundComponents`. It does
+ * NOT replace the coded
  * `LoadingScreen` mount (which owns the interactive press-to-continue → transition
  * flow + the `onloaded` callback the component can't carry); this is a placeable
  * building block for composing the splash's static content in the editor. Defaults
@@ -595,35 +597,9 @@ export const LOADING_INTRO_DEF: ComponentDef = {
 				preview: { w: LOADING_BAR_WIDTH, h: LOADING_BAR_HEIGHT, style: 'tile' },
 				children: [],
 			},
-			{
-				id: 'loadingIntro-percent',
-				label: 'Percent',
-				kind: 'text',
-				x: 0,
-				y: LOADING_BAR_Y + LOADING_BAR_HEIGHT * 0.5,
-				anchor: { x: 0.5, y: 0.5 },
-				text: '0%',
-				style: {
-					fontFamily: HUD_FONT_FAMILY,
-					fontSize: LOADING_PERCENT_FONT_SIZE,
-					fill: HUD_FILL,
-				},
-				paramBindings: {
-					text: 'value',
-					'style.fontFamily': 'fontFamily',
-					'style.fontSize': 'fontSize',
-					'style.fill': 'fill',
-				},
-				// Editor preview shows the engine-fed percentage (0 until placed in-game).
-				preview: { style: 'text', textParam: 'value' },
-			},
 		],
 	},
 	params: [
-		// The engine value feed the percentage readout binds to — the boot asset-load
-		// progress 0–100, whose registered formatter renders "73%". Picked from the
-		// registered sources dropdown; defaults to `loadingProgress`.
-		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS, default: 'loadingProgress' },
 		// Progress-bar geometry — forwarded through the param context to the bound
 		// `LoadingBar`, so resizing the bar is an editor edit (no code change).
 		{ key: 'barWidth', kind: 'number', default: LOADING_BAR_WIDTH, group: 'Progress bar' },
@@ -652,12 +628,26 @@ export const LOADING_INTRO_DEF: ComponentDef = {
 			group: 'Progress bar',
 			label: 'frame',
 		},
-		// Percentage-readout styling.
-		{ key: 'fill', kind: 'color', default: HUD_FILL },
-		{ key: 'fontSize', kind: 'number', default: LOADING_PERCENT_FONT_SIZE },
-		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
-		// Engine-fed load progress 0–100; rendered "73%" by the source formatter.
-		{ key: 'value', kind: 'number', engineProvided: true },
+		// Percentage readout — drawn BY the bound `LoadingBar` (so it shares the bar's
+		// `{#if !loaded}` and can't drift/linger). Toggle + style, forwarded through the
+		// param context. `percentOffsetY` nudges it off the bar's vertical centre.
+		{ key: 'showPercent', kind: 'boolean', default: true, group: 'Percentage' },
+		{ key: 'percentFill', kind: 'color', default: HUD_FILL, group: 'Percentage', label: 'colour' },
+		{
+			key: 'percentFontSize',
+			kind: 'number',
+			default: LOADING_PERCENT_FONT_SIZE,
+			group: 'Percentage',
+			label: 'font size',
+		},
+		{
+			key: 'percentFontFamily',
+			kind: 'string',
+			default: HUD_FONT_FAMILY,
+			group: 'Percentage',
+			label: 'font',
+		},
+		{ key: 'percentOffsetY', kind: 'number', default: 0, group: 'Percentage', label: 'offset Y' },
 	],
 };
 
