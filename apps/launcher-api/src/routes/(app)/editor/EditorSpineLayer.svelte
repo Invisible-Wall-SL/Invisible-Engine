@@ -443,37 +443,46 @@
 		if (!probedNested.has(node.id)) {
 			probedNested.add(node.id);
 			const raw = resolveTransform(node, layoutType);
-			console.log('[IE nested-probe]', node.id, {
-				sceneSpace: sc.space,
-				frameWidth,
-				frameHeight,
-				spineRaw: {
-					x: raw.x,
-					y: raw.y,
-					scaleX: raw.scale?.x,
-					scaleY: raw.scale?.y,
-					anchorX: raw.anchor?.x,
-					anchorY: raw.anchor?.y,
-					screenAnchorX: raw.screenAnchor?.x,
-					screenAnchorY: raw.screenAnchor?.y,
-				},
-				spineChildLocal: childLocalTransform(node, layoutType, sc.space, frameWidth, frameHeight),
-				chain: chain.map((n) => {
-					const rt = resolveTransform(n, layoutType);
-					return {
-						id: n.id,
-						kind: n.kind,
-						x: rt.x,
-						y: rt.y,
-						scaleX: rt.scale?.x,
-						scaleY: rt.scale?.y,
-						screenAnchorX: rt.screenAnchor?.x,
-						screenAnchorY: rt.screenAnchor?.y,
-					};
-				}),
-				topWorld: worldTransformOf(chain[0], sc),
-				composedWorld: { a, b, c, d, tx, ty },
-			});
+			const local = childLocalTransform(node, layoutType, sc.space, frameWidth, frameHeight);
+			// TEMP DEBUG: stringified so the WHOLE thing copies as one line of text (the
+			// console object viewer only copies expanded fields).
+			console.log(
+				'[IE nested-probe] ' +
+					JSON.stringify({
+						node: node.id,
+						sceneSpace: sc.space,
+						frame: { w: frameWidth, h: frameHeight },
+						spineRaw: {
+							x: raw.x,
+							y: raw.y,
+							scaleX: raw.scale?.x,
+							scaleY: raw.scale?.y,
+							anchorX: raw.anchor?.x,
+							anchorY: raw.anchor?.y,
+							screenAnchorX: raw.screenAnchor?.x,
+							screenAnchorY: raw.screenAnchor?.y,
+						},
+						spineChildLocal: { x: local.x, y: local.y },
+						chain: chain.map((n) => {
+							const rt = resolveTransform(n, layoutType);
+							return {
+								id: n.id,
+								kind: n.kind,
+								x: rt.x,
+								y: rt.y,
+								scaleX: rt.scale?.x,
+								scaleY: rt.scale?.y,
+								screenAnchorX: rt.screenAnchor?.x,
+								screenAnchorY: rt.screenAnchor?.y,
+							};
+						}),
+						topWorld: (() => {
+							const w = worldTransformOf(chain[0], sc);
+							return { x: w.x, y: w.y, scaleX: w.scale?.x, scaleY: w.scale?.y };
+						})(),
+						composedWorld: { a, b, c, d, tx, ty },
+					}),
+			);
 		}
 		return {
 			nodeId: node.id,
