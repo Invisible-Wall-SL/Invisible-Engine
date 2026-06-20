@@ -2864,6 +2864,7 @@
 					reloadToken={spineReload}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
+					activeSceneId={scene.id}
 					playing={playingSpines}
 					onReadyKeysChange={(keys) => {
 						mergeSpineReady(s.id, keys);

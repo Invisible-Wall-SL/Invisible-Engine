@@ -3,6 +3,7 @@
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
+		boundComponentOverlayDim,
 		computeOverlayPlacement,
 		coverTransform,
 		resolveAnchorPreviewArt,
@@ -76,6 +77,11 @@
 		 * order) so a scene's spine sits above/below ANOTHER scene's 2D art per the doc
 		 * order — not always on top. Unset = render every non-hidden scene (legacy). */
 		sceneFilter?: Set<string> | null;
+		/** Editor-only: the id of the ACTIVE (selected) scene. A full-screen-dim overlay
+		 * (free-spin intro/outro — `overlayDim` in the catalog) draws its scrim ONLY when
+		 * THIS layer is filtered to the active scene, so the "see all screens" composite
+		 * never stacks several dims into a black-out. Unset = no scrim. */
+		activeSceneId?: string | null;
 	}
 
 	let {
@@ -96,6 +102,7 @@
 		reloadToken = 0,
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
+		activeSceneId = null,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -350,6 +357,33 @@
 		return out;
 	}
 
+	/**
+	 * EDITOR-PREVIEW ONLY scrim alpha for THIS layer. A full-screen-dim overlay (the
+	 * free-spin intro/outro gates — `overlayDim` in the catalog) darkens the whole
+	 * window behind its centred frame in-game; the editor mirrors that by clearing this
+	 * spine canvas to translucent black BEFORE drawing the scene's own spines. Because
+	 * this WebGL canvas sits (by scene-order z-index) ABOVE every earlier scene's 2D +
+	 * spine group, the translucent clear dims the base-game board AND any spine-drawn
+	 * background beneath it via CSS compositing — while the intro/outro frame spine, drawn
+	 * into this same canvas afterwards, stays at full brightness on top. Scoped to the
+	 * ACTIVE scene only (and gated on the anchor being visible) so the "see all screens"
+	 * composite never blacks out from several dims stacking. The largest declared dim
+	 * among the active scene's visible dim anchors wins. */
+	function scrimAlpha(): number {
+		if (!activeSceneId) return 0;
+		if (sceneFilter && !sceneFilter.has(activeSceneId)) return 0;
+		const sc = scenes.find((s) => s.id === activeSceneId);
+		if (!sc || hiddenSceneIds.has(sc.id)) return 0;
+		let dim = 0;
+		for (const n of sc.nodes) {
+			const d = boundComponentOverlayDim(n);
+			if (d === undefined || !(d > 0)) continue;
+			if (!resolveTransform(n, layoutType).visible) continue;
+			if (d > dim) dim = d;
+		}
+		return Math.min(dim, 1);
+	}
+
 	/** Uniform MAIN→canvas-world scale (same as the 2D canvas's `mainScale`). */
 	function mainScale(): number {
 		const main = mainSizesMap[layoutType];
@@ -447,7 +481,13 @@
 			// No nodes have triggered GL yet — nothing to clear.
 			return;
 		}
-		gl.clearColor(0, 0, 0, 0);
+		// A full-screen-dim overlay (free-spin intro/outro) clears this canvas to
+		// translucent black instead of fully transparent: that scrim composites over every
+		// earlier scene group beneath this layer (board + spine background), while the
+		// overlay's own frame spine draws on top afterwards at full brightness. 0 ⇒ the
+		// normal transparent clear (nothing dimmed).
+		const scrim = scrimAlpha();
+		gl.clearColor(0, 0, 0, scrim);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		if (!renderer) return;
 
