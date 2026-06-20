@@ -280,7 +280,13 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 	const ordered: Record<string, unknown>[] = [];
 	const push = (ev: Record<string, unknown>) => ordered.push({ index: ordered.length, ...ev });
 
-	let betTotalCents = 0;
+	// The bet-multiplier denominator: win `pay` amounts are denominated against the
+	// BASE bet (betPerLine × number of paylines), NOT the debited round `total`.
+	// They diverge when the feature is BOUGHT — Play4Fun's `total` then includes the
+	// buy premium (×100 in the book-of mock) — so dividing by `total` shrinks every
+	// win display by that premium factor (a $12.50 line win reads $0.25; small base
+	// wins collapse toward $0.01). Set from the `bet` event below.
+	let betBaseCents = 0;
 	let pendingWins: { what: string; occurs: number; mode?: string; pay: number; context?: unknown }[] = [];
 	let runningTotal = 0;
 	let gameType: 'basegame' | 'freegame' = 'basegame';
@@ -290,7 +296,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 
 	const flushWins = () => {
 		for (const c of pendingWins) {
-			const winAmount = toBookEventAmount(c.pay ?? 0, betTotalCents);
+			const winAmount = toBookEventAmount(c.pay ?? 0, betBaseCents);
 			runningTotal += winAmount;
 			push({
 				type: 'winInfo',
@@ -322,9 +328,18 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 			case 'spinStart':
 			case 'bonusWin': // wrapper around the following spinWin — pay comes from spinWin
 				break;
-			case 'bet':
-				betTotalCents = (e.context as { total?: number })?.total ?? 0;
+			case 'bet': {
+				// Use the BASE bet (betPerLine × paylines), not the debited `total`, so
+				// win displays stay correct when the feature is BOUGHT (a premium-inflated
+				// `total` would shrink every win ~100×). Both fields ship in the Play4Fun
+				// `bet` event (and the book-of mock); fall back to `total` only if absent.
+				const ctx = e.context as { total?: number; betPerLine?: number; paylines?: unknown[] };
+				const betPerLine = typeof ctx.betPerLine === 'number' ? ctx.betPerLine : 0;
+				const numLines = Array.isArray(ctx.paylines) ? ctx.paylines.length : 0;
+				const baseBet = betPerLine * numLines;
+				betBaseCents = baseBet > 0 ? baseBet : ctx.total ?? 0;
 				break;
+			}
 			case 'spinWin': {
 				const c = e.context as { what: string; occurs: number; mode?: string; pay: number };
 				pendingWins.push(c);
@@ -401,8 +416,8 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				break;
 			case 'gameEnd': {
 				const winCents = (e.context as { win?: number })?.win ?? 0;
-				const amount = toBookEventAmount(winCents, betTotalCents);
-				const winLevel = computeWinLevel(winCents, betTotalCents);
+				const amount = toBookEventAmount(winCents, betBaseCents);
+				const winLevel = computeWinLevel(winCents, betBaseCents);
 				if (gameType === 'freegame') {
 					push({ type: 'freeSpinEnd', amount, winLevel });
 					gameType = 'basegame';
@@ -415,7 +430,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				break;
 			}
 			case 'gameRoundOver':
-				push({ type: 'finalWin', amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betTotalCents) });
+				push({ type: 'finalWin', amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betBaseCents) });
 				break;
 			default:
 				push({ type: `_${e.event}`, raw: (e as { context?: unknown }).context });
