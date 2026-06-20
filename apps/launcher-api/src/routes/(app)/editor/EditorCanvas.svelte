@@ -32,6 +32,7 @@
 		pointInQuad,
 		type Vec2,
 		type NodeBox,
+		type NaturalSize,
 	} from './editorCanvas.helpers';
 	import {
 		clearRegionCache,
@@ -678,6 +679,11 @@
 	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect.
 	 * MERGED across the per-scene spine sublayers. */
 	let spineNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
+	/** Each ready spine's TRUE setup-pose bounds rect (offset + size, skeleton y-up
+	 * coords), reported by the WebGL overlay. Lets a directly-placed spine NODE's
+	 * selection box frame the VISIBLE art (not the origin-centred authored canvas), so
+	 * an off-origin symbol spine boxes where it actually renders. MERGED across scenes. */
+	let spineBounds = $state<Map<string, { x: number; y: number; w: number; h: number }>>(new Map());
 	/** Node ids the PIXI text overlay (`EditorTextLayer`) now renders as real text — the
 	 * 2D canvas steps its HUD-text CHIP aside for these (the overlay owns the text). Text
 	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
@@ -689,6 +695,10 @@
 	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
 	const spineReadyByScene = new Map<string, Set<string>>();
 	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
+	const spineBoundsByScene = new Map<
+		string,
+		Map<string, { x: number; y: number; w: number; h: number }>
+	>();
 	const spineMetaByScene = new Map<string, Map<string, SpineMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
@@ -705,6 +715,15 @@
 		const merged = new Map<string, { w: number; h: number }>();
 		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		spineNaturalSizes = merged;
+	}
+	function mergeSpineBounds(
+		sceneId: string,
+		bounds: Map<string, { x: number; y: number; w: number; h: number }>,
+	): void {
+		spineBoundsByScene.set(sceneId, bounds);
+		const merged = new Map<string, { x: number; y: number; w: number; h: number }>();
+		for (const m of spineBoundsByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		spineBounds = merged;
 	}
 	function mergeSpineMeta(sceneId: string, meta: Map<string, SpineMeta>): void {
 		spineMetaByScene.set(sceneId, meta);
@@ -746,6 +765,7 @@
 	function forgetScene(id: string): void {
 		spineReadyByScene.delete(id);
 		spineNaturalByScene.delete(id);
+		spineBoundsByScene.delete(id);
 		spineMetaByScene.delete(id);
 		textReadyByScene.delete(id);
 		spineLoadByScene.delete(id);
@@ -760,6 +780,9 @@
 		const nat = new Map<string, { w: number; h: number }>();
 		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
 		spineNaturalSizes = nat;
+		const bnds = new Map<string, { x: number; y: number; w: number; h: number }>();
+		for (const m of spineBoundsByScene.values()) for (const [k, v] of m) bnds.set(k, v);
+		spineBounds = bnds;
 		const ids = new Set<string>();
 		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
 		readyTextIds = ids;
@@ -1071,7 +1094,7 @@
 	}
 
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
-	function naturalSize(node: LayoutNode): { w: number; h: number } | null {
+	function naturalSize(node: LayoutNode): NaturalSize | null {
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
 		// math frames the rendered art, not an empty container).
 		const art = artNaturalSize(node);
@@ -1087,6 +1110,16 @@
 		// Without this the box/hit-test falls back to a tiny default (the assetKey is a
 		// bundle prefix, never an image key, so the `images` lookup below always misses).
 		if (node.kind === 'spine') {
+			// Prefer the TRUE setup-pose bounds: frame the VISIBLE art at its real extent +
+			// origin offset, so an off-origin symbol spine boxes where it actually renders.
+			// `ax`/`ay` encode where the bone origin sits within the box (canvas y-down):
+			//   ax = -x / w ;  ay = (y + h) / h   (x/y/w/h are skeleton y-up bounds).
+			// An origin-centred canvas (x=-w/2, y=-h/2) yields ax=ay=0.5 — identical to the
+			// prior anchor-0.5 box, so symmetric spines are unaffected.
+			const b = spineBounds.get(node.assetKey);
+			if (b && b.w > 0 && b.h > 0) {
+				return { w: b.w, h: b.h, ax: -b.x / b.w, ay: (b.y + b.h) / b.h };
+			}
 			const sz = spineNaturalSizes.get(node.assetKey);
 			if (sz) return sz;
 		}
@@ -2883,6 +2916,10 @@
 					}}
 					onNaturalSizesChange={(sizes) => {
 						mergeSpineNatural(s.id, sizes);
+						schedule();
+					}}
+					onNaturalBoundsChange={(bounds) => {
+						mergeSpineBounds(s.id, bounds);
 						schedule();
 					}}
 					onSpineMetaChange={(meta) => {

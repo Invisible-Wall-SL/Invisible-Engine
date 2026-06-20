@@ -116,11 +116,18 @@ export interface NodeBox {
 	ay: number;
 }
 
+/** Natural size of a node's art. `ax`/`ay`, when present, are a precomputed origin
+ * fraction (where the node's transform origin sits within the box, 0..1) — used for a
+ * spine whose visible setup-pose bounds are offset from its bone origin, so the box
+ * frames the real art instead of an origin-centred guess. Absent ⇒ the box anchors on
+ * the node's own `transform.anchor` (every non-spine node). */
+export type NaturalSize = { w: number; h: number; ax?: number; ay?: number };
+
 /** Resolve a sensible local-space box for any node kind. */
 export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
-	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
+	naturalSize: (node: LayoutNode) => NaturalSize | null,
 	componentMap?: Map<string, ComponentDef>,
 	layoutType?: LayoutType,
 ): NodeBox {
@@ -158,11 +165,14 @@ export function nodeBox(
 	if (node.kind === 'spine') {
 		// Frame the spine at its real setup-pose bounds (reported by the WebGL overlay via
 		// `naturalSize`), like a sprite — not a fixed 160×100, which leaves the transform
-		// box far smaller than the rendered skeleton.
+		// box far smaller than the rendered skeleton. When the overlay also reports the
+		// origin fraction (`ax`/`ay` — where the bone origin sits within those bounds), the
+		// box frames the VISIBLE art even if it's offset from the origin (a symbol spine
+		// reused as a full-art element); otherwise fall back to the node's own anchor.
 		const nat = naturalSize(node);
 		const w = t.width ?? nat?.w ?? 160;
 		const h = t.height ?? nat?.h ?? 100;
-		return { w, h, ax, ay };
+		return { w, h, ax: nat?.ax ?? ax, ay: nat?.ay ?? ay };
 	}
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
@@ -198,7 +208,7 @@ export function nodeBox(
  */
 function componentInstanceContentBox(
 	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
-	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
+	naturalSize: (node: LayoutNode) => NaturalSize | null,
 	componentMap: Map<string, ComponentDef>,
 	layoutType: LayoutType,
 	depth: number,
