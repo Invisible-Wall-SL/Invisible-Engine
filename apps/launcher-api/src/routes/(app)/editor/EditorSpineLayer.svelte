@@ -135,6 +135,8 @@
 	// TEMP DEBUG (remove after capture): keys already probed, so the bounds log fires
 	// once per spine, not per publish.
 	const probedBounds = new Set<string>();
+	// TEMP DEBUG (remove after capture): nested-spine node ids already logged.
+	const probedNested = new Set<string>();
 	function publishReady(): void {
 		const next = new Set<string>();
 		const sizes = new Map<string, { w: number; h: number }>();
@@ -479,6 +481,44 @@
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
 		const det = a * d - b * c;
+		// TEMP DEBUG (remove after capture): log the full render-side composition for a
+		// nested spine — the per-node raw transforms (incl. screenAnchor) + scene space +
+		// frame + composed world — to compare against where the 2D selection box lands.
+		if (!probedNested.has(node.id)) {
+			probedNested.add(node.id);
+			const raw = resolveTransform(node, layoutType);
+			console.log('[IE nested-probe]', node.id, {
+				sceneSpace: sc.space,
+				frameWidth,
+				frameHeight,
+				spineRaw: {
+					x: raw.x,
+					y: raw.y,
+					scaleX: raw.scale?.x,
+					scaleY: raw.scale?.y,
+					anchorX: raw.anchor?.x,
+					anchorY: raw.anchor?.y,
+					screenAnchorX: raw.screenAnchor?.x,
+					screenAnchorY: raw.screenAnchor?.y,
+				},
+				spineChildLocal: childLocalTransform(node, layoutType, sc.space, frameWidth, frameHeight),
+				chain: chain.map((n) => {
+					const rt = resolveTransform(n, layoutType);
+					return {
+						id: n.id,
+						kind: n.kind,
+						x: rt.x,
+						y: rt.y,
+						scaleX: rt.scale?.x,
+						scaleY: rt.scale?.y,
+						screenAnchorX: rt.screenAnchor?.x,
+						screenAnchorY: rt.screenAnchor?.y,
+					};
+				}),
+				topWorld: worldTransformOf(chain[0], sc),
+				composedWorld: { a, b, c, d, tx, ty },
+			});
+		}
 		return {
 			nodeId: node.id,
 			assetKey: node.assetKey,
