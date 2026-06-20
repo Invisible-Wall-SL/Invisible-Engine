@@ -360,11 +360,16 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 					gameType,
 				});
 				flushWins();
-				// Regulatory: surface the win after EACH free spin (not just the
-				// total at the end). Update the WIN meter to the running total so
-				// far on every bonus spin; the per-spin amount is also narrated by
-				// the winInfo toast.
-				if (gameType === 'freegame') {
+				// Bank the running total into the WIN meter after EACH free spin
+				// AND on the trigger spin — a base spin that pays its own line/
+				// scatter wins and then enters the bonus (spinTrigger seen, so
+				// totalFs > 0, but gameType is still 'basegame' here). Without this
+				// the trigger-spin payout glows via winInfo but never reaches the
+				// meter: it would silently roll into the round total only at the
+				// very end, reading as "shown but never paid". Emitting it now
+				// credits it visibly before the free-spin intro (freeSpinTrigger)
+				// takes over. runningTotal only grows, so the meter never steps back.
+				if (gameType === 'freegame' || totalFs > 0) {
 					push({ type: 'setTotalWin', amount: runningTotal });
 				}
 				break;
