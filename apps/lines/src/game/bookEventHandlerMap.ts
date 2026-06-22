@@ -81,6 +81,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		await eventEmitter.broadcastAsync({ type: 'uiHide' });
 		await eventEmitter.broadcastAsync({ type: 'transition' });
 		eventEmitter.broadcast({ type: 'freeSpinIntroShow' });
+		stateUi.freeSpinIntroShow = true;
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'jng_intro_fs' });
 		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
 		await eventEmitter.broadcastAsync({
@@ -89,6 +90,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 		stateGame.gameType = 'freegame';
 		eventEmitter.broadcast({ type: 'freeSpinIntroHide' });
+		stateUi.freeSpinIntroShow = false;
 		eventEmitter.broadcast({ type: 'boardFrameGlowShow' });
 		eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
 		stateUi.freeSpinCounterShow = true;
@@ -120,6 +122,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateGame.gameType = 'basegame';
 		eventEmitter.broadcast({ type: 'boardFrameGlowHide' });
 		eventEmitter.broadcast({ type: 'freeSpinOutroShow' });
+		stateUi.freeSpinOutroShow = true;
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_youwon_panel' });
 		winLevelSoundsPlay({ winLevelData });
 		await eventEmitter.broadcastAsync({
@@ -129,6 +132,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 		winLevelSoundsStop();
 		eventEmitter.broadcast({ type: 'freeSpinOutroHide' });
+		stateUi.freeSpinOutroShow = false;
 		eventEmitter.broadcast({ type: 'freeSpinCounterHide' });
 		eventEmitter.broadcast({ type: 'specialBookHide' });
 		stateGame.specialSymbol = null;
@@ -142,6 +146,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		const winLevelData = winLevelMap[bookEvent.winLevel as WinLevel];
 
 		eventEmitter.broadcast({ type: 'winShow' });
+		stateUi.winShow = true;
+		stateUi.bigWinShow = winLevelData?.type === 'big';
 		winLevelSoundsPlay({ winLevelData });
 		await eventEmitter.broadcastAsync({
 			type: 'winUpdate',
@@ -150,6 +156,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 		winLevelSoundsStop();
 		eventEmitter.broadcast({ type: 'winHide' });
+		stateUi.winShow = false;
+		stateUi.bigWinShow = false;
 	},
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing

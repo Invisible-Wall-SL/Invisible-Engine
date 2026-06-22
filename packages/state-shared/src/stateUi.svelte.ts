@@ -94,6 +94,15 @@ export const stateUi = $state({
 	freeSpinCounterShow: false,
 	freeSpinCounterCurrent: 0,
 	freeSpinCounterTotal: 0,
+	// Round-lifecycle gates for screen/component visibility (a `Scene.visibleSource` or a
+	// component `visibleSource` param binds to these): true only while that presentation
+	// phase is on screen. Driven by the game's book-event handlers, alongside the existing
+	// freeSpinIntro/Outro/win show↔hide event broadcasts. (free-game / base-game are derived
+	// from `stateGame.gameType` in the game, so they aren't duplicated here.)
+	freeSpinIntroShow: false,
+	freeSpinOutroShow: false,
+	winShow: false,
+	bigWinShow: false,
 	menuOpen: false,
 	drawerFold: false,
 	drawerButtonShow: false,

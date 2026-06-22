@@ -61,7 +61,7 @@
 	import type { Scene } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
-	import { setBoardOverride } from '../game/stateGame.svelte';
+	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
 	import { textSource } from '../game/textSource.svelte';
@@ -302,6 +302,17 @@
 		// only while the boot asset-load is in flight, so it hides the moment loading
 		// completes — the engine-layout equivalent of the coded splash's `{#if !loaded}`.
 		assetsLoading: boolSource(() => !stateApp.loaded),
+		// Round-lifecycle gates — bind a whole authored SCREEN (`Scene.visibleSource`) or a
+		// single component so it shows ONLY during that presentation phase, the engine-layout
+		// equivalent of the coded intro/outro/win gates' book-event self-show/hide. The
+		// intro/outro/win flags are set in `bookEventHandlerMap` next to the matching event
+		// broadcasts; free-game / base-game derive from `gameType`.
+		freeSpinIntroShow: boolSource(() => stateUi.freeSpinIntroShow),
+		freeSpinOutroShow: boolSource(() => stateUi.freeSpinOutroShow),
+		freeGameShow: boolSource(() => stateGame.gameType === 'freegame'),
+		baseGameShow: boolSource(() => stateGame.gameType === 'basegame'),
+		winShow: boolSource(() => stateUi.winShow),
+		bigWinShow: boolSource(() => stateUi.bigWinShow),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
