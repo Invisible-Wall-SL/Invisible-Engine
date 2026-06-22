@@ -566,6 +566,19 @@ export interface ComponentDef {
 	version: number;
 	scope: 'shared' | 'project';
 	category: ComponentCategory;
+	/**
+	 * The coordinate space this component is authored + previewed in, mirroring a
+	 * {@link Scene.space}. Absent ⇒ `'game'` (the default): nodes are in the host
+	 * game's MAIN-box coords and the editor previews them through the same
+	 * `<MainContainer>` map the runtime uses (so a component is WYSIWYG against the
+	 * project's real main box, NOT a neutral 1920×1080 frame). Set `'canvas'` for a
+	 * full-window OVERLAY (a free-spin intro dim, a modal scrim): nodes are raw
+	 * window pixels and the editor previews them full-frame — matching a runtime
+	 * `space:'canvas'` screen (no MainContainer). This is an authoring/preview hint;
+	 * at runtime the component still inherits the host scene's space, so mount a
+	 * `'canvas'` component inside a `space:'canvas'` screen for editor↔game parity.
+	 */
+	space?: Scene['space'];
 	/** The reusable sub-tree, authored on the same canvas as a scene. */
 	root: ContainerNode;
 	/** Typed inputs an instance or the engine can set. */

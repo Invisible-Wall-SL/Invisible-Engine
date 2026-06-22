@@ -92,13 +92,27 @@
 	 * array IS `root.children`). The exact pattern from `/editor`'s component mode. */
 	const componentScene = $derived.by<Scene | undefined>(() =>
 		componentDraft
-			? { id: 's_component', name: componentDraft.name, nodes: componentDraft.root.children }
+			? {
+					id: 's_component',
+					name: componentDraft.name,
+					nodes: componentDraft.root.children,
+					// Preview in the component's authoring space (default 'game' → mapped
+					// through the project's MAIN box like the runtime; 'canvas' → full-window
+					// overlay). This is what makes the Component Editor WYSIWYG with the game.
+					space: componentDraft.space ?? 'game',
+				}
 			: undefined,
 	);
 
-	/** The component authors in a neutral, fixed design box (no project doc here).
-	 * The standard box is a self-contained frame around just the component. */
+	/** The preview FRAME is the standard window (its aspect comfortably contains the
+	 * project's main box at `mainScale`) — same choice the Scene Editor makes. The
+	 * game-space mapping below scales the project's real main box into this window. */
 	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
+
+	/** The project's real MAIN box (e.g. 1422×800 for Borut) — game-space component
+	 * nodes are mapped through THIS box (exactly as `<MainContainer>` / the Scene
+	 * Editor do), so placement matches the game instead of a neutral 1920×1080 box. */
+	const projectMainSizes = $derived(data.mainSizesMap ?? STANDARD_MAIN_SIZES_MAP);
 
 	/**
 	 * Resolved params fed to the canvas preview (§13.4): just the def's own param
@@ -579,6 +593,15 @@
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 	}
 
+	/** Set the component's authoring/preview SPACE. 'game' is the default → store it
+	 * as absent (cleaner doc); 'canvas' marks a full-window overlay. Changes the
+	 * preview frame immediately and is persisted on the next Save. */
+	function setComponentSpace(space: 'game' | 'canvas'): void {
+		if (!componentDraft) return;
+		if (space === 'canvas') componentDraft.space = 'canvas';
+		else delete componentDraft.space;
+	}
+
 	/** Drag payload for a palette ELEMENT (Text/Container/Rect) — the canvas spawns
 	 * the matching kind. Same wire format as a Library asset drag. */
 	function onElementDragStart(
@@ -615,6 +638,20 @@
 				<span class="save-pill" title="The component currently open for editing">
 					◇ {componentDraft.name}
 				</span>
+				<label
+					class="space-toggle"
+					title="Game = positioned in the game's main box (board-relative; WYSIWYG against this project's layout). Canvas = a full-window overlay (free-spin intro dim, modal scrim) authored in raw window pixels. A Canvas component must be mounted in a Canvas-space screen for editor↔game parity."
+				>
+					Space
+					<select
+						value={componentDraft.space ?? 'game'}
+						onchange={(e) =>
+							setComponentSpace(e.currentTarget.value === 'canvas' ? 'canvas' : 'game')}
+					>
+						<option value="game">Game (main box)</option>
+						<option value="canvas">Canvas (full-window overlay)</option>
+					</select>
+				</label>
 				{#if saveBusy}
 					<span class="save-pill busy">Saving…</span>
 				{:else if saveStatus?.kind === 'error'}
@@ -791,7 +828,7 @@
 				<EditorCanvas
 					scene={componentScene}
 					scenes={[componentScene]}
-					mainSizesMap={STANDARD_MAIN_SIZES_MAP}
+					mainSizesMap={projectMainSizes}
 					frameWidth={frameSize.width}
 					frameHeight={frameSize.height}
 					layoutType={currentLayoutType}
@@ -921,6 +958,22 @@
 		border: 1px solid #2a2a33;
 		color: #c8c8d0;
 		white-space: nowrap;
+	}
+	.space-toggle {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 11px;
+		color: #888;
+		white-space: nowrap;
+	}
+	.space-toggle select {
+		font-size: 11px;
+		padding: 2px 6px;
+		border-radius: 6px;
+		border: 1px solid #2a2a33;
+		background: #14141a;
+		color: #c8c8d0;
 	}
 	.save-pill.busy {
 		color: #d8c0ff;

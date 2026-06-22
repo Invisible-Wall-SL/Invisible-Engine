@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { listComponents } from '$lib/server/componentStorage';
+import { loadDoc } from '$lib/server/editorStorage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -35,18 +36,31 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [components, assets, componentDefaults] = await Promise.all([
+	const [components, assets, componentDefaults, doc] = await Promise.all([
 		// Components the project can use (shared + project, project shadowing shared, §8.3).
 		listComponents({ projectKey }),
 		listProjectAssets(clientKey, projectKey),
 		// Per-project author-set param defaults, by component id (§13.3) — hydrates the
 		// Defaults controls + the non-empty canvas preview without a second round-trip.
 		listComponentDefaults(projectKey),
+		// The project's editor doc — only for its `mainSizesMap` (the game's real MAIN
+		// box, e.g. 1422×800 for Borut). The Component Editor previews game-space
+		// components through this box (same as the Scene Editor), so what's authored
+		// matches the game instead of a neutral 1920×1080 frame.
+		loadDoc(clientKey, projectKey),
 	]);
 	// Optional deep-link target: `/components?id=<id>` opens that component on mount.
 	// `/editor`'s "Open in Component Editor" sends `&project=` too — that param is now
 	// honoured by `resolveToolScope` above (project-explicit scoping), so the page
 	// binds to the editor's project; here we only need to read the id.
 	const openId = url.searchParams.get('id') || null;
-	return { clientKey, projectKey, components, assets, componentDefaults, openId };
+	return {
+		clientKey,
+		projectKey,
+		components,
+		assets,
+		componentDefaults,
+		openId,
+		mainSizesMap: doc.mainSizesMap,
+	};
 };

@@ -238,6 +238,11 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		category: raw.category,
 		root: identityComponentRoot(raw.root),
 	};
+	// Authoring/preview space (default 'game' = omitted). Only persist a non-default
+	// value the editor understands; an unknown/absent value falls back to game space.
+	if (raw.space === 'canvas' || raw.space === 'standard' || raw.space === 'background') {
+		def.space = raw.space;
+	}
 	const params = normalizeParams(raw.params);
 	if (params.length) def.params = params;
 	const signals = normalizeSignals(raw.signals);
