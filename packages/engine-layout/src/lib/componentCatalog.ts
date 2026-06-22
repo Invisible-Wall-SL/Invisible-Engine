@@ -40,6 +40,12 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'Composed "current OF total" free-spin counter string.',
 	},
 	{
+		key: 'freeSpinsWon',
+		kind: 'number',
+		label: 'Free Spins Won',
+		note: 'Total free spins awarded — the intro headline count (available during the intro).',
+	},
+	{
 		key: 'message',
 		kind: 'string',
 		label: 'Message',

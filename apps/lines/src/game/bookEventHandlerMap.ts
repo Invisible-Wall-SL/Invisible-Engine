@@ -80,6 +80,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_superfreespin' });
 		await eventEmitter.broadcastAsync({ type: 'uiHide' });
 		await eventEmitter.broadcastAsync({ type: 'transition' });
+		// Set the awarded-count BEFORE the intro shows, so a `freeSpinsWon`-bound readout in
+		// an authored intro screen has the total while the intro is on screen (the counter
+		// total is otherwise set further down, after the intro hides).
+		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
 		eventEmitter.broadcast({ type: 'freeSpinIntroShow' });
 		stateUi.freeSpinIntroShow = true;
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'jng_intro_fs' });

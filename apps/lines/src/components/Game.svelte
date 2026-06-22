@@ -254,7 +254,17 @@
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
+		// `totalWin` is the round/feature win total — the value a free-spin OUTRO shows. The
+		// engine tracks one win-meter amount (`winBookEventAmount`), which by the outro holds
+		// the accumulated feature total, so `totalWin` reads the same field as `win` but is the
+		// clearly-labelled param to bind an outro readout to (catalog entry was previously
+		// declared but never fed → binding it showed nothing).
+		totalWin: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
 		bet: valueSource(() => stateBetDerived.betCost(), numberToCurrencyString),
+		// Plain count of free spins awarded — the INTRO headline ("10"). Set early in the
+		// `freeSpinTrigger` handler (before the intro shows) so it's populated while the intro
+		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
+		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
 		// Composed-string feed for the `freeSpinCounter` def's `value` param — the live
 		// "current OF total" the counter shows, sourced from the SAME `stateUi` fields the
 		// old coded overlay read (set in bookEventHandlerMap). A string source, so it
