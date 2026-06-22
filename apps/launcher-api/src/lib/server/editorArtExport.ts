@@ -36,7 +36,7 @@ import {
 	loadSkeletonIndex,
 	type ExportedSpineEntry,
 } from './spine';
-import { deleteObjects, getObjectBytes, listAllKeys, putObjectText, putObjectBytes } from './r2';
+import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 
 export interface EditorArtSheet {
 	/** The manifest R2 key the doc references (`SpriteNode.assetKey`). */
@@ -283,19 +283,19 @@ export async function exportEditorArt(
 		exported.add(manifestKey);
 		const set = preloaded ?? (await loadRegionSet(manifestKey, clientKey, projectKey));
 		if (set.regions.length === 0 || !set.pageKey) return;
-		const page = await getObjectBytes(set.pageKey);
-		if (!page) return;
 
 		let stem = stemFromManifestKey(manifestKey);
 		for (let i = 2; usedStems.has(stem); i++) stem = `${stemFromManifestKey(manifestKey)}_${i}`;
-		usedStems.add(stem);
 
 		const pageExt = set.pageKey.toLowerCase().endsWith('.webp') ? 'webp' : 'png';
 		const pageFile = `${stem}.${pageExt}`;
 		const jsonRel = `editor-art/${stem}/${stem}.json`;
 		const pageRel = `editor-art/${stem}/${pageFile}`;
 
-		await putObjectBytes(`${deployPrefix}${pageRel}`, page.body, page.contentType);
+		// Server-side copy the packed page verbatim (no bytes through this process —
+		// keeps peak memory flat); a missing source is skipped (the manifest is dropped).
+		if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
+		usedStems.add(stem);
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
 			toTexturePackerJson(set, pageFile),
@@ -334,14 +334,13 @@ export async function exportEditorArt(
 	// single-texture asset under the node's full assetKey so the lookup matches.
 	const images: EditorArtImage[] = [];
 	for (const imageKey of refs.imageKeys) {
-		const img = await getObjectBytes(imageKey);
-		if (!img) continue;
 		const base = imageKey.slice(imageKey.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9._-]/g, '_');
 		let file = `editor-art/img/${base}`;
 		for (let i = 2; written.has(`${deployPrefix}${file}`); i++) {
 			file = `editor-art/img/${i}_${base}`;
 		}
-		await putObjectBytes(`${deployPrefix}${file}`, img.body, img.contentType);
+		// Server-side copy the page image verbatim (memory-flat); skip a missing source.
+		if (!(await copyObject(imageKey, `${deployPrefix}${file}`))) continue;
 		written.add(`${deployPrefix}${file}`);
 		images.push({ key: imageKey, file });
 	}

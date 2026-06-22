@@ -25,14 +25,7 @@
 import type { FontCatalog, FontEntry } from 'engine-layout';
 import { resolveFontBundlePrefix, resolveFontCatalogRoot } from './fonts';
 import { SUB } from './projectPaths';
-import {
-	deleteObjects,
-	getObjectBytes,
-	getObjectText,
-	listAllKeys,
-	putObjectBytes,
-	putObjectText,
-} from './r2';
+import { copyObject, deleteObjects, getObjectText, listAllKeys, putObjectText } from './r2';
 
 export interface FontExportIndex {
 	/** The catalog of fonts actually exported. `prefix` is the `static/assets/`
@@ -93,10 +86,10 @@ export async function exportEditorFonts(
 
 		let copied = 0;
 		for (const name of files) {
-			const obj = await getObjectBytes(`${srcPrefix}/${name}`);
-			if (!obj) continue;
 			const destKey = `${fontsPrefix}${f.folder}/${name}`;
-			await putObjectBytes(destKey, obj.body, obj.contentType);
+			// Server-side copy the font file verbatim (no bytes through this process —
+			// keeps peak memory flat); skip a missing source file.
+			if (!(await copyObject(`${srcPrefix}/${name}`, destKey))) continue;
 			written.add(destKey);
 			copied++;
 		}

@@ -154,15 +154,38 @@ export async function deleteObjects(keys: string[]): Promise<void> {
 	}
 }
 
-/** Server-side copy of one object to another key (R2 has no native move). */
-export async function copyObject(srcKey: string, destKey: string): Promise<void> {
-	await s3().send(
-		new CopyObjectCommand({
-			Bucket: ENV.R2_BUCKET,
-			CopySource: encodeURIComponent(`${ENV.R2_BUCKET}/${srcKey}`),
-			Key: destKey,
-		}),
-	);
+/**
+ * Server-side copy of one object to another key (R2 has no native move). The bytes
+ * are copied inside R2 — they NEVER stream through this process — so this is the
+ * memory-flat way to duplicate an object verbatim (vs `getObjectBytes` →
+ * `putObjectBytes`, which buffers the whole object in the Node heap and OOMs the
+ * container when several large pages/bundles are copied back-to-back).
+ *
+ * Returns `false` (no-op) when the source is missing — mirroring `getObjectBytes`'s
+ * null-on-404 — so a caller can skip a missing page/file without a separate HEAD.
+ * Pass `contentType` to override the destination's `Content-Type` (forces a metadata
+ * REPLACE) — e.g. shipping a Rigger `.irig` skeleton under a `.json` name; omit it to
+ * preserve the source's metadata.
+ */
+export async function copyObject(
+	srcKey: string,
+	destKey: string,
+	contentType?: string,
+): Promise<boolean> {
+	try {
+		await s3().send(
+			new CopyObjectCommand({
+				Bucket: ENV.R2_BUCKET,
+				CopySource: encodeURIComponent(`${ENV.R2_BUCKET}/${srcKey}`),
+				Key: destKey,
+				...(contentType ? { ContentType: contentType, MetadataDirective: 'REPLACE' } : {}),
+			}),
+		);
+		return true;
+	} catch (e) {
+		if (isNotFound(e)) return false;
+		throw e;
+	}
 }
 
 export async function objectExists(key: string): Promise<boolean> {

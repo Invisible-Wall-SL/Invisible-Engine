@@ -3,11 +3,11 @@ import { roleHasTool } from '$lib/roles';
 import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
 import { pickDeployedPage } from './deployedPage';
 import {
+	copyObject,
 	getObjectBytes,
 	getObjectText,
 	listAllObjects,
 	objectExists,
-	putObjectBytes,
 	putObjectText,
 	type ListedObject,
 } from './r2';
@@ -430,8 +430,11 @@ export async function exportSpineBundle(opts: {
 	const atlasText = await getObjectText(`${prefix}/${entry.atlas_file}`);
 	if (atlasText === null) return null;
 
-	const skel = await getObjectBytes(`${prefix}/${entry.skeleton_file}`);
-	if (!skel) return null;
+	// Confirm the skeleton exists before writing anything (no orphaned atlas on a
+	// half-resolved bundle); the bytes themselves never load into this process —
+	// they're server-side copied below, keeping peak memory flat.
+	const skelSrc = `${prefix}/${entry.skeleton_file}`;
+	if (!(await objectExists(skelSrc))) return null;
 
 	const dir = `${subtree}/${stem}`;
 
@@ -443,23 +446,24 @@ export async function exportSpineBundle(opts: {
 	);
 	written.push(`${deployPrefix}${dir}/${entry.atlas_file}`);
 
-	// Skeleton — bytes verbatim, but a Rigger `.irig` ships under a `.json` name.
+	// Skeleton — server-side copy verbatim, but a Rigger `.irig` ships under a `.json`
+	// name (PIXI.Assets resolves the parser by extension; `.irig` is unknown), so
+	// override the Content-Type for that rename; otherwise the source's is preserved.
 	const isIrig = entry.skeleton_file.toLowerCase().endsWith('.irig');
 	const skeletonOut = isIrig
 		? entry.skeleton_file.replace(/\.irig$/i, '.json')
 		: entry.skeleton_file;
-	await putObjectBytes(
+	await copyObject(
+		skelSrc,
 		`${deployPrefix}${dir}/${skeletonOut}`,
-		skel.body,
-		isIrig ? 'application/json' : skel.contentType,
+		isIrig ? 'application/json' : undefined,
 	);
 	written.push(`${deployPrefix}${dir}/${skeletonOut}`);
 
-	// Page images the atlas references — copied verbatim under their own names.
+	// Page images the atlas references — server-side copied verbatim under their own
+	// names (the heaviest objects; copying in R2 is what keeps the export memory-flat).
 	for (const pageName of atlasPageNames(atlasText)) {
-		const obj = await getObjectBytes(`${prefix}/${pageName}`);
-		if (!obj) continue;
-		await putObjectBytes(`${deployPrefix}${dir}/${pageName}`, obj.body, obj.contentType);
+		if (!(await copyObject(`${prefix}/${pageName}`, `${deployPrefix}${dir}/${pageName}`))) continue;
 		written.push(`${deployPrefix}${dir}/${pageName}`);
 	}
 

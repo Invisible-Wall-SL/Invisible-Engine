@@ -43,7 +43,7 @@ import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
 import { exportSpineBundle, loadSkeletonIndex } from './spine';
-import { deleteObjects, getObjectBytes, listAllKeys, putObjectBytes, putObjectText } from './r2';
+import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 import { loadSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
 
 /** A sprite sheet a symbol binding references. `key` is the source manifest (kept
@@ -230,8 +230,6 @@ export async function exportEditorSymbols(
 		if (exportedManifests.has(set.assetKey)) return;
 		exportedManifests.add(set.assetKey);
 		if (set.regions.length === 0 || !set.pageKey) return;
-		const page = await getObjectBytes(set.pageKey);
-		if (!page) return;
 
 		const stem = claimStem(set.assetKey);
 		const pageExt = set.pageKey.toLowerCase().endsWith('.webp') ? 'webp' : 'png';
@@ -239,7 +237,9 @@ export async function exportEditorSymbols(
 		const jsonRel = `${EXPORT_SUBTREE}/${stem}/${stem}.json`;
 		const pageRel = `${EXPORT_SUBTREE}/${stem}/${pageFile}`;
 
-		await putObjectBytes(`${deployPrefix}${pageRel}`, page.body, page.contentType);
+		// Server-side copy the packed page verbatim (no bytes through this process —
+		// keeps peak memory flat); skip if the source page is missing.
+		if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
 			toTexturePackerJson(set, pageFile),
