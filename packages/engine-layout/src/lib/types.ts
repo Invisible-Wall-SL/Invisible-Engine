@@ -410,6 +410,19 @@ export interface Scene {
 		vertical?: 'center' | 'bottom';
 		horizontal?: 'center' | 'left' | 'right';
 	};
+	/**
+	 * Game-lifecycle gate for the WHOLE screen: a key into the game's registered
+	 * visibility feeds (the same `registerComponentVisibility` registry a component's
+	 * `visibleSource` param binds to — see {@link VISIBILITY_SOURCE_KEYS}). When set AND
+	 * the game registered a `BoolSource` for it, `<LayoutScene>` wraps the screen in a
+	 * `<Container visible={…}>` so it shows ONLY while that state is active (e.g. a
+	 * "Free-spin intro" screen bound to `freeSpinIntroShow` appears only during the
+	 * intro, instead of always). Absent / unregistered ⇒ the screen renders always
+	 * (today's behaviour). The editor keeps rendering the screen for authoring,
+	 * regardless — the gate is a runtime concern. Mirrors the per-component gate so
+	 * authored overlay content follows the round lifecycle without per-node wiring.
+	 */
+	visibleSource?: string;
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed

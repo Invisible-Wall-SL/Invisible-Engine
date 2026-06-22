@@ -103,7 +103,34 @@ export const VISIBILITY_SOURCE_KEYS: string[] = [
 	'freeSpinCounterShow',
 	'messageShow',
 	'assetsLoading',
+	// Round-lifecycle gates — drive a whole SCREEN ({@link Scene.visibleSource}) or a
+	// single component so authored overlay content follows the round flow (free-spin
+	// intro/outro presentation, the free-game session, win/big-win celebration, the
+	// resting base game). A game registers the subset it drives; unregistered = ungated.
+	'freeSpinIntroShow',
+	'freeSpinOutroShow',
+	'freeGameShow',
+	'winShow',
+	'bigWinShow',
+	'baseGameShow',
 ];
+
+/**
+ * Human labels for {@link VISIBILITY_SOURCE_KEYS} — the editor's "Shows during"
+ * dropdown (the screen lifecycle gate + the per-component `visibleSource` param)
+ * renders these instead of the raw key. A key without an entry falls back to itself.
+ */
+export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
+	freeSpinCounterShow: 'Free spins (counter active)',
+	messageShow: 'A message/toast is showing',
+	assetsLoading: 'Loading (boot)',
+	freeSpinIntroShow: 'Free-spin intro',
+	freeSpinOutroShow: 'Free-spin outro',
+	freeGameShow: 'Free game (during free spins)',
+	winShow: 'Win',
+	bigWinShow: 'Big win',
+	baseGameShow: 'Base game / idle',
+};
 
 /**
  * Canonical HUD button action keys the parametric Button's `action` param selects
