@@ -2610,6 +2610,43 @@
 					</div>
 				{/if}
 			</section>
+		{:else if node.kind === 'rect'}
+			<section>
+				<h3>Rect</h3>
+				<div class="row">
+					<label class="field">
+						<span>width</span>
+						<input
+							type="number"
+							step="1"
+							value={t.width ?? node.width}
+							oninput={(e) => setSpriteSize(node, 'width', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+					<label class="field">
+						<span>height</span>
+						<input
+							type="number"
+							step="1"
+							value={t.height ?? node.height}
+							oninput={(e) => setSpriteSize(node, 'height', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+				</div>
+				<div class="row">
+					<label class="field wide">
+						<span>colour</span>
+						<input
+							type="color"
+							value={hexFrom(node.color)}
+							onchange={(e) => setRectColor(node, e.currentTarget.value)}
+						/>
+					</label>
+				</div>
+				<p class="muted small">
+					Opacity is the <strong>Transform → alpha</strong> above (0 = transparent, 1 = solid).
+				</p>
+			</section>
 		{/if}
 	{/if}
 {/if}
