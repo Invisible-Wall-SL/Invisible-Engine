@@ -26,6 +26,7 @@
 	// plain imports). `/editor` keeps owning them — this tool is the standalone
 	// authoring slice that used to live as "component mode" inside the editor.
 	import EditorCanvas from '../editor/EditorCanvas.svelte';
+	import EditorElementsPalette from '../editor/EditorElementsPalette.svelte';
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
@@ -903,28 +904,7 @@
 					{#if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
 							<ul>
-								<li
-									draggable="true"
-									ondragstart={(e) => onAssetDragStart(e, { kind: 'text', key: '', name: 'Text' })}
-								>
-									<span class="name">Text</span>
-									<span class="tag">text</span>
-								</li>
-								<li
-									draggable="true"
-									ondragstart={(e) =>
-										onAssetDragStart(e, { kind: 'container', key: '', name: 'Group' })}
-								>
-									<span class="name">Container</span>
-									<span class="tag">group</span>
-								</li>
-								<li
-									draggable="true"
-									ondragstart={(e) => onAssetDragStart(e, { kind: 'rect', key: '', name: 'Rect' })}
-								>
-									<span class="name">Rect</span>
-									<span class="tag">fill</span>
-								</li>
+								<EditorElementsPalette onElementDragStart={onAssetDragStart} />
 							</ul>
 						</PanelSection>
 

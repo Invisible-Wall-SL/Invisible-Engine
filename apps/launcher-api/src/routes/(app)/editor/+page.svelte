@@ -34,6 +34,7 @@
 	import { onMount } from 'svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
+	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
@@ -2492,42 +2493,10 @@
 				{#if leftTab === 'library'}
 					<PanelSection id="lib-elements" title="Elements">
 						<ul>
-							<li
-								draggable="true"
-								ondragstart={(e) => onAssetDragStart(e, { kind: 'text', key: '', name: 'Text' })}
-							>
-								<span class="name">Text</span>
-								<span class="tag">text</span>
-							</li>
-							<li
-								draggable="true"
-								ondragstart={(e) =>
-									onAssetDragStart(e, { kind: 'container', key: '', name: 'Group' })}
-							>
-								<span class="name">Container</span>
-								<span class="tag">group</span>
-							</li>
-							<li
-								draggable="true"
-								ondragstart={(e) => onAssetDragStart(e, { kind: 'rect', key: '', name: 'Rect' })}
-							>
-								<span class="name">Rect</span>
-								<span class="tag">fill</span>
-							</li>
-							<li
-								class="click"
-								class:active={existingReelGrid}
-								title={existingReelGrid
-									? 'This layout already has a reel grid (one per game) — click to select it.'
-									: 'Insert the reel/board placeholder. Drives the in-game board position + cell size.'}
-							>
-								<!-- Real <button> (not a clickable <li>) so keyboard activation +
-									 a11y are native; `display: contents` keeps the palette look identical. -->
-								<button type="button" class="li-btn" onclick={insertReelGrid}>
-									<span class="name">Reel</span>
-									<span class="tag">grid</span>
-								</button>
-							</li>
+							<EditorElementsPalette
+								onElementDragStart={onAssetDragStart}
+								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
+							/>
 						</ul>
 					</PanelSection>
 
