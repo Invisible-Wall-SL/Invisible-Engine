@@ -129,6 +129,12 @@ function normalizeScene(input: unknown): Scene | null {
 	}
 	const align = normalizeAlign(input.align);
 	if (align) scene.align = align;
+	// Preserve the screen's game-lifecycle gate (`Scene.visibleSource`) — a key into the
+	// game's registered visibility feeds, so the screen shows only during that phase
+	// in-game. Free-text (a game may register custom keys); empty/missing = ungated.
+	if (typeof input.visibleSource === 'string' && input.visibleSource) {
+		scene.visibleSource = input.visibleSource;
+	}
 	return scene;
 }
 

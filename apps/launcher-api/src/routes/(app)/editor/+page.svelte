@@ -14,6 +14,8 @@
 		mountAnchor,
 		resolveAnchorPreviewArt,
 		STANDARD_MAIN_SIZES_MAP,
+		VISIBILITY_SOURCE_KEYS,
+		VISIBILITY_SOURCE_LABELS,
 	} from 'engine-layout';
 	import type {
 		ComponentDef,
@@ -794,6 +796,19 @@
 		if (value === 'game') delete sc.space;
 		else sc.space = value as NonNullable<Scene['space']>;
 		if (sc.space !== 'standard') delete sc.align;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Bind the WHOLE screen to a game-lifecycle state (engine `Scene.visibleSource`):
+	 * the game shows it ONLY while that state is active (e.g. Free-spin intro), so authored
+	 * overlay content follows the round flow. `''` clears the gate (renders always). The
+	 * editor keeps rendering the screen regardless so you can still author it. */
+	function setSceneVisibleSource(value: string): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value) sc.visibleSource = value;
+		else delete sc.visibleSource;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -2289,6 +2304,19 @@
 									</label>
 								</div>
 							{/if}
+							<label class="space-field">
+								<span>shows during</span>
+								<select
+									value={activeScene.visibleSource ?? ''}
+									onchange={(e) => setSceneVisibleSource(e.currentTarget.value)}
+									title="Game-lifecycle gate: in-game the WHOLE screen shows only while this state is active (e.g. the Free-spin intro). 'Always' = no gate. The editor always shows the screen so you can author it."
+								>
+									<option value="">Always (no gate)</option>
+									{#each VISIBILITY_SOURCE_KEYS as key (key)}
+										<option value={key}>{VISIBILITY_SOURCE_LABELS[key] ?? key}</option>
+									{/each}
+								</select>
+							</label>
 						</div>
 					{/if}
 
