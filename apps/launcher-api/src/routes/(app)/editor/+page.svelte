@@ -32,6 +32,7 @@
 		TemplateSlot,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
+	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
@@ -40,14 +41,8 @@
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
-	import RegionThumb from './RegionThumb.svelte';
 	import type { SpineMeta } from './spineRuntime.client';
-	import {
-		fetchRegions,
-		regionNaturalSize,
-		type RegionDragPayload,
-		type RegionSet,
-	} from './editorRegions.client';
+	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -115,15 +110,6 @@
 	function clearSelection(): void {
 		selectedIds = [];
 		selectionAnchorId = null;
-	}
-	/** Pre-order (depth-first) ids of a scene's nodes — the order the outliner shows
-	 * rows, so a Shift range-select matches what the user sees. */
-	function flattenSceneIds(nodes: LayoutNode[], out: string[] = []): string[] {
-		for (const n of nodes) {
-			out.push(n.id);
-			if (n.kind === 'container') flattenSceneIds(n.children, out);
-		}
-		return out;
 	}
 	/** Outliner row click with modifiers: Shift = contiguous range from the anchor,
 	 * Ctrl/Cmd = toggle this row, plain = select only this row. */
@@ -274,19 +260,12 @@
 			if (Array.isArray(s.hiddenScenes)) {
 				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
 			}
-			// Restore expanded Library atlases + lazily hydrate their regions.
+			// Restore the expanded Library atlases — <EditorAssetLibrary> hydrates each
+			// open key's regions on mount.
 			if (Array.isArray(s.libExpanded)) {
 				const exp: Record<string, boolean> = {};
 				for (const k of s.libExpanded) if (typeof k === 'string') exp[k] = true;
 				expanded = exp;
-				for (const k of Object.keys(exp)) {
-					if (regionSets[k] === undefined) {
-						regionSets = { ...regionSets, [k]: null };
-						void fetchRegions(k).then((set) => {
-							regionSets = { ...regionSets, [k]: set };
-						});
-					}
-				}
 			}
 		} catch {
 			/* corrupt prefs — ignore */
@@ -405,10 +384,6 @@
 			.map((a) => ({ key: a.key, name: a.name })),
 		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
 	]);
-
-	function genComponentId(): string {
-		return 'c_' + Math.random().toString(36).slice(2, 10);
-	}
 
 	/**
 	 * Normalise a container into a component `root`: identity placement, keeping only
@@ -610,16 +585,6 @@
 	 * — `frameWidth`/`frameHeight` now mean the WINDOW, and each coordinate space maps
 	 * into it the way the engine does at runtime against the live canvas. */
 	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
-	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
-		for (const n of nodes) {
-			if (n.id === id) return n;
-			if (n.kind === 'container') {
-				const found = findById(n.children, id);
-				if (found) return found;
-			}
-		}
-		return null;
-	}
 	const selectedNode = $derived(
 		selectedId && editScene ? findById(editScene.nodes, selectedId) : null,
 	);
@@ -665,52 +630,21 @@
 		flagged: lt !== 'desktop',
 	}));
 
-	function onAssetDragStart(
-		e: DragEvent,
-		asset: { kind: string; key: string; name: string },
-	): void {
-		if (!e.dataTransfer) return;
-		const payload = { kind: asset.kind, key: asset.key, name: asset.name };
-		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
-		e.dataTransfer.effectAllowed = 'copy';
-	}
-
 	// ---------- expandable sheet/atlas region lists ----------
+	// The Library sections + their drag/expand machinery live in <EditorAssetLibrary>;
+	// this page only keeps the expanded set, persisted as workspace UI state below.
 
-	/** Which sheet/atlas keys are currently expanded in the Library. */
+	/** Which sheet/atlas keys are currently expanded in the Library — bound into
+	 * <EditorAssetLibrary>, restored + serialised by the UI-state block above. */
 	let expanded = $state<Record<string, boolean>>({});
-	/** Per-key region set (loaded lazily on first expand; `null` while loading). */
-	let regionSets = $state<Record<string, RegionSet | null>>({});
 
-	async function toggleExpand(key: string): Promise<void> {
-		const open = !expanded[key];
-		expanded = { ...expanded, [key]: open };
-		if (open && regionSets[key] === undefined) {
-			regionSets = { ...regionSets, [key]: null };
-			const set = await fetchRegions(key);
-			regionSets = { ...regionSets, [key]: set };
-		}
-	}
-
-	function onRegionDragStart(
+	/** Drag payload for a palette ELEMENT (Text/Container/Rect) — the canvas spawns
+	 * the matching kind. Same wire format as a Library asset drag. */
+	function onElementDragStart(
 		e: DragEvent,
-		set: RegionSet,
-		region: RegionSet['regions'][number],
+		payload: { kind: string; key: string; name: string },
 	): void {
 		if (!e.dataTransfer) return;
-		const payload: RegionDragPayload = {
-			kind: 'region',
-			key: set.assetKey,
-			name: region.name,
-			region: region.name,
-			pageKey: set.pageKey,
-			rect: { x: region.x, y: region.y, w: region.w, h: region.h },
-			rotated: region.rotated,
-			offX: region.offX,
-			offY: region.offY,
-			origW: region.origW,
-			origH: region.origH,
-		};
 		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
 		e.dataTransfer.effectAllowed = 'copy';
 	}
@@ -1225,18 +1159,6 @@
 			if (ni !== -1) activeSceneIdx = ni;
 		}
 		markDirty();
-	}
-
-	function removeNode(nodes: LayoutNode[], id: string): boolean {
-		const i = nodes.findIndex((n) => n.id === id);
-		if (i !== -1) {
-			nodes.splice(i, 1);
-			return true;
-		}
-		for (const n of nodes) {
-			if (n.kind === 'container' && removeNode(n.children, id)) return true;
-		}
-		return false;
 	}
 
 	function onDeleteNode(id: string): void {
@@ -1928,42 +1850,6 @@
 
 <svelte:head><title>Invisible Scene Editor — Invisible Wall</title></svelte:head>
 
-{#snippet expandable(key: string, name: string, tag: string)}
-	<li class="group" class:open={expanded[key]}>
-		<button type="button" class="grouprow" onclick={() => void toggleExpand(key)}>
-			<span class="caret">{expanded[key] ? '▾' : '▸'}</span>
-			<span class="name">{name}</span>
-			<span class="tag">{tag}</span>
-		</button>
-		{#if expanded[key]}
-			{@const set = regionSets[key]}
-			{#if set === null}
-				<p class="region-note">Loading regions…</p>
-			{:else if !set || set.regions.length === 0}
-				<p class="region-note">No regions found in this {tag}.</p>
-			{:else}
-				<div class="region-grid">
-					{#each set.regions as r (r.name)}
-						{@const ns = regionNaturalSize(r)}
-						<div
-							class="region"
-							draggable="true"
-							role="button"
-							tabindex="0"
-							aria-label={`Drag region ${r.name} (${ns.w}×${ns.h})`}
-							title={`${r.name} · ${ns.w}×${ns.h}`}
-							ondragstart={(e) => onRegionDragStart(e, set, r)}
-						>
-							<RegionThumb {set} region={r} size={48} />
-							<span class="region-name">{r.name}</span>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		{/if}
-	</li>
-{/snippet}
-
 <div class="shell">
 	<header>
 		<div class="brand-wrap">
@@ -2494,37 +2380,27 @@
 					<PanelSection id="lib-elements" title="Elements">
 						<ul>
 							<EditorElementsPalette
-								onElementDragStart={onAssetDragStart}
+								{onElementDragStart}
 								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
 							/>
 						</ul>
 					</PanelSection>
 
-					<PanelSection id="lib-atlases" title="Atlases" count={atlasCount}>
-						<ul>
-							{#each data.assets.atlases as a (a.key)}
-								{#if a.kind === 'atlas-manifest'}
-									{@render expandable(a.key, a.name, 'manifest')}
-								{:else}
-									<li
-										draggable="true"
-										data-asset-kind={a.kind}
-										data-asset-key={a.key}
-										data-asset-name={a.name}
-										ondragstart={(e) => onAssetDragStart(e, a)}
-									>
-										<span class="name">{a.name}</span>
-										<span class="tag">page</span>
-									</li>
-								{/if}
-							{:else}
-								<li class="muted">No atlases yet.</li>
-							{/each}
-						</ul>
-					</PanelSection>
-
-					<PanelSection id="lib-spines" title="Spines" count={spineCount}>
-						{#snippet actions()}
+					<input
+						bind:this={spineFileInput}
+						type="file"
+						multiple
+						webkitdirectory
+						class="hidden-input"
+						onchange={(e) => void onSpinesPicked(e)}
+					/>
+					{#if spineUploadStatus}
+						<p class="upload-status" class:error={spineUploadStatus.kind === 'error'}>
+							{spineUploadStatus.message}
+						</p>
+					{/if}
+					<EditorAssetLibrary assets={data.assets} bind:expanded>
+						{#snippet spineActions()}
 							<button
 								type="button"
 								class="upload-btn"
@@ -2538,47 +2414,7 @@
 								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
 							</button>
 						{/snippet}
-						<input
-							bind:this={spineFileInput}
-							type="file"
-							multiple
-							webkitdirectory
-							class="hidden-input"
-							onchange={(e) => void onSpinesPicked(e)}
-						/>
-						{#if spineUploadStatus}
-							<p class="upload-status" class:error={spineUploadStatus.kind === 'error'}>
-								{spineUploadStatus.message}
-							</p>
-						{/if}
-						<ul>
-							{#each data.assets.spines as s (s.key)}
-								<li
-									draggable="true"
-									data-asset-kind={s.kind}
-									data-asset-key={s.key}
-									data-asset-name={s.name}
-									ondragstart={(e) => onAssetDragStart(e, s)}
-								>
-									<span class="name">{s.name}</span>
-									<span class="tag">spine</span>
-									{#if s.shared}<span class="badge">shared</span>{/if}
-								</li>
-							{:else}
-								<li class="muted">No spines yet.</li>
-							{/each}
-						</ul>
-					</PanelSection>
-
-					<PanelSection id="lib-sheets" title="Sheets" count={sheetCount}>
-						<ul>
-							{#each data.assets.sheets as sh (sh.key)}
-								{@render expandable(sh.key, sh.name, 'sheet')}
-							{:else}
-								<li class="muted">No sheets yet.</li>
-							{/each}
-						</ul>
-					</PanelSection>
+					</EditorAssetLibrary>
 				{:else if leftTab === 'template'}
 					<EditorTemplatePanel
 						template={activeTemplate}
@@ -3301,11 +3137,6 @@
 		color: #888;
 		margin: 0 0 14px;
 	}
-	.count {
-		color: #555;
-		font-weight: 400;
-		font-size: 11px;
-	}
 	.upload-btn {
 		margin-left: auto;
 		background: transparent;
@@ -3366,128 +3197,12 @@
 		background: #16161c;
 		border: 1px solid #1f1f28;
 	}
-	li[draggable='true'] {
-		cursor: grab;
-	}
-	li[draggable='true']:hover {
-		border-color: #2f3a48;
-		background: #1a1a22;
-	}
-	li[draggable='true']:active {
-		cursor: grabbing;
-	}
-	.name {
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.tag {
-		font-size: 10px;
-		color: #777;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-	.badge {
-		font-size: 10px;
-		color: #c8a3ff;
-		background: #2a2430;
-		padding: 1px 6px;
-		border-radius: 999px;
-	}
-	li.click {
-		cursor: pointer;
-	}
-	.li-btn {
-		display: contents;
-		font: inherit;
-		color: inherit;
-		text-align: inherit;
-		cursor: pointer;
-	}
-	li.click:hover {
-		border-color: #2f3a48;
-		background: #1a1a22;
-	}
-	li.click.active {
-		border-color: #2f4660;
-		color: #9cc4ff;
-	}
 	li.muted {
 		background: transparent;
 		border: 1px dashed #1f1f28;
 		color: #666;
 		justify-content: center;
 		padding: 10px;
-	}
-	li.group {
-		display: block;
-		padding: 0;
-		background: #16161c;
-		border: 1px solid #1f1f28;
-		overflow: hidden;
-	}
-	li.group.open {
-		border-color: #2a2a33;
-	}
-	.grouprow {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		width: 100%;
-		padding: 6px 8px;
-		background: transparent;
-		border: none;
-		color: #e8e8ee;
-		font-size: 12px;
-		text-align: left;
-		cursor: pointer;
-		font-family: inherit;
-	}
-	.grouprow:hover {
-		background: #1a1a22;
-	}
-	.caret {
-		color: #777;
-		width: 10px;
-		font-size: 10px;
-	}
-	.region-note {
-		margin: 0;
-		padding: 6px 10px 8px 24px;
-		color: #666;
-		font-size: 11px;
-	}
-	.region-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-		gap: 6px;
-		padding: 6px 8px 10px;
-	}
-	.region {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 3px;
-		padding: 4px;
-		border-radius: 6px;
-		border: 1px solid transparent;
-		cursor: grab;
-	}
-	.region:hover {
-		border-color: #2f3a48;
-		background: #1a1a22;
-	}
-	.region:active {
-		cursor: grabbing;
-	}
-	.region-name {
-		font-size: 9px;
-		color: #888;
-		max-width: 52px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.muted {
 		color: #666;

@@ -25,28 +25,20 @@
 	// `+server` are route-special in SvelteKit; these `.svelte`/`.ts` modules are
 	// plain imports). `/editor` keeps owning them — this tool is the standalone
 	// authoring slice that used to live as "component mode" inside the editor.
+	import ComponentList from '../editor/ComponentList.svelte';
+	import EditorAssetLibrary from '../editor/EditorAssetLibrary.svelte';
 	import EditorCanvas from '../editor/EditorCanvas.svelte';
 	import EditorElementsPalette from '../editor/EditorElementsPalette.svelte';
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
-	import RegionThumb from '../editor/RegionThumb.svelte';
 	import type { SpineMeta } from '../editor/spineRuntime.client';
 	import PanelResizers from '../editor/PanelResizers.svelte';
 	import PanelSection from '../editor/PanelSection.svelte';
-	import {
-		fetchRegions,
-		type RegionDragPayload,
-		type RegionSet,
-	} from '../editor/editorRegions.client';
+	import { CATEGORIES } from '../editor/componentList.client';
+	import { findById, genComponentId, removeNode } from '../editor/layoutTree.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-
-	const CATEGORIES: { id: ComponentCategory; label: string }[] = [
-		{ id: 'ui', label: 'UI' },
-		{ id: 'overlay', label: 'Overlay' },
-		{ id: 'scenery', label: 'Scenery' },
-	];
 
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (region picker). */
 	const pickSheets = $derived([
@@ -87,10 +79,6 @@
 	let rightWidth = $state(320);
 	let resizing = $state<'left' | 'right' | null>(null);
 
-	function genComponentId(): string {
-		return 'c_' + Math.random().toString(36).slice(2, 10);
-	}
-
 	/** id → def map, so the canvas resolves a nested `componentInstance` without the
 	 * engine registry (the editor canvas is its own renderer). */
 	const componentMap = $derived.by(() => {
@@ -128,16 +116,6 @@
 	 * and the engine's canonical `fontFamily` key. See `fontParamKeysOf`. */
 	const fontParamKeys = $derived(fontParamKeysOf(componentDraft));
 
-	function findById(nodes: LayoutNode[], id: string): LayoutNode | null {
-		for (const n of nodes) {
-			if (n.id === id) return n;
-			if (n.kind === 'container') {
-				const found = findById(n.children, id);
-				if (found) return found;
-			}
-		}
-		return null;
-	}
 	const selectedNode = $derived(
 		selectedId && componentScene ? findById(componentScene.nodes, selectedId) : null,
 	);
@@ -303,18 +281,6 @@
 	function onSpawn(node: LayoutNode): void {
 		if (!componentDraft) return;
 		componentDraft.root.children = [...componentDraft.root.children, node];
-	}
-
-	function removeNode(nodes: LayoutNode[], id: string): boolean {
-		const i = nodes.findIndex((n) => n.id === id);
-		if (i !== -1) {
-			nodes.splice(i, 1);
-			return true;
-		}
-		for (const n of nodes) {
-			if (n.kind === 'container' && removeNode(n.children, id)) return true;
-		}
-		return false;
 	}
 
 	function onDeleteNode(id: string): void {
@@ -613,67 +579,16 @@
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 	}
 
-	// ---------- asset library (drag sprites/spine into the component) ----------
-
-	function onAssetDragStart(
+	/** Drag payload for a palette ELEMENT (Text/Container/Rect) — the canvas spawns
+	 * the matching kind. Same wire format as a Library asset drag. */
+	function onElementDragStart(
 		e: DragEvent,
-		asset: { kind: string; key: string; name: string },
+		payload: { kind: string; key: string; name: string },
 	): void {
 		if (!e.dataTransfer) return;
-		const payload = { kind: asset.kind, key: asset.key, name: asset.name };
 		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
 		e.dataTransfer.effectAllowed = 'copy';
 	}
-
-	/** Which sheet/atlas keys are currently expanded in the Library. */
-	let expanded = $state<Record<string, boolean>>({});
-	/** Per-key region set (loaded lazily on first expand; `null` while loading). */
-	let regionSets = $state<Record<string, RegionSet | null>>({});
-
-	async function toggleExpand(key: string): Promise<void> {
-		const open = !expanded[key];
-		expanded = { ...expanded, [key]: open };
-		if (open && regionSets[key] === undefined) {
-			regionSets = { ...regionSets, [key]: null };
-			const set = await fetchRegions(key);
-			regionSets = { ...regionSets, [key]: set };
-		}
-	}
-
-	function onRegionDragStart(
-		e: DragEvent,
-		set: RegionSet,
-		region: RegionSet['regions'][number],
-	): void {
-		if (!e.dataTransfer) return;
-		const payload: RegionDragPayload = {
-			kind: 'region',
-			key: set.assetKey,
-			name: region.name,
-			region: region.name,
-			pageKey: set.pageKey,
-			rect: { x: region.x, y: region.y, w: region.w, h: region.h },
-			rotated: region.rotated,
-			offX: region.offX,
-			offY: region.offY,
-			origW: region.origW,
-			origH: region.origH,
-		};
-		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
-		e.dataTransfer.effectAllowed = 'copy';
-	}
-
-	const atlasCount = $derived(data.assets.atlases.length);
-	const spineCount = $derived(data.assets.spines.length);
-	const sheetCount = $derived(data.assets.sheets.length);
-
-	/** Components grouped by category, in CATEGORIES order, skipping empty groups. */
-	const grouped = $derived(
-		CATEGORIES.map((c) => ({
-			...c,
-			items: components.filter((d) => d.category === c.id),
-		})).filter((g) => g.items.length > 0),
-	);
 
 	// Deep-link: `/components?id=<id>` opens that component once the list is loaded.
 	onMount(() => {
@@ -682,48 +597,6 @@
 		if (def) openComponent(def);
 	});
 </script>
-
-{#snippet expandable(key: string, name: string, tag: 'sheet' | 'manifest')}
-	{@const set = regionSets[key]}
-	<li class="expandable">
-		<div class="expandable-head">
-			<button
-				type="button"
-				class="expand-toggle"
-				aria-expanded={Boolean(expanded[key])}
-				onclick={() => void toggleExpand(key)}
-			>
-				<span class="caret" class:open={expanded[key]}>▸</span>
-				<span class="name">{name}</span>
-				<span class="tag">{tag}</span>
-			</button>
-		</div>
-		{#if expanded[key]}
-			{#if set === null}
-				<p class="muted small">Loading regions…</p>
-			{:else if set && set.regions.length > 0}
-				<div class="regions">
-					{#each set.regions as region (region.name)}
-						<div
-							class="region"
-							draggable="true"
-							role="button"
-							tabindex="0"
-							aria-label={`Drag region ${region.name}`}
-							title={region.name}
-							ondragstart={(e) => onRegionDragStart(e, set, region)}
-						>
-							<RegionThumb {set} {region} size={48} />
-							<span class="region-name">{region.name}</span>
-						</div>
-					{/each}
-				</div>
-			{:else}
-				<p class="muted small">No regions.</p>
-			{/if}
-		{/if}
-	</li>
-{/snippet}
 
 <div class="shell">
 	<header class="topbar">
@@ -847,34 +720,19 @@
 						{#if components.length === 0}
 							<p class="muted">No components yet. Create one above to start authoring.</p>
 						{:else}
-							{#each grouped as group (group.id)}
-								<div class="group">
-									<h4>{group.label} <span class="count">{group.items.length}</span></h4>
-									<ul class="cmp-list">
-										{#each group.items as def (def.id)}
-											<li class="cmp-row-wrap">
-												<button type="button" class="cmp-row" onclick={() => openComponent(def)}>
-													<span class="glyph">◇</span>
-													<span class="name">{def.name}</span>
-													<span class="scope" class:project={def.scope === 'project'}>
-														{def.scope}
-													</span>
-													<span class="ver">v{def.version}</span>
-												</button>
-												<button
-													type="button"
-													class="cmp-del"
-													title={`Delete component "${def.name}"`}
-													aria-label={`Delete component "${def.name}"`}
-													onclick={(e) => void deleteComponentDef(e, def)}
-												>
-													✕
-												</button>
-											</li>
-										{/each}
-									</ul>
-								</div>
-							{/each}
+							<ComponentList {components} onRowClick={openComponent}>
+								{#snippet actions(def)}
+									<button
+										type="button"
+										class="cmp-del"
+										title={`Delete component "${def.name}"`}
+										aria-label={`Delete component "${def.name}"`}
+										onclick={(e) => void deleteComponentDef(e, def)}
+									>
+										✕
+									</button>
+								{/snippet}
+							</ComponentList>
 						{/if}
 					</PanelSection>
 				</div>
@@ -904,62 +762,11 @@
 					{#if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
 							<ul>
-								<EditorElementsPalette onElementDragStart={onAssetDragStart} />
+								<EditorElementsPalette {onElementDragStart} />
 							</ul>
 						</PanelSection>
 
-						<PanelSection id="cmp-lib-atlases" title="Atlases" count={atlasCount}>
-							<ul>
-								{#each data.assets.atlases as a (a.key)}
-									{#if a.kind === 'atlas-manifest'}
-										{@render expandable(a.key, a.name, 'manifest')}
-									{:else}
-										<li
-											draggable="true"
-											data-asset-kind={a.kind}
-											data-asset-key={a.key}
-											data-asset-name={a.name}
-											ondragstart={(e) => onAssetDragStart(e, a)}
-										>
-											<span class="name">{a.name}</span>
-											<span class="tag">page</span>
-										</li>
-									{/if}
-								{:else}
-									<li class="muted">No atlases yet.</li>
-								{/each}
-							</ul>
-						</PanelSection>
-
-						<PanelSection id="cmp-lib-spines" title="Spines" count={spineCount}>
-							<ul>
-								{#each data.assets.spines as s (s.key)}
-									<li
-										draggable="true"
-										data-asset-kind={s.kind}
-										data-asset-key={s.key}
-										data-asset-name={s.name}
-										ondragstart={(e) => onAssetDragStart(e, s)}
-									>
-										<span class="name">{s.name}</span>
-										<span class="tag">spine</span>
-										{#if s.shared}<span class="badge">shared</span>{/if}
-									</li>
-								{:else}
-									<li class="muted">No spines yet.</li>
-								{/each}
-							</ul>
-						</PanelSection>
-
-						<PanelSection id="cmp-lib-sheets" title="Sheets" count={sheetCount}>
-							<ul>
-								{#each data.assets.sheets as sh (sh.key)}
-									{@render expandable(sh.key, sh.name, 'sheet')}
-								{:else}
-									<li class="muted">No sheets yet.</li>
-								{/each}
-							</ul>
-						</PanelSection>
+						<EditorAssetLibrary assets={data.assets} />
 					{:else}
 						<EditorOutline
 							scene={componentScene}
@@ -1312,58 +1119,6 @@
 		cursor: default;
 	}
 
-	h4 {
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #888;
-		margin: 0 0 4px;
-	}
-	.count {
-		color: #666;
-		font-size: 11px;
-	}
-	.group {
-		margin: 0 0 10px;
-	}
-	.cmp-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-	.cmp-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		width: 100%;
-		text-align: left;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: 6px;
-		padding: 6px 8px;
-		color: #c8c8d0;
-		font-size: 12px;
-		cursor: pointer;
-		font-family: inherit;
-	}
-	.cmp-row:hover {
-		background: #16161c;
-		border-color: #1f1f28;
-	}
-	.cmp-row-wrap {
-		display: flex;
-		align-items: center;
-		gap: 2px;
-		padding: 0;
-		border: none;
-	}
-	.cmp-row-wrap .cmp-row {
-		flex: 1;
-		min-width: 0;
-	}
 	.cmp-del {
 		flex: 0 0 auto;
 		background: transparent;
@@ -1381,33 +1136,6 @@
 		border-color: #4a2a30;
 		color: #ff9a9a;
 	}
-	.glyph {
-		color: #c8a3ff;
-		font-size: 12px;
-	}
-	.cmp-row .name {
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.scope {
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #666;
-	}
-	.scope.project {
-		color: #7ee0c0;
-	}
-	.ver {
-		font-size: 10px;
-		color: #666;
-	}
-
-	section {
-		margin: 0 0 14px;
-	}
 	ul {
 		list-style: none;
 		padding: 0;
@@ -1415,44 +1143,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-	}
-	li {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 12px;
-		color: #c8c8d0;
-		padding: 5px 8px;
-		border-radius: 6px;
-		border: 1px solid transparent;
-	}
-	li[draggable='true'] {
-		cursor: grab;
-	}
-	li[draggable='true']:hover {
-		background: #16161c;
-		border-color: #1f1f28;
-	}
-	.name {
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.tag {
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #666;
-	}
-	.badge {
-		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #7ee0c0;
-		border: 1px solid #234038;
-		border-radius: 999px;
-		padding: 1px 6px;
 	}
 	.muted {
 		color: #777;
@@ -1468,69 +1158,5 @@
 	.foot {
 		padding: 8px 12px;
 		border-top: 1px solid #1c1c24;
-	}
-
-	.expandable {
-		flex-direction: column;
-		align-items: stretch;
-		padding: 0;
-		gap: 0;
-	}
-	.expandable-head {
-		display: flex;
-	}
-	.expand-toggle {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		width: 100%;
-		text-align: left;
-		background: transparent;
-		border: none;
-		color: #c8c8d0;
-		font-size: 12px;
-		padding: 5px 8px;
-		cursor: pointer;
-		font-family: inherit;
-	}
-	.expand-toggle:hover {
-		background: #16161c;
-	}
-	.caret {
-		display: inline-block;
-		transition: transform 0.12s;
-		color: #888;
-		font-size: 10px;
-	}
-	.caret.open {
-		transform: rotate(90deg);
-	}
-	.regions {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-		gap: 6px;
-		padding: 6px 4px 8px;
-	}
-	.region {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 2px;
-		cursor: grab;
-		padding: 4px;
-		border-radius: 6px;
-		border: 1px solid #1f1f28;
-		background: #0b0b10;
-	}
-	.region:hover {
-		border-color: #3a3a48;
-	}
-	.region-name {
-		font-size: 9px;
-		color: #888;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 </style>
