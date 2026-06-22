@@ -2508,6 +2508,13 @@
 								<span class="tag">group</span>
 							</li>
 							<li
+								draggable="true"
+								ondragstart={(e) => onAssetDragStart(e, { kind: 'rect', key: '', name: 'Rect' })}
+							>
+								<span class="name">Rect</span>
+								<span class="tag">fill</span>
+							</li>
+							<li
 								class="click"
 								class:active={existingReelGrid}
 								title={existingReelGrid

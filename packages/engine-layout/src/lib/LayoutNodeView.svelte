@@ -8,6 +8,7 @@
 	import {
 		BitmapText,
 		Container,
+		Rectangle,
 		Sprite,
 		SpineProvider,
 		SpineTrack,
@@ -248,6 +249,23 @@
 	const spriteKey = $derived(spriteRef?.key);
 	const spriteFallbackKey = $derived(spriteRef?.fallbackKey);
 	const spriteTint = $derived(typeof boundTint === 'number' ? boundTint : transform.tint);
+
+	// A `rect` is a vector flat fill (pixi `Graphics` rect) — it scales losslessly,
+	// so a full-screen dim sized large stays crisp. Its size is the node's own
+	// `width`/`height` (an editor resize writes a per-layoutType override that
+	// `resolveTransform` surfaces as `transform.width`/`height`, taking precedence).
+	// As with the sprite path, `scale` is folded INTO the dimensions so "what you
+	// size in the editor" equals "what the game shows" — the displayed size is
+	// `width * scale` — and the `<Rectangle>` runs at scale 1. Default anchor `{0,0}`
+	// (top-left) matches the sprite branch: a rect at `(0,0)` fills from the canvas
+	// origin; a centred full-screen dim simply sets anchor `{0.5,0.5}`.
+	const rectWidth = $derived(
+		node.kind === 'rect' ? (transform.width ?? node.width) * sizeScaleX : 0,
+	);
+	const rectHeight = $derived(
+		node.kind === 'rect' ? (transform.height ?? node.height) * sizeScaleY : 0,
+	);
+	const rectColor = $derived(node.kind === 'rect' ? (node.color ?? 0xffffff) : 0xffffff);
 </script>
 
 {#if transform.visible}
@@ -335,6 +353,27 @@
 			width={bg ? undefined : sizedWidth}
 			height={bg ? undefined : sizedHeight}
 			tint={spriteTint}
+		/>
+	{:else if node.kind === 'rect'}
+		<!--
+			Flat filled rectangle (§ rect node): a vector `<Rectangle>` (pixi `Graphics`
+			rect) — the basic fill primitive for full-screen dims, panels and colour
+			blocks. Vector, so it scales losslessly. `width`/`height` come from the node
+			(scale folded in above); `color` → `backgroundColor` (default `0xffffff`);
+			opacity is the standard `transform.alpha`. Default anchor `{0.5,0.5}` (centred —
+			matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
+			identically in editor + game); set `{0,0}` to pin from the top-left.
+		-->
+		<Rectangle
+			x={posX}
+			y={posY}
+			anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
+			width={rectWidth}
+			height={rectHeight}
+			backgroundColor={rectColor}
+			rotation={transform.rotation}
+			alpha={transform.alpha}
+			zIndex={transform.zIndex}
 		/>
 	{:else if node.kind === 'spine'}
 		{@const sigAnim = signalAnims?.[node.id]}

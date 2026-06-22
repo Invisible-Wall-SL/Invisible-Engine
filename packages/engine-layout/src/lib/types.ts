@@ -261,6 +261,20 @@ export interface TextNode extends BaseNode {
 }
 
 /**
+ * A solid filled rectangle — the basic fill primitive (full-screen dims, panels,
+ * colour blocks). `width`/`height` are its size in local space (resize with the editor
+ * handles); `color` is the fill (hex int, default white); opacity is the standard
+ * {@link BaseNode} `alpha`. No asset — it ships in the doc and renders as a flat fill.
+ */
+export interface RectNode extends BaseNode {
+	kind: 'rect';
+	width: number;
+	height: number;
+	/** Fill colour (hex int). Absent ⇒ white (`0xffffff`). */
+	color?: number;
+}
+
+/**
  * A placement that references a {@link ComponentDef} (the prefab tier — see
  * `docs/design/invisible-editor.md` §8.2). The editor's component picker drops
  * one; the Properties panel edits its `params` + per-layoutType transform. The
@@ -374,6 +388,7 @@ export type LayoutNode =
 	| SpriteNode
 	| SpineNode
 	| TextNode
+	| RectNode
 	| ComponentInstanceNode
 	| ReelGridNode;
 

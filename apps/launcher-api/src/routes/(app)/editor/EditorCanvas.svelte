@@ -49,9 +49,9 @@
 	import { clearPageImages } from './RegionThumb.svelte';
 
 	interface AssetDragPayload {
-		// `text` / `container` are not assets — they're blank ELEMENTS the Library's
-		// "Elements" palette drags in (key is unused for those).
-		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'container';
+		// `text` / `container` / `rect` are not assets — they're blank ELEMENTS the
+		// Library's "Elements" palette drags in (key is unused for those).
+		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'container' | 'rect';
 		key: string;
 		name: string;
 	}
@@ -1617,6 +1617,16 @@
 			// owns every `kind:'text'` node (top-level, nested, or inside a component
 			// instance) with the same anchor/align/baseline + world position as the game
 			// runtime. The old 2D `fillText` fallback (which dropped anchor/align) is gone.
+		} else if (node.kind === 'rect') {
+			// Flat colour fill — lossless at any size (no art). The transform (translate/
+			// scale/rotate/alpha) is already applied above, so draw the box in local space
+			// honouring the anchor. `color` defaults to white; opacity is the transform alpha.
+			const w = t.width ?? node.width;
+			const h = t.height ?? node.height;
+			const ax = t.anchor?.x ?? 0.5;
+			const ay = t.anchor?.y ?? 0.5;
+			ctx.fillStyle = '#' + ((node.color ?? 0xffffff) & 0xffffff).toString(16).padStart(6, '0');
+			ctx.fillRect(-w * ax, -h * ay, w, h);
 		} else if (node.kind === 'container') {
 			for (const child of node.children)
 				drawNode(ctx, child, sceneCtx, componentDepth, componentStack, instanceParams, true);
@@ -2565,11 +2575,12 @@
 		} catch {
 			return;
 		}
-		// Blank elements (the Library's "Elements" palette — `text`/`container`) carry
-		// an empty `key` by design; only ASSET kinds (region/atlas-page/spine) reference
-		// a key. Requiring a key here silently rejected the text/container drop.
+		// Blank elements (the Library's "Elements" palette — `text`/`container`/`rect`)
+		// carry an empty `key` by design; only ASSET kinds (region/atlas-page/spine)
+		// reference a key. Requiring a key here silently rejected the keyless drops.
 		if (!payload || !payload.kind) return;
-		const keyless = payload.kind === 'text' || payload.kind === 'container';
+		const keyless =
+			payload.kind === 'text' || payload.kind === 'container' || payload.kind === 'rect';
 		if (!keyless && !payload.key) return;
 		const pos = clientToWorld(e.clientX, e.clientY);
 		const node = spawnNode(payload, pos);
@@ -2628,6 +2639,10 @@
 				};
 			case 'container':
 				return { ...base, kind: 'container', children: [] };
+			// A solid fill block (full-screen dims, panels, colour blocks) — sized
+			// 400×400 white by default, recoloured + resized via Properties/handles.
+			case 'rect':
+				return { ...base, kind: 'rect', width: 400, height: 400, color: 0xffffff };
 			// `atlas-manifest` / `sheet` are CONTAINERS — they are never dropped
 			// whole (the Library expands them into draggable regions instead).
 			default:

@@ -618,9 +618,18 @@
 		if (Number.isNaN(value)) return;
 		if (isOverrideMode) {
 			(ensureOverride(n) as Record<string, unknown>)[axis] = value;
-		} else if (n.kind === 'sprite' || n.kind === 'spine') {
+		} else if (n.kind === 'sprite' || n.kind === 'spine' || n.kind === 'rect') {
 			(n as Record<string, unknown>)[axis] = value;
 		}
+		markDirty();
+	}
+
+	/** Set a rect's fill colour (`#rrggbb` → hex int); a malformed hex is a no-op. */
+	function setRectColor(n: LayoutNode, hex: string): void {
+		if (n.kind !== 'rect') return;
+		const value = parseHex(hex);
+		if (value === undefined) return;
+		n.color = value;
 		markDirty();
 	}
 

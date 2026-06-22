@@ -167,6 +167,13 @@ export function nodeBox(
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
 	}
+	// A rect frames at its own width/height (the fill box) — like a sprite, but the
+	// size is intrinsic to the node (no art), so the transform handles resize it.
+	if (node.kind === 'rect') {
+		const w = t.width ?? node.width;
+		const h = t.height ?? node.height;
+		return { w, h, ax, ay };
+	}
 	// Reel grid selects at its full footprint: reels × rows cells, including any
 	// non-square cell size + inter-cell gaps (so the box matches what's drawn).
 	if (node.kind === 'reelGrid') {

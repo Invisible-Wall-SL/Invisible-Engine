@@ -24,6 +24,7 @@ const NODE_KINDS = new Set<LayoutNode['kind']>([
 	'sprite',
 	'spine',
 	'text',
+	'rect',
 	'componentInstance',
 	'reelGrid',
 ]);
