@@ -785,6 +785,18 @@
 			{/snippet}
 		</UI>
 		<LayoutScene scene={basegameOverlaysScene} />
+		<!--
+			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
+			Exactly one full-screen `<FreeSpinIntroGate>` / `<FreeSpinOutroGate>` is mounted
+			here (dim + press-to-continue + the round-blocking `waitForResolve`), so the round
+			ALWAYS holds until the player taps — whether the intro/outro is this doc-driven
+			VISUAL scene below or an author's custom screen gated via `Scene.visibleSource =
+			'freeSpinIntroShow'`/`'freeSpinOutroShow'` (no gate component required). The doc
+			scenes (`fsIntroScene`/`fsOutroScene`) and the composer never mount a gate now, so
+			there is never a second `waitForResolve` subscriber (two would hang the round).
+		-->
+		<FreeSpinIntroGate />
+		<FreeSpinOutroGate />
 		<LayoutScene scene={fsIntroScene} />
 		{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
 			<LayoutScene scene={fsIntroVisualScene} />

@@ -134,21 +134,16 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				children: [],
 			};
 
-	// §17 Phase 3 — the free-spin INTRO scene's node. OFF: the single composer
-	// `bind:FreeSpinIntro` (board-centred, parity). ON: a full-screen GATE bind (dim + press
-	// + the round-blocking await), paired with the positionable `freeSpinIntroVisual` scene
-	// below.
-	const fsIntroNode: LayoutNode = options.freeSpinOverlays
-		? {
-				id: 'fs-intro-gate',
-				slotId: 'freeSpinIntro',
-				label: 'Free-spin intro (gate)',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: { component: 'FreeSpinIntroGate' },
-				children: [],
-			}
+	// §17 Phase 3 — the free-spin INTRO scene's node. The full-screen GATE (dim + press +
+	// the round-blocking await) is now ALWAYS mounted by the engine (`Game.svelte` renders one
+	// `<FreeSpinIntroGate>`), so the doc owns only the VISUAL — never a gate. This keeps the
+	// round held for ANY intro (this doc-driven visual OR an authored gated screen) while never
+	// double-mounting the gate (two `waitForResolve` subscribers would hang the round). OFF:
+	// the board-centred VISUAL bind (parity with the old composer's drawn output, minus its
+	// gate). ON: no node here — the positionable `freeSpinIntroVisual` instance scene below
+	// draws the visual instead.
+	const fsIntroNode: LayoutNode | undefined = options.freeSpinOverlays
+		? undefined
 		: {
 				id: 'fs-intro',
 				slotId: 'freeSpinIntro',
@@ -157,8 +152,9 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				x: 0,
 				y: 0,
 				bind: {
-					component: 'FreeSpinIntro',
+					component: 'FreeSpinIntroVisual',
 					props: {
+						boundToInstance: false,
 						introSpine: 'fsIntroNumber',
 						introAnimation: 'intro',
 						idleAnimation: 'idle',
@@ -168,19 +164,12 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				children: [],
 			};
 
-	// §17 Phase 3 — the free-spin OUTRO scene's node: the single composer `bind:FreeSpinOutro`
-	// (OFF, parity) or the full-screen GATE bind (ON, paired with `freeSpinOutroVisual` below).
-	const fsOutroNode: LayoutNode = options.freeSpinOverlays
-		? {
-				id: 'fs-outro-gate',
-				slotId: 'freeSpinOutro',
-				label: 'Free-spin outro (gate)',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: { component: 'FreeSpinOutroGate' },
-				children: [],
-			}
+	// §17 Phase 3 — the free-spin OUTRO scene's node, mirroring the intro: the full-screen GATE
+	// is engine-owned (one `<FreeSpinOutroGate>` in `Game.svelte`), so the doc owns only the
+	// VISUAL. OFF: the board-centred VISUAL bind (parity, gate-free); ON: no node (the
+	// `freeSpinOutroVisual` instance scene below draws it).
+	const fsOutroNode: LayoutNode | undefined = options.freeSpinOverlays
+		? undefined
 		: {
 				id: 'fs-outro',
 				slotId: 'freeSpinOutro',
@@ -188,7 +177,16 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				kind: 'container',
 				x: 0,
 				y: 0,
-				bind: { component: 'FreeSpinOutro' },
+				bind: {
+					component: 'FreeSpinOutroVisual',
+					props: {
+						boundToInstance: false,
+						outroSpine: 'fsOutroNumber',
+						outroAnimation: 'intro',
+						idleAnimation: 'idle',
+						slotName: 'slot_number',
+					},
+				},
 				children: [],
 			};
 
@@ -355,7 +353,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				id: 'freeSpinIntro',
 				name: sceneName('freeSpinIntro'),
 				space: 'canvas',
-				nodes: [fsIntroNode],
+				nodes: fsIntroNode ? [fsIntroNode] : [],
 			},
 			...freeSpinVisualScenes,
 			{
@@ -391,7 +389,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				id: 'freeSpinOutro',
 				name: sceneName('freeSpinOutro'),
 				space: 'canvas',
-				nodes: [fsOutroNode],
+				nodes: fsOutroNode ? [fsOutroNode] : [],
 			},
 			{
 				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →

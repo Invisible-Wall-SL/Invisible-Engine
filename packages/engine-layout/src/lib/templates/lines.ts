@@ -85,7 +85,11 @@ export const linesTemplate: GameTemplate = {
 					slotId: 'freeSpinIntro',
 					name: 'Free-spin intro',
 					kind: 'mount',
-					mountComponent: 'FreeSpinIntro',
+					// VISUAL only — the full-screen press-to-continue GATE is engine-owned
+					// (always mounted in `Game.svelte`). Seeding the gate-bundling composer
+					// (`FreeSpinIntro`) here would mount a SECOND gate in an authored doc and
+					// hang the round (two `waitForResolve` subscribers).
+					mountComponent: 'FreeSpinIntroVisual',
 				},
 			],
 		},
@@ -109,7 +113,8 @@ export const linesTemplate: GameTemplate = {
 					slotId: 'freeSpinOutro',
 					name: 'Free-spin outro',
 					kind: 'mount',
-					mountComponent: 'FreeSpinOutro',
+					// VISUAL only — the GATE is engine-owned (see the intro slot above).
+					mountComponent: 'FreeSpinOutroVisual',
 				},
 			],
 		},
