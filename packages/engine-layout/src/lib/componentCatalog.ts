@@ -169,11 +169,16 @@ export const BUTTON_STATE_PARAMS: ComponentParam[] = [
 	{ key: 'imageDisabled', kind: 'image', group: 'State images', label: 'downstate', author: true },
 ];
 
-/** Core signals the engine fires at a component. */
+/**
+ * Signals a component's spine can play a cue on. Tick one here, then on a spine node add
+ * a "Plays on signal" cue (signal → animation). `enter` is fired by the component itself
+ * when it becomes visible (mount, or a `visibleSource` gate opening) — the intro-on-appear
+ * hook. `win`/`bigWin` are fired by the game's win presentation. (Former `exit`/`idle`
+ * placeholders were removed — nothing fired them: an instant-hide gate cuts an exit
+ * animation and idle had no trigger.)
+ */
 export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
-	{ key: 'enter', label: 'Enter', note: 'Component mounted / scene entered.' },
-	{ key: 'exit', label: 'Exit', note: 'Component about to unmount / scene left.' },
-	{ key: 'idle', label: 'Idle', note: 'Resting state between rounds.' },
+	{ key: 'enter', label: 'Enter', note: 'Played when the component appears (mount / gate opens).' },
 	{ key: 'win', label: 'Win', note: 'A winning result resolved.' },
 	{ key: 'bigWin', label: 'Big Win', note: 'A big-win threshold was crossed.' },
 ];

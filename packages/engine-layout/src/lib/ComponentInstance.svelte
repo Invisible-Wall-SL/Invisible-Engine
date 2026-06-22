@@ -217,6 +217,25 @@
 		};
 	});
 
+	// `enter` is a COMPONENT-lifecycle signal the instance fires ITSELF — no game source
+	// maps to it, so the game-registered loop above skips it. It plays each spine's `enter`
+	// cue the moment the component becomes VISIBLE: on mount with the gate open, or when a
+	// `visibleSource` gate later opens (e.g. an intro animation the instant a gated
+	// "Free-spin intro" screen appears). Tracks the visible edge so it fires once per
+	// appearance, not every effect run. (`exit`/`idle` are intentionally NOT fired — an
+	// instant-hide gate would cut an exit animation and idle has no trigger; both are
+	// omitted from the editor's signal list.)
+	let wasVisible = false;
+	$effect(() => {
+		const visible = !visibilitySource || liveVisible;
+		if (visible && !wasVisible) {
+			for (const t of signalToTargets.get('enter') ?? []) {
+				signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop };
+			}
+		}
+		wasVisible = visible;
+	});
+
 	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
 	// container — no coded `bind` part) has nothing to own the press: `ButtonFrame`
 	// is what carries the hit area/cursor/onpointerup in the built-in button, so a
