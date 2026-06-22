@@ -132,6 +132,49 @@ async function bodySnippet(res) {
 	}
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Transient statuses worth retrying. A 5xx (esp. a 502 "upstream error") from the
+// launcher's heavy export endpoints is usually the container being OOM-killed /
+// restarted mid-export — the memory-heavy R2 export bursts (full atlas pages +
+// spine bundles) can take the process down, and a single call on a recovered
+// container reliably succeeds. 4xx (401/400) are deterministic — never retried.
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Spaced to straddle a Railway container restart (seconds to ~30s), so each retry
+// lands on a recovered process rather than hammering a still-dying one.
+const RETRY_DELAYS_MS = [5000, 15000, 30000];
+
+// fetch with retry-on-transient-failure. Export POSTs are idempotent (they prune +
+// rewrite deploy/), so retrying is safe. Returns the final Response — including a
+// non-retryable non-OK one, which the caller's `!res.ok` path then bails on. Throws
+// only when every attempt was a network-level failure (no Response), so the caller's
+// existing try/catch bails with the "could not reach" message.
+async function fetchRetry(url, init, label) {
+	let lastErr = '';
+	let lastRes = null;
+	for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+		if (attempt > 0) {
+			const delay = RETRY_DELAYS_MS[attempt - 1];
+			console.warn(
+				`⚠ bake-doc: ${label} — ${lastErr}; retrying in ${delay / 1000}s ` +
+					`(attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1})…`,
+			);
+			await sleep(delay);
+		}
+		try {
+			const res = await fetch(url, init);
+			if (res.ok || !RETRY_STATUSES.has(res.status)) return res;
+			lastRes = res;
+			lastErr = `HTTP ${res.status} — ${await bodySnippet(res)}`;
+		} catch (err) {
+			lastRes = null;
+			lastErr = err instanceof Error ? err.message : String(err);
+		}
+	}
+	if (lastRes) return lastRes;
+	throw new Error(lastErr);
+}
+
 async function main() {
 	if (!token) {
 		if (!optional) console.error(USAGE);
@@ -148,7 +191,7 @@ async function main() {
 
 	let res;
 	try {
-		res = await fetch(docUrl);
+		res = await fetchRetry(docUrl, undefined, 'doc fetch');
 	} catch (err) {
 		bail(`Could not reach ${base}/api/editor/doc — ${err instanceof Error ? err.message : err}`);
 	}
@@ -175,7 +218,7 @@ async function main() {
 		console.info('(dry run) skipping the editor-art export — it writes to R2 deploy/.');
 	} else
 		try {
-			const artRes = await fetch(artUrl, { method: 'POST' });
+			const artRes = await fetchRetry(artUrl, { method: 'POST' }, 'editor-art export');
 			if (!artRes.ok) {
 				bail(`Editor-art export failed: HTTP ${artRes.status} — ${await bodySnippet(artRes)}`);
 			}
@@ -217,7 +260,7 @@ async function main() {
 		console.info('(dry run) skipping the font export — it writes to R2 deploy/.');
 	} else
 		try {
-			const fontRes = await fetch(fontsUrl, { method: 'POST' });
+			const fontRes = await fetchRetry(fontsUrl, { method: 'POST' }, 'font export');
 			if (!fontRes.ok) {
 				bail(`Font export failed: HTTP ${fontRes.status} — ${await bodySnippet(fontRes)}`);
 			}
@@ -249,7 +292,7 @@ async function main() {
 		console.info('(dry run) skipping the symbols export — it writes to R2 deploy/.');
 	} else
 		try {
-			const symRes = await fetch(symbolsUrl, { method: 'POST' });
+			const symRes = await fetchRetry(symbolsUrl, { method: 'POST' }, 'symbols export');
 			if (!symRes.ok) {
 				bail(`Symbols export failed: HTTP ${symRes.status} — ${await bodySnippet(symRes)}`);
 			}
@@ -317,9 +360,11 @@ async function main() {
 	let localization = { sourceLang: 'en', messages: {} };
 	if (!dryRun) {
 		try {
-			const locRes = await fetch(
+			const locRes = await fetchRetry(
 				`${base}/api/localization/strings?project=${encodeURIComponent(project)}` +
 					`&k=${encodeURIComponent(token)}`,
+				undefined,
+				'localization fetch',
 			);
 			if (locRes.ok) {
 				const loc = await locRes.json();
