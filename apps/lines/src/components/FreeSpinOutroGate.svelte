@@ -19,6 +19,16 @@
 	// spine + count. Stays full-screen (`canvas`), never editor-positioned.
 	const context = getContext();
 
+	// Author overrides for the engine-owned gate LOOK (Scene.gate). The HOLD + full-screen
+	// tap stay engine-owned; only the dim + default prompt restyle. Defaults reproduce
+	// today's behaviour exactly (0x000000 / 0.5 / prompt shown).
+	type Props = {
+		dimColor?: number;
+		dimAlpha?: number;
+		hidePrompt?: boolean;
+	};
+	const props: Props = $props();
+
 	let show = $state(true);
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData>();
@@ -44,14 +54,20 @@
 			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
 				<OnMount onmount={() => startCountUp()} />
 
-				<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
+				<CanvasSizeRectangle
+					backgroundColor={props.dimColor ?? 0x000000}
+					backgroundAlpha={props.dimAlpha ?? 0.5}
+				/>
 
 				<!-- Publish the live count-up amount to the positionable VISUAL's count text. -->
 				<OutroStatePublisher {countUpAmount} />
 
 				<WinCoins emit={!countUpCompleted} levelAlias={winLevelData?.alias} />
 
-				<PressToContinue onpress={() => (countUpCompleted ? oncomplete() : finishCountUp())} />
+				<PressToContinue
+					onpress={() => (countUpCompleted ? oncomplete() : finishCountUp())}
+					hidePrompt={props.hidePrompt}
+				/>
 			{/snippet}
 		</WinCountUpProvider>
 	{/if}

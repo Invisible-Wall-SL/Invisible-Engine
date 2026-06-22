@@ -813,6 +813,35 @@
 		markDirty();
 	}
 
+	/** Visibility-source keys whose screen blocks the round behind a press-to-continue
+	 * gate, so the author can override the engine-owned gate's look (`Scene.gate`). */
+	const BLOCKING_GATE_SOURCES = new Set(['freeSpinIntroShow', 'freeSpinOutroShow']);
+
+	/** Override the engine-owned gate's look on a blocking screen (`Scene.gate`):
+	 * patches the active scene's `gate`, drops empty keys, and removes the whole
+	 * `gate` object once nothing is set so an ungated screen round-trips as absent. */
+	function setSceneGate(patch: Partial<NonNullable<Scene['gate']>>): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		const gate = { ...(sc.gate ?? {}) };
+		for (const [k, v] of Object.entries(patch) as [keyof typeof gate, unknown][]) {
+			if (v === undefined) delete gate[k];
+			else (gate as Record<string, unknown>)[k] = v;
+		}
+		if (Object.keys(gate).length > 0) sc.gate = gate;
+		else delete sc.gate;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** `#rrggbb` ↔ hex int helpers for the gate dim-colour input. */
+	function hexToInt(hex: string): number {
+		return parseInt(hex.slice(1), 16);
+	}
+	function intToHex(value: number): string {
+		return `#${(value & 0xffffff).toString(16).padStart(6, '0')}`;
+	}
+
 	/** Set an alignment axis on a `'standard'` scene; `''` clears that axis (and
 	 * the whole `align` object once both axes are unset). */
 	function setSceneAlign(axis: 'vertical' | 'horizontal', value: string): void {
@@ -2317,6 +2346,42 @@
 									{/each}
 								</select>
 							</label>
+							{#if activeScene.visibleSource && BLOCKING_GATE_SOURCES.has(activeScene.visibleSource)}
+								<div class="gate-style">
+									<div class="space-aligns">
+										<label class="space-field">
+											<span>dim colour</span>
+											<input
+												type="color"
+												value={intToHex(activeScene.gate?.dimColor ?? 0x000000)}
+												oninput={(e) => setSceneGate({ dimColor: hexToInt(e.currentTarget.value) })}
+												title="Full-window dim colour behind this blocking screen (default black)"
+											/>
+										</label>
+										<label class="space-field">
+											<span>dim opacity</span>
+											<input
+												type="number"
+												min="0"
+												max="1"
+												step="0.05"
+												value={activeScene.gate?.dimAlpha ?? 0.5}
+												oninput={(e) => setSceneGate({ dimAlpha: e.currentTarget.valueAsNumber })}
+												title="Dim opacity 0–1 (default 0.5; 0 = no dim)"
+											/>
+										</label>
+									</div>
+									<label class="gate-check">
+										<input
+											type="checkbox"
+											checked={activeScene.gate?.hidePrompt ?? false}
+											onchange={(e) =>
+												setSceneGate({ hidePrompt: e.currentTarget.checked || undefined })}
+										/>
+										<span>hide default prompt</span>
+									</label>
+								</div>
+							{/if}
 						</div>
 					{/if}
 
@@ -2958,7 +3023,8 @@
 		letter-spacing: 0.05em;
 		color: #777;
 	}
-	.space-field select {
+	.space-field select,
+	.space-field input[type='number'] {
 		background: #16131c;
 		color: #c8a3ff;
 		border: 1px solid #2a2433;
@@ -2966,6 +3032,27 @@
 		padding: 5px 7px;
 		font-size: 12px;
 		font-family: inherit;
+	}
+	.space-field input[type='color'] {
+		width: 100%;
+		height: 28px;
+		padding: 1px;
+		background: #16131c;
+		border: 1px solid #2a2433;
+		border-radius: 6px;
+	}
+	.gate-style {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.gate-check {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		color: #c8a3ff;
+		cursor: pointer;
 	}
 	.screens {
 		list-style: none;

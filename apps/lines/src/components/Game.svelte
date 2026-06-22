@@ -395,6 +395,20 @@
 	const specialBookScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'specialBook') ?? fallbackSpecialBook,
 	);
+	// §17 Phase 3 — author-overridable GATE look. The engine still owns exactly one
+	// full-screen intro/outro gate (mounted below) with the round-blocking hold + tap;
+	// only its dim + default prompt restyle. Read the `gate` config off the authored
+	// SCREEN gated to the matching blocking lifecycle (`Scene.visibleSource`), so a game
+	// styles the gate from the same scene it draws its custom intro/outro in. No such
+	// scene / no `gate` ⇒ `undefined` ⇒ the gates fall back to their defaults (today's
+	// behaviour, byte-identical).
+	const fsIntroGate = $derived(
+		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinIntroShow')?.gate,
+	);
+	const fsOutroGate = $derived(
+		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinOutroShow')?.gate,
+	);
+
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
 	const hudBarScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudBar'));
@@ -795,8 +809,16 @@
 			scenes (`fsIntroScene`/`fsOutroScene`) and the composer never mount a gate now, so
 			there is never a second `waitForResolve` subscriber (two would hang the round).
 		-->
-		<FreeSpinIntroGate />
-		<FreeSpinOutroGate />
+		<FreeSpinIntroGate
+			dimColor={fsIntroGate?.dimColor}
+			dimAlpha={fsIntroGate?.dimAlpha}
+			hidePrompt={fsIntroGate?.hidePrompt}
+		/>
+		<FreeSpinOutroGate
+			dimColor={fsOutroGate?.dimColor}
+			dimAlpha={fsOutroGate?.dimAlpha}
+			hidePrompt={fsOutroGate?.hidePrompt}
+		/>
 		<LayoutScene scene={fsIntroScene} />
 		{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
 			<LayoutScene scene={fsIntroVisualScene} />
