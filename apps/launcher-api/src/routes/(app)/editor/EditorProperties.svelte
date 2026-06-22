@@ -16,6 +16,7 @@
 		type ComponentSignal,
 		type ContainerNode,
 		type EditableParam,
+		type EngineParamEntry,
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
@@ -235,13 +236,6 @@
 	);
 	let newParamKey = $state('');
 	let newParamKind = $state<ComponentParam['kind']>('string');
-	function addCustomParam(): void {
-		const key = newParamKey.trim();
-		if (!key) return;
-		onAddParam?.(key, newParamKind);
-		newParamKey = '';
-		newParamKind = 'string';
-	}
 	function paramHas(key: string): boolean {
 		return componentParams.some((p) => p.key === key);
 	}
@@ -259,6 +253,116 @@
 	const showButtonParams = $derived(showButtonParamsManual ?? hasButtonStateParams);
 	function signalHas(key: string): boolean {
 		return componentSignals.some((s) => s.key === key);
+	}
+
+	// ---- Variables / signals "in use + add picker" presentation (component mode) ----
+	// A compact row for a variable currently declared on the component. `origin`
+	// distinguishes an engine-catalog value (removed by untick → `onToggleParam`) from
+	// a custom author param (removed by delete → `onRemoveParam`); the underlying
+	// `ComponentDef.params` mutations are unchanged — only how we surface them differs.
+	interface VarRow {
+		key: string;
+		label: string;
+		kind: ComponentParam['kind'];
+		origin: 'engine' | 'yours';
+		note?: string;
+	}
+	/** The engine-catalog entry for a key (label/note/kind), or undefined for a custom param. */
+	function engineCatalogEntry(key: string) {
+		return ENGINE_PARAM_CATALOG.find((p) => p.key === key);
+	}
+	/** Variables currently declared on the component, as compact rows — engine-catalog
+	 * values (ticked) first, then custom author params. State-image params are excluded
+	 * (the "Button images" control owns them). */
+	const variableRows = $derived.by<VarRow[]>(() => {
+		const rows: VarRow[] = [];
+		for (const p of componentParams) {
+			if (STATE_PARAM_KEYS.has(p.key)) continue;
+			const entry = engineCatalogEntry(p.key);
+			if (entry && p.engineProvided) {
+				rows.push({
+					key: p.key,
+					label: entry.label,
+					kind: entry.kind,
+					origin: 'engine',
+					note: entry.note,
+				});
+			} else if (p.author === true) {
+				rows.push({
+					key: p.key,
+					label: p.label ?? p.key,
+					kind: p.kind,
+					origin: 'yours',
+					note: p.group ? `· ${p.group}` : undefined,
+				});
+			}
+		}
+		return rows;
+	});
+	/** Remove a declared variable — untick an engine value, delete a custom param. */
+	function removeVariable(row: VarRow): void {
+		if (row.origin === 'engine') onToggleParam?.(row.key, row.kind);
+		else onRemoveParam?.(row.key);
+	}
+	/** Signals currently declared on the component, as compact rows. */
+	const signalRows = $derived(
+		componentSignals.map((s) => {
+			const entry = ENGINE_SIGNAL_CATALOG.find((c) => c.key === s.key);
+			return { key: s.key, label: entry?.label ?? s.key, note: entry?.note };
+		}),
+	);
+
+	// Variable picker (popover) — open state + search filter + the custom-input draft.
+	let varPickerOpen = $state(false);
+	let varSearch = $state('');
+	let varAnchorEl = $state<HTMLDivElement | null>(null);
+	/** Engine-catalog values matching the search; an in-use one is flagged (disabled row). */
+	const varPickerMatches = $derived.by(() => {
+		const q = varSearch.trim().toLowerCase();
+		return ENGINE_PARAM_CATALOG.filter(
+			(p) => !q || p.label.toLowerCase().includes(q) || p.key.toLowerCase().includes(q),
+		).map((p) => ({ entry: p, inUse: paramHas(p.key) }));
+	});
+	function subscribeEngineValue(p: EngineParamEntry): void {
+		if (paramHas(p.key)) return;
+		onToggleParam?.(p.key, p.kind);
+	}
+	function addCustomVariable(): void {
+		const key = newParamKey.trim();
+		if (!key) return;
+		onAddParam?.(key, newParamKind);
+		newParamKey = '';
+		newParamKind = 'string';
+		closeVarPicker();
+	}
+	function closeVarPicker(): void {
+		varPickerOpen = false;
+		varSearch = '';
+	}
+
+	// Signal picker (popover) — open state + search filter.
+	let signalPickerOpen = $state(false);
+	let signalSearch = $state('');
+	let signalAnchorEl = $state<HTMLDivElement | null>(null);
+	const signalPickerMatches = $derived.by(() => {
+		const q = signalSearch.trim().toLowerCase();
+		return ENGINE_SIGNAL_CATALOG.filter(
+			(s) => !q || s.label.toLowerCase().includes(q) || s.key.toLowerCase().includes(q),
+		).map((s) => ({ entry: s, inUse: signalHas(s.key) }));
+	});
+	function addSignal(key: string): void {
+		if (!signalHas(key)) onToggleSignal?.(key);
+	}
+	function closeSignalPicker(): void {
+		signalPickerOpen = false;
+		signalSearch = '';
+	}
+	/** Dismiss an open picker when the pointer goes down outside its anchor. */
+	function onWindowPointerDown(e: PointerEvent): void {
+		const target = e.target as Node | null;
+		if (varPickerOpen && varAnchorEl && target && !varAnchorEl.contains(target)) closeVarPicker();
+		if (signalPickerOpen && signalAnchorEl && target && !signalAnchorEl.contains(target))
+			closeSignalPicker();
 	}
 
 	function setSlotId(n: LayoutNode, value: string): void {
@@ -710,6 +814,10 @@
 	}
 </script>
 
+<!-- Dismiss an open variable/signal picker on an outside pointer-down. The handler
+     no-ops unless a picker is open (component mode only). -->
+<svelte:window onpointerdown={onWindowPointerDown} />
+
 {#if componentMode}
 	<!-- Component-level metadata (§8.4 / §8.5): declare the params the ENGINE feeds +
 	     the signals it fires, by picking from the curated catalog. Metadata only —
@@ -717,45 +825,194 @@
 	<section class="cmp-vars">
 		<h3>Component variables</h3>
 		<p class="muted small">
-			Declare the values the engine feeds (params) and the moments it fires (signals). These are the <strong
+			The values the engine feeds (variables) and the moments it fires (signals). These are the <strong
 				>declare</strong
 			> half — the game wires + supplies them.
 		</p>
-		<h4>Engine params</h4>
+
+		<div class="vars-head">
+			<h4>Variables in use</h4>
+			{#if !sourceParam}
+				<div class="picker-anchor" bind:this={varAnchorEl}>
+					<button
+						type="button"
+						class="ghost-sm"
+						aria-expanded={varPickerOpen}
+						onclick={() => (varPickerOpen ? closeVarPicker() : (varPickerOpen = true))}
+					>
+						+ Add variable
+					</button>
+					{#if varPickerOpen}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="picker-pop" onkeydown={(e) => e.key === 'Escape' && closeVarPicker()}>
+							<input
+								class="picker-search"
+								type="text"
+								placeholder="Search values…"
+								bind:value={varSearch}
+							/>
+							<div class="picker-scroll">
+								<p class="picker-group-title">Live game values</p>
+								{#if varPickerMatches.length === 0}
+									<p class="muted small picker-empty">No matching values.</p>
+								{:else}
+									{#each varPickerMatches as m (m.entry.key)}
+										<button
+											type="button"
+											class="picker-option"
+											disabled={m.inUse}
+											title={m.entry.note ?? undefined}
+											onclick={() => {
+												subscribeEngineValue(m.entry);
+												closeVarPicker();
+											}}
+										>
+											<span class="opt-label">{m.entry.label}</span>
+											<span class="opt-kind">{m.entry.kind}</span>
+											{#if m.inUse}<span class="opt-inuse">in use</span>{/if}
+										</button>
+									{/each}
+								{/if}
+								<p class="picker-group-title">Custom input</p>
+								<p class="muted small picker-hint">
+									Add your own input, then bind a node's field to it under
+									<strong>Bind to param</strong>.
+								</p>
+								<div class="add-param">
+									<input
+										type="text"
+										placeholder="name, e.g. bg"
+										bind:value={newParamKey}
+										onkeydown={(e) => {
+											if (e.key === 'Enter') addCustomVariable();
+										}}
+									/>
+									<select
+										value={newParamKind}
+										onchange={(e) =>
+											(newParamKind = e.currentTarget.value as ComponentParam['kind'])}
+									>
+										<option value="string">string</option>
+										<option value="image">image</option>
+										<option value="number">number</option>
+										<option value="color">color</option>
+										<option value="boolean">boolean</option>
+									</select>
+									<button type="button" disabled={!newParamKey.trim()} onclick={addCustomVariable}
+										>Add</button
+									>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+
 		{#if sourceParam}
 			<!-- Engine-fed readout: the value is bound through a `source` param (a value
-			     feed picked from a closed set), NOT by ticking literal bet/win/balance — so
-			     the checklist would be inert here. Show the binding instead. -->
+			     feed picked from a closed set), NOT by adding literal bet/win/balance — so
+			     the variable picker would be inert here. Show the binding instead. -->
 			<p class="muted small">
 				Engine-fed: this component shows the live <strong>value</strong> of its
 				<strong>{sourceParam.key}</strong> — one of
 				<em>{sourceParam.options?.join(' · ')}</em>. Set the default source under
 				<strong>Defaults</strong>, and pick the source per placement when you drop it in a scene.
 			</p>
+		{:else if variableRows.length === 0}
+			<p class="muted small">
+				No variables yet — use <strong>+ Add variable</strong> to subscribe a live game value or create
+				a custom input.
+			</p>
 		{:else}
-			<ul class="picker">
-				{#each ENGINE_PARAM_CATALOG as p (p.key)}
-					<li>
-						<label class="pick">
-							<input
-								type="checkbox"
-								checked={paramHas(p.key)}
-								onchange={() => onToggleParam?.(p.key, p.kind)}
-							/>
-							<span class="pick-label">{p.label}</span>
-							<span class="pick-kind">{p.kind}</span>
-						</label>
-						{#if p.note}<span class="pick-note">{p.note}</span>{/if}
+			<ul class="var-rows">
+				{#each variableRows as row (row.key)}
+					<li class="var-row">
+						<div class="var-row-head">
+							<span class="var-icon" aria-hidden="true">{row.origin === 'engine' ? '◆' : '✎'}</span>
+							<span class="var-name">{row.label}</span>
+							<span class="var-badge" class:engine={row.origin === 'engine'}>{row.origin}</span>
+							<span class="var-kind">{row.kind}</span>
+							<button
+								type="button"
+								class="param-remove"
+								title={row.origin === 'engine' ? 'Unsubscribe value' : 'Delete custom input'}
+								onclick={() => removeVariable(row)}>×</button
+							>
+						</div>
+						{#if row.origin === 'yours'}
+							{@const p = customParams.find((cp) => cp.key === row.key)}
+							{#if p}
+								<label class="param-default">
+									<span>default</span>
+									{#if p.kind === 'string' && fontParamKeys.has(p.key)}
+										{@const cur = typeof p.default === 'string' ? p.default : ''}
+										<select
+											value={cur}
+											onchange={(e) =>
+												onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+										>
+											<option value="">(game default)</option>
+											{#each fontList as f (f.id)}
+												<option value={f.name}>{f.name} [{f.kind}]</option>
+											{/each}
+											{#if cur && !fontList.some((f) => f.name === cur)}
+												<option value={cur}>{cur} (custom)</option>
+											{/if}
+										</select>
+									{:else if p.kind === 'number'}
+										<input
+											type="number"
+											value={typeof p.default === 'number' ? p.default : ''}
+											oninput={(e) =>
+												onSetParamDefault?.(
+													p.key,
+													e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
+												)}
+										/>
+									{:else if p.kind === 'color'}
+										<input
+											type="color"
+											value={typeof p.default === 'number' ? hexFrom(p.default) : '#ffffff'}
+											oninput={(e) => onSetParamDefault?.(p.key, parseHex(e.currentTarget.value))}
+										/>
+									{:else if p.kind === 'boolean'}
+										<input
+											type="checkbox"
+											checked={p.default === true}
+											onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.checked)}
+										/>
+									{:else if p.kind === 'image'}
+										<RegionPicker
+											sheets={pickSheets}
+											value={typeof p.default === 'string' ? p.default : ''}
+											scoped
+											onSelect={(region) => onSetParamDefault?.(p.key, region || undefined)}
+										/>
+									{:else}
+										<input
+											type="text"
+											value={typeof p.default === 'string' ? p.default : ''}
+											oninput={(e) =>
+												onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+										/>
+									{/if}
+								</label>
+							{/if}
+						{/if}
 					</li>
 				{/each}
 			</ul>
-			<h4>Button state images</h4>
+		{/if}
+
+		{#if !sourceParam}
+			<h4>Button images</h4>
 			<button
 				type="button"
 				class="ghost-sm"
 				onclick={() => (showButtonParamsManual = !showButtonParams)}
 			>
-				{showButtonParams ? 'Hide button params' : 'Show button params'}
+				{showButtonParams ? 'Hide button images' : 'Show button images'}
 			</button>
 			{#if showButtonParams}
 				<p class="muted small">
@@ -788,127 +1045,75 @@
 				</ul>
 			{/if}
 		{/if}
-		<h4>Your params</h4>
-		<p class="muted small">
-			Custom inputs you add. Three steps: <strong>1.</strong> add a param here (e.g.
-			<code>bg</code>, kind <em>string</em>) → <strong>2.</strong> select a node and, under its
-			<strong>Bind to param</strong>, point a field (image / tint / text) at it →
-			<strong>3.</strong>
-			set its value per instance when you place the component in a scene.
-		</p>
-		{#if customParams.length > 0}
-			<ul class="picker">
-				{#each customParams as p (p.key)}
-					<li class="author-param">
-						<div class="author-param-head">
-							<span class="pick-label"
-								>{p.label ?? p.key}{#if p.group}<span class="pick-group">· {p.group}</span
-									>{/if}</span
-							>
-							<span class="pick-kind">{p.kind}</span>
+
+		<div class="vars-head">
+			<h4>Signals in use</h4>
+			<div class="picker-anchor" bind:this={signalAnchorEl}>
+				<button
+					type="button"
+					class="ghost-sm"
+					aria-expanded={signalPickerOpen}
+					onclick={() => (signalPickerOpen ? closeSignalPicker() : (signalPickerOpen = true))}
+				>
+					+ Add signal
+				</button>
+				{#if signalPickerOpen}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="picker-pop" onkeydown={(e) => e.key === 'Escape' && closeSignalPicker()}>
+						<input
+							class="picker-search"
+							type="text"
+							placeholder="Search signals…"
+							bind:value={signalSearch}
+						/>
+						<div class="picker-scroll">
+							{#if signalPickerMatches.length === 0}
+								<p class="muted small picker-empty">No matching signals.</p>
+							{:else}
+								{#each signalPickerMatches as m (m.entry.key)}
+									<button
+										type="button"
+										class="picker-option"
+										disabled={m.inUse}
+										title={m.entry.note ?? undefined}
+										onclick={() => {
+											addSignal(m.entry.key);
+											closeSignalPicker();
+										}}
+									>
+										<span class="opt-label">{m.entry.label}</span>
+										{#if m.entry.note}<span class="opt-note">{m.entry.note}</span>{/if}
+										{#if m.inUse}<span class="opt-inuse">in use</span>{/if}
+									</button>
+								{/each}
+							{/if}
+						</div>
+					</div>
+				{/if}
+			</div>
+		</div>
+		{#if signalRows.length === 0}
+			<p class="muted small">
+				No signals yet — use <strong>+ Add signal</strong> to fire a spine cue on enter / win / big win.
+			</p>
+		{:else}
+			<ul class="var-rows">
+				{#each signalRows as s (s.key)}
+					<li class="var-row">
+						<div class="var-row-head">
+							<span class="var-icon" aria-hidden="true">⚡</span>
+							<span class="var-name" title={s.note ?? undefined}>{s.label}</span>
 							<button
 								type="button"
 								class="param-remove"
-								title="Remove param"
-								onclick={() => onRemoveParam?.(p.key)}>×</button
+								title="Remove signal"
+								onclick={() => onToggleSignal?.(s.key)}>×</button
 							>
 						</div>
-						<label class="param-default">
-							<span>default</span>
-							{#if p.kind === 'string' && fontParamKeys.has(p.key)}
-								{@const cur = typeof p.default === 'string' ? p.default : ''}
-								<select
-									value={cur}
-									onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
-								>
-									<option value="">(game default)</option>
-									{#each fontList as f (f.id)}
-										<option value={f.name}>{f.name} [{f.kind}]</option>
-									{/each}
-									{#if cur && !fontList.some((f) => f.name === cur)}
-										<option value={cur}>{cur} (custom)</option>
-									{/if}
-								</select>
-							{:else if p.kind === 'number'}
-								<input
-									type="number"
-									value={typeof p.default === 'number' ? p.default : ''}
-									oninput={(e) =>
-										onSetParamDefault?.(
-											p.key,
-											e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
-										)}
-								/>
-							{:else if p.kind === 'color'}
-								<input
-									type="color"
-									value={typeof p.default === 'number' ? hexFrom(p.default) : '#ffffff'}
-									oninput={(e) => onSetParamDefault?.(p.key, parseHex(e.currentTarget.value))}
-								/>
-							{:else if p.kind === 'boolean'}
-								<input
-									type="checkbox"
-									checked={p.default === true}
-									onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.checked)}
-								/>
-							{:else if p.kind === 'image'}
-								<RegionPicker
-									sheets={pickSheets}
-									value={typeof p.default === 'string' ? p.default : ''}
-									scoped
-									onSelect={(region) => onSetParamDefault?.(p.key, region || undefined)}
-								/>
-							{:else}
-								<input
-									type="text"
-									value={typeof p.default === 'string' ? p.default : ''}
-									oninput={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
-								/>
-							{/if}
-						</label>
 					</li>
 				{/each}
 			</ul>
-		{:else}
-			<p class="muted small">None yet — add one below.</p>
 		{/if}
-		<div class="add-param">
-			<input
-				type="text"
-				placeholder="param name, e.g. bg"
-				bind:value={newParamKey}
-				onkeydown={(e) => {
-					if (e.key === 'Enter') addCustomParam();
-				}}
-			/>
-			<select
-				value={newParamKind}
-				onchange={(e) => (newParamKind = e.currentTarget.value as ComponentParam['kind'])}
-			>
-				<option value="string">string</option>
-				<option value="image">image</option>
-				<option value="number">number</option>
-				<option value="color">color</option>
-				<option value="boolean">boolean</option>
-			</select>
-			<button type="button" disabled={!newParamKey.trim()} onclick={addCustomParam}>Add</button>
-		</div>
-		<h4>Engine signals</h4>
-		<ul class="picker">
-			{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
-				<li>
-					<label class="pick">
-						<input
-							type="checkbox"
-							checked={signalHas(s.key)}
-							onchange={() => onToggleSignal?.(s.key)}
-						/>
-						<span class="pick-label">{s.label}</span>
-					</label>
-					{#if s.note}<span class="pick-note">{s.note}</span>{/if}
-				</li>
-			{/each}
-		</ul>
 	</section>
 {/if}
 
@@ -2672,30 +2877,6 @@
 		letter-spacing: 0.05em;
 		color: #777;
 	}
-	.pick-note {
-		font-size: 10px;
-		color: #666;
-		padding-left: 24px;
-		line-height: 1.3;
-	}
-	.author-param {
-		flex-direction: column;
-		align-items: stretch;
-		gap: 4px;
-		font-size: 12px;
-		color: #c8c8d0;
-	}
-	.author-param-head {
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 8px;
-	}
-	.pick-group {
-		color: #8a7aa8;
-		font-size: 10px;
-		margin-left: 4px;
-	}
 	.param-default {
 		display: flex;
 		align-items: center;
@@ -2799,5 +2980,168 @@
 	}
 	.add-param button {
 		white-space: nowrap;
+	}
+	.vars-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin: 12px 0 4px;
+	}
+	.vars-head h4 {
+		margin: 0;
+	}
+	.picker-anchor {
+		position: relative;
+	}
+	.picker-pop {
+		position: absolute;
+		top: calc(100% + 4px);
+		right: 0;
+		z-index: 20;
+		width: 240px;
+		max-height: 320px;
+		display: flex;
+		flex-direction: column;
+		background: #1b1722;
+		border: 1px solid #38314a;
+		border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		padding: 8px;
+	}
+	.picker-search {
+		width: 100%;
+		box-sizing: border-box;
+		margin-bottom: 6px;
+	}
+	.picker-scroll {
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.picker-group-title {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #8a7aa8;
+		margin: 6px 0 2px;
+	}
+	.picker-hint {
+		margin: 0 0 4px;
+	}
+	.picker-empty {
+		margin: 2px 0;
+	}
+	.picker-option {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		text-align: left;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		color: #c8c8d0;
+		padding: 5px 6px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.picker-option:hover:not(:disabled) {
+		background: #251f33;
+		border-color: #4a3f63;
+	}
+	.picker-option:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.opt-label {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.opt-kind {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+	}
+	.opt-note {
+		flex: 2;
+		min-width: 0;
+		font-size: 10px;
+		color: #666;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.opt-inuse {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #7ee0c0;
+		border: 1px solid #2a4a3f;
+		border-radius: 4px;
+		padding: 1px 4px;
+	}
+	.var-rows {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.var-row {
+		border: 1px solid #2a2433;
+		border-radius: 6px;
+		padding: 5px 7px;
+		background: #18141f;
+	}
+	.var-row-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: #c8c8d0;
+	}
+	.var-icon {
+		color: #8a7aa8;
+		font-size: 11px;
+		width: 12px;
+		text-align: center;
+	}
+	.var-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.var-badge {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #9a9aa8;
+		border: 1px solid #3a3a46;
+		border-radius: 4px;
+		padding: 1px 5px;
+	}
+	.var-badge.engine {
+		color: #8fc6ff;
+		border-color: #2c4564;
+		background: #18222e;
+	}
+	.var-kind {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #777;
+	}
+	.var-row .param-default {
+		margin-top: 5px;
+		padding-left: 20px;
 	}
 </style>
