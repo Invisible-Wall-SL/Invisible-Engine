@@ -531,6 +531,10 @@
 		}
 	}
 
+	/** Spine size debug: log each spine ONCE per id (avoids per-frame flooding). Cleared
+	 * when `window.__IW_SPINE_DEBUG__` is toggled off so a re-enable re-logs. */
+	const spineDebugLogged = new Set<string>();
+
 	/** Drive each ready instance's play/pause state from the `playing` set. */
 	function syncPlayback(target: SpineRenderTarget, entry: Entry): void {
 		if (entry.state !== 'ready') return;
@@ -711,6 +715,38 @@
 				inst.skeleton.scaleX = sx;
 				// Flip Y: the runtime art is y-up; the camera is y-down.
 				inst.skeleton.scaleY = -sy;
+			}
+			// Spine size debug (mirror of SpineProvider's [IW-SPINE]). At this point
+			// `skeleton.scaleX` is the WORLD scale (nodeScale × mainScale for game space),
+			// so `worldScale / mainScale` recovers the node scale and `natural × nodeScale`
+			// is the MAIN-box-unit size — directly comparable to the game's mainBoxUnit.
+			{
+				const dbg =
+					typeof window !== 'undefined' &&
+					(window as unknown as { __IW_SPINE_DEBUG__?: boolean }).__IW_SPINE_DEBUG__;
+				if (!dbg) spineDebugLogged.clear();
+				else if (!spineDebugLogged.has(target.nodeId)) {
+					spineDebugLogged.add(target.nodeId);
+					const ms = mainScale() || 1;
+					const wsx = Math.abs(inst.skeleton.scaleX);
+					const wsy = Math.abs(inst.skeleton.scaleY);
+					const natW = inst.skeleton.data.width ?? 0;
+					const natH = inst.skeleton.data.height ?? 0;
+					console.log(
+						'[IW-SPINE editor]',
+						target.assetKey,
+						'natural=',
+						Math.round(natW),
+						Math.round(natH),
+						'nodeScale=',
+						Number((wsx / ms).toFixed(4)),
+						'mainScale=',
+						Number(ms.toFixed(4)),
+						'mainBoxUnit=',
+						Math.round((natW * wsx) / ms),
+						Math.round((natH * wsy) / ms),
+					);
+				}
 			}
 			// Bake the editor pan/zoom into the skeleton so it maps EXACTLY like the 2D
 			// canvas. The vendored OrthoCamera is set up with up=(0,-1,0) to cancel
