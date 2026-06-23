@@ -1,5 +1,6 @@
 import { resolveTransform } from './resolveTransform';
 import type {
+	AnticipationProfile,
 	GameTemplate,
 	LayoutDoc,
 	LayoutType,
@@ -112,6 +113,32 @@ export function resolveReelSpinProfile(
 	for (const [key, value] of Object.entries(profile)) {
 		if (Number.isFinite(value)) out[key as keyof ReelSpinProfile] = value as number;
 	}
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Read the authored free-spin anticipation overlay overrides off a `reelGrid`
+ * node. Returns only the fields the author actually set (non-empty strings /
+ * finite numbers), so the game can `{ ...codedConfig, ...override }`. No node /
+ * no `anticipation` / empty ⇒ `undefined`, so the game keeps its coded
+ * `ANTICIPATION` config unchanged (parity).
+ */
+export function resolveAnticipationProfile(
+	node: ReelGridNode | undefined,
+): AnticipationProfile | undefined {
+	const p = node?.anticipation;
+	if (!p) return undefined;
+	const out: AnticipationProfile = {};
+	const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+	const num = (v: unknown): v is number => Number.isFinite(v);
+	if (str(p.spineKey)) out.spineKey = p.spineKey;
+	if (num(p.widthRatio)) out.widthRatio = p.widthRatio;
+	if (num(p.heightRatio)) out.heightRatio = p.heightRatio;
+	if (num(p.yOffsetRatio)) out.yOffsetRatio = p.yOffsetRatio;
+	if (str(p.introAnimation)) out.introAnimation = p.introAnimation;
+	if (str(p.loopAnimation)) out.loopAnimation = p.loopAnimation;
+	if (str(p.outAnimation)) out.outAnimation = p.outAnimation;
+	if (str(p.sound)) out.sound = p.sound;
 	return Object.keys(out).length ? out : undefined;
 }
 

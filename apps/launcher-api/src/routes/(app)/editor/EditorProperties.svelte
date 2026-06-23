@@ -15,6 +15,7 @@
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
+		type AnticipationProfile,
 		type EditableParam,
 		type EngineParamEntry,
 		type LayoutNode,
@@ -407,6 +408,39 @@
 		spin[profile] = Object.keys(prof).length ? prof : undefined;
 		// Drop an empty tuning object so an untouched node carries no `spin` (parity).
 		n.spin = spin.normal || spin.fast ? spin : undefined;
+		markDirty();
+	}
+
+	// Free-spin anticipation overlay tuning (reelGrid node, advanced). Blank = the
+	// game's coded `ANTICIPATION` default. Authored under `node.anticipation`.
+	const ANTICIPATION_NUM_FIELDS: { key: keyof AnticipationProfile; label: string }[] = [
+		{ key: 'widthRatio', label: 'width (× cell)' },
+		{ key: 'heightRatio', label: 'height (× cell)' },
+		{ key: 'yOffsetRatio', label: 'y offset (× cell)' },
+	];
+	const ANTICIPATION_STR_FIELDS: { key: keyof AnticipationProfile; label: string }[] = [
+		{ key: 'spineKey', label: 'spine asset' },
+		{ key: 'introAnimation', label: 'intro animation' },
+		{ key: 'loopAnimation', label: 'loop animation' },
+		{ key: 'outAnimation', label: 'out animation' },
+		{ key: 'sound', label: 'sound name' },
+	];
+
+	function readAnticipation(n: ReelGridNode, key: keyof AnticipationProfile) {
+		return n.anticipation?.[key] ?? '';
+	}
+
+	function writeAnticipation(
+		n: ReelGridNode,
+		key: keyof AnticipationProfile,
+		raw: number | string,
+	): void {
+		const a: AnticipationProfile = { ...(n.anticipation ?? {}) };
+		const isEmpty = raw === '' || (typeof raw === 'number' && Number.isNaN(raw));
+		if (isEmpty) delete a[key];
+		else (a as Record<string, number | string>)[key] = raw;
+		// Drop an empty object so an untouched node carries no `anticipation` (parity).
+		n.anticipation = Object.keys(a).length ? a : undefined;
 		markDirty();
 	}
 
@@ -2228,6 +2262,38 @@
 						{/each}
 					</div>
 				{/each}
+			</details>
+			<details class="spin-tuning">
+				<summary>Anticipation (advanced)</summary>
+				<p class="muted small">
+					Free-spin "hold" overlay — blank = the game's coded default. Ratios are multiples of one
+					cell; the spine asset + animation names are the spine's track names.
+				</p>
+				<div class="spin-grid">
+					{#each ANTICIPATION_NUM_FIELDS as f (f.key)}
+						<label class="field">
+							<span>{f.label}</span>
+							<input
+								type="number"
+								step="0.01"
+								value={readAnticipation(node, f.key)}
+								oninput={(e) => writeAnticipation(node, f.key, e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+					{/each}
+				</div>
+				<div class="spin-grid">
+					{#each ANTICIPATION_STR_FIELDS as f (f.key)}
+						<label class="field">
+							<span>{f.label}</span>
+							<input
+								type="text"
+								value={readAnticipation(node, f.key)}
+								oninput={(e) => writeAnticipation(node, f.key, e.currentTarget.value)}
+							/>
+						</label>
+					{/each}
+				</div>
 			</details>
 		</section>
 	{:else if node.kind === 'text'}

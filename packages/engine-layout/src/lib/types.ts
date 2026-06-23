@@ -355,6 +355,14 @@ export interface ReelGridNode extends BaseNode {
 	 * Absent / empty ⇒ the coded constants are used unchanged (parity).
 	 */
 	spin?: ReelSpinTuning;
+	/**
+	 * Free-spin anticipation overlay tuning (the per-reel spine "hold" effect):
+	 * optional per-field overrides of the game's coded `ANTICIPATION` config.
+	 * Absent / empty ⇒ the coded defaults are used unchanged (parity). The `*Ratio`
+	 * fields are multiples of one cell; `*Animation`/`spineKey` are the spine asset
+	 * + track names; `sound` is the loop sfx name.
+	 */
+	anticipation?: AnticipationProfile;
 }
 
 /**
@@ -381,6 +389,24 @@ export interface ReelSpinProfile {
 export interface ReelSpinTuning {
 	normal?: ReelSpinProfile;
 	fast?: ReelSpinProfile;
+}
+
+/**
+ * Per-field overrides for the free-spin anticipation overlay — mirrors a game's
+ * coded `ANTICIPATION` config (all optional; an unset field falls back to the
+ * coded value). The `*Ratio` fields are multiples of one cell; `spineKey` +
+ * `*Animation` are the spine asset key and its track names; `sound` is the loop
+ * sfx name.
+ */
+export interface AnticipationProfile {
+	spineKey?: string;
+	widthRatio?: number;
+	heightRatio?: number;
+	yOffsetRatio?: number;
+	introAnimation?: string;
+	loopAnimation?: string;
+	outAnimation?: string;
+	sound?: string;
 }
 
 export type LayoutNode =
