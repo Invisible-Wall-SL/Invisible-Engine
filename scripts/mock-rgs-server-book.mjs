@@ -111,18 +111,13 @@ const buildConfigContext = () => ({
 
 // ---------- pure win evaluation ----------
 
-const evaluatePaylines = (reels, betPerLine, excludeSymbol = null) => {
+const evaluatePaylines = (reels, betPerLine) => {
 	const wins = [];
 	for (let p = 0; p < PAYLINES.length; p++) {
 		const line = PAYLINES[p];
 		const seq = line.map((row, reel) => reels[reel][row]);
 		const first = seq[0];
 		if (!PAY_TABLE_LINE[first]) continue;
-		// During the bonus the chosen special expands across whole reels and pays
-		// scatter-style (evaluateSpecial). It must NOT also pay as a left-aligned
-		// payline, else the expanded symbol double-pays: a tiny line win on top of
-		// the boosted expansion (the spurious "3 of a kind" toast in free spins).
-		if (excludeSymbol && first === excludeSymbol) continue;
 		let count = 1;
 		for (let i = 1; i < seq.length; i++) {
 			if (seq[i] === first || seq[i] === 'SCAT') count++; // SCAT is wild
@@ -198,13 +193,16 @@ const evaluateScatterTrigger = (reels, totalStake) => {
 	};
 };
 
-/** Free-spin special expanding symbol (Book of Thermopylae rule): pays only when
- *  3 OR MORE of the special land ANYWHERE on the NATURAL board — the same 3+
- *  trigger that drives the client-side column morph (`expandBookColumns`). Below
- *  3 it does not qualify, nothing expands, and the board pays as normal lines.
- *  The of-a-kind count is the number of REELS the special covers (each such reel
- *  expands to fill the column), keyed into the symbol's line paytable. */
-const evaluateSpecial = (reels, special, betPerLine) => {
+/** Free-spin expanding special (Book mechanic): when the chosen special lands on
+ *  3+ reels it expands to FILL each of those reels, then the board pays ONLY on
+ *  the normal paylines (left-to-right from reel 1) — never scatter-style. This
+ *  returns the EXPANDED board to feed straight into `evaluatePaylines`; below 3
+ *  it returns the board unchanged. The 3+ gate and the set of expanded reels are
+ *  identical to the client-side column morph (`expandBookColumns`, synthesised in
+ *  the facade), so the cells that light a payline are exactly the cells that
+ *  visibly morph. A special on NON-adjacent reels forms no left-aligned run and
+ *  therefore pays nothing — only adjacent coverage from reel 1 makes a line. */
+const expandSpecialBoard = (reels, special) => {
 	const reelsWith = [];
 	let symbolCount = 0;
 	for (let reel = 0; reel < reels.length; reel++) {
@@ -217,34 +215,10 @@ const evaluateSpecial = (reels, special, betPerLine) => {
 		}
 		if (hit) reelsWith.push(reel);
 	}
-	// Gate on the COUNT of special symbols on the board (3+), matching the visual
-	// trigger; only then does the expansion (and its pay) apply.
-	if (symbolCount < 3) return null;
-	const count = reelsWith.length;
-	const table = PAY_TABLE_LINE[special];
-	const mult = table[count];
-	if (!mult) return null;
-	// The special expands to FILL each covered reel (client `expandBookColumns`
-	// morphs every cell of those reels into the book). The win highlight must
-	// therefore light the WHOLE column, not just the cells the special landed on:
-	// emit every {reel,row} of each reel in `reelsWith`. These pass through the
-	// facade's `row+1` padding shift and align exactly with the morphed visible
-	// cells (rows 1..BOARD_DIMENSIONS.y).
-	const positions = [];
-	for (const reel of reelsWith) {
-		for (let row = 0; row < reels[reel].length; row++) {
-			positions.push({ reel, row });
-		}
-	}
-	return {
-		what: special,
-		occurs: count,
-		mode: 'scatter',
-		pay: mult * betPerLine * 5, // expanded across the reel → boosted
-		mpInfo: { mp: 1, replacements: 0 },
-		mpBonusInfo: null,
-		context: positions,
-	};
+	if (symbolCount < 3) return reels;
+	return reels.map((reel, reelIndex) =>
+		reelsWith.includes(reelIndex) ? reel.map(() => special) : reel,
+	);
 };
 
 // ---------- bonus state snapshot helpers (faithful to capture shape) ----------
@@ -444,9 +418,10 @@ export function createMockRgs(opts = {}) {
 					if (round.bonus?.active) {
 						const reels = spinReels();
 						events.push(spinStartEvent(round));
-						const lineWins = evaluatePaylines(reels, round.betPerLine, round.bonus.special);
-						const specialWin = evaluateSpecial(reels, round.bonus.special, round.betPerLine);
-						const wins = specialWin ? [...lineWins, specialWin] : lineWins;
+						// The special expands its reels (Book mechanic); the EXPANDED board
+						// pays strictly on the normal paylines — no scatter-style column pay.
+						const paidBoard = expandSpecialBoard(reels, round.bonus.special);
+						const wins = evaluatePaylines(paidBoard, round.betPerLine);
 						for (const w of wins) {
 							events.push({ event: 'bonusWin', context: { bonus: 'feature', pay: w.pay, isSpinWin: true } });
 							events.push({ event: 'spinWin', context: w });
