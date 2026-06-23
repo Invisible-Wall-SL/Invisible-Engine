@@ -10,6 +10,7 @@
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
+	import { setSceneVisibleContext } from './sceneVisibilityContext';
 
 	const { scene }: Props = $props();
 
@@ -31,6 +32,12 @@
 			liveVisible = value;
 		});
 	});
+
+	// Publish this screen's live gate-visibility to the components rendered inside it,
+	// so a `ComponentInstance` fires its `enter` cue when THIS SCREEN appears (a gated
+	// "Free-spin intro" opening), not just when the instance first mounts. Ungated
+	// screen ⇒ `liveVisible` stays `true` ⇒ a child reads "always visible" = parity.
+	setSceneVisibleContext(() => liveVisible);
 </script>
 
 {#snippet nodes()}

@@ -23,6 +23,7 @@
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentDefaults } from './registerComponentDefaults';
+	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 
 	const { node, space }: Props = $props();
 
@@ -220,20 +221,29 @@
 	// `enter` is a COMPONENT-lifecycle signal the instance fires ITSELF — no game source
 	// maps to it, so the game-registered loop above skips it. It plays each spine's `enter`
 	// cue the moment the component becomes VISIBLE: on mount with the gate open, or when a
-	// `visibleSource` gate later opens (e.g. an intro animation the instant a gated
-	// "Free-spin intro" screen appears). Tracks the visible edge so it fires once per
-	// appearance, not every effect run. (`exit`/`idle` are intentionally NOT fired — an
-	// instant-hide gate would cut an exit animation and idle has no trigger; both are
-	// omitted from the editor's signal list.)
+	// gate later OPENS (e.g. an intro animation the instant a gated "Free-spin intro"
+	// screen appears). The gate is EITHER this instance's own `visibleSource` OR the
+	// HOST SCREEN's `visibleSource` — the common case is the latter (the screen is gated
+	// "Shows during …", the instance isn't), which is why we combine the scene-visibility
+	// context here: without it the instance's own visibility is always `true`, so `enter`
+	// fired once at boot (while the screen was hidden) and NEVER on the real appearance.
+	// Tracks the visible edge so it fires once per appearance. (`exit`/`idle` are NOT
+	// fired — an instant-hide gate would cut an exit animation and idle has no trigger.)
+	const sceneVisible = getSceneVisibleContext();
+	const selfVisible = $derived(
+		(!visibilitySource || liveVisible) && (sceneVisible ? sceneVisible() : true),
+	);
+	// Re-publish the COMBINED visibility so a component nested inside THIS one fires its
+	// own `enter` only when this instance (and its screen) are actually shown.
+	setSceneVisibleContext(() => selfVisible);
 	let wasVisible = false;
 	$effect(() => {
-		const visible = !visibilitySource || liveVisible;
-		if (visible && !wasVisible) {
+		if (selfVisible && !wasVisible) {
 			for (const t of signalToTargets.get('enter') ?? []) {
 				signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop };
 			}
 		}
-		wasVisible = visible;
+		wasVisible = selfVisible;
 	});
 
 	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
