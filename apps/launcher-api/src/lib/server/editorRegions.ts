@@ -58,6 +58,8 @@ interface RawManifest {
 		source_image?: unknown;
 		source_image_path?: unknown;
 		atlas_file?: unknown;
+		/** R2 key of the sheet's TexturePacker JSON — the authoritative packing. */
+		texturepacker_json?: unknown;
 		width?: unknown;
 		height?: unknown;
 	};
@@ -277,6 +279,46 @@ function texturePackerToInvisible(raw: unknown): RawManifest | null {
 }
 
 /**
+ * A region LISTED in the Invisible manifest but WITHOUT packed geometry (no
+ * `x/y/w/h`) is dropped by `parseRegions` — this happens when a sprite is added
+ * to the sheet but the atlas manifest isn't re-composed afterwards, so the entry
+ * exists (name + style/output refs) yet never received coordinates. The geometry
+ * DOES exist in the sheet's TexturePacker JSON, which the manifest already
+ * references as `atlas.texturepacker_json` and whose frames share the manifest's
+ * exact coordinate space + page. Backfill those regions from it by name so
+ * consumers (Rigger, editor) don't silently lose a sprite that's already packed
+ * on the page. Mutates `regions` in place. One extra R2 read, and only when some
+ * region is actually missing geometry (the normal case fetches nothing).
+ */
+async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]): Promise<void> {
+	const tpKey = str(man.atlas?.texturepacker_json);
+	if (!tpKey) return;
+	const stem = (n: string): string => n.replace(/\.[^.]+$/, '').toLowerCase();
+	const have = new Set(regions.map((r) => stem(r.name)));
+	const listed = Array.isArray(man.regions) ? (man.regions as RawRegion[]) : [];
+	const missing = listed
+		.map((r) => str(r.name))
+		.filter((n): n is string => !!n && !have.has(stem(n)));
+	if (!missing.length) return;
+
+	const text = await getObjectText(tpKey);
+	if (!text) return;
+	let tp: unknown;
+	try {
+		tp = JSON.parse(text);
+	} catch {
+		return;
+	}
+	const conv = texturePackerToInvisible(tp);
+	if (!conv) return;
+	const tpByStem = new Map(parseRegions(conv.regions).map((r) => [stem(r.name), r]));
+	for (const name of missing) {
+		const found = tpByStem.get(stem(name));
+		if (found) regions.push({ ...found, name }); // keep the manifest's (extensionless) name
+	}
+}
+
+/**
  * Locate, parse and resolve a sheet/atlas into its region set. Returns an empty
  * set (never null/throws) when nothing usable is found, so the endpoint can
  * always answer `{ regions: [] }` with a clear shape instead of 500-ing.
@@ -311,6 +353,7 @@ export async function loadRegionSet(
 	const man: RawManifest = texturePackerToInvisible(parsed) ?? (parsed as RawManifest);
 
 	const regions = parseRegions(man.regions);
+	await backfillMissingGeometry(man, regions);
 	const pageKey = await resolvePageKey(man, manifestKey, client, project);
 	const pageWidth = num(man.atlas?.width) ?? num(man.width) ?? 0;
 	const pageHeight = num(man.atlas?.height) ?? num(man.height) ?? 0;
