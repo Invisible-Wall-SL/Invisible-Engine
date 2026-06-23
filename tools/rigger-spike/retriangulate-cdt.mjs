@@ -2,10 +2,17 @@
 // Ear-clip the hull polygon (every hull vertex referenced, boundary respected), insert
 // interior points by triangle-split, then a Delaunay flip pass that NEVER flips a hull
 // boundary edge. Guarantees: every vertex referenced, all hull edges present, exact
-// non-overlapping cover of the polygon (no concavity crossing), good triangle quality.
+// non-overlapping cover of the polygon (no concavity crossing), good triangle quality,
+// and — the property the editor's "remove vertex" depends on — EVERY interior vertex
+// has a clean manifold one-ring (so it can always be removed).
 //   node tools/rigger-spike/retriangulate-cdt.mjs
+//
+// These functions are the canonical source for view.html's cdtTriangulate / pointInHull /
+// splitTrisOnEdge / removeMeshVertex ring walk — keep them in sync.
 
-// ---- candidate functions (to be ported into view.html) --------------------
+const EDGE_EPS = 1e-4; // bary min below this → treat the point as ON an edge (split both tris)
+const OUT_EPS = 1e-2; // even the closest triangle's bary min below -this → point is outside → skip
+
 function earClip(ring, w) {
 	const P = ring.map((i) => ({ i, x: w[i * 2], y: w[i * 2 + 1] }));
 	let area = 0;
@@ -49,34 +56,53 @@ const ek = (u, v) => (u < v ? u + ',' + v : v + ',' + u);
 function ccw(w, p, q, r) { return (w[q * 2] - w[p * 2]) * (w[r * 2 + 1] - w[p * 2 + 1]) - (w[q * 2 + 1] - w[p * 2 + 1]) * (w[r * 2] - w[p * 2]); }
 function segCross(w, a, b, c, d) { const d1 = ccw(w, c, d, a), d2 = ccw(w, c, d, b), d3 = ccw(w, a, b, c), d4 = ccw(w, a, b, d); return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0)); }
 
+// Split the 1-or-2 triangles sharing edge (ea,eb) by inserting p on that edge, keeping
+// each triangle's winding. (1 sharer = a hull boundary edge; 2 = an interior edge.)
+// Preserving winding is what keeps the result fold-free and manifold.
+function splitTrisOnEdge(tris, ea, eb, p) {
+	const hits = [];
+	for (let ti = 0; ti < tris.length; ti++) {
+		const T = tris[ti];
+		if (T.indexOf(ea) < 0 || T.indexOf(eb) < 0) continue;
+		for (let i = 0; i < 3; i++) {
+			const u = T[i], v = T[(i + 1) % 3], third = T[(i + 2) % 3];
+			if ((u === ea && v === eb) || (u === eb && v === ea)) { hits.push({ ti, u, v, third }); break; }
+		}
+	}
+	hits.sort((x, y) => y.ti - x.ti); // splice high→low so earlier indices stay valid
+	for (const h of hits) tris.splice(h.ti, 1, [h.u, p, h.third], [p, h.v, h.third]);
+	return hits.length;
+}
+
 function cdt(w, hull) {
 	const m = w.length / 2;
 	if (m < 3) return [];
 	const ring = []; for (let i = 0; i < hull; i++) ring.push(i);
 	let tris = earClip(ring, w);
 	if (!tris) return null;
-	// insert interior points (hull..m-1) by splitting the containing triangle
+	// insert interior points (hull..m-1). Strictly inside → split into 3. On/near an edge →
+	// split BOTH triangles sharing it (no T-junction, no sliver, can't invert). Truly outside
+	// the polygon (shouldn't happen — caller pre-filters) → skip rather than fold.
 	for (let p = hull; p < m; p++) {
-		let placed = false;
+		let inside = -1, host = -1, hostMin = -Infinity, hostEdge = -1;
 		for (let ti = 0; ti < tris.length; ti++) {
 			const [a, b, c] = tris[ti];
 			const r = bary(w[p * 2], w[p * 2 + 1], w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], w[c * 2], w[c * 2 + 1]);
-			if (r && r.u >= -1e-7 && r.v >= -1e-7 && r.w >= -1e-7) {
-				tris.splice(ti, 1, [a, b, p], [b, c, p], [c, a, p]);
-				placed = true; break;
-			}
+			if (!r) continue;
+			const mn = Math.min(r.u, r.v, r.w);
+			if (mn >= EDGE_EPS) { inside = ti; break; }
+			if (mn > hostMin) { hostMin = mn; host = ti; hostEdge = r.u <= r.v && r.u <= r.w ? 0 : r.v <= r.w ? 1 : 2; }
 		}
-		// if not strictly inside any triangle, attach to the nearest triangle's centroid owner
-		if (!placed) {
-			let best = -1, bestD = Infinity;
-			for (let ti = 0; ti < tris.length; ti++) {
-				const [a, b, c] = tris[ti];
-				const cx = (w[a * 2] + w[b * 2] + w[c * 2]) / 3, cy = (w[a * 2 + 1] + w[b * 2 + 1] + w[c * 2 + 1]) / 3;
-				const dd = (cx - w[p * 2]) ** 2 + (cy - w[p * 2 + 1]) ** 2;
-				if (dd < bestD) { bestD = dd; best = ti; }
-			}
-			if (best >= 0) { const [a, b, c] = tris[best]; tris.splice(best, 1, [a, b, p], [b, c, p], [c, a, p]); }
+		if (inside >= 0) {
+			const [a, b, c] = tris[inside];
+			tris.splice(inside, 1, [a, b, p], [b, c, p], [c, a, p]);
+			continue;
 		}
+		if (host < 0 || hostMin < -OUT_EPS) continue; // outside the polygon → skip
+		const [a, b, c] = tris[host];
+		const ea = hostEdge === 0 ? b : hostEdge === 1 ? c : a;
+		const eb = hostEdge === 0 ? c : hostEdge === 1 ? a : b;
+		splitTrisOnEdge(tris, ea, eb, p);
 	}
 	// constraint edges = hull boundary loop
 	const constraints = new Set();
@@ -95,14 +121,60 @@ function cdt(w, hull) {
 			const a = recs[0].u, b = recs[0].v, c = recs[0].opp, d = recs[1].opp;
 			if (!circumcircleContains(w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], w[c * 2], w[c * 2 + 1], w[d * 2], w[d * 2 + 1])) continue;
 			if (!segCross(w, a, b, c, d)) continue; // only flip if quad is convex (diagonals cross)
-			tris[recs[0].ti] = [a, c, d];
-			tris[recs[1].ti] = [b, d, c];
+			// tri0 winds a→b→c, tri1 winds b→a→d. New diagonal c-d → the two CCW triangles
+			// are [a,d,c] and [b,c,d]. (Emitting [a,c,d]/[b,d,c] reverses winding — the bug
+			// that made flipped triangles non-manifold and blocked remove-vertex.)
+			tris[recs[0].ti] = [a, d, c];
+			tris[recs[1].ti] = [b, c, d];
 			changed = true; break;
 		}
 	}
+	// drop any exact-degenerate (collinear) triangle a split may have left behind
+	tris = tris.filter(([a, b, c]) => Math.abs(ccw(w, a, b, c)) > 1e-7);
 	return tris;
 }
-// ---------------------------------------------------------------------------
+
+// Ray-cast point-in-polygon for the (possibly concave) outline = first `hull` verts of w.
+function pointInHull(px, py, w, hull) {
+	let inside = false;
+	for (let i = 0, j = hull - 1; i < hull; j = i++) {
+		const xi = w[i * 2], yi = w[i * 2 + 1], xj = w[j * 2], yj = w[j * 2 + 1];
+		if (((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)) inside = !inside;
+	}
+	return inside;
+}
+
+// The editor flow: dedup → drop interior points outside the outline → CDT.
+function reweave(w0, hull0) {
+	const ded = dedup(w0, hull0);
+	let w = ded.w2, hull = ded.hull;
+	const m = w.length / 2;
+	const keep = [];
+	let droppedOutside = 0;
+	for (let i = 0; i < m; i++) {
+		if (i < hull) { keep.push(i); continue; }
+		if (pointInHull(w[i * 2], w[i * 2 + 1], w, hull)) keep.push(i); else droppedOutside++;
+	}
+	if (droppedOutside) { const w2 = []; for (const k of keep) w2.push(w[k * 2], w[k * 2 + 1]); w = w2; }
+	const tris = cdt(w, hull);
+	return { w, hull, tris, removedDup: ded.removed, droppedOutside };
+}
+
+// The remove-vertex ring walk, lifted verbatim from view.html's removeMeshVertex. Returns
+// true iff interior vertex k has a clean, single, manifold one-ring (so it's removable).
+function ringRemovable(tris, k) {
+	const edges = [];
+	for (const [a, b, c] of tris) {
+		if (a !== k && b !== k && c !== k) continue;
+		if (a === k) edges.push([b, c]); else if (b === k) edges.push([c, a]); else edges.push([a, b]);
+	}
+	if (edges.length < 3) return false;
+	const nxt = new Map(); for (const [f, to] of edges) nxt.set(f, to);
+	const startV = edges[0][0], ringArr = [startV];
+	let cur = nxt.get(startV), g = 0;
+	while (cur !== undefined && cur !== startV && g++ < edges.length + 2) { ringArr.push(cur); cur = nxt.get(cur); }
+	return cur === startV && ringArr.length === edges.length;
+}
 
 // dedup (tight relative EPS) — runs BEFORE cdt in the real flow, returns deduped verts + new hull count
 function dedup(w, hull) {
@@ -124,32 +196,36 @@ const hull = HULL.length / 2;
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 function run(name, interior) {
-	const w0 = HULL.concat(interior);
-	const ded = dedup(w0, hull);
-	const w = ded.w2, hull2 = ded.hull;
-	const m = w.length / 2;
-	const tris = cdt(w, hull2);
+	const { w, hull: hull2, tris, removedDup, droppedOutside } = reweave(HULL.concat(interior), hull);
 	if (!tris) { log(false, `${name}: ear-clip failed`); return; }
+	const m = w.length / 2;
 	const used = new Set(tris.flat());
 	const orphan = []; for (let i = 0; i < m; i++) if (!used.has(i)) orphan.push(i);
-	log(orphan.length === 0, `${name}: removed ${ded.removed} dup(s); every vertex referenced (orphans: [${orphan.join(',')}])`);
+	log(orphan.length === 0, `${name}: dup ${removedDup}, outside ${droppedOutside}; every kept vertex referenced (orphans: [${orphan.join(',')}])`);
 	let allEdges = true; for (let i = 0; i < hull2; i++) { const k = ek(i, (i + 1) % hull2); const present = tris.some(([a, b, c]) => [ek(a, b), ek(b, c), ek(c, a)].includes(k)); if (!present) { allEdges = false; break; } }
 	log(allEdges, `${name}: all hull boundary edges present`);
 	let area = 0; for (const [a, b, c] of tris) area += triArea(w, a, b, c);
 	const pa = polyArea(w, hull2);
 	log(Math.abs(area - pa) < pa * 1e-4, `${name}: exact cover (Σtri ${area.toFixed(1)} ≈ poly ${pa.toFixed(1)})`);
-	const degen = tris.filter(([a, b, c]) => triArea(w, a, b, c) <= 1e-6).length;
-	log(degen === 0, `${name}: no degenerate triangles (${degen})`);
+	const inverted = tris.filter(([a, b, c]) => ccw(w, a, b, c) <= 1e-7).length;
+	log(inverted === 0, `${name}: no inverted/degenerate triangles (${inverted})`);
+	// THE property "remove vertex" relies on: every interior vertex has a removable one-ring.
+	const stuck = []; for (let k = hull2; k < m; k++) if (!ringRemovable(tris, k)) stuck.push(k);
+	log(stuck.length === 0, `${name}: every interior vertex is removable (stuck: [${stuck.join(',')}])`);
 }
 
-console.log('\n=== constrained Delaunay (cactus) ===');
+console.log('\n=== constrained Delaunay + manifold/removable guarantees (cactus) ===');
 run('no-interior', []);
 run('one-interior', [400, 350]);
 run('two-interior', [400, 350, 620, 360]);
 run('two-interior-b', [400, 350, 180, 360]);
 run('center+arms+armpits', [400, 350, 650, 360, 150, 360, 560, 300, 240, 300]);
-// stress: interior point ON a hull-ish line + a near-duplicate of an interior point
+// stress: a 4×5 interior grid (the user's "add 15 points then retriangulate then remove")
 run('dense-grid', Array.from({ length: 20 }, (_, k) => [350 + (k % 5) * 30, 200 + Math.floor(k / 5) * 80]).flat());
+// regression: a point well OUTSIDE the outline must be dropped, leaving a fully removable mesh
+run('outside-point', [400, 350, 2000, 2000]);
+// regression: a point sitting exactly ON an interior edge (T-junction trigger)
+run('on-edge', [400, 350, 400, 475]);
 
-console.log(pass ? '\n✅ PASS — CDT references every vertex, keeps all hull edges, covers exactly, no concavity crossing.' : '\n✗ FAIL');
+console.log(pass ? '\n✅ PASS — CDT covers exactly, never folds, and every interior vertex stays removable.' : '\n✗ FAIL');
 process.exit(pass ? 0 : 1);
