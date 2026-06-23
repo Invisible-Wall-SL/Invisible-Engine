@@ -7,6 +7,8 @@
 	export type Props = OverwriteCursor<Omit<SPINE_PIXI.SpineOptions, 'children'>> & {
 		spineData: SPINE_PIXI.SkeletonData;
 		children: Snippet;
+		/** Identifier for the `[IW-SPINE]` size-debug log (the asset key). Temporary. */
+		debugKey?: string;
 		// When set AND both `width`/`height` are given, the spine sizes by a UNIFORM
 		// cover/contain scale instead of per-axis stretch (true cover, no distortion).
 		// Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
@@ -38,7 +40,7 @@
 	propsSyncEffect({
 		props,
 		target: spine,
-		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin'],
+		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin', 'debugKey'],
 	});
 
 	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),
@@ -81,7 +83,7 @@
 	$effect(() => {
 		if (typeof window === 'undefined') return;
 		if (!(window as unknown as { __IW_SPINE_DEBUG__?: boolean }).__IW_SPINE_DEBUG__) return;
-		const name = props.spineData.name ?? '?';
+		const name = props.debugKey ?? props.spineData.name ?? '?';
 		const id = setTimeout(() => {
 			try {
 				const b = spine.getBounds();

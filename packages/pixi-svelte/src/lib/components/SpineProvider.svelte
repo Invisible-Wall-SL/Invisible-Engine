@@ -60,7 +60,7 @@
 
 {#key spineData}
 	{#if spineData}
-		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData}>
+		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData} debugKey={key}>
 			{@render children()}
 		</BaseSpineProvider>
 	{/if}
