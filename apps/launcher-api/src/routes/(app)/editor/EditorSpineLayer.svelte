@@ -531,10 +531,6 @@
 		}
 	}
 
-	/** Spine size debug: log each spine ONCE per id (avoids per-frame flooding). Cleared
-	 * when `window.__IW_SPINE_DEBUG__` is toggled off so a re-enable re-logs. */
-	const spineDebugLogged = new Set<string>();
-
 	/** Drive each ready instance's play/pause state from the `playing` set. */
 	function syncPlayback(target: SpineRenderTarget, entry: Entry): void {
 		if (entry.state !== 'ready') return;
@@ -715,53 +711,6 @@
 				inst.skeleton.scaleX = sx;
 				// Flip Y: the runtime art is y-up; the camera is y-down.
 				inst.skeleton.scaleY = -sy;
-			}
-			// Spine size debug (mirror of SpineProvider's [IW-SPINE]). At this point
-			// `skeleton.scaleX` is the WORLD scale (nodeScale × mainScale for game space),
-			// so `worldScale / mainScale` recovers the node scale and `natural × nodeScale`
-			// is the MAIN-box-unit size — directly comparable to the game's mainBoxUnit.
-			{
-				const dbg =
-					typeof window !== 'undefined' &&
-					(window as unknown as { __IW_SPINE_DEBUG__?: boolean }).__IW_SPINE_DEBUG__;
-				if (!dbg) spineDebugLogged.clear();
-				else if (!spineDebugLogged.has(target.nodeId)) {
-					spineDebugLogged.add(target.nodeId);
-					const ms = mainScale() || 1;
-					const wsx = Math.abs(inst.skeleton.scaleX); // world scale (nodeScale × mainScale)
-					// Measure the CURRENT (animated) pose bounds. data.width/getBounds-at-setup
-					// are 0 for this spine (art is animation-driven), so measure the live pose:
-					// skeleton.scaleX here is the world scale, so getBounds returns the rendered
-					// size in FRAME px (before pan/zoom). fractionOfFrame = that / the editor frame.
-					const offset = { x: 0, y: 0, set(x: number, y: number) {
-						this.x = x; this.y = y;
-					} };
-					const size = { x: 0, y: 0, set(x: number, y: number) {
-						this.x = x; this.y = y;
-					} };
-					try {
-						inst.skeleton.updateWorldTransform(getSpinePhysics());
-						inst.skeleton.getBounds(offset, size, []);
-					} catch {
-						/* degenerate pose */
-					}
-					console.log(
-						'[IW-SPINE editor]',
-						target.assetKey,
-						'renderedFramePx=',
-						Math.round(size.x),
-						Math.round(size.y),
-						'frame=',
-						frameWidth,
-						frameHeight,
-						'fractionOfFrame=',
-						Number((size.x / (frameWidth || 1)).toFixed(3)),
-						'worldScale=',
-						Number(wsx.toFixed(4)),
-						'mainScale=',
-						Number(ms.toFixed(4)),
-					);
-				}
 			}
 			// Bake the editor pan/zoom into the skeleton so it maps EXACTLY like the 2D
 			// canvas. The vendored OrthoCamera is set up with up=(0,-1,0) to cancel

@@ -7,8 +7,6 @@
 	export type Props = OverwriteCursor<Omit<SPINE_PIXI.SpineOptions, 'children'>> & {
 		spineData: SPINE_PIXI.SkeletonData;
 		children: Snippet;
-		/** Identifier for the `[IW-SPINE]` size-debug log (the asset key). Temporary. */
-		debugKey?: string;
 		/** Node anchor, used ONLY to pivot a spine exported without skeleton bounds (its
 		 * pivot can't be computed statically). Ignored when the skeleton has authored bounds. */
 		anchorFallback?: number | { x?: number; y?: number };
@@ -43,7 +41,7 @@
 	propsSyncEffect({
 		props,
 		target: spine,
-		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin', 'debugKey', 'anchorFallback'],
+		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin', 'anchorFallback'],
 	});
 
 	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),
@@ -109,42 +107,6 @@
 			clearInterval(id);
 			clearTimeout(stop);
 		};
-	});
-
-	// Spine size debug ([IW-SPINE game]) — set `window.__IW_SPINE_DEBUG__ = true` BEFORE the
-	// spine mounts (e.g. before triggering the free-spin intro). Measures the ACTUAL rendered
-	// on-screen size (`getBounds`, in screen px AFTER every scale incl. the MainContainer
-	// window scale) once the animation has settled, plus the fraction of the window it covers
-	// — directly comparable to the editor's `fractionOfFrame`. Equal fractions ⇒ same relative
-	// size (in-game difference is just window scale); different ⇒ a real mismatch. Remove once
-	// the free-spin-intro sizing is diagnosed.
-	$effect(() => {
-		if (typeof window === 'undefined') return;
-		if (!(window as unknown as { __IW_SPINE_DEBUG__?: boolean }).__IW_SPINE_DEBUG__) return;
-		const name = props.debugKey ?? props.spineData.name ?? '?';
-		const id = setTimeout(() => {
-			try {
-				const b = spine.getBounds();
-				const cw = window.innerWidth || 1;
-				console.log(
-					'[IW-SPINE game]',
-					name,
-					'renderedScreenPx=',
-					Math.round(b.width),
-					Math.round(b.height),
-					'window=',
-					Math.round(cw),
-					Math.round(window.innerHeight || 0),
-					'fractionOfWindow=',
-					Number((b.width / cw).toFixed(3)),
-					'scale=',
-					Number(spine.scale.x.toFixed(4)),
-				);
-			} catch {
-				/* spine not ready / bounds unavailable */
-			}
-		}, 1500);
-		return () => clearTimeout(id);
 	});
 </script>
 

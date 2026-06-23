@@ -63,14 +63,7 @@
 
 {#key spineData}
 	{#if spineData}
-		<BaseSpineProvider
-			{...baseSpineProps}
-			{scale}
-			{pivot}
-			{spineData}
-			debugKey={key}
-			anchorFallback={anchor}
-		>
+		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData} anchorFallback={anchor}>
 			{@render children()}
 		</BaseSpineProvider>
 	{/if}
