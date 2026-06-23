@@ -73,6 +73,8 @@ const SPECIAL_WEIGHTS = {
 	ACE: 0.095, KING: 0.095, QUEEN: 0.11, JACK: 0.14, TEN: 0.195,
 };
 const TOTAL_FS = 10;
+/** Extra free spins awarded when 3+ SCAT land during a free spin (retrigger). */
+const RETRIGGER_FS = 10;
 
 function hashStr(s) {
 	let h = 2166136261 >>> 0;
@@ -434,6 +436,26 @@ export function createMockRgs(opts = {}) {
 						events.push({ event: 'playedSpin', context: reels });
 						round.bonus.played += 1;
 						round.bonus.left -= 1;
+						// RETRIGGER: 3+ SCAT (the Book) landing DURING a free spin awards +10
+						// more free spins, added to the remaining count (unlimited chaining).
+						// Only the scatter retriggers — the special expanding symbol never does.
+						// Emitted BEFORE playedBonusSpin so the counter (total = played + left)
+						// already reflects the new total on this spin.
+						const retrig = evaluateScatterTrigger(reels, round.total);
+						if (retrig && retrig.count >= 3) {
+							round.bonus.left += RETRIGGER_FS;
+							round.bonus.total += RETRIGGER_FS;
+							events.push({
+								event: 'retrigger',
+								context: {
+									spins: RETRIGGER_FS,
+									occurs: retrig.count,
+									total: round.bonus.total,
+									left: round.bonus.left,
+									bonus: 'feature',
+								},
+							});
+						}
 						events.push({ event: 'playedBonusSpin', context: bonusSnapshot(round) });
 						if (round.bonus.left <= 0) {
 							round.bonus.active = false;

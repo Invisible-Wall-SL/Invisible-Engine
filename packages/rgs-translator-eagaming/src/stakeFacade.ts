@@ -406,6 +406,14 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				}
 				break;
 			}
+			case 'retrigger': {
+				// 3+ scatters landed during a free spin → +N more spins. Emitted before
+				// the spin's playedBonusSpin (→ updateFreeSpin), so the celebration shows
+				// the new total before the per-spin counter tick. `total` = new played+left.
+				const ctx = e.context as { spins?: number; total?: number };
+				push({ type: 'freeSpinRetrigger', extraFs: ctx.spins ?? 0, total: ctx.total ?? 0 });
+				break;
+			}
 			case 'playedBonusSpin': {
 				const played = (e.context as { played?: number })?.played ?? 0;
 				const left = (e.context as { left?: number })?.left ?? 0;
