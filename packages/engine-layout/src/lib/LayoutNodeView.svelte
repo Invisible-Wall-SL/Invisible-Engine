@@ -391,9 +391,27 @@
 			fit={bgSpineBox ? bgFit : undefined}
 			skin={node.skin}
 		>
+			<!--
+				One-shot → idle hand-off: when a signal cue is active (e.g. `enter` → `intro`)
+				AND the node has a different `defaultAnimation` (the resting `idle`), play the
+				cue animation ONCE then settle into the looping default — the free-spin-intro
+				pattern (intro plays, idle loops, the gate holds the screen until the tap). With
+				no cue, or no distinct default, this is the prior single-animation behaviour.
+			-->
 			{@const anim = sigAnim?.animation ?? node.defaultAnimation}
+			{@const handsOffToIdle = !!(
+				sigAnim &&
+				node.defaultAnimation &&
+				node.defaultAnimation !== sigAnim.animation
+			)}
 			{#if anim}
-				<SpineTrack trackIndex={0} animationName={anim} loop={sigAnim?.loop ?? node.loop ?? true} />
+				<SpineTrack
+					trackIndex={0}
+					animationName={anim}
+					loop={handsOffToIdle ? false : (sigAnim?.loop ?? node.loop ?? true)}
+					then={handsOffToIdle ? node.defaultAnimation : undefined}
+					thenLoop={node.loop ?? true}
+				/>
 			{/if}
 		</SpineProvider>
 	{:else if node.kind === 'text'}

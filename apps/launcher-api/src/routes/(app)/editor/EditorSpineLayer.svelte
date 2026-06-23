@@ -541,12 +541,27 @@
 		// different once the intro animation runs. A spine WITHOUT an enter cue is unchanged:
 		// static until the user toggles play, then its default / first animation.
 		const enterAnim = target.enterAnimation;
+		// One-shot → idle hand-off (mirrors the runtime `LayoutNodeView`): an enter cue with
+		// a DISTINCT default animation plays the intro ONCE then queues the looping default
+		// (idle), so the preview shows intro → idle exactly like the game.
+		const handsOffToIdle = !!(
+			enterAnim &&
+			target.defaultAnimation &&
+			target.defaultAnimation !== enterAnim
+		);
 		const wantPlay = playing.has(target.nodeId) || !!enterAnim;
 		const wantAnim = enterAnim || target.defaultAnimation || entry.instance.firstAnimation;
-		const wantLoop = enterAnim ? (target.enterLoop ?? true) : (target.loop ?? true);
+		const wantLoop = handsOffToIdle
+			? false
+			: enterAnim
+				? (target.enterLoop ?? true)
+				: (target.loop ?? true);
 		if (wantPlay && wantAnim) {
 			if (entry.playingAnim !== wantAnim) {
 				entry.instance.animationState.setAnimation(0, wantAnim, wantLoop);
+				if (handsOffToIdle && target.defaultAnimation) {
+					entry.instance.animationState.addAnimation(0, target.defaultAnimation, target.loop ?? true, 0);
+				}
 				entry.playingAnim = wantAnim;
 			}
 		} else if (entry.playingAnim !== null) {
