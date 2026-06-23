@@ -237,21 +237,37 @@ editor reads R2 directly.
 6. **Live-preview determinism.** Feed a fixed book so speed/delay tuning is
    reproducible (reuse the mock-RGS/test-server feed, not random outcomes).
 
-## 12. Open questions (resolve during Phase 0/1)
+## 12. Decisions (resolved 2026-06-23) + spike checks
 
-- **FlowDoc shape** — one transition graph + per-screen choreography sub-graphs in one
-  doc (assumed), vs separate docs.
-- **Graph library** — `@xyflow/svelte` (Svelte 5 support) vs hand-built (Phase 1 spike;
-  repo has no graph dep today).
-- **Undo/redo** — command stack; decide before Phase 2. Reuse the Scene Editor's
-  history if it generalizes.
-- **Where stable binding ids live** — added to the LayoutDoc by the Scene Editor, or
-  derived deterministically from a component instance id? (Affects both tools.)
-- **Are some transitions owned by Layer 1?** Some screen swaps line up with XState
-  states (idle↔play). Decide whether the interpreter observes those transitions or
-  models them itself to avoid double-driving.
-- **Per-layoutType?** The LayoutDoc is per-layoutType-overridable; a FlowDoc probably
-  is not (flow/timing is layout-independent) — confirm.
+All six were settled with the owner; remaining items are spike confirmations, not
+open design questions.
+
+- **FlowDoc shape — one doc.** A single transition graph + per-screen choreography
+  sub-graphs, sibling to `scenes.json`. (Splitting buys nothing and complicates bake.)
+- **Stable pin ids — derive from the component-instance id (no new schema).** Every
+  LayoutDoc node already carries a persisted `id: string` (a stored field, not a
+  positional index — `types.ts` `BaseNode.id`), so it survives reorder (position
+  changes, id doesn't) and rename (changes `label`, not `id`). A pin id is the
+  **composite** `${instanceId}::${role}:${key}` (e.g. `n42::value:win`,
+  `n42::action:spin`, `n42::gate`) — deterministic, the Scene Editor adds nothing. The
+  one discipline: the editor must **never recycle an id** — a duplicated/pasted
+  instance gets a **fresh** id (a copy is a new pin). *Phase-1 check:* confirm "no id
+  regeneration on edit, fresh id on duplicate/paste."
+- **Platform-aligned transitions — observe, don't model.** The interpreter OBSERVES
+  XState platform state (idle↔play) and reacts; Layer 1 stays the single source of
+  truth. Flow never drives a platform transition itself (no double-driving).
+- **Graph library — `@xyflow/svelte` (Svelte Flow).** v1.0+ is Svelte-5 native (peer
+  dep `svelte@5`, latest ~1.6.x), so it fits our stack with no compat tax. It provides
+  pan/zoom/drag/ports/edge-routing/selection out of the box; our screen nodes are
+  custom Svelte node components whose **dynamic pins render as custom handles** from
+  the screen's binding list — its sweet spot — and the same lib renders the micro
+  choreography graph. (It can't render a live Pixi screen *inside* a node; we don't
+  need that — a name + thumbnail suffices.) Hand-built remains the fallback ONLY if a
+  Phase-1 install spike fights our Vite/Turbo setup.
+- **Undo/redo — command stack, reuse the Scene Editor's history** if it generalizes;
+  in place before Phase 2.
+- **Per-layoutType — no (for now).** Flow/timing is layout-independent; the FlowDoc
+  stays single-variant. Revisit only if a real per-orientation flow difference appears.
 
 ## 13. Model note (Fable 5 vs Opus 4.8 for building this)
 
