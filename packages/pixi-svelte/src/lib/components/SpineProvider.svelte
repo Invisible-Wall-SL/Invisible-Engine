@@ -15,6 +15,7 @@
 
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
 	import { anchorToPivot } from '../utils.svelte';
+	import { spineNaturalBounds } from '../spineBounds';
 	import { getContextApp } from '../context.svelte';
 
 	const { debug, key, anchor, children, scale: scaleProp, ...baseSpineProps }: Props = $props();
@@ -42,9 +43,15 @@
 
 	const pivot = $derived.by(() => {
 		if (!spineData) return 0;
-		if (!spineData?.width || !spineData?.height) return 0;
-		const factWidth = baseSpineProps.width || spineData.width;
-		const factHeight = baseSpineProps.height || spineData.height;
+		// Authored skeleton bounds → unchanged. Degenerate export (no skeleton width/height)
+		// → synthesize the size from the animations so the spine still anchors by its art
+		// instead of pinning its pivot to the origin (which left a bounds-less free-spin
+		// intro mis-anchored). `{0,0}` if unmeasurable ⇒ pivot 0 = prior behaviour.
+		const natW = spineData.width > 0 ? spineData.width : spineNaturalBounds(spineData).width;
+		const natH = spineData.height > 0 ? spineData.height : spineNaturalBounds(spineData).height;
+		const factWidth = baseSpineProps.width || natW;
+		const factHeight = baseSpineProps.height || natH;
+		if (!factWidth || !factHeight) return 0;
 
 		return anchorToPivot({ anchor, sizes: { width: factWidth, height: factHeight } });
 	});

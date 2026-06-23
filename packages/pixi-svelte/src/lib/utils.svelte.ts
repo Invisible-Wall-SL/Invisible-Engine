@@ -2,6 +2,7 @@ import WebFont from 'webfontloader';
 import type * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 
 import type { PixiPoint, Sizes } from './types';
+import { spineNaturalBounds } from './spineBounds';
 
 export const REM = 16;
 export const MIN_CLICKABLE_SIZE = 3 * REM; // 44 x 44 is minimum clickable size
@@ -127,6 +128,15 @@ export function spineSizeScale({
 			if (!(naturalWidth > 0)) naturalWidth = bounds.width;
 			if (!(naturalHeight > 0)) naturalHeight = bounds.height;
 		}
+	}
+
+	if ((!(naturalWidth > 0) || !(naturalHeight > 0)) && data) {
+		// Still degenerate (a spine exported with no skeleton size AND no setup-pose art):
+		// synthesize the natural size from the animations so an authored width/height can
+		// still size it deterministically (same number the editor uses). Cached per data.
+		const synth = spineNaturalBounds(data);
+		if (!(naturalWidth > 0) && synth.width > 0) naturalWidth = synth.width;
+		if (!(naturalHeight > 0) && synth.height > 0) naturalHeight = synth.height;
 	}
 
 	if (!(naturalWidth > 0) || !(naturalHeight > 0)) return { x: 1, y: 1 };
