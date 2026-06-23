@@ -303,6 +303,12 @@
 		/** Authored skin name (real spine nodes only); empty/undefined = default skin. */
 		skin?: string;
 		loop?: boolean;
+		/** The spine's `enter`-cue animation: in-game it plays the moment the component /
+		 * screen appears, so the preview AUTO-plays it (looped for visibility) instead of
+		 * showing the static setup pose. Without this, an author sizes the spine against the
+		 * resting pose, which differs from what the game shows once the intro animation runs. */
+		enterAnimation?: string;
+		enterLoop?: boolean;
 		placement?: OverlayPlacement;
 		transform: ReturnType<typeof resolveTransform>;
 		/** The owning scene's coordinate space — drives the non-placement mapping into
@@ -320,6 +326,14 @@
 		 * {@link composeWorldMatrix}, so the renderer places it directly and skips the
 		 * top-level space/placement mapping (the chain's top link already applied it). */
 		world?: { x: number; y: number; scaleX: number; scaleY: number };
+	}
+
+	/** The `enter`-cue animation authored on a spine node (the engine plays it when the
+	 * component / screen appears). Drives the preview's auto-play so sizing is WYSIWYG. */
+	function spineEnterCue(
+		n: Extract<LayoutNode, { kind: 'spine' }>,
+	): { animation: string; loop?: boolean } | undefined {
+		return n.cues?.find((c) => c.signal === 'enter');
 	}
 
 	/** Visible spine render targets in this scene: real spine nodes + `preview.art`
@@ -343,6 +357,8 @@
 						defaultAnimation: n.defaultAnimation,
 						skin: n.skin,
 						loop: n.loop,
+						enterAnimation: spineEnterCue(n)?.animation,
+						enterLoop: spineEnterCue(n)?.loop,
 						placement: undefined,
 						transform: t,
 						space: sc.space,
@@ -441,6 +457,8 @@
 			defaultAnimation: node.defaultAnimation,
 			skin: node.skin,
 			loop: node.loop,
+			enterAnimation: spineEnterCue(node)?.animation,
+			enterLoop: spineEnterCue(node)?.loop,
 			transform: resolveTransform(node, layoutType),
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
@@ -516,11 +534,19 @@
 	/** Drive each ready instance's play/pause state from the `playing` set. */
 	function syncPlayback(target: SpineRenderTarget, entry: Entry): void {
 		if (entry.state !== 'ready') return;
-		const wantPlay = playing.has(target.nodeId);
-		const wantAnim = target.defaultAnimation || entry.instance.firstAnimation;
+		// A spine with an `enter` cue plays that animation in-game the instant its
+		// component / screen appears. AUTO-play it in the preview (looped for visibility),
+		// taking precedence over the node's default animation, so the author sizes against
+		// the SAME pose the game shows — not the static setup pose, which is smaller /
+		// different once the intro animation runs. A spine WITHOUT an enter cue is unchanged:
+		// static until the user toggles play, then its default / first animation.
+		const enterAnim = target.enterAnimation;
+		const wantPlay = playing.has(target.nodeId) || !!enterAnim;
+		const wantAnim = enterAnim || target.defaultAnimation || entry.instance.firstAnimation;
+		const wantLoop = enterAnim ? (target.enterLoop ?? true) : (target.loop ?? true);
 		if (wantPlay && wantAnim) {
 			if (entry.playingAnim !== wantAnim) {
-				entry.instance.animationState.setAnimation(0, wantAnim, target.loop ?? true);
+				entry.instance.animationState.setAnimation(0, wantAnim, wantLoop);
 				entry.playingAnim = wantAnim;
 			}
 		} else if (entry.playingAnim !== null) {
