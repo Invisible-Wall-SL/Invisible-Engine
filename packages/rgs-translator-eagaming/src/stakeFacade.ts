@@ -359,21 +359,44 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 						return name;
 					}),
 				);
-				// Book-of expansion: during free spins the special symbol expands
-				// to fill every reel it lands on (it then pays scatter-style). Bake
-				// the filled reel straight into the reveal board so the existing
-				// renderer shows the expanded column — no extra component needed.
-				const expanded =
-					gameType === 'freegame' && specialRaw
-						? reels.map((reel) => (reel.includes(specialRaw!) ? reel.map(() => specialRaw!) : reel))
-						: reels;
+				// Book-of mechanic (Book of Thermopylae): during free spins the
+				// reels STOP on the NATURAL board — the special symbol sits in its
+				// own single positions, NOT pre-filled columns. The reveal therefore
+				// always carries the natural board (base game and free spins alike).
 				push({
 					type: 'reveal',
-					board: expanded.map((reel) => padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) }))),
-					paddingPositions: expanded.map(() => 0),
-					anticipation: expanded.map(() => 0),
+					board: reels.map((reel) => padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) }))),
+					paddingPositions: reels.map(() => 0),
+					anticipation: reels.map(() => 0),
 					gameType,
 				});
+				// AFTER the natural board lands, if this is a free spin and 3+ of the
+				// special symbol are on the board, tell the client which reels to
+				// morph (every non-special cell in those reels becomes the special,
+				// one cell at a time). Emitted AFTER the reveal and BEFORE the wins
+				// (flushWins), so the column transform plays before any payout. Below
+				// 3 specials: emit nothing — natural board, normal line pays.
+				if (gameType === 'freegame' && specialRaw) {
+					const specialReels: number[] = [];
+					let specialCount = 0;
+					reels.forEach((reel, reelIndex) => {
+						let hit = false;
+						for (const name of reel) {
+							if (name === specialRaw) {
+								specialCount += 1;
+								hit = true;
+							}
+						}
+						if (hit) specialReels.push(reelIndex);
+					});
+					if (specialCount >= 3 && specialReels.length > 0) {
+						push({
+							type: 'expandBookColumns',
+							reels: specialReels,
+							symbol: mapSymbol(activeMapping, specialRaw),
+						});
+					}
+				}
 				flushWins();
 				// Bank the running total into the WIN meter after EACH free spin
 				// AND on the trigger spin — a base spin that pays its own line/

@@ -3,6 +3,8 @@ import _ from 'lodash';
 import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
+import { waitForTimeout } from 'utils-shared/wait';
+import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { playBookEvent } from './utils';
@@ -10,7 +12,7 @@ import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import type { Position } from './types';
-import { PADDING_REELS } from './constants';
+import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
 
 const winLevelSoundsPlay = ({ winLevelData }: { winLevelData: WinLevelData }) => {
 	if (winLevelData?.alias === 'max') eventEmitter.broadcastAsync({ type: 'uiHide' });
@@ -71,6 +73,31 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	setExpandingSymbol: async (bookEvent: BookEventOfType<'setExpandingSymbol'>) => {
 		stateGame.specialSymbol = bookEvent.symbol;
 		eventEmitter.broadcast({ type: 'specialBookReveal', symbol: bookEvent.symbol });
+	},
+	expandBookColumns: async (bookEvent: BookEventOfType<'expandBookColumns'>) => {
+		// Book-of mechanic (Book of Thermopylae): the natural free-spin board has
+		// just landed with 3+ of the special symbol. For each flagged reel, morph
+		// every non-special VISIBLE cell into the special symbol ONE AT A TIME —
+		// re-using the per-symbol land plumbing so each converted cell plays the
+		// special's land spine. Awaited in full so the wins (`winInfo`) that follow
+		// only animate AFTER the columns finish transforming.
+		const special = bookEvent.symbol;
+		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
+
+		// Visible rows only: the reveal pads the reel top+bottom by one row, so the
+		// on-screen cells are symbol indices 1..BOARD_DIMENSIONS.y.
+		for (const reelIndex of bookEvent.reels) {
+			const reel = stateGame.board[reelIndex];
+			if (!reel) continue;
+			const symbols = reel.reelState.symbols;
+			for (let row = 1; row <= BOARD_DIMENSIONS.y && row < symbols.length - 1; row++) {
+				const reelSymbol = symbols[row];
+				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
+				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
+				reelSymbol.symbolState = 'land';
+				await waitForTimeout(0.18 * SECOND);
+			}
+		}
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
 		// animate scatters

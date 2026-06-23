@@ -77,6 +77,19 @@ type BookEventSetExpandingSymbol = {
 	symbol: SymbolName;
 };
 
+// Book-of mechanic (Book of Thermopylae): after the natural free-spin board
+// lands, if 3+ of the special symbol are on the board, the server flags which
+// reel indices contain the special so the client morphs every non-special cell
+// in those reels into the special symbol — ONE cell at a time — before the wins
+// pay out. `symbol` is the morph target (the round's special symbol). Emitted
+// after the `reveal` and before `winInfo`; absent below 3 specials.
+type BookEventExpandBookColumns = {
+	index: number;
+	type: 'expandBookColumns';
+	reels: number[];
+	symbol: SymbolName;
+};
+
 // customised
 type BookEventCreateBonusSnapshot = {
 	index: number;
@@ -95,6 +108,7 @@ export type BookEvent =
 	| BookEventSetWin
 	| BookEventFreeSpinEnd
 	| BookEventSetExpandingSymbol
+	| BookEventExpandBookColumns
 	// customised
 	| BookEventCreateBonusSnapshot;
 

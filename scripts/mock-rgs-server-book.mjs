@@ -198,25 +198,34 @@ const evaluateScatterTrigger = (reels, totalStake) => {
 	};
 };
 
-/** Free-spin special expanding symbol: pays scatter-style when it lands on ≥2
- *  reels. Treats reels-covered as the of-a-kind count (expansion fills reels). */
+/** Free-spin special expanding symbol (Book of Thermopylae rule): pays only when
+ *  3 OR MORE of the special land ANYWHERE on the NATURAL board — the same 3+
+ *  trigger that drives the client-side column morph (`expandBookColumns`). Below
+ *  3 it does not qualify, nothing expands, and the board pays as normal lines.
+ *  The of-a-kind count is the number of REELS the special covers (each such reel
+ *  expands to fill the column), keyed into the symbol's line paytable. */
 const evaluateSpecial = (reels, special, betPerLine) => {
 	const reelsWith = [];
 	const positions = [];
+	let symbolCount = 0;
 	for (let reel = 0; reel < reels.length; reel++) {
 		let hit = false;
 		for (let row = 0; row < reels[reel].length; row++) {
 			if (reels[reel][row] === special) {
 				positions.push({ reel, row });
+				symbolCount += 1;
 				hit = true;
 			}
 		}
 		if (hit) reelsWith.push(reel);
 	}
+	// Gate on the COUNT of special symbols on the board (3+), matching the visual
+	// trigger; only then does the expansion (and its pay) apply.
+	if (symbolCount < 3) return null;
 	const count = reelsWith.length;
 	const table = PAY_TABLE_LINE[special];
 	const mult = table[count];
-	if (count < 2 || !mult) return null;
+	if (!mult) return null;
 	return {
 		what: special,
 		occurs: count,
