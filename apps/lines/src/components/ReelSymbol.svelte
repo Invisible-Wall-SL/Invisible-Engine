@@ -19,13 +19,16 @@
 	x={getSymbolX(props.reelIndex)}
 	y={props.reelSymbol.symbolY()}
 	animating={symbolInfo.type === 'spine' &&
-		(props.reelSymbol.symbolState === 'land' || props.reelSymbol.symbolState === 'win')}
+		(props.reelSymbol.symbolState === 'land' ||
+			props.reelSymbol.symbolState === 'win' ||
+			props.reelSymbol.symbolState === 'explosion')}
 >
 	<Symbol
 		state={props.reelSymbol.symbolState}
 		rawSymbol={props.reelSymbol.rawSymbol}
 		oncomplete={() => {
 			if (props.reelSymbol.symbolState === 'win') props.reelSymbol.oncomplete();
+			if (props.reelSymbol.symbolState === 'explosion') props.reelSymbol.oncomplete();
 			if (props.reelSymbol.symbolState === 'land') props.reelSymbol.symbolState = 'static';
 		}}
 	/>

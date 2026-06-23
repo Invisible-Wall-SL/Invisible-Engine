@@ -3,7 +3,7 @@ import _ from 'lodash';
 import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
-import { waitForTimeout } from 'utils-shared/wait';
+import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
 import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
@@ -88,7 +88,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
 
 		// Visible rows only: the reveal pads the reel top+bottom by one row, so the
-		// on-screen cells are symbol indices 1..BOARD_DIMENSIONS.y.
+		// on-screen cells are symbol indices 1..BOARD_DIMENSIONS.y. For each cell the
+		// OLD symbol first plays its `explosion` spine (every symbol carries one); once
+		// that completes the cell swaps to the special and plays its `land` spine — so
+		// it reads as "symbol explodes → book appears". Staggered one cell at a time.
 		for (const reelIndex of bookEvent.reels) {
 			const reel = stateGame.board[reelIndex];
 			if (!reel) continue;
@@ -96,9 +99,14 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			for (let row = 1; row <= BOARD_DIMENSIONS.y && row < symbols.length - 1; row++) {
 				const reelSymbol = symbols[row];
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
+				// 1. Explode the existing symbol and wait for the spine to finish.
+				eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_wild_explode' });
+				reelSymbol.symbolState = 'explosion';
+				await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
+				// 2. Swap to the special and play its land spine in the cleared cell.
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
-				await waitForTimeout(0.18 * SECOND);
+				await waitForTimeout(0.12 * SECOND);
 			}
 		}
 	},

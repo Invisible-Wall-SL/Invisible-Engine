@@ -206,13 +206,11 @@ const evaluateScatterTrigger = (reels, totalStake) => {
  *  expands to fill the column), keyed into the symbol's line paytable. */
 const evaluateSpecial = (reels, special, betPerLine) => {
 	const reelsWith = [];
-	const positions = [];
 	let symbolCount = 0;
 	for (let reel = 0; reel < reels.length; reel++) {
 		let hit = false;
 		for (let row = 0; row < reels[reel].length; row++) {
 			if (reels[reel][row] === special) {
-				positions.push({ reel, row });
 				symbolCount += 1;
 				hit = true;
 			}
@@ -226,6 +224,18 @@ const evaluateSpecial = (reels, special, betPerLine) => {
 	const table = PAY_TABLE_LINE[special];
 	const mult = table[count];
 	if (!mult) return null;
+	// The special expands to FILL each covered reel (client `expandBookColumns`
+	// morphs every cell of those reels into the book). The win highlight must
+	// therefore light the WHOLE column, not just the cells the special landed on:
+	// emit every {reel,row} of each reel in `reelsWith`. These pass through the
+	// facade's `row+1` padding shift and align exactly with the morphed visible
+	// cells (rows 1..BOARD_DIMENSIONS.y).
+	const positions = [];
+	for (const reel of reelsWith) {
+		for (let row = 0; row < reels[reel].length; row++) {
+			positions.push({ reel, row });
+		}
+	}
 	return {
 		what: special,
 		occurs: count,
