@@ -15,7 +15,6 @@
 
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
 	import { anchorToPivot } from '../utils.svelte';
-	import { spineNaturalBounds } from '../spineBounds';
 	import { getContextApp } from '../context.svelte';
 
 	const { debug, key, anchor, children, scale: scaleProp, ...baseSpineProps }: Props = $props();
@@ -42,17 +41,14 @@
 	});
 
 	const pivot = $derived.by(() => {
-		if (!spineData) return 0;
-		// Authored skeleton bounds → unchanged. Degenerate export (no skeleton width/height)
-		// → synthesize the size from the animations so the spine still anchors by its art
-		// instead of pinning its pivot to the origin (which left a bounds-less free-spin
-		// intro mis-anchored). `{0,0}` if unmeasurable ⇒ pivot 0 = prior behaviour.
-		const natW = spineData.width > 0 ? spineData.width : spineNaturalBounds(spineData).width;
-		const natH = spineData.height > 0 ? spineData.height : spineNaturalBounds(spineData).height;
-		const factWidth = baseSpineProps.width || natW;
-		const factHeight = baseSpineProps.height || natH;
-		if (!factWidth || !factHeight) return 0;
-
+		if (!spineData) return undefined;
+		// Degenerate export (no skeleton width/height) → return `undefined` and let
+		// BaseSpineProvider anchor from the LIVE animated bounds once the art appears. A
+		// static pivot can't be computed (no size), and the synthesized one measured 0, so
+		// the spine pinned to its origin (0,0 top-left). Authored bounds → standard pivot.
+		if (!(spineData.width > 0) || !(spineData.height > 0)) return undefined;
+		const factWidth = baseSpineProps.width || spineData.width;
+		const factHeight = baseSpineProps.height || spineData.height;
 		return anchorToPivot({ anchor, sizes: { width: factWidth, height: factHeight } });
 	});
 </script>
@@ -67,7 +63,14 @@
 
 {#key spineData}
 	{#if spineData}
-		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData} debugKey={key}>
+		<BaseSpineProvider
+			{...baseSpineProps}
+			{scale}
+			{pivot}
+			{spineData}
+			debugKey={key}
+			anchorFallback={anchor}
+		>
 			{@render children()}
 		</BaseSpineProvider>
 	{/if}

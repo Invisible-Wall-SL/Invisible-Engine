@@ -9,6 +9,9 @@
 		children: Snippet;
 		/** Identifier for the `[IW-SPINE]` size-debug log (the asset key). Temporary. */
 		debugKey?: string;
+		/** Node anchor, used ONLY to pivot a spine exported without skeleton bounds (its
+		 * pivot can't be computed statically). Ignored when the skeleton has authored bounds. */
+		anchorFallback?: number | { x?: number; y?: number };
 		// When set AND both `width`/`height` are given, the spine sizes by a UNIFORM
 		// cover/contain scale instead of per-axis stretch (true cover, no distortion).
 		// Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
@@ -40,7 +43,7 @@
 	propsSyncEffect({
 		props,
 		target: spine,
-		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin', 'debugKey'],
+		ignore: ['children', 'width', 'height', 'scale', 'fit', 'skin', 'debugKey', 'anchorFallback'],
 	});
 
 	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),
@@ -72,6 +75,41 @@
 
 	parentContext.addToParent(spine);
 	setContextSpine(spine);
+
+	// Pivot fallback for a spine exported WITHOUT skeleton bounds: SpineProvider can't
+	// compute a static pivot (no size) and defers here. Such a spine otherwise pins its
+	// pivot to the origin → the art renders at (0,0) top-left instead of the node's anchor.
+	// Once the animation reveals art, the LIVE `spine.bounds` are valid, so anchor the art
+	// by them (offset-aware, so the anchor lands on the art's centre wherever the skeleton
+	// origin sits). Authored-bounds spines never enter this (SpineProvider gives them a
+	// real pivot). Applied ONCE the bounds are available; the proper fix is re-exporting
+	// the spine with bounds — this just stops a bounds-less one rendering in the corner.
+	$effect(() => {
+		const data = spine.skeleton?.data;
+		if (data && data.width > 0 && data.height > 0) return; // authored bounds → handled upstream
+		const af = props.anchorFallback;
+		const ax = typeof af === 'number' ? af : (af?.x ?? 0);
+		const ay = typeof af === 'number' ? af : (af?.y ?? 0);
+		if (!ax && !ay) return; // top-left anchor → origin pivot is already correct
+		let applied = false;
+		const apply = (): boolean => {
+			const b = spine.bounds;
+			if (!b || !(b.width > 0) || !(b.height > 0)) return false;
+			spine.pivot.set(b.x + ax * b.width, b.y + ay * b.height);
+			return true;
+		};
+		applied = apply();
+		if (applied) return;
+		// Poll until the first frame with art (the setup pose is empty for this spine).
+		const id = setInterval(() => {
+			if (apply()) clearInterval(id);
+		}, 80);
+		const stop = setTimeout(() => clearInterval(id), 4000);
+		return () => {
+			clearInterval(id);
+			clearTimeout(stop);
+		};
+	});
 
 	// Spine size debug ([IW-SPINE game]) — set `window.__IW_SPINE_DEBUG__ = true` BEFORE the
 	// spine mounts (e.g. before triggering the free-spin intro). Measures the ACTUAL rendered
