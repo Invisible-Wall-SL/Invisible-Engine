@@ -728,23 +728,38 @@
 				else if (!spineDebugLogged.has(target.nodeId)) {
 					spineDebugLogged.add(target.nodeId);
 					const ms = mainScale() || 1;
-					const wsx = Math.abs(inst.skeleton.scaleX);
-					const wsy = Math.abs(inst.skeleton.scaleY);
-					const natW = inst.skeleton.data.width ?? 0;
-					const natH = inst.skeleton.data.height ?? 0;
+					const wsx = Math.abs(inst.skeleton.scaleX); // world scale (nodeScale × mainScale)
+					// Measure the CURRENT (animated) pose bounds. data.width/getBounds-at-setup
+					// are 0 for this spine (art is animation-driven), so measure the live pose:
+					// skeleton.scaleX here is the world scale, so getBounds returns the rendered
+					// size in FRAME px (before pan/zoom). fractionOfFrame = that / the editor frame.
+					const offset = { x: 0, y: 0, set(x: number, y: number) {
+						this.x = x; this.y = y;
+					} };
+					const size = { x: 0, y: 0, set(x: number, y: number) {
+						this.x = x; this.y = y;
+					} };
+					try {
+						inst.skeleton.updateWorldTransform(getSpinePhysics());
+						inst.skeleton.getBounds(offset, size, []);
+					} catch {
+						/* degenerate pose */
+					}
 					console.log(
 						'[IW-SPINE editor]',
 						target.assetKey,
-						'natural=',
-						Math.round(natW),
-						Math.round(natH),
-						'nodeScale=',
-						Number((wsx / ms).toFixed(4)),
+						'renderedFramePx=',
+						Math.round(size.x),
+						Math.round(size.y),
+						'frame=',
+						frameWidth,
+						frameHeight,
+						'fractionOfFrame=',
+						Number((size.x / (frameWidth || 1)).toFixed(3)),
+						'worldScale=',
+						Number(wsx.toFixed(4)),
 						'mainScale=',
 						Number(ms.toFixed(4)),
-						'mainBoxUnit=',
-						Math.round((natW * wsx) / ms),
-						Math.round((natH * wsy) / ms),
 					);
 				}
 			}

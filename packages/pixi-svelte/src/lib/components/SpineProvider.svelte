@@ -58,30 +58,6 @@
 	{console.log('loadedAssets', $state.snapshot(context.stateApp).loadedAssets)}
 {/if}
 
-<!--
-	Spine size debug — set `window.__IW_SPINE_DEBUG__ = true` in the console BEFORE the
-	spine mounts (e.g. before triggering the free-spin intro), then read the `[IW-SPINE]`
-	line. `natural` = the skeleton's authored bounds; `nodeScale` = the scale this node
-	applies; `mainBoxUnit` = natural×nodeScale (the size in MAIN-box units, BEFORE the
-	MainContainer's window scale). Compare this number to the editor's [IW-SPINE] log: if
-	they MATCH, the in-game size differs only by window scale (not a bug — size it smaller);
-	if they DIFFER, it's a real editor↔game mismatch and the numbers show where.
--->
-{#if spineData && typeof window !== 'undefined' && (window as unknown as { __IW_SPINE_DEBUG__?: boolean }).__IW_SPINE_DEBUG__}
-	{console.log(
-		'[IW-SPINE game]',
-		key,
-		'natural=',
-		Math.round(spineData.width ?? 0),
-		Math.round(spineData.height ?? 0),
-		'nodeScale=',
-		Number(scale.x.toFixed(4)),
-		'mainBoxUnit=',
-		Math.round((spineData.width ?? 0) * scale.x),
-		Math.round((spineData.height ?? 0) * scale.y),
-	)}
-{/if}
-
 {#key spineData}
 	{#if spineData}
 		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData}>
