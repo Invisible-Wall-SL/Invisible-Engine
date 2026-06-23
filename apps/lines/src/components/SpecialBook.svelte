@@ -52,6 +52,10 @@
 	let phase = $state<Phase>('hidden');
 	let displayName = $state<SymbolName | null>(null);
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	// Resolves once the current reveal (shuffle → land → intro spine) has fully settled.
+	// `shuffle` hands this back as a promise so the `specialBookReveal` broadcaster can
+	// await it — the free spins must not start until the book symbol is chosen AND revealed.
+	let revealResolve: (() => void) | null = null;
 
 	const clearTimer = () => {
 		if (timer !== null) {
@@ -60,38 +64,51 @@
 		}
 	};
 
+	const settleReveal = () => {
+		const resolve = revealResolve;
+		revealResolve = null;
+		resolve?.();
+	};
+
 	const hide = () => {
 		clearTimer();
+		settleReveal();
 		phase = 'hidden';
 		displayName = null;
 	};
 
-	const shuffle = (target: SymbolName) => {
-		clearTimer();
-		const names = symbolNames();
-		phase = 'shuffle';
-		let frame = 0;
-		const step = () => {
-			if (frame >= SHUFFLE_FRAMES) {
-				displayName = target;
-				phase = 'intro';
-				return;
-			}
-			displayName = names[frame % names.length];
-			const t = frame / SHUFFLE_FRAMES;
-			const delay = SHUFFLE_MIN_DELAY + (SHUFFLE_MAX_DELAY - SHUFFLE_MIN_DELAY) * t * t;
-			frame += 1;
-			timer = setTimeout(step, delay);
-		};
-		step();
-	};
+	const shuffle = (target: SymbolName) =>
+		new Promise<void>((resolve) => {
+			clearTimer();
+			settleReveal();
+			revealResolve = resolve;
+			const names = symbolNames();
+			phase = 'shuffle';
+			let frame = 0;
+			const step = () => {
+				if (frame >= SHUFFLE_FRAMES) {
+					displayName = target;
+					phase = 'intro';
+					return;
+				}
+				displayName = names[frame % names.length];
+				const t = frame / SHUFFLE_FRAMES;
+				const delay = SHUFFLE_MIN_DELAY + (SHUFFLE_MAX_DELAY - SHUFFLE_MIN_DELAY) * t * t;
+				frame += 1;
+				timer = setTimeout(step, delay);
+			};
+			step();
+		});
 
 	context.eventEmitter.subscribeOnMount({
 		specialBookReveal: ({ symbol }) => shuffle(symbol),
 		specialBookHide: () => hide(),
 	});
 
-	onDestroy(clearTimer);
+	onDestroy(() => {
+		clearTimer();
+		settleReveal();
+	});
 </script>
 
 {#if displayName}
@@ -107,7 +124,10 @@
 					state={phase === 'idle' ? 'bookIdle' : phase === 'intro' ? 'bookIntro' : 'static'}
 					loop={phase === 'idle'}
 					oncomplete={() => {
-						if (phase === 'intro') phase = 'idle';
+						if (phase === 'intro') {
+							phase = 'idle';
+							settleReveal();
+						}
 					}}
 				/>
 			</Container>

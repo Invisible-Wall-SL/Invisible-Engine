@@ -72,7 +72,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 	setExpandingSymbol: async (bookEvent: BookEventOfType<'setExpandingSymbol'>) => {
 		stateGame.specialSymbol = bookEvent.symbol;
-		eventEmitter.broadcast({ type: 'specialBookReveal', symbol: bookEvent.symbol });
+		// Await the reveal (shuffle → land → intro spine) so the next book event — the first
+		// free-spin `reveal` — only fires once the book symbol has been chosen AND revealed,
+		// instead of racing the reveal animation.
+		await eventEmitter.broadcastAsync({ type: 'specialBookReveal', symbol: bookEvent.symbol });
 	},
 	expandBookColumns: async (bookEvent: BookEventOfType<'expandBookColumns'>) => {
 		// Book-of mechanic (Book of Thermopylae): the natural free-spin board has
