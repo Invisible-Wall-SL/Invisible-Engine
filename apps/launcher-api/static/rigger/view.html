@@ -242,7 +242,10 @@
         <button id="saveRigLibBtn" title="Save this whole rig (bones + slots + skins + constraints + animations) to the shared library so it can be reused on another object" style="flex:1;font-size:11px;" disabled>📦 Save rig to library</button>
         <button id="rigLibBtn" title="Browse the shared rig library: apply a saved rig to a new rig, or import one into the open rig" style="flex:1;font-size:11px;">🗂 Rig library</button>
       </div>
-      <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from the source atlas (e.g. after recolouring it). Keeps your bones + animations." style="margin-top:6px;width:100%;font-size:11px;" disabled>⟳ Re-sync atlas</button>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from its remembered source atlas (e.g. after recolouring it, or adding a sprite to it). Keeps your bones + animations." style="flex:1;font-size:11px;" disabled>⟳ Re-sync atlas</button>
+        <button id="repickAtlasBtn" title="Re-sync from a DIFFERENT atlas — pick the source again. Use this when the rig is pinned to an older atlas (e.g. it was created before you added a sprite to the sheet), so a plain re-sync keeps missing the new image. Keeps your bones + animations." style="font-size:11px;white-space:nowrap;" disabled>source…</button>
+      </div>
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
@@ -540,6 +543,7 @@ function updateWorld(){
 async function selectSkeleton(entry){
   selected = entry;
   { const b = $("#resyncAtlasBtn"); if (b) b.disabled = !selected; }
+  { const b = $("#repickAtlasBtn"); if (b) b.disabled = !selected; }
   renderList();
   closeSpineModal();
   clearErr();
@@ -4984,6 +4988,9 @@ function wire(){
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#rigLibModal").classList.contains("open")) closeRigLibrary(); });
   // re-sync atlas: one click (remembered source), else the atlas picker
   $("#resyncAtlasBtn").onclick = () => resyncAtlas();
+  // re-pick: always open the picker, even when a source is remembered, so a rig
+  // pinned to an older atlas can be repointed (the chosen key rewrites source.json).
+  $("#repickAtlasBtn").onclick = () => { if (selected) openResyncModal(); };
   $("#resyncClose").onclick = closeResyncModal;
   $("#resyncFilter").oninput = renderResyncList;
   $("#resyncModal").onmousedown = (e) => { if (e.target === $("#resyncModal")) closeResyncModal(); };

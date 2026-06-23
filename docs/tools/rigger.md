@@ -273,6 +273,13 @@ keeps showing the OLD image — its copy is never auto-updated.
   `source.json` sidecar written at New-rig time). For **older rigs** created before
   that — or rigs made from uploaded images — it asks you to **pick the atlas once**;
   after that the choice is remembered and it's one click thereafter.
+- **source…** (the button next to ⟳ Re-sync atlas) re-syncs from a **different**
+  atlas — it always opens the atlas picker, even when a source is already remembered,
+  and the atlas you choose is written back as the new remembered source. Use it when
+  the rig is **pinned to the wrong / an older atlas** so a plain re-sync keeps missing
+  a new image — e.g. you created the rig, then later added a sprite to the sheet: the
+  rig still points at the pre-sprite snapshot, so pick the current atlas here once and
+  the new sprite becomes attachable.
 - **Region names must still match.** A colour change keeps them, so re-sync just
   works. If the atlas was re-packed with renamed/removed regions, a re-synced rig's
   attachments may no longer resolve and you'd re-attach by hand.
