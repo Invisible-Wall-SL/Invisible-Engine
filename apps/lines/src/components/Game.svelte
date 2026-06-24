@@ -314,6 +314,10 @@
 		// only while the boot asset-load is in flight, so it hides the moment loading
 		// completes — the engine-layout equivalent of the coded splash's `{#if !loaded}`.
 		assetsLoading: boolSource(() => !stateApp.loaded),
+		// Inverse of `assetsLoading`: true the moment boot loading completes. Gates splash
+		// content that should appear AFTER load (e.g. a logo that pops in once the loading
+		// bar fills, before press-to-continue), the complement of the `{#if !loaded}` bar.
+		assetsLoaded: boolSource(() => stateApp.loaded),
 		// Round-lifecycle gates — bind a whole authored SCREEN (`Scene.visibleSource`) or a
 		// single component so it shows ONLY during that presentation phase, the engine-layout
 		// equivalent of the coded intro/outro/win gates' book-event self-show/hide. The
