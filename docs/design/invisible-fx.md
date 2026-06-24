@@ -13,16 +13,16 @@
 
 ## 0. Status
 
-**In build (Phase 1 COMPLETE headlessly — increments 1 + 2 + 3 landed).** This doc is the
-registered build plan. Nothing ships until it travels the full asset chain (§8) — that is
-Phase 4, not yet done. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle**
-tier — do not start that tier until the spike passes (the other two tiers are native and not
-gated). Current state: the `EffectDoc` schema + a LIVE saveable/reopenable `/fx` authoring
-page exist (atlas pick → live emitter → save → reopen), verified by three headless
-harnesses; `/fx` is now a REGISTERED tool (`fx` tool id in `roles.ts`) gated on its own `fx`
-scope, so RULE 9 is triggered (the `docs/tools/fx.md` pass ships with this increment via
-`docs-keeper`). The WebGL pixels + the live save/open round-trip need owner-verify (see
-Progress, increment 3).
+**In build (Phase 1 COMPLETE + Phase 2 COMPLETE headlessly).** This doc is the registered
+build plan. Nothing ships until it travels the full asset chain (§8) — that is Phase 4, not
+yet done. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle** tier — do not
+start that tier until the spike passes (the other two tiers are native and not gated).
+Current state: the `EffectDoc` schema + a LIVE saveable/reopenable `/fx` authoring page exist
+(atlas pick → live emitter → save → reopen), AND Tier B (Spine attach) — load a project rig
+as a backdrop, play a clip, pin a layer onto a bone so the FX rides the animation — all
+verified by four headless harnesses; `/fx` is a REGISTERED tool (`fx` tool id) gated on its
+own `fx` scope. The WebGL pixels (Tier A particles + Tier B bone-follow) + the live save/open
+round-trip need owner-verify (see Progress, increments 3 + 4).
 
 ### Progress
 
@@ -198,6 +198,69 @@ Progress, increment 3).
     `apps/launcher-api/src/routes/(app)/fx/{+page.server.ts,+page.svelte}`,
     `apps/launcher-api/src/lib/roles.ts` (TOOLS/ROLE_TOOLS/TOOL_BAR_ORDER/TOOL_DOC_SLUG/icon),
     `tools/fx-spike/{saveSplit.ts,package.json}` (+`save` script).
+
+- **Phase 2 — Spine attach (Tier B) — ✅ DONE HEADLESSLY (2026-06-24, branch
+  `fx/phase1-emitter-core`, no game bump).** Per §5 tier B + §7 Phase 2. Load a project
+  Spine rig as a playing backdrop and pin a layer's emitter onto one of its bones so the FX
+  rides the animation (flame on a torch tip, sparkle off a wand). Native — no Phase-0 gate.
+  **Landed:**
+  - **`fxSpine.client.ts`** (`apps/launcher-api/src/routes/(app)/fx/`) — loads a project
+    skeleton imperatively (FxStage owns a bare `PIXI.Application`, so it can't mount the
+    declarative `<SpineProvider>`/`<SpineBone>`): fetches the atlas + skeleton + page images
+    through the SAME `/spine/file` endpoint the Spine Viewer uses (assembling `SkeletonData`
+    by hand — the package's `Assets` atlas loader resolves page URLs relative to the atlas
+    path, which our `/spine/file?dir=…&name=…` URLs don't have), reads `.skel`/`.json`, and
+    returns a live `Spine` + its animation / skin / bone name lists. `playFxAnimation` guards
+    against an unknown clip name (a stale picker value would otherwise THROW and abort a
+    backdrop switch); `applyFxSkin` is best-effort.
+  - **`FxStage.svelte`** — loads/unloads the backdrop reactively (`syncSpine`, generation-
+    guarded + keyed so a fast switch can't mount two skeletons), plays the clip in step with
+    play/pause (`spine.autoUpdate=false`, advanced from the stage ticker), and for each
+    `bone`-placed layer welds the emitter's spawn (owner) position to the live bone transform
+    every frame. **The load-bearing coordinate hop** (what `<SpineBone>` hides): the bone
+    resolves to Pixi WORLD coords (`spine.getBonePosition` → `skeletonToPixiWorldCoordinates`),
+    but the emitter's `updateOwnerPos` is in its CONTAINER's local space (which carries the
+    stage pan/zoom) — inverting the emitter container's world matrix bridges the two, so the
+    FX rides the bone at any pan/zoom. Surfaces the loaded rig's clip/skin/bone lists to the
+    page via an `onSpineMeta` callback.
+  - **`fxModel.client.ts`** — pure placement mutators (`setPlacementSpace` (free↔bone, drops
+    the bone on →free, keeps it on ↔), `setPlacementBone`, `setPlacementOffset`),
+    `layerFollowsBone` (true only when `space:'bone'` AND a bone is set — a bone layer with no
+    bone yet still spawns at the scene origin so the preview never silently vanishes), and the
+    bone-follow math (`worldToContainerLocal` affine-inverse, `emitterOwnerLocal`) — all
+    PixiJS-free so the harness covers them.
+  - **`+page.svelte`** — a **Backdrop** bar above the stage (skeleton `<select>` from
+    `/spine/skeletons` fetched client-side + animation `<select>` + skin `<select>` when
+    >1 skin), and a per-layer **Placement** inspector section (Free/Bone mode, a bone picker
+    from the loaded rig's bones, offset X/Y). Picking a skeleton resets the clip/skin so the
+    stage never replays a previous rig's clip mid-load; `onSpineMeta` defaults to the first
+    clip. Placement edits the doc immutably like every other inspector control.
+  - **The shared-read seam (reuse, not a new surface)** — `requireSpineAccess`
+    (`apps/launcher-api/src/lib/server/spine.ts`) now also accepts the `fx` entitlement, so
+    `/spine/skeletons` + `/spine/file` serve the FX page too (same OR-the-entitlement /
+    never-widen-the-prefix pattern as Phase 3's `altTools`). `+page.server.ts` is UNCHANGED —
+    the skeleton list is a client-side fetch, like the atlas-region fetches.
+  - **Verified headlessly** by `tools/fx-spike/placement.ts` (`pnpm --filter fx-spike run
+    placement`): **5/5 GREEN** — a free layer spawns at origin (+offset); a bone layer spawns
+    at bone-world + offset; the owner maps correctly through pan+zoom into container-local; an
+    unresolved bone falls back to origin+offset. The increment-1/2/3 harnesses (roundtrip /
+    model / saveSplit) still PASS. `pnpm --filter launcher-api build` **GREEN** (the `(app)/fx`
+    entry grew to ~16.7 kB with the backdrop picker + placement controls). Prettier clean.
+  - **NEEDS LIVE OWNER-VERIFY (authed WebGL page — not headless):** (1) a picked skeleton
+    loads + plays as a backdrop; the animation/skin dropdowns switch it; (2) a `bone`-placed
+    layer's particles RIDE the bone as the animation plays (and track at any pan/zoom);
+    (3) the offset nudges correctly; (4) switching/clearing the backdrop is leak-free; (5) the
+    Tier-A pixels still hold.
+  - **Phase 4 note (carry forward):** at runtime the FX backdrop is just an authoring aid —
+    the EffectDoc stores only the bone NAME + offset. For `bakedEffects()` to honour a
+    `bone` placement in a real game, the player must resolve that bone on the HOST game's
+    playing rig (not a backdrop) — i.e. wrap the emitter in the runtime `<SpineBone>` against
+    the game's `SpineProvider`. Decide the host-rig binding when Phase 4 wires the player.
+  - **Next phase:** Phase 4 (pipeline wiring) or Phase 3 (Tier C, Phase-0 gated). Files:
+    `apps/launcher-api/src/routes/(app)/fx/{fxSpine.client.ts,FxStage.svelte,fxModel.client.ts,+page.svelte}`,
+    `apps/launcher-api/src/lib/server/spine.ts`, `apps/launcher-api/package.json`
+    (+`@esotericsoftware/spine-pixi-v8@4.2.74`), `tools/fx-spike/{placement.ts,package.json}`,
+    `docs/tools/fx.md` (Tier-B refresh).
 
 ## 1. Naming (settled here to avoid a real collision)
 

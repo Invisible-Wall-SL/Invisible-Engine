@@ -5,14 +5,15 @@ emitter **layers** — over a project's atlas art, tune each emitter live in a W
 preview, and save it. The saved artifact is an **EffectDoc** stored in the project's
 cloud storage.
 
-> **Status (as of 2026-06-24):** this is **Phase 1 — emitter-core authoring**. What
-> ships now is the *sprite-particle* tier: add emitter layers, draw their particle art
-> from a project atlas, tune the emitter live, and save/reopen the effect. It is an
+> **Status (as of 2026-06-24):** **Phases 1–2 — emitter-core authoring + Spine attach.**
+> What ships now: add emitter layers, draw their particle art from a project atlas, tune
+> the emitter live, **load a project Spine rig as a backdrop and pin a layer onto one of
+> its bones** so the particles ride the animation, and save/reopen the effect. It is an
 > **authoring surface only** — saving writes the EffectDoc to cloud storage but does
-> **not yet make any game play the effect**. Attaching an effect to a Spine rig (so
-> particles follow a bone), the spine-as-particle tier, and wiring the saved effect
-> through the build so a shipped game fires it are **later phases**. See "What it does
-> not do yet" below, and the design doc for the full roadmap.
+> **not yet make any game play the effect**. The spine-as-particle tier (whole Spine
+> clips *as* the particles) and wiring the saved effect through the build so a shipped
+> game fires it are **later phases**. See "What it does not do yet" below, and the design
+> doc for the full roadmap.
 
 ## What it is
 
@@ -82,6 +83,19 @@ where your particles sit relative to the art. **Drag** to pan, **scroll** to zoo
 use **▶ Play / ❚❚ Pause** (sub-bar) to start/stop the simulation. **Reset view**
 re-fits.
 
+### Load a Spine backdrop (attach to a rig)
+
+Above the preview is a **Backdrop** bar. Pick one of the project's Spine rigs (the same
+skeletons the Spine Viewer and Rigger list) to load it into the stage as a playing
+backdrop; an **animation** dropdown then lets you choose the clip (it loops), and a
+**skin** dropdown appears when the rig has more than one skin. Choose **— none —** to
+remove the backdrop. The skeleton plays in step with **▶ Play / ❚❚ Pause**.
+
+With a backdrop loaded you can **pin a layer onto a bone** (see Inspector → Placement),
+so its emitter rides that bone every frame — a flame welded to a moving torch tip, a
+sparkle off a wand. The backdrop is an **authoring aid only**: it is not part of the
+saved effect (only the layer's chosen bone name + offset are).
+
 ### Tune a layer (Inspector)
 
 With a layer selected, the right **Inspector** edits it:
@@ -93,6 +107,11 @@ With a layer selected, the right **Inspector** edits it:
   Sheet Maker first.) When a layer has **more than one** frame, a **Flipbook (animate
   frames)** toggle appears — on, the particle cycles through the frames; off, it's a
   multi-frame still.
+- **Placement** — where the layer's emitter sits. **Mode** is **Free (scene)** (spawns
+  at the scene origin) or **Bone (rig)** (follows a bone of the loaded Spine backdrop —
+  enabled only when a backdrop is loaded). In **Bone** mode a **Bone** dropdown lists the
+  rig's bones; **Offset X/Y** nudges the spawn point relative to the scene origin (Free)
+  or the followed bone (Bone).
 - **Emitter** — the core emitter numbers: **Frequency (s)** (seconds between spawns),
   **Max particles**, **Lifetime min/max (s)**, and a **Spawn radius** (when the emitter
   uses a spawn-circle).
@@ -116,10 +135,6 @@ and the layer you last had selected.
   export → `deploy/` → bake → pull → `register` so a shipped game can fire it is a later
   phase (Phase 4 in the design doc). Until then the effect is a saveable, reopenable
   authoring artifact only — it does not reach any running game.
-- **No Spine attach yet.** Pinning a layer onto a **playing Spine rig** so particles
-  follow a bone (e.g. a flame on a torch, a sparkle off a wand tip) is a later phase.
-  This phase authors effects in free space over the atlas reference only — there is no
-  spine backdrop or bone picker yet.
 - **No spine-as-particle tier.** Emitting whole Spine clips *as* the particles is an
   ambitious later tier gated behind a make-or-break spike (Phase 0 in the design doc);
   this version emits sprite particles drawn from atlas regions.
@@ -147,8 +162,13 @@ and the layer you last had selected.
   `loadRegionSet`, the saved-effect index, and — on `?effect=<id>` — the opened
   EffectDoc + its sidecar). `+page.svelte` is the authoring shell (sub-bar, Layers
   panel, Inspector). `FxStage.svelte` is the WebGL stage (own `PIXI.Application` +
-  pan/zoom/play-pause + a live `Emitter` per layer). `fxModel.client.ts` is the pure,
-  rune-free editing model + config mutators.
+  pan/zoom/play-pause + a live `Emitter` per layer, and the Tier-B Spine backdrop —
+  loaded imperatively and ridden per-frame, replicating `SpineBone` for `bone`-placed
+  layers). `fxModel.client.ts` is the pure, rune-free editing model + config/placement
+  mutators (+ the bone-follow coordinate math, harness-covered in `tools/fx-spike`).
+  `fxSpine.client.ts` loads a project skeleton via the shared `/spine/skeletons` +
+  `/spine/file` endpoints (whose `requireSpineAccess` gate now also accepts the `fx`
+  tool).
 - **Save endpoint:** `POST /api/fx/save` (`fx`-gated via the shared `gate` helper,
   mirroring `/api/flow/save` and `/api/rigger/save`); R2 read/write in
   `src/lib/server/fxStorage.ts`, which writes the canonical `<id>.fx.json` and the

@@ -18,12 +18,17 @@ export async function requireSpineAccess(locals: App.Locals): Promise<void> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
-	// The Spine Viewer AND the Rigger both read project skeletons through this gate
-	// (same R2 spines + skeletons.json), so either grant suffices.
+	// The Spine Viewer, the Rigger AND Invisible FX all read project skeletons through this
+	// gate (same R2 spines + skeletons.json). The Viewer/Rigger author or inspect rigs;
+	// Invisible FX loads a playing skeleton purely as the Tier-B authoring BACKDROP to pin
+	// emitters onto bones (a READ of the same skeletons + bundle files), so its grant
+	// satisfies the gate too. This never widens the R2 prefix — only the entitlement check
+	// (the same shared-read seam the editor's region/asset endpoints use for `fx`).
 	const hasViewer = roleHasTool(locals.user.role, 'spineViewer', roleOverrides, overrides);
 	const hasRigger = roleHasTool(locals.user.role, 'rigger', roleOverrides, overrides);
-	if (!hasViewer && !hasRigger) {
-		throw error(403, 'Your role does not have access to the Spine Viewer or Rigger.');
+	const hasFx = roleHasTool(locals.user.role, 'fx', roleOverrides, overrides);
+	if (!hasViewer && !hasRigger && !hasFx) {
+		throw error(403, 'Your role does not have access to the Spine Viewer, Rigger or FX.');
 	}
 }
 

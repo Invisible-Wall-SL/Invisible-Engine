@@ -23,6 +23,7 @@
 	 * (`emitter.init` re-inits cleanly), so the preview always reflects the doc verbatim.
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
+	import type * as SPINE from '@esotericsoftware/spine-pixi-v8';
 	import type { EmitterLayer } from 'engine-fx';
 	import {
 		Application,
@@ -34,12 +35,19 @@
 		type TextureSource,
 	} from 'pixi.js';
 	import { onMount } from 'svelte';
-	import { bindArt } from './fxModel.client';
+	import { bindArt, emitterOwnerLocal, layerFollowsBone, type Affine } from './fxModel.client';
+	import {
+		applyFxSkin,
+		loadFxSpine,
+		playFxAnimation,
+		type FxSkeletonEntry,
+		type LoadedFxSpine,
+	} from './fxSpine.client';
 
 	interface Props {
 		/** The effect's layers — the live emitters mirror these verbatim. */
 		layers: EmitterLayer[];
-		/** Whether the emitters are running (play/pause). */
+		/** Whether the emitters are running (play/pause). Also drives the backdrop skeleton. */
 		playing: boolean;
 		/**
 		 * Resolve an `art.assetKey` (an atlas manifest key) to its page URL + per-frame
@@ -48,6 +56,20 @@
 		 * beyond the page-image `Assets.load`.
 		 */
 		resolveArt: (assetKey: string) => Promise<ResolvedArt | null>;
+		/**
+		 * The Spine skeleton to load as the Tier-B authoring backdrop, or `null` for none.
+		 * When set, the stage loads it (once), plays `spineAnimation`, applies `spineSkin`,
+		 * and — for any `bone`-placed layer — rides the emitter on the live bone transform.
+		 */
+		spineEntry?: FxSkeletonEntry | null;
+		/** The animation clip to play on the backdrop skeleton (looping). */
+		spineAnimation?: string;
+		/** The skin to apply on the backdrop skeleton (best-effort). */
+		spineSkin?: string;
+		/** Surface the loaded skeleton's animation / skin / bone lists back to the page (for
+		 * the inspector dropdowns). Called once per successful load (or with empty lists on
+		 * unload / failure). */
+		onSpineMeta?: (meta: { animations: string[]; skins: string[]; bones: string[] }) => void;
 	}
 
 	export interface ResolvedArt {
@@ -57,14 +79,33 @@
 		regions: { name: string; x: number; y: number; w: number; h: number; rotated?: boolean }[];
 	}
 
-	let { layers, playing, resolveArt }: Props = $props();
+	let {
+		layers,
+		playing,
+		resolveArt,
+		spineEntry = null,
+		spineAnimation = '',
+		spineSkin = '',
+		onSpineMeta,
+	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
 	let app: Application | null = null;
-	/** The pan/zoom world the emitters + reference sprite live in. */
+	/** Flips true once the `Application` has initialised — drives the spine/rebuild effects
+	 * to run after async mount (the props can be set before the canvas exists). */
+	let ready = $state(false);
+	/** The pan/zoom world the emitters + reference sprite + backdrop skeleton live in. */
 	let world: Container | null = null;
 	/** The faint atlas reference sprite (last-resolved art's page), behind particles. */
 	let reference: Sprite | null = null;
+	/** The loaded Tier-B backdrop skeleton (or null). The live `Spine` lives in `world`. */
+	let loadedSpine: LoadedFxSpine | null = null;
+	/** The skeleton-entry key currently loaded — so we only reload when it actually changes. */
+	let loadedSpineKey: string | null = null;
+	/** Generation token for spine loads (a fast backdrop switch can't mount two skeletons). */
+	let spineGen = 0;
+	/** Reused point for the per-frame bone-follow (avoid per-frame allocation). */
+	const bonePoint = { x: 0, y: 0 };
 	/** Per-key live emitter + the container it draws into + whether it has bound art. */
 	const live = new Map<string, { emitter: Emitter; container: Container; hasArt: boolean }>();
 	/** Cache of resolved page TextureSources by URL (avoid re-loading the same page). */
@@ -90,9 +131,15 @@
 			world = new Container();
 			app.stage.addChild(world);
 			centerWorld();
+			ready = true;
 			app.ticker.add((ticker) => {
 				if (!playing) return;
 				const dt = ticker.deltaMS / 1000;
+				// Advance the backdrop skeleton (autoUpdate is off so we gate it on play/pause).
+				loadedSpine?.spine.update(dt);
+				// Ride bone-placed emitters on the live bone transform, THEN advance them — so a
+				// flame stays welded to the moving torch tip rather than lagging a frame.
+				followBones();
 				for (const { emitter } of live.values()) emitter.update(dt);
 			});
 			await requestRebuild();
@@ -105,10 +152,88 @@
 				emitter.destroy();
 			}
 			live.clear();
+			loadedSpine?.spine.destroy();
+			loadedSpine = null;
 			app?.destroy(true);
 			app = null;
 		};
 	});
+
+	/**
+	 * Replicate `<SpineBone>` IMPERATIVELY: for each `bone`-placed layer, resolve the
+	 * followed bone's live world position and weld the emitter's spawn (owner) position to it
+	 * + the authored offset, every frame, accounting for the stage pan/zoom.
+	 *
+	 * The coordinate hop (the load-bearing bit `SpineBone` hides): the bone position is in
+	 * SKELETON space; `spine.getBonePosition` + `spine.skeletonToPixiWorldCoordinates` lift it
+	 * to Pixi WORLD coords; the emitter's `updateOwnerPos` is in its CONTAINER's local space
+	 * (which carries the pan/zoom `world` transform). Inverting the emitter container's world
+	 * matrix bridges the two (`emitterOwnerLocal`/`worldToContainerLocal`, harness-covered), so
+	 * the FX rides the bone at any pan/zoom. A `free` layer keeps spawning at its container
+	 * origin + offset.
+	 */
+	function followBones(): void {
+		const spine = loadedSpine?.spine;
+		for (const layer of layers) {
+			const entry = live.get(layer.key);
+			if (!entry) continue;
+			let boneWorld: { x: number; y: number } | null = null;
+			if (spine && layerFollowsBone(layer)) {
+				const pos = spine.getBonePosition(layer.placement.bone!, bonePoint);
+				if (pos) {
+					// Mutates `pos` (== bonePoint) from skeleton space into Pixi WORLD coords.
+					spine.skeletonToPixiWorldCoordinates(pos);
+					boneWorld = { x: pos.x, y: pos.y };
+				}
+			}
+			const cw = entry.container.worldTransform;
+			const affine: Affine = { a: cw.a, b: cw.b, c: cw.c, d: cw.d, tx: cw.tx, ty: cw.ty };
+			const owner = emitterOwnerLocal(layer, boneWorld, affine);
+			entry.emitter.updateOwnerPos(owner.x, owner.y);
+		}
+	}
+
+	/**
+	 * Load (or unload) the backdrop skeleton when the picked entry changes. Generation-guarded
+	 * so a fast switch can't leave two skeletons mounted; surfaces the loaded skeleton's
+	 * animation / skin / bone lists to the page for the inspector dropdowns.
+	 */
+	async function syncSpine(): Promise<void> {
+		if (!app || !world) return;
+		const key = spineEntry ? `${spineEntry.dir_b64}/${spineEntry.skeleton_file}` : null;
+		if (key === loadedSpineKey) return; // already loaded (or already none)
+		const gen = ++spineGen;
+
+		// Tear down any prior backdrop.
+		loadedSpine?.spine.destroy();
+		loadedSpine = null;
+		loadedSpineKey = key;
+
+		if (!spineEntry) {
+			onSpineMeta?.({ animations: [], skins: [], bones: [] });
+			return;
+		}
+		try {
+			const loaded = await loadFxSpine(spineEntry);
+			if (gen !== spineGen || !world) {
+				loaded.spine.destroy();
+				return;
+			}
+			loadedSpine = loaded;
+			// Draw the skeleton behind the particles but in front of the faint atlas reference.
+			world.addChildAt(loaded.spine, reference ? 1 : 0);
+			playFxAnimation(loaded.spine, spineAnimation);
+			applyFxSkin(loaded.spine, spineSkin);
+			loaded.spine.update(0);
+			onSpineMeta?.({
+				animations: loaded.animations,
+				skins: loaded.skins,
+				bones: loaded.bones,
+			});
+		} catch {
+			if (gen === spineGen) onSpineMeta?.({ animations: [], skins: [], bones: [] });
+		}
+	}
 
 	function centerWorld(): void {
 		if (!app || !world) return;
@@ -243,6 +368,25 @@
 		for (const { emitter, hasArt } of live.values()) {
 			emitter.emit = playing && hasArt;
 		}
+	});
+
+	// Load / unload the Tier-B backdrop skeleton whenever the picked entry changes (the page
+	// drives `spineEntry` from its backdrop picker). `syncSpine` is generation-guarded + keyed,
+	// so a no-op change returns early and a fast switch can't mount two skeletons.
+	$effect(() => {
+		void (spineEntry ? `${spineEntry.dir_b64}/${spineEntry.skeleton_file}` : null);
+		if (ready) void syncSpine();
+	});
+
+	// Re-play the chosen clip / re-apply the chosen skin on an ALREADY-loaded skeleton (a fresh
+	// load applies them in `syncSpine`; these handle the picker changing afterwards).
+	$effect(() => {
+		const animation = spineAnimation;
+		if (ready && loadedSpine) playFxAnimation(loadedSpine.spine, animation);
+	});
+	$effect(() => {
+		const skin = spineSkin;
+		if (ready && loadedSpine) applyFxSkin(loadedSpine.spine, skin);
 	});
 
 	// --- pan / zoom -----------------------------------------------------------

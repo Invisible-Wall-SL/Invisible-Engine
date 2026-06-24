@@ -6,7 +6,8 @@
 	"scripts": {
 		"roundtrip": "tsx roundTrip.ts",
 		"model": "tsx modelHelpers.ts",
-		"save": "tsx saveSplit.ts"
+		"save": "tsx saveSplit.ts",
+		"placement": "tsx placement.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

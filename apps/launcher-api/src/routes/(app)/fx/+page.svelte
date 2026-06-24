@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { EffectDoc, EmitterConfigV3, EmitterLayer } from 'engine-fx';
+	import { onMount } from 'svelte';
 	import FxStage, { type ResolvedArt } from './FxStage.svelte';
 	import {
 		emptyEffectDoc,
@@ -9,9 +10,13 @@
 		nextLayerKey,
 		setCoreParam,
 		setListEndpoint,
+		setPlacementBone,
+		setPlacementOffset,
+		setPlacementSpace,
 		setSpawnRadius,
 		spawnRadius,
 	} from './fxModel.client';
+	import type { FxSkeletonEntry } from './fxSpine.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -147,6 +152,52 @@
 		}));
 	}
 
+	// --- Tier B: Spine backdrop -------------------------------------------------
+	// The backdrop is a project Spine rig loaded purely as an authoring aid: play a clip and
+	// pin `bone`-placed layers onto its bones. The skeleton list comes from the SAME
+	// `/spine/skeletons` endpoint the Spine Viewer / Rigger use (its gate now also accepts the
+	// `fx` tool). `onSpineMeta` is the stage telling us the loaded rig's clip / skin / bone
+	// lists, which drive the dropdowns below.
+	let skeletons = $state<FxSkeletonEntry[]>([]);
+	let spineKey = $state<string>('');
+	let spineAnimation = $state<string>('');
+	let spineSkin = $state<string>('');
+	let spineMeta = $state<{ animations: string[]; skins: string[]; bones: string[] }>({
+		animations: [],
+		skins: [],
+		bones: [],
+	});
+
+	const spineEntry = $derived(
+		skeletons.find((s) => `${s.dir_b64}/${s.skeleton_file}` === spineKey) ?? null,
+	);
+
+	onMount(async () => {
+		try {
+			const res = await fetch('/spine/skeletons');
+			if (!res.ok) return;
+			const d = (await res.json()) as { skeletons?: FxSkeletonEntry[] };
+			skeletons = d.skeletons ?? [];
+		} catch {
+			// Leave the list empty — the backdrop picker just offers "none".
+		}
+	});
+
+	function selectSkeleton(key: string): void {
+		spineKey = key;
+		// Reset the clip/skin so the stage doesn't try to play a previous skeleton's clip while
+		// the new rig loads; `onSpineMeta` picks a valid default once it's loaded.
+		spineAnimation = '';
+		spineSkin = '';
+	}
+
+	function onSpineMeta(meta: { animations: string[]; skins: string[]; bones: string[] }): void {
+		spineMeta = meta;
+		// Default to the first clip so a freshly-picked backdrop animates immediately.
+		if (!meta.animations.includes(spineAnimation)) spineAnimation = meta.animations[0] ?? '';
+		if (spineSkin && !meta.skins.includes(spineSkin)) spineSkin = '';
+	}
+
 	// --- immutable doc edits ----------------------------------------------------
 	function updateSelected(fn: (l: EmitterLayer) => EmitterLayer): void {
 		doc = { ...doc, layers: doc.layers.map((l) => (l.key === selectedKey ? fn(l) : l)) };
@@ -258,7 +309,56 @@
 		</aside>
 
 		<div class="canvas">
-			<FxStage bind:this={stage} layers={doc.layers} {playing} {resolveArt} />
+			<div class="stagebar">
+				<span class="lbl">Backdrop</span>
+				<select
+					title="Load a project Spine rig as a backdrop (Tier B — pin layers to its bones)"
+					value={spineKey}
+					onchange={(e) => selectSkeleton((e.currentTarget as HTMLSelectElement).value)}
+				>
+					<option value="">— none —</option>
+					{#each skeletons as s (s.dir_b64 + '/' + s.skeleton_file)}
+						<option value={`${s.dir_b64}/${s.skeleton_file}`}>
+							{s.folder ? `${s.folder}/` : ''}{s.name}
+						</option>
+					{/each}
+				</select>
+				{#if spineEntry}
+					<select
+						title="Animation clip"
+						value={spineAnimation}
+						onchange={(e) => (spineAnimation = (e.currentTarget as HTMLSelectElement).value)}
+					>
+						{#each spineMeta.animations as a (a)}
+							<option value={a}>{a}</option>
+						{/each}
+					</select>
+					{#if spineMeta.skins.length > 1}
+						<select
+							title="Skin"
+							value={spineSkin}
+							onchange={(e) => (spineSkin = (e.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="">— default skin —</option>
+							{#each spineMeta.skins as s (s)}
+								<option value={s}>{s}</option>
+							{/each}
+						</select>
+					{/if}
+				{/if}
+			</div>
+			<div class="stagewrap">
+				<FxStage
+					bind:this={stage}
+					layers={doc.layers}
+					{playing}
+					{resolveArt}
+					{spineEntry}
+					{spineAnimation}
+					{spineSkin}
+					{onSpineMeta}
+				/>
+			</div>
 		</div>
 
 		<aside class="inspector">
@@ -326,6 +426,65 @@
 							</label>
 						{/if}
 					{/if}
+				</section>
+
+				<section>
+					<h3>Placement</h3>
+					<label class="row">
+						<span>Mode</span>
+						<select
+							value={selected.placement.space}
+							onchange={(e) =>
+								updateSelected((l) =>
+									setPlacementSpace(
+										l,
+										(e.currentTarget as HTMLSelectElement).value as 'free' | 'bone',
+									),
+								)}
+						>
+							<option value="free">Free (scene)</option>
+							<option value="bone" disabled={spineMeta.bones.length === 0}>Bone (rig)</option>
+						</select>
+					</label>
+					{#if selected.placement.space === 'bone'}
+						{#if spineMeta.bones.length === 0}
+							<p class="hint">Load a backdrop skeleton to pin this layer to a bone.</p>
+						{:else}
+							<label class="row">
+								<span>Bone</span>
+								<select
+									value={selected.placement.bone ?? ''}
+									onchange={(e) =>
+										updateSelected((l) =>
+											setPlacementBone(l, (e.currentTarget as HTMLSelectElement).value),
+										)}
+								>
+									<option value="">— pick a bone —</option>
+									{#each spineMeta.bones as b (b)}
+										<option value={b}>{b}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+					{/if}
+					<label class="row">
+						<span>Offset X</span>
+						<input
+							type="number"
+							step="1"
+							value={selected.placement.offset?.x ?? 0}
+							onchange={(e) => updateSelected((l) => setPlacementOffset(l, 'x', num(e)))}
+						/>
+					</label>
+					<label class="row">
+						<span>Offset Y</span>
+						<input
+							type="number"
+							step="1"
+							value={selected.placement.offset?.y ?? 0}
+							onchange={(e) => updateSelected((l) => setPlacementOffset(l, 'y', num(e)))}
+						/>
+					</label>
 				</section>
 
 				<section>
@@ -645,6 +804,34 @@
 	.canvas {
 		flex: 1;
 		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.stagebar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px;
+		border-bottom: 1px solid #1f2937;
+		background: #0e131a;
+	}
+	.stagebar .lbl {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #94a3b8;
+	}
+	.stagebar select {
+		padding: 3px 6px;
+		border-radius: 5px;
+		border: 1px solid #2a323d;
+		background: #0e131a;
+		color: #e2e8f0;
+		font-size: 12px;
+	}
+	.stagewrap {
+		flex: 1;
+		min-height: 0;
 	}
 	section {
 		border-top: 1px solid #1f2937;

@@ -194,6 +194,103 @@ export function setListEndpoint(
 	return next;
 }
 
+// ---------------------------------------------------------------------------
+// Placement (Tier B — Spine-attach). These mutate a layer's `placement` block
+// IMMUTABLY (never `config` — placement lives OUTSIDE the verbatim library config).
+// Kept pure so the harness covers the free↔bone gating + the bone-follow math.
+// ---------------------------------------------------------------------------
+
+/** Set whether a layer is `free` (scene origin) or `bone` (follows a rig bone), immutably.
+ * Switching to `free` drops the bone name (a free layer has no bone); switching to `bone`
+ * keeps any prior bone + offset so toggling back and forth is non-destructive. */
+export function setPlacementSpace(layer: EmitterLayer, space: 'free' | 'bone'): EmitterLayer {
+	if (space === 'free') {
+		return { ...layer, placement: { ...layer.placement, space: 'free', bone: undefined } };
+	}
+	return { ...layer, placement: { ...layer.placement, space: 'bone' } };
+}
+
+/** Set the bone a `bone`-placed layer follows, immutably. */
+export function setPlacementBone(layer: EmitterLayer, bone: string): EmitterLayer {
+	return { ...layer, placement: { ...layer.placement, space: 'bone', bone } };
+}
+
+/** Set the placement pixel offset (added to the scene origin, or the followed bone), immutably. */
+export function setPlacementOffset(layer: EmitterLayer, axis: 'x' | 'y', value: number): EmitterLayer {
+	const current = layer.placement.offset ?? { x: 0, y: 0 };
+	return { ...layer, placement: { ...layer.placement, offset: { ...current, [axis]: value } } };
+}
+
+/**
+ * Does this layer's emitter spawn from a rig bone? True ONLY when `space === 'bone'` AND a
+ * non-empty bone name is set — a `bone` layer with no bone yet still spawns at its scene
+ * origin (so the preview never silently vanishes mid-edit). The stage uses this to decide
+ * whether to drive `updateOwnerPos` from the live bone transform each frame.
+ */
+export function layerFollowsBone(layer: EmitterLayer): boolean {
+	return layer.placement.space === 'bone' && !!layer.placement.bone?.trim();
+}
+
+/** A 2x3 affine matrix in PixiJS's `{ a, b, c, d, tx, ty }` shape (its `Matrix`). */
+export interface Affine {
+	a: number;
+	b: number;
+	c: number;
+	d: number;
+	tx: number;
+	ty: number;
+}
+
+/**
+ * Map a point given in Pixi WORLD coordinates into the local space of a container whose
+ * world transform is `containerWorld` (i.e. `containerWorld.applyInverse(point)`), done as
+ * pure arithmetic so the bone-follow math is unit-coverable WITHOUT a PixiJS `Matrix`.
+ *
+ * This is the load-bearing coordinate hop of Tier B: the followed bone's position resolves
+ * to Pixi WORLD coords (via `spine.skeletonToPixiWorldCoordinates`), but the emitter's
+ * `updateOwnerPos` is in its own CONTAINER's local space (which carries the stage pan/zoom).
+ * Inverting the emitter container's world transform bridges the two, so the FX rides the
+ * bone at any pan/zoom. The formula is the standard affine inverse PixiJS's `applyInverse`
+ * computes (`id = 1 / (a*d - b*c)`).
+ */
+export function worldToContainerLocal(
+	world: Affine,
+	point: { x: number; y: number },
+): { x: number; y: number } {
+	const id = 1 / (world.a * world.d - world.b * world.c);
+	const dx = point.x - world.tx;
+	const dy = point.y - world.ty;
+	return {
+		x: (world.d * id * dx) - (world.c * id * dy),
+		y: (world.a * id * dy) - (world.b * id * dx),
+	};
+}
+
+/**
+ * The emitter spawn (owner) position for a layer, in its emitter container's LOCAL space.
+ *
+ * - A `free` layer (or a `bone` layer with no bone resolved) spawns at the layer's authored
+ *   `offset` in WORLD space, then mapped into container-local — i.e. the scene origin + offset.
+ * - A `bone` layer spawns at the followed bone's WORLD position + the authored `offset`,
+ *   mapped into container-local — so the emitter rides the bone every frame.
+ *
+ * `boneWorld` is the bone's already-resolved Pixi WORLD position (or `null` for a free /
+ * unresolved layer, in which case the world origin is used). Pure — the stage supplies the
+ * live bone world point + the emitter container's world matrix each frame.
+ */
+export function emitterOwnerLocal(
+	layer: EmitterLayer,
+	boneWorld: { x: number; y: number } | null,
+	containerWorld: Affine,
+): { x: number; y: number } {
+	const offset = layer.placement.offset ?? { x: 0, y: 0 };
+	const base = boneWorld ?? { x: 0, y: 0 };
+	return worldToContainerLocal(containerWorld, {
+		x: base.x + offset.x,
+		y: base.y + offset.y,
+	});
+}
+
 /** Set the spawn torus radius immutably. */
 export function setSpawnRadius(config: EmitterConfigV3, radius: number): EmitterConfigV3 {
 	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
