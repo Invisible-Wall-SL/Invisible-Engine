@@ -324,6 +324,107 @@ round-trip/determinism, not the interactions or pixels.
 - RULE 9: `docs/tools/flow.md` needs a `docs-keeper` audit pass to document the new
   choreography sub-editor (Phase 3 materially extends the tool UI).
 
+### Progress — Phase 4 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase4-runtime-mounter` (off the latest `main`). No game submodule bump —
+Phase 4 proves the runtime in the dev game `apps/lines` only. The interpreter stops being a
+headless library and runs inside a real game, replacing `Game.svelte`'s hard-coded mounting
+and wiring live transitions, WITHOUT regressing the game (the §7 invariant is held by
+construction + a fresh 27-assertion harness).
+
+**A — the generic scene mounter (retires §20.1).**
+- `mounter.ts` promoted from interface-only to the **decision layer** (`createSceneMounter`):
+  `resolve(screenId)` returns `{ kind: 'authored', scene }` ONLY when the FlowDoc carries
+  that screen AND a backing LayoutDoc `Scene` exists, else `{ kind: 'fallThrough' }` — the
+  single §7 boundary. **Key finding:** the live Pixi mount is NOT a new path — the engine's
+  existing `<LayoutScene>` ALREADY is a generic mounter (a `game`-space scene self-wraps in
+  `<MainContainer>`, `standard` in `<MainContainer standard>`, `canvas`/`background` mount
+  raw; it also applies the `Scene.visibleSource` gate). So the mounter owns only the
+  DECISION (which scene, authored vs coded); `<LayoutScene>` owns the MainContainer scaling +
+  overlays. A new `FlowMount.svelte` (in `engine-layout/svelte`) renders the resolved scene
+  via `<LayoutScene>` or the coded `{@render fallback()}` with **no wrapping container**, so
+  the fall-through is byte-identical. An authored-but-no-backing-scene screen falls through
+  (never a blank mount).
+
+**B — transitions, all three triggers (§6).**
+- `presentation.ts` (`createPresentationMachine`) — the **presentation HSM**, pure +
+  framework-free (imports no rune modules; the `$engine.*` reader + runtime are injected).
+  Fires edges on: (1) `bookEvent` (`onBookEvent` — matches the arriving book event `type`),
+  (2) `complete` (`onComplete` — the active screen's exit choreography signalled done, the
+  genuinely-new self-driving output §6.2), (3) `condition` (`evaluate()` — re-checks guard-
+  only edges when the game pings an observed value change). Each edge honours an optional
+  bounded `guard` + `delayMs ÷ timeScale()`; outgoing edges are tried in author `order`
+  (unguarded = default); a swap runs the old screen's `exit` then the new screen's `enter`
+  choreography; concurrent triggers are serialized. **Observe-don't-drive (§12):** the HSM
+  exposes ONLY `onBookEvent`/`onComplete`/`evaluate`/`start` + reads — no `send`/`transition`
+  into the platform FSM (the harness asserts this surface). XState stays the single source of
+  truth; Flow reacts.
+- `interpreter.ts` (`createFlowInterpreter`) — the single boot object tying HSM + mounter +
+  the Phase-0 book-event dispatcher together. INERT with no FlowDoc (active screen
+  `undefined`, every mount + event falls through). `dispatchBookEvent` runs the event's
+  presentation (authored choreography OR coded fall-through) AND lets the macro graph take a
+  `bookEvent` transition — the two are orthogonal (§6.1).
+
+**C — live wiring into `apps/lines` (PARITY-FIRST).**
+- `game/flowRuntime.svelte.ts` builds the interpreter wired to the game's REAL primitives —
+  the same `eventEmitter`, `stateBetDerived.timeScale`, `waitForTimeout` the coded path uses
+  (§8) — and resolves screen ids against the live editor doc's scenes (the real scenes,
+  untouched). `game/flowInterpreterHolder.ts` is the singleton the play path reads.
+  `game/utils.ts`'s `playBookEvent`/`playBookEvents` route through the interpreter WHEN ACTIVE
+  (the same serial `sequence()`) else defer to the coded `createPlayBookUtils` unchanged.
+  `Game.svelte` wraps the basegame mount in `<FlowMount>` and builds the interpreter once
+  `loadEditorScenes()` resolves, then `start()`s it.
+- **The §7 invariant by construction:** the FlowDoc source is ABSENT by default (a
+  `window.__IE_FLOW_DOC__` dev-override hook for Phase-4 live-verify; the baked `flow` slot is
+  Phase 6), so `createLinesFlow` returns `undefined` ⇒ holder null ⇒ `basegameMount` undefined
+  ⇒ `<FlowMount>` renders the original `<LayoutScene scene={basegameBelowReel} />` and the
+  book-event path is the coded one. `apps/lines` is byte-identical to current `main`.
+
+**How it was verified headlessly + build-shipped**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN. New `tools/flow-spike/phase4Runtime.ts`
+  (`pnpm --filter flow-spike run phase4`) — 27/27 assertions GREEN against the REAL engine-flow
+  HSM/mounter/interpreter: mounter authored-vs-fall-through (incl. authored-but-no-scene ⇒
+  fall-through; overlay `visibleSource` carried through to `<LayoutScene>`); all 3 triggers
+  drive transitions; author-order + guard precedence (a guarded `winLevel≥3` edge wins over a
+  later default; guard fails ⇒ the default fires); `delayMs` 600→300 under turbo; the HSM
+  drives no platform transition; the full interpreter is inert with no FlowDoc AND falls
+  through per-event with one authored. Phase-0 `parity` + Phase-1 `pins` + Phase-2/3
+  `roundtrip` spikes still GREEN.
+- **Build-shipped:** `pnpm --filter lines build` GREEN; the `__IE_FLOW_DOC__` hook + the
+  interpreter modules are confirmed present in the minified client bundle (shipment, not just
+  compile); `pnpm --filter engine-layout build` GREEN with `FlowMount`.
+
+**Semantic-fidelity risks found (surfaced, not papered over)**
+- The mounter is a DECISION layer over `<LayoutScene>`, NOT a re-implementation of the Pixi
+  mount — chosen specifically because `<LayoutScene>` already owns MainContainer scaling +
+  the gate; reproducing that in engine-flow would have risked the §11.3 regression. The one
+  consequence: an authored basegame screen replaces ONLY the basegame layers, not the board
+  MainContainer (the reel is engine-owned, not a flow screen) — correct, but means the
+  above-reel split is bypassed when an authored basegame is active (`{#if !basegameMount}`),
+  which is the intended "the authored scene owns its own stacking" semantics. Phase 5
+  per-screen parity must confirm an authored basegame reproduces the below/above-reel z-order.
+- `createBonusSnapshot` (a resume-only coded handler) calls `playBookEvent`, which re-routes
+  through the interpreter when active. With no FlowDoc (default) this is the coded path
+  (parity); when a FlowDoc is authored the replayed events get the same authored treatment —
+  the faithful behaviour, but Phase 5 should add a resume-path parity check.
+
+**Still needs owner-verify live (the remaining gate):** the running WebGPU bundle —
+`preview_screenshot` times out on it (project memory), so verify via the documented
+`app.stage` scene-graph read / dynamic-import override, NOT a screenshot: (1) the DEFAULT
+`apps/lines` boot renders byte-identical with the interpreter inert; (2) injecting
+`window.__IE_FLOW_DOC__` for `basegame` + a `winInfo` choreography makes the interpreter mount
+the authored scene and animate identically turbo on/off. The headless harness proves the
+decision logic + async/timing; the live render is the one thing headless can't prove (the
+structuredClone-class build≠runtime risk).
+
+**What's left**
+- Phase 5 — full migration: move the WHOLE `apps/lines` flow off coded mounting + handler map
+  to an authored FlowDoc, per-screen + per-event parity-checked.
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`; export the game's emitter union as data
+  to replace `DEFAULT_EMITTER_VOCABULARY` + the `__IE_FLOW_DOC__` dev hook).
+- RULE 9: Phase 4 is engine/runtime only — no `/flow` tool UI changed, so `docs/tools/flow.md`
+  needs no Phase-4 update (the Phase-3 choreography `docs-keeper` audit is still pending).
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the
@@ -484,7 +585,7 @@ reproducing the exact mount + await/parallel/timing behaviour — which Phase 0 
 | **1 — FlowDoc model + canvas spike** | FlowDoc schema (transition graph + per-screen choreography); typed editable model + undo/redo command stack; `/flow` page renders an existing game's flow read-only; **pin-derivation** (screen → dynamic pins) + graph-lib decision (`@xyflow/svelte` vs hand-built) settled | medium |
 | **2 — Macro authoring** | place screen nodes (from Scene Editor screens), dynamic pins with stable ids + orphan warnings, draw/edit transition edges, save→R2, load | medium |
 | **3 — Micro choreography** ✅ | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **deterministic** live preview with a speed dial against a fixed feed (full visual preview is Phase 4) | medium-high |
-| **4 — Transitions (all 3) + generic mounter live** | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
+| **4 — Transitions (all 3) + generic mounter live** ✅ | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
 | **5 — Full migration** | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen parity-checked | high |
 | **6 — Pipeline wiring** | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
 | **7 — Authoring UX** | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
