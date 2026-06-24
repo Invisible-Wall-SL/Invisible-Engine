@@ -8,43 +8,11 @@ import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { playBookEvent } from './utils';
-import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
+import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { winLevelSoundsPlay, winLevelSoundsStop, animateSymbols } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
-import type { Position } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
-
-const winLevelSoundsPlay = ({ winLevelData }: { winLevelData: WinLevelData }) => {
-	if (winLevelData?.alias === 'max') eventEmitter.broadcastAsync({ type: 'uiHide' });
-	if (winLevelData?.sound?.sfx) {
-		eventEmitter.broadcast({ type: 'soundOnce', name: winLevelData.sound.sfx });
-	}
-	if (winLevelData?.sound?.bgm) {
-		eventEmitter.broadcast({ type: 'soundMusic', name: winLevelData.sound.bgm });
-	}
-	if (winLevelData?.type === 'big') {
-		eventEmitter.broadcast({ type: 'soundLoop', name: 'sfx_bigwin_coinloop' });
-	}
-};
-
-const winLevelSoundsStop = () => {
-	eventEmitter.broadcast({ type: 'soundStop', name: 'sfx_bigwin_coinloop' });
-	if (stateBet.activeBetModeKey === 'SUPERSPIN' || stateGame.gameType === 'freegame') {
-		// check if SUPERSPIN, when finishing a bet.
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
-	} else {
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_main' });
-	}
-	eventEmitter.broadcastAsync({ type: 'uiShow' });
-};
-
-const animateSymbols = async ({ positions }: { positions: Position[] }) => {
-	eventEmitter.broadcast({ type: 'boardShow' });
-	await eventEmitter.broadcastAsync({
-		type: 'boardWithAnimateSymbols',
-		symbolPositions: positions,
-	});
-};
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {

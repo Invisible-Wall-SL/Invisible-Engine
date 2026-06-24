@@ -452,6 +452,28 @@
 		}
 		return undefined;
 	});
+	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
+	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
+	// (the reel is not a flow screen), so the interpreter must STILL reproduce the coded
+	// below-reel → board → above-reel stacking. We split the AUTHORED scene at its top-level
+	// reelGrid index exactly as the coded path splits `basegameScene` (lines below), feed the
+	// below-reel slice to `<FlowMount>`, and render the above-reel slice after the board —
+	// unconditionally (no `!basegameMount` gate), so an authored basegame stacks identically
+	// to the coded one. No reelGrid in the authored scene ⇒ single pass (the whole scene goes
+	// below-reel, above is undefined), byte-identical to a nested-reelGrid coded boot.
+	const mountReelGridIndex = $derived(
+		basegameMount ? basegameMount.nodes.findIndex((node) => node.kind === 'reelGrid') : -1,
+	);
+	const basegameMountBelowReel = $derived.by((): Scene | undefined => {
+		if (!basegameMount) return undefined;
+		return mountReelGridIndex < 0
+			? basegameMount
+			: { ...basegameMount, nodes: basegameMount.nodes.slice(0, mountReelGridIndex) };
+	});
+	const basegameMountAboveReel = $derived.by((): Scene | undefined => {
+		if (!basegameMount || mountReelGridIndex < 0) return undefined;
+		return { ...basegameMount, nodes: basegameMount.nodes.slice(mountReelGridIndex + 1) };
+	});
 
 	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
 	// above. Maps the game's win presentation events → signal NAMES from the
@@ -794,11 +816,13 @@
 			 Split at the reelGrid placeholder: below-reel layers, then the board, then
 			 above-reel layers (so editor stacking order around the reel is honored).
 
-			 Invisible Flow (Phase 4): `<FlowMount>` is the generic-mounter boundary. When the
-			 interpreter authors `basegame` it mounts the authored scene (via <LayoutScene>);
-			 otherwise it renders the coded split below — byte-identical to `main` (§7). The
-			 board MainContainer always mounts (the reel is engine-owned, not a flow screen). -->
-		<FlowMount scene={basegameMount}>
+			 Invisible Flow (Phase 4/5): `<FlowMount>` is the generic-mounter boundary. When the
+			 interpreter authors `basegame` it mounts the authored scene's BELOW-reel slice (via
+			 <LayoutScene>); otherwise it renders the coded below-reel split — byte-identical to
+			 `main` (§7). The board MainContainer always mounts (the reel is engine-owned, not a
+			 flow screen), and the ABOVE-reel slice renders AFTER it below — so an authored
+			 basegame reproduces the exact below-reel → board → above-reel z-order (§11.5 B.1). -->
+		<FlowMount scene={basegameMountBelowReel}>
 			{#snippet fallback()}
 				<LayoutScene scene={basegameBelowReel} />
 			{/snippet}
@@ -810,7 +834,11 @@
 			<Anticipations />
 		</MainContainer>
 
-		{#if !basegameMount && basegameAboveReel && basegameAboveReel.nodes.length}
+		{#if basegameMount}
+			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+				<LayoutScene scene={basegameMountAboveReel} />
+			{/if}
+		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
 			<LayoutScene scene={basegameAboveReel} />
 		{/if}
 

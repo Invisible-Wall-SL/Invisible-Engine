@@ -48,6 +48,17 @@ export type PreviewEntry =
 			ms: number;
 			/** The effective ms after dividing by the speed scalar (what actually elapsed). */
 			scaledMs: number;
+	  }
+	| {
+			kind: 'effect';
+			/** Virtual-clock ms at which the effect was invoked. */
+			at: number;
+			/** The named game-side effect (its body is NOT run in the deterministic preview —
+			 *  effects mutate live state/board the preview doesn't model; the timeline shows the
+			 *  invocation order so an author can read where each effect fires). */
+			name: string;
+			/** Resolved payload (accessors evaluated against the fixed feed). */
+			payload?: Record<string, unknown>;
 	  };
 
 export interface PreviewResult {
@@ -171,6 +182,17 @@ export const previewChoreography = async (
 				scaledMs,
 			});
 			clock += scaledMs;
+		},
+		// Deterministic preview: record the effect invocation (order + resolved payload) but
+		// do NOT run a body — effects mutate live state/board the preview cannot model. The
+		// executor awaits a resolved promise, so the timeline order is preserved.
+		effect: (name: string) => (payload: Record<string, unknown>) => {
+			record({
+				kind: 'effect',
+				at: clock,
+				name,
+				...(Object.keys(payload).length > 0 ? { payload } : {}),
+			});
 		},
 	};
 

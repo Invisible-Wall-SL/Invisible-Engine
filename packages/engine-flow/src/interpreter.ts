@@ -75,6 +75,7 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		flowDoc,
 		runtime,
 		codedHandlers,
+		engine,
 	});
 
 	const isActive = Boolean(
