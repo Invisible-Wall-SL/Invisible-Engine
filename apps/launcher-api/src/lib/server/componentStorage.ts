@@ -232,6 +232,63 @@ export async function deleteComponent(
 	await deleteObject(key);
 }
 
+/** The version history of one component at one scope (§8.9 v2 version browser). */
+export interface ComponentVersionList {
+	/** Every retained `<id>.v<N>.json` snapshot version, ascending. May be empty for a
+	 * pre-v2 def that only has a `<id>.json` latest pointer (no snapshots written yet). */
+	versions: number[];
+	/** The `version` of the `<id>.json` latest pointer — the one the editor opens by
+	 * default — or `undefined` when no def exists at this scope. */
+	latest: number | undefined;
+}
+
+/**
+ * Enumerate the retained versions of one component at one scope (§8.9 v2 version
+ * browser). The library listings deliberately exclude `<id>.v<N>.json` snapshots, so
+ * this is the only way the editor sees a def's history. R2-lists the scope prefix,
+ * keeps just THIS id's `<id>.v<N>.json` siblings, and parses their version numbers; it
+ * also reads the `<id>.json` latest pointer to report which version is current.
+ *
+ * Read-only — it never mutates R2. A pre-v2 def (no snapshots) returns `{ versions: [],
+ * latest: <its single version> }`, so the UI can still show the current version and note
+ * that no older history was retained. A `scope:'project'` query MUST carry a `projectKey`.
+ */
+export async function listComponentVersions(
+	id: string,
+	scope: 'shared' | 'project',
+	projectKey?: string,
+): Promise<ComponentVersionList> {
+	if (scope === 'project' && !projectKey) {
+		throw new Error('A project-scoped component requires a projectKey.');
+	}
+	const latestKey =
+		scope === 'project' ? projectComponentKey(projectKey as string, id) : editorComponentKey(id);
+	const prefix =
+		scope === 'project' ? projectComponentsPrefix(projectKey as string) : sharedComponentsPrefix;
+	// `<id>.v<N>.json` where `<id>` is THIS component's slugged key — escape the prefix
+	// (r2Slug yields `[a-z0-9_]`, but stay safe) and capture the integer version.
+	const base = latestKey.replace(/\.json$/, '');
+	const versionRe = new RegExp(`^${escapeRegExp(base)}\\.v(\\d+)\\.json$`);
+	let keys: string[];
+	try {
+		keys = await listAllKeys(prefix);
+	} catch {
+		keys = [];
+	}
+	const versions: number[] = [];
+	for (const key of keys) {
+		const match = versionRe.exec(key);
+		if (match) versions.push(Number(match[1]));
+	}
+	versions.sort((a, b) => a - b);
+	const latestDef = await readComponent(latestKey);
+	return { versions, latest: latestDef?.version };
+}
+
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export interface ListComponentsOptions {
 	projectKey?: string;
 	scope?: 'shared' | 'project';

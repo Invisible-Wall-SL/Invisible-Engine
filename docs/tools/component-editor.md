@@ -190,10 +190,18 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   engine still renders the latest def and surfaces a `versionMismatch` warning rather
   than silently passing it off as the pin — the pin is never mutated or auto-upgraded.
   Outdated instances are **flagged** in the Scene Editor's Properties panel and can be
-  **updated to latest** per instance (§5). Still to build: a **version browser** UI.
-  One precise engine remainder: the bake walks only top-level scene pins, not the
-  transitive nested-pin closure — to be widened when a game first nests a pinned
-  instance (no game pins any version yet).
+  **updated to latest** per instance (§5). A **version browser** lives in the top bar
+  while a component is open: a `Version` dropdown lists every retained snapshot (the
+  latest is marked), and **Inspect** loads the selected version **read-only** onto the
+  canvas (an amber `Inspecting vN (read-only)` pill shows; Save / Promote / editing are
+  blocked) so you can review an older def without touching the saved latest. **Back to
+  latest** restores the editable current def. Inspection never writes to R2 — it GETs
+  the immutable `<id>.v<N>.json` snapshot and discards it; there is no "restore to this
+  version" action yet (restoring would just be a normal save of the inspected def, which
+  bumps a new version on top — deliberately left out so browsing stays purely
+  non-destructive). One precise engine remainder: the bake walks only top-level scene
+  pins, not the transitive nested-pin closure — to be widened when a game first nests a
+  pinned instance (no game pins any version yet).
 - **Nesting depth is capped at 2.** Components-inside-components expand to
   `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
   both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
