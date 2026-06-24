@@ -8,6 +8,7 @@
 		type Node,
 	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
+	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		DEFAULT_EMITTER_VOCABULARY,
@@ -122,8 +123,9 @@
 		edges = buildEdges();
 	}
 
-	// Seed the canvas once on mount (model is derived, so it's ready synchronously here).
-	syncCanvas();
+	// Seed the canvas once after mount. Must NOT run during component init — reading the
+	// `model` $derived synchronously at top-level throws `state_unsafe_local_read` (Svelte 5).
+	onMount(syncCanvas);
 
 	// --- Authoring interactions -------------------------------------------------
 
