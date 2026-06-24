@@ -8,7 +8,8 @@
 		"pins": "tsx pinDerivation.ts",
 		"roundtrip": "tsx roundTrip.ts",
 		"phase4": "tsx phase4Runtime.ts",
-		"phase5": "tsx phase5Migration.ts"
+		"phase5": "tsx phase5Migration.ts",
+		"phase6": "tsx phase6Pipeline.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

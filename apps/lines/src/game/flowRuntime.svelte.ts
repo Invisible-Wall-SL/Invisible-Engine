@@ -9,10 +9,12 @@
  * PARITY-FIRST (the §7 invariant, non-negotiable): the FlowDoc source is ABSENT by default,
  * so the interpreter is INERT and the game mounts + animates ENTIRELY via its coded path —
  * byte-identical to current `main`. A FlowDoc reaches the game only via:
- *   - a build-time dev override (`window.__IE_FLOW_DOC__`), used to prove the live mounter +
- *     transitions against the REAL running bundle in Phase 4 without touching the default;
- *   - (Phase 6) a baked `flow` slot in `BakedBundle` + the export→deploy→bake→register chain.
- * Neither exists for an un-baked `apps/lines` dev boot, so this module is a pure no-op there.
+ *   - the baked `flow` slot in `BakedBundle` (Phase 6 — the real ship source), filled by the
+ *     export→deploy→bake→register chain; absent for an un-baked `apps/lines` dev boot;
+ *   - two dev-only escape hatches on top: `window.__IE_FLOW_DOC__` (an arbitrary FlowDoc, the
+ *     Phase-4 ad-hoc live-verify hook) and `window.__IE_FLOW_LINES__` (the committed full
+ *     `LINES_FLOW_DOC` fixture), neither set on a normal boot.
+ * With none of these present this module is a pure no-op, byte-identical to current `main`.
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
  * (§12). The dispatcher's coded handlers are the un-authored fall-through.
@@ -24,6 +26,7 @@ import type { LayoutDoc, Scene } from 'engine-layout';
 import { stateBetDerived } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
+import { bakedFlowDoc } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
@@ -40,21 +43,24 @@ declare global {
 /**
  * Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).
  *
- * Two opt-in dev hooks, neither set on a normal `apps/lines` boot (so the default is
- * byte-identical to current `main`):
+ * Precedence — dev escape hatches FIRST (so a live-verify override always wins), then the
+ * REAL ship source, the baked `BakedBundle.flow` slot:
  *  - `window.__IE_FLOW_DOC__` — an arbitrary FlowDoc injected at runtime (the Phase-4 hook,
  *    kept for ad-hoc single-screen/event live-verify);
  *  - `window.__IE_FLOW_LINES__` — load the COMMITTED, complete apps/lines FlowDoc
- *    (`LINES_FLOW_DOC` in `flowDoc.ts`) — the Phase-5 full-migration fixture. Setting this
- *    runs the WHOLE game through the interpreter for live-verify, ahead of the Phase-6 baked
- *    `flow` slot that will source the same doc without a hook.
+ *    (`LINES_FLOW_DOC` in `flowDoc.ts`) — the Phase-5 full-migration fixture, for live-verify
+ *    without a deploy/bake;
+ *  - `bakedFlowDoc()` — the FlowDoc embedded in the baked bundle by the export→deploy→bake
+ *    chain (Phase 6, the real ship path). UNDEFINED on an un-baked / un-authored boot — incl.
+ *    `apps/lines` dev with no globals set — so `loadFlowDoc()` returns `undefined`, the
+ *    interpreter is inert, and the game is byte-identical to current `main` (§7).
  */
 export const loadFlowDoc = (): FlowDoc | undefined => {
 	if (typeof globalThis !== 'undefined') {
 		if (globalThis.__IE_FLOW_DOC__) return globalThis.__IE_FLOW_DOC__;
 		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
-	return undefined;
+	return bakedFlowDoc();
 };
 
 /** The interpreter handle the game holds (or `undefined` when no FlowDoc ⇒ pure coded path). */

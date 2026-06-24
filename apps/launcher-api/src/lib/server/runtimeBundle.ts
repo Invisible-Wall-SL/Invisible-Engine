@@ -25,6 +25,7 @@
  * serves — so the runtime resolves each file as `assetBase + rel`. This module does
  * NOT build `assetBase`; the endpoint adds it from the request origin + token.
  */
+import type { FlowDoc } from 'engine-flow';
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
@@ -37,6 +38,7 @@ import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
 import { loadDoc as loadEditorDoc } from './editorStorage';
+import { exportEditorFlow } from './flowExport';
 import { exportEditorFonts } from './fontExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -61,6 +63,9 @@ export interface RuntimeBundle {
 	fonts: { catalog: FontCatalog };
 	localization: { sourceLang: string; messages: Record<string, Record<string, string>> };
 	symbols: SymbolExportResult;
+	/** The authored presentation graph (Invisible Flow). Omitted unless the project
+	 * authored a non-empty flow — absent ⇒ the interpreter is inert ⇒ coded path (§7). */
+	flow?: FlowDoc;
 }
 
 /**
@@ -176,7 +181,7 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then
 	//    embed the returned indices (paths are deploy-relative; the endpoint prefixes
 	//    them with assetBase). Localization is read straight from R2 (no export step).
-	const [{ editorArt, fonts, symbols }, localization] = await Promise.all([
+	const [{ editorArt, fonts, symbols, flow }, localization] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey),
 		loadLocalizationMessages(clientKey, projectKey),
 	]);
@@ -191,6 +196,8 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		fonts: { catalog: fonts.catalog },
 		localization,
 		symbols,
+		// Omit an un-authored flow so the runtime interpreter stays inert (parity, §7).
+		...(flow ? { flow } : {}),
 	};
 }
 
@@ -209,12 +216,26 @@ export async function ensureDeployExports(
 	editorArt: EditorArtIndex;
 	fonts: { catalog: FontCatalog };
 	symbols: SymbolExportResult;
+	/** The exported FlowDoc, or undefined when the project authored no flow (parity). */
+	flow?: FlowDoc;
 }> {
 	const client = clientKey ?? (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	const [editorArt, fontIndex, symbols] = await Promise.all([
+	const [editorArt, fontIndex, symbols, flowIndex] = await Promise.all([
 		exportEditorArt(client, projectKey),
 		exportEditorFonts(client, projectKey),
 		exportEditorSymbols(client, projectKey),
+		exportEditorFlow(client, projectKey),
 	]);
-	return { editorArt, fonts: { catalog: fontIndex.catalog }, symbols };
+	// Forward a non-empty authored flow only — an empty doc stays undefined so the
+	// runtime interpreter is inert and the game runs its coded path (parity, §7).
+	const flowAuthored =
+		(flowIndex.flow.screens?.length ?? 0) > 0 ||
+		(flowIndex.flow.transitions?.length ?? 0) > 0 ||
+		(flowIndex.flow.events?.length ?? 0) > 0;
+	return {
+		editorArt,
+		fonts: { catalog: fontIndex.catalog },
+		symbols,
+		...(flowAuthored ? { flow: flowIndex.flow } : {}),
+	};
 }

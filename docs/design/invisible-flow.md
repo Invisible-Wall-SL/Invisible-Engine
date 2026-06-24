@@ -540,6 +540,81 @@ on/off — while the default (no FlowDoc) boot stays byte-identical to current `
 - RULE 9: the Phase-3 choreography `docs-keeper` audit of `docs/tools/flow.md` is still pending;
   the editor UI could later surface the `effect`/`context` node kinds (authored-as-data today).
 
+### Progress — Phase 6 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase6-pipeline` (off the latest `main`). No game submodule bump yet — the
+ship chain is proven in the launcher + `apps/lines`; bumping Borut's `engine` submodule is
+the owner's mirror step once this lands. This closes RULE 8 for the FlowDoc: the authored
+presentation graph now travels the SAME export→deploy→bake→register chain as the art / font /
+symbol docs, so a game ships its flow instead of running only its coded path.
+
+**A — the export step (the FlowDoc analogue of `editorArtExport.ts`).**
+- `apps/launcher-api/src/lib/server/flowExport.ts` (`exportEditorFlow`) reads the authored
+  `editor/flow.json`, re-normalizes it through `normalizeFlowDoc` (the SAME serialize contract
+  `/api/flow/save` + the headless round-trip use, so the deployed doc is canonical), and writes
+  `deploy/flow.json`. Unlike art/font/symbol exports the FlowDoc carries **no binary assets** —
+  it only references scenes the Scene Editor already exported — so there is **no `pull` step**,
+  just the embedded doc. An absent / invalid / EMPTY (no screens/transitions/events)
+  `editor/flow.json` exports nothing and **prunes** any stale `deploy/flow.json`, so an
+  un-authored project bakes no flow (parity). Idempotent.
+- `apps/launcher-api/src/routes/api/editor/export-flow/+server.ts` — the build-time trigger,
+  gated by the SAME shared `EDITOR_DOC_SECRET` (`?k=`) as `/api/editor/doc` (a build runner has
+  the token, no launcher session).
+
+**B — bake + the live-runtime bundle both embed the slot.**
+- `bake-editor-doc.mjs` POSTs `/api/editor/export-flow` right alongside the art/font/symbol
+  exports, then embeds the returned doc as `BakedBundle.flow` — but ONLY when it is non-empty
+  (the `authored` gate: ≥1 screen/transition/event). An empty/absent doc leaves `flow`
+  undefined so the bundle is **byte-identical** for every game with no flow work (§7). The
+  bake log line gains a `flow={N screens/N transitions/N events}` note.
+- `runtimeBundle.ts` (the `/api/editor/runtime-bundle` path the editor preview reads) runs
+  `exportEditorFlow` in the same `Promise.all` as the other exporters and forwards a non-empty
+  `flow` the same way, so the live editor runtime and the baked game resolve the identical slot.
+
+**C — the game registers the baked slot (parity-first).**
+- `apps/lines/src/editor-scenes.ts` adds `flow?: FlowDoc` to `BakedBundle` and a
+  `bakedFlowDoc()` reader mirroring `bakedSymbolMap`'s **runtime-bundle → baked → undefined**
+  precedence.
+- `apps/lines/src/game/flowRuntime.svelte.ts#loadFlowDoc()` now resolves, in order: the
+  `__IE_FLOW_DOC__` dev override → the `__IE_FLOW_LINES__` committed fixture → **`bakedFlowDoc()`
+  (the real ship source)**. UNDEFINED on an un-baked / un-authored boot (the checked-in
+  `baked-editor-bundle.json` placeholder has `doc:null` and no `flow` key) ⇒ the interpreter is
+  inert ⇒ the coded mounting + `bookEventHandlerMap` run, byte-identical to current `main`.
+
+**How it was verified headlessly + build-shipped**
+- `tools/flow-spike/phase6Pipeline.ts` (`pnpm --filter flow-spike run phase6`) — 12/12 GREEN
+  against the REAL `engine-flow` interpreter + the REAL `LINES_FLOW_DOC`, modelling the exact
+  ship chain: (1) the authored doc survives `normalizeFlowDoc` (export/bake contract)
+  idempotently with every screen/event intact; (2) baked PRESENT ⇒ `loadFlowDoc()` returns it ⇒
+  interpreter `isActive`; (3) baked ABSENT ⇒ undefined ⇒ interpreter INERT (coded path, §7);
+  (4) an authored-but-EMPTY doc is treated as absent by the `authored` gate (parity); (5) the
+  dev-hook escape hatches still win over the baked slot. Phase-0 `parity` / Phase-1 `pins` /
+  Phase-2-3 `roundtrip` / Phase-4 `phase4` / Phase-5 `phase5` spikes ALL still GREEN.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the export endpoint + `flowExport` + the bundle slot ship); `pnpm --filter lines build` GREEN
+  with `bakedFlowDoc()` + the baked-source `loadFlowDoc()` confirmed in the minified client
+  bundle (shipment, not just compile). The checked-in placeholder bundle has no `flow` key ⇒ the
+  dev boot stays inert.
+
+**Held for a Phase-6 follow-up (NOT blocking the ship gate):** exporting the game's **emitter
+union + effect-name catalog as data** to replace the hardcoded `DEFAULT_EMITTER_VOCABULARY` in
+the `/flow` choreography palette. This is an AUTHORING-fidelity improvement only — it changes
+which Broadcast events the picker offers, NOT the runtime (the executor broadcasts whatever the
+FlowDoc says). The default vocabulary is already transcribed verbatim from the lines/book-of
+emitter unions, and Borut IS a book-of game, so the default already covers it; the codegen step
+(read each game's compile-time `typesEmitterEvent.ts` → a serializable catalog → feed the editor)
+is deferred to Phase 7 authoring-UX. **Owner-verify live (the one thing headless can't prove):**
+bake a project that authored a flow (or point a build at one) and confirm the shipped game boots
+with the interpreter ACTIVE off the baked slot — verify via the `app.stage` read / dynamic-import
+override per the WebGPU `preview_screenshot` limitation, not a screenshot.
+
+**What's left**
+- Phase 7 — authoring UX (node/palette search, copy/paste subgraphs, validation) + the held
+  emitter-union/effect-name export above; surfacing `effect`/`context` node kinds in the editor.
+- The Phase-3 `docs-keeper` audit of `docs/tools/flow.md` (still pending from Phase 3).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
+  is authored + baked — the owner's step.
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the
@@ -702,7 +777,7 @@ reproducing the exact mount + await/parallel/timing behaviour — which Phase 0 
 | **3 — Micro choreography** ✅ | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **deterministic** live preview with a speed dial against a fixed feed (full visual preview is Phase 4) | medium-high |
 | **4 — Transitions (all 3) + generic mounter live** ✅ | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
 | **5 — Full migration** ✅ | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen + per-event parity-checked (the `effect` node bridges the non-emitter leaves; B.1 z-order + B.2 resume resolved) | high |
-| **6 — Pipeline wiring** | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
+| **6 — Pipeline wiring** ✅ | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
 | **7 — Authoring UX** | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
 
 **Phase 0 is a gate, not a formality.** Before any UI, prove headlessly:
