@@ -269,11 +269,24 @@ open design questions.
 - **Per-layoutType — no (for now).** Flow/timing is layout-independent; the FlowDoc
   stays single-variant. Revisit only if a real per-orientation flow difference appears.
 
-## 13. Model note (Fable 5 vs Opus 4.8 for building this)
+## 13. Model note — use both, each where it exceeds (decided 2026-06-23)
 
-Default the build to **Opus 4.8** — the bulk (FlowDoc schema, pin-derivation, the
-`/flow` Svelte 5 canvas, transition/choreography UI, pipeline wiring) is well-specified
-Svelte 5 / TS work it handles excellently at half the token cost. **Reserve Fable 5**
-for the genuinely tricky pieces if they bite: the **interpreter semantic-parity** +
-**generic-mounter** debugging in Phase 0/4, and gnarly async-ordering reconciliation
-during the Phase-5 migration. Blanket Fable-5 for the whole build would waste tokens.
+Owner decision: no single model is locked for this tool — **Opus 4.8 and Fable 5 are
+both in play, each on the work it's best at.** Split, don't blanket:
+
+- **Opus 4.8 — the default, ~all of the build.** Well-specified, long-horizon Svelte
+  5 / TS agentic work at half the token cost: the FlowDoc schema, **pin-derivation**
+  (screen → dynamic pins), the `/flow` Svelte Flow canvas + custom screen-node /
+  handle components, the transition + choreography authoring UI, undo/redo, the
+  export→bake→register pipeline wiring, and the docs/tool registration.
+- **Fable 5 — reserved for the genuinely hard reasoning, where its ceiling pays for
+  itself:** the **interpreter semantic-parity** work (reproducing the exact
+  await/`Promise.all`/fire-and-forget timing of the coded handlers — Phase 0/5), the
+  **generic scene mounter** correctness (MainContainer scaling + overlays with no
+  regression — Phase 0/4), and any gnarly **async-ordering reconciliation** during the
+  Phase-5 migration.
+
+Rule of thumb: if it's "build the well-understood thing," Opus 4.8; if it's "get the
+subtle concurrency/timing exactly right or the game visibly breaks," Fable 5.
+Blanket Fable-5 for the whole build would waste tokens; Opus-only through the parity
+spikes risks missing a subtle timing mismatch — hence the split.
