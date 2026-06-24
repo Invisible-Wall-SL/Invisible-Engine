@@ -42,7 +42,10 @@ export type ChoreoTarget =
  *  slot for `branch`/`forEach`, encoded as `then`/`otherwise`/`body`). Root = `[]`. */
 export type ChoreoPath = (number | 'then' | 'otherwise' | 'body')[];
 
-const clone = <T>(value: T): T => structuredClone(value);
+// JSON round-trip, not `structuredClone`: choreography edits snapshot the live `$state`
+// FlowDoc proxy, and `structuredClone` throws DataCloneError on a Svelte 5 proxy. The doc
+// is pure JSON, so this is a faithful deep clone.
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 // ---------------------------------------------------------------------------
 // Default node factories — each maps to one executor kind, with valid empty defaults.

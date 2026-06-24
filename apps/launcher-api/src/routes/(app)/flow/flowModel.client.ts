@@ -87,7 +87,10 @@ export const buildFlowModel = (
 // (no recycling, design doc §12) means a screen/edge id is stable, so these address by id.
 // ---------------------------------------------------------------------------
 
-const cloneDoc = (doc: FlowDoc): FlowDoc => structuredClone(doc);
+// A FlowDoc is pure JSON, so a JSON round-trip is a correct deep clone — and unlike
+// `structuredClone` it reads cleanly through a Svelte 5 `$state` proxy (cloning a proxy
+// throws DataCloneError). Used wherever a committed doc / proxy must be snapshotted.
+const cloneDoc = (doc: FlowDoc): FlowDoc => JSON.parse(JSON.stringify(doc)) as FlowDoc;
 
 /** Place a LayoutDoc scene as a screen node at `position` (no-op if already placed). */
 export const addScreen = (
@@ -209,7 +212,10 @@ export interface FlowHistory<T> {
 	reset(baseline: T): void;
 }
 
-const clone = <T>(value: T): T => structuredClone(value);
+// JSON round-trip, not `structuredClone`: the history records `$state` proxies (the live
+// `doc`), and `structuredClone` throws DataCloneError on a Svelte 5 proxy. FlowDoc state is
+// pure JSON, so this is a faithful deep clone.
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /**
  * A snapshot-based command stack. `baseline` is the initial committed state. Each
