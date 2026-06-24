@@ -18,6 +18,22 @@ import { deleteObject, getObjectText, listAllKeys, putObjectText } from './r2';
 
 const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
+/**
+ * The full `ComponentParam.kind` set (`engine-layout` `types.ts`). MUST stay in sync
+ * with that union: the built-in FS-intro/outro defs declare `spine`/`spineAnimation`/
+ * `spineSlot` params, so an earlier 5-kind allowlist silently stripped them (and the
+ * `spineParam` link) on any save of a forked copy — latent data loss.
+ */
+const PARAM_KINDS = new Set<ComponentParam['kind']>([
+	'number',
+	'string',
+	'color',
+	'boolean',
+	'image',
+	'spine',
+	'spineAnimation',
+	'spineSlot',
+]);
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
@@ -65,6 +81,13 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  * write only ever happens for a well-formed def. A `scope: 'shared'` def (or one
  * saved with no `projectKey`) goes to the shared key; a `scope: 'project'` def
  * with a `projectKey` goes to that project's key.
+ *
+ * Versioning (§8.9, pin-by-default): a CHANGED def's `version` is bumped past the
+ * stored version so instances that pinned the old version stay distinguishable and
+ * are never silently mutated/auto-upgraded (the engine resolves the pin SAFELY —
+ * see `resolveComponent`). A no-op re-save keeps the stored version (no spurious
+ * bump), and a brand-new component keeps the posted version (default 1). See
+ * {@link reconcileVersion}.
  */
 export async function saveComponent(component: ComponentDef, projectKey?: string): Promise<void> {
 	const normalized = validateComponent(component);
@@ -78,7 +101,39 @@ export async function saveComponent(component: ComponentDef, projectKey?: string
 		normalized.scope === 'project'
 			? projectComponentKey(projectKey as string, normalized.id)
 			: editorComponentKey(normalized.id);
-	await putObjectText(key, JSON.stringify(normalized, null, 2), 'application/json');
+	const existing = await readComponent(key);
+	const toWrite = reconcileVersion(normalized, existing);
+	await putObjectText(key, JSON.stringify(toWrite, null, 2), 'application/json');
+}
+
+/**
+ * Decide the `version` a save persists (§8.9, owner decision 2026-06-05: version
+ * components, pin-by-default — a breaking edit bumps; instances keep their pin):
+ * - **No stored def** (new component) → keep the posted version as-is.
+ * - **Stored def, content UNCHANGED** (ignoring `version`) → keep the stored
+ *   version. A no-op re-save (or a metadata-only round-trip) must NOT bump, or
+ *   every open/save would orphan every pin.
+ * - **Stored def, content CHANGED** → bump to `max(stored, posted) + 1` UNLESS the
+ *   client already bumped past the stored version (posted > stored), in which case
+ *   honour the client's explicit version. This guarantees a changed def's version
+ *   STRICTLY increases and never silently overwrites the def an instance pinned.
+ *
+ * Comparison ignores `version` itself so a pure version field difference is not
+ * mistaken for a content change.
+ */
+function reconcileVersion(next: ComponentDef, existing: ComponentDef | undefined): ComponentDef {
+	if (!existing) return next;
+	if (componentContentEqual(next, existing)) {
+		return next.version === existing.version ? next : { ...next, version: existing.version };
+	}
+	if (next.version > existing.version) return next;
+	return { ...next, version: existing.version + 1 };
+}
+
+/** Structural equality of two defs IGNORING `version` (the bump decision input). */
+function componentContentEqual(a: ComponentDef, b: ComponentDef): boolean {
+	const strip = ({ version: _version, ...rest }: ComponentDef): Omit<ComponentDef, 'version'> => rest;
+	return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 }
 
 /**
@@ -262,19 +317,14 @@ function normalizeParams(input: unknown): ComponentParam[] {
 	for (const item of input) {
 		if (!isRecord(item)) continue;
 		if (typeof item.key !== 'string' || !item.key) continue;
-		if (
-			item.kind !== 'number' &&
-			item.kind !== 'string' &&
-			item.kind !== 'color' &&
-			item.kind !== 'boolean' &&
-			item.kind !== 'image'
-		) {
-			continue;
-		}
-		const param: ComponentParam = { key: item.key, kind: item.kind };
+		if (!PARAM_KINDS.has(item.kind as ComponentParam['kind'])) continue;
+		const param: ComponentParam = { key: item.key, kind: item.kind as ComponentParam['kind'] };
 		if ('default' in item) param.default = item.default;
 		if (item.engineProvided === true) param.engineProvided = true;
 		if (item.author === true) param.author = true;
+		// `spineParam` links a `spineAnimation`/`spineSlot` dropdown to its sibling
+		// `spine`-kind param — drop it on save and those dropdowns lose their source.
+		if (typeof item.spineParam === 'string' && item.spineParam) param.spineParam = item.spineParam;
 		if (typeof item.group === 'string' && item.group) param.group = item.group;
 		if (typeof item.label === 'string' && item.label) param.label = item.label;
 		if (Array.isArray(item.options)) {

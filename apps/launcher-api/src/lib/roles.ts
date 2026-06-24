@@ -370,24 +370,38 @@ export const FONT_PUBLISH_CAPABILITY = 'fontPublish';
  */
 export const GAME_PUBLISH_CAPABILITY = 'gamePublish';
 
+/**
+ * Managed capability key for publishing to the shared Invisible Component library
+ * (`_shared/editor-components/` in R2). Like `fontPublish`/`blueprintPublish` it is
+ * NOT a tool in `TOOLS`; it lives in the same override matrix so admins can grant
+ * publish rights per role. Default-ON for `admin` only — every Component Editor user
+ * still READS the shared library (`toolScope.gate('editor')`), and PROJECT-scoped
+ * saves stay open to that gate, but only holders of this capability may WRITE/
+ * overwrite/delete a SHARED component (promote it repo-wide). The `editor` tool gate
+ * alone is NOT a shared-write gate; the component endpoint checks this explicitly.
+ */
+export const COMPONENT_PUBLISH_CAPABILITY = 'componentPublish';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
 	{ key: BLUEPRINT_PUBLISH_CAPABILITY, name: 'Publish blueprints' },
 	{ key: FONT_PUBLISH_CAPABILITY, name: 'Publish shared fonts' },
 	{ key: GAME_PUBLISH_CAPABILITY, name: 'Build & publish games' },
+	{ key: COMPONENT_PUBLISH_CAPABILITY, name: 'Publish shared components' },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
- * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`) default ON for
- * `admin` and OFF elsewhere.
+ * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
+ * `componentPublish`) default ON for `admin` and OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
 	if (key === BLUEPRINT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === FONT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === GAME_PUBLISH_CAPABILITY) return role === 'admin';
+	if (key === COMPONENT_PUBLISH_CAPABILITY) return role === 'admin';
 	return false;
 }
 

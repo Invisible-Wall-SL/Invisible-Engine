@@ -8,7 +8,7 @@
 	import { Container } from 'pixi-svelte';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
-	import { getComponent } from './registerComponents';
+	import { resolveComponent } from './registerComponents';
 	import {
 		getComponentNestState,
 		setComponentNestState,
@@ -33,7 +33,14 @@
 	// keyed instance node never swaps its `componentId` — so this (and the guards
 	// below) are plain reads, not `$derived` (which would also be read at init by
 	// `setContext` and so never update anyway → Svelte's `state_referenced_locally`).
-	const def = getComponent(node.componentId, node.componentVersion);
+	//
+	// `resolveComponent` SAFELY surfaces a version-pin mismatch (§8.9, pin-by-default):
+	// v1 is a single-version store, so when `node.componentVersion` ≠ the registered
+	// def's version we still render the registered def (parity — the only def we have)
+	// but flag it via `versionMismatch` rather than pretending it is the pinned version.
+	// The pin is NEVER mutated here and the def is NEVER auto-upgraded.
+	const resolution = resolveComponent(node.componentId, node.componentVersion);
+	const def = resolution.def;
 
 	// Nesting guard (§8.9): cap depth at 2 levels and refuse a transitive cycle
 	// (a component instancing itself). `parentNest` is a stable context value, so
@@ -44,6 +51,11 @@
 	const allowed = !!def && !isCycle && !depthExceeded;
 
 	$effect(() => {
+		if (resolution.versionMismatch) {
+			console.warn(
+				`[engine-layout] component '${node.componentId}' pins version ${resolution.pinnedVersion} but the registered version is ${resolution.registeredVersion}; rendering the registered def (v1 single-version store — pin not honoured exactly, never auto-upgraded).`,
+			);
+		}
 		if (!def) {
 			console.warn(`[engine-layout] no component registered for id '${node.componentId}'.`);
 		} else if (isCycle) {

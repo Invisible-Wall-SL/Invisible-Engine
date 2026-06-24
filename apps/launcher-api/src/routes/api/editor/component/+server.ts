@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { ComponentDef } from 'engine-layout';
-import { roleHasTool } from '$lib/roles';
+import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { deleteComponent, loadComponent, saveComponent } from '$lib/server/componentStorage';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -22,6 +22,24 @@ async function gate(locals: App.Locals): Promise<void> {
 	}
 }
 
+/**
+ * Extra gate for WRITES/DELETES that target the SHARED component library
+ * (`_shared/editor-components/`). Project-scoped saves stay under the `editor`
+ * tool gate above; promoting a component repo-wide additionally requires the
+ * `componentPublish` capability (default-ON for admin only) — mirroring the
+ * shared-font / blueprint publish gates. The `editor` tool gate alone is NOT a
+ * shared-write gate.
+ */
+async function gateSharedWrite(locals: App.Locals): Promise<void> {
+	const user = locals.user;
+	if (!user) throw error(401, 'Not authenticated');
+	const roleOverrides = await getRoleOverrides(user.role);
+	const overrides = await getToolOverrides(user.id);
+	if (!roleHasCapability(user.role, COMPONENT_PUBLISH_CAPABILITY, roleOverrides, overrides)) {
+		throw error(403, 'Your role cannot publish to the shared component library.');
+	}
+}
+
 /** Persist an authored component to its scope's R2 key (§8.3). */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	await gate(locals);
@@ -33,6 +51,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 	const projectKey =
 		isRecord(body) && typeof body.project === 'string' ? body.project : undefined;
+	// A `scope:'shared'` def writes the repo-wide `_shared/editor-components/` key —
+	// gate it on `componentPublish` before persisting. A `scope:'project'` save (the
+	// common case) needs only the `editor` tool gate already applied above.
+	if (isRecord(body) && body.scope === 'shared') {
+		await gateSharedWrite(locals);
+	}
 	try {
 		await saveComponent(body as ComponentDef, projectKey);
 	} catch (e) {
@@ -65,6 +89,11 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
 			: projectKey
 				? 'project'
 				: 'shared';
+	// Deleting from the shared library is a repo-wide write — gate it identically
+	// to a shared save. A project delete needs only the `editor` tool gate above.
+	if (scope === 'shared') {
+		await gateSharedWrite(locals);
+	}
 	try {
 		await deleteComponent(id, scope, projectKey);
 	} catch (e) {

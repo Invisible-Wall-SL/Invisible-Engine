@@ -123,6 +123,13 @@ Click **Save component** in the top bar. It POSTs the draft to
 the sidebar list updates without a reload. Use **← All components** to return to
 the library (it confirms first if you have unsaved edits).
 
+The server **bumps the component's `version`** automatically when the saved draft
+differs from the stored one (a re-save with no change keeps the version; a brand-new
+component keeps its starting version). This is by design (§8.9, pin-by-default):
+existing scene instances keep the version they pinned and are never silently moved
+to your edit — they stay on their pinned version until an explicit "update to
+latest" (that per-instance action is not built yet).
+
 ### 5. Use it in the Scene Editor
 
 Open the Scene Editor and find the component in its **Components** panel (grouped by
@@ -153,14 +160,25 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   destination).
 - **No timeline / signal-track UI.** Signals can be declared but there is no
   per-signal track editor yet.
-- **Versioning is by design but partly unspecified.** Components are versioned and
-  instances pin a version; the "update an instance to latest" action and how a
-  bumped component flags its outdated instances are still to be specced.
-- **Nesting depth is not finalised.** Components-inside-components is recommended
-  at 1–2 levels with a hard cycle guard; the exact depth is unconfirmed.
+- **Versioning is safe + pin-by-default; the multi-version store is still TODO.**
+  Saving bumps the `version` on a changed def, and the engine resolves an instance's
+  pin **safely** — a pinned version that no longer matches the registered def is
+  surfaced (warned) but renders the current registered def, and the pin is never
+  mutated or auto-upgraded (v1 keeps a single def per id). Still to build: a true
+  multi-version store that keeps every historical def (so a pin resolves the exact
+  authored version), the per-instance "update to latest" action, and the
+  outdated-instance flagging.
+- **Nesting depth is capped at 2.** Components-inside-components expand to
+  `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
+  both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
+  that, expansion stops rather than recursing.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
   open draft; closing the tool or navigating away discards it (you are warned
   first). There is no autosave.
-- **Components are project-scoped on save.** Authoring here always writes a
-  project component (which shadows a shared one of the same id); promoting to the
-  shared global library is not exposed in this UI.
+- **Components are project-scoped on save (no shared button yet).** Authoring here
+  always writes a **project** component (which shadows a shared one of the same id).
+  The server/storage/API layer **can** now save a `scope:'shared'` component to the
+  `_shared/editor-components/` library — gated behind the `componentPublish`
+  capability (admin-only by default, grantable per role in `/admin`) — but the
+  promote-to-shared **button** is not exposed in this UI yet. Shared writes are
+  plumbing-complete; only the UI affordance is missing.
