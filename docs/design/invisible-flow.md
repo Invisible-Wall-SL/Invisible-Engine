@@ -32,6 +32,70 @@ make-or-break gate**: the runtime interpreter must mount one real screen and run
 hand-authored choreography for one event (`winInfo` in `apps/lines`) with zero visual
 regression and clean fall-through, before any editor UI is built.
 
+### Progress — Phase 0 PASSED headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike`. No editor UI built; no game submodule bump.
+
+**What landed**
+- New `packages/engine-flow` workspace package (`workspace:*`, house style, `tsc
+  --noEmit` clean) — the interpreter's Phase-0 slice:
+  - `src/types.ts` — minimal **FlowDoc** (screen + transition stubs; per-screen
+    enter/while/exit choreography sub-graph of **Sequence / Parallel / Broadcast /
+    Delay / ForEach** nodes; `events[]` binds a choreography to a book-event type).
+  - `src/executor.ts` — **choreography executor** tree-walking the sub-graph onto the
+    EXISTING primitives: Sequence→serial `await`, Parallel→`Promise.all`, Broadcast→
+    `emitter.broadcast` (sync) / `broadcastAsync` (awaited or fire-and-forget),
+    Delay→`waitForTimeout(ms / timeScale())`, ForEach→serial `sequence()` or parallel
+    `Promise.all`. The three broadcast shapes are kept distinct — the timing crux
+    (§11.1).
+  - `src/accessor.ts` — bounded `$trigger.*`/`$item.*` path reads + literals (no
+    scripting VM, §11.4).
+  - `src/runtime.ts` — injected runtime surface (emitter + `timeScale` +
+    `waitForTimeout`); the interpreter NEVER imports the Svelte-rune state modules, so
+    the game wires it to the same primitives the coded path uses at boot.
+  - `src/mounter.ts` — **generic scene mounter** interface (contract only; the live
+    PixiJS/`LayoutScene` mount with MainContainer scaling + overlays is Phase 4).
+  - `src/dispatch.ts` — **dispatch-with-fall-through** (`createBookEventDispatcher`):
+    "FlowDoc has this event? run the interpreter; else call the coded handler." This
+    is the single boundary that holds the §7 parity invariant.
+
+**How it was verified headlessly**
+- `tools/flow-spike/winInfoParity.ts` (new `tools/flow-spike` workspace; run
+  `pnpm --filter flow-spike run parity`), mirroring the Rigger Phase-0 spikes. It drives
+  the **real** `createEventEmitter` (`utils-event-emitter`) + **real** `sequence()`
+  (`utils-shared`), and runs BOTH the `winInfo` body lifted verbatim from
+  `apps/lines/src/game/bookEventHandlerMap.ts` (lines 41–69) AND the interpreter running
+  a hand-authored FlowDoc for the same event, against ONE shared recording
+  emitter + ONE `boardWithAnimateSymbols` (awaited symbol-spine) subscriber.
+- Asserts the ordered op log (broadcasts + args, awaited completions, scaled delays) is
+  **identical turbo ON and OFF** (15 ops each); a synthetic executor-shape case covers
+  the fire-and-forget `broadcastAsync` + `delay ÷ timeScale()` (600→300 under turbo) +
+  parallel branches; **fall-through** proven (an un-authored `setTotalWin` still runs its
+  coded handler; `winInfo` is interpreter-driven). **PHASE 0 GATE: PASSED.**
+
+**Semantic-fidelity finding (§11.1 / §13 risk — surfaced, not papered over)**
+- The executor's recursive `await` per Sequence child flushes an already-queued
+  microtask one tick earlier than the flat coded handler. So a FIRE-AND-FORGET
+  `broadcastAsync` subscriber's completion can log on a different side of the
+  *synchronous* `delay` marker. This is **below the observability threshold**: with the
+  real `setTimeout`-based `waitForTimeout`, an un-awaited subscriber resolves on a
+  microtask well before any `setTimeout` callback, so nothing lands at a different
+  wall-clock time. The harness treats this honestly — the deterministic INITIATION
+  timeline is asserted position-for-position; a fire-and-forget completion is asserted
+  as a multiset (proves it ran AND was not awaited). **Carry into Phase 4/5:** when the
+  live mounter runs, keep fire-and-forget broadcasts un-awaited and verify against the
+  real bundle, not just the harness.
+
+**What's left**
+- The live **generic scene mounter** (MainContainer scaling + overlays, retiring §20.1)
+  — Phase 4, the next hard-reasoning item.
+- Macro transition trigger/guard vocabulary + dynamic-pin projection — Phase 1/2.
+- `/flow` editor UI — Phase 1+.
+- Bake/pipeline wiring (`flow?` in `BakedBundle`) — Phase 6.
+
+**Still needs owner-verify live:** nothing yet. The runtime swap into a real
+`apps/lines`/Borut boot is Phase 4; this slice proves async/timing fidelity in isolation.
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the

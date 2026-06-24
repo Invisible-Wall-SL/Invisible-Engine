@@ -1,0 +1,15 @@
+{
+	"name": "flow-spike",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"parity": "tsx winInfoParity.ts"
+	},
+	"devDependencies": {
+		"tsx": "4.19.2",
+		"engine-flow": "workspace:*",
+		"utils-event-emitter": "workspace:*",
+		"utils-shared": "workspace:*"
+	}
+}
