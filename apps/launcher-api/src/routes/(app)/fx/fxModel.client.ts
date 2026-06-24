@@ -12,25 +12,23 @@
 
 import {
 	EFFECT_DOC_VERSION,
+	behaviorsOf,
 	type EffectDoc,
 	type EmitterConfigV3,
 	type EmitterLayer,
 } from 'engine-fx';
+
+// `bindArt` (+ `ART_BEHAVIOR_TYPES` / `behaviorsOf` / `BehaviorEntry`/`BehaviorConfig`) now
+// live in the SHARED `engine-fx` package — the ONE canonical "V3 config → renderable config"
+// seam used by BOTH this authoring stage and the engine runtime (`bakedEffects()`). Re-exported
+// here so existing `/fx` imports (`FxStage.svelte`, the harness) keep their import site.
+export { bindArt, behaviorsOf } from 'engine-fx';
 
 /** The single tunable curve point shape used by the V3 list-property behaviors. */
 interface ListPoint {
 	time: number;
 	value: number;
 }
-
-/** The art-binding behavior types `@barvynkoa/particle-emitter` recognises for a V3 config. */
-const ART_BEHAVIOR_TYPES = new Set([
-	'textureSingle',
-	'textureRandom',
-	'animatedSingle',
-	'animatedRandom',
-	'textureOrdered',
-]);
 
 /**
  * Build a sane DEFAULT `EmitterConfigV3` for a brand-new layer — a small omnidirectional
@@ -113,17 +111,6 @@ export function nextLayerKey(doc: EffectDoc): string {
 	const used = new Set(doc.layers.map((l) => l.key));
 	while (used.has(`layer-${n}`)) n++;
 	return `layer-${n}`;
-}
-
-/** A behavior entry's `config` is an opaque record; read it defensively. */
-type BehaviorConfig = Record<string, unknown>;
-interface BehaviorEntry {
-	type: string;
-	config: BehaviorConfig;
-}
-
-function behaviorsOf(config: EmitterConfigV3): BehaviorEntry[] {
-	return Array.isArray(config.behaviors) ? (config.behaviors as BehaviorEntry[]) : [];
 }
 
 /** The first/last value of a V3 list-property behavior (alpha, scale, moveSpeed). */
@@ -216,7 +203,11 @@ export function setPlacementBone(layer: EmitterLayer, bone: string): EmitterLaye
 }
 
 /** Set the placement pixel offset (added to the scene origin, or the followed bone), immutably. */
-export function setPlacementOffset(layer: EmitterLayer, axis: 'x' | 'y', value: number): EmitterLayer {
+export function setPlacementOffset(
+	layer: EmitterLayer,
+	axis: 'x' | 'y',
+	value: number,
+): EmitterLayer {
 	const current = layer.placement.offset ?? { x: 0, y: 0 };
 	return { ...layer, placement: { ...layer.placement, offset: { ...current, [axis]: value } } };
 }
@@ -261,8 +252,8 @@ export function worldToContainerLocal(
 	const dx = point.x - world.tx;
 	const dy = point.y - world.ty;
 	return {
-		x: (world.d * id * dx) - (world.c * id * dy),
-		y: (world.a * id * dy) - (world.b * id * dx),
+		x: world.d * id * dx - world.c * id * dy,
+		y: world.a * id * dy - world.b * id * dx,
 	};
 }
 
@@ -299,44 +290,5 @@ export function setSpawnRadius(config: EmitterConfigV3, radius: number): Emitter
 		const data = (b.config.data as Record<string, unknown> | undefined) ?? {};
 		b.config.data = { ...data, radius };
 	}
-	return next;
-}
-
-/**
- * Bind resolved particle TEXTURES into a V3 config's `behaviors`, returning a NEW config the
- * library's `Emitter` can render. **This is the load-bearing seam the runtime contract turns
- * on:** `upgradeConfig(config, art)` is a NO-OP for a V3 config (it only injects `art` when
- * upgrading a legacy V1/V2 flat config — verified against the library source), so a V3
- * config MUST carry its art as its OWN `textureRandom` / `animatedSingle` behavior. We add
- * (or replace) exactly that behavior, leaving every other behavior byte-identical so the
- * authored `EmitterConfigV3` stays the verbatim contract.
- *
- * - 0 textures ⇒ strip any art behavior (an unbound layer renders nothing, by design).
- * - 1 texture, or >1 non-animated ⇒ `textureRandom` (a static particle, random of the set).
- * - >1 texture + `animated` ⇒ `animatedSingle` flipbook (`framerate: -1` = match particle
- *   life, the same `matchLife` default `upgradeConfig` would produce; `loop` true).
- *
- * `textures` are real PIXI `Texture` objects (typed opaquely here so this module stays free
- * of a PixiJS import and unit-coverable in `tools/fx-spike`). The same injection is what the
- * engine-side `bakedEffects()` player will run at register time — kept pure + shared here.
- */
-export function bindArt(
-	config: EmitterConfigV3,
-	textures: unknown[],
-	animated: boolean,
-): EmitterConfigV3 {
-	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
-	const behaviors = behaviorsOf(next).filter((b) => !ART_BEHAVIOR_TYPES.has(b.type));
-	if (textures.length > 0) {
-		const art: BehaviorEntry =
-			animated && textures.length > 1
-				? {
-						type: 'animatedSingle',
-						config: { anim: { framerate: -1, loop: true, textures } },
-					}
-				: { type: 'textureRandom', config: { textures } };
-		behaviors.push(art);
-	}
-	(next as { behaviors: BehaviorEntry[] }).behaviors = behaviors;
 	return next;
 }

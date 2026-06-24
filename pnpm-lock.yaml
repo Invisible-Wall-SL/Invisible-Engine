@@ -247,6 +247,9 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../../packages/constants-shared
+      engine-fx:
+        specifier: workspace:*
+        version: link:../../packages/engine-fx
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
@@ -1479,6 +1482,9 @@ importers:
       '@types/webfontloader':
         specifier: 1.6.28
         version: 1.6.28
+      engine-fx:
+        specifier: workspace:*
+        version: link:../engine-fx
       pixi-filters:
         specifier: 6.1.0
         version: 6.1.0(pixi.js@8.8.1)

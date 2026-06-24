@@ -24,7 +24,7 @@
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import type * as SPINE from '@esotericsoftware/spine-pixi-v8';
-	import type { EmitterLayer } from 'engine-fx';
+	import { bindArt, type EmitterLayer } from 'engine-fx';
 	import {
 		Application,
 		Container,
@@ -35,7 +35,7 @@
 		type TextureSource,
 	} from 'pixi.js';
 	import { onMount } from 'svelte';
-	import { bindArt, emitterOwnerLocal, layerFollowsBone, type Affine } from './fxModel.client';
+	import { emitterOwnerLocal, layerFollowsBone, type Affine } from './fxModel.client';
 	import {
 		applyFxSkin,
 		loadFxSpine,

@@ -13,10 +13,11 @@
 
 ## 0. Status
 
-**In build (Phase 1 COMPLETE + Phase 2 COMPLETE headlessly).** This doc is the registered
-build plan. Nothing ships until it travels the full asset chain (§8) — that is Phase 4, not
-yet done. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle** tier — do not
-start that tier until the spike passes (the other two tiers are native and not gated).
+**In build (Phase 1 COMPLETE + Phase 2 COMPLETE + Phase 4 increment 1 (engine runtime player)
+COMPLETE — all headless).** This doc is the registered build plan. Nothing ships until it
+travels the full asset chain (§8) — that is the REST of Phase 4 (export→bake→pull→trigger),
+not yet done. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle** tier — do
+not start that tier until the spike passes (the other two tiers are native and not gated).
 Current state: the `EffectDoc` schema + a LIVE saveable/reopenable `/fx` authoring page exist
 (atlas pick → live emitter → save → reopen), AND Tier B (Spine attach) — load a project rig
 as a backdrop, play a clip, pin a layer onto a bone so the FX rides the animation — all
@@ -261,6 +262,86 @@ round-trip need owner-verify (see Progress, increments 3 + 4).
     `apps/launcher-api/src/lib/server/spine.ts`, `apps/launcher-api/package.json`
     (+`@esotericsoftware/spine-pixi-v8@4.2.74`), `tools/fx-spike/{placement.ts,package.json}`,
     `docs/tools/fx.md` (Tier-B refresh).
+
+- **Phase 4 (pipeline wiring) — increment 1: engine RUNTIME player (`<EffectPlayer>` +
+  `bakedEffects()`) — ✅ DONE HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no
+  game bump — nothing ships until the rest of the chain lands).** Per §3 / §4.4 / §8. The
+  engine-side runtime that PLAYS an `EffectDoc`, scoped tightly to the runtime only (the
+  export endpoint, `deploy/effects/`, bake, pull, and the Flow trigger are LATER Phase-4
+  increments). **Landed:**
+  - **Shared `bindArt` promoted into `engine-fx`** (`packages/engine-fx/src/bindArt.ts` —
+    `bindArt` + `ART_BEHAVIOR_TYPES` / `behaviorsOf` / `BehaviorEntry`/`BehaviorConfig`):
+    THE canonical "EffectDoc V3 config → library-renderable config" seam, the ONE copy both
+    the `/fx` tool and the engine runtime share (DRY). The launcher-local copy is DELETED;
+    `fxModel.client.ts` re-imports + re-exports `bindArt`/`behaviorsOf` from `engine-fx`
+    (existing `/fx` import sites + the `modelHelpers` harness stay green against the shared
+    one); `FxStage.svelte` imports `bindArt` straight from `engine-fx`. The UI-only mutators
+    (`setCoreParam`/`setListEndpoint`/the placement setters/the bone-follow affine math)
+    stay in `fxModel.client.ts`.
+  - **V3 configs render art at runtime** — `ParticleEmitter.svelte` (THE runtime contract,
+    §3) gained a `bindConfig(config, textures, animated)`: a V1/V2 config (no `behaviors`)
+    binds through `upgradeConfig(config, art)` EXACTLY as before — byte-identical for the
+    lone fountain story (verified: that config takes the `upgradeConfig` branch and produces
+    an identical result) — while a V3 config (`'behaviors' in config`, the library's own
+    version test) binds via the shared `bindArt`, otherwise it spawns the textureless,
+    invisible particles the Phase-1 increment-2 review caught. New optional `animated?` prop
+    (V3 flipbook vs `textureRandom`), added to the `propsSyncEffect` ignore list.
+    `pixi-svelte` now deps `engine-fx` (`workspace:*`; no cycle — engine-fx only peer-deps
+    pixi.js, which pixi-svelte already has).
+  - **`<EffectPlayer doc={EffectDoc}>` + `<SpineBoneAttach>`** (new `packages/pixi-svelte`
+    components, exported from `components/index.ts`). `EffectPlayer` reduces a doc to
+    per-layer mounts via the shared PURE `planLayer`/`planEffect`
+    (`packages/engine-fx/src/playerPlan.ts`): each sprite layer mounts
+    `<ParticleEmitter key={art.assetKey} config={layer.config} animated emit>`, wrapped in
+    `<SpineBoneAttach boneName=…>` for a `bone`-placed layer (else a plain offset
+    `<Container>`); ambient (`trigger.on:'always'`, or no trigger) emits, an `event` trigger
+    stays DORMANT (the event-bus subscription is the seam — `layerEmits` — a later increment
+    flips), a `particleKind:'spine'` layer is SKIPPED (guarded TODO — Tier C / Phase 3).
+    `<SpineBoneAttach>` is the RUNTIME bone-follow that the Phase-2 note called for (the
+    EffectDoc stores only the bone NAME + offset; `<SpineBone>` only WRITES a bone): within
+    the HOST game's `<SpineProvider>` it parents a container under the Spine and positions it
+    at the live bone every tick (`getBonePosition`→`skeletonToPixiWorldCoordinates` into the
+    Spine's own child space — no pan/zoom inverse, unlike the `/fx` authoring stage),
+    honouring `placement.offset`; an unresolved bone falls back to origin+offset. So a `bone`
+    layer resolves on the GAME's playing rig (per the Phase-2 carry-forward), NOT a backdrop —
+    the consuming game mounts `<EffectPlayer>` inside the relevant `<SpineProvider>`.
+  - **`bakedEffects()` reader** (`apps/lines/src/editor-scenes.ts`, mirroring
+    `bakedEditorArtAssets()`): returns the bundle's `EffectDoc[]` (`BakedBundle.effects`),
+    runtime→baked→`[]` — EMPTY until the export→`deploy/effects/`→bake→pull half (a later
+    increment) populates it (parity: un-baked / dev returns `[]`). `apps/lines` now deps
+    `engine-fx`.
+  - **Verified headlessly** by `tools/fx-spike/playerReduce.ts` (`pnpm --filter fx-spike run
+    player`): **24/24 GREEN** — the per-layer mount plan (free vs bone-wrapped, offset
+    carried, a `bone` layer with no bone name falls back to a free mount, ambient-emits /
+    event-dormant, spine-particle skipped), the whole-doc plan (one entry per layer in
+    document order, the spine-particle layer excluded from the rendered set, mixed bone+free),
+    AND the shared `bindArt` (the V3 `upgradeConfig` no-op PROVEN, static→`textureRandom`,
+    animated→`animatedSingle` flipbook `framerate:-1`+loop, live textures carried not
+    JSON-cloned, 0-tex→no art behavior, pure, a V1/V2 config still binds via `upgradeConfig`).
+    The increment-1/2/3 + Phase-2 harnesses (roundtrip/model/save/placement) ALL still PASS
+    against the moved `bindArt`. **Builds GREEN:** `engine-fx` typecheck,
+    `pnpm --filter pixi-svelte build` (svelte-package; svelte-check flags only 3 PRE-EXISTING
+    errors, none in the new/edited files), `pnpm --filter launcher-api build` (the `(app)/fx`
+    entry still 16.69 kB), `pnpm --filter lines build` (the `bakedEffects()` reader compiled
+    into `editor-scenes.js`).
+  - **NEEDS LIVE OWNER-VERIFY (WebGL pixels — NOT headless-verifiable):** a real game actually
+    PLAYING an `<EffectPlayer>` effect — free + bone-placed layers rendering particles, a
+    `bone` layer riding the host rig's animation, a flipbook animating. The harness covers the
+    pure mount/bind reduction; only a human can confirm the pixels.
+  - **Borut note:** when the full Phase-4 chain ships, Book of Borut would bump its `engine`
+    submodule to gain `<EffectPlayer>`/`bakedEffects()` — NOT this increment (nothing ships
+    until export→bake→pull→trigger land).
+  - **Exact next increment:** the `/fx` export endpoint → `<client>/<project>/deploy/effects/`
+    (mirroring `editorArtExport.ts`), THEN bake (embed the effect index in
+    `BakedBundle.effects`; `bake:doc` BEFORE `pull:assets`), THEN pull (mirror into
+    `static/assets/`), THEN the Flow trigger (subscribe a layer to `trigger.eventType` on
+    `utils-event-emitter` — flip the `layerEmits` seam). Verify the referenced `art.assetKey`
+    atlas is actually in the bundle at bake (a dangling key = an invisible effect, §8).
+  - Files: `packages/engine-fx/{index.ts,src/bindArt.ts,src/playerPlan.ts}`,
+    `packages/pixi-svelte/{package.json,src/lib/components/{ParticleEmitter,EffectPlayer,SpineBoneAttach}.svelte,src/lib/components/index.ts}`,
+    `apps/lines/{package.json,src/editor-scenes.ts}`,
+    `apps/launcher-api/src/routes/(app)/fx/{fxModel.client.ts,FxStage.svelte}`,
+    `tools/fx-spike/{playerReduce.ts,package.json}`, `docs/STATUS.md`.
 
 ## 1. Naming (settled here to avoid a real collision)
 

@@ -17,6 +17,7 @@ import SpineEventEmitterProvider, {
 } from './SpineEventEmitterProvider.svelte';
 import SpineTrack, { type Props as SpineTrackProps } from './SpineTrack.svelte';
 import SpineBone, { type Props as SpineBoneProps } from './SpineBone.svelte';
+import SpineBoneAttach, { type Props as SpineBoneAttachProps } from './SpineBoneAttach.svelte';
 import SpineSlot, { type Props as SpineSlotProps } from './SpineSlot.svelte';
 import ParticleContainer, {
 	type Props as ParticleContainerProps,
@@ -24,6 +25,7 @@ import ParticleContainer, {
 import Particles, { type Props as ParticlesProps } from './Particles.svelte';
 import BitmapText, { type Props as BitmapTextProps } from './BitmapText.svelte';
 import ParticleEmitter, { type Props as ParticleEmitterProps } from './ParticleEmitter.svelte';
+import EffectPlayer, { type Props as EffectPlayerProps } from './EffectPlayer.svelte';
 
 export {
 	App,
@@ -41,11 +43,13 @@ export {
 	SpineEventEmitterProvider,
 	SpineTrack,
 	SpineBone,
+	SpineBoneAttach,
 	SpineSlot,
 	ParticleContainer,
 	Particles,
 	BitmapText,
 	ParticleEmitter,
+	EffectPlayer,
 };
 
 export type {
@@ -63,9 +67,11 @@ export type {
 	SpineEventEmitterProviderProps,
 	SpineTrackProps,
 	SpineBoneProps,
+	SpineBoneAttachProps,
 	SpineSlotProps,
 	ParticleContainerProps,
 	ParticlesProps,
 	BitmapTextProps,
 	ParticleEmitterProps,
+	EffectPlayerProps,
 };

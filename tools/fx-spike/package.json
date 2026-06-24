@@ -7,7 +7,8 @@
 		"roundtrip": "tsx roundTrip.ts",
 		"model": "tsx modelHelpers.ts",
 		"save": "tsx saveSplit.ts",
-		"placement": "tsx placement.ts"
+		"placement": "tsx placement.ts",
+		"player": "tsx playerReduce.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

@@ -43,6 +43,7 @@
 		"components-shared": "workspace:*",
 		"components-layout": "workspace:*",
 		"engine-layout": "workspace:*",
+		"engine-fx": "workspace:*",
 		"components-ui-html": "workspace:*",
 		"components-pixi": "workspace:*",
 		"components-ui-pixi": "workspace:*",

@@ -33,6 +33,7 @@
 	},
 	"dependencies": {
 		"@barvynkoa/particle-emitter": "0.0.1",
+		"engine-fx": "workspace:*",
 		"@esotericsoftware/spine-core": "4.2.74",
 		"@esotericsoftware/spine-pixi-v8": "4.2.74",
 		"@types/webfontloader": "1.6.28",

@@ -1,3 +1,4 @@
+import type { EffectDoc } from 'engine-fx';
 import type { ComponentDef, FontCatalog, LayoutDoc } from 'engine-layout';
 import {
 	editorArtNamespace,
@@ -58,6 +59,13 @@ type BakedBundle = {
 		sourceLang: string;
 		messages: Record<string, Record<string, string>>;
 	};
+	/** Invisible FX effect index (`invisible-fx.md` §4.4/§8). The pure `EffectDoc`s authored in
+	 * `/fx`, exported to `deploy/effects/` and frozen into the bundle by `bake-editor-doc.mjs`.
+	 * Each plays via `<EffectPlayer doc=…>`; its `art.assetKey` references an atlas that ALREADY
+	 * travels the pipeline (FX never re-packs textures). Absent/empty for every game with no
+	 * effects (parity) — the export→bake→pull half is a LATER Phase-4 increment, so this stays
+	 * unpopulated for now and `bakedEffects()` returns `[]`. */
+	effects?: EffectDoc[];
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
 	 * of any sprite sheets / images / spine bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
@@ -223,6 +231,22 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 		};
 	}
 	return out;
+}
+
+/**
+ * The Invisible FX effects authored for this project (`invisible-fx.md` §4.4). Each `EffectDoc`
+ * is played by `<EffectPlayer doc=…>`; its layers reduce to `<ParticleEmitter>` (art bound from
+ * `art.assetKey` via the shared `engine-fx` `bindArt`), wrapped in `<SpineBoneAttach>` for a
+ * `bone`-placed layer against the HOST game's playing rig. Mirrors `bakedEditorArtAssets`'s
+ * runtime→baked→empty resolution. Empty when un-baked / no effects (dev parity) — the
+ * export→`deploy/effects/`→bake→pull half is a LATER Phase-4 increment, so this returns `[]`
+ * until that lands. A consuming game iterates these and mounts an `<EffectPlayer>` per effect
+ * (inside the relevant `<SpineProvider>` when a layer is bone-placed).
+ */
+export function bakedEffects(): EffectDoc[] {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return [];
+	return source.effects ?? [];
 }
 
 /**
