@@ -38,6 +38,21 @@ export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	dispatchBookEvent: (bookEvent: TBookEvent, context: TContext) => Promise<void>;
 	/** The active screen's `complete` pin fired — take a `complete` transition (§6.2). */
 	complete: () => Promise<boolean>;
+	/**
+	 * Advance the currently-active screen: run its `exit` choreography then fire its
+	 * `complete`/`exited` structural pin, so any `complete`-triggered edge from that screen
+	 * fires (the tap-to-continue "complete the active screen" hook, §6.2). The exit phase runs
+	 * inside the transition swap exactly as a self-driven `complete` does, so this is the click
+	 * analogue of the screen signalling done. A SAFE no-op when the interpreter is inert (no
+	 * FlowDoc ⇒ no active screen / no machine). Returns true when a `complete` transition was
+	 * taken. (Same boundary as `complete()` — a clearly-named alias for the tap path.) */
+	completeActiveScreen: () => Promise<boolean>;
+	/**
+	 * Emit a named runtime signal: fire any active-screen edge whose trigger is
+	 * `{kind:'signal', signal:<name>}` (the tap-to-continue "emit a named signal" hook, §6.2).
+	 * A SAFE no-op when inert or when no edge listens for the signal. Returns true when a
+	 * `signal` transition was taken. */
+	emitSignal: (signal: string) => Promise<boolean>;
 	/** Re-evaluate `condition` transitions (the game pings this on an observed value change). */
 	evaluate: () => Promise<boolean>;
 	/** Run the initial screen's enter choreography at boot. */
@@ -91,6 +106,8 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 			await machine?.onBookEvent(bookEvent);
 		},
 		complete: () => machine?.onComplete() ?? Promise.resolve(false),
+		completeActiveScreen: () => machine?.onComplete() ?? Promise.resolve(false),
+		emitSignal: (signal) => machine?.onSignal(signal) ?? Promise.resolve(false),
 		evaluate: () => machine?.evaluate() ?? Promise.resolve(false),
 		start: () => machine?.start() ?? Promise.resolve(),
 		isAuthoredEvent: isAuthored,
