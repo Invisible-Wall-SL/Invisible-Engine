@@ -46,7 +46,7 @@
 		"constants-shared": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.8.1",
-		"svelte": "5.20.5",
+		"svelte": "5.35.1",
 		"utils-layout": "workspace:*",
 		"vite": "6.2.0"
 	}

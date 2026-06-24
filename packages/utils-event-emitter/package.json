@@ -19,7 +19,7 @@
 	},
 	"dependencies": {
 		"@types/lodash": "4.17.16",
-		"svelte": "5.20.5",
+		"svelte": "5.35.1",
 		"vite": "6.2.0"
 	}
 }
