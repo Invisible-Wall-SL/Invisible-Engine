@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		FIXED_PREVIEW_CONTEXT,
 		FIXED_PREVIEW_ENGINE,
 		FIXED_PREVIEW_TRIGGER,
 		previewChoreography,
@@ -31,6 +32,7 @@
 			result = await previewChoreography(root, {
 				speed,
 				trigger: FIXED_PREVIEW_TRIGGER,
+				context: FIXED_PREVIEW_CONTEXT,
 				engine: (key) => FIXED_PREVIEW_ENGINE[key],
 			});
 		} finally {
@@ -41,6 +43,9 @@
 	function entryText(e: PreviewEntry): string {
 		if (e.kind === 'delay') return `delay ${e.ms}ms → ${e.scaledMs}ms`;
 		const payload = e.payload ? ` ${JSON.stringify(e.payload)}` : '';
+		// An `effect` entry carries `name` (the game-side effect), not `event`/`mode` — render
+		// it as `name [effect]` so it reads correctly instead of `undefined [undefined]`.
+		if (e.kind === 'effect') return `${e.name} [effect]${payload}`;
 		return `${e.event} [${e.mode}]${payload}`;
 	}
 </script>

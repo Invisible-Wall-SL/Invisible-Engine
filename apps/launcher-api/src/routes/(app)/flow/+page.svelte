@@ -19,6 +19,7 @@
 		type FlowTrigger,
 		type OrphanSummary,
 	} from 'engine-flow';
+	import { ENGINE_PARAM_CATALOG } from 'engine-layout';
 	import EdgeInspector from './EdgeInspector.svelte';
 	import FlowScreenNode from './FlowScreenNode.svelte';
 	import ChoreographyEditor from './ChoreographyEditor.svelte';
@@ -88,7 +89,15 @@
 	const orphanSummary = $derived<OrphanSummary>(
 		Object.fromEntries(model.screens.map((s) => [s.screen.id, s.orphanedPins.length])),
 	);
-	const issues = $derived(validateFlowDoc(doc, orphanSummary));
+	// The bounded accessor vocabularies the `unresolved-accessor` check validates against:
+	// the engine value keys (`ENGINE_PARAM_CATALOG`) + the known `$context.*` roots (today
+	// just the dispatch context's `bookEvents` list). A typo in either silently becomes a
+	// literal at runtime — this surfaces it as a non-blocking warning (§11.4).
+	const engineKeys = ENGINE_PARAM_CATALOG.map((p) => p.key);
+	const contextRoots = ['bookEvents'];
+	const issues = $derived(
+		validateFlowDoc(doc, orphanSummary, { engineKeys, contextRoots }),
+	);
 	// Screen ids the validation pass flagged — drives the inline node marker.
 	const invalidScreenIds = $derived(
 		new Set(issues.map((i) => i.screenId).filter((id): id is string => Boolean(id))),

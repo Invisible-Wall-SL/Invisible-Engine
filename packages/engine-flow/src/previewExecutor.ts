@@ -106,6 +106,21 @@ export const FIXED_PREVIEW_TRIGGER: Record<string, unknown> = {
 	],
 };
 
+/**
+ * A small FIXED dispatch-context feed (design doc §11.6) — a deterministic stand-in for
+ * the `{ bookEvents }` dispatch context the coded handler's second argument carries (the
+ * surrounding book-event list a reveal's multiple-reveal check reads). It mirrors the
+ * mock-RGS book SHAPE, so a `$context.bookEvents` accessor in an authored effect payload
+ * resolves to a stable value every run — the reproducibility §11.6 requires. NOT a random
+ * outcome; the SAME object every call.
+ */
+export const FIXED_PREVIEW_CONTEXT: Record<string, unknown> = {
+	bookEvents: [
+		{ index: 0, type: 'reveal' },
+		{ index: 1, type: 'reveal' },
+	],
+};
+
 /** A small FIXED `$engine.*` feed for the preview (deterministic engine reads). */
 export const FIXED_PREVIEW_ENGINE: Record<string, unknown> = {
 	win: 250,
@@ -119,6 +134,8 @@ export interface PreviewOptions {
 	speed?: number;
 	/** The fixed trigger payload (the deterministic book event) accessors read via `$trigger`. */
 	trigger?: unknown;
+	/** The fixed dispatch context (`{ bookEvents }`) accessors read via `$context`. */
+	context?: unknown;
 	/** Optional `$engine.*` feed reader for the preview (fixed values for reproducibility). */
 	engine?: (key: string) => unknown;
 }
@@ -198,6 +215,7 @@ export const previewChoreography = async (
 
 	const scope: FlowScope = {
 		trigger: options.trigger,
+		context: options.context,
 		engine: options.engine,
 	};
 

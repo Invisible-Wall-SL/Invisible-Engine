@@ -1,11 +1,13 @@
 <script lang="ts">
-	import type {
-		FlowAccessor,
-		FlowComparator,
-		FlowGuard,
-		FlowPredicate,
-		FlowTransition,
-		FlowTrigger,
+	import {
+		flowAccessorText,
+		parseFlowAccessor,
+		type FlowAccessor,
+		type FlowComparator,
+		type FlowGuard,
+		type FlowPredicate,
+		type FlowTransition,
+		type FlowTrigger,
 	} from 'engine-flow';
 	import type { TransitionEdit } from './flowModel.client';
 
@@ -56,31 +58,6 @@
 	// --- Minimal single-predicate guard authoring (the `all[0]` slot) -------------
 	const firstPredicate = $derived<FlowPredicate | undefined>(edge.guard?.all[0]);
 
-	function accessorText(a: FlowAccessor | undefined): string {
-		if (!a) return '';
-		switch (a.kind) {
-			case 'engine':
-				return `$engine.${a.key}`;
-			case 'trigger':
-				return `$trigger.${a.path}`;
-			case 'item':
-				return `$item.${a.path}`;
-			case 'literal':
-				return String(a.value);
-		}
-	}
-
-	/** Parse an author string into a bounded accessor: `$engine.x` / `$trigger.x` / `$item.x`
-	 *  read a feed/path, anything else is a literal (number when numeric, else string). */
-	function parseAccessor(text: string): FlowAccessor {
-		const t = text.trim();
-		if (t.startsWith('$engine.')) return { kind: 'engine', key: t.slice('$engine.'.length) };
-		if (t.startsWith('$trigger.')) return { kind: 'trigger', path: t.slice('$trigger.'.length) };
-		if (t.startsWith('$item.')) return { kind: 'item', path: t.slice('$item.'.length) };
-		const num = Number(t);
-		return { kind: 'literal', value: t !== '' && !Number.isNaN(num) ? num : t };
-	}
-
 	function buildGuard(
 		left: FlowAccessor,
 		op: FlowComparator,
@@ -95,13 +72,15 @@
 
 	$effect(() => {
 		// Re-seed the guard form when a different edge is selected.
-		guardLeft = accessorText(firstPredicate?.left) || '$engine.';
+		guardLeft = flowAccessorText(firstPredicate?.left) || '$engine.';
 		guardOp = firstPredicate?.op ?? 'eq';
-		guardRight = accessorText(firstPredicate?.right);
+		guardRight = flowAccessorText(firstPredicate?.right);
 	});
 
 	function applyGuard(): void {
-		onedit({ guard: buildGuard(parseAccessor(guardLeft), guardOp, parseAccessor(guardRight)) });
+		onedit({
+			guard: buildGuard(parseFlowAccessor(guardLeft), guardOp, parseFlowAccessor(guardRight)),
+		});
 	}
 
 	function clearGuard(): void {

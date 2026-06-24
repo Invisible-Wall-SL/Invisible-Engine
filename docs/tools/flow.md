@@ -89,9 +89,11 @@ Click an edge to open the **Transition** inspector on the left. You can set:
   (`eq`/`neq`/`gt`/`gte`/`lt`/`lte`/`in`), and a right value. Values are **whitelisted
   accessors**, not free code: `$engine.<key>` reads a registered engine value (e.g.
   `$engine.winLevel`), `$trigger.<path>` reads the triggering book event payload,
-  `$item.<path>` reads a per-iteration item, and anything else is a literal (a number
-  when numeric, else a string). This is a small, closed comparison set by design — not
-  an expression language. Use **Set guard** to apply it, **clear** to remove it.
+  `$context.<path>` reads the surrounding dispatch context (e.g. `$context.bookEvents`,
+  the book-event list the coded handler's second argument carries), `$item.<path>` reads
+  a per-iteration item, and anything else is a literal (a number when numeric, else a
+  string). This is a small, closed comparison set by design — not an expression language.
+  Use **Set guard** to apply it, **clear** to remove it.
 
 Use **Delete transition** in the inspector to remove an edge.
 
@@ -144,6 +146,10 @@ authoring, and the sub-bar shows a `⚠ N issues` badge. Each issue is one of:
 - **No initial screen** / **Multiple initial screens** — the flow has no entry, or more
   than one.
 - **Orphaned pins** — the screen has pins whose backing component was deleted.
+- **Unresolved accessor** — a choreography `$engine.<key>` or `$context.<path>` accessor
+  whose key/root isn't a known engine value or context root. A typo here silently falls
+  through to a literal string at runtime, so this warning is the only guard against it.
+  (Unregistered Effect *names* are warned inline in the inspector, not in this panel.)
 
 A flagged screen is also marked **inline** on the canvas (an amber node border). Click any
 node-scoped issue to select and focus the offending screen.
@@ -188,7 +194,7 @@ no native double-click event, so the editor detects the pair), or select the nod
     from" below). You also pick a **dispatch shape** — *broadcast (sync)*, *broadcastAsync —
     await* (wait for subscribers to finish), or *broadcastAsync — fire-and-forget* — and, when
     the chosen event declares payload fields, fill each field with a bounded accessor
-    (`$trigger.x`, `$engine.x`, `$item.x`, or a literal).
+    (`$trigger.x`, `$context.x`, `$engine.x`, `$item.x`, or a literal).
   - **Sequence** / **Parallel** — containers you add children into. The **Add child** grid in
     the inspector offers Broadcast, Delay, Sequence, Parallel, Branch and ForEach.
   - **Delay** — a pause in milliseconds. The delay is divided by the current speed, so a
@@ -204,10 +210,12 @@ no native double-click event, so the editor detects the pair), or select the nod
     implementation at boot). When the project's exported vocabulary lists effects, the
     inspector shows a **dropdown of those registered effect names**; otherwise it falls back to
     a free-text field. If you name an effect the game doesn't register, the inspector flags it
-    with a **"Not a registered effect for this game"** warning. Note: Effect (and the
-    `$context.bookEvents` accessor it can read) is **authored as data** — an Effect node is
-    *editable* when one is present in the document, but it is **not** in the **Add child** grid,
-    so you can't create one through the UI yet.
+    with a **"Not a registered effect for this game"** warning. An Effect's payload fields
+    accept the same bounded accessors as a Broadcast — including `$context.bookEvents` (the
+    surrounding book-event list) — so an effect can read the dispatch context without leaving
+    the bounded accessor model. Note: an Effect node is **authored as data** — it is *editable*
+    when one is present in the document, but it is **not** in the **Add child** grid, so you
+    can't create one through the UI yet.
 - **Editing and removing.** Each selected node opens its own inspector on the right with just
   its fields. **Remove node** deletes a non-root node; on the root the button reads **Clear
   this phase** and empties that phase's timeline.
@@ -274,9 +282,9 @@ shows you precisely where that boundary sits.
 - **No "Add Effect" in the UI.** The choreography model has an **Effect** node (a named
   game-registered side effect) and the inspector can edit one — with a registered-effect-name
   picker — but Effect is not in the **Add child** grid, so an Effect node can only enter a
-  document by being authored as data, not created through the canvas. Same for the
-  `$context.bookEvents` accessor an Effect can read: it is honoured if present but not offered
-  by the inspector's accessor fields (which cover `$engine` / `$trigger` / `$item` / literal).
+  document by being authored as data, not created through the canvas. (The `$context.<path>`
+  accessor it reads — e.g. `$context.bookEvents` — *is* now authorable in the inspector's
+  accessor fields, alongside `$engine` / `$trigger` / `$item` / literal.)
 - Guard authoring edits a **single predicate** (the first comparison of a guard);
   multi-predicate AND guards are stored faithfully if already present but not yet fully
   editable in the inspector.

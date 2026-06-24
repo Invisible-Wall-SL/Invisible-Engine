@@ -1,11 +1,13 @@
 <script lang="ts">
 	import {
+		FLOW_ACCESSOR_HINT,
 		findEmitterEffect,
 		findEmitterEvent,
+		flowAccessorText,
 		groupEmitterVocabulary,
+		parseFlowAccessor,
 		type ChoreographyNode,
 		type EmitterVocabulary,
-		type FlowAccessor,
 		type FlowComparator,
 		type FlowGuard,
 		type FlowPayload,
@@ -73,34 +75,15 @@
 		node.kind === 'broadcast' ? (node.async ? (node.await ? 'awaited' : 'fire') : 'sync') : 'sync',
 	);
 
-	// Payload fields: parse author strings into bounded accessors (same grammar as the edge
-	// guard — `$trigger.x` / `$engine.x` / `$item.x` / literal).
-	function parseAccessor(text: string): FlowAccessor {
-		const t = text.trim();
-		if (t.startsWith('$engine.')) return { kind: 'engine', key: t.slice('$engine.'.length) };
-		if (t.startsWith('$trigger.')) return { kind: 'trigger', path: t.slice('$trigger.'.length) };
-		if (t.startsWith('$item.')) return { kind: 'item', path: t.slice('$item.'.length) };
-		const num = Number(t);
-		return { kind: 'literal', value: t !== '' && !Number.isNaN(num) ? num : t };
-	}
-	function accessorText(a: FlowAccessor | undefined): string {
-		if (!a) return '';
-		switch (a.kind) {
-			case 'engine':
-				return `$engine.${a.key}`;
-			case 'trigger':
-				return `$trigger.${a.path}`;
-			case 'item':
-				return `$item.${a.path}`;
-			case 'literal':
-				return String(a.value);
-		}
-	}
+	// Payload fields: parse author strings into bounded accessors via the SHARED helper
+	// (same grammar as the edge guard — `$trigger.x` / `$context.x` / `$engine.x` / `$item.x`
+	// / literal). Keeping the parse/print in `engine-flow` lets both inspectors stay in
+	// lock-step on the recognised prefixes (e.g. `$context`).
 	function setPayloadField(key: string, text: string): void {
 		if (node.kind !== 'broadcast') return;
 		const payload: FlowPayload = { ...(node.payload ?? {}) };
 		if (text.trim() === '') delete payload[key];
-		else payload[key] = parseAccessor(text);
+		else payload[key] = parseFlowAccessor(text);
 		onedit({ payload: Object.keys(payload).length > 0 ? payload : null });
 	}
 
@@ -112,7 +95,7 @@
 
 	// --- ForEach ---------------------------------------------------------------
 	function setList(text: string): void {
-		onedit({ list: parseAccessor(text) });
+		onedit({ list: parseFlowAccessor(text) });
 	}
 	function setMode(mode: 'sequence' | 'parallel'): void {
 		onedit({ mode });
@@ -125,13 +108,15 @@
 	let guardRight = $state('');
 	$effect(() => {
 		const pred = node.kind === 'branch' ? node.guard.all[0] : undefined;
-		guardLeft = accessorText(pred?.left) || '$engine.';
+		guardLeft = flowAccessorText(pred?.left) || '$engine.';
 		guardOp = pred?.op ?? 'eq';
-		guardRight = accessorText(pred?.right);
+		guardRight = flowAccessorText(pred?.right);
 	});
 	function applyGuard(): void {
 		const guard: FlowGuard = {
-			all: [{ left: parseAccessor(guardLeft), op: guardOp, right: parseAccessor(guardRight) }],
+			all: [
+				{ left: parseFlowAccessor(guardLeft), op: guardOp, right: parseFlowAccessor(guardRight) },
+			],
 		};
 		onedit({ guard });
 	}
@@ -171,8 +156,8 @@
 					<label class="field small">
 						<span>{f.key}{f.required ? ' *' : ''} <em>({f.kind})</em></span>
 						<input
-							value={accessorText(node.payload?.[f.key])}
-							placeholder="$trigger.x / $engine.x / literal"
+							value={flowAccessorText(node.payload?.[f.key])}
+							placeholder={FLOW_ACCESSOR_HINT}
 							oninput={(e) => setPayloadField(f.key, e.currentTarget.value)}
 						/>
 					</label>
@@ -205,7 +190,7 @@
 		<label class="field">
 			<span>List accessor</span>
 			<input
-				value={accessorText(node.list)}
+				value={flowAccessorText(node.list)}
 				placeholder="$trigger.wins"
 				oninput={(e) => setList(e.currentTarget.value)}
 			/>

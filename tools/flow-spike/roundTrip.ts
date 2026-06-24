@@ -19,11 +19,13 @@
  */
 
 import {
+	FIXED_PREVIEW_CONTEXT,
 	FIXED_PREVIEW_ENGINE,
 	FIXED_PREVIEW_TRIGGER,
 	previewChoreography,
 	type ChoreographyNode,
 	type FlowDoc,
+	type PreviewEntry,
 	normalizeFlowDoc,
 } from 'engine-flow';
 
@@ -50,6 +52,18 @@ const eq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.strin
 const winInfoEnter: ChoreographyNode = {
 	kind: 'sequence',
 	children: [
+		// Phase-8 salvage: an `effect` node with a `$context.*` payload accessor — the two new
+		// authorable kinds (the effect node landed via #63; `$context` is this slice).
+		// `revealBoard` reads the surrounding book list off the dispatch context, exactly as a
+		// reveal's multiple-reveal check would.
+		{
+			kind: 'effect',
+			name: 'revealBoard',
+			payload: {
+				bookEvent: { kind: 'trigger', path: '' },
+				bookEvents: { kind: 'context', path: 'bookEvents' },
+			},
+		},
 		{
 			kind: 'broadcast',
 			event: 'soundOnce',
@@ -272,11 +286,13 @@ const runPreview = async (): Promise<void> => {
 	const normal = await previewChoreography(reloadedEnter, {
 		speed: 1,
 		trigger: FIXED_PREVIEW_TRIGGER,
+		context: FIXED_PREVIEW_CONTEXT,
 		engine: (k) => FIXED_PREVIEW_ENGINE[k],
 	});
 	const turbo = await previewChoreography(reloadedEnter, {
 		speed: 2,
 		trigger: FIXED_PREVIEW_TRIGGER,
+		context: FIXED_PREVIEW_CONTEXT,
 		engine: (k) => FIXED_PREVIEW_ENGINE[k],
 	});
 
@@ -303,6 +319,7 @@ const runPreview = async (): Promise<void> => {
 	const normal2 = await previewChoreography(reloadedEnter, {
 		speed: 1,
 		trigger: FIXED_PREVIEW_TRIGGER,
+		context: FIXED_PREVIEW_CONTEXT,
 		engine: (k) => FIXED_PREVIEW_ENGINE[k],
 	});
 	assert(
@@ -326,6 +343,22 @@ const runPreview = async (): Promise<void> => {
 		normal.durationMs === 300 && turbo.durationMs === 150,
 		'total virtual duration scales with speed',
 	);
+
+	// Phase-8 salvage: the `effect` node + `$context` accessor survive the round-trip AND run
+	// through the REAL executor — the effect appears as a labeled `effect` timeline entry (the
+	// ChoreoPreview `undefined [undefined]` bug fix), in order, with its `$context.bookEvents`
+	// payload accessor RESOLVED against the fixed context feed.
+	const effects = normal.timeline.filter(
+		(e): e is Extract<PreviewEntry, { kind: 'effect' }> => e.kind === 'effect',
+	);
+	assert(effects.length === 1 && effects[0].name === 'revealBoard', 'effect node ran (revealBoard)');
+	assert(
+		eq(effects[0]?.payload?.bookEvents, FIXED_PREVIEW_CONTEXT.bookEvents),
+		'$context.bookEvents resolved against the fixed context feed in the effect payload',
+	);
+	// The effect is the FIRST op (it precedes soundOnce in the authored sequence) — ordering
+	// is preserved through round-trip + executor.
+	assert(normal.timeline[0]?.kind === 'effect', 'effect is the first timeline op (order preserved)');
 };
 
 await runPreview();

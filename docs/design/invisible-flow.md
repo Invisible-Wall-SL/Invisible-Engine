@@ -757,6 +757,45 @@ not the picker pixels.
 - Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
   is authored + baked — the owner's step.
 
+### Progress — Phase-8 `$context` accessor slice salvaged onto #63 (2026-06-24)
+
+Branch `flow/phase8-context-salvage` (off the `#63` `main`). An abandoned parallel
+`flow/phase8-effect-context` branch had built the effect node + name picker + payload editors
+itself; `#63` (the emitter-vocabulary export above) SUPERSEDED that with build-time per-game
+vocabulary codegen, so the effect-catalog / effect-node / drift-guard parts of Phase 8 were
+DROPPED. The one non-redundant slice salvaged here is **`$context.*` accessor authoring** —
+the surrounding dispatch context (`{ bookEvents }`) an effect's payload can read — plus its
+preview + validation plumbing. EDITOR/ENGINE-AUTHORING ONLY — no runtime/game/XState/math or
+pipeline code touched; the model layer already carried `kind:'context'`. **Zero game-parity
+risk; no submodule bump.**
+
+**What landed**
+- `engine-flow/src/accessorText.ts` — shared pure `parseFlowAccessor` / `flowAccessorText`
+  (literal / `$trigger.` / `$item.` / `$context.` / `$engine.`) + `FLOW_ACCESSOR_HINT`,
+  exported from `index.ts`. This dedup is what lets `$context` land in BOTH inspectors
+  identically: `ChoreoNodeInspector` (Broadcast/Effect payload + ForEach list + Branch guard)
+  and `EdgeInspector` (transition guard) now call the shared helper instead of an inline copy.
+- `previewExecutor.ts` — `FIXED_PREVIEW_CONTEXT` (`{ bookEvents }`) + `PreviewOptions.context`,
+  wired into the `FlowScope`; `ChoreoPreview.svelte` passes it AND fixes the `effect` timeline
+  label (it rendered `undefined [undefined]` because it read `event`/`mode` on an effect entry;
+  now `name [effect]`).
+- `validate.ts` — the `unresolved-accessor` warning class (a `$engine.`/`$context.` accessor
+  whose key/root isn't known → non-blocking warn, §7) + `FlowValidateOptions`; `/flow`
+  `+page.svelte` passes `ENGINE_PARAM_CATALOG` keys + `contextRoots: ['bookEvents']`, and
+  `ValidationPanel.svelte` got the icon. The `unknown-effect` panel warning was deliberately
+  NOT brought over — `#63` already warns inline on an unregistered effect name.
+
+**How it was verified headlessly**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN.
+- `tools/flow-spike/roundTrip.ts` GREEN, extended to author an `effect` node with a
+  `$context.bookEvents` payload accessor through the model layer and assert it round-trips,
+  runs through the REAL executor, and resolves against `FIXED_PREVIEW_CONTEXT` (the effect-catalog
+  drift assertions from the abandoned branch were NOT included). `parity`/`phase5`/`phase6`/
+  `phase7` still GREEN. (`vocab` reports a pre-existing `#63` line-ending drift on this Windows
+  worktree — the committed generated files are CRLF but the codegen + `.gitattributes` are LF, so
+  `gen:flow-vocab:check` flags them stale; regenerated content is byte-identical. Unrelated to
+  this salvage — no vocabulary source/generated file is in the changeset.)
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the

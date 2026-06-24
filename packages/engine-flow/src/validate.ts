@@ -16,12 +16,18 @@
  *  - `multiple-initial` — more than one `initial` screen (ambiguous entry).
  *  - `orphaned-pins` — a screen has pins whose backing component was deleted (§4).
  *
+ * The choreography check (the silent-literal-typo guard, §11.4):
+ *  - `unresolved-accessor` — a `$context.`/`$engine.` accessor whose root/key isn't known
+ *    (the chief new authoring-correctness risk: a typo falls through to a literal STRING
+ *    and silently mis-resolves at runtime — this warning is the only guard against it).
+ *    (Unregistered EFFECT names are warned inline in the inspector, not here.)
+ *
  * These mirror the §7 fall-through model: a flagged graph still RUNS (un-authored or
  * unreachable screens just fall through to coded behaviour) — the warnings are an
  * authoring aid, not a runtime gate.
  */
 
-import type { FlowDoc } from './types';
+import type { ChoreographyNode, FlowAccessor, FlowDoc, FlowGuard } from './types';
 
 /** The class of a validation issue — drives the icon/severity in the UI. */
 export type FlowIssueKind =
@@ -29,7 +35,8 @@ export type FlowIssueKind =
 	| 'multiple-initial'
 	| 'unreachable'
 	| 'dead-end'
-	| 'orphaned-pins';
+	| 'orphaned-pins'
+	| 'unresolved-accessor';
 
 /** Issue severity. All Phase-7 issues are warnings (never block authoring, §7). */
 export type FlowIssueSeverity = 'warning';
@@ -50,6 +57,76 @@ export interface FlowIssue {
 /** Per-screen orphan summary the caller derives (from `deriveScreenPins`). Keyed by
  *  screen id ⇒ the number of orphaned pins on that screen (0 / absent ⇒ none). */
 export type OrphanSummary = Record<string, number>;
+
+/** Optional vocabularies for the unresolved-accessor check. Svelte-free + passed in so
+ *  `validateFlowDoc` stays headless-testable: the launcher hands its `ENGINE_PARAM_CATALOG`
+ *  keys + the known `$context.*` roots; the spike hands fixtures. Both optional — absent ⇒
+ *  that prefix's check is skipped (no false positives when a vocabulary isn't supplied). */
+export interface FlowValidateOptions {
+	/** The known `$engine.*` keys (from `ENGINE_PARAM_CATALOG`). Absent ⇒ skip the engine check. */
+	engineKeys?: ReadonlySet<string> | string[];
+	/** The known `$context.*` roots (today effectively just `bookEvents`). Absent ⇒ skip. */
+	contextRoots?: ReadonlySet<string> | string[];
+}
+
+const toSet = (v: ReadonlySet<string> | string[] | undefined): Set<string> | undefined =>
+	v === undefined ? undefined : v instanceof Set ? new Set(v) : new Set(v as string[]);
+
+/** Walk every accessor a choreography tree references, invoking `visit` per accessor. */
+const walkChoreoAccessors = (
+	node: ChoreographyNode,
+	visit: (accessor: FlowAccessor) => void,
+): void => {
+	const guardAccessors = (guard: FlowGuard): void => {
+		for (const p of guard.all) {
+			visit(p.left);
+			visit(p.right);
+		}
+	};
+	switch (node.kind) {
+		case 'sequence':
+		case 'parallel':
+			for (const child of node.children) walkChoreoAccessors(child, visit);
+			return;
+		case 'broadcast':
+			if (node.payload) for (const a of Object.values(node.payload)) visit(a);
+			return;
+		case 'delay':
+			return;
+		case 'forEach':
+			visit(node.list);
+			walkChoreoAccessors(node.body, visit);
+			return;
+		case 'branch':
+			guardAccessors(node.guard);
+			walkChoreoAccessors(node.then, visit);
+			if (node.otherwise) walkChoreoAccessors(node.otherwise, visit);
+			return;
+		case 'effect':
+			if (node.payload) for (const a of Object.values(node.payload)) visit(a);
+			return;
+	}
+};
+
+/** All choreography roots a FlowDoc carries — screen enter/while/exit + per-event — paired
+ *  with a human scope label (the screen id/phase or the event type) for issue messages. */
+const choreoRoots = (
+	doc: FlowDoc,
+): { scope: string; screenId?: string; root: ChoreographyNode }[] => {
+	const roots: { scope: string; screenId?: string; root: ChoreographyNode }[] = [];
+	for (const screen of doc.screens) {
+		const c = screen.choreography;
+		if (!c) continue;
+		const label = screen.label ?? screen.id;
+		if (c.enter) roots.push({ scope: `${label} · enter`, screenId: screen.id, root: c.enter });
+		if (c.while) roots.push({ scope: `${label} · while`, screenId: screen.id, root: c.while });
+		if (c.exit) roots.push({ scope: `${label} · exit`, screenId: screen.id, root: c.exit });
+	}
+	for (const ev of doc.events ?? []) {
+		roots.push({ scope: `event ${ev.event}`, root: ev.choreography });
+	}
+	return roots;
+};
 
 /** Compute the set of screen ids REACHABLE from the initial screen via transitions
  *  (forward edges only — a transition `from → to` makes `to` reachable). */
@@ -78,7 +155,11 @@ const reachableFrom = (doc: FlowDoc, initialId: string): Set<string> => {
  * caller already derived (the editor has it; absent ⇒ no orphan checks). Returns a flat,
  * stable-ordered issue list (graph-wide issues first, then per-screen in `screens[]` order).
  */
-export const validateFlowDoc = (doc: FlowDoc, orphans: OrphanSummary = {}): FlowIssue[] => {
+export const validateFlowDoc = (
+	doc: FlowDoc,
+	orphans: OrphanSummary = {},
+	options: FlowValidateOptions = {},
+): FlowIssue[] => {
 	const issues: FlowIssue[] = [];
 
 	const screenIds = doc.screens.map((s) => s.id);
@@ -149,6 +230,44 @@ export const validateFlowDoc = (doc: FlowDoc, orphans: OrphanSummary = {}): Flow
 				screenId: id,
 				count,
 				message: `"${labelOf(id)}" has ${count} orphaned pin${count === 1 ? '' : 's'} — the backing component was deleted.`,
+			});
+		}
+	}
+
+	// --- Choreography: unresolved accessors (the silent-literal-typo guard, §11.4) ---
+	// A `$context.`/`$engine.` accessor whose root/key is unknown fell through to a literal
+	// string at parse time and would silently mis-resolve at runtime — warn (never block,
+	// §7). Each prefix's check is skipped when its vocabulary isn't supplied (no false
+	// positives). Effect-name correctness is warned inline in the inspector, not here.
+	const engineKeys = toSet(options.engineKeys);
+	const contextRoots = toSet(options.contextRoots);
+	if (engineKeys || contextRoots) {
+		for (const { scope, screenId, root } of choreoRoots(doc)) {
+			const reported = new Set<string>();
+			walkChoreoAccessors(root, (accessor) => {
+				if (accessor.kind === 'engine' && engineKeys && !engineKeys.has(accessor.key)) {
+					const token = `$engine.${accessor.key}`;
+					if (reported.has(token)) return;
+					reported.add(token);
+					issues.push({
+						kind: 'unresolved-accessor',
+						severity: 'warning',
+						screenId,
+						message: `${scope}: \`${token}\` is not a known engine value — check the spelling (it would mis-resolve to a literal at runtime).`,
+					});
+				} else if (accessor.kind === 'context' && contextRoots) {
+					const rootKey = accessor.path.split('.')[0] ?? '';
+					if (contextRoots.has(rootKey)) return;
+					const token = `$context.${accessor.path}`;
+					if (reported.has(token)) return;
+					reported.add(token);
+					issues.push({
+						kind: 'unresolved-accessor',
+						severity: 'warning',
+						screenId,
+						message: `${scope}: \`${token}\` is not a known context value — check the spelling (it would mis-resolve to a literal at runtime).`,
+					});
+				}
 			});
 		}
 	}
