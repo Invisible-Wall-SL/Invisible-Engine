@@ -6,16 +6,18 @@ together with **transition edges** to describe how the game moves from one scree
 the next. The authored graph (a **FlowDoc**) is saved alongside the Scene Editor's
 `scenes.json` in the project's cloud storage.
 
-> **Status (as of 2026-06-24):** this is **Phase 3 — macro + micro authoring**. What
-> ships now is two tiers: the *macro* graph (placing screens, drawing/editing transitions
-> between them, saving/loading the FlowDoc) **and** the *micro* **choreography sub-editor**
-> (a screen's enter/while/exit animation timeline, opened by double-clicking a screen
-> node). It is an **authoring surface only** — saving writes the document to cloud storage
-> but does **not yet change how any game runs**. The choreography editor's preview is a
-> **deterministic timeline** (the ordered broadcasts + delays), not yet a live picture of
-> the game animating — that needs the runtime mounter, which is **Phase 4**. Wiring the
-> saved FlowDoc into the build pipeline so a shipped game actually runs from it is
-> **Phase 6**. See "What it does not do yet" below.
+> **Status (as of 2026-06-24):** Phases 0–6 are complete and **Phase 7 — Authoring UX**
+> is in. The tool authors two tiers — the *macro* graph (placing screens, drawing/editing
+> transitions) and the *micro* **choreography sub-editor** (enter/while/exit animation
+> timeline, opened by double-clicking a screen node) — and the authored FlowDoc now ships
+> end-to-end (export → bake → register), so a baked game runs its presentation from the
+> document with safe fall-through to the coded path for anything un-authored. Phase 7 adds
+> the **authoring conveniences**: palette + canvas **search**, **copy/paste** of screen
+> subgraphs, a **validation** panel (unreachable / dead-end / no-initial / orphaned-pin
+> warnings), an **authored-vs-coded diff** view, and pin **tooltips**. The choreography
+> editor's preview is still a **deterministic timeline** (ordered broadcasts + delays); a
+> true live-animating visual preview is not part of this tool. See "What it does not do
+> yet" below.
 
 ## What it is
 
@@ -32,8 +34,8 @@ starting one, and what makes the game transition from screen A to screen B.
   spine cue), and the screen's visibility **gate** — plus three fixed structural pins
   (`enter`, `complete`, `active`) that drive the flow. If you delete the component a
   pin came from, the pin is shown **orphaned** (struck through, with a warning count on
-  the node and in the sub-bar) rather than silently dropped, so a stale wire is always
-  visible.
+  the node, a `⚠ N issues` badge in the sub-bar, and an entry in the Validation panel)
+  rather than silently dropped, so a stale wire is always visible.
 - **Transitions describe the flow.** An edge from screen A to screen B fires on one of
   three triggers: a **book event** arriving, the source screen's **complete** signal
   (its exit finished), or an **engine condition**. Edges can carry an optional **guard**
@@ -96,9 +98,65 @@ Use **Delete transition** in the inspector to remove an edge.
 ### Edit a screen node
 
 Click a node to open its inspector: tick **Initial screen** to make it the flow's entry
-node (clears the flag on any other node), or **Remove screen** to take it off the canvas
-(which also removes any transitions touching it; if it was the initial screen, the first
-remaining node is promoted).
+node (clears the flag on any other node), **Copy** / **Paste** the screen with its
+choreography (see below), or **Remove screen** to take it off the canvas (which also
+removes any transitions touching it; if it was the initial screen, the first remaining
+node is promoted).
+
+Hovering a screen node's pin shows a **tooltip** with the pin's full role + binding (the
+handle row truncates long labels like `Loading / Intro · loadingProgress`), so you can
+always read exactly what a wire points at without it being cut off.
+
+### Search (palette + canvas)
+
+Two filter boxes help once a project has many screens:
+
+- **Filter screens** (top of the **Screens** palette) narrows the list of *unplaced*
+  scenes by name or id as you type, so you can find the one to place.
+- **Find on canvas** (below the palette, shown once at least one screen is placed) lists
+  *placed* screens matching your query; click a match to **select and focus** that node
+  on the canvas. The validation and diff panels (below) are also click-to-focus.
+
+### Copy and paste
+
+Select a screen and **Copy** (or **Ctrl+C**) puts that screen — *with its authored
+choreography* — and any transitions wholly inside the selection on an internal clipboard.
+**Paste** (or **Ctrl+V**) re-creates it with **fresh ids**: a pasted screen is always a
+new node (it never recycles an id), and pasted transitions get new ids with their
+endpoints remapped onto the pasted screens.
+
+Because a screen node *is* its backing Scene Editor scene (and a scene can be on the
+canvas only once), pasting maps each copied screen onto a backing scene: it re-pastes the
+*same* scene when that scene is currently free (e.g. after you removed it), otherwise onto
+the next **unplaced** scene in the project — carrying the choreography across. If no scene
+is free to receive the paste, nothing is pasted. Paste, like every edit, is a single
+undoable step.
+
+### Validation
+
+The left **Validation** panel lists authoring problems as **warnings** — it never blocks
+authoring, and the sub-bar shows a `⚠ N issues` badge. Each issue is one of:
+
+- **Unreachable screen** — no transition path from the initial screen reaches it.
+- **Dead-end screen** — a non-initial screen with no outgoing transition (the flow can
+  land on it but never leave via the graph). A single-screen flow is terminal by design
+  and is *not* flagged.
+- **No initial screen** / **Multiple initial screens** — the flow has no entry, or more
+  than one.
+- **Orphaned pins** — the screen has pins whose backing component was deleted.
+
+A flagged screen is also marked **inline** on the canvas (an amber node border). Click any
+node-scoped issue to select and focus the offending screen.
+
+### Authored-vs-coded diff
+
+The **Authored vs coded** panel makes the fall-through model legible: it shows, per screen
+and per book event, whether the FlowDoc **authors** it (the interpreter drives it) or it
+falls through to the **coded** default (the game's hard-coded mounting / book-event
+handler). A compact summary line reads e.g. *"3 of 4 screens authored · 5 of 11 events
+authored"*; each screen row shows which of its **enter / while / exit** phases are
+authored and is click-to-focus. This is exactly the boundary the runtime enforces — it
+reports what the document overrides versus inherits, it does not change behaviour.
 
 ### Author a screen's choreography (the micro editor)
 
@@ -158,9 +216,11 @@ Phase 4 (the panel says so).
 
 ### Undo / redo
 
-Every change — place, move, wire, edit, delete — goes through an undo/redo command
+Every change — place, move, wire, edit, delete, paste — goes through an undo/redo command
 stack. Use the **Undo** / **Redo** buttons in the sub-bar, or **Ctrl+Z** / **Ctrl+Y**
-(**Ctrl+Shift+Z** also redoes). A drag is coalesced into a single undo step.
+(**Ctrl+Shift+Z** also redoes). A drag is coalesced into a single undo step. The
+Ctrl+Z/Y/C/V shortcuts are suppressed while you are typing in a text field so they don't
+fight the browser's own editing.
 
 ### Save
 
@@ -175,26 +235,26 @@ loads the saved flow back onto the canvas.
   (bet/balance/auto-spin/RGS protocol) and the RGS-determined outcomes are off-limits —
   Flow is designed to ride on top of them, reacting to the lifecycle and book events
   they emit.
-- **No live visual preview yet.** The choreography editor's preview is a *deterministic
+- **No live visual preview.** The choreography editor's preview is a *deterministic
   timeline* of the broadcasts and delays you authored — useful for verifying order and
-  timing, but it does not yet show the game actually animating. A live visual preview needs
-  the runtime mounter (the generic scene mounter + emitter) and is **Phase 4**.
+  timing, but it does not show the game actually animating. A live visual of the game is
+  the running game's job, not this authoring tool.
 - **The Broadcast vocabulary is the bundled default.** The choreography Broadcast picker
   lists a faithful default emitter vocabulary (transcribed from the real lines / book-of
-  emitter unions). Each project supplying its *own* emitter vocabulary — read from the
-  project rather than the bundled default — comes with the build wiring in **Phase 6**.
-- **Saving does not yet change a running game.** Wiring the FlowDoc through
-  export → bake → pull → register so a shipped game runs from it is **Phase 6**. Until
-  then a game runs its coded mounting and book-event handlers exactly as before; the
-  FlowDoc you author and save here does not reach any running game.
+  emitter unions). Exporting each project's *own* emitter vocabulary as data to replace the
+  bundled default is a held authoring-fidelity follow-up; it changes which events the
+  picker offers, not the runtime.
 
 ## Known limitations / TODOs
 
 - Guard authoring edits a **single predicate** (the first comparison of a guard);
   multi-predicate AND guards are stored faithfully if already present but not yet fully
   editable in the inspector.
-- The macro authoring surface is built and the launcher build is green; the in-browser
-  authoring UX has not yet been owner-verified on the live deployed page.
+- Copy/paste is **internal to the tool** (a Ctrl+C/V clipboard in the page), not the OS
+  clipboard, so you cannot paste a subgraph between two browser tabs.
+- The launcher build is green and the Phase-7 helpers are headless-tested; the in-browser
+  authoring UX (search, copy/paste, validation panel, diff panel, tooltips) still needs an
+  owner visual-verify on the live deployed page.
 
 ## For developers
 
@@ -220,7 +280,15 @@ loads the saved flow back onto the canvas.
 - **Save endpoint:** `POST /api/flow/save` (`flow`-gated via the shared `gate` helper,
   mirroring `/api/rigger/save`); R2 read/write in `src/lib/server/flowStorage.ts` at the
   `flowDocKey` path — `<client>/<project>/editor/flow.json`, a sibling of `scenes.json`.
+- **Phase-7 authoring UX:** `ValidationPanel.svelte` + `FlowDiffPanel.svelte` render the
+  validation and diff panels; the palette/canvas search, copy/paste and focus logic live in
+  `+page.svelte`; the copy/paste command helpers (`copyScreens` / `pasteScreens`) are in
+  `flowModel.client.ts`. The pure helpers behind the panels are in `packages/engine-flow`:
+  `validate.ts` (`validateFlowDoc`) and `diff.ts` (`diffFlowDoc` + `DEFAULT_CODED_EVENTS`).
+  All three are headless-tested by `tools/flow-spike/phase7Authoring.ts`
+  (`pnpm --filter flow-spike run phase7`).
 - **The shared package:** `packages/engine-flow` — the FlowDoc schema (`types.ts`),
-  pin-derivation (`pins.ts`), the serialize/deserialize contract (`normalize.ts`), and
-  the runtime interpreter (executor + dispatch with fall-through), which is the Phase-6
-  consumer not yet wired into the build.
+  pin-derivation (`pins.ts`), the serialize/deserialize contract (`normalize.ts`),
+  validation (`validate.ts`), the authored-vs-coded diff (`diff.ts`), and the runtime
+  interpreter (executor + dispatch with fall-through), which ships the baked FlowDoc into
+  a real game (Phase 4–6).

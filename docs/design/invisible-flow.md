@@ -615,6 +615,77 @@ override per the WebGPU `preview_screenshot` limitation, not a screenshot.
 - Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
   is authored + baked — the owner's step.
 
+### Progress — Phase 7 (Authoring UX) IN PROGRESS, headless-verified (2026-06-24)
+
+Branch `flow/phase7-authoring-ux` (off the latest `main`). EDITOR-ONLY — the runtime
+interpreter, the games, XState/math and the bake pipeline are untouched, so there is no
+game-parity risk; the FlowDoc still round-trips clean (the `roundtrip` spike stays green).
+The first Phase-7 item (readable edge labels) landed earlier; this slice adds the rest of
+§9 row 7 — validation, search, copy/paste, the authored-vs-coded diff, and pin tooltips.
+
+**1 — Validation surfacing (`engine-flow/src/validate.ts`, `validateFlowDoc`).**
+- A PURE pass over the macro graph (Svelte-free, dependency-free, runs headlessly + in the
+  launcher) flagging, as WARNINGS (never blocks authoring, §7): **unreachable** screens (no
+  transition path from `initial`), **dead-end** screens (a non-initial screen with no
+  outgoing edge; a single-screen flow like `apps/lines` basegame is terminal-by-design and
+  NOT flagged), **no-initial** / **multiple-initial**, and **orphaned-pins** (folded in from
+  the per-screen orphan summary the model already derives via `deriveScreenPins`, §4). Each
+  node-scoped issue carries a clickable `screenId`. Surfaced in a new
+  `ValidationPanel.svelte` (click an issue to select/focus the node), an inline amber node
+  border (`FlowScreenNode` `invalid` flag), and a `⚠ N issues` sub-bar badge.
+
+**2 — Node/palette search.** A **Filter screens** box on the palette (filters unplaced
+scenes by name/id) + a **Find on canvas** box (lists placed screens matching a query;
+click → select + focus the node). Pure `$derived` filters; the validation + diff panels are
+also click-to-focus through the same `focusScreen`.
+
+**3 — Copy/paste subgraphs (`flowModel.client.ts` `copyScreens`/`pasteScreens`).** Copy the
+selected screen(s) WITH choreography + the transitions wholly internal to the selection;
+paste mints **fresh** transition ids and remaps endpoints (§12 — a paste is a new node, no
+id recycling). Because a screen node id IS its backing scene id (and a scene is placed at
+most once), paste maps each copied screen onto a target scene: re-pastes the same scene when
+free (e.g. after a cut) else onto the next UNPLACED scene, carrying the choreography. Wired
+through the command stack (undoable) + Ctrl+C/Ctrl+V (suppressed in text fields).
+
+**4 — Flow-diff vs coded default (`engine-flow/src/diff.ts`, `diffFlowDoc`).** A PURE
+summary of which screens/events the FlowDoc AUTHORS (interpreter-driven) vs falls through to
+the CODED default (§7) — the same predicate the dispatch uses. Rendered by a new
+`FlowDiffPanel.svelte`: a compact summary line ("N of M screens authored · N of M events
+authored"), per-screen enter/while/exit phase indicators (click-to-focus), and per-event
+authored/coded tags against `DEFAULT_CODED_EVENTS` (the `apps/lines`/Book-of handler-map
+keys). It REPORTS the §7 boundary, never changes behaviour.
+
+**5 — Visual polish.** Pin labels now carry a `title` tooltip (role + full binding, with an
+orphaned note) so a truncated handle label is readable on hover; node title gets a `title`
+too; handle row spacing nudged; the `invalid` node marker added. Consistent with the dark
+theme (the edge-label chip palette).
+
+**How it was verified headlessly**
+- `tools/flow-spike/phase7Authoring.ts` (`pnpm --filter flow-spike run phase7`) — 30/30
+  GREEN against the REAL `engine-flow` helpers: validation across every issue class
+  (unreachable island, dead-end leaf, no/multiple-initial, single-screen-clean, orphan
+  fold-in with count), the authored-vs-coded diff (per-screen phases + per-event tags +
+  summary), and the copy/paste invariant (a pasted subgraph with fresh ids round-trips
+  canonical + idempotent through `normalizeFlowDoc`, all ids unique). `pnpm --filter
+  engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN (the page +
+  `ValidationPanel` + `FlowDiffPanel` ship). The Phase-0 `parity`, Phase-1 `pins`,
+  Phase-2/3 `roundtrip`, Phase-4 `phase4`, Phase-5 `phase5` and Phase-6 `phase6` spikes ALL
+  still GREEN (copy/paste yields round-trip-clean docs).
+
+**Still needs owner-verify live (the authed page can't be driven headlessly):** the in-
+browser Phase-7 interactions — palette/canvas search, Copy/Paste (incl. Ctrl+C/V), the
+validation panel + inline node markers, the diff panel, and the pin tooltips — on the
+deployed launcher with auth + R2. Headless proves the helpers + build/ship/round-trip, not
+the pixels/interactions.
+
+**What's left**
+- The held emitter-union/effect-name export (replace `DEFAULT_EMITTER_VOCABULARY` with each
+  game's exported vocabulary) — authoring-fidelity follow-up, not runtime.
+- A `docs-keeper` audit of `docs/tools/flow.md` (the Phase-3 audit is still pending AND the
+  Phase-7 sections are a flagged first-draft).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its
+  flow is authored + baked — the owner's step.
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the
@@ -778,7 +849,7 @@ reproducing the exact mount + await/parallel/timing behaviour — which Phase 0 
 | **4 — Transitions (all 3) + generic mounter live** ✅ | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
 | **5 — Full migration** ✅ | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen + per-event parity-checked (the `effect` node bridges the non-emitter leaves; B.1 z-order + B.2 resume resolved) | high |
 | **6 — Pipeline wiring** ✅ | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
-| **7 — Authoring UX** | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
+| **7 — Authoring UX** ✅ | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
 
 **Phase 0 is a gate, not a formality.** Before any UI, prove headlessly:
 1. **Parity** — a hand-written FlowDoc (one screen + its `winInfo` choreography)
