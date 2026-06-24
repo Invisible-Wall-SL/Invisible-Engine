@@ -1271,6 +1271,7 @@ async function saveRigToLibrary(){
   const nm = name.trim();
   if (!nm){ setRigStatus("enter a name"); return; }
   setRigStatus('saving "' + nm + '" to library…');
+  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   try {
     const r = await fetch("/api/rigger/rigs/save", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -4493,6 +4494,7 @@ function positionPlayhead(){
 // extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
 function exportIrig(){
   if (!rawDoc) return;
+  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   const stem = (selected && selected.skeleton_file ? selected.skeleton_file : "skeleton").replace(/\.[^.]+$/, "");
   const blob = new Blob([JSON.stringify(rawDoc)], { type: "application/json" });
   const a = document.createElement("a");
@@ -4506,6 +4508,7 @@ function exportIrig(){
 // index so it re-appears in the list). Non-destructive — the source .json stays.
 async function saveToR2(){
   if (!rawDoc || !selected) return;
+  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   const stem = (selected.skeleton_file || "skeleton").replace(/\.[^.]+$/, "");
   const btn = $("#saveBtn"); const label = btn.textContent;
   btn.disabled = true; btn.textContent = "saving…";
@@ -4719,6 +4722,55 @@ function fitView(){
     cam.zoom = Math.max(size.x/vw, size.y/vh) * 1.25;
   }
   cam.update();
+}
+
+// ---- skeleton bounds on export -------------------------------------------
+// A spine exported with no `skeleton.width/height` has no natural size, so in the engine
+// its pivot pins to the origin (renders top-left) and an authored size can't size it — the
+// free-spin-intro rig hit exactly this. Spine writes those from the setup pose, but a rig
+// whose art is shown only via animation attachment-keys has an EMPTY setup pose (bounds 0).
+// So we union the bounds across the setup pose AND every animation (attachment swaps +
+// transforms via `poseAtTime`), and write the result into `rawDoc.skeleton` before each
+// save — so every exported rig carries proper bounds like a hand-authored spine.
+function computeRigBounds(){
+  if (!skeleton || !skeletonData) return null;
+  const off = new SPINE.Vector2(), size = new SPINE.Vector2();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const accumulate = () => {
+    updateWorld();
+    skeleton.getBounds(off, size, []);
+    if (size.x > 0 && size.y > 0){
+      if (off.x < minX) minX = off.x;
+      if (off.y < minY) minY = off.y;
+      if (off.x + size.x > maxX) maxX = off.x + size.x;
+      if (off.y + size.y > maxY) maxY = off.y + size.y;
+    }
+  };
+  try {
+    skeleton.setToSetupPose(); accumulate();
+    for (const a of skeletonData.animations){
+      const dur = a.duration || 0;
+      const steps = dur > 0 ? [0, 0.25, 0.5, 0.75, 1] : [0];
+      for (const f of steps){ skeleton.setToSetupPose(); poseAtTime(a.name, dur * f); accumulate(); }
+    }
+  } catch (e){ /* fall through to whatever we accumulated */ }
+  skeleton.setToSetupPose(); updateWorld(); // restore the live view
+  if (maxX > minX && maxY > minY) return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  return null;
+}
+
+// Write the computed bounds into `rawDoc.skeleton` (rounded). No-op if unmeasurable, so a
+// save never fails on this. Call right before any save/export of `rawDoc`.
+function ensureRigBounds(){
+  if (!rawDoc) return;
+  const b = computeRigBounds();
+  if (!b) return;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  rawDoc.skeleton = rawDoc.skeleton || {};
+  rawDoc.skeleton.x = r2(b.x);
+  rawDoc.skeleton.y = r2(b.y);
+  rawDoc.skeleton.width = r2(b.width);
+  rawDoc.skeleton.height = r2(b.height);
 }
 
 // ---- render loop ----------------------------------------------------------
