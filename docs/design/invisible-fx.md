@@ -13,10 +13,13 @@
 
 ## 0. Status
 
-**In build (Phase 1).** This doc is the registered build plan. Nothing ships until it
-travels the full asset chain (§8). Phase 0 (§7) is the make-or-break gate for the
-**spine-as-particle** tier — do not start that tier until the spike passes (the other two
-tiers are native and not gated).
+**In build (Phase 1 — increments 1 + 2 landed headlessly).** This doc is the registered
+build plan. Nothing ships until it travels the full asset chain (§8). Phase 0 (§7) is the
+make-or-break gate for the **spine-as-particle** tier — do not start that tier until the
+spike passes (the other two tiers are native and not gated). Current state: the `EffectDoc`
+schema + a LIVE `/fx` emitter preview exist (atlas pick → live emitter), verified by two
+headless harnesses; `/fx` stays UNREGISTERED (no save endpoint yet, so RULE 9 not yet
+triggered). The WebGL pixels need live owner-verify (see Progress, increment 2).
 
 ### Progress
 
@@ -60,6 +63,72 @@ tiers are native and not gated).
     + `docs/tools/fx.md` land with the real saveable page, RULE 9).
   - Files: `packages/engine-fx/{package.json,tsconfig.json,index.ts,src/types.ts,src/normalize.ts}`,
     `tools/fx-spike/{package.json,roundTrip.ts}`, `pnpm-workspace.yaml`.
+
+- **Phase 1 — increment 2: `/fx` page shell + LIVE emitter preview (Tier A) — ✅ DONE
+  HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no game bump, `/fx` STILL
+  UNREGISTERED in `roles.ts` so RULE 9 is not yet triggered — registration +
+  `docs/tools/fx.md` land with the saveable page).** The first *visible* surface of Tier A:
+  pick a project atlas, pick region(s), live-tune the core `EmitterConfigV3` in a WebGL
+  preview, all driven from an in-memory `EffectDoc` (no save endpoint yet — that's the next
+  increment). **Landed:**
+  - **`/fx` route** (`apps/launcher-api/src/routes/(app)/fx/`): `+page.server.ts` (SSR
+    OFF — the stage owns a `PIXI.Application`; auth + `editor`-scope gate, riding the
+    existing `editor` tool id rather than minting a new auth surface before the page is
+    saveable; loader REUSES `loadRegionSet` over the project's `manifests/*.json` — the
+    exact `/api/rigger/atlases` pattern — to stream the atlas + region list). `+page.svelte`
+    (layer list + atlas/region picker + minimal emitter inspector — frequency, max
+    particles, lifetime, spawn radius, alpha/scale/speed endpoints — `ToolTopBar` branding).
+    `FxStage.svelte` (the `/spine`-stage fork done Svelte-natively: own `Application` +
+    pan/zoom/play-pause + a live `Emitter` per layer rebuilt verbatim from the doc, with
+    the picked atlas page drawn faintly behind as a placement reference). `fxModel.client.ts`
+    (PURE editing model + config mutators — kept rune-free + PixiJS-free so the harness can
+    cover it). Art is read through the existing `editor`-gated `/api/editor/regions` +
+    `/api/editor/asset`; the stage slices per-frame textures from the packed page by the
+    picked region rects — so a picked region maps to `art.assetKey` + `art.frames` and
+    renders as a particle. The page reduces to the real `ParticleEmitter.svelte` contract
+    (`config` + `key`=`art.assetKey` + `emit`).
+  - **CAUGHT + FIXED — the silent-invisible-particle trap (the load-bearing review find):**
+    the prior shell relied on `upgradeConfig(config, textures)` to bind the art — but reading
+    the library source, **`upgradeConfig` is a NO-OP for a V3 config** (its `art` arg only
+    feeds the legacy V1/V2 flat-config upgrade; a V3 config returns unchanged). The default
+    config is V3 with no art behavior, so every emitter would have spawned **textureless,
+    invisible particles** — builds + ships + runs, renders nothing (exactly the trap class
+    [[feedback_validate_data_contracts_offline]] warns of). Fixed by a pure
+    **`bindArt(config, textures, animated)`** that injects the textures as the config's OWN
+    `textureRandom` (static) / `animatedSingle` (flipbook, `framerate:-1` match-life, loop)
+    behavior — leaving every other behavior byte-identical so the verbatim contract holds;
+    `bindArt`'s clone-then-attach order means its result is NOT re-JSON-cloned (that would
+    destroy the live `Texture` objects). This same injection is what the engine-side
+    `bakedEffects()` player will run at register time — kept pure + shared. Also hardened:
+    a rebuild **generation token** (fast inspector edits can't interleave two async
+    rebuilds into torn/duplicate emitters), and `emit` gated on `hasArt` (an unbound layer
+    never spawns).
+  - **Verified headlessly** by `tools/fx-spike/modelHelpers.ts`
+    (`pnpm --filter fx-spike run model`): **33/33 GREEN** — the default config has NO art
+    behavior (proving the bug existed), `bindArt` injects the correct behavior for 0 / 1 /
+    >1-static / >1-animated textures, carries the LIVE texture objects through (not
+    JSON-cloned away), is pure (no input mutation), replaces (never stacks) a prior art
+    behavior, and a bound config still passes `upgradeConfig` with its art intact; every
+    inspector mutator (`setCoreParam`/`setListEndpoint`/`setSpawnRadius`) is pure +
+    round-trips with its readout; the doc/layer factories produce a valid shape. The
+    increment-1 round-trip harness still **PASSES** (schema unchanged). `pnpm --filter
+    launcher-api build` **GREEN** (the `(app)/fx` entry builds).
+  - **NEEDS LIVE OWNER-VERIFY (the WebGL pixels — not browser-verifiable here, authed):**
+    (1) picked atlas regions actually **render as particles** on the `/fx` canvas (the
+    texture-slice + `bindArt` path producing visible sprites); (2) the emitter **responds
+    live** to inspector edits (changing frequency / lifetime / alpha-scale-speed endpoints /
+    spawn radius visibly re-tunes the running emitter); (3) a >1-frame + Flipbook layer
+    animates its frames; (4) pan/zoom/play-pause + the faint atlas backdrop behave; (5) no
+    GPU/emitter leak across many edits (the gen-guarded rebuild + `init`/`destroy`
+    lifecycle). The headless harness covers the data/config contract; only a human can
+    confirm the pixels.
+  - **Next increment:** `POST /api/fx/save` (mirroring `/api/rigger/save`) + reopen —
+    write `<bundle>/<id>.fx.json` (+ `.fx.meta.json` sidecar for camera/selection), wire
+    the load path, THEN register `/fx` in `roles.ts` and ship `docs/tools/fx.md` +
+    the `docs/tools/README.md` row in the SAME change (RULE 9, via `docs-keeper`).
+  - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.server.ts,+page.svelte,FxStage.svelte,fxModel.client.ts}`,
+    `tools/fx-spike/modelHelpers.ts` (+ `tools/fx-spike/package.json` `model` script),
+    `apps/launcher-api/package.json` (+`engine-fx`, +`@barvynkoa/particle-emitter@0.0.1`).
 
 ## 1. Naming (settled here to avoid a real collision)
 

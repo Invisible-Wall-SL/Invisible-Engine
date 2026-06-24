@@ -147,6 +147,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1055.0
         version: 3.1057.0
+      '@barvynkoa/particle-emitter':
+        specifier: 0.0.1
+        version: 0.0.1(pixi.js@8.8.1)
       '@sveltejs/kit':
         specifier: 2.17.3
         version: 2.17.3(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.5)(vite@6.2.0(@types/node@26.0.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2)))(svelte@5.20.5)(vite@6.2.0(@types/node@26.0.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2))
@@ -159,6 +162,9 @@ importers:
       engine-flow:
         specifier: workspace:*
         version: link:../../packages/engine-flow
+      engine-fx:
+        specifier: workspace:*
+        version: link:../../packages/engine-fx
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
