@@ -757,6 +757,70 @@ not the picker pixels.
 - Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
   is authored + baked — the owner's step.
 
+### Progress — tap-to-continue / signal-trigger addition DONE headlessly (2026-06-24)
+
+Branch `flow/tap-to-continue` (off the latest flow stack). The RUNTIME/INTERPRETER HALF of a
+"tap to continue" feature (owner decision: BOTH — a tap both completes the active screen AND
+emits a named signal). The component that captures the tap is the NEXT agent's job; this slice
+exposes the API it will call. No game submodule bump. No XState/math touched. Parity (§7) held:
+no existing FlowDoc uses `signal` triggers or the new hooks, so every current doc/game is
+byte-identical and the default/empty path is unchanged.
+
+**A — "advance/complete the active screen" runtime hook.**
+- `FlowInterpreter.completeActiveScreen()` (`engine-flow/src/interpreter.ts`) — runs the active
+  screen's `exit` choreography then fires its `complete`/`exited` structural pin, so any
+  `complete`-triggered edge from that screen advances the flow (the click analogue of the screen
+  self-signalling done, §6.2). A SAFE no-op when the interpreter is inert (no FlowDoc ⇒ no machine
+  ⇒ returns `false`). Maps to the HSM's existing `onComplete()` — the exit phase already runs inside
+  the transition swap (`performTransition`), so the requested semantic is satisfied by construction;
+  this is a clearly-named alias of the `complete()` boundary for the tap path.
+
+**B — new `signal` transition trigger.**
+- `FlowTrigger` gains `{ kind:'signal'; signal:string }` (`engine-flow/src/types.ts`). The HSM
+  (`presentation.ts`) gains `onSignal(name)` — fires the first active-screen outgoing edge whose
+  trigger is `{kind:'signal', signal:name}`, mirroring how a `bookEvent` trigger matches the
+  arriving event `type`; a non-matching name / un-listened signal is a no-op. The interpreter
+  surfaces `emitSignal(name)` (a no-op returning `false` when inert). `normalizeFlowDoc`
+  (`normalize.ts`) round-trips the new trigger and DROPS an invalid one (missing/empty `signal`)
+  without corrupting the doc (the bake/save contract). `diff.ts`/`validate.ts` need no change (they
+  don't switch on trigger kind).
+
+**C — game-side holder access (the next agent's call sites).**
+- `apps/lines/src/game/flowInterpreterHolder.ts` exports `completeActiveScreen()` and
+  `emitFlowSignal(signal)` — both read the interpreter singleton the same way `game/utils.ts`'s
+  `playBookEvent` does (`getFlowInterpreter()`), and are SAFE no-ops returning `false` when no
+  FlowDoc is active. The next agent's tap component imports these two functions and calls them on
+  click — `completeActiveScreen()` for the `complete`-edge path, `emitFlowSignal('<name>')` for the
+  `signal`-edge path. (Both, per the owner's "Both" decision.)
+
+**D — /flow editor — `signal` trigger option.**
+- `EdgeInspector.svelte` trigger picker gains a "Tap signal" option + a signal-name input
+  (consistent with the bookEvent/complete/condition UI). The `+page.svelte` edge-label switch gains
+  a `tap: <name>` case (kept the switch exhaustive for the new variant).
+
+**How it was verified headlessly + build-shipped**
+- `tools/flow-spike/tapToContinue.ts` (`pnpm --filter flow-spike run tap`) — 16/16 GREEN against the
+  REAL interpreter/HSM/normalize: (A) `emitSignal` matched fires + advances winPresentation→basegame
+  running exit-then-enter in order, non-matching name + un-listened signal are no-ops; (B)
+  `completeActiveScreen()` runs exit(bonusIntro)→enter(bonus) via a `complete` edge, no-op with no
+  edge; (C) inert (no FlowDoc) ⇒ both hooks return `false` (parity §7); (D) a `signal`-trigger doc
+  round-trips canonical + idempotent through `normalizeFlowDoc`, an invalid signal trigger is dropped
+  while the valid sibling survives.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN (the
+  EdgeInspector + page ship); `pnpm --filter lines build` GREEN (after `pnpm --filter pixi-svelte
+  build` to clear the stale-engine-dist gotcha) with `completeActiveScreen`/`emitSignal`/`onSignal`
+  confirmed present in the minified client bundle (shipment). The Phase-0 `parity`, Phase-1 `pins`,
+  Phase-2/3 `roundtrip`, Phase-4 `phase4` (allowlist extended with `onSignal` — still a pure
+  observe/react surface, no platform-driving method), Phase-5 `phase5`, Phase-6 `phase6`, Phase-7
+  `phase7` spikes ALL still GREEN. (`vocab` was already failing on the base — a codegen-staleness
+  `--check`, unrelated to this change; no vocab files touched here.)
+
+**Still needs owner-verify live:** nothing for the runtime half — the next change (the tap-capturing
+component) is what makes a tap reach `completeActiveScreen()`/`emitFlowSignal()` in a real game; this
+slice proves the API + signal matching + round-trip headlessly. When the engine `signal`-trigger work
+must reach Book of Borut, bump its `engine` submodule (owner's mirror step) once a tap-enabled flow is
+authored.
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the

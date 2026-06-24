@@ -132,6 +132,8 @@
 				return `event: ${trigger.event || '…'}`;
 			case 'complete':
 				return 'on complete';
+			case 'signal':
+				return `tap: ${trigger.signal || '…'}`;
 			case 'condition':
 				return 'condition';
 		}

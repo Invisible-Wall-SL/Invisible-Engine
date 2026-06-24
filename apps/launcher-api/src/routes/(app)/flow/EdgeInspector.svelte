@@ -10,8 +10,10 @@
 	import type { TransitionEdit } from './flowModel.client';
 
 	// The transition inspector (design doc §6): edit a transition edge's trigger
-	// (bookEvent / complete / condition), an optional bounded guard (a closed comparison
-	// set — NOT an expression language, §11.4), an optional delay, and the author order.
+	// (bookEvent / complete / signal / condition), an optional bounded guard (a closed
+	// comparison set — NOT an expression language, §11.4), an optional delay, and the order.
+	// `signal` is the tap-to-continue trigger — a named runtime signal a tap-enabled component
+	// emits (`emitSignal(name)`), letting a user CLICK drive the macro flow.
 	// Every change emits a {@link TransitionEdit} the page applies through a command.
 	let {
 		edge,
@@ -35,12 +37,18 @@
 				? { kind: 'bookEvent', event: edge.trigger.kind === 'bookEvent' ? edge.trigger.event : '' }
 				: kind === 'complete'
 					? { kind: 'complete' }
-					: { kind: 'condition' };
+					: kind === 'signal'
+						? { kind: 'signal', signal: edge.trigger.kind === 'signal' ? edge.trigger.signal : '' }
+						: { kind: 'condition' };
 		onedit({ trigger });
 	}
 
 	function setEvent(event: string): void {
 		onedit({ trigger: { kind: 'bookEvent', event } });
+	}
+
+	function setSignal(signal: string): void {
+		onedit({ trigger: { kind: 'signal', signal } });
 	}
 
 	function setDelay(value: string): void {
@@ -118,6 +126,7 @@
 		<select value={edge.trigger.kind} onchange={(e) => setKind(e.currentTarget.value as FlowTrigger['kind'])}>
 			<option value="bookEvent">Book event</option>
 			<option value="complete">Screen complete</option>
+			<option value="signal">Tap signal</option>
 			<option value="condition">Engine condition</option>
 		</select>
 	</label>
@@ -129,6 +138,15 @@
 				value={edge.trigger.event}
 				placeholder="e.g. freeSpinTrigger"
 				oninput={(e) => setEvent(e.currentTarget.value)}
+			/>
+		</label>
+	{:else if edge.trigger.kind === 'signal'}
+		<label class="field">
+			<span>Signal name</span>
+			<input
+				value={edge.trigger.signal}
+				placeholder="e.g. tapContinue"
+				oninput={(e) => setSignal(e.currentTarget.value)}
 			/>
 		</label>
 	{/if}
