@@ -353,6 +353,44 @@ async function main() {
 			);
 		}
 
+	// Export the project's Invisible Flow document (the authored presentation graph)
+	// into R2 `deploy/flow.json` and embed the returned doc so the game's interpreter
+	// runs the authored flow instead of its coded mounting + bookEventHandlerMap. The
+	// FlowDoc carries NO binary assets (it references scenes the editor already
+	// exported), so there is no deploy mirror for it — just the embedded doc. Absent /
+	// un-authored ⇒ `flow` stays undefined ⇒ the interpreter is inert ⇒ the coded path
+	// runs, byte-identical to today (design doc §7 fall-through, §10 pipeline).
+	let flow;
+	const flowUrl =
+		`${base}/api/editor/export-flow?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the flow export — it writes to R2 deploy/.');
+	} else
+		try {
+			const flowRes = await fetchRetry(flowUrl, { method: 'POST' }, 'flow export');
+			if (!flowRes.ok) {
+				bail(`Flow export failed: HTTP ${flowRes.status} — ${await bodySnippet(flowRes)}`);
+			}
+			const f = await flowRes.json();
+			// Only embed a NON-EMPTY authored flow. An empty doc (no screens/transitions/
+			// events) is the un-authored case — leave `flow` undefined so the bundle omits it
+			// and the game stays byte-identical to current `main` (parity, §7).
+			const fd = f?.flow;
+			const authored =
+				fd &&
+				typeof fd === 'object' &&
+				((Array.isArray(fd.screens) && fd.screens.length > 0) ||
+					(Array.isArray(fd.transitions) && fd.transitions.length > 0) ||
+					(Array.isArray(fd.events) && fd.events.length > 0));
+			if (authored) flow = fd;
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-flow — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Localization-tool strings (reviewed translations + source text), merged into
 	// the game's Lingui catalog at boot so editor-authored localization keys (e.g.
 	// a textBox's `text` param) resolve in the shipped game. Absent/empty doc is
@@ -399,6 +437,10 @@ async function main() {
 		fonts,
 		localization,
 		symbols,
+		// The authored presentation graph (Invisible Flow). Omitted unless the project
+		// authored a non-empty flow, keeping the bundle byte-identical for every game
+		// with no flow work — the §7 fall-through (absent ⇒ interpreter inert).
+		...(flow ? { flow } : {}),
 	};
 
 	const sceneCount = doc.scenes.length;
@@ -412,6 +454,9 @@ async function main() {
 	const symbolCount = Object.keys(symbols.map).length;
 	const symbolAssetCount =
 		symbols.index.sheets.length + symbols.index.images.length + symbols.index.spines.length;
+	const flowNote = flow
+		? ` flow={${flow.screens?.length ?? 0} screens/${flow.transitions?.length ?? 0} transitions/${flow.events?.length ?? 0} events},`
+		: '';
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
@@ -438,7 +483,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${settingsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${settingsNote}${flowNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -449,7 +494,7 @@ async function main() {
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
-			`${highlightNote}${winLineNote}${settingsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+			`${highlightNote}${winLineNote}${settingsNote}${flowNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 
