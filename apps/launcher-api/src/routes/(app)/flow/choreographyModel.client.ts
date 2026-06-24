@@ -253,9 +253,11 @@ export const removeChoreoNode = (doc: FlowDoc, target: ChoreoTarget, path: Chore
 
 /** The editable per-node fields surfaced in the node inspector. */
 export interface ChoreoNodeEdit {
-	/** broadcast: the emitter event type. */
+	/** broadcast: the emitter event type. effect: the registered effect name. */
 	event?: string;
-	/** broadcast: payload accessors (replaces the whole payload; empty clears it). */
+	/** effect: the game-registered effect name (a `flowEffects` key). */
+	name?: string;
+	/** broadcast / effect: payload accessors (replaces the whole payload; empty clears it). */
 	payload?: FlowPayload | null;
 	/** broadcast: async / await shape (the three-way split, design doc §11.1). */
 	async?: boolean;
@@ -292,6 +294,10 @@ export const editChoreoNode = (
 			if (edit.mode) node.mode = edit.mode;
 		} else if (node.kind === 'branch') {
 			if (edit.guard) node.guard = edit.guard;
+		} else if (node.kind === 'effect') {
+			if (typeof edit.name === 'string') node.name = edit.name;
+			if (edit.payload === null) delete node.payload;
+			else if (edit.payload) node.payload = edit.payload;
 		}
 	});
 	return ok ? setChoreoRoot(doc, target, root) : doc;
@@ -395,5 +401,7 @@ export const choreoNodeSummary = (node: ChoreographyNode): string => {
 			return `ForEach (${node.mode})`;
 		case 'branch':
 			return 'Branch';
+		case 'effect':
+			return `Effect: ${node.name || '…'}`;
 	}
 };

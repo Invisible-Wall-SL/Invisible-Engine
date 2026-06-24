@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { resolveFlowVocabulary } from '$lib/flowVocabularies';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -41,5 +42,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		listComponents({ projectKey }),
 		loadFlowDoc(clientKey, projectKey),
 	]);
-	return { clientKey, projectKey, doc, components, flow };
+	// The choreography Broadcast/effect palette offers the game's EXPORTED emitter vocabulary
+	// (codegen'd from `typesEmitterEvent.ts` + `flowEffects.ts`), selected by the LayoutDoc
+	// `gameType`; an unrecognized game falls back to `DEFAULT_EMITTER_VOCABULARY` (parity-safe,
+	// design doc §3/§7). Authoring-fidelity only — it never changes the runtime.
+	const vocabulary = resolveFlowVocabulary(doc.gameType);
+	return { clientKey, projectKey, doc, components, flow, vocabulary };
 };

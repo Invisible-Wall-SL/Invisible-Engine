@@ -44,11 +44,29 @@ export interface EmitterEventDef {
 	fields?: EmitterEventField[];
 }
 
+/**
+ * One game-registered EFFECT name (a key of the game's `flowEffects` map, design doc §11.5).
+ *
+ * An `effect` choreography node names a bounded, game-implemented side effect (the
+ * `declare ≠ implement` analogue of `registerComponentActions`). Like the emitter union,
+ * the effect catalog lives in the game's compile-time source (`flowEffects.ts`) and has no
+ * serialized form, so it is carried alongside the emitter events in the same passed-in
+ * {@link EmitterVocabulary} and surfaced in the choreography inspector.
+ */
+export interface EmitterEffectDef {
+	/** The effect `name` the executor invokes (`runtime.effect(name)`). */
+	name: string;
+	/** A grouping label for the palette (provenance only, e.g. the game template). */
+	group?: string;
+}
+
 /** The full broadcast vocabulary handed to the authoring surface (the passed-in catalog). */
 export interface EmitterVocabulary {
 	/** A label for the source game/template (provenance only). */
 	source?: string;
 	events: EmitterEventDef[];
+	/** The game-registered effect names (`flowEffects` keys); absent ⇒ no exported catalog. */
+	effects?: EmitterEffectDef[];
 }
 
 /**
@@ -183,3 +201,9 @@ export const findEmitterEvent = (
 	vocab: EmitterVocabulary,
 	type: string,
 ): EmitterEventDef | undefined => vocab.events.find((e) => e.type === type);
+
+/** Look up one effect def by `name` (for the Effect node's name picker). */
+export const findEmitterEffect = (
+	vocab: EmitterVocabulary,
+	name: string,
+): EmitterEffectDef | undefined => vocab.effects?.find((e) => e.name === name);

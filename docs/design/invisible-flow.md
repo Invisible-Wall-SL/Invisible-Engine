@@ -679,12 +679,83 @@ deployed launcher with auth + R2. Headless proves the helpers + build/ship/round
 the pixels/interactions.
 
 **What's left**
-- The held emitter-union/effect-name export (replace `DEFAULT_EMITTER_VOCABULARY` with each
-  game's exported vocabulary) — authoring-fidelity follow-up, not runtime.
 - A `docs-keeper` audit of `docs/tools/flow.md` (the Phase-3 audit is still pending AND the
-  Phase-7 sections are a flagged first-draft).
+  Phase-7 sections are a flagged first-draft; the choreography Broadcast/effect picker now
+  sources the game's EXPORTED vocabulary + offers an effect-name picker — see the emitter-vocab
+  item below — which the audit should document).
 - Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its
   flow is authored + baked — the owner's step.
+
+### Progress — Phase 7 emitter-vocabulary export DONE headlessly (2026-06-24)
+
+Branch `flow/phase7-emitter-vocab` (off the latest `main`). EDITOR/CODEGEN-ONLY — no runtime,
+game, XState/math or pipeline code touched, and the new `flowVocabulary.ts` is imported by
+NOTHING in the game runtime (only the spike). This is an **authoring-fidelity** improvement:
+it changes which Broadcast events + effect names the `/flow` choreography palette OFFERS, never
+the runtime (the executor broadcasts/invokes whatever the FlowDoc declares regardless). **Zero
+game-parity risk; no submodule bump.** Resolves the held follow-up from Phase 3 (§B,
+~lines 263-275) / Phase 6 (~lines 599-609).
+
+**Mechanism chosen — build-time CODEGEN (not a pipeline export), and why.** The emitter union
+(`typesEmitterEvent.ts` + the per-component `EmitterEvent*` unions + the shared
+`EmitterEventUi`/`Modal`/`HotKey` unions a game composes) and the effect catalog
+(`flowEffects.ts` keys) are properties of the GAME SOURCE — identical across every project built
+on that game, NOT per-project authored data living in R2. Pushing a per-game constant through
+export→deploy→bake→R2-per-project (the option-b path the FlowDoc itself travels) would invent
+per-project storage for non-per-project data. So codegen is the honest fit: it parses each
+game's source into a committed, serializable `EmitterVocabulary` fixture (mirroring the existing
+committed game-source fixtures `flowDoc.ts`/`flowEffects.ts`) and surfaces it through the
+launcher exactly the way the LayoutDoc + component defs are passed in (design doc §3/§11).
+
+**What landed**
+- `scripts/gen-flow-vocabulary.mjs` (run `pnpm gen:flow-vocab`, check `pnpm gen:flow-vocab:check`)
+  — a deterministic parser of the simple `{ type: 'name'; field: Type }` union members + the
+  `flowEffects` map keys. Emits TWO committed files (Prettier-formatted in-script so write +
+  `--check` are idempotent): `apps/lines/src/game/flowVocabulary.ts` (`LINES_EMITTER_VOCABULARY`,
+  35 events incl. the shared UI cues + `soundFade` the hand-written default missed, 20 effects)
+  and `apps/launcher-api/src/lib/flowVocabularies.ts` (the launcher registry keyed by LayoutDoc
+  `gameType` + `resolveFlowVocabulary(gameType)`, which falls back to `DEFAULT_EMITTER_VOCABULARY`
+  for any unrecognized game — the §7 parity-safe default). `lines`+`bookOf` map to the lines
+  vocab (the shared lines/book-of union covers Book of Borut); everything else ⇒ default.
+- `engine-flow/src/emitterVocabulary.ts` gained `EmitterEffectDef` + `EmitterVocabulary.effects?`
+  + `findEmitterEffect`; `DEFAULT_EMITTER_VOCABULARY` is UNCHANGED (still the fallback).
+- The editor now PREFERS the exported vocabulary: `/flow` `+page.server.ts` resolves it from the
+  LayoutDoc `gameType` via `resolveFlowVocabulary` and passes it as `data.vocabulary`; `+page.svelte`
+  feeds that to `ChoreographyEditor` instead of the hardcoded `DEFAULT_EMITTER_VOCABULARY`.
+- **Effect-name catalog surfaced (the doc's "emitter union + effect-name catalog" pairing).**
+  `ChoreoNodeInspector` renders an effect-name picker (from `vocab.effects`) for an `effect`
+  node, with a "not a registered effect" warning; `editChoreoNode`/`ChoreoNodeEdit` gained the
+  `effect` `name` edit; `choreoNodeSummary` gained the previously-missing `effect` case so an
+  effect node labels on the canvas. (Adding `effect` as a NEW addable node kind stays deferred —
+  this surfaces the catalog for existing/authored effect nodes, not a full effect authoring UX.)
+
+**How it was verified headlessly**
+- `tools/flow-spike/vocabulary.ts` (`pnpm --filter flow-spike run vocab`) — 13/13 GREEN: (1) the
+  codegen is IN SYNC with source (`--check` exits 0, so the fixture cannot silently drift from the
+  union/effect map the way the hand-written default could); (2) every Broadcast event (26) + every
+  effect (20) the REAL `LINES_FLOW_DOC` authors is present in the exported vocab; (3) the exported
+  vocab is a SUPERSET of `DEFAULT_EMITTER_VOCABULARY` (real union, never a regression) and adds
+  events the hand-transcribed default missed (e.g. `soundFade`); (4) the launcher registry maps
+  `lines`/`bookOf` and `resolveFlowVocabulary` falls back to the default for unknown/absent
+  gameType.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the page + registry + effect picker ship). The Phase-0 `parity`, Phase-1 `pins`, Phase-2/3
+  `roundtrip`, Phase-4 `phase4`, Phase-5 `phase5`, Phase-6 `phase6` and Phase-7 `phase7` spikes
+  ALL still GREEN. (`pnpm --filter lines build` fails in this worktree on the pre-existing
+  stale-engine-dist gotcha — `pixi-svelte` entry unresolved — unrelated to this change; the new
+  fixture compiles, proven by the spike's tsx import, and is imported by no game runtime module.)
+
+**Still needs owner-verify live (the authed page can't be driven headlessly):** in the deployed
+launcher, open a lines/book-of project's `/flow`, double-click a screen → the Broadcast picker
+lists the game's real events (incl. `soundFade`/UI cues) and an `effect` node offers the
+registered effect names. Headless proves the codegen fidelity + build/ship + resolver fallback,
+not the picker pixels.
+
+**What's left**
+- The `docs-keeper` audit of `docs/tools/flow.md` (Phase-3 + Phase-7 first-draft, now ALSO the
+  exported-vocabulary palette + effect-name picker).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
+  is authored + baked — the owner's step.
 
 ## 1. Why this tool exists (the goal)
 
