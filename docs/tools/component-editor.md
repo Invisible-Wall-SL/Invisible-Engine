@@ -130,6 +130,16 @@ existing scene instances keep the version they pinned and are never silently mov
 to your edit — they stay on their pinned version until an explicit "update to
 latest" (that per-instance action is not built yet).
 
+**Promote to shared.** Holders of the **`componentPublish`** capability (admin by
+default, grantable per role/user in `/admin`) also see a **Promote to shared** button
+in the top bar while a component is open. It saves a repo-wide copy to the shared
+library (`_shared/editor-components/<id>.json`) that every project inherits, gated
+behind a confirm. It is a **snapshot**: the component you keep editing here stays a
+**project** component, and a project component of the same id still **shadows** the
+shared copy wherever it loads — promoting does not move or delete your project copy.
+Users without the capability never see the button (the API enforces the same gate
+server-side, so there is no button that would 403).
+
 ### 5. Use it in the Scene Editor
 
 Open the Scene Editor and find the component in its **Components** panel (grouped by
@@ -175,10 +185,11 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
   open draft; closing the tool or navigating away discards it (you are warned
   first). There is no autosave.
-- **Components are project-scoped on save (no shared button yet).** Authoring here
-  always writes a **project** component (which shadows a shared one of the same id).
-  The server/storage/API layer **can** now save a `scope:'shared'` component to the
-  `_shared/editor-components/` library — gated behind the `componentPublish`
-  capability (admin-only by default, grantable per role in `/admin`) — but the
-  promote-to-shared **button** is not exposed in this UI yet. Shared writes are
-  plumbing-complete; only the UI affordance is missing.
+- **Save writes a project component; promote-to-shared is now exposed.** The primary
+  **Save component** always writes a **project** component (which shadows a shared one
+  of the same id). A separate **Promote to shared** button — gated on the
+  `componentPublish` capability (admin-only by default, grantable per role in
+  `/admin`) — writes a `scope:'shared'` snapshot to the `_shared/editor-components/`
+  library. Authoring a SHARED component as its only copy (no project shadow), and a
+  promote-from-the-Library-row affordance for components you are not currently editing,
+  are not built yet.

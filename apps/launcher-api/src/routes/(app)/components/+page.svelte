@@ -366,6 +366,60 @@
 		}
 	}
 
+	/**
+	 * Promote the open draft to the SHARED library (`_shared/editor-components/<id>.json`,
+	 * §8.3): POST with `scope:'shared'` and NO `project` key. Gated in the UI on
+	 * `data.canPublishShared` (the `componentPublish` capability) — the API enforces the
+	 * same capability server-side. The local draft stays `scope:'project'`: the saved
+	 * shared copy is a SNAPSHOT, and a project component of the same id still shadows it
+	 * everywhere it loads, so we keep editing/saving the project copy here (the confirm
+	 * spells this out). Reuses the same status pill as a project save.
+	 */
+	async function promoteToShared(): Promise<void> {
+		if (!componentDraft || saveBusy || !data.canPublishShared) return;
+		if (
+			!window.confirm(
+				`Promote "${componentDraft.name}" to the SHARED library?\n\n` +
+					'This writes a repo-wide copy every project inherits. The project component ' +
+					'of the same id still SHADOWS the shared one wherever it exists — promoting ' +
+					'does not move or delete your project copy.',
+			)
+		) {
+			return;
+		}
+		saveBusy = true;
+		saveStatus = null;
+		try {
+			// A shared write carries no `project` and a `scope:'shared'` def, so the API
+			// routes it to `_shared/editor-components/` behind the `componentPublish` gate.
+			const body = { ...$state.snapshot(componentDraft), scope: 'shared' };
+			const res = await fetch('/api/editor/component', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (res.ok) {
+				saveStatus = { kind: 'ok', message: 'Promoted to shared library' };
+			} else {
+				let message = 'Promote to shared failed';
+				try {
+					const b = (await res.json()) as { message?: string };
+					if (b?.message) message = b.message;
+				} catch {
+					/* non-JSON error body */
+				}
+				saveStatus = { kind: 'error', message };
+			}
+		} catch (e) {
+			saveStatus = {
+				kind: 'error',
+				message: e instanceof Error ? e.message : 'Promote to shared failed',
+			};
+		} finally {
+			saveBusy = false;
+		}
+	}
+
 	/** Toggle the component PARAM identified by a catalog entry on the draft. */
 	function toggleComponentParam(key: string, kind: ComponentParam['kind']): void {
 		if (!componentDraft) return;
@@ -662,6 +716,17 @@
 				<button class="save-btn primary" type="button" onclick={() => void saveComponent()}>
 					Save component
 				</button>
+				{#if data.canPublishShared}
+					<button
+						class="save-btn"
+						type="button"
+						disabled={saveBusy}
+						title="Save a repo-wide copy to the shared library (_shared/editor-components). A project component of the same id still shadows it."
+						onclick={() => void promoteToShared()}
+					>
+						Promote to shared
+					</button>
+				{/if}
 				<button class="save-btn" type="button" onclick={closeComponent}>← All components</button>
 			{:else}
 				<span class="counter">

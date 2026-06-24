@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
@@ -36,6 +36,16 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
+	// Whether the user may PROMOTE a component to the shared library (a `scope:'shared'`
+	// write to `_shared/editor-components/`). Mirrors the Font Maker's `canPublishShared`:
+	// the API enforces `componentPublish` server-side, so the page must not dangle a
+	// promote button that would 403. Project saves stay open under the `editor` gate above.
+	const canPublishShared = roleHasCapability(
+		locals.user.role,
+		COMPONENT_PUBLISH_CAPABILITY,
+		roleOverrides,
+		overrides,
+	);
 	const [components, assets, componentDefaults, doc] = await Promise.all([
 		// Components the project can use (shared + project, project shadowing shared, §8.3).
 		listComponents({ projectKey }),
@@ -62,5 +72,6 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		componentDefaults,
 		openId,
 		mainSizesMap: doc.mainSizesMap,
+		canPublishShared,
 	};
 };
