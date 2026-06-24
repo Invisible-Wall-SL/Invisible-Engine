@@ -1,0 +1,27 @@
+{
+	"name": "engine-fx",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\""
+	},
+	"dependencies": {
+		"@barvynkoa/particle-emitter": "0.0.1"
+	},
+	"peerDependencies": {
+		"pixi.js": "8.8.1"
+	},
+	"devDependencies": {
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"config-ts": "workspace:*",
+		"pixi.js": "8.8.1",
+		"typescript": "5.8.3"
+	}
+}

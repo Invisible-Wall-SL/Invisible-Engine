@@ -1,0 +1,14 @@
+{
+	"name": "fx-spike",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"roundtrip": "tsx roundTrip.ts"
+	},
+	"devDependencies": {
+		"tsx": "4.19.2",
+		"engine-fx": "workspace:*",
+		"@barvynkoa/particle-emitter": "0.0.1"
+	}
+}

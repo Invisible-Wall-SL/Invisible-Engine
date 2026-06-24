@@ -1305,6 +1305,28 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
+  packages/engine-fx:
+    dependencies:
+      '@barvynkoa/particle-emitter':
+        specifier: 0.0.1
+        version: 0.0.1(pixi.js@8.8.1)
+    devDependencies:
+      config-ts:
+        specifier: workspace:*
+        version: link:../config-ts
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@1.21.7)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      pixi.js:
+        specifier: 8.8.1
+        version: 8.8.1
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
   packages/engine-layout:
     dependencies:
       components-layout:
@@ -1961,6 +1983,18 @@ importers:
       utils-shared:
         specifier: workspace:*
         version: link:../../packages/utils-shared
+
+  tools/fx-spike:
+    devDependencies:
+      '@barvynkoa/particle-emitter':
+        specifier: 0.0.1
+        version: 0.0.1(pixi.js@8.8.1)
+      engine-fx:
+        specifier: workspace:*
+        version: link:../../packages/engine-fx
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
 
 packages:
 
