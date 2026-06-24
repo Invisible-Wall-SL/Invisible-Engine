@@ -518,6 +518,25 @@
 	.canvas :global(.svelte-flow) {
 		background: #0b0e13;
 	}
+	/* Edge transition labels: xyflow's default light pill washes out on the dark
+	   canvas. Force a solid dark chip with light text + rounded corners. The label bg is
+	   an unclassed SVG <rect> inside the wrapper <g>, so target the rect generically. */
+	.canvas :global(.svelte-flow__edge-textwrapper rect) {
+		fill: #161b22;
+		stroke: #2a323d;
+		stroke-width: 1px;
+		rx: 5px;
+		ry: 5px;
+	}
+	.canvas :global(.svelte-flow__edge-text) {
+		fill: #cbd5e1;
+		font-size: 11px;
+		font-weight: 500;
+	}
+	/* Selected edge: lift the chip to the blue accent so the active transition reads. */
+	.canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-textwrapper rect) {
+		stroke: #2563eb;
+	}
 	.empty {
 		display: grid;
 		place-items: center;
