@@ -96,6 +96,81 @@ Branch `flow/phase0-interpreter-spike`. No editor UI built; no game submodule bu
 **Still needs owner-verify live:** nothing yet. The runtime swap into a real
 `apps/lines`/Borut boot is Phase 4; this slice proves async/timing fidelity in isolation.
 
+### Progress — Phase 1 DONE headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike` (continued). No game bump; `/flow` left
+UNREGISTERED (behind the curtain) for this read-only spike — RULE 9 fires in Phase 2.
+
+**Step 1 — Svelte Flow install spike (the §12 decision gate): xyflow WINS.**
+- Installed `@xyflow/svelte@1.6.1` into `apps/launcher-api`; a trivial 2-node/1-edge
+  graph builds + ships clean under Vite 6 / Turbo 2 / Svelte 5 (`pnpm --filter
+  launcher-api build` GREEN — the `SvelteFlow` component + its CSS land in the client
+  bundle). The ONLY friction is a peer-dep WARNING: xyflow wants `svelte@^5.25.0`, the
+  workspace pins `5.20.5` uniformly across every app+package. It is NOT a build/runtime
+  error — xyflow uses only stable Svelte-5 runes APIs present since 5.0, so 5.20.5 runs.
+  A workspace-wide bump to ≥5.25 (touches every game) would clear the warning; deferred
+  as not worth the blast radius for a warning. **Verdict: proceed with `@xyflow/svelte`**
+  (SSR-guarded — it is client-only — via `export const ssr = false`). Hand-built fallback
+  is NOT needed.
+
+**Step 2 — FlowDoc schema (`packages/engine-flow/src/types.ts`, the real "one doc").**
+- Promoted the Phase-0 stubs into the full model: screen-id nodes referencing LayoutDoc
+  scenes (`FlowScreen` + canvas `position`/`initial`); typed `FlowTransition` edges
+  (`from`/`to` + a `FlowTrigger` of `bookEvent`/`complete`/`condition` + optional
+  `FlowGuard` + `delayMs` + author `order`); a bounded `FlowGuard`/`FlowPredicate` over a
+  CLOSED comparator set (`eq|neq|gt|gte|lt|lte|in`) — explicitly not an expression
+  language (§11.4); a `FlowPin` model (4 dynamic roles `value`/`signal`/`action`/`gate`
+  + 3 structural `enter`/`complete`/`active`, stable composite ids); plus a new `engine`
+  accessor kind (`$engine.<key>`) and a `branch` choreography node. Kept sparse +
+  override-friendly (parity rule §7) and back-compatible: the Phase-0 `executor.ts` /
+  `dispatch.ts` still compile (`accessor.ts` gained `evaluateGuard`, the executor a
+  `branch` case). `pnpm --filter engine-flow run typecheck` GREEN.
+
+**Step 3 — pin-derivation (`packages/engine-flow/src/pins.ts`, the core reusable logic).**
+- `deriveScreenPins(scene, resolver)` projects a LayoutDoc screen into pins from the FOUR
+  existing `engine-layout` registries — value←instance `source` param, action←`action`,
+  gate←`visibleSource` + the scene-level `Scene.visibleSource`, signal←a spine cue's
+  `signal` in the resolved ComponentDef tree — plus the 3 fixed structural pins. Pin id =
+  the §12 composite `${instanceId}::${role}:${key}` (structural = `${screenId}::${role}`);
+  a missing ComponentDef ORPHANS its param-driven pins (flagged, never silently dropped,
+  §4). Pure + Svelte-free (reads the authored doc, no registry calls), so it runs
+  headlessly AND in the launcher loader. Reuses the registry param conventions — does NOT
+  invent a new vocabulary (§3).
+- **Verified headlessly:** `tools/flow-spike/pinDerivation.ts` (`pnpm --filter flow-spike
+  run pins`) — 21/21 assertions GREEN against a representative `apps/lines`-shaped fixture
+  (a base-game screen: win readout, spin button, gated free-spin counter, win-celebration
+  spine cue). Asserts each pin class is derived with the right role/direction, ids stay
+  stable under RENAME (label-only change) + REORDER, scene-gate + def-default-driven pins
+  appear, the orphan path flags (not drops), and id order is deterministic.
+
+**Step 4 — id-discipline check (§12): PASSED, not a blocker.**
+- Scene Editor (`apps/launcher-api/src/routes/(app)/editor/+page.svelte`) mints a FRESH
+  `n_…` id on every node ADD (lines 480, 523) and on paste/duplicate via `reassignNodeIds`
+  (line 150: `node.id = freshNodeId()`, also dropping `slotId`); no edit path reassigns
+  `id`. So "no id regeneration on edit, fresh id on duplicate/paste" HOLDS — pin identity
+  is safe to key off `BaseNode.id`.
+
+**Step 5 — `/flow` read-only page + typed model + command stack.**
+- New route `apps/launcher-api/src/routes/(app)/flow/`. `+page.server.ts` REUSES the
+  launcher's existing R2/scenes loading (`loadDoc` — the same LayoutDoc the Scene Editor
+  reads) + `listComponents` + `resolveToolScope` (no new shared surface; gated on the
+  `editor` entitlement; `ssr=false`). `+page.svelte` builds the read-only model and
+  renders screen nodes (custom `FlowScreenNode.svelte` — dynamic pins as typed Svelte Flow
+  handles, inputs left / outputs right, `active` as a status chip) + transition edges,
+  with an orphaned-pin warning band. A typed editable model + a generic snapshot-based
+  undo/redo command stack (`flowModel.client.ts` `createFlowHistory<T>`, burst-coalescing,
+  mirroring the Scene Editor's history §12) is stood up now though editing lands Phase 2.
+  `pnpm --filter launcher-api build` GREEN with the route.
+
+**Still needs owner-verify live:** the actual `/flow` VISUAL render (the Svelte Flow
+canvas drawing a real project's screens + derived-pin handles) needs the deployed launcher
+with auth + R2 — the headless build proves it compiles/ships, not the pixels.
+
+**What's left**
+- Phase 2 — macro authoring (place screen nodes, draw/edit transition edges, save→R2),
+  tool registration in `roles.ts` + `docs/tools/flow.md` (RULE 9), `POST /api/flow/save`.
+- Phase 4 — the live generic mounter; Phase 6 — bake/pipeline (`flow?` in `BakedBundle`).
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the
