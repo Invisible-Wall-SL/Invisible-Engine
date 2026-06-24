@@ -208,6 +208,33 @@ export function editorDocKey(client: string, project: string): string {
 }
 
 /**
+ * Invisible FX effect storage (design doc `invisible-fx.md` §4 / §6 / §8). Unlike Flow's
+ * single per-project `flow.json`, an FX project holds MANY named effects, so each is its
+ * own file keyed by a slugged id:
+ *
+ *  - `<client>/<project>/<id>.fx.json`      — the PURE `EffectDoc` (nested `EmitterConfigV3`
+ *    verbatim); the artifact the deploy→bake→pull→register chain ships.
+ *  - `<client>/<project>/<id>.fx.meta.json` — the editor-only sidecar (camera/pan-zoom,
+ *    last-selected layer); NEVER inside the EffectDoc (out-of-band discipline, §4).
+ *
+ * The id runs through `r2Slug` (same launcher/Python normalization everywhere), so the file
+ * stem is path-safe and matches the runtime `loadedAssets`-key stability rule (§9). Listing
+ * the project root for `*.fx.json` (not `*.fx.meta.json`) enumerates the openable effects.
+ */
+export function fxDocKey(client: string, project: string, id: string): string {
+	return `${projectPrefix(client, project)}/${r2Slug(id)}.fx.json`;
+}
+
+export function fxMetaKey(client: string, project: string, id: string): string {
+	return `${projectPrefix(client, project)}/${r2Slug(id)}.fx.meta.json`;
+}
+
+/** The `<id>.fx.json` suffix that marks an EffectDoc (excludes the `.fx.meta.json` sidecar). */
+export const FX_DOC_SUFFIX = '.fx.json';
+/** The `<id>.fx.meta.json` suffix that marks the editor-only sidecar. */
+export const FX_META_SUFFIX = '.fx.meta.json';
+
+/**
  * Per-project Invisible Flow document — `<client>/<project>/editor/flow.json` — the
  * authored presentation graph (macro transition graph + per-screen choreography),
  * sibling to the Scene Editor's `scenes.json` (design doc `invisible-flow.md` §7/§12).

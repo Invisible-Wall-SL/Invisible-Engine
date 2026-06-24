@@ -13,13 +13,16 @@
 
 ## 0. Status
 
-**In build (Phase 1 — increments 1 + 2 landed headlessly).** This doc is the registered
-build plan. Nothing ships until it travels the full asset chain (§8). Phase 0 (§7) is the
-make-or-break gate for the **spine-as-particle** tier — do not start that tier until the
-spike passes (the other two tiers are native and not gated). Current state: the `EffectDoc`
-schema + a LIVE `/fx` emitter preview exist (atlas pick → live emitter), verified by two
-headless harnesses; `/fx` stays UNREGISTERED (no save endpoint yet, so RULE 9 not yet
-triggered). The WebGL pixels need live owner-verify (see Progress, increment 2).
+**In build (Phase 1 COMPLETE headlessly — increments 1 + 2 + 3 landed).** This doc is the
+registered build plan. Nothing ships until it travels the full asset chain (§8) — that is
+Phase 4, not yet done. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle**
+tier — do not start that tier until the spike passes (the other two tiers are native and not
+gated). Current state: the `EffectDoc` schema + a LIVE saveable/reopenable `/fx` authoring
+page exist (atlas pick → live emitter → save → reopen), verified by three headless
+harnesses; `/fx` is now a REGISTERED tool (`fx` tool id in `roles.ts`) gated on its own `fx`
+scope, so RULE 9 is triggered (the `docs/tools/fx.md` pass ships with this increment via
+`docs-keeper`). The WebGL pixels + the live save/open round-trip need owner-verify (see
+Progress, increment 3).
 
 ### Progress
 
@@ -129,6 +132,72 @@ triggered). The WebGL pixels need live owner-verify (see Progress, increment 2).
   - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.server.ts,+page.svelte,FxStage.svelte,fxModel.client.ts}`,
     `tools/fx-spike/modelHelpers.ts` (+ `tools/fx-spike/package.json` `model` script),
     `apps/launcher-api/package.json` (+`engine-fx`, +`@barvynkoa/particle-emitter@0.0.1`).
+
+- **Phase 1 — increment 3: save + reopen + tool registration — ✅ DONE HEADLESSLY
+  (2026-06-24, branch `fx/phase1-emitter-core`, no game bump). RULE 9 NOW TRIGGERED** —
+  `/fx` is a registered tool, so `docs/tools/fx.md` + the `docs/tools/README.md` row land
+  in the SAME commit (authored by `docs-keeper`). This closes Phase 1: the effect is now a
+  saveable, reopenable, R2-backed artifact (the deploy→bake→pull→register chain is Phase 4).
+  **Landed:**
+  - **`POST /api/fx/save`** (`apps/launcher-api/src/routes/api/fx/save/+server.ts`) — mirrors
+    `/api/rigger/save` + `/api/flow/save` EXACTLY: the shared `gate` (now on the `fx` tool)
+    resolves the SESSION-bound `(client, project)` and 403s without entitlement — no
+    hand-rolled auth/scope/R2. Body `{ doc, meta? }`.
+  - **`fxStorage.ts`** (`apps/launcher-api/src/lib/server/`) — the MULTI-DOC R2 load/save
+    (a project holds many named effects, unlike Flow's single `flow.json`). `saveEffect`
+    runs `normalizeEffectDoc` as the GATEKEEPER and writes TWO SEPARATE objects:
+    `<client>/<project>/<id>.fx.json` (the pure EffectDoc) + `<id>.fx.meta.json` (the
+    editor-only sidecar — camera + last-selected layer), enforcing §4's out-of-band
+    discipline. `listEffects` enumerates the `*.fx.json` files (sidecars excluded) for the
+    picker; `loadEffect` reads a doc + sidecar (absent ⇒ empty effect). Path helpers
+    (`fxDocKey`/`fxMetaKey`/`FX_DOC_SUFFIX`/`FX_META_SUFFIX`) added to `projectPaths.ts`;
+    the id slugs through the shared `r2Slug` (stable file-stem / `assetKey` rule, §9).
+  - **Reopen path** — `+page.server.ts` lists the saved effects + (on `?effect=<id>`) loads
+    one back into the in-memory `EffectDoc` + sidecar; `+page.svelte` seeds its `$state`
+    doc from `data.openedDoc` (or a fresh empty one), restores the selected layer from the
+    sidecar, and wires the New / Save / open-picker controls + the effect-name field. Save
+    POSTs `$state.snapshot(doc)` + a `{ selectedLayer }` sidecar; on success it adopts the
+    server-slugged id so a re-save round-trips to the same keys.
+  - **Registration** (`roles.ts`) — new `fx` TOOLS entry ("Invisible FX", barName "FX",
+    spark-burst icon), `ROLE_TOOLS` grants (admin via `Object.keys`, developer, artist —
+    the particle/effects authors), `TOOL_BAR_ORDER` placement (after `flow`),
+    `TOOL_DOC_SLUG.fx = 'fx'`. The page + save endpoint now gate on `fx` (not the borrowed
+    `editor` scope); `ToolTopBar current="fx"`.
+  - **The shared-read seam** — switching to the `fx` gate would have locked an `fx`-only
+    user out of the editor's `/api/editor/regions` + `/api/editor/asset` (which the stage
+    reads art through). Fixed by an `altTools` option on the shared `gate` (an OR over tool
+    ids that NEVER widens the R2 prefix allow-list, only the entitlement check); those two
+    READ endpoints now accept `editor` OR `fx`. Reuse, not a duplicate art surface.
+  - **Verified headlessly** by `tools/fx-spike/saveSplit.ts` (`pnpm --filter fx-spike run
+    save`): **24/24 GREEN** — the EffectDoc↔sidecar PARTITION (editor-only camera /
+    selection / swatches that leak onto the save payload's `doc` never reach the `.fx.json`;
+    they only survive in the separate sidecar), the sidecar normalizer drops off-schema
+    keys, the R2-key derivation (`<client>/<project>/<slug>.fx.json` + sibling
+    `.fx.meta.json`), id round-trip stability (a reopened id re-derives the SAME keys), the
+    `listEffects` file-stem extraction (a `.fx.meta.json` / non-fx key is NOT an openable
+    effect), and the missing-id fallback. The increment-1 round-trip (24/24) + increment-2
+    model (33/33) harnesses still PASS. `pnpm --filter launcher-api build` **GREEN** (the
+    `(app)/fx` page + `api/fx/save` endpoint + `fxStorage` chunk all build).
+  - **NEEDS LIVE OWNER-VERIFY (authed page — not browser-verifiable here):** (1) Save writes
+    `<id>.fx.json` + `<id>.fx.meta.json` to R2 and the toast confirms; (2) the open-picker
+    lists saved effects and reopening one restores its layers + inspector + selected layer;
+    (3) the effect-name edit + New flow behave; (4) an `fx`-only (no `editor`) role can still
+    read atlas art through the `altTools`-widened endpoints; (5) the increment-2 WebGL pixels
+    still hold (particles render, live-tune, flipbook, pan/zoom). The harness covers the
+    save/split/key data contract; only a human can confirm the R2 writes + the pixels.
+  - **Next phase:** Phase 2 — Spine-attach (Tier B): load a Spine clip as the authoring
+    backdrop, play it, pin a layer to a bone via `SpineBone` (`placement.space:'bone'`),
+    offset, preview the FX riding the animation. Native (`SpineBone` exposes the live bone
+    transform) — no Phase-0 gate. (Phase 4 pipeline wiring — export→bake→pull→`bakedEffects()`
+    — is the chain that actually SHIPS an effect; "saves in `/fx`" ≠ "ships", §8.)
+  - Files: `apps/launcher-api/src/routes/api/fx/save/+server.ts`,
+    `apps/launcher-api/src/lib/server/fxStorage.ts`,
+    `apps/launcher-api/src/lib/server/projectPaths.ts` (+`fxDocKey`/`fxMetaKey`/suffixes),
+    `apps/launcher-api/src/lib/server/toolScope.ts` (+`altTools`),
+    `apps/launcher-api/src/routes/api/editor/{regions,asset}/+server.ts` (+`altTools:['fx']`),
+    `apps/launcher-api/src/routes/(app)/fx/{+page.server.ts,+page.svelte}`,
+    `apps/launcher-api/src/lib/roles.ts` (TOOLS/ROLE_TOOLS/TOOL_BAR_ORDER/TOOL_DOC_SLUG/icon),
+    `tools/fx-spike/{saveSplit.ts,package.json}` (+`save` script).
 
 ## 1. Naming (settled here to avoid a real collision)
 

@@ -61,6 +61,13 @@ export function assertAllowed(key: string, prefixes: string[], message = 'forbid
 export interface GateOptions {
 	/** Tool id the caller's role/user must be entitled to. */
 	tool: ToolId;
+	/**
+	 * Alternative tool ids that also satisfy the gate (OR with `tool`). Used by shared
+	 * READ endpoints a second tool reuses: the editor's region/asset streamers gate on
+	 * `editor` but Invisible FX (`fx`) reads the SAME atlas art, so `fx` is an accepted
+	 * alternative. Never widens the R2 prefix allow-list — only the entitlement check.
+	 */
+	altTools?: ToolId[];
 	/** 403 message when the entitlement check fails. */
 	forbiddenMessage: string;
 	/** Pass through to `allowedPrefixes` (editor opts into `spines/_shared/`). */
@@ -92,7 +99,11 @@ export async function gate(
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, opts.tool, roleOverrides, overrides)) {
+	const candidates: ToolId[] = [opts.tool, ...(opts.altTools ?? [])];
+	const entitled = candidates.some((t) =>
+		roleHasTool(locals.user!.role, t, roleOverrides, overrides),
+	);
+	if (!entitled) {
 		throw error(403, opts.forbiddenMessage);
 	}
 	const projectKey =

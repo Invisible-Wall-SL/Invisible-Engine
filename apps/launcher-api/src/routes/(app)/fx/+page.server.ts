@@ -2,18 +2,21 @@ import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadRegionSet } from '$lib/server/editorRegions';
+import { listEffects, loadEffect, type FxEffectRow, type FxMeta } from '$lib/server/fxStorage';
 import { SUB } from '$lib/server/projectPaths';
 import { listObjects } from '$lib/server/r2';
 import { resolveToolScope } from '$lib/server/toolScope';
+import type { EffectDoc } from 'engine-fx';
 import type { PageServerLoad } from './$types';
 
 /**
- * Invisible FX — `/fx` (Phase 1, emitter-core preview shell).
+ * Invisible FX — `/fx` (Phase 1, emitter-core authoring shell).
  *
  * The stage mounts its OWN WebGL `PIXI.Application` + a live `@barvynkoa/particle-emitter`
  * `Emitter` (touches `window`/canvas); SSR is pointless and fragile, the same call the
- * Scene Editor + Flow make. `load` still runs server-side and streams the project's atlas
- * list; only the component render is client-only.
+ * Scene Editor + Flow make. `load` still runs server-side: it streams the project's atlas
+ * list (for the region picker), the saved-effect list (for the picker), and — when
+ * `?effect=<id>` is present — the opened EffectDoc + its editor-only sidecar.
  */
 export const ssr = false;
 
@@ -25,21 +28,20 @@ interface FxAtlas {
 }
 
 /**
- * Loader: auth + EDITOR-scope gate (Invisible FX is UNREGISTERED in `roles.ts` until the
- * real saveable page ships, so it rides the existing `editor` scope — same surface the
- * Scene Editor authors against, no new auth/tool id), then REUSE the launcher's atlas
- * listing (`loadRegionSet` over the project's `manifests/*.json` — the exact pattern the
- * Rigger's `/api/rigger/atlases` uses) so the region picker can drive a layer's
- * `art.assetKey` + `art.frames`. No new shared surface; the page reads regions + the page
- * image through the existing `editor`-gated `/api/editor/regions` + `/api/editor/asset`.
+ * Loader: auth + `fx`-scope gate (Invisible FX is now a registered tool — `roles.ts`), then
+ * REUSE the launcher's atlas listing (`loadRegionSet` over the project's `manifests/*.json`
+ * — the exact pattern the Rigger's `/api/rigger/atlases` uses) so the region picker can drive
+ * a layer's `art.assetKey` + `art.frames`. The page reads regions + the page image through
+ * the existing `/api/editor/regions` + `/api/editor/asset` (now `fx`-or-`editor` gated). The
+ * saved-effect index + the optionally-opened effect come from `fxStorage` (the `/api/fx/save`
+ * sibling read path).
  */
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();
-	if (!roleHasTool(locals.user.role, 'editor')) {
+	if (!roleHasTool(locals.user.role, 'fx')) {
 		throw error(403, 'Your role does not have access to Invisible FX.');
 	}
-	void tools;
 	const { clientKey, projectKey } = await resolveToolScope({
 		url,
 		sessionToken: cookies.get(SESSION_COOKIE),
@@ -69,5 +71,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	}
 	atlases.sort((a, b) => a.label.localeCompare(b.label));
 
-	return { clientKey, projectKey, tools, atlases };
+	// Saved-effect index (for the picker) + the optionally-opened effect.
+	const effects: FxEffectRow[] = await listEffects(clientKey, projectKey);
+	const openId = url.searchParams.get('effect')?.trim() ?? '';
+	let openedDoc: EffectDoc | null = null;
+	let openedMeta: FxMeta | null = null;
+	if (openId) {
+		const { doc, meta } = await loadEffect(clientKey, projectKey, openId);
+		openedDoc = doc;
+		openedMeta = meta;
+	}
+
+	return { clientKey, projectKey, tools, atlases, effects, openedDoc, openedMeta };
 };

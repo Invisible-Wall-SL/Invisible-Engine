@@ -126,6 +126,12 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<rect x="3" y="15" width="6" height="5" rx="1"/><path d="M9 6.5h3a2 2 0 0 1 2 2v1"/>' +
 			'<path d="M9 17.5h3a2 2 0 0 0 2-2v-1"/>',
 	),
+	// radiating spark burst (particle effect)
+	fx: I(
+		'<path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/>' +
+			'<path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/>' +
+			'<path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
+	),
 	// game controller / play (create + publish a playable game)
 	gameMaker: I(
 		'<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/>' +
@@ -279,6 +285,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/flow',
 		icon: TOOL_ICONS.flow,
 	},
+	fx: {
+		id: 'fx',
+		name: 'Invisible FX',
+		barName: 'FX',
+		description:
+			'Author particle effects — tune emitter layers live in a WebGL preview, draw particle art from project atlases, and save an effect the game can fire.',
+		kind: 'online',
+		url: '/fx',
+		icon: TOOL_ICONS.fx,
+	},
 };
 
 /**
@@ -292,6 +308,7 @@ export const TOOL_BAR_ORDER: string[] = [
 	'gameMaker',
 	'editor',
 	'flow',
+	'fx',
 	'symbols',
 	'sheetMaker',
 	'atlasTool',
@@ -329,6 +346,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'localization',
 		'editor',
 		'flow',
+		'fx',
 		'symbols',
 		'componentEditor',
 		'fontMaker',
@@ -342,6 +360,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'localization',
 		'editor',
 		'flow',
+		'fx',
 		'symbols',
 		'componentEditor',
 		'fontMaker',
@@ -518,6 +537,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	symbols: 'symbols-state-machine',
 	gameMaker: 'game-maker',
 	flow: 'flow',
+	fx: 'fx',
 };
 
 /**

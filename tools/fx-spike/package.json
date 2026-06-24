@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"roundtrip": "tsx roundTrip.ts",
-		"model": "tsx modelHelpers.ts"
+		"model": "tsx modelHelpers.ts",
+		"save": "tsx saveSplit.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

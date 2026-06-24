@@ -17,12 +17,61 @@
 	let { data }: { data: PageData } = $props();
 
 	// The in-memory EffectDoc is the SINGLE source of truth while editing. The live
-	// preview rebuilds from it on change. No save endpoint this increment (preview-from-
-	// in-memory-doc is the Phase-1-increment-2 goal); save + reopen land with /api/fx/save.
-	const initialDoc = emptyEffectDoc();
+	// preview rebuilds from it on change. It is seeded EITHER from a reopened effect
+	// (loader's `?effect=<id>` → `data.openedDoc`) or a fresh empty effect (New). Save
+	// writes it back via `/api/fx/save` (the EffectDoc + the editor-only sidecar split).
+	const initialDoc = data.openedDoc ?? emptyEffectDoc();
 	let doc = $state<EffectDoc>(initialDoc);
-	let selectedKey = $state<string>(initialDoc.layers[0]?.key ?? '');
+	let selectedKey = $state<string>(
+		data.openedMeta?.selectedLayer ?? initialDoc.layers[0]?.key ?? '',
+	);
 	let playing = $state(true);
+
+	// --- save / open state ------------------------------------------------------
+	let saving = $state(false);
+	let saveError = $state<string>('');
+	let savedNote = $state<string>('');
+	let pickerId = $state<string>(data.openedDoc?.id ?? '');
+
+	async function saveEffect(): Promise<void> {
+		saving = true;
+		saveError = '';
+		savedNote = '';
+		try {
+			const res = await fetch('/api/fx/save', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					doc: $state.snapshot(doc),
+					// Editor-only sidecar — NEVER folded into the EffectDoc (out-of-band, §4).
+					meta: { selectedLayer: selectedKey },
+				}),
+			});
+			if (!res.ok) {
+				saveError = `Save failed (HTTP ${res.status}).`;
+				return;
+			}
+			const out = (await res.json()) as { id: string; name: string; layers: number };
+			// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
+			doc = { ...doc, id: out.id };
+			pickerId = out.id;
+			savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
+		} catch {
+			saveError = 'Save failed (network error).';
+		} finally {
+			saving = false;
+		}
+	}
+
+	function newEffect(): void {
+		// Navigate to a clean /fx (drops `?effect=`) so the loader seeds an empty doc.
+		window.location.href = '/fx';
+	}
+
+	function openEffect(id: string): void {
+		if (!id) return;
+		window.location.href = `/fx?effect=${encodeURIComponent(id)}`;
+	}
 
 	const selected = $derived(doc.layers.find((l) => l.key === selectedKey));
 	const config = $derived(selected?.config);
@@ -30,8 +79,8 @@
 	let stage = $state<FxStage | null>(null);
 
 	// --- art resolution (reuse the editor's region + asset endpoints) -----------
-	// FX rides the `editor` scope (see +page.server.ts), so it reads regions + the page
-	// image straight from the existing editor-gated endpoints — no new shared surface.
+	// The editor's region/asset endpoints accept the `fx` tool as well (their `altTools`),
+	// so FX reads regions + the page image straight from them — no new shared art surface.
 	const artCache = new Map<string, Promise<ResolvedArt | null>>();
 
 	function resolveArt(assetKey: string): Promise<ResolvedArt | null> {
@@ -141,7 +190,7 @@
 
 <div class="page">
 	<ToolTopBar
-		current="editor"
+		current="fx"
 		tools={data.tools}
 		clientKey={data.clientKey}
 		projectKey={data.projectKey}
@@ -149,12 +198,37 @@
 
 	<div class="subbar">
 		<strong>Invisible FX</strong>
-		<span class="tag">emitter preview</span>
+		<input
+			class="name"
+			title="Effect name"
+			placeholder="Effect name"
+			value={doc.name}
+			onchange={(e) => (doc = { ...doc, name: (e.currentTarget as HTMLInputElement).value })}
+		/>
+		<button class="primary" onclick={saveEffect} disabled={saving}>
+			{saving ? 'Saving…' : '⤓ Save'}
+		</button>
+		<button onclick={newEffect}>+ New</button>
+		<select
+			class="open"
+			title="Open a saved effect"
+			value={pickerId}
+			onchange={(e) => openEffect((e.currentTarget as HTMLSelectElement).value)}
+		>
+			<option value="">Open effect…</option>
+			{#each data.effects as eff (eff.id)}
+				<option value={eff.id}>{eff.name}</option>
+			{/each}
+		</select>
 		<button onclick={() => (playing = !playing)}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
 		<button onclick={() => stage?.resetView()}>Reset view</button>
 		<span class="spacer"></span>
+		{#if saveError}
+			<span class="err">{saveError}</span>
+		{:else if savedNote}
+			<span class="ok">{savedNote}</span>
+		{/if}
 		<span class="count">{doc.layers.length} layer{doc.layers.length === 1 ? '' : 's'}</span>
-		<span class="preview-note">in-memory preview · save lands next increment</span>
 	</div>
 
 	<div class="body">
@@ -168,7 +242,9 @@
 					<li class:active={layer.key === selectedKey}>
 						<button class="pick" onclick={() => (selectedKey = layer.key)}>
 							{layer.key}
-							<span class="meta">{layer.art.frames.length} frame{layer.art.frames.length === 1 ? '' : 's'}</span>
+							<span class="meta"
+								>{layer.art.frames.length} frame{layer.art.frames.length === 1 ? '' : 's'}</span
+							>
 						</button>
 						<button
 							class="del"
@@ -193,7 +269,8 @@
 						<span>Name</span>
 						<input
 							value={selected.key}
-							onchange={(e) => renameLayer(selected.key, (e.currentTarget as HTMLInputElement).value)}
+							onchange={(e) =>
+								renameLayer(selected.key, (e.currentTarget as HTMLInputElement).value)}
 						/>
 					</label>
 				</section>
@@ -213,7 +290,9 @@
 						</select>
 					</label>
 					{#if atlasOptions.length === 0}
-						<p class="hint">This project has no usable atlases yet (make one in Atlas/Sheet Maker).</p>
+						<p class="hint">
+							This project has no usable atlases yet (make one in Atlas/Sheet Maker).
+						</p>
 					{/if}
 					{#if selected.art.assetKey}
 						<div class="frames">
@@ -316,7 +395,8 @@
 								min="0"
 								max="1"
 								value={alphaEnds.start}
-								onchange={(e) => patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'start', num(e)))}
+								onchange={(e) =>
+									patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'start', num(e)))}
 							/>
 						</label>
 						<label class="row">
@@ -327,7 +407,8 @@
 								min="0"
 								max="1"
 								value={alphaEnds.end}
-								onchange={(e) => patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'end', num(e)))}
+								onchange={(e) =>
+									patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'end', num(e)))}
 							/>
 						</label>
 					</section>
@@ -343,7 +424,8 @@
 								step="0.05"
 								min="0"
 								value={scaleEnds.start}
-								onchange={(e) => patchConfig(setListEndpoint(config, 'scale', 'scale', 'start', num(e)))}
+								onchange={(e) =>
+									patchConfig(setListEndpoint(config, 'scale', 'scale', 'start', num(e)))}
 							/>
 						</label>
 						<label class="row">
@@ -353,7 +435,8 @@
 								step="0.05"
 								min="0"
 								value={scaleEnds.end}
-								onchange={(e) => patchConfig(setListEndpoint(config, 'scale', 'scale', 'end', num(e)))}
+								onchange={(e) =>
+									patchConfig(setListEndpoint(config, 'scale', 'scale', 'end', num(e)))}
 							/>
 						</label>
 					</section>
@@ -428,14 +511,43 @@
 		color: #cbd5e1;
 		cursor: pointer;
 	}
+	.subbar button.primary {
+		border-color: #2563eb;
+		color: #bfdbfe;
+	}
+	.subbar button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.subbar .name {
+		width: 160px;
+		padding: 4px 8px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #0e131a;
+		color: #e2e8f0;
+		font-size: 12px;
+	}
+	.subbar .open {
+		padding: 4px 8px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #0e131a;
+		color: #cbd5e1;
+		font-size: 12px;
+	}
 	.spacer {
 		flex: 1;
 	}
 	.count {
 		color: #94a3b8;
 	}
-	.preview-note {
-		color: #64748b;
+	.err {
+		color: #fca5a5;
+		font-size: 11px;
+	}
+	.ok {
+		color: #86efac;
 		font-size: 11px;
 	}
 	.body {
