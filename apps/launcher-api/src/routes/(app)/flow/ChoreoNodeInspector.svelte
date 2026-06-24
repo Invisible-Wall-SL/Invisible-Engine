@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		findEmitterEffect,
 		findEmitterEvent,
 		groupEmitterVocabulary,
 		type ChoreographyNode,
@@ -51,6 +52,17 @@
 	);
 	function setEvent(event: string): void {
 		onedit({ event });
+	}
+
+	// --- Effect ----------------------------------------------------------------
+	// The effect-name picker offers the game's REAL registered effects (passed in via the same
+	// EmitterVocabulary as the Broadcast events, design doc §11.5). Authoring-fidelity only.
+	const hasEffects = $derived((vocab.effects?.length ?? 0) > 0);
+	const effectDef = $derived(
+		node.kind === 'effect' ? findEmitterEffect(vocab, node.name) : undefined,
+	);
+	function setName(name: string): void {
+		onedit({ name });
 	}
 	function setShape(shape: 'sync' | 'awaited' | 'fire'): void {
 		if (shape === 'sync') onedit({ async: false, await: false });
@@ -167,6 +179,23 @@
 				{/each}
 			</div>
 		{/if}
+	{:else if node.kind === 'effect'}
+		<label class="field">
+			<span>Effect name</span>
+			{#if hasEffects}
+				<select value={node.name} onchange={(e) => setName(e.currentTarget.value)}>
+					<option value="">— pick an effect —</option>
+					{#each vocab.effects ?? [] as ef (ef.name)}
+						<option value={ef.name}>{ef.name}</option>
+					{/each}
+				</select>
+			{:else}
+				<input value={node.name} oninput={(e) => setName(e.currentTarget.value)} />
+			{/if}
+		</label>
+		{#if node.name && !effectDef && hasEffects}
+			<p class="warn">Not a registered effect for this game.</p>
+		{/if}
 	{:else if node.kind === 'delay'}
 		<label class="field">
 			<span>Delay (ms, divided by speed)</span>
@@ -274,6 +303,11 @@
 		display: block;
 		color: #94a3b8;
 		margin-bottom: 5px;
+	}
+	.warn {
+		margin: -4px 0 9px;
+		color: #fbbf24;
+		font-size: 11px;
 	}
 	.payload,
 	.guard,

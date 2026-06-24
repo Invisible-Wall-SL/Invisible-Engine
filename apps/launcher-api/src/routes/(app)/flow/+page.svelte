@@ -12,7 +12,6 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		DEFAULT_CODED_EVENTS,
-		DEFAULT_EMITTER_VOCABULARY,
 		diffFlowDoc,
 		validateFlowDoc,
 		type FlowDoc,
@@ -402,12 +401,7 @@
 	<div class="body">
 		<aside class="palette">
 			<h3>Screens</h3>
-			<input
-				class="search"
-				type="text"
-				placeholder="Filter screens…"
-				bind:value={paletteQuery}
-			/>
+			<input class="search" type="text" placeholder="Filter screens…" bind:value={paletteQuery} />
 			{#if model.available.length === 0}
 				<p class="hint">All screens placed.</p>
 			{:else if filteredAvailable.length === 0}
@@ -515,7 +509,7 @@
 			{doc}
 			screenId={choreoScreen.screen.id}
 			screenLabel={choreoScreen.screen.label ?? choreoScreen.scene.name}
-			vocab={DEFAULT_EMITTER_VOCABULARY}
+			vocab={data.vocabulary}
 			oncommit={commit}
 			onclose={closeChoreography}
 		/>
