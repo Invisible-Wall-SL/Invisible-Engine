@@ -2,17 +2,54 @@ import _ from 'lodash';
 import { stateBet } from 'state-shared';
 import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
+import { sequence } from 'utils-shared/sequence';
 
 import { BOARD_DIMENSIONS } from './constants';
 import { getActiveSymbolInfoMap, resolveSymbolSizeRatios } from './symbolMap';
 import { eventEmitter } from './eventEmitter';
-import type { Bet, BookEventOfType } from './typesBookEvent';
+import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
+import { getFlowInterpreter } from './flowInterpreterHolder';
 import type { RawSymbol, SymbolState } from './types';
 
 // general utils
 export const { getEmptyBoard } = createGetEmptyPaddedBoard({ reelsDimensions: BOARD_DIMENSIONS });
-export const { playBookEvent, playBookEvents } = createPlayBookUtils({ bookEventHandlerMap });
+const coded = createPlayBookUtils({ bookEventHandlerMap });
+
+/**
+ * Play one book event. When the Invisible Flow interpreter is active (a FlowDoc is authored)
+ * it OWNS dispatch — it runs the event's authored choreography or falls through to the coded
+ * `bookEventHandlerMap` for an un-authored event, AND lets the macro graph take a `bookEvent`
+ * transition (design doc §6.1, §7). ABSENT interpreter (no FlowDoc — the default) ⇒ the coded
+ * `playBookEvent` runs unchanged, byte-identical to current `main`.
+ */
+export const playBookEvent = async (
+	bookEvent: BookEvent,
+	context: { bookEvents: BookEvent[] },
+): Promise<void> => {
+	const interpreter = getFlowInterpreter();
+	if (interpreter) {
+		await interpreter.dispatchBookEvent(bookEvent, context);
+		return;
+	}
+	await coded.playBookEvent(bookEvent, context);
+};
+
+export const playBookEvents = async (
+	bookEvents: BookEvent[],
+	context?: { bookEvents?: BookEvent[] },
+): Promise<void> => {
+	// Interpreter active ⇒ run the SAME serial `sequence()` the coded path uses, routing each
+	// event through the interpreter; otherwise defer entirely to the coded `playBookEvents`.
+	if (getFlowInterpreter()) {
+		await sequence(bookEvents, async (bookEvent) => {
+			await playBookEvent(bookEvent, { ...context, bookEvents });
+		});
+		return;
+	}
+	await coded.playBookEvents(bookEvents, context);
+};
+
 export const playBet = async (bet: Bet) => {
 	stateBet.winBookEventAmount = 0;
 	await playBookEvents(bet.state);

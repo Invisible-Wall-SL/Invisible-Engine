@@ -41,6 +41,7 @@ const CHOREO_KINDS = new Set([
 	'delay',
 	'forEach',
 	'branch',
+	'effect',
 ]);
 
 const normalizeAccessor = (input: unknown): FlowAccessor | null => {
@@ -52,6 +53,8 @@ const normalizeAccessor = (input: unknown): FlowAccessor | null => {
 			return typeof input.path === 'string' ? { kind: 'trigger', path: input.path } : null;
 		case 'item':
 			return typeof input.path === 'string' ? { kind: 'item', path: input.path } : null;
+		case 'context':
+			return typeof input.path === 'string' ? { kind: 'context', path: input.path } : null;
 		case 'engine':
 			return typeof input.key === 'string' ? { kind: 'engine', key: input.key } : null;
 		default:
@@ -130,6 +133,16 @@ const normalizeChoreography = (input: unknown): ChoreographyNode | undefined => 
 			if (otherwise) node.otherwise = otherwise;
 			return node;
 		}
+		case 'effect': {
+			if (typeof input.name !== 'string' || !input.name) return undefined;
+			const node: Extract<ChoreographyNode, { kind: 'effect' }> = {
+				kind: 'effect',
+				name: input.name,
+			};
+			const payload = normalizePayload(input.payload);
+			if (payload) node.payload = payload;
+			return node;
+		}
 		default:
 			return undefined;
 	}
@@ -173,6 +186,10 @@ const normalizeTrigger = (input: unknown): FlowTrigger | null => {
 			return { kind: 'complete' };
 		case 'condition':
 			return { kind: 'condition' };
+		case 'signal':
+			return typeof input.signal === 'string' && input.signal
+				? { kind: 'signal', signal: input.signal }
+				: null;
 		default:
 			return null;
 	}
@@ -230,3 +247,17 @@ export const normalizeFlowDoc = (input: unknown, fallbackProjectKey = ''): FlowD
 	if (typeof obj.updatedAt === 'string' && obj.updatedAt) doc.updatedAt = obj.updatedAt;
 	return doc;
 };
+
+/**
+ * The SINGLE definition of "this FlowDoc carries authored work the interpreter can run":
+ * at least one screen (mountable) or one event choreography. A doc with neither — including
+ * a transitions-only doc, whose edges reference screens that don't exist — is degenerate:
+ * the interpreter is inert and nothing mounts. So both the interpreter's `isActive` gate AND
+ * every export/bake gate key on THIS predicate, so an un-authored project bakes no `flow`
+ * slot and the game stays byte-identical to the coded path (parity §7). `transitions` is
+ * deliberately excluded — counting it diverged the ship gate from `isActive` (a transitions-
+ * only doc baked a slot yet ran inert). `bake-editor-doc.mjs` keeps a hand-rolled copy (it
+ * can't import TS); it MUST stay in sync with this.
+ */
+export const isAuthoredFlow = (flow: FlowDoc | undefined | null): boolean =>
+	!!flow && ((flow.screens?.length ?? 0) > 0 || (flow.events?.length ?? 0) > 0);

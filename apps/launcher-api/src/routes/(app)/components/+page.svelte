@@ -811,18 +811,14 @@
 </script>
 
 <div class="shell">
-	<header class="topbar">
-		<div class="brandwrap">
-			<ToolTopBar
-				current="componentEditor"
-				tools={data.tools}
-				clientKey={data.clientKey}
-				projectKey={data.projectKey}
-			/>
+	<ToolTopBar
+		current="componentEditor"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	>
+		{#snippet meta()}
 			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
-		</div>
-
-		<div class="meta">
 			{#if componentDraft}
 				<span class="save-pill" title="The component currently open for editing">
 					◇ {componentDraft.name}
@@ -917,8 +913,8 @@
 					{components.length === 1 ? 'component' : 'components'}
 				</span>
 			{/if}
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	<div
 		class="layout"
@@ -1166,21 +1162,6 @@
 			'Segoe UI',
 			sans-serif;
 	}
-	.topbar {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		padding: 8px 16px;
-		border-bottom: 1px solid #1c1c24;
-		background: #0d0d12;
-	}
-	.brandwrap {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		min-width: 0;
-		flex: 1 1 auto;
-	}
 	.subtitle {
 		font-size: 11px;
 		color: #888;
@@ -1188,12 +1169,6 @@
 	.subtitle strong {
 		color: #b8b8c4;
 		font-weight: 600;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-left: auto;
 	}
 	.counter {
 		font-size: 11px;

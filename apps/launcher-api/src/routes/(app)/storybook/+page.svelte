@@ -9,15 +9,14 @@
 <svelte:head><title>Invisible Storybook — Invisible Wall</title></svelte:head>
 
 <div class="shell">
-	<header>
-		<ToolTopBar current="storybook" tools={data.tools} />
-		<div class="meta">
+	<ToolTopBar current="storybook" tools={data.tools}>
+		{#snippet meta()}
 			<span class="counter">
 				{data.entries.length}
 				{data.entries.length === 1 ? 'storybook' : 'storybooks'}
 			</span>
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	{#if data.entries.length === 0}
 		<div class="empty">
@@ -51,17 +50,6 @@
 		box-sizing: border-box;
 		padding: 24px clamp(20px, 3vw, 40px);
 		color: #e8e8ee;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-	}
-	.meta {
-		flex: none;
-		font-size: 13px;
-		color: #888;
 	}
 	.grid {
 		list-style: none;

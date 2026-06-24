@@ -11,6 +11,7 @@
 		getEditableParams,
 		isHudButtonBind,
 		resolveTransform,
+		TAP_TO_CONTINUE_PARAMS,
 		type ComponentDef,
 		type ComponentParam,
 		type ComponentSignal,
@@ -164,6 +165,15 @@
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+
+	/** True when the selected instance's resolved def is an OVERLAY — only overlays
+	 * surface the shared Tap-to-continue toggle (Invisible Flow §6.2). Scene mode only;
+	 * the params live on the instance, not the def, so any overlay instance gets them. */
+	const isOverlayInstance = $derived(
+		!componentMode &&
+			node?.kind === 'componentInstance' &&
+			instanceComponent?.category === 'overlay',
+	);
 
 	/** The version the selected instance currently renders against (its pin, falling back
 	 * to the resolved def's version when the node carries no explicit pin — an un-pinned
@@ -1485,6 +1495,18 @@
 						This component declares no author-set params (engine-provided params are fed at
 						runtime).
 					</p>
+				{/if}
+				{#if isOverlayInstance}
+					<details class="param-group" open={Boolean(node.params?.tapToContinue)}>
+						<summary>Tap to continue</summary>
+						<p class="muted small">
+							Let a tap anywhere (or Space) dismiss this overlay — completes the active flow screen
+							and, with a signal set, fires that signal's transition. Off by default.
+						</p>
+						{#each TAP_TO_CONTINUE_PARAMS as p (p.key)}
+							<div class="row">{@render paramField(p)}</div>
+						{/each}
+					</details>
 				{/if}
 			{:else}
 				<p class="muted small">

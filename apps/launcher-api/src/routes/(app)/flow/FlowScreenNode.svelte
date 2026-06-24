@@ -10,9 +10,18 @@
 		pins: FlowPin[];
 		orphanCount: number;
 		initial: boolean;
+		invalid?: boolean;
 	};
 	let { data }: NodeProps = $props();
 	const d = data as Data;
+
+	// The full binding behind a pin, for the hover tooltip — the label truncates in the
+	// handle row, so the title surfaces the role + binding key the wire actually points at.
+	const pinTitle = (pin: FlowPin): string => {
+		const role = pin.role.charAt(0).toUpperCase() + pin.role.slice(1);
+		const tail = pin.orphaned ? ' (orphaned — backing component deleted)' : '';
+		return `${role}: ${pin.label}${tail}`;
+	};
 
 	// Inputs on the LEFT, outputs on the RIGHT, state pins shown inline (no handle —
 	// `active` is a status, not a wire endpoint).
@@ -31,9 +40,9 @@
 	};
 </script>
 
-<div class="screen-node" class:initial={d.initial}>
+<div class="screen-node" class:initial={d.initial} class:invalid={d.invalid}>
 	<header>
-		<span class="title">{d.label}</span>
+		<span class="title" title={d.label}>{d.label}</span>
 		{#if d.initial}<span class="badge">start</span>{/if}
 		{#if d.orphanCount > 0}<span class="badge warn" title="{d.orphanCount} orphaned pin(s)"
 				>⚠ {d.orphanCount}</span
@@ -43,7 +52,7 @@
 	<div class="pins">
 		<ul class="col in">
 			{#each inputs as pin (pin.id)}
-				<li class:orphaned={pin.orphaned}>
+				<li class:orphaned={pin.orphaned} title={pinTitle(pin)}>
 					<Handle
 						type="target"
 						position={Position.Left}
@@ -57,7 +66,7 @@
 		</ul>
 		<ul class="col out">
 			{#each outputs as pin (pin.id)}
-				<li class:orphaned={pin.orphaned}>
+				<li class:orphaned={pin.orphaned} title={pinTitle(pin)}>
 					<span class="label">{pin.label}</span>
 					<span class="dot" style="background:{roleColor[pin.role]}"></span>
 					<Handle
@@ -74,7 +83,7 @@
 	{#if stateP.length}
 		<footer>
 			{#each stateP as pin (pin.id)}
-				<span class="state-pin">{pin.label}</span>
+				<span class="state-pin" title={pinTitle(pin)}>{pin.label}</span>
 			{/each}
 		</footer>
 	{/if}
@@ -92,6 +101,12 @@
 	}
 	.screen-node.initial {
 		border-color: #3b82f6;
+	}
+	/* A node flagged by validation (unreachable / dead-end / orphaned pins) — an amber
+	   inline marker, consistent with the validation panel's warning palette. */
+	.screen-node.invalid {
+		border-color: #b45309;
+		box-shadow: 0 0 0 1px #b4530933;
 	}
 	header {
 		display: flex;
@@ -138,8 +153,8 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		padding: 2px 10px;
+		gap: 6px;
+		padding: 3px 11px;
 	}
 	.col.out li {
 		justify-content: flex-end;

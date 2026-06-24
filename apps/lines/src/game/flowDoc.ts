@@ -1,0 +1,215 @@
+/**
+ * Invisible Flow — the COMPLETE apps/lines FlowDoc (Phase 5, design doc §7, §9 row 5).
+ *
+ * This authors the WHOLE apps/lines presentation flow as a declarative FlowDoc: the
+ * `basegame` screen node (so the interpreter's generic mounter owns its mount, resolving the
+ * above-reel z-order follow-up — see Game.svelte) plus a per-book-event choreography for
+ * EVERY event in `bookEventHandlerMap.ts`. When this doc is loaded (via the
+ * `window.__IE_FLOW_DOC__` dev hook today; the baked `flow` slot in Phase 6), the game runs
+ * ENTIRELY through the interpreter and must match the coded path byte-for-byte.
+ *
+ * Authoring discipline (parity by construction, §7):
+ *  - a coded `eventEmitter.broadcast({type})` ⇒ a Broadcast node (sync);
+ *  - an AWAITED `eventEmitter.broadcastAsync({type})` ⇒ Broadcast `{ async: true, await: true }`;
+ *  - a FIRE-AND-FORGET `eventEmitter.broadcastAsync({type})` (no `await`) ⇒
+ *    Broadcast `{ async: true, await: false }` — the §11.1 three-way split;
+ *  - an `await waitForTimeout(ms)` ⇒ a Delay node (the executor divides by `timeScale()`);
+ *  - a serial `sequence(list, …)` ⇒ ForEach `{ mode: 'sequence' }`;
+ *  - any NON-emitter leaf (state mutation, board op, conditional sound cluster, the resume
+ *    snapshot) ⇒ an `effect` node whose body lives in `flowEffects.ts` (lifted verbatim from
+ *    the coded handler — so it is identical by construction, not re-derived).
+ *
+ * The choreography ORDER below is read straight off `bookEventHandlerMap.ts`. Each event's
+ * comment cites the coded handler it mirrors.
+ */
+
+import type { ChoreographyNode, FlowDoc, FlowPayload } from 'engine-flow';
+
+// ---------------------------------------------------------------------------
+// Small authoring helpers (keep the tree readable; they emit plain FlowDoc nodes).
+// ---------------------------------------------------------------------------
+
+/** A synchronous `eventEmitter.broadcast({ type, ...payload })`. */
+const broadcast = (event: string, payload?: FlowPayload): ChoreographyNode => ({
+	kind: 'broadcast',
+	event,
+	...(payload ? { payload } : {}),
+});
+
+/** An AWAITED `eventEmitter.broadcastAsync({ type, ... })` — blocks the sequence. */
+const broadcastAwait = (event: string, payload?: FlowPayload): ChoreographyNode => ({
+	kind: 'broadcast',
+	event,
+	async: true,
+	await: true,
+	...(payload ? { payload } : {}),
+});
+
+/** A named game-side effect (`flowEffects.ts`). */
+const effect = (name: string, payload?: FlowPayload): ChoreographyNode => ({
+	kind: 'effect',
+	name,
+	...(payload ? { payload } : {}),
+});
+
+const lit = (value: string | number | boolean) => ({ kind: 'literal' as const, value });
+const trigger = (path: string) => ({ kind: 'trigger' as const, path });
+const item = (path: string) => ({ kind: 'item' as const, path });
+const context = (path: string) => ({ kind: 'context' as const, path });
+const seq = (...children: ChoreographyNode[]): ChoreographyNode => ({ kind: 'sequence', children });
+
+// ---------------------------------------------------------------------------
+// Per-event choreographies — one per `bookEventHandlerMap.ts` entry, in handler order.
+// ---------------------------------------------------------------------------
+
+/** `reveal` — bonus record + awaited board spin (effect), then clear the scatter counter sound. */
+const revealChoreography: ChoreographyNode = seq(
+	effect('revealBoard', {
+		bookEvent: trigger(''),
+		bookEvents: context('bookEvents'),
+	}),
+	broadcast('soundScatterCounterClear'),
+);
+
+/** `winInfo` — a win level sfx, then a serial ForEach over `$trigger.wins`, each animating
+ *  its positions (boardShow + awaited boardWithAnimateSymbols = the `animateSymbols` leaf). */
+const winInfoChoreography: ChoreographyNode = seq(
+	broadcast('soundOnce', { name: lit('sfx_winlevel_small') }),
+	{
+		kind: 'forEach',
+		list: trigger('wins'),
+		mode: 'sequence',
+		body: seq(
+			broadcast('boardShow'),
+			broadcastAwait('boardWithAnimateSymbols', { symbolPositions: item('positions') }),
+		),
+	},
+);
+
+/** `setTotalWin` — set the win-meter amount. */
+const setTotalWinChoreography: ChoreographyNode = effect('setWinBookEventAmount', {
+	amount: trigger('amount'),
+});
+
+/** `setExpandingSymbol` — set the special symbol, then await the reveal spine. */
+const setExpandingSymbolChoreography: ChoreographyNode = seq(
+	effect('setSpecialSymbol', { symbol: trigger('symbol') }),
+	broadcastAwait('specialBookReveal', { symbol: trigger('symbol') }),
+);
+
+/** `expandBookColumns` — the scatter sfx, then the awaited per-cell column morph (effect). */
+const expandBookColumnsChoreography: ChoreographyNode = seq(
+	broadcast('soundOnce', { name: lit('sfx_scatter_win_v2') }),
+	effect('expandBookColumns', { symbol: trigger('symbol'), reels: trigger('reels') }),
+);
+
+/** `freeSpinTrigger` — scatter animation, the intro show + count set, then the counter show. */
+const freeSpinTriggerChoreography: ChoreographyNode = seq(
+	// animate scatters
+	broadcast('soundOnce', { name: lit('sfx_scatter_win_v2') }),
+	broadcast('boardShow'),
+	broadcastAwait('boardWithAnimateSymbols', { symbolPositions: trigger('positions') }),
+	// show free spin intro
+	broadcast('soundOnce', { name: lit('sfx_superfreespin') }),
+	broadcastAwait('uiHide'),
+	broadcastAwait('transition'),
+	// Set the awarded-count BEFORE the intro shows.
+	effect('setFreeSpinCounterTotal', { total: trigger('totalFs') }),
+	broadcast('freeSpinIntroShow'),
+	effect('freeSpinIntroShow'),
+	broadcast('soundOnce', { name: lit('jng_intro_fs') }),
+	broadcast('soundMusic', { name: lit('bgm_freespin') }),
+	broadcastAwait('freeSpinIntroUpdate', { totalFreeSpins: trigger('totalFs') }),
+	effect('setFreeGameType'),
+	broadcast('freeSpinIntroHide'),
+	effect('freeSpinIntroHide'),
+	broadcast('boardFrameGlowShow'),
+	broadcast('freeSpinCounterShow'),
+	effect('freeSpinCounterShow'),
+	broadcast('freeSpinCounterUpdate', { total: trigger('totalFs') }),
+	effect('setFreeSpinCounterTotalOnly', { total: trigger('totalFs') }),
+	broadcastAwait('uiShow'),
+	broadcastAwait('drawerButtonShow'),
+	broadcast('drawerFold'),
+);
+
+/** `updateFreeSpin` — show the counter + update its current/total. */
+const updateFreeSpinChoreography: ChoreographyNode = seq(
+	broadcast('freeSpinCounterShow'),
+	effect('freeSpinCounterShow'),
+	effect('freeSpinCounterUpdate', { amount: trigger('amount'), total: trigger('total') }),
+	effect('updateFreeSpinCounter', { amount: trigger('amount'), total: trigger('total') }),
+);
+
+/** `freeSpinEnd` — the outro count-up with its win-level sound bookends, then the cleanup. */
+const freeSpinEndChoreography: ChoreographyNode = seq(
+	broadcastAwait('uiHide'),
+	effect('enterFreeSpinOutro'),
+	broadcast('boardFrameGlowHide'),
+	broadcast('freeSpinOutroShow'),
+	broadcast('soundOnce', { name: lit('sfx_youwon_panel') }),
+	effect('winLevelSoundsPlay', { winLevel: trigger('winLevel') }),
+	effect('freeSpinOutroCountUp', { amount: trigger('amount'), winLevel: trigger('winLevel') }),
+	effect('winLevelSoundsStop'),
+	broadcast('freeSpinOutroHide'),
+	broadcast('freeSpinCounterHide'),
+	broadcast('specialBookHide'),
+	effect('exitFreeSpinOutro'),
+	broadcastAwait('transition'),
+	broadcastAwait('uiShow'),
+	broadcastAwait('drawerUnfold'),
+	broadcast('drawerButtonHide'),
+);
+
+/** `setWin` — the win panel show + awaited count-up with win-level sound bookends, then hide. */
+const setWinChoreography: ChoreographyNode = seq(
+	broadcast('winShow'),
+	effect('winShow', { winLevel: trigger('winLevel') }),
+	effect('winLevelSoundsPlay', { winLevel: trigger('winLevel') }),
+	effect('winUpdate', { amount: trigger('amount'), winLevel: trigger('winLevel') }),
+	effect('winLevelSoundsStop'),
+	broadcast('winHide'),
+	effect('winHide'),
+);
+
+// `finalWin` is a no-op in the coded handler — we DELIBERATELY leave it UN-authored so it
+// falls through to its coded (no-op) handler, proving the fall-through path stays live during
+// migration (§7). Authoring it as an empty choreography would also be parity-correct, but
+// leaving it out keeps the fall-through exercised end-to-end.
+
+// `createBonusSnapshot` (resume-only, §11.5 follow-up B.2) replays the reserved book events
+// through the play path. It is intentionally LEFT to its coded handler (it calls back into
+// `playBookEvent`, which already routes through the interpreter when active — so the replayed
+// `freeSpinTrigger`/`updateFreeSpin`/`setTotalWin` get the SAME authored choreography). See
+// the resume parity check in the harness; authoring snapshot itself as choreography would
+// duplicate the `_.findLast` selection logic, which is exactly the bounded-VM line we don't
+// cross. Fall-through here is the faithful, minimal change.
+
+// ---------------------------------------------------------------------------
+// The basegame screen node — the ONE authored exclusive screen (§5). Authoring it makes the
+// interpreter's generic mounter own the basegame mount, which is what lets the above-reel
+// z-order be reproduced (Game.svelte renders below-reel + above-reel passes around the board
+// even when authored — the Phase-5 B.1 fix). No enter/exit choreography: the basegame's
+// presentation is entirely the per-event choreographies above + feed-driven overlays (§5
+// "feed-driven overlays are NOT nodes"). The free-spin intro/outro/counter/specialBook/win
+// are overlays gated by `visibleSource`, not exclusive screen swaps, so they are NOT screen
+// nodes — they stay feed-driven, exactly as coded.
+// ---------------------------------------------------------------------------
+
+export const LINES_FLOW_DOC: FlowDoc = {
+	version: 1,
+	projectKey: 'lines',
+	screens: [{ id: 'basegame', initial: true }],
+	transitions: [],
+	events: [
+		{ event: 'reveal', choreography: revealChoreography },
+		{ event: 'winInfo', choreography: winInfoChoreography },
+		{ event: 'setTotalWin', choreography: setTotalWinChoreography },
+		{ event: 'setExpandingSymbol', choreography: setExpandingSymbolChoreography },
+		{ event: 'expandBookColumns', choreography: expandBookColumnsChoreography },
+		{ event: 'freeSpinTrigger', choreography: freeSpinTriggerChoreography },
+		{ event: 'updateFreeSpin', choreography: updateFreeSpinChoreography },
+		{ event: 'freeSpinEnd', choreography: freeSpinEndChoreography },
+		{ event: 'setWin', choreography: setWinChoreography },
+	],
+};

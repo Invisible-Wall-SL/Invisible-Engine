@@ -24,6 +24,8 @@
 	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentDefaults } from './registerComponentDefaults';
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
+	import { getBoundComponent } from './registerBoundComponents';
+	import { isTapToContinueEnabled, tapSignalOf, TAP_TO_CONTINUE_COMPONENT } from './tapToContinue';
 
 	const { node, space }: Props = $props();
 
@@ -88,6 +90,21 @@
 		allowed && def
 			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
 			: {};
+
+	// Tap-to-continue (Invisible Flow §6.2): a SHARED per-instance toggle any
+	// `overlay`-category instance can switch on (no def declaration — the param lives
+	// only on the placed instance, surfaced by the editor for overlays). When
+	// `tapToContinue` is on, mount the game-registered coded press surface
+	// (`TAP_TO_CONTINUE_COMPONENT`) over the overlay's art, passing the authored
+	// `tapSignal`; the coded part owns the hit area (OnPressFullScreen + Space) and
+	// calls the Flow holder (`completeActiveScreen` + `emitFlowSignal`) — the engine
+	// only DECLARES the slot. OFF by default ⇒ `tapComponent` is undefined ⇒ no extra
+	// child below ⇒ byte-identical. Gated to `overlay` defs so a UI/scenery instance
+	// never silently grows a full-screen tap surface; absent from the bound registry ⇒
+	// nothing mounts (parity, safe no-op). Init-stable, like the other static reads.
+	const tapEnabled = allowed && def?.category === 'overlay' && isTapToContinueEnabled(staticParams);
+	const tapComponent = tapEnabled ? getBoundComponent(TAP_TO_CONTINUE_COMPONENT) : undefined;
+	const tapSignal = tapEnabled ? tapSignalOf(staticParams) : '';
 
 	// Engine value feed (§13.2 step 2 / Phase B2): if the resolved params name a
 	// `source` AND the game registered a value store under it, subscribe and keep
@@ -406,6 +423,13 @@
 	};
 </script>
 
+{#snippet tapSurface()}
+	{#if tapComponent}
+		{@const TapComponent = tapComponent}
+		<TapComponent signal={tapSignal} />
+	{/if}
+{/snippet}
+
 {#snippet rendered(root: LayoutNode)}
 	{#if interactive}
 		<Container
@@ -431,6 +455,7 @@
 	{:else}
 		<LayoutNodeView node={root} {space} />
 	{/if}
+	{@render tapSurface()}
 {/snippet}
 
 {#if allowed && def}

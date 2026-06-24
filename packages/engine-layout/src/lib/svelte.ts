@@ -6,9 +6,10 @@ import LayoutNodeView, { type Props as LayoutNodeViewProps } from './LayoutNodeV
 import ComponentInstance, {
 	type Props as ComponentInstanceProps,
 } from './ComponentInstance.svelte';
+import FlowMount, { type Props as FlowMountProps } from './FlowMount.svelte';
 
-export { LayoutScene, LayoutNodeView, ComponentInstance };
-export type { LayoutSceneProps, LayoutNodeViewProps, ComponentInstanceProps };
+export { LayoutScene, LayoutNodeView, ComponentInstance, FlowMount };
+export type { LayoutSceneProps, LayoutNodeViewProps, ComponentInstanceProps, FlowMountProps };
 
 // Param context (§13.2) — Svelte-dependent, so it lives on the component entry
 // (the bare `engine-layout` import stays Svelte-free). The editor canvas can

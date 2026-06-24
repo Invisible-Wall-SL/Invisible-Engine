@@ -239,6 +239,626 @@ prove the doc round-trips + the build ships, not the pixels/interactions.
 - Phase 3 — micro choreography (double-click a node → author enter/while/exit).
 - Phase 4 — the live generic mounter; Phase 6 — bake/pipeline (`flow?` in `BakedBundle`).
 
+### Progress — Phase 3 DONE headlessly (2026-06-24)
+
+Branch `flow/phase3-choreography` (off the Phase-1/2 work). No game bump. Authoring +
+deterministic preview only — the runtime mounter swap (Phase 4) and bake (Phase 6) stay out.
+
+**A — the choreography sub-editor (double-click a node).**
+- `ChoreographyEditor.svelte` opens on double-clicking a macro screen node (xyflow 1.6 has
+  no node-double-click event, so the page detects two clicks <350ms apart; an explicit
+  "Edit choreography…" button in the screen inspector is the discoverable equivalent). It
+  hosts the screen's enter/while/exit timeline as a node graph over the SAME
+  `@xyflow/svelte` lib (§12), with phase tabs, a Sequence/Parallel root toggle, a per-node
+  inspector, the Speed dial + the deterministic preview.
+- The author node kinds are EXACTLY the executor's `ChoreographyNode` kinds — **Broadcast /
+  Sequence / Parallel / Delay / Branch / ForEach** — no new vocabulary (§9.A). Edits go
+  through a PURE, path-addressed command layer (`choreographyModel.client.ts`: a sub-graph
+  is addressed by a `ChoreoTarget` = screen+phase or event; a node by a `ChoreoPath` of
+  child indices / `then`/`otherwise`/`body` slots), each returning a NEW FlowDoc, routed
+  through the SAME `createFlowHistory` undo/redo stack as the macro graph and the existing
+  `POST /api/flow/save`. `flattenChoreography` projects the tree onto xyflow nodes+edges
+  (container→child links, branch/forEach slots labelled).
+
+**B — the Broadcast palette = the game's REAL emitter vocabulary (sourced honestly).**
+- A Broadcast node's event picker lists the game's actual emitter events, grouped by source
+  component. **Honest sourcing finding:** that vocabulary lives in each game's
+  `typesEmitterEvent.ts` as a COMPILE-TIME TypeScript discriminated union — it has no
+  runtime/serialized form, and the launcher loads a project from R2, not from game source.
+  So the catalog is **PASSED IN**, exactly the way the LayoutDoc + component defs already
+  are (it is NOT something the launcher can reflect from R2 today). A new serializable
+  `EmitterVocabulary` shape (`engine-flow/src/emitterVocabulary.ts`) defines that passed-in
+  catalog; a bundled `DEFAULT_EMITTER_VOCABULARY` is transcribed verbatim from the real
+  `apps/lines`/book-of emitter unions (Board/Win/Sound/FreeSpin*/Transition/SpecialBook +
+  the shared UI cues the handlers broadcast) — the game's ACTUAL vocabulary, not invented.
+  The authoring UI is agnostic to the source; Phase 6 can export the game's union as data
+  alongside the FlowDoc and feed the SAME shape instead of the default.
+
+**C — the Speed scalar.**
+- A per-preview Speed dial (1× / 2× turbo) feeds the executor's injected `timeScale()`. The
+  executor already divides every Delay by `timeScale()` (the coded `ms / timeScale()` call
+  sites), so the authored speed flows straight into the runtime scalar the executor reads —
+  no new plumbing, kept a bounded scalar (not a script). Proven: a 300ms delay becomes
+  150ms at 2× in the preview timeline.
+
+**D — live preview against a DETERMINISTIC feed (§11.6).**
+- `engine-flow/src/previewExecutor.ts` + `ChoreoPreview.svelte` run the authored
+  choreography through the REAL `runChoreography` against a recording runtime on a VIRTUAL
+  clock (delays advance the clock, no real time passes), fed by a FIXED book payload
+  (`FIXED_PREVIEW_TRIGGER`/`FIXED_PREVIEW_ENGINE`, mirroring the mock-RGS/test-server book
+  shape — never a random outcome), producing the ordered broadcast+delay timeline with the
+  speed scalar applied (the Phase-0 parity-harness shape). This is the DETERMINISTIC half of
+  preview: the emitter-call ORDER + TIMING, reproducible run-to-run, so a delay tweak shows
+  its millisecond shift immediately. **Scoped honestly:** a TRUE visual preview (the game
+  actually animating) needs the running game + its real emitter + Pixi mounter — that is the
+  live generic mounter (Phase 4) and is explicitly NOT done here; the UI flags it, it is not
+  faked.
+
+**How it was verified headlessly**
+- `pnpm --filter engine-flow run typecheck` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the flow page + `ChoreographyEditor`/`ChoreoNode`/`ChoreoNodeInspector`/`ChoreoPreview` +
+  `/api/flow/save` all compile + ship).
+- `tools/flow-spike/roundTrip.ts` (`pnpm --filter flow-spike run roundtrip`) extended to
+  author a non-trivial choreography exercising EVERY node kind (sequence/parallel/delay,
+  broadcast in all three shapes, branch+else, forEach over `$trigger.wins` with an `$item`
+  payload). It asserts the choreography round-trips canonical through save→reload, AND drives
+  it through the REAL executor via the deterministic preview: 2 wins ⇒ 2 forEach broadcasts,
+  the parallel branch fires both children, the branch takes the then-path at winLevel≥3, the
+  timeline is identical run-to-run (determinism), and the 300ms delay halves to 150ms under
+  2× (speed scalar). Phase-0 `parity` + Phase-1 `pins` spikes still GREEN.
+- **Incidental fix:** added the missing `flowDocKey` export to `projectPaths.ts` — Phase-2's
+  `flowStorage.ts` imported it but it was never added, so the launcher build was broken on
+  the inherited branch.
+
+**Still needs owner-verify live (deployed launcher + auth + R2):** the in-browser
+choreography authoring — double-clicking a node, add/edit/remove nodes, the Broadcast event
+picker, the dispatch-shape + payload + branch-guard + forEach editors, undo/redo, and a real
+Save → reload — plus the preview panel pixels. The headless checks prove compile/ship/
+round-trip/determinism, not the interactions or pixels.
+
+**What's left**
+- Phase 4 — the live generic mounter (mount authored screens + run choreography in a real
+  game, retiring §20.1) + the all-three transition triggers wired to runtime.
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`); export the game's emitter union as
+  data to replace `DEFAULT_EMITTER_VOCABULARY`.
+- RULE 9: `docs/tools/flow.md` needs a `docs-keeper` audit pass to document the new
+  choreography sub-editor (Phase 3 materially extends the tool UI).
+
+### Progress — Phase 4 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase4-runtime-mounter` (off the latest `main`). No game submodule bump —
+Phase 4 proves the runtime in the dev game `apps/lines` only. The interpreter stops being a
+headless library and runs inside a real game, replacing `Game.svelte`'s hard-coded mounting
+and wiring live transitions, WITHOUT regressing the game (the §7 invariant is held by
+construction + a fresh 27-assertion harness).
+
+**A — the generic scene mounter (retires §20.1).**
+- `mounter.ts` promoted from interface-only to the **decision layer** (`createSceneMounter`):
+  `resolve(screenId)` returns `{ kind: 'authored', scene }` ONLY when the FlowDoc carries
+  that screen AND a backing LayoutDoc `Scene` exists, else `{ kind: 'fallThrough' }` — the
+  single §7 boundary. **Key finding:** the live Pixi mount is NOT a new path — the engine's
+  existing `<LayoutScene>` ALREADY is a generic mounter (a `game`-space scene self-wraps in
+  `<MainContainer>`, `standard` in `<MainContainer standard>`, `canvas`/`background` mount
+  raw; it also applies the `Scene.visibleSource` gate). So the mounter owns only the
+  DECISION (which scene, authored vs coded); `<LayoutScene>` owns the MainContainer scaling +
+  overlays. A new `FlowMount.svelte` (in `engine-layout/svelte`) renders the resolved scene
+  via `<LayoutScene>` or the coded `{@render fallback()}` with **no wrapping container**, so
+  the fall-through is byte-identical. An authored-but-no-backing-scene screen falls through
+  (never a blank mount).
+
+**B — transitions, all three triggers (§6).**
+- `presentation.ts` (`createPresentationMachine`) — the **presentation HSM**, pure +
+  framework-free (imports no rune modules; the `$engine.*` reader + runtime are injected).
+  Fires edges on: (1) `bookEvent` (`onBookEvent` — matches the arriving book event `type`),
+  (2) `complete` (`onComplete` — the active screen's exit choreography signalled done, the
+  genuinely-new self-driving output §6.2), (3) `condition` (`evaluate()` — re-checks guard-
+  only edges when the game pings an observed value change). Each edge honours an optional
+  bounded `guard` + `delayMs ÷ timeScale()`; outgoing edges are tried in author `order`
+  (unguarded = default); a swap runs the old screen's `exit` then the new screen's `enter`
+  choreography; concurrent triggers are serialized. **Observe-don't-drive (§12):** the HSM
+  exposes ONLY `onBookEvent`/`onComplete`/`evaluate`/`start` + reads — no `send`/`transition`
+  into the platform FSM (the harness asserts this surface). XState stays the single source of
+  truth; Flow reacts.
+- `interpreter.ts` (`createFlowInterpreter`) — the single boot object tying HSM + mounter +
+  the Phase-0 book-event dispatcher together. INERT with no FlowDoc (active screen
+  `undefined`, every mount + event falls through). `dispatchBookEvent` runs the event's
+  presentation (authored choreography OR coded fall-through) AND lets the macro graph take a
+  `bookEvent` transition — the two are orthogonal (§6.1).
+
+**C — live wiring into `apps/lines` (PARITY-FIRST).**
+- `game/flowRuntime.svelte.ts` builds the interpreter wired to the game's REAL primitives —
+  the same `eventEmitter`, `stateBetDerived.timeScale`, `waitForTimeout` the coded path uses
+  (§8) — and resolves screen ids against the live editor doc's scenes (the real scenes,
+  untouched). `game/flowInterpreterHolder.ts` is the singleton the play path reads.
+  `game/utils.ts`'s `playBookEvent`/`playBookEvents` route through the interpreter WHEN ACTIVE
+  (the same serial `sequence()`) else defer to the coded `createPlayBookUtils` unchanged.
+  `Game.svelte` wraps the basegame mount in `<FlowMount>` and builds the interpreter once
+  `loadEditorScenes()` resolves, then `start()`s it.
+- **The §7 invariant by construction:** the FlowDoc source is ABSENT by default (a
+  `window.__IE_FLOW_DOC__` dev-override hook for Phase-4 live-verify; the baked `flow` slot is
+  Phase 6), so `createLinesFlow` returns `undefined` ⇒ holder null ⇒ `basegameMount` undefined
+  ⇒ `<FlowMount>` renders the original `<LayoutScene scene={basegameBelowReel} />` and the
+  book-event path is the coded one. `apps/lines` is byte-identical to current `main`.
+
+**How it was verified headlessly + build-shipped**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN. New `tools/flow-spike/phase4Runtime.ts`
+  (`pnpm --filter flow-spike run phase4`) — 27/27 assertions GREEN against the REAL engine-flow
+  HSM/mounter/interpreter: mounter authored-vs-fall-through (incl. authored-but-no-scene ⇒
+  fall-through; overlay `visibleSource` carried through to `<LayoutScene>`); all 3 triggers
+  drive transitions; author-order + guard precedence (a guarded `winLevel≥3` edge wins over a
+  later default; guard fails ⇒ the default fires); `delayMs` 600→300 under turbo; the HSM
+  drives no platform transition; the full interpreter is inert with no FlowDoc AND falls
+  through per-event with one authored. Phase-0 `parity` + Phase-1 `pins` + Phase-2/3
+  `roundtrip` spikes still GREEN.
+- **Build-shipped:** `pnpm --filter lines build` GREEN; the `__IE_FLOW_DOC__` hook + the
+  interpreter modules are confirmed present in the minified client bundle (shipment, not just
+  compile); `pnpm --filter engine-layout build` GREEN with `FlowMount`.
+
+**Semantic-fidelity risks found (surfaced, not papered over)**
+- The mounter is a DECISION layer over `<LayoutScene>`, NOT a re-implementation of the Pixi
+  mount — chosen specifically because `<LayoutScene>` already owns MainContainer scaling +
+  the gate; reproducing that in engine-flow would have risked the §11.3 regression. The one
+  consequence: an authored basegame screen replaces ONLY the basegame layers, not the board
+  MainContainer (the reel is engine-owned, not a flow screen) — correct, but means the
+  above-reel split is bypassed when an authored basegame is active (`{#if !basegameMount}`),
+  which is the intended "the authored scene owns its own stacking" semantics. Phase 5
+  per-screen parity must confirm an authored basegame reproduces the below/above-reel z-order.
+- `createBonusSnapshot` (a resume-only coded handler) calls `playBookEvent`, which re-routes
+  through the interpreter when active. With no FlowDoc (default) this is the coded path
+  (parity); when a FlowDoc is authored the replayed events get the same authored treatment —
+  the faithful behaviour, but Phase 5 should add a resume-path parity check.
+
+**Still needs owner-verify live (the remaining gate):** the running WebGPU bundle —
+`preview_screenshot` times out on it (project memory), so verify via the documented
+`app.stage` scene-graph read / dynamic-import override, NOT a screenshot: (1) the DEFAULT
+`apps/lines` boot renders byte-identical with the interpreter inert; (2) injecting
+`window.__IE_FLOW_DOC__` for `basegame` + a `winInfo` choreography makes the interpreter mount
+the authored scene and animate identically turbo on/off. The headless harness proves the
+decision logic + async/timing; the live render is the one thing headless can't prove (the
+structuredClone-class build≠runtime risk).
+
+**What's left**
+- Phase 5 — full migration: move the WHOLE `apps/lines` flow off coded mounting + handler map
+  to an authored FlowDoc, per-screen + per-event parity-checked.
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`; export the game's emitter union as data
+  to replace `DEFAULT_EMITTER_VOCABULARY` + the `__IE_FLOW_DOC__` dev hook).
+- RULE 9: Phase 4 is engine/runtime only — no `/flow` tool UI changed, so `docs/tools/flow.md`
+  needs no Phase-4 update (the Phase-3 choreography `docs-keeper` audit is still pending).
+
+### Progress — Phase 5 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase5-migration` (off the latest `main`). No game submodule bump — Phase 5 is
+`apps/lines`-only (owner mirrors to Borut after this lands). No XState/math/pipeline touched.
+The WHOLE `apps/lines` presentation flow is now authorable as a complete FlowDoc that, when
+loaded, runs the game ENTIRELY through the interpreter with per-event parity proven turbo
+on/off — while the default (no FlowDoc) boot stays byte-identical to current `main`.
+
+**The reconciliation that made full migration possible (the §13 / §11.5 crux).**
+- The choreography vocabulary is emitter-broadcast-only, but every coded `bookEventHandlerMap`
+  handler also does NON-emitter work the bounded vocabulary deliberately can't express: state
+  mutations (`stateGame.gameType = …`, `stateBet.winBookEventAmount = …`, the `stateUi.*`
+  flags), board ops (`enhancedBoard.spin(…)`, the Book-of column morph), the win-level sound
+  clusters (which read LIVE state, not the trigger payload), and the bonus record. Growing the
+  vocabulary to cover these would be the scripting-VM line §11.4 forbids.
+- **Resolution — one bounded primitive: the `effect` choreography node** (`engine-flow`). A
+  named, game-registered side effect — the EXACT `declare ≠ implement` analogue of
+  `registerComponentActions`. The FlowDoc *declares* `{ kind:'effect', name, payload }` (payload
+  = whitelisted accessors); the game *implements* a CLOSED map at boot, injected on
+  `FlowRuntime.effect`. Awaited like a Broadcast, so an effect mirroring an awaited coded
+  operation blocks the sequence identically; an un-registered effect is a no-op (parity-safe).
+  This is NOT a VM — a closed registry of named effects whose bodies live in game code, never
+  authored in the doc. Also added a `$context.*` accessor (the dispatch context `{ bookEvents }`
+  the coded handler's 2nd arg carries) so a reveal's multiple-reveal check + the resume snapshot
+  resolve without leaving the bounded model. Both new kinds round-trip through `normalizeFlowDoc`
+  (the bake-path contract) idempotently — verified.
+
+**A — the COMPLETE apps/lines FlowDoc (`apps/lines/src/game/flowDoc.ts`, committed fixture).**
+- `LINES_FLOW_DOC` authors the `basegame` screen node (`initial`) + a per-event choreography for
+  EVERY migratable book event: `reveal`, `winInfo`, `setTotalWin`, `setExpandingSymbol`,
+  `expandBookColumns`, `freeSpinTrigger`, `updateFreeSpin`, `freeSpinEnd`, `setWin` (9 events).
+  Each choreography is read straight off `bookEventHandlerMap.ts`: a sync `broadcast` ⇒ Broadcast
+  node; an awaited `broadcastAsync` ⇒ `{async:true,await:true}`; a fire-and-forget `broadcastAsync`
+  ⇒ `{async:true,await:false}`; `waitForTimeout(ms)` ⇒ Delay; serial `sequence(list,…)` ⇒ ForEach
+  `sequence`; every non-emitter leaf ⇒ an `effect` node.
+- **The effect bodies (`apps/lines/src/game/flowEffects.ts`) are lifted VERBATIM** from the coded
+  handler leaves — `bookEventHandlerMap.ts` now IMPORTS the three shared helpers (`winLevelSoundsPlay`,
+  `winLevelSoundsStop`, `animateSymbols`) from there, so the coded path and the effects share ONE
+  source of truth per leaf. An effect is therefore byte-identical to its coded counterpart by
+  CONSTRUCTION (reproduced, never re-derived). The coded handler map is otherwise unchanged.
+- `finalWin` (coded no-op) and `createBonusSnapshot` (resume-only) are DELIBERATELY left
+  UN-authored ⇒ they fall through to their coded handlers, keeping the §7 fall-through exercised
+  end-to-end during the migration. The free-spin intro/outro/counter/specialBook/win overlays are
+  feed-driven (`visibleSource`), NOT exclusive screen swaps, so per §5 they are NOT screen nodes —
+  they stay feed-driven exactly as coded. `apps/lines`' only exclusive screen is `basegame`.
+- A committed dev hook (`window.__IE_FLOW_LINES__`) sources `LINES_FLOW_DOC` for live-verify,
+  alongside the existing `window.__IE_FLOW_DOC__` ad-hoc hook. NEITHER is set on a normal boot ⇒
+  `loadFlowDoc()` returns `undefined` ⇒ the interpreter is inert ⇒ byte-identical to `main`.
+  (Phase 6 replaces the hook with the baked `flow` slot sourcing the SAME doc.)
+
+**B — the two Phase-4 follow-ups resolved.**
+- **B.1 Above-reel z-order.** Game.svelte now splits the AUTHORED basegame scene at its top-level
+  `reelGrid` index exactly as the coded path splits `basegameScene`: `<FlowMount>` mounts the
+  below-reel slice, the engine-owned board MainContainer mounts next, and the above-reel slice
+  renders AFTER it — UNCONDITIONALLY (the old `!basegameMount` gate is gone). So an authored
+  basegame reproduces the exact below-reel → board → above-reel stacking. No reelGrid in the
+  authored scene ⇒ single below-reel pass (parity with a nested-reelGrid coded boot).
+- **B.2 Resume path.** `createBonusSnapshot` stays coded (its `_.findLast` selection is exactly
+  the bounded-VM line we don't cross); the events it replays (`freeSpinTrigger`/`updateFreeSpin`/
+  `setTotalWin`) route through `playBookEvent` ⇒ the interpreter when active ⇒ get their AUTHORED
+  choreography. The harness proves the resume replay SEQUENCE's interpreter op log equals the
+  coded play of the same events in the same order (39 ops, turbo on/off) — the snapshot-then-resume
+  is parity-correct because each replayed event is parity-proven and the order is preserved.
+
+**C — per-event parity harness (the gate): `tools/flow-spike/phase5Migration.ts`.**
+- `pnpm --filter flow-spike run phase5` — for EACH of the 9 events it runs the coded handler body
+  (transcribed verbatim, driving a shared recording rig through the SAME effect leaves) AND the
+  interpreter over the REAL `LINES_FLOW_DOC`, asserting the ordered op log (broadcasts with the
+  3-way split + named effect invocations + resolved payloads + awaited completions + scaled
+  delays) is IDENTICAL turbo ON and OFF. **18/18 per-event checks GREEN** (op counts:
+  reveal 7, winInfo 5, setTotalWin 2, setExpandingSymbol 3, expandBookColumns 4, freeSpinTrigger 29,
+  updateFreeSpin 8, freeSpinEnd 27, setWin 15). Plus coverage (all migratable events authored;
+  finalWin + createBonusSnapshot deliberately fall through; basegame is the initial exclusive
+  screen) + the B.2 resume-replay parity (39 ops, turbo on/off). **NO DIVERGENCE FOUND.**
+- Subtleties caught + fixed during authoring (each would have visibly broken the game): the
+  `freeSpinTrigger` interleave of `setFreeGameType` vs the `freeSpinIntroHide` broadcast vs the
+  `freeSpinIntroShow=false` flag (split into separate effects to match the exact coded order); the
+  `updateFreeSpin` `current = amount + 1` arithmetic (an effect, not an accessor — the bounded
+  model has no arithmetic); and that `winLevelSoundsStop` branches on live `gameType`
+  (`bgm_freespin` in freegame/`freeSpinEnd` vs `bgm_main` in basegame/`setWin`) — the harness
+  models both branches per-event.
+
+**How it was verified headlessly + build-shipped**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN (the `effect` node + `context` accessor +
+  `FlowEffect`/`FlowRuntime.effect` additions). `pnpm --filter lines build` GREEN and the dev
+  server boots clean; the `__IE_FLOW_LINES__` hook + the effect names (`revealBoard`,
+  `winLevelSoundsPlay`, …) are confirmed present in the minified client bundle (shipment).
+  `pnpm --filter engine-layout build` GREEN. The FlowDoc survives `normalizeFlowDoc` round-trip
+  idempotently with all 9 events + every `effect` node preserved (bake-ready). The Phase-0
+  `parity`, Phase-1 `pins`, Phase-2/3 `roundtrip`, and Phase-4 `phase4` spikes all still GREEN.
+- **Default-inert invariant proven at the bundle level:** `loadFlowDoc` gates on the two globals
+  only; with neither set the FlowDoc is never sourced ⇒ `createLinesFlow` ⇒ `undefined` ⇒ holder
+  null ⇒ the coded mounting + coded `bookEventHandlerMap` run unchanged. `apps/lines` default boot
+  is byte-identical to current `main`.
+
+**Still needs owner-verify live (the one thing headless can't prove — the WebGPU bundle):**
+`preview_screenshot` times out on WebGPU (project memory), so verify via the documented
+`app.stage` scene-graph read / dynamic-import override, NOT a screenshot. Two checks:
+  1. **Default boot** (no globals) renders + animates byte-identical to `main` (the interpreter is
+     inert — confirmed at the bundle/build level here, needs a live eyeball for full confidence).
+  2. **Full FlowDoc** — set `window.__IE_FLOW_LINES__ = true` before boot (or inject it via a
+     dynamic-import override) and run a real spin INCLUDING free spins + a win + a resume: the
+     interpreter mounts the authored basegame (with the below/above-reel z-order intact) and
+     animates IDENTICALLY turbo on/off. The headless harness proves the mount decision + the
+     emitter/effect call sequence + timing; the live render is the structuredClone-class
+     build≠runtime risk only a real browser closes.
+
+**What's left**
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`; the baked `flow` slot replaces the
+  `__IE_FLOW_LINES__`/`__IE_FLOW_DOC__` hooks; export the game's emitter union + the effect-name
+  catalog as data alongside the FlowDoc). When the engine `effect`-node work must reach Book of
+  Borut, bump its `engine` submodule (owner mirrors after this lands).
+- RULE 9: the Phase-3 choreography `docs-keeper` audit of `docs/tools/flow.md` is still pending;
+  the editor UI could later surface the `effect`/`context` node kinds (authored-as-data today).
+
+### Progress — Phase 6 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase6-pipeline` (off the latest `main`). No game submodule bump yet — the
+ship chain is proven in the launcher + `apps/lines`; bumping Borut's `engine` submodule is
+the owner's mirror step once this lands. This closes RULE 8 for the FlowDoc: the authored
+presentation graph now travels the SAME export→deploy→bake→register chain as the art / font /
+symbol docs, so a game ships its flow instead of running only its coded path.
+
+**A — the export step (the FlowDoc analogue of `editorArtExport.ts`).**
+- `apps/launcher-api/src/lib/server/flowExport.ts` (`exportEditorFlow`) reads the authored
+  `editor/flow.json`, re-normalizes it through `normalizeFlowDoc` (the SAME serialize contract
+  `/api/flow/save` + the headless round-trip use, so the deployed doc is canonical), and writes
+  `deploy/flow.json`. Unlike art/font/symbol exports the FlowDoc carries **no binary assets** —
+  it only references scenes the Scene Editor already exported — so there is **no `pull` step**,
+  just the embedded doc. An absent / invalid / EMPTY (no screens/transitions/events)
+  `editor/flow.json` exports nothing and **prunes** any stale `deploy/flow.json`, so an
+  un-authored project bakes no flow (parity). Idempotent.
+- `apps/launcher-api/src/routes/api/editor/export-flow/+server.ts` — the build-time trigger,
+  gated by the SAME shared `EDITOR_DOC_SECRET` (`?k=`) as `/api/editor/doc` (a build runner has
+  the token, no launcher session).
+
+**B — bake + the live-runtime bundle both embed the slot.**
+- `bake-editor-doc.mjs` POSTs `/api/editor/export-flow` right alongside the art/font/symbol
+  exports, then embeds the returned doc as `BakedBundle.flow` — but ONLY when it is non-empty
+  (the `authored` gate: ≥1 screen/transition/event). An empty/absent doc leaves `flow`
+  undefined so the bundle is **byte-identical** for every game with no flow work (§7). The
+  bake log line gains a `flow={N screens/N transitions/N events}` note.
+- `runtimeBundle.ts` (the `/api/editor/runtime-bundle` path the editor preview reads) runs
+  `exportEditorFlow` in the same `Promise.all` as the other exporters and forwards a non-empty
+  `flow` the same way, so the live editor runtime and the baked game resolve the identical slot.
+
+**C — the game registers the baked slot (parity-first).**
+- `apps/lines/src/editor-scenes.ts` adds `flow?: FlowDoc` to `BakedBundle` and a
+  `bakedFlowDoc()` reader mirroring `bakedSymbolMap`'s **runtime-bundle → baked → undefined**
+  precedence.
+- `apps/lines/src/game/flowRuntime.svelte.ts#loadFlowDoc()` now resolves, in order: the
+  `__IE_FLOW_DOC__` dev override → the `__IE_FLOW_LINES__` committed fixture → **`bakedFlowDoc()`
+  (the real ship source)**. UNDEFINED on an un-baked / un-authored boot (the checked-in
+  `baked-editor-bundle.json` placeholder has `doc:null` and no `flow` key) ⇒ the interpreter is
+  inert ⇒ the coded mounting + `bookEventHandlerMap` run, byte-identical to current `main`.
+
+**How it was verified headlessly + build-shipped**
+- `tools/flow-spike/phase6Pipeline.ts` (`pnpm --filter flow-spike run phase6`) — 12/12 GREEN
+  against the REAL `engine-flow` interpreter + the REAL `LINES_FLOW_DOC`, modelling the exact
+  ship chain: (1) the authored doc survives `normalizeFlowDoc` (export/bake contract)
+  idempotently with every screen/event intact; (2) baked PRESENT ⇒ `loadFlowDoc()` returns it ⇒
+  interpreter `isActive`; (3) baked ABSENT ⇒ undefined ⇒ interpreter INERT (coded path, §7);
+  (4) an authored-but-EMPTY doc is treated as absent by the `authored` gate (parity); (5) the
+  dev-hook escape hatches still win over the baked slot. Phase-0 `parity` / Phase-1 `pins` /
+  Phase-2-3 `roundtrip` / Phase-4 `phase4` / Phase-5 `phase5` spikes ALL still GREEN.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the export endpoint + `flowExport` + the bundle slot ship); `pnpm --filter lines build` GREEN
+  with `bakedFlowDoc()` + the baked-source `loadFlowDoc()` confirmed in the minified client
+  bundle (shipment, not just compile). The checked-in placeholder bundle has no `flow` key ⇒ the
+  dev boot stays inert.
+
+**Held for a Phase-6 follow-up (NOT blocking the ship gate):** exporting the game's **emitter
+union + effect-name catalog as data** to replace the hardcoded `DEFAULT_EMITTER_VOCABULARY` in
+the `/flow` choreography palette. This is an AUTHORING-fidelity improvement only — it changes
+which Broadcast events the picker offers, NOT the runtime (the executor broadcasts whatever the
+FlowDoc says). The default vocabulary is already transcribed verbatim from the lines/book-of
+emitter unions, and Borut IS a book-of game, so the default already covers it; the codegen step
+(read each game's compile-time `typesEmitterEvent.ts` → a serializable catalog → feed the editor)
+is deferred to Phase 7 authoring-UX. **Owner-verify live (the one thing headless can't prove):**
+bake a project that authored a flow (or point a build at one) and confirm the shipped game boots
+with the interpreter ACTIVE off the baked slot — verify via the `app.stage` read / dynamic-import
+override per the WebGPU `preview_screenshot` limitation, not a screenshot.
+
+**What's left**
+- Phase 7 — authoring UX (node/palette search, copy/paste subgraphs, validation) + the held
+  emitter-union/effect-name export above; surfacing `effect`/`context` node kinds in the editor.
+- The Phase-3 `docs-keeper` audit of `docs/tools/flow.md` (still pending from Phase 3).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
+  is authored + baked — the owner's step.
+
+### Progress — Phase 7 (Authoring UX) IN PROGRESS, headless-verified (2026-06-24)
+
+Branch `flow/phase7-authoring-ux` (off the latest `main`). EDITOR-ONLY — the runtime
+interpreter, the games, XState/math and the bake pipeline are untouched, so there is no
+game-parity risk; the FlowDoc still round-trips clean (the `roundtrip` spike stays green).
+The first Phase-7 item (readable edge labels) landed earlier; this slice adds the rest of
+§9 row 7 — validation, search, copy/paste, the authored-vs-coded diff, and pin tooltips.
+
+**1 — Validation surfacing (`engine-flow/src/validate.ts`, `validateFlowDoc`).**
+- A PURE pass over the macro graph (Svelte-free, dependency-free, runs headlessly + in the
+  launcher) flagging, as WARNINGS (never blocks authoring, §7): **unreachable** screens (no
+  transition path from `initial`), **dead-end** screens (a non-initial screen with no
+  outgoing edge; a single-screen flow like `apps/lines` basegame is terminal-by-design and
+  NOT flagged), **no-initial** / **multiple-initial**, and **orphaned-pins** (folded in from
+  the per-screen orphan summary the model already derives via `deriveScreenPins`, §4). Each
+  node-scoped issue carries a clickable `screenId`. Surfaced in a new
+  `ValidationPanel.svelte` (click an issue to select/focus the node), an inline amber node
+  border (`FlowScreenNode` `invalid` flag), and a `⚠ N issues` sub-bar badge.
+
+**2 — Node/palette search.** A **Filter screens** box on the palette (filters unplaced
+scenes by name/id) + a **Find on canvas** box (lists placed screens matching a query;
+click → select + focus the node). Pure `$derived` filters; the validation + diff panels are
+also click-to-focus through the same `focusScreen`.
+
+**3 — Copy/paste subgraphs (`flowModel.client.ts` `copyScreens`/`pasteScreens`).** Copy the
+selected screen(s) WITH choreography + the transitions wholly internal to the selection;
+paste mints **fresh** transition ids and remaps endpoints (§12 — a paste is a new node, no
+id recycling). Because a screen node id IS its backing scene id (and a scene is placed at
+most once), paste maps each copied screen onto a target scene: re-pastes the same scene when
+free (e.g. after a cut) else onto the next UNPLACED scene, carrying the choreography. Wired
+through the command stack (undoable) + Ctrl+C/Ctrl+V (suppressed in text fields).
+
+**4 — Flow-diff vs coded default (`engine-flow/src/diff.ts`, `diffFlowDoc`).** A PURE
+summary of which screens/events the FlowDoc AUTHORS (interpreter-driven) vs falls through to
+the CODED default (§7) — the same predicate the dispatch uses. Rendered by a new
+`FlowDiffPanel.svelte`: a compact summary line ("N of M screens authored · N of M events
+authored"), per-screen enter/while/exit phase indicators (click-to-focus), and per-event
+authored/coded tags against `DEFAULT_CODED_EVENTS` (the `apps/lines`/Book-of handler-map
+keys). It REPORTS the §7 boundary, never changes behaviour.
+
+**5 — Visual polish.** Pin labels now carry a `title` tooltip (role + full binding, with an
+orphaned note) so a truncated handle label is readable on hover; node title gets a `title`
+too; handle row spacing nudged; the `invalid` node marker added. Consistent with the dark
+theme (the edge-label chip palette).
+
+**How it was verified headlessly**
+- `tools/flow-spike/phase7Authoring.ts` (`pnpm --filter flow-spike run phase7`) — 30/30
+  GREEN against the REAL `engine-flow` helpers: validation across every issue class
+  (unreachable island, dead-end leaf, no/multiple-initial, single-screen-clean, orphan
+  fold-in with count), the authored-vs-coded diff (per-screen phases + per-event tags +
+  summary), and the copy/paste invariant (a pasted subgraph with fresh ids round-trips
+  canonical + idempotent through `normalizeFlowDoc`, all ids unique). `pnpm --filter
+  engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN (the page +
+  `ValidationPanel` + `FlowDiffPanel` ship). The Phase-0 `parity`, Phase-1 `pins`,
+  Phase-2/3 `roundtrip`, Phase-4 `phase4`, Phase-5 `phase5` and Phase-6 `phase6` spikes ALL
+  still GREEN (copy/paste yields round-trip-clean docs).
+
+**Still needs owner-verify live (the authed page can't be driven headlessly):** the in-
+browser Phase-7 interactions — palette/canvas search, Copy/Paste (incl. Ctrl+C/V), the
+validation panel + inline node markers, the diff panel, and the pin tooltips — on the
+deployed launcher with auth + R2. Headless proves the helpers + build/ship/round-trip, not
+the pixels/interactions.
+
+**What's left**
+- A `docs-keeper` audit of `docs/tools/flow.md` (the Phase-3 audit is still pending AND the
+  Phase-7 sections are a flagged first-draft; the choreography Broadcast/effect picker now
+  sources the game's EXPORTED vocabulary + offers an effect-name picker — see the emitter-vocab
+  item below — which the audit should document).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its
+  flow is authored + baked — the owner's step.
+
+### Progress — Phase 7 emitter-vocabulary export DONE headlessly (2026-06-24)
+
+Branch `flow/phase7-emitter-vocab` (off the latest `main`). EDITOR/CODEGEN-ONLY — no runtime,
+game, XState/math or pipeline code touched, and the new `flowVocabulary.ts` is imported by
+NOTHING in the game runtime (only the spike). This is an **authoring-fidelity** improvement:
+it changes which Broadcast events + effect names the `/flow` choreography palette OFFERS, never
+the runtime (the executor broadcasts/invokes whatever the FlowDoc declares regardless). **Zero
+game-parity risk; no submodule bump.** Resolves the held follow-up from Phase 3 (§B,
+~lines 263-275) / Phase 6 (~lines 599-609).
+
+**Mechanism chosen — build-time CODEGEN (not a pipeline export), and why.** The emitter union
+(`typesEmitterEvent.ts` + the per-component `EmitterEvent*` unions + the shared
+`EmitterEventUi`/`Modal`/`HotKey` unions a game composes) and the effect catalog
+(`flowEffects.ts` keys) are properties of the GAME SOURCE — identical across every project built
+on that game, NOT per-project authored data living in R2. Pushing a per-game constant through
+export→deploy→bake→R2-per-project (the option-b path the FlowDoc itself travels) would invent
+per-project storage for non-per-project data. So codegen is the honest fit: it parses each
+game's source into a committed, serializable `EmitterVocabulary` fixture (mirroring the existing
+committed game-source fixtures `flowDoc.ts`/`flowEffects.ts`) and surfaces it through the
+launcher exactly the way the LayoutDoc + component defs are passed in (design doc §3/§11).
+
+**What landed**
+- `scripts/gen-flow-vocabulary.mjs` (run `pnpm gen:flow-vocab`, check `pnpm gen:flow-vocab:check`)
+  — a deterministic parser of the simple `{ type: 'name'; field: Type }` union members + the
+  `flowEffects` map keys. Emits TWO committed files (Prettier-formatted in-script so write +
+  `--check` are idempotent): `apps/lines/src/game/flowVocabulary.ts` (`LINES_EMITTER_VOCABULARY`,
+  35 events incl. the shared UI cues + `soundFade` the hand-written default missed, 20 effects)
+  and `apps/launcher-api/src/lib/flowVocabularies.ts` (the launcher registry keyed by LayoutDoc
+  `gameType` + `resolveFlowVocabulary(gameType)`, which falls back to `DEFAULT_EMITTER_VOCABULARY`
+  for any unrecognized game — the §7 parity-safe default). `lines`+`bookOf` map to the lines
+  vocab (the shared lines/book-of union covers Book of Borut); everything else ⇒ default.
+- `engine-flow/src/emitterVocabulary.ts` gained `EmitterEffectDef` + `EmitterVocabulary.effects?`
+  + `findEmitterEffect`; `DEFAULT_EMITTER_VOCABULARY` is UNCHANGED (still the fallback).
+- The editor now PREFERS the exported vocabulary: `/flow` `+page.server.ts` resolves it from the
+  LayoutDoc `gameType` via `resolveFlowVocabulary` and passes it as `data.vocabulary`; `+page.svelte`
+  feeds that to `ChoreographyEditor` instead of the hardcoded `DEFAULT_EMITTER_VOCABULARY`.
+- **Effect-name catalog surfaced (the doc's "emitter union + effect-name catalog" pairing).**
+  `ChoreoNodeInspector` renders an effect-name picker (from `vocab.effects`) for an `effect`
+  node, with a "not a registered effect" warning; `editChoreoNode`/`ChoreoNodeEdit` gained the
+  `effect` `name` edit; `choreoNodeSummary` gained the previously-missing `effect` case so an
+  effect node labels on the canvas. (Adding `effect` as a NEW addable node kind stays deferred —
+  this surfaces the catalog for existing/authored effect nodes, not a full effect authoring UX.)
+
+**How it was verified headlessly**
+- `tools/flow-spike/vocabulary.ts` (`pnpm --filter flow-spike run vocab`) — 13/13 GREEN: (1) the
+  codegen is IN SYNC with source (`--check` exits 0, so the fixture cannot silently drift from the
+  union/effect map the way the hand-written default could); (2) every Broadcast event (26) + every
+  effect (20) the REAL `LINES_FLOW_DOC` authors is present in the exported vocab; (3) the exported
+  vocab is a SUPERSET of `DEFAULT_EMITTER_VOCABULARY` (real union, never a regression) and adds
+  events the hand-transcribed default missed (e.g. `soundFade`); (4) the launcher registry maps
+  `lines`/`bookOf` and `resolveFlowVocabulary` falls back to the default for unknown/absent
+  gameType.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the page + registry + effect picker ship). The Phase-0 `parity`, Phase-1 `pins`, Phase-2/3
+  `roundtrip`, Phase-4 `phase4`, Phase-5 `phase5`, Phase-6 `phase6` and Phase-7 `phase7` spikes
+  ALL still GREEN. (`pnpm --filter lines build` fails in this worktree on the pre-existing
+  stale-engine-dist gotcha — `pixi-svelte` entry unresolved — unrelated to this change; the new
+  fixture compiles, proven by the spike's tsx import, and is imported by no game runtime module.)
+
+**Still needs owner-verify live (the authed page can't be driven headlessly):** in the deployed
+launcher, open a lines/book-of project's `/flow`, double-click a screen → the Broadcast picker
+lists the game's real events (incl. `soundFade`/UI cues) and an `effect` node offers the
+registered effect names. Headless proves the codegen fidelity + build/ship + resolver fallback,
+not the picker pixels.
+
+**What's left**
+- The `docs-keeper` audit of `docs/tools/flow.md` (Phase-3 + Phase-7 first-draft, now ALSO the
+  exported-vocabulary palette + effect-name picker).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
+  is authored + baked — the owner's step.
+
+### Progress — Phase-8 `$context` accessor slice salvaged onto #63 (2026-06-24)
+
+Branch `flow/phase8-context-salvage` (off the `#63` `main`). An abandoned parallel
+`flow/phase8-effect-context` branch had built the effect node + name picker + payload editors
+itself; `#63` (the emitter-vocabulary export above) SUPERSEDED that with build-time per-game
+vocabulary codegen, so the effect-catalog / effect-node / drift-guard parts of Phase 8 were
+DROPPED. The one non-redundant slice salvaged here is **`$context.*` accessor authoring** —
+the surrounding dispatch context (`{ bookEvents }`) an effect's payload can read — plus its
+preview + validation plumbing. EDITOR/ENGINE-AUTHORING ONLY — no runtime/game/XState/math or
+pipeline code touched; the model layer already carried `kind:'context'`. **Zero game-parity
+risk; no submodule bump.**
+
+**What landed**
+- `engine-flow/src/accessorText.ts` — shared pure `parseFlowAccessor` / `flowAccessorText`
+  (literal / `$trigger.` / `$item.` / `$context.` / `$engine.`) + `FLOW_ACCESSOR_HINT`,
+  exported from `index.ts`. This dedup is what lets `$context` land in BOTH inspectors
+  identically: `ChoreoNodeInspector` (Broadcast/Effect payload + ForEach list + Branch guard)
+  and `EdgeInspector` (transition guard) now call the shared helper instead of an inline copy.
+- `previewExecutor.ts` — `FIXED_PREVIEW_CONTEXT` (`{ bookEvents }`) + `PreviewOptions.context`,
+  wired into the `FlowScope`; `ChoreoPreview.svelte` passes it AND fixes the `effect` timeline
+  label (it rendered `undefined [undefined]` because it read `event`/`mode` on an effect entry;
+  now `name [effect]`).
+- `validate.ts` — the `unresolved-accessor` warning class (a `$engine.`/`$context.` accessor
+  whose key/root isn't known → non-blocking warn, §7) + `FlowValidateOptions`; `/flow`
+  `+page.svelte` passes `ENGINE_PARAM_CATALOG` keys + `contextRoots: ['bookEvents']`, and
+  `ValidationPanel.svelte` got the icon. The `unknown-effect` panel warning was deliberately
+  NOT brought over — `#63` already warns inline on an unregistered effect name.
+
+**How it was verified headlessly**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN.
+- `tools/flow-spike/roundTrip.ts` GREEN, extended to author an `effect` node with a
+  `$context.bookEvents` payload accessor through the model layer and assert it round-trips,
+  runs through the REAL executor, and resolves against `FIXED_PREVIEW_CONTEXT` (the effect-catalog
+  drift assertions from the abandoned branch were NOT included). `parity`/`phase5`/`phase6`/
+  `phase7` still GREEN. (`vocab` reports a pre-existing `#63` line-ending drift on this Windows
+  worktree — the committed generated files are CRLF but the codegen + `.gitattributes` are LF, so
+  `gen:flow-vocab:check` flags them stale; regenerated content is byte-identical. Unrelated to
+  this salvage — no vocabulary source/generated file is in the changeset.)
+### Progress — tap-to-continue / signal-trigger addition DONE headlessly (2026-06-24)
+
+Branch `flow/tap-to-continue` (off the latest flow stack). The RUNTIME/INTERPRETER HALF of a
+"tap to continue" feature (owner decision: BOTH — a tap both completes the active screen AND
+emits a named signal). The component that captures the tap is the NEXT agent's job; this slice
+exposes the API it will call. No game submodule bump. No XState/math touched. Parity (§7) held:
+no existing FlowDoc uses `signal` triggers or the new hooks, so every current doc/game is
+byte-identical and the default/empty path is unchanged.
+
+**A — "advance/complete the active screen" runtime hook.**
+- `FlowInterpreter.completeActiveScreen()` (`engine-flow/src/interpreter.ts`) — runs the active
+  screen's `exit` choreography then fires its `complete`/`exited` structural pin, so any
+  `complete`-triggered edge from that screen advances the flow (the click analogue of the screen
+  self-signalling done, §6.2). A SAFE no-op when the interpreter is inert (no FlowDoc ⇒ no machine
+  ⇒ returns `false`). Maps to the HSM's existing `onComplete()` — the exit phase already runs inside
+  the transition swap (`performTransition`), so the requested semantic is satisfied by construction;
+  this is a clearly-named alias of the `complete()` boundary for the tap path.
+
+**B — new `signal` transition trigger.**
+- `FlowTrigger` gains `{ kind:'signal'; signal:string }` (`engine-flow/src/types.ts`). The HSM
+  (`presentation.ts`) gains `onSignal(name)` — fires the first active-screen outgoing edge whose
+  trigger is `{kind:'signal', signal:name}`, mirroring how a `bookEvent` trigger matches the
+  arriving event `type`; a non-matching name / un-listened signal is a no-op. The interpreter
+  surfaces `emitSignal(name)` (a no-op returning `false` when inert). `normalizeFlowDoc`
+  (`normalize.ts`) round-trips the new trigger and DROPS an invalid one (missing/empty `signal`)
+  without corrupting the doc (the bake/save contract). `diff.ts`/`validate.ts` need no change (they
+  don't switch on trigger kind).
+
+**C — game-side holder access (the next agent's call sites).**
+- `apps/lines/src/game/flowInterpreterHolder.ts` exports `completeActiveScreen()` and
+  `emitFlowSignal(signal)` — both read the interpreter singleton the same way `game/utils.ts`'s
+  `playBookEvent` does (`getFlowInterpreter()`), and are SAFE no-ops returning `false` when no
+  FlowDoc is active. The next agent's tap component imports these two functions and calls them on
+  click — `completeActiveScreen()` for the `complete`-edge path, `emitFlowSignal('<name>')` for the
+  `signal`-edge path. (Both, per the owner's "Both" decision.)
+
+**D — /flow editor — `signal` trigger option.**
+- `EdgeInspector.svelte` trigger picker gains a "Tap signal" option + a signal-name input
+  (consistent with the bookEvent/complete/condition UI). The `+page.svelte` edge-label switch gains
+  a `tap: <name>` case (kept the switch exhaustive for the new variant).
+
+**How it was verified headlessly + build-shipped**
+- `tools/flow-spike/tapToContinue.ts` (`pnpm --filter flow-spike run tap`) — 16/16 GREEN against the
+  REAL interpreter/HSM/normalize: (A) `emitSignal` matched fires + advances winPresentation→basegame
+  running exit-then-enter in order, non-matching name + un-listened signal are no-ops; (B)
+  `completeActiveScreen()` runs exit(bonusIntro)→enter(bonus) via a `complete` edge, no-op with no
+  edge; (C) inert (no FlowDoc) ⇒ both hooks return `false` (parity §7); (D) a `signal`-trigger doc
+  round-trips canonical + idempotent through `normalizeFlowDoc`, an invalid signal trigger is dropped
+  while the valid sibling survives.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN (the
+  EdgeInspector + page ship); `pnpm --filter lines build` GREEN (after `pnpm --filter pixi-svelte
+  build` to clear the stale-engine-dist gotcha) with `completeActiveScreen`/`emitSignal`/`onSignal`
+  confirmed present in the minified client bundle (shipment). The Phase-0 `parity`, Phase-1 `pins`,
+  Phase-2/3 `roundtrip`, Phase-4 `phase4` (allowlist extended with `onSignal` — still a pure
+  observe/react surface, no platform-driving method), Phase-5 `phase5`, Phase-6 `phase6`, Phase-7
+  `phase7` spikes ALL still GREEN. (`vocab` was already failing on the base — a codegen-staleness
+  `--check`, unrelated to this change; no vocab files touched here.)
+
+**Still needs owner-verify live:** nothing for the runtime half — the next change (the tap-capturing
+component) is what makes a tap reach `completeActiveScreen()`/`emitFlowSignal()` in a real game; this
+slice proves the API + signal matching + round-trip headlessly. When the engine `signal`-trigger work
+must reach Book of Borut, bump its `engine` submodule (owner's mirror step) once a tap-enabled flow is
+authored.
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the
@@ -398,11 +1018,11 @@ reproducing the exact mount + await/parallel/timing behaviour — which Phase 0 
 | **0 — Interpreter spike (gate)** | `engine-flow`: generic mount of one real screen + run a hand-authored `winInfo` choreography in `apps/lines`; pixel/sequence parity vs coded; fall-through proven for every un-authored screen/event | **make-or-break — do first** |
 | **1 — FlowDoc model + canvas spike** | FlowDoc schema (transition graph + per-screen choreography); typed editable model + undo/redo command stack; `/flow` page renders an existing game's flow read-only; **pin-derivation** (screen → dynamic pins) + graph-lib decision (`@xyflow/svelte` vs hand-built) settled | medium |
 | **2 — Macro authoring** | place screen nodes (from Scene Editor screens), dynamic pins with stable ids + orphan warnings, draw/edit transition edges, save→R2, load | medium |
-| **3 — Micro choreography** | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **live preview** with a speed dial against the mock-RGS feed | medium-high |
-| **4 — Transitions (all 3) + generic mounter live** | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
-| **5 — Full migration** | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen parity-checked | high |
-| **6 — Pipeline wiring** | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
-| **7 — Authoring UX** | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
+| **3 — Micro choreography** ✅ | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **deterministic** live preview with a speed dial against a fixed feed (full visual preview is Phase 4) | medium-high |
+| **4 — Transitions (all 3) + generic mounter live** ✅ | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
+| **5 — Full migration** ✅ | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen + per-event parity-checked (the `effect` node bridges the non-emitter leaves; B.1 z-order + B.2 resume resolved) | high |
+| **6 — Pipeline wiring** ✅ | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
+| **7 — Authoring UX** ✅ | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
 
 **Phase 0 is a gate, not a formality.** Before any UI, prove headlessly:
 1. **Parity** — a hand-written FlowDoc (one screen + its `winInfo` choreography)

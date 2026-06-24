@@ -283,17 +283,16 @@
 <svelte:head><title>Invisible FTP Browser — Invisible Wall</title></svelte:head>
 
 <div class="shell">
-	<header>
-		<ToolTopBar current="ftpBrowser" tools={data.tools} />
-		<div class="meta">
+	<ToolTopBar current="ftpBrowser" tools={data.tools}>
+		{#snippet meta()}
 			{#if full}
 				<span class="project">Full server <strong>(admin)</strong></span>
 			{:else}
 				<span class="project">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
 			{/if}
 			{#if busy || loading || dbLoading}<span class="status">Working…</span>{/if}
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	{#if full}
 		<nav class="tabs">
@@ -473,19 +472,6 @@
 		box-sizing: border-box;
 		padding: clamp(16px, 3vw, 24px) clamp(20px, 3vw, 40px);
 		color: #e8e8ee;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 18px;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-		font-size: 13px;
-		color: #888;
 	}
 	.project strong {
 		color: #c8a3ff;

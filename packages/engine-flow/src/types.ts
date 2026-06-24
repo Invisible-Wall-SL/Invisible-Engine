@@ -35,6 +35,9 @@ export type FlowAccessor =
 	| { kind: 'trigger'; path: string }
 	/** Read a path off the current `forEach` item, e.g. `$item.positions`. */
 	| { kind: 'item'; path: string }
+	/** Read a path off the per-event dispatch context (`{ bookEvents }`), e.g.
+	 *  `$context.bookEvents` — the sibling of the coded handler's second argument. */
+	| { kind: 'context'; path: string }
 	/** Read a registered engine value feed by `ENGINE_PARAM_CATALOG` key, e.g. `$engine.win`.
 	 *  Resolved against the interpreter's bound engine values — never arbitrary code. */
 	| { kind: 'engine'; key: string };
@@ -99,7 +102,19 @@ export type ChoreographyNode =
 	| { kind: 'forEach'; list: FlowAccessor; mode: 'sequence' | 'parallel'; body: ChoreographyNode }
 	/** Run `then` when `guard` holds, else `otherwise` (if present) — the Branch node
 	 *  (design doc §5). Guard is the same bounded predicate set as a transition. */
-	| { kind: 'branch'; guard: FlowGuard; then: ChoreographyNode; otherwise?: ChoreographyNode };
+	| { kind: 'branch'; guard: FlowGuard; then: ChoreographyNode; otherwise?: ChoreographyNode }
+	/**
+	 * Invoke a NAMED, game-registered side effect — the `declare ≠ implement` bridge for the
+	 * non-emitter work a coded handler does (state mutations like `stateGame.gameType = …`,
+	 * board operations like `enhancedBoard.spin(…)`, the win-level sound clusters). The
+	 * FlowDoc *declares* an effect `name` + a whitelisted-accessor `payload`; the game
+	 * *implements* it at boot in a CLOSED registry injected on the runtime (`FlowRuntime.effect`),
+	 * exactly like `registerComponentActions`/`registerComponentValues` (design doc §3). This is
+	 * NOT a scripting VM (§11.4) — a closed set of named effects whose bodies live in game code,
+	 * never authored here. Awaited like a Broadcast; an unknown name is a no-op (parity-safe).
+	 * Phase 5 — needed for full migration of handlers that touch state/board, not just the emitter.
+	 */
+	| { kind: 'effect'; name: string; payload?: FlowPayload };
 
 /** A screen's choreography — the three timeline phases (design doc §5):
  *  `enter` runs on becoming active, `while` reacts to events during the active state,
@@ -187,7 +202,10 @@ export interface FlowScreen {
 	initial?: boolean;
 }
 
-/** What fires a transition edge (design doc §6 — all three triggers). */
+/** What fires a transition edge (design doc §6). The first three are the original
+ *  triggers; `signal` is the tap-to-continue addition — a named runtime signal a
+ *  tap-enabled component emits via the interpreter (`emitSignal(name)`), so a user CLICK
+ *  can drive the macro flow without inventing a scripting hook (design doc §6.2). */
 export type FlowTrigger =
 	/** A book event of this `type` arrives (e.g. `freeSpinTrigger`). */
 	| { kind: 'bookEvent'; event: string }
@@ -195,7 +213,11 @@ export type FlowTrigger =
 	 *  finished) — the genuinely-new self-driving output (design doc §6.2). */
 	| { kind: 'complete' }
 	/** An engine condition became true — the guard alone fires the edge (design doc §6.3). */
-	| { kind: 'condition' };
+	| { kind: 'condition' }
+	/** A named runtime signal was emitted (`emitSignal(signal)` on the interpreter — the
+	 *  tap-to-continue path). Fires every active-screen edge whose `signal` matches, mirroring
+	 *  how a `bookEvent` trigger matches the arriving event `type` (design doc §6.2). */
+	| { kind: 'signal'; signal: string };
 
 /**
  * A transition edge `from → to` (design doc §6). Fires on its `trigger`, gated by an

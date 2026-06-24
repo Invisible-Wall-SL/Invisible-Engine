@@ -1,17 +1,21 @@
 <script lang="ts">
-	import type {
-		FlowAccessor,
-		FlowComparator,
-		FlowGuard,
-		FlowPredicate,
-		FlowTransition,
-		FlowTrigger,
+	import {
+		flowAccessorText,
+		parseFlowAccessor,
+		type FlowAccessor,
+		type FlowComparator,
+		type FlowGuard,
+		type FlowPredicate,
+		type FlowTransition,
+		type FlowTrigger,
 	} from 'engine-flow';
 	import type { TransitionEdit } from './flowModel.client';
 
 	// The transition inspector (design doc §6): edit a transition edge's trigger
-	// (bookEvent / complete / condition), an optional bounded guard (a closed comparison
-	// set — NOT an expression language, §11.4), an optional delay, and the author order.
+	// (bookEvent / complete / signal / condition), an optional bounded guard (a closed
+	// comparison set — NOT an expression language, §11.4), an optional delay, and the order.
+	// `signal` is the tap-to-continue trigger — a named runtime signal a tap-enabled component
+	// emits (`emitSignal(name)`), letting a user CLICK drive the macro flow.
 	// Every change emits a {@link TransitionEdit} the page applies through a command.
 	let {
 		edge,
@@ -35,12 +39,18 @@
 				? { kind: 'bookEvent', event: edge.trigger.kind === 'bookEvent' ? edge.trigger.event : '' }
 				: kind === 'complete'
 					? { kind: 'complete' }
-					: { kind: 'condition' };
+					: kind === 'signal'
+						? { kind: 'signal', signal: edge.trigger.kind === 'signal' ? edge.trigger.signal : '' }
+						: { kind: 'condition' };
 		onedit({ trigger });
 	}
 
 	function setEvent(event: string): void {
 		onedit({ trigger: { kind: 'bookEvent', event } });
+	}
+
+	function setSignal(signal: string): void {
+		onedit({ trigger: { kind: 'signal', signal } });
 	}
 
 	function setDelay(value: string): void {
@@ -56,31 +66,6 @@
 	// --- Minimal single-predicate guard authoring (the `all[0]` slot) -------------
 	const firstPredicate = $derived<FlowPredicate | undefined>(edge.guard?.all[0]);
 
-	function accessorText(a: FlowAccessor | undefined): string {
-		if (!a) return '';
-		switch (a.kind) {
-			case 'engine':
-				return `$engine.${a.key}`;
-			case 'trigger':
-				return `$trigger.${a.path}`;
-			case 'item':
-				return `$item.${a.path}`;
-			case 'literal':
-				return String(a.value);
-		}
-	}
-
-	/** Parse an author string into a bounded accessor: `$engine.x` / `$trigger.x` / `$item.x`
-	 *  read a feed/path, anything else is a literal (number when numeric, else string). */
-	function parseAccessor(text: string): FlowAccessor {
-		const t = text.trim();
-		if (t.startsWith('$engine.')) return { kind: 'engine', key: t.slice('$engine.'.length) };
-		if (t.startsWith('$trigger.')) return { kind: 'trigger', path: t.slice('$trigger.'.length) };
-		if (t.startsWith('$item.')) return { kind: 'item', path: t.slice('$item.'.length) };
-		const num = Number(t);
-		return { kind: 'literal', value: t !== '' && !Number.isNaN(num) ? num : t };
-	}
-
 	function buildGuard(
 		left: FlowAccessor,
 		op: FlowComparator,
@@ -95,13 +80,15 @@
 
 	$effect(() => {
 		// Re-seed the guard form when a different edge is selected.
-		guardLeft = accessorText(firstPredicate?.left) || '$engine.';
+		guardLeft = flowAccessorText(firstPredicate?.left) || '$engine.';
 		guardOp = firstPredicate?.op ?? 'eq';
-		guardRight = accessorText(firstPredicate?.right);
+		guardRight = flowAccessorText(firstPredicate?.right);
 	});
 
 	function applyGuard(): void {
-		onedit({ guard: buildGuard(parseAccessor(guardLeft), guardOp, parseAccessor(guardRight)) });
+		onedit({
+			guard: buildGuard(parseFlowAccessor(guardLeft), guardOp, parseFlowAccessor(guardRight)),
+		});
 	}
 
 	function clearGuard(): void {
@@ -118,6 +105,7 @@
 		<select value={edge.trigger.kind} onchange={(e) => setKind(e.currentTarget.value as FlowTrigger['kind'])}>
 			<option value="bookEvent">Book event</option>
 			<option value="complete">Screen complete</option>
+			<option value="signal">Tap signal</option>
 			<option value="condition">Engine condition</option>
 		</select>
 	</label>
@@ -129,6 +117,15 @@
 				value={edge.trigger.event}
 				placeholder="e.g. freeSpinTrigger"
 				oninput={(e) => setEvent(e.currentTarget.value)}
+			/>
+		</label>
+	{:else if edge.trigger.kind === 'signal'}
+		<label class="field">
+			<span>Signal name</span>
+			<input
+				value={edge.trigger.signal}
+				placeholder="e.g. tapContinue"
+				oninput={(e) => setSignal(e.currentTarget.value)}
 			/>
 		</label>
 	{/if}

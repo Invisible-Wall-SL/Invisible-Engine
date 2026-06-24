@@ -1,3 +1,4 @@
+import type { FlowDoc } from 'engine-flow';
 import type { EffectDoc } from 'engine-fx';
 import type { ComponentDef, FontCatalog, LayoutDoc } from 'engine-layout';
 import {
@@ -109,6 +110,15 @@ type BakedBundle = {
 			text?: { font?: string; size?: number; color?: string };
 		};
 	};
+	/** The authored presentation graph (Invisible Flow output), exported to
+	 * `deploy/flow.json` and embedded by `bake-editor-doc.mjs`. When present the
+	 * runtime interpreter (engine-flow) mounts authored screens + runs authored
+	 * choreography in place of the coded mounting + `bookEventHandlerMap`; the per-event
+	 * fall-through still defers any un-authored screen/event to the coded path. ABSENT
+	 * ⇒ the interpreter is inert ⇒ the coded path runs, byte-identical to current `main`
+	 * (the §7 fall-through invariant). The FlowDoc carries NO binary assets (it
+	 * references scenes the Scene Editor already exported), so there is no `pull` step. */
+	flow?: FlowDoc;
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
 
@@ -271,6 +281,20 @@ export function bakedHighlight(): { assetKey: string; animationName: string } | 
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.highlight;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.highlight;
+}
+
+/**
+ * The baked Invisible Flow document (the presentation graph). When present, the
+ * game's `flowRuntime` builds the engine-flow interpreter from it so authored screens
+ * mount + authored choreography runs in place of the coded path; the per-event
+ * fall-through keeps every un-authored screen/event on the coded handler. Mirrors
+ * `bakedSymbolMap`'s runtime→baked→undefined resolution; undefined ⇒ the interpreter
+ * is inert ⇒ coded mounting + `bookEventHandlerMap` (the §7 fall-through invariant).
+ */
+export function bakedFlowDoc(): FlowDoc | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.flow;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.flow;
 }
 
 type SymbolAssetEntry =

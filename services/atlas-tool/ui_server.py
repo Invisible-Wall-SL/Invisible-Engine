@@ -226,7 +226,11 @@ _REF_MUTATING_ROUTES = {
 # Minimal default config used when none exists yet in R2/staging (first run).
 # Secrets (comfy.org key) come from env, never persisted here.
 DEFAULT_CONFIG = {
-    "manifest_path": "atlas_manifest_symbols.json",
+    # No phantom default manifest name: a fresh project owns no `atlas_manifest_
+    # symbols*.json`, so seeding one made the slice / settings panel target a
+    # file the project doesn't have. Blank → active_manifest_name() resolves to
+    # the project's first real manifest (matching the Session dropdown).
+    "manifest_path": "",
     "comfy_host": str(COMFY_HOST),
     "pipeline": "sdxl",
     "checkpoint": "juggernautXL_ragnarokBy.safetensors",
@@ -914,15 +918,43 @@ def save_config(cfg: dict) -> None:
     _mirror(CONFIG_PATH)
 
 
+def active_manifest_name() -> str:
+    """The active manifest's basename for THIS project.
+
+    Resolution order — must MATCH the Session-bar dropdown so the per-atlas
+    settings/style panel header and the slice never target a different file
+    than the one the user sees selected:
+      1. the configured `manifest_path` (basename), if it names a manifest the
+         project actually owns;
+      2. otherwise the project's FIRST real manifest (what the dropdown shows
+         when nothing is `selected` — `list_manifests()[0]`);
+      3. otherwise "" (a brand-new project with no manifest yet).
+
+    NEVER fabricate a hardcoded sample name (the old `symbolsStatic` default):
+    a new project owns no such file, so the slice / settings panel would
+    FileNotFoundError on a manifest it doesn't own and desync from the
+    dropdown. A stale configured value (e.g. a manifest deleted out from under
+    us) likewise falls through to the first real one rather than 404ing."""
+    name = Path(str(load_config().get("manifest_path", ""))).name
+    owned = list_manifests()
+    if name and name in owned:
+        return name
+    return owned[0] if owned else ""
+
+
 def creative_manifest_path() -> Path:
     """The editable JSON that stores *creative* data (prompts, seeds, refs).
     Geometry is never stored here when an `.atlas` is bound. If a bare
     `.atlas` is the active selection, creative edits live in its sibling
     `atlas_manifest_<stem>.json`, auto-created and bound to that `.atlas`
     so nothing the user types is lost."""
-    name = load_config().get("manifest_path", "atlas_manifest_symbolsStatic.json")
-    sel = Path(name).name  # tolerate legacy "tools/..." values
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+    sel = active_manifest_name()
+    if not sel:
+        # Brand-new project with no manifest yet: return a placeholder path
+        # under MANIFEST_DIR (load_manifest() surfaces the "pick/compose a
+        # manifest first" banner; nothing is fabricated on disk).
+        return MANIFEST_DIR / "atlas_manifest.json"
     if sel.lower().endswith(".atlas"):
         jp = MANIFEST_DIR / f"atlas_manifest_{Path(sel).stem}.json"
         if not jp.exists():
@@ -4306,6 +4338,14 @@ class Handler(BaseHTTPRequestHandler):
                  "error": f"{type(e).__name__}: {e}"}).encode()
 
     def _sliceatlas(self) -> str:
+        # No manifest in this project yet → don't hand slice_atlas a fabricated
+        # path (the old `symbolsStatic` default 404'd here). Surface an
+        # actionable message instead, matching the empty-project banner.
+        if not active_manifest_name():
+            return _diag("SLICE_FAILED", err=(
+                "No atlas manifest selected for this project. Compose an "
+                "atlas (Create Atlas) or pick one in the Session bar, then "
+                "retry the slice."))
         # Pass the FULL staging manifest path (not just .name) so the subprocess
         # reads the right file even if its own context resolution differs; and
         # hand off the UI's active (client, project) via IW_* so it resolves
@@ -5207,7 +5247,11 @@ class Handler(BaseHTTPRequestHandler):
             f'<input data-cfg="deploy_basename" type="text" value="{deploy_base_val}"'
             f' title="{deploy_base_tip}" placeholder="(blank = {html.escape(mstem)})"></label>'
         )
-        active = cfg.get("manifest_path", "")
+        # Select the RESOLVED active manifest (same resolution the panel header
+        # + slice use) so the dropdown can never disagree with them when the
+        # config value is blank/stale — the desync that surfaced a fabricated
+        # default in the header while the dropdown showed the real first sheet.
+        active = active_manifest_name()
         opts = "".join(
             f'<option value="{html.escape(mp)}"{" selected" if mp == active else ""}>'
             f'{html.escape(mp)}</option>' for mp in list_manifests()
@@ -5318,7 +5362,8 @@ class Handler(BaseHTTPRequestHandler):
             project_select=project_select,
             proj_qm=f'<span class="qm" title="{html.escape(help_for("project", cfg), quote=True)}">&#9432;</span>',
             manifest_qm=f'<span class="qm" title="{html.escape(help_for("manifest_path", cfg), quote=True)}">&#9432;</span>',
-            manifest_name=html.escape(manifest_path().name),
+            manifest_name=html.escape(
+                active_manifest_name() or "(no manifest — compose or pick one)"),
             global_neg=html.escape(_style.get("negative", "")),
             global_pre=html.escape(_style.get("positive_prefix", "")),
             global_suf=html.escape(_style.get("positive_suffix", "")),

@@ -108,9 +108,7 @@
 </script>
 
 <div class="shell">
-	<header>
-		<ToolTopBar current="gameMaker" tools={data.tools} />
-	</header>
+	<ToolTopBar current="gameMaker" tools={data.tools} />
 
 	<main>
 		<section class="card create">
@@ -299,14 +297,6 @@
 		min-height: 100vh;
 		background: #0d0d11;
 		color: #e8e8ee;
-	}
-	header {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		padding: 10px 16px;
-		border-bottom: 1px solid #1f1f29;
-		background: #111118;
 	}
 	main {
 		flex: 1;

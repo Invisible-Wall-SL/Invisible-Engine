@@ -31,7 +31,7 @@
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
-	import { LayoutScene } from 'engine-layout/svelte';
+	import { LayoutScene, FlowMount } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
 		registerComponents,
@@ -61,6 +61,8 @@
 	import type { Scene } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
+	import { createLinesFlow, type LinesFlow } from '../game/flowRuntime.svelte';
+	import { setFlowInterpreter } from '../game/flowInterpreterHolder';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
@@ -100,6 +102,7 @@
 	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
+	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
 
@@ -173,6 +176,12 @@
 		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its
 		// frame/size params off the instance, hiding itself once loading completes.
 		LoadingBar,
+		// Invisible Flow tap-to-continue (§6.2): the coded press surface the engine
+		// mounts over any `overlay` instance whose shared `tapToContinue` param is on.
+		// `OnPressFullScreen` + `OnHotkey "Space"`; on tap calls BOTH Flow holder APIs
+		// (`completeActiveScreen` + `emitFlowSignal(tapSignal)`). Unused until an author
+		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
+		TapToContinue,
 	});
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
@@ -312,6 +321,10 @@
 		// only while the boot asset-load is in flight, so it hides the moment loading
 		// completes — the engine-layout equivalent of the coded splash's `{#if !loaded}`.
 		assetsLoading: boolSource(() => !stateApp.loaded),
+		// Inverse of `assetsLoading`: true the moment boot loading completes. Gates splash
+		// content that should appear AFTER load (e.g. a logo that pops in once the loading
+		// bar fills, before press-to-continue), the complement of the `{#if !loaded}` bar.
+		assetsLoaded: boolSource(() => stateApp.loaded),
 		// Round-lifecycle gates — bind a whole authored SCREEN (`Scene.visibleSource`) or a
 		// single component so it shows ONLY during that presentation phase, the engine-layout
 		// equivalent of the coded intro/outro/win gates' book-event self-show/hide. The
@@ -433,6 +446,45 @@
 	);
 
 	const context = getContext();
+
+	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
+	// loads (it resolves authored screen ids to their scenes). ABSENT by default (no FlowDoc
+	// ⇒ `createLinesFlow` returns `undefined`), so the interpreter is inert and every screen
+	// mounts via the coded path below — byte-identical to current `main` (§7). When active,
+	// it drives book-event dispatch (via `flowInterpreterHolder`, read in `game/utils.ts`)
+	// and the generic mounter resolves which authored screen mounts here.
+	let flow = $state<LinesFlow | undefined>(undefined);
+	// The active screen's resolved scene for the generic mounter. `undefined` ⇒ the
+	// interpreter is not driving this screen ⇒ `<FlowMount>` renders the coded fall-through.
+	const basegameMount = $derived.by(() => {
+		const decision = flow?.mounter.resolve(flow.activeScreenId);
+		if (decision?.kind === 'authored' && decision.screenId === 'basegame') {
+			return decision.scene as Scene;
+		}
+		return undefined;
+	});
+	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
+	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
+	// (the reel is not a flow screen), so the interpreter must STILL reproduce the coded
+	// below-reel → board → above-reel stacking. We split the AUTHORED scene at its top-level
+	// reelGrid index exactly as the coded path splits `basegameScene` (lines below), feed the
+	// below-reel slice to `<FlowMount>`, and render the above-reel slice after the board —
+	// unconditionally (no `!basegameMount` gate), so an authored basegame stacks identically
+	// to the coded one. No reelGrid in the authored scene ⇒ single pass (the whole scene goes
+	// below-reel, above is undefined), byte-identical to a nested-reelGrid coded boot.
+	const mountReelGridIndex = $derived(
+		basegameMount ? basegameMount.nodes.findIndex((node) => node.kind === 'reelGrid') : -1,
+	);
+	const basegameMountBelowReel = $derived.by((): Scene | undefined => {
+		if (!basegameMount) return undefined;
+		return mountReelGridIndex < 0
+			? basegameMount
+			: { ...basegameMount, nodes: basegameMount.nodes.slice(0, mountReelGridIndex) };
+	});
+	const basegameMountAboveReel = $derived.by((): Scene | undefined => {
+		if (!basegameMount || mountReelGridIndex < 0) return undefined;
+		return { ...basegameMount, nodes: basegameMount.nodes.slice(mountReelGridIndex + 1) };
+	});
 
 	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
 	// above. Maps the game's win presentation events → signal NAMES from the
@@ -693,6 +745,13 @@
 			// settings ⇒ engine defaults (all on) — parity for un-authored docs.
 			if (doc.settings?.jurisdiction === 'UK') setUiFeatures(UI_FEATURES_UK);
 			else if (doc.settings?.features) setUiFeatures(doc.settings.features);
+			// Invisible Flow (Phase 4): build the interpreter from the (optional) FlowDoc +
+			// the just-loaded scenes, and publish it for the book-event play path. Returns
+			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
+			// path (parity, §7). `start()` runs the initial screen's enter choreography.
+			flow = createLinesFlow(doc);
+			setFlowInterpreter(flow);
+			void flow?.start();
 		});
 	});
 
@@ -766,8 +825,19 @@
 		<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
 			 MainContainer. Do NOT wrap it again here (that double-scales it).
 			 Split at the reelGrid placeholder: below-reel layers, then the board, then
-			 above-reel layers (so editor stacking order around the reel is honored). -->
-		<LayoutScene scene={basegameBelowReel} />
+			 above-reel layers (so editor stacking order around the reel is honored).
+
+			 Invisible Flow (Phase 4/5): `<FlowMount>` is the generic-mounter boundary. When the
+			 interpreter authors `basegame` it mounts the authored scene's BELOW-reel slice (via
+			 <LayoutScene>); otherwise it renders the coded below-reel split — byte-identical to
+			 `main` (§7). The board MainContainer always mounts (the reel is engine-owned, not a
+			 flow screen), and the ABOVE-reel slice renders AFTER it below — so an authored
+			 basegame reproduces the exact below-reel → board → above-reel z-order (§11.5 B.1). -->
+		<FlowMount scene={basegameMountBelowReel}>
+			{#snippet fallback()}
+				<LayoutScene scene={basegameBelowReel} />
+			{/snippet}
+		</FlowMount>
 
 		<MainContainer>
 			<BoardFrame />
@@ -775,7 +845,11 @@
 			<Anticipations />
 		</MainContainer>
 
-		{#if basegameAboveReel && basegameAboveReel.nodes.length}
+		{#if basegameMount}
+			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+				<LayoutScene scene={basegameMountAboveReel} />
+			{/if}
+		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
 			<LayoutScene scene={basegameAboveReel} />
 		{/if}
 

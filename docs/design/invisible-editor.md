@@ -1402,3 +1402,38 @@ resolves through its frame's size map, not a hardcoded `space`. UI affordances (
   game size map but keeps `align:{vertical:'bottom'}`).
 - **Per-`LayoutType` frame switch** — out of scope for v1 (a scene keeps one frame across all form
   factors); note it if a screen ever needs a different frame per orientation.
+
+## 24. Addendum — Tap-to-continue: a shared per-instance overlay capability (owner direction 2026-06-24)
+
+The owner wants any overlay to be dismissible by a tap (the "press to continue" gesture), driving the
+Invisible Flow presentation forward — **without** writing a bespoke component per overlay. The chosen
+shape is a **reusable per-instance toggle**, the cleanest fit for `declare ≠ implement` (§8.5):
+
+- **SHARED instance params (not on the def).** `engine-layout/tapToContinue.ts` exports two params an
+  instance carries directly on its `params` (never added to a `ComponentDef.params`): `tapToContinue`
+  (`boolean`, default false) + `tapSignal` (`string`). `resolveComponentParams` already merges
+  `node.params` regardless of the def, so the engine reads them with no schema change. The single
+  source of truth for key/kind/label is `TAP_TO_CONTINUE_PARAMS`, reused by the editor.
+- **Engine DECLARES, honoured universally for OVERLAYS.** `ComponentInstance.svelte` checks
+  `def.category === 'overlay' && isTapToContinueEnabled(params)`; when on it mounts the
+  game-registered coded press surface (`TAP_TO_CONTINUE_COMPONENT = 'TapToContinue'`) as an extra child
+  of the rendered subtree, passing `signal = tapSignalOf(params)`. Gated to overlays so a UI/scenery
+  instance never silently grows a full-screen hit area. Absent from `registerBoundComponents` ⇒ nothing
+  mounts (parity).
+- **Game IMPLEMENTS the press (the `bind` half).** `apps/lines/components/TapToContinue.svelte` —
+  registered via `registerBoundComponents({ TapToContinue })`, exactly like the `loadingIntro` /
+  `freeSpinIntro` split — reuses `OnPressFullScreen` (components-layout) + `OnHotkey "Space"`
+  (components-shared) for the hit area, and on a tap calls **BOTH** Flow holder APIs (owner chose
+  "Both"): `completeActiveScreen()` (runs the active screen's exit → fires its `complete` pin →
+  advances any `complete` edge) and, when a `tapSignal` is set, `emitFlowSignal(tapSignal)` (fires any
+  active-screen `{kind:'signal'}` edge). The holder helpers (`flowInterpreterHolder.ts`, runtime half)
+  return false with no active interpreter, so a tap is a safe no-op.
+- **Editor surfacing (DRY).** `EditorProperties.svelte` shows a collapsible "Tap to continue" section in
+  the shared **Component instance** block whenever the selected instance's resolved def is an overlay —
+  so Scene Editor AND Component Editor both inherit it. The two fields reuse the existing instance
+  `paramField` snippet (checkbox + text), persisting through the normal `onSetInstanceParam` path.
+- **Parity (non-negotiable).** OFF by default ⇒ no extra child, no editor change to a non-overlay,
+  byte-identical bundles. No existing instance enables it. Verified: helper + param round-trip fixture
+  (`scripts/test-tap-to-continue.mjs`), `engine-layout`/`launcher-api`/`lines` builds GREEN, and the tap
+  wiring (`completeActiveScreen` + `emitSignal`, the overlay gate, the registered `TapToContinue`) all
+  present in the shipped `apps/lines` bundle.

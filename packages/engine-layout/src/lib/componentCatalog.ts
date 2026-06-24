@@ -102,13 +102,17 @@ export const TEXT_SOURCE_KEYS: string[] = ENGINE_PARAM_CATALOG.map((p) => p.key)
  * toast is active (the info bar's natural gate, so the bar shows only when there's a
  * message); `assetsLoading` is true only while the boot asset-load is in flight (the
  * loading/intro splash's natural gate — progress content hides the moment loading
- * completes). A feed with no registered store leaves the instance ungated, same as an
- * unbound param. A custom key is preserved as an option.
+ * completes); `assetsLoaded` is its inverse, true the moment loading finishes (the
+ * gate for splash content that should appear AFTER load — e.g. a logo that pops in
+ * once the loading bar fills, before press-to-continue). A feed with no registered
+ * store leaves the instance ungated, same as an unbound param. A custom key is
+ * preserved as an option.
  */
 export const VISIBILITY_SOURCE_KEYS: string[] = [
 	'freeSpinCounterShow',
 	'messageShow',
 	'assetsLoading',
+	'assetsLoaded',
 	// Round-lifecycle gates — drive a whole SCREEN ({@link Scene.visibleSource}) or a
 	// single component so authored overlay content follows the round flow (free-spin
 	// intro/outro presentation, the free-game session, win/big-win celebration, the
@@ -130,6 +134,7 @@ export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
 	freeSpinCounterShow: 'Free spins (counter active)',
 	messageShow: 'A message/toast is showing',
 	assetsLoading: 'Loading (boot)',
+	assetsLoaded: 'Loaded (after boot)',
 	freeSpinIntroShow: 'Free-spin intro',
 	freeSpinOutroShow: 'Free-spin outro',
 	freeGameShow: 'Free game (during free spins)',

@@ -193,14 +193,13 @@
 <svelte:head><title>Invisible Localization — Invisible Wall</title></svelte:head>
 
 <div class="shell">
-	<header>
-		<ToolTopBar current="localization" tools={data.tools} projectKey={data.projectKey} />
-		<div class="meta">
+	<ToolTopBar current="localization" tools={data.tools} projectKey={data.projectKey}>
+		{#snippet meta()}
 			<span class="project">Project: <strong>{data.projectKey}</strong></span>
 			{#if status}<span class="status">{status}</span>{/if}
 			<button class="primary" onclick={save} disabled={busy || !dirty}>Save</button>
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	<section class="settings">
 		<h2>Global settings</h2>
@@ -360,19 +359,6 @@
 		box-sizing: border-box;
 		padding: 24px clamp(20px, 3vw, 40px);
 		color: #e8e8ee;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-		font-size: 13px;
-		color: #888;
 	}
 	.project strong {
 		color: #c8a3ff;
