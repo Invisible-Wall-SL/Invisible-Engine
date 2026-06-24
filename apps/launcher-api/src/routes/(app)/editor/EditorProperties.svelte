@@ -122,6 +122,11 @@
 		/** "Edit in Component Editor": open the selected instance's def (`componentId`) in
 		 * the standalone Component Editor (new tab). Scene mode, componentInstance only. */
 		onOpenComponentEditor?: (componentId: string) => void;
+		/** Re-pin the selected instance's `componentVersion` to the resolved def's current
+		 * version (§8.9 explicit, per-instance "update to latest"). Shown only when the
+		 * instance is outdated (its pin < the def's version). The page reconciles params
+		 * (keeps still-valid overrides, drops ones the new version removed) + persists. */
+		onUpdateInstanceToLatest?: () => void;
 	}
 	let {
 		node,
@@ -154,10 +159,31 @@
 		onToggleSignal,
 		onSetInstanceParam,
 		onOpenComponentEditor,
+		onUpdateInstanceToLatest,
 	}: Props = $props();
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+
+	/** The version the selected instance currently renders against (its pin, falling back
+	 * to the resolved def's version when the node carries no explicit pin — an un-pinned
+	 * instance always tracks the def, so it is never outdated). */
+	const instancePinnedVersion = $derived(
+		node?.kind === 'componentInstance'
+			? (node.componentVersion ?? instanceComponent?.version)
+			: undefined,
+	);
+	/** True when the selected instance pins a version BELOW the resolved def's current
+	 * version (§8.9 outdated flag). Reuses the same version data `resolveComponent`
+	 * compares — a pin equal to (or, defensively, above) the def shows no flag, so an
+	 * up-to-date instance is byte-identical. Only meaningful in scene mode. */
+	const instanceOutdated = $derived(
+		!componentMode &&
+			node?.kind === 'componentInstance' &&
+			instanceComponent != null &&
+			node.componentVersion !== undefined &&
+			node.componentVersion < instanceComponent.version,
+	);
 
 	/** Resolve a spine BUNDLE NAME (what a `spine`-kind param stores, e.g. `fsIntroNumber`)
 	 * to the `assetKey` the `spineMeta` map is keyed by. The map's key === `SpineAsset.key`
@@ -1266,6 +1292,20 @@
 					<strong>{instanceComponent.name}</strong> · {instanceComponent.scope} · pinned v{node.componentVersion ??
 						instanceComponent.version}
 				</p>
+				{#if instanceOutdated}
+					<div class="outdated">
+						<p class="outdated-msg">
+							Component v{instanceComponent.version} available (instance pinned v{node.componentVersion})
+						</p>
+						<button
+							class="ghost-sm"
+							onclick={() => onUpdateInstanceToLatest?.()}
+							title="Re-pin THIS instance to the component's latest version. Keeps your param overrides where the param still exists; drops overrides for params the new version removed. Per-instance only — never affects other instances."
+						>
+							↑ Update to latest (v{instanceComponent.version})
+						</button>
+					</div>
+				{/if}
 				{#snippet paramField(p: ComponentParam)}
 					<label class="field wide">
 						<span>{p.label ?? `${p.key} (${p.kind})`}</span>
@@ -2747,6 +2787,21 @@
 	.kind.locked {
 		color: #f0c878;
 		border-color: #3a3020;
+	}
+	.outdated {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin: 6px 0 4px;
+		padding: 8px;
+		border: 1px solid #4a3a1a;
+		border-radius: 4px;
+		background: #2a2210;
+	}
+	.outdated-msg {
+		margin: 0;
+		font-size: 11px;
+		color: #f0c878;
 	}
 	.kind.role {
 		text-transform: none;

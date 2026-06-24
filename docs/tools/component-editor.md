@@ -127,8 +127,8 @@ The server **bumps the component's `version`** automatically when the saved draf
 differs from the stored one (a re-save with no change keeps the version; a brand-new
 component keeps its starting version). This is by design (§8.9, pin-by-default):
 existing scene instances keep the version they pinned and are never silently moved
-to your edit — they stay on their pinned version until an explicit "update to
-latest" (that per-instance action is not built yet).
+to your edit — they stay on their pinned version until you explicitly **update each
+one to latest** from its Properties panel in the Scene Editor (see §5).
 
 **Promote to shared.** Holders of the **`componentPublish`** capability (admin by
 default, grantable per role/user in `/admin`) also see a **Promote to shared** button
@@ -149,6 +149,13 @@ the same categories). From there you can:
   then edit its param overrides and per-layout transform in the scene's Properties.
 - **Open in the Component Editor** (the `◇ Open …` link or a component row), which
   deep-links back here on that component's id.
+- **Update an outdated instance to latest.** When you bump a component here, any
+  placed instance still pinned to the older version shows an amber note in its
+  Properties panel — *"Component vN available (instance pinned vM)"* — with an
+  **↑ Update to latest** button. Clicking it re-pins **that one instance** to the new
+  version (never bulk/auto), keeping your param overrides where the param still
+  exists and dropping overrides for params the new version removed. Up-to-date
+  instances show no note.
 
 You can also start a component from the Scene Editor's "Edit as component" on a
 container, then refine it here.
@@ -170,14 +177,15 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   destination).
 - **No timeline / signal-track UI.** Signals can be declared but there is no
   per-signal track editor yet.
-- **Versioning is safe + pin-by-default; the multi-version store is still TODO.**
-  Saving bumps the `version` on a changed def, and the engine resolves an instance's
-  pin **safely** — a pinned version that no longer matches the registered def is
-  surfaced (warned) but renders the current registered def, and the pin is never
-  mutated or auto-upgraded (v1 keeps a single def per id). Still to build: a true
-  multi-version store that keeps every historical def (so a pin resolves the exact
-  authored version), the per-instance "update to latest" action, and the
-  outdated-instance flagging.
+- **Versioning is safe + pin-by-default; the multi-version STORE is the last TODO.**
+  Saving bumps the `version` on a changed def; the engine resolves an instance's pin
+  **safely** — a pinned version that no longer matches the registered def is surfaced
+  (warned) but renders the current registered def, and the pin is never mutated or
+  auto-upgraded (v1 keeps a single def per id). Outdated instances are now **flagged**
+  in the Scene Editor's Properties panel and can be **updated to latest** per instance
+  (§5). Still to build: a true multi-version store that keeps every historical def, so
+  a still-pinned instance resolves the *exact* version it was authored against (until
+  then it renders the single registered def with the runtime mismatch warning).
 - **Nesting depth is capped at 2.** Components-inside-components expand to
   `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
   both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
