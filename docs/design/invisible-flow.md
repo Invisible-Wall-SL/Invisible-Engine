@@ -96,6 +96,149 @@ Branch `flow/phase0-interpreter-spike`. No editor UI built; no game submodule bu
 **Still needs owner-verify live:** nothing yet. The runtime swap into a real
 `apps/lines`/Borut boot is Phase 4; this slice proves async/timing fidelity in isolation.
 
+### Progress — Phase 1 DONE headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike` (continued). No game bump; `/flow` left
+UNREGISTERED (behind the curtain) for this read-only spike — RULE 9 fires in Phase 2.
+
+**Step 1 — Svelte Flow install spike (the §12 decision gate): xyflow WINS.**
+- Installed `@xyflow/svelte@1.6.1` into `apps/launcher-api`; a trivial 2-node/1-edge
+  graph builds + ships clean under Vite 6 / Turbo 2 / Svelte 5 (`pnpm --filter
+  launcher-api build` GREEN — the `SvelteFlow` component + its CSS land in the client
+  bundle). The ONLY friction is a peer-dep WARNING: xyflow wants `svelte@^5.25.0`, the
+  workspace pins `5.20.5` uniformly across every app+package. It is NOT a build/runtime
+  error — xyflow uses only stable Svelte-5 runes APIs present since 5.0, so 5.20.5 runs.
+  A workspace-wide bump to ≥5.25 (touches every game) would clear the warning; deferred
+  as not worth the blast radius for a warning. **Verdict: proceed with `@xyflow/svelte`**
+  (SSR-guarded — it is client-only — via `export const ssr = false`). Hand-built fallback
+  is NOT needed.
+
+**Step 2 — FlowDoc schema (`packages/engine-flow/src/types.ts`, the real "one doc").**
+- Promoted the Phase-0 stubs into the full model: screen-id nodes referencing LayoutDoc
+  scenes (`FlowScreen` + canvas `position`/`initial`); typed `FlowTransition` edges
+  (`from`/`to` + a `FlowTrigger` of `bookEvent`/`complete`/`condition` + optional
+  `FlowGuard` + `delayMs` + author `order`); a bounded `FlowGuard`/`FlowPredicate` over a
+  CLOSED comparator set (`eq|neq|gt|gte|lt|lte|in`) — explicitly not an expression
+  language (§11.4); a `FlowPin` model (4 dynamic roles `value`/`signal`/`action`/`gate`
+  + 3 structural `enter`/`complete`/`active`, stable composite ids); plus a new `engine`
+  accessor kind (`$engine.<key>`) and a `branch` choreography node. Kept sparse +
+  override-friendly (parity rule §7) and back-compatible: the Phase-0 `executor.ts` /
+  `dispatch.ts` still compile (`accessor.ts` gained `evaluateGuard`, the executor a
+  `branch` case). `pnpm --filter engine-flow run typecheck` GREEN.
+
+**Step 3 — pin-derivation (`packages/engine-flow/src/pins.ts`, the core reusable logic).**
+- `deriveScreenPins(scene, resolver)` projects a LayoutDoc screen into pins from the FOUR
+  existing `engine-layout` registries — value←instance `source` param, action←`action`,
+  gate←`visibleSource` + the scene-level `Scene.visibleSource`, signal←a spine cue's
+  `signal` in the resolved ComponentDef tree — plus the 3 fixed structural pins. Pin id =
+  the §12 composite `${instanceId}::${role}:${key}` (structural = `${screenId}::${role}`);
+  a missing ComponentDef ORPHANS its param-driven pins (flagged, never silently dropped,
+  §4). Pure + Svelte-free (reads the authored doc, no registry calls), so it runs
+  headlessly AND in the launcher loader. Reuses the registry param conventions — does NOT
+  invent a new vocabulary (§3).
+- **Verified headlessly:** `tools/flow-spike/pinDerivation.ts` (`pnpm --filter flow-spike
+  run pins`) — 21/21 assertions GREEN against a representative `apps/lines`-shaped fixture
+  (a base-game screen: win readout, spin button, gated free-spin counter, win-celebration
+  spine cue). Asserts each pin class is derived with the right role/direction, ids stay
+  stable under RENAME (label-only change) + REORDER, scene-gate + def-default-driven pins
+  appear, the orphan path flags (not drops), and id order is deterministic.
+
+**Step 4 — id-discipline check (§12): PASSED, not a blocker.**
+- Scene Editor (`apps/launcher-api/src/routes/(app)/editor/+page.svelte`) mints a FRESH
+  `n_…` id on every node ADD (lines 480, 523) and on paste/duplicate via `reassignNodeIds`
+  (line 150: `node.id = freshNodeId()`, also dropping `slotId`); no edit path reassigns
+  `id`. So "no id regeneration on edit, fresh id on duplicate/paste" HOLDS — pin identity
+  is safe to key off `BaseNode.id`.
+
+**Step 5 — `/flow` read-only page + typed model + command stack.**
+- New route `apps/launcher-api/src/routes/(app)/flow/`. `+page.server.ts` REUSES the
+  launcher's existing R2/scenes loading (`loadDoc` — the same LayoutDoc the Scene Editor
+  reads) + `listComponents` + `resolveToolScope` (no new shared surface; gated on the
+  `editor` entitlement; `ssr=false`). `+page.svelte` builds the read-only model and
+  renders screen nodes (custom `FlowScreenNode.svelte` — dynamic pins as typed Svelte Flow
+  handles, inputs left / outputs right, `active` as a status chip) + transition edges,
+  with an orphaned-pin warning band. A typed editable model + a generic snapshot-based
+  undo/redo command stack (`flowModel.client.ts` `createFlowHistory<T>`, burst-coalescing,
+  mirroring the Scene Editor's history §12) is stood up now though editing lands Phase 2.
+  `pnpm --filter launcher-api build` GREEN with the route.
+
+**Still needs owner-verify live:** the actual `/flow` VISUAL render (the Svelte Flow
+canvas drawing a real project's screens + derived-pin handles) needs the deployed launcher
+with auth + R2 — the headless build proves it compiles/ships, not the pixels.
+
+### Progress — Phase 2 DONE headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike` (continued). No game bump. RULE 9 fired: the
+tool is now REGISTERED + documented in the same change.
+
+**Macro authoring (`/flow` is now an editor, not read-only).**
+- `flowModel.client.ts` promoted from a read-only model to the authoring model + a set of
+  PURE FlowDoc command helpers (each returns a NEW doc, never mutates, so the command
+  stack snapshots a clean before/after): `addScreen` (place a LayoutDoc scene; the first
+  placed becomes `initial`), `removeScreen` (drops the node AND every edge touching it,
+  promotes a new initial if needed), `moveScreen`, `setInitialScreen` (exactly one),
+  `addTransition`/`removeTransition`/`editTransition` (trigger/guard/delay/order), with
+  `freshTransitionId`. `buildFlowModel(doc, layout, components)` now treats the FlowDoc's
+  `screens[]` as the authoritative placed set and projects the UNPLACED LayoutDoc scenes
+  into a palette; each placed screen still derives its pins + orphan warnings live via
+  `deriveScreenPins` (Phase-1, unchanged) so orphan warnings track component edits.
+- `+page.svelte` rebuilt as the authoring surface: a left **Screens** palette (click to
+  place an unplaced scene), node drag → `moveScreen` on drag-stop, drag-to-connect →
+  `addTransition`, node-select inspector (mark Initial / Remove screen), edge-select
+  → `EdgeInspector.svelte` (a NEW component: trigger kind + bookEvent name + delay + order
+  + a single-predicate bounded guard authored as `$engine.*`/`$trigger.*`/literal +
+  comparator), Undo/Redo buttons + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, and a Save button.
+  Every mutation flows through the Phase-1 command stack (`createFlowHistory<FlowDoc>`),
+  so undo/redo round-trips. xyflow owns `nodes`/`edges` for live drag/selection; the
+  FlowDoc stays the single source of truth, rebuilt into the canvas arrays only on
+  structural changes (add/remove/undo/redo), not per drag frame.
+
+**Save→R2 + load (the pipeline-discipline gate for this phase).**
+- `normalizeFlowDoc` (NEW `packages/engine-flow/src/normalize.ts`, exported) is the single
+  serialize/deserialize contract — pure + dependency-free, so the SAME coercion runs in the
+  launcher save endpoint AND headlessly. It drops unknown fields, skips invalid
+  screens/transitions, and validates choreography by node `kind` (the executor stays the
+  source of truth for per-kind leaves, mirroring `editorStorage.normalizeNode`).
+- `POST /api/flow/save` (NEW) mirrors `/api/rigger/save` EXACTLY for auth + scope: the
+  shared `toolScope.gate({ tool: 'flow' })` resolves the SESSION-bound `(client, project)`
+  and 403s without entitlement — NO hand-rolled auth/scope/R2. `flowStorage.ts` (NEW,
+  mirroring `editorStorage.ts`) does the R2 read/write via `normalizeFlowDoc` +
+  `getObjectText`/`putObjectText` at `flowDocKey` = `<client>/<project>/editor/flow.json`
+  (sibling of `scenes.json`, NEW path in `projectPaths.ts`). `+page.server.ts` now gates on
+  the `flow` entitlement and loads the saved FlowDoc (`loadFlowDoc`; absent ⇒ empty doc ⇒
+  starts from the LayoutDoc screens with no transitions — parity-safe §7). Bake/deploy/pull
+  is NOT wired (that is Phase 6).
+
+**Tool registration (RULE 9 — same change).**
+- `roles.ts`: `TOOLS.flow` ("Invisible Flow", bar name "Flow", `/flow`, node-graph emblem
+  icon), `ROLE_TOOLS` (admin via `Object.keys`, + developer + artist), `TOOL_BAR_ORDER`
+  (after `editor`), `TOOL_DOC_SLUG.flow = 'flow'`. First-draft `docs/tools/flow.md` written
+  from the REAL Phase-2 route UI (palette / wiring / inspectors / undo-redo / save; flags
+  what is NOT built yet — choreography Phase 3, pipeline Phase 6) + a `docs/tools/README.md`
+  row; the prebuild `copy-tool-docs` mirrors `flow.md` so `/docs/flow` resolves.
+  **A `docs-keeper` audit pass is expected to finalize the doc.**
+
+**How it was verified headlessly**
+- `tools/flow-spike/roundTrip.ts` (NEW; `pnpm --filter flow-spike run roundtrip`) proves the
+  save→reload contract: a hand-authored FlowDoc (every transition shape bookEvent/complete/
+  condition + a guard + a delay + author order + a per-screen choreography sub-graph +
+  per-event choreography) survives author → `JSON.stringify` (what the page POSTs) →
+  `normalizeFlowDoc` (what the endpoint stores) → JSON round-trip (what R2 returns) →
+  `normalizeFlowDoc` (what the loader returns) IDENTICAL; plus idempotence, junk-field
+  rejection without corrupting valid data, and absent-doc ⇒ sparse fall-through. PASSED.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build`
+  GREEN (the flow page + `EdgeInspector` + `flowStorage` + `/api/flow/save` all compile +
+  ship); the existing `flow-spike` `parity` (Phase-0 gate) + `pins` (Phase-1) still GREEN.
+
+**Still needs owner-verify live:** the actual `/flow` authoring UX in the browser —
+placing/moving nodes, drag-to-connect, the edge/screen inspectors, undo/redo, and a
+real Save → reload — needs the deployed launcher with auth + R2. The headless checks
+prove the doc round-trips + the build ships, not the pixels/interactions.
+
+**What's left**
+- Phase 3 — micro choreography (double-click a node → author enter/while/exit).
+- Phase 4 — the live generic mounter; Phase 6 — bake/pipeline (`flow?` in `BakedBundle`).
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the

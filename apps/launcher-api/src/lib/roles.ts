@@ -120,6 +120,12 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>' +
 			'<rect x="9.6" y="9.6" width="4.8" height="4.8" rx="0.6" fill="currentColor" stroke="none"/>',
 	),
+	// connected nodes (a presentation flow graph)
+	flow: I(
+		'<rect x="3" y="4" width="6" height="5" rx="1"/><rect x="15" y="9" width="6" height="5" rx="1"/>' +
+			'<rect x="3" y="15" width="6" height="5" rx="1"/><path d="M9 6.5h3a2 2 0 0 1 2 2v1"/>' +
+			'<path d="M9 17.5h3a2 2 0 0 0 2-2v-1"/>',
+	),
 	// game controller / play (create + publish a playable game)
 	gameMaker: I(
 		'<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/>' +
@@ -263,6 +269,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/game-maker',
 		icon: TOOL_ICONS.gameMaker,
 	},
+	flow: {
+		id: 'flow',
+		name: 'Invisible Flow',
+		barName: 'Flow',
+		description:
+			"Wire a game's presentation flow — screens as nodes, transitions between them, on the Scene Editor's screens.",
+		kind: 'online',
+		url: '/flow',
+		icon: TOOL_ICONS.flow,
+	},
 };
 
 /**
@@ -275,6 +291,7 @@ export const TOOLS: Record<string, ToolDef> = {
 export const TOOL_BAR_ORDER: string[] = [
 	'gameMaker',
 	'editor',
+	'flow',
 	'symbols',
 	'sheetMaker',
 	'atlasTool',
@@ -311,6 +328,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'invisibleLauncher',
 		'localization',
 		'editor',
+		'flow',
 		'symbols',
 		'componentEditor',
 		'fontMaker',
@@ -323,6 +341,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'sheetMaker',
 		'localization',
 		'editor',
+		'flow',
 		'symbols',
 		'componentEditor',
 		'fontMaker',
@@ -498,6 +517,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	storybook: 'storybook',
 	symbols: 'symbols-state-machine',
 	gameMaker: 'game-maker',
+	flow: 'flow',
 };
 
 /**

@@ -11,6 +11,9 @@
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint \"src\""
 	},
+	"dependencies": {
+		"engine-layout": "workspace:*"
+	},
 	"devDependencies": {
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",

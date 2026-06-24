@@ -1,6 +1,6 @@
 import type { ChoreographyNode } from './types';
 import type { FlowRuntime } from './runtime';
-import { resolveList, resolvePayload, type FlowScope } from './accessor';
+import { evaluateGuard, resolveList, resolvePayload, type FlowScope } from './accessor';
 
 /**
  * Choreography executor — tree-walks a sub-graph driving the EXISTING primitives, in the
@@ -63,6 +63,15 @@ export const runChoreography = async (
 				await Promise.all(
 					items.map((item) => runChoreography(node.body, runtime, { ...scope, item })),
 				);
+			}
+			return;
+		}
+		case 'branch': {
+			// Evaluate the bounded guard; run `then` when it holds, else `otherwise` (if any).
+			if (evaluateGuard(node.guard, scope)) {
+				await runChoreography(node.then, runtime, scope);
+			} else if (node.otherwise) {
+				await runChoreography(node.otherwise, runtime, scope);
 			}
 			return;
 		}

@@ -4,11 +4,14 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"parity": "tsx winInfoParity.ts"
+		"parity": "tsx winInfoParity.ts",
+		"pins": "tsx pinDerivation.ts",
+		"roundtrip": "tsx roundTrip.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
 		"engine-flow": "workspace:*",
+		"engine-layout": "workspace:*",
 		"utils-event-emitter": "workspace:*",
 		"utils-shared": "workspace:*"
 	}
