@@ -11,6 +11,7 @@ export * from './editorArtKey';
 export * from './coverTransform';
 export * from './resolveTransform';
 export * from './componentParams';
+export * from './tapToContinue';
 export * from './collectComponentIds';
 export * from './reelGrid';
 export * from './buttonConvert';
