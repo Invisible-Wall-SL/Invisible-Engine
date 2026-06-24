@@ -1,6 +1,12 @@
 import type { ChoreographyNode } from './types';
 import type { FlowRuntime } from './runtime';
-import { evaluateGuard, resolveList, resolvePayload, type FlowScope } from './accessor';
+import {
+	evaluateGuard,
+	resolveList,
+	resolvePayload,
+	resolvePayloadValues,
+	type FlowScope,
+} from './accessor';
 
 /**
  * Choreography executor — tree-walks a sub-graph driving the EXISTING primitives, in the
@@ -73,6 +79,15 @@ export const runChoreography = async (
 			} else if (node.otherwise) {
 				await runChoreography(node.otherwise, runtime, scope);
 			}
+			return;
+		}
+		case 'effect': {
+			// Invoke a NAMED game-registered effect (the `declare ≠ implement` bridge for the
+			// non-emitter work — state mutations, board ops). Await its result so an effect
+			// mirroring an awaited coded operation blocks the sequence identically. An
+			// un-registered effect is a no-op (parity-safe — an un-baked boot can't break).
+			const effect = runtime.effect?.(node.name);
+			if (effect) await effect(resolvePayloadValues(node.payload, scope));
 			return;
 		}
 	}

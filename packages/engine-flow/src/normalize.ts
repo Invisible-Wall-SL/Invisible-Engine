@@ -41,6 +41,7 @@ const CHOREO_KINDS = new Set([
 	'delay',
 	'forEach',
 	'branch',
+	'effect',
 ]);
 
 const normalizeAccessor = (input: unknown): FlowAccessor | null => {
@@ -52,6 +53,8 @@ const normalizeAccessor = (input: unknown): FlowAccessor | null => {
 			return typeof input.path === 'string' ? { kind: 'trigger', path: input.path } : null;
 		case 'item':
 			return typeof input.path === 'string' ? { kind: 'item', path: input.path } : null;
+		case 'context':
+			return typeof input.path === 'string' ? { kind: 'context', path: input.path } : null;
 		case 'engine':
 			return typeof input.key === 'string' ? { kind: 'engine', key: input.key } : null;
 		default:
@@ -128,6 +131,16 @@ const normalizeChoreography = (input: unknown): ChoreographyNode | undefined => 
 			const node: Extract<ChoreographyNode, { kind: 'branch' }> = { kind: 'branch', guard, then };
 			const otherwise = normalizeChoreography(input.otherwise);
 			if (otherwise) node.otherwise = otherwise;
+			return node;
+		}
+		case 'effect': {
+			if (typeof input.name !== 'string' || !input.name) return undefined;
+			const node: Extract<ChoreographyNode, { kind: 'effect' }> = {
+				kind: 'effect',
+				name: input.name,
+			};
+			const payload = normalizePayload(input.payload);
+			if (payload) node.payload = payload;
 			return node;
 		}
 		default:

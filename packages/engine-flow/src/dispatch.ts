@@ -23,8 +23,11 @@ export const createBookEventDispatcher = <TBookEvent extends { type: string }, T
 	flowDoc: FlowDoc | undefined;
 	runtime: FlowRuntime;
 	codedHandlers: Record<string, CodedEventHandler<TBookEvent, TContext>>;
+	/** Read a registered engine value feed by `ENGINE_PARAM_CATALOG` key (`$engine.*`), for
+	 *  guard / branch / effect-payload accessors inside an authored choreography. */
+	engine?: (key: string) => unknown;
 }) => {
-	const { flowDoc, runtime, codedHandlers } = params;
+	const { flowDoc, runtime, codedHandlers, engine } = params;
 
 	const authoredByEvent = new Map(
 		(flowDoc?.events ?? []).map((entry) => [entry.event, entry.choreography] as const),
@@ -33,7 +36,10 @@ export const createBookEventDispatcher = <TBookEvent extends { type: string }, T
 	const dispatch = async (bookEvent: TBookEvent, context: TContext): Promise<void> => {
 		const authored = authoredByEvent.get(bookEvent.type);
 		if (authored) {
-			await runChoreography(authored, runtime, { trigger: bookEvent });
+			// Scope carries the trigger (the book event), the per-event context (`{ bookEvents }`),
+			// and the `$engine.*` reader — everything an authored handler's accessors / effects need
+			// without leaving the bounded model. Matches the coded handler's `(bookEvent, context)`.
+			await runChoreography(authored, runtime, { trigger: bookEvent, context, engine });
 			return;
 		}
 		const coded = codedHandlers[bookEvent.type];

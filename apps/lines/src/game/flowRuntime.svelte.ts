@@ -26,19 +26,33 @@ import { waitForTimeout } from 'utils-shared/wait';
 
 import { eventEmitter } from './eventEmitter';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
+import { flowEffect } from './flowEffects';
+import { LINES_FLOW_DOC } from './flowDoc';
 import type { BookEvent, BookEventContext } from './typesBookEvent';
 
 declare global {
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_DOC__: FlowDoc | undefined;
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_LINES__: boolean | undefined;
 }
 
-/** Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).
- *  A Phase-4 dev override (`window.__IE_FLOW_DOC__`) lets the parity harness prove the live
- *  mounter against the real bundle; Phase 6 replaces this with the baked `flow` slot. */
+/**
+ * Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).
+ *
+ * Two opt-in dev hooks, neither set on a normal `apps/lines` boot (so the default is
+ * byte-identical to current `main`):
+ *  - `window.__IE_FLOW_DOC__` — an arbitrary FlowDoc injected at runtime (the Phase-4 hook,
+ *    kept for ad-hoc single-screen/event live-verify);
+ *  - `window.__IE_FLOW_LINES__` — load the COMMITTED, complete apps/lines FlowDoc
+ *    (`LINES_FLOW_DOC` in `flowDoc.ts`) — the Phase-5 full-migration fixture. Setting this
+ *    runs the WHOLE game through the interpreter for live-verify, ahead of the Phase-6 baked
+ *    `flow` slot that will source the same doc without a hook.
+ */
 export const loadFlowDoc = (): FlowDoc | undefined => {
-	if (typeof globalThis !== 'undefined' && globalThis.__IE_FLOW_DOC__) {
-		return globalThis.__IE_FLOW_DOC__;
+	if (typeof globalThis !== 'undefined') {
+		if (globalThis.__IE_FLOW_DOC__) return globalThis.__IE_FLOW_DOC__;
+		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
 	return undefined;
 };
@@ -72,6 +86,11 @@ export const createLinesFlow = (editorDoc: LayoutDoc): LinesFlow | undefined => 
 			// scales the interpreter's delays identically (design doc §8, speed).
 			timeScale: stateBetDerived.timeScale,
 			waitForTimeout,
+			// The game-side EFFECT registry — the `declare ≠ implement` bridge for the
+			// non-emitter leaves (state mutations, board ops, win-level sound clusters). The
+			// effect bodies are lifted VERBATIM from the coded handlers (`flowEffects.ts`), so
+			// an authored `effect` node is byte-identical to its coded counterpart (§3, §11.4).
+			effect: flowEffect,
 		},
 		resolveScene,
 		codedHandlers: bookEventHandlerMap,
