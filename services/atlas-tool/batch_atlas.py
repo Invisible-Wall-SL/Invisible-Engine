@@ -41,7 +41,11 @@ CONFIG_PATH = SELF / "atlas_config.json"
 
 _DEFAULTS = {
     "comfy_host": "127.0.0.1:8189",
-    "manifest_path": "tools/atlas_manifest_symbolsStatic.json",
+    # CLI argparse fallback only — the cloud UI ALWAYS passes --manifest with
+    # the resolved active-manifest path, so this never fires there. Blank (not
+    # a fabricated sample name) so a bare run on a fresh project fails clearly
+    # instead of 404ing on an `atlas_manifest_symbolsStatic.json` it doesn't own.
+    "manifest_path": "",
     "mockup_image": "",
     "checkpoint": "juggernautXL_ragnarokBy.safetensors",
     "lora": "gameIconInstitute3d_v10.safetensors",
