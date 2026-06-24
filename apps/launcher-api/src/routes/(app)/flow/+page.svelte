@@ -37,7 +37,7 @@
 
 	// The FlowDoc is the single source of truth. Initialize from the loaded doc; every
 	// mutation replaces it via a pure command helper and is recorded for undo/redo.
-	let doc = $state<FlowDoc>(structuredClone(data.flow));
+	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(data.flow)) as FlowDoc);
 	let dirty = $state(false);
 	let saving = $state(false);
 	let saveMsg = $state('');
