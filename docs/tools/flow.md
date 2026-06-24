@@ -182,12 +182,15 @@ no native double-click event, so the editor detects the pair), or select the nod
   invented vocabulary):
   - **Broadcast** — fire one real emitter event. The event is chosen from a dropdown of the
     game's actual emitter vocabulary, grouped by source (Board, Win, Sound, Free spins,
-    Special book, Transition, UI). You also pick a **dispatch shape** — *broadcast (sync)*,
-    *broadcastAsync — await* (wait for subscribers to finish), or *broadcastAsync —
-    fire-and-forget* — and, when the chosen event declares payload fields, fill each field
-    with a bounded accessor (`$trigger.x`, `$engine.x`, `$item.x`, or a literal).
-  - **Sequence** / **Parallel** — containers you add children into (the **Add child** grid
-    in the inspector offers every node kind).
+    Special book, Transition, UI). That list is the project's **exported vocabulary** —
+    resolved from the project's game type — so you only see events the game can actually emit;
+    an unrecognized game falls back to a bundled default list (see "Where the vocabulary comes
+    from" below). You also pick a **dispatch shape** — *broadcast (sync)*, *broadcastAsync —
+    await* (wait for subscribers to finish), or *broadcastAsync — fire-and-forget* — and, when
+    the chosen event declares payload fields, fill each field with a bounded accessor
+    (`$trigger.x`, `$engine.x`, `$item.x`, or a literal).
+  - **Sequence** / **Parallel** — containers you add children into. The **Add child** grid in
+    the inspector offers Broadcast, Delay, Sequence, Parallel, Branch and ForEach.
   - **Delay** — a pause in milliseconds. The delay is divided by the current speed, so a
     300ms delay becomes 150ms at 2×.
   - **Branch** — a guarded fork. You set a single comparison (a left accessor, an operator
@@ -196,6 +199,15 @@ no native double-click event, so the editor detects the pair), or select the nod
   - **ForEach** — repeat a body for each item of a **list accessor** (e.g.
     `$trigger.wins`), either *sequence* (one item at a time) or *parallel*. Inside the body,
     `$item.x` reads the current item.
+  - **Effect** — invoke a **named, game-registered side effect** (the FlowDoc's escape hatch
+    for behaviour that can't be expressed as a plain broadcast, where the game wires the actual
+    implementation at boot). When the project's exported vocabulary lists effects, the
+    inspector shows a **dropdown of those registered effect names**; otherwise it falls back to
+    a free-text field. If you name an effect the game doesn't register, the inspector flags it
+    with a **"Not a registered effect for this game"** warning. Note: Effect (and the
+    `$context.bookEvents` accessor it can read) is **authored as data** — an Effect node is
+    *editable* when one is present in the document, but it is **not** in the **Add child** grid,
+    so you can't create one through the UI yet.
 - **Editing and removing.** Each selected node opens its own inspector on the right with just
   its fields. **Remove node** deletes a non-root node; on the root the button reads **Clear
   this phase** and empties that phase's timeline.
@@ -214,6 +226,17 @@ This is a *timeline* preview that proves the order and timing of your broadcasts
 is **not** a live visual of the game animating — that requires the runtime mounter and is
 Phase 4 (the panel says so).
 
+#### Where the Broadcast / Effect vocabulary comes from
+
+The Broadcast event list and the Effect-name list are not a single hard-coded set: the page
+resolves the **exported vocabulary for the project's game type** and feeds it to the
+choreography editor, so the picker offers exactly the events and effects that game can emit
+(for the `lines` reference game this is ~35 events plus its registered effects). If a project's
+game type isn't recognised, the editor falls back to a **bundled default** vocabulary so the
+picker is never empty. This is **authoring fidelity only** — it changes which names the picker
+offers, never what the game does at runtime (the executor broadcasts / invokes whatever the
+FlowDoc declares, registered or not).
+
 ### Undo / redo
 
 Every change — place, move, wire, edit, delete, paste — goes through an undo/redo command
@@ -229,6 +252,12 @@ the Scene Editor's `scenes.json`). The button is disabled until you have unsaved
 changes and shows **Saved** when the document is up to date. Reopening the project
 loads the saved flow back onto the canvas.
 
+Authoring is **incremental and safe**: anything you have *not* authored falls through to the
+game's coded behaviour, and an empty FlowDoc (or one the baked game can't find) behaves exactly
+like a game with no Flow document at all. So you can author one screen or one event at a time
+and the rest of the game keeps running on its coded path — the **Authored vs coded** panel above
+shows you precisely where that boundary sits.
+
 ## What it does not do yet
 
 - **It does not edit the platform state machine or the math.** The XState platform FSM
@@ -239,14 +268,15 @@ loads the saved flow back onto the canvas.
   timeline* of the broadcasts and delays you authored — useful for verifying order and
   timing, but it does not show the game actually animating. A live visual of the game is
   the running game's job, not this authoring tool.
-- **The Broadcast vocabulary is the bundled default.** The choreography Broadcast picker
-  lists a faithful default emitter vocabulary (transcribed from the real lines / book-of
-  emitter unions). Exporting each project's *own* emitter vocabulary as data to replace the
-  bundled default is a held authoring-fidelity follow-up; it changes which events the
-  picker offers, not the runtime.
 
 ## Known limitations / TODOs
 
+- **No "Add Effect" in the UI.** The choreography model has an **Effect** node (a named
+  game-registered side effect) and the inspector can edit one — with a registered-effect-name
+  picker — but Effect is not in the **Add child** grid, so an Effect node can only enter a
+  document by being authored as data, not created through the canvas. Same for the
+  `$context.bookEvents` accessor an Effect can read: it is honoured if present but not offered
+  by the inspector's accessor fields (which cover `$engine` / `$trigger` / `$item` / literal).
 - Guard authoring edits a **single predicate** (the first comparison of a guard);
   multi-predicate AND guards are stored faithfully if already present but not yet fully
   editable in the inspector.
@@ -262,21 +292,31 @@ loads the saved flow back onto the canvas.
   is the source of truth (scoping, node/pin taxonomy, the interpreter contract, the
   phased plan, the Phase-0 gate).
 - **The tool page:** `apps/launcher-api/src/routes/(app)/flow/` — `+page.server.ts`
-  loads the LayoutDoc, components and saved FlowDoc; `+page.svelte` is the authoring
-  canvas (Svelte Flow / `@xyflow/svelte`) and hosts the double-click → choreography modal;
-  `FlowScreenNode.svelte` is the screen node; `EdgeInspector.svelte` is the transition
-  editor; `flowModel.client.ts` is the typed model + pure command helpers + undo/redo
-  stack.
+  loads the LayoutDoc, components and saved FlowDoc, and resolves the choreography
+  vocabulary by game type (`resolveFlowVocabulary(doc.gameType)` from
+  `$lib/flowVocabularies.ts`, falling back to `DEFAULT_EMITTER_VOCABULARY`); `+page.svelte`
+  is the authoring canvas (Svelte Flow / `@xyflow/svelte`), hosts the double-click →
+  choreography modal, and passes the resolved `vocabulary` into it; `FlowScreenNode.svelte`
+  is the screen node; `EdgeInspector.svelte` is the transition editor; `flowModel.client.ts`
+  is the typed model + pure command helpers + undo/redo stack.
 - **The choreography sub-editor:** `ChoreographyEditor.svelte` is the modal (phase tabs,
   root toggle, canvas, inspector, preview), `ChoreoNode.svelte` is a micro node,
-  `ChoreoNodeInspector.svelte` is the per-node field editor (including the Broadcast event
-  picker), `ChoreoPreview.svelte` is the speed dial + deterministic timeline.
+  `ChoreoNodeInspector.svelte` is the per-node field editor (the Broadcast event picker via
+  `groupEmitterVocabulary` + `findEmitterEvent`, and the Effect-name picker via
+  `findEmitterEffect`), `ChoreoPreview.svelte` is the speed dial + deterministic timeline.
   `choreographyModel.client.ts` is the pure, path-addressed command layer (each helper
   returns a new FlowDoc), routed through the SAME `createFlowHistory` undo/redo stack +
-  `POST /api/flow/save` as the macro graph. The Broadcast vocabulary comes from
-  `packages/engine-flow/src/emitterVocabulary.ts` (`DEFAULT_EMITTER_VOCABULARY`); the
-  deterministic preview runs `previewChoreography` against `FIXED_PREVIEW_TRIGGER` /
-  `FIXED_PREVIEW_ENGINE`.
+  `POST /api/flow/save` as the macro graph. The deterministic preview runs
+  `previewChoreography` against `FIXED_PREVIEW_TRIGGER` / `FIXED_PREVIEW_ENGINE`.
+- **The exported vocabulary:** generated at build time, not pipeline-exported (the emitter
+  union + `flowEffects` keys are a per-*game* source constant, identical across a game's
+  projects). `scripts/gen-flow-vocabulary.mjs` (`pnpm gen:flow-vocab[:check]`) parses the
+  game source and emits the per-game vocab (e.g. `apps/lines/src/game/flowVocabulary.ts`) plus
+  the launcher registry `apps/launcher-api/src/lib/flowVocabularies.ts`, keyed by LayoutDoc
+  `gameType` with `resolveFlowVocabulary()` falling back to the bundled default. The shared
+  shapes (`EmitterVocabulary`, `EmitterEffectDef`, `findEmitterEffect`,
+  `DEFAULT_EMITTER_VOCABULARY`) live in `packages/engine-flow/src/emitterVocabulary.ts` and are
+  headless-tested by `tools/flow-spike/vocabulary.ts`.
 - **Save endpoint:** `POST /api/flow/save` (`flow`-gated via the shared `gate` helper,
   mirroring `/api/rigger/save`); R2 read/write in `src/lib/server/flowStorage.ts` at the
   `flowDocKey` path — `<client>/<project>/editor/flow.json`, a sibling of `scenes.json`.
