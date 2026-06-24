@@ -18,7 +18,14 @@
  * sparse no-transitions doc (the parity-safe fall-through, §7).
  */
 
-import { type FlowDoc, normalizeFlowDoc } from 'engine-flow';
+import {
+	FIXED_PREVIEW_ENGINE,
+	FIXED_PREVIEW_TRIGGER,
+	previewChoreography,
+	type ChoreographyNode,
+	type FlowDoc,
+	normalizeFlowDoc,
+} from 'engine-flow';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
@@ -36,6 +43,55 @@ const eq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.strin
 // A representative authored FlowDoc — every macro feature Phase 2 can author.
 // ---------------------------------------------------------------------------
 
+// A non-trivial authored choreography exercising EVERY executor node kind (design doc
+// §9.A): sequence/parallel/delay, broadcast in all THREE shapes (sync / awaited / fire-
+// and-forget), branch (with a guard + else), and forEach (over a $trigger list, with an
+// $item payload read). This is the Phase-3 micro-authoring round-trip subject.
+const winInfoEnter: ChoreographyNode = {
+	kind: 'sequence',
+	children: [
+		{
+			kind: 'broadcast',
+			event: 'soundOnce',
+			payload: { name: { kind: 'literal', value: 'sfx_win' } },
+		},
+		{
+			kind: 'parallel',
+			children: [
+				{ kind: 'broadcast', event: 'boardShow' },
+				{ kind: 'broadcast', event: 'uiHide', async: true, await: false },
+			],
+		},
+		{ kind: 'delay', ms: 300 },
+		{
+			kind: 'forEach',
+			list: { kind: 'trigger', path: 'wins' },
+			mode: 'sequence',
+			body: {
+				kind: 'broadcast',
+				event: 'boardWithAnimateSymbols',
+				async: true,
+				await: true,
+				payload: { symbolPositions: { kind: 'item', path: 'positions' } },
+			},
+		},
+		{
+			kind: 'branch',
+			guard: {
+				all: [
+					{
+						left: { kind: 'engine', key: 'winLevel' },
+						op: 'gte',
+						right: { kind: 'literal', value: 3 },
+					},
+				],
+			},
+			then: { kind: 'broadcast', event: 'winShow' },
+			otherwise: { kind: 'broadcast', event: 'winHide' },
+		},
+	],
+};
+
 const authored: FlowDoc = {
 	version: 1,
 	projectKey: 'bookofborut',
@@ -46,19 +102,8 @@ const authored: FlowDoc = {
 			position: { x: 80, y: 80 },
 			initial: true,
 			choreography: {
-				enter: {
-					kind: 'sequence',
-					children: [
-						{ kind: 'broadcast', event: 'showBoard' },
-						{ kind: 'delay', ms: 300 },
-						{
-							kind: 'broadcast',
-							event: 'winInfo',
-							await: true,
-							payload: { wins: { kind: 'trigger', path: 'wins' } },
-						},
-					],
-				},
+				enter: winInfoEnter,
+				exit: { kind: 'sequence', children: [{ kind: 'broadcast', event: 'boardHide' }] },
 			},
 		},
 		{
@@ -76,7 +121,13 @@ const authored: FlowDoc = {
 			delayMs: 250,
 			order: 0,
 			guard: {
-				all: [{ left: { kind: 'engine', key: 'winLevel' }, op: 'gte', right: { kind: 'literal', value: 3 } }],
+				all: [
+					{
+						left: { kind: 'engine', key: 'winLevel' },
+						op: 'gte',
+						right: { kind: 'literal', value: 3 },
+					},
+				],
 			},
 		},
 		{
@@ -119,7 +170,10 @@ const reloaded = normalizeFlowDoc(JSON.parse(JSON.stringify(stored)), 'bookofbor
 const canonical = normalizeFlowDoc(authored, 'bookofborut');
 
 assert(eq(stored, reloaded), 'stored doc reloads byte-identical (normalize ∘ JSON round-trip)');
-assert(eq(stored.screens, canonical.screens), 'screens (positions, initial, choreography) preserved');
+assert(
+	eq(stored.screens, canonical.screens),
+	'screens (positions, initial, choreography) preserved',
+);
 assert(
 	eq(stored.transitions, canonical.transitions),
 	'transitions (trigger/guard/delay/order) preserved',
@@ -127,17 +181,11 @@ assert(
 assert(eq(stored.events, canonical.events), 'per-event choreography preserved');
 // Nothing authored is lost: every screen/transition/event id survives normalization.
 assert(
-	eq(
-		authored.screens.map((s) => s.id).sort(),
-		stored.screens.map((s) => s.id).sort(),
-	),
+	eq(authored.screens.map((s) => s.id).sort(), stored.screens.map((s) => s.id).sort()),
 	'no screen dropped by normalization',
 );
 assert(
-	eq(
-		authored.transitions.map((t) => t.id).sort(),
-		stored.transitions.map((t) => t.id).sort(),
-	),
+	eq(authored.transitions.map((t) => t.id).sort(), stored.transitions.map((t) => t.id).sort()),
 	'no transition dropped by normalization',
 );
 assert(stored.projectKey === 'bookofborut', 'projectKey stamped');
@@ -174,7 +222,10 @@ assert(cleaned.version === 1, 'version forced to 1');
 assert(!('rogue' in cleaned), 'rogue top-level field dropped');
 assert(cleaned.screens.length === 1 && cleaned.screens[0].id === 'ok', 'invalid screens dropped');
 assert(!('extra' in cleaned.screens[0]), 'unknown screen field dropped');
-assert(cleaned.transitions.length === 1 && cleaned.transitions[0].id === 't', 'invalid transitions dropped');
+assert(
+	cleaned.transitions.length === 1 && cleaned.transitions[0].id === 't',
+	'invalid transitions dropped',
+);
 assert(!('junk' in cleaned.transitions[0]), 'unknown transition field dropped');
 
 // ---------------------------------------------------------------------------
@@ -183,8 +234,101 @@ assert(!('junk' in cleaned.transitions[0]), 'unknown transition field dropped');
 
 console.log('round-trip — absent doc');
 const empty = normalizeFlowDoc(undefined, 'p');
-assert(empty.screens.length === 0 && empty.transitions.length === 0, 'absent doc ⇒ no screens/transitions');
+assert(
+	empty.screens.length === 0 && empty.transitions.length === 0,
+	'absent doc ⇒ no screens/transitions',
+);
 assert(empty.events === undefined, 'absent doc has no events (pure fall-through)');
+
+// ---------------------------------------------------------------------------
+// 5. Authored choreography survives the round-trip AND drives the executor — every
+//    node kind (sequence/parallel/delay/broadcast×3/branch/forEach) is preserved and
+//    runs through the REAL executor via the deterministic preview (Phase 3, §9.A/§11.6).
+// ---------------------------------------------------------------------------
+
+console.log('round-trip — authored choreography (all node kinds)');
+
+// Compare against the CANONICAL form (normalize canonicalizes key order, the same
+// discipline the macro round-trip uses above) — content, not raw key order, is the contract.
+const canonicalEnter = canonical.screens.find((s) => s.id === 'baseGame')?.choreography?.enter;
+const reloadedEnter = reloaded.screens.find((s) => s.id === 'baseGame')?.choreography?.enter;
+assert(eq(reloadedEnter, canonicalEnter), 'enter choreography round-trips identical (canonical)');
+assert(
+	eq(
+		reloaded.screens.find((s) => s.id === 'baseGame')?.choreography?.exit,
+		canonical.screens.find((s) => s.id === 'baseGame')?.choreography?.exit,
+	),
+	'exit choreography round-trips identical (canonical)',
+);
+
+// The reloaded choreography is what the runtime would execute. Run it through the REAL
+// executor (the deterministic preview) and assert the broadcast+delay timeline.
+const runPreview = async (): Promise<void> => {
+	if (!reloadedEnter) {
+		failures++;
+		console.error('  ✗ no reloaded enter choreography to preview');
+		return;
+	}
+	const normal = await previewChoreography(reloadedEnter, {
+		speed: 1,
+		trigger: FIXED_PREVIEW_TRIGGER,
+		engine: (k) => FIXED_PREVIEW_ENGINE[k],
+	});
+	const turbo = await previewChoreography(reloadedEnter, {
+		speed: 2,
+		trigger: FIXED_PREVIEW_TRIGGER,
+		engine: (k) => FIXED_PREVIEW_ENGINE[k],
+	});
+
+	const events = normal.timeline
+		.filter((e): e is Extract<typeof e, { kind: 'broadcast' }> => e.kind === 'broadcast')
+		.map((e) => e.event);
+	// soundOnce, boardShow + uiHide (parallel), forEach×2 wins (boardWithAnimateSymbols),
+	// branch then-branch (winLevel 3 ≥ 3 ⇒ winShow). The else (winHide) must NOT appear.
+	assert(events[0] === 'soundOnce', 'first broadcast is soundOnce');
+	assert(
+		events.includes('boardShow') && events.includes('uiHide'),
+		'parallel branch broadcasts both ran',
+	);
+	assert(
+		events.filter((e) => e === 'boardWithAnimateSymbols').length === 2,
+		'forEach ran once per win item (2 wins ⇒ 2 broadcasts)',
+	);
+	assert(
+		events.includes('winShow') && !events.includes('winHide'),
+		'branch took the then-path (winLevel ≥ 3)',
+	);
+
+	// Determinism: two runs at the same speed produce identical timelines.
+	const normal2 = await previewChoreography(reloadedEnter, {
+		speed: 1,
+		trigger: FIXED_PREVIEW_TRIGGER,
+		engine: (k) => FIXED_PREVIEW_ENGINE[k],
+	});
+	assert(
+		eq(normal.timeline, normal2.timeline),
+		'preview is deterministic (identical timeline run-to-run)',
+	);
+
+	// Speed scalar: the single 300ms delay halves under turbo (÷ timeScale 2 ⇒ 150ms),
+	// proving the authored Speed flows into the scalar the executor reads (§9.C).
+	const normalDelay = normal.timeline.find((e) => e.kind === 'delay');
+	const turboDelay = turbo.timeline.find((e) => e.kind === 'delay');
+	assert(
+		normalDelay?.kind === 'delay' && normalDelay.scaledMs === 300,
+		'delay at 1× is the authored 300ms',
+	);
+	assert(
+		turboDelay?.kind === 'delay' && turboDelay.scaledMs === 150,
+		'delay at 2× (turbo) is halved to 150ms',
+	);
+	assert(
+		normal.durationMs === 300 && turbo.durationMs === 150,
+		'total virtual duration scales with speed',
+	);
+};
+
+await runPreview();
 
 console.log('');
 if (failures > 0) {

@@ -122,6 +122,28 @@ export function projectComponentKey(projectKey: string, id: string): string {
 	return `editor/${r2Slug(projectKey)}/components/${r2Slug(id)}.json`;
 }
 
+/**
+ * Versioned-history key for a component (§8.9 v2 multi-version store). Each save
+ * writes the def to BOTH `<id>.json` (the "latest" pointer that pre-v2 single-doc
+ * readers — `loadComponent` without a version, `listComponents` — keep loading
+ * byte-identically) AND `<id>.v<N>.json` (this immutable historical snapshot). A
+ * pinned instance resolves the EXACT def it was authored against by reading its
+ * `.v<N>.json`. The `v<N>` suffix sits BEFORE `.json` so the listing globs that
+ * match `*.json` still see them; they are filtered out of the latest-pointer
+ * listing by the `.v<N>.json` shape (see `componentStorage.ts`).
+ */
+export function editorComponentVersionKey(id: string, version: number): string {
+	return `_shared/editor-components/${r2Slug(id)}.v${version}.json`;
+}
+
+export function projectComponentVersionKey(
+	projectKey: string,
+	id: string,
+	version: number,
+): string {
+	return `editor/${r2Slug(projectKey)}/components/${r2Slug(id)}.v${version}.json`;
+}
+
 /** Prefix for listing a project's components (delimited or recursive). */
 export function projectComponentsPrefix(projectKey: string): string {
 	return `editor/${r2Slug(projectKey)}/components/`;
@@ -183,6 +205,16 @@ export function localizationDocKey(client: string, project: string): string {
 
 export function editorDocKey(client: string, project: string): string {
 	return `${SUB.editor(client, project)}/scenes.json`;
+}
+
+/**
+ * Per-project Invisible Flow document — `<client>/<project>/editor/flow.json` — the
+ * authored presentation graph (macro transition graph + per-screen choreography),
+ * sibling to the Scene Editor's `scenes.json` (design doc `invisible-flow.md` §7/§12).
+ * Same client/project slug-underscore convention as `editorDocKey`.
+ */
+export function flowDocKey(client: string, project: string): string {
+	return `${SUB.editor(client, project)}/flow.json`;
 }
 
 /**

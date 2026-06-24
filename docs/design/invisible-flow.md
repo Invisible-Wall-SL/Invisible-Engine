@@ -239,6 +239,91 @@ prove the doc round-trips + the build ships, not the pixels/interactions.
 - Phase 3 — micro choreography (double-click a node → author enter/while/exit).
 - Phase 4 — the live generic mounter; Phase 6 — bake/pipeline (`flow?` in `BakedBundle`).
 
+### Progress — Phase 3 DONE headlessly (2026-06-24)
+
+Branch `flow/phase3-choreography` (off the Phase-1/2 work). No game bump. Authoring +
+deterministic preview only — the runtime mounter swap (Phase 4) and bake (Phase 6) stay out.
+
+**A — the choreography sub-editor (double-click a node).**
+- `ChoreographyEditor.svelte` opens on double-clicking a macro screen node (xyflow 1.6 has
+  no node-double-click event, so the page detects two clicks <350ms apart; an explicit
+  "Edit choreography…" button in the screen inspector is the discoverable equivalent). It
+  hosts the screen's enter/while/exit timeline as a node graph over the SAME
+  `@xyflow/svelte` lib (§12), with phase tabs, a Sequence/Parallel root toggle, a per-node
+  inspector, the Speed dial + the deterministic preview.
+- The author node kinds are EXACTLY the executor's `ChoreographyNode` kinds — **Broadcast /
+  Sequence / Parallel / Delay / Branch / ForEach** — no new vocabulary (§9.A). Edits go
+  through a PURE, path-addressed command layer (`choreographyModel.client.ts`: a sub-graph
+  is addressed by a `ChoreoTarget` = screen+phase or event; a node by a `ChoreoPath` of
+  child indices / `then`/`otherwise`/`body` slots), each returning a NEW FlowDoc, routed
+  through the SAME `createFlowHistory` undo/redo stack as the macro graph and the existing
+  `POST /api/flow/save`. `flattenChoreography` projects the tree onto xyflow nodes+edges
+  (container→child links, branch/forEach slots labelled).
+
+**B — the Broadcast palette = the game's REAL emitter vocabulary (sourced honestly).**
+- A Broadcast node's event picker lists the game's actual emitter events, grouped by source
+  component. **Honest sourcing finding:** that vocabulary lives in each game's
+  `typesEmitterEvent.ts` as a COMPILE-TIME TypeScript discriminated union — it has no
+  runtime/serialized form, and the launcher loads a project from R2, not from game source.
+  So the catalog is **PASSED IN**, exactly the way the LayoutDoc + component defs already
+  are (it is NOT something the launcher can reflect from R2 today). A new serializable
+  `EmitterVocabulary` shape (`engine-flow/src/emitterVocabulary.ts`) defines that passed-in
+  catalog; a bundled `DEFAULT_EMITTER_VOCABULARY` is transcribed verbatim from the real
+  `apps/lines`/book-of emitter unions (Board/Win/Sound/FreeSpin*/Transition/SpecialBook +
+  the shared UI cues the handlers broadcast) — the game's ACTUAL vocabulary, not invented.
+  The authoring UI is agnostic to the source; Phase 6 can export the game's union as data
+  alongside the FlowDoc and feed the SAME shape instead of the default.
+
+**C — the Speed scalar.**
+- A per-preview Speed dial (1× / 2× turbo) feeds the executor's injected `timeScale()`. The
+  executor already divides every Delay by `timeScale()` (the coded `ms / timeScale()` call
+  sites), so the authored speed flows straight into the runtime scalar the executor reads —
+  no new plumbing, kept a bounded scalar (not a script). Proven: a 300ms delay becomes
+  150ms at 2× in the preview timeline.
+
+**D — live preview against a DETERMINISTIC feed (§11.6).**
+- `engine-flow/src/previewExecutor.ts` + `ChoreoPreview.svelte` run the authored
+  choreography through the REAL `runChoreography` against a recording runtime on a VIRTUAL
+  clock (delays advance the clock, no real time passes), fed by a FIXED book payload
+  (`FIXED_PREVIEW_TRIGGER`/`FIXED_PREVIEW_ENGINE`, mirroring the mock-RGS/test-server book
+  shape — never a random outcome), producing the ordered broadcast+delay timeline with the
+  speed scalar applied (the Phase-0 parity-harness shape). This is the DETERMINISTIC half of
+  preview: the emitter-call ORDER + TIMING, reproducible run-to-run, so a delay tweak shows
+  its millisecond shift immediately. **Scoped honestly:** a TRUE visual preview (the game
+  actually animating) needs the running game + its real emitter + Pixi mounter — that is the
+  live generic mounter (Phase 4) and is explicitly NOT done here; the UI flags it, it is not
+  faked.
+
+**How it was verified headlessly**
+- `pnpm --filter engine-flow run typecheck` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the flow page + `ChoreographyEditor`/`ChoreoNode`/`ChoreoNodeInspector`/`ChoreoPreview` +
+  `/api/flow/save` all compile + ship).
+- `tools/flow-spike/roundTrip.ts` (`pnpm --filter flow-spike run roundtrip`) extended to
+  author a non-trivial choreography exercising EVERY node kind (sequence/parallel/delay,
+  broadcast in all three shapes, branch+else, forEach over `$trigger.wins` with an `$item`
+  payload). It asserts the choreography round-trips canonical through save→reload, AND drives
+  it through the REAL executor via the deterministic preview: 2 wins ⇒ 2 forEach broadcasts,
+  the parallel branch fires both children, the branch takes the then-path at winLevel≥3, the
+  timeline is identical run-to-run (determinism), and the 300ms delay halves to 150ms under
+  2× (speed scalar). Phase-0 `parity` + Phase-1 `pins` spikes still GREEN.
+- **Incidental fix:** added the missing `flowDocKey` export to `projectPaths.ts` — Phase-2's
+  `flowStorage.ts` imported it but it was never added, so the launcher build was broken on
+  the inherited branch.
+
+**Still needs owner-verify live (deployed launcher + auth + R2):** the in-browser
+choreography authoring — double-clicking a node, add/edit/remove nodes, the Broadcast event
+picker, the dispatch-shape + payload + branch-guard + forEach editors, undo/redo, and a real
+Save → reload — plus the preview panel pixels. The headless checks prove compile/ship/
+round-trip/determinism, not the interactions or pixels.
+
+**What's left**
+- Phase 4 — the live generic mounter (mount authored screens + run choreography in a real
+  game, retiring §20.1) + the all-three transition triggers wired to runtime.
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`); export the game's emitter union as
+  data to replace `DEFAULT_EMITTER_VOCABULARY`.
+- RULE 9: `docs/tools/flow.md` needs a `docs-keeper` audit pass to document the new
+  choreography sub-editor (Phase 3 materially extends the tool UI).
+
 ## 1. Why this tool exists (the goal)
 
 A game's *presentation flow* — which screen is showing, what triggers the move to the
@@ -398,7 +483,7 @@ reproducing the exact mount + await/parallel/timing behaviour — which Phase 0 
 | **0 — Interpreter spike (gate)** | `engine-flow`: generic mount of one real screen + run a hand-authored `winInfo` choreography in `apps/lines`; pixel/sequence parity vs coded; fall-through proven for every un-authored screen/event | **make-or-break — do first** |
 | **1 — FlowDoc model + canvas spike** | FlowDoc schema (transition graph + per-screen choreography); typed editable model + undo/redo command stack; `/flow` page renders an existing game's flow read-only; **pin-derivation** (screen → dynamic pins) + graph-lib decision (`@xyflow/svelte` vs hand-built) settled | medium |
 | **2 — Macro authoring** | place screen nodes (from Scene Editor screens), dynamic pins with stable ids + orphan warnings, draw/edit transition edges, save→R2, load | medium |
-| **3 — Micro choreography** | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **live preview** with a speed dial against the mock-RGS feed | medium-high |
+| **3 — Micro choreography** ✅ | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **deterministic** live preview with a speed dial against a fixed feed (full visual preview is Phase 4) | medium-high |
 | **4 — Transitions (all 3) + generic mounter live** | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
 | **5 — Full migration** | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen parity-checked | high |
 | **6 — Pipeline wiring** | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
