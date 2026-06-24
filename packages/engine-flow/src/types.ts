@@ -202,7 +202,10 @@ export interface FlowScreen {
 	initial?: boolean;
 }
 
-/** What fires a transition edge (design doc §6 — all three triggers). */
+/** What fires a transition edge (design doc §6). The first three are the original
+ *  triggers; `signal` is the tap-to-continue addition — a named runtime signal a
+ *  tap-enabled component emits via the interpreter (`emitSignal(name)`), so a user CLICK
+ *  can drive the macro flow without inventing a scripting hook (design doc §6.2). */
 export type FlowTrigger =
 	/** A book event of this `type` arrives (e.g. `freeSpinTrigger`). */
 	| { kind: 'bookEvent'; event: string }
@@ -210,7 +213,11 @@ export type FlowTrigger =
 	 *  finished) — the genuinely-new self-driving output (design doc §6.2). */
 	| { kind: 'complete' }
 	/** An engine condition became true — the guard alone fires the edge (design doc §6.3). */
-	| { kind: 'condition' };
+	| { kind: 'condition' }
+	/** A named runtime signal was emitted (`emitSignal(signal)` on the interpreter — the
+	 *  tap-to-continue path). Fires every active-screen edge whose `signal` matches, mirroring
+	 *  how a `bookEvent` trigger matches the arriving event `type` (design doc §6.2). */
+	| { kind: 'signal'; signal: string };
 
 /**
  * A transition edge `from → to` (design doc §6). Fires on its `trigger`, gated by an

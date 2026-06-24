@@ -102,6 +102,7 @@
 	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
+	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
 	import I18nTest from './I18nTest.svelte';
 
@@ -175,6 +176,12 @@
 		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its
 		// frame/size params off the instance, hiding itself once loading completes.
 		LoadingBar,
+		// Invisible Flow tap-to-continue (§6.2): the coded press surface the engine
+		// mounts over any `overlay` instance whose shared `tapToContinue` param is on.
+		// `OnPressFullScreen` + `OnHotkey "Space"`; on tap calls BOTH Flow holder APIs
+		// (`completeActiveScreen` + `emitFlowSignal(tapSignal)`). Unused until an author
+		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
+		TapToContinue,
 	});
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`

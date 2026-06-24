@@ -11,7 +11,8 @@
 		"phase5": "tsx phase5Migration.ts",
 		"phase6": "tsx phase6Pipeline.ts",
 		"phase7": "tsx phase7Authoring.ts",
-		"vocab": "tsx vocabulary.ts"
+		"vocab": "tsx vocabulary.ts",
+		"tap": "tsx tapToContinue.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

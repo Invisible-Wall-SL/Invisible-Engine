@@ -343,6 +343,7 @@ const main = async () => {
 			'isTransitioning',
 			'onBookEvent',
 			'onComplete',
+			'onSignal',
 			'start',
 		];
 		const noDriveSurface = surface.every((k) => allowed.includes(k));

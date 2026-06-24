@@ -125,6 +125,11 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		/** The active screen's exit/`complete` pin fired (its choreography signalled done) —
 		 *  fire a `complete` edge. This is the genuinely-new self-driving output (§6.2). */
 		onComplete: (): Promise<boolean> => fire((t) => t.trigger.kind === 'complete', undefined),
+		/** A named runtime signal was emitted (the tap-to-continue path, §6.2) — fire the first
+		 *  outgoing edge whose trigger is `{kind:'signal', signal:<name>}`, mirroring the
+		 *  `bookEvent` match. A signal with no matching edge is a no-op. */
+		onSignal: (signal: string): Promise<boolean> =>
+			fire((t) => t.trigger.kind === 'signal' && t.trigger.signal === signal, undefined),
 		/** Re-evaluate `condition` edges (the game pings this when an observed engine value
 		 *  changes). Fires the first whose guard now holds (§6.3). */
 		evaluate: (): Promise<boolean> => fire((t) => t.trigger.kind === 'condition', undefined),

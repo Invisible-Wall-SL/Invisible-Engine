@@ -186,6 +186,10 @@ const normalizeTrigger = (input: unknown): FlowTrigger | null => {
 			return { kind: 'complete' };
 		case 'condition':
 			return { kind: 'condition' };
+		case 'signal':
+			return typeof input.signal === 'string' && input.signal
+				? { kind: 'signal', signal: input.signal }
+				: null;
 		default:
 			return null;
 	}
