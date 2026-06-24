@@ -10,7 +10,9 @@ import type {
 import { BUILTIN_COMPONENTS, pruneOrphanParamBindings } from 'engine-layout';
 import {
 	editorComponentKey,
+	editorComponentVersionKey,
 	projectComponentKey,
+	projectComponentVersionKey,
 	projectComponentsPrefix,
 	sharedComponentsPrefix,
 } from './projectPaths';
@@ -43,18 +45,63 @@ const PARAM_KINDS = new Set<ComponentParam['kind']>([
  * the lowest layer. A malformed/unreadable R2 object never throws; it just falls
  * through to the next source. Returns `undefined` only when no scope (and no
  * built-in) has a usable def for `id`.
+ *
+ * Versioning (§8.9 v2 multi-version store): when `version` is given, resolve the
+ * EXACT historical snapshot a pinned instance was authored against. At each scope
+ * the versioned snapshot `<id>.v<N>.json` is preferred; if it is missing (the def
+ * was authored before v2 history existed, or the requested version is the current
+ * latest) the scope's `<id>.json` latest pointer is used — but ONLY when its
+ * version actually matches the request, so a pin never silently resolves a
+ * different-version def. Without `version` the latest pointer is returned exactly
+ * as before (back-compat, byte-identical).
  */
 export async function loadComponent(
 	id: string,
 	projectKey?: string,
+	version?: number,
 ): Promise<ComponentDef | undefined> {
 	if (projectKey) {
-		const project = await readComponent(projectComponentKey(projectKey, id));
+		const project = await readComponentAtScope(
+			projectComponentKey(projectKey, id),
+			version !== undefined ? projectComponentVersionKey(projectKey, id, version) : undefined,
+			version,
+		);
 		if (project) return project;
 	}
-	const shared = await readComponent(editorComponentKey(id));
+	const shared = await readComponentAtScope(
+		editorComponentKey(id),
+		version !== undefined ? editorComponentVersionKey(id, version) : undefined,
+		version,
+	);
 	if (shared) return shared;
-	return BUILTIN_COMPONENTS.find((def) => def.id === id);
+	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
+	if (!builtin) return undefined;
+	// A built-in has no historical store (it is engine code): an unmatched pin still
+	// resolves the single coded def, exactly like a latest load — the engine's
+	// `resolveComponent` flags the mismatch separately.
+	return builtin;
+}
+
+/**
+ * Read one scope's def, honouring a pinned `version` (§8.9 v2). With no version
+ * (or `versionKey` undefined) this is the plain latest-pointer read. With a
+ * version: try the immutable `<id>.v<N>.json` snapshot first; on a miss fall back
+ * to the latest `<id>.json` pointer ONLY when its version equals the request (a
+ * pre-v2 doc whose single stored version IS the pinned one, or a pin at latest).
+ * Returns `undefined` when this scope has no def matching the pin, so the caller
+ * falls through to the next (lower-precedence) scope.
+ */
+async function readComponentAtScope(
+	latestKey: string,
+	versionKey: string | undefined,
+	version: number | undefined,
+): Promise<ComponentDef | undefined> {
+	if (version === undefined || !versionKey) return readComponent(latestKey);
+	const snapshot = await readComponent(versionKey);
+	if (snapshot) return snapshot;
+	const latest = await readComponent(latestKey);
+	if (latest && latest.version === version) return latest;
+	return undefined;
 }
 
 /** Read + normalize one component key, swallowing any read/parse failure. */
@@ -88,6 +135,12 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  * see `resolveComponent`). A no-op re-save keeps the stored version (no spurious
  * bump), and a brand-new component keeps the posted version (default 1). See
  * {@link reconcileVersion}.
+ *
+ * v2 multi-version store (§8.9): the save writes the def to BOTH the `<id>.json`
+ * latest pointer (read by `loadComponent` without a version, `listComponents` —
+ * back-compat preserved) AND the immutable `<id>.v<N>.json` snapshot, so a pinned
+ * instance can later resolve the EXACT version it was authored against. The latest
+ * write is LAST: if the snapshot write fails, the latest pointer is unchanged.
  */
 export async function saveComponent(component: ComponentDef, projectKey?: string): Promise<void> {
 	const normalized = validateComponent(component);
@@ -97,13 +150,20 @@ export async function saveComponent(component: ComponentDef, projectKey?: string
 	if (normalized.scope === 'project' && !projectKey) {
 		throw new Error('A project-scoped component requires a projectKey.');
 	}
-	const key =
-		normalized.scope === 'project'
-			? projectComponentKey(projectKey as string, normalized.id)
-			: editorComponentKey(normalized.id);
+	const isProject = normalized.scope === 'project';
+	const key = isProject
+		? projectComponentKey(projectKey as string, normalized.id)
+		: editorComponentKey(normalized.id);
 	const existing = await readComponent(key);
 	const toWrite = reconcileVersion(normalized, existing);
-	await putObjectText(key, JSON.stringify(toWrite, null, 2), 'application/json');
+	const body = JSON.stringify(toWrite, null, 2);
+	// Snapshot first (immutable history), latest pointer last — so a failed snapshot
+	// write never advances the latest pointer past a version that has no snapshot.
+	const versionKey = isProject
+		? projectComponentVersionKey(projectKey as string, normalized.id, toWrite.version)
+		: editorComponentVersionKey(normalized.id, toWrite.version);
+	await putObjectText(versionKey, body, 'application/json');
+	await putObjectText(key, body, 'application/json');
 }
 
 /**
@@ -140,6 +200,10 @@ function componentContentEqual(a: ComponentDef, b: ComponentDef): boolean {
  * Delete a component from its scope's R2 key — the inverse of {@link saveComponent},
  * resolving the key identically (project → `projectComponentKey`, shared →
  * `editorComponentKey`). A `scope: 'project'` delete MUST carry a `projectKey`.
+ *
+ * v2 (§8.9): also removes every retained `<id>.v<N>.json` snapshot so a delete
+ * leaves no orphaned history behind. The latest pointer is removed too; both lists
+ * are enumerated from the scope prefix so the cleanup needs no version registry.
  */
 export async function deleteComponent(
 	id: string,
@@ -151,7 +215,78 @@ export async function deleteComponent(
 	}
 	const key =
 		scope === 'project' ? projectComponentKey(projectKey as string, id) : editorComponentKey(id);
+	const prefix =
+		scope === 'project'
+			? projectComponentsPrefix(projectKey as string)
+			: sharedComponentsPrefix;
+	const snapshotPrefix = key.replace(/\.json$/, '.v');
+	let snapshotKeys: string[];
+	try {
+		snapshotKeys = (await listAllKeys(prefix)).filter(
+			(k) => k.startsWith(snapshotPrefix) && VERSION_SNAPSHOT_KEY.test(k),
+		);
+	} catch {
+		snapshotKeys = [];
+	}
+	for (const snapshotKey of snapshotKeys) await deleteObject(snapshotKey);
 	await deleteObject(key);
+}
+
+/** The version history of one component at one scope (§8.9 v2 version browser). */
+export interface ComponentVersionList {
+	/** Every retained `<id>.v<N>.json` snapshot version, ascending. May be empty for a
+	 * pre-v2 def that only has a `<id>.json` latest pointer (no snapshots written yet). */
+	versions: number[];
+	/** The `version` of the `<id>.json` latest pointer — the one the editor opens by
+	 * default — or `undefined` when no def exists at this scope. */
+	latest: number | undefined;
+}
+
+/**
+ * Enumerate the retained versions of one component at one scope (§8.9 v2 version
+ * browser). The library listings deliberately exclude `<id>.v<N>.json` snapshots, so
+ * this is the only way the editor sees a def's history. R2-lists the scope prefix,
+ * keeps just THIS id's `<id>.v<N>.json` siblings, and parses their version numbers; it
+ * also reads the `<id>.json` latest pointer to report which version is current.
+ *
+ * Read-only — it never mutates R2. A pre-v2 def (no snapshots) returns `{ versions: [],
+ * latest: <its single version> }`, so the UI can still show the current version and note
+ * that no older history was retained. A `scope:'project'` query MUST carry a `projectKey`.
+ */
+export async function listComponentVersions(
+	id: string,
+	scope: 'shared' | 'project',
+	projectKey?: string,
+): Promise<ComponentVersionList> {
+	if (scope === 'project' && !projectKey) {
+		throw new Error('A project-scoped component requires a projectKey.');
+	}
+	const latestKey =
+		scope === 'project' ? projectComponentKey(projectKey as string, id) : editorComponentKey(id);
+	const prefix =
+		scope === 'project' ? projectComponentsPrefix(projectKey as string) : sharedComponentsPrefix;
+	// `<id>.v<N>.json` where `<id>` is THIS component's slugged key — escape the prefix
+	// (r2Slug yields `[a-z0-9_]`, but stay safe) and capture the integer version.
+	const base = latestKey.replace(/\.json$/, '');
+	const versionRe = new RegExp(`^${escapeRegExp(base)}\\.v(\\d+)\\.json$`);
+	let keys: string[];
+	try {
+		keys = await listAllKeys(prefix);
+	} catch {
+		keys = [];
+	}
+	const versions: number[] = [];
+	for (const key of keys) {
+		const match = versionRe.exec(key);
+		if (match) versions.push(Number(match[1]));
+	}
+	versions.sort((a, b) => a - b);
+	const latestDef = await readComponent(latestKey);
+	return { versions, latest: latestDef?.version };
+}
+
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export interface ListComponentsOptions {
@@ -198,8 +333,15 @@ export interface AuthoredComponentEntry {
 	def: ComponentDef;
 }
 
-/** `editor/<projectKey>/components/<id>.json` — the project-component key shape. */
-const PROJECT_COMPONENT_KEY = /^editor\/([^/]+)\/components\/[^/]+\.json$/;
+/**
+ * `editor/<projectKey>/components/<id>.json` — the project-component LATEST-pointer
+ * key shape. The `(?<!\.v\d+)` lookbehind excludes the v2 historical snapshots
+ * (`<id>.v<N>.json`) so only latest pointers are enumerated as distinct components.
+ */
+const PROJECT_COMPONENT_KEY = /^editor\/([^/]+)\/components\/[^/]+(?<!\.v\d+)\.json$/;
+
+/** A v2 historical-snapshot key (`<id>.v<N>.json`) — excluded from latest listings. */
+const VERSION_SNAPSHOT_KEY = /\.v\d+\.json$/;
 
 /**
  * List every AUTHORED component across ALL projects + the shared library, each
@@ -242,6 +384,9 @@ async function listFromPrefix(prefix: string): Promise<ComponentDef[]> {
 	const out: ComponentDef[] = [];
 	for (const key of keys) {
 		if (!key.endsWith('.json')) continue;
+		// Skip v2 historical snapshots (`<id>.v<N>.json`): the library lists one entry
+		// per component (its latest pointer), not every retained version.
+		if (VERSION_SNAPSHOT_KEY.test(key)) continue;
 		const def = await readComponent(key);
 		if (def) out.push(def);
 	}

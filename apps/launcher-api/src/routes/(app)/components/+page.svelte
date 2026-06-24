@@ -57,6 +57,35 @@
 	let saveBusy = $state(false);
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
+	/**
+	 * Version browser (§8.9 v2). `versionList` = the retained `<id>.v<N>.json` snapshots
+	 * + the latest version, fetched read-only when a component opens. `inspectingVersion`
+	 * is the historical version currently loaded into the canvas for INSPECTION — when
+	 * non-null the draft is the immutable snapshot of that version, Save/Promote/editing
+	 * are blocked, and "Back to latest" reloads the editable latest. Browsing NEVER writes
+	 * to R2: a historical version is read via `GET …&version=<N>`, shown, and discarded.
+	 */
+	let versionList = $state<{ versions: number[]; latest: number | undefined } | null>(null);
+	let versionBusy = $state(false);
+	let inspectingVersion = $state<number | null>(null);
+	/** Open-version dropdown selection (the picker value); applied on "Inspect". */
+	let pickVersion = $state<number | ''>('');
+
+	/** True while a historical version is loaded read-only — gates editing + save. */
+	const isInspecting = $derived(inspectingVersion !== null);
+
+	/**
+	 * The versions the browser dropdown offers, newest first: every retained snapshot
+	 * plus the latest pointer's version (a pre-v2 def has no snapshots, so the latest is
+	 * the only entry — shown so the author at least sees the current version). Deduped.
+	 */
+	const historyVersions = $derived.by<number[]>(() => {
+		if (!versionList) return [];
+		const set = new Set(versionList.versions);
+		if (versionList.latest !== undefined) set.add(versionList.latest);
+		return [...set].sort((a, b) => b - a);
+	});
+
 	/** Hoisted active selection — bound from the canvas, read by Properties.
 	 * `selectedIds` is the source of truth (shift-click multi-select); `selectedId` is
 	 * the primary (last-picked) id the Properties panel reads. */
@@ -148,6 +177,104 @@
 		selectedIds = [];
 		saveStatus = null;
 		leftTab = 'outline';
+		// Reset + (re)load the version history for the newly opened component. A
+		// never-saved draft (no stored def) has no history; skip the fetch.
+		inspectingVersion = null;
+		pickVersion = '';
+		versionList = null;
+		if (components.some((c) => c.id === def.id)) void loadVersionList(def);
+	}
+
+	/**
+	 * Fetch the retained version history for `def` (read-only, §8.9 v2). Populates
+	 * `versionList` so the top-bar browser can list every `<id>.v<N>.json` snapshot and
+	 * mark the latest. Never mutates anything; a failure just leaves the browser empty.
+	 */
+	async function loadVersionList(def: ComponentDef): Promise<void> {
+		versionBusy = true;
+		try {
+			const params = new URLSearchParams({ id: def.id, list: 'versions', scope: def.scope });
+			if (def.scope === 'project') params.set('project', data.projectKey);
+			const res = await fetch(`/api/editor/component?${params.toString()}`);
+			if (!res.ok) {
+				versionList = null;
+				return;
+			}
+			versionList = (await res.json()) as { versions: number[]; latest: number | undefined };
+		} catch {
+			versionList = null;
+		} finally {
+			versionBusy = false;
+		}
+	}
+
+	/**
+	 * Load a historical version of the open component into the canvas for INSPECTION
+	 * (§8.9 v2 version browser). Non-destructive: it GETs the immutable `<id>.v<N>.json`
+	 * snapshot, swaps it into `componentDraft` read-only, and sets `inspectingVersion`
+	 * so Save/Promote/editing are blocked and a banner shows. It does NOT overwrite the
+	 * stored latest and does NOT become the next save — "Back to latest" restores the
+	 * editable current def. A prior unsaved edit is confirmed away first (returning to
+	 * latest after inspecting reloads the stored latest, so the edit would be lost).
+	 */
+	async function inspectVersion(version: number): Promise<void> {
+		if (!componentDraft || versionBusy) return;
+		// Only warn about losing edits when we're leaving an EDITABLE (latest) draft with
+		// unsaved changes — inspecting one snapshot then another discards nothing of value.
+		if (
+			!isInspecting &&
+			draftDirty &&
+			!window.confirm(
+				'Inspecting an older version replaces the canvas with that read-only snapshot — ' +
+					'your unsaved edits to the current version will be lost. Continue?',
+			)
+		) {
+			return;
+		}
+		versionBusy = true;
+		saveStatus = null;
+		try {
+			const params = new URLSearchParams({ id: componentDraft.id, version: String(version) });
+			if (componentDraft.scope === 'project') params.set('project', data.projectKey);
+			const res = await fetch(`/api/editor/component?${params.toString()}`);
+			if (!res.ok) {
+				saveStatus = { kind: 'error', message: `Version ${version} not available` };
+				return;
+			}
+			const def = (await res.json()) as ComponentDef;
+			componentDraft = def;
+			inspectingVersion = version;
+			selectedIds = [];
+			// Baseline = this snapshot, so the read-only draft never reads as "dirty".
+			savedSnapshot = JSON.stringify(def);
+		} catch (e) {
+			saveStatus = {
+				kind: 'error',
+				message: e instanceof Error ? e.message : `Failed to load version ${version}`,
+			};
+		} finally {
+			versionBusy = false;
+		}
+	}
+
+	/**
+	 * Leave inspection: reload the EDITABLE latest def from the local list (the source of
+	 * truth the sidebar holds) back into the canvas. Purely a UI restore — nothing was
+	 * written while inspecting, so there is nothing to undo.
+	 */
+	function backToLatest(): void {
+		if (!componentDraft) return;
+		const latest = components.find((c) => c.id === componentDraft?.id);
+		if (!latest) {
+			inspectingVersion = null;
+			return;
+		}
+		componentDraft = $state.snapshot(latest) as ComponentDef;
+		savedSnapshot = JSON.stringify($state.snapshot(componentDraft));
+		inspectingVersion = null;
+		pickVersion = '';
+		selectedIds = [];
+		saveStatus = null;
 	}
 
 	/** JSON of the draft as last saved/opened — `null` = never persisted. */
@@ -275,6 +402,9 @@
 		savedSnapshot = null;
 		selectedIds = [];
 		saveStatus = null;
+		inspectingVersion = null;
+		pickVersion = '';
+		versionList = null;
 	}
 
 	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
@@ -291,14 +421,15 @@
 	}
 
 	/** Spawn a node into the open draft's `root.children` (the array the synthetic
-	 * scene exposes). The component has its own save — no autosave here. */
+	 * scene exposes). The component has its own save — no autosave here. Blocked while
+	 * inspecting a historical version (read-only). */
 	function onSpawn(node: LayoutNode): void {
-		if (!componentDraft) return;
+		if (!componentDraft || isInspecting) return;
 		componentDraft.root.children = [...componentDraft.root.children, node];
 	}
 
 	function onDeleteNode(id: string): void {
-		if (!componentDraft) return;
+		if (!componentDraft || isInspecting) return;
 		const nodes = componentDraft.root.children.slice();
 		if (!removeNode(nodes, id)) return;
 		componentDraft.root.children = nodes;
@@ -325,7 +456,9 @@
 
 	/** Save the open draft via POST (§8.3); refresh the local list on success. */
 	async function saveComponent(): Promise<void> {
-		if (!componentDraft || saveBusy) return;
+		// Inspecting a historical version is read-only — a save here would re-pin/overwrite
+		// the latest with an old snapshot, defeating the non-destructive guarantee.
+		if (!componentDraft || saveBusy || isInspecting) return;
 		saveBusy = true;
 		saveStatus = null;
 		try {
@@ -346,6 +479,8 @@
 				const i = components.findIndex((c) => c.id === saved.id);
 				if (i === -1) components = [...components, saved];
 				else components = components.map((c) => (c.id === saved.id ? saved : c));
+				// A save may bump the version + write a new snapshot — refresh the browser.
+				void loadVersionList(saved);
 			} else {
 				let message = 'Component save failed';
 				try {
@@ -376,7 +511,7 @@
 	 * spells this out). Reuses the same status pill as a project save.
 	 */
 	async function promoteToShared(): Promise<void> {
-		if (!componentDraft || saveBusy || !data.canPublishShared) return;
+		if (!componentDraft || saveBusy || !data.canPublishShared || isInspecting) return;
 		if (
 			!window.confirm(
 				`Promote "${componentDraft.name}" to the SHARED library?\n\n` +
@@ -699,6 +834,7 @@
 					Space
 					<select
 						value={componentDraft.space ?? 'game'}
+						disabled={isInspecting}
 						onchange={(e) =>
 							setComponentSpace(e.currentTarget.value === 'canvas' ? 'canvas' : 'game')}
 					>
@@ -706,6 +842,45 @@
 						<option value="canvas">Canvas (full-window overlay)</option>
 					</select>
 				</label>
+				{#if isInspecting}
+					<span
+						class="save-pill inspecting"
+						title="A read-only historical snapshot is loaded. It does NOT overwrite the saved latest and cannot be saved — return to latest to edit."
+					>
+						◷ Inspecting v{inspectingVersion} (read-only)
+					</span>
+					<button class="save-btn" type="button" onclick={backToLatest}>← Back to latest</button>
+				{:else if versionList && (versionList.versions.length > 0 || versionList.latest !== undefined)}
+					<label
+						class="space-toggle"
+						title="Browse this component's saved version history. Loading an older version shows it READ-ONLY on the canvas — it never overwrites the saved latest and never becomes the next save (§8.9)."
+					>
+						Version
+						<select
+							bind:value={pickVersion}
+							disabled={versionBusy}
+							aria-label="Version history"
+						>
+							<option value="">history…</option>
+							{#each historyVersions as v (v)}
+								<option value={v}>
+									v{v}{v === versionList.latest ? ' (latest)' : ''}
+								</option>
+							{/each}
+						</select>
+					</label>
+					<button
+						class="save-btn"
+						type="button"
+						disabled={versionBusy || pickVersion === '' || pickVersion === versionList.latest}
+						title="Load the selected version read-only into the canvas to inspect it"
+						onclick={() => {
+							if (typeof pickVersion === 'number') void inspectVersion(pickVersion);
+						}}
+					>
+						Inspect
+					</button>
+				{/if}
 				{#if saveBusy}
 					<span class="save-pill busy">Saving…</span>
 				{:else if saveStatus?.kind === 'error'}
@@ -713,14 +888,22 @@
 				{:else if saveStatus?.kind === 'ok'}
 					<span class="save-pill ok">{saveStatus.message}</span>
 				{/if}
-				<button class="save-btn primary" type="button" onclick={() => void saveComponent()}>
+				<button
+					class="save-btn primary"
+					type="button"
+					disabled={isInspecting}
+					title={isInspecting
+						? 'Read-only — return to latest to edit and save.'
+						: 'Save this component'}
+					onclick={() => void saveComponent()}
+				>
 					Save component
 				</button>
 				{#if data.canPublishShared}
 					<button
 						class="save-btn"
 						type="button"
-						disabled={saveBusy}
+						disabled={saveBusy || isInspecting}
 						title="Save a repo-wide copy to the shared library (_shared/editor-components). A project component of the same id still shadows it."
 						onclick={() => void promoteToShared()}
 					>
@@ -1051,6 +1234,15 @@
 	.save-pill.error {
 		color: #ff9a9a;
 		border-color: #4a2a30;
+	}
+	.save-pill.inspecting {
+		color: #f0c674;
+		border-color: #4a3a1f;
+		background: #1a1408;
+	}
+	.save-btn:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.save-btn {
 		background: #14141a;

@@ -1,7 +1,12 @@
 import { error, json } from '@sveltejs/kit';
 import type { ComponentDef } from 'engine-layout';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
-import { deleteComponent, loadComponent, saveComponent } from '$lib/server/componentStorage';
+import {
+	deleteComponent,
+	listComponentVersions,
+	loadComponent,
+	saveComponent,
+} from '$lib/server/componentStorage';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
@@ -65,13 +70,44 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	return json({ ok: true });
 };
 
-/** Resolve a component for `?id=` (project shadows shared when `?project=` given). */
+/**
+ * Resolve a component for `?id=` (project shadows shared when `?project=` given).
+ * An optional `?version=<N>` resolves the EXACT historical snapshot from the v2
+ * multi-version store (§8.9) — e.g. for the editor to preview/re-pin an older
+ * version; omitted resolves the latest pointer exactly as before (back-compat).
+ *
+ * `?list=versions&scope=<shared|project>` instead enumerates the component's
+ * retained `<id>.v<N>.json` snapshots (the version-browser feed, §8.9) — a
+ * read-only listing the library queries deliberately exclude. Same `editor` tool
+ * gate; never mutates R2.
+ */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	await gate(locals);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
 	const projectKey = url.searchParams.get('project') || undefined;
-	const component = await loadComponent(id, projectKey);
+	if (url.searchParams.get('list') === 'versions') {
+		// Resolve the scope to list history for: explicit `?scope=`, else `project` when a
+		// `?project=` is present (its own history), else the shared library.
+		const scopeParam = url.searchParams.get('scope');
+		const scope =
+			scopeParam === 'shared' || scopeParam === 'project'
+				? scopeParam
+				: projectKey
+					? 'project'
+					: 'shared';
+		try {
+			return json(await listComponentVersions(id, scope, projectKey));
+		} catch (e) {
+			throw error(400, e instanceof Error ? e.message : 'Invalid version list.');
+		}
+	}
+	const versionParam = url.searchParams.get('version');
+	const version =
+		versionParam && Number.isInteger(Number(versionParam)) && Number(versionParam) >= 1
+			? Number(versionParam)
+			: undefined;
+	const component = await loadComponent(id, projectKey, version);
 	if (!component) throw error(404, 'not found');
 	return json(component);
 };

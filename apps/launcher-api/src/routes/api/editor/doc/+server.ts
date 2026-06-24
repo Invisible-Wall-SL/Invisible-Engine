@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { applyHudGameNameDefault, collectComponentIds } from 'engine-layout';
+import { applyHudGameNameDefault, collectComponentIds, collectComponentPins } from 'engine-layout';
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
 import { loadComponent } from '$lib/server/componentStorage';
@@ -46,11 +46,21 @@ function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: st
  * so a project's EDITED `button` shadows the coded one. Used by the build-time
  * bake (`&components=1`) so a shipped game can `registerComponents(...)` the
  * custom defs that otherwise live only in R2 and never reach the bundle.
+ *
+ * `versions` (§8.9 v2): the EXACT historical defs any instance PINS to a
+ * non-latest version, loaded from the multi-version store (`loadComponent(id,
+ * projectKey, version)`). The game registers these BEFORE `defs` so each pinned
+ * instance resolves the precise version it was authored against while latest still
+ * wins for unpinned ones. No non-latest pin ⇒ `versions` is empty and the bundle is
+ * byte-identical to today (parity). The transitive nested-pin closure is not walked
+ * (a nested instance's own pin is resolved against whatever the parent def shipped);
+ * v1 nesting is 1–2 levels and no game pins yet, so this is the precise, sufficient
+ * slice — see §8.9 for the scoped remainder.
  */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
-): Promise<Record<string, ComponentDef>> {
+): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
 	const defs: Record<string, ComponentDef> = {};
 	const seen = new Set<string>();
 	const queue = collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes));
@@ -65,7 +75,15 @@ async function resolveReferencedDefs(
 			if (!seen.has(nested)) queue.push(nested);
 		}
 	}
-	return defs;
+	const versions: ComponentDef[] = [];
+	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
+		// Skip a pin that already equals the latest def we shipped above — registering
+		// latest covers it, so no extra version doc is needed (parity for unedited games).
+		if (defs[pin.id]?.version === pin.version) continue;
+		const pinned = await loadComponent(pin.id, projectKey, pin.version);
+		if (pinned) versions.push(pinned);
+	}
+	return { defs, versions };
 }
 
 /**
@@ -106,8 +124,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		const componentDefaults = await listComponentDefaults(projectKey);
 		// `&components=1` (build-time bake): also bundle the referenced ComponentDefs so a
 		// shipped game can register the custom/edited ones (R2-only otherwise). Omitted by
-		// default so the runtime boot fetch stays lean.
-		const componentDefs =
+		// default so the runtime boot fetch stays lean. `componentVersions` carries the
+		// exact pinned non-latest defs (§8.9 v2) — empty (and so omitted) for every game
+		// with no non-latest pin, keeping the payload byte-identical.
+		const resolved =
 			url.searchParams.get('components') === '1'
 				? await resolveReferencedDefs(doc as LayoutDoc, projectKey)
 				: undefined;
@@ -117,7 +137,8 @@ export const GET: RequestHandler = async ({ url }) => {
 				projectKey,
 				doc,
 				componentDefaults,
-				...(componentDefs ? { componentDefs } : {}),
+				...(resolved ? { componentDefs: resolved.defs } : {}),
+				...(resolved && resolved.versions.length ? { componentVersions: resolved.versions } : {}),
 			},
 			{ headers: CORS_HEADERS },
 		);

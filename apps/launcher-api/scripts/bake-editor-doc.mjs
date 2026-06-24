@@ -388,6 +388,13 @@ async function main() {
 		doc,
 		componentDefaults: data.componentDefaults ?? {},
 		componentDefs: data.componentDefs ?? {},
+		// Exact pinned non-latest ComponentDefs (§8.9 v2): the game registers these
+		// before componentDefs so a pinned instance renders its authored version.
+		// Omitted by the endpoint (and absent here) when no instance pins a non-latest
+		// version, keeping the baked bundle byte-identical for unpinned games (parity).
+		...(Array.isArray(data.componentVersions) && data.componentVersions.length
+			? { componentVersions: data.componentVersions }
+			: {}),
 		editorArt,
 		fonts,
 		localization,
@@ -396,6 +403,8 @@ async function main() {
 
 	const sceneCount = doc.scenes.length;
 	const defCount = Object.keys(bundle.componentDefs).length;
+	const pinnedVersionCount = bundle.componentVersions?.length ?? 0;
+	const pinnedNote = pinnedVersionCount ? ` (+${pinnedVersionCount} pinned versions)` : '';
 	const defaultCount = Object.keys(bundle.componentDefaults).length;
 	const artCount = editorArt.sheets.length + editorArt.images.length;
 	const fontCount = fonts.catalog.fonts.length;
@@ -427,7 +436,7 @@ async function main() {
 	if (dryRun) {
 		console.info(
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
-				` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
+				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
 				`${highlightNote}${winLineNote}${settingsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
@@ -438,7 +447,7 @@ async function main() {
 	await writeFile(dest, json);
 	console.info(
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
-			` (${sceneCount} scenes, ${defCount} component defs, ${defaultCount} default sets,` +
+			` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
 			`${highlightNote}${winLineNote}${settingsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);

@@ -491,6 +491,31 @@
 	}
 
 	/**
+	 * Explicit, per-instance "update to latest" (§8.9). Re-pins ONLY the selected
+	 * `componentInstance`'s `componentVersion` to the resolved def's current version and
+	 * reconciles its author param overrides: keep every override whose param key still
+	 * exists on the new def, drop overrides for params the new version removed (the new
+	 * def's defaults then fill any gap via `resolveComponentParams`). Never bulk/auto —
+	 * one node at a time — and persists through the normal save path via `markDirty()`.
+	 */
+	function updateInstanceToLatest(): void {
+		const sel = selectedNode;
+		if (!sel || sel.kind !== 'componentInstance') return;
+		const def = componentMap.get(sel.componentId);
+		if (!def) return;
+		if (sel.params) {
+			const valid = new Set((def.params ?? []).map((p) => p.key));
+			const next: Record<string, unknown> = {};
+			for (const [key, value] of Object.entries(sel.params)) {
+				if (valid.has(key)) next[key] = value;
+			}
+			sel.params = Object.keys(next).length ? next : undefined;
+		}
+		sel.componentVersion = def.version;
+		markDirty();
+	}
+
+	/**
 	 * The doc's single `reelGrid` node, if any (scene index + node), scanning every
 	 * scene's top-level nodes — matching the engine's `findReelGridNode`, which reads
 	 * the FIRST one across all scenes to drive the live board. The editor enforces ONE
@@ -2514,6 +2539,7 @@
 					markDirty();
 				}}
 				onOpenComponentEditor={openComponentEditor}
+				onUpdateInstanceToLatest={updateInstanceToLatest}
 			/>
 
 			<div class="game-settings">

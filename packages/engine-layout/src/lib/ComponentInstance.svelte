@@ -34,11 +34,12 @@
 	// below) are plain reads, not `$derived` (which would also be read at init by
 	// `setContext` and so never update anyway → Svelte's `state_referenced_locally`).
 	//
-	// `resolveComponent` SAFELY surfaces a version-pin mismatch (§8.9, pin-by-default):
-	// v1 is a single-version store, so when `node.componentVersion` ≠ the registered
-	// def's version we still render the registered def (parity — the only def we have)
-	// but flag it via `versionMismatch` rather than pretending it is the pinned version.
-	// The pin is NEVER mutated here and the def is NEVER auto-upgraded.
+	// `resolveComponent` honours a version pin EXACTLY when that version is registered
+	// (§8.9 v2 multi-version store, pin-by-default): the instance renders the precise
+	// def `node.componentVersion` was authored against. When the pinned version isn't
+	// registered it falls back to the latest def (parity — same as before history
+	// existed) and flags `versionMismatch` rather than pretending it is the pinned
+	// version. The pin is NEVER mutated here and the def is NEVER auto-upgraded.
 	const resolution = resolveComponent(node.componentId, node.componentVersion);
 	const def = resolution.def;
 
@@ -53,7 +54,7 @@
 	$effect(() => {
 		if (resolution.versionMismatch) {
 			console.warn(
-				`[engine-layout] component '${node.componentId}' pins version ${resolution.pinnedVersion} but the registered version is ${resolution.registeredVersion}; rendering the registered def (v1 single-version store — pin not honoured exactly, never auto-upgraded).`,
+				`[engine-layout] component '${node.componentId}' pins version ${resolution.pinnedVersion} but that version is not registered (rendering the latest, v${resolution.registeredVersion} — pin not honoured exactly, never auto-upgraded).`,
 			);
 		}
 		if (!def) {

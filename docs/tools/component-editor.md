@@ -127,8 +127,14 @@ The server **bumps the component's `version`** automatically when the saved draf
 differs from the stored one (a re-save with no change keeps the version; a brand-new
 component keeps its starting version). This is by design (§8.9, pin-by-default):
 existing scene instances keep the version they pinned and are never silently moved
-to your edit — they stay on their pinned version until an explicit "update to
-latest" (that per-instance action is not built yet).
+to your edit — they stay on their pinned version until you explicitly **update each
+one to latest** from its Properties panel in the Scene Editor (see §5). Every save
+also **retains the superseded def**: the server keeps each historical version (a
+`<id>.v<N>.json` snapshot beside the `<id>.json` latest pointer), so a pinned instance
+resolves the EXACT def it was authored against — in the editor preview, in the bake,
+and in the shipped game. Loading an older version is available via
+`GET /api/editor/component?id=…&version=<N>` (the UI to browse versions is not built
+yet).
 
 **Promote to shared.** Holders of the **`componentPublish`** capability (admin by
 default, grantable per role/user in `/admin`) also see a **Promote to shared** button
@@ -149,6 +155,13 @@ the same categories). From there you can:
   then edit its param overrides and per-layout transform in the scene's Properties.
 - **Open in the Component Editor** (the `◇ Open …` link or a component row), which
   deep-links back here on that component's id.
+- **Update an outdated instance to latest.** When you bump a component here, any
+  placed instance still pinned to the older version shows an amber note in its
+  Properties panel — *"Component vN available (instance pinned vM)"* — with an
+  **↑ Update to latest** button. Clicking it re-pins **that one instance** to the new
+  version (never bulk/auto), keeping your param overrides where the param still
+  exists and dropping overrides for params the new version removed. Up-to-date
+  instances show no note.
 
 You can also start a component from the Scene Editor's "Edit as component" on a
 container, then refine it here.
@@ -170,14 +183,25 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   destination).
 - **No timeline / signal-track UI.** Signals can be declared but there is no
   per-signal track editor yet.
-- **Versioning is safe + pin-by-default; the multi-version store is still TODO.**
-  Saving bumps the `version` on a changed def, and the engine resolves an instance's
-  pin **safely** — a pinned version that no longer matches the registered def is
-  surfaced (warned) but renders the current registered def, and the pin is never
-  mutated or auto-upgraded (v1 keeps a single def per id). Still to build: a true
-  multi-version store that keeps every historical def (so a pin resolves the exact
-  authored version), the per-instance "update to latest" action, and the
-  outdated-instance flagging.
+- **Versioning is pin-by-default with a true multi-version store (v2 landed).**
+  Saving bumps the `version` on a changed def AND retains every historical version, so
+  the engine resolves an instance's pin to the **exact** def it was authored against
+  (the bake ships each pinned version too). When a pinned version isn't available the
+  engine still renders the latest def and surfaces a `versionMismatch` warning rather
+  than silently passing it off as the pin — the pin is never mutated or auto-upgraded.
+  Outdated instances are **flagged** in the Scene Editor's Properties panel and can be
+  **updated to latest** per instance (§5). A **version browser** lives in the top bar
+  while a component is open: a `Version` dropdown lists every retained snapshot (the
+  latest is marked), and **Inspect** loads the selected version **read-only** onto the
+  canvas (an amber `Inspecting vN (read-only)` pill shows; Save / Promote / editing are
+  blocked) so you can review an older def without touching the saved latest. **Back to
+  latest** restores the editable current def. Inspection never writes to R2 — it GETs
+  the immutable `<id>.v<N>.json` snapshot and discards it; there is no "restore to this
+  version" action yet (restoring would just be a normal save of the inspected def, which
+  bumps a new version on top — deliberately left out so browsing stays purely
+  non-destructive). One precise engine remainder: the bake walks only top-level scene
+  pins, not the transitive nested-pin closure — to be widened when a game first nests a
+  pinned instance (no game pins any version yet).
 - **Nesting depth is capped at 2.** Components-inside-components expand to
   `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
   both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
