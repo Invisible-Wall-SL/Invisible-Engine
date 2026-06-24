@@ -6,21 +6,27 @@
 	// See docs/design/unified-tool-bar.md.
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOLS, toolBarItems, type ToolDef } from '$lib/roles';
-	import { untrack } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 
 	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
 	// scoping). Optional so a page that doesn't resolve a project can omit them; when
 	// present the bar shows `<client> / <project>` so the target is never invisible.
+	// `meta` is an optional snippet for the page's own right-aligned header content
+	// (counters, save pill, etc.) — render it through the bar so the chrome (height,
+	// background, divider) stays identical on every tool instead of each page rolling
+	// its own <header>.
 	let {
 		current,
 		tools,
 		clientKey,
 		projectKey,
+		meta,
 	}: {
 		current: string;
 		tools: ToolDef[];
 		clientKey?: string;
 		projectKey?: string;
+		meta?: Snippet;
 	} = $props();
 
 	const name = $derived(TOOLS[current]?.name ?? '');
@@ -57,31 +63,56 @@
 	});
 </script>
 
-<a class="brand" href="/" title="Invisible Launcher">
-	<Emblem height={18} />
-	<span class="brand-name">{name}</span>
-</a>
+<header class="iw-toolbar">
+	<a class="brand" href="/" title="Invisible Launcher">
+		<Emblem height={18} />
+		<span class="brand-name">{name}</span>
+	</a>
 
-{#if projectKey}
-	<div class="scope" title="Current project — every action on this page targets it">
-		<span class="scope-label">Project</span>
-		{#if clientKey}<span class="scope-client">{clientKey}</span><span class="scope-sep">/</span>{/if}
-		<span class="scope-project">{projectKey}</span>
-	</div>
-{/if}
+	{#if projectKey}
+		<div class="scope" title="Current project — every action on this page targets it">
+			<span class="scope-label">Project</span>
+			{#if clientKey}<span class="scope-client">{clientKey}</span><span class="scope-sep">/</span>{/if}
+			<span class="scope-project">{projectKey}</span>
+		</div>
+	{/if}
 
-{#if items.length}
-	<nav class="switcher" class:compact bind:this={nav} aria-label="Switch tool">
-		{#each items as tool (tool.id)}
-			<a class="tool" href={tool.url} title={tool.name}>
-				{#if tool.icon}<span class="ic">{@html tool.icon}</span>{/if}
-				<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
-			</a>
-		{/each}
-	</nav>
-{/if}
+	{#if items.length}
+		<nav class="switcher" class:compact bind:this={nav} aria-label="Switch tool">
+			{#each items as tool (tool.id)}
+				<a class="tool" href={tool.url} title={tool.name}>
+					{#if tool.icon}<span class="ic">{@html tool.icon}</span>{/if}
+					<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
+				</a>
+			{/each}
+		</nav>
+	{/if}
+
+	{#if meta}<div class="meta">{@render meta()}</div>{/if}
+</header>
 
 <style>
+	/* The single source of truth for tool-bar chrome. Every launcher tool renders
+	   this wrapper so the bar's height, padding, background and divider are identical
+	   tool to tool — pages no longer roll their own <header>. The Python tools
+	   (atlas/sheet) mirror this in their HTML twin (.iw-toolbar). */
+	.iw-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		flex: none;
+		padding: 14px 24px;
+		border-bottom: 1px solid #1c1c24;
+		background: #0f0f14;
+	}
+	.meta {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex: none;
+		font-size: 12px;
+		color: #888;
+	}
 	.brand {
 		display: flex;
 		align-items: center;

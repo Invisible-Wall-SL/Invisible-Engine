@@ -18,6 +18,7 @@ SvelteKit 2 (`adapter-node`) at `app.invisiblewall.org` (Railway project "Invisi
 ## House rules (must follow)
 - **Our tools are named "Invisible …"** (Invisible Atlas Maker, Invisible Spine Viewer, …). Third-party products keep real names (ComfyUI, Spine Editor).
 - **Tools are FULL-PAGE, never iframes** — `throw redirect(303, …)` after the auth+role gate.
+- **The tool bar is `$lib/ToolTopBar.svelte` — it OWNS its own `<header class="iw-toolbar">` chrome (height/padding/background/divider).** A tool page must render `<ToolTopBar current="…" tools={data.tools} [clientKey] [projectKey]>` DIRECTLY inside its `.shell`/`.page` and pass any right-aligned header content via `{#snippet meta()}…{/snippet}`. Never wrap it in your own `<header>` or re-style the bar — that re-introduces the per-tool drift this consolidated (see `docs/design/unified-tool-bar.md`, `docs/ui-inventory.md` §7). The Python tools (atlas/sheet) mirror this as the `.iw-toolbar` HTML twin — keep both in sync.
 - Non-secret config → **code default in `ENV`** (Railway env vars stage easily-missed; don't depend on the dashboard).
 - Svelte 5 runes, SvelteKit conventions, TypeScript (no `any`), Prettier (tabs, single quotes, 100 cols).
 - Validate with `pnpm --filter launcher-api build` (this is also the type-check; repo `eslint` is currently misconfigured). DB: `db:generate`/`db:migrate`/`db:push`.

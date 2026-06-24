@@ -1876,16 +1876,13 @@
 <svelte:head><title>Invisible Scene Editor — Invisible Wall</title></svelte:head>
 
 <div class="shell">
-	<header>
-		<div class="brand-wrap">
-			<ToolTopBar
-				current="editor"
-				tools={data.tools}
-				clientKey={data.clientKey}
-				projectKey={data.projectKey}
-			/>
-		</div>
-		<div class="meta">
+	<ToolTopBar
+		current="editor"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	>
+		{#snippet meta()}
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
 			<span class="dot-sep">·</span>
 			<span class="counter">
@@ -1989,8 +1986,8 @@
 					{componentStatus.message}
 				</span>
 			{/if}
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	{#if showContentWarnings && contentWarnings.length > 0}
 		<div class="warn-panel" role="dialog" aria-label="Asset issues">
@@ -2629,29 +2626,6 @@
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 16px;
-		padding: 14px 24px;
-		border-bottom: 1px solid #1c1c24;
-		background: #0f0f14;
-	}
-	.brand-wrap {
-		display: flex;
-		align-items: center;
-		gap: 18px;
-		min-width: 0;
-		flex: 1 1 auto;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		font-size: 12px;
-		color: #888;
 	}
 	.dot-sep {
 		color: #444;

@@ -31,8 +31,6 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const projectLabel = $derived(data.projectName ?? data.projectKey);
-
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
 
@@ -354,21 +352,13 @@
 </script>
 
 <div class="shell">
-	<header>
-		<div class="topbar">
-			<ToolTopBar
-				current="symbols"
-				tools={data.tools}
-				clientKey={data.clientKey}
-				projectKey={data.projectKey}
-			/>
-		</div>
-		<div class="meta">
-			<span class="project">
-				{#if data.clientKey}<span class="client">{data.clientKey}</span> /
-				{/if}
-				<strong>{projectLabel}</strong>
-			</span>
+	<ToolTopBar
+		current="symbols"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	>
+		{#snippet meta()}
 			<div class="save-area">
 				{#if saveError}<span class="save-err">{saveError}</span>{/if}
 				{#if !dirty && savedAt}<span class="saved">Saved</span>{/if}
@@ -385,8 +375,8 @@
 					{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
 				</button>
 			</div>
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
@@ -872,30 +862,6 @@
 		height: 100vh;
 		background: #0b0b0f;
 		color: #d8d8e0;
-	}
-	header {
-		flex: none;
-		border-bottom: 1px solid #1d1d26;
-	}
-	.topbar {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		padding: 10px 16px 0;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
-		padding: 8px 16px 10px;
-	}
-	.project {
-		font-size: 13px;
-		color: #9a9aa6;
-	}
-	.project .client {
-		color: #6a6a76;
 	}
 	.save-area {
 		display: flex;

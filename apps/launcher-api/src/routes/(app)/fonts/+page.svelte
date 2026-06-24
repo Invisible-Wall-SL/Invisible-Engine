@@ -74,21 +74,20 @@
 <svelte:head><title>Invisible Font Maker — Invisible Wall</title></svelte:head>
 
 <div class="shell">
-	<header>
-		<ToolTopBar
-			current="fontMaker"
-			tools={data.tools}
-			clientKey={data.clientKey}
-			projectKey={data.projectKey}
-		/>
-		<div class="meta">
+	<ToolTopBar
+		current="fontMaker"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	>
+		{#snippet meta()}
 			<span class="project">
 				{#if data.clientKey}<span class="client">{data.clientKey}</span> /
 				{/if}
 				<strong>{projectLabel}</strong>
 			</span>
-		</div>
-	</header>
+		{/snippet}
+	</ToolTopBar>
 
 	<nav class="tabs">
 		<button class:active={tab === 'view'} onclick={() => (tab = 'view')}>View</button>
@@ -217,16 +216,6 @@
 		box-sizing: border-box;
 		padding: 24px clamp(20px, 3vw, 40px);
 		color: #e8e8ee;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 18px;
-	}
-	.meta {
-		font-size: 13px;
-		color: #888;
 	}
 	.project strong {
 		color: #c8a3ff;

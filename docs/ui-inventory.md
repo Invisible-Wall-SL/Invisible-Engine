@@ -64,7 +64,7 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 ### 7. Tool top bar / cross-tool nav
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
-| **`ToolTopBar.svelte`** — emblem (→ home) + current tool name + online-tool switcher (`TOOL_BAR_ORDER`) | A | `apps/launcher-api/src/lib/ToolTopBar.svelte` + `roles.ts` (`TOOL_BAR_ORDER`, `toolBarItems`) | **canonical for domain A** — used by all 6 launcher tool pages |
+| **`ToolTopBar.svelte`** — emblem (→ home) + current tool name + online-tool switcher (`TOOL_BAR_ORDER`); now OWNS the `<header class="iw-toolbar">` chrome + a `meta` snippet for page right-side content, so consumers no longer wrap it — they just render `<ToolTopBar>` and pass page meta via `{#snippet meta()}` | A | `apps/launcher-api/src/lib/ToolTopBar.svelte` + `roles.ts` (`TOOL_BAR_ORDER`, `toolBarItems`) | **canonical for domain A** — used by all launcher tool pages |
 | **Bar twin** (`.iw-toolbar`) — same emblem/name/switcher, vanilla HTML/CSS/JS, fed by `?home`+`?tools` | B + static | `apps/launcher-api/static/spine/view.html` (Spine viewer), `services/atlas-tool/ui_server.py` (`IW_TOOLBAR`), `services/sheet-tool/ui.html` | **canonical twin** — mirror `ToolTopBar.svelte`; copy the `ICON` map + renderer from `view.html` when adding a new non-Svelte tool |
 | Launcher Emblem header | A | `$lib/Emblem.svelte` | brand mark (consumed by `ToolTopBar`) |
 
