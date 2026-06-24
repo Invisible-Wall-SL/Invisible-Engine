@@ -166,9 +166,77 @@ UNREGISTERED (behind the curtain) for this read-only spike — RULE 9 fires in P
 canvas drawing a real project's screens + derived-pin handles) needs the deployed launcher
 with auth + R2 — the headless build proves it compiles/ships, not the pixels.
 
+### Progress — Phase 2 DONE headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike` (continued). No game bump. RULE 9 fired: the
+tool is now REGISTERED + documented in the same change.
+
+**Macro authoring (`/flow` is now an editor, not read-only).**
+- `flowModel.client.ts` promoted from a read-only model to the authoring model + a set of
+  PURE FlowDoc command helpers (each returns a NEW doc, never mutates, so the command
+  stack snapshots a clean before/after): `addScreen` (place a LayoutDoc scene; the first
+  placed becomes `initial`), `removeScreen` (drops the node AND every edge touching it,
+  promotes a new initial if needed), `moveScreen`, `setInitialScreen` (exactly one),
+  `addTransition`/`removeTransition`/`editTransition` (trigger/guard/delay/order), with
+  `freshTransitionId`. `buildFlowModel(doc, layout, components)` now treats the FlowDoc's
+  `screens[]` as the authoritative placed set and projects the UNPLACED LayoutDoc scenes
+  into a palette; each placed screen still derives its pins + orphan warnings live via
+  `deriveScreenPins` (Phase-1, unchanged) so orphan warnings track component edits.
+- `+page.svelte` rebuilt as the authoring surface: a left **Screens** palette (click to
+  place an unplaced scene), node drag → `moveScreen` on drag-stop, drag-to-connect →
+  `addTransition`, node-select inspector (mark Initial / Remove screen), edge-select
+  → `EdgeInspector.svelte` (a NEW component: trigger kind + bookEvent name + delay + order
+  + a single-predicate bounded guard authored as `$engine.*`/`$trigger.*`/literal +
+  comparator), Undo/Redo buttons + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, and a Save button.
+  Every mutation flows through the Phase-1 command stack (`createFlowHistory<FlowDoc>`),
+  so undo/redo round-trips. xyflow owns `nodes`/`edges` for live drag/selection; the
+  FlowDoc stays the single source of truth, rebuilt into the canvas arrays only on
+  structural changes (add/remove/undo/redo), not per drag frame.
+
+**Save→R2 + load (the pipeline-discipline gate for this phase).**
+- `normalizeFlowDoc` (NEW `packages/engine-flow/src/normalize.ts`, exported) is the single
+  serialize/deserialize contract — pure + dependency-free, so the SAME coercion runs in the
+  launcher save endpoint AND headlessly. It drops unknown fields, skips invalid
+  screens/transitions, and validates choreography by node `kind` (the executor stays the
+  source of truth for per-kind leaves, mirroring `editorStorage.normalizeNode`).
+- `POST /api/flow/save` (NEW) mirrors `/api/rigger/save` EXACTLY for auth + scope: the
+  shared `toolScope.gate({ tool: 'flow' })` resolves the SESSION-bound `(client, project)`
+  and 403s without entitlement — NO hand-rolled auth/scope/R2. `flowStorage.ts` (NEW,
+  mirroring `editorStorage.ts`) does the R2 read/write via `normalizeFlowDoc` +
+  `getObjectText`/`putObjectText` at `flowDocKey` = `<client>/<project>/editor/flow.json`
+  (sibling of `scenes.json`, NEW path in `projectPaths.ts`). `+page.server.ts` now gates on
+  the `flow` entitlement and loads the saved FlowDoc (`loadFlowDoc`; absent ⇒ empty doc ⇒
+  starts from the LayoutDoc screens with no transitions — parity-safe §7). Bake/deploy/pull
+  is NOT wired (that is Phase 6).
+
+**Tool registration (RULE 9 — same change).**
+- `roles.ts`: `TOOLS.flow` ("Invisible Flow", bar name "Flow", `/flow`, node-graph emblem
+  icon), `ROLE_TOOLS` (admin via `Object.keys`, + developer + artist), `TOOL_BAR_ORDER`
+  (after `editor`), `TOOL_DOC_SLUG.flow = 'flow'`. First-draft `docs/tools/flow.md` written
+  from the REAL Phase-2 route UI (palette / wiring / inspectors / undo-redo / save; flags
+  what is NOT built yet — choreography Phase 3, pipeline Phase 6) + a `docs/tools/README.md`
+  row; the prebuild `copy-tool-docs` mirrors `flow.md` so `/docs/flow` resolves.
+  **A `docs-keeper` audit pass is expected to finalize the doc.**
+
+**How it was verified headlessly**
+- `tools/flow-spike/roundTrip.ts` (NEW; `pnpm --filter flow-spike run roundtrip`) proves the
+  save→reload contract: a hand-authored FlowDoc (every transition shape bookEvent/complete/
+  condition + a guard + a delay + author order + a per-screen choreography sub-graph +
+  per-event choreography) survives author → `JSON.stringify` (what the page POSTs) →
+  `normalizeFlowDoc` (what the endpoint stores) → JSON round-trip (what R2 returns) →
+  `normalizeFlowDoc` (what the loader returns) IDENTICAL; plus idempotence, junk-field
+  rejection without corrupting valid data, and absent-doc ⇒ sparse fall-through. PASSED.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build`
+  GREEN (the flow page + `EdgeInspector` + `flowStorage` + `/api/flow/save` all compile +
+  ship); the existing `flow-spike` `parity` (Phase-0 gate) + `pins` (Phase-1) still GREEN.
+
+**Still needs owner-verify live:** the actual `/flow` authoring UX in the browser —
+placing/moving nodes, drag-to-connect, the edge/screen inspectors, undo/redo, and a
+real Save → reload — needs the deployed launcher with auth + R2. The headless checks
+prove the doc round-trips + the build ships, not the pixels/interactions.
+
 **What's left**
-- Phase 2 — macro authoring (place screen nodes, draw/edit transition edges, save→R2),
-  tool registration in `roles.ts` + `docs/tools/flow.md` (RULE 9), `POST /api/flow/save`.
+- Phase 3 — micro choreography (double-click a node → author enter/while/exit).
 - Phase 4 — the live generic mounter; Phase 6 — bake/pipeline (`flow?` in `BakedBundle`).
 
 ## 1. Why this tool exists (the goal)

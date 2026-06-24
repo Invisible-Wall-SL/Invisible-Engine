@@ -5,3 +5,4 @@ export * from './src/executor';
 export * from './src/mounter';
 export * from './src/dispatch';
 export * from './src/pins';
+export * from './src/normalize';

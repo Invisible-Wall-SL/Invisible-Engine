@@ -1,19 +1,23 @@
 /**
- * Invisible Flow — the typed editable model + undo/redo command stack (Phase 1).
+ * Invisible Flow — the typed editable model + undo/redo command stack (Phase 2).
  *
  * The model is a {@link FlowDoc} (from `engine-flow`) PLUS the live, derived view the
- * canvas renders: each screen's pins, projected from the project's LayoutDoc via
- * `deriveScreenPins` (the four-registry projection, design doc §3/§4). Phase 1 is
- * read-only, so the model is built once from the loaded doc; the command stack is stood
- * up now (per design doc §12) even though edit commands land in Phase 2.
+ * canvas renders: each PLACED screen's pins, projected from the project's LayoutDoc via
+ * `deriveScreenPins` (the four-registry projection, design doc §3/§4). Phase 2 turns the
+ * canvas into an authoring surface: the FlowDoc's `screens[]` is the authoritative set of
+ * placed nodes (the palette offers LayoutDoc scenes NOT yet placed), and every mutation
+ * goes through a pure command helper so it round-trips cleanly through the command stack.
  */
 
 import {
 	deriveScreenPins,
 	type ComponentDefResolver,
 	type FlowDoc,
+	type FlowGuard,
 	type FlowPin,
 	type FlowScreen,
+	type FlowTransition,
+	type FlowTrigger,
 } from 'engine-flow';
 import type { ComponentDef, LayoutDoc, Scene } from 'engine-layout';
 
@@ -26,9 +30,18 @@ export interface FlowScreenView {
 	orphanedPins: FlowPin[];
 }
 
+/** A LayoutDoc scene available to place but not yet on the canvas (the palette items). */
+export interface AvailableScene {
+	id: string;
+	name: string;
+}
+
 export interface FlowModel {
 	doc: FlowDoc;
+	/** The placed screens (FlowDoc `screens[]`) resolved against the LayoutDoc + pins. */
 	screens: FlowScreenView[];
+	/** LayoutDoc scenes not yet placed on the canvas — the palette/picker. */
+	available: AvailableScene[];
 }
 
 /** Build a {@link ComponentDefResolver} from the project's loaded component defs. */
@@ -38,46 +51,145 @@ export const componentResolverFrom = (components: ComponentDef[]): ComponentDefR
 };
 
 /**
- * Build the read-only model for a project: one FlowScreen per LayoutDoc scene (laid out
- * left-to-right by default), each with its derived pins. When a FlowDoc already exists it
- * is honoured (screen positions/labels/choreography + transitions); otherwise an implicit
- * flow is synthesised from the LayoutDoc's screens with no transitions — the read-only
- * "here is your game's flow" view. The synthesised doc is sparse (design doc §7): an empty
- * FlowDoc means pure fall-through at runtime, so deriving one for display is parity-safe.
+ * Build the editable model for a project from its FlowDoc + LayoutDoc. The FlowDoc's
+ * `screens[]` are the placed nodes (each resolved against its LayoutDoc scene for pins +
+ * orphan warnings); LayoutDoc scenes not in the FlowDoc become palette items. A screen
+ * referencing a scene the LayoutDoc no longer has is dropped from the view (its scene is
+ * gone) but kept in the doc until the author removes it — surfaced as an orphan node.
  */
 export const buildFlowModel = (
+	doc: FlowDoc,
 	layout: LayoutDoc,
 	components: ComponentDef[],
-	existing?: FlowDoc,
 ): FlowModel => {
 	const resolve = componentResolverFrom(components);
-	const byScreenId = new Map((existing?.screens ?? []).map((s) => [s.id, s]));
+	const sceneById = new Map(layout.scenes.map((s) => [s.id, s]));
+	const placedIds = new Set(doc.screens.map((s) => s.id));
 
-	const screens: FlowScreenView[] = layout.scenes.map((scene, index): FlowScreenView => {
-		const authored = byScreenId.get(scene.id);
-		const screen: FlowScreen = authored ?? {
-			id: scene.id,
-			label: scene.name,
-			position: { x: index * 320, y: 0 },
-		};
+	const screens: FlowScreenView[] = [];
+	for (const screen of doc.screens) {
+		const scene = sceneById.get(screen.id);
+		if (!scene) continue; // backing scene gone — kept in doc, not drawn (author removes it)
 		const pins = deriveScreenPins(scene, resolve);
-		return {
-			screen,
-			scene,
-			pins,
-			orphanedPins: pins.filter((p) => p.orphaned),
-		};
-	});
+		screens.push({ screen, scene, pins, orphanedPins: pins.filter((p) => p.orphaned) });
+	}
 
-	const doc: FlowDoc = existing ?? {
-		version: 1,
-		projectKey: layout.projectKey,
-		screens: screens.map((s) => s.screen),
-		transitions: [],
-	};
+	const available: AvailableScene[] = layout.scenes
+		.filter((s) => !placedIds.has(s.id))
+		.map((s) => ({ id: s.id, name: s.name }));
 
-	return { doc, screens };
+	return { doc, screens, available };
 };
+
+// ---------------------------------------------------------------------------
+// Pure FlowDoc command helpers — each returns a NEW FlowDoc (never mutates), so the
+// command stack snapshots a clean before/after. The component-instance id discipline
+// (no recycling, design doc §12) means a screen/edge id is stable, so these address by id.
+// ---------------------------------------------------------------------------
+
+const cloneDoc = (doc: FlowDoc): FlowDoc => structuredClone(doc);
+
+/** Place a LayoutDoc scene as a screen node at `position` (no-op if already placed). */
+export const addScreen = (
+	doc: FlowDoc,
+	scene: AvailableScene,
+	position: { x: number; y: number },
+): FlowDoc => {
+	if (doc.screens.some((s) => s.id === scene.id)) return doc;
+	const next = cloneDoc(doc);
+	const screen: FlowScreen = { id: scene.id, label: scene.name, position };
+	// First-placed screen becomes the initial node by default (the flow's entry).
+	if (next.screens.length === 0) screen.initial = true;
+	next.screens.push(screen);
+	return next;
+};
+
+/** Remove a screen node AND every transition touching it (no dangling edges). */
+export const removeScreen = (doc: FlowDoc, screenId: string): FlowDoc => {
+	const next = cloneDoc(doc);
+	next.screens = next.screens.filter((s) => s.id !== screenId);
+	next.transitions = next.transitions.filter((t) => t.from !== screenId && t.to !== screenId);
+	// If we removed the initial screen, promote the first remaining one.
+	if (!next.screens.some((s) => s.initial) && next.screens.length > 0) {
+		next.screens[0].initial = true;
+	}
+	return next;
+};
+
+/** Move a screen node to a new canvas position. */
+export const moveScreen = (
+	doc: FlowDoc,
+	screenId: string,
+	position: { x: number; y: number },
+): FlowDoc => {
+	const next = cloneDoc(doc);
+	const screen = next.screens.find((s) => s.id === screenId);
+	if (!screen) return doc;
+	screen.position = position;
+	return next;
+};
+
+/** Mark exactly one screen as the initial active node (clears the flag elsewhere). */
+export const setInitialScreen = (doc: FlowDoc, screenId: string): FlowDoc => {
+	const next = cloneDoc(doc);
+	for (const screen of next.screens) screen.initial = screen.id === screenId;
+	return next;
+};
+
+let edgeSeq = 0;
+/** Mint a fresh, collision-resistant transition id (client-only authoring id). */
+export const freshTransitionId = (): string =>
+	`t_${Date.now().toString(36)}_${(edgeSeq++).toString(36)}`;
+
+/** Add a transition `from → to` with a default `bookEvent` trigger (author edits it after). */
+export const addTransition = (doc: FlowDoc, from: string, to: string): FlowDoc => {
+	const next = cloneDoc(doc);
+	const order = next.transitions.filter((t) => t.from === from).length;
+	next.transitions.push({
+		id: freshTransitionId(),
+		from,
+		to,
+		trigger: { kind: 'complete' },
+		order,
+	});
+	return next;
+};
+
+/** Remove a transition by id. */
+export const removeTransition = (doc: FlowDoc, transitionId: string): FlowDoc => {
+	const next = cloneDoc(doc);
+	next.transitions = next.transitions.filter((t) => t.id !== transitionId);
+	return next;
+};
+
+/** The author-editable fields of a transition (trigger / guard / delay / order). */
+export interface TransitionEdit {
+	trigger?: FlowTrigger;
+	guard?: FlowGuard | null;
+	delayMs?: number | null;
+	order?: number;
+}
+
+/** Edit a transition's trigger/guard/delay/order. `null` clears the optional field. */
+export const editTransition = (
+	doc: FlowDoc,
+	transitionId: string,
+	edit: TransitionEdit,
+): FlowDoc => {
+	const next = cloneDoc(doc);
+	const t = next.transitions.find((x) => x.id === transitionId);
+	if (!t) return doc;
+	if (edit.trigger) t.trigger = edit.trigger;
+	if (edit.guard === null) delete t.guard;
+	else if (edit.guard) t.guard = edit.guard;
+	if (edit.delayMs === null) delete t.delayMs;
+	else if (typeof edit.delayMs === 'number') t.delayMs = edit.delayMs;
+	if (typeof edit.order === 'number') t.order = edit.order;
+	return next;
+};
+
+export const findTransition = (doc: FlowDoc, id: string): FlowTransition | undefined =>
+	doc.transitions.find((t) => t.id === id);
 
 // ---------------------------------------------------------------------------
 // Undo/redo command stack — generic, snapshot-based with burst coalescing.

@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"parity": "tsx winInfoParity.ts",
-		"pins": "tsx pinDerivation.ts"
+		"pins": "tsx pinDerivation.ts",
+		"roundtrip": "tsx roundTrip.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
