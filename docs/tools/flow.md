@@ -6,13 +6,16 @@ together with **transition edges** to describe how the game moves from one scree
 the next. The authored graph (a **FlowDoc**) is saved alongside the Scene Editor's
 `scenes.json` in the project's cloud storage.
 
-> **Status (as of 2026-06-24):** this is **Phase 2 — macro authoring**. What ships now
-> is the *macro* graph: placing screens, drawing/editing transitions between them, and
-> saving/loading the FlowDoc. It is an **authoring surface only** — saving writes the
-> document to cloud storage but does **not yet change how any game runs**. The *micro*
-> choreography editor (a screen's enter/while/exit animation timelines) is **Phase 3**,
-> and wiring the saved FlowDoc into the build pipeline so a shipped game actually runs
-> from it is **Phase 6**. See "What it does not do yet" below.
+> **Status (as of 2026-06-24):** this is **Phase 3 — macro + micro authoring**. What
+> ships now is two tiers: the *macro* graph (placing screens, drawing/editing transitions
+> between them, saving/loading the FlowDoc) **and** the *micro* **choreography sub-editor**
+> (a screen's enter/while/exit animation timeline, opened by double-clicking a screen
+> node). It is an **authoring surface only** — saving writes the document to cloud storage
+> but does **not yet change how any game runs**. The choreography editor's preview is a
+> **deterministic timeline** (the ordered broadcasts + delays), not yet a live picture of
+> the game animating — that needs the runtime mounter, which is **Phase 4**. Wiring the
+> saved FlowDoc into the build pipeline so a shipped game actually runs from it is
+> **Phase 6**. See "What it does not do yet" below.
 
 ## What it is
 
@@ -97,6 +100,62 @@ node (clears the flag on any other node), or **Remove screen** to take it off th
 (which also removes any transitions touching it; if it was the initial screen, the first
 remaining node is promoted).
 
+### Author a screen's choreography (the micro editor)
+
+The macro graph says *which* screen runs next; the **choreography sub-editor** says *what
+animates* when a screen enters, while it is active, and as it exits. Open it two ways:
+**double-click a screen node** (two clicks on the same node within ~350ms — Svelte Flow has
+no native double-click event, so the editor detects the pair), or select the node and click
+**Edit choreography…** in its inspector. Either opens a full-screen modal titled
+**Choreography · <screen name>**.
+
+- **Phase tabs.** Across the top you pick the phase you are authoring: **enter** (plays as
+  the screen appears), **while** (plays while it is active), or **exit** (plays as it
+  leaves). Each phase has its own independent timeline; switching tabs clears the current
+  selection. A phase with nothing authored shows **+ Start a Sequence** to seed an empty
+  ordered container to build into.
+- **Root toggle.** A choreography's outermost container is either a **Sequence** (children
+  run one after another) or a **Parallel** (children run together). The **Root:**
+  Sequence / Parallel buttons switch the top-level container.
+- **The node graph.** The timeline is drawn as a left-to-right node tree on the same Svelte
+  Flow canvas as the macro graph: a container links out to its children, deeper nesting
+  moves right. Click a node to edit it; click a Sequence or Parallel to add children to it.
+- **Node kinds** (these map one-to-one onto the engine's choreography executor — there is no
+  invented vocabulary):
+  - **Broadcast** — fire one real emitter event. The event is chosen from a dropdown of the
+    game's actual emitter vocabulary, grouped by source (Board, Win, Sound, Free spins,
+    Special book, Transition, UI). You also pick a **dispatch shape** — *broadcast (sync)*,
+    *broadcastAsync — await* (wait for subscribers to finish), or *broadcastAsync —
+    fire-and-forget* — and, when the chosen event declares payload fields, fill each field
+    with a bounded accessor (`$trigger.x`, `$engine.x`, `$item.x`, or a literal).
+  - **Sequence** / **Parallel** — containers you add children into (the **Add child** grid
+    in the inspector offers every node kind).
+  - **Delay** — a pause in milliseconds. The delay is divided by the current speed, so a
+    300ms delay becomes 150ms at 2×.
+  - **Branch** — a guarded fork. You set a single comparison (a left accessor, an operator
+    `eq`/`neq`/`gt`/`gte`/`lt`/`lte`/`in`, and a right value) and reset its **then** /
+    **else** slots to fresh Sequences; the matching branch runs.
+  - **ForEach** — repeat a body for each item of a **list accessor** (e.g.
+    `$trigger.wins`), either *sequence* (one item at a time) or *parallel*. Inside the body,
+    `$item.x` reads the current item.
+- **Editing and removing.** Each selected node opens its own inspector on the right with just
+  its fields. **Remove node** deletes a non-root node; on the root the button reads **Clear
+  this phase** and empties that phase's timeline.
+- **Undo / save are shared with the macro graph.** Every choreography edit goes through the
+  same undo/redo command stack and the same **Save** as the macro graph — close the modal and
+  Undo/Redo and Save behave exactly as below; you do not save the choreography separately.
+
+#### Speed dial and the deterministic preview
+
+The modal's right panel runs a **deterministic preview** of the phase you are authoring. Pick
+a **Speed** (1× normal or 2× turbo) and click **Run preview**: the editor runs your authored
+choreography through the real executor against a **fixed** sample book (never random) and lists
+the resulting timeline — each Broadcast (with its dispatch mode and payload) and each Delay, in
+order, with the time it fires and the scaled delay (a 300ms delay shows `300ms → 150ms` at 2×).
+This is a *timeline* preview that proves the order and timing of your broadcasts and delays. It
+is **not** a live visual of the game animating — that requires the runtime mounter and is
+Phase 4 (the panel says so).
+
 ### Undo / redo
 
 Every change — place, move, wire, edit, delete — goes through an undo/redo command
@@ -116,9 +175,14 @@ loads the saved flow back onto the canvas.
   (bet/balance/auto-spin/RGS protocol) and the RGS-determined outcomes are off-limits —
   Flow is designed to ride on top of them, reacting to the lifecycle and book events
   they emit.
-- **No choreography editor yet.** Authoring a screen's enter/while/exit animation
-  timeline (Sequence/Parallel/Delay/Branch/ForEach + a speed dial) is **Phase 3** — the
-  node has no double-click "open the micro editor" surface in this phase.
+- **No live visual preview yet.** The choreography editor's preview is a *deterministic
+  timeline* of the broadcasts and delays you authored — useful for verifying order and
+  timing, but it does not yet show the game actually animating. A live visual preview needs
+  the runtime mounter (the generic scene mounter + emitter) and is **Phase 4**.
+- **The Broadcast vocabulary is the bundled default.** The choreography Broadcast picker
+  lists a faithful default emitter vocabulary (transcribed from the real lines / book-of
+  emitter unions). Each project supplying its *own* emitter vocabulary — read from the
+  project rather than the bundled default — comes with the build wiring in **Phase 6**.
 - **Saving does not yet change a running game.** Wiring the FlowDoc through
   export → bake → pull → register so a shipped game runs from it is **Phase 6**. Until
   then a game runs its coded mounting and book-event handlers exactly as before; the
@@ -139,9 +203,20 @@ loads the saved flow back onto the canvas.
   phased plan, the Phase-0 gate).
 - **The tool page:** `apps/launcher-api/src/routes/(app)/flow/` — `+page.server.ts`
   loads the LayoutDoc, components and saved FlowDoc; `+page.svelte` is the authoring
-  canvas (Svelte Flow / `@xyflow/svelte`); `FlowScreenNode.svelte` is the screen node;
-  `EdgeInspector.svelte` is the transition editor; `flowModel.client.ts` is the typed
-  model + pure command helpers + undo/redo stack.
+  canvas (Svelte Flow / `@xyflow/svelte`) and hosts the double-click → choreography modal;
+  `FlowScreenNode.svelte` is the screen node; `EdgeInspector.svelte` is the transition
+  editor; `flowModel.client.ts` is the typed model + pure command helpers + undo/redo
+  stack.
+- **The choreography sub-editor:** `ChoreographyEditor.svelte` is the modal (phase tabs,
+  root toggle, canvas, inspector, preview), `ChoreoNode.svelte` is a micro node,
+  `ChoreoNodeInspector.svelte` is the per-node field editor (including the Broadcast event
+  picker), `ChoreoPreview.svelte` is the speed dial + deterministic timeline.
+  `choreographyModel.client.ts` is the pure, path-addressed command layer (each helper
+  returns a new FlowDoc), routed through the SAME `createFlowHistory` undo/redo stack +
+  `POST /api/flow/save` as the macro graph. The Broadcast vocabulary comes from
+  `packages/engine-flow/src/emitterVocabulary.ts` (`DEFAULT_EMITTER_VOCABULARY`); the
+  deterministic preview runs `previewChoreography` against `FIXED_PREVIEW_TRIGGER` /
+  `FIXED_PREVIEW_ENGINE`.
 - **Save endpoint:** `POST /api/flow/save` (`flow`-gated via the shared `gate` helper,
   mirroring `/api/rigger/save`); R2 read/write in `src/lib/server/flowStorage.ts` at the
   `flowDocKey` path — `<client>/<project>/editor/flow.json`, a sibling of `scenes.json`.

@@ -9,9 +9,15 @@
 	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
-	import type { FlowDoc, FlowTransition, FlowTrigger } from 'engine-flow';
+	import {
+		DEFAULT_EMITTER_VOCABULARY,
+		type FlowDoc,
+		type FlowTransition,
+		type FlowTrigger,
+	} from 'engine-flow';
 	import EdgeInspector from './EdgeInspector.svelte';
 	import FlowScreenNode from './FlowScreenNode.svelte';
+	import ChoreographyEditor from './ChoreographyEditor.svelte';
 	import {
 		addScreen,
 		addTransition,
@@ -161,11 +167,38 @@
 	}
 
 	let selectedScreenId = $state<string | null>(null);
+	// The screen whose choreography sub-editor is open (double-click a node, design doc §9.A).
+	let choreoScreenId = $state<string | null>(null);
+
+	// xyflow 1.6 has no node-double-click event, so detect it: two clicks on the SAME node
+	// within 350ms opens its choreography sub-editor.
+	let lastClickId: string | null = null;
+	let lastClickAt = 0;
 	function onNodeClick({ node }: { node: Node }): void {
+		const now = Date.now();
+		if (node.id === lastClickId && now - lastClickAt < 350) {
+			openChoreography(node.id);
+			lastClickId = null;
+			return;
+		}
+		lastClickId = node.id;
+		lastClickAt = now;
 		selectedScreenId = node.id;
 		selectedEdgeId = null;
 		edges = buildEdges();
 	}
+
+	function openChoreography(screenId: string): void {
+		choreoScreenId = screenId;
+	}
+	function closeChoreography(): void {
+		choreoScreenId = null;
+		syncCanvas();
+	}
+
+	const choreoScreen = $derived(
+		choreoScreenId ? model.screens.find((s) => s.screen.id === choreoScreenId) : undefined,
+	);
 
 	function makeInitial(): void {
 		if (selectedScreenId) commit(setInitialScreen(doc, selectedScreenId));
@@ -192,7 +225,10 @@
 		if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) {
 			e.preventDefault();
 			undo();
-		} else if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+		} else if (
+			mod &&
+			(e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))
+		) {
 			e.preventDefault();
 			redo();
 		}
@@ -246,9 +282,7 @@
 		<button onclick={undo} disabled={!history.canUndo()} title="Undo (Ctrl+Z)">↶ Undo</button>
 		<button onclick={redo} disabled={!history.canRedo()} title="Redo (Ctrl+Y)">↷ Redo</button>
 		<span class="spacer"></span>
-		<span class="count"
-			>{model.screens.length} screens · {doc.transitions.length} transitions</span
-		>
+		<span class="count">{model.screens.length} screens · {doc.transitions.length} transitions</span>
 		{#if orphanTotal > 0}
 			<span class="warn">⚠ {orphanTotal} orphaned pin{orphanTotal === 1 ? '' : 's'}</span>
 		{/if}
@@ -285,6 +319,9 @@
 						/>
 						Initial screen
 					</label>
+					<button class="choreo" onclick={() => openChoreography(selectedScreen.screen.id)}>
+						Edit choreography…
+					</button>
 					<button class="danger" onclick={deleteSelectedScreen}>Remove screen</button>
 				</div>
 			{/if}
@@ -323,6 +360,17 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if choreoScreen}
+		<ChoreographyEditor
+			{doc}
+			screenId={choreoScreen.screen.id}
+			screenLabel={choreoScreen.screen.label ?? choreoScreen.scene.name}
+			vocab={DEFAULT_EMITTER_VOCABULARY}
+			oncommit={commit}
+			onclose={closeChoreography}
+		/>
+	{/if}
 </div>
 
 <style>
@@ -447,6 +495,17 @@
 		border: 1px solid #5b2a2a;
 		background: #1d1416;
 		color: #fca5a5;
+		cursor: pointer;
+		font-size: 12px;
+	}
+	.choreo {
+		width: 100%;
+		margin-bottom: 8px;
+		padding: 6px 8px;
+		border-radius: 6px;
+		border: 1px solid #2563eb;
+		background: #14181f;
+		color: #bfdbfe;
 		cursor: pointer;
 		font-size: 12px;
 	}
