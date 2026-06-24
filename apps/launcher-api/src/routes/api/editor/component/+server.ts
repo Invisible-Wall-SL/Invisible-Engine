@@ -65,13 +65,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	return json({ ok: true });
 };
 
-/** Resolve a component for `?id=` (project shadows shared when `?project=` given). */
+/**
+ * Resolve a component for `?id=` (project shadows shared when `?project=` given).
+ * An optional `?version=<N>` resolves the EXACT historical snapshot from the v2
+ * multi-version store (§8.9) — e.g. for the editor to preview/re-pin an older
+ * version; omitted resolves the latest pointer exactly as before (back-compat).
+ */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	await gate(locals);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
 	const projectKey = url.searchParams.get('project') || undefined;
-	const component = await loadComponent(id, projectKey);
+	const versionParam = url.searchParams.get('version');
+	const version =
+		versionParam && Number.isInteger(Number(versionParam)) && Number(versionParam) >= 1
+			? Number(versionParam)
+			: undefined;
+	const component = await loadComponent(id, projectKey, version);
 	if (!component) throw error(404, 'not found');
 	return json(component);
 };

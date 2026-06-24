@@ -29,6 +29,11 @@ type BakedBundle = {
 	doc: LayoutDoc | null;
 	componentDefaults?: Record<string, Record<string, unknown>>;
 	componentDefs?: Record<string, ComponentDef>;
+	/** Exact pinned NON-LATEST ComponentDefs (§8.9 v2 multi-version store). Registered
+	 * BEFORE `componentDefs` so a `componentInstance` that pins an older version resolves
+	 * the precise def it was authored against while latest still wins for unpinned ones.
+	 * Absent/empty for every game with no non-latest pin — bundle byte-identical (parity). */
+	componentVersions?: ComponentDef[];
 	/** Art exported from the doc's references (`deploy/editor-art/`), mirrored
 	 * into `static/assets/` by the deploy pull. `json`/`file` are relative to
 	 * `static/assets/`. `images[].key` is the sprite node's full `assetKey`. */
@@ -154,6 +159,15 @@ function hasBakedDoc(): boolean {
 export function registerBakedComponents(): void {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return;
+	// Pinned non-latest versions FIRST (§8.9 v2): each is retained in the registry's
+	// per-version map so a pinned instance resolves it, then `componentDefs` sets the
+	// id's `latest` last so unpinned instances follow latest. Register one at a time so
+	// two pins of the SAME id at DIFFERENT versions are both retained (a single map keyed
+	// by id would collapse them). Empty/absent for unpinned games ⇒ no-op ⇒ byte-identical
+	// to before history existed (parity).
+	for (const def of source.componentVersions ?? []) {
+		registerComponents({ [def.id]: def });
+	}
 	if (source.componentDefs) registerComponents(source.componentDefs);
 	if (source.componentDefaults) registerComponentDefaults(source.componentDefaults);
 }

@@ -12,7 +12,16 @@ import type { ComponentDef } from './types';
  * there is no cross-game leakage even though we use a top-level `Map`. Games
  * should call `registerComponents` once at boot.
  */
-const registry = new Map<string, ComponentDef>();
+
+/** Per-id record: the LATEST registered def + every registered version by number. */
+interface VersionedEntry {
+	/** The most-recently registered def for this id — the latest-resolution result. */
+	latest: ComponentDef;
+	/** Every registered version keyed by `def.version`, for true pin resolution (§8.9 v2). */
+	byVersion: Map<number, ComponentDef>;
+}
+
+const registry = new Map<string, VersionedEntry>();
 
 /**
  * Max `componentInstance` nesting depth a renderer expands (root scene = depth 0).
@@ -22,65 +31,86 @@ const registry = new Map<string, ComponentDef>();
  */
 export const MAX_COMPONENT_DEPTH = 2;
 
+/**
+ * Register component defs (§8.9 v2 multi-version store). Each call SETS the id's
+ * `latest` to the supplied def AND retains it in the id's per-version map keyed by
+ * `def.version`, so a pinned instance can resolve the EXACT version it was authored
+ * against. Registering several versions of the same id (latest LAST) keeps every
+ * one resolvable while `latest` follows the final registration — the game's boot
+ * `registerComponents(BUILTIN…)` runs first, then `registerBakedComponents()`
+ * overrides `latest` with the project's edited/pinned defs (and adds their
+ * versions), exactly as before for the single-version case.
+ */
 export function registerComponents(map: Record<string, ComponentDef>): void {
 	for (const [id, def] of Object.entries(map)) {
-		registry.set(id, def);
+		const entry = registry.get(id);
+		if (entry) {
+			entry.latest = def;
+			entry.byVersion.set(def.version, def);
+		} else {
+			registry.set(id, { latest: def, byVersion: new Map([[def.version, def]]) });
+		}
 	}
 }
 
 /**
- * Outcome of resolving a `componentInstance`'s pinned version against the single
- * registered def (§8.9 "Versioning / migration", pin-by-default). `versionMismatch`
- * is `true` ONLY when the instance pinned a `version` that differs from the
- * registered def's `version` — the SAFE, non-destructive signal that the pin can't
- * be honoured exactly because v1 keeps one def per id (no historical store yet).
+ * Outcome of resolving a `componentInstance`'s pinned version against the
+ * multi-version registry (§8.9 "Versioning / migration", pin-by-default).
+ * `versionMismatch` is `true` ONLY when the instance pinned a `version` that is NOT
+ * present in the registry AND differs from the registered latest — the SAFE,
+ * non-destructive signal that the exact pin can't be honoured, so the latest def is
+ * rendered as a fallback rather than silently passing it off as the pinned one.
  */
 export interface ComponentResolution {
 	def: ComponentDef | undefined;
 	/** The instance's requested pin (echoed back so a caller needn't re-read it). */
 	pinnedVersion: number | undefined;
-	/** The version actually available in the registry, or `undefined` if no def. */
+	/** The version of the def actually resolved (the pin when honoured, else latest). */
 	registeredVersion: number | undefined;
-	/** `true` when `pinnedVersion` is set and ≠ `registeredVersion`. */
+	/** `true` when `pinnedVersion` is set, unavailable, AND ≠ the resolved version. */
 	versionMismatch: boolean;
 }
 
 /**
- * Resolve a registered {@link ComponentDef} for an instance, SAFELY surfacing a
- * version-pin mismatch instead of silently passing a different version off as the
- * pinned one (§8.9, owner decision 2026-06-05: pin-by-default, never auto-upgrade).
+ * Resolve a registered {@link ComponentDef} for an instance, honouring a version
+ * pin EXACTLY when that version is registered, and SAFELY surfacing a mismatch when
+ * it isn't — never silently passing a different version off as the pinned one (§8.9,
+ * owner decision 2026-06-05: pin-by-default, never auto-upgrade).
  *
- * v1 is a single-version store: there is exactly one def per id, so the only
- * non-destructive choice when the pin doesn't match is to return that one def AND
- * flag `versionMismatch` — the caller renders it (parity: the same def renders as
- * before this flag existed) but is no longer told it is the pinned version. The pin
- * on the instance node is NEVER mutated and the def is NEVER auto-upgraded here.
- *
- * TODO v2: keep historical versions in a multi-version store so a pinned instance
- * resolves the EXACT def it was authored against (true pin), and an explicit
- * per-instance "update to latest" rewrites the pin. Until then `versionMismatch`
- * is the conservative surface for "the pinned version is unavailable."
+ * v2 multi-version store: the registry keeps every registered version per id, so a
+ * pinned instance resolves the EXACT def it was authored against (`versionMismatch`
+ * stays `false` — the pin IS honoured). When the pinned version isn't registered
+ * (e.g. a game that bundled only the latest def, or a pin authored against a version
+ * never shipped), it falls back to the latest def AND flags `versionMismatch` — the
+ * caller renders the fallback (parity: same as before history existed) but is told
+ * the exact pin was unavailable. The pin on the instance node is NEVER mutated and
+ * the def is NEVER auto-upgraded here. No pin ⇒ latest, no mismatch (back-compat).
  */
 export function resolveComponent(id: string, pinnedVersion?: number): ComponentResolution {
-	const def = registry.get(id);
-	const registeredVersion = def?.version;
+	const entry = registry.get(id);
+	if (!entry) {
+		return { def: undefined, pinnedVersion, registeredVersion: undefined, versionMismatch: false };
+	}
+	const pinned = pinnedVersion !== undefined ? entry.byVersion.get(pinnedVersion) : undefined;
+	const def = pinned ?? entry.latest;
+	const registeredVersion = def.version;
 	const versionMismatch =
-		pinnedVersion !== undefined && registeredVersion !== undefined && registeredVersion !== pinnedVersion;
+		pinnedVersion !== undefined && pinned === undefined && registeredVersion !== pinnedVersion;
 	return { def, pinnedVersion, registeredVersion, versionMismatch };
 }
 
 /**
- * Resolve a registered {@link ComponentDef}. A requested `version` is checked
- * against the registered def and warned about on mismatch, but the registered def
- * is still returned — v1 keeps a single def per id. Thin wrapper over
- * {@link resolveComponent} for callers that only need the def (the warning lives
- * here; the renderer uses `resolveComponent` to also gate on `versionMismatch`).
+ * Resolve a registered {@link ComponentDef}. A requested `version` is honoured
+ * exactly when registered; when it isn't, the latest def is returned and a mismatch
+ * is warned about. Thin wrapper over {@link resolveComponent} for callers that only
+ * need the def (the warning lives here; the renderer uses `resolveComponent` to also
+ * gate on `versionMismatch`).
  */
 export function getComponent(id: string, version?: number): ComponentDef | undefined {
 	const { def, registeredVersion, versionMismatch } = resolveComponent(id, version);
 	if (versionMismatch) {
 		console.warn(
-			`[engine-layout] component '${id}' pins version ${version} but the registered version is ${registeredVersion}; rendering the registered def (v1 single-version store — pin not honoured exactly, never auto-upgraded).`,
+			`[engine-layout] component '${id}' pins version ${version} but that version is not registered (latest is ${registeredVersion}); rendering the latest def — pin not honoured exactly, never auto-upgraded.`,
 		);
 	}
 	return def;

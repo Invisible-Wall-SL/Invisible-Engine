@@ -128,7 +128,13 @@ differs from the stored one (a re-save with no change keeps the version; a brand
 component keeps its starting version). This is by design (§8.9, pin-by-default):
 existing scene instances keep the version they pinned and are never silently moved
 to your edit — they stay on their pinned version until you explicitly **update each
-one to latest** from its Properties panel in the Scene Editor (see §5).
+one to latest** from its Properties panel in the Scene Editor (see §5). Every save
+also **retains the superseded def**: the server keeps each historical version (a
+`<id>.v<N>.json` snapshot beside the `<id>.json` latest pointer), so a pinned instance
+resolves the EXACT def it was authored against — in the editor preview, in the bake,
+and in the shipped game. Loading an older version is available via
+`GET /api/editor/component?id=…&version=<N>` (the UI to browse versions is not built
+yet).
 
 **Promote to shared.** Holders of the **`componentPublish`** capability (admin by
 default, grantable per role/user in `/admin`) also see a **Promote to shared** button
@@ -177,15 +183,17 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   destination).
 - **No timeline / signal-track UI.** Signals can be declared but there is no
   per-signal track editor yet.
-- **Versioning is safe + pin-by-default; the multi-version STORE is the last TODO.**
-  Saving bumps the `version` on a changed def; the engine resolves an instance's pin
-  **safely** — a pinned version that no longer matches the registered def is surfaced
-  (warned) but renders the current registered def, and the pin is never mutated or
-  auto-upgraded (v1 keeps a single def per id). Outdated instances are now **flagged**
-  in the Scene Editor's Properties panel and can be **updated to latest** per instance
-  (§5). Still to build: a true multi-version store that keeps every historical def, so
-  a still-pinned instance resolves the *exact* version it was authored against (until
-  then it renders the single registered def with the runtime mismatch warning).
+- **Versioning is pin-by-default with a true multi-version store (v2 landed).**
+  Saving bumps the `version` on a changed def AND retains every historical version, so
+  the engine resolves an instance's pin to the **exact** def it was authored against
+  (the bake ships each pinned version too). When a pinned version isn't available the
+  engine still renders the latest def and surfaces a `versionMismatch` warning rather
+  than silently passing it off as the pin — the pin is never mutated or auto-upgraded.
+  Outdated instances are **flagged** in the Scene Editor's Properties panel and can be
+  **updated to latest** per instance (§5). Still to build: a **version browser** UI.
+  One precise engine remainder: the bake walks only top-level scene pins, not the
+  transitive nested-pin closure — to be widened when a game first nests a pinned
+  instance (no game pins any version yet).
 - **Nesting depth is capped at 2.** Components-inside-components expand to
   `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
   both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond

@@ -28,6 +28,7 @@
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
+	collectComponentPins,
 	type ComponentDef,
 	type FontCatalog,
 	type LayoutDoc,
@@ -52,6 +53,9 @@ import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
 export interface RuntimeBundle {
 	doc: LayoutDoc;
 	componentDefs: Record<string, ComponentDef>;
+	/** Exact pinned non-latest defs (§8.9 v2). Registered before `componentDefs` so a
+	 * pinned instance resolves its authored version; absent/empty for unpinned games. */
+	componentVersions?: ComponentDef[];
 	componentDefaults: Record<string, Record<string, unknown>>;
 	editorArt: EditorArtIndex;
 	fonts: { catalog: FontCatalog };
@@ -89,12 +93,14 @@ function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: st
  * Resolve the transitive set of {@link ComponentDef}s a doc references — IDENTICAL
  * to `routes/api/editor/doc/+server.ts#resolveReferencedDefs`. Each id resolves
  * through the built-in → shared → project precedence (`loadComponent`), so a
- * project's EDITED def shadows the coded one.
+ * project's EDITED def shadows the coded one. `versions` carries the EXACT pinned
+ * non-latest defs (§8.9 v2) so a shipped game renders the authored version; empty
+ * for every game with no non-latest pin (parity).
  */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
-): Promise<Record<string, ComponentDef>> {
+): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
 	const defs: Record<string, ComponentDef> = {};
 	const seen = new Set<string>();
 	const queue = collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes));
@@ -109,7 +115,13 @@ async function resolveReferencedDefs(
 			if (!seen.has(nested)) queue.push(nested);
 		}
 	}
-	return defs;
+	const versions: ComponentDef[] = [];
+	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
+		if (defs[pin.id]?.version === pin.version) continue;
+		const pinned = await loadComponent(pin.id, projectKey, pin.version);
+		if (pinned) versions.push(pinned);
+	}
+	return { defs, versions };
 }
 
 /**
@@ -156,7 +168,10 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	applyHudGameNameDefault(doc, await projectName(projectKey));
 	resolveSpineKeysForGame(doc, clientKey, projectKey);
 	const componentDefaults = await listComponentDefaults(projectKey);
-	const componentDefs = await resolveReferencedDefs(doc, projectKey);
+	const { defs: componentDefs, versions: componentVersions } = await resolveReferencedDefs(
+		doc,
+		projectKey,
+	);
 
 	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then
 	//    embed the returned indices (paths are deploy-relative; the endpoint prefixes
@@ -169,6 +184,8 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	return {
 		doc,
 		componentDefs,
+		// Omit when empty so an unpinned project's bundle stays byte-identical (parity).
+		...(componentVersions.length ? { componentVersions } : {}),
 		componentDefaults,
 		editorArt,
 		fonts: { catalog: fonts.catalog },
