@@ -393,6 +393,64 @@ async function main() {
 			);
 		}
 
+	// Export the project's Invisible FX effects (the authored particle effects) into R2
+	// `deploy/effects/` and embed the returned `EffectDoc[]` so the game's `bakedEffects()`
+	// registers them. Unlike the art/font/symbol exports an EffectDoc carries NO binary
+	// assets of its own — its particle art is an atlas the editor-art export above already
+	// ships — so `deploy/effects/` is pure JSON, mirrored by `pull-project-assets.mjs` like
+	// the rest of deploy/. Absent / un-authored ⇒ `effects` stays undefined ⇒ the game has
+	// no effects, byte-identical to current `main` (parity, §8). The dangling-assetKey guard
+	// (below) verifies each effect's `art.assetKey` resolves to a SHIPPED atlas — a key the
+	// editor-art export didn't ship = an invisible effect (§8), so warn loudly.
+	let effects;
+	let effectAssetKeys = [];
+	const effectsUrl =
+		`${base}/api/editor/export-effects?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the effects export — it writes to R2 deploy/.');
+	} else
+		try {
+			const fxRes = await fetchRetry(effectsUrl, { method: 'POST' }, 'effects export');
+			if (!fxRes.ok) {
+				bail(`Effects export failed: HTTP ${fxRes.status} — ${await bodySnippet(fxRes)}`);
+			}
+			const fx = await fxRes.json();
+			const list = Array.isArray(fx?.effects) ? fx.effects : [];
+			// Only embed when the project authored at least one effect, keeping the bundle
+			// byte-identical for every game with no FX work (parity, §8).
+			if (list.length > 0) effects = list;
+			effectAssetKeys = Array.isArray(fx?.referencedAssetKeys) ? fx.referencedAssetKeys : [];
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-effects — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
+	// Dangling-assetKey guard (§8 — the particle analogue of the geometry-less-manifest
+	// gotcha): each effect layer references its particle art by `art.assetKey`, an atlas
+	// MANIFEST key the editor-art export ships as a sheet (`editorArt.sheets[].key`). If an
+	// effect references an atlas that ISN'T in the shipped set, that atlas never reaches the
+	// game's `loadedAssets` and the effect renders invisible (textureless particles). The
+	// effect art atlas is shipped only because the layout doc ALSO places that atlas — FX
+	// never re-packs. So warn loudly (non-fatal: an FX-authored project may legitimately add
+	// the atlas to its layout later) so the author wires the atlas into the layout before
+	// shipping. Empty/no effects ⇒ no check.
+	if (effectAssetKeys.length > 0) {
+		const shipped = new Set(editorArt.sheets.map((s) => s.key));
+		for (const k of editorArt.images) shipped.add(k.key);
+		const dangling = effectAssetKeys.filter((k) => !shipped.has(k));
+		for (const k of dangling) {
+			console.warn(
+				`⚠ bake-doc: FX effect references art.assetKey "${k}" which is NOT among the ` +
+					`shipped atlases (editor-art sheets). The atlas only ships if the layout ALSO ` +
+					`places it — this effect will render INVISIBLE (textureless particles). Place the ` +
+					'atlas in the Scene Editor (or remove the effect) before shipping.',
+			);
+		}
+	}
+
 	// Localization-tool strings (reviewed translations + source text), merged into
 	// the game's Lingui catalog at boot so editor-authored localization keys (e.g.
 	// a textBox's `text` param) resolve in the shipped game. Absent/empty doc is
@@ -443,6 +501,10 @@ async function main() {
 		// authored a non-empty flow, keeping the bundle byte-identical for every game
 		// with no flow work — the §7 fall-through (absent ⇒ interpreter inert).
 		...(flow ? { flow } : {}),
+		// The authored particle effects (Invisible FX). Omitted unless the project
+		// authored ≥1 effect, keeping the bundle byte-identical for every game with no
+		// FX work — `bakedEffects()` returns [] when absent (parity, §8).
+		...(effects ? { effects } : {}),
 	};
 
 	const sceneCount = doc.scenes.length;
@@ -459,6 +521,7 @@ async function main() {
 	const flowNote = flow
 		? ` flow={${flow.screens?.length ?? 0} screens/${flow.transitions?.length ?? 0} transitions/${flow.events?.length ?? 0} events},`
 		: '';
+	const effectsNote = effects ? ` effects={${effects.length}},` : '';
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
@@ -485,7 +548,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${settingsNote}${flowNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${settingsNote}${flowNote}${effectsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}

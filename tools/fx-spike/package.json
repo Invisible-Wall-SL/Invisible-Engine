@@ -8,7 +8,8 @@
 		"model": "tsx modelHelpers.ts",
 		"save": "tsx saveSplit.ts",
 		"placement": "tsx placement.ts",
-		"player": "tsx playerReduce.ts"
+		"player": "tsx playerReduce.ts",
+		"pipeline": "tsx pipeline.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

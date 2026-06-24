@@ -14,9 +14,10 @@
 ## 0. Status
 
 **In build (Phase 1 COMPLETE + Phase 2 COMPLETE + Phase 4 increment 1 (engine runtime player)
-COMPLETE — all headless).** This doc is the registered build plan. Nothing ships until it
-travels the full asset chain (§8) — that is the REST of Phase 4 (export→bake→pull→trigger),
-not yet done. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle** tier — do
++ Phase 4 increment 2 (export→bake→pull asset-travel) COMPLETE — all headless).** This doc is
+the registered build plan. The asset-travel half of §8 now lands (an authored effect travels
+into a built game's bundle); the Flow/event-bus TRIGGER + a game mounting `<EffectPlayer>` are
+the remaining Phase-4 increment. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle** tier — do
 not start that tier until the spike passes (the other two tiers are native and not gated).
 Current state: the `EffectDoc` schema + a LIVE saveable/reopenable `/fx` authoring page exist
 (atlas pick → live emitter → save → reopen), AND Tier B (Spine attach) — load a project rig
@@ -342,6 +343,75 @@ round-trip need owner-verify (see Progress, increments 3 + 4).
     `apps/lines/{package.json,src/editor-scenes.ts}`,
     `apps/launcher-api/src/routes/(app)/fx/{fxModel.client.ts,FxStage.svelte}`,
     `tools/fx-spike/{playerReduce.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 4 (pipeline wiring) — increment 2: export → bake → pull (the asset-travel half) —
+  ✅ DONE HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, NO game bump — Borut bumps
+  when the trigger increment + a game mounting `<EffectPlayer>` land).** Per §8 (RULE 8). Makes
+  an authored effect actually TRAVEL into a built game's bundle so `bakedEffects()` returns real
+  effects — the DATA half of Phase 4 (the Flow trigger + a game mounting `<EffectPlayer>` are the
+  NEXT increment). Mirrors the Invisible Flow pipeline (Phase 6/7), the closest template.
+  **Landed (the 3 stages):**
+  - **Export** — `apps/launcher-api/src/lib/server/effectExport.ts` `exportEffects` (mirrors
+    `flowExport.ts`, but MULTI-DOC like `fxStorage`): loads every saved `<id>.fx.json`, re-runs
+    `normalizeEffectDoc` (THE gatekeeper — only the PURE doc travels, editor-only state can never
+    reach `deploy/`), writes each to `<client>/<project>/deploy/effects/<id>.json` + an
+    `index.json`, and prunes stale objects so the deploy mirror matches the source (un-authored ⇒
+    no effects, parity). Like a FlowDoc it ships NO binary assets of its own — the particle ART is
+    an atlas the editor-art export already ships, FX references it by `art.assetKey` (never
+    re-packs textures, §4/§8). It also returns `referencedAssetKeys` (the distinct `art.assetKey`
+    set) so the bake can run the dangling-key guard. New endpoint
+    `apps/launcher-api/src/routes/api/editor/export-effects/+server.ts` mirrors `export-flow`
+    (deploy-token gated; called by the bake, no launcher session).
+  - **Bake** — `scripts/bake-editor-doc.mjs` now POSTs `export-effects` alongside the
+    art/font/symbol/flow exports and embeds the returned `EffectDoc[]` into `bundle.effects`
+    ONLY when non-empty (parity — the bundle stays byte-identical for every game with no FX);
+    summary log gains `effects={N}`. `bake:doc` already runs BEFORE `pull:assets` (the known
+    trap), so the embed + the deploy write land before the mirror.
+  - **Pull** — `pull-project-assets.mjs` already mirrors the whole `deploy/` tree verbatim, so
+    `deploy/effects/` rides along with NO endpoint change (`/api/deploy` lists/serves it
+    generically); only its `GENERATED_SUBTREES` prune list gained `effects` so a deleted effect's
+    stale file is cleaned from `static/assets/`.
+  - **Dangling-`assetKey` guard (§8 — the invisible-effect trap; the particle analogue of
+    [[gotcha_manifest_region_no_geometry_dropped]]):** at bake each effect's `art.assetKey` is
+    checked against the SHIPPED atlases (`editorArt.sheets[].key` + `editorArt.images[].key`). A
+    referenced atlas NOT in the shipped set never reaches the game's `loadedAssets` ⇒ textureless
+    invisible particles — so the bake WARNS loudly (non-fatal: the atlas ships only because the
+    layout ALSO places it, since FX never re-packs, so an FX-authored project may legitimately
+    add the atlas to its layout before shipping; a warning beats a silent invisible effect).
+  - **Verified headlessly** by new `tools/fx-spike/pipeline.ts` (`pnpm --filter fx-spike run
+    pipeline`): **22/22 GREEN** against the REAL `normalizeEffectDoc` — (1) EXPORT shape (each
+    doc PURE-normalized: doc-level `camera`/`selectedLayer` + layer-level junk STRIPPED, the
+    nested `EmitterConfigV3` VERBATIM, layers in order, the `{id,name,layers}` index row,
+    `referencedAssetKeys` deduped, un-authored ⇒ nothing); (2) BAKE embedding (non-empty ⇒
+    `bundle.effects`, empty ⇒ OMITTED for parity) + `bakedEffects()`'s `source.effects ?? []`
+    resolution returns the embedded docs byte-identically (and `[]` for an un-baked game); (3)
+    DANGLING detection (all-shipped ⇒ clean, a missing atlas flagged, a key shipped as a
+    standalone image also resolves — no false positive). The pure helpers MIRROR the production
+    logic so the harness pins it. The increment-1/2/3 + Phase-2 + Phase-4-inc-1 harnesses
+    (roundtrip/model/save/placement/player) ALL still PASS; `node --check` GREEN on both edited
+    `.mjs` scripts. **Builds GREEN:** `pnpm --filter launcher-api build` (the
+    `api/editor/export-effects` endpoint + `effectExport` chunk), `pnpm --filter lines build`
+    (the `bakedEffects()` reader), `engine-fx` typecheck. Prettier clean.
+  - **NEEDS LIVE OWNER-VERIFY (authed publish — not headless):** a real publish actually shipping
+    an effect into a game bundle — `export-effects` writes `deploy/effects/`, the bake embeds +
+    the dangling guard fires when an effect's atlas isn't placed in the layout, the pull mirrors
+    into `static/assets/`, and `bakedEffects()` returns the baked effect in the deployed game.
+    (The full HTTP bake against a live launcher + R2 is part of this owner-verify; the pure
+    embed/guard logic is proven headlessly.) Watch the build-env token trap (no deploy token in
+    the build env ⇒ stale/missing assets, [[project_component_art_to_game]]).
+  - **Borut note:** Book of Borut bumps its `engine` submodule to GAIN effects only once the
+    trigger increment + a game mounting `<EffectPlayer>` land — NOT this increment (the data
+    travels, but no game instantiates an `<EffectPlayer>` yet).
+  - **Exact next increment:** the Flow/event-bus TRIGGER — subscribe a layer to
+    `trigger.eventType` on `utils-event-emitter` (flip the `<EffectPlayer>` event-dormant
+    `layerEmits` seam so a Flow Broadcast fires the effect), bind to the game's
+    `EmitterVocabulary` — AND a game mounting `<EffectPlayer>` per `bakedEffects()` entry inside
+    the relevant `<SpineProvider>` (so a `bone` layer resolves on the host rig). At that point
+    Book of Borut bumps its `engine` submodule.
+  - Files: `apps/launcher-api/src/lib/server/effectExport.ts`,
+    `apps/launcher-api/src/routes/api/editor/export-effects/+server.ts`,
+    `apps/launcher-api/scripts/{bake-editor-doc.mjs,pull-project-assets.mjs}`,
+    `tools/fx-spike/{pipeline.ts,package.json}`, `docs/STATUS.md`.
 
 ## 1. Naming (settled here to avoid a real collision)
 
