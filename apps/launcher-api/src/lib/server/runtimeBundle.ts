@@ -25,7 +25,7 @@
  * serves — so the runtime resolves each file as `assetBase + rel`. This module does
  * NOT build `assetBase`; the endpoint adds it from the request origin + token.
  */
-import type { FlowDoc } from 'engine-flow';
+import { type FlowDoc, isAuthoredFlow } from 'engine-flow';
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
@@ -226,16 +226,14 @@ export async function ensureDeployExports(
 		exportEditorSymbols(client, projectKey),
 		exportEditorFlow(client, projectKey),
 	]);
-	// Forward a non-empty authored flow only — an empty doc stays undefined so the
-	// runtime interpreter is inert and the game runs its coded path (parity, §7).
-	const flowAuthored =
-		(flowIndex.flow.screens?.length ?? 0) > 0 ||
-		(flowIndex.flow.transitions?.length ?? 0) > 0 ||
-		(flowIndex.flow.events?.length ?? 0) > 0;
+	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
+	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
+	// is the SAME gate the interpreter's `isActive` uses, so the baked slot and the runtime
+	// never diverge (a transitions-only doc is inert ⇒ not baked).
 	return {
 		editorArt,
 		fonts: { catalog: fontIndex.catalog },
 		symbols,
-		...(flowAuthored ? { flow: flowIndex.flow } : {}),
+		...(isAuthoredFlow(flowIndex.flow) ? { flow: flowIndex.flow } : {}),
 	};
 }

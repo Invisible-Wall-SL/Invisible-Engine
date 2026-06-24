@@ -373,15 +373,17 @@ async function main() {
 				bail(`Flow export failed: HTTP ${flowRes.status} — ${await bodySnippet(flowRes)}`);
 			}
 			const f = await flowRes.json();
-			// Only embed a NON-EMPTY authored flow. An empty doc (no screens/transitions/
-			// events) is the un-authored case — leave `flow` undefined so the bundle omits it
-			// and the game stays byte-identical to current `main` (parity, §7).
+			// Only embed an authored flow (≥1 screen or ≥1 event choreography). An un-
+			// authored doc — including a transitions-only doc, whose edges reference screens
+			// that don't exist ⇒ the interpreter is inert — leaves `flow` undefined so the
+			// bundle omits it and the game stays byte-identical to current `main` (parity, §7).
+			// Hand-rolled copy of engine-flow's `isAuthoredFlow` (this script can't import TS);
+			// it MUST stay in sync — transitions deliberately excluded.
 			const fd = f?.flow;
 			const authored =
 				fd &&
 				typeof fd === 'object' &&
 				((Array.isArray(fd.screens) && fd.screens.length > 0) ||
-					(Array.isArray(fd.transitions) && fd.transitions.length > 0) ||
 					(Array.isArray(fd.events) && fd.events.length > 0));
 			if (authored) flow = fd;
 		} catch (err) {

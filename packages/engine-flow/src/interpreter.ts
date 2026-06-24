@@ -24,6 +24,7 @@ import type { FlowRuntime } from './runtime';
 import { createPresentationMachine, type PresentationMachine } from './presentation';
 import { createSceneMounter, type MountableScene, type SceneMounter } from './mounter';
 import { createBookEventDispatcher, type CodedEventHandler } from './dispatch';
+import { isAuthoredFlow } from './normalize';
 
 export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	/** The generic scene mounter — the game reads `resolve(activeScreenId)` to render. */
@@ -78,9 +79,7 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		engine,
 	});
 
-	const isActive = Boolean(
-		flowDoc && (flowDoc.screens.length > 0 || (flowDoc.events?.length ?? 0) > 0),
-	);
+	const isActive = isAuthoredFlow(flowDoc);
 
 	return {
 		mounter,

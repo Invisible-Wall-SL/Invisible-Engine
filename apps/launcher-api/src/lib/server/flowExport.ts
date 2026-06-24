@@ -23,7 +23,7 @@
  * any stale `deploy/flow.json`, so an un-authored project bakes no flow (parity).
  * Idempotent — re-running converges.
  */
-import { type FlowDoc, normalizeFlowDoc } from 'engine-flow';
+import { type FlowDoc, isAuthoredFlow, normalizeFlowDoc } from 'engine-flow';
 import { SUB, flowDocKey } from './projectPaths';
 import { deleteObjects, getObjectText, putObjectText } from './r2';
 
@@ -31,16 +31,6 @@ export interface FlowExportIndex {
 	/** The exported FlowDoc, normalized. Empty (no screens/transitions) when the
 	 *  project has authored nothing — the parity-safe fall-through case. */
 	flow: FlowDoc;
-}
-
-/** True when the doc carries no authored flow — every game with no `/flow` work,
- *  so nothing is written to `deploy/` and the bake omits `flow` (byte-identical). */
-function isEmptyFlow(flow: FlowDoc): boolean {
-	return (
-		(flow.screens?.length ?? 0) === 0 &&
-		(flow.transitions?.length ?? 0) === 0 &&
-		(flow.events?.length ?? 0) === 0
-	);
 }
 
 export async function exportEditorFlow(
@@ -68,7 +58,7 @@ export async function exportEditorFlow(
 		return pruneAndReturn(empty);
 	}
 
-	if (isEmptyFlow(flow)) return pruneAndReturn(empty);
+	if (!isAuthoredFlow(flow)) return pruneAndReturn(empty);
 
 	await putObjectText(deployKey, JSON.stringify(flow, null, '\t'), 'application/json');
 	return { flow };

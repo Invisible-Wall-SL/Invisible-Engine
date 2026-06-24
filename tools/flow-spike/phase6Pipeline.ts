@@ -26,11 +26,15 @@
  *     absent by the bake's `authored` gate, so the bundle omits `flow` (parity).
  *  5. DEV-HOOK precedence — a `__IE_FLOW_DOC__`/`__IE_FLOW_LINES__` override wins over the baked
  *     slot (the live-verify escape hatch), and a hook with NO baked doc still activates.
+ *  6. TRANSITIONS-ONLY — a degenerate doc (only edges, referencing screens that don't exist) is
+ *     un-authored: the bake omits `flow` AND the interpreter is inert, the SAME `isAuthoredFlow`
+ *     gate on both sides so the ship gate never diverges from `isActive` (parity, §7).
  */
 
 import { createEventEmitter } from 'utils-event-emitter';
 import {
 	createFlowInterpreter,
+	isAuthoredFlow,
 	normalizeFlowDoc,
 	type FlowDoc,
 	type FlowRuntime,
@@ -42,19 +46,14 @@ import { LINES_FLOW_DOC } from '../../apps/lines/src/game/flowDoc';
 // Model of the ship chain — kept faithful to the real launcher + game code.
 // ---------------------------------------------------------------------------
 
-/** The non-empty gate the bake (`bake-editor-doc.mjs`) + `flowExport.ts` apply: an empty
- *  doc (no screens/transitions/events) is the un-authored case ⇒ omit `flow` (parity, §7). */
-const isAuthored = (flow: FlowDoc): boolean =>
-	(flow.screens?.length ?? 0) > 0 ||
-	(flow.transitions?.length ?? 0) > 0 ||
-	(flow.events?.length ?? 0) > 0;
-
 /** Mirror of `apps/launcher-api/src/lib/server/flowExport.ts#exportEditorFlow` + the bake's
  *  embed gate: read the authored doc, normalize it (the deploy/bake serialize contract), and
- *  embed it as `BakedBundle.flow` ONLY when non-empty. Returns the baked-bundle `flow` slot. */
+ *  embed it as `BakedBundle.flow` ONLY when authored. Returns the baked-bundle `flow` slot.
+ *  Uses the REAL `isAuthoredFlow` — the SAME gate the interpreter's `isActive` keys on, so a
+ *  transitions-only (degenerate) doc bakes no slot AND runs inert, never diverging (§7). */
 const exportThenBake = (authoredFromR2: unknown): FlowDoc | undefined => {
 	const exported = normalizeFlowDoc(authoredFromR2, 'lines'); // deploy/flow.json
-	if (!isAuthored(exported)) return undefined; // bake omits `flow`
+	if (!isAuthoredFlow(exported)) return undefined; // bake omits `flow`
 	// The bake JSON-roundtrips the embedded doc into baked-editor-bundle.json; reproduce that.
 	return JSON.parse(JSON.stringify(exported)) as FlowDoc;
 };
@@ -163,6 +162,20 @@ check(
 check(
 	'__IE_FLOW_LINES__ activates with NO baked doc',
 	buildInterpreter(loadFlowDoc({ bakedFlow: undefined, devLines: true })).isActive,
+);
+
+// 6. TRANSITIONS-ONLY doc ⇒ degenerate ⇒ treated as un-authored (no slot) ⇒ inert.
+console.info('\n6. transitions-only doc ⇒ un-authored (parity)');
+const transitionsOnly = exportThenBake({
+	version: 1,
+	screens: [],
+	transitions: [{ id: 't', from: 'a', to: 'b', trigger: { kind: 'complete' } }],
+	events: [],
+});
+check('a transitions-only doc bakes NO `flow` slot', transitionsOnly === undefined);
+check(
+	'interpreter is inert for a transitions-only doc',
+	!buildInterpreter(loadFlowDoc({ bakedFlow: transitionsOnly })).isActive,
 );
 
 // ---------------------------------------------------------------------------

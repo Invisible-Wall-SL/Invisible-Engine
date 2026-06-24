@@ -243,3 +243,17 @@ export const normalizeFlowDoc = (input: unknown, fallbackProjectKey = ''): FlowD
 	if (typeof obj.updatedAt === 'string' && obj.updatedAt) doc.updatedAt = obj.updatedAt;
 	return doc;
 };
+
+/**
+ * The SINGLE definition of "this FlowDoc carries authored work the interpreter can run":
+ * at least one screen (mountable) or one event choreography. A doc with neither — including
+ * a transitions-only doc, whose edges reference screens that don't exist — is degenerate:
+ * the interpreter is inert and nothing mounts. So both the interpreter's `isActive` gate AND
+ * every export/bake gate key on THIS predicate, so an un-authored project bakes no `flow`
+ * slot and the game stays byte-identical to the coded path (parity §7). `transitions` is
+ * deliberately excluded — counting it diverged the ship gate from `isActive` (a transitions-
+ * only doc baked a slot yet ran inert). `bake-editor-doc.mjs` keeps a hand-rolled copy (it
+ * can't import TS); it MUST stay in sync with this.
+ */
+export const isAuthoredFlow = (flow: FlowDoc | undefined | null): boolean =>
+	!!flow && ((flow.screens?.length ?? 0) > 0 || (flow.events?.length ?? 0) > 0);
