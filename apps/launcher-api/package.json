@@ -43,7 +43,7 @@
 		"opentype.js": "^2.0.0",
 		"pixi.js": "8.8.1",
 		"postgres": "3.4.5",
-		"svelte": "5.20.5",
+		"svelte": "5.35.1",
 		"vite": "6.2.0",
 		"zod": "3.23.8"
 	}

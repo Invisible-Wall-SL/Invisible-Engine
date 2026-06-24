@@ -21,7 +21,7 @@
 		"config-storybook": "workspace:*"
   },
   "dependencies": {
-    "svelte": "5.20.5",
+    "svelte": "5.35.1",
     "vite": "6.2.0",
     "@lingui/core": "5.2.0",
     "components-shared": "workspace:*",

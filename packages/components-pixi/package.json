@@ -27,7 +27,7 @@
 		"pixi.js": "8.8.1",
 		"lodash": "4.17.16",
 		"@types/lodash": "4.17.16",
-		"svelte": "5.20.5",
+		"svelte": "5.35.1",
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.17.3",
 		"pixi-svelte": "workspace:*",
