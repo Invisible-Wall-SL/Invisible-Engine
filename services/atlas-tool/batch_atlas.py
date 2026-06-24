@@ -1119,15 +1119,38 @@ def comfy_upload_image(filename: str, data: bytes) -> str:
 
 def _locate_ref_in_staging(relpath: str) -> Path | None:
     """Resolve a LoadImage `image` value to a real file in the R2-backed
-    staging mirror. Region refs are normally INPUT_DIR-relative (e.g.
-    `refs/foo.png`), but the global `mockup_image` style fallback is a
-    free-text path that may be a bare filename (`hotFruits_MockUp.png`), an
-    absolute/UNC path, or a stale value. Try, in order: an absolute path as
-    given; INPUT_DIR/<relpath>; then a basename search of the known ref dirs
-    (INPUT_DIR root + refs/ tree). Returns the first hit, else None."""
+    staging mirror. Region refs take several forms:
+      - an absolute container path (legacy/local) → as-is;
+      - a Sheet-Maker key (`sheets/…` / `sheet_src/…`, with or without the
+        `<C>/<P>` prefix) → lazy-hydrate the subtree and resolve under
+        STAGING_ROOT (NOT INPUT_DIR — the Sheet-Maker subtrees mirror the
+        project root, not the `input/` mirror); by-key hydrate if not on disk
+        yet. This is where painted `shape_ref` silhouettes live;
+      - INPUT_DIR-relative (`refs/foo.png`) → the historic ref location;
+      - the global `mockup_image` style fallback, a free-text path that may be
+        a bare filename / stale value → basename search of the known ref dirs.
+
+    Returns the first hit, else None. Mirrors `ui_server._resolve_region_ref`
+    so generation resolves the same Sheet-Maker refs the UI preview does — the
+    cold-project gap that left `sheet_src/` shape refs un-uploaded (B-flowtest)."""
     p = Path(relpath)
     if p.is_absolute():
         return p if p.exists() else None
+    # Sheet-Maker subtree key (shape_ref silhouettes, packed sheet sources).
+    # STAGING_ROOT mirrors <C>/<P> 1:1, so the staged copy is STAGING_ROOT /
+    # _staging_rel(key); _staging_rel strips any project prefix (CRITICAL —
+    # raw STAGING_ROOT / <key> would double <C>/<P>). Lazy-hydrate the subtree
+    # first (a cold project never pulled sheet_src/ eagerly), then fall back to
+    # an exact by-key fetch so resolution succeeds even before the bulk pull.
+    srel = _staging_rel(relpath)
+    if srel.startswith("sheets/") or srel.startswith("sheet_src/"):
+        project_paths.ensure_lazy(
+            "sheets/" if srel.startswith("sheets/") else "sheet_src/")
+        staged = STAGING_ROOT / srel
+        if staged.exists():
+            return staged
+        pulled = _hydrate_from_r2_by_name(Path(srel).name, r2_key=relpath)
+        return pulled if (pulled and pulled.exists()) else None
     direct = INPUT_DIR / relpath
     if direct.exists():
         return direct
@@ -1148,7 +1171,15 @@ def _locate_ref_in_staging(relpath: str) -> Path | None:
 
 def _upload_workflow_refs(wf: dict) -> None:
     """Rewrite every LoadImage node's `image` from a staging-relative ref path
-    to a name uploaded to the remote ComfyUI. Mutates wf in place."""
+    to a name uploaded to the remote ComfyUI. Mutates wf in place.
+
+    The remote ComfyUI cannot see our filesystem, so a ref that we fail to
+    resolve + upload would be shipped to /prompt as a raw staging/R2-key path
+    and rejected with an opaque `LoadImage: Invalid image file` 400. Rather
+    than degrade to "leaving as-is" (the cold-project bug where a `sheet_src/`
+    shape ref that exists only in R2 was never pulled, then sent verbatim), we
+    raise a clear, actionable RuntimeError naming the missing ref — caught by
+    main()'s GENERATION STOPPED banner."""
     for node in wf.values():
         if not isinstance(node, dict) or node.get("class_type") != "LoadImage":
             continue
@@ -1157,12 +1188,19 @@ def _upload_workflow_refs(wf: dict) -> None:
             continue
         src = _locate_ref_in_staging(relpath)
         if src is None:
-            print(f"[upload] ref not in staging, leaving as-is: {relpath}", flush=True)
-            continue
+            raise RuntimeError(
+                f"Reference image not found: \"{relpath}\". It is wired into a "
+                f"LoadImage node but is missing from staging and could not be "
+                f"pulled from R2. Check the region's shape_ref / style_ref "
+                f"points at an image that exists in this project (e.g. a "
+                f"sheet_src/ sprite or a refs/ upload), then regenerate."
+            )
         try:
             node["inputs"]["image"] = comfy_upload_image(src.name, src.read_bytes())
         except Exception as e:  # noqa: BLE001
-            print(f"[upload] failed for {relpath}: {e}", flush=True)
+            raise RuntimeError(
+                f"Failed to upload reference image \"{relpath}\" to ComfyUI: {e}"
+            ) from e
 
 
 def normalize_shape_ref(shape_ref_relpath: str) -> str:
@@ -1170,10 +1208,17 @@ def normalize_shape_ref(shape_ref_relpath: str) -> str:
     a 1024x1024 black canvas with the content centered at SHAPE_REF_FILL_PCT
     coverage. Saves to refs/_normalized/<name>.png and returns the new
     relative path for ComfyUI. Ensures every shape ref has consistent margin
-    regardless of how the user painted it."""
-    src_path = INPUT_DIR / shape_ref_relpath
-    if not src_path.exists():
-        return shape_ref_relpath  # let ComfyUI report the missing-file error
+    regardless of how the user painted it.
+
+    The shape_ref may be a plain INPUT_DIR ref OR a Sheet-Maker `sheet_src/`
+    key (a painted silhouette that lives under STAGING_ROOT, not INPUT_DIR, and
+    on a cold project only in R2). Resolve it through the shared locator —
+    which lazy-hydrates / by-key pulls the Sheet-Maker subtrees — so the Canny
+    normalisation actually runs instead of silently passing the raw key
+    through to a LoadImage node ComfyUI can't open."""
+    src_path = _locate_ref_in_staging(shape_ref_relpath)
+    if src_path is None:
+        return shape_ref_relpath  # _upload_workflow_refs raises a clear error
 
     src = Image.open(src_path).convert("L")  # grayscale
     # Bbox of non-black pixels (threshold 10 to ignore JPEG artifacts)
