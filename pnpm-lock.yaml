@@ -238,6 +238,9 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../../packages/constants-shared
+      engine-flow:
+        specifier: workspace:*
+        version: link:../../packages/engine-flow
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout

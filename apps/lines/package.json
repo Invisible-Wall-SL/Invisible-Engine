@@ -42,6 +42,7 @@
 		"components-storybook": "workspace:*",
 		"components-shared": "workspace:*",
 		"components-layout": "workspace:*",
+		"engine-flow": "workspace:*",
 		"engine-layout": "workspace:*",
 		"components-ui-html": "workspace:*",
 		"components-pixi": "workspace:*",

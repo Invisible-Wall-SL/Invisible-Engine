@@ -4,6 +4,8 @@ export * from './src/accessor';
 export * from './src/executor';
 export * from './src/mounter';
 export * from './src/dispatch';
+export * from './src/presentation';
+export * from './src/interpreter';
 export * from './src/pins';
 export * from './src/normalize';
 export * from './src/emitterVocabulary';

@@ -31,7 +31,7 @@
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
-	import { LayoutScene } from 'engine-layout/svelte';
+	import { LayoutScene, FlowMount } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
 		registerComponents,
@@ -61,6 +61,8 @@
 	import type { Scene } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
+	import { createLinesFlow, type LinesFlow } from '../game/flowRuntime.svelte';
+	import { setFlowInterpreter } from '../game/flowInterpreterHolder';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
@@ -434,6 +436,23 @@
 
 	const context = getContext();
 
+	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
+	// loads (it resolves authored screen ids to their scenes). ABSENT by default (no FlowDoc
+	// ⇒ `createLinesFlow` returns `undefined`), so the interpreter is inert and every screen
+	// mounts via the coded path below — byte-identical to current `main` (§7). When active,
+	// it drives book-event dispatch (via `flowInterpreterHolder`, read in `game/utils.ts`)
+	// and the generic mounter resolves which authored screen mounts here.
+	let flow = $state<LinesFlow | undefined>(undefined);
+	// The active screen's resolved scene for the generic mounter. `undefined` ⇒ the
+	// interpreter is not driving this screen ⇒ `<FlowMount>` renders the coded fall-through.
+	const basegameMount = $derived.by(() => {
+		const decision = flow?.mounter.resolve(flow.activeScreenId);
+		if (decision?.kind === 'authored' && decision.screenId === 'basegame') {
+			return decision.scene as Scene;
+		}
+		return undefined;
+	});
+
 	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
 	// above. Maps the game's win presentation events → signal NAMES from the
 	// catalog, so a placed `componentInstance` whose `kind:'spine'` node carries
@@ -693,6 +712,13 @@
 			// settings ⇒ engine defaults (all on) — parity for un-authored docs.
 			if (doc.settings?.jurisdiction === 'UK') setUiFeatures(UI_FEATURES_UK);
 			else if (doc.settings?.features) setUiFeatures(doc.settings.features);
+			// Invisible Flow (Phase 4): build the interpreter from the (optional) FlowDoc +
+			// the just-loaded scenes, and publish it for the book-event play path. Returns
+			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
+			// path (parity, §7). `start()` runs the initial screen's enter choreography.
+			flow = createLinesFlow(doc);
+			setFlowInterpreter(flow);
+			void flow?.start();
 		});
 	});
 
@@ -766,8 +792,17 @@
 		<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
 			 MainContainer. Do NOT wrap it again here (that double-scales it).
 			 Split at the reelGrid placeholder: below-reel layers, then the board, then
-			 above-reel layers (so editor stacking order around the reel is honored). -->
-		<LayoutScene scene={basegameBelowReel} />
+			 above-reel layers (so editor stacking order around the reel is honored).
+
+			 Invisible Flow (Phase 4): `<FlowMount>` is the generic-mounter boundary. When the
+			 interpreter authors `basegame` it mounts the authored scene (via <LayoutScene>);
+			 otherwise it renders the coded split below — byte-identical to `main` (§7). The
+			 board MainContainer always mounts (the reel is engine-owned, not a flow screen). -->
+		<FlowMount scene={basegameMount}>
+			{#snippet fallback()}
+				<LayoutScene scene={basegameBelowReel} />
+			{/snippet}
+		</FlowMount>
 
 		<MainContainer>
 			<BoardFrame />
@@ -775,7 +810,7 @@
 			<Anticipations />
 		</MainContainer>
 
-		{#if basegameAboveReel && basegameAboveReel.nodes.length}
+		{#if !basegameMount && basegameAboveReel && basegameAboveReel.nodes.length}
 			<LayoutScene scene={basegameAboveReel} />
 		{/if}
 
