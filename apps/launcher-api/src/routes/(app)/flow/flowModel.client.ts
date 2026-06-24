@@ -195,6 +195,95 @@ export const findTransition = (doc: FlowDoc, id: string): FlowTransition | undef
 	doc.transitions.find((t) => t.id === id);
 
 // ---------------------------------------------------------------------------
+// Copy / paste subgraphs (design doc §12 id discipline, Phase 7 authoring UX).
+//
+// A clipboard payload is the selected screens (each WITH its authored choreography) plus
+// the transitions WHOLLY INTERNAL to the selection (edges to/from screens outside the
+// selection are dropped — a paste is a self-contained subgraph). Paste re-creates each
+// screen onto a backing LayoutDoc scene and MINTS FRESH transition ids, remapping
+// from/to onto the pasted screens — never recycling an id (§12: a copy is a new node).
+//
+// A screen node's id IS its backing LayoutDoc `Scene.id` (the runtime mounter resolves
+// the scene by `screen.id`), and a scene can be placed at most once. So a paste maps each
+// copied screen onto a TARGET scene id chosen by the caller: re-pasting the SAME scene
+// when it is no longer placed (e.g. after a cut), or onto an UNPLACED scene otherwise.
+// This keeps node + transition ids fresh without changing the runtime scene-id contract.
+// ---------------------------------------------------------------------------
+
+/** A copied subgraph — screens (with choreography) + internal transitions. */
+export interface FlowClipboard {
+	screens: FlowScreen[];
+	transitions: FlowTransition[];
+}
+
+/** Build a clipboard from the selected screen ids: their `FlowScreen` records (deep-cloned,
+ *  carrying `choreography`) + the transitions whose BOTH endpoints are in the selection. */
+export const copyScreens = (doc: FlowDoc, screenIds: string[]): FlowClipboard => {
+	const selected = new Set(screenIds);
+	const screens = doc.screens
+		.filter((s) => selected.has(s.id))
+		.map((s) => JSON.parse(JSON.stringify(s)) as FlowScreen);
+	const transitions = doc.transitions
+		.filter((t) => selected.has(t.from) && selected.has(t.to))
+		.map((t) => JSON.parse(JSON.stringify(t)) as FlowTransition);
+	return { screens, transitions };
+};
+
+/**
+ * Paste a clipboard into the doc, mapping each copied screen's original id onto a fresh
+ * TARGET scene id via `targetSceneFor` (the caller picks an unplaced scene, or the same
+ * scene id when re-pasting after a cut). A screen whose target is already placed, or for
+ * which `targetSceneFor` returns undefined, is skipped (no duplicate placement). Each
+ * pasted screen loses `initial` (a paste is never the entry) and is offset on the canvas;
+ * internal transitions are re-created with FRESH ids remapped onto the pasted screens.
+ */
+export const pasteScreens = (
+	doc: FlowDoc,
+	clip: FlowClipboard,
+	targetSceneFor: (originalId: string) => string | undefined,
+	offset: { x: number; y: number } = { x: 40, y: 40 },
+): { doc: FlowDoc; pastedIds: string[] } => {
+	const next = cloneDoc(doc);
+	const placed = new Set(next.screens.map((s) => s.id));
+	const idMap = new Map<string, string>(); // original screen id → pasted (target) scene id
+	const pastedIds: string[] = [];
+
+	for (const screen of clip.screens) {
+		const targetId = targetSceneFor(screen.id);
+		if (!targetId || placed.has(targetId) || idMap.has(screen.id)) continue;
+		const pasted: FlowScreen = JSON.parse(JSON.stringify(screen));
+		pasted.id = targetId;
+		delete pasted.initial;
+		pasted.position = {
+			x: (screen.position?.x ?? 0) + offset.x,
+			y: (screen.position?.y ?? 0) + offset.y,
+		};
+		next.screens.push(pasted);
+		placed.add(targetId);
+		idMap.set(screen.id, targetId);
+		pastedIds.push(targetId);
+	}
+
+	for (const t of clip.transitions) {
+		const from = idMap.get(t.from);
+		const to = idMap.get(t.to);
+		if (!from || !to) continue; // an endpoint wasn't pasted — drop the edge
+		next.transitions.push({
+			...(JSON.parse(JSON.stringify(t)) as FlowTransition),
+			id: freshTransitionId(),
+			from,
+			to,
+		});
+	}
+
+	// If the paste emptied the initial flag (e.g. into an empty doc), promote one.
+	if (!next.screens.some((s) => s.initial) && next.screens.length > 0) {
+		next.screens[0].initial = true;
+	}
+	return { doc: next, pastedIds };
+};
+
+// ---------------------------------------------------------------------------
 // Undo/redo command stack — generic, snapshot-based with burst coalescing.
 // Mirrors the Scene Editor's history pattern (design doc §12: reuse it if it
 // generalizes). Extracted generic here so the same shape serves the FlowDoc; the
