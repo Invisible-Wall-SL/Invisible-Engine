@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { PNG } from 'pngjs';
+import sharp from 'sharp';
 import { roleHasTool } from '$lib/roles';
 import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
 import { pickDeployedPage } from './deployedPage';
@@ -178,31 +178,51 @@ export function regionsToSpineAtlas(
  * rotating that block 180° converts our CW packing into the CCW orientation Spine
  * expects. 180° preserves the bounding box, so it's an in-place pixel reversal that
  * never disturbs neighbouring regions or any geometry — the `.atlas` (bounds/offsets/
- * `rotate:90`) is unchanged. Returns the input untouched when nothing is rotated.
+ * `rotate:90`) is unchanged.
+ *
+ * Atlas Maker pages are WebP, Sheet Maker pages are PNG, so we decode via `sharp`
+ * (multi-format), flip on the raw RGBA buffer, and re-encode LOSSLESSLY to the SAME
+ * format (the existing pixels pass through byte-faithfully; only rotated regions move).
+ * Returns the input untouched when nothing is rotated, the format is one we don't
+ * re-encode, or anything throws — a re-sync must never fail over this.
  */
-export function reorientRotatedRegionsForSpine(
+export async function reorientRotatedRegionsForSpine(
 	pageBytes: Uint8Array,
 	regions: SynthRegion[],
-): Uint8Array {
+): Promise<Uint8Array> {
 	const rotated = regions.filter((r) => r.rotated);
 	if (!rotated.length) return pageBytes;
 
-	const png = PNG.sync.read(Buffer.from(pageBytes));
-	const { width: pw, height: ph, data } = png;
+	try {
+		const input = Buffer.from(pageBytes);
+		const meta = await sharp(input).metadata();
+		const pw = meta.width ?? 0;
+		const ph = meta.height ?? 0;
+		// Only PNG/WebP round-trip cleanly to the same format with alpha; anything else
+		// (e.g. JPEG, which can't hold the sprite transparency) is left untouched.
+		if (!pw || !ph || (meta.format !== 'png' && meta.format !== 'webp')) return pageBytes;
 
-	for (const r of rotated) {
-		const x = Math.round(r.x);
-		const y = Math.round(r.y);
-		// On-page footprint of a rotated region is (h × w): width = unrotated height,
-		// height = unrotated width (matches the packer footprint + the `.atlas` bounds).
-		const rw = Math.round(r.h);
-		const rh = Math.round(r.w);
-		// Skip a malformed/out-of-bounds rect so it can never read or write past the page.
-		if (rw <= 0 || rh <= 0 || x < 0 || y < 0 || x + rw > pw || y + rh > ph) continue;
-		rotate180InPlace(data, pw, x, y, rw, rh);
+		// Decode to raw RGBA (always 4 channels) so the in-place 180° flips are trivial.
+		const data = await sharp(input).ensureAlpha().raw().toBuffer();
+
+		for (const r of rotated) {
+			const x = Math.round(r.x);
+			const y = Math.round(r.y);
+			// On-page footprint of a rotated region is (h × w): width = unrotated height,
+			// height = unrotated width (matches the packer footprint + the `.atlas` bounds).
+			const rw = Math.round(r.h);
+			const rh = Math.round(r.w);
+			// Skip a malformed/out-of-bounds rect so it can never read or write past the page.
+			if (rw <= 0 || rh <= 0 || x < 0 || y < 0 || x + rw > pw || y + rh > ph) continue;
+			rotate180InPlace(data, pw, x, y, rw, rh);
+		}
+
+		const raw = sharp(data, { raw: { width: pw, height: ph, channels: 4 } });
+		const out = meta.format === 'webp' ? raw.webp({ lossless: true }) : raw.png();
+		return new Uint8Array(await out.toBuffer());
+	} catch {
+		return pageBytes;
 	}
-
-	return new Uint8Array(PNG.sync.write(png));
 }
 
 /**

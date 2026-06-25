@@ -104,7 +104,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const atlasText = regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
 	// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention so they
 	// don't render upside down in the Rigger (no-op when no region is rotated).
-	const pageBody = reorientRotatedRegionsForSpine(page.body, rs.regions);
+	const pageBody = await reorientRotatedRegionsForSpine(page.body, rs.regions);
 	await putObjectBytes(`${bundlePrefix}/${pageName}`, pageBody, page.contentType);
 	await putObjectText(`${bundlePrefix}/${atlasFile}`, atlasText, 'text/plain; charset=utf-8');
 	// Refresh the sidecar so a picked source becomes remembered (one-click next time).

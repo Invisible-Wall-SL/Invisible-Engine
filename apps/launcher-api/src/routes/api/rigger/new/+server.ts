@@ -60,7 +60,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention so they
 	// don't render upside down in the Rigger (no-op when no region is rotated).
-	const pageBody = reorientRotatedRegionsForSpine(page.body, rs.regions);
+	const pageBody = await reorientRotatedRegionsForSpine(page.body, rs.regions);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBody, page.contentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(skeleton), 'application/json');
