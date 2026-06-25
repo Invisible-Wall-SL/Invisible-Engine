@@ -135,6 +135,73 @@ export function spawnRadius(config: EmitterConfigV3): number | undefined {
 	return typeof data?.radius === 'number' ? data.radius : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Spawn shape (the inspector's shape picker). The `@barvynkoa/particle-emitter`
+// `spawnShape` behavior carries `config: { type, data }`, where `type` is the
+// library's registered shape name (`'torus'` | `'rect'` | `'polygonalChain'`) and
+// `data` is that shape's param block. We expose four AUTHORING shapes that all map
+// onto those two library shapes — point/circle/ring are one `torus` (point = radius
+// 0, ring = innerRadius > 0), rectangle is `rect`. Switching shape REWRITES only the
+// `spawnShape` behavior's `type`+`data` (config is otherwise byte-identical), exactly
+// like `setSpawnRadius`. Kept PURE so the harness covers the shape mapping.
+// ---------------------------------------------------------------------------
+
+/** The four authoring spawn shapes the inspector offers (a friendlier projection of the library shapes). */
+export type SpawnShapeKind = 'point' | 'circle' | 'ring' | 'rectangle';
+
+/** The library `torus` shape data (circle/ring/point all share it). */
+interface TorusData {
+	x: number;
+	y: number;
+	radius: number;
+	innerRadius?: number;
+}
+
+/** The library `rect` shape data. We author it CENTRED, so `x`/`y` are the top-left = `-w/2`/`-h/2`. */
+interface RectData {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+/**
+ * Read the authoring shape + its params out of a config's `spawnShape` behavior. Returns
+ * `undefined` when there is no `spawnShape` behavior (a config that never had one). A `torus`
+ * with `innerRadius > 0` reads as a `ring`, `radius === 0` as a `point`, otherwise a `circle`;
+ * a `rect` reads as a `rectangle` (width/height recovered from its `w`/`h`).
+ */
+export function spawnShape(config: EmitterConfigV3):
+	| {
+			kind: SpawnShapeKind;
+			x: number;
+			y: number;
+			radius: number;
+			innerRadius: number;
+			width: number;
+			height: number;
+	  }
+	| undefined {
+	const b = behaviorsOf(config).find((x) => x.type === 'spawnShape');
+	if (!b) return undefined;
+	const type = b.config.type as string | undefined;
+	const data = (b.config.data as Record<string, unknown> | undefined) ?? {};
+	const numAt = (k: string, fallback = 0): number =>
+		typeof data[k] === 'number' ? (data[k] as number) : fallback;
+	if (type === 'rect') {
+		const width = numAt('w');
+		const height = numAt('h');
+		return { kind: 'rectangle', x: 0, y: 0, radius: 0, innerRadius: 0, width, height };
+	}
+	// Default + everything else: treat as a torus (circle / ring / point).
+	const x = numAt('x');
+	const y = numAt('y');
+	const radius = numAt('radius');
+	const innerRadius = numAt('innerRadius');
+	const kind: SpawnShapeKind = radius === 0 ? 'point' : innerRadius > 0 ? 'ring' : 'circle';
+	return { kind, x, y, radius, innerRadius, width: 0, height: 0 };
+}
+
 /**
  * Return a NEW config with one core param changed — the inspector edits go through here so
  * the page can re-`init` the live emitter and re-record the doc immutably (no in-place
@@ -299,6 +366,90 @@ export function setSpawnRadius(config: EmitterConfigV3, radius: number): Emitter
 		b.config.data = { ...data, radius };
 	}
 	return next;
+}
+
+/**
+ * Replace (or add) the `spawnShape` behavior immutably with the library `{ type, data }` for the
+ * given config. The ONLY behavior touched is `spawnShape`; everything else is byte-identical. If no
+ * `spawnShape` behavior exists, one is APPENDED (a config without one degrades gracefully — the
+ * picker can introduce it). Centre `x`/`y` are carried so a shape sits over the emitter origin.
+ */
+function writeSpawnShape(
+	config: EmitterConfigV3,
+	type: 'torus' | 'rect',
+	data: TorusData | RectData,
+): EmitterConfigV3 {
+	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
+	const behaviors = behaviorsOf(next);
+	const b = behaviors.find((x) => x.type === 'spawnShape');
+	if (b) {
+		b.config.type = type;
+		b.config.data = data;
+	} else {
+		behaviors.push({ type: 'spawnShape', config: { type, data } });
+	}
+	return next;
+}
+
+/**
+ * Switch the authoring spawn shape immutably, preserving any params shared with the prior shape
+ * (centre, radius, inner radius, width/height) so toggling between shapes is non-destructive:
+ * - `point`    → `torus` radius 0
+ * - `circle`   → `torus` radius R (innerRadius 0)
+ * - `ring`     → `torus` radius R + innerRadius r (defaulting to a sensible inner if none yet)
+ * - `rectangle`→ `rect` centred (x/y = -w/2, -h/2) of width/height
+ * The current params are read from the existing `spawnShape` (or defaults if absent).
+ */
+export function setSpawnShape(config: EmitterConfigV3, kind: SpawnShapeKind): EmitterConfigV3 {
+	const cur = spawnShape(config);
+	const x = cur?.x ?? 0;
+	const y = cur?.y ?? 0;
+	const radius = cur && cur.radius > 0 ? cur.radius : 32;
+	const inner = cur && cur.innerRadius > 0 ? cur.innerRadius : Math.max(1, Math.round(radius / 2));
+	const width = cur && cur.width > 0 ? cur.width : 64;
+	const height = cur && cur.height > 0 ? cur.height : 64;
+	switch (kind) {
+		case 'point':
+			return writeSpawnShape(config, 'torus', { x, y, radius: 0 });
+		case 'circle':
+			return writeSpawnShape(config, 'torus', { x, y, radius });
+		case 'ring':
+			return writeSpawnShape(config, 'torus', { x, y, radius, innerRadius: inner });
+		case 'rectangle':
+			return setSpawnRect(config, width, height);
+	}
+}
+
+/** Set a `ring` spawn shape's inner + outer radius immutably (forces `torus`, keeps the centre). */
+export function setSpawnRing(
+	config: EmitterConfigV3,
+	radius: number,
+	innerRadius: number,
+): EmitterConfigV3 {
+	const cur = spawnShape(config);
+	return writeSpawnShape(config, 'torus', {
+		x: cur?.x ?? 0,
+		y: cur?.y ?? 0,
+		radius,
+		innerRadius,
+	});
+}
+
+/**
+ * Set a `rectangle` spawn shape's width + height immutably, CENTRED on the emitter origin (the
+ * library `rect` is top-left anchored, so `x`/`y` = `-w/2`/`-h/2`). Forces `rect`.
+ */
+export function setSpawnRect(
+	config: EmitterConfigV3,
+	width: number,
+	height: number,
+): EmitterConfigV3 {
+	return writeSpawnShape(config, 'rect', {
+		x: -width / 2,
+		y: -height / 2,
+		w: width,
+		h: height,
+	});
 }
 
 // ---------------------------------------------------------------------------

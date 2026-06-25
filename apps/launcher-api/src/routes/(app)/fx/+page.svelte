@@ -15,13 +15,17 @@
 		setPlacementOffset,
 		setPlacementSpace,
 		setSpawnRadius,
+		setSpawnRect,
+		setSpawnRing,
+		setSpawnShape,
 		setSpineParticleAnimation,
 		setSpineParticleLoop,
 		setSpineParticleSkeleton,
 		setTriggerDuration,
 		setTriggerEvent,
 		setTriggerMode,
-		spawnRadius,
+		spawnShape,
+		type SpawnShapeKind,
 		triggerMode,
 	} from './fxModel.client';
 	import { loadFxSpine, type FxSkeletonEntry, type LoadedFxSpine } from './fxSpine.client';
@@ -300,7 +304,7 @@
 	const alphaEnds = $derived(config ? listEndpoints(config, 'alpha', 'alpha') : undefined);
 	const scaleEnds = $derived(config ? listEndpoints(config, 'scale', 'scale') : undefined);
 	const speedEnds = $derived(config ? listEndpoints(config, 'moveSpeed', 'speed') : undefined);
-	const radius = $derived(config ? spawnRadius(config) : undefined);
+	const shape = $derived(config ? spawnShape(config) : undefined);
 
 	function num(e: Event): number {
 		return Number((e.currentTarget as HTMLInputElement).value);
@@ -313,6 +317,42 @@
 		return raw === '' ? Number.NaN : Number(raw);
 	}
 </script>
+
+<!--
+	A reusable "slider + number box" row. The range slider drives `onLive` on EVERY drag tick
+	(`oninput`) so the preview re-tunes in realtime (the rebuild path is generation-guarded /
+	coalesced in FxStage, so dragging is safe). A paired numeric box shows the live value AND lets
+	you type an exact one (`onchange`, on commit). Both call the SAME mutator, so they stay in sync.
+-->
+{#snippet slider(
+	label: string,
+	value: number,
+	min: number,
+	max: number,
+	step: number,
+	apply: (v: number) => void,
+)}
+	<div class="row slider">
+		<span>{label}</span>
+		<input
+			type="range"
+			{min}
+			{max}
+			{step}
+			{value}
+			oninput={(e) => apply(Number((e.currentTarget as HTMLInputElement).value))}
+		/>
+		<input
+			class="numbox"
+			type="number"
+			{min}
+			{max}
+			{step}
+			{value}
+			onchange={(e) => apply(Number((e.currentTarget as HTMLInputElement).value))}
+		/>
+	</div>
+{/snippet}
 
 <svelte:head><title>Invisible FX</title></svelte:head>
 
@@ -737,143 +777,98 @@
 
 				<section>
 					<h3>Emitter</h3>
+					{@render slider('Frequency (s)', config.frequency, 0.001, 0.5, 0.001, (v) =>
+						patchConfig(setCoreParam(config, 'frequency', v)),
+					)}
+					{@render slider('Max particles', config.maxParticles ?? 0, 1, 1000, 1, (v) =>
+						patchConfig(setCoreParam(config, 'maxParticles', v)),
+					)}
+					{@render slider('Lifetime min (s)', config.lifetime.min, 0, 5, 0.05, (v) =>
+						patchConfig(setCoreParam(config, 'lifetimeMin', v)),
+					)}
+					{@render slider('Lifetime max (s)', config.lifetime.max, 0, 5, 0.05, (v) =>
+						patchConfig(setCoreParam(config, 'lifetimeMax', v)),
+					)}
+				</section>
+
+				<section>
+					<h3>Spawn shape</h3>
 					<label class="row">
-						<span>Frequency (s)</span>
-						<input
-							type="number"
-							step="0.001"
-							min="0.001"
-							value={config.frequency}
-							onchange={(e) => patchConfig(setCoreParam(config, 'frequency', num(e)))}
-						/>
+						<span>Shape</span>
+						<select
+							value={shape?.kind ?? 'circle'}
+							onchange={(e) =>
+								patchConfig(
+									setSpawnShape(
+										config,
+										(e.currentTarget as HTMLSelectElement).value as SpawnShapeKind,
+									),
+								)}
+						>
+							<option value="point">Point</option>
+							<option value="circle">Circle</option>
+							<option value="ring">Ring</option>
+							<option value="rectangle">Rectangle</option>
+						</select>
 					</label>
-					<label class="row">
-						<span>Max particles</span>
-						<input
-							type="number"
-							step="10"
-							min="1"
-							value={config.maxParticles ?? 0}
-							onchange={(e) => patchConfig(setCoreParam(config, 'maxParticles', num(e)))}
-						/>
-					</label>
-					<label class="row">
-						<span>Lifetime min (s)</span>
-						<input
-							type="number"
-							step="0.05"
-							min="0"
-							value={config.lifetime.min}
-							onchange={(e) => patchConfig(setCoreParam(config, 'lifetimeMin', num(e)))}
-						/>
-					</label>
-					<label class="row">
-						<span>Lifetime max (s)</span>
-						<input
-							type="number"
-							step="0.05"
-							min="0"
-							value={config.lifetime.max}
-							onchange={(e) => patchConfig(setCoreParam(config, 'lifetimeMax', num(e)))}
-						/>
-					</label>
-					{#if radius !== undefined}
-						<label class="row">
-							<span>Spawn radius</span>
-							<input
-								type="number"
-								step="1"
-								min="0"
-								value={radius}
-								onchange={(e) => patchConfig(setSpawnRadius(config, num(e)))}
-							/>
-						</label>
+					{#if shape?.kind === 'circle'}
+						{@render slider('Radius', shape.radius, 0, 400, 1, (v) =>
+							patchConfig(setSpawnRadius(config, v)),
+						)}
+					{:else if shape?.kind === 'ring'}
+						{@render slider('Outer radius', shape.radius, 0, 400, 1, (v) =>
+							patchConfig(setSpawnRing(config, v, shape.innerRadius)),
+						)}
+						{@render slider('Inner radius', shape.innerRadius, 0, 400, 1, (v) =>
+							patchConfig(setSpawnRing(config, shape.radius, v)),
+						)}
+					{:else if shape?.kind === 'rectangle'}
+						{@render slider('Width', shape.width, 0, 800, 1, (v) =>
+							patchConfig(setSpawnRect(config, v, shape.height)),
+						)}
+						{@render slider('Height', shape.height, 0, 800, 1, (v) =>
+							patchConfig(setSpawnRect(config, shape.width, v)),
+						)}
+					{:else if shape?.kind === 'point'}
+						<p class="hint">Particles spawn from a single point at the emitter origin.</p>
+					{:else}
+						<p class="hint">This config has no spawn shape — pick one to add it.</p>
 					{/if}
 				</section>
 
 				{#if alphaEnds}
 					<section>
 						<h3>Alpha</h3>
-						<label class="row">
-							<span>Start</span>
-							<input
-								type="number"
-								step="0.05"
-								min="0"
-								max="1"
-								value={alphaEnds.start}
-								onchange={(e) =>
-									patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'start', num(e)))}
-							/>
-						</label>
-						<label class="row">
-							<span>End</span>
-							<input
-								type="number"
-								step="0.05"
-								min="0"
-								max="1"
-								value={alphaEnds.end}
-								onchange={(e) =>
-									patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'end', num(e)))}
-							/>
-						</label>
+						{@render slider('Start', alphaEnds.start, 0, 1, 0.01, (v) =>
+							patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'start', v)),
+						)}
+						{@render slider('End', alphaEnds.end, 0, 1, 0.01, (v) =>
+							patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'end', v)),
+						)}
 					</section>
 				{/if}
 
 				{#if scaleEnds}
 					<section>
 						<h3>Scale</h3>
-						<label class="row">
-							<span>Start</span>
-							<input
-								type="number"
-								step="0.05"
-								min="0"
-								value={scaleEnds.start}
-								onchange={(e) =>
-									patchConfig(setListEndpoint(config, 'scale', 'scale', 'start', num(e)))}
-							/>
-						</label>
-						<label class="row">
-							<span>End</span>
-							<input
-								type="number"
-								step="0.05"
-								min="0"
-								value={scaleEnds.end}
-								onchange={(e) =>
-									patchConfig(setListEndpoint(config, 'scale', 'scale', 'end', num(e)))}
-							/>
-						</label>
+						{@render slider('Start', scaleEnds.start, 0, 4, 0.05, (v) =>
+							patchConfig(setListEndpoint(config, 'scale', 'scale', 'start', v)),
+						)}
+						{@render slider('End', scaleEnds.end, 0, 4, 0.05, (v) =>
+							patchConfig(setListEndpoint(config, 'scale', 'scale', 'end', v)),
+						)}
 					</section>
 				{/if}
 
 				{#if speedEnds}
 					<section>
 						<h3>Speed</h3>
-						<label class="row">
-							<span>Start</span>
-							<input
-								type="number"
-								step="10"
-								min="0"
-								value={speedEnds.start}
-								onchange={(e) =>
-									patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'start', num(e)))}
-							/>
-						</label>
-						<label class="row">
-							<span>End</span>
-							<input
-								type="number"
-								step="10"
-								min="0"
-								value={speedEnds.end}
-								onchange={(e) =>
-									patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'end', num(e)))}
-							/>
-						</label>
+						{@render slider('Start', speedEnds.start, 0, 1000, 1, (v) =>
+							patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'start', v)),
+						)}
+						{@render slider('End', speedEnds.end, 0, 1000, 1, (v) =>
+							patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'end', v)),
+						)}
 					</section>
 				{/if}
 			{:else}
@@ -1116,6 +1111,28 @@
 	}
 	.row.check input {
 		width: auto;
+	}
+	.row.slider {
+		gap: 6px;
+	}
+	.row.slider > span {
+		flex: none;
+		width: 78px;
+	}
+	.row.slider input[type='range'] {
+		flex: 1;
+		width: auto;
+		min-width: 0;
+		padding: 0;
+		accent-color: #3b82f6;
+		background: transparent;
+		border: none;
+	}
+	.row.slider .numbox {
+		flex: none;
+		width: 52px;
+		padding: 3px 4px;
+		text-align: right;
 	}
 	.frames {
 		display: flex;

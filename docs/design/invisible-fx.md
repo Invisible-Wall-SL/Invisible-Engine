@@ -46,6 +46,49 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
 
 ### Progress
 
+- **Inspector authoring-UX polish: LIVE SLIDERS + SPAWN-SHAPE picker — ✅ DONE HEADLESSLY
+  (2026-06-25, branch `fx/phase1-emitter-core`, no game bump).** Owner-requested `/fx` inspector
+  polish (the tool is otherwise feature-complete). Two improvements, both PURE config edits through
+  the existing `patchConfig`/`updateSelected` seam (schema + `normalize` untouched — spawnShape is
+  already verbatim inside the config):
+
+  - **Live sliders (replace the value boxes).** The numeric Emitter (frequency / max particles /
+    lifetime min+max) and Alpha/Scale/Speed start+end fields are now a reusable **"slider + number
+    box"** combo (`{#snippet slider(label, value, min, max, step, apply)}` in `+page.svelte`). The
+    range input fires `oninput` on EVERY drag tick → re-records the doc → the preview re-tunes live
+    (FxStage's rebuild is already generation-guarded/coalesced, so dragging is safe); the paired
+    numeric box shows the live value AND lets you type an exact one (`onchange`, on commit). Both call
+    the SAME mutator. Per-field min/max/step: frequency 0.001–0.5 step 0.001; max particles 1–1000
+    step 1; lifetime 0–5s step 0.05; alpha 0–1 step 0.01; scale 0–4 step 0.05; speed 0–1000 step 1;
+    spawn radii 0–400 step 1; rect width/height 0–800 step 1. Placement offsets + trigger duration
+    stay text boxes (unbounded / blank-clears — a slider is worse there).
+  - **Spawn-shape picker.** Was: only a torus `radius`. Now a **Shape** dropdown — Point / Circle /
+    Ring / Rectangle — driving the verbatim `spawnShape` behavior (`@barvynkoa/particle-emitter`):
+    Point/Circle/Ring all map to the library `torus` (`point` = radius 0; `circle` = radius>0, no
+    inner; `ring` = innerRadius>0), Rectangle maps to the library `rect` authored CENTRED on the
+    emitter origin (`x`/`y` = `-w/2`/`-h/2`). Only the relevant params show (sliders, per above).
+    Switching shape REWRITES only the `spawnShape` entry's `type`+`data`; all other behaviors stay
+    byte-identical (the verbatim-config contract). A config with no `spawnShape` degrades gracefully —
+    the picker APPENDS one.
+  - **New PURE mutators/readout** (`fxModel.client.ts`, PixiJS-free so the harness covers them):
+    `setSpawnShape` (switch + carry shared params non-destructively), `setSpawnRing` (outer+inner),
+    `setSpawnRect` (centred w/h), and `spawnShape(config)` readout (recovers the authoring shape +
+    params from the library `{type,data}`). `setSpawnRadius` reused for the Circle radius. All
+    JSON-clone the config (like the existing mutators), edit ONLY the `spawnShape` behavior, never
+    mutate the source.
+  - **Verified headlessly** — `tools/fx-spike/modelHelpers.ts` (`pnpm --filter fx-spike run model`)
+    extended GREEN: each shape produces the right `spawnShape` `type`+`data`; switching shapes is
+    immutable + leaves all NON-spawnShape behaviors byte-identical; the readout round-trips
+    (point/circle/ring/rect); a `spawnShape`-less config reads `undefined` + the picker adds one; and
+    every shape config still feeds `upgradeConfig`/`bindArt` cleanly. ALL 11 fx harnesses GREEN.
+    **Build GREEN:** `pnpm --filter launcher-api build`; Prettier clean (package-local config).
+  - **NEEDS LIVE OWNER-VERIFY (NOT headless, authed `/fx` page):** the sliders re-tuning the preview
+    LIVE as you drag, and each spawn shape visibly changing the particle spawn PATTERN.
+  - **`docs/tools/fx.md`** wants a later `docs-keeper` refresh for the inspector section (live sliders
+    + the Spawn-shape picker). No tool registration / submodule bump.
+  - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,fxModel.client.ts}`,
+    `tools/fx-spike/modelHelpers.ts`, `docs/STATUS.md`.
+
 - **Tier C `skeletonKey` key-stability seam — ✅ CLOSED HEADLESSLY (2026-06-25, branch
   `fx/phase1-emitter-core`, no game bump).** Per the increment-2 follow-up + §9 (the atlas "key
   stability" rule, applied to spines). The one correctness gap blocking a spine-particle effect from
