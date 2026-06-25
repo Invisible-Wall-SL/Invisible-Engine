@@ -229,10 +229,6 @@
         </div>
         <div id="pane-load" style="display:none">
           <div class="hint">Import a packed sheet or coords file (.atlas / TexturePacker JSON / manifest), then Save As to keep it as a project sheet. To open one of THIS project's saved sheets, pick it in the Sheets rail above.</div>
-          <div class="tabs">
-            <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
-            <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
-          </div>
           <div class="hint" id="browsehint"></div>
           <div class="cwd" id="cwd"></div>
           <div class="browser" id="browser"></div>
@@ -466,10 +462,13 @@ function showTab(t){
   if(t==='load'){ updateBrowseHint(); browse(''); }
 }
 
+/* Browse mode. There's no user-facing toggle anymore — the browser defaults to
+   'projects' (this project's saved atlas_manifest_*.json). The Atlas Maker's
+   "Open in Atlas Maker" fallback still deep-links here with ?import=<atlas> and
+   programmatically switches to 'import' (whole-project tree) so the user can
+   pick that packed sheet — see init(). */
 function setBrowseMode(m){
   browseMode=m;
-  $('bm-projects').classList.toggle('active',m==='projects');
-  $('bm-import').classList.toggle('active',m==='import');
   updateBrowseHint();
   browse('');
 }
@@ -848,12 +847,21 @@ async function loadSheet(){
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
   updateReadouts();
-  let msg='Loaded "'+j.name+'" ('+j.count+' sprites, locked in place) — upload more on the Upload tab, then Save to update it.';
-  if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
-  if(j.missing && j.missing.length) msg+=' · '+j.missing.length+' sprite source(s) missing: '+j.missing.slice(0,5).join(', ')+(j.missing.length>5?'…':'');
-  const noted=(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
+  let msg;
+  if(j.recovered){
+    // No coords existed (an old export wrote the PNG but no manifest); we
+    // rebuilt the sheet from its original loose sprites as unplaced sprites.
+    msg='Recovered "'+j.name+'" from '+j.count+' original sprite(s) — no coords '
+      +'were saved. Auto-arrange to pack, then Save to write the manifest.';
+  }else{
+    msg='Loaded "'+j.name+'" ('+j.count+' sprites, locked in place) — upload more on the Upload tab, then Save to update it.';
+    if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
+    if(j.missing && j.missing.length) msg+=' · '+j.missing.length+' sprite source(s) missing: '+j.missing.slice(0,5).join(', ')+(j.missing.length>5?'…':'');
+  }
+  const noted=j.recovered||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
   m.className=noted?'note':'ok'; m.textContent=msg;
   fitView();
+  if(j.recovered) doArrange();   // pack the recovered loose sprites for the user
   markDirty();
 }
 async function refreshR2(btn){

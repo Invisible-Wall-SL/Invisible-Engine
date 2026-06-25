@@ -522,26 +522,34 @@ def api_export(payload: dict) -> dict:
         if export_prefix:
             tp_json_key = f"{export_prefix}/{jp.name}"
 
+    # The manifest is ALWAYS written, regardless of the format checkbox: it is
+    # the canonical coords the loader (api_load_sheet) looks for FIRST, and the
+    # only artifact that carries the AI fields + shape_ref back-refs needed to
+    # recover the original loose sprites on a re-open. Unticking it (and the
+    # other two boxes) used to mirror the PNG but persist ZERO coords, leaving a
+    # sheet that shows in the rail yet hard-errors on Load with no way back. The
+    # `.atlas` / TexturePacker JSON above stay optional (interop extras); the
+    # manifest does not. The checkbox now only controls the user-facing note.
+    manifest = atlas_writers.build_manifest(
+        sheet_image=str(sheet_png), width=width, height=height,
+        regions=regions, deploy_basename=basename,
+        export_prefix=export_prefix,
+        source_image_path=source_image_key,
+        atlas_file=atlas_file_key,
+        texturepacker_json=tp_json_key,
+        region_shape_keys=region_shape_keys)
+    man_name = f"atlas_manifest_{basename}.json"
+    # The manifest lands in the SHARED manifests/ folder (mirrored to
+    # <C>/<P>/manifests) — the single source of truth both tools read. No
+    # cross-tool copy: the Atlas Maker hydrates the same manifests/ key.
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
+    man_dir.mkdir(parents=True, exist_ok=True)
+    mp = man_dir / man_name
+    atlas_writers.write_manifest(mp, manifest)
+    _mirror(mp)
+    written.append(str(mp))
     manifest_note = ""
     if fmts.get("manifest"):
-        manifest = atlas_writers.build_manifest(
-            sheet_image=str(sheet_png), width=width, height=height,
-            regions=regions, deploy_basename=basename,
-            export_prefix=export_prefix,
-            source_image_path=source_image_key,
-            atlas_file=atlas_file_key,
-            texturepacker_json=tp_json_key,
-            region_shape_keys=region_shape_keys)
-        man_name = f"atlas_manifest_{basename}.json"
-        # The manifest lands in the SHARED manifests/ folder (mirrored to
-        # <C>/<P>/manifests) — the single source of truth both tools read. No
-        # cross-tool copy: the Atlas Maker hydrates the same manifests/ key.
-        man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
-        man_dir.mkdir(parents=True, exist_ok=True)
-        mp = man_dir / man_name
-        atlas_writers.write_manifest(mp, manifest)
-        _mirror(mp)
-        written.append(str(mp))
         manifest_note = (f"Manifest saved to the shared project folder -> {man_name}. "
                          "The Atlas Maker lists it after a Refresh (or restart).")
 
@@ -1427,6 +1435,52 @@ def api_load(payload: dict) -> dict:
             "name": name, "is_project": is_project}
 
 
+def _recover_sheet_from_sprites(sheet: str) -> dict | None:
+    """Recover a coords-less sheet from its loose sprite pile (sheet_src/<sheet>/).
+
+    A sheet whose packed PNG was mirrored but whose coords were never written
+    (e.g. an export with every format box unticked, pre-fix) shows in the rail
+    yet has no manifest/.atlas/.json to load. Its ORIGINAL uploads are still in
+    sheet_src/<sheet>/, so we rebuild them as UNPLACED regions for the user to
+    auto-arrange and re-export (which now always writes the manifest). Returns
+    None when there's nothing to recover, so the caller can fall back to the
+    hard error."""
+    up = uploads_dir(sheet)            # hydrates sheet_src/<sheet>/ from R2
+    sprites = sorted(p for p in up.glob("*")
+                     if p.suffix.lower() in (".png", ".webp"))
+    if not sprites:
+        return None
+    regions_out = []
+    used_names: set[str] = set()
+    for p in sprites:
+        try:
+            w, h = packer.measure(p)
+        except Exception:  # noqa: BLE001 — skip an unreadable loose sprite
+            continue
+        nm = safe_name(p.stem, "region")
+        base_nm = nm
+        k = 2
+        while nm in used_names:
+            nm = f"{base_nm}_{k}"; k += 1
+        used_names.add(nm)
+        regions_out.append({
+            "src": p.name, "name": nm, "x": 0, "y": 0,
+            "w": w, "h": h, "iw": w, "ih": h, "ow": w, "oh": h,
+            "rotated": False, "locked": False,
+            "prompt": "", "shape_ref": "", "seed": "",
+        })
+    if not regions_out:
+        return None
+    cfg = load_config()
+    return {"sheet": sheet,
+            "canvas_w": int(cfg.get("width", 1024)),
+            "canvas_h": int(cfg.get("height", 1024)),
+            "regions": regions_out, "count": len(regions_out),
+            "skipped": [], "missing": [], "packed": False, "recovered": True,
+            "source_path": "", "source_dir": str(up.resolve()),
+            "name": sheet, "is_project": False}
+
+
 def api_load_sheet(payload: dict) -> dict:
     """Add sprites to an EXISTING sheet: load one of this project's saved
     sheets back into the editor so new uploads pack on top of it.
@@ -1459,6 +1513,15 @@ def api_load_sheet(payload: dict) -> dict:
                                out / f"{sheet}.atlas",
                                out / f"{sheet}.json") if c.exists()), None)
     if coords is None:
+        # No coords anywhere — but the rail listed this sheet because its packed
+        # PNG (or a loose-sprite pile) exists in R2. Rather than a dead-end, try
+        # to RECOVER it from the original loose sprites under sheet_src/<sheet>/
+        # so the user can re-arrange + re-export (Export now always writes the
+        # manifest, so re-exporting fully restores coords). Only when there's
+        # genuinely nothing to recover do we surface the hard error.
+        recovered = _recover_sheet_from_sprites(sheet)
+        if recovered is not None:
+            return recovered
         return {"error": f"Sheet '{sheet}' has no coords file — looked for "
                 f"atlas_manifest_{sheet}.json (manifests/), {sheet}.atlas and "
                 f"{sheet}.json (sheets/{sheet}/). Try ↻ Refresh from R2."}
