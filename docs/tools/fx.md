@@ -5,15 +5,17 @@ emitter **layers** — over a project's atlas art, tune each emitter live in a W
 preview, and save it. The saved artifact is an **EffectDoc** stored in the project's
 cloud storage.
 
-> **Status (as of 2026-06-24):** **Phases 1–2 — emitter-core authoring + Spine attach.**
-> What ships now: add emitter layers, draw their particle art from a project atlas, tune
-> the emitter live, **load a project Spine rig as a backdrop and pin a layer onto one of
-> its bones** so the particles ride the animation, and save/reopen the effect. It is an
-> **authoring surface only** — saving writes the EffectDoc to cloud storage but does
-> **not yet make any game play the effect**. The spine-as-particle tier (whole Spine
-> clips *as* the particles) and wiring the saved effect through the build so a shipped
-> game fires it are **later phases**. See "What it does not do yet" below, and the design
-> doc for the full roadmap.
+> **Status (as of 2026-06-25):** **Phases 1 + 2 + 4 — emitter-core authoring + Spine
+> attach + the full author→ship→fire loop.** What ships now: add emitter layers, draw their
+> particle art from a project atlas, tune the emitter live, **load a project Spine rig as a
+> backdrop and pin a layer onto one of its bones** so the particles ride the animation,
+> author **when** a layer fires (ambient, or on a game event), and save/reopen the effect.
+> A saved effect **does** travel into a game — the export → `deploy/` → bake → pull →
+> register chain is wired, and a layer set to fire **on event** plays in-game when a
+> matching event (e.g. a Flow Broadcast) crosses the runtime event bus. The one remaining
+> gap is the **spine-as-particle tier** (whole Spine clips *as* the particles), which is
+> still gated behind a make-or-break spike. See "What it does not do yet" below, and the
+> design doc for the full roadmap.
 
 ## What it is
 
@@ -28,7 +30,14 @@ numbers, and watch the result spawn in real time.
 - **Particle art comes from your project's atlases.** A layer points at one of the
   project's atlases (the same manifests the Scene Editor and Rigger read) and you tick
   which **regions** become the particle frames. Pick more than one region and you can
-  turn the layer into a **flipbook** that animates through the frames.
+  turn the layer into a **flipbook** that animates through the frames. Particles are
+  always atlas-region sprites — there are no built-in abstract shapes. Until you bind a
+  region, the preview spawns soft **placeholder dots** so the emitter is still visible
+  (see below).
+- **A layer can be ambient or fire on a game event.** By default a layer emits
+  continuously (ambient). You can instead set it to fire **on event** — choosing one of
+  the project's broadcastable event types — so the effect plays in a shipped game when
+  that event crosses the runtime event bus (the same vocabulary a Flow Broadcast emits).
 - **The preview is the source of truth while you edit.** The center stage rebuilds the
   emitters from the in-memory effect on every change, so the numbers you type are the
   numbers you see.
@@ -83,6 +92,14 @@ where your particles sit relative to the art. **Drag** to pan, **scroll** to zoo
 use **▶ Play / ❚❚ Pause** (sub-bar) to start/stop the simulation. **Reset view**
 re-fits.
 
+**Placeholder dots (a layer with no art).** Particles in this tool are sprites cut from
+your atlas — there is no abstract default shape. So a layer that has **no region bound
+yet** would render nothing. To let you shape the emitter (rate, spread, motion, fades)
+*before* committing to art, the preview substitutes soft white **placeholder dots** for
+that layer; they spawn from the **centre of the canvas**. As soon as you tick a region in
+the Inspector, the real texture replaces the dots. The dots are a preview stand-in only —
+they are never written into the saved effect and are never used by a game.
+
 ### Load a Spine backdrop (attach to a rig)
 
 Above the preview is a **Backdrop** bar. Pick one of the project's Spine rigs (the same
@@ -104,14 +121,33 @@ With a layer selected, the right **Inspector** edits it:
 - **Art → Atlas** — a dropdown of the project's atlases. Pick one and a checkbox list of
   its **regions** appears below; tick the regions you want as the particle frames. (If
   the project has no usable atlases yet, the panel tells you to make one in the Atlas or
-  Sheet Maker first.) When a layer has **more than one** frame, a **Flipbook (animate
-  frames)** toggle appears — on, the particle cycles through the frames; off, it's a
-  multi-frame still.
+  Sheet Maker first.) While the layer has **no region bound**, the panel shows a hint
+  reminding you the preview is showing placeholder dots and to pick an atlas + tick a
+  region for the real particle. When a layer has **more than one** frame, a **Flipbook
+  (animate frames)** toggle appears — on, the particle cycles through the frames; off,
+  it's a multi-frame still.
 - **Placement** — where the layer's emitter sits. **Mode** is **Free (scene)** (spawns
   at the scene origin) or **Bone (rig)** (follows a bone of the loaded Spine backdrop —
   enabled only when a backdrop is loaded). In **Bone** mode a **Bone** dropdown lists the
   rig's bones; **Offset X/Y** nudges the spawn point relative to the scene origin (Free)
   or the followed bone (Bone).
+- **Trigger** — *when* the layer fires. **Mode** is **Always (ambient)** (the layer
+  emits continuously, the default) or **On event**. In **On event** mode two more
+  controls appear:
+  - **Event** — the bus event type the layer fires on. When the project has an exported
+    emitter vocabulary, this is a dropdown of that project's broadcastable event types —
+    the **same vocabulary Invisible Flow uses**, so a Flow **Broadcast** node of that
+    type is what fires the effect in-game. If the project has no exported vocabulary, the
+    field degrades to a **free-text** box (type the Flow Broadcast event type yourself),
+    and a hint explains why. An empty event means the layer is set to fire on an event but
+    has none bound — it stays dormant (the fail-safe) until you pick one.
+  - **Duration (ms)** — how long the burst emits after the event arrives, then stops.
+    Leave it **blank** to let the emitter's own lifetime (`emitterLifetime` in the
+    config) govern how long it runs instead.
+
+  This is what makes "fire effect X on game event Y" authorable end-to-end: the layer
+  carries the event binding, and the runtime (after the effect is shipped — see Save)
+  plays it when that event crosses the bus.
 - **Emitter** — the core emitter numbers: **Frequency (s)** (seconds between spawns),
   **Max particles**, **Lifetime min/max (s)**, and a **Spawn radius** (when the emitter
   uses a spawn-circle).
@@ -129,25 +165,34 @@ and layer count, and the id is slugged from the name so a later save or **Open e
 round-trips to the same files. Reopening an effect restores its layers, the Inspector,
 and the layer you last had selected.
 
+### Getting a saved effect into a game
+
+Saving stores the effect; it does **not** by itself update a running game — a game picks
+up effects the next time it is **published/baked**. When the project is built, the effect
+travels the standard chain (export → `deploy/effects/` → bake → pull → register), the same
+path the editor art and Flow document take. After that, a layer set to fire **on event**
+plays in-game whenever a matching event crosses the runtime event bus (for example a Flow
+**Broadcast** of the layer's event type). So "author the effect here, fire it on a game
+event" works end-to-end — it just requires a publish/bake to reach the live game, not a
+mere save.
+
 ## What it does not do yet
 
-- **Saving does not yet make a game play the effect.** Wiring the EffectDoc through
-  export → `deploy/` → bake → pull → `register` so a shipped game can fire it is a later
-  phase (Phase 4 in the design doc). Until then the effect is a saveable, reopenable
-  authoring artifact only — it does not reach any running game.
 - **No spine-as-particle tier.** Emitting whole Spine clips *as* the particles is an
-  ambitious later tier gated behind a make-or-break spike (Phase 0 in the design doc);
-  this version emits sprite particles drawn from atlas regions.
-- **It is not a trigger editor.** *When* an effect fires in a game is owned by Invisible
-  Flow (a Broadcast event plays an effect); Invisible FX authors the effect itself, not
-  the triggering.
+  ambitious later tier gated behind a make-or-break spike (Phase 0 / Tier C in the design
+  doc); this version emits sprite particles drawn from atlas regions. (A Spine rig can be
+  a backdrop and a layer can ride a bone — but the *particles* are sprites.)
+- **It authors the effect and its trigger binding, not the broader flow.** Invisible FX
+  owns the effect (its emitters, art, placement) and the event it fires on. The wider
+  presentation flow — what *broadcasts* that event, and when — is authored in Invisible
+  Flow; FX and Flow meet at the shared event vocabulary.
 
 ## Known limitations / TODOs
 
-- **The page is built and the launcher build is green; the WebGL preview pixels and the
-  save/open round-trip have not yet been owner-verified** on the live deployed page (the
-  schema + save contract are covered by headless harnesses in `tools/fx-spike/`, but the
-  in-browser stage is not yet live-verified).
+- **Live in-game firing needs an owner pixel-verify.** The full author→ship→fire loop is
+  wired and headless-tested, but firing a baked effect on an event in a real game (in
+  particular the Spine bone-attach coordinate frame) has not yet been owner-verified on
+  live WebGL pixels.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
 
@@ -159,13 +204,18 @@ and the layer you last had selected.
   chain the effect must travel to ship).
 - **The tool page:** `apps/launcher-api/src/routes/(app)/fx/` — `+page.server.ts`
   (SSR off; auth + `fx`-scope gate; streams the project's atlas list via the shared
-  `loadRegionSet`, the saved-effect index, and — on `?effect=<id>` — the opened
-  EffectDoc + its sidecar). `+page.svelte` is the authoring shell (sub-bar, Layers
-  panel, Inspector). `FxStage.svelte` is the WebGL stage (own `PIXI.Application` +
-  pan/zoom/play-pause + a live `Emitter` per layer, and the Tier-B Spine backdrop —
-  loaded imperatively and ridden per-frame, replicating `SpineBone` for `bone`-placed
-  layers). `fxModel.client.ts` is the pure, rune-free editing model + config/placement
-  mutators (+ the bone-follow coordinate math, harness-covered in `tools/fx-spike`).
+  `loadRegionSet`, the saved-effect index, the optionally-opened EffectDoc + its sidecar
+  on `?effect=<id>`, and the project's emitter **vocabulary** `eventTypes` — resolved by
+  the LayoutDoc `gameType` via `resolveFlowVocabulary`, the same source `/flow` uses, so
+  the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
+  is the authoring shell (sub-bar, Layers panel, Inspector with Layer / Art / Placement /
+  Trigger / Emitter / Alpha / Scale / Speed sections, and the Backdrop bar above the
+  canvas). `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
+  play-pause + a live `Emitter` per layer, the centre-spawned placeholder dots for an
+  unbound layer, and the Tier-B Spine backdrop — loaded imperatively and ridden per-frame,
+  replicating `SpineBone` for `bone`-placed layers). `fxModel.client.ts` is the pure,
+  rune-free editing model + config/placement/**trigger** mutators (+ the bone-follow
+  coordinate math, harness-covered in `tools/fx-spike`).
   `fxSpine.client.ts` loads a project skeleton via the shared `/spine/skeletons` +
   `/spine/file` endpoints (whose `requireSpineAccess` gate now also accepts the `fx`
   tool).
