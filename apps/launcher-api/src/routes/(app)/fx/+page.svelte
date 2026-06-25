@@ -394,6 +394,12 @@
 							This project has no usable atlases yet (make one in Atlas/Sheet Maker).
 						</p>
 					{/if}
+					{#if selected.art.frames.length === 0}
+						<p class="hint">
+							No art bound yet — the preview shows placeholder dots so you can tune the emitter.
+							Pick an atlas, then tick a region for the real particle.
+						</p>
+					{/if}
 					{#if selected.art.assetKey}
 						<div class="frames">
 							{#if pickerRegions.length === 0}

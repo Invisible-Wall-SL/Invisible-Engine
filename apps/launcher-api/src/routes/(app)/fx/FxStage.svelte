@@ -154,6 +154,8 @@
 			live.clear();
 			loadedSpine?.spine.destroy();
 			loadedSpine = null;
+			placeholder?.destroy(true);
+			placeholder = null;
 			app?.destroy(true);
 			app = null;
 		};
@@ -247,6 +249,29 @@
 		world.scale.set(view.scale);
 	}
 
+	/** A soft white dot used as a STAND-IN particle while a layer has no art bound yet, so the
+	 * emitter is visible (its shape, rate, motion are tunable) during authoring — preview-only,
+	 * never saved into the EffectDoc and never used by the runtime `<EffectPlayer>`. */
+	let placeholder: Texture | null = null;
+	function placeholderTexture(): Texture {
+		if (placeholder) return placeholder;
+		const size = 32;
+		const cv = document.createElement('canvas');
+		cv.width = cv.height = size;
+		const ctx = cv.getContext('2d');
+		if (ctx) {
+			const r = size / 2;
+			const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+			g.addColorStop(0, 'rgba(255,255,255,1)');
+			g.addColorStop(0.4, 'rgba(255,255,255,0.85)');
+			g.addColorStop(1, 'rgba(255,255,255,0)');
+			ctx.fillStyle = g;
+			ctx.fillRect(0, 0, size, size);
+		}
+		placeholder = Texture.from(cv);
+		return placeholder;
+	}
+
 	/** Slice an atlas page into the per-frame textures named by a layer's `art.frames`. */
 	async function framesToTextures(layer: EmitterLayer): Promise<Texture[]> {
 		const { assetKey, frames } = layer.art;
@@ -310,23 +335,32 @@
 		await updateReference();
 
 		for (const layer of layers) {
-			const textures = await framesToTextures(layer);
+			const real = await framesToTextures(layer);
 			if (gen !== rebuildGen) return; // a newer rebuild superseded us
+			// Preview aid: with no art bound, spawn soft placeholder DOTS so the emitter is
+			// visible while authoring (the saved doc keeps NO art; the runtime stays empty for
+			// an unbound layer). Once a region is picked, the real textures take over.
+			const usePlaceholder = real.length === 0;
+			const textures = usePlaceholder ? [placeholderTexture()] : real;
 			// bindArt deep-clones the (texture-free) config itself, then attaches the live
 			// textures — so the emitter never sees the $state proxy and the result is NOT
 			// re-cloned (JSON-cloning would destroy the Texture objects).
-			const config = bindArt(layer.config, textures, layer.art.animated ?? false);
+			const config = bindArt(
+				layer.config,
+				textures,
+				usePlaceholder ? false : (layer.art.animated ?? false),
+			);
 			let entry = live.get(layer.key);
 			if (!entry) {
 				const container = new Container();
 				world.addChild(container);
-				entry = { emitter: new Emitter(container, config), container, hasArt: textures.length > 0 };
+				entry = { emitter: new Emitter(container, config), container, hasArt: true };
 				live.set(layer.key, entry);
 			} else {
 				entry.emitter.init(config);
-				entry.hasArt = textures.length > 0;
+				entry.hasArt = true;
 			}
-			entry.emitter.emit = playing && entry.hasArt;
+			entry.emitter.emit = playing;
 		}
 	}
 
