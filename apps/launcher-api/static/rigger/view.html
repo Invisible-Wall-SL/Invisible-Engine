@@ -482,6 +482,7 @@ let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
+let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
@@ -2486,7 +2487,7 @@ function renderSlotDetail(){
       isoRow.style.cssText = "margin-top:7px;display:flex;gap:6px;align-items:center;";
       const isoBtn = document.createElement("button");
       isoBtn.textContent = meshIsolate ? "⛶ isolating…" : "⛶ Isolate mesh";
-      isoBtn.title = "Edit this mesh alone: hide every other slot and hold the setup pose so the wireframe is unobstructed. The image stays bound — toggle off to drop back into the full rig.";
+      isoBtn.title = "Edit this mesh alone: hide every other slot, hold the setup pose, and reshape the wireframe WITHOUT distorting the image — dragging a vertex re-pins its UV so the picture stays put (interior verts change only the triangulation; hull verts re-cut the outline). Toggle off to drop back into the full rig.";
       if (meshIsolate) isoBtn.className = "active";
       isoBtn.onclick = () => { meshIsolate = !meshIsolate; if (meshIsolate) fitMesh(); renderSlotDetail(); };
       isoRow.appendChild(isoBtn);
@@ -2972,6 +2973,60 @@ function applyMeshVertexDelta(k, wdx, wdy){
   markDirty();
 }
 
+// Phase 6 — solve a·x + b·y + c = R at 3 sample points (Cramer's rule on the 3×3).
+function solveAffineRow(X, Y, R){
+  const A = [[X[0], Y[0], 1], [X[1], Y[1], 1], [X[2], Y[2], 1]];
+  const det3 = (m) =>
+    m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+    m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+    m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const D = det3(A);
+  if (Math.abs(D) < 1e-9) return null;
+  const repl = (col) => { const M = A.map((r) => r.slice()); for (let i = 0; i < 3; i++) M[i][col] = R[i]; return det3(M); };
+  return [repl(0) / D, repl(1) / D, repl(2) / D];
+}
+
+// Phase 6 — build the fixed "texture frame": an affine map world rest-position → region UV
+// (0..1), fit from the mesh's largest-area (most stable) vertex triangle. While a vertex is
+// dragged in isolate mode we re-pin its UV through THIS map, so every vertex keeps
+// UV = frame(position) and the mesh keeps rendering the texture as one undistorted (flat)
+// image — you reshape the wireframe, the picture stays put. Null if the mesh is degenerate.
+function buildMeshUVFrame(){
+  if (!meshCtx) return null;
+  const w = meshWorldVerts();
+  const rd = rawDocMeshEntry();
+  const uvs = (rd && Array.isArray(rd.uvs)) ? rd.uvs : (meshCtx.attachment.regionUVs || null);
+  if (!w || !uvs || w.length < 6 || uvs.length < w.length) return null;
+  const n = w.length / 2;
+  let bi = -1, bj = -1, bk = -1, bestA = 1e-6;
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++)
+      for (let l = j + 1; l < n; l++){
+        const ax = w[i * 2], ay = w[i * 2 + 1], bx = w[j * 2], by = w[j * 2 + 1], cx = w[l * 2], cy = w[l * 2 + 1];
+        const area = Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay));
+        if (area > bestA){ bestA = area; bi = i; bj = j; bk = l; }
+      }
+  if (bi < 0) return null;
+  const X = [w[bi * 2], w[bj * 2], w[bk * 2]], Y = [w[bi * 2 + 1], w[bj * 2 + 1], w[bk * 2 + 1]];
+  const su = solveAffineRow(X, Y, [uvs[bi * 2], uvs[bj * 2], uvs[bk * 2]]);
+  const sv = solveAffineRow(X, Y, [uvs[bi * 2 + 1], uvs[bj * 2 + 1], uvs[bk * 2 + 1]]);
+  if (!su || !sv) return null;
+  return { a: su[0], b: su[1], c: su[2], d: sv[0], e: sv[1], f: sv[2] };
+}
+
+// Re-pin vertex k's UV through the fixed frame so the texture stays undistorted while the
+// vertex moves (isolate mode). UV is clamped to the region [0,1] so dragging a hull vertex
+// past the art's edge can't sample neighbouring atlas regions (bleed).
+function applyIsolatedVertexUV(k, wx, wy){
+  const F = meshUVFrame; if (!F || !meshCtx) return;
+  const rd = rawDocMeshEntry(); if (!rd || !Array.isArray(rd.uvs)) return;
+  const u = Math.max(0, Math.min(1, F.a * wx + F.b * wy + F.c));
+  const v = Math.max(0, Math.min(1, F.d * wx + F.e * wy + F.f));
+  rd.uvs[k * 2] = u; rd.uvs[k * 2 + 1] = v;
+  const att = meshCtx.attachment;
+  if (att.regionUVs){ att.regionUVs[k * 2] = u; att.regionUVs[k * 2 + 1] = v; if (att.updateRegion) att.updateRegion(); }
+}
+
 // Cursor → world coordinates (inverse of the camera projection).
 function cursorWorld(e){
   const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
@@ -2998,7 +3053,7 @@ function nearestMeshVert(e){
   }
   return best >= 0 && bestD < renderer.camera.zoom * 11 ? best : -1;
 }
-function tryStartMeshDrag(e){ const k = nearestMeshVert(e); if (k >= 0){ meshDragVert = k; selMeshVert = k; return true; } return false; }
+function tryStartMeshDrag(e){ const k = nearestMeshVert(e); if (k >= 0){ meshDragVert = k; selMeshVert = k; meshUVFrame = meshIsolate ? buildMeshUVFrame() : null; return true; } return false; }
 
 // Index of the in-progress draw-mesh boundary point nearest the cursor (else -1).
 function nearestDrawPoint(e){
@@ -5347,7 +5402,7 @@ function wire(){
   window.addEventListener("mouseup", () => {
     brushPainting = false;
     const wasMeshDrag = meshDragVert != null;
-    if (wasMeshDrag) meshDragVert = null;
+    if (wasMeshDrag){ meshDragVert = null; meshUVFrame = null; }
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
     gizmoDrag = null; lastGizmoCursor = null;
@@ -5432,7 +5487,7 @@ function wire(){
       lastXY = [e.clientX, e.clientY];
     } else if (meshDragVert != null){
       const cw = cursorWorld(e), w = meshWorldVerts();
-      if (cw && w){ const k = meshDragVert; applyMeshVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); }
+      if (cw && w){ const k = meshDragVert; applyMeshVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); if (meshIsolate && meshUVFrame) applyIsolatedVertexUV(k, cw.x, cw.y); }
       lastXY = [e.clientX, e.clientY];
     } else if (posingBone){
       poseBoneByScreen(dxCss, dyCss, dpr);

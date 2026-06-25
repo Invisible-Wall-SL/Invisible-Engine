@@ -1161,6 +1161,29 @@ numeric edit, weight brush) work unchanged inside the isolated view — they ope
 same `meshCtx`. "Reattach" = toggle ⛶ off → drop back into the full posed/animated rig with
 the edited geometry live, no reprojection.
 
+**UV-locked vertex dragging (the real "don't distort the sprite" fix, 2026-06-25 follow-up).**
+First cut only hid the other slots; the owner pointed out that dragging a vertex still
+distorted the sprite. Root cause: `applyMeshVertexDelta` moves only the vertex **position**,
+never its **UV** — so the texture mapping stays pinned and the picture stretches (this is
+just how a mesh renders: the image is the texture warped from UV-space onto the positions).
+Spine's *Edit Mesh* avoids this by keeping `UV = affine(position)` for every vertex, so the
+mesh renders the texture as one undistorted flat image and reshaping the wireframe only
+re-cuts the outline / re-meshes the interior — it never warps the art.
+
+Implementation (isolate mode only; normal setup-mode dragging still deforms, as before):
+- On mousedown over a vertex (`tryStartMeshDrag`), `buildMeshUVFrame()` fits a fixed affine
+  **world rest-position → region UV** from the mesh's largest-area (most numerically stable)
+  vertex triangle — held for the duration of that one drag in `meshUVFrame`.
+- During the drag, after `applyMeshVertexDelta` moves the position, `applyIsolatedVertexUV`
+  re-pins the dragged vertex's UV = `frame(newWorldPos)` into `rd.uvs` + the live
+  `att.regionUVs` (+ `updateRegion()`). Every *other* vertex still satisfies
+  `UV = frame(pos)` (they didn't move), so the whole mesh stays globally affine in
+  position→UV → the texture renders flat and undistorted. Cleared on mouseup.
+- UV is **clamped to [0,1]** so dragging a hull vertex past the art's edge can't sample
+  neighbouring atlas regions (bleed). The affine + clamp were unit-tested in Node (frame
+  reproduces all original verts' UVs incl. one outside the fit; center→(0.5,0.5);
+  past-edge→clamped).
+
 **Not done here (the other reading, deferred):** a *true* unbind → edit free-floating →
 re-project-UVs-onto-a-different-region flow (re-skin / retopo+reproject). The data model
 supports it (recompute `uvs` via the affine fit `✎ Draw mesh` already uses), but it's a
