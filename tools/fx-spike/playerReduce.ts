@@ -101,12 +101,30 @@ const spineParticle = planLayer(
 	layer({
 		key: 'sp',
 		particleKind: 'spine',
-		spineParticle: { skeletonKey: 'coin', animation: 'spin' },
+		spineParticle: { skeletonKey: 'coin', animation: 'spin', loop: true },
 	}),
 );
 assert(
-	spineParticle.render === false,
-	'a `spine` particle layer (Tier C / Phase 3) is NOT mounted this increment',
+	spineParticle.render === true,
+	'a `spine` particle layer (Tier C) now RENDERS (Phase-0 verdict — native pooled SpineParticle)',
+);
+assert(
+	spineParticle.particleKind === 'spine',
+	'the plan marks a spine layer `particleKind: spine` (the runtime branches on it)',
+);
+assert(
+	spineParticle.spineParticle?.skeletonKey === 'coin' &&
+		spineParticle.spineParticle?.animation === 'spin' &&
+		spineParticle.spineParticle?.loop === true,
+	'the plan carries the spineParticle config (skeleton/clip/loop) through to the runtime',
+);
+assert(
+	planLayer(layer({ key: 'spx', particleKind: 'spine' })).render === false,
+	'a `spine` layer with NO spineParticle config is skipped (can’t resolve a skeleton, fail-safe)',
+);
+assert(
+	planLayer(layer({ key: 'sprite' })).particleKind === 'sprite',
+	'a sprite layer plan stays `particleKind: sprite` (the bindArt/key path, unchanged)',
 );
 
 // ---------------------------------------------------------------------------
@@ -131,8 +149,12 @@ const plan = planEffect(doc);
 assert(plan.length === 3, 'plan has one entry per layer, in document order');
 assert(plan.map((p) => p.key).join(',') === 'flame,embers,coins', 'plan preserves layer order');
 assert(
-	plan.filter((p) => p.render).length === 2,
-	'the spine-particle layer is excluded from the rendered set; the two sprite layers render',
+	plan.filter((p) => p.render).length === 3,
+	'all three layers render now (two sprite + the native spine-particle layer)',
+);
+assert(
+	plan[2].particleKind === 'spine' && plan[2].spineParticle?.skeletonKey === 'coin',
+	'the spine layer renders with its spineParticle config carried through',
 );
 assert(plan[0].mount === 'bone' && plan[1].mount === 'free', 'mix of bone + free mounts resolved');
 

@@ -20,20 +20,104 @@ TRIGGER — a baked effect plays in-game and a `trigger.on:'event'` layer fires 
 event via `utils-event-emitter`). **Phase 0 / Tier C GATE PASSED (2026-06-25): the spike
 verdict is NATIVE pooled-`SpineParticle` is VIABLE** (see Progress — `tools/fx-spike/spineParticle.ts`,
 18/18 GREEN; perf ceiling is the one owner-verify-live caveat, flipbook-bake remains a per-effect
-fallback). Tier C (Phase 3) is now UNBLOCKED to build native; the recommended build plan is in
-the Progress entry. The
-`/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
-always/event + the event type + duration, sourced from the project's emitter vocabulary —
-the same source `/flow` uses). **Current
-state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
-Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
-pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
-pending** (WebGL + a published game): Tier A particles, Tier B bone-follow, and a game actually
-FIRING a baked effect on an event (esp. `<SpineBoneAttach>`'s coord frame + `Effects.svelte`'s
-host-rig assumptions). After this lands on `main` + owner-verify, **Book of Borut bumps its
-`engine` submodule** to ship the runtime. See Progress.
+fallback). \*\*Tier C (Phase 3) increment 1 is now BUILT (headless): the RUNTIME `SpineParticleBehavior`
+
+- `<EffectLayer>` wiring — a `particleKind:'spine'` layer RENDERS** (pooled `Spine` particles; see
+  Progress — `tools/fx-spike/spineParticleBehavior.ts`, 21/21 GREEN). What remains for Tier C is
+  increment 2: the `/fx` authoring UI (a `particleKind` toggle + skeleton/animation/loop picker + the
+  FxStage live preview) and the bake dangling-`skeletonKey` guard. The
+  `/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
+  always/event + the event type + duration, sourced from the project's emitter vocabulary —
+  the same source `/flow` uses). **Current
+  state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
+  Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
+  pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
+  pending** (WebGL + a published game): Tier A particles, Tier B bone-follow, and a game actually
+  FIRING a baked effect on an event (esp. `<SpineBoneAttach>`'s coord frame + `Effects.svelte`'s
+  host-rig assumptions). After this lands on `main` + owner-verify, **Book of Borut bumps its
+  `engine` submodule\*\* to ship the runtime. See Progress.
 
 ### Progress
+
+- \*\*Phase 3 (Tier C — spine-clips-AS-particles) — increment 1: the RUNTIME `SpineParticleBehavior`
+
+  - `<EffectLayer>` wiring — ✅ DONE HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no
+    game bump).** Per §5 Tier C / §7 Phase 3 (Phase-0 verdict: NATIVE viable). Promotes the Phase-0
+    spike's proven pooled-`Spine`-particle mechanism into the real runtime so a `particleKind:'spine'`
+    layer RENDERS — each particle is a pooled `Spine` instance playing a clip. Scoped to the RUNTIME
+    only (the `/fx` authoring UI + the FxStage preview + the bake dangling-`skeletonKey` guard are
+    increment 2). **Landed:\*\*
+
+  * **`SpineParticleBehavior`** (`packages/pixi-svelte/src/lib/spineParticleBehavior.ts`) — a real
+    `@barvynkoa/particle-emitter` behavior (the `IEmitterBehavior`
+    `{ order, initParticles, updateParticle, recycleParticle }` shape), registered via
+    `Emitter.registerBehavior` through the idempotent `registerSpineParticleBehavior()`.
+    Parameterised from the EffectDoc's `spineParticle` (`{ skeletonKey, animation, loop }`): pool
+    sized from `config.maxParticles` + PRE-WARMED up-front; on spawn take a pooled backing,
+    `state.setAnimation(0, animation, loop)`, add its view to the layer container; per frame advance
+    the clip + weld the (textureless) particle's transform/alpha; on `recycleParticle` reset (clear
+    tracks + setup pose + hide) + return to the pool; `dispose()` destroys every backing (pool +
+    live) on unmount. NEVER a skeleton per-particle-per-frame (the spike's exact, proven shape).
+    **Home is `pixi-svelte`** (alongside `ParticleEmitter`/`EffectLayer`/`SpineBoneAttach`) — it
+    needs the pixi-v8 `Spine` class + the particle lib; `engine-fx` stays PURE (peer-deps only
+    pixi.js).
+  * **The pool is INJECTABLE** (`packages/pixi-svelte/src/lib/spineBacking.ts`) — the behavior pools
+    a renderer-agnostic `SpineBacking` (`view`/`activate`/`advance`/`reset`/`destroy`) built by an
+    injected `SpineBackingFactory`, so the headless harness injects an un-mangled `spine-core`
+    backing where the runtime injects the real pixi-v8 `Spine` (the bookkeeping is decoupled from
+    the renderer). `createPixiSpineBackingFactory(spineData)` builds the runtime factory from a
+    loaded `SkeletonData`; the pixi-v8 backing runs `autoUpdate=false` so the emitter's ticker owns
+    the clock, and a missing clip name degrades to a static pose (never throws).
+  * **`skeletonKey` resolves from `loadedAssets`** — `<EffectLayer>` resolves
+    `spineParticle.skeletonKey` against the game's `loadedAssets[key]` (a `LoadedSpine` =
+    `SPINE_PIXI.SkeletonData`, the SAME lookup `SpineProvider` does — the skeleton bundle must
+    travel the pipeline like an atlas does, §8) and binds the factory. A `spine` layer whose
+    skeleton isn't loaded yields no config ⇒ the emitter falls back to the (textureless) sprite path
+    and renders nothing, never crashing.
+  * **`<EffectLayer>`/`<ParticleEmitter>` branch on `particleKind`** — `<EffectLayer>` passes a
+    `spineParticle` config to `<ParticleEmitter>` (a new optional prop) for a `spine` layer;
+    `<ParticleEmitter>` then registers the behavior + injects it into the V3 config's `behaviors`
+    (via `bindSpineParticle`, mirroring `bindArt`'s clone-then-attach-live-objects order — the
+    particles stay textureless, their art IS the pooled spine view), SKIPPING the sprite
+    `bindArt`/`key` path entirely. **The sprite path (Tiers A/B) is BYTE-IDENTICAL for
+    `particleKind:'sprite'`** (`spineParticle` absent ⇒ the exact prior `bindConfig`/`bindArt`
+    flow). `<SpineBoneAttach>` placement still works for a spine-particle layer (the emitter can ride
+    a bone). `ParticleEmitter`'s `onDestroy` disposes the behavior's pool.
+  * **`planLayer` update** (`engine-fx` `playerPlan.ts`) — `isLayerRenderable` now returns true for a
+    `spine` layer (a layer with no `spineParticle.skeletonKey`/`animation` is still skipped — the
+    fail-safe analogue of a bone layer with no bone); `LayerPlan` carries `particleKind` + the
+    `spineParticle` config through. The pure seam stays testable.
+  * **Verified headlessly** by new `tools/fx-spike/spineParticleBehavior.ts` (`pnpm --filter fx-spike
+run spine-particle-behavior`): **21/21 GREEN** against the REAL production `SpineParticleBehavior`
+    class (importing it never drags in `spine-pixi-v8` — the `./spineBacking` import is TYPE-ONLY,
+    erased at runtime) driving the REAL `@barvynkoa` `Emitter` at `maxParticles:30` with an injected
+    `spine-core` backing — registration idempotent, pool pre-allocates 30 up-front, BOUNDED
+    allocation (still 30 after 1500 frames, none per-frame), the per-particle lifecycle drives the
+    genuine state machine (a live bone's clip advanced), live backings === live particles (no leak),
+    pool+live partition the fixed allocation, full drain returns all 30, `dispose()` destroys all 30
+    - clears. `playerReduce.ts` updated for spine now rendering (a spine layer renders + carries its
+      config; a config-less spine layer is skipped; sprite layers stay `particleKind:'sprite'`). ALL
+      prior fx harnesses (roundtrip/model/save/placement/player/pipeline/trigger/trigger-ui/
+      spine-particle) still PASS. **Builds GREEN:** `engine-fx` typecheck, `pnpm --filter
+{pixi-svelte,lines,launcher-api} build`; svelte-check on pixi-svelte flags only the 3
+      PRE-EXISTING errors (none in the new/edited files); Prettier clean. **PARITY:** a doc with no
+      spine layers reduces byte-identically (the sprite path is untouched).
+  * **NEEDS LIVE OWNER-VERIFY (WebGL pixels + perf — NOT headless):** actual spine-clip particles
+    RENDERING + animating + recycling in a real game (or the `/fx` preview), and the pool-size
+    CEILING that holds 60fps on target hardware (the Phase-0 caveat — expect tens, not hundreds; a
+    real `Spine` is far heavier than a `Sprite`). The flipbook-bake fallback stays available
+    per-effect.
+  * **Exact next increment (Tier C inc 2):** the `/fx` authoring UI — a `particleKind` toggle
+    (sprite↔spine) on the selected layer, a skeleton/animation/loop picker (reuse the Phase-2
+    `/spine/skeletons` + `fxSpine.client.ts` loader already in the page), and the FxStage live
+    preview pooling real `Spine` instances; PLUS the bake dangling-`skeletonKey` guard
+    (`spineParticle.skeletonKey` is a NEW referenced-asset class — the shipped spine set must contain
+    it, the spine analogue of the atlas `art.assetKey` check, §8). `normalizeEffectDoc` already gates
+    `spineParticle` to `particleKind:'spine'` (Phase-1 inc-1) — the schema is ready.
+  * Files: `packages/pixi-svelte/src/lib/{spineParticleBehavior.ts,spineBacking.ts}`,
+    `packages/pixi-svelte/src/lib/components/{ParticleEmitter.svelte,EffectLayer.svelte}`,
+    `packages/engine-fx/src/playerPlan.ts`,
+    `tools/fx-spike/{spineParticleBehavior.ts,playerReduce.ts,package.json}`, `docs/STATUS.md`.
 
 - **Phase 1 — increment 1: `EffectDoc` schema + headless round-trip harness — ✅ DONE
   HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no game bump, `/fx`
@@ -43,6 +127,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   `engine-flow`'s package shape (`main`/`types` → `index.ts`) so BOTH the launcher save
   endpoint (it already deps `engine-flow` via `workspace:*` — `engine-fx` slots in the
   same way) and the engine-side `bakedEffects()` player can import the SAME types.
+
   - `src/types.ts` — `EffectDoc` / `EmitterLayer` / `EmitterArt` / `EmitterPlacement` /
     `SpineParticleConfig` / `EmitterTrigger` EXACTLY per §4, with `EmitterConfigV3`
     re-exported + nested **VERBATIM** from `@barvynkoa/particle-emitter` (never reshaped);
@@ -72,17 +157,18 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     pan / zoom + play/pause) the way the Rigger did, reuse `loadRegionSet` +
     `/api/rigger/atlases` to list a project's atlases/regions, and drive a LIVE `Emitter`
     preview from an in-memory `EffectDoc` (still UNREGISTERED in `roles.ts` — registration
-    + `docs/tools/fx.md` land with the real saveable page, RULE 9).
+    - `docs/tools/fx.md` land with the real saveable page, RULE 9).
   - Files: `packages/engine-fx/{package.json,tsconfig.json,index.ts,src/types.ts,src/normalize.ts}`,
     `tools/fx-spike/{package.json,roundTrip.ts}`, `pnpm-workspace.yaml`.
 
 - **Phase 1 — increment 2: `/fx` page shell + LIVE emitter preview (Tier A) — ✅ DONE
   HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no game bump, `/fx` STILL
   UNREGISTERED in `roles.ts` so RULE 9 is not yet triggered — registration +
-  `docs/tools/fx.md` land with the saveable page).** The first *visible* surface of Tier A:
+  `docs/tools/fx.md` land with the saveable page).** The first _visible_ surface of Tier A:
   pick a project atlas, pick region(s), live-tune the core `EmitterConfigV3` in a WebGL
   preview, all driven from an in-memory `EffectDoc` (no save endpoint yet — that's the next
   increment). **Landed:**
+
   - **`/fx` route** (`apps/launcher-api/src/routes/(app)/fx/`): `+page.server.ts` (SSR
     OFF — the stage owns a `PIXI.Application`; auth + `editor`-scope gate, riding the
     existing `editor` tool id rather than minting a new auth surface before the page is
@@ -118,13 +204,13 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   - **Verified headlessly** by `tools/fx-spike/modelHelpers.ts`
     (`pnpm --filter fx-spike run model`): **33/33 GREEN** — the default config has NO art
     behavior (proving the bug existed), `bindArt` injects the correct behavior for 0 / 1 /
-    >1-static / >1-animated textures, carries the LIVE texture objects through (not
-    JSON-cloned away), is pure (no input mutation), replaces (never stacks) a prior art
-    behavior, and a bound config still passes `upgradeConfig` with its art intact; every
-    inspector mutator (`setCoreParam`/`setListEndpoint`/`setSpawnRadius`) is pure +
-    round-trips with its readout; the doc/layer factories produce a valid shape. The
-    increment-1 round-trip harness still **PASSES** (schema unchanged). `pnpm --filter
-    launcher-api build` **GREEN** (the `(app)/fx` entry builds).
+    > 1-static / >1-animated textures, carries the LIVE texture objects through (not
+    > JSON-cloned away), is pure (no input mutation), replaces (never stacks) a prior art
+    > behavior, and a bound config still passes `upgradeConfig` with its art intact; every
+    > inspector mutator (`setCoreParam`/`setListEndpoint`/`setSpawnRadius`) is pure +
+    > round-trips with its readout; the doc/layer factories produce a valid shape. The
+    > increment-1 round-trip harness still **PASSES** (schema unchanged). `pnpm --filter
+launcher-api build` **GREEN** (the `(app)/fx` entry builds).
   - **NEEDS LIVE OWNER-VERIFY (the WebGL pixels — not browser-verifiable here, authed):**
     (1) picked atlas regions actually **render as particles** on the `/fx` canvas (the
     texture-slice + `bindArt` path producing visible sprites); (2) the emitter **responds
@@ -148,6 +234,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   in the SAME commit (authored by `docs-keeper`). This closes Phase 1: the effect is now a
   saveable, reopenable, R2-backed artifact (the deploy→bake→pull→register chain is Phase 4).
   **Landed:**
+
   - **`POST /api/fx/save`** (`apps/launcher-api/src/routes/api/fx/save/+server.ts`) — mirrors
     `/api/rigger/save` + `/api/flow/save` EXACTLY: the shared `gate` (now on the `fx` tool)
     resolves the SESSION-bound `(client, project)` and 403s without entitlement — no
@@ -178,7 +265,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     ids that NEVER widens the R2 prefix allow-list, only the entitlement check); those two
     READ endpoints now accept `editor` OR `fx`. Reuse, not a duplicate art surface.
   - **Verified headlessly** by `tools/fx-spike/saveSplit.ts` (`pnpm --filter fx-spike run
-    save`): **24/24 GREEN** — the EffectDoc↔sidecar PARTITION (editor-only camera /
+save`): **24/24 GREEN** — the EffectDoc↔sidecar PARTITION (editor-only camera /
     selection / swatches that leak onto the save payload's `doc` never reach the `.fx.json`;
     they only survive in the separate sidecar), the sidecar normalizer drops off-schema
     keys, the R2-key derivation (`<client>/<project>/<slug>.fx.json` + sibling
@@ -213,6 +300,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   Spine rig as a playing backdrop and pin a layer's emitter onto one of its bones so the FX
   rides the animation (flame on a torch tip, sparkle off a wand). Native — no Phase-0 gate.
   **Landed:**
+
   - **`fxSpine.client.ts`** (`apps/launcher-api/src/routes/(app)/fx/`) — loads a project
     skeleton imperatively (FxStage owns a bare `PIXI.Application`, so it can't mount the
     declarative `<SpineProvider>`/`<SpineBone>`): fetches the atlas + skeleton + page images
@@ -240,17 +328,17 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     PixiJS-free so the harness covers them.
   - **`+page.svelte`** — a **Backdrop** bar above the stage (skeleton `<select>` from
     `/spine/skeletons` fetched client-side + animation `<select>` + skin `<select>` when
-    >1 skin), and a per-layer **Placement** inspector section (Free/Bone mode, a bone picker
-    from the loaded rig's bones, offset X/Y). Picking a skeleton resets the clip/skin so the
-    stage never replays a previous rig's clip mid-load; `onSpineMeta` defaults to the first
-    clip. Placement edits the doc immutably like every other inspector control.
+    > 1 skin), and a per-layer **Placement** inspector section (Free/Bone mode, a bone picker
+    > from the loaded rig's bones, offset X/Y). Picking a skeleton resets the clip/skin so the
+    > stage never replays a previous rig's clip mid-load; `onSpineMeta` defaults to the first
+    > clip. Placement edits the doc immutably like every other inspector control.
   - **The shared-read seam (reuse, not a new surface)** — `requireSpineAccess`
     (`apps/launcher-api/src/lib/server/spine.ts`) now also accepts the `fx` entitlement, so
     `/spine/skeletons` + `/spine/file` serve the FX page too (same OR-the-entitlement /
     never-widen-the-prefix pattern as Phase 3's `altTools`). `+page.server.ts` is UNCHANGED —
     the skeleton list is a client-side fetch, like the atlas-region fetches.
   - **Verified headlessly** by `tools/fx-spike/placement.ts` (`pnpm --filter fx-spike run
-    placement`): **5/5 GREEN** — a free layer spawns at origin (+offset); a bone layer spawns
+placement`): **5/5 GREEN** — a free layer spawns at origin (+offset); a bone layer spawns
     at bone-world + offset; the owner maps correctly through pan+zoom into container-local; an
     unresolved bone falls back to origin+offset. The increment-1/2/3 harnesses (roundtrip /
     model / saveSplit) still PASS. `pnpm --filter launcher-api build` **GREEN** (the `(app)/fx`
@@ -277,6 +365,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   engine-side runtime that PLAYS an `EffectDoc`, scoped tightly to the runtime only (the
   export endpoint, `deploy/effects/`, bake, pull, and the Flow trigger are LATER Phase-4
   increments). **Landed:**
+
   - **Shared `bindArt` promoted into `engine-fx`** (`packages/engine-fx/src/bindArt.ts` —
     `bindArt` + `ART_BEHAVIOR_TYPES` / `behaviorsOf` / `BehaviorEntry`/`BehaviorConfig`):
     THE canonical "EffectDoc V3 config → library-renderable config" seam, the ONE copy both
@@ -319,7 +408,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     increment) populates it (parity: un-baked / dev returns `[]`). `apps/lines` now deps
     `engine-fx`.
   - **Verified headlessly** by `tools/fx-spike/playerReduce.ts` (`pnpm --filter fx-spike run
-    player`): **24/24 GREEN** — the per-layer mount plan (free vs bone-wrapped, offset
+player`): **24/24 GREEN** — the per-layer mount plan (free vs bone-wrapped, offset
     carried, a `bone` layer with no bone name falls back to a free mount, ambient-emits /
     event-dormant, spine-particle skipped), the whole-doc plan (one entry per layer in
     document order, the spine-particle layer excluded from the rendered set, mixed bone+free),
@@ -358,6 +447,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   effects — the DATA half of Phase 4 (the Flow trigger + a game mounting `<EffectPlayer>` are the
   NEXT increment). Mirrors the Invisible Flow pipeline (Phase 6/7), the closest template.
   **Landed (the 3 stages):**
+
   - **Export** — `apps/launcher-api/src/lib/server/effectExport.ts` `exportEffects` (mirrors
     `flowExport.ts`, but MULTI-DOC like `fxStorage`): loads every saved `<id>.fx.json`, re-runs
     `normalizeEffectDoc` (THE gatekeeper — only the PURE doc travels, editor-only state can never
@@ -386,7 +476,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     layout ALSO places it, since FX never re-packs, so an FX-authored project may legitimately
     add the atlas to its layout before shipping; a warning beats a silent invisible effect).
   - **Verified headlessly** by new `tools/fx-spike/pipeline.ts` (`pnpm --filter fx-spike run
-    pipeline`): **22/22 GREEN** against the REAL `normalizeEffectDoc` — (1) EXPORT shape (each
+pipeline`): **22/22 GREEN** against the REAL `normalizeEffectDoc` — (1) EXPORT shape (each
     doc PURE-normalized: doc-level `camera`/`selectedLayer` + layer-level junk STRIPPED, the
     nested `EmitterConfigV3` VERBATIM, layers in order, the `{id,name,layers}` index row,
     `referencedAssetKeys` deduped, un-authored ⇒ nothing); (2) BAKE embedding (non-empty ⇒
@@ -424,6 +514,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no game bump yet).** Closes the
   Phase-4 author→ship→FIRE loop: a baked effect now PLAYS in the running game, and a
   `trigger.on:'event'` layer fires on a game/Flow event. **Landed:**
+
   - **Emit seam** (`engine-fx` `playerPlan.ts`): `layerTrigger(layer) → LayerEmitPlan`
     (`mode 'always'|'event'`, mount-time `emit`, `eventType`, `duration`); `planLayer` carries
     it; `layerEmits` kept as a back-compat wrapper. PURE — the single source of truth for emit
@@ -448,7 +539,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     resolves the bone on the HOST game's rig (the Phase-2 carry-forward). Zero baked effects ⇒
     nothing mounts ⇒ byte-identical (parity).
   - **Verified headlessly** by `tools/fx-spike/trigger.ts` (`pnpm --filter fx-spike run
-    trigger`): **18/18 GREEN** driving the REAL `createEventEmitter` bus — ambient emits + ignores
+trigger`): **18/18 GREEN** driving the REAL `createEventEmitter` bus — ambient emits + ignores
     events; an event layer is dormant, a non-matching event doesn't start it, the matching event
     starts it, it stops after `duration`, a re-fire restarts + a mid-burst re-fire RESETS the
     timer, a duration-less layer never auto-stops, and after dispose the event no longer fires it;
@@ -472,6 +563,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   already works (the inc-3 `<EffectLayer>` subscribes `trigger.eventType` on the event bus);
   this exposes it in the `/fx` inspector so an author can SET it. Closes the "open: trigger
   picker" item in §0. **Landed:**
+
   - **Inspector "Trigger" section** (`apps/launcher-api/src/routes/(app)/fx/+page.svelte`, per
     selected layer, between Placement and Emitter): a **Mode** select — **Always (ambient)** vs
     **On event**; when On event, an **Event** picker + a **Duration (ms)** input (blank ⇒ the
@@ -496,11 +588,11 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     can produce (ambient / event+type+duration / event+type-no-duration / event-no-type-dormant)
     survives save→reopen byte-identically; no normalizer or mutator change was needed.
   - **Verified headlessly** by `tools/fx-spike/triggerPicker.ts` (`pnpm --filter fx-spike run
-    trigger-ui`): **31/31 GREEN** — the mutators are pure/immutable + touch only `trigger`, the
+trigger-ui`): **31/31 GREEN** — the mutators are pure/immutable + touch only `trigger`, the
     always↔event drop/keep gating holds, and an authored trigger (incl. a picker-BUILT one driven
     through JSON→`normalizeEffectDoc`) is a normalize FIXED POINT + idempotent. ALL prior fx
     harnesses (roundtrip/model/save/placement/player/pipeline/trigger) still PASS. `pnpm --filter
-    launcher-api build` **GREEN** (the `(app)/fx` entry grew to 21.05 kB; the loader now links the
+launcher-api build` **GREEN** (the `(app)/fx` entry grew to 21.05 kB; the loader now links the
     `flowVocabularies` chunk). Prettier clean.
   - **NEEDS LIVE OWNER-VERIFY (authed page — not browser-verifiable here):** the dropdown
     POPULATES from the project's vocabulary (and degrades to free-text when there's none), and an
@@ -526,17 +618,17 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     (L1943 `fillPool`, L2195 + L2332 spawn) with NO particle-class factory hook; the pool is
     `Particle`-typed (`_poolFirst: Particle`, `recycle(particle: Particle)`). So **a particle
     can never BE a `Spine`.** BUT the behavior system is fully pluggable: `Emitter.registerBehavior`
-    + the `IEmitterBehavior` interface (`{ order, initParticles, updateParticle?,
-    recycleParticle? }`, `lib/behaviors/Behaviors.d.ts`) — every art behavior is just a
-    registered behavior mutating the particle (`SingleTexture`/`Animated` set `particle.texture`,
-    `Color` sets `.tint`, `Scale` sets `.scale`, all `Sprite` props). Crucially `Particle extends
-    Sprite extends Container`, and the `recycleParticle(particle, natural)` hook fires on every
-    death (L1955, before the particle returns to `_poolFirst`). So the native Tier-C mechanism is
-    **a custom `spineParticle` behavior that owns a POOL of `Spine` instances** (each `Spine
-    extends ViewContainer`, a Container, confirmed `spine-pixi-v8` `dist/Spine.d.ts:155`): on
-    spawn take one from the pool, `state.setAnimation`, add its view to the layer container; each
-    frame advance its clip + track the (textureless) particle's transform; on `recycleParticle`
-    reset + return to the pool. Never a skeleton per-particle-per-frame.
+    - the `IEmitterBehavior` interface (`{ order, initParticles, updateParticle?,
+recycleParticle? }`, `lib/behaviors/Behaviors.d.ts`) — every art behavior is just a
+      registered behavior mutating the particle (`SingleTexture`/`Animated` set `particle.texture`,
+      `Color` sets `.tint`, `Scale` sets `.scale`, all `Sprite` props). Crucially `Particle extends
+Sprite extends Container`, and the `recycleParticle(particle, natural)` hook fires on every
+      death (L1955, before the particle returns to `_poolFirst`). So the native Tier-C mechanism is
+      **a custom `spineParticle` behavior that owns a POOL of `Spine` instances** (each `Spine
+extends ViewContainer`, a Container, confirmed `spine-pixi-v8` `dist/Spine.d.ts:155`): on
+      spawn take one from the pool, `state.setAnimation`, add its view to the layer container; each
+      frame advance its clip + track the (textureless) particle's transform; on `recycleParticle`
+      reset + return to the pool. Never a skeleton per-particle-per-frame.
   - **The spike** (`tools/fx-spike/spineParticle.ts`, `pnpm --filter fx-spike run spine-particle`):
     **18/18 GREEN.** Drives the REAL `@barvynkoa` `Emitter` (it runs in Node — Pixi
     `Container`/`Sprite` construct without a renderer; confirmed) at `maxParticles:30` (the doc's
@@ -564,7 +656,7 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     spark burst as skeletons is NOT the use case — that's still Tier A). Recommend the Tier-C
     authoring UI cap `maxParticles` low for `particleKind:'spine'` and surface a perf hint. If a
     live count proves too costly for a given effect, the **flipbook-bake fallback remains
-    available per-effect** (it ships *something* regardless, §5) — bake that clip to a sprite
+    available per-effect** (it ships _something_ regardless, §5) — bake that clip to a sprite
     sheet, ride Tier A `animatedSingle`. Native and fallback are not mutually exclusive: native
     for low-count hero bursts, flipbook for dense ones.
   - **Recommended Tier-C build plan (native path won):** (1) a `SpineParticleBehavior` in
@@ -587,14 +679,13 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     frame budget on target hardware — and the pool-size ceiling that holds 60fps. The spike
     proves the allocation/lifecycle/leak math; only a live run proves the GPU/CPU cost.
   - Files (spike only): `tools/fx-spike/spineParticle.ts`,
-    `tools/fx-spike/package.json` (+`spine-particle` script, +`@esotericsoftware/spine-core`,
-    +`pixi.js` dev deps).
+    `tools/fx-spike/package.json` (+`spine-particle` script, +`@esotericsoftware/spine-core`, +`pixi.js` dev deps).
 
 ## 1. Naming (settled here to avoid a real collision)
 
 "Emitter" is already taken in this repo: `utils-event-emitter` is the inter-component
 **event bus**, and Flow's `emitterVocabulary.ts` Broadcast nodes name **event-emitter
-events**. Naming a *particle* tool "Invisible Emitter" would collide head-on with that
+events**. Naming a _particle_ tool "Invisible Emitter" would collide head-on with that
 vocabulary. So:
 
 - **Tool name: "Invisible FX"** (working). Route **`/fx`**. Saved artifact: an
@@ -602,8 +693,8 @@ vocabulary. So:
 - The underlying particle system stays `@barvynkoa/particle-emitter` (the engine
   already ships it via [`ParticleEmitter.svelte`](../../packages/pixi-svelte/src/lib/components/ParticleEmitter.svelte)).
 - The collision is also the **integration seam** (§4.4): a Flow **Broadcast** fires an
-  *event-emitter* event; a registered **FX** reacts by emitting particles. Authoring the
-  particle effect (Invisible FX) and authoring *when it fires* (Invisible Flow) stay
+  _event-emitter_ event; a registered **FX** reacts by emitting particles. Authoring the
+  particle effect (Invisible FX) and authoring _when it fires_ (Invisible Flow) stay
   separate, exactly as Flow already separates "declare the event" from "implement it".
 
 ## 2. Why this tool exists (the goal)
@@ -614,7 +705,7 @@ Particle/effect work is constant, fiddly, and today has **no authoring surface**
 fountain config). Tuning it means editing numbers blind and rebuilding. Invisible FX
 gives the same browser-based, R2-backed, license-free authoring the Rigger/Atlas tools
 do: **see the effect while you tune it**, draw its art from the project's real atlases,
-author it *in context* on the actual animated rig it will sit on, and save it where the
+author it _in context_ on the actual animated rig it will sit on, and save it where the
 pipeline can ship it. This is the "build the emitter in the tool" path we chose over
 importing point clouds (point clouds → bones is a category mismatch; see the 2026-06-24
 decision — offline sims bake to flipbooks, runtime particles are authored here).
@@ -646,7 +737,7 @@ decision — offline sims bake to flipbooks, runtime particles are authored here
 
 Unlike the Rigger (whose file must be byte-pure Spine because an external runtime eats
 it), particle-emitter config has **no proprietary "project file"** ambiguity — so the
-`EffectDoc` is **our own schema that *contains* `EmitterConfigV3` verbatim** plus the
+`EffectDoc` is **our own schema that _contains_ `EmitterConfigV3` verbatim** plus the
 wiring the runtime component can't infer (art source, placement, trigger, particle kind).
 Pure config stays nested and untouched so it round-trips into the library cleanly
 ([[feedback_validate_data_contracts_offline]]).
@@ -692,6 +783,7 @@ sidecar**, never inside the `EffectDoc` — same out-of-band discipline the Rigg
 
 A small engine-side player — `bakedEffects()` / `<EffectPlayer doc=…/>`, mirroring
 `bakedEditorArtAssets()` / `bakedEditorArt` registration — takes an `EffectDoc` and:
+
 1. Ensures each `art.assetKey` is in `loadedAssets` (atlas/sheet already travels the
    pipeline; FX just references it by key).
 2. For each layer, mounts `<ParticleEmitter key={art.assetKey} config={layer.config}>`,
@@ -702,18 +794,18 @@ A small engine-side player — `bakedEffects()` / `<EffectPlayer doc=…/>`, mir
 
 ## 5. The three tiers (owner picked all three, 2026-06-24)
 
-| Tier | What it is | Native? | Cost |
-|---|---|---|---|
-| **A — atlas / animated-sprite particles** | particle art = atlas regions; >1 frame = flipbook particle | ✅ native (`animatedRandom`) | low |
-| **B — emitter attached to a spine rig** | load a playing Spine clip as backdrop; pin emitters to bones (flame on a torch, sparkle off a wand tip); FX follows the bone | ✅ native (`SpineBone`) | low–medium |
-| **C — Spine clips AS the particles** | each particle is a pooled Spine skeleton instance playing a clip (a burst of 30 spinning coins) | ❌ **no native support** | **high — gated** |
+| Tier                                      | What it is                                                                                                                   | Native?                      | Cost             |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------- |
+| **A — atlas / animated-sprite particles** | particle art = atlas regions; >1 frame = flipbook particle                                                                   | ✅ native (`animatedRandom`) | low              |
+| **B — emitter attached to a spine rig**   | load a playing Spine clip as backdrop; pin emitters to bones (flame on a torch, sparkle off a wand tip); FX follows the bone | ✅ native (`SpineBone`)      | low–medium       |
+| **C — Spine clips AS the particles**      | each particle is a pooled Spine skeleton instance playing a clip (a burst of 30 spinning coins)                              | ❌ **no native support**     | **high — gated** |
 
 Tier C is the only one with real risk: `@barvynkoa/particle-emitter` spawns
 sprite/texture particles, not skeletons. It needs a custom particle behavior backed by a
 **pool of `Spine` instances** (allocating a skeleton per particle per frame is a non-
 starter). **Phase 0 decides native-vs-fallback** — and the fallback is elegant and
 already-decided doctrine: **bake the Spine clip to a sprite-sheet flipbook and use Tier
-A.** So Tier C ships *something* regardless; the spike only decides *how good*.
+A.** So Tier C ships _something_ regardless; the spike only decides _how good_.
 
 ## 6. Architecture (proposed)
 
@@ -735,15 +827,15 @@ A.** So Tier C ships *something* regardless; the spike only decides *how good*.
 
 ## 7. Build plan (phased — each ships something usable)
 
-| Phase | Delivers | Risk |
-|---|---|---|
+| Phase                                      | Delivers                                                                                                                                                                                                                         | Risk                            |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | **0 — Spine-particle spike (Tier C gate)** | prove a pooled-`Spine`-instance custom particle renders + animates + recycles inside (or beside) `@barvynkoa/particle-emitter` at a real particle count, OR confirm the flipbook-bake fallback. **Do before committing Tier C.** | **make-or-break (Tier C only)** |
-| **1 — Emitter core + atlas art (Tier A)** | `/fx` page; load a project atlas; pick region(s); live-tune `EmitterConfigV3` in the WebGL preview; static + animated-sprite particles; save `EffectDoc` to R2; reopen | low |
-| **2 — Spine-attach (Tier B)** | load a Spine clip as backdrop, play it, pin layers to bones via `SpineBone`; offset; preview FX riding the animation | low–medium |
-| **3 — Spine-as-particle (Tier C)** | per Phase 0: native `SpineParticle` behavior **or** flipbook-bake path; `particleKind:'spine'` authoring | high |
-| **4 — Pipeline + Flow trigger** | export → `deploy/` → bake (embed effect index) → pull → `bakedEffects()` register; bind `trigger.eventType` to the game's `EmitterVocabulary`; Flow Broadcast fires it | medium |
+| **1 — Emitter core + atlas art (Tier A)**  | `/fx` page; load a project atlas; pick region(s); live-tune `EmitterConfigV3` in the WebGL preview; static + animated-sprite particles; save `EffectDoc` to R2; reopen                                                           | low                             |
+| **2 — Spine-attach (Tier B)**              | load a Spine clip as backdrop, play it, pin layers to bones via `SpineBone`; offset; preview FX riding the animation                                                                                                             | low–medium                      |
+| **3 — Spine-as-particle (Tier C)**         | per Phase 0: native `SpineParticle` behavior **or** flipbook-bake path; `particleKind:'spine'` authoring                                                                                                                         | high                            |
+| **4 — Pipeline + Flow trigger**            | export → `deploy/` → bake (embed effect index) → pull → `bakedEffects()` register; bind `trigger.eventType` to the game's `EmitterVocabulary`; Flow Broadcast fires it                                                           | medium                          |
 
-**Phase 0 is a gate, not a formality** — and *only* for Tier C. Tiers A and B are native
+**Phase 0 is a gate, not a formality** — and _only_ for Tier C. Tiers A and B are native
 (§3) and proceed without it. If the spike shows native Spine particles can't hit an
 acceptable count/perf, Tier C ships via the flipbook fallback and we lose nothing else.
 
@@ -774,7 +866,7 @@ ship in the SAME change (use `docs-keeper`). Not done here — this is the plan,
 - **Tier C verdict** — native pooled `SpineParticle` vs flipbook-bake fallback (Phase 0).
 - **Effect = one emitter or a stack?** Modelled as `layers[]` above (sparks+smoke+glow as
   one named effect) — confirm that's the right grain vs one-file-per-emitter.
-- **Trigger ownership** — does the FX carry its own `trigger`, or is *all* triggering
+- **Trigger ownership** — does the FX carry its own `trigger`, or is _all_ triggering
   delegated to Flow (FX stays a pure effect, Flow owns when)? Leaning Flow-owns-when, with
   `trigger` as an optional convenience for ambient `on:'always'` effects.
 - **Atlas key stability** — the `assetKey` an effect references must match the runtime

@@ -12,7 +12,8 @@
 		"pipeline": "tsx pipeline.ts",
 		"trigger": "tsx trigger.ts",
 		"trigger-ui": "tsx triggerPicker.ts",
-		"spine-particle": "tsx spineParticle.ts"
+		"spine-particle": "tsx spineParticle.ts",
+		"spine-particle-behavior": "tsx spineParticleBehavior.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

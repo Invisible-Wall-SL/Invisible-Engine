@@ -24,15 +24,42 @@
 	 * config's own `emitterLifetime` to govern the burst — we re-arm emit on every event).
 	 */
 	import { onDestroy } from 'svelte';
+	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 	import { planLayer } from 'engine-fx';
 	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
 
 	import Container from './Container.svelte';
 	import ParticleEmitter from './ParticleEmitter.svelte';
 	import SpineBoneAttach from './SpineBoneAttach.svelte';
+	import { getContextApp } from '../context.svelte';
+	import { createPixiSpineBackingFactory } from '../spineBacking';
+	import type { SpineParticleBehaviorConfig } from '../spineParticleBehavior';
 
 	const props: Props = $props();
+	const context = getContextApp();
 	const plan = $derived(planLayer(props.layer));
+
+	// Tier C: resolve the `spineParticle.skeletonKey` to a loaded `SkeletonData` (a `LoadedSpine`
+	// in `loadedAssets`, the SAME lookup `SpineProvider` does — the skeleton must have travelled
+	// the pipeline like an atlas does, §8) and build the pooled-`Spine` factory the behavior pools.
+	// A `spine` layer whose skeleton isn't loaded yields no config ⇒ `<ParticleEmitter>` falls back
+	// to the (textureless) sprite path and renders nothing, never crashing.
+	const spineParticle = $derived.by(
+		(): Omit<SpineParticleBehaviorConfig, 'layerHost'> | undefined => {
+			if (plan.particleKind !== 'spine' || !plan.spineParticle) return undefined;
+			const { skeletonKey, animation, loop } = plan.spineParticle;
+			const spineData = context.stateApp.loadedAssets?.[skeletonKey] as
+				| SPINE_PIXI.SkeletonData
+				| undefined;
+			if (!spineData) return undefined;
+			return {
+				animation,
+				loop: loop ?? false,
+				prewarm: props.layer.config.maxParticles ?? 0,
+				createBacking: createPixiSpineBackingFactory(spineData),
+			};
+		},
+	);
 
 	// Live emit flag: ambient layers start emitting; event layers start dormant and the
 	// subscription below flips this on when their `eventType` fires.
@@ -94,6 +121,7 @@
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
 				animated={props.layer.art.animated ?? false}
+				{spineParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
 			/>
@@ -104,6 +132,7 @@
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
 				animated={props.layer.art.animated ?? false}
+				{spineParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
 			/>

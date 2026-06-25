@@ -6,7 +6,7 @@
  * decisions onto `<Container>` / `<SpineBoneAttach>` / `<ParticleEmitter>`.
  */
 
-import type { EffectDoc, EmitterLayer } from './types';
+import type { EffectDoc, EmitterLayer, SpineParticleConfig } from './types';
 
 /**
  * How a layer decides WHEN it emits (pure classification of `layer.trigger`):
@@ -33,8 +33,12 @@ export interface LayerEmitPlan {
 export interface LayerPlan {
 	/** The layer's id (`<ParticleEmitter key>` is `art.assetKey`, distinct from this). */
 	key: string;
-	/** `false` ⇒ not mounted this increment (Tier C `spine` particles — Phase 3). */
+	/** Always `true` now — both sprite (Tiers A/B) and spine (Tier C) particle layers render. */
 	render: boolean;
+	/** `sprite` (textured particles, the `bindArt`/`key` path) or `spine` (pooled `Spine` particles). */
+	particleKind: 'sprite' | 'spine';
+	/** The spine-particle config when `particleKind === 'spine'` (skeleton/clip/loop), else `undefined`. */
+	spineParticle?: SpineParticleConfig;
 	/** `bone` ⇒ wrap in `<SpineBoneAttach boneName=…>`; `free` ⇒ a plain offset `<Container>`. */
 	mount: 'free' | 'bone';
 	/** The resolved bone name when `mount === 'bone'` (else `undefined`). */
@@ -48,12 +52,16 @@ export interface LayerPlan {
 }
 
 /**
- * Spine-as-particle (Tier C / Phase 3) is not implemented this increment — such a layer is
- * skipped (not mounted) until the pooled `SpineParticle` runtime / flipbook-bake fallback
- * lands. Sprite layers (Tiers A/B) render.
+ * Whether a layer renders at runtime. Tier C (`particleKind: 'spine'`) is now NATIVE (Phase 0
+ * verdict — a pooled `SpineParticle` behavior, `invisible-fx.md` §5/§7) so BOTH sprite and spine
+ * layers render. A `spine` layer with no `spineParticle` config (skeleton/clip) can't resolve a
+ * skeleton, so it's skipped — the fail-safe analogue of a bone layer with no bone.
  */
 export function isLayerRenderable(layer: EmitterLayer): boolean {
-	return layer.particleKind !== 'spine';
+	if (layer.particleKind === 'spine') {
+		return !!layer.spineParticle?.skeletonKey && !!layer.spineParticle?.animation;
+	}
+	return true;
 }
 
 /**
@@ -91,9 +99,12 @@ export function planLayer(layer: EmitterLayer): LayerPlan {
 	const offset = layer.placement.offset ?? { x: 0, y: 0 };
 	const onBone = layer.placement.space === 'bone' && !!layer.placement.bone;
 	const trigger = layerTrigger(layer);
+	const isSpine = layer.particleKind === 'spine';
 	return {
 		key: layer.key,
 		render: isLayerRenderable(layer),
+		particleKind: isSpine ? 'spine' : 'sprite',
+		spineParticle: isSpine ? layer.spineParticle : undefined,
 		mount: onBone ? 'bone' : 'free',
 		bone: onBone ? layer.placement.bone : undefined,
 		offset: { x: offset.x, y: offset.y },
