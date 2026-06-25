@@ -14,7 +14,11 @@
 		setPlacementOffset,
 		setPlacementSpace,
 		setSpawnRadius,
+		setTriggerDuration,
+		setTriggerEvent,
+		setTriggerMode,
 		spawnRadius,
+		triggerMode,
 	} from './fxModel.client';
 	import type { FxSkeletonEntry } from './fxSpine.client';
 	import type { PageData } from './$types';
@@ -234,6 +238,13 @@
 
 	function num(e: Event): number {
 		return Number((e.currentTarget as HTMLInputElement).value);
+	}
+
+	// A blank input must CLEAR an optional number (e.g. trigger duration → `emitterLifetime`
+	// governs), not coerce to 0 the way `Number('')` would. NaN signals "cleared" to the mutator.
+	function numOrBlank(e: Event): number {
+		const raw = (e.currentTarget as HTMLInputElement).value.trim();
+		return raw === '' ? Number.NaN : Number(raw);
 	}
 </script>
 
@@ -491,6 +502,75 @@
 							onchange={(e) => updateSelected((l) => setPlacementOffset(l, 'y', num(e)))}
 						/>
 					</label>
+				</section>
+
+				<section>
+					<h3>Trigger</h3>
+					<label class="row">
+						<span>Mode</span>
+						<select
+							value={triggerMode(selected)}
+							onchange={(e) =>
+								updateSelected((l) =>
+									setTriggerMode(
+										l,
+										(e.currentTarget as HTMLSelectElement).value as 'always' | 'event',
+									),
+								)}
+						>
+							<option value="always">Always (ambient)</option>
+							<option value="event">On event</option>
+						</select>
+					</label>
+					{#if triggerMode(selected) === 'event'}
+						<label class="row">
+							<span>Event</span>
+							{#if data.eventTypes.length > 0}
+								<select
+									value={selected.trigger?.eventType ?? ''}
+									onchange={(e) =>
+										updateSelected((l) =>
+											setTriggerEvent(l, (e.currentTarget as HTMLSelectElement).value),
+										)}
+								>
+									<option value="">— pick an event —</option>
+									{#each data.eventTypes as t (t)}
+										<option value={t}>{t}</option>
+									{/each}
+								</select>
+							{:else}
+								<input
+									placeholder="event type"
+									title="This project has no exported emitter vocabulary — type a Flow Broadcast event type"
+									value={selected.trigger?.eventType ?? ''}
+									onchange={(e) =>
+										updateSelected((l) =>
+											setTriggerEvent(l, (e.currentTarget as HTMLInputElement).value),
+										)}
+								/>
+							{/if}
+						</label>
+						{#if data.eventTypes.length === 0}
+							<p class="hint">
+								No exported emitter vocabulary for this project — type the Flow Broadcast event type
+								the layer fires on.
+							</p>
+						{/if}
+						<label class="row">
+							<span>Duration (ms)</span>
+							<input
+								type="number"
+								step="50"
+								min="0"
+								placeholder="emitterLifetime"
+								value={selected.trigger?.duration ?? ''}
+								onchange={(e) => updateSelected((l) => setTriggerDuration(l, numOrBlank(e)))}
+							/>
+						</label>
+						<p class="hint">
+							Blank ⇒ the config's <code>emitterLifetime</code> governs how long the burst emits.
+						</p>
+					{/if}
 				</section>
 
 				<section>

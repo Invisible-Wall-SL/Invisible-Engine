@@ -1,6 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
+import { resolveFlowVocabulary } from '$lib/flowVocabularies';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import { loadDoc } from '$lib/server/editorStorage';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { listEffects, loadEffect, type FxEffectRow, type FxMeta } from '$lib/server/fxStorage';
 import { SUB } from '$lib/server/projectPaths';
@@ -82,5 +84,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		openedMeta = meta;
 	}
 
-	return { clientKey, projectKey, tools, atlases, effects, openedDoc, openedMeta };
+	// The trigger picker offers the game's EXPORTED emitter vocabulary — the SAME source `/flow`
+	// uses (Flow Phase 7, `flowVocabularies.ts`, codegen'd from `typesEmitterEvent.ts`), selected
+	// by the LayoutDoc `gameType` (the project's `scenes.json`, the Scene Editor's own doc). This
+	// is the FX⇄Flow seam: a layer's `trigger.eventType` must be a `type` a Flow Broadcast can
+	// emit. An unrecognized/absent game falls back to `DEFAULT_EMITTER_VOCABULARY`; the page
+	// further degrades to a free-text input when even that yields no events, so the picker never
+	// dead-ends. We only surface the broadcastable event `type`s (not the effect names).
+	const layout = await loadDoc(clientKey, projectKey);
+	const vocab = resolveFlowVocabulary(layout.gameType);
+	const eventTypes = vocab.events.map((e) => e.type);
+
+	return { clientKey, projectKey, tools, atlases, effects, openedDoc, openedMeta, eventTypes };
 };

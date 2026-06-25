@@ -18,8 +18,10 @@ landed in 3 increments: inc 1 (engine runtime player `<EffectPlayer>`/`<SpineBon
 inc 2 (export→bake→pull — an authored effect travels into a built game's bundle), inc 3 (the
 TRIGGER — a baked effect plays in-game and a `trigger.on:'event'` layer fires on a game/Flow
 event via `utils-event-emitter`). Only Phase 0 / Tier C (spine-as-particle) remains gated — do
-not start it until the §7 spike passes (the other two tiers are native and not gated). Also
-open: a `/fx` `trigger.eventType` PICKER (UI polish — the runtime binding works). **Current
+not start it until the §7 spike passes (the other two tiers are native and not gated). The
+`/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
+always/event + the event type + duration, sourced from the project's emitter vocabulary —
+the same source `/flow` uses). **Current
 state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
 Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
 pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
@@ -461,6 +463,51 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
     `packages/pixi-svelte/src/lib/components/{EffectLayer,EffectPlayer,ParticleEmitter}.svelte`
     (+`package.json`), `apps/lines/src/components/{Effects,Game}.svelte`,
     `tools/fx-spike/{trigger.ts,package.json}`, `docs/STATUS.md`.
+
+- **`/fx` trigger PICKER (author "fire on event Y" in the tool) — ✅ DONE HEADLESSLY
+  (2026-06-25, branch `fx/phase1-emitter-core`, no game bump).** The runtime trigger binding
+  already works (the inc-3 `<EffectLayer>` subscribes `trigger.eventType` on the event bus);
+  this exposes it in the `/fx` inspector so an author can SET it. Closes the "open: trigger
+  picker" item in §0. **Landed:**
+  - **Inspector "Trigger" section** (`apps/launcher-api/src/routes/(app)/fx/+page.svelte`, per
+    selected layer, between Placement and Emitter): a **Mode** select — **Always (ambient)** vs
+    **On event**; when On event, an **Event** picker + a **Duration (ms)** input (blank ⇒ the
+    config's `emitterLifetime` governs). Edits the doc IMMUTABLY through the new mutators, like
+    every other inspector control.
+  - **Event source = the project's emitter vocabulary, REUSED (the FX⇄Flow seam, §4.4).** The
+    `/fx` `+page.server.ts` loader now `loadDoc()`s the project LayoutDoc and runs
+    `resolveFlowVocabulary(layout.gameType)` — the SAME `$lib/flowVocabularies` source `/flow`
+    uses (Flow Phase 7, codegen'd from each game's `typesEmitterEvent.ts`) — and surfaces the
+    broadcastable event `type`s as `data.eventTypes`. A layer's `eventType` is therefore exactly
+    a `type` a Flow Broadcast can emit. **No-vocabulary fallback:** an unrecognized/absent game
+    falls back to `DEFAULT_EMITTER_VOCABULARY`; if even that yields no events, the Event control
+    degrades to a FREE-TEXT input (with a hint) so the picker never dead-ends.
+  - **Pure trigger mutators** in `fxModel.client.ts` (`setTriggerMode` / `setTriggerEvent` /
+    `setTriggerDuration` + the `triggerMode` readout): edit ONLY `layer.trigger`, never the
+    verbatim `config` (or `placement`). Switching to `always` DROPS `eventType`/`duration`
+    (mirroring `setPlacementSpace('free')` dropping the bone); an event↔event toggle KEEPS them;
+    a blank duration (NaN via the page's new `numOrBlank` helper) clears it ⇒ `emitterLifetime`
+    governs. PixiJS-free so the harness covers them.
+  - **normalize round-trip confirmed** — `normalizeEffectDoc` already round-trips `trigger`
+    cleanly (the Phase-1 harness asserts event+ambient triggers). Verified every shape the picker
+    can produce (ambient / event+type+duration / event+type-no-duration / event-no-type-dormant)
+    survives save→reopen byte-identically; no normalizer or mutator change was needed.
+  - **Verified headlessly** by `tools/fx-spike/triggerPicker.ts` (`pnpm --filter fx-spike run
+    trigger-ui`): **31/31 GREEN** — the mutators are pure/immutable + touch only `trigger`, the
+    always↔event drop/keep gating holds, and an authored trigger (incl. a picker-BUILT one driven
+    through JSON→`normalizeEffectDoc`) is a normalize FIXED POINT + idempotent. ALL prior fx
+    harnesses (roundtrip/model/save/placement/player/pipeline/trigger) still PASS. `pnpm --filter
+    launcher-api build` **GREEN** (the `(app)/fx` entry grew to 21.05 kB; the loader now links the
+    `flowVocabularies` chunk). Prettier clean.
+  - **NEEDS LIVE OWNER-VERIFY (authed page — not browser-verifiable here):** the dropdown
+    POPULATES from the project's vocabulary (and degrades to free-text when there's none), and an
+    authored trigger SURVIVES save→reopen in the live `/fx`.
+  - **Docs:** the `/fx` UI gained a Trigger section — `docs/tools/fx.md` wants a refresh (a later
+    `docs-keeper` pass; not written here, RULE 9 already satisfied since the tool is registered).
+    Did NOT register a new tool / touch `roles.ts` / bump any game submodule.
+  - **Remaining FX work:** Tier C / Phase 3 (spine-as-particle, Phase-0 gated). Files:
+    `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,+page.server.ts,fxModel.client.ts}`,
+    `tools/fx-spike/{triggerPicker.ts,package.json}`, `docs/STATUS.md`.
 
 ## 1. Naming (settled here to avoid a real collision)
 

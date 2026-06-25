@@ -299,3 +299,59 @@ export function setSpawnRadius(config: EmitterConfigV3, radius: number): Emitter
 	}
 	return next;
 }
+
+// ---------------------------------------------------------------------------
+// Trigger (Phase 4 — Flow seam). These mutate a layer's `trigger` block IMMUTABLY
+// (never `config` — the trigger lives OUTSIDE the verbatim library config). Flow owns
+// "when" by default (§4.4/§9): `on:'always'` is the only self-contained case (ambient FX);
+// `on:'event'` binds to a `type` from the game's `EmitterVocabulary` so a Flow Broadcast
+// node is the fire button. Kept pure so the harness covers the always↔event gating and the
+// save→reopen survival of an authored trigger.
+// ---------------------------------------------------------------------------
+
+/**
+ * Set whether a layer fires `always` (ambient) or on an `event`, immutably. Switching to
+ * `always` DROPS `eventType`/`duration` (an ambient layer has no event binding — mirrors how
+ * `setPlacementSpace('free')` drops the bone); switching to `event` keeps any prior
+ * `eventType`/`duration` so toggling back and forth is non-destructive.
+ */
+export function setTriggerMode(layer: EmitterLayer, on: 'always' | 'event'): EmitterLayer {
+	if (on === 'always') {
+		return { ...layer, trigger: { on: 'always' } };
+	}
+	const prev = layer.trigger;
+	const trigger: EmitterLayer['trigger'] = { on: 'event' };
+	if (prev?.eventType) trigger.eventType = prev.eventType;
+	if (prev?.duration !== undefined) trigger.duration = prev.duration;
+	return { ...layer, trigger };
+}
+
+/**
+ * Set the bus `type` an `event`-triggered layer fires on, immutably. Forces `on:'event'` (a
+ * layer can't carry an `eventType` while ambient). An empty value clears the binding (the
+ * layer stays `event` but dormant — it can never fire, the fail-safe).
+ */
+export function setTriggerEvent(layer: EmitterLayer, eventType: string): EmitterLayer {
+	const clean = eventType.trim();
+	const trigger: EmitterLayer['trigger'] = { on: 'event' };
+	if (clean) trigger.eventType = clean;
+	if (layer.trigger?.duration !== undefined) trigger.duration = layer.trigger.duration;
+	return { ...layer, trigger };
+}
+
+/**
+ * Set the emit `duration` (ms) of an `event`-triggered layer immutably — emit for N ms then
+ * stop. A non-finite/blank value (NaN) CLEARS the duration so the config's `emitterLifetime`
+ * governs the burst instead. Forces `on:'event'` (duration is meaningless for ambient).
+ */
+export function setTriggerDuration(layer: EmitterLayer, duration: number): EmitterLayer {
+	const trigger: EmitterLayer['trigger'] = { on: 'event' };
+	if (layer.trigger?.eventType) trigger.eventType = layer.trigger.eventType;
+	if (Number.isFinite(duration)) trigger.duration = duration;
+	return { ...layer, trigger };
+}
+
+/** The layer's trigger mode for the inspector readout (no trigger ⇒ `always`, the ambient default). */
+export function triggerMode(layer: EmitterLayer): 'always' | 'event' {
+	return layer.trigger?.on === 'event' ? 'event' : 'always';
+}

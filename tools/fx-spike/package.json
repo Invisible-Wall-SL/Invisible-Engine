@@ -10,7 +10,8 @@
 		"placement": "tsx placement.ts",
 		"player": "tsx playerReduce.ts",
 		"pipeline": "tsx pipeline.ts",
-		"trigger": "tsx trigger.ts"
+		"trigger": "tsx trigger.ts",
+		"trigger-ui": "tsx triggerPicker.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
