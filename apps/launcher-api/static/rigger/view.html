@@ -480,6 +480,8 @@ let drawMeshMode = false, drawPoints = [];
 let drawDragIdx = null, selDrawPoint = null; // drag/select a boundary point while drawing
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
+let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
+let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
@@ -2296,6 +2298,7 @@ function selectSlot(name){
   meshAddMode = false; meshRemoveMode = false; selMeshVert = null;
   weightBrush = false; brushBone = null; brushPainting = false;
   drawMeshMode = false; drawPoints = [];
+  meshIsolate = false; // exit isolated-mesh editing when moving to another slot
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   if (animMode) renderTimeline();
   renderSlotDetail();
@@ -2475,6 +2478,31 @@ function renderSlotDetail(){
       (meshCtx.weighted ? " · weighted" : "") + " — drag the points on the canvas to reshape";
     t.style.color = "var(--accent2)";
     det.appendChild(t);
+    // Isolate (Phase 6): detach this mesh from the rest of the rig for unobstructed geometry
+    // editing — hide every other slot + hold the setup pose. The image stays bound the whole
+    // time (path/UVs untouched), so toggling off "reattaches" with no reprojection.
+    {
+      const isoRow = document.createElement("div");
+      isoRow.style.cssText = "margin-top:7px;display:flex;gap:6px;align-items:center;";
+      const isoBtn = document.createElement("button");
+      isoBtn.textContent = meshIsolate ? "⛶ isolating…" : "⛶ Isolate mesh";
+      isoBtn.title = "Edit this mesh alone: hide every other slot and hold the setup pose so the wireframe is unobstructed. The image stays bound — toggle off to drop back into the full rig.";
+      if (meshIsolate) isoBtn.className = "active";
+      isoBtn.onclick = () => { meshIsolate = !meshIsolate; if (meshIsolate) fitMesh(); renderSlotDetail(); };
+      isoRow.appendChild(isoBtn);
+      if (meshIsolate){
+        const texBtn = document.createElement("button");
+        const texLbl = () => "🖼 Texture: " + (meshTexView >= 1 ? "full" : meshTexView > 0 ? "dim" : "off");
+        texBtn.textContent = texLbl();
+        texBtn.title = "Cycle the mesh image: full → dim → off (wireframe only)";
+        texBtn.onclick = () => {
+          meshTexView = meshTexView >= 1 ? 0.4 : meshTexView > 0 ? 0 : 1;
+          texBtn.textContent = texLbl();
+        };
+        isoRow.appendChild(texBtn);
+      }
+      det.appendChild(isoRow);
+    }
     // Editing a non-default skin that INHERITS this mesh from default? Edits would land
     // on default (shared by every skin). Offer a one-click skin-specific copy so this
     // skin can be weighted/reshaped independently.
@@ -3647,6 +3675,7 @@ function setMode(m){
   mode = m;
   editMode = (m === "setup");
   animMode = (m === "animate");
+  if (!editMode) meshIsolate = false; // isolated-mesh editing is a setup-mode tool only
   document.querySelectorAll('#modeSeg button').forEach((b) => {
     b.classList.toggle("active", b.dataset.mode === m);
     if (b.dataset.mode !== "preview") b.disabled = !rawDoc; // setup/animate need an editable rig
@@ -4854,6 +4883,40 @@ function updateBoneMarker(){
 }
 
 // ---- camera / fit ---------------------------------------------------------
+// Phase 6 — isolated mesh edit. Draw ONLY the selected mesh slot's attachment at the chosen
+// texture opacity (full / dim / off), with every other slot hidden so the wireframe overlay is
+// unobstructed. Non-destructive: slot alphas are saved + restored around the single draw, and
+// the attachment's path/UVs are never touched — so "reattach" is just toggling isolate off.
+function drawSkeletonIsolated(){
+  const target = meshCtx ? skeleton.slots[meshCtx.slotIndex] : null;
+  if (!target){ if (showAttachments) renderer.drawSkeleton(skeleton, pma); return; }
+  if (meshTexView <= 0) return; // wireframe only — the overlay draws the mesh below
+  const saved = skeleton.slots.map((s) => s.color.a);
+  for (const s of skeleton.slots) s.color.a = 0;
+  target.color.a = saved[meshCtx.slotIndex] * meshTexView;
+  renderer.drawSkeleton(skeleton, pma);
+  skeleton.slots.forEach((s, i) => { s.color.a = saved[i]; });
+}
+
+// Frame the camera to the selected mesh's world bounds (used on entering isolate).
+function fitMesh(){
+  const w = (typeof meshWorldVerts === "function") ? meshWorldVerts() : null;
+  if (!w || !w.length || !renderer) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < w.length; i += 2){
+    const x = w[i], y = w[i + 1];
+    if (x < minX) minX = x; if (y < minY) minY = y;
+    if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+  }
+  const sx = maxX - minX, sy = maxY - minY;
+  if (!(sx > 0 && sy > 0)) return;
+  const cam = renderer.camera; resizeCanvas();
+  cam.position.x = minX + sx / 2; cam.position.y = minY + sy / 2;
+  const vw = $("#cv").width, vh = $("#cv").height;
+  cam.zoom = Math.max(sx / vw, sy / vh) * 1.6;
+  cam.update();
+}
+
 function fitView(){
   if (!skeleton) return;
   const off = new SPINE.Vector2(), size = new SPINE.Vector2();
@@ -4959,8 +5022,10 @@ function frame(now){
     // setup mode: hold whatever pose the edits set (no per-frame reset)
     updateWorld();
     renderer.begin();
-    if (showAttachments) renderer.drawSkeleton(skeleton, pma);
-    if (showMesh){ // mesh hull + triangles via the debug renderer (bones we draw ourselves)
+    const isolating = editMode && meshIsolate && meshCtx;
+    if (isolating) drawSkeletonIsolated();
+    else if (showAttachments) renderer.drawSkeleton(skeleton, pma);
+    if (showMesh && !isolating){ // mesh hull + triangles via the debug renderer (bones we draw ourselves)
       const d = renderer.skeletonDebugRenderer;
       if (d){
         d.drawBones = false;

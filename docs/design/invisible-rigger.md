@@ -1122,3 +1122,46 @@ Body `{ dir, atlasFile, manifestKey? }`. Mirrors `new`'s page-copy + atlas-synth
 names are preserved. If the atlas was re-packed with renamed/removed regions, the rig's
 attachments may no longer resolve and the user re-attaches by hand. Not a new pipeline
 asset class — it ships through the existing `.irig` save→ship path.
+
+## Phase 6 — isolated mesh edit ("detach the mesh to edit it") (2026-06-25)
+
+Owner ask: *"a way to detach the mesh from the sprite image so I can edit the mesh, to
+then reattach it again."* Clarified to the **isolated-edit** reading (Spine's "Edit Mesh"
+workflow), NOT a true unbind/re-project — the image stays bound the whole time, so
+"reattach" is just toggling the mode off. Zero data risk: `path`/`uvs` are never touched,
+nothing in the `.irig` format or the deploy/bake chain changes. Purely a render-filter +
+texture-opacity addition in `static/rigger/view.html`.
+
+Why it's cheap on our side: a `MeshAttachment` already separates **geometry** (`vertices`,
+`triangles`, `hull`) from **image binding** (`path` + `uvs`). Editing geometry never
+disturbs the binding — exactly why Spine separates mesh editing from posing. So "isolate"
+is a view state, not a data operation.
+
+**State (`view.html`).** `meshIsolate` (bool) + `meshTexView` (1 = full, 0.4 = dim,
+0 = wireframe only). Both reset on `selectSlot` (moving to another slot exits isolation)
+and in `setMode` when leaving setup (isolate is a **setup-mode-only** tool — geometry is
+edited against the setup pose, never a deformed/animated pose).
+
+**UI.** When a mesh attachment is selected, the slot-detail panel shows a **⛶ Isolate
+mesh** toggle and, while active, a **🖼 Texture: full / dim / off** cycle. Entering isolate
+calls `fitMesh()` to frame the camera on the mesh's world bounds.
+
+**Render hook (`frame()`).** When `editMode && meshIsolate && meshCtx`:
+- `drawSkeletonIsolated()` draws ONLY the selected mesh slot's attachment at
+  `meshTexView` opacity, with every other slot hidden. Non-destructive — it saves every
+  slot's `color.a`, zeroes them, sets the target to `saved × meshTexView`, draws once, then
+  restores all alphas in the same frame. `meshTexView === 0` skips the textured draw
+  entirely (wireframe only).
+- the global `showMesh` debug renderer (which would draw *every* mesh's hull) is suppressed
+  while isolating, so only the selected mesh's overlay (`drawMeshOverlay` — triangles +
+  draggable vertex handles) shows.
+
+All the existing geometry tools (move / add / remove vertex, re-triangulate, draw mesh, UV
+numeric edit, weight brush) work unchanged inside the isolated view — they operate on the
+same `meshCtx`. "Reattach" = toggle ⛶ off → drop back into the full posed/animated rig with
+the edited geometry live, no reprojection.
+
+**Not done here (the other reading, deferred):** a *true* unbind → edit free-floating →
+re-project-UVs-onto-a-different-region flow (re-skin / retopo+reproject). The data model
+supports it (recompute `uvs` via the affine fit `✎ Draw mesh` already uses), but it's a
+separate, larger feature; left for a future phase if the owner wants image-swap rebinding.

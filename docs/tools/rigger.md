@@ -103,6 +103,12 @@ A floating segmented toggle at the top of the stage switches the workflow:
   into an editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to
   trace a mesh outline by clicking boundary points (Finish to commit, Esc to
   cancel, Backspace removes the last point).
+- **Isolate a mesh to edit it:** with a mesh selected, **⛶ Isolate mesh** hides
+  every other slot and holds the setup pose so you can reshape the wireframe
+  unobstructed (the view also frames the mesh). A **🖼 Texture** button cycles the
+  mesh image **full → dim → off** (off = wireframe only). The image stays bound the
+  whole time — toggle **⛶** off to drop back into the full rig with your edits live.
+  All the mesh tools above work the same inside the isolated view.
 - **Weights:** on an unweighted mesh, **Bind to slot bone** makes it weighted
   (every vertex 100% to the slot bone). Selecting a weighted-mesh vertex lists its
   bone influences with auto-normalising weight inputs, an ✕ to remove an
