@@ -49,9 +49,9 @@
 	import { clearPageImages } from './RegionThumb.svelte';
 
 	interface AssetDragPayload {
-		// `text` / `container` / `rect` are not assets — they're blank ELEMENTS the
+		// `text` / `rect` are not assets — they're blank ELEMENTS the
 		// Library's "Elements" palette drags in (key is unused for those).
-		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'container' | 'rect';
+		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect';
 		key: string;
 		name: string;
 	}
@@ -2575,12 +2575,11 @@
 		} catch {
 			return;
 		}
-		// Blank elements (the Library's "Elements" palette — `text`/`container`/`rect`)
+		// Blank elements (the Library's "Elements" palette — `text`/`rect`)
 		// carry an empty `key` by design; only ASSET kinds (region/atlas-page/spine)
 		// reference a key. Requiring a key here silently rejected the keyless drops.
 		if (!payload || !payload.kind) return;
-		const keyless =
-			payload.kind === 'text' || payload.kind === 'container' || payload.kind === 'rect';
+		const keyless = payload.kind === 'text' || payload.kind === 'rect';
 		if (!keyless && !payload.key) return;
 		const pos = clientToWorld(e.clientX, e.clientY);
 		const node = spawnNode(payload, pos);
@@ -2629,7 +2628,7 @@
 					loop: false,
 				};
 			// Blank elements (the Library's "Elements" palette) — a default text node
-			// (edited via Properties → Text) or an empty container for grouping.
+			// (edited via Properties → Text).
 			case 'text':
 				return {
 					...base,
@@ -2637,8 +2636,6 @@
 					text: 'Text',
 					style: { fontFamily: 'proxima-nova', fontSize: 45, fill: 0xffffff },
 				};
-			case 'container':
-				return { ...base, kind: 'container', children: [] };
 			// A solid fill block (full-screen dims, panels, colour blocks) — sized
 			// 400×400 white by default, recoloured + resized via Properties/handles.
 			case 'rect':

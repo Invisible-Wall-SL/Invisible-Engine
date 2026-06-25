@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * Shared "Elements" palette rows for the Scene Editor and Component Editor.
-	 * Single source of truth for the draggable Text / Container / Rect rows so a
+	 * Single source of truth for the draggable Text / Rect rows so a
 	 * new palette element is a one-place change. The optional Reel row is
 	 * scene-only (a reel grid doesn't belong in a reusable component): it renders
 	 * only when a `reel` prop is supplied.
@@ -28,13 +28,6 @@
 >
 	<span class="name">Text</span>
 	<span class="tag">text</span>
-</li>
-<li
-	draggable="true"
-	ondragstart={(e) => onElementDragStart(e, { kind: 'container', key: '', name: 'Group' })}
->
-	<span class="name">Container</span>
-	<span class="tag">group</span>
 </li>
 <li
 	draggable="true"

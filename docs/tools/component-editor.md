@@ -74,8 +74,8 @@ or navigating away warns you it will be discarded.
 With a component open, the layout switches to the familiar three-pane editor:
 
 - **Left** has two tabs:
-  - **Library** — drag elements onto the canvas: a **Text** node, a **Container**
-    (group), atlas pages, **spines**, and sheet/atlas-manifest **regions** (expand
+  - **Library** — drag elements onto the canvas: a **Text** node, a **Rect** fill,
+    atlas pages, **spines**, and sheet/atlas-manifest **regions** (expand
     a sheet or manifest to see its named regions and drag one in).
   - **Outline** — the open component's node tree; click to select (shift/⌘/ctrl-click
     to multi-select), and rename a node's outline label.

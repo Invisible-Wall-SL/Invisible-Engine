@@ -80,7 +80,7 @@ To start from something:
 
 Open the **Library** tab. It is grouped into:
 
-- **Elements** — drag in a **Text** node or a **Container** (group), or click
+- **Elements** — drag in a **Text** node or a **Rect** fill, or click
   **Reel** to insert the board/reel-grid placeholder (one per game; the item
   highlights and re-selects the existing reel if you already have one).
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
