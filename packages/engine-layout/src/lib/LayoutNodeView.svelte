@@ -396,11 +396,23 @@
 			!!node.stateAnimations &&
 			Object.keys(node.stateAnimations).length > 0}
 		{@const spineVisible = !isStateOverlay || !!override}
+		<!--
+			Anchor / placement parity with the editor: the editor preview places a spine's
+			SKELETON ORIGIN at the node position (anchor only frames the selection box, never
+			shifts the art — see `matFromTransform` "Anchor is NOT folded in here" + the spine
+			overlay's `skeleton.x = world.x`). `SpineProvider`'s `anchorToPivot` instead pivots
+			the art by `anchor·size` (assuming top-left-origin art), which offsets an
+			origin-centred skeleton in-game vs the editor. So for a NON-background spine we pass
+			NO anchor → pivot 0 → origin at the node position, matching the editor exactly.
+			Background spines keep `transform.anchor` (their cover path centres via `coverTransform`
+			and is untouched). Default-anchor (0) spines already resolved to pivot 0, so they're
+			byte-identical; only the previously-offset non-zero-anchor case moves into parity.
+		-->
 		<SpineProvider
 			key={node.assetKey}
 			x={bg ? bg.x : posX}
 			y={bg ? bg.y : posY}
-			anchor={transform.anchor}
+			anchor={isBackground ? transform.anchor : undefined}
 			scale={bgSpineBox ? bgSpineScale : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
