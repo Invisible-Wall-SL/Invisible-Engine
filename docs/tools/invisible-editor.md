@@ -144,6 +144,21 @@ device layout you are authoring. `desktop` is the base; switching to another
 layout and editing writes a **per-layoutType override** on top of the base, so
 each device can have its own placement without duplicating the whole layout.
 
+#### Canvas size (the MAIN box)
+
+The right-hand panel has a **Canvas Size** section with **Width** / **Height**
+inputs for the currently selected layoutType. This is the game's **MAIN box** —
+the box the running game scales to fill the window. Author your nodes against it
+so what you place lines up with what ships. A new project seeds this box from its
+game type's reference (e.g. a `bookOf` project starts at `1422×800` desktop), not
+a generic default.
+
+If the box drifts from the game type's reference (common for older projects
+created before the seed), an amber **"Canvas W×H doesn't match the … game box
+W×H"** warning appears with a **Match game box** button that snaps every
+layoutType's box back to the reference in one click. Editing the box (or clicking
+Match) goes through the normal autosave + undo path.
+
 ### 6. Save and reach the game
 
 Editing autosaves on a short debounce — the status pill in the top bar shows

@@ -1,5 +1,10 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { findUnfilledRequiredSlots, reelGridWarnings, type LayoutDoc } from 'engine-layout';
+import {
+	findUnfilledRequiredSlots,
+	getFullSceneSet,
+	reelGridWarnings,
+	type LayoutDoc,
+} from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -59,9 +64,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
+	// The project's resolved game type, fetched ONCE — drives both the fresh-doc
+	// canvas-box seed (a never-saved project gets the game's REAL main box) and the
+	// template/symbol-default resolution below (the doc's own `gameType` wins when set).
+	const resolvedProjectGameType = await projectGameType(projectKey);
 	const [doc, assets, components, customKinds, symbolsDoc, publishedSymbolDefaults] =
 		await Promise.all([
-			loadDoc(clientKey, projectKey),
+			loadDoc(clientKey, projectKey, resolvedProjectGameType),
 			listProjectAssets(clientKey, projectKey),
 			// Components the project can use (shared + project, project shadowing shared,
 			// §8.3). Drives the scene-mode component picker AND the editor canvas's
@@ -82,7 +91,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// (§7.1) — not only after a save round-trip. Resolve from the doc's persisted
 	// `gameType` first (the author's choice sticks across sessions), falling back
 	// to the project's resolved game type when the doc predates that field.
-	const template = await loadTemplate(doc.gameType ?? (await projectGameType(projectKey)));
+	const resolvedGameType = doc.gameType ?? resolvedProjectGameType;
+	const template = await loadTemplate(resolvedGameType);
 	const warnings = template
 		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, template)]
 		: [];
@@ -93,9 +103,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// Resolve the symbol set the canvas draws: the project's PUBLISHED coded map when
 	// available, else the committed coded defaults for the resolved game type. The
 	// override doc above is layered on top per-cell in the client (parity with the tool).
-	const symbolDefaults =
-		publishedSymbolDefaults ??
-		symbolDefaultsFor(doc.gameType ?? (await projectGameType(projectKey)));
+	const symbolDefaults = publishedSymbolDefaults ?? symbolDefaultsFor(resolvedGameType);
+	// The game-type reference's canonical canvas box — passed to the client so the
+	// editor can flag a doc whose `mainSizesMap` differs from the game's REAL main
+	// box (and offer a one-click "Match game box" fix). Plain JSON, safe to clone.
+	const referenceMainSizes = getFullSceneSet(resolvedGameType)?.mainSizesMap ?? null;
 	// Content checks (missing/unassigned asset references) are computed live in the
 	// client (`+page.svelte`) from `assets`, since they must track edits before any
 	// save and `$lib/server` can't enter the browser bundle — no server copy here.
@@ -111,6 +123,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		customKinds,
 		symbolDefaults,
 		symbolsDoc,
+		referenceMainSizes,
 	};
 };
 

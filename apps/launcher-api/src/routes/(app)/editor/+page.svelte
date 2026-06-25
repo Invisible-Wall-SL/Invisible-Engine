@@ -1432,6 +1432,42 @@
 		lastError = '';
 	}
 
+	// ---------- canvas size (MAIN box per layoutType) ----------
+	// The doc's `mainSizesMap[layoutType]` IS the game's MAIN box the runtime scales to
+	// the window (via `<MainContainer>`). Editing it here routes through `markDirty()` so
+	// it coalesces into ONE undo step + autosaves; the canvas already reacts to the
+	// `mainSizesMap` `$state`. A fresh project now SEEDS this from the game-type reference
+	// (server), but older docs can still drift — see the mismatch warning below.
+	function setCanvasDimension(dim: 'width' | 'height', value: number): void {
+		if (!Number.isFinite(value) || value <= 0) return;
+		const next = Math.round(value);
+		if (mainSizesMap[currentLayoutType][dim] === next) return;
+		mainSizesMap[currentLayoutType][dim] = next;
+		markDirty();
+	}
+
+	/** The game-type reference's canonical canvas box (plain JSON from the server), or
+	 * `null` for a game type without a reference layout. */
+	const referenceMainSizes = data.referenceMainSizes;
+	/** The layoutTypes whose current box differs from the game-type reference — drives the
+	 * non-blocking mismatch warning. Empty when there's no reference or the doc matches. */
+	const canvasMismatches = $derived.by(() => {
+		if (!referenceMainSizes) return [] as LayoutType[];
+		return layoutTypes.filter((lt) => {
+			const ref = referenceMainSizes[lt];
+			const cur = mainSizesMap[lt];
+			return !ref || !cur || ref.width !== cur.width || ref.height !== cur.height;
+		});
+	});
+	/** Snap the WHOLE `mainSizesMap` to the game-type reference (the one-click fix for an
+	 * already-drifted doc). Clones from the plain server JSON — never a `$state` proxy
+	 * (`structuredClone` on a proxy throws here). */
+	function matchGameBox(): void {
+		if (!referenceMainSizes) return;
+		mainSizesMap = structuredClone(referenceMainSizes);
+		markDirty();
+	}
+
 	function buildDocPayload() {
 		const settings = buildGameSettings();
 		const payload: {
@@ -2540,6 +2576,59 @@
 			/>
 
 			<div class="game-settings">
+				<PanelSection id="canvas-size" title="Canvas Size">
+					<div class="gs-body">
+						<p class="gs-note">
+							The game's MAIN box for <strong>{currentLayoutType}</strong> — the runtime scales it
+							to fill the window. Author your nodes against this box.
+						</p>
+						<label class="gs-field">
+							<span class="gs-label">Width</span>
+							<input
+								class="cs-input"
+								type="number"
+								min="1"
+								step="1"
+								value={mainSizesMap[currentLayoutType].width}
+								onchange={(e) => setCanvasDimension('width', e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+						<label class="gs-field">
+							<span class="gs-label">Height</span>
+							<input
+								class="cs-input"
+								type="number"
+								min="1"
+								step="1"
+								value={mainSizesMap[currentLayoutType].height}
+								onchange={(e) => setCanvasDimension('height', e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+						{#if referenceMainSizes && canvasMismatches.length > 0}
+							<div class="cs-warn">
+								<p class="cs-warn-text">
+									Canvas
+									<strong
+										>{mainSizesMap[currentLayoutType].width}×{mainSizesMap[currentLayoutType]
+											.height}</strong
+									>
+									doesn't match the {authoringGameType} game box
+									<strong
+										>{referenceMainSizes[currentLayoutType]?.width}×{referenceMainSizes[
+											currentLayoutType
+										]?.height}</strong
+									> — the game will render at a different size.
+								</p>
+								<button type="button" class="cs-warn-fix" onclick={matchGameBox}>
+									Match game box
+								</button>
+							</div>
+						{/if}
+					</div>
+				</PanelSection>
+			</div>
+
+			<div class="game-settings">
 				<PanelSection id="game-settings" title="Game Settings">
 					<div class="gs-body">
 						<label class="gs-field">
@@ -3251,6 +3340,51 @@
 		font-size: 11px;
 		line-height: 1.4;
 		color: #777;
+	}
+	.cs-input {
+		width: 84px;
+		background: #16161c;
+		border: 1px solid #1f1f28;
+		border-radius: 6px;
+		color: #e8e8ee;
+		padding: 5px 8px;
+		font-size: 12px;
+		font-family: inherit;
+		text-align: right;
+	}
+	.cs-warn {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 8px 10px;
+		border: 1px solid #3a3020;
+		border-radius: 8px;
+		background: #1c1810;
+	}
+	.cs-warn-text {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.4;
+		color: #f0c878;
+	}
+	.cs-warn-text strong {
+		color: #ffe0a0;
+		font-weight: 600;
+	}
+	.cs-warn-fix {
+		align-self: flex-start;
+		padding: 5px 12px;
+		border: 1px solid #4a3a20;
+		border-radius: 6px;
+		background: #2a2114;
+		color: #f0c878;
+		font-size: 12px;
+		font-family: inherit;
+		cursor: pointer;
+	}
+	.cs-warn-fix:hover {
+		background: #352a18;
+		border-color: #5a4a28;
 	}
 	.gs-note strong {
 		color: #c8a3ff;
