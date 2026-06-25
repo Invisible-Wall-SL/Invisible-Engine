@@ -1987,6 +1987,15 @@ importers:
         specifier: workspace:*
         version: link:../eslint-config-custom
 
+  tools/bg-scene-spike:
+    devDependencies:
+      engine-layout:
+        specifier: workspace:*
+        version: link:../../packages/engine-layout
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
+
   tools/flow-spike:
     devDependencies:
       engine-flow:
