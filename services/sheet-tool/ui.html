@@ -243,6 +243,8 @@
         <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2" onchange="markDirty()"></div>
         <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot" onchange="markDirty()"></div>
         <button class="sec wide" onclick="applyCanvas()">Apply size</button>
+        <button class="sec wide" onclick="doArrange()" style="margin-top:8px">Auto-arrange unlocked ▦</button>
+        <span id="arrmsg" class="muted" style="display:block;margin-top:8px"></span>
       </div>
 
       <div class="card">
@@ -267,9 +269,6 @@
       <span id="zoomlbl">100%</span>
       <span style="color:#555">|</span>
       <span id="canvaslbl">—</span>
-      <span style="color:#555">|</span>
-      <button onclick="doArrange()">Auto-arrange unlocked ▦</button>
-      <span id="arrmsg"></span>
     </div>
     <div id="viewport"><div id="canvas"></div></div>
   </section>
