@@ -302,8 +302,37 @@ def parse_multipart(body: bytes, content_type: str) -> tuple[dict, list]:
 # API handlers
 # ---------------------------------------------------------------------------
 
+def _refresh_listing_subtrees(pp: dict) -> None:
+    """Force a fresh, incremental R2 pull of just the cheap listing subtrees
+    (packed `sheets/` + shared `manifests/`) into staging so the sheets rail
+    reflects shared cloud state on EVERY load — not only once per container.
+
+    hydrate() dedups per (client, project) per process (force=False), so a
+    long-lived Railway container that hydrated this project while its `sheets/`
+    prefix was still empty never re-pulls sheets saved later from another
+    machine; the rail then shows "(no saved sheets)" until ↻ Refresh. We re-pull
+    here using the SAME size+mtime-aware storage.pull_prefix hydrate() uses, with
+    the prefixes/paths resolve() already computed. The heavy `sheet_src/` pile is
+    deliberately NOT pulled (it stays lazy via ensure_lazy). Best-effort: any R2
+    error leaves the local staging mirror as-is so the listing still falls back
+    to whatever is on disk."""
+    base = pp.get("r2_project_prefix")
+    staging_root = pp.get("staging_root")
+    if not base or staging_root is None:
+        return
+    kr = base + "/"
+    for sub in ("sheets/", "manifests/"):
+        try:
+            storage.pull_prefix(base + "/" + sub, staging_root, kr)
+        except Exception:  # noqa: BLE001 — first run / empty bucket / transient R2 error
+            pass
+
+
 def api_state() -> dict:
     pp = project_paths.resolve()
+    # Re-pull the listing subtrees from R2 so the rail reflects shared cloud
+    # state on every load (resolve()'s hydrate() only pulls once per process).
+    _refresh_listing_subtrees(pp)
     cfg = load_config()
     sheets = []
     out_root = pp["output_root"]
