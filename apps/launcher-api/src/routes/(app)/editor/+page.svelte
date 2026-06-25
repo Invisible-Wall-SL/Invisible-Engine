@@ -411,53 +411,125 @@
 		return root;
 	}
 
-	/** "Edit as component" from Properties: MATERIALISE the selected container's
-	 * sub-tree into a project `ComponentDef` (identity root), POST it, then open it
-	 * in the standalone Component Editor in THIS window. Flushes the layout to the
-	 * doc first so scene edits aren't lost on navigation. */
+	/**
+	 * Convert a top-level SCENE container into a `componentInstance` referencing
+	 * `def`, IN PLACE by id so the selection + z-order survive (same discipline as
+	 * `onConvertToReelGrid` / `onConvertToParametricButton`). The component root is
+	 * authored in LOCAL space (no transform of its own — see `toComponentRoot` /
+	 * `identityComponentRoot`), so the instance must carry the container's transform
+	 * to sit exactly where the container did: the def children keep their local
+	 * coordinates and are positioned by the instance. Returns `true` when the node
+	 * was found + replaced.
+	 */
+	function linkContainerToComponentInstance(container: ContainerNode, def: ComponentDef): boolean {
+		const next = scenes.slice();
+		const sc = next[activeSceneIdx];
+		const nodes = sc.nodes.slice();
+		const idx = nodes.findIndex((n) => n.id === container.id);
+		if (idx === -1 || nodes[idx].kind !== 'container') return false;
+		const old = nodes[idx];
+		const instance: ComponentInstanceNode = {
+			id: old.id,
+			kind: 'componentInstance',
+			componentId: def.id,
+			componentVersion: def.version,
+			x: old.x,
+			y: old.y,
+		};
+		// Carry the container's transform/placement so the instance lands in the same
+		// spot. The def root is identity-placed, so these belong on the instance node.
+		if (old.label !== undefined) instance.label = old.label;
+		if (old.anchor !== undefined) instance.anchor = old.anchor;
+		if (old.scale !== undefined) instance.scale = old.scale;
+		if (old.rotation !== undefined) instance.rotation = old.rotation;
+		if (old.alpha !== undefined) instance.alpha = old.alpha;
+		if (old.zIndex !== undefined) instance.zIndex = old.zIndex;
+		if (old.coverScale !== undefined) instance.coverScale = old.coverScale;
+		if (old.fit !== undefined) instance.fit = old.fit;
+		if (old.overrides !== undefined) instance.overrides = old.overrides;
+		if (old.visibleFor !== undefined) instance.visibleFor = old.visibleFor;
+		if (old.screenAnchor !== undefined) instance.screenAnchor = old.screenAnchor;
+		if (old.slotId !== undefined) instance.slotId = old.slotId;
+		if (old.locked !== undefined) instance.locked = old.locked;
+		nodes[idx] = instance;
+		next[activeSceneIdx] = { ...sc, nodes };
+		scenes = next;
+		return true;
+	}
+
+	/**
+	 * "Edit as component" from Properties: turn the selected SCENE container into a
+	 * reusable component and a `componentInstance` that REFERENCES it, then open the
+	 * def in the standalone Component Editor in THIS window.
+	 *
+	 * Two cases, both non-destructive to an already-authored def:
+	 *  - **First extraction** (no same-name project component yet): MATERIALISE the
+	 *    container's sub-tree into a new project `ComponentDef` (identity root) and
+	 *    POST it once. This is the ONLY path that writes a def from the container's
+	 *    children.
+	 *  - **Existing same-name def**: LINK the container to that def WITHOUT
+	 *    re-POSTing — never overwrite a def the author already edited in the
+	 *    Component Editor (the old "idempotent re-POST" clobbered the saved children
+	 *    with the scene container's stale, sprite-less sub-tree).
+	 *
+	 * Either way the scene container becomes a `componentInstance`, so subsequent
+	 * component edits flow back into the scene and the destructive re-extraction can
+	 * no longer happen (the button is gated to plain `container` nodes; an instance
+	 * uses "Edit in Component Editor", which only navigates). The conversion is
+	 * persisted via `markDirty()` + an explicit save before navigation.
+	 */
 	async function editContainerAsComponent(container: ContainerNode): Promise<void> {
 		if (componentBusy) return;
 		componentBusy = true;
 		componentStatus = null;
 		if (dirty && !crossTypeLoaded) await save();
 		const name = container.label || 'Component';
-		// Idempotent by name: re-running "Edit as component" on a container reuses the
-		// existing project-scoped component of the same name (overwrite in place)
-		// instead of minting a duplicate shell each time.
 		const existing = components.find((c) => c.scope === 'project' && c.name === name);
-		const def: ComponentDef = {
-			id: existing ? existing.id : genComponentId(),
-			name,
-			version: existing ? existing.version : 1,
-			scope: 'project',
-			category: 'overlay',
-			root: toComponentRoot(container),
-		};
 		try {
-			const res = await fetch('/api/editor/component', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ ...def, project: data.projectKey }),
-			});
-			if (!res.ok) {
-				let message = 'Component save failed';
-				try {
-					const b = (await res.json()) as { message?: string };
-					if (b?.message) message = b.message;
-				} catch {
-					/* non-JSON error body */
+			let def: ComponentDef;
+			if (existing) {
+				// Reuse the already-authored def as-is — DO NOT overwrite it with the
+				// scene container's (possibly stale) children. Just link + open it.
+				def = existing;
+			} else {
+				def = {
+					id: genComponentId(),
+					name,
+					version: 1,
+					scope: 'project',
+					category: 'overlay',
+					root: toComponentRoot(container),
+				};
+				const res = await fetch('/api/editor/component', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ ...def, project: data.projectKey }),
+				});
+				if (!res.ok) {
+					let message = 'Component save failed';
+					try {
+						const b = (await res.json()) as { message?: string };
+						if (b?.message) message = b.message;
+					} catch {
+						/* non-JSON error body */
+					}
+					componentStatus = { kind: 'error', message };
+					return;
 				}
-				componentStatus = { kind: 'error', message };
-				return;
+				// Reflect the new def locally so the picker + canvas resolve it immediately.
+				components = [...components, def];
 			}
-			// Reflect the def locally so the picker + canvas resolve it immediately —
-			// overwrite an existing same-name entry in place rather than appending.
-			components = existing
-				? components.map((c) => (c.id === def.id ? def : c))
-				: [...components, def];
+			// Link the scene container to the def (container → componentInstance), so
+			// component edits reflect into the scene, and persist the conversion before
+			// navigating away.
+			const linked = linkContainerToComponentInstance(container, def);
+			if (linked) {
+				markDirty();
+				if (!crossTypeLoaded) await save();
+			}
 			componentStatus = {
 				kind: 'ok',
-				message: existing ? 'Component updated' : 'Component created',
+				message: existing ? 'Linked to component' : 'Component created',
 			};
 			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
 				data.projectKey,
