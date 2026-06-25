@@ -85,6 +85,11 @@
   #err { position:absolute; left:12px; right:12px; top:10px; background:#3a2326;
     border:1px solid var(--danger); color:#ffd4d4; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; white-space:pre-wrap; }
+  #artWarn { position:absolute; left:12px; right:12px; top:10px; background:#3a3322;
+    border:1px solid #b89233; color:#ffe8b0; padding:8px 10px; border-radius:6px;
+    font-size:12px; display:none; line-height:1.45; }
+  #artWarn .x { float:right; cursor:pointer; opacity:.7; margin-left:8px; font-weight:700; }
+  #artWarn .x:hover { opacity:1; }
   /* dopesheet timeline (animate mode) */
   #timeline { display:none; flex:0 0 160px; height:160px; background:var(--panel);
     border-top:1px solid var(--line); overflow:auto; position:relative; }
@@ -306,6 +311,7 @@
       </div>
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
       <div id="err"></div>
+      <div id="artWarn"></div>
     </div>
     <div class="resizer-h" id="resTimeline" title="drag to resize the timeline · double-click to reset" style="display:none;"></div>
     <div id="timeline"></div>
@@ -485,6 +491,11 @@ let curProjectLabel = "", restoringState = false; // persisted-selection helpers
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
+// Attachments whose region name isn't in the loaded atlas — collected while a tolerant
+// loader builds the skeleton (so a rig opens against ANY atlas, or none, instead of the
+// runtime throwing "Region not found"). Surfaced as a dismissible banner; re-point each
+// slot's image to clear it. [{ slot, name, path }]
+let missingArt = [];
 
 // Attachment type tests that survive the vendored runtime mangling class names
 // (the minified spine-webgl names them `_RegionAttachment`/`_MeshAttachment`, so a
@@ -567,9 +578,15 @@ async function selectSkeleton(entry){
   if (entry.format === "skel") assetMgr.loadBinary(entry.skeleton_file);
   else assetMgr.loadJson(entry.skeleton_file);
 
-  await waitAssets();
-  try { buildSkeleton(entry); saveRiggerState(); }
-  catch(e){ showErr("Build failed: " + (e.message || e)); }
+  // Keep BOTH the asset wait and the build inside the try: an asset/atlas error must
+  // not reject out of selectSkeleton (its callers `await` it during boot restore, where
+  // an unhandled rejection blanks the whole tool). On failure we show the real error and
+  // leave skeletonData unset so callers can detect it.
+  try {
+    await waitAssets();
+    buildSkeleton(entry); saveRiggerState();
+  }
+  catch(e){ showErr("Load failed: " + (e.message || e)); }
   finally { hideLoading(); }
 }
 
@@ -601,10 +618,74 @@ function premultiplyAtlas(atlas){
   });
 }
 
+// Build a 1×1 placeholder region on the atlas's first page for a missing image. A real
+// (non-null) attachment is required so the skeleton + its deform/sequence animations
+// still load; the slot just shows a ~invisible speck until the user re-points it.
+function placeholderRegion(atlas, path){
+  const page = atlas && atlas.pages && atlas.pages[0];
+  if (!page) return null; // no page at all → caller leaves region null (atlas-less load)
+  const r = new SPINE.TextureAtlasRegion(page, path);
+  // The ctor registers the region on page.regions; detach it so placeholders neither
+  // accumulate across rebuilds nor become findable (a re-point must still see it missing).
+  if (page.regions){ const i = page.regions.indexOf(r); if (i >= 0) page.regions.splice(i, 1); }
+  r.x = 0; r.y = 0; r.width = 1; r.height = 1;
+  r.originalWidth = 1; r.originalHeight = 1;
+  r.offsetX = 0; r.offsetY = 0; r.degrees = 0; r.index = -1;
+  r.u = 0; r.v = 0; r.u2 = 1 / (page.width || 1); r.v2 = 1 / (page.height || 1);
+  return r;
+}
+
+// A tolerant AtlasAttachmentLoader: instead of throwing when a region/mesh attachment's
+// image isn't in the atlas, it builds the attachment with a placeholder region and records
+// the miss in `missingArt`. This is what lets a saved rig open against a DIFFERENT atlas
+// (or none) — its attachments resolve later, one re-point at a time. Region/mesh names that
+// DO resolve go through the stock loader unchanged.
+function makeAttachmentLoader(atlas){
+  const base = new SPINE.AtlasAttachmentLoader(atlas);
+  const loader = Object.create(base);
+  loader.newRegionAttachment = function(skin, name, path, sequence){
+    if (sequence == null && !(atlas.findRegion && atlas.findRegion(path))){
+      missingArt.push({ name, path, type: "image" });
+      const att = new SPINE.RegionAttachment(name, path);
+      const ph = placeholderRegion(atlas, path);
+      if (ph) att.region = ph; // the JSON reader calls updateRegion() once size is set
+      return att;
+    }
+    return base.newRegionAttachment(skin, name, path, sequence);
+  };
+  loader.newMeshAttachment = function(skin, name, path, sequence){
+    if (sequence == null && !(atlas.findRegion && atlas.findRegion(path))){
+      missingArt.push({ name, path, type: "mesh" });
+      const att = new SPINE.MeshAttachment(name, path);
+      const ph = placeholderRegion(atlas, path);
+      if (ph) att.region = ph; // the JSON reader calls updateRegion() once UVs are read
+      return att;
+    }
+    return base.newMeshAttachment(skin, name, path, sequence);
+  };
+  return loader;
+}
+
+// Show / hide the "missing images" banner from the current `missingArt`.
+function refreshArtWarn(){
+  const el = $("#artWarn"); if (!el) return;
+  if (!missingArt.length){ el.style.display = "none"; el.innerHTML = ""; return; }
+  const names = missingArt.map((m) => m.path || m.name);
+  const shown = names.slice(0, 8).join(", ") + (names.length > 8 ? ", …" : "");
+  el.innerHTML =
+    '<span class="x" title="dismiss">✕</span>' +
+    "<b>" + names.length + " image" + (names.length === 1 ? "" : "s") + " not in this atlas.</b> " +
+    "The rig loaded without them — pick a slot and use its <b>image</b> dropdown to re-point it, " +
+    "or use <b>source…</b> to attach a different atlas. Missing: " + shown;
+  el.querySelector(".x").onclick = () => { el.style.display = "none"; };
+  el.style.display = "block";
+}
+
 function buildSkeleton(entry){
   const atlas = assetMgr.require(entry.atlas_file);
   if (pma) premultiplyAtlas(atlas);
-  const loader = new SPINE.AtlasAttachmentLoader(atlas);
+  missingArt = [];
+  const loader = makeAttachmentLoader(atlas);
   if (entry.format === "skel"){
     const bin = new SPINE.SkeletonBinary(loader);
     skeletonData = bin.readSkeletonData(new Uint8Array(assetMgr.require(entry.skeleton_file)));
@@ -655,6 +736,7 @@ function buildSkeleton(entry){
   } else { curEntry = null; }
 
   fitView();
+  refreshArtWarn();
 }
 
 function setAnim(name){
@@ -667,6 +749,7 @@ function setAnim(name){
 function clearChildren(el){ while (el.firstChild) el.removeChild(el.firstChild); }
 
 function buildInspector(entry){
+  if (!skeletonData) return; // nothing built yet (e.g. a failed load) — don't deref it
   $("#insName").textContent = entry.name.replace(/^\//, "") || entry.skeleton_file;
   $("#insSub").textContent = "spine " + (entry.version || entry.runtime) + " · "
     + skeletonData.bones.length + " bones";
@@ -2053,14 +2136,20 @@ async function openNewRigPanel(){
     loadNewRigApplyOptions(); // fire-and-forget; independent of the atlas list
     const r = await (await fetch("/api/rigger/atlases")).json();
     const sel = $("#newRigAtlas"); sel.innerHTML = "";
+    // Atlas-less option: open the rig now, attach images later (use "source…" to pick an
+    // atlas, or a slot's image dropdown). Pairs with the tolerant loader so a saved rig
+    // applied here loads even though its region names don't resolve yet.
+    const none = document.createElement("option");
+    none.value = ""; none.textContent = "— no atlas (attach images later) —";
+    sel.appendChild(none);
     (r.atlases || []).forEach((a) => {
       const o = document.createElement("option");
       o.value = a.manifestKey; o.textContent = a.label + " — " + a.regions.length + " images";
       sel.appendChild(o);
     });
     $("#newRigNote").textContent = (r.atlases && r.atlases.length)
-      ? "pick an atlas to draw images from, name the rig, Create"
-      : "no atlases yet — pack images in the Atlas Maker first";
+      ? "pick an atlas to draw images from (or none), name the rig, Create"
+      : "no atlases yet — create with no atlas, or pack images in the Atlas Maker first";
   } catch (e){ $("#newRigNote").textContent = "failed to list atlases"; }
   finally { hideLoading(); }
 }
@@ -2071,12 +2160,15 @@ async function createNewRig(){
   const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
   const note = $("#newRigNote");
   if (!name){ note.textContent = "enter a name"; return; }
-  if (!manifestKey){ note.textContent = "pick an atlas"; return; }
   note.textContent = "creating…";
   showLoading("Creating rig…");
   try {
-    // Server assembles a spine bundle (synth .atlas + page copy + blank .irig) from the atlas.
-    const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(rigId ? { manifestKey, name, rigId } : { manifestKey, name }) });
+    // Server assembles a spine bundle (synth .atlas + page copy + blank .irig). With an
+    // atlas → its regions are attachable; with no atlas → a 1×1 placeholder page so the
+    // rig still loads (attach images later via "source…" / a slot's image dropdown).
+    const payload = manifestKey ? { manifestKey, name } : { name, noAtlas: true };
+    if (rigId) payload.rigId = rigId;
+    const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
     const j = await r.json();
     $("#newRig").style.display = "none"; $("#newRigName").value = "";
@@ -4563,7 +4655,8 @@ function topoSortBones(doc){
 // the active skin + the selected bone by name.
 function rebuildFromRawDoc(selName){
   const atlas = assetMgr.require(selected.atlas_file);
-  const sj = new SPINE.SkeletonJson(new SPINE.AtlasAttachmentLoader(atlas));
+  missingArt = [];
+  const sj = new SPINE.SkeletonJson(makeAttachmentLoader(atlas));
   skeletonData = sj.readSkeletonData(JSON.parse(JSON.stringify(rawDoc)));
   skeleton = new SPINE.Skeleton(skeletonData);
   animState = new SPINE.AnimationState(new SPINE.AnimationStateData(skeletonData));
@@ -4579,6 +4672,7 @@ function rebuildFromRawDoc(selName){
   const idx = selName != null ? skeletonData.bones.findIndex((b) => b.name === selName) : -1;
   selBone = idx >= 0 ? idx : null;
   if (selBone != null) selectBone(selBone); else renderBoneDetail();
+  refreshArtWarn();
 }
 
 // Change a bone's parent (structural) → mutate rawDoc + topo-sort + rebuild.
@@ -4916,6 +5010,10 @@ async function restoreRiggerState(){
   restoringState = true;
   try {
     await selectSkeleton(target);
+    // If the build failed (e.g. an asset/atlas error left no skeletonData), bail
+    // instead of restoring mode/bone/slot — those deref skeletonData and would crash
+    // boot, blanking the whole tool. selectSkeleton already surfaced the real error.
+    if (!skeletonData) return false;
     if (saved.mode && saved.mode !== "preview") setMode(saved.mode);
     if (animMode && saved.anim && animHasName(saved.anim)){ setCurAnim(saved.anim); animTime = Math.max(0, Math.min(workLen(saved.anim), saved.time || 0)); syncPlayhead(); renderTimeline(); }
     if (saved.bone){ const i = skeletonData.bones.findIndex((b) => b.name === saved.bone); if (i >= 0) selectBone(i); }

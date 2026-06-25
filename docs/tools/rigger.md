@@ -226,11 +226,14 @@ nothing from the current rig.
 
 **The by-name / re-skin caveat (important).** A saved rig's attachments reference atlas
 **regions by name**. When you apply or import a rig onto a *different* object, those
-region names **won't resolve against the new object's atlas** — the bones and animations
-come over intact, but the imported art will be blank until you **re-attach the new
-object's art** to the imported slots, build/convert a mesh, and **weight it to the
-imported bones**. That's by design: the rig library moves the *rig* (skeleton +
-motion); you re-skin it to the new mesh with the normal Setup/weight tools.
+region names **won't resolve against the new object's atlas**. The rig still **opens** —
+the Rigger loads any unresolved image as an invisible placeholder rather than failing —
+and an amber **"N images not in this atlas"** banner lists what's missing. The bones and
+animations come over intact; the imported art stays blank until you **re-attach the new
+object's art** to the imported slots (each slot's **image** dropdown), build/convert a
+mesh, and **weight it to the imported bones**. That's by design: the rig library moves the
+*rig* (skeleton + motion); you re-skin it to the new mesh with the normal Setup/weight
+tools. Re-pointing a slot to an image that *is* in the atlas clears it from the banner.
 
 ### Create a rig from scratch
 
@@ -241,6 +244,12 @@ motion); you re-skin it to the new mesh with the normal Setup/weight tools.
      assembles a self-contained spine bundle (a synthesised `.atlas` + the packed
      page image + the chosen `.irig` body, blank or the applied rig) from that
      atlas's manifest; **or**
+   - choose **— no atlas (attach images later) —** — the rig is created with a 1×1
+     placeholder page and **no images attached**. Use this to import a saved rig
+     without binding it to any atlas yet (its bones + animations come over; the
+     "images not in this atlas" banner reminds you to wire art). Attach an atlas
+     afterwards with **source…** (it rewrites the bundle's atlas with that atlas's
+     regions), then re-point each slot from its **image** dropdown; **or**
    - use **or upload images** to select PNG/WebP/JPEG files — the browser packs
      them onto one page and uploads it as a new bundle (region names come from the
      filenames).
