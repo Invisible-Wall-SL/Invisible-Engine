@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "tools/bg-scene-spike"
   - "tools/flow-spike"
   - "tools/fx-spike"

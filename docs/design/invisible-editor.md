@@ -1167,7 +1167,8 @@ Three editor-wide capabilities, added on top of the panel work:
 ### 20.1 Deferred engine wiring (owner: "keep this change for later")
 
 The reference games mount scenes by **hardcoded id** in a fixed JSX order (`apps/lines/Game.svelte`
-`<LayoutScene scene={…}>` per id; only `background`-space scenes render generically). So today a brand-new
+`<LayoutScene scene={…}>` per id; `space:'background'` scenes now render generically/persistently by
+SPACE — see §25). So today a brand-new
 empty/HUD screen and a reorder change the **editor preview** but do **not** drive the shipped game. The deferred
 step: make the runtime render doc scenes generically (by id-driven slots that respect doc order, or a generic
 `{#each scenes}` pass for non-special ids) so new screens + reorder ship automatically — then reorder truly
@@ -1437,3 +1438,54 @@ shape is a **reusable per-instance toggle**, the cleanest fit for `declare ≠ i
   (`scripts/test-tap-to-continue.mjs`), `engine-layout`/`launcher-api`/`lines` builds GREEN, and the tap
   wiring (`completeActiveScreen` + `emitSignal`, the overlay gate, the registered `TapToContinue`) all
   present in the shipped `apps/lines` bundle.
+
+## 25. Addendum — A `space: 'background'` scene renders PERSISTENTLY behind the game (owner direction 2026-06-25)
+
+An author's "New background screen" is a fresh-id `Scene` with `space: 'background'` carrying full-bleed
+art (a sprite, a `componentInstance`, …). Before this change it was **invisible at runtime**: the games
+mount scenes by **hardcoded id** (`<LayoutScene scene={editorDoc.scenes.find(s => s.id === '…')}>`), so a
+scene with a custom id was never mounted — the player saw the bundled reference-game background instead of
+the authored art. This is the targeted slice of §20.1's deferred "render doc scenes generically" — scoped
+to background scenes only, NOT the full generic-mount refactor.
+
+### 25.1 Selection is by SPACE, not id
+- New engine-layout contract `packages/engine-layout/src/lib/backgroundScenes.ts` (exported from the
+  bare `engine-layout` barrel, so the editor + every game share it):
+  - `backgroundScenes(scenes)` → the `scene.space === 'background'` scenes **in doc order** (lowest first).
+  - `hasAuthoredBackground(scenes)` → true only when one of them carries **real content** (a node that is
+    NOT the coded `Background` bind anchor — counting that anchor would suppress the very spine it mounts).
+- The runtime (`apps/lines/Game.svelte`) renders `backgroundScenes(editorDoc.scenes)` as a persistent layer
+  inside `<App>`, each wrapped in `<Container zIndex={-10}>` so it sits **behind everything** (below the
+  coded background's `-3..-1` and the loading screen) and is mounted **OUTSIDE** the loading `{#if}`, so it
+  shows across the WHOLE session — base + free game, and behind the splash. `<LayoutScene>` already
+  cover-fits each `space:'background'` node to the canvas (the engine's `LayoutNodeView` `isBackground`
+  path, §10) and honours the scene's own `visibleSource` gate; an ungated scene is always-on. **No
+  engine-layout `LayoutScene`/`LayoutNodeView` change was needed** — the `space:'background'` render path
+  already existed (§10); the gap was purely the runtime *mounting* a custom-id scene.
+
+### 25.2 Suppressing the coded bundled `<Background>`
+When `hasAuthoredBackground(editorDoc.scenes)` is true, the coded `<Background>` spine is gated off
+(`{#if !suppressCodedBackground}`) so the authored art REPLACES the reference background. When absent the
+coded `<Background cover={backgroundCover}>` renders exactly as today, and the existing **id-`background` /
+`space:'canvas'`** spine-anchor path (Borut's `bg` node + cover params driving the bundled spine, §10) is
+untouched — that scene is `space:'canvas'`, so it is never selected as a persistent background and never
+triggers suppression.
+
+### 25.3 Flow interaction (flag for authors)
+A `space:'background'` scene that is ALSO used as a Flow screen would be **double-mounted**: once here as
+the persistent background layer (always-on, by space) and again by `<FlowMount>`/the generic mounter (when
+the interpreter authors it). The persistent layer mounts unconditionally, so an author should keep a
+background scene OUT of the Flow graph (or expect two copies). A follow-up could exclude flow-owned screens
+from the persistent set; deferred until the owner confirms the desired authoring model.
+
+### 25.4 Parity (non-negotiable) + verification
+- **`apps/lines` is byte-identical to `main`.** `referenceLayouts/lines.ts` ships **no** `space:'background'`
+  scene on purpose (§10.6 note), so `backgroundScenes(...)` is empty and `suppressCodedBackground` is false
+  ⇒ the `{#each}` renders nothing and the coded `<Background>` still renders — the dev boot + baked path
+  (no `?runtime=1`) is unchanged.
+- **Headless spike** `tools/bg-scene-spike` (`pnpm --filter bg-scene-spike run select`) proves the selection
+  contract OFFLINE: (1) `defaultLayout('lines')` → empty + no suppression (apps/lines parity); (2) the
+  bookof `space:'canvas'` `background` anchor is NOT selected + does NOT suppress (coded cover path intact);
+  (3) an authored `space:'background'` sprite scene IS selected + suppresses; (4) multiple selected in doc
+  order; (5) an anchor-only background scene is selected but does NOT suppress. ALL GREEN.
+- `engine-layout` / `launcher-api` / `lines` builds GREEN.
