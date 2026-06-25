@@ -683,6 +683,80 @@ def api_rename_sheet(payload: dict) -> dict:
             "note": f'Renamed "{old}" → "{new}".'}
 
 
+def _clear_session_if_sheet(sheet: str) -> None:
+    """Drop the persisted editor session if it points at `sheet`, so a refresh
+    after deleting the open sheet starts on a clean canvas (best-effort)."""
+    sp = _session_path()
+    try:
+        sess = json.loads(sp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return
+    if not isinstance(sess, dict):
+        return
+    if sess.get("sheet") == sheet or sess.get("active_sheet") == sheet:
+        sp.unlink(missing_ok=True)
+        r2_prefix = _ctx()["r2_prefix"]
+        if r2_prefix:
+            storage.delete(f"{r2_prefix}/{sp.name}")
+
+
+def api_delete_sheet(payload: dict) -> dict:
+    """Delete a saved sheet end-to-end. Mirrors api_rename_sheet's identity
+    model: a sheet's bytes live in FOUR R2/staging locations —
+    `sheets/<sheet>/<sheet>.{png,atlas,json}`, `sheet_src/<sheet>/*`, and
+    `manifests/atlas_manifest_<sheet>.json`. This removes every object under
+    those keys from R2 (the source of truth) AND the local staging copies.
+
+    A partially-created / corrupted sheet may have NO objects at all (named in
+    the editor but never exported, so nothing was ever flushed to R2). It is
+    still removable: we always best-effort delete every candidate key/dir and
+    clear any stale session pointer, then return the fresh sheet list. So the
+    button works even when there is nothing on disk to remove."""
+    sheet = safe_name(payload.get("sheet", ""), "")
+    if not sheet:
+        return {"error": "No sheet selected to delete."}
+
+    ctx = _ctx()
+    pp = project_paths.resolve()
+    r2_prefix = ctx["r2_prefix"]
+    out_root = pp["output_root"]
+    input_dir = pp["input_dir"]
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out_root
+
+    out = out_root / sheet
+    src = input_dir / sheet
+    man = man_dir / f"atlas_manifest_{sheet}.json"
+
+    # 1. R2 (source of truth) FIRST — prefix-list + delete the packed sheet and
+    # loose-sprite trees, plus the shared manifest. Empty prefixes just yield no
+    # keys, so a corrupted no-objects sheet is a clean no-op here.
+    if r2_prefix:
+        for pre in (f"{r2_prefix}/sheets/{sheet}/", f"{r2_prefix}/sheet_src/{sheet}/"):
+            try:
+                for obj in storage.list_keys(pre):
+                    storage.delete(obj["key"])
+            except Exception:  # noqa: BLE001 — transient R2 issue, keep going
+                pass
+        try:
+            storage.delete(f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json")
+        except Exception:  # noqa: BLE001
+            pass
+
+    # 2. Local staging copies.
+    shutil.rmtree(out, ignore_errors=True)
+    shutil.rmtree(src, ignore_errors=True)
+    man.unlink(missing_ok=True)
+
+    # 3. If the deleted sheet was the persisted/open one, clear the session so a
+    # refresh / restart doesn't restore a canvas pointing at the dead pile.
+    _clear_session_if_sheet(sheet)
+
+    sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
+        if out_root.exists() else []
+    return {"ok": True, "deleted": sheet, "sheets": sheets,
+            "note": f'Deleted "{sheet}".'}
+
+
 def api_set_project(payload: dict) -> dict:
     cfg = load_config()
     cfg["project"] = payload.get("project", cfg.get("project", ""))
@@ -1707,6 +1781,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_load_sheet(payload))
             elif path == "/api/rename-sheet":
                 self._send_json(api_rename_sheet(payload))
+            elif path == "/api/delete-sheet":
+                self._send_json(api_delete_sheet(payload))
             elif path == "/api/session":
                 self._send_json(api_session(payload))
             elif path == "/api/set-project":

@@ -32,13 +32,19 @@
   .iw-meta{display:flex;align-items:center;gap:8px;flex:none}
   .iw-meta .muted{color:#888;font-size:12px}
 
-  /* FAR LEFT: sheets rail (names + load / refresh / reset / rename) */
-  #sheets{width:200px;flex:none;display:flex;flex-direction:column;background:#1a1a1f;border-right:1px solid #2a2a31;overflow:hidden}
+  /* FAR LEFT: sheets rail + sheet / upload / canvas / save menu (resizable via #railresize) */
+  #sheets{width:var(--rail-w,260px);flex:none;display:flex;flex-direction:column;background:#1a1a1f;border-right:1px solid #2a2a31;overflow:auto}
   #sheets .railhead{padding:10px 12px;font-size:12px;color:#9ad;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #2a2a31}
-  #sheetlist{flex:1;min-height:0;overflow:auto;padding:6px}
-  #sheetlist .it{padding:6px 8px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#cda;font-size:13px}
+  #sheetlist{flex:none;max-height:32vh;overflow:auto;padding:6px}
+  #sheetlist .it{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:5px;cursor:pointer;color:#cda;font-size:13px}
+  #sheetlist .it .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #sheetlist .it:hover{background:#23232b}
   #sheetlist .it.sel{background:#2d6cdf;color:#fff}
+  #sheetlist .it .del{flex:none;visibility:hidden;border:0;background:transparent;color:#e88;
+    font-size:13px;line-height:1;padding:0 3px;border-radius:3px;cursor:pointer}
+  #sheetlist .it:hover .del{visibility:visible}
+  #sheetlist .it .del:hover{background:#7a2d2d;color:#fff}
+  #sheetlist .it.sel .del{color:#ffd0d0}
   #sheetlist .empty{color:#777;font-size:12px;padding:8px}
   #sheets .railbtns{flex:none;padding:8px;border-top:1px solid #2a2a31;display:flex;flex-direction:column;gap:6px}
   #sheets .railrow{display:flex;gap:6px}
@@ -48,6 +54,11 @@
   /* drag handle between the canvas and the resizable right panel */
   #panelresize{flex:none;width:5px;cursor:col-resize;background:#2a2a31}
   #panelresize:hover{background:#3b7af0}
+  /* drag handle between the LEFT rail and the canvas (resizes #sheets) */
+  #railresize{flex:none;width:5px;cursor:col-resize;background:#2a2a31}
+  #railresize:hover{background:#3b7af0}
+  /* the sheet / upload / canvas / save menu moved into the left rail */
+  .leftcards{padding:12px;border-top:1px solid #2a2a31}
 
   /* LEFT: canvas window (most of the screen) */
   #stage{flex:1;min-width:0;display:flex;flex-direction:column;background:#101013}
@@ -201,7 +212,57 @@
       </div>
       <button class="sec wide" onclick="renameSheet()" title="Rename the selected sheet — moves its files + manifest and updates internal references.">Rename…</button>
     </div>
+    <div class="leftcards">
+      <div class="card">
+        <div class="field"><label>Sheet name</label><input id="sheet" value="newsheet" oninput="onNameInput()"></div>
+        <div class="hint" id="identity">New sheet (unsaved)</div>
+        <div class="hint" id="dest"></div>
+        <div class="tabs">
+          <button id="tab-upload" class="active" onclick="showTab('upload')">Upload</button>
+          <button id="tab-load" onclick="showTab('load')">Import</button>
+        </div>
+        <div id="pane-upload">
+          <input type="file" id="files" accept=".png,.webp" multiple style="width:100%;margin-bottom:8px">
+          <button class="wide" onclick="upload()">Upload sprites</button>
+          <button class="sec wide" onclick="newSheet()">New / clear canvas</button>
+          <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
+        </div>
+        <div id="pane-load" style="display:none">
+          <div class="hint">Import a packed sheet or coords file (.atlas / TexturePacker JSON / manifest), then Save As to keep it as a project sheet. To open one of THIS project's saved sheets, pick it in the Sheets rail above.</div>
+          <div class="tabs">
+            <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
+            <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
+          </div>
+          <div class="hint" id="browsehint"></div>
+          <div class="cwd" id="cwd"></div>
+          <div class="browser" id="browser"></div>
+          <div id="loadmsg" class="muted" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Canvas size</h2>
+        <div class="field"><label>Width</label><input type="number" id="cw" value="1024"></div>
+        <div class="field"><label>Height</label><input type="number" id="ch" value="1024"></div>
+        <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2" onchange="markDirty()"></div>
+        <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot" onchange="markDirty()"></div>
+        <button class="sec wide" onclick="applyCanvas()">Apply size</button>
+      </div>
+
+      <div class="card">
+        <h2>Save</h2>
+        <div class="field"><label>AI manifest</label><input type="checkbox" id="f_manifest" checked></div>
+        <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
+        <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
+        <button class="wide" onclick="doSave()" title="Overwrites the loaded sheet in place (PNG/.atlas/JSON/manifest, incl. R2) — asks first. New sheets save as a new copy.">Save</button>
+        <button class="sec wide" onclick="doSaveAs()" title="Always writes a new copy — never overwrites an existing sheet.">Save As (new copy)</button>
+        <div id="exportmsg" style="margin-top:8px"></div>
+      </div>
+    </div>
   </aside>
+
+  <div id="railresize" title="Drag to resize"></div>
+
   <section id="stage">
     <div id="toolbar">
       <button class="sec" onclick="zoomBy(0.8)">−</button>
@@ -219,41 +280,7 @@
 
   <div id="panelresize" title="Drag to resize"></div>
   <aside id="panel">
-    <div class="card">
-      <div class="field"><label>Sheet name</label><input id="sheet" value="newsheet" oninput="onNameInput()"></div>
-      <div class="hint" id="identity">New sheet (unsaved)</div>
-      <div class="hint" id="dest"></div>
-      <div class="tabs">
-        <button id="tab-upload" class="active" onclick="showTab('upload')">Upload</button>
-        <button id="tab-load" onclick="showTab('load')">Import</button>
-      </div>
-      <div id="pane-upload">
-        <input type="file" id="files" accept=".png,.webp" multiple style="width:100%;margin-bottom:8px">
-        <button class="wide" onclick="upload()">Upload sprites</button>
-        <button class="sec wide" onclick="newSheet()">New / clear canvas</button>
-        <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
-      </div>
-      <div id="pane-load" style="display:none">
-        <div class="hint">Import a packed sheet or coords file (.atlas / TexturePacker JSON / manifest), then Save As to keep it as a project sheet. To open one of THIS project's saved sheets, pick it in the Sheets rail on the left.</div>
-        <div class="tabs">
-          <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
-          <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
-        </div>
-        <div class="hint" id="browsehint"></div>
-        <div class="cwd" id="cwd"></div>
-        <div class="browser" id="browser"></div>
-        <div id="loadmsg" class="muted" style="margin-top:6px"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Canvas size</h2>
-      <div class="field"><label>Width</label><input type="number" id="cw" value="1024"></div>
-      <div class="field"><label>Height</label><input type="number" id="ch" value="1024"></div>
-      <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2" onchange="markDirty()"></div>
-      <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot" onchange="markDirty()"></div>
-      <button class="sec wide" onclick="applyCanvas()">Apply size</button>
-    </div>
+    <div class="card muted" id="nosel">Select a sprite to edit its properties.</div>
 
     <div class="card" id="inspector" style="display:none">
       <h2>Selected sprite</h2>
@@ -275,16 +302,6 @@
       <div class="field"><label>shape_ref</label><input id="i_shape" oninput="setField('shape_ref',this.value)"></div>
       <div class="field"><label>seed</label><input id="i_seed" oninput="setField('seed',this.value)"></div>
       <button class="danger wide" onclick="deleteSel()">Remove from sheet</button>
-    </div>
-
-    <div class="card">
-      <h2>Save</h2>
-      <div class="field"><label>AI manifest</label><input type="checkbox" id="f_manifest" checked></div>
-      <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
-      <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
-      <button class="wide" onclick="doSave()" title="Overwrites the loaded sheet in place (PNG/.atlas/JSON/manifest, incl. R2) — asks first. New sheets save as a new copy.">Save</button>
-      <button class="sec wide" onclick="doSaveAs()" title="Always writes a new copy — never overwrites an existing sheet.">Save As (new copy)</button>
-      <div id="exportmsg" style="margin-top:8px"></div>
     </div>
   </aside>
 </main>
@@ -681,6 +698,7 @@ function select(src){ sel=src; render(); syncInspector(); }
 function syncInspector(){
   const r=reg(sel);
   $('inspector').style.display=r?'':'none';
+  { const n=$('nosel'); if(n) n.style.display=r?'none':''; }  // right panel = sprite props only
   if(!r) return;
   $('i_name').value=r.name; $('i_w').value=r.w; $('i_h').value=r.h;
   $('i_iw').value=r.iw||r.w; $('i_ih').value=r.ih||r.h;
@@ -796,9 +814,16 @@ function renderSheetList(){
   names.forEach(s=>{
     const it=document.createElement('div');
     it.className='it'+(s===selectedSheet?' sel':'');
-    it.textContent=s; it.title=s;
-    it.onclick=()=>{ selectedSheet=s; renderSheetList(); };
-    it.ondblclick=()=>{ selectedSheet=s; loadSheet(); };
+    it.title=s;
+    const nm=document.createElement('span');
+    nm.className='nm'; nm.textContent=s;
+    nm.onclick=()=>{ selectedSheet=s; renderSheetList(); };
+    nm.ondblclick=()=>{ selectedSheet=s; loadSheet(); };
+    const del=document.createElement('button');
+    del.className='del'; del.textContent='✕';
+    del.title='Delete this sheet (removes its files + manifest from R2).';
+    del.onclick=(e)=>{ e.stopPropagation(); deleteSheet(s); };
+    it.appendChild(nm); it.appendChild(del);
     box.appendChild(it);
   });
 }
@@ -877,6 +902,29 @@ async function renameSheet(){
   // the loaded* identity (dir/path/name) is fresh and a later Save targets the new key.
   if(wasLoaded){ await loadSheet(); }
   else if(m){ m.className='ok'; m.textContent='✓ Renamed to "'+selectedSheet+'"'; }
+}
+async function deleteSheet(name){
+  const m=$('railmsg');
+  const target=name||selectedSheet;
+  if(!target){ if(m){ m.className='note'; m.textContent='Pick a sheet to delete first.'; } return; }
+  if(!confirm('Delete sheet "'+target+'"?\n\nThis removes its packed sheet, '
+    +'loose sprites and manifest from R2 — permanently. This cannot be undone.')) return;
+  if(m){ m.className='muted'; m.textContent='Deleting "'+target+'"…'; }
+  const j=await jpost('/api/delete-sheet',{sheet:target});
+  if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
+  const wasOpen=(activeSheet===target);
+  if(STATE) STATE.sheets=j.sheets||[];
+  if(selectedSheet===target) selectedSheet='';
+  renderSheetList();
+  // If the deleted sheet was on the canvas, clear it back to an empty state so
+  // the editor isn't left pointing at a pile that no longer exists.
+  if(wasOpen){
+    regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
+    activeSheet=null; sheetName='newsheet'; $('sheet').value='';
+    loadedPath=null; loadedDir=null; loadedName=null; isProject=false; updateReadouts();
+    clearSession();
+  }
+  if(m){ m.className='ok'; m.textContent='✓ '+(j.note||('Deleted "'+target+'"')); }
 }
 async function browse(path){
   const j=await jget('/api/browse?path='+encodeURIComponent(path||'')+'&mode='+encodeURIComponent(browseMode));
@@ -1016,6 +1064,28 @@ window.addEventListener('resize',()=>{ if(regions.length) render(); });
   });
   function end(e){ if(!drag) return; drag=false; try{h.releasePointerCapture(e.pointerId);}catch(_){ }
     var w=parseInt(getComputedStyle(document.getElementById('panel')).width,10);
+    if(w>=MIN && w<=MAX) localStorage.setItem(KEY,String(w));
+  }
+  h.addEventListener('pointerup',end);
+  h.addEventListener('pointercancel',end);
+})();
+
+// Resizable LEFT rail (sheets + sheet/upload/canvas/save menu) — drag the divider, persist.
+(function(){
+  var KEY='iw.sheet.railw', MIN=220, MAX=480;
+  var saved=parseInt(localStorage.getItem(KEY)||'',10);
+  if(saved>=MIN && saved<=MAX) document.documentElement.style.setProperty('--rail-w',saved+'px');
+  var h=document.getElementById('railresize'); if(!h) return;
+  var drag=false;
+  h.addEventListener('pointerdown',function(e){ drag=true; try{h.setPointerCapture(e.pointerId);}catch(_){ } e.preventDefault(); });
+  h.addEventListener('pointermove',function(e){
+    if(!drag) return;
+    var w=Math.round(e.clientX);
+    if(w<MIN) w=MIN; if(w>MAX) w=MAX;
+    document.documentElement.style.setProperty('--rail-w',w+'px');
+  });
+  function end(e){ if(!drag) return; drag=false; try{h.releasePointerCapture(e.pointerId);}catch(_){ }
+    var w=parseInt(getComputedStyle(document.getElementById('sheets')).width,10);
     if(w>=MIN && w<=MAX) localStorage.setItem(KEY,String(w));
   }
   h.addEventListener('pointerup',end);
