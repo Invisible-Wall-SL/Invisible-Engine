@@ -23,6 +23,20 @@ The authored manifest is also **handed off to the cloud Atlas Maker over R2** so
 it shows up in that tool's manifest list. This is pure **Pillow/CPU work — no
 ComfyUI** is involved.
 
+## Layout
+
+A single top bar (the shared tool bar — emblem, tool switcher, project picker,
+build pill, Atlas-Maker-link status), then three columns:
+
+- **Left — Sheets rail:** the project's saved sheets as a clickable list, with
+  **Load sheet**, **↻ Refresh** (re-pull from R2), **↺ Reset** (re-download from
+  R2, dropping local-only files), and **Rename…**. Click to select; double-click
+  to load.
+- **Centre — canvas:** the packed sheet you're editing (zoom / fit / auto-arrange).
+- **Right — properties (resizable):** sheet name + Upload/Import, canvas size, the
+  **Selected sprite** inspector, and Save. Drag the divider on its left edge to
+  resize; the width is remembered per browser.
+
 - **Source:** `services/sheet-tool/` (stdlib `http.server` + Pillow; UI in
   `ui.html`, packing in `packer.py`, export in `atlas_writers.py`).
 - **Where it runs:** cloud, on Railway — a port that mirrors the Atlas Maker
@@ -62,14 +76,29 @@ binds `0.0.0.0:$PORT` (default **8766**).
 
 ### Adding sprites to an existing sheet
 
-The **Load existing** pane has an "Add to sheet" dropdown listing the project's
-saved sheets. Loading one pulls its source sprites back from `sheet_src/<sheet>/`
-(falling back to re-slicing the packed PNG if a source is missing) together with
-the region names and AI fields from its manifest. Loaded regions arrive
-**locked in place**, so newly uploaded PNGs pack around the existing layout.
-Upload the new sprites, arrange, and **Save** under the same name — the exports
-and the Atlas Maker manifest are updated in place. Uploading a file named like
-an existing sprite replaces its pixels.
+Pick a sheet in the **Sheets rail** (left) and click **Load sheet**. Loading one
+pulls its source sprites back from `sheet_src/<sheet>/` (falling back to
+re-slicing the packed PNG if a source is missing) together with the region names
+and AI fields from its manifest. Loaded regions arrive **locked in place**, so
+newly uploaded PNGs pack around the existing layout. Upload the new sprites
+(Upload tab), arrange, and **Save** under the same name — the exports and the
+Atlas Maker manifest are updated in place. Uploading a file named like an
+existing sprite replaces its pixels.
+
+The right panel's **Import** tab is for bringing in a packed sheet or coords file
+from elsewhere (`.atlas` / TexturePacker JSON / manifest) — **Save As** keeps it
+as a project sheet.
+
+### Renaming a sheet
+
+Select a sheet in the rail and click **Rename…** (`/api/rename-sheet`). A sheet's
+name is baked into several places — `sheets/<name>/<name>.{png,atlas,json}`,
+`sheet_src/<name>/`, `manifests/atlas_manifest_<name>.json`, and the manifest's
+own internal back-references (the page/`.atlas`/JSON keys and every region's
+`shape_ref`) — so the rename moves **all** of them on R2 and rewrites the manifest
+refs, then deletes the old keys. This keeps original-sprite recovery working (it
+relies on those `shape_ref`s) and keeps the Atlas Maker pointing at the renamed
+manifest. Renaming refuses to overwrite an existing sheet of the target name.
 
 ## Config / env (names only)
 

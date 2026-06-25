@@ -28,6 +28,27 @@
   .ok{color:#6c6}.err{color:#e66}.note{color:#cc9}
   main{flex:1;min-height:0;display:flex}
 
+  /* unified-bar right-side meta (project picker / build / atlas-link) */
+  .iw-meta{display:flex;align-items:center;gap:8px;flex:none}
+  .iw-meta .muted{color:#888;font-size:12px}
+
+  /* FAR LEFT: sheets rail (names + load / refresh / reset / rename) */
+  #sheets{width:200px;flex:none;display:flex;flex-direction:column;background:#1a1a1f;border-right:1px solid #2a2a31;overflow:hidden}
+  #sheets .railhead{padding:10px 12px;font-size:12px;color:#9ad;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #2a2a31}
+  #sheetlist{flex:1;min-height:0;overflow:auto;padding:6px}
+  #sheetlist .it{padding:6px 8px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#cda;font-size:13px}
+  #sheetlist .it:hover{background:#23232b}
+  #sheetlist .it.sel{background:#2d6cdf;color:#fff}
+  #sheetlist .empty{color:#777;font-size:12px;padding:8px}
+  #sheets .railbtns{flex:none;padding:8px;border-top:1px solid #2a2a31;display:flex;flex-direction:column;gap:6px}
+  #sheets .railrow{display:flex;gap:6px}
+  #sheets .railrow button{flex:1}
+  #railmsg{font-size:11px;padding:2px 8px 4px;min-height:14px}
+
+  /* drag handle between the canvas and the resizable right panel */
+  #panelresize{flex:none;width:5px;cursor:col-resize;background:#2a2a31}
+  #panelresize:hover{background:#3b7af0}
+
   /* LEFT: canvas window (most of the screen) */
   #stage{flex:1;min-width:0;display:flex;flex-direction:column;background:#101013}
   #toolbar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 12px;
@@ -73,8 +94,8 @@
   .selbar button{padding:1px 6px;font-size:12px;background:#26262d;line-height:1.4}
   .selbar button.locked{background:#7a5a1d}
 
-  /* RIGHT: options */
-  #panel{width:340px;flex:none;overflow:auto;padding:14px;background:#1a1a1f;border-left:1px solid #2a2a31}
+  /* RIGHT: options (resizable — width persisted via #panelresize) */
+  #panel{width:var(--panel-w,340px);flex:none;overflow:auto;padding:14px;background:#1a1a1f;border-left:1px solid #2a2a31}
   .card{background:#1d1d22;border:1px solid #2a2a31;border-radius:8px;padding:12px;margin-bottom:12px}
   .card h2{margin:0 0 9px;font-size:12px;color:#9ad;text-transform:uppercase;letter-spacing:.04em}
   label{color:#aaa;font-size:12px}
@@ -110,6 +131,13 @@
     <span>INVISIBLE SHEET MAKER</span>
   </a>
   <nav class="iw-switcher" id="iw-switcher" aria-label="Switch tool"></nav>
+  <div class="iw-meta">
+    <span class="pill" id="build"></span>
+    <span class="muted">project</span>
+    <select id="projsel" style="font-size:12px"></select>
+    <span class="muted" id="projnote"></span>
+    <span class="muted" id="amstatus"></span>
+  </div>
 </header>
 <script>
 // Unified tool bar: render the role-gated switcher the launcher baked into the
@@ -160,15 +188,20 @@
   }
 })();
 </script>
-<header>
-  <h1>Invisible Sheet Maker</h1>
-  <span class="pill" id="build"></span>
-  <span class="muted">project</span>
-  <select id="projsel" style="font-size:12px"></select>
-  <span class="muted" id="projnote"></span>
-  <span class="muted" id="amstatus"></span>
-</header>
 <main>
+  <aside id="sheets">
+    <div class="railhead">Sheets</div>
+    <div id="sheetlist"></div>
+    <div class="railbtns">
+      <div id="railmsg" class="muted"></div>
+      <button class="wide" onclick="loadSheet()" title="Load the selected sheet — its sprites, names and AI fields — onto the canvas.">Load sheet</button>
+      <div class="railrow">
+        <button class="sec" onclick="refreshR2(this)" title="Re-pull this project's files from R2 without restarting or switching projects.">↻ Refresh</button>
+        <button class="sec" onclick="clearCache(this)" title="Discard the local copy and re-download from R2, matching the cloud exactly. Unsaved local work is lost.">↺ Reset</button>
+      </div>
+      <button class="sec wide" onclick="renameSheet()" title="Rename the selected sheet — moves its files + manifest and updates internal references.">Rename…</button>
+    </div>
+  </aside>
   <section id="stage">
     <div id="toolbar">
       <button class="sec" onclick="zoomBy(0.8)">−</button>
@@ -184,6 +217,7 @@
     <div id="viewport"><div id="canvas"></div></div>
   </section>
 
+  <div id="panelresize" title="Drag to resize"></div>
   <aside id="panel">
     <div class="card">
       <div class="field"><label>Sheet name</label><input id="sheet" value="newsheet" oninput="onNameInput()"></div>
@@ -191,7 +225,7 @@
       <div class="hint" id="dest"></div>
       <div class="tabs">
         <button id="tab-upload" class="active" onclick="showTab('upload')">Upload</button>
-        <button id="tab-load" onclick="showTab('load')">Load existing</button>
+        <button id="tab-load" onclick="showTab('load')">Import</button>
       </div>
       <div id="pane-upload">
         <input type="file" id="files" accept=".png,.webp" multiple style="width:100%;margin-bottom:8px">
@@ -200,15 +234,10 @@
         <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
       </div>
       <div id="pane-load" style="display:none">
-        <div class="field"><label>Add to sheet</label>
-          <select id="sheetsel" style="flex:1;min-width:0"></select>
-          <button style="flex:0 0 auto" onclick="loadSheet()" title="Load this saved sheet — its sprites, names and AI fields — so you can ADD sprites: upload more on the Upload tab, re-arrange, then Save to update the sheet in place.">Load</button></div>
-        <div class="hint">Add sprites to a saved sheet: load it, upload more, then Save (overwrites the same name + manifest).</div>
+        <div class="hint">Import a packed sheet or coords file (.atlas / TexturePacker JSON / manifest), then Save As to keep it as a project sheet. To open one of THIS project's saved sheets, pick it in the Sheets rail on the left.</div>
         <div class="tabs">
           <button id="bm-projects" class="active" onclick="setBrowseMode('projects')">Projects</button>
           <button id="bm-import" onclick="setBrowseMode('import')">Import…</button>
-          <button id="bm-refresh" style="flex:0 0 auto" onclick="refreshR2(this)" title="Re-pull this project's files from R2 (e.g. after exporting a sheet to the Atlas Maker, or saving from another machine) without restarting or switching projects">↻ Refresh from R2</button>
-          <button id="bm-clearcache" style="flex:0 0 auto" onclick="clearCache(this)" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
         </div>
         <div class="hint" id="browsehint"></div>
         <div class="cwd" id="cwd"></div>
@@ -378,7 +407,7 @@ async function init(){
   if(!STATE.projects||!STATE.projects.length){const o=document.createElement('option');o.textContent=STATE.project||'(none)';ps.appendChild(o);}
   if(STATE.project_locked){ps.disabled=true;$('projnote').textContent='(set by Launcher)';}
   ps.onchange=async()=>{await jpost('/api/set-project',{project:ps.value});location.reload();};
-  fillSheetSel(STATE.sheets||[]);
+  renderSheetList();
   const d=STATE.defaults;
   canvasW=d.canvas_w; canvasH=d.canvas_h;
   $('cw').value=canvasW; $('ch').value=canvasH; $('pad').value=d.padding; $('rot').checked=d.allow_rotation;
@@ -756,16 +785,27 @@ async function doArrange(){
   markDirty();
 }
 
-/* ---------- load existing ---------- */
-function fillSheetSel(sheets){
-  const ss=$('sheetsel'); ss.innerHTML='';
-  sheets.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;ss.appendChild(o);});
-  if(!sheets.length){const o=document.createElement('option');o.value='';o.textContent='(no saved sheets)';ss.appendChild(o);}
+/* ---------- sheets rail ---------- */
+let selectedSheet='';
+function sheetNames(){ return (STATE && Array.isArray(STATE.sheets)) ? STATE.sheets : []; }
+function renderSheetList(){
+  const box=$('sheetlist'); if(!box) return;
+  const names=sheetNames(); box.innerHTML='';
+  if(!names.length){ const d=document.createElement('div'); d.className='empty'; d.textContent='(no saved sheets)'; box.appendChild(d); selectedSheet=''; return; }
+  if(!names.includes(selectedSheet)) selectedSheet='';
+  names.forEach(s=>{
+    const it=document.createElement('div');
+    it.className='it'+(s===selectedSheet?' sel':'');
+    it.textContent=s; it.title=s;
+    it.onclick=()=>{ selectedSheet=s; renderSheetList(); };
+    it.ondblclick=()=>{ selectedSheet=s; loadSheet(); };
+    box.appendChild(it);
+  });
 }
 async function loadSheet(){
-  const name=$('sheetsel').value;
-  const m=$('loadmsg');
-  if(!name){ m.className='note'; m.textContent='No saved sheets in this project yet — Save one first.'; return; }
+  const name=selectedSheet;
+  const m=$('railmsg');
+  if(!name){ m.className='note'; m.textContent='Pick a sheet in the list first.'; return; }
   m.className='muted'; m.textContent='Loading sheet "'+name+'"…';
   const j=await jpost('/api/load-sheet',{sheet:name});
   if(j.error){ m.className='err'; m.textContent=j.error; return; }
@@ -792,18 +832,16 @@ async function loadSheet(){
   markDirty();
 }
 async function refreshR2(btn){
-  const m=$('loadmsg');
+  const m=$('railmsg');
   if(btn) btn.disabled=true;
   if(m){ m.className='muted'; m.textContent='↻ Refreshing from R2…'; }
   try{
     const j=await jpost('/api/refresh',{});
     if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
-    await browse('');                         // re-list now that staging is fresh
-    // Repopulate "Add to sheet" too — the load-sheet error tells users to
-    // refresh, so a stale dropdown here would dead-end them.
-    const ss=$('sheetsel'), cur=ss.value;
-    fillSheetSel(j.sheets||[]);
-    if([...ss.options].some(o=>o.value===cur)) ss.value=cur;
+    await browse('');                         // re-list the import browser now that staging is fresh
+    // Repopulate the Sheets rail too — keep the current selection if it survived.
+    if(STATE) STATE.sheets=j.sheets||[];
+    renderSheetList();
     if(m){ m.className='ok'; m.textContent='✓ Refreshed from R2'; }
   }catch(e){ if(m){ m.className='err'; m.textContent='Refresh request failed: '+e; } }
   finally{ if(btn) btn.disabled=false; }
@@ -812,7 +850,7 @@ async function clearCache(btn){
   if(!confirm('Reset this project from the cloud?\n\nRe-downloads everything '
     +'from R2 and DROPS any local files that were deleted from the cloud. '
     +'Unsaved local work is lost. R2 is the source of truth.')) return;
-  const m=$('loadmsg');
+  const m=$('railmsg');
   if(btn) btn.disabled=true;
   if(m){ m.className='muted'; m.textContent='↺ Resetting from R2…'; }
   try{
@@ -821,6 +859,24 @@ async function clearCache(btn){
     if(m){ m.className='ok'; m.textContent='✓ '+(j.note||('Freed '+(j.freed_human||'0 B'))); }
   }catch(e){ if(m){ m.className='err'; m.textContent='Clear-cache request failed: '+e; } }
   finally{ if(btn) btn.disabled=false; }
+}
+async function renameSheet(){
+  const m=$('railmsg');
+  const from=selectedSheet;
+  if(!from){ if(m){ m.className='note'; m.textContent='Pick a sheet to rename first.'; } return; }
+  const to=(prompt('Rename sheet "'+from+'" to:', from)||'').trim();
+  if(!to || to===from) return;
+  if(m){ m.className='muted'; m.textContent='Renaming…'; }
+  const j=await jpost('/api/rename-sheet',{from,to});
+  if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
+  const wasLoaded=(activeSheet===from);
+  if(STATE) STATE.sheets=j.sheets||[];
+  selectedSheet=j.to||to;
+  renderSheetList();
+  // If the renamed sheet was the one on the canvas, reload it under the new name so
+  // the loaded* identity (dir/path/name) is fresh and a later Save targets the new key.
+  if(wasLoaded){ await loadSheet(); }
+  else if(m){ m.className='ok'; m.textContent='✓ Renamed to "'+selectedSheet+'"'; }
 }
 async function browse(path){
   const j=await jget('/api/browse?path='+encodeURIComponent(path||'')+'&mode='+encodeURIComponent(browseMode));
@@ -911,11 +967,12 @@ async function runExport(destDir){
   loadedPath=j.manifest_path; loadedDir=j.output_dir; loadedName=j.name; isProject=true;
   updateReadouts();
   markDirty();          // loaded identity changed — persist it
-  // A save can create a new sheet — surface it in the "Add to sheet" list.
-  const ss=$('sheetsel');
-  if(![...ss.options].some(o=>o.value===j.name)){
-    if(ss.options.length===1 && !ss.options[0].value) ss.innerHTML='';   // drop "(no saved sheets)"
-    const o=document.createElement('option'); o.value=j.name; o.textContent=j.name; ss.appendChild(o);
+  // A save can create a new sheet — surface it in the Sheets rail.
+  if(j.name && STATE){
+    if(!Array.isArray(STATE.sheets)) STATE.sheets=[];
+    if(!STATE.sheets.includes(j.name)){ STATE.sheets.push(j.name); STATE.sheets.sort(); }
+    selectedSheet=j.name;
+    renderSheetList();
   }
   let h='<div class="ok">Wrote '+j.written.length+' file(s) to:</div><div class="geo">'+esc(j.dir||j.output_dir)+'</div>';
   if(j.manifest_note) h+='<div class="note">'+esc(j.manifest_note)+'</div>';
@@ -942,6 +999,29 @@ async function doSaveAs(){
 }
 
 window.addEventListener('resize',()=>{ if(regions.length) render(); });
+
+// Resizable right properties panel — drag the divider, persist the width.
+(function(){
+  var KEY='iw.sheet.panelw', MIN=240, MAX=560;
+  var saved=parseInt(localStorage.getItem(KEY)||'',10);
+  if(saved>=MIN && saved<=MAX) document.documentElement.style.setProperty('--panel-w',saved+'px');
+  var h=document.getElementById('panelresize'); if(!h) return;
+  var drag=false;
+  h.addEventListener('pointerdown',function(e){ drag=true; try{h.setPointerCapture(e.pointerId);}catch(_){ } e.preventDefault(); });
+  h.addEventListener('pointermove',function(e){
+    if(!drag) return;
+    var w=Math.round(window.innerWidth-e.clientX);
+    if(w<MIN) w=MIN; if(w>MAX) w=MAX;
+    document.documentElement.style.setProperty('--panel-w',w+'px');
+  });
+  function end(e){ if(!drag) return; drag=false; try{h.releasePointerCapture(e.pointerId);}catch(_){ }
+    var w=parseInt(getComputedStyle(document.getElementById('panel')).width,10);
+    if(w>=MIN && w<=MAX) localStorage.setItem(KEY,String(w));
+  }
+  h.addEventListener('pointerup',end);
+  h.addEventListener('pointercancel',end);
+})();
+
 init();
 </script>
 </body></html>

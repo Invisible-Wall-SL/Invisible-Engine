@@ -523,6 +523,166 @@ def api_export(payload: dict) -> dict:
             "manifest_path": manifest_path, "name": basename}
 
 
+def _swap_sheet_path(v: str, old: str, new: str) -> str:
+    """Rewrite a `sheets/<old>/<old>.<ext>` or bare `sheets/<old>` reference to
+    <new>. Only the sheet's own dir + basename are swapped, never an unrelated
+    substring."""
+    v = v.replace(f"sheets/{old}/{old}.", f"sheets/{new}/{new}.")
+    v = re.sub(rf"sheets/{re.escape(old)}(?=/|$)", f"sheets/{new}", v)
+    return v
+
+
+def _rewrite_manifest_refs(man: dict, old: str, new: str) -> None:
+    """In-place rewrite of every baked sheet-name reference inside a manifest so
+    a renamed sheet's back-references (page / .atlas / json keys + per-region
+    shape_refs) keep resolving. Conservative: only values matching the expected
+    old-name patterns are touched, so a hand-set shape_ref pointing elsewhere is
+    left alone."""
+    atlas = man.get("atlas")
+    if isinstance(atlas, dict):
+        if atlas.get("source_image") == f"{old}.png":
+            atlas["source_image"] = f"{new}.png"
+        for k in ("source_image_path", "atlas_file", "texturepacker_json"):
+            v = atlas.get(k)
+            if isinstance(v, str) and v:
+                atlas[k] = _swap_sheet_path(v, old, new)
+    for k in ("export_prefix", "deploy_path"):
+        v = man.get(k)
+        if isinstance(v, str) and v:
+            man[k] = _swap_sheet_path(v, old, new)
+    if man.get("deploy_basename") == old:
+        man["deploy_basename"] = new
+    for r in man.get("regions") or []:
+        if isinstance(r, dict):
+            sr = r.get("shape_ref")
+            if isinstance(sr, str) and sr:
+                r["shape_ref"] = sr.replace(f"sheet_src/{old}/", f"sheet_src/{new}/")
+
+
+def _patch_session_for_rename(old: str, new: str) -> None:
+    """If the persisted editor session points at the renamed sheet, follow the
+    rename so a later Refresh restores the new identity (best-effort)."""
+    sp = _session_path()
+    try:
+        sess = json.loads(sp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return
+    if not isinstance(sess, dict):
+        return
+    changed = False
+    for k in ("sheet", "active_sheet", "display_name"):
+        if sess.get(k) == old:
+            sess[k] = new
+            changed = True
+    loaded = sess.get("loaded")
+    if isinstance(loaded, dict):
+        if loaded.get("name") == old:
+            loaded["name"] = new
+            changed = True
+        for k in ("path", "dir"):
+            v = loaded.get(k)
+            if isinstance(v, str) and v:
+                nv = _swap_sheet_path(v.replace("\\", "/"), old, new)
+                if nv != v:
+                    loaded[k] = nv
+                    changed = True
+    if changed:
+        try:
+            sp.write_text(json.dumps(sess, indent=2, ensure_ascii=False), encoding="utf-8")
+            _mirror(sp)
+        except OSError:
+            pass
+
+
+def api_rename_sheet(payload: dict) -> dict:
+    """Rename a saved sheet end-to-end. The sheet's identity (`safe_name`) is
+    baked into FOUR R2/staging locations AND the manifest's internal back-refs:
+    `sheets/<sheet>/<sheet>.{png,atlas,json}`, `sheet_src/<sheet>/*`,
+    `manifests/atlas_manifest_<sheet>.json`, and the manifest's own
+    `source_image*/atlas_file/texturepacker_json/export_prefix` + every region
+    `shape_ref`. A correct rename moves all of them and rewrites the refs, else
+    original-sprite recovery breaks (see api_load_sheet). New keys are written +
+    mirrored FIRST; the old keys are deleted LAST, so a mid-way failure stays
+    recoverable. R2 is the source of truth — every move mirrors through."""
+    old = safe_name(payload.get("from", ""), "")
+    new = safe_name(payload.get("to", ""), "")
+    if not old:
+        return {"error": "No sheet selected to rename."}
+    if not new:
+        return {"error": "The new sheet name is empty after sanitising."}
+    if new == old:
+        return {"error": "The new name matches the current one."}
+
+    ctx = _ctx()
+    pp = project_paths.resolve()
+    r2_prefix = ctx["r2_prefix"]
+    out_root = pp["output_root"]
+    input_dir = pp["input_dir"]
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out_root
+
+    # Make sure the source's lazily-pulled sprite pile is present to move.
+    uploads_dir(old)
+
+    old_out, new_out = out_root / old, out_root / new
+    old_src, new_src = input_dir / old, input_dir / new
+    old_man = man_dir / f"atlas_manifest_{old}.json"
+    new_man = man_dir / f"atlas_manifest_{new}.json"
+
+    if not (old_out.exists() or old_man.exists()):
+        return {"error": f"Sheet '{old}' not found — try ↻ Refresh from R2 first."}
+    if new_out.exists() or new_man.exists():
+        return {"error": f"A sheet named '{new}' already exists — pick another name."}
+
+    # 1. packed output sheets/<old>/ -> sheets/<new>/ (rename the <old>.* files).
+    if old_out.exists():
+        new_out.mkdir(parents=True, exist_ok=True)
+        for p in sorted(old_out.iterdir()):
+            if not p.is_file():
+                continue
+            nm = (new + p.name[len(old):]) if p.name.startswith(old + ".") else p.name
+            dest = new_out / nm
+            dest.write_bytes(p.read_bytes())
+            _mirror(dest)
+
+    # 2. loose sprites sheet_src/<old>/ -> sheet_src/<new>/ (filenames unchanged).
+    if old_src.exists():
+        new_src.mkdir(parents=True, exist_ok=True)
+        for p in sorted(old_src.iterdir()):
+            if p.is_file():
+                dest = new_src / p.name
+                dest.write_bytes(p.read_bytes())
+                _mirror(dest)
+
+    # 3. manifest: rewrite the baked back-refs, write it under the new name.
+    if old_man.exists():
+        try:
+            man = json.loads(old_man.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            return {"error": f"Could not read the manifest to rename it: {e}"}
+        if isinstance(man, dict):
+            _rewrite_manifest_refs(man, old, new)
+        new_man.write_text(json.dumps(man, indent=2, ensure_ascii=False), encoding="utf-8")
+        _mirror(new_man)
+
+    # 4. follow the rename in the persisted editor session (best-effort).
+    _patch_session_for_rename(old, new)
+
+    # 5. delete the OLD keys LAST — R2 (source of truth) then local staging.
+    if r2_prefix:
+        for pre in (f"{r2_prefix}/sheets/{old}/", f"{r2_prefix}/sheet_src/{old}/"):
+            for obj in storage.list_keys(pre):
+                storage.delete(obj["key"])
+        storage.delete(f"{r2_prefix}/manifests/atlas_manifest_{old}.json")
+    shutil.rmtree(old_out, ignore_errors=True)
+    shutil.rmtree(old_src, ignore_errors=True)
+    old_man.unlink(missing_ok=True)
+
+    sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
+        if out_root.exists() else []
+    return {"ok": True, "from": old, "to": new, "sheets": sheets,
+            "note": f'Renamed "{old}" → "{new}".'}
+
+
 def api_set_project(payload: dict) -> dict:
     cfg = load_config()
     cfg["project"] = payload.get("project", cfg.get("project", ""))
@@ -1545,6 +1705,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_load(payload))
             elif path == "/api/load-sheet":
                 self._send_json(api_load_sheet(payload))
+            elif path == "/api/rename-sheet":
+                self._send_json(api_rename_sheet(payload))
             elif path == "/api/session":
                 self._send_json(api_session(payload))
             elif path == "/api/set-project":
