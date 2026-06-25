@@ -2133,6 +2133,13 @@
 							>default animation</strong
 						> above when none is. Leave a state blank to cascade (pressed → hover → selected).
 					</p>
+					<p class="muted small">
+						<strong>Image at rest, spine on a state?</strong> Leave the
+						<strong>default animation</strong>
+						(above) blank — the spine then stays HIDDEN at rest (your button image shows) and only
+						appears while a mapped state plays. For <strong>during the spin</strong>, map
+						<strong>spinning</strong> (not downstate): a spin sets both, and spinning wins.
+					</p>
 					{#each BUTTON_ANIM_STATES as st (st.key)}
 						{@const cur = stateAnimOf(node as SpineNode, st.key)}
 						<div class="bind-grid cue-row">

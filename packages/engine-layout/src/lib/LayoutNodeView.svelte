@@ -383,6 +383,19 @@
 		{@const stateAnim = stateAnims?.[node.id]}
 		{@const sigAnim = signalAnims?.[node.id]}
 		{@const override = stateAnim ?? sigAnim}
+		<!--
+			State-overlay spine: a spine that declares button `stateAnimations` but NO resting
+			`defaultAnimation` is meant to appear ONLY while a state is active (e.g. an image
+			button that turns into a spine during the spin). Hide it until an override (a state
+			animation or a signal cue) gives it something to play; otherwise it would sit on its
+			static bind pose over the button. A spine with a `defaultAnimation`, or one without
+			`stateAnimations` at all (every spine before this feature), is always visible — parity.
+		-->
+		{@const isStateOverlay =
+			!node.defaultAnimation &&
+			!!node.stateAnimations &&
+			Object.keys(node.stateAnimations).length > 0}
+		{@const spineVisible = !isStateOverlay || !!override}
 		<SpineProvider
 			key={node.assetKey}
 			x={bg ? bg.x : posX}
@@ -396,6 +409,7 @@
 			height={bgSpineBox ? bgSpineBox.height : sizedHeight}
 			fit={bgSpineBox ? bgFit : undefined}
 			skin={node.skin}
+			visible={spineVisible}
 		>
 			<!--
 				A button-STATE animation (hover/press/…) wins over a signal cue, which wins
