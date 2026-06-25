@@ -57,6 +57,8 @@
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
+		backgroundScenes,
+		hasAuthoredBackground,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -446,6 +448,18 @@
 			: undefined,
 	);
 
+	// Authored PERSISTENT background scenes (§ persistent-bg-scene). An author's "New
+	// background screen" gets a fresh-id scene with `space: 'background'` (NOT the coded
+	// `background`-id / `space:'canvas'` spine anchor above) carrying full-bleed art.
+	// `backgroundScenes` selects them by SPACE (not id, so a custom scene id mounts) in
+	// editor order; `hasAuthoredBackground` is true only when one has real content (not
+	// just the coded `Background` bind anchor). Both are the engine-layout contract,
+	// shared with the editor + other games. `apps/lines`' fallback ships NO
+	// `space:'background'` scene (lines.ts has none on purpose), so the list is empty and
+	// the flag is false ⇒ byte-identical to today (parity).
+	const bgScenes = $derived(backgroundScenes(editorDoc.scenes));
+	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
+
 	const context = getContext();
 
 	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
@@ -769,7 +783,27 @@
 	<EnableGameActor />
 	<EnablePixiExtension />
 
-	<Background cover={backgroundCover} />
+	<!--
+		Persistent authored background (§ persistent-bg-scene). Any `space: 'background'`
+		scene the author created renders here as a full-bleed layer BEHIND everything
+		(`zIndex={-10}`, below the coded background's -3..-1 and the loading screen), and
+		OUTSIDE the loading `{#if}` so it shows across the WHOLE session — base + free game
+		and behind the splash. `<LayoutScene>` cover-fits each node to the canvas (the
+		engine's `space:'background'` path) and honours the scene's own `visibleSource`
+		gate; an ungated scene is always-on. Rendered in editor scene order (lowest first).
+		Empty list ⇒ nothing renders (parity). When at least one such scene has real
+		content, the coded bundled `<Background>` spine is suppressed so the authored art
+		REPLACES the reference background; absent ⇒ the coded `<Background>` renders as today.
+	-->
+	{#each bgScenes as scene (scene.id)}
+		<Container zIndex={-10}>
+			<LayoutScene {scene} />
+		</Container>
+	{/each}
+
+	{#if !suppressCodedBackground}
+		<Background cover={backgroundCover} />
+	{/if}
 
 	{#if context.stateLayout.showLoadingScreen}
 		<!--
