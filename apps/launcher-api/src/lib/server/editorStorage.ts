@@ -1,10 +1,11 @@
-import type {
-	GameJurisdiction,
-	GameSettings,
-	LayoutDoc,
-	LayoutNode,
-	LayoutType,
-	Scene,
+import {
+	getFullSceneSet,
+	type GameJurisdiction,
+	type GameSettings,
+	type LayoutDoc,
+	type LayoutNode,
+	type LayoutType,
+	type Scene,
 } from 'engine-layout';
 import { editorDocKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
@@ -29,15 +30,42 @@ const NODE_KINDS = new Set<LayoutNode['kind']>([
 	'reelGrid',
 ]);
 
-/** Load a project's editor document, falling back to an empty valid `LayoutDoc`. */
-export async function loadDoc(clientKey: string, projectKey: string): Promise<LayoutDoc> {
+/**
+ * Load a project's editor document, falling back to an empty valid `LayoutDoc`.
+ *
+ * When the project has NEVER been saved (no object in R2) and a `gameType` is
+ * known, the fresh doc's canvas box (`mainSizesMap`) + `gameType` are seeded from
+ * that game type's reference layout — so a new project author works against the
+ * game's REAL main box (e.g. `bookOf` → 1422×800) instead of the generic
+ * `DEFAULT_MAIN_SIZES` (1920×1080), which the runtime never reads. Already-saved
+ * docs round-trip byte-identical; only the never-saved default path changes.
+ */
+export async function loadDoc(
+	clientKey: string,
+	projectKey: string,
+	gameType?: string,
+): Promise<LayoutDoc> {
 	const raw = await getObjectText(editorDocKey(clientKey, projectKey));
-	if (!raw) return normalizeDoc(undefined, projectKey);
+	if (!raw) return seedFreshDoc(projectKey, gameType);
 	try {
 		return normalizeDoc(JSON.parse(raw), projectKey);
 	} catch {
 		return normalizeDoc(undefined, projectKey);
 	}
+}
+
+/**
+ * Build the default doc for a never-saved project, seeding the canvas box from the
+ * game-type reference layout when one exists, else the generic defaults.
+ */
+function seedFreshDoc(projectKey: string, gameType?: string): LayoutDoc {
+	const referenceMainSizes = gameType ? getFullSceneSet(gameType)?.mainSizesMap : undefined;
+	if (referenceMainSizes) {
+		const doc = normalizeDoc({ mainSizesMap: referenceMainSizes }, projectKey);
+		doc.gameType = gameType;
+		return doc;
+	}
+	return normalizeDoc(undefined, projectKey);
 }
 
 /** Persist a project's editor document to R2 (stamps `updatedAt`). */
