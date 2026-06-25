@@ -86,7 +86,15 @@ assert(ambient.emit === true, 'an `always` (ambient) trigger emits now');
 const evented = planLayer(layer({ key: 'evt', trigger: { on: 'event', eventType: 'bigWin' } }));
 assert(
 	evented.emit === false,
-	'an `event` trigger stays DORMANT (the event-bus subscription is a later increment)',
+	'an `event` trigger stays DORMANT at mount (the event-bus subscription flips it on)',
+);
+assert(
+	evented.trigger.mode === 'event' && evented.trigger.eventType === 'bigWin',
+	'the plan carries the event trigger (mode + eventType) for the runtime subscription',
+);
+assert(
+	ambient.trigger.mode === 'always',
+	'an ambient layer plan carries the `always` trigger mode',
 );
 
 const spineParticle = planLayer(

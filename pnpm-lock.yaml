@@ -1497,6 +1497,9 @@ importers:
       svelte:
         specifier: 5.35.1
         version: 5.35.1
+      utils-event-emitter:
+        specifier: workspace:*
+        version: link:../utils-event-emitter
       vite:
         specifier: 6.2.0
         version: 6.2.0(@types/node@26.0.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2)
@@ -2013,6 +2016,9 @@ importers:
       tsx:
         specifier: 4.19.2
         version: 4.19.2
+      utils-event-emitter:
+        specifier: workspace:*
+        version: link:../../packages/utils-event-emitter
 
 packages:
 

@@ -9,11 +9,13 @@
 		"save": "tsx saveSplit.ts",
 		"placement": "tsx placement.ts",
 		"player": "tsx playerReduce.ts",
-		"pipeline": "tsx pipeline.ts"
+		"pipeline": "tsx pipeline.ts",
+		"trigger": "tsx trigger.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
 		"engine-fx": "workspace:*",
+		"utils-event-emitter": "workspace:*",
 		"@barvynkoa/particle-emitter": "0.0.1"
 	}
 }

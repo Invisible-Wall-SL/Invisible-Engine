@@ -40,6 +40,7 @@
 		"pixi-filters": "6.1.0",
 		"pixi.js": "8.8.1",
 		"svelte": "5.35.1",
+		"utils-event-emitter": "workspace:*",
 		"vite": "6.2.0",
 		"webfontloader": "1.6.28"
 	},

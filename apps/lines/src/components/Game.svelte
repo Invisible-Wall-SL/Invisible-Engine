@@ -104,6 +104,7 @@
 	import SpecialBook from './SpecialBook.svelte';
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
+	import Effects from './Effects.svelte';
 	import I18nTest from './I18nTest.svelte';
 
 	// Invisible Debug — register this game's debug tools (symbol overlay + win-state
@@ -906,6 +907,13 @@
 		{/if}
 		<LayoutScene scene={specialBookScene} />
 		<InfoOverlay manifest={infoManifest} />
+
+		<!--
+			Invisible FX (§4.4 / §8) — play this project's baked effects. Free effects mount at
+			the scene level; bone-placed effects mount inside a host `<SpineProvider>` so they
+			ride the rig. Renders nothing when no effects are baked (parity, byte-identical).
+		-->
+		<Effects />
 
 		<I18nTest />
 	{/if}

@@ -63,7 +63,12 @@
 	propsSyncEffect({ props, target: emitter, ignore: ['emit', 'animated'] });
 
 	$effect(() => {
+		// `emit` true ⇒ (re)start the emitter from the bound config; false ⇒ stop spawning so
+		// an event-triggered layer that has run its `duration` actually ceases (existing
+		// particles still fade out via their lifetime). Ambient layers keep `emit` true, so
+		// they take the same `init` branch as before — byte-identical to the prior behaviour.
 		if (props.emit) emitter.init(updatedConfig);
+		else emitter.emit = false;
 	});
 
 	if (context.stateApp.pixiApplication) {

@@ -13,18 +13,20 @@
 
 ## 0. Status
 
-**In build (Phase 1 COMPLETE + Phase 2 COMPLETE + Phase 4 increment 1 (engine runtime player)
-+ Phase 4 increment 2 (export→bake→pull asset-travel) COMPLETE — all headless).** This doc is
-the registered build plan. The asset-travel half of §8 now lands (an authored effect travels
-into a built game's bundle); the Flow/event-bus TRIGGER + a game mounting `<EffectPlayer>` are
-the remaining Phase-4 increment. Phase 0 (§7) is the make-or-break gate for the **spine-as-particle** tier — do
-not start that tier until the spike passes (the other two tiers are native and not gated).
-Current state: the `EffectDoc` schema + a LIVE saveable/reopenable `/fx` authoring page exist
-(atlas pick → live emitter → save → reopen), AND Tier B (Spine attach) — load a project rig
-as a backdrop, play a clip, pin a layer onto a bone so the FX rides the animation — all
-verified by four headless harnesses; `/fx` is a REGISTERED tool (`fx` tool id) gated on its
-own `fx` scope. The WebGL pixels (Tier A particles + Tier B bone-follow) + the live save/open
-round-trip need owner-verify (see Progress, increments 3 + 4).
+**Phases 1 + 2 + 4 COMPLETE (headless) — the full author→ship→FIRE loop is wired.** Phase 4
+landed in 3 increments: inc 1 (engine runtime player `<EffectPlayer>`/`<SpineBoneAttach>`),
+inc 2 (export→bake→pull — an authored effect travels into a built game's bundle), inc 3 (the
+TRIGGER — a baked effect plays in-game and a `trigger.on:'event'` layer fires on a game/Flow
+event via `utils-event-emitter`). Only Phase 0 / Tier C (spine-as-particle) remains gated — do
+not start it until the §7 spike passes (the other two tiers are native and not gated). Also
+open: a `/fx` `trigger.eventType` PICKER (UI polish — the runtime binding works). **Current
+state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
+Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
+pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
+pending** (WebGL + a published game): Tier A particles, Tier B bone-follow, and a game actually
+FIRING a baked effect on an event (esp. `<SpineBoneAttach>`'s coord frame + `Effects.svelte`'s
+host-rig assumptions). After this lands on `main` + owner-verify, **Book of Borut bumps its
+`engine` submodule** to ship the runtime. See Progress.
 
 ### Progress
 
@@ -412,6 +414,53 @@ round-trip need owner-verify (see Progress, increments 3 + 4).
     `apps/launcher-api/src/routes/api/editor/export-effects/+server.ts`,
     `apps/launcher-api/scripts/{bake-editor-doc.mjs,pull-project-assets.mjs}`,
     `tools/fx-spike/{pipeline.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 4 (pipeline wiring) — increment 3: the TRIGGER — effects FIRE in a game — ✅ DONE
+  HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no game bump yet).** Closes the
+  Phase-4 author→ship→FIRE loop: a baked effect now PLAYS in the running game, and a
+  `trigger.on:'event'` layer fires on a game/Flow event. **Landed:**
+  - **Emit seam** (`engine-fx` `playerPlan.ts`): `layerTrigger(layer) → LayerEmitPlan`
+    (`mode 'always'|'event'`, mount-time `emit`, `eventType`, `duration`); `planLayer` carries
+    it; `layerEmits` kept as a back-compat wrapper. PURE — the single source of truth for emit
+    gating. An `event` layer with no `eventType` stays dormant (can never fire — the fail-safe
+    analogue of a bone layer with no bone).
+  - **`<EffectLayer>`** (new `pixi-svelte` component): splits the per-layer mount out of
+    `<EffectPlayer>` so each layer has its OWN reactive `emit` + trigger lifecycle. Ambient
+    (`always`) emits from mount; `event` subscribes `trigger.eventType` on the shared bus via
+    `getContextEventEmitter().eventEmitter.subscribe({ [type]: … })` — the REAL
+    `utils-event-emitter` API (the lifecycle-free `subscribe` built for `$effect` use, returns
+    an unsubscribe) — pulsing `emit` true on each matching event and back to false after
+    `trigger.duration` ms (re-fire RESETS the stop timer; no duration ⇒ the config's
+    `emitterLifetime` governs the burst). Unsubscribes + clears the timer on destroy. The bus
+    `type` is EXACTLY what a Flow Broadcast emits — the FX⇄Flow seam (§1/§4.4). `<EffectPlayer>`
+    now just maps each layer to `<EffectLayer>`; `pixi-svelte` deps `utils-event-emitter`.
+  - **`ParticleEmitter.svelte`**: `emit:false` now stops the emitter (so an event layer that
+    ran its `duration` ceases; existing particles fade via lifetime). Ambient layers keep
+    `emit:true` ⇒ the SAME `init` branch as before (byte-identical, no regression).
+  - **Game mount** (`apps/lines/src/components/Effects.svelte`, mounted in `Game.svelte`):
+    one `<EffectPlayer>` per `bakedEffects()` doc — all-`free` effects at scene level, any-`bone`
+    effect INSIDE a host `<SpineProvider key="foregroundAnimation">` so `<SpineBoneAttach>`
+    resolves the bone on the HOST game's rig (the Phase-2 carry-forward). Zero baked effects ⇒
+    nothing mounts ⇒ byte-identical (parity).
+  - **Verified headlessly** by `tools/fx-spike/trigger.ts` (`pnpm --filter fx-spike run
+    trigger`): **18/18 GREEN** driving the REAL `createEventEmitter` bus — ambient emits + ignores
+    events; an event layer is dormant, a non-matching event doesn't start it, the matching event
+    starts it, it stops after `duration`, a re-fire restarts + a mid-burst re-fire RESETS the
+    timer, a duration-less layer never auto-stops, and after dispose the event no longer fires it;
+    plus the pure `layerTrigger`/`planLayer` classification. ALL prior fx harnesses PASS. Builds
+    GREEN: `engine-fx` typecheck, `pnpm --filter {pixi-svelte,lines,launcher-api} build`. Prettier
+    clean.
+  - **NEEDS LIVE OWNER-VERIFY** (WebGL + a published game): a real game FIRING a baked effect on
+    an event (free + bone-placed), the bone layer riding the `foregroundAnimation` rig, the
+    `duration` stop; confirm the host-rig key + `canvasSizes()` assumptions in `Effects.svelte`
+    fit the target game. **Borut:** now eligible — bump its `engine` submodule after this lands on
+    main + owner-verify.
+  - **Remaining FX work:** a `/fx` `trigger.eventType` PICKER (author "fire on event Y" in the
+    UI — the runtime binding works now; this is UI polish), and Tier C / Phase 3 (spine-as-
+    particle, Phase-0 gated). Files: `packages/engine-fx/src/playerPlan.ts`,
+    `packages/pixi-svelte/src/lib/components/{EffectLayer,EffectPlayer,ParticleEmitter}.svelte`
+    (+`package.json`), `apps/lines/src/components/{Effects,Game}.svelte`,
+    `tools/fx-spike/{trigger.ts,package.json}`, `docs/STATUS.md`.
 
 ## 1. Naming (settled here to avoid a real collision)
 
