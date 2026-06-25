@@ -2154,6 +2154,17 @@ async function openNewRigPanel(){
   finally { hideLoading(); }
 }
 
+// Pull a human message out of a failed response: SvelteKit's `error()` returns
+// `{"message":"…"}` JSON; older handlers return plain text. Falls back to the status.
+async function respErr(r){
+  const body = await r.text().catch(() => "");
+  if (body){
+    try { const j = JSON.parse(body); if (j && j.message) return j.message; } catch { /* plain text */ }
+    return body;
+  }
+  return "HTTP " + r.status;
+}
+
 async function createNewRig(){
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
   const manifestKey = $("#newRigAtlas").value;
@@ -2169,7 +2180,7 @@ async function createNewRig(){
     const payload = manifestKey ? { manifestKey, name } : { name, noAtlas: true };
     if (rigId) payload.rigId = rigId;
     const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    if (!r.ok) throw new Error(await respErr(r));
     const j = await r.json();
     $("#newRig").style.display = "none"; $("#newRigName").value = "";
     await loadSkeletons(true);
@@ -2229,7 +2240,7 @@ async function createRigFromImages(files){
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify(Object.assign({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }, rigId ? { rigId } : {})),
     });
-    if (!resp.ok) throw new Error((await resp.text()) || ("HTTP " + resp.status));
+    if (!resp.ok) throw new Error(await respErr(resp));
     const j = await resp.json();
     $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#newRigFiles").value = "";
     await loadSkeletons(true);
