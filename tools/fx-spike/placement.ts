@@ -79,7 +79,10 @@ assert(eq(reBone.placement.offset, { x: 12, y: -34 }), 'toggling back to bone ke
 console.log('fx placement — follow gating');
 assert(!layerFollowsBone(base), 'a free layer does not follow a bone');
 const boneNoName = setPlacementSpace(base, 'bone');
-assert(!layerFollowsBone(boneNoName), 'a bone layer with NO bone name does not follow (spawns at origin)');
+assert(
+	!layerFollowsBone(boneNoName),
+	'a bone layer with NO bone name does not follow (spawns at origin)',
+);
 assert(layerFollowsBone(setPlacementBone(boneNoName, 'tip')), 'a bone layer WITH a bone follows');
 assert(
 	!layerFollowsBone({ ...boneNoName, placement: { space: 'bone', bone: '   ' } } as EmitterLayer),
@@ -99,10 +102,16 @@ const worldPt = {
 	y: world.b * localPt.x + world.d * localPt.y + world.ty,
 };
 const recovered = worldToContainerLocal(world, worldPt);
-assert(close(recovered.x, localPt.x) && close(recovered.y, localPt.y), 'inverse round-trips a forward transform (pan+zoom)');
+assert(
+	close(recovered.x, localPt.x) && close(recovered.y, localPt.y),
+	'inverse round-trips a forward transform (pan+zoom)',
+);
 // The world origin maps to local (-tx/scale, -ty/scale) under this transform.
 const originLocal = worldToContainerLocal(world, { x: 0, y: 0 });
-assert(close(originLocal.x, -50) && close(originLocal.y, -25), 'world origin → expected container-local under pan+zoom');
+assert(
+	close(originLocal.x, -50) && close(originLocal.y, -25),
+	'world origin → expected container-local under pan+zoom',
+);
 // A rotation+scale transform also inverts correctly.
 const rot: Affine = { a: 0, b: 3, c: -3, d: 0, tx: 5, ty: 7 };
 const rl = { x: 4, y: 1 };
@@ -122,27 +131,58 @@ const id: Affine = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
 
 // Free layer, no offset → spawns at scene origin (0,0).
 const freeOwner = emitterOwnerLocal(base, null, id);
-assert(close(freeOwner.x, 0) && close(freeOwner.y, 0), 'free layer with no offset spawns at origin');
+assert(
+	close(freeOwner.x, 0) && close(freeOwner.y, 0),
+	'free layer with no offset spawns at origin',
+);
 
 // Free layer with offset → spawns at the offset.
 const freeOffset = setPlacementOffset(base, 'x', 30);
-const freeOffOwner = emitterOwnerLocal(setPlacementOffset(freeOffset, 'y', 40), null, id);
+const freeOffLayer = setPlacementOffset(freeOffset, 'y', 40);
+const freeOffOwner = emitterOwnerLocal(freeOffLayer, null, id);
 assert(close(freeOffOwner.x, 30) && close(freeOffOwner.y, 40), 'free layer spawns at its offset');
 
+// A free layer's offset is in the CENTRED container's OWN local space — it must NOT be
+// re-mapped through the world transform (doing so anchored it to the canvas TOP-LEFT, not the
+// centre). So under a pan/zoom `world` the owner is STILL just the offset.
+const freeOwnerPZ = emitterOwnerLocal(freeOffLayer, null, world);
+assert(
+	close(freeOwnerPZ.x, 30) && close(freeOwnerPZ.y, 40),
+	'free layer ignores the container transform (spawns at the centred scene origin + offset, not the canvas corner)',
+);
+const freeOriginPZ = emitterOwnerLocal(base, null, world);
+assert(
+	close(freeOriginPZ.x, 0) && close(freeOriginPZ.y, 0),
+	'free + no offset spawns at the scene origin under pan/zoom (not world 0,0)',
+);
+
 // Bone layer with a resolved bone world point + offset → bone + offset.
-const boneLayer = setPlacementOffset(setPlacementBone(setPlacementSpace(base, 'bone'), 'tip'), 'x', 5);
+const boneLayer = setPlacementOffset(
+	setPlacementBone(setPlacementSpace(base, 'bone'), 'tip'),
+	'x',
+	5,
+);
 const boneOwner = emitterOwnerLocal(boneLayer, { x: 200, y: 120 }, id);
-assert(close(boneOwner.x, 205) && close(boneOwner.y, 120), 'bone layer spawns at bone world + offset');
+assert(
+	close(boneOwner.x, 205) && close(boneOwner.y, 120),
+	'bone layer spawns at bone world + offset',
+);
 
 // Bone layer under a panned/zoomed container → maps into container-local.
 const boneOwnerPZ = emitterOwnerLocal(boneLayer, { x: 200, y: 120 }, world);
 // expected local = ((205-100)/2, (120-50)/2) = (52.5, 35)
-assert(close(boneOwnerPZ.x, 52.5) && close(boneOwnerPZ.y, 35), 'bone owner maps through pan+zoom into container-local');
+assert(
+	close(boneOwnerPZ.x, 52.5) && close(boneOwnerPZ.y, 35),
+	'bone owner maps through pan+zoom into container-local',
+);
 
 // A bone layer whose bone has not resolved yet (null) falls back to the scene origin+offset
 // — the preview keeps spawning instead of vanishing.
 const boneUnresolved = emitterOwnerLocal(boneLayer, null, id);
-assert(close(boneUnresolved.x, 5) && close(boneUnresolved.y, 0), 'unresolved bone falls back to origin+offset');
+assert(
+	close(boneUnresolved.x, 5) && close(boneUnresolved.y, 0),
+	'unresolved bone falls back to origin+offset',
+);
 
 // ---------------------------------------------------------------------------
 console.log('');

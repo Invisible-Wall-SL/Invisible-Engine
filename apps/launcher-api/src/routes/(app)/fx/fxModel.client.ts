@@ -261,13 +261,16 @@ export function worldToContainerLocal(
  * The emitter spawn (owner) position for a layer, in its emitter container's LOCAL space.
  *
  * - A `free` layer (or a `bone` layer with no bone resolved) spawns at the layer's authored
- *   `offset` in WORLD space, then mapped into container-local — i.e. the scene origin + offset.
+ *   `offset` DIRECTLY in container-local space. The emitter container is parented under the
+ *   stage's centred `world`, so its local origin already IS the scene origin (the canvas
+ *   centre) — the offset needs NO world→local mapping. (Mapping a global `{0,0}` here would
+ *   anchor the emitter to the canvas TOP-LEFT corner instead of the centre.)
  * - A `bone` layer spawns at the followed bone's WORLD position + the authored `offset`,
- *   mapped into container-local — so the emitter rides the bone every frame.
+ *   mapped into container-local — so the emitter rides the bone every frame at any pan/zoom.
  *
  * `boneWorld` is the bone's already-resolved Pixi WORLD position (or `null` for a free /
- * unresolved layer, in which case the world origin is used). Pure — the stage supplies the
- * live bone world point + the emitter container's world matrix each frame.
+ * unresolved layer). Pure — the stage supplies the live bone world point + the emitter
+ * container's world matrix each frame.
  */
 export function emitterOwnerLocal(
 	layer: EmitterLayer,
@@ -275,10 +278,14 @@ export function emitterOwnerLocal(
 	containerWorld: Affine,
 ): { x: number; y: number } {
 	const offset = layer.placement.offset ?? { x: 0, y: 0 };
-	const base = boneWorld ?? { x: 0, y: 0 };
+	// Free / unresolved-bone: the offset is already in the (centred) container's local space.
+	if (!boneWorld) {
+		return { x: offset.x, y: offset.y };
+	}
+	// Bone: the bone point is in Pixi WORLD coords — map it (+offset) into container-local.
 	return worldToContainerLocal(containerWorld, {
-		x: base.x + offset.x,
-		y: base.y + offset.y,
+		x: boneWorld.x + offset.x,
+		y: boneWorld.y + offset.y,
 	});
 }
 
