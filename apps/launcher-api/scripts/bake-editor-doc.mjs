@@ -404,6 +404,7 @@ async function main() {
 	// editor-art export didn't ship = an invisible effect (§8), so warn loudly.
 	let effects;
 	let effectAssetKeys = [];
+	let effectSkeletonKeys = [];
 	const effectsUrl =
 		`${base}/api/editor/export-effects?project=${encodeURIComponent(project)}` +
 		`&k=${encodeURIComponent(token)}`;
@@ -421,6 +422,9 @@ async function main() {
 			// byte-identical for every game with no FX work (parity, §8).
 			if (list.length > 0) effects = list;
 			effectAssetKeys = Array.isArray(fx?.referencedAssetKeys) ? fx.referencedAssetKeys : [];
+			effectSkeletonKeys = Array.isArray(fx?.referencedSkeletonKeys)
+				? fx.referencedSkeletonKeys
+				: [];
 		} catch (err) {
 			if (err instanceof BakeBail) throw err;
 			bail(
@@ -447,6 +451,28 @@ async function main() {
 					`shipped atlases (editor-art sheets). The atlas only ships if the layout ALSO ` +
 					`places it — this effect will render INVISIBLE (textureless particles). Place the ` +
 					'atlas in the Scene Editor (or remove the effect) before shipping.',
+			);
+		}
+	}
+
+	// Dangling-skeletonKey guard (§8 — the spine analogue of the dangling-assetKey guard above):
+	// a Tier-C (`particleKind:'spine'`) layer references a Spine bundle by `spineParticle.skeletonKey`.
+	// That bundle reaches the game's `loadedAssets` only if it's among the SHIPPED spines — i.e. it
+	// was placed in the layout (`editorArt.spines[].key`) or bound to a symbol/highlight
+	// (`symbols.index.spines[].key`). A skeletonKey NOT in that set never loads ⇒ the spine particles
+	// have no skeleton ⇒ the effect renders INVISIBLE. FX never re-packs spines, so warn loudly
+	// (non-fatal: the author may wire the spine into the layout/symbols before shipping). No spine
+	// particles ⇒ no check.
+	if (effectSkeletonKeys.length > 0) {
+		const shippedSpines = new Set(editorArt.spines.map((s) => s.key));
+		for (const s of symbols.index.spines) shippedSpines.add(s.key);
+		const dangling = effectSkeletonKeys.filter((k) => !shippedSpines.has(k));
+		for (const k of dangling) {
+			console.warn(
+				`⚠ bake-doc: FX effect references spineParticle.skeletonKey "${k}" which is NOT among ` +
+					`the shipped Spine bundles (editor-art spines / symbol spines). The skeleton only ` +
+					`ships if the layout or a symbol ALSO uses it — these spine-clip particles will render ` +
+					'INVISIBLE. Place the Spine in the Scene Editor (or remove the effect) before shipping.',
 			);
 		}
 	}

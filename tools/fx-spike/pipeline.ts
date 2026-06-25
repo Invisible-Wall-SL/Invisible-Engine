@@ -50,22 +50,37 @@ const baseConfig = () => ({
 // Pure mirrors of the production stages (kept in lock-step with the real code).
 // ---------------------------------------------------------------------------
 
-/** Mirror of `effectExport.ts` `assetKeysOf` — distinct, non-empty layer assetKeys. */
+/** Mirror of `effectExport.ts` `assetKeysOf` — distinct, non-empty SPRITE-layer assetKeys
+ *  (a spine layer renders no atlas art, so it is excluded). */
 function assetKeysOf(effect: EffectDoc): string[] {
 	const keys = new Set<string>();
 	for (const layer of effect.layers) {
+		if (layer.particleKind === 'spine') continue;
 		const k = layer.art?.assetKey;
 		if (typeof k === 'string' && k) keys.add(k);
 	}
 	return [...keys];
 }
 
+/** Mirror of `effectExport.ts` `skeletonKeysOf` — distinct, non-empty `spineParticle.skeletonKey`s
+ *  of Tier-C (`particleKind:'spine'`) layers. */
+function skeletonKeysOf(effect: EffectDoc): string[] {
+	const keys = new Set<string>();
+	for (const layer of effect.layers) {
+		if (layer.particleKind !== 'spine') continue;
+		const k = layer.spineParticle?.skeletonKey;
+		if (typeof k === 'string' && k) keys.add(k);
+	}
+	return [...keys];
+}
+
 /** Mirror of `exportEffects`'s pure core: normalize each saved doc, fix the id to its file
- *  stem, build the index + the referenced-assetKey set. (R2 read/write is the impure shell.) */
+ *  stem, build the index + the referenced-asset + referenced-skeleton sets. (R2 I/O is the shell.) */
 function exportEffects(saved: { id: string; raw: unknown }[]): {
 	effects: EffectDoc[];
 	index: { id: string; name: string; layers: number }[];
 	referencedAssetKeys: string[];
+	referencedSkeletonKeys: string[];
 } {
 	const effects: EffectDoc[] = [];
 	for (const { id, raw } of saved) {
@@ -76,7 +91,14 @@ function exportEffects(saved: { id: string; raw: unknown }[]): {
 	const index = effects.map((e) => ({ id: e.id, name: e.name, layers: e.layers.length }));
 	const referenced = new Set<string>();
 	for (const e of effects) for (const k of assetKeysOf(e)) referenced.add(k);
-	return { effects, index, referencedAssetKeys: [...referenced] };
+	const referencedSkeletons = new Set<string>();
+	for (const e of effects) for (const k of skeletonKeysOf(e)) referencedSkeletons.add(k);
+	return {
+		effects,
+		index,
+		referencedAssetKeys: [...referenced],
+		referencedSkeletonKeys: [...referencedSkeletons],
+	};
 }
 
 /** Mirror of `bake-editor-doc.mjs`'s embed decision: only carry `effects` when non-empty. */
@@ -97,6 +119,17 @@ function danglingKeys(
 	shippedImageKeys: string[],
 ) {
 	const shipped = new Set([...shippedSheetKeys, ...shippedImageKeys]);
+	return referenced.filter((k) => !shipped.has(k));
+}
+
+/** Mirror of the bake's dangling-skeletonKey guard: referenced skeletonKeys NOT among the
+ *  shipped Spine bundles (editor-art spines ∪ symbol spines). */
+function danglingSkeletonKeys(
+	referenced: string[],
+	shippedEditorSpineKeys: string[],
+	shippedSymbolSpineKeys: string[],
+) {
+	const shipped = new Set([...shippedEditorSpineKeys, ...shippedSymbolSpineKeys]);
 	return referenced.filter((k) => !shipped.has(k));
 }
 
@@ -257,6 +290,141 @@ assert(
 // A referenced key shipped as a standalone IMAGE (not a sheet) also resolves — no false positive.
 const asImage = danglingKeys([glowManifest], [sparksManifest], [glowManifest]);
 assert(asImage.length === 0, 'an atlas shipped as a standalone editor-art image also resolves');
+
+// ---------------------------------------------------------------------------
+// 4. TIER C — spine-particle export + the dangling-skeletonKey guard (§8).
+// ---------------------------------------------------------------------------
+console.log('fx pipeline — Tier C spine-particle export + dangling-skeletonKey guard');
+
+const coinSkeleton = 'borut/bookofborut/editor-art/spines/coin';
+const wandSkeleton = 'borut/bookofborut/editor-art/spines/wand';
+
+// A doc mixing a SPRITE layer (atlas art) and a SPINE layer (a pooled-Spine clip). The export
+// must split the referenced classes: the sprite layer's atlas → referencedAssetKeys, the spine
+// layer's skeleton → referencedSkeletonKeys, with NO cross-contamination.
+const tierC = exportEffects([
+	{
+		id: 'coin_burst',
+		raw: {
+			name: 'Coin Burst',
+			layers: [
+				{
+					key: 'sparks',
+					config: baseConfig(),
+					art: { assetKey: sparksManifest, frames: ['s1'] },
+					placement: { space: 'free' },
+					particleKind: 'sprite',
+				},
+				{
+					key: 'coins',
+					config: baseConfig(),
+					// A spine layer still carries an `art` block (schema requires it) but renders no
+					// atlas art — its skeletonKey, not its art.assetKey, is what must ship.
+					art: { assetKey: '', frames: [] },
+					placement: { space: 'free' },
+					particleKind: 'spine',
+					spineParticle: { skeletonKey: coinSkeleton, animation: 'spin', loop: true },
+				},
+			],
+		},
+	},
+]);
+const coinDoc = tierC.effects[0];
+
+assert(
+	coinDoc.layers[1].particleKind === 'spine' &&
+		coinDoc.layers[1].spineParticle?.skeletonKey === coinSkeleton &&
+		coinDoc.layers[1].spineParticle?.animation === 'spin' &&
+		coinDoc.layers[1].spineParticle?.loop === true,
+	'a spine layer travels with its spineParticle (skeletonKey/animation/loop) intact',
+);
+assert(
+	eq(tierC.referencedAssetKeys, [sparksManifest]),
+	'referencedAssetKeys carries ONLY the sprite layer atlas (the spine layer adds no atlas key)',
+);
+assert(
+	eq(tierC.referencedSkeletonKeys, [coinSkeleton]),
+	'referencedSkeletonKeys carries the spine layer skeletonKey (the new referenced-asset class)',
+);
+
+// A sprite layer that smuggled a `spineParticle` is normalized away (kind discipline), so it
+// contributes NO skeletonKey — only a true `particleKind:'spine'` layer does.
+const spriteWithSpine = exportEffects([
+	{
+		id: 'sneaky',
+		raw: {
+			name: 'Sneaky',
+			layers: [
+				{
+					key: 'a',
+					config: baseConfig(),
+					art: { assetKey: sparksManifest, frames: ['s1'] },
+					placement: { space: 'free' },
+					particleKind: 'sprite',
+					spineParticle: { skeletonKey: coinSkeleton, animation: 'spin' },
+				},
+			],
+		},
+	},
+]);
+assert(
+	spriteWithSpine.referencedSkeletonKeys.length === 0 &&
+		!('spineParticle' in (spriteWithSpine.effects[0].layers[0] as Record<string, unknown>)),
+	'a SPRITE layer carrying spineParticle is gated out (no skeletonKey leaks; normalize drops it)',
+);
+
+// Two spine layers sharing a skeleton ⇒ one referenced skeletonKey (deduped).
+const twinSpine = exportEffects([
+	{
+		id: 'twin_spine',
+		raw: {
+			name: 'Twin Spine',
+			layers: [
+				{
+					key: 'a',
+					config: baseConfig(),
+					art: { assetKey: '', frames: [] },
+					placement: { space: 'free' },
+					particleKind: 'spine',
+					spineParticle: { skeletonKey: coinSkeleton, animation: 'spin' },
+				},
+				{
+					key: 'b',
+					config: baseConfig(),
+					art: { assetKey: '', frames: [] },
+					placement: { space: 'free' },
+					particleKind: 'spine',
+					spineParticle: { skeletonKey: coinSkeleton, animation: 'flip' },
+				},
+			],
+		},
+	},
+]);
+assert(
+	eq(twinSpine.referencedSkeletonKeys, [coinSkeleton]),
+	'two spine layers sharing a skeleton ⇒ one referenced skeletonKey (deduped)',
+);
+
+// The skeleton IS shipped as an editor-art spine → no dangling key.
+const spineShipped = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [coinSkeleton], []);
+assert(
+	spineShipped.length === 0,
+	'a referenced skeleton shipped as an editor-art spine ⇒ no dangling key (spine particles visible)',
+);
+
+// The skeleton is NOT shipped (neither editor-art spine nor symbol spine) → dangling (invisible).
+const spineMissing = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [wandSkeleton], []);
+assert(
+	eq(spineMissing, [coinSkeleton]),
+	'a skeletonKey NOT among the shipped spines is flagged dangling (would render invisible)',
+);
+
+// A skeleton shipped as a SYMBOL spine (not editor-art) also resolves — no false positive.
+const spineAsSymbol = danglingSkeletonKeys([coinSkeleton], [], [coinSkeleton]);
+assert(
+	spineAsSymbol.length === 0,
+	'a skeleton shipped as a symbol spine (symbols.index.spines) also resolves',
+);
 
 console.log('');
 if (failures === 0) {

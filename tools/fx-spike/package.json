@@ -12,6 +12,7 @@
 		"pipeline": "tsx pipeline.ts",
 		"trigger": "tsx trigger.ts",
 		"trigger-ui": "tsx triggerPicker.ts",
+		"particle-kind": "tsx particleKind.ts",
 		"spine-particle": "tsx spineParticle.ts",
 		"spine-particle-behavior": "tsx spineParticleBehavior.ts"
 	},

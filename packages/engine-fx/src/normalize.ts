@@ -90,10 +90,15 @@ const normalizeLayer = (raw: unknown): EmitterLayer | undefined => {
 	// `config` is the nested EmitterConfigV3 — kept VERBATIM. We require it to be an object
 	// (a missing/garbage config = a broken layer), but we DO NOT reshape its contents.
 	if (!isObject(raw.config)) return undefined;
-	const art = normalizeArt(raw.art);
-	if (!art) return undefined;
 
 	const particleKind = raw.particleKind === 'spine' ? 'spine' : 'sprite';
+	// A SPRITE layer's particle IS its atlas art, so a missing/empty `art.assetKey` is a broken
+	// layer (drop it). A SPINE layer's particle is a pooled `Spine` (Tier C) — it renders no atlas
+	// art, so it legitimately carries an EMPTY art block; never drop it for a missing assetKey.
+	const art =
+		normalizeArt(raw.art) ?? (particleKind === 'spine' ? { assetKey: '', frames: [] } : undefined);
+	if (!art) return undefined;
+
 	const layer: EmitterLayer = {
 		key,
 		config: raw.config as unknown as EmitterLayer['config'],

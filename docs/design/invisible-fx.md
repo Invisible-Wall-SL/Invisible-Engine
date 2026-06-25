@@ -20,24 +20,104 @@ TRIGGER — a baked effect plays in-game and a `trigger.on:'event'` layer fires 
 event via `utils-event-emitter`). **Phase 0 / Tier C GATE PASSED (2026-06-25): the spike
 verdict is NATIVE pooled-`SpineParticle` is VIABLE** (see Progress — `tools/fx-spike/spineParticle.ts`,
 18/18 GREEN; perf ceiling is the one owner-verify-live caveat, flipbook-bake remains a per-effect
-fallback). \*\*Tier C (Phase 3) increment 1 is now BUILT (headless): the RUNTIME `SpineParticleBehavior`
-
-- `<EffectLayer>` wiring — a `particleKind:'spine'` layer RENDERS** (pooled `Spine` particles; see
-  Progress — `tools/fx-spike/spineParticleBehavior.ts`, 21/21 GREEN). What remains for Tier C is
-  increment 2: the `/fx` authoring UI (a `particleKind` toggle + skeleton/animation/loop picker + the
-  FxStage live preview) and the bake dangling-`skeletonKey` guard. The
-  `/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
-  always/event + the event type + duration, sourced from the project's emitter vocabulary —
-  the same source `/flow` uses). **Current
-  state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
-  Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
-  pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
-  pending** (WebGL + a published game): Tier A particles, Tier B bone-follow, and a game actually
-  FIRING a baked effect on an event (esp. `<SpineBoneAttach>`'s coord frame + `Effects.svelte`'s
-  host-rig assumptions). After this lands on `main` + owner-verify, **Book of Borut bumps its
-  `engine` submodule\*\* to ship the runtime. See Progress.
+fallback). **Tier C (Phase 3) is now COMPLETE (headless): increment 1 built the RUNTIME
+`SpineParticleBehavior` + `<EffectLayer>` wiring (a `particleKind:'spine'` layer RENDERS — pooled
+`Spine` particles, `tools/fx-spike/spineParticleBehavior.ts` 21/21 GREEN), and increment 2 (2026-06-25)
+built the `/fx` AUTHORING UI (a `particleKind` toggle + skeleton/animation/loop picker, reusing the
+Backdrop bar's skeleton list), the FxStage LIVE spine-particle preview (pooling real `Spine`
+instances), and the bake dangling-`skeletonKey` guard (the spine analogue of the atlas `art.assetKey`
+check). So a spine-particle effect is now authorable→previewable→shippable→fireable.** Two owner-verify-live
+items remain (NOT headless): the WebGL pixels + the pool-size perf ceiling, AND the **skeletonKey
+key-stability** seam (the `/fx` entry key vs the runtime/bake `loadedAssets` bundle-prefix key must be
+reconciled — §9 — before a spine-particle effect SHIPS to a real game; until then the guard correctly
+flags it dangling). The
+`/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
+always/event + the event type + duration, sourced from the project's emitter vocabulary —
+the same source `/flow` uses). **Current
+state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
+Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
+pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
+pending** (WebGL + a published game): Tier A particles, Tier B bone-follow, and a game actually
+FIRING a baked effect on an event (esp. `<SpineBoneAttach>`'s coord frame + `Effects.svelte`'s
+host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Borut bumps its
+`engine` submodule\*\* to ship the runtime. See Progress.
 
 ### Progress
+
+- **Phase 3 (Tier C — spine-clips-AS-particles) — increment 2: the `/fx` authoring UI + live
+  preview + the bake `skeletonKey` guard — ✅ DONE HEADLESSLY (2026-06-25, branch
+  `fx/phase1-emitter-core`, no game bump).** Per §5 Tier C / §7 Phase 3 (Phase-0 build-plan steps
+  3–4). Makes a `particleKind:'spine'` layer AUTHORABLE, PREVIEWABLE, and SHIPPABLE — closing
+  Tier C (increment 1 built the runtime behavior; this is the tool + the pipeline guard).
+  **Landed:**
+
+  - **`/fx` authoring UI** (`apps/launcher-api/src/routes/(app)/fx/+page.svelte`) — a per-layer
+    **Particle** section (above Art): a **Kind** select (**Sprite (atlas art)** vs **Spine clip**);
+    when **Spine clip**, a **Skeleton** picker (REUSES the SAME `/spine/skeletons` list the Backdrop
+    bar already loads — no second skeleton-listing path), an **Animation** picker (the chosen
+    skeleton's clips, resolved on demand via `fxSpine.client.ts` `loadFxSpine`; degrades to a
+    free-text input while the skeleton loads), and a **Loop** toggle. The Sprite **Art** section is
+    GATED OUT for a spine layer. Switching kind is NON-DESTRUCTIVE (the atlas `art` AND a drafted
+    `spineParticle` both survive a toggle, mirroring the placement/trigger non-destructive pattern).
+    The page caches loaded skeletons (`resolveSkeleton`) and hands them to the stage.
+  - **Pure mutators** in `fxModel.client.ts` (`setParticleKind` / `setSpineParticleSkeleton` /
+    `setSpineParticleAnimation` / `setSpineParticleLoop` + the `spineParticleReady` gate) — edit
+    ONLY `particleKind`/`spineParticle`, NEVER the verbatim `config` (nor `art`/`placement`/
+    `trigger`); immutable + PixiJS-free so the harness covers them. `setParticleKind` to the same
+    kind is a no-op; the spine setters force `particleKind:'spine'` and keep sibling fields.
+  - **FxStage LIVE spine-particle preview** (`FxStage.svelte`) — for a `particleKind:'spine'` layer
+    the stage `registerSpineParticleBehavior()` + injects a pixi-v8 backing factory
+    (`createPixiSpineBackingFactory`, built from the skeleton the page resolves via the new
+    `resolveSkeleton` prop) into the V3 config's `behaviors` (mirroring `<ParticleEmitter>`'s
+    `bindSpineParticle` imperatively), INSTEAD of the `bindArt` sprite path. A spine emitter is
+    ALWAYS recreated (not re-`init`ed) on rebuild so its pool is rebuilt cleanly; the pool is
+    DISPOSED (`SpineParticleBehavior.dispose()`) on every teardown/rebuild/unmount (no leak —
+    FxStage's generation-guarded rebuild owns it). A half-authored/unloadable spine layer falls
+    through to the placeholder dots (never crashes). The sprite/placeholder/Tier-B paths stay
+    BYTE-IDENTICAL. The launcher now deps `pixi-svelte` (`workspace:*`), whose index now exports the
+    canonical Tier-C `spineParticleBehavior`/`spineBacking` (REUSE — the SAME pool `<EffectLayer>`
+    mounts, so the authoring preview and the game render identically).
+  - **Bake dangling-`skeletonKey` guard (§8 — the spine analogue of the atlas dangling-key guard)** —
+    `effectExport.ts` now returns `referencedSkeletonKeys` (the distinct `spineParticle.skeletonKey`
+    set of `particleKind:'spine'` layers); a spine layer adds NO atlas key (`assetKeysOf` now skips
+    spine layers) and a sprite layer adds NO skeleton key. `bake-editor-doc.mjs` checks each
+    referenced skeletonKey against the SHIPPED Spine bundles (`editorArt.spines[].key` ∪
+    `symbols.index.spines[].key` — the keys a skeleton registers in `loadedAssets` under) and WARNS
+    loudly for a dangling one (an unshipped skeleton ⇒ the spine particles have no skeleton ⇒
+    invisible). Non-fatal (the author may wire the spine into the layout/symbols before shipping).
+  - **Latent schema bug FIXED** — `normalizeEffectDoc` DROPPED any layer whose `art.assetKey` was
+    empty, which would have killed EVERY spine-particle layer (a spine layer's particle IS the
+    pooled `Spine`, not an atlas region — it legitimately carries empty art) at save→reopen / export.
+    A SPINE layer now keeps an empty `{ assetKey:'', frames:[] }` block; a SPRITE layer still drops
+    (its particle IS its atlas art — parity). Caught by the new harness.
+  - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
+particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
+    the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind
+    discipline through `normalizeEffectDoc` (a true spine layer KEEPS spineParticle; a sprite layer
+    DROPS a dormant one; idempotent fixed point). `tools/fx-spike/pipeline.ts` extended — the
+    `referencedSkeletonKeys` export (sprite/spine classes don't cross-contaminate, deduped) + the
+    dangling-`skeletonKey` guard (shipped-as-editor-spine / shipped-as-symbol-spine resolve,
+    unshipped flagged). ALL 10 fx harnesses GREEN; the Phase-0 spine-particle spike still GREEN.
+    **Builds GREEN:** `engine-fx` typecheck, `pnpm --filter {pixi-svelte,lines,launcher-api} build`
+    (the `(app)/fx` entry grew to ~50 kB pulling in the particle behavior); `node --check` on the
+    bake/pull `.mjs`; Prettier clean. **PARITY:** a sprite-only doc is byte-identical through
+    normalize/export/bake.
+  - **NEEDS LIVE OWNER-VERIFY (NOT headless):** (a) spine-clip particles actually RENDERING +
+    animating + recycling in the `/fx` preview once a Skeleton + Animation are picked; (b) the
+    pool-size CEILING that holds 60fps (the Phase-0 caveat — tens, not hundreds); (c) the
+    **skeletonKey key-stability** seam — in `/fx` the authored `spineParticle.skeletonKey` is a
+    `dir_b64/skeleton_file` entry key, but the runtime + the bake guard resolve against the R2
+    bundle-prefix `loadedAssets` key (`editorArt.spines[].key`); these must be reconciled (the §9
+    "atlas key stability" analogue) before a spine-particle effect SHIPS to a real game. Until then
+    the guard correctly flags such an effect dangling.
+  - **Borut note:** still NOT bumped — owner-verify the pixels + reconcile the skeletonKey seam
+    first. **`docs/tools/fx.md`** wants a later `docs-keeper` refresh for the Particle/Spine-clip
+    section (RULE 9 already satisfied — the tool is registered).
+  - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,FxStage.svelte,fxModel.client.ts,fxSpine.client.ts}`,
+    `apps/launcher-api/src/lib/server/effectExport.ts`, `apps/launcher-api/scripts/bake-editor-doc.mjs`,
+    `apps/launcher-api/package.json` (+`pixi-svelte`), `packages/pixi-svelte/src/lib/index.ts`,
+    `packages/engine-fx/src/normalize.ts`, `tools/fx-spike/{particleKind.ts,pipeline.ts,package.json}`,
+    `docs/STATUS.md`.
 
 - \*\*Phase 3 (Tier C — spine-clips-AS-particles) — increment 1: the RUNTIME `SpineParticleBehavior`
 
@@ -94,14 +174,13 @@ run spine-particle-behavior`): **21/21 GREEN** against the REAL production `Spin
     `spine-core` backing — registration idempotent, pool pre-allocates 30 up-front, BOUNDED
     allocation (still 30 after 1500 frames, none per-frame), the per-particle lifecycle drives the
     genuine state machine (a live bone's clip advanced), live backings === live particles (no leak),
-    pool+live partition the fixed allocation, full drain returns all 30, `dispose()` destroys all 30
-    - clears. `playerReduce.ts` updated for spine now rendering (a spine layer renders + carries its
-      config; a config-less spine layer is skipped; sprite layers stay `particleKind:'sprite'`). ALL
-      prior fx harnesses (roundtrip/model/save/placement/player/pipeline/trigger/trigger-ui/
-      spine-particle) still PASS. **Builds GREEN:** `engine-fx` typecheck, `pnpm --filter
+    pool+live partition the fixed allocation, full drain returns all 30, `dispose()` destroys all 30 - clears. `playerReduce.ts` updated for spine now rendering (a spine layer renders + carries its
+    config; a config-less spine layer is skipped; sprite layers stay `particleKind:'sprite'`). ALL
+    prior fx harnesses (roundtrip/model/save/placement/player/pipeline/trigger/trigger-ui/
+    spine-particle) still PASS. **Builds GREEN:** `engine-fx` typecheck, `pnpm --filter
 {pixi-svelte,lines,launcher-api} build`; svelte-check on pixi-svelte flags only the 3
-      PRE-EXISTING errors (none in the new/edited files); Prettier clean. **PARITY:** a doc with no
-      spine layers reduces byte-identically (the sprite path is untouched).
+    PRE-EXISTING errors (none in the new/edited files); Prettier clean. **PARITY:** a doc with no
+    spine layers reduces byte-identically (the sprite path is untouched).
   * **NEEDS LIVE OWNER-VERIFY (WebGL pixels + perf — NOT headless):** actual spine-clip particles
     RENDERING + animating + recycling in a real game (or the `/fx` preview), and the pool-size
     CEILING that holds 60fps on target hardware (the Phase-0 caveat — expect tens, not hundreds; a
@@ -203,13 +282,7 @@ run spine-particle-behavior`): **21/21 GREEN** against the REAL production `Spin
     never spawns).
   - **Verified headlessly** by `tools/fx-spike/modelHelpers.ts`
     (`pnpm --filter fx-spike run model`): **33/33 GREEN** — the default config has NO art
-    behavior (proving the bug existed), `bindArt` injects the correct behavior for 0 / 1 /
-    > 1-static / >1-animated textures, carries the LIVE texture objects through (not
-    > JSON-cloned away), is pure (no input mutation), replaces (never stacks) a prior art
-    > behavior, and a bound config still passes `upgradeConfig` with its art intact; every
-    > inspector mutator (`setCoreParam`/`setListEndpoint`/`setSpawnRadius`) is pure +
-    > round-trips with its readout; the doc/layer factories produce a valid shape. The
-    > increment-1 round-trip harness still **PASSES** (schema unchanged). `pnpm --filter
+    behavior (proving the bug existed), `bindArt` injects the correct behavior for 0 / 1 / > 1-static / >1-animated textures, carries the LIVE texture objects through (not > JSON-cloned away), is pure (no input mutation), replaces (never stacks) a prior art > behavior, and a bound config still passes `upgradeConfig` with its art intact; every > inspector mutator (`setCoreParam`/`setListEndpoint`/`setSpawnRadius`) is pure + > round-trips with its readout; the doc/layer factories produce a valid shape. The > increment-1 round-trip harness still **PASSES** (schema unchanged). `pnpm --filter
 launcher-api build` **GREEN** (the `(app)/fx` entry builds).
   - **NEEDS LIVE OWNER-VERIFY (the WebGL pixels — not browser-verifiable here, authed):**
     (1) picked atlas regions actually **render as particles** on the `/fx` canvas (the
@@ -617,18 +690,17 @@ launcher-api build` **GREEN** (the `(app)/fx` entry grew to 21.05 kB; the loader
     `class Particle extends Sprite` (L1675) and every spawn site allocates `new Particle(this)`
     (L1943 `fillPool`, L2195 + L2332 spawn) with NO particle-class factory hook; the pool is
     `Particle`-typed (`_poolFirst: Particle`, `recycle(particle: Particle)`). So **a particle
-    can never BE a `Spine`.** BUT the behavior system is fully pluggable: `Emitter.registerBehavior`
-    - the `IEmitterBehavior` interface (`{ order, initParticles, updateParticle?,
+    can never BE a `Spine`.** BUT the behavior system is fully pluggable: `Emitter.registerBehavior` - the `IEmitterBehavior` interface (`{ order, initParticles, updateParticle?,
 recycleParticle? }`, `lib/behaviors/Behaviors.d.ts`) — every art behavior is just a
-      registered behavior mutating the particle (`SingleTexture`/`Animated` set `particle.texture`,
-      `Color` sets `.tint`, `Scale` sets `.scale`, all `Sprite` props). Crucially `Particle extends
+    registered behavior mutating the particle (`SingleTexture`/`Animated` set `particle.texture`,
+    `Color` sets `.tint`, `Scale` sets `.scale`, all `Sprite` props). Crucially `Particle extends
 Sprite extends Container`, and the `recycleParticle(particle, natural)` hook fires on every
-      death (L1955, before the particle returns to `_poolFirst`). So the native Tier-C mechanism is
-      **a custom `spineParticle` behavior that owns a POOL of `Spine` instances** (each `Spine
+    death (L1955, before the particle returns to `_poolFirst`). So the native Tier-C mechanism is
+    **a custom `spineParticle` behavior that owns a POOL of `Spine` instances** (each `Spine
 extends ViewContainer`, a Container, confirmed `spine-pixi-v8` `dist/Spine.d.ts:155`): on
-      spawn take one from the pool, `state.setAnimation`, add its view to the layer container; each
-      frame advance its clip + track the (textureless) particle's transform; on `recycleParticle`
-      reset + return to the pool. Never a skeleton per-particle-per-frame.
+    spawn take one from the pool, `state.setAnimation`, add its view to the layer container; each
+    frame advance its clip + track the (textureless) particle's transform; on `recycleParticle`
+    reset + return to the pool. Never a skeleton per-particle-per-frame.
   - **The spike** (`tools/fx-spike/spineParticle.ts`, `pnpm --filter fx-spike run spine-particle`):
     **18/18 GREEN.** Drives the REAL `@barvynkoa` `Emitter` (it runs in Node — Pixi
     `Container`/`Sprite` construct without a renderer; confirmed) at `maxParticles:30` (the doc's

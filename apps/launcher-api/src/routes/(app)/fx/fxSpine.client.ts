@@ -34,9 +34,14 @@ export interface FxSkeletonEntry {
 }
 
 /** A loaded backdrop: the live `Spine` plus the picker metadata the inspector turns into
- * dropdowns (animation, skin, bone lists — read off the assembled `skeletonData`). */
+ * dropdowns (animation, skin, bone lists — read off the assembled `skeletonData`). The
+ * `skeletonData` is also surfaced so the Tier-C spine-particle pool can build its own pooled
+ * `Spine` instances from the SAME assembled data (via `createPixiSpineBackingFactory`) — the
+ * particle skeletons share the page textures already wired here, allocating only their own
+ * `Spine`. */
 export interface LoadedFxSpine {
 	spine: SPINE.Spine;
+	skeletonData: SPINE.SkeletonData;
 	animations: string[];
 	skins: string[];
 	bones: string[];
@@ -86,6 +91,7 @@ export async function loadFxSpine(entry: FxSkeletonEntry): Promise<LoadedFxSpine
 
 	return {
 		spine,
+		skeletonData,
 		animations: skeletonData.animations.map((a) => a.name),
 		skins: skeletonData.skins.map((s) => s.name),
 		bones: skeletonData.bones.map((b) => b.name),

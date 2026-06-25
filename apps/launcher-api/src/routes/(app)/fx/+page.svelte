@@ -10,17 +10,21 @@
 		nextLayerKey,
 		setCoreParam,
 		setListEndpoint,
+		setParticleKind,
 		setPlacementBone,
 		setPlacementOffset,
 		setPlacementSpace,
 		setSpawnRadius,
+		setSpineParticleAnimation,
+		setSpineParticleLoop,
+		setSpineParticleSkeleton,
 		setTriggerDuration,
 		setTriggerEvent,
 		setTriggerMode,
 		spawnRadius,
 		triggerMode,
 	} from './fxModel.client';
-	import type { FxSkeletonEntry } from './fxSpine.client';
+	import { loadFxSpine, type FxSkeletonEntry, type LoadedFxSpine } from './fxSpine.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -115,6 +119,50 @@
 		artCache.set(assetKey, p);
 		return p;
 	}
+
+	// --- spine-particle resolution (Tier C) -------------------------------------
+	// A `particleKind:'spine'` layer's `spineParticle.skeletonKey` is a project skeleton-entry key
+	// (`dir_b64/skeleton_file`, the SAME key the Backdrop bar uses) — NOT a runtime `loadedAssets`
+	// key. The stage pools `Spine` instances built from the loaded skeleton; we load + cache it here
+	// (reusing `loadFxSpine`, the SAME loader the backdrop uses — no second skeleton load path) and
+	// hand the stage a `resolveSkeleton`. The cached `LoadedFxSpine` also drives the animation
+	// dropdown for the chosen skeleton.
+	const skeletonCache = new Map<string, Promise<LoadedFxSpine | null>>();
+	// Reactive bump so the inspector re-derives the animation list once a skeleton finishes loading.
+	let skeletonMetaVersion = $state(0);
+	const skeletonMeta = new Map<string, LoadedFxSpine>();
+
+	function resolveSkeleton(skeletonKey: string): Promise<LoadedFxSpine | null> {
+		const hit = skeletonCache.get(skeletonKey);
+		if (hit) return hit;
+		const entry = skeletons.find((s) => `${s.dir_b64}/${s.skeleton_file}` === skeletonKey);
+		const p = (async (): Promise<LoadedFxSpine | null> => {
+			if (!entry) return null;
+			try {
+				const loaded = await loadFxSpine(entry);
+				skeletonMeta.set(skeletonKey, loaded);
+				skeletonMetaVersion++;
+				return loaded;
+			} catch {
+				return null;
+			}
+		})();
+		skeletonCache.set(skeletonKey, p);
+		return p;
+	}
+
+	// The animation clips for the SELECTED layer's spine-particle skeleton (loaded on demand). An
+	// empty list (not yet loaded / unknown) degrades the Animation control to a free-text input.
+	const spineParticleAnimations = $derived.by((): string[] => {
+		void skeletonMetaVersion; // re-derive once a load resolves
+		const key = selected?.spineParticle?.skeletonKey;
+		if (!key) return [];
+		const loaded = skeletonMeta.get(key);
+		if (loaded) return loaded.animations;
+		// Kick off a load so the dropdown populates (no-op if already cached/in-flight).
+		void resolveSkeleton(key);
+		return [];
+	});
 
 	// The chosen atlas's region names (for the region picker checkboxes).
 	let pickerAtlasKey = $state<string>('');
@@ -364,6 +412,7 @@
 					layers={doc.layers}
 					{playing}
 					{resolveArt}
+					{resolveSkeleton}
 					{spineEntry}
 					{spineAnimation}
 					{spineSkin}
@@ -387,63 +436,160 @@
 				</section>
 
 				<section>
-					<h3>Art</h3>
+					<h3>Particle</h3>
 					<label class="row">
-						<span>Atlas</span>
+						<span>Kind</span>
 						<select
-							value={selected.art.assetKey}
-							onchange={(e) => selectAtlas((e.currentTarget as HTMLSelectElement).value)}
+							value={selected.particleKind}
+							onchange={(e) =>
+								updateSelected((l) =>
+									setParticleKind(
+										l,
+										(e.currentTarget as HTMLSelectElement).value as 'sprite' | 'spine',
+									),
+								)}
 						>
-							<option value="">— pick an atlas —</option>
-							{#each atlasOptions as a (a.manifestKey)}
-								<option value={a.manifestKey}>{a.label}</option>
-							{/each}
+							<option value="sprite">Sprite (atlas art)</option>
+							<option value="spine" disabled={skeletons.length === 0}>Spine clip</option>
 						</select>
 					</label>
-					{#if atlasOptions.length === 0}
-						<p class="hint">
-							This project has no usable atlases yet (make one in Atlas/Sheet Maker).
-						</p>
-					{/if}
-					{#if selected.art.frames.length === 0}
-						<p class="hint">
-							No art bound yet — the preview shows placeholder dots so you can tune the emitter.
-							Pick an atlas, then tick a region for the real particle.
-						</p>
-					{/if}
-					{#if selected.art.assetKey}
-						<div class="frames">
-							{#if pickerRegions.length === 0}
-								<p class="hint">No regions in this atlas.</p>
-							{:else}
-								{#each pickerRegions as name (name)}
-									<label class="frame">
-										<input
-											type="checkbox"
-											checked={selected.art.frames.includes(name)}
-											onchange={() => toggleFrame(name)}
-										/>
-										{name}
-									</label>
-								{/each}
-							{/if}
-						</div>
-						{#if selected.art.frames.length > 1}
-							<label class="row check">
-								<input
-									type="checkbox"
-									checked={selected.art.animated ?? true}
+					{#if selected.particleKind === 'spine'}
+						{#if skeletons.length === 0}
+							<p class="hint">
+								This project has no Spine bundles yet — make one in the Spine Viewer / Rigger to use
+								spine-clip particles.
+							</p>
+						{:else}
+							<label class="row">
+								<span>Skeleton</span>
+								<select
+									value={selected.spineParticle?.skeletonKey ?? ''}
 									onchange={(e) =>
-										updateSelected((l) => ({
-											...l,
-											art: { ...l.art, animated: (e.currentTarget as HTMLInputElement).checked },
-										}))}
-								/>
-								<span>Flipbook (animate frames)</span>
+										updateSelected((l) =>
+											setSpineParticleSkeleton(l, (e.currentTarget as HTMLSelectElement).value),
+										)}
+								>
+									<option value="">— pick a skeleton —</option>
+									{#each skeletons as s (s.dir_b64 + '/' + s.skeleton_file)}
+										<option value={`${s.dir_b64}/${s.skeleton_file}`}>
+											{s.folder ? `${s.folder}/` : ''}{s.name}
+										</option>
+									{/each}
+								</select>
 							</label>
+							{#if selected.spineParticle?.skeletonKey}
+								<label class="row">
+									<span>Animation</span>
+									{#if spineParticleAnimations.length > 0}
+										<select
+											value={selected.spineParticle?.animation ?? ''}
+											onchange={(e) =>
+												updateSelected((l) =>
+													setSpineParticleAnimation(
+														l,
+														(e.currentTarget as HTMLSelectElement).value,
+													),
+												)}
+										>
+											<option value="">— pick a clip —</option>
+											{#each spineParticleAnimations as a (a)}
+												<option value={a}>{a}</option>
+											{/each}
+										</select>
+									{:else}
+										<input
+											placeholder="clip name"
+											title="Loading the skeleton's clips… or type the clip name"
+											value={selected.spineParticle?.animation ?? ''}
+											onchange={(e) =>
+												updateSelected((l) =>
+													setSpineParticleAnimation(l, (e.currentTarget as HTMLInputElement).value),
+												)}
+										/>
+									{/if}
+								</label>
+								<label class="row check">
+									<input
+										type="checkbox"
+										checked={selected.spineParticle?.loop ?? false}
+										onchange={(e) =>
+											updateSelected((l) =>
+												setSpineParticleLoop(l, (e.currentTarget as HTMLInputElement).checked),
+											)}
+									/>
+									<span>Loop each particle's clip</span>
+								</label>
+							{/if}
+							<p class="hint">
+								Each particle is a pooled Spine instance playing a clip. Keep <code
+									>Max particles</code
+								>
+								low — a spine particle is far heavier than a sprite (tens, not hundreds).
+							</p>
 						{/if}
 					{/if}
 				</section>
+
+				{#if selected.particleKind === 'sprite'}
+					<section>
+						<h3>Art</h3>
+						<label class="row">
+							<span>Atlas</span>
+							<select
+								value={selected.art.assetKey}
+								onchange={(e) => selectAtlas((e.currentTarget as HTMLSelectElement).value)}
+							>
+								<option value="">— pick an atlas —</option>
+								{#each atlasOptions as a (a.manifestKey)}
+									<option value={a.manifestKey}>{a.label}</option>
+								{/each}
+							</select>
+						</label>
+						{#if atlasOptions.length === 0}
+							<p class="hint">
+								This project has no usable atlases yet (make one in Atlas/Sheet Maker).
+							</p>
+						{/if}
+						{#if selected.art.frames.length === 0}
+							<p class="hint">
+								No art bound yet — the preview shows placeholder dots so you can tune the emitter.
+								Pick an atlas, then tick a region for the real particle.
+							</p>
+						{/if}
+						{#if selected.art.assetKey}
+							<div class="frames">
+								{#if pickerRegions.length === 0}
+									<p class="hint">No regions in this atlas.</p>
+								{:else}
+									{#each pickerRegions as name (name)}
+										<label class="frame">
+											<input
+												type="checkbox"
+												checked={selected.art.frames.includes(name)}
+												onchange={() => toggleFrame(name)}
+											/>
+											{name}
+										</label>
+									{/each}
+								{/if}
+							</div>
+							{#if selected.art.frames.length > 1}
+								<label class="row check">
+									<input
+										type="checkbox"
+										checked={selected.art.animated ?? true}
+										onchange={(e) =>
+											updateSelected((l) => ({
+												...l,
+												art: { ...l.art, animated: (e.currentTarget as HTMLInputElement).checked },
+											}))}
+									/>
+									<span>Flipbook (animate frames)</span>
+								</label>
+							{/if}
+						{/if}
+					</section>
+				{/if}
 
 				<section>
 					<h3>Placement</h3>

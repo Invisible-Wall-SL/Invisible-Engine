@@ -24,7 +24,15 @@
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import type * as SPINE from '@esotericsoftware/spine-pixi-v8';
-	import { bindArt, type EmitterLayer } from 'engine-fx';
+	import { bindArt, behaviorsOf, type EmitterLayer } from 'engine-fx';
+	import {
+		createPixiSpineBackingFactory,
+		registerSpineParticleBehavior,
+		SpineParticleBehavior,
+		SPINE_PARTICLE_BEHAVIOR_TYPE,
+		type LayerHostLike,
+		type SpineParticleBehaviorConfig,
+	} from 'pixi-svelte';
 	import {
 		Application,
 		Container,
@@ -35,7 +43,12 @@
 		type TextureSource,
 	} from 'pixi.js';
 	import { onMount } from 'svelte';
-	import { emitterOwnerLocal, layerFollowsBone, type Affine } from './fxModel.client';
+	import {
+		emitterOwnerLocal,
+		layerFollowsBone,
+		spineParticleReady,
+		type Affine,
+	} from './fxModel.client';
 	import {
 		applyFxSkin,
 		loadFxSpine,
@@ -56,6 +69,15 @@
 		 * beyond the page-image `Assets.load`.
 		 */
 		resolveArt: (assetKey: string) => Promise<ResolvedArt | null>;
+		/**
+		 * Resolve a `spineParticle.skeletonKey` (the project skeleton-entry key) to a loaded
+		 * skeleton, so a `particleKind:'spine'` layer (Tier C) can pool `Spine` instances each
+		 * playing a clip — the SAME `SkeletonData`/factory the runtime `<EffectLayer>` uses. Supplied
+		 * + cached by the page (which owns the `/spine/skeletons` list); the stage stays I/O-free
+		 * beyond the per-skeleton `loadFxSpine`. Returns `null` for an unknown/unloadable key — the
+		 * layer then shows placeholder dots, never crashing.
+		 */
+		resolveSkeleton?: (skeletonKey: string) => Promise<LoadedFxSpine | null>;
 		/**
 		 * The Spine skeleton to load as the Tier-B authoring backdrop, or `null` for none.
 		 * When set, the stage loads it (once), plays `spineAnimation`, applies `spineSkin`,
@@ -83,6 +105,7 @@
 		layers,
 		playing,
 		resolveArt,
+		resolveSkeleton,
 		spineEntry = null,
 		spineAnimation = '',
 		spineSkin = '',
@@ -106,7 +129,8 @@
 	let spineGen = 0;
 	/** Reused point for the per-frame bone-follow (avoid per-frame allocation). */
 	const bonePoint = { x: 0, y: 0 };
-	/** Per-key live emitter + the container it draws into + whether it has bound art. */
+	/** Per-key live emitter + the container it draws into + whether it has bound art (a sprite
+	 * layer with textures OR a spine-particle layer with a bound pool — either spawns visibly). */
 	const live = new Map<string, { emitter: Emitter; container: Container; hasArt: boolean }>();
 	/** Cache of resolved page TextureSources by URL (avoid re-loading the same page). */
 	const sourceCache = new Map<string, TextureSource>();
@@ -116,6 +140,22 @@
 	let rebuildGen = 0;
 	let rebuilding = false;
 	let rebuildPending = false;
+
+	// Tier C: the pooled-`Spine`-particle behavior must be registered with the library before any
+	// `Emitter` whose config carries a `spineParticle` entry inits. Idempotent — safe to call here.
+	registerSpineParticleBehavior();
+
+	/**
+	 * Dispose an emitter's Tier-C `Spine` pool (the pooled skeletons the emitter's own `destroy`
+	 * never sees), THEN tear down the emitter — mirroring `<ParticleEmitter>`'s `onDestroy`. A
+	 * sprite emitter has no such behavior, so this is a no-op for Tiers A/B (parity).
+	 */
+	function disposeEmitter(emitter: Emitter): void {
+		emitter.emit = false;
+		const behavior = emitter.getBehavior(SPINE_PARTICLE_BEHAVIOR_TYPE);
+		if (behavior instanceof SpineParticleBehavior) behavior.dispose();
+		emitter.destroy();
+	}
 
 	onMount(() => {
 		let disposed = false;
@@ -147,10 +187,7 @@
 
 		return () => {
 			disposed = true;
-			for (const { emitter } of live.values()) {
-				emitter.emit = false;
-				emitter.destroy();
-			}
+			for (const { emitter } of live.values()) disposeEmitter(emitter);
 			live.clear();
 			loadedSpine?.spine.destroy();
 			loadedSpine = null;
@@ -324,8 +361,7 @@
 		const keys = new Set(layers.map((l) => l.key));
 		for (const [key, entry] of live) {
 			if (!keys.has(key)) {
-				entry.emitter.emit = false;
-				entry.emitter.destroy();
+				disposeEmitter(entry.emitter);
 				entry.container.destroy();
 				live.delete(key);
 			}
@@ -335,6 +371,17 @@
 		await updateReference();
 
 		for (const layer of layers) {
+			// Tier C: a `particleKind:'spine'` layer pools `Spine` instances each playing a clip —
+			// the SAME mechanism `<EffectLayer>` mounts (`bindSpineParticle` → the pooled behavior),
+			// reproduced here imperatively against the stage's own emitter. A half-authored spine
+			// layer (no skeleton/clip, or an unloadable one) falls through to the placeholder-dot
+			// sprite path so the preview never crashes or silently vanishes.
+			if (layer.particleKind === 'spine') {
+				await buildSpineLayer(layer, gen);
+				if (gen !== rebuildGen) return;
+				continue;
+			}
+
 			const real = await framesToTextures(layer);
 			if (gen !== rebuildGen) return; // a newer rebuild superseded us
 			// Preview aid: with no art bound, spawn soft placeholder DOTS so the emitter is
@@ -357,11 +404,93 @@
 				entry = { emitter: new Emitter(container, config), container, hasArt: true };
 				live.set(layer.key, entry);
 			} else {
+				// A sprite layer that USED to be a spine layer carries a pool — dispose it before
+				// re-init so its skeletons don't leak. `disposeEmitter` no-ops for a sprite emitter.
+				disposeEmitterPool(entry.emitter);
 				entry.emitter.init(config);
 				entry.hasArt = true;
 			}
 			entry.emitter.emit = playing;
 		}
+	}
+
+	/**
+	 * Build (or rebuild) a Tier-C spine-particle layer's live emitter. Each particle is a pooled
+	 * `Spine` playing the layer's clip; the pool is built from the loaded `SkeletonData`
+	 * (`createPixiSpineBackingFactory`) the page resolves via `resolveSkeleton`. A spine emitter is
+	 * ALWAYS recreated (not re-`init`ed) on rebuild: a fresh pool must replace any prior one cleanly,
+	 * and disposing the old emitter frees the old pool's skeletons — re-init would otherwise strand
+	 * them parented in the world. An unloadable/half-authored layer renders placeholder dots.
+	 */
+	async function buildSpineLayer(layer: EmitterLayer, gen: number): Promise<void> {
+		if (!world) return;
+		const loaded =
+			spineParticleReady(layer) && resolveSkeleton
+				? await resolveSkeleton(layer.spineParticle!.skeletonKey)
+				: null;
+		if (gen !== rebuildGen) return;
+
+		// Recreate the emitter from scratch so the pool is rebuilt cleanly (dispose any prior one).
+		let container = live.get(layer.key)?.container ?? null;
+		const prior = live.get(layer.key);
+		if (prior) {
+			disposeEmitter(prior.emitter);
+			live.delete(layer.key);
+		}
+		if (!container) {
+			container = new Container();
+			world.addChild(container);
+		}
+
+		if (!loaded) {
+			// Half-authored / unloadable: show placeholder dots so the emitter (shape/rate) is still
+			// tunable, exactly like an art-less sprite layer.
+			const config = bindArt(layer.config, [placeholderTexture()], false);
+			const emitter = new Emitter(container, config);
+			emitter.emit = playing;
+			live.set(layer.key, { emitter, container, hasArt: false });
+			return;
+		}
+
+		const spineParticle: SpineParticleBehaviorConfig = {
+			animation: layer.spineParticle!.animation,
+			loop: layer.spineParticle!.loop ?? false,
+			prewarm: layer.config.maxParticles ?? 0,
+			layerHost: container as unknown as LayerHostLike,
+			createBacking: createPixiSpineBackingFactory(loaded.skeletonData),
+		};
+		const config = bindSpineParticleConfig(layer.config, spineParticle);
+		const emitter = new Emitter(container, config);
+		emitter.emit = playing;
+		live.set(layer.key, { emitter, container, hasArt: true });
+	}
+
+	/**
+	 * Inject the Tier-C `spineParticle` behavior into a V3 config, returning a NEW config — the
+	 * EXACT shape `<ParticleEmitter>`'s `bindSpineParticle` builds (clone the textureless config,
+	 * replace any prior `spineParticle` entry, attach the live factory + layer host AFTER cloning so
+	 * the result is NOT re-JSON-cloned). Kept here (not pulled from the Svelte component) because
+	 * the stage drives the emitter imperatively.
+	 */
+	function bindSpineParticleConfig(
+		config: EmitterLayer['config'],
+		spineParticle: SpineParticleBehaviorConfig,
+	): EmitterLayer['config'] {
+		const next = JSON.parse(JSON.stringify(config)) as EmitterLayer['config'];
+		const behaviors = behaviorsOf(next).filter((b) => b.type !== SPINE_PARTICLE_BEHAVIOR_TYPE);
+		behaviors.push({
+			type: SPINE_PARTICLE_BEHAVIOR_TYPE,
+			config: spineParticle as unknown as Record<string, unknown>,
+		});
+		(next as { behaviors: unknown[] }).behaviors = behaviors;
+		return next;
+	}
+
+	/** Dispose only the Tier-C pool of an emitter (not the emitter), so a spine→sprite re-init
+	 * doesn't strand the old skeletons. No-op for a sprite emitter. */
+	function disposeEmitterPool(emitter: Emitter): void {
+		const behavior = emitter.getBehavior(SPINE_PARTICLE_BEHAVIOR_TYPE);
+		if (behavior instanceof SpineParticleBehavior) behavior.dispose();
 	}
 
 	async function updateReference(): Promise<void> {

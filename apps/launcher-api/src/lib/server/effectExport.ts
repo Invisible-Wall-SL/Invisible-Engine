@@ -39,13 +39,31 @@ export interface EffectExportIndex {
 	 *  against the atlases it ships (`editorArt.sheets`) — a dangling key = an invisible
 	 *  effect (§8). Empty when no effect references art. */
 	referencedAssetKeys: string[];
+	/** Every distinct `spineParticle.skeletonKey` a Tier-C (`particleKind:'spine'`) layer
+	 *  references — a NEW referenced-asset class, the spine analogue of `referencedAssetKeys`.
+	 *  The bake checks each against the spine bundles it ships (`editorArt.spines` /
+	 *  `symbols.index.spines`) — a dangling skeletonKey = an invisible spine-particle effect
+	 *  (§8). Empty when no effect uses spine particles. */
+	referencedSkeletonKeys: string[];
 }
 
-/** The distinct, non-empty `art.assetKey`s an effect's layers reference. */
+/** The distinct, non-empty `art.assetKey`s an effect's (sprite) layers reference. */
 function assetKeysOf(effect: EffectDoc): string[] {
 	const keys = new Set<string>();
 	for (const layer of effect.layers) {
+		if (layer.particleKind === 'spine') continue; // a spine layer renders no atlas art
 		const k = layer.art?.assetKey;
+		if (typeof k === 'string' && k) keys.add(k);
+	}
+	return [...keys];
+}
+
+/** The distinct, non-empty `spineParticle.skeletonKey`s a Tier-C layer references. */
+function skeletonKeysOf(effect: EffectDoc): string[] {
+	const keys = new Set<string>();
+	for (const layer of effect.layers) {
+		if (layer.particleKind !== 'spine') continue;
+		const k = layer.spineParticle?.skeletonKey;
 		if (typeof k === 'string' && k) keys.add(k);
 	}
 	return [...keys];
@@ -97,6 +115,12 @@ export async function exportEffects(
 
 	const referenced = new Set<string>();
 	for (const e of effects) for (const k of assetKeysOf(e)) referenced.add(k);
+	const referencedSkeletons = new Set<string>();
+	for (const e of effects) for (const k of skeletonKeysOf(e)) referencedSkeletons.add(k);
 
-	return { effects, referencedAssetKeys: [...referenced] };
+	return {
+		effects,
+		referencedAssetKeys: [...referenced],
+		referencedSkeletonKeys: [...referencedSkeletons],
+	};
 }

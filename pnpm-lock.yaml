@@ -177,6 +177,9 @@ importers:
       opentype.js:
         specifier: ^2.0.0
         version: 2.0.0
+      pixi-svelte:
+        specifier: workspace:*
+        version: link:../../packages/pixi-svelte
       pixi.js:
         specifier: 8.8.1
         version: 8.8.1

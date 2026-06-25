@@ -44,6 +44,7 @@
 		"engine-layout": "workspace:*",
 		"marked": "^18.0.5",
 		"opentype.js": "^2.0.0",
+		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.8.1",
 		"postgres": "3.4.5",
 		"svelte": "5.35.1",
