@@ -14,8 +14,31 @@
 	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, Spine,
 	// particle-emitter) that download AFTER the click but BEFORE the page renders —
 	// so the launcher looks frozen for a few seconds. `navigating.to` is set for that
-	// whole window, so a branded overlay gives immediate feedback. The CSS fade-in is
-	// delayed ~250ms, so quick routes (home, login) finish first and never flash it.
+	// whole client-side-navigation window, so a branded overlay gives instant feedback.
+	//
+	// We gate visibility behind a JS timer (not a CSS fade-delay, which is fragile under
+	// production CSS minification/keyframe-pruning): the overlay only appears once a
+	// navigation has been in-flight ~220ms, so quick routes (home, login) never flash it.
+	let show = $state(false);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+
+	$effect(() => {
+		if (navigating.to) {
+			if (timer === undefined) {
+				timer = setTimeout(() => {
+					show = true;
+					timer = undefined;
+				}, 220);
+			}
+		} else {
+			if (timer !== undefined) {
+				clearTimeout(timer);
+				timer = undefined;
+			}
+			show = false;
+		}
+	});
+
 	const targetName = $derived(
 		navigating.to
 			? (data?.tools?.find((t) => t.url === navigating.to?.url.pathname)?.name ?? null)
@@ -25,7 +48,7 @@
 
 {@render children()}
 
-{#if navigating.to}
+{#if show}
 	<div class="nav-loading" role="status" aria-live="polite">
 		<div class="card">
 			<Emblem height={44} />
@@ -51,10 +74,6 @@
 		place-items: center;
 		background: rgba(11, 11, 15, 0.82);
 		backdrop-filter: blur(3px);
-		/* Stay invisible until the navigation has clearly stalled, so fast routes
-		   never flash. Only slow chunk loads (FX/Flow/Editor) cross the threshold. */
-		opacity: 0;
-		animation: nav-fade-in 0.2s ease 0.25s forwards;
 	}
 
 	.card {
@@ -87,18 +106,9 @@
 		}
 	}
 
-	@keyframes nav-fade-in {
-		to {
-			opacity: 1;
-		}
-	}
-
 	@media (prefers-reduced-motion: reduce) {
 		.spinner {
 			animation-duration: 1.6s;
-		}
-		.nav-loading {
-			animation-delay: 0.1s;
 		}
 	}
 </style>
