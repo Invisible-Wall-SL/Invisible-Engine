@@ -213,22 +213,33 @@ export function setCoreParam(
 	value: number,
 ): EmitterConfigV3 {
 	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
+	const v = Number.isFinite(value) ? value : 0;
 	switch (param) {
 		case 'frequency':
-			next.frequency = value;
+			// 0 ⇒ infinite spawns per frame; keep a small positive floor.
+			next.frequency = Math.max(0.001, v);
 			break;
 		case 'maxParticles':
-			next.maxParticles = value;
+			next.maxParticles = Math.max(1, Math.round(v));
 			break;
-		case 'lifetimeMin':
-			next.lifetime = { ...next.lifetime, min: value };
+		case 'lifetimeMin': {
+			// A particle whose lifetime is 0 makes the library's age/lifetime lerp Infinity, which
+			// walks an alpha/scale/speed curve off its end and throws (null.time) — clamp > 0.
+			const min = Math.max(MIN_LIFETIME, v);
+			next.lifetime = { ...next.lifetime, min, max: Math.max(next.lifetime.max, min) };
 			break;
-		case 'lifetimeMax':
-			next.lifetime = { ...next.lifetime, max: value };
+		}
+		case 'lifetimeMax': {
+			const max = Math.max(MIN_LIFETIME, v);
+			next.lifetime = { ...next.lifetime, max, min: Math.min(next.lifetime.min, max) };
 			break;
+		}
 	}
 	return next;
 }
+
+/** A particle must live a non-zero time — 0 ⇒ Infinity interpolation ⇒ the library throws. */
+const MIN_LIFETIME = 0.01;
 
 /** Set the start/end value of a list-property behavior (alpha/scale/speed) immutably. */
 export function setListEndpoint(

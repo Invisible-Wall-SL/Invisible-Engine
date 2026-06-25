@@ -79,6 +79,13 @@ assert(freq.frequency === 0.05, 'frequency set');
 assert(setCoreParam(base, 'maxParticles', 500).maxParticles === 500, 'maxParticles set');
 assert(setCoreParam(base, 'lifetimeMin', 0.2).lifetime.min === 0.2, 'lifetime min set');
 assert(setCoreParam(base, 'lifetimeMax', 1.5).lifetime.max === 1.5, 'lifetime max set');
+// A 0 (or NaN) lifetime makes the library's age/lifetime lerp Infinity → it walks an
+// alpha/scale/speed curve off its end and throws (null.time), freezing the preview. Clamp it.
+assert(setCoreParam(base, 'lifetimeMin', 0).lifetime.min >= 0.01, 'lifetime min clamped off 0');
+assert(setCoreParam(base, 'lifetimeMax', 0).lifetime.max >= 0.01, 'lifetime max clamped off 0');
+assert(setCoreParam(base, 'lifetimeMin', NaN).lifetime.min >= 0.01, 'lifetime min clamps a NaN');
+assert(setCoreParam(base, 'frequency', 0).frequency >= 0.001, 'frequency clamped off 0');
+assert(setCoreParam(base, 'maxParticles', 0).maxParticles >= 1, 'maxParticles clamped to >= 1');
 
 console.log('fx model — list endpoints (alpha/scale/speed) round-trip');
 const a0 = listEndpoints(base, 'alpha', 'alpha');

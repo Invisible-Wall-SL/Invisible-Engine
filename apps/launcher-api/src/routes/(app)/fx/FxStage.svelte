@@ -180,7 +180,17 @@
 				// Ride bone-placed emitters on the live bone transform, THEN advance them — so a
 				// flame stays welded to the moving torch tip rather than lagging a frame.
 				followBones();
-				for (const { emitter } of live.values()) emitter.update(dt);
+				for (const { emitter } of live.values()) {
+					try {
+						emitter.update(dt);
+					} catch (err) {
+						// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can
+						// make the library throw mid-update. Isolate it so one bad emitter doesn't throw
+						// out of the ticker callback and FREEZE the whole preview — stop just that emitter.
+						console.warn('FxStage: emitter.update threw; stopping that emitter', err);
+						emitter.emit = false;
+					}
+				}
 			});
 			await requestRebuild();
 		})();

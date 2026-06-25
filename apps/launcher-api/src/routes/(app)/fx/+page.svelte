@@ -783,10 +783,10 @@
 					{@render slider('Max particles', config.maxParticles ?? 0, 1, 1000, 1, (v) =>
 						patchConfig(setCoreParam(config, 'maxParticles', v)),
 					)}
-					{@render slider('Lifetime min (s)', config.lifetime.min, 0, 5, 0.05, (v) =>
+					{@render slider('Lifetime min (s)', config.lifetime.min, 0.05, 5, 0.05, (v) =>
 						patchConfig(setCoreParam(config, 'lifetimeMin', v)),
 					)}
-					{@render slider('Lifetime max (s)', config.lifetime.max, 0, 5, 0.05, (v) =>
+					{@render slider('Lifetime max (s)', config.lifetime.max, 0.05, 5, 0.05, (v) =>
 						patchConfig(setCoreParam(config, 'lifetimeMax', v)),
 					)}
 				</section>
