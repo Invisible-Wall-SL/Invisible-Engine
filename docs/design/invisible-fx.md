@@ -17,8 +17,11 @@
 landed in 3 increments: inc 1 (engine runtime player `<EffectPlayer>`/`<SpineBoneAttach>`),
 inc 2 (export→bake→pull — an authored effect travels into a built game's bundle), inc 3 (the
 TRIGGER — a baked effect plays in-game and a `trigger.on:'event'` layer fires on a game/Flow
-event via `utils-event-emitter`). Only Phase 0 / Tier C (spine-as-particle) remains gated — do
-not start it until the §7 spike passes (the other two tiers are native and not gated). The
+event via `utils-event-emitter`). **Phase 0 / Tier C GATE PASSED (2026-06-25): the spike
+verdict is NATIVE pooled-`SpineParticle` is VIABLE** (see Progress — `tools/fx-spike/spineParticle.ts`,
+18/18 GREEN; perf ceiling is the one owner-verify-live caveat, flipbook-bake remains a per-effect
+fallback). Tier C (Phase 3) is now UNBLOCKED to build native; the recommended build plan is in
+the Progress entry. The
 `/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
 always/event + the event type + duration, sourced from the project's emitter vocabulary —
 the same source `/flow` uses). **Current
@@ -508,6 +511,84 @@ host-rig assumptions). After this lands on `main` + owner-verify, **Book of Boru
   - **Remaining FX work:** Tier C / Phase 3 (spine-as-particle, Phase-0 gated). Files:
     `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,+page.server.ts,fxModel.client.ts}`,
     `tools/fx-spike/{triggerPicker.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 0 — Tier C SPINE-AS-PARTICLE spike (the make-or-break gate) — VERDICT: NATIVE
+  VIABLE — ✅ PROVEN HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no game bump,
+  SPIKE ONLY — no Tier C tool/runtime built, not committed by the spike author).** Per §5
+  Tier C + §7 Phase 0 + §10. Settles the one open Tier-C question: can each particle be a
+  pooled `Spine` skeleton instance playing a clip (a burst of 30 spinning coins, each a real
+  skeleton), rendering + animating + recycling at a real particle count — or must Tier C ship
+  via the flipbook-bake fallback? **VERDICT: a NATIVE pooled-`SpineParticle` is mechanically
+  viable** (rendering pixels + real-clip perf at count remain owner-verify-live — see caveat).
+  - **The library code that decides it** (`@barvynkoa/particle-emitter@0.0.1`,
+    `lib/particle-emitter.es.js` / `lib/Particle.d.ts`): the particle class is HARD-CODED —
+    `class Particle extends Sprite` (L1675) and every spawn site allocates `new Particle(this)`
+    (L1943 `fillPool`, L2195 + L2332 spawn) with NO particle-class factory hook; the pool is
+    `Particle`-typed (`_poolFirst: Particle`, `recycle(particle: Particle)`). So **a particle
+    can never BE a `Spine`.** BUT the behavior system is fully pluggable: `Emitter.registerBehavior`
+    + the `IEmitterBehavior` interface (`{ order, initParticles, updateParticle?,
+    recycleParticle? }`, `lib/behaviors/Behaviors.d.ts`) — every art behavior is just a
+    registered behavior mutating the particle (`SingleTexture`/`Animated` set `particle.texture`,
+    `Color` sets `.tint`, `Scale` sets `.scale`, all `Sprite` props). Crucially `Particle extends
+    Sprite extends Container`, and the `recycleParticle(particle, natural)` hook fires on every
+    death (L1955, before the particle returns to `_poolFirst`). So the native Tier-C mechanism is
+    **a custom `spineParticle` behavior that owns a POOL of `Spine` instances** (each `Spine
+    extends ViewContainer`, a Container, confirmed `spine-pixi-v8` `dist/Spine.d.ts:155`): on
+    spawn take one from the pool, `state.setAnimation`, add its view to the layer container; each
+    frame advance its clip + track the (textureless) particle's transform; on `recycleParticle`
+    reset + return to the pool. Never a skeleton per-particle-per-frame.
+  - **The spike** (`tools/fx-spike/spineParticle.ts`, `pnpm --filter fx-spike run spine-particle`):
+    **18/18 GREEN.** Drives the REAL `@barvynkoa` `Emitter` (it runs in Node — Pixi
+    `Container`/`Sprite` construct without a renderer; confirmed) at `maxParticles:30` (the doc's
+    "burst of 30 coins") with a custom `spineParticle` behavior backed by a pool of REAL
+    `@esotericsoftware/spine-core` `Skeleton` + `AnimationState` instances (the UN-MANGLED core,
+    so the state machine + class names are genuine, per [[gotcha_minified_spine_constructor_name]]
+    — a synthetic `spin` clip rotates a bone 0→360° over a real 1s timeline). PROVES the three
+    Phase-0 asks: **(a) bounded allocation** — 30 skeletons pre-allocated up-front, then across
+    1500 frames (~24s, dozens of particle lifetimes) NOT ONE further skeleton is allocated (the
+    whole perf claim — counted via the `SpineBacking` ctor); **(b) the per-particle lifecycle
+    drives the skeleton** — spawn→`setAnimation`, `update(dt)` advances the clip (a live
+    skeleton's bone is asserted non-zero, i.e. the clip ran), death→reset+return-to-pool;
+    **(c) composes with the emitter lifecycle without leaking** — live skeletons === live
+    particles every step, pool + live partition the fixed 30 allocation, and on drain (emit off,
+    all particles die) ALL 30 return to the pool, both display trees empty, still zero extra
+    allocation. Prettier clean; the prior 8 fx harnesses (roundtrip/model/save/placement/player/
+    pipeline/trigger/trigger-ui) ALL still PASS.
+  - **PERF CAVEAT — owner-verify-live (the spike proves MECHANICS, not GPU/CPU cost):** the
+    headless spike proves the pool/lifecycle SHAPE is sound and allocation-free, but cannot
+    measure the real cost of N live skeletons each running `state.update`+`apply`+
+    `updateWorldTransform` AND a draw call per frame on the GPU. A real `Spine` is far heavier
+    than a `Sprite` particle (per-frame skeletal solve + mesh deform + its own draw call, no
+    batching across instances). So the **pool-size CEILING must be owner-verified live** at a
+    real count on the target hardware — expect tens, not hundreds (30 coins fine; a 500-particle
+    spark burst as skeletons is NOT the use case — that's still Tier A). Recommend the Tier-C
+    authoring UI cap `maxParticles` low for `particleKind:'spine'` and surface a perf hint. If a
+    live count proves too costly for a given effect, the **flipbook-bake fallback remains
+    available per-effect** (it ships *something* regardless, §5) — bake that clip to a sprite
+    sheet, ride Tier A `animatedSingle`. Native and fallback are not mutually exclusive: native
+    for low-count hero bursts, flipbook for dense ones.
+  - **Recommended Tier-C build plan (native path won):** (1) a `SpineParticleBehavior` in
+    `engine-fx` (registered via `Emitter.registerBehavior`) implementing the pooled-`Spine`
+    mechanism above, parameterised by the EffectDoc's `spineParticle` ({ `skeletonKey`,
+    `animation`, `loop` }) — pool size derived from `config.maxParticles`, pre-warmed; the spine
+    views render in the emitter's layer container, tracking each particle's transform/alpha each
+    frame (the spike's exact shape). (2) Runtime: `<EffectLayer>` already SKIPS
+    `particleKind:'spine'` (the guarded TODO) — flip it to register the behavior + inject the
+    config, resolving `spineParticle.skeletonKey` against the game's `loadedAssets` `LoadedSpine`
+    (the skeleton must travel the pipeline like an atlas does — §8). (3) `/fx` tool: a
+    `particleKind` toggle + a `skeletonKey`/`animation`/`loop` picker (reuse the Phase-2
+    `/spine/skeletons` + `fxSpine.client.ts` loader already in the page); the live preview pools
+    real `Spine` instances. (4) Pipeline: `spineParticle.skeletonKey` is a NEW referenced-asset
+    class for the bake's dangling-key guard (the skeleton bundle must be in the shipped set, the
+    spine analogue of the atlas `art.assetKey` check). (5) `normalizeEffectDoc` ALREADY gates
+    `spineParticle` to `particleKind:'spine'` (Phase-1 inc-1) — the schema is ready.
+  - **Owner-verify-live (the pixels + perf — NOT headless):** a real game (or the `/fx` preview)
+    rendering N pooled `Spine` particles each playing a clip, recycling cleanly, at an acceptable
+    frame budget on target hardware — and the pool-size ceiling that holds 60fps. The spike
+    proves the allocation/lifecycle/leak math; only a live run proves the GPU/CPU cost.
+  - Files (spike only): `tools/fx-spike/spineParticle.ts`,
+    `tools/fx-spike/package.json` (+`spine-particle` script, +`@esotericsoftware/spine-core`,
+    +`pixi.js` dev deps).
 
 ## 1. Naming (settled here to avoid a real collision)
 

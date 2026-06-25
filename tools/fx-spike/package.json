@@ -11,12 +11,15 @@
 		"player": "tsx playerReduce.ts",
 		"pipeline": "tsx pipeline.ts",
 		"trigger": "tsx trigger.ts",
-		"trigger-ui": "tsx triggerPicker.ts"
+		"trigger-ui": "tsx triggerPicker.ts",
+		"spine-particle": "tsx spineParticle.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
 		"engine-fx": "workspace:*",
 		"utils-event-emitter": "workspace:*",
-		"@barvynkoa/particle-emitter": "0.0.1"
+		"@barvynkoa/particle-emitter": "0.0.1",
+		"@esotericsoftware/spine-core": "4.2.74",
+		"pixi.js": "8.8.1"
 	}
 }
