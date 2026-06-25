@@ -738,17 +738,25 @@ def _clear_session_if_sheet(sheet: str) -> None:
 
 
 def api_delete_sheet(payload: dict) -> dict:
-    """Delete a saved sheet end-to-end. Mirrors api_rename_sheet's identity
-    model: a sheet's bytes live in FOUR R2/staging locations —
-    `sheets/<sheet>/<sheet>.{png,atlas,json}`, `sheet_src/<sheet>/*`, and
-    `manifests/atlas_manifest_<sheet>.json`. This removes every object under
-    those keys from R2 (the source of truth) AND the local staging copies.
+    """Delete a saved sheet end-to-end. A sheet's bytes live in several R2/staging
+    locations: the packed output `sheets/<sheet>/*`, the loose sprites
+    `sheet_src/<sheet>/*`, and the manifest(s) `manifests/atlas_manifest_<sheet>.json`
+    / `manifests/<sheet>.json`. R2 is the SOURCE OF TRUTH — every consumer (e.g. the
+    Invisible Symbols State Machine) lists sheets straight off the live `sheets/`
+    prefix, so a sheet is only really gone once those objects leave R2.
 
-    A partially-created / corrupted sheet may have NO objects at all (named in
-    the editor but never exported, so nothing was ever flushed to R2). It is
-    still removable: we always best-effort delete every candidate key/dir and
-    clear any stale session pointer, then return the fresh sheet list. So the
-    button works even when there is nothing on disk to remove."""
+    Two failure modes this guards against (both produced "deleted here, still
+    loadable in the State Machine"):
+      - the old code measured success against LOCAL STAGING and dropped the sheet
+        from the rail even when R2 never changed;
+      - `storage.delete` swallows every error (read-only token, transport hiccup),
+        so a silent R2 failure was reported as success.
+    So after deleting we RE-LIST R2 and fail loudly if anything survives, and the
+    returned rail reflects R2 only once the source is confirmed clean.
+
+    A partially-created / corrupted sheet may have NO objects at all (named in the
+    editor but never exported). That is still removable: the prefixes come back
+    empty, verification passes, and we clear local staging + any stale session."""
     sheet = safe_name(payload.get("sheet", ""), "")
     if not sheet:
         return {"error": "No sheet selected to delete."}
@@ -764,34 +772,53 @@ def api_delete_sheet(payload: dict) -> dict:
     src = input_dir / sheet
     man = man_dir / f"atlas_manifest_{sheet}.json"
 
-    # 1. R2 (source of truth) FIRST — prefix-list + delete the packed sheet and
-    # loose-sprite trees, plus the shared manifest. Empty prefixes just yield no
-    # keys, so a corrupted no-objects sheet is a clean no-op here.
-    if r2_prefix:
-        for pre in (f"{r2_prefix}/sheets/{sheet}/", f"{r2_prefix}/sheet_src/{sheet}/"):
-            try:
-                for obj in storage.list_keys(pre):
-                    storage.delete(obj["key"])
-            except Exception:  # noqa: BLE001 — transient R2 issue, keep going
-                pass
-        try:
-            storage.delete(f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json")
-        except Exception:  # noqa: BLE001
-            pass
+    # The cloud tool always runs under a project; without an R2 prefix we cannot
+    # touch the source, so refuse rather than "delete" only the local mirror (the
+    # original false-success bug).
+    if not r2_prefix:
+        return {"error": "No project / R2 context — cannot delete from the source. "
+                "Open the tool from the Launcher with a project selected."}
 
-    # 2. Local staging copies.
+    # 1. R2 (source of truth) FIRST — prefix-list + delete the packed sheet and
+    # loose-sprite trees, plus both manifest spellings. Empty prefixes just yield
+    # no keys, so a corrupted no-objects sheet is a clean no-op here.
+    for pre in (f"{r2_prefix}/sheets/{sheet}/", f"{r2_prefix}/sheet_src/{sheet}/"):
+        for obj in storage.list_keys(pre):
+            storage.delete(obj["key"])
+    for key in (f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json",
+                f"{r2_prefix}/manifests/{sheet}.json"):
+        storage.delete(key)
+
+    # 2. VERIFY against R2. `storage.delete` never raises, so re-list the keys
+    # that gate a sheet's visibility (the `sheets/` prefix the State Machine reads,
+    # plus the manifests the Atlas picker reads). Anything left means the delete
+    # silently failed — surface it instead of lying, and leave staging intact so
+    # the rail keeps showing the sheet that is, in fact, still there.
+    remaining = [o["key"] for o in storage.list_keys(f"{r2_prefix}/sheets/{sheet}/")]
+    for key in (f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json",
+                f"{r2_prefix}/manifests/{sheet}.json"):
+        if storage.exists(key):
+            remaining.append(key)
+    if remaining:
+        return {"error": f'Could not delete "{sheet}" from R2 — {len(remaining)} '
+                "object(s) still remain at the source, so it was NOT removed. The "
+                "tool's R2 token may lack delete permission. (First leftover: "
+                f"{remaining[0]})"}
+
+    # 3. Local staging copies — only now that the source is confirmed clean.
     shutil.rmtree(out, ignore_errors=True)
     shutil.rmtree(src, ignore_errors=True)
     man.unlink(missing_ok=True)
+    (man_dir / f"{sheet}.json").unlink(missing_ok=True)
 
-    # 3. If the deleted sheet was the persisted/open one, clear the session so a
+    # 4. If the deleted sheet was the persisted/open one, clear the session so a
     # refresh / restart doesn't restore a canvas pointing at the dead pile.
     _clear_session_if_sheet(sheet)
 
     sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
         if out_root.exists() else []
     return {"ok": True, "deleted": sheet, "sheets": sheets,
-            "note": f'Deleted "{sheet}".'}
+            "note": f'Deleted "{sheet}" from R2.'}
 
 
 def api_set_project(payload: dict) -> dict:
