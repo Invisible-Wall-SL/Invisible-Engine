@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import { loadComponent } from '$lib/server/componentStorage';
 import { loadDoc as loadEditorDoc } from '$lib/server/editorStorage';
 import { loadDoc, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
@@ -55,7 +56,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		loadDoc(clientKey, projectKey),
 		loadEditorDoc(clientKey, projectKey),
 	]);
-	const sections = harvestSceneText(editorDoc);
+	const sections = await harvestSceneText(editorDoc, (id, version) =>
+		loadComponent(id, projectKey, version),
+	);
 	const { entries, display } = reconcileWithEditor(doc, sections);
 	return { projectKey, doc: { ...doc, entries }, sections: display };
 };

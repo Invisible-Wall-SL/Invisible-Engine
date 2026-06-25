@@ -16,9 +16,10 @@ an external service.
 A spreadsheet-style table of the game's text, in two kinds of section:
 
 - **Per-screen sections (auto-collected from the Scene Editor).** Every
-  localizable text component placed in the project's Scene Editor — `text` nodes
-  and the text of `textBox` / `button` / HUD / counter / info-bar components — is
-  pulled in automatically and grouped under the **screen (scene)** it lives on, so
+  localizable string placed in the project's Scene Editor — `text` nodes, a
+  component instance's `text`/`label` (caption) params, AND the text authored
+  _inside_ custom components (button labels, counters, intro text, …) — is pulled
+  in automatically and grouped under the **screen (scene)** it lives on, so
   the list reads in the same order you authored it. The **source text is
   read-only here** (the Scene Editor owns it — edit it there); you only fill in /
   translate the languages. New text boxes appear on their own the next time you

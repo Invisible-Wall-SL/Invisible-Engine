@@ -1,4 +1,4 @@
-import type { LayoutDoc, LayoutNode, Scene } from 'engine-layout';
+import type { ComponentDef, ComponentParam, LayoutDoc, LayoutNode } from 'engine-layout';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
 
 /**
@@ -37,11 +37,23 @@ export interface DisplaySection {
 }
 
 /**
- * `componentInstance` params that hold author-written, human-readable text worth
- * localizing. `text` (textBox) and `label` (button / HUD readout / counter / info
- * bar). `icon` is an asset/glyph name, not prose — deliberately excluded.
+ * Resolves a `componentInstance`'s {@link ComponentDef} so the harvester can reach
+ * the text AUTHORED INSIDE the component (most game text lives there, not on the
+ * instance) — `(id, version) => def`. The page wires this to `loadComponent`
+ * (project ◁ shared ◁ built-in); see `+page.server.ts`.
  */
-const TEXT_PARAM_KEYS = ['text', 'label'] as const;
+export type ComponentDefResolver = (
+	id: string,
+	version?: number,
+) => Promise<ComponentDef | undefined>;
+
+/**
+ * The generic unconfigured default text the built-in `textBox` / button defs ship
+ * with. Harvesting it would flood the table with meaningless "Text" rows, so a
+ * resolved value equal to it is dropped (a real, authored caption is never just
+ * this placeholder).
+ */
+const GENERIC_PLACEHOLDER = 'Text';
 
 /** A string is localizable only if it has at least one letter (skip pure numbers/symbols). */
 function isLocalizableText(value: unknown): value is string {
@@ -53,26 +65,6 @@ function childrenOf(node: LayoutNode): LayoutNode[] {
 	return Array.isArray(children) ? children : [];
 }
 
-/** Pull every localizable string out of one node (not its children). */
-function nodeTexts(node: LayoutNode): string[] {
-	const out: string[] = [];
-	if (node.kind === 'text' && isLocalizableText(node.text)) {
-		out.push(node.text);
-	}
-	if (node.kind === 'componentInstance') {
-		const params = (node.params ?? {}) as Record<string, unknown>;
-		// A live engine value feed overrides the static text in-game, so harvesting
-		// the placeholder text would be pointless — skip it when `source` is bound.
-		const boundToFeed = typeof params.source === 'string' && params.source.trim() !== '';
-		if (!boundToFeed) {
-			for (const key of TEXT_PARAM_KEYS) {
-				if (isLocalizableText(params[key])) out.push(params[key] as string);
-			}
-		}
-	}
-	return out;
-}
-
 /** A readable row label for a node (its author label, else its kind/component id). */
 function nodeLabel(node: LayoutNode): string {
 	if (typeof node.label === 'string' && node.label.trim()) return node.label.trim();
@@ -80,32 +72,106 @@ function nodeLabel(node: LayoutNode): string {
 	return node.kind;
 }
 
-function harvestScene(scene: Scene): HarvestSection {
-	const items: HarvestedItem[] = [];
-	const seen = new Set<string>();
+function paramIndex(def: ComponentDef): Map<string, ComponentParam> {
+	return new Map((def.params ?? []).map((p) => [p.key, p]));
+}
+
+/** Whether a `componentInstance` binds a live engine value feed (`source` param). */
+function boundToFeed(params: Record<string, unknown>): boolean {
+	return typeof params.source === 'string' && params.source.trim() !== '';
+}
+
+/**
+ * Harvest the localizable text AUTHORED INSIDE a component def, resolving each text
+ * node's displayed string against the instance's param overrides (then the def's
+ * param defaults). Skips text whose bound param is `engineProvided` (a live value
+ * like "0 OF 0", not prose) or — for the `text` param — overridden by a `source`
+ * feed (§18), and the generic placeholder. Static (non-bound) text nodes are taken
+ * verbatim. Nested component instances inside a def aren't recursed (rare; v1).
+ */
+function collectDefText(
+	def: ComponentDef,
+	instanceParams: Record<string, unknown>,
+	feed: boolean,
+	label: string,
+	add: (source: string, label: string) => void,
+): void {
+	const params = paramIndex(def);
 	const walk = (node: LayoutNode): void => {
-		const label = nodeLabel(node);
-		for (const source of nodeTexts(node)) {
-			// Key on the EXACT (untrimmed) string: the in-game resolver looks the
-			// catalog up by the raw `node.text` (`resolveLocalizedText` in
-			// `LayoutNodeView`), so a trimmed key would never match padded text and
-			// the translation would silently not ship. Source-as-key ⇒ key === source.
-			if (seen.has(source)) continue;
-			seen.add(source);
-			items.push({ key: source, source, label });
+		if (node.kind === 'text') {
+			const binding = node.paramBindings?.text;
+			if (binding) {
+				const param = params.get(binding);
+				const engineFed = param?.engineProvided === true;
+				const sourceOverridden = binding === 'text' && feed;
+				if (!engineFed && !sourceOverridden) {
+					const value = instanceParams[binding] ?? param?.default ?? node.text;
+					if (typeof value === 'string') add(value, label);
+				}
+			} else {
+				add(node.text, label);
+			}
 		}
 		childrenOf(node).forEach(walk);
 	};
-	scene.nodes.forEach(walk);
-	return { sceneId: scene.id, sceneName: scene.name || scene.id, items };
+	walk(def.root);
 }
 
 /**
  * Collect every localizable text component in the editor doc, grouped by scene.
- * Scenes with no text are dropped so the page only shows sections that matter.
+ * Pulls from `kind:'text'` nodes, a `componentInstance`'s own `text`/`label` params
+ * (the `label` caption is never overridden by a `source` feed, so it's always
+ * taken; `text` is skipped when a feed is bound), AND the text authored INSIDE each
+ * instance's component def (resolved via `resolveDef`). Scenes with no text are
+ * dropped so the page only shows sections that matter.
  */
-export function harvestSceneText(doc: LayoutDoc): HarvestSection[] {
-	return doc.scenes.map(harvestScene).filter((s) => s.items.length > 0);
+export async function harvestSceneText(
+	doc: LayoutDoc,
+	resolveDef: ComponentDefResolver,
+): Promise<HarvestSection[]> {
+	// Cache resolved defs per `id@version` — a scene re-instances the same def many
+	// times (e.g. one button placed across the HUD).
+	const defCache = new Map<string, ComponentDef | undefined>();
+	const getDef = async (id: string, version?: number): Promise<ComponentDef | undefined> => {
+		const tag = `${id}@${version ?? 'latest'}`;
+		if (!defCache.has(tag)) defCache.set(tag, await resolveDef(id, version));
+		return defCache.get(tag);
+	};
+
+	const out: HarvestSection[] = [];
+	for (const scene of doc.scenes) {
+		const items: HarvestedItem[] = [];
+		const seen = new Set<string>();
+		// Key on the EXACT (untrimmed) string: the in-game resolver looks the catalog
+		// up by the raw `node.text` (`resolveLocalizedText` in `LayoutNodeView`), so a
+		// trimmed key would never match padded text and the translation wouldn't ship.
+		// Source-as-key ⇒ key === source; deduped per scene.
+		const add = (source: string, label: string): void => {
+			if (!isLocalizableText(source) || source === GENERIC_PLACEHOLDER || seen.has(source)) return;
+			seen.add(source);
+			items.push({ key: source, source, label });
+		};
+
+		const visit = async (node: LayoutNode): Promise<void> => {
+			const label = nodeLabel(node);
+			if (node.kind === 'text') add(node.text, label);
+			if (node.kind === 'componentInstance') {
+				const params = (node.params ?? {}) as Record<string, unknown>;
+				const feed = boundToFeed(params);
+				// `label` is a static caption (the readout's "BALANCE" above the live
+				// value) — a `source` feeds the value, never the label, so always take it.
+				if (typeof params.label === 'string') add(params.label, label);
+				if (!feed && typeof params.text === 'string') add(params.text, label);
+				const def = await getDef(node.componentId, node.componentVersion);
+				if (def) collectDefText(def, params, feed, label, add);
+			}
+			for (const child of childrenOf(node)) await visit(child);
+		};
+
+		for (const node of scene.nodes) await visit(node);
+		if (items.length > 0) out.push({ sceneId: scene.id, sceneName: scene.name || scene.id, items });
+	}
+	return out;
 }
 
 function newId(): string {
