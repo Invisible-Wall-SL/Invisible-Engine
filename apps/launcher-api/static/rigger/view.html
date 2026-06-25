@@ -420,6 +420,21 @@
     </div>
   </div>
 
+  <!-- Generic alert popup: explains a blocked action (e.g. duplicate rig name) -->
+  <div id="alertModal" class="rigModal">
+    <div class="modal-box" style="width:min(440px,92vw);">
+      <div class="modal-head">
+        <b id="alertTitle">Heads up</b>
+        <span style="flex:1;"></span>
+        <button id="alertClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div id="alertMsg" style="color:var(--txt);font-size:13px;line-height:1.5;white-space:pre-wrap;"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+        <button id="alertOk" style="padding:5px 18px;">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Compatibility report modal: matched vs missing bones/slots before import -->
   <div id="compatModal" class="rigModal">
     <div class="modal-box">
@@ -528,6 +543,17 @@ function loadRuntime(line){
 
 function showErr(msg){ const e = $("#err"); e.textContent = msg; e.style.display = "block"; }
 function clearErr(){ $("#err").style.display = "none"; }
+
+// Friendly blocking popup for an action we WON'T perform (e.g. a name collision):
+// explain what's wrong with an OK that just dismisses. `OK`/`✕`/backdrop close it.
+function showAlert(message, title){
+  const m = $("#alertModal");
+  $("#alertTitle").textContent = title || "Heads up";
+  $("#alertMsg").textContent = message;
+  m.classList.add("open");
+  $("#alertOk").focus();
+}
+function closeAlert(){ $("#alertModal").classList.remove("open"); }
 
 function initGL(){
   const cv = $("#cv");
@@ -2186,8 +2212,22 @@ async function createNewRig(){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target){ await selectSkeleton(target); setEditMode(true); }
-  } catch (e){ note.textContent = "failed: " + (e.message || e); }
+  } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
+}
+
+// Turn a create/upload failure into a friendly popup. The name-collision case (HTTP 409)
+// gets a tailored "pick a different name" message; anything else shows the server reason.
+function reportNewRigError(e, name){
+  const msg = (e && e.message) ? e.message : String(e);
+  if (/already exists/i.test(msg)){
+    showAlert(
+      'A rig named "' + name + '" already exists in this project (names are case-insensitive).\n\n' +
+      "Choose a different name, or delete the existing rig from the rig list first, then try again.",
+      "Name already in use");
+  } else {
+    showAlert("Couldn't create the rig:\n\n" + msg, "Create failed");
+  }
 }
 
 function loadImageFile(file){
@@ -2246,7 +2286,7 @@ async function createRigFromImages(files){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target){ await selectSkeleton(target); setEditMode(true); }
-  } catch (e){ note.textContent = "failed: " + (e.message || e); }
+  } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
 
@@ -5156,6 +5196,11 @@ function wire(){
   $("#resyncFilter").oninput = renderResyncList;
   $("#resyncModal").onmousedown = (e) => { if (e.target === $("#resyncModal")) closeResyncModal(); };
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#resyncModal").classList.contains("open")) closeResyncModal(); });
+  // generic alert popup
+  $("#alertOk").onclick = closeAlert;
+  $("#alertClose").onclick = closeAlert;
+  $("#alertModal").onmousedown = (e) => { if (e.target === $("#alertModal")) closeAlert(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#alertModal").classList.contains("open")) closeAlert(); });
   // compatibility-report modal
   $("#compatClose").onclick = closeCompatModal;
   $("#compatCancel").onclick = closeCompatModal;
