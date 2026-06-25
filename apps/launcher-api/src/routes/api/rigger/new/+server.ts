@@ -3,7 +3,7 @@ import { loadRegionSet } from '$lib/server/editorRegions';
 import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
-import { regionsToSpineAtlas } from '$lib/server/spine';
+import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
 import { buildSkeletonsIndex, spineBundleNameTaken } from '$lib/server/spineIndex';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -58,7 +58,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const rigId = body && typeof body.rigId === 'string' ? body.rigId : '';
 	const skeleton = await resolveRigSkeletonBody(rigId);
 
-	await putObjectBytes(`${bundle}/${pageName}`, page.body, page.contentType);
+	// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention so they
+	// don't render upside down in the Rigger (no-op when no region is rotated).
+	const pageBody = reorientRotatedRegionsForSpine(page.body, rs.regions);
+	await putObjectBytes(`${bundle}/${pageName}`, pageBody, page.contentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(skeleton), 'application/json');
 	// Remember the source atlas so a future "⟳ Re-sync atlas" is one click (re-pull

@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { PNG } from 'pngjs';
 import { roleHasTool } from '$lib/roles';
 import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
 import { pickDeployedPage } from './deployedPage';
@@ -158,6 +159,77 @@ export function regionsToSpineAtlas(
 		if (r.rotated) out.push('rotate:90');
 	}
 	return out.join('\n') + '\n';
+}
+
+/**
+ * Re-orient a composed page's `rotated` regions for Spine consumption.
+ *
+ * The Atlas/Sheet packers store a rotated region's pixels rotated 90° CLOCKWISE
+ * (`PIL rotate(-90)` in `packer.compose` / `batch_atlas.fit_to_region`) — the PixiJS
+ * Spritesheet convention, which the editor canvas, symbols and region thumbnails all
+ * un-rotate correctly. The Spine atlas parser uses the OPPOSITE convention: a
+ * `rotate:90` region must be packed COUNTER-clockwise to render upright (verified from
+ * the `degrees == 90` UV math in the vendored `spine-webgl-4.2.js`). So a CW-packed
+ * region renders 180° off — upside down — in the Rigger, and spine-webgl only honours
+ * `degrees` 0/90 (270 falls through to the unrotated branch), so it can't be expressed
+ * in the `.atlas`.
+ *
+ * The fix is purely in the pixels: a rotated region's on-page footprint is `(h×w)`, and
+ * rotating that block 180° converts our CW packing into the CCW orientation Spine
+ * expects. 180° preserves the bounding box, so it's an in-place pixel reversal that
+ * never disturbs neighbouring regions or any geometry — the `.atlas` (bounds/offsets/
+ * `rotate:90`) is unchanged. Returns the input untouched when nothing is rotated.
+ */
+export function reorientRotatedRegionsForSpine(
+	pageBytes: Uint8Array,
+	regions: SynthRegion[],
+): Uint8Array {
+	const rotated = regions.filter((r) => r.rotated);
+	if (!rotated.length) return pageBytes;
+
+	const png = PNG.sync.read(Buffer.from(pageBytes));
+	const { width: pw, height: ph, data } = png;
+
+	for (const r of rotated) {
+		const x = Math.round(r.x);
+		const y = Math.round(r.y);
+		// On-page footprint of a rotated region is (h × w): width = unrotated height,
+		// height = unrotated width (matches the packer footprint + the `.atlas` bounds).
+		const rw = Math.round(r.h);
+		const rh = Math.round(r.w);
+		// Skip a malformed/out-of-bounds rect so it can never read or write past the page.
+		if (rw <= 0 || rh <= 0 || x < 0 || y < 0 || x + rw > pw || y + rh > ph) continue;
+		rotate180InPlace(data, pw, x, y, rw, rh);
+	}
+
+	return new Uint8Array(PNG.sync.write(png));
+}
+
+/**
+ * Rotate a rectangular block of RGBA pixels 180° in place. Pixel p (row-major within the
+ * rect) swaps with its 180° partner `total-1-p`; iterating the first half pairs each once
+ * (an odd centre pixel is its own partner and is left alone).
+ */
+function rotate180InPlace(
+	data: Buffer,
+	pageW: number,
+	x0: number,
+	y0: number,
+	w: number,
+	h: number,
+): void {
+	const half = (w * h) >> 1;
+	for (let p = 0; p < half; p++) {
+		const i = p % w;
+		const j = (p / w) | 0;
+		const ai = ((y0 + j) * pageW + (x0 + i)) * 4;
+		const bi = ((y0 + (h - 1 - j)) * pageW + (x0 + (w - 1 - i))) * 4;
+		for (let c = 0; c < 4; c++) {
+			const t = data[ai + c];
+			data[ai + c] = data[bi + c];
+			data[bi + c] = t;
+		}
+	}
 }
 
 /** One skeleton's index entry, as written into `skeletons.json` by the sync. */

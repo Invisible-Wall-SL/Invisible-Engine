@@ -8,7 +8,7 @@ import {
 	putObjectBytes,
 	putObjectText,
 } from '$lib/server/r2';
-import { regionsToSpineAtlas } from '$lib/server/spine';
+import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -102,7 +102,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		: '';
 
 	const atlasText = regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
-	await putObjectBytes(`${bundlePrefix}/${pageName}`, page.body, page.contentType);
+	// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention so they
+	// don't render upside down in the Rigger (no-op when no region is rotated).
+	const pageBody = reorientRotatedRegionsForSpine(page.body, rs.regions);
+	await putObjectBytes(`${bundlePrefix}/${pageName}`, pageBody, page.contentType);
 	await putObjectText(`${bundlePrefix}/${atlasFile}`, atlasText, 'text/plain; charset=utf-8');
 	// Refresh the sidecar so a picked source becomes remembered (one-click next time).
 	await putObjectText(
