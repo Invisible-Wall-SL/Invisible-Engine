@@ -13,6 +13,13 @@ export interface LocalizationEntry {
 	key: string;
 	source: string;
 	translations: Record<string, LocalizationTranslation>;
+	/**
+	 * Where this string came from. `'editor'` entries are auto-collected from the
+	 * project's Scene Editor text components (the source is read-only — the editor
+	 * owns it); `'manual'` entries are hand-authored in the Localization table.
+	 * Defaults to `'manual'` so legacy docs (no field) round-trip as before.
+	 */
+	origin: 'manual' | 'editor';
 }
 
 /** The whole per-project localization document stored as JSON in R2. */
@@ -82,5 +89,6 @@ function normalizeEntry(input: unknown, targetLangs: string[]): LocalizationEntr
 			translations[lang] = { text: t.text, reviewed: t.reviewed === true };
 		}
 	}
-	return { id, key, source, translations };
+	const origin = e.origin === 'editor' ? 'editor' : 'manual';
+	return { id, key, source, translations, origin };
 }

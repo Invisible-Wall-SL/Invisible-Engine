@@ -5,6 +5,7 @@
 		LocalizationEntry,
 		LocalizationTranslation,
 	} from '$lib/server/localization';
+	import type { DisplaySection } from '$lib/server/localizationHarvest';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -15,6 +16,22 @@
 	let targetLangs = $state<string[]>([...data.doc.targetLangs]);
 	let context = $state(data.doc.context);
 	let entries = $state<LocalizationEntry[]>(structuredClone(data.doc.entries));
+
+	// Scene Editor text, auto-collected and grouped by screen (read-only sources).
+	const sections = $derived<DisplaySection[]>(data.sections ?? []);
+	const byKey = $derived(new Map(entries.map((e) => [e.key, e])));
+	const harvestedKeys = $derived(new Set(sections.flatMap((s) => s.keys)));
+	// Hand-authored rows live in their own section.
+	const manualEntries = $derived(entries.filter((e) => e.origin !== 'editor'));
+	// Auto-collected rows whose text no longer exists in any scene, but that carry
+	// saved translations worth keeping (and letting the user delete).
+	const orphanEntries = $derived(
+		entries.filter((e) => e.origin === 'editor' && !harvestedKeys.has(e.key)),
+	);
+
+	function sectionEntries(section: DisplaySection): LocalizationEntry[] {
+		return section.keys.map((k) => byKey.get(k)).filter((e): e is LocalizationEntry => !!e);
+	}
 
 	let newLang = $state('');
 	let status = $state('');
@@ -44,7 +61,7 @@
 	}
 
 	function addEntry() {
-		entries.push({ id: newId(), key: '', source: '', translations: {} });
+		entries.push({ id: newId(), key: '', source: '', translations: {}, origin: 'manual' });
 		markDirty();
 	}
 
@@ -253,76 +270,54 @@
 		</label>
 	</section>
 
-	<section class="table-wrap">
-		<div class="toolbar">
-			<h2>Strings</h2>
-			<div class="actions">
-				<button onclick={addEntry}>+ Add row</button>
-				<button class="accent" disabled={busy} onclick={() => translate(untranslatedIds())}>
-					Translate all missing
-				</button>
-			</div>
-		</div>
+	{#snippet langHeaders()}
+		{#each targetLangs as lang (lang)}
+			<th>{lang}</th>
+		{/each}
+	{/snippet}
 
+	{#snippet langCells(entry: LocalizationEntry)}
+		{#each targetLangs as lang (lang)}
+			<td class:unreviewed={isUnreviewed(entry, lang)}>
+				<div class="cell">
+					<textarea
+						value={entry.translations[lang]?.text ?? ''}
+						oninput={(e) => editTranslation(entry, lang, e.currentTarget.value)}
+						rows="1"
+						placeholder="—"
+					></textarea>
+					{#if entry.translations[lang]?.text}
+						<button
+							class="dot"
+							class:on={entry.translations[lang]?.reviewed}
+							aria-label={entry.translations[lang]?.reviewed ? 'Reviewed' : 'Unreviewed'}
+							title={entry.translations[lang]?.reviewed
+								? 'Reviewed (click to mark unreviewed)'
+								: 'Unreviewed (click to mark reviewed)'}
+							onclick={() => toggleReviewed(entry, lang)}
+						></button>
+					{/if}
+				</div>
+			</td>
+		{/each}
+	{/snippet}
+
+	<!-- Auto-collected rows: the source text is read-only (the Scene Editor owns it);
+	     only the translations are editable. `deletable` is for orphaned rows. -->
+	{#snippet autoTable(rows: LocalizationEntry[], deletable: boolean)}
 		<table>
 			<thead>
 				<tr>
-					<th class="key-col">Key</th>
 					<th>Source ({sourceLang || 'src'})</th>
-					{#each targetLangs as lang (lang)}
-						<th>{lang}</th>
-					{/each}
+					{@render langHeaders()}
 					<th class="row-actions"></th>
 				</tr>
 			</thead>
 			<tbody>
-				{#each entries as entry (entry.id)}
+				{#each rows as entry (entry.id)}
 					<tr>
-						<td class="key-col">
-							<input
-								value={entry.key}
-								oninput={(e) => {
-									entry.key = e.currentTarget.value;
-									markDirty();
-								}}
-								placeholder="ui.spin"
-								spellcheck="false"
-							/>
-						</td>
-						<td>
-							<textarea
-								value={entry.source}
-								oninput={(e) => {
-									entry.source = e.currentTarget.value;
-									markDirty();
-								}}
-								rows="1"
-								placeholder="Source text"
-							></textarea>
-						</td>
-						{#each targetLangs as lang (lang)}
-							<td class:unreviewed={isUnreviewed(entry, lang)}>
-								<div class="cell">
-									<textarea
-										value={entry.translations[lang]?.text ?? ''}
-										oninput={(e) => editTranslation(entry, lang, e.currentTarget.value)}
-										rows="1"
-										placeholder="—"
-									></textarea>
-									{#if entry.translations[lang]?.text}
-										<button
-											class="dot"
-											class:on={entry.translations[lang]?.reviewed}
-											aria-label={entry.translations[lang]?.reviewed ? 'Reviewed' : 'Unreviewed'}
-											title={entry.translations[lang]?.reviewed
-												? 'Reviewed (click to mark unreviewed)'
-												: 'Unreviewed (click to mark reviewed)'}
-											onclick={() => toggleReviewed(entry, lang)}
-										></button>
-									{/if}
-								</div>
-							</td>
-						{/each}
+						<td class="src-col"><div class="src-ro" title={entry.source}>{entry.source}</div></td>
+						{@render langCells(entry)}
 						<td class="row-actions">
 							<button
 								class="ghost-sm"
@@ -332,24 +327,131 @@
 							>
 								T
 							</button>
-							<button
-								class="ghost-sm danger"
-								title="Delete row"
-								onclick={() => deleteEntry(entry.id)}
-							>
-								×
-							</button>
-						</td>
-					</tr>
-				{:else}
-					<tr>
-						<td class="empty" colspan={3 + targetLangs.length}>
-							No strings yet. Add a row to start writing the game's text.
+							{#if deletable}
+								<button
+									class="ghost-sm danger"
+									title="Delete row"
+									onclick={() => deleteEntry(entry.id)}
+								>
+									×
+								</button>
+							{/if}
 						</td>
 					</tr>
 				{/each}
 			</tbody>
 		</table>
+	{/snippet}
+
+	<section class="table-wrap">
+		<div class="toolbar">
+			<h2>Strings</h2>
+			<div class="actions">
+				<button class="accent" disabled={busy} onclick={() => translate(untranslatedIds())}>
+					Translate all missing
+				</button>
+			</div>
+		</div>
+
+		<p class="hint">
+			Text components placed in the <strong>Scene Editor</strong> are collected automatically below,
+			grouped by screen. Their source text stays in sync with the editor (edit it there); here you
+			fill in or translate each language. Use <strong>Manual strings</strong> for text that isn't an
+			editor component.
+		</p>
+
+		{#each sections as section (section.sceneId)}
+			<div class="block">
+				<div class="block-head">
+					<h3>{section.sceneName}</h3>
+					<span class="count">{section.keys.length} text{section.keys.length === 1 ? '' : 's'}</span
+					>
+				</div>
+				{@render autoTable(sectionEntries(section), false)}
+			</div>
+		{/each}
+
+		{#if orphanEntries.length}
+			<div class="block">
+				<div class="block-head">
+					<h3>No longer in scenes</h3>
+					<span class="count muted"
+						>{orphanEntries.length} removed from the editor — delete if unused</span
+					>
+				</div>
+				{@render autoTable(orphanEntries, true)}
+			</div>
+		{/if}
+
+		<div class="block">
+			<div class="block-head">
+				<h3>Manual strings</h3>
+				<div class="actions"><button onclick={addEntry}>+ Add row</button></div>
+			</div>
+			<table>
+				<thead>
+					<tr>
+						<th class="key-col">Key</th>
+						<th>Source ({sourceLang || 'src'})</th>
+						{@render langHeaders()}
+						<th class="row-actions"></th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each manualEntries as entry (entry.id)}
+						<tr>
+							<td class="key-col">
+								<input
+									value={entry.key}
+									oninput={(e) => {
+										entry.key = e.currentTarget.value;
+										markDirty();
+									}}
+									placeholder="ui.spin"
+									spellcheck="false"
+								/>
+							</td>
+							<td>
+								<textarea
+									value={entry.source}
+									oninput={(e) => {
+										entry.source = e.currentTarget.value;
+										markDirty();
+									}}
+									rows="1"
+									placeholder="Source text"
+								></textarea>
+							</td>
+							{@render langCells(entry)}
+							<td class="row-actions">
+								<button
+									class="ghost-sm"
+									disabled={busy}
+									title="Translate this row"
+									onclick={() => translate([entry.id])}
+								>
+									T
+								</button>
+								<button
+									class="ghost-sm danger"
+									title="Delete row"
+									onclick={() => deleteEntry(entry.id)}
+								>
+									×
+								</button>
+							</td>
+						</tr>
+					{:else}
+						<tr>
+							<td class="empty" colspan={3 + targetLangs.length}>
+								No manual strings. Scene Editor text appears above automatically; add a row here for
+								anything else.
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
 	</section>
 </div>
 
@@ -572,5 +674,49 @@
 		text-align: center;
 		color: #777;
 		padding: 24px;
+	}
+	.hint {
+		color: #999;
+		font-size: 13px;
+		line-height: 1.5;
+		margin: 0 0 20px;
+		max-width: 78ch;
+	}
+	.hint strong {
+		color: #c8a3ff;
+		font-weight: 600;
+	}
+	.block {
+		margin-bottom: 24px;
+	}
+	.block-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 8px;
+	}
+	.block-head h3 {
+		font-size: 13px;
+		margin: 0;
+		color: #e8e8ee;
+		font-weight: 600;
+	}
+	.count {
+		font-size: 12px;
+		color: #777;
+	}
+	.count.muted {
+		color: #c98a4a;
+	}
+	.src-col {
+		width: 32%;
+	}
+	.src-ro {
+		padding: 8px 10px;
+		color: #cfcfd6;
+		font-size: 13px;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 </style>

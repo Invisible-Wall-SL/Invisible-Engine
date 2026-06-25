@@ -13,18 +13,30 @@ an external service.
 
 ## What it does
 
-A spreadsheet-style table:
+A spreadsheet-style table of the game's text, in two kinds of section:
 
-- **Rows** = the game's text fields (each has a `key`, a `source` string and one
-  translation per target language).
-- **Columns** = `Key` · source (your source language) · one column per target
-  language.
-- **Global settings** panel: set the **source language**, add/remove **target
-  languages**, and an optional **context / glossary** (tone, domain, term
-  preferences) that guides every translation.
+- **Per-screen sections (auto-collected from the Scene Editor).** Every
+  localizable text component placed in the project's Scene Editor — `text` nodes
+  and the text of `textBox` / `button` / HUD / counter / info-bar components — is
+  pulled in automatically and grouped under the **screen (scene)** it lives on, so
+  the list reads in the same order you authored it. The **source text is
+  read-only here** (the Scene Editor owns it — edit it there); you only fill in /
+  translate the languages. New text boxes appear on their own the next time you
+  open the tool. Each string's translation **key is the source text itself**, so
+  identical strings (even across screens) share one translation and the engine's
+  text resolver swaps them in-game with no re-keying.
+  - A **No longer in scenes** section appears for text that was removed from the
+    editor but still has saved translations — keep or delete each row.
+- **Manual strings.** A hand-authored section (with an editable `key` + `source`)
+  for text that isn't an editor component. Use **+ Add row** here.
 
-Edit any cell inline. Add or delete rows. Hit **Translate this row** or
-**Translate all missing** to fill the empty cells.
+**Columns** = source (your source language) · one column per target language
+(manual rows also show an editable `Key`). **Global settings** panel: set the
+**source language**, add/remove **target languages**, and an optional **context /
+glossary** (tone, domain, term preferences) that guides every translation.
+
+Edit any translation cell inline. Hit **Translate this row** or **Translate all
+missing** to fill the empty cells.
 
 ## Review flow
 
@@ -45,24 +57,30 @@ Shape:
 
 ```jsonc
 {
-  "sourceLang": "en",
-  "targetLangs": ["es", "fr", "de"],
-  "context": "Casino slot game. Keep it punchy.",
-  "entries": [
-    {
-      "id": "…",
-      "key": "ui.spin",
-      "source": "Spin",
-      "translations": {
-        "es": { "text": "Girar", "reviewed": true }
-      }
-    }
-  ],
-  "updatedAt": "2026-05-29T…Z"
+	"sourceLang": "en",
+	"targetLangs": ["es", "fr", "de"],
+	"context": "Casino slot game. Keep it punchy.",
+	"entries": [
+		{
+			"id": "…",
+			"key": "ui.spin",
+			"source": "Spin",
+			"origin": "manual",
+			"translations": {
+				"es": { "text": "Girar", "reviewed": true },
+			},
+		},
+	],
+	"updatedAt": "2026-05-29T…Z",
 }
 ```
 
-No database table — it's R2-only, so there's no migration.
+`origin` is `"editor"` for rows auto-collected from the Scene Editor, `"manual"`
+otherwise (absent ⇒ manual). On **Save**, auto-collected rows with **no**
+translation are _not_ persisted — they're re-derived from the editor doc
+(`editor/<projectKey>/scenes.json`) on every load, so the table self-heals when
+text is added or removed in the editor; once a row has a translation it's stored
+so the work survives. No database table — it's R2-only, so there's no migration.
 
 ## Claude translation
 
