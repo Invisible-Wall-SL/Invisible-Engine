@@ -257,10 +257,15 @@
 		}
 		return [...map.entries()];
 	});
-	/** The open component's value-source binding (a param with an `options` enum, e.g.
-	 * the readout's `source`). When present the component is engine-fed THROUGH it, so
-	 * the literal engine-param checklist is inert — we show the binding instead. */
-	const sourceParam = $derived(componentParams.find((p) => (p.options?.length ?? 0) > 0));
+	/** The open component's value-source binding — the `source` param (a value feed picked
+	 * from a closed `options` enum, e.g. the readout / free-spin counter). When present the
+	 * component is engine-fed THROUGH it, so the literal engine-param checklist is inert and
+	 * we show the binding instead. Matched by the canonical `source` key, NOT by "any param
+	 * with options" — a button's `action`/`variant` params also carry options but must NOT
+	 * collapse the variables panel (that hid the + Add variable picker on buttons). */
+	const sourceParam = $derived(
+		componentParams.find((p) => p.key === 'source' && (p.options?.length ?? 0) > 0),
+	);
 	/** The button STATE-IMAGE param keys — managed solely by the "Show button params"
 	 * picker (their own checkbox + inline region picker), so they're kept OUT of the
 	 * "Your params" list below even though they carry `author: true`. */
