@@ -44,13 +44,28 @@
 	// the pipeline like an atlas does, §8) and build the pooled-`Spine` factory the behavior pools.
 	// A `spine` layer whose skeleton isn't loaded yields no config ⇒ `<ParticleEmitter>` falls back
 	// to the (textureless) sprite path and renders nothing, never crashing.
+	//
+	// `/fx` authors `skeletonKey` as the CANONICAL bundle FOLDER — exactly the key an editor-art
+	// spine registers under (`editorArt.spines[].key` = `bundleFromAssetKey()` = the folder). A spine
+	// that ships ONLY via a symbol cell instead registers under its FULL R2 bundle prefix
+	// (`<…>/spines/<folder>/`), so as a fallback we match any loaded key whose bundle folder equals
+	// the authored key — making an authored spine effect resolve no matter which path shipped the
+	// skeleton, without re-keying the symbol/runtime registration.
+	const bundleFolderOf = (key: string): string => {
+		const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
+		const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
+		return m ? m[1] : trimmed;
+	};
 	const spineParticle = $derived.by(
 		(): Omit<SpineParticleBehaviorConfig, 'layerHost'> | undefined => {
 			if (plan.particleKind !== 'spine' || !plan.spineParticle) return undefined;
 			const { skeletonKey, animation, loop } = plan.spineParticle;
-			const spineData = context.stateApp.loadedAssets?.[skeletonKey] as
-				| SPINE_PIXI.SkeletonData
-				| undefined;
+			const loaded = context.stateApp.loadedAssets ?? {};
+			let spineData = loaded[skeletonKey] as SPINE_PIXI.SkeletonData | undefined;
+			if (!spineData) {
+				const hit = Object.keys(loaded).find((k) => bundleFolderOf(k) === skeletonKey);
+				if (hit) spineData = loaded[hit] as SPINE_PIXI.SkeletonData | undefined;
+			}
 			if (!spineData) return undefined;
 			return {
 				animation,

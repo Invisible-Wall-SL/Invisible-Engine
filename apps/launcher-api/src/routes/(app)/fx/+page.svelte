@@ -121,12 +121,15 @@
 	}
 
 	// --- spine-particle resolution (Tier C) -------------------------------------
-	// A `particleKind:'spine'` layer's `spineParticle.skeletonKey` is a project skeleton-entry key
-	// (`dir_b64/skeleton_file`, the SAME key the Backdrop bar uses) — NOT a runtime `loadedAssets`
-	// key. The stage pools `Spine` instances built from the loaded skeleton; we load + cache it here
-	// (reusing `loadFxSpine`, the SAME loader the backdrop uses — no second skeleton load path) and
-	// hand the stage a `resolveSkeleton`. The cached `LoadedFxSpine` also drives the animation
-	// dropdown for the chosen skeleton.
+	// A `particleKind:'spine'` layer's `spineParticle.skeletonKey` is the CANONICAL bundle key —
+	// the skeleton entry's `folder`, which is EXACTLY the key the runtime registers the spine under
+	// in `loadedAssets` (`editorArt.spines[].key` = `bundleFromAssetKey(...)` = the `folder`) and the
+	// key the bake dangling-`skeletonKey` guard checks. Authoring this same key means a saved spine
+	// effect resolves verbatim in the shipped game (no translation layer). The stage pools `Spine`
+	// instances built from the loaded skeleton; we load + cache it here (reusing `loadFxSpine`, the
+	// SAME loader the backdrop uses — no second skeleton load path) and hand the stage a
+	// `resolveSkeleton`. Only ONE skeleton ships per `folder` (the runtime/editor-art take the first
+	// entry in a bundle), so resolving by `folder` matches what the game will register.
 	const skeletonCache = new Map<string, Promise<LoadedFxSpine | null>>();
 	// Reactive bump so the inspector re-derives the animation list once a skeleton finishes loading.
 	let skeletonMetaVersion = $state(0);
@@ -135,7 +138,7 @@
 	function resolveSkeleton(skeletonKey: string): Promise<LoadedFxSpine | null> {
 		const hit = skeletonCache.get(skeletonKey);
 		if (hit) return hit;
-		const entry = skeletons.find((s) => `${s.dir_b64}/${s.skeleton_file}` === skeletonKey);
+		const entry = skeletons.find((s) => s.folder === skeletonKey);
 		const p = (async (): Promise<LoadedFxSpine | null> => {
 			if (!entry) return null;
 			try {
@@ -150,6 +153,21 @@
 		skeletonCache.set(skeletonKey, p);
 		return p;
 	}
+
+	// The shippable spine-particle skeletons: one per `folder` (the runtime/editor-art ship the
+	// FIRST skeleton of a bundle, so a `folder` maps to exactly one shippable skeleton). Deduping by
+	// `folder` keeps the picker option values unique AND in the canonical key namespace the layer
+	// saves. A root-level bundle (`folder:''`) can't be a stable lookup key, so it's excluded.
+	const spineParticleSkeletons = $derived.by((): FxSkeletonEntry[] => {
+		const seen = new Set<string>();
+		const out: FxSkeletonEntry[] = [];
+		for (const s of skeletons) {
+			if (!s.folder || seen.has(s.folder)) continue;
+			seen.add(s.folder);
+			out.push(s);
+		}
+		return out;
+	});
 
 	// The animation clips for the SELECTED layer's spine-particle skeleton (loaded on demand). An
 	// empty list (not yet loaded / unknown) degrades the Animation control to a free-text input.
@@ -470,10 +488,8 @@
 										)}
 								>
 									<option value="">— pick a skeleton —</option>
-									{#each skeletons as s (s.dir_b64 + '/' + s.skeleton_file)}
-										<option value={`${s.dir_b64}/${s.skeleton_file}`}>
-											{s.folder ? `${s.folder}/` : ''}{s.name}
-										</option>
+									{#each spineParticleSkeletons as s (s.folder)}
+										<option value={s.folder}>{s.folder}/{s.name}</option>
 									{/each}
 								</select>
 							</label>

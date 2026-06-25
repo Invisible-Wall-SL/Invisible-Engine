@@ -122,14 +122,26 @@ function danglingKeys(
 	return referenced.filter((k) => !shipped.has(k));
 }
 
-/** Mirror of the bake's dangling-skeletonKey guard: referenced skeletonKeys NOT among the
- *  shipped Spine bundles (editor-art spines ∪ symbol spines). */
+/** Mirror of the bake's `bundleFolder`: `<…>/spines/<folder>/` → `<folder>`; a bare folder key is
+ *  returned unchanged. The canonical key namespace `/fx` authors `skeletonKey` in (and the runtime
+ *  registers an editor-art spine under). Editor-art spine keys are ALREADY this folder; symbol spine
+ *  keys are full R2 prefixes that reduce to it. */
+function bundleFolder(key: string): string {
+	const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
+	const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
+	return m ? m[1] : trimmed;
+}
+
+/** Mirror of the bake's dangling-skeletonKey guard: referenced skeletonKeys (authored as bundle
+ *  folders) NOT among the shipped Spine bundles, every shipped key REDUCED to its bundle folder so
+ *  the comparison is apples-to-apples across the two ship namespaces (editor-art folder keys ∪
+ *  symbol full-prefix keys). */
 function danglingSkeletonKeys(
 	referenced: string[],
 	shippedEditorSpineKeys: string[],
 	shippedSymbolSpineKeys: string[],
 ) {
-	const shipped = new Set([...shippedEditorSpineKeys, ...shippedSymbolSpineKeys]);
+	const shipped = new Set([...shippedEditorSpineKeys, ...shippedSymbolSpineKeys].map(bundleFolder));
 	return referenced.filter((k) => !shipped.has(k));
 }
 
@@ -296,8 +308,15 @@ assert(asImage.length === 0, 'an atlas shipped as a standalone editor-art image 
 // ---------------------------------------------------------------------------
 console.log('fx pipeline — Tier C spine-particle export + dangling-skeletonKey guard');
 
-const coinSkeleton = 'borut/bookofborut/editor-art/spines/coin';
-const wandSkeleton = 'borut/bookofborut/editor-art/spines/wand';
+// `/fx` authors `skeletonKey` as the CANONICAL bundle FOLDER — the value the runtime registers an
+// editor-art spine under (`editorArt.spines[].key`) and the bake guard compares against. The
+// authored key is the bare folder, NOT a full R2 prefix.
+const coinSkeleton = 'coin';
+const wandSkeleton = 'wand';
+// The two SHIPPED-spine namespaces the bake guard reconciles to a folder: editor-art ships the
+// folder verbatim; a symbol cell ships the FULL R2 bundle prefix.
+const coinAsEditorArt = 'coin'; // editorArt.spines[].key (already a folder)
+const coinAsSymbol = 'borut/bookofborut/spines/coin/'; // symbols.index.spines[].key (full prefix)
 
 // A doc mixing a SPRITE layer (atlas art) and a SPINE layer (a pooled-Spine clip). The export
 // must split the referenced classes: the sprite layer's atlas → referencedAssetKeys, the spine
@@ -405,25 +424,48 @@ assert(
 	'two spine layers sharing a skeleton ⇒ one referenced skeletonKey (deduped)',
 );
 
-// The skeleton IS shipped as an editor-art spine → no dangling key.
-const spineShipped = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [coinSkeleton], []);
+// KEY STABILITY: the authored folder key resolves against an editor-art spine shipped under the
+// SAME folder → no dangling key.
+const spineShipped = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [coinAsEditorArt], []);
 assert(
 	spineShipped.length === 0,
-	'a referenced skeleton shipped as an editor-art spine ⇒ no dangling key (spine particles visible)',
+	'an authored folder skeletonKey resolves against an editor-art spine (same folder) ⇒ not dangling',
 );
 
-// The skeleton is NOT shipped (neither editor-art spine nor symbol spine) → dangling (invisible).
+// KEY STABILITY across namespaces: the authored folder key ALSO resolves against the SAME skeleton
+// shipped ONLY as a symbol spine (a full R2 prefix) — the guard reduces it to the folder. This is
+// the seam this fix closes: one authored key, both ship paths.
+const spineAsSymbolOnly = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [], [coinAsSymbol]);
+assert(
+	spineAsSymbolOnly.length === 0,
+	'an authored folder skeletonKey resolves against a symbol spine (full prefix → same folder) ⇒ not dangling',
+);
+
+// The skeleton is NOT shipped (neither editor-art spine nor symbol spine) → still dangling.
 const spineMissing = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [wandSkeleton], []);
 assert(
 	eq(spineMissing, [coinSkeleton]),
-	'a skeletonKey NOT among the shipped spines is flagged dangling (would render invisible)',
+	'a skeletonKey NOT among the shipped spines is STILL flagged dangling (would render invisible)',
 );
 
-// A skeleton shipped as a SYMBOL spine (not editor-art) also resolves — no false positive.
-const spineAsSymbol = danglingSkeletonKeys([coinSkeleton], [], [coinSkeleton]);
+// A DIFFERENT folder shipped (as either namespace) does not falsely satisfy the authored key.
+const spineWrongBundle = danglingSkeletonKeys(
+	tierC.referencedSkeletonKeys,
+	[wandSkeleton],
+	['borut/bookofborut/spines/wand/'],
+);
 assert(
-	spineAsSymbol.length === 0,
-	'a skeleton shipped as a symbol spine (symbols.index.spines) also resolves',
+	eq(spineWrongBundle, [coinSkeleton]),
+	'shipping a different bundle (either namespace) does not satisfy the authored key',
+);
+
+// The `bundleFolder` reducer itself: both ship namespaces collapse to the canonical folder, a bare
+// folder is unchanged, and an unrelated key is left alone (no accidental match).
+assert(bundleFolder(coinAsSymbol) === 'coin', 'a full symbol prefix reduces to its bundle folder');
+assert(bundleFolder(coinAsEditorArt) === 'coin', 'a bare editor-art folder key is unchanged');
+assert(
+	bundleFolder('borut/bookofborut/spines/sub/coin/') === 'sub/coin',
+	'a nested-folder bundle reduces to its full folder path (everything after spines/)',
 );
 
 console.log('');

@@ -26,11 +26,13 @@ fallback). **Tier C (Phase 3) is now COMPLETE (headless): increment 1 built the 
 built the `/fx` AUTHORING UI (a `particleKind` toggle + skeleton/animation/loop picker, reusing the
 Backdrop bar's skeleton list), the FxStage LIVE spine-particle preview (pooling real `Spine`
 instances), and the bake dangling-`skeletonKey` guard (the spine analogue of the atlas `art.assetKey`
-check). So a spine-particle effect is now authorable→previewable→shippable→fireable.** Two owner-verify-live
-items remain (NOT headless): the WebGL pixels + the pool-size perf ceiling, AND the **skeletonKey
-key-stability** seam (the `/fx` entry key vs the runtime/bake `loadedAssets` bundle-prefix key must be
-reconciled — §9 — before a spine-particle effect SHIPS to a real game; until then the guard correctly
-flags it dangling). The
+check). So a spine-particle effect is now authorable→previewable→shippable→fireable.** The **skeletonKey
+key-stability** seam is now CLOSED (2026-06-25 — `/fx` authors `spineParticle.skeletonKey` as the
+canonical bundle `folder`, the SAME key the runtime registers the spine under in `loadedAssets` +
+the bake dangling-key guard checks; the guard reconciles both ship namespaces to that folder, and the
+runtime resolution falls back across them — see Progress + §9). The ONLY remaining owner-verify-live
+items (NOT headless) are the WebGL pixels + the pool-size perf ceiling; once the owner confirms a
+published game renders a spine-particle effect, Book of Borut bumps its `engine` submodule. The
 `/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
 always/event + the event type + duration, sourced from the project's emitter vocabulary —
 the same source `/flow` uses). **Current
@@ -43,6 +45,55 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
 `engine` submodule\*\* to ship the runtime. See Progress.
 
 ### Progress
+
+- **Tier C `skeletonKey` key-stability seam — ✅ CLOSED HEADLESSLY (2026-06-25, branch
+  `fx/phase1-emitter-core`, no game bump).** Per the increment-2 follow-up + §9 (the atlas "key
+  stability" rule, applied to spines). The one correctness gap blocking a spine-particle effect from
+  SHIPPING into a real game. **The two key namespaces (with the code that derives each):**
+
+  - **Authored (was wrong):** the `/fx` Skeleton picker wrote `spineParticle.skeletonKey =
+    `${entry.dir_b64}/${entry.skeleton_file}`` — a base64url-of-folder + filename ENTRY key (the
+    `/spine/skeletons` listing shape, `spineIndex.ts` `buildSkeletonsIndex` → `dir_b64 =
+    b64url(dir)`). Never a runtime lookup key.
+  - **Canonical (runtime + bake):** the engine registers a spine in `loadedAssets` under the key
+    `bakedEditorArtAssets()` / `bakedSymbolAssets()` set (`apps/lines/src/editor-scenes.ts`
+    `out[spine.key] = {type:'spine',…}`). That `spine.key` is the bundle **`folder`** for a
+    layout-placed spine — `editorArtExport.ts` rewrites it via `gameKey =
+    bundleFromAssetKey(client, project, assetKey)` (`spine.ts`: strips `<…>/spines/` → the folder) —
+    and the FULL R2 bundle prefix `<…>/spines/<folder>/` for a symbol-shipped spine
+    (`symbolExport.ts` keeps `entry.key = assetKey`). `<EffectLayer>` resolves
+    `loadedAssets[skeletonKey]` directly, and the bake guard checks `editorArt.spines[].key` ∪
+    `symbols.index.spines[].key`. The authored and canonical namespaces never matched ⇒ an authored
+    spine effect never resolved + the bake always flagged it dangling.
+  - **Fix (smallest correct — author the canonical key, no translation layer):** (1) the `/fx`
+    spine-particle picker now writes `skeletonKey = entry.folder` (the canonical bundle name),
+    deduped to one option per shippable bundle (`spineParticleSkeletons` — the runtime/editor-art
+    ship the FIRST skeleton of a folder, so a folder maps to one shippable skeleton); `resolveSkeleton`
+    matches by `folder`; the `/fx` preview still loads via `loadFxSpine` (unchanged). The Tier-B
+    Backdrop bar keeps `dir_b64/skeleton_file` (an authoring aid, never saved). (2) the bake guard
+    (`bake-editor-doc.mjs`) reduces every SHIPPED spine key to its bundle `folder` (`<…>/spines/<f>/`
+    → `<f>`; a bare editor-art folder key unchanged) before comparing — reconciling both ship
+    namespaces to the one authored namespace. (3) `<EffectLayer>` resolution is now resilient:
+    exact-key first (the editor-art/folder case), then a fallback matching any `loadedAssets` key
+    whose bundle folder equals the authored key (the symbol-spine full-prefix case) — so an authored
+    spine effect resolves regardless of which path shipped the skeleton, WITHOUT re-keying the
+    symbol/runtime registration.
+  - **Verified headlessly** — `tools/fx-spike/pipeline.ts` extended GREEN: an authored folder key
+    PASSES the guard against an editor-art spine (same folder) AND a symbol spine (full prefix →
+    same folder); a genuinely-absent skeleton is STILL flagged dangling; a different shipped bundle
+    does not falsely satisfy the key; the `bundleFolder` reducer unit-covered (both namespaces
+    collapse to the folder, a bare folder unchanged, a nested folder preserved). ALL 10 fx harnesses
+    GREEN; the Phase-0 spine-particle spike still GREEN. **Builds GREEN:** `engine-fx` typecheck,
+    `pnpm --filter {pixi-svelte,lines,launcher-api} build`, `node --check` on the bake script;
+    Prettier clean. **PARITY:** sprite-only docs byte-identical (the sprite path is untouched).
+  - **Borut:** the seam no longer blocks shipping — a spine effect whose skeleton genuinely ships now
+    resolves at runtime + passes the bake guard. The ONLY remaining gate is owner-verify-live (the
+    WebGL pixels + the pool-size perf ceiling in a published game); after that, bump the `engine`
+    submodule.
+  - Files: `apps/launcher-api/src/routes/(app)/fx/+page.svelte`,
+    `apps/launcher-api/scripts/bake-editor-doc.mjs`,
+    `packages/pixi-svelte/src/lib/components/EffectLayer.svelte`, `tools/fx-spike/pipeline.ts`,
+    `docs/STATUS.md`.
 
 - **Phase 3 (Tier C — spine-clips-AS-particles) — increment 2: the `/fx` authoring UI + live
   preview + the bake `skeletonKey` guard — ✅ DONE HEADLESSLY (2026-06-25, branch

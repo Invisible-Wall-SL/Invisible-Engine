@@ -456,16 +456,24 @@ async function main() {
 	}
 
 	// Dangling-skeletonKey guard (§8 — the spine analogue of the dangling-assetKey guard above):
-	// a Tier-C (`particleKind:'spine'`) layer references a Spine bundle by `spineParticle.skeletonKey`.
-	// That bundle reaches the game's `loadedAssets` only if it's among the SHIPPED spines — i.e. it
-	// was placed in the layout (`editorArt.spines[].key`) or bound to a symbol/highlight
-	// (`symbols.index.spines[].key`). A skeletonKey NOT in that set never loads ⇒ the spine particles
-	// have no skeleton ⇒ the effect renders INVISIBLE. FX never re-packs spines, so warn loudly
-	// (non-fatal: the author may wire the spine into the layout/symbols before shipping). No spine
-	// particles ⇒ no check.
+	// a Tier-C (`particleKind:'spine'`) layer references a Spine bundle by `spineParticle.skeletonKey`,
+	// which `/fx` authors as the CANONICAL bundle `folder` (the value the runtime registers the spine
+	// under in `loadedAssets`). That bundle reaches the game's `loadedAssets` only if it's among the
+	// SHIPPED spines — i.e. it was placed in the layout (`editorArt.spines[].key`, already the bundle
+	// folder) or bound to a symbol/highlight (`symbols.index.spines[].key`, a FULL R2 bundle prefix
+	// `<…>/spines/<folder>/`). To compare apples-to-apples we reduce every shipped key to its bundle
+	// folder. A skeletonKey NOT in that set never loads ⇒ the spine particles have no skeleton ⇒ the
+	// effect renders INVISIBLE. FX never re-packs spines, so warn loudly (non-fatal: the author may
+	// wire the spine into the layout/symbols before shipping). No spine particles ⇒ no check.
 	if (effectSkeletonKeys.length > 0) {
-		const shippedSpines = new Set(editorArt.spines.map((s) => s.key));
-		for (const s of symbols.index.spines) shippedSpines.add(s.key);
+		// `<client>/<project>/spines/<folder>/` → `<folder>`; an already-bare folder key is unchanged.
+		const bundleFolder = (key) => {
+			const trimmed = key.replace(/\/$/, '');
+			const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
+			return m ? m[1] : trimmed;
+		};
+		const shippedSpines = new Set(editorArt.spines.map((s) => bundleFolder(s.key)));
+		for (const s of symbols.index.spines) shippedSpines.add(bundleFolder(s.key));
 		const dangling = effectSkeletonKeys.filter((k) => !shippedSpines.has(k));
 		for (const k of dangling) {
 			console.warn(
