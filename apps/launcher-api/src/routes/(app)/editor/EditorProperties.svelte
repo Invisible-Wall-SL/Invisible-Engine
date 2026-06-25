@@ -17,6 +17,7 @@
 		type ComponentSignal,
 		type ContainerNode,
 		type AnticipationProfile,
+		type ButtonStateAnimations,
 		type EditableParam,
 		type EngineParamEntry,
 		type LayoutNode,
@@ -894,6 +895,43 @@
 	function removeCue(n: SpineNode, i: number): void {
 		const cues = (n.cues ?? []).filter((_, idx) => idx !== i);
 		n.cues = cues.length ? cues : undefined;
+		markDirty();
+	}
+
+	// ---------- button-state spine animations ----------
+	// The INTERACTION analogue of the per-state IMAGE cascade: map each button state to
+	// an animation this spine plays while that state is active (resting = the spine's
+	// `defaultAnimation`). Authored as `node.stateAnimations`; only meaningful inside an
+	// interactive button component (one declaring an `action` variable). Same cascade as
+	// the state images — an unset state falls back to a neighbour (pressed→hover→selected).
+	const BUTTON_ANIM_STATES = [
+		{ key: 'hover', label: 'hover' },
+		{ key: 'pressed', label: 'pressed' },
+		{ key: 'selected', label: 'selected' },
+		{ key: 'disabled', label: 'downstate' },
+		{ key: 'spinning', label: 'spinning' },
+	] as const;
+	type ButtonAnimState = (typeof BUTTON_ANIM_STATES)[number]['key'];
+
+	/** True when the open component is an interactive button (declares an `action`
+	 * variable) — only then do button-state spine animations apply at runtime. */
+	const isInteractiveComponent = $derived(componentParams.some((p) => p.key === 'action'));
+
+	function stateAnimOf(n: SpineNode, key: ButtonAnimState) {
+		return n.stateAnimations?.[key];
+	}
+	function setStateAnim(n: SpineNode, key: ButtonAnimState, animation: string): void {
+		const map: ButtonStateAnimations = { ...(n.stateAnimations ?? {}) };
+		const trimmed = animation.trim();
+		if (trimmed) map[key] = { animation: trimmed, loop: map[key]?.loop };
+		else delete map[key];
+		n.stateAnimations = Object.keys(map).length ? map : undefined;
+		markDirty();
+	}
+	function setStateAnimLoop(n: SpineNode, key: ButtonAnimState, loop: boolean): void {
+		const cur = n.stateAnimations?.[key];
+		if (!cur) return;
+		n.stateAnimations = { ...n.stateAnimations, [key]: { ...cur, loop: loop || undefined } };
 		markDirty();
 	}
 </script>
@@ -2085,6 +2123,58 @@
 				</button>
 			{:else if componentMode}
 				<p class="muted small">Declare a signal on this component to add playback cues.</p>
+			{/if}
+			{#if componentMode}
+				<h4 class="sub-h">Plays on button state</h4>
+				{#if isInteractiveComponent}
+					<p class="muted small">
+						Drive this spine by the button's interaction state — pick an animation per state. The
+						button plays it while that state is active and returns to the <strong
+							>default animation</strong
+						> above when none is. Leave a state blank to cascade (pressed → hover → selected).
+					</p>
+					{#each BUTTON_ANIM_STATES as st (st.key)}
+						{@const cur = stateAnimOf(node as SpineNode, st.key)}
+						<div class="bind-grid cue-row">
+							<label class="field">
+								<span>{st.label}</span>
+								{#if meta?.animations?.length}
+									<select
+										value={cur?.animation ?? ''}
+										onchange={(e) => setStateAnim(node as SpineNode, st.key, e.currentTarget.value)}
+									>
+										<option value="">(none)</option>
+										{#each meta.animations as anim (anim)}
+											<option value={anim}>{anim}</option>
+										{/each}
+									</select>
+								{:else}
+									<input
+										type="text"
+										placeholder="animation name"
+										value={cur?.animation ?? ''}
+										oninput={(e) => setStateAnim(node as SpineNode, st.key, e.currentTarget.value)}
+									/>
+								{/if}
+							</label>
+							<label class="field check">
+								<input
+									type="checkbox"
+									checked={cur?.loop ?? false}
+									disabled={!cur}
+									onchange={(e) =>
+										setStateAnimLoop(node as SpineNode, st.key, e.currentTarget.checked)}
+								/>
+								<span>loop</span>
+							</label>
+						</div>
+					{/each}
+				{:else}
+					<p class="muted small">
+						Add an <strong>action</strong> variable above (which makes this component an interactive
+						button) to drive this spine by hover / press / selected / state.
+					</p>
+				{/if}
 			{/if}
 		</section>
 	{:else if node.kind === 'reelGrid'}

@@ -30,6 +30,7 @@
 	} from './coverTransform';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
+	import { getComponentStateAnims } from './componentStateAnimContext';
 	import { resolveBoundValue } from './componentParams';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
@@ -43,6 +44,9 @@
 	// node has no `componentInstance` ancestor providing the context — a scene-level
 	// spine then just uses its static `defaultAnimation` (byte-identical parity).
 	const signalAnims = getComponentSignalAnims();
+	// Button-state-driven spine-anim overrides — the interaction sibling of `signalAnims`.
+	// `undefined` for a spine with no interactive `componentInstance` ancestor (parity).
+	const stateAnims = getComponentStateAnims();
 
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
 
@@ -376,7 +380,9 @@
 			zIndex={transform.zIndex}
 		/>
 	{:else if node.kind === 'spine'}
+		{@const stateAnim = stateAnims?.[node.id]}
 		{@const sigAnim = signalAnims?.[node.id]}
+		{@const override = stateAnim ?? sigAnim}
 		<SpineProvider
 			key={node.assetKey}
 			x={bg ? bg.x : posX}
@@ -392,14 +398,21 @@
 			skin={node.skin}
 		>
 			<!--
-				One-shot → idle hand-off: when a signal cue is active (e.g. `enter` → `intro`)
-				AND the node has a different `defaultAnimation` (the resting `idle`), play the
-				cue animation ONCE then settle into the looping default — the free-spin-intro
-				pattern (intro plays, idle loops, the gate holds the screen until the tap). With
-				no cue, or no distinct default, this is the prior single-animation behaviour.
+				A button-STATE animation (hover/press/…) wins over a signal cue, which wins
+				over the resting `defaultAnimation` — so a spine button reacts to its state
+				immediately and returns to rest when the state clears.
+
+				One-shot → idle hand-off (signal cues only): when a signal cue is active (e.g.
+				`enter` → `intro`) AND the node has a different `defaultAnimation` (the resting
+				`idle`), play the cue animation ONCE then settle into the looping default — the
+				free-spin-intro pattern (intro plays, idle loops, the gate holds the screen until
+				the tap). A state animation loops/holds while its state is active instead, so the
+				hand-off is suppressed while one is in effect. With no override, or no distinct
+				default, this is the prior single-animation behaviour.
 			-->
-			{@const anim = sigAnim?.animation ?? node.defaultAnimation}
+			{@const anim = override?.animation ?? node.defaultAnimation}
 			{@const handsOffToIdle = !!(
+				!stateAnim &&
 				sigAnim &&
 				node.defaultAnimation &&
 				node.defaultAnimation !== sigAnim.animation
@@ -408,7 +421,7 @@
 				<SpineTrack
 					trackIndex={0}
 					animationName={anim}
-					loop={handsOffToIdle ? false : (sigAnim?.loop ?? node.loop ?? true)}
+					loop={handsOffToIdle ? false : (override?.loop ?? node.loop ?? true)}
 					then={handsOffToIdle ? node.defaultAnimation : undefined}
 					thenLoop={node.loop ?? true}
 				/>

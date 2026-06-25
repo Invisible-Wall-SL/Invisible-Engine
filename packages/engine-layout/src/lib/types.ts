@@ -193,6 +193,26 @@ export interface SpineCue {
 	loop?: boolean;
 }
 
+/** One state's playback: the animation to play (+ whether it loops while held). */
+export interface SpineStateAnimation {
+	/** Animation name on this spine. Empty/absent ⇒ that state is unmapped (the
+	 * cascade falls back to a neighbour, ultimately `defaultAnimation`). */
+	animation: string;
+	loop?: boolean;
+}
+
+/** Button-INTERACTION-state → spine animation map (the state-driven analogue of the
+ * `image*` state cascade). Each entry is optional; an unmapped state cascades to a
+ * neighbour exactly like the state-image cascade (pressed→hover→selected→resting),
+ * where the resting animation is the node's `defaultAnimation`. */
+export interface ButtonStateAnimations {
+	hover?: SpineStateAnimation;
+	pressed?: SpineStateAnimation;
+	selected?: SpineStateAnimation;
+	disabled?: SpineStateAnimation;
+	spinning?: SpineStateAnimation;
+}
+
 export interface SpineNode extends BaseNode {
 	kind: 'spine';
 	assetKey: string;
@@ -208,6 +228,15 @@ export interface SpineNode extends BaseNode {
 	 * `registerComponentSignals`; otherwise ignored (a scene-level spine just uses
 	 * `defaultAnimation`, parity). */
 	cues?: SpineCue[];
+	/** Button-state-driven playback: when this spine is inside an INTERACTIVE button
+	 * component, the engine resolves the current interaction state (hover / press /
+	 * selected / disabled / spinning) and plays the mapped animation, cascading like
+	 * the state-image cascade and returning to `defaultAnimation` when no state is
+	 * active. Lets a button BE a spine whose animation is driven purely by its state
+	 * (the interaction analogue of `imageHover`/`imagePressed`/…). Only active when the
+	 * spine's `componentInstance` owns the press (an `action` feed, no coded bind part);
+	 * a scene-level spine ignores it (parity). */
+	stateAnimations?: ButtonStateAnimations;
 }
 
 /**

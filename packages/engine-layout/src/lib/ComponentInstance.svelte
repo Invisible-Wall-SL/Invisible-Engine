@@ -1,5 +1,11 @@
 <script lang="ts" module>
-	import type { ComponentInstanceNode, LayoutNode, Scene, SpineCue } from './types';
+	import type {
+		ButtonStateAnimations,
+		ComponentInstanceNode,
+		LayoutNode,
+		Scene,
+		SpineCue,
+	} from './types';
 
 	export type Props = { node: ComponentInstanceNode; space?: Scene['space'] };
 </script>
@@ -17,7 +23,12 @@
 	import { setComponentParams } from './componentParamsContext';
 	import { setComponentSignalAnims } from './componentSignalContext';
 	import { resolveComponentParams } from './componentParams';
-	import { resolveButtonStateImage, BUTTON_STATE_IMAGE_KEYS } from './buttonStateImage';
+	import {
+		resolveButtonStateImage,
+		resolveButtonStateAnimation,
+		BUTTON_STATE_IMAGE_KEYS,
+	} from './buttonStateImage';
+	import { setComponentStateAnims } from './componentStateAnimContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
@@ -225,6 +236,27 @@
 		walk(def.root);
 		return map;
 	})();
+	// Button-state-driven spine animations (the interaction analogue of the signal
+	// cues above). Walk `def.root` once at init for `spine` nodes carrying a
+	// `stateAnimations` map; index them by node id. Each interaction-state change then
+	// resolves the cascade (see the `$effect` below) and writes the mapped animation
+	// into `stateAnims[nodeId]`, which the spine prefers over its signal cue + default.
+	// No such nodes ⇒ the map is empty and nothing is ever written (parity). Init-stable
+	// like `signalToTargets` (a keyed instance never swaps its def).
+	const stateAnimNodes = ((): Map<string, ButtonStateAnimations> => {
+		const map = new Map<string, ButtonStateAnimations>();
+		if (!allowed || !def) return map;
+		const walk = (n: LayoutNode): void => {
+			if (n.kind === 'spine' && n.stateAnimations) {
+				map.set(n.id, n.stateAnimations);
+			} else if (n.kind === 'container') {
+				for (const child of n.children) walk(child);
+			}
+		};
+		walk(def.root);
+		return map;
+	})();
+
 	let signalAnims = $state<Record<string, { animation: string; loop?: boolean }>>({});
 	// One `$effect` (re)subscribes to every referenced signal and returns a combined
 	// cleanup — `$effect` can't live inside a loop, so iterate the precomputed map
@@ -415,6 +447,31 @@
 	// fire — same stable-object discipline as `setComponentParams`). `{}` when the
 	// instance can't expand, so a descendant never reads a stale PARENT instance's map.
 	setComponentSignalAnims(allowed && def ? signalAnims : {});
+
+	// Resolve each state-spine's animation from the LIVE interaction flags and publish
+	// it on the state-anim context (same stable-`$state`-proxy discipline as the signal
+	// map). Only meaningful when THIS instance owns the press (`interactive`): a spine
+	// in a non-button component, or with no `stateAnimations`, never gets an entry, so
+	// it falls through to its signal cue / `defaultAnimation` (parity). When the current
+	// state cascades to nothing, the node's entry is cleared so the spine returns to its
+	// resting `defaultAnimation`.
+	let stateAnims = $state<Record<string, { animation: string; loop?: boolean }>>({});
+	$effect(() => {
+		if (!interactive || stateAnimNodes.size === 0) return;
+		const flags = {
+			hovered,
+			pressed,
+			disabled: liveDisabled === true,
+			active: liveActive === true,
+			spinning: liveSpinning === true,
+		};
+		for (const [nodeId, map] of stateAnimNodes) {
+			const resolved = resolveButtonStateAnimation(map, flags);
+			if (resolved) stateAnims[nodeId] = { animation: resolved.animation, loop: resolved.loop };
+			else if (stateAnims[nodeId]) delete stateAnims[nodeId];
+		}
+	});
+	setComponentStateAnims(allowed && def ? stateAnims : {});
 
 	const cursor = $derived(liveDisabled ? 'not-allowed' : 'pointer');
 	const onpress = () => {
