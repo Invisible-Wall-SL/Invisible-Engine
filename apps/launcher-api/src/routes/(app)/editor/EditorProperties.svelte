@@ -700,6 +700,33 @@
 		markDirty();
 	}
 
+	/**
+	 * Spine size box. An explicit width/height fits the skeleton to that box (the engine's
+	 * `spineSizeScale` + the editor preview both honour it), giving deterministic, WYSIWYG
+	 * sizing for a spine whose rig has no authored natural bounds (e.g. a Rigger `.irig`) —
+	 * where bare `scale` drifts between the editor and the game. The engine sizes by
+	 * `width × scale`, so when a base size is set we reset a non-1 base scale to 1 so the
+	 * typed number IS the on-screen size (size is primary, scale stays 1 — the sprite flow).
+	 * A blank field clears that dimension, reverting to scale/natural sizing.
+	 */
+	function setSpineSize(n: LayoutNode, axis: 'width' | 'height', raw: number): void {
+		if (n.kind !== 'spine') return;
+		const cleared = Number.isNaN(raw);
+		if (isOverrideMode) {
+			if (cleared) clearOverrideKey(n, axis);
+			else setSpriteSize(n, axis, raw);
+			return;
+		}
+		const rec = n as unknown as Record<string, unknown>;
+		if (cleared) {
+			delete rec[axis];
+		} else {
+			rec[axis] = raw;
+			if (n.scale?.x !== 1 || n.scale?.y !== 1) n.scale = { x: 1, y: 1 };
+		}
+		markDirty();
+	}
+
 	/** Set a rect's fill colour (`#rrggbb` → hex int); a malformed hex is a no-op. */
 	function setRectColor(n: LayoutNode, hex: string): void {
 		if (n.kind !== 'rect') return;
@@ -2058,6 +2085,34 @@
 					<span>loop</span>
 				</label>
 			</div>
+			<div class="row">
+				<label class="field">
+					<span>width</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="(scale)"
+						value={t.width ?? ''}
+						oninput={(e) => setSpineSize(node, 'width', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>height</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="(scale)"
+						value={t.height ?? ''}
+						oninput={(e) => setSpineSize(node, 'height', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+			<p class="muted small">
+				Set an explicit <strong>width × height</strong> to pin the spine's on-screen size — it fits
+				the skeleton to this box so the editor preview matches the game (best for a rig with no
+				natural bounds). Leave blank to size by <strong>scale</strong> instead; setting a size resets
+				scale to 1 so the number is exact.
+			</p>
 			{#if componentSignals.length > 0}
 				<h4 class="sub-h">Plays on signal</h4>
 				<p class="muted small">
@@ -2136,8 +2191,8 @@
 					<p class="muted small">
 						<strong>Image at rest, spine on a state?</strong> Leave the
 						<strong>default animation</strong>
-						(above) blank — the spine then stays HIDDEN at rest (your button image shows) and only
-						appears while a mapped state plays. For <strong>during the spin</strong>, map
+						(above) blank — the spine then stays HIDDEN at rest (your button image shows) and only appears
+						while a mapped state plays. For <strong>during the spin</strong>, map
 						<strong>spinning</strong> (not downstate): a spin sets both, and spinning wins.
 					</p>
 					{#each BUTTON_ANIM_STATES as st (st.key)}

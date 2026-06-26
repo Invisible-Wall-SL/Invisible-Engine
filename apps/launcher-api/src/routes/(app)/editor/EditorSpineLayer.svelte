@@ -303,6 +303,11 @@
 		/** Authored skin name (real spine nodes only); empty/undefined = default skin. */
 		skin?: string;
 		loop?: boolean;
+		/** Explicit size box (px). When set, the skeleton is FIT to this box (per-axis
+		 * `boxDim / naturalDim`) instead of rendered at raw scale — matching the game's
+		 * `spineSizeScale`, so the preview is WYSIWYG for a rig with no natural bounds. */
+		width?: number;
+		height?: number;
 		/** The spine's `enter`-cue animation: in-game it plays the moment the component /
 		 * screen appears, so the preview AUTO-plays it (looped for visibility) instead of
 		 * showing the static setup pose. Without this, an author sizes the spine against the
@@ -357,6 +362,8 @@
 						defaultAnimation: n.defaultAnimation,
 						skin: n.skin,
 						loop: n.loop,
+						width: t.width,
+						height: t.height,
 						enterAnimation: spineEnterCue(n)?.animation,
 						enterLoop: spineEnterCue(n)?.loop,
 						placement: undefined,
@@ -451,15 +458,18 @@
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
 		const det = a * d - b * c;
+		const nt = resolveTransform(node, layoutType);
 		return {
 			nodeId: node.id,
 			assetKey: node.assetKey,
 			defaultAnimation: node.defaultAnimation,
 			skin: node.skin,
 			loop: node.loop,
+			width: nt.width,
+			height: nt.height,
 			enterAnimation: spineEnterCue(node)?.animation,
 			enterLoop: spineEnterCue(node)?.loop,
-			transform: resolveTransform(node, layoutType),
+			transform: nt,
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
 		};
@@ -560,7 +570,12 @@
 			if (entry.playingAnim !== wantAnim) {
 				entry.instance.animationState.setAnimation(0, wantAnim, wantLoop);
 				if (handsOffToIdle && target.defaultAnimation) {
-					entry.instance.animationState.addAnimation(0, target.defaultAnimation, target.loop ?? true, 0);
+					entry.instance.animationState.addAnimation(
+						0,
+						target.defaultAnimation,
+						target.loop ?? true,
+						0,
+					);
 				}
 				entry.playingAnim = wantAnim;
 			}
@@ -711,6 +726,34 @@
 				inst.skeleton.scaleX = sx;
 				// Flip Y: the runtime art is y-up; the camera is y-down.
 				inst.skeleton.scaleY = -sy;
+			}
+			// Explicit size box: FIT the skeleton to the node's width/height (per-axis
+			// `boxDim / naturalDim`, multiplied onto whatever scale the branch set), exactly
+			// like the game's `spineSizeScale`. Makes an authored width×height WYSIWYG for a
+			// rig with no natural bounds. Skipped for placement/background art (those size to
+			// the frame/cover, never to a node box) and when no size is set (parity).
+			if (
+				(target.width !== undefined || target.height !== undefined) &&
+				!target.placement &&
+				target.space !== 'background'
+			) {
+				const nat = naturalSizeOf(inst);
+				if (nat && nat.w > 0 && nat.h > 0) {
+					// Mirror `spineSizeScale` EXACTLY: both dims → per-axis (no `fit` for non-bg);
+					// a single dim → UNIFORM by that ratio (aspect preserved). Else editor↔game drift.
+					let fx: number;
+					let fy: number;
+					if (target.width !== undefined && target.height !== undefined) {
+						fx = target.width / nat.w;
+						fy = target.height / nat.h;
+					} else if (target.width !== undefined) {
+						fx = fy = target.width / nat.w;
+					} else {
+						fx = fy = (target.height as number) / nat.h;
+					}
+					inst.skeleton.scaleX *= fx;
+					inst.skeleton.scaleY *= fy;
+				}
 			}
 			// Bake the editor pan/zoom into the skeleton so it maps EXACTLY like the 2D
 			// canvas. The vendored OrthoCamera is set up with up=(0,-1,0) to cancel
