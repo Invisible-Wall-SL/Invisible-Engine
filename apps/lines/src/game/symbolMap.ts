@@ -25,10 +25,30 @@ let cached: SymbolInfoMap | null = null;
  * lazily on first symbol render (memoised) so module-init order never races the
  * baked-bundle import. Un-baked repos (`bakedSymbolMap()` → undefined) get the coded
  * map byte-for-byte — dev parity.
+ *
+ * The memo holds for the BAKED path (the overrides are a static `import`, present at
+ * module-init). It does NOT hold for the live RUNTIME path (Invisible Game Maker): there
+ * the overrides arrive via an async fetch in `+layout.ts`'s `load()`, which resolves
+ * AFTER module evaluation — and `infoManifest.ts` calls `getSymbolInfo` at import time,
+ * so the first call here memoises the coded map BEFORE the overrides land, freezing every
+ * symbol to the template default. {@link resetSymbolMapCache} clears the memo once the
+ * runtime bundle is applied (see `Game.svelte`), so the next render recomputes WITH the
+ * overrides.
  */
 export function getActiveSymbolInfoMap(): SymbolInfoMap {
 	if (!cached) cached = mergeSymbolMap(SYMBOL_INFO_MAP, bakedSymbolMap());
 	return cached;
+}
+
+/**
+ * Drop the {@link getActiveSymbolInfoMap} memo so the next call recomputes the merge.
+ * Called once the live runtime bundle is fetched + applied (`Game.svelte`), to discard a
+ * map that was memoised at import time (before the async overrides arrived) — otherwise
+ * an online game renders the coded template symbols forever. A no-op for the baked path
+ * (the memo there was already correct), preserving dev parity.
+ */
+export function resetSymbolMapCache(): void {
+	cached = null;
 }
 
 const DEFAULT_SIZE_RATIOS = { width: 1, height: 1 } as const;

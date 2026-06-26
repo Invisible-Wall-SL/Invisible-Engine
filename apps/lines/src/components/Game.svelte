@@ -63,6 +63,7 @@
 	import type { Scene } from 'engine-layout';
 
 	import { infoManifest } from '../game/infoManifest';
+	import { resetSymbolMapCache } from '../game/symbolMap';
 	import { createLinesFlow, type LinesFlow } from '../game/flowRuntime.svelte';
 	import { setFlowInterpreter } from '../game/flowInterpreterHolder';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
@@ -132,6 +133,12 @@
 			...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase()),
 			...bakedSymbolAssets(),
 		};
+		// The symbol→binding map is memoised on first read (`symbolMap.ts`), and
+		// `infoManifest.ts` reads it at IMPORT time — before this async runtime bundle
+		// landed — so the memo froze to the coded template symbols. Drop it now that the
+		// overrides are live, so the first reel render recomputes the merge WITH them.
+		// Otherwise an online game shows the template defaults despite a baked symbols doc.
+		resetSymbolMapCache();
 	}
 
 	// `HudTicker`/`HudCaption`/`HudValue` are the three coded parts the `hudReadout`
