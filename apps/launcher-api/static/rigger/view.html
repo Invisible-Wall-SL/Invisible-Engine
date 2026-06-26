@@ -343,6 +343,7 @@
         <button id="bonesBtn" class="active" title="Toggle bone overlay">Bones</button>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
+        <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). Drag the handles to set a custom frame; Shift-click to re-fit automatically.">Bounds</button>
         <button id="fit">Reset view</button>
       </div>
       <div class="grp" id="animTools" style="display:none;">
@@ -463,6 +464,8 @@ let gl, renderer, assetMgr;
 let skeleton, animState, skeletonData, lastFrame = 0;
 let playing = true, looping = true, showBones = true, pma = true, preferPng = true;
 let showMesh = false;
+let showBounds = false; // draw + edit the rig's size frame (skeleton bounds) on the canvas
+let boundsDrag = null;  // active bounds-handle drag: { mode, start:{x,y,w,h}, startCursor:{x,y} }
 let boneScale = 1; // bone overlay marker size (dots + arrowheads)
 let showAttachments = true; // when false, the skin's images/meshes are hidden (bones only) for unobstructed bone editing
 let selBone = null; // index into skeleton.bones / skeletonData.bones
@@ -4998,34 +5001,50 @@ function fitView(){
 function computeRigBounds(){
   if (!skeleton || !skeletonData) return null;
   const off = new SPINE.Vector2(), size = new SPINE.Vector2();
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  const accumulate = () => {
+  // One measurement of the CURRENT pose → {x,y,w,h} (y-up) or null when degenerate.
+  const measure = () => {
     updateWorld();
     skeleton.getBounds(off, size, []);
-    if (size.x > 0 && size.y > 0){
-      if (off.x < minX) minX = off.x;
-      if (off.y < minY) minY = off.y;
-      if (off.x + size.x > maxX) maxX = off.x + size.x;
-      if (off.y + size.y > maxY) maxY = off.y + size.y;
-    }
+    return size.x > 0 && size.y > 0 ? { x: off.x, y: off.y, w: size.x, h: size.y } : null;
   };
   try {
-    skeleton.setToSetupPose(); accumulate();
+    // Prefer the RESTING (setup) pose — the rig's natural look, so a sized spine matches
+    // what's on screen most of the time. Only when the setup pose is EMPTY (art shown
+    // solely via animation attachment-keys → bounds 0) do we union across every animation
+    // (the prior behaviour) so such a rig still gets a usable natural size.
+    skeleton.setToSetupPose();
+    const setup = measure();
+    if (setup){
+      skeleton.setToSetupPose(); updateWorld(); // restore the live view
+      return { x: setup.x, y: setup.y, width: setup.w, height: setup.h };
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const a of skeletonData.animations){
       const dur = a.duration || 0;
       const steps = dur > 0 ? [0, 0.25, 0.5, 0.75, 1] : [0];
-      for (const f of steps){ skeleton.setToSetupPose(); poseAtTime(a.name, dur * f); accumulate(); }
+      for (const f of steps){
+        skeleton.setToSetupPose(); poseAtTime(a.name, dur * f);
+        const m = measure();
+        if (m){
+          if (m.x < minX) minX = m.x;
+          if (m.y < minY) minY = m.y;
+          if (m.x + m.w > maxX) maxX = m.x + m.w;
+          if (m.y + m.h > maxY) maxY = m.y + m.h;
+        }
+      }
     }
-  } catch (e){ /* fall through to whatever we accumulated */ }
-  skeleton.setToSetupPose(); updateWorld(); // restore the live view
-  if (maxX > minX && maxY > minY) return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    skeleton.setToSetupPose(); updateWorld(); // restore the live view
+    if (maxX > minX && maxY > minY) return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  } catch (e){ try { skeleton.setToSetupPose(); updateWorld(); } catch (e2){ /* */ } }
   return null;
 }
 
 // Write the computed bounds into `rawDoc.skeleton` (rounded). No-op if unmeasurable, so a
-// save never fails on this. Call right before any save/export of `rawDoc`.
+// save never fails on this. Call right before any save/export of `rawDoc`. Skipped when the
+// author has LOCKED a custom frame via the Bounds box (`iwLockBounds`) — their size wins.
 function ensureRigBounds(){
   if (!rawDoc) return;
+  if (rawDoc.skeleton && rawDoc.skeleton.iwLockBounds) return;
   const b = computeRigBounds();
   if (!b) return;
   const r2 = (n) => Math.round(n * 100) / 100;
@@ -5034,6 +5053,74 @@ function ensureRigBounds(){
   rawDoc.skeleton.y = r2(b.y);
   rawDoc.skeleton.width = r2(b.width);
   rawDoc.skeleton.height = r2(b.height);
+}
+
+// ---- bounds box (the on-canvas size frame = `skeleton.{x,y,width,height}`) ------------
+// A draggable rectangle in WORLD space showing the rig's natural-size frame. The author can
+// resize/move it (edge/corner/centre handles) to set a CUSTOM frame, which LOCKS the bounds
+// (`iwLockBounds`) so auto-fit on save won't clobber it. Shift-clicking the toolbar button
+// re-fits to auto. Coordinates are skeleton-world y-up (bottom-left origin = x,y), drawn via
+// the same `renderer.line/circle` overlay the bones/gizmo use.
+function rigBoundsRect(){
+  const s = rawDoc && rawDoc.skeleton;
+  if (!s || !(s.width > 0) || !(s.height > 0)) return null;
+  return { x: s.x || 0, y: s.y || 0, w: s.width, h: s.height };
+}
+function setRigBoundsRect(r){
+  if (!rawDoc) return;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  rawDoc.skeleton = rawDoc.skeleton || {};
+  rawDoc.skeleton.x = r2(r.x);
+  rawDoc.skeleton.y = r2(r.y);
+  rawDoc.skeleton.width = r2(Math.max(1, r.w));
+  rawDoc.skeleton.height = r2(Math.max(1, r.h));
+  rawDoc.skeleton.iwLockBounds = true; // a hand-set frame; don't auto-overwrite on save
+  markDirty();
+}
+// Which bounds handle is under the cursor: a corner (nw/ne/sw/se), edge (n/s/e/w), the
+// centre ('move'), or null. Tolerance scales with zoom (like the gizmo). y-up world.
+function boundsHit(e){
+  const r = rigBoundsRect(); if (!r) return null;
+  const cw = cursorWorld(e); if (!cw) return null;
+  const tol = (renderer ? renderer.camera.zoom : 1) * 9;
+  const left = r.x, right = r.x + r.w, bot = r.y, top = r.y + r.h, cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  const near = (hx, hy) => Math.hypot(cw.x - hx, cw.y - hy) <= tol;
+  if (near(cx, cy)) return "move";
+  if (near(left, top)) return "nw"; if (near(right, top)) return "ne";
+  if (near(left, bot)) return "sw"; if (near(right, bot)) return "se";
+  if (near(cx, top)) return "n"; if (near(cx, bot)) return "s";
+  if (near(right, cy)) return "e"; if (near(left, cy)) return "w";
+  return null;
+}
+function applyBoundsDrag(cw){
+  if (!boundsDrag) return;
+  const s = boundsDrag.start, m = boundsDrag.mode;
+  if (m === "move"){
+    setRigBoundsRect({ x: s.x + (cw.x - boundsDrag.startCursor.x), y: s.y + (cw.y - boundsDrag.startCursor.y), w: s.w, h: s.h });
+    return;
+  }
+  let left = s.x, right = s.x + s.w, bot = s.y, top = s.y + s.h;
+  if (m.includes("e")) right = cw.x;
+  if (m.includes("w")) left = cw.x;
+  if (m.includes("n")) top = cw.y;
+  if (m.includes("s")) bot = cw.y;
+  const nx = Math.min(left, right), nr = Math.max(left, right), nb = Math.min(bot, top), nt = Math.max(bot, top);
+  setRigBoundsRect({ x: nx, y: nb, w: Math.max(1, nr - nx), h: Math.max(1, nt - nb) });
+}
+function drawBoundsOverlay(){
+  if (!showBounds || !rawDoc) return;
+  const r = rigBoundsRect(); if (!r) return;
+  if (typeof renderer.line !== "function" || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const col = new SPINE.Color(0.49, 0.88, 0.75, 0.95); // teal #7ee0c0
+  const left = r.x, right = r.x + r.w, bot = r.y, top = r.y + r.h, cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  renderer.line(left, bot, right, bot, col);
+  renderer.line(right, bot, right, top, col);
+  renderer.line(right, top, left, top, col);
+  renderer.line(left, top, left, bot, col);
+  const z = renderer.camera.zoom, hr = z * 5;
+  const handles = [[left, bot], [right, bot], [right, top], [left, top], [cx, bot], [cx, top], [left, cy], [right, cy]];
+  for (const h of handles) renderer.circle(true, h[0], h[1], hr, col, 12);
+  renderer.circle(false, cx, cy, z * 9, col, 20); // centre = move handle
 }
 
 // ---- render loop ----------------------------------------------------------
@@ -5097,6 +5184,7 @@ function frame(now){
     drawDrawingOverlay();
     if (showBones) drawBonesOverlay();
     drawGizmo();
+    drawBoundsOverlay();
     renderer.end();
     updateBoneMarker();
     if (animMode) syncPlayhead(); else syncScrub();
@@ -5335,6 +5423,18 @@ function wire(){
   $("#newRigCreate").onclick = createNewRig;
   $("#newRigFiles").onchange = (e) => { if (e.target.files && e.target.files.length) createRigFromImages(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
+  $("#boundsBtn").onclick = (e) => {
+    // Shift-click = re-fit the frame automatically (clear a hand-set lock + recompute).
+    if (e.shiftKey && rawDoc && rawDoc.skeleton){
+      delete rawDoc.skeleton.iwLockBounds;
+      ensureRigBounds(); markDirty();
+      showBounds = true; $("#boundsBtn").classList.add("active");
+      return;
+    }
+    showBounds = !showBounds;
+    if (showBounds && !rigBoundsRect()) ensureRigBounds(); // compute a frame to show if none yet
+    $("#boundsBtn").classList.toggle("active", showBounds);
+  };
   $("#boneSize").oninput = e => { boneScale = parseFloat(e.target.value) || 1; };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
@@ -5351,6 +5451,15 @@ function wire(){
   cv.addEventListener("mousedown", e => {
     // Middle mouse button always pans the canvas (never edits) — regardless of mode.
     if (e.button === 1){ e.preventDefault(); dragging = true; lastXY = [e.clientX, e.clientY]; return; }
+    // Bounds box: when shown, grabbing a handle starts a resize/move. Only acts on a HANDLE
+    // hit, so clicking elsewhere still edits bones/mesh normally (no mode lock-out).
+    if (showBounds && rawDoc && !e.shiftKey){
+      const bh = boundsHit(e);
+      if (bh){
+        const r = rigBoundsRect(), cw = cursorWorld(e);
+        if (r && cw){ boundsDrag = { mode: bh, start: r, startCursor: { x: cw.x, y: cw.y } }; lastXY = [e.clientX, e.clientY]; return; }
+      }
+    }
     // Drawing a mesh: click an existing boundary point to select+drag it; else add one.
     if (editMode && drawMeshMode && !e.shiftKey){
       const hit = nearestDrawPoint(e);
@@ -5400,6 +5509,7 @@ function wire(){
     lastXY = [e.clientX, e.clientY];
   });
   window.addEventListener("mouseup", () => {
+    if (boundsDrag){ boundsDrag = null; } // bounds frame committed live in applyBoundsDrag
     brushPainting = false;
     const wasMeshDrag = meshDragVert != null;
     if (wasMeshDrag){ meshDragVert = null; meshUVFrame = null; }
@@ -5464,7 +5574,11 @@ function wire(){
     if (!renderer || !lastXY) return;
     const dpr = window.devicePixelRatio || 1;
     const dxCss = e.clientX - lastXY[0], dyCss = e.clientY - lastXY[1];
-    if (gizmoDrag){ // rotate the selected bone around its origin
+    if (boundsDrag){ // resize/move the rig's size frame
+      const cw = cursorWorld(e);
+      if (cw) applyBoundsDrag(cw);
+      lastXY = [e.clientX, e.clientY];
+    } else if (gizmoDrag){ // rotate the selected bone around its origin
       const cw = cursorWorld(e);
       if (cw){
         lastGizmoCursor = cw;

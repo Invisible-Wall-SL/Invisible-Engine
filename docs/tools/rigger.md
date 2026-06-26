@@ -11,7 +11,7 @@ A browser-based rigging tool, comparable in scope to the desktop Spine Editor,
 that we own end-to-end — no Spine licence needed to rig or animate. Its native
 file is a Spine **4.2 runtime export JSON** saved under our own `.irig`
 extension, so rigs round-trip with the official runtime and the desktop Spine
-Editor stays usable alongside it (it can *import* the JSON, though not a lossless
+Editor stays usable alongside it (it can _import_ the JSON, though not a lossless
 `.spine` project round-trip).
 
 It is built on the existing Invisible Spine Viewer — the WebGL renderer, pan/zoom,
@@ -63,10 +63,27 @@ you create are scoped to the project you have selected.
 > open rig are guarded by a confirm.
 
 Stage controls: **scroll = zoom**, **drag = pan**, **Reset view** re-fits. The
-bottom bar toggles the **Bones** overlay (with a size slider) and the **Mesh**
-hull/triangle overlay, and has **❚❚ Pause / ▶ Play**, **↻ Loop**, an **Anim**
-picker, a **Skin** picker, a **scrub** bar with a numeric time field, and a
-**Speed** control.
+bottom bar toggles the **Bones** overlay (with a size slider), the **Mesh**
+hull/triangle overlay, and the **Bounds** size frame, and has **❚❚ Pause / ▶
+Play**, **↻ Loop**, an **Anim** picker, a **Skin** picker, a **scrub** bar with a
+numeric time field, and a **Speed** control.
+
+### Bounds (the rig's size frame)
+
+Every rig carries a **natural size** — `skeleton.{x,y,width,height}` — which is
+what sizes/anchors the spine in the editor and the game (so a placed spine has a
+predictable size, not a guess). It is written automatically on every save: the
+**resting (setup) pose** is measured first, falling back to a union across all
+animations only when the setup pose is empty (art shown solely via animation
+keys). Preferring the setup pose means the natural size matches the rig's calm
+look, not its widest animation frame.
+
+The **Bounds** toolbar button shows that frame as a teal rectangle on the canvas.
+Drag its **edge / corner** handles to resize it or the **centre** handle to move
+it — this sets a **custom** frame and _locks_ it, so the auto-fit on save won't
+overwrite your choice. **Shift-click** the Bounds button to re-fit automatically
+(clears the lock and re-measures). Use this when you want the spine to size to a
+deliberate frame (e.g. just the body) rather than the measured art extent.
 
 ### The three modes
 
@@ -131,7 +148,7 @@ A floating segmented toggle at the top of the stage switches the workflow:
   channel, plus a **◆ Key all transforms** button that keys all three at once for
   the selected bone. Bottom-bar tools: **◆ Key** (keys rotate+translate+scale of the
   selected bone, or attachment+colour of the selected slot), **◆ Key all** (keys
-  *every* bone's pose plus *every* slot's attachment + colour at the playhead),
+  _every_ bone's pose plus _every_ slot's attachment + colour at the playhead),
   **|◀ / ▶|** prev/next key, **✕ Key** deletes the key at the playhead. The
   rotate/move gizmo also keys on release.
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
@@ -158,6 +175,7 @@ A floating segmented toggle at the top of the stage switches the workflow:
   easing menu.
 - Slot animation is supported too. With a slot (object) selected in Animate mode
   its Properties give three keyable channels at the playhead:
+
   - **shows** — which **attachment** (image/mesh) is visible (stepped swap).
   - **colour** — the slot's **tint** (RGB only; opacity is preserved).
   - **opacity** — a dedicated 0–100% slider plus a **◆ Key opacity** button to
@@ -221,9 +239,10 @@ dropdown (first option "— none (blank skeleton) —"). With a rig selected, th
 is created **carrying that rig's bones + animations + constraints** instead of a blank
 skeleton — for **both** art sources (project atlas and uploaded images). This is the
 "move the rig onto a new object" path: create against the new object's art, then attach
-+ mesh + weight to the imported bones.
 
-**Import into the open rig (namespaced merge).** *Import into open rig* merges a saved
+- mesh + weight to the imported bones.
+
+**Import into the open rig (namespaced merge).** _Import into open rig_ merges a saved
 rig into the live rig **without touching anything that's already there**. Every imported
 name (bones, slots, skins, constraints, **and** animations) is given a unique prefix —
 `<rigname>_…`, bumped with a counter if needed — so nothing can collide; the imported
@@ -235,15 +254,15 @@ every parent still precedes its children. The imported animations show up in the
 nothing from the current rig.
 
 **The by-name / re-skin caveat (important).** A saved rig's attachments reference atlas
-**regions by name**. When you apply or import a rig onto a *different* object, those
+**regions by name**. When you apply or import a rig onto a _different_ object, those
 region names **won't resolve against the new object's atlas**. The rig still **opens** —
 the Rigger loads any unresolved image as an invisible placeholder rather than failing —
 and an amber **"N images not in this atlas"** banner lists what's missing. The bones and
 animations come over intact; the imported art stays blank until you **re-attach the new
 object's art** to the imported slots (each slot's **image** dropdown), build/convert a
 mesh, and **weight it to the imported bones**. That's by design: the rig library moves the
-*rig* (skeleton + motion); you re-skin it to the new mesh with the normal Setup/weight
-tools. Re-pointing a slot to an image that *is* in the atlas clears it from the banner.
+_rig_ (skeleton + motion); you re-skin it to the new mesh with the normal Setup/weight
+tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the banner.
 
 ### Create a rig from scratch
 
@@ -321,9 +340,9 @@ keeps showing the OLD image — its copy is never auto-updated.
   and the available corpus is the wrong test data (no representative character
   mesh). A proper auto-weights algorithm is future work; the manual brush is the
   guaranteed path meanwhile.
-- **No lossless desktop-Spine project round-trip.** `.irig` is the Spine *runtime
-  export* format; the desktop editor's proprietary `.spine` project file can't be
-  authored. Desktop Spine can *import* our JSON, but that's an import, not a
+- **No lossless desktop-Spine project round-trip.** `.irig` is the Spine _runtime
+  export_ format; the desktop editor's proprietary `.spine` project file can't be
+  authored. Desktop Spine can _import_ our JSON, but that's an import, not a
   pristine project round-trip — an Esoteric limitation, not ours.
 - **JSON only for editing.** Editing writes/exports JSON `.irig`; binary `.skel`
   is view-only.
