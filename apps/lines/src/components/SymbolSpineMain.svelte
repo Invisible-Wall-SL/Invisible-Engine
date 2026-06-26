@@ -14,23 +14,22 @@
 	};
 
 	const props: Props = $props();
-
-	// CONTAIN sizing (the reel's "Symbol size (× cell)" global → `symbolFit === 'contain'`):
-	// fit the spine INSIDE the SYMBOL_SIZE × ratio box preserving its aspect, exactly like the
-	// sprite path (`SymbolSprite` `contain`). Without it a wide/tall rig (e.g. a character
-	// spine) only had its HEIGHT pinned, so it overflowed the cell. The per-symbol 'stretch'
-	// path is unchanged — height-only, byte-identical parity — so only a reel-control game
-	// (or any future contain provenance) gets the new fit.
-	const fitContain = $derived(props.symbolInfo.symbolFit === 'contain');
 </script>
 
+<!--
+	Symbol size comes from the ART, not a size param: the spine CONTAIN-fits the cell
+	(`SYMBOL_SIZE` box, native aspect preserved), exactly like `SymbolSprite`. No `sizeRatios`
+	multiplier — authored per-symbol/global sizes were removed from the result (owner
+	direction). The rig's NATURAL size (its `skeleton` bounds, authored in the Rigger) decides
+	how the art sits inside the cell, so you size a spine by its bounds, not a number.
+-->
 <SpineProvider
 	x={props.x}
 	y={props.y}
 	key={props.symbolInfo.assetKey}
-	width={fitContain ? SYMBOL_SIZE * props.symbolInfo.sizeRatios.width : undefined}
-	height={SYMBOL_SIZE * props.symbolInfo.sizeRatios.height}
-	fit={fitContain ? 'contain' : undefined}
+	width={SYMBOL_SIZE}
+	height={SYMBOL_SIZE}
+	fit="contain"
 >
 	<SpineTrack
 		loop={props.loop}

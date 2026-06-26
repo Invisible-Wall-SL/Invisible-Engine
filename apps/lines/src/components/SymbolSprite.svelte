@@ -24,12 +24,18 @@
 	});
 </script>
 
+<!--
+	Symbol size comes from the ART, not a size param: the sprite CONTAIN-fits the cell
+	(`SYMBOL_SIZE` box, native aspect preserved). No `sizeRatios` multiplier — authored
+	per-symbol/global sizes were removed from the result (owner direction), so every symbol
+	sits at one cell size and you size it by cropping the art, not by a number.
+-->
 <Sprite
 	x={props.x}
 	y={props.y}
 	anchor={0.5}
 	key={props.symbolInfo.assetKey}
-	width={SYMBOL_SIZE * props.symbolInfo.sizeRatios.width}
-	height={SYMBOL_SIZE * props.symbolInfo.sizeRatios.height}
-	contain={props.symbolInfo.symbolFit === 'contain'}
+	width={SYMBOL_SIZE}
+	height={SYMBOL_SIZE}
+	contain
 />
