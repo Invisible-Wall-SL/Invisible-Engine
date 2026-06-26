@@ -26,6 +26,7 @@
 	import {
 		resolveButtonStateImage,
 		resolveButtonStateAnimation,
+		mergeButtonStateAnimations,
 		BUTTON_STATE_IMAGE_KEYS,
 	} from './buttonStateImage';
 	import { setComponentStateAnims } from './componentStateAnimContext';
@@ -247,8 +248,16 @@
 		const map = new Map<string, ButtonStateAnimations>();
 		if (!allowed || !def) return map;
 		const walk = (n: LayoutNode): void => {
-			if (n.kind === 'spine' && n.stateAnimations) {
-				map.set(n.id, n.stateAnimations);
+			if (n.kind === 'spine') {
+				// Overlay this placement's per-state override (if any) on the def's map —
+				// so two instances of one button can play different state animations
+				// (the spine analogue of a per-instance `imageHover` override). No
+				// override ⇒ the def map verbatim (parity).
+				const merged = mergeButtonStateAnimations(
+					n.stateAnimations,
+					node.stateAnimationOverrides?.[n.id],
+				);
+				if (merged) map.set(n.id, merged);
 			} else if (n.kind === 'container') {
 				for (const child of n.children) walk(child);
 			}

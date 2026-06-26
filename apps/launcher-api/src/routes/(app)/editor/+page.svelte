@@ -2643,6 +2643,27 @@
 					selectedNode.params = Object.keys(params).length ? params : undefined;
 					markDirty();
 				}}
+				onSetInstanceStateAnim={(nodeId, state, animation) => {
+					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+					const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
+					const map = { ...(all[nodeId] ?? {}) };
+					const trimmed = animation.trim();
+					if (trimmed) map[state] = { animation: trimmed, loop: map[state]?.loop };
+					else delete map[state];
+					if (Object.keys(map).length) all[nodeId] = map;
+					else delete all[nodeId];
+					selectedNode.stateAnimationOverrides = Object.keys(all).length ? all : undefined;
+					markDirty();
+				}}
+				onSetInstanceStateAnimLoop={(nodeId, state, loop) => {
+					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+					const cur = selectedNode.stateAnimationOverrides?.[nodeId]?.[state];
+					if (!cur) return;
+					const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
+					all[nodeId] = { ...all[nodeId], [state]: { ...cur, loop: loop || undefined } };
+					selectedNode.stateAnimationOverrides = all;
+					markDirty();
+				}}
 				onOpenComponentEditor={openComponentEditor}
 				onUpdateInstanceToLatest={updateInstanceToLatest}
 			/>
@@ -2651,8 +2672,8 @@
 				<PanelSection id="canvas-size" title="Canvas Size">
 					<div class="gs-body">
 						<p class="gs-note">
-							The game's MAIN box for <strong>{currentLayoutType}</strong> — the runtime scales it
-							to fill the window. Author your nodes against this box.
+							The game's MAIN box for <strong>{currentLayoutType}</strong> — the runtime scales it to
+							fill the window. Author your nodes against this box.
 						</p>
 						<label class="gs-field">
 							<span class="gs-label">Width</span>

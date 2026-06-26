@@ -316,6 +316,16 @@ export interface ComponentInstanceNode extends BaseNode {
 	componentVersion?: number;
 	/** Author-set overrides for the component's {@link ComponentParam}s. */
 	params?: Record<string, unknown>;
+	/**
+	 * Per-instance overrides for a spine node's button {@link ButtonStateAnimations}
+	 * (its "Plays on button state" map), keyed by the spine node's `id` inside the
+	 * resolved {@link ComponentDef.root}. Each entry overlays the def's per-state
+	 * animation for THIS placement only — an absent state inherits the def — so two
+	 * placements of one button can play different state animations (the spine
+	 * analogue of overriding `imageHover`/`imagePressed`/… per instance). Merged at
+	 * runtime by `mergeButtonStateAnimations`; absent ⇒ the def map is used verbatim
+	 * (parity). */
+	stateAnimationOverrides?: Record<string, ButtonStateAnimations>;
 }
 
 /**

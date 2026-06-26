@@ -107,3 +107,22 @@ export function resolveButtonStateAnimation(
 		return entry && entry.animation ? entry : undefined;
 	}, state);
 }
+
+/**
+ * Overlay a per-instance {@link ButtonStateAnimations} override on the def's base
+ * map — a PER-STATE replace: an overridden state wins outright, an absent state
+ * inherits the base. An override entry with an empty `animation` clears that state
+ * for the instance (the cascade then skips it, exactly like a cleared editor
+ * field). Returns `undefined` when the merged result is empty so a button with
+ * neither a def map nor an override stays byte-identical to today. Used by
+ * `<ComponentInstance>` so a placement can drive different state animations than
+ * the def declares (the spine analogue of overriding `imageHover`/… per instance).
+ */
+export function mergeButtonStateAnimations(
+	base: ButtonStateAnimations | undefined,
+	override: ButtonStateAnimations | undefined,
+): ButtonStateAnimations | undefined {
+	if (!override) return base;
+	const merged: ButtonStateAnimations = { ...(base ?? {}), ...override };
+	return Object.keys(merged).length ? merged : undefined;
+}

@@ -121,6 +121,13 @@
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
+		/** Set / clear a per-instance button-state spine-animation override for a spine
+		 * node (by id) of the selected instance's def (scene mode). Empty `animation`
+		 * clears that state's override (it inherits the def). */
+		onSetInstanceStateAnim?: (nodeId: string, state: ButtonAnimState, animation: string) => void;
+		/** Toggle loop on a per-instance state-animation override (no-op until the state
+		 * has an override animation). */
+		onSetInstanceStateAnimLoop?: (nodeId: string, state: ButtonAnimState, loop: boolean) => void;
 		/** "Edit in Component Editor": open the selected instance's def (`componentId`) in
 		 * the standalone Component Editor (new tab). Scene mode, componentInstance only. */
 		onOpenComponentEditor?: (componentId: string) => void;
@@ -160,12 +167,38 @@
 		onUnexposeTextParams,
 		onToggleSignal,
 		onSetInstanceParam,
+		onSetInstanceStateAnim,
+		onSetInstanceStateAnimLoop,
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
 	}: Props = $props();
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+
+	/** True when the SELECTED INSTANCE's def is an interactive button (declares an
+	 * `action` param) — only then do its spine nodes' button-state animations apply,
+	 * so only then is the per-instance state-animation override panel meaningful. */
+	const instanceInteractive = $derived(
+		(instanceComponent?.params ?? []).some((p) => p.key === 'action'),
+	);
+	/** Spine nodes inside the selected instance's def root — each can carry a
+	 * "Plays on button state" map the placement may override per state. */
+	const instanceSpineNodes = $derived.by<SpineNode[]>(() => {
+		if (!instanceComponent) return [];
+		const out: SpineNode[] = [];
+		const walk = (n: LayoutNode): void => {
+			if (n.kind === 'spine') out.push(n);
+			else if (n.kind === 'container') for (const child of n.children) walk(child);
+		};
+		walk(instanceComponent.root);
+		return out;
+	});
+	/** This instance's override animation for (spine node, state), or undefined. */
+	function instanceStateAnimOf(nodeId: string, state: ButtonAnimState) {
+		if (node?.kind !== 'componentInstance') return undefined;
+		return node.stateAnimationOverrides?.[nodeId]?.[state];
+	}
 
 	/** True when the selected instance's resolved def is an OVERLAY — only overlays
 	 * surface the shared Tap-to-continue toggle (Invisible Flow §6.2). Scene mode only;
@@ -1565,6 +1598,62 @@
 						This component declares no author-set params (engine-provided params are fed at
 						runtime).
 					</p>
+				{/if}
+				{#if instanceInteractive && instanceSpineNodes.length > 0}
+					<details class="param-group" open>
+						<summary>State animations</summary>
+						<p class="muted small">
+							Override which spine animation THIS placement plays per button state — leave a state
+							on <em>(inherit)</em> to keep the component's default. Lets two copies of the same button
+							animate differently.
+						</p>
+						{#each instanceSpineNodes as sp (sp.id)}
+							{@const meta = spineMeta.get(sp.assetKey)}
+							<div class="state-anim-node">
+								<h5 class="sub-h">{sp.label ?? sp.id}</h5>
+								{#each BUTTON_ANIM_STATES as st (st.key)}
+									{@const ov = instanceStateAnimOf(sp.id, st.key)}
+									{@const inherit = sp.stateAnimations?.[st.key]?.animation}
+									<div class="bind-grid cue-row">
+										<label class="field">
+											<span>{st.label}</span>
+											{#if meta?.animations?.length}
+												<select
+													value={ov?.animation ?? ''}
+													onchange={(e) =>
+														onSetInstanceStateAnim?.(sp.id, st.key, e.currentTarget.value)}
+												>
+													<option value="">{inherit ? `(inherit: ${inherit})` : '(inherit)'}</option
+													>
+													{#each meta.animations as anim (anim)}
+														<option value={anim}>{anim}</option>
+													{/each}
+												</select>
+											{:else}
+												<input
+													type="text"
+													placeholder={inherit ? `inherit: ${inherit}` : 'animation name'}
+													value={ov?.animation ?? ''}
+													oninput={(e) =>
+														onSetInstanceStateAnim?.(sp.id, st.key, e.currentTarget.value)}
+												/>
+											{/if}
+										</label>
+										<label class="field check">
+											<input
+												type="checkbox"
+												checked={ov?.loop ?? false}
+												disabled={!ov}
+												onchange={(e) =>
+													onSetInstanceStateAnimLoop?.(sp.id, st.key, e.currentTarget.checked)}
+											/>
+											<span>loop</span>
+										</label>
+									</div>
+								{/each}
+							</div>
+						{/each}
+					</details>
 				{/if}
 				{#if isOverlayInstance}
 					<details class="param-group" open={Boolean(node.params?.tapToContinue)}>
