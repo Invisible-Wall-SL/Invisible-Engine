@@ -29,6 +29,7 @@
 		LayoutType,
 		Scene,
 		SlotKind,
+		SpineRestOverride,
 		TemplateSlot,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
@@ -2662,6 +2663,27 @@
 					const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
 					all[nodeId] = { ...all[nodeId], [state]: { ...cur, loop: loop || undefined } };
 					selectedNode.stateAnimationOverrides = all;
+					markDirty();
+				}}
+				onSetInstanceSpineRest={(nodeId, patch) => {
+					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+					const all = { ...(selectedNode.spineRestOverrides ?? {}) };
+					const cur: SpineRestOverride = { ...(all[nodeId] ?? {}) };
+					if ('defaultAnimation' in patch) {
+						if (patch.defaultAnimation) cur.defaultAnimation = patch.defaultAnimation;
+						else delete cur.defaultAnimation;
+					}
+					if ('loop' in patch) {
+						if (patch.loop === undefined) delete cur.loop;
+						else cur.loop = patch.loop;
+					}
+					if ('skin' in patch) {
+						if (patch.skin) cur.skin = patch.skin;
+						else delete cur.skin;
+					}
+					if (Object.keys(cur).length) all[nodeId] = cur;
+					else delete all[nodeId];
+					selectedNode.spineRestOverrides = Object.keys(all).length ? all : undefined;
 					markDirty();
 				}}
 				onOpenComponentEditor={openComponentEditor}

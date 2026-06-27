@@ -30,6 +30,7 @@
 		BUTTON_STATE_IMAGE_KEYS,
 	} from './buttonStateImage';
 	import { setComponentStateAnims } from './componentStateAnimContext';
+	import { setComponentSpineRest } from './componentSpineRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
@@ -481,6 +482,10 @@
 		}
 	});
 	setComponentStateAnims(allowed && def ? stateAnims : {});
+	// Per-instance RESTING spine overrides (default animation / loop / skin) — static
+	// per placement, so provided once at init (no `$effect`). No overrides ⇒ `{}` ⇒
+	// each spine uses its def values (parity). Read by `<LayoutNodeView>`'s spine block.
+	setComponentSpineRest(allowed && def ? (node.spineRestOverrides ?? {}) : {});
 
 	const cursor = $derived(liveDisabled ? 'not-allowed' : 'pointer');
 	const onpress = () => {

@@ -27,6 +27,7 @@
 		type ReelSpinProfile,
 		type SpineCue,
 		type SpineNode,
+		type SpineRestOverride,
 		type TextStyle,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
@@ -128,6 +129,10 @@
 		/** Toggle loop on a per-instance state-animation override (no-op until the state
 		 * has an override animation). */
 		onSetInstanceStateAnimLoop?: (nodeId: string, state: ButtonAnimState, loop: boolean) => void;
+		/** Patch a spine node's per-instance RESTING override (default animation / loop /
+		 * skin) for the selected instance (scene mode). Only the fields present in `patch`
+		 * change; a field set to `undefined`/`''` clears that override (inherits the def). */
+		onSetInstanceSpineRest?: (nodeId: string, patch: Partial<SpineRestOverride>) => void;
 		/** "Edit in Component Editor": open the selected instance's def (`componentId`) in
 		 * the standalone Component Editor (new tab). Scene mode, componentInstance only. */
 		onOpenComponentEditor?: (componentId: string) => void;
@@ -169,6 +174,7 @@
 		onSetInstanceParam,
 		onSetInstanceStateAnim,
 		onSetInstanceStateAnimLoop,
+		onSetInstanceSpineRest,
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
 	}: Props = $props();
@@ -198,6 +204,12 @@
 	function instanceStateAnimOf(nodeId: string, state: ButtonAnimState) {
 		if (node?.kind !== 'componentInstance') return undefined;
 		return node.stateAnimationOverrides?.[nodeId]?.[state];
+	}
+	/** This instance's RESTING override (default animation / loop / skin) for a spine
+	 * node, or undefined when the placement inherits the def. */
+	function instanceSpineRestOf(nodeId: string): SpineRestOverride | undefined {
+		if (node?.kind !== 'componentInstance') return undefined;
+		return node.spineRestOverrides?.[nodeId];
 	}
 
 	/** True when the selected instance's resolved def is an OVERLAY — only overlays
@@ -1599,58 +1611,128 @@
 						runtime).
 					</p>
 				{/if}
-				{#if instanceInteractive && instanceSpineNodes.length > 0}
+				{#if instanceSpineNodes.length > 0}
 					<details class="param-group" open>
-						<summary>State animations</summary>
+						<summary>Spine (this placement)</summary>
 						<p class="muted small">
-							Override which spine animation THIS placement plays per button state — leave a state
-							on <em>(inherit)</em> to keep the component's default. Lets two copies of the same button
-							animate differently.
+							Override what THIS placement's spine plays — its resting animation / loop / skin and,
+							for an interactive button, the per-state animations. Leave a field on
+							<em>(inherit)</em> to keep the component's default, so two copies can look different.
 						</p>
 						{#each instanceSpineNodes as sp (sp.id)}
 							{@const meta = spineMeta.get(sp.assetKey)}
+							{@const rest = instanceSpineRestOf(sp.id)}
 							<div class="state-anim-node">
 								<h5 class="sub-h">{sp.label ?? sp.id}</h5>
-								{#each BUTTON_ANIM_STATES as st (st.key)}
-									{@const ov = instanceStateAnimOf(sp.id, st.key)}
-									{@const inherit = sp.stateAnimations?.[st.key]?.animation}
+								<div class="bind-grid cue-row">
+									<label class="field">
+										<span>resting</span>
+										{#if meta?.animations?.length}
+											<select
+												value={rest?.defaultAnimation ?? ''}
+												onchange={(e) =>
+													onSetInstanceSpineRest?.(sp.id, {
+														defaultAnimation: e.currentTarget.value || undefined,
+														...(e.currentTarget.value ? {} : { loop: undefined }),
+													})}
+											>
+												<option value=""
+													>{sp.defaultAnimation
+														? `(inherit: ${sp.defaultAnimation})`
+														: '(inherit)'}</option
+												>
+												{#each meta.animations as anim (anim)}
+													<option value={anim}>{anim}</option>
+												{/each}
+											</select>
+										{:else}
+											<input
+												type="text"
+												placeholder={sp.defaultAnimation
+													? `inherit: ${sp.defaultAnimation}`
+													: 'animation name'}
+												value={rest?.defaultAnimation ?? ''}
+												oninput={(e) =>
+													onSetInstanceSpineRest?.(sp.id, {
+														defaultAnimation: e.currentTarget.value || undefined,
+													})}
+											/>
+										{/if}
+									</label>
+									<label class="field check">
+										<input
+											type="checkbox"
+											checked={rest?.loop ?? false}
+											disabled={!rest?.defaultAnimation}
+											onchange={(e) =>
+												onSetInstanceSpineRest?.(sp.id, { loop: e.currentTarget.checked })}
+										/>
+										<span>loop</span>
+									</label>
+								</div>
+								{#if meta?.skins?.length}
 									<div class="bind-grid cue-row">
 										<label class="field">
-											<span>{st.label}</span>
-											{#if meta?.animations?.length}
-												<select
-													value={ov?.animation ?? ''}
-													onchange={(e) =>
-														onSetInstanceStateAnim?.(sp.id, st.key, e.currentTarget.value)}
-												>
-													<option value="">{inherit ? `(inherit: ${inherit})` : '(inherit)'}</option
-													>
-													{#each meta.animations as anim (anim)}
-														<option value={anim}>{anim}</option>
-													{/each}
-												</select>
-											{:else}
-												<input
-													type="text"
-													placeholder={inherit ? `inherit: ${inherit}` : 'animation name'}
-													value={ov?.animation ?? ''}
-													oninput={(e) =>
-														onSetInstanceStateAnim?.(sp.id, st.key, e.currentTarget.value)}
-												/>
-											{/if}
-										</label>
-										<label class="field check">
-											<input
-												type="checkbox"
-												checked={ov?.loop ?? false}
-												disabled={!ov}
+											<span>skin</span>
+											<select
+												value={rest?.skin ?? ''}
 												onchange={(e) =>
-													onSetInstanceStateAnimLoop?.(sp.id, st.key, e.currentTarget.checked)}
-											/>
-											<span>loop</span>
+													onSetInstanceSpineRest?.(sp.id, {
+														skin: e.currentTarget.value || undefined,
+													})}
+											>
+												<option value="">{sp.skin ? `(inherit: ${sp.skin})` : '(inherit)'}</option>
+												{#each meta.skins as sk (sk)}
+													<option value={sk}>{sk}</option>
+												{/each}
+											</select>
 										</label>
 									</div>
-								{/each}
+								{/if}
+								{#if instanceInteractive}
+									<h6 class="sub-h state-sub">Plays on button state</h6>
+									{#each BUTTON_ANIM_STATES as st (st.key)}
+										{@const ov = instanceStateAnimOf(sp.id, st.key)}
+										{@const inherit = sp.stateAnimations?.[st.key]?.animation}
+										<div class="bind-grid cue-row">
+											<label class="field">
+												<span>{st.label}</span>
+												{#if meta?.animations?.length}
+													<select
+														value={ov?.animation ?? ''}
+														onchange={(e) =>
+															onSetInstanceStateAnim?.(sp.id, st.key, e.currentTarget.value)}
+													>
+														<option value=""
+															>{inherit ? `(inherit: ${inherit})` : '(inherit)'}</option
+														>
+														{#each meta.animations as anim (anim)}
+															<option value={anim}>{anim}</option>
+														{/each}
+													</select>
+												{:else}
+													<input
+														type="text"
+														placeholder={inherit ? `inherit: ${inherit}` : 'animation name'}
+														value={ov?.animation ?? ''}
+														oninput={(e) =>
+															onSetInstanceStateAnim?.(sp.id, st.key, e.currentTarget.value)}
+													/>
+												{/if}
+											</label>
+											<label class="field check">
+												<input
+													type="checkbox"
+													checked={ov?.loop ?? false}
+													disabled={!ov}
+													onchange={(e) =>
+														onSetInstanceStateAnimLoop?.(sp.id, st.key, e.currentTarget.checked)}
+												/>
+												<span>loop</span>
+											</label>
+										</div>
+									{/each}
+								{/if}
 							</div>
 						{/each}
 					</details>

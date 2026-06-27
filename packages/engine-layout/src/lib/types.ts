@@ -326,6 +326,24 @@ export interface ComponentInstanceNode extends BaseNode {
 	 * runtime by `mergeButtonStateAnimations`; absent ⇒ the def map is used verbatim
 	 * (parity). */
 	stateAnimationOverrides?: Record<string, ButtonStateAnimations>;
+	/**
+	 * Per-instance overrides for a spine node's RESTING look — its
+	 * {@link SpineNode.defaultAnimation} / {@link SpineNode.loop} /
+	 * {@link SpineNode.skin} — keyed by the spine node's `id` in the resolved
+	 * {@link ComponentDef.root} (the at-rest sibling of {@link stateAnimationOverrides}).
+	 * Any field absent ⇒ inherit the def spine node's value, so two placements of one
+	 * component can show a different resting pose. Provided to `<LayoutNodeView>` via
+	 * `componentSpineRestContext`; absent ⇒ the def values are used verbatim (parity). */
+	spineRestOverrides?: Record<string, SpineRestOverride>;
+}
+
+/** Per-instance overrides for a spine node's resting look (see
+ * {@link ComponentInstanceNode.spineRestOverrides}). Any field absent ⇒ inherit
+ * the def spine node's corresponding value. */
+export interface SpineRestOverride {
+	defaultAnimation?: string;
+	loop?: boolean;
+	skin?: string;
 }
 
 /**

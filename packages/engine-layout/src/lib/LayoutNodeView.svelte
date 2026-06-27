@@ -31,6 +31,7 @@
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { getComponentStateAnims } from './componentStateAnimContext';
+	import { getComponentSpineRest } from './componentSpineRestContext';
 	import { resolveBoundValue } from './componentParams';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
@@ -47,6 +48,10 @@
 	// Button-state-driven spine-anim overrides — the interaction sibling of `signalAnims`.
 	// `undefined` for a spine with no interactive `componentInstance` ancestor (parity).
 	const stateAnims = getComponentStateAnims();
+	// Per-instance RESTING spine overrides (default animation / loop / skin), keyed by
+	// node id. `undefined` for a scene-level spine or a placement with no overrides — the
+	// spine then uses its static def values (byte-identical parity).
+	const spineRest = getComponentSpineRest();
 
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
 
@@ -384,6 +389,15 @@
 		{@const sigAnim = signalAnims?.[node.id]}
 		{@const override = stateAnim ?? sigAnim}
 		<!--
+			Per-instance RESTING overrides: a placement may swap this spine's resting
+			animation / loop / skin (its at-rest look) without touching the def. Each
+			falls back to the def node's value, so an un-overridden spine is parity.
+		-->
+		{@const rest = spineRest?.[node.id]}
+		{@const effDefaultAnimation = rest?.defaultAnimation ?? node.defaultAnimation}
+		{@const effLoop = rest?.loop ?? node.loop}
+		{@const effSkin = rest?.skin ?? node.skin}
+		<!--
 			State-overlay spine: a spine that declares button `stateAnimations` but NO resting
 			`defaultAnimation` is meant to appear ONLY while a state is active (e.g. an image
 			button that turns into a spine during the spin). Hide it until an override (a state
@@ -392,7 +406,7 @@
 			`stateAnimations` at all (every spine before this feature), is always visible — parity.
 		-->
 		{@const isStateOverlay =
-			!node.defaultAnimation &&
+			!effDefaultAnimation &&
 			!!node.stateAnimations &&
 			Object.keys(node.stateAnimations).length > 0}
 		{@const spineVisible = !isStateOverlay || !!override}
@@ -420,7 +434,7 @@
 			width={bgSpineBox ? bgSpineBox.width : sizedWidth}
 			height={bgSpineBox ? bgSpineBox.height : sizedHeight}
 			fit={bgSpineBox ? bgFit : undefined}
-			skin={node.skin}
+			skin={effSkin}
 			visible={spineVisible}
 		>
 			<!--
@@ -436,20 +450,20 @@
 				hand-off is suppressed while one is in effect. With no override, or no distinct
 				default, this is the prior single-animation behaviour.
 			-->
-			{@const anim = override?.animation ?? node.defaultAnimation}
+			{@const anim = override?.animation ?? effDefaultAnimation}
 			{@const handsOffToIdle = !!(
 				!stateAnim &&
 				sigAnim &&
-				node.defaultAnimation &&
-				node.defaultAnimation !== sigAnim.animation
+				effDefaultAnimation &&
+				effDefaultAnimation !== sigAnim.animation
 			)}
 			{#if anim}
 				<SpineTrack
 					trackIndex={0}
 					animationName={anim}
-					loop={handsOffToIdle ? false : (override?.loop ?? node.loop ?? true)}
-					then={handsOffToIdle ? node.defaultAnimation : undefined}
-					thenLoop={node.loop ?? true}
+					loop={handsOffToIdle ? false : (override?.loop ?? effLoop ?? true)}
+					then={handsOffToIdle ? effDefaultAnimation : undefined}
+					thenLoop={effLoop ?? true}
 				/>
 			{/if}
 		</SpineProvider>
