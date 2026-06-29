@@ -348,7 +348,7 @@
         <button id="fit">Reset view</button>
       </div>
       <div class="grp" id="animTools" style="display:none;">
-        <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale)">◆ Key</button>
+        <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale+shear)">◆ Key</button>
         <button id="keyAllBtn" title="Key EVERYTHING on stage at the playhead — every bone's pose + every slot's attachment & colour">◆ Key all</button>
         <button id="prevKey" title="Jump to previous key">|◀</button>
         <button id="nextKey" title="Jump to next key">▶|</button>
@@ -1770,9 +1770,13 @@ function renderBoneAnimDetail(det, i){
     field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = v; keyBone(bd.name, { scale: true }, false); }, 0.01),
     field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = v; keyBone(bd.name, { scale: true }, false); }, 0.01),
   ], { scale: true }, "Key scaleX / scaleY @ " + animTime.toFixed(2) + "s"));
+  det.appendChild(group([
+    field("shearX", () => bone.shearX, (v) => { bone.shearX = v; keyBone(bd.name, { shear: true }, false); }, 1),
+    field("shearY", () => bone.shearY, (v) => { bone.shearY = v; keyBone(bd.name, { shear: true }, false); }, 1),
+  ], { shear: true }, "Key shearX / shearY @ " + animTime.toFixed(2) + "s"));
   const btn = document.createElement("button");
   btn.textContent = "◆ Key all transforms @ " + animTime.toFixed(2) + "s"; btn.style.cssText = "margin-top:8px;width:100%;";
-  btn.onclick = () => keyBone(bd.name, { rotate: true, translate: true, scale: true }, true);
+  btn.onclick = () => keyBone(bd.name, { rotate: true, translate: true, scale: true, shear: true }, true);
   det.appendChild(btn);
   const times = boneKeyTimes(bd.name);
   const info = document.createElement("div");
@@ -4053,6 +4057,7 @@ function keyBone(boneName, channels, refresh){
   if (channels.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation, 3) }); }
   if (channels.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
   if (channels.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
+  if (channels.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
   markDirty();
   refreshAnimCounts();              // always refresh the dopesheet so the key shows immediately
   if (refresh && selBone != null) renderBoneDetail();
@@ -4062,7 +4067,7 @@ function keyBone(boneName, channels, refresh){
 // plus every slot's current attachment + colour. Wired to "◆ Key all" on the toolbar.
 function keyAll(){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  for (const b of skeleton.bones) keyBone(b.data.name, { rotate: true, translate: true, scale: true }, false);
+  for (const b of skeleton.bones) keyBone(b.data.name, { rotate: true, translate: true, scale: true, shear: true }, false);
   const slots = (rawDoc.slots || []);
   for (const s of slots){ keySlotAttachment(s.name, slotAttachmentAt(s.name, animTime)); keySlotColor(s.name, slotColorAt(s.name, animTime)); }
   refreshAnimCounts();
@@ -5633,7 +5638,7 @@ function wire(){
   };
   $("#modeSeg").onclick = (e) => { const b = e.target.closest("button[data-mode]"); if (b && !b.disabled) setMode(b.dataset.mode); };
   $("#keyBtn").onclick = () => {
-    if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate: true, translate: true, scale: true }, true);
+    if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate: true, translate: true, scale: true, shear: true }, true);
     else if (selSlot){ keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); }
     else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
   };

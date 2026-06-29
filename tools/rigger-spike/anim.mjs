@@ -4,6 +4,7 @@
 //   rotate.value  = local rotation OFFSET from setup     (bone.rotation = data.rotation + v)
 //   translate.x/y = local translation offset from setup  (bone.x = data.x + x)
 //   scale.x/y     = local scale MULTIPLIER of setup       (bone.scaleX = data.scaleX * x)
+//   shear.x/y     = local shear OFFSET from setup          (bone.shearX = data.shearX + x)
 //   node tools/rigger-spike/anim.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 
@@ -35,7 +36,7 @@ const raw = JSON.parse(readFileSync(jsonPath, 'utf8'));
 // pick a non-root bone that exists
 const boneName = (raw.bones.find((b) => b.parent) || raw.bones[1] || raw.bones[0]).name;
 const setup = raw.bones.find((b) => b.name === boneName);
-const sRot = setup.rotation || 0, sX = setup.x || 0, sY = setup.y || 0, sSX = setup.scaleX ?? 1, sSY = setup.scaleY ?? 1;
+const sRot = setup.rotation || 0, sX = setup.x || 0, sY = setup.y || 0, sSX = setup.scaleX ?? 1, sSY = setup.scaleY ?? 1, sShX = setup.shearX || 0, sShY = setup.shearY || 0;
 
 raw.animations = raw.animations || {};
 raw.animations.spikeAnim = {
@@ -44,6 +45,7 @@ raw.animations.spikeAnim = {
 			rotate: [{ time: 0, value: 0 }, { time: 1, value: 40 }],
 			translate: [{ time: 0, x: 0, y: 0 }, { time: 1, x: 30, y: -20 }],
 			scale: [{ time: 0, x: 1, y: 1 }, { time: 1, x: 1.5, y: 0.5 }],
+			shear: [{ time: 0, x: 0, y: 0 }, { time: 1, x: 15, y: -10 }],
 		},
 	},
 };
@@ -69,10 +71,12 @@ if (data) {
 	const r = lerpKeys(raw.animations.spikeAnim.bones[boneName].rotate, t, ['value']);
 	const tr = lerpKeys(raw.animations.spikeAnim.bones[boneName].translate, t, ['x', 'y']);
 	const sc = lerpKeys(raw.animations.spikeAnim.bones[boneName].scale, t, ['x', 'y']);
+	const sh = lerpKeys(raw.animations.spikeAnim.bones[boneName].shear, t, ['x', 'y']);
 	const exp = {
 		rotation: sRot + r.value,        // offset
 		x: sX + tr.x, y: sY + tr.y,      // offset
 		scaleX: sSX * sc.x, scaleY: sSY * sc.y, // multiplier
+		shearX: sShX + sh.x, shearY: sShY + sh.y, // offset
 	};
 	const near = (a, b, name) => log(Math.abs(a - b) < 1e-3, `${name}: runtime ${a.toFixed(3)} ≈ predicted ${b.toFixed(3)}`);
 	near(bone.rotation, exp.rotation, 'rotate (offset+setup)');
@@ -80,6 +84,8 @@ if (data) {
 	near(bone.y, exp.y, 'translate.y (offset+setup)');
 	near(bone.scaleX, exp.scaleX, 'scale.x (mult×setup)');
 	near(bone.scaleY, exp.scaleY, 'scale.y (mult×setup)');
+	near(bone.shearX, exp.shearX, 'shear.x (offset+setup)');
+	near(bone.shearY, exp.shearY, 'shear.y (offset+setup)');
 
 	// endpoint sanity: at t=1 the bone hits the full keyed values
 	sk.setToSetupPose();
