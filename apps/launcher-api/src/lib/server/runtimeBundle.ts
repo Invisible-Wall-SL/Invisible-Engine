@@ -75,23 +75,42 @@ export interface RuntimeBundle {
  * module returns uses the SAME lookup keys the editor-doc endpoint would. Mutates
  * in place (the doc is freshly loaded per call).
  */
+function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string): void {
+	if (!node || typeof node !== 'object') return;
+	const n = node as { kind?: string; assetKey?: unknown; children?: unknown };
+	if (n.kind === 'spine' && typeof n.assetKey === 'string') {
+		const bundle = bundleFromAssetKey(clientKey, projectKey, n.assetKey);
+		if (bundle) n.assetKey = bundle;
+	}
+	if (Array.isArray(n.children)) for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
+}
+
 function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
-	const walk = (node: unknown): void => {
-		if (!node || typeof node !== 'object') return;
-		const n = node as { kind?: string; assetKey?: unknown; children?: unknown };
-		if (n.kind === 'spine' && typeof n.assetKey === 'string') {
-			const bundle = bundleFromAssetKey(clientKey, projectKey, n.assetKey);
-			if (bundle) n.assetKey = bundle;
-		}
-		if (Array.isArray(n.children)) n.children.forEach(walk);
-	};
 	const scenes = (doc as { scenes?: unknown })?.scenes;
 	if (Array.isArray(scenes)) {
 		for (const scene of scenes) {
 			const nodes = (scene as { nodes?: unknown })?.nodes;
-			if (Array.isArray(nodes)) nodes.forEach(walk);
+			if (Array.isArray(nodes)) for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
 		}
 	}
+}
+
+/**
+ * The component defs a game registers carry their OWN spine nodes (a button's
+ * `R_SpinButton`, a free-spin frame, …) — rewrite those `assetKey`s too, exactly as
+ * {@link resolveSpineKeysForGame} does for the scene tree. Without this, `LayoutNodeView`
+ * hands `<SpineProvider>` the full R2 bundle PREFIX while the game registered the bundle
+ * under its bare NAME, so the lookup misses and the placed component's spine never loads.
+ * Must mirror `routes/api/editor/doc/+server.ts`.
+ */
+function resolveSpineKeysForComponentDefs(
+	resolved: { defs: Record<string, ComponentDef>; versions: ComponentDef[] } | undefined,
+	clientKey: string,
+	projectKey: string,
+): void {
+	if (!resolved) return;
+	for (const def of Object.values(resolved.defs)) rewriteSpineKeys(def.root, clientKey, projectKey);
+	for (const def of resolved.versions) rewriteSpineKeys(def.root, clientKey, projectKey);
 }
 
 /**
@@ -175,6 +194,13 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	const componentDefaults = await listComponentDefaults(projectKey);
 	const { defs: componentDefs, versions: componentVersions } = await resolveReferencedDefs(
 		doc,
+		projectKey,
+	);
+	// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
+	// scene tree, or their spines never load in the built game (key mismatch).
+	resolveSpineKeysForComponentDefs(
+		{ defs: componentDefs, versions: componentVersions },
+		clientKey,
 		projectKey,
 	);
 
