@@ -11,6 +11,15 @@ export const PADDING_REELS = config.paddingReels as Record<GameType, RawSymbol[]
 
 export const SYMBOL_SIZE = 120;
 
+/**
+ * Fraction of the cell a symbol's VISIBLE CONTENT fills. Symbols are sized from their art
+ * (no size param): the renderer measures each symbol's opaque content — a sprite's
+ * alpha-trimmed icon, a spine's bounds — and fits it to `SYMBOL_SIZE × this`, so a padded
+ * icon and a tight character end up the same on-screen size with a small uniform margin.
+ * Tune to taste (1 = touch the cell edges). Owner direction: `feedback_symbols_size_from_art_no_param`.
+ */
+export const SYMBOL_CONTENT_FILL = 0.82;
+
 export const REEL_PADDING = 0.53;
 
 // initial board (padded top and bottom)

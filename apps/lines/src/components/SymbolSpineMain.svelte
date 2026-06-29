@@ -3,7 +3,7 @@
 	import { stateBetDerived } from 'state-shared';
 
 	import { getSymbolInfo } from '../game/utils';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE, SYMBOL_CONTENT_FILL } from '../game/constants';
 
 	type Props = {
 		symbolInfo: ReturnType<typeof getSymbolInfo>;
@@ -17,18 +17,18 @@
 </script>
 
 <!--
-	Symbol size comes from the ART, not a size param: the spine CONTAIN-fits the cell
-	(`SYMBOL_SIZE` box, native aspect preserved), exactly like `SymbolSprite`. No `sizeRatios`
-	multiplier — authored per-symbol/global sizes were removed from the result (owner
-	direction). The rig's NATURAL size (its `skeleton` bounds, authored in the Rigger) decides
-	how the art sits inside the cell, so you size a spine by its bounds, not a number.
+	Symbol size comes from the ART, not a size param: the spine CONTAIN-fits its bounds to
+	`SYMBOL_SIZE × SYMBOL_CONTENT_FILL` — the SAME fraction the sprite path fits its content to,
+	so a spine character and a sprite icon end up the same on-screen size. The rig's bounds (its
+	visible content, authored tight in the Rigger) decide the fit; keep them tight (don't pad)
+	so the spine's content matches the sprites' content. No `sizeRatios` multiplier.
 -->
 <SpineProvider
 	x={props.x}
 	y={props.y}
 	key={props.symbolInfo.assetKey}
-	width={SYMBOL_SIZE}
-	height={SYMBOL_SIZE}
+	width={SYMBOL_SIZE * SYMBOL_CONTENT_FILL}
+	height={SYMBOL_SIZE * SYMBOL_CONTENT_FILL}
 	fit="contain"
 >
 	<SpineTrack
