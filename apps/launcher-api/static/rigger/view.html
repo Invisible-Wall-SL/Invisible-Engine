@@ -1136,7 +1136,7 @@ function newAnimation(){
   rawDoc.animations[name] = { bones: {} };
   animsDirty = true; markDirty();
   if (!animMode) setMode("animate");
-  setCurAnim(name); renderAnimSection();
+  setCurAnim(name); // setCurAnim re-renders the Animations section
 }
 function renameAnimation(oldN, newN){
   if (!rawDoc || !rawDoc.animations || !rawDoc.animations[oldN]) return;
@@ -1201,7 +1201,7 @@ function importAnimation(animation, desiredName){
     rawDoc.animations[nm] = JSON.parse(JSON.stringify(animation));
     animsDirty = true; markDirty();
     if (!animMode) setMode("animate");
-    setCurAnim(nm); renderAnimSection();
+    setCurAnim(nm); // setCurAnim re-renders the Animations section
     setAnimStatus('imported "' + nm + '"');
   };
   if (!rep.bones.missing.length && !rep.slots.missing.length){ doImport(); return; }
@@ -3875,6 +3875,7 @@ function setCurAnim(name){
   $("#anim").value = curAnim || "";
   syncPlayhead();
   renderTimeline();
+  renderAnimSection(); // refresh the list highlight + "editing" tag + the per-anim settings box
   if (selBone != null) renderBoneDetail();
   saveRiggerState();
 }
