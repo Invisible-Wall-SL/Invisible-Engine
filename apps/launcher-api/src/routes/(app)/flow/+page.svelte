@@ -154,6 +154,9 @@
 			source: t.from,
 			target: t.to,
 			label: edgeLabel(t),
+			// The label div is portalled out of the edge <g>, so a `.selected …` descendant
+			// selector can't reach it — drive the selected chip accent via labelStyle instead.
+			labelStyle: t.id === selectedEdgeId ? 'border-color:#2563eb' : undefined,
 			animated: t.trigger.kind === 'bookEvent',
 			selected: t.id === selectedEdgeId,
 		}));
@@ -718,24 +721,18 @@
 	.canvas :global(.svelte-flow) {
 		background: #0b0e13;
 	}
-	/* Edge transition labels: xyflow's default light pill washes out on the dark
-	   canvas. Force a solid dark chip with light text + rounded corners. The label bg is
-	   an unclassed SVG <rect> inside the wrapper <g>, so target the rect generically. */
-	.canvas :global(.svelte-flow__edge-textwrapper rect) {
-		fill: #161b22;
-		stroke: #2a323d;
-		stroke-width: 1px;
-		rx: 5px;
-		ry: 5px;
-	}
-	.canvas :global(.svelte-flow__edge-text) {
-		fill: #cbd5e1;
+	/* Edge transition labels: xyflow's default white pill washes out on the dark
+	   canvas. Force a solid dark chip with light text + rounded corners. In
+	   @xyflow/svelte 1.6 the label is an HTML <div class="svelte-flow__edge-label">
+	   (portalled into .svelte-flow__edge-labels), not the old SVG <rect>/<text>. */
+	.canvas :global(.svelte-flow__edge-label) {
+		background: #161b22;
+		border: 1px solid #2a323d;
+		border-radius: 5px;
+		padding: 2px 6px;
+		color: #cbd5e1;
 		font-size: 11px;
 		font-weight: 500;
-	}
-	/* Selected edge: lift the chip to the blue accent so the active transition reads. */
-	.canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-textwrapper rect) {
-		stroke: #2563eb;
 	}
 	.empty {
 		display: grid;
