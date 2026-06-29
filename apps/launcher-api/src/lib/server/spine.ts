@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import sharp from 'sharp';
 import { roleHasTool } from '$lib/roles';
+import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { SUB, sharedSpinesPrefix, spineBundlePath, spineBundleSharedPath } from './projectPaths';
 import { pickDeployedPage } from './deployedPage';
 import {
@@ -565,11 +566,12 @@ export async function exportSpineBundle(opts: {
 	/** Caller-claimed, collision-free folder stem for this bundle. */
 	stem: string;
 	skeletonIndex: SkeletonIndexEntry[];
-	/** Spine scale; defaults to 2 (the symbols/editor convention). */
+	/** Spine scale; defaults to {@link EDITOR_SPINE_LOAD_SCALE} (the symbols/editor
+	 * convention). The editor preview applies the SAME constant so previews are WYSIWYG. */
 	scale?: number;
 }): Promise<ExportedSpineBundle | null> {
 	const { clientKey, projectKey, assetKey, deployPrefix, subtree, stem, skeletonIndex } = opts;
-	const scale = opts.scale ?? 2;
+	const scale = opts.scale ?? EDITOR_SPINE_LOAD_SCALE;
 	const written: string[] = [];
 
 	const folder = bundleFromAssetKey(clientKey, projectKey, assetKey);

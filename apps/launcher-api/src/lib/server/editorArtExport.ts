@@ -25,6 +25,7 @@
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
 import { collectComponentIds, parseScopedFrameRef } from 'engine-layout';
+import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
@@ -374,7 +375,7 @@ export async function exportEditorArt(
 				subtree: 'editor-art',
 				stem,
 				skeletonIndex,
-				scale: 2,
+				scale: EDITOR_SPINE_LOAD_SCALE,
 			});
 			if (!result) continue;
 			// The game's doc has this spine node's `assetKey` rewritten from the full R2

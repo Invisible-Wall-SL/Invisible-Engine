@@ -88,8 +88,14 @@ export interface SpineRuntime {
 	GLTexture: new (gl: WebGLRenderingContext, image: TexImageSource) => unknown;
 	TextureAtlas: new (atlasText: string) => SpineTextureAtlas;
 	AtlasAttachmentLoader: new (atlas: SpineTextureAtlas) => unknown;
-	SkeletonJson: new (loader: unknown) => { readSkeletonData(json: unknown): SpineSkeletonData };
+	// `scale` (settable) pre-multiplies the skeleton geometry on read — the SAME knob the
+	// game's loader uses (`assetLoad.ts#parser.scale`) so the editor preview can match.
+	SkeletonJson: new (loader: unknown) => {
+		scale: number;
+		readSkeletonData(json: unknown): SpineSkeletonData;
+	};
 	SkeletonBinary: new (loader: unknown) => {
+		scale: number;
 		readSkeletonData(bytes: Uint8Array): SpineSkeletonData;
 	};
 	Skeleton: new (data: SpineSkeletonData) => SpineSkeleton;
