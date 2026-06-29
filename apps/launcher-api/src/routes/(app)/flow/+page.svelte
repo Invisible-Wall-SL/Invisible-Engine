@@ -504,6 +504,7 @@
 					bind:nodes
 					bind:edges
 					{nodeTypes}
+					colorMode="dark"
 					fitView
 					onconnect={onConnect}
 					onnodedragstop={onNodeDragStop}
