@@ -889,6 +889,51 @@ instead of starting a drag. Reuses the existing verified `setKeyCurve`/`setSlotC
 (`curve.mjs`/`slotanim.mjs`) — no model change. Inline JS syntax-checked + `launcher-api`
 build GREEN; ⏳ owner live-verify the right-click interaction in `/rigger`.
 
+## 18. Spine 4.2 parity — audit + build plan (2026-06-29)
+
+Owner direction: close the feature gap toward Spine 4.2 ("do them all"). Two audits were
+run — Spine 4.2's real feature set (grounded in the official `spine-runtimes` 4.2
+`SkeletonJson.ts` loader, NOT the stale 3.8-era JSON-format prose page) and the Rigger's
+actual code coverage (`view.html` + `tools/rigger-spike`). Result below. **Watch the 4.2
+data model:** separated `translatex/y`·`scalex/y`·`shearx/y`, slot colour is
+`rgba/rgb/alpha/rgba2/rgb2` (not 3.8 `color/twoColor`), `drawOrder` is camelCase, and
+physics + sequences are new.
+
+### Coverage today (have)
+Bones (transform/drag/reparent/draw-order/add/delete/rename); mesh create + topology +
+UV + retriangulate; weights (bind/per-vertex/brush/auto-to-chain); animation: bone
+rotate/translate/scale + slot attachment/rgba/alpha + events + draw-order, with a real
+bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
+(add/rename/delete/switch + per-skin attachments); `.irig` 4.2 round-trip.
+
+### Gaps (prioritized build order)
+1. **Mesh deform timelines** — ABSENT (deform survives round-trip via ref-cleanup but is
+   not authorable). The headline animation gap. Reuses setup-pose vertex editing + the
+   dopesheet/curve infra. JSON: `animations.<a>.deform.<skin>.<slot>.<att> = [{time,
+   offset?, vertices:[…delta], curve?}]`. **← building first.**
+2. **Bone shear keying** — PRESERVE-ONLY (data model + tracks already handle shear; `keyBone`
+   just has no shear branch). Cheap completeness win.
+3. **IK constraint authoring** (create/edit/delete + target + mix/softness/bend) **+ the IK
+   `ik` mix timeline** — constraints panel is display-only today. Highest-value constraint
+   (foot/hand pinning). Makes the panel editable = foundation for 4/6/7.
+4. **Slot dark colour (`rgba2`)** setup + timeline — extends the slot-colour path.
+5. **Blend-mode authoring** (slot `blend` dropdown) — cheap; survives round-trip but unedited.
+6. **Transform constraint** authoring + `transform` mix timeline — builds on (3).
+7. **Path attachment + path constraint** authoring + `path` timeline — needs the path
+   attachment type first; bigger.
+8. **Physics constraint** authoring + `physics` timeline (NEW in 4.2: inertia/strength/
+   damping/mass/wind/gravity/mix/reset) — most complex; after IK/transform.
+9. **Attachments:** clipping (mask), bounding-box, point (locator — cheap + useful for FX),
+   linked-mesh authoring (PRESERVE-ONLY today).
+10. Lower priority: separated translatex/y·scalex/y·shearx/y channels, sequence attachment +
+    `sequence` timeline, skin placeholders, mixing/mix-times, `inherit` timeline.
+
+Each item travels the rule-8 chain only when a rig is placed/shipped; the deform/constraint
+data lives in the `.irig`, so the existing save/round-trip already carries it. Every feature
+gets a headless `tools/rigger-spike/*.mjs` verified against the official 4.2 loader before
+the UI is trusted (browser interaction stays ⏳ owner-verify — the vendored runtime is
+minified, the spikes use un-mangled spine-core).
+
 **Event channel LANDED (`286da28`):** always-on "⚡ events" dopesheet track + ＋ to name/
 add an event at the playhead (auto-defines `rawDoc.events[name]`); purple keys, retime/
 delete like others. Format `events:{name:{int,float,string}}` + `animations[a].events=
