@@ -92,7 +92,8 @@
   #artWarn .x:hover { opacity:1; }
   /* dopesheet timeline (animate mode) */
   #timeline { display:none; flex:0 0 160px; height:160px; background:var(--panel);
-    border-top:1px solid var(--line); overflow:auto; position:relative; }
+    border-top:1px solid var(--line); overflow:auto; position:relative;
+    user-select:none; -webkit-user-select:none; } /* no text highlight during marquee/scrub drags */
   #timeline .tl-key { position:absolute; top:4px; width:13px; height:13px; margin-left:-7px;
     transform:rotate(45deg); background:var(--accent); border:1px solid #0c0f14;
     box-shadow:0 0 0 1px rgba(0,0,0,.4); cursor:ew-resize; z-index:1; }
@@ -4374,14 +4375,18 @@ function startDopeDrag(e, dur, anchorTid, anchorTime){
   dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime, duplicate: !!e.altKey };
   if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + items.length + " key(s) — release to drop";
 }
-function startDopeMarquee(e, track){ dopeMarquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false, additive: e.shiftKey || e.ctrlKey || e.metaKey, track }; }
+function startDopeMarquee(e, track){ const tl = $("#timeline"); dopeMarquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, sl0: tl ? tl.scrollLeft : 0, st0: tl ? tl.scrollTop : 0, moved: false, additive: e.shiftKey || e.ctrlKey || e.metaKey, track }; }
+// The origin is captured in client coords at mousedown; if #timeline scrolls during the drag,
+// shift it by the scroll delta so the rectangle stays anchored to the same content (not the viewport).
+function dopeMarqueeOrigin(m){ const tl = $("#timeline"); const dx = tl ? tl.scrollLeft - m.sl0 : 0, dy = tl ? tl.scrollTop - m.st0 : 0; return { x0: m.x0 - dx, y0: m.y0 - dy }; }
 function positionDopeMarquee(){
   let box = $("#dopeMarquee");
   if (dopeMarquee && dopeMarquee.moved){
     if (!box){ box = document.createElement("div"); box.id = "dopeMarquee"; document.body.appendChild(box); }
-    const x = Math.min(dopeMarquee.x0, dopeMarquee.x1), y = Math.min(dopeMarquee.y0, dopeMarquee.y1);
+    const o = dopeMarqueeOrigin(dopeMarquee);
+    const x = Math.min(o.x0, dopeMarquee.x1), y = Math.min(o.y0, dopeMarquee.y1);
     box.style.left = x + "px"; box.style.top = y + "px";
-    box.style.width = Math.abs(dopeMarquee.x1 - dopeMarquee.x0) + "px"; box.style.height = Math.abs(dopeMarquee.y1 - dopeMarquee.y0) + "px";
+    box.style.width = Math.abs(dopeMarquee.x1 - o.x0) + "px"; box.style.height = Math.abs(dopeMarquee.y1 - o.y0) + "px";
   } else if (box) box.remove();
 }
 function removeDopeMarquee(){ const b = $("#dopeMarquee"); if (b) b.remove(); }
@@ -5748,7 +5753,8 @@ function wire(){
     if (dopeMarquee){
       const m = dopeMarquee; dopeMarquee = null; removeDopeMarquee();
       if (m.moved){ // select every key whose dot centre falls inside the box (across all rows)
-        const xa = Math.min(m.x0, m.x1), xb = Math.max(m.x0, m.x1), ya = Math.min(m.y0, m.y1), yb = Math.max(m.y0, m.y1);
+        const o = dopeMarqueeOrigin(m); // compensate the origin for any #timeline scroll during the drag
+        const xa = Math.min(o.x0, m.x1), xb = Math.max(o.x0, m.x1), ya = Math.min(o.y0, m.y1), yb = Math.max(o.y0, m.y1);
         const sel = m.additive ? dopeSel.slice() : [];
         $("#timeline").querySelectorAll(".tl-key").forEach((el) => {
           const rc = el.getBoundingClientRect(), cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
