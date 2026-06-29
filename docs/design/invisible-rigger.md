@@ -875,6 +875,20 @@ default; key/box-edge times snap to playhead/grid/nearby keys via `graphSnapTime
 a **loading overlay** (`36cbbe7`) blocks input during new-rig / image-upload / skeleton
 load.
 
+**Dopesheet key easing LANDED (2026-06-29) — change curve interpolation IN the dopesheet.**
+Owner gap: easing was only settable from the bone Properties panel (the playhead key) or
+the graph editor's right-click, so in the **dopesheet** there was no way to change a key's
+interpolation. Now **right-clicking a dopesheet key** opens the SAME easing menu
+(Linear / Stepped / Ease In / Out / In-Out), dispatched by track kind — bone keys →
+`setKeyCurve` (all channels, matching the panel/graph), slot **colour** (`rgba`) keys →
+`setSlotColorCurve`; stepped-by-nature tracks (events / draw-order / attachment swaps) get
+no menu (`trackKeyEasable`). The graph + dopesheet now share ONE `openCurveMenu(x,y,apply,
+current)` (the active preset shows a ✓), and the dot tooltip advertises "right-click:
+easing". The dopesheet dot's `onmousedown` now ignores button 2 so the context menu fires
+instead of starting a drag. Reuses the existing verified `setKeyCurve`/`setSlotColorCurve`
+(`curve.mjs`/`slotanim.mjs`) — no model change. Inline JS syntax-checked + `launcher-api`
+build GREEN; ⏳ owner live-verify the right-click interaction in `/rigger`.
+
 **Event channel LANDED (`286da28`):** always-on "⚡ events" dopesheet track + ＋ to name/
 add an event at the playhead (auto-defines `rawDoc.events[name]`); purple keys, retime/
 delete like others. Format `events:{name:{int,float,string}}` + `animations[a].events=

@@ -4161,6 +4161,20 @@ const trackKeyCurve = (tr, time) => {
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   return tr.kind === "bone" ? keyCurveType(tr.name, time) : "linear";
 };
+// Set the outgoing easing of a dopesheet key, dispatched by track kind (mirrors retimeTrackKey).
+// Bone keys → all channels (matches the Properties panel + graph menu); slot colour → rgba.
+function setTrackKeyCurve(tr, time, preset){
+  if (tr.kind === "bone" || tr.kind === "bonech") setKeyCurve(tr.name, time, preset); // setKeyCurve re-renders the timeline
+  else if (tr.kind === "slot" || (tr.kind === "slotch" && tr.ch === "rgba")){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
+}
+// Whether a dopesheet key can carry easing. events / draw-order / attachment-swap keys are
+// stepped-by-nature (no interpolation), so they get no easing menu.
+function trackKeyEasable(tr, time){
+  if (tr.kind === "bone" || tr.kind === "bonech") return true;
+  if (tr.kind === "slotch") return tr.ch === "rgba";
+  if (tr.kind === "slot"){ const cs = slotChannel(tr.name); return !!(cs && Array.isArray(cs.rgba) && cs.rgba.some((k) => Math.abs(k.time - time) < 1e-4)); }
+  return false;
+}
 // Retime / delete a single channel's key (used by the expanded per-channel rows).
 function retimeChannelKey(tr, oldTime, newTime){
   const arr = chArr(tr); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
@@ -4478,6 +4492,7 @@ function renderTimeline(){
         : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete (✎ to edit)")
         : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete";
       dot.onmousedown = (e) => {
+        if (e.button === 2) return; // right-click is the easing menu (contextmenu below), not a drag
         e.stopPropagation(); e.preventDefault();
         if (e.shiftKey || e.ctrlKey || e.metaKey){ toggleDopeSel(tid, kt); renderTimeline(); return; }
         if (!dopeSelHas(tid, kt)){ dopeSel = [{ tid, time: kt }]; renderTimeline(); }
@@ -4490,6 +4505,15 @@ function renderTimeline(){
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
       };
+      if (trackKeyEasable(tr, kt)){
+        dot.title += " · right-click: easing";
+        dot.addEventListener("contextmenu", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); }
+          else if (tr.kind === "bone"){ const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); }
+          showTrackCurveMenu(e.clientX, e.clientY, tr, kt);
+        });
+      }
       track.appendChild(dot);
     });
     row.appendChild(g); row.appendChild(track); tl.appendChild(row);
@@ -4566,20 +4590,31 @@ function startGraphBox(edge, box){
     items: graphSel.map((s) => ({ keyObj: s.keyObj, ch: s.ch, field: s.field, startT: s.keyObj.time, startV: s.keyObj[s.field] ?? 0 })),
   };
 }
-// Floating easing menu (right-click a graph keyframe).
-function showCurveMenu(x, y, boneName, time){
+// Floating easing menu — generic (an `apply(preset)` callback) so the graph editor AND
+// the dopesheet share ONE menu. `current` (optional) is the active preset → shown ✓.
+function openCurveMenu(x, y, apply, current){
   closeCurveMenu();
   const m = document.createElement("div"); m.id = "curveMenu";
   m.style.cssText = "position:fixed;left:" + x + "px;top:" + y + "px;z-index:90;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:4px;min-width:120px;";
   [["Linear", "linear"], ["Stepped", "stepped"], ["Ease In", "easein"], ["Ease Out", "easeout"], ["Ease In-Out", "easeinout"]].forEach(([label, preset]) => {
-    const b = document.createElement("button"); b.textContent = label;
+    // a baked bezier reads back as "bezier" (we can't recover which ease) → tick Ease In-Out
+    const active = preset === current || (current === "bezier" && preset === "easeinout");
+    const b = document.createElement("button"); b.textContent = (active ? "✓ " : "") + label;
     b.style.cssText = "display:block;width:100%;text-align:left;border:none;background:none;padding:5px 9px;font-size:12px;";
     b.onmouseenter = () => b.style.background = "var(--panel2)"; b.onmouseleave = () => b.style.background = "none";
-    b.onclick = () => { setKeyCurve(boneName, time, preset); closeCurveMenu(); };
+    b.onclick = () => { apply(preset); closeCurveMenu(); };
     m.appendChild(b);
   });
   document.body.appendChild(m);
   setTimeout(() => document.addEventListener("mousedown", closeCurveMenu, { once: true }), 0);
+}
+// Right-click a GRAPH keyframe → set the bone key's outgoing easing.
+function showCurveMenu(x, y, boneName, time){
+  openCurveMenu(x, y, (preset) => setKeyCurve(boneName, time, preset), keyCurveType(boneName, time));
+}
+// Right-click a DOPESHEET key → set its outgoing easing (dispatched by track kind).
+function showTrackCurveMenu(x, y, tr, time){
+  openCurveMenu(x, y, (preset) => setTrackKeyCurve(tr, time, preset), trackKeyCurve(tr, time));
 }
 function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
 function renderGraphBody(tl, dur, pps, contentW, gutter){
