@@ -10,9 +10,21 @@
 
 ## 0. Status
 
-**Not built. This doc is the registered build plan.** Nothing here ships until it
-travels the full asset chain (§8). Phase 0 (§7) is the make-or-break gate — do not
-start Phases 2+ until the two spikes pass.
+**BUILT — Phases 0–6 are on `main` and the tool is registered/deployed** (verified
+2026-06-29; this §0 was previously a stale "not built" plan header). What shipped: bones,
+mesh (move/add/remove/region→mesh/CDT/UV), weights (bind/per-vertex/brush/auto-weight-to-chain),
+animation (keyframing, dopesheet, curves, graph editor, slot/event/draw-order channels),
+rig + animation libraries, isolated-mesh edit, `.irig` export + R2 save. **Genuinely
+outstanding:** ship-from-Rigger (rule-8 export→deploy→bake→pull→register — rigs only save to
+R2 today), mesh-**deform** animation timelines, Phase 3.6 visual texture-panel UV editor +
+hull editing, and the better auto-weights algorithm (a proximity chain-skinner shipped; the
+quality gate against a real character mesh is still open). **The whole tool still needs
+owner live-verify** (headless spikes use un-mangled spine-core, not the vendored minified
+runtime). The detailed phase log below is append-only and lags — see `docs/STATUS.md`
+"Current state — reconciled" for the authoritative summary.
+
+(Historical plan note: nothing ships until it travels the full asset chain (§8); Phase 0
+(§7) was the make-or-break gate — both spikes passed, see §10.)
 
 ## 1. Why this tool exists (the goal)
 

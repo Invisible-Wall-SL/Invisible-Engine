@@ -16,7 +16,18 @@
 
 ## 0. Status
 
-**Not built. This doc is the registered build plan.** Owner decisions (2026-06-23):
+**BUILT — Phases 0–8 + tap-to-continue are all merged to `main`** (PRs #63/#64; verified
+2026-06-29; this §0 was previously a stale "not built" plan header). `packages/engine-flow`
+(interpreter + schema + pin-derivation + normalize/validate/diff) and the full `/flow` route
+(macro graph, choreography editor, inspectors, validation + diff panels, undo/redo) are
+shipped; `/flow` is registered with a tool doc; the interpreter is wired into `apps/lines`
+with the default-inert fall-through invariant. **Genuinely outstanding:** owner live-verify
+of the authed `/flow` page + a running bundle, and **no shipped game runs an authored FlowDoc
+yet** (the bake pipeline exists, but Book of Borut has no authored/baked FlowDoc and its
+submodule isn't bumped). See `docs/STATUS.md` "Current state — reconciled" for the
+authoritative summary; the per-phase progress log below is append-only and lags.
+
+**Original owner decisions (2026-06-23), preserved:**
 - **Screens are the nodes** — Invisible Flow is a *wiring layer over Scene Editor
   screens*, not a separate vocabulary. A node = a whole screen/scene.
 - **Pins are dynamic** — a node's inputs/outputs grow as components are added to the

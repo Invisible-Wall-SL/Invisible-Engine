@@ -1,7 +1,7 @@
 # Project status & roadmap
 
 > Where things stand and what's left. Update this at the end of meaningful work.
-> Last updated: 2026-06-25.
+> Last updated: 2026-06-29 (roadmap reconciled against `main` — see the next section).
 
 There are two tracks in this repo:
 
@@ -9,6 +9,98 @@ There are two tracks in this repo:
 2. **Studio / pipeline tools** — the launcher portal + the cloud-hosted asset tools (atlas) + ComfyUI pipeline.
 
 ---
+
+## ⭐ Current state — reconciled 2026-06-29 (verified against `main`)
+
+> **Read this section first.** The per-area log further down (Track 1 / Track 2) is
+> **append-only** and its "✅ DONE / ⏳" markers were never flipped, so it badly **lags
+> the code**. This section was rebuilt by auditing the actual code on `main` (five
+> parallel domain audits, 2026-06-29). **When this section disagrees with a bullet below,
+> this section wins.** Re-run the audit and refresh this block when it goes stale.
+
+**The headline:** almost every scoped feature is **built and on `main`**. The dominant
+remaining category is **owner live-verification in the browser** — the tools were proven
+by headless Node spikes + green builds, but the authed launcher pages (need
+Postgres/R2/auth) and the WebGL/WebGPU render were never driven by an automated check.
+A structured owner walkthrough would retire most of the "⏳" items at once.
+
+### Shipped on `main` (built + headless-green; ⏳ = still owner-live-verify)
+
+- **Engine & games** — symbol sizing (sprites plain contain-fit; SPINE symbols shrink via
+  `SYMBOL_SPINE_FILL=0.5`, `apps/lines/src/game/constants.ts:21`; ⏳ live size judgement);
+  persistent `space:'background'` scene behind the game (`engine-layout/backgroundScenes.ts`
+  + `Game.svelte`, merged PR #65); bitmap-font layout text ships in-game
+  (`LayoutNodeView.svelte:215` BitmapText branch + `registerFontCatalog` — fonts Phase 3
+  done); component value/defaults system + HUD readouts (B1–B3); per-sheet editor-art
+  namespacing.
+- **Invisible FX** — all three tiers + trigger on `main` (sprite particles, spine-attach,
+  spine-as-particle, event-bus trigger + `/fx` event/spawn-shape picker). ⏳ Tier-C
+  GPU/perf ceiling in-game; Borut submodule bump (owner).
+- **Invisible Flow** — Phases 0–8 + tap-to-continue all merged (PRs #63/#64); `/flow`
+  registered + tool doc shipped; interpreter wired into `apps/lines` with the default-inert
+  fall-through invariant. ⏳ live-verify the authed `/flow` page + a running bundle; **no
+  shipped game runs an authored FlowDoc yet** (pipeline exists, Borut not authored/bumped).
+- **Invisible Rigger** — Phases 0–6 on `main`: bones / mesh (move·add·remove·region→mesh·
+  CDT·UV) / weights (bind·per-vertex·brush·auto-weight-to-chain) / animation (keyframing,
+  dopesheet, curves, graph editor, slot·event·draw-order channels) + rig & animation
+  libraries + isolated-mesh edit. Registered + doc. ⏳ whole-tool live-verify (the vendored
+  **minified** spine runtime ≠ the spike's un-mangled spine-core, so browser bugs slip past).
+- **Invisible Editor + launcher** — Scene Editor (placement, scaffold/import §19/§21,
+  `game_type` column, canvas-size #66), Component Editor (instances/params/per-project
+  defaults/version browser), fonts in editor (all phases), layout-doc bake + editor-art
+  export, Symbols State Machine (reload-from-R2 + publish), Localization, admin panel +
+  roles/capabilities, Drizzle auto-migrate/reconcile. ⏳ many editor render paths are
+  code-only / not browser-verified.
+- **Pipeline tools + infra** — Atlas Maker (SDXL generate, slice, compose, deploy),
+  blueprints loop (committed + publish-gated), FTP browser (scoped + admin full-bucket),
+  sheet↔atlas round-trip + delete-verifies-R2, test-server mock-RGS. FLUX builder complete
+  (txt2img proven). `/debug/access` already removed.
+
+### What's actually next (genuinely UNBUILT — prioritized)
+
+1. **§20.1 generic doc-driven scene mounting** (engine) — the runtime still mounts scenes
+   by **hardcoded id**, so author-created / reordered screens (new HUD screens, etc.) change
+   the editor preview but **not** the shipped game. Highest-leverage gap; root cause of
+   several known bugs (e.g. unmounted author HUD screens). *Note: Invisible Flow's generic
+   mounter already solves this for flow-driven games — decide whether §20.1 is now subsumed
+   by adopting Flow, or still needed for non-flow games.*
+2. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is **no**
+   export→deploy→bake→pull→register wiring, so a Rigger rig doesn't actually reach a game.
+3. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the
+   largest missing animation channel).
+4. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have
+   rich reference scene sets; other kinds scaffold from a bare skeleton.
+5. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing (numeric UV
+   editing exists; the visual panel does not).
+6. **Rigger auto-weights quality** — a proximity chain-skinner shipped; the better
+   geodesic/heat algorithm + character-mesh validation gate is still open.
+7. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances
+   behind the parity gate (B1–B3 done).
+8. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints currently
+   assume their models are already installed locally.
+9. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit (vocab can silently drift);
+   refresh `docs/tools/fx.md` for the sliders + spawn-shape picker (CLAUDE.md rule 9).
+
+### Blocked on owner / external (not code)
+
+- **gpt_image generation** — needs the `Images to RGB` ComfyUI node + `COMFY_ORG_API_KEY`/
+  credits in the local ComfyUI (only SDXL ControlNets installed). Code is ready.
+- **FLUX ref/ControlNet path** — only SDXL ControlNets installed locally; txt2img FLUX proven,
+  the ref/ControlNet path is unproven.
+- **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow /
+  info-bar; per-game-engine branches are owner-merged ([[feedback_bump_game_submodule]]).
+- **prod DB migrations 0011/0012 applied?** — couldn't verify here (no `DATABASE_URL`).
+
+### The biggest cross-cutting need
+
+**A live-verification pass with the owner in the browser.** The single largest "outstanding"
+bucket is not unbuilt code — it's that Flow, Rigger, the Editor's font/render paths, Symbols,
+FX perf, and the atlas compose/slice + FTP-admin paths were all verified **only headlessly**.
+One structured owner walkthrough would clear most of the roadmap's "⏳" items.
+
+---
+
+# Historical log (append-only — LAGS the code; trust the reconciled section above)
 
 ## Track 1 — Engine & games
 
