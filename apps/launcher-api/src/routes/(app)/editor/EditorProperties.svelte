@@ -31,6 +31,7 @@
 		type TextStyle,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
@@ -268,9 +269,9 @@
 	 * bundle. Live meta is only emitted once a bundle renders "ready" on the WebGL layer; a
 	 * marker-only preview (or a GL render that never settles) never gets there, which used to
 	 * drop the panel to a free-text box even though the animation names are knowable. Live
-	 * meta always wins; this only fills the gaps. Svelte 5 makes a `$state` Map reactive, so
-	 * `.set()` here re-renders the dropdowns. */
-	let staticSpineMeta = $state(new Map<string, SpineMeta>());
+	 * meta always wins; this only fills the gaps. A `SvelteMap` (not a plain `$state` Map,
+	 * whose `.set()` is NOT reactive) so a fetched bundle re-renders the dropdowns. */
+	const staticSpineMeta = new SvelteMap<string, SpineMeta>();
 	/** Bundles already requested (hit OR miss) so the prefetch fires once per assetKey. */
 	const requestedSpineMetaKeys = new Set<string>();
 
@@ -302,7 +303,9 @@
 	 * gains live meta is simply skipped (the resolver prefers it anyway). */
 	$effect(() => {
 		for (const key of neededSpineKeys) {
-			if (spineMeta.has(key) || requestedSpineMetaKeys.has(key)) continue;
+			// Skip only when LIVE meta already has names (the resolver prefers it) — a bundle
+			// that rendered "ready" with an empty animation list still needs the manifest.
+			if (spineMeta.get(key)?.animations.length || requestedSpineMetaKeys.has(key)) continue;
 			requestedSpineMetaKeys.add(key);
 			void (async () => {
 				try {
