@@ -4,28 +4,48 @@
 	import { onMount } from 'svelte';
 	import FxStage, { type ResolvedArt } from './FxStage.svelte';
 	import {
+		applyPreset,
+		blendMode,
+		burst,
+		emissionArc,
 		emptyEffectDoc,
+		FX_PRESETS,
+		gravity,
 		listEndpoints,
+		movementModel,
 		newLayer,
 		nextLayerKey,
+		particleColor,
+		particleSpin,
+		setBlendMode,
+		setBurst,
+		setColorEnabled,
 		setCoreParam,
+		setEmissionArc,
+		setGravity,
 		setListEndpoint,
+		setMovementModel,
+		setParticleColor,
 		setParticleKind,
 		setPlacementBone,
 		setPlacementOffset,
 		setPlacementSpace,
+		setParticleSpin,
+		setSpawnKind,
 		setSpawnRadius,
 		setSpawnRect,
 		setSpawnRing,
-		setSpawnShape,
 		setSpineParticleAnimation,
 		setSpineParticleLoop,
 		setSpineParticleSkeleton,
 		setTriggerDuration,
 		setTriggerEvent,
 		setTriggerMode,
+		spawnKind,
 		spawnShape,
-		type SpawnShapeKind,
+		type BlendKind,
+		type MovementModel,
+		type SpawnKind,
 		triggerMode,
 	} from './fxModel.client';
 	import { loadFxSpine, type FxSkeletonEntry, type LoadedFxSpine } from './fxSpine.client';
@@ -305,6 +325,22 @@
 	const scaleEnds = $derived(config ? listEndpoints(config, 'scale', 'scale') : undefined);
 	const speedEnds = $derived(config ? listEndpoints(config, 'moveSpeed', 'speed') : undefined);
 	const shape = $derived(config ? spawnShape(config) : undefined);
+	const spawnSel = $derived<SpawnKind>(config ? (spawnKind(config) ?? 'circle') : 'circle');
+	const brst = $derived(config ? burst(config) : undefined);
+	const emission = $derived(config ? emissionArc(config) : undefined);
+	const spin = $derived(config ? particleSpin(config) : undefined);
+	const moveModel = $derived<MovementModel>(config ? movementModel(config) : 'speed');
+	const grav = $derived(config ? gravity(config) : undefined);
+	const tint = $derived(config ? particleColor(config) : undefined);
+	const blend = $derived<BlendKind>(config ? blendMode(config) : 'normal');
+
+	let presetId = $state<string>('');
+
+	function applySelectedPreset(key: string): void {
+		if (!key) return;
+		updateSelected((l) => applyPreset(l, key));
+		presetId = '';
+	}
 
 	function num(e: Event): number {
 		return Number((e.currentTarget as HTMLInputElement).value);
@@ -490,6 +526,19 @@
 							onchange={(e) =>
 								renameLayer(selected.key, (e.currentTarget as HTMLInputElement).value)}
 						/>
+					</label>
+					<label class="row">
+						<span>Preset</span>
+						<select
+							title="Drop in a ready-made effect, then tune it. Replaces this layer's emitter (art is kept)."
+							value={presetId}
+							onchange={(e) => applySelectedPreset((e.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="">Apply preset…</option>
+							{#each FX_PRESETS as p (p.key)}
+								<option value={p.key}>{p.label}</option>
+							{/each}
+						</select>
 					</label>
 				</section>
 
@@ -792,26 +841,40 @@
 				</section>
 
 				<section>
-					<h3>Spawn shape</h3>
+					<h3>Spawn</h3>
 					<label class="row">
-						<span>Shape</span>
+						<span>Kind</span>
 						<select
-							value={shape?.kind ?? 'circle'}
+							value={spawnSel}
 							onchange={(e) =>
 								patchConfig(
-									setSpawnShape(
-										config,
-										(e.currentTarget as HTMLSelectElement).value as SpawnShapeKind,
-									),
+									setSpawnKind(config, (e.currentTarget as HTMLSelectElement).value as SpawnKind),
 								)}
 						>
 							<option value="point">Point</option>
 							<option value="circle">Circle</option>
 							<option value="ring">Ring</option>
 							<option value="rectangle">Rectangle</option>
+							<option value="burst">Burst (ring)</option>
 						</select>
 					</label>
-					{#if shape?.kind === 'circle'}
+					{#if spawnSel === 'burst' && brst}
+						{@render slider('Spacing (°)', brst.spacing, 0, 180, 1, (v) =>
+							patchConfig(setBurst(config, 'spacing', v)),
+						)}
+						{@render slider('Start angle (°)', brst.start, 0, 360, 1, (v) =>
+							patchConfig(setBurst(config, 'start', v)),
+						)}
+						{@render slider('Distance (px)', brst.distance, 0, 400, 1, (v) =>
+							patchConfig(setBurst(config, 'distance', v)),
+						)}
+						<p class="hint">
+							Fires particles in an even fan — one every Spacing° from the Start angle, spawned
+							Distance px out (0 = from the centre). Burst owns the launch direction, so the
+							Emission section is replaced. Pair with a short emitter lifetime for a one-shot
+							explosion.
+						</p>
+					{:else if shape?.kind === 'circle'}
 						{@render slider('Radius', shape.radius, 0, 400, 1, (v) =>
 							patchConfig(setSpawnRadius(config, v)),
 						)}
@@ -835,6 +898,30 @@
 						<p class="hint">This config has no spawn shape — pick one to add it.</p>
 					{/if}
 				</section>
+
+				{#if emission}
+					<section>
+						<h3>Emission</h3>
+						{@render slider('Direction (°)', emission.center, 0, 360, 1, (v) =>
+							patchConfig(setEmissionArc(config, v, emission.spread)),
+						)}
+						{@render slider('Spread (±°)', emission.spread, 0, 180, 1, (v) =>
+							patchConfig(setEmissionArc(config, emission.center, v)),
+						)}
+						<p class="hint">
+							Launch direction: 0° = right, 90° = up, 180° = left, 270° = down. Spread 180° = all
+							directions. A narrow upward arc + gravity makes a fountain.
+						</p>
+						{#if spin}
+							{@render slider('Spin min (°/s)', spin.minSpeed, -720, 720, 5, (v) =>
+								patchConfig(setParticleSpin(config, { ...spin, minSpeed: v })),
+							)}
+							{@render slider('Spin max (°/s)', spin.maxSpeed, -720, 720, 5, (v) =>
+								patchConfig(setParticleSpin(config, { ...spin, maxSpeed: v })),
+							)}
+						{/if}
+					</section>
+				{/if}
 
 				{#if alphaEnds}
 					<section>
@@ -860,17 +947,122 @@
 					</section>
 				{/if}
 
-				{#if speedEnds}
-					<section>
-						<h3>Speed</h3>
-						{@render slider('Start', speedEnds.start, 0, 1000, 1, (v) =>
+				<section>
+					<h3>Movement</h3>
+					<label class="row">
+						<span>Model</span>
+						<select
+							value={moveModel}
+							onchange={(e) =>
+								patchConfig(
+									setMovementModel(
+										config,
+										(e.currentTarget as HTMLSelectElement).value as MovementModel,
+									),
+								)}
+						>
+							<option value="speed">Eased speed</option>
+							<option value="gravity">Gravity (acceleration)</option>
+						</select>
+					</label>
+					{#if moveModel === 'speed' && speedEnds}
+						{@render slider('Speed start', speedEnds.start, 0, 1000, 1, (v) =>
 							patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'start', v)),
 						)}
-						{@render slider('End', speedEnds.end, 0, 1000, 1, (v) =>
+						{@render slider('Speed end', speedEnds.end, 0, 1000, 1, (v) =>
 							patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'end', v)),
 						)}
-					</section>
-				{/if}
+						<p class="hint">Speed along the launch direction, eased over the particle's life.</p>
+					{:else if moveModel === 'gravity' && grav}
+						{@render slider('Start speed min', grav.minStart, 0, 2000, 10, (v) =>
+							patchConfig(setGravity(config, 'minStart', v)),
+						)}
+						{@render slider('Start speed max', grav.maxStart, 0, 2000, 10, (v) =>
+							patchConfig(setGravity(config, 'maxStart', v)),
+						)}
+						{@render slider('Gravity X', grav.accelX, -3000, 3000, 10, (v) =>
+							patchConfig(setGravity(config, 'accelX', v)),
+						)}
+						{@render slider('Gravity Y', grav.accelY, -3000, 3000, 10, (v) =>
+							patchConfig(setGravity(config, 'accelY', v)),
+						)}
+						{@render slider('Max speed', grav.maxSpeed, 0, 4000, 10, (v) =>
+							patchConfig(setGravity(config, 'maxSpeed', v)),
+						)}
+						<label class="row check">
+							<input
+								type="checkbox"
+								checked={grav.rotate}
+								onchange={(e) =>
+									patchConfig(
+										setGravity(config, 'rotate', (e.currentTarget as HTMLInputElement).checked),
+									)}
+							/>
+							<span>Rotate particle to its travel direction</span>
+						</label>
+						<p class="hint">
+							Particles launch along the Emission direction at the start speed, then accelerate by
+							gravity (positive Y pulls down). Up-direction + downward gravity = a fountain.
+						</p>
+					{/if}
+				</section>
+
+				<section>
+					<h3>Colour</h3>
+					<label class="row check">
+						<input
+							type="checkbox"
+							checked={!!tint}
+							onchange={(e) =>
+								patchConfig(setColorEnabled(config, (e.currentTarget as HTMLInputElement).checked))}
+						/>
+						<span>Tint particles over life</span>
+					</label>
+					{#if tint}
+						<label class="row">
+							<span>Start</span>
+							<input
+								type="color"
+								value={tint.start}
+								oninput={(e) =>
+									patchConfig(
+										setParticleColor(config, 'start', (e.currentTarget as HTMLInputElement).value),
+									)}
+							/>
+						</label>
+						<label class="row">
+							<span>End</span>
+							<input
+								type="color"
+								value={tint.end}
+								oninput={(e) =>
+									patchConfig(
+										setParticleColor(config, 'end', (e.currentTarget as HTMLInputElement).value),
+									)}
+							/>
+						</label>
+					{/if}
+				</section>
+
+				<section>
+					<h3>Blend mode</h3>
+					<label class="row">
+						<span>Blend</span>
+						<select
+							value={blend}
+							onchange={(e) =>
+								patchConfig(
+									setBlendMode(config, (e.currentTarget as HTMLSelectElement).value as BlendKind),
+								)}
+						>
+							<option value="normal">Normal</option>
+							<option value="add">Add (glow)</option>
+							<option value="screen">Screen</option>
+							<option value="multiply">Multiply</option>
+						</select>
+					</label>
+					<p class="hint">Add / screen give the additive glow fire, sparks and magic want.</p>
+				</section>
 			{:else}
 				<p class="hint">No layer selected.</p>
 			{/if}

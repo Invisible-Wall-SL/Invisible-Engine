@@ -6,6 +6,7 @@
 	"scripts": {
 		"roundtrip": "tsx roundTrip.ts",
 		"model": "tsx modelHelpers.ts",
+		"params": "tsx emitterParams.ts",
 		"save": "tsx saveSplit.ts",
 		"placement": "tsx placement.ts",
 		"player": "tsx playerReduce.ts",

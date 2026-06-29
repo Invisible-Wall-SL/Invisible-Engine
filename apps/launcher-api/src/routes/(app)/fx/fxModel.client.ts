@@ -13,6 +13,7 @@
 import {
 	EFFECT_DOC_VERSION,
 	behaviorsOf,
+	type BehaviorEntry,
 	type EffectDoc,
 	type EmitterConfigV3,
 	type EmitterLayer,
@@ -598,4 +599,788 @@ export function spineParticleReady(layer: EmitterLayer): boolean {
 		!!layer.spineParticle?.skeletonKey?.trim() &&
 		!!layer.spineParticle?.animation?.trim()
 	);
+}
+
+// ===========================================================================
+// Advanced emitter behaviors — the "professional FX" authoring surface.
+//
+// Each helper reads/writes ONE `@barvynkoa/particle-emitter` behavior in the
+// config's verbatim `behaviors` array, the same immutable-clone discipline the
+// spawn-shape/list-endpoint setters above use (clone → edit → return; never
+// mutate the source). The behavior `type` strings + config shapes are the
+// library's own (verified against its `behaviors/*.d.ts` example configs:
+// `moveAcceleration`, `rotation`/`rotationStatic`, `color`, `blendMode`), so a
+// saved config round-trips into the runtime `<ParticleEmitter>` untouched —
+// these are NOT a new schema, just more of the existing one exposed.
+// ===========================================================================
+
+/** Deep-clone a config so an edit is immutable (the source-of-truth doc is never mutated). */
+function cloneConfig(config: EmitterConfigV3): EmitterConfigV3 {
+	return JSON.parse(JSON.stringify(config));
+}
+
+/** Replace the config's `behaviors` array on a (cloned) config. */
+function withBehaviors(config: EmitterConfigV3, behaviors: BehaviorEntry[]): EmitterConfigV3 {
+	(config as { behaviors: BehaviorEntry[] }).behaviors = behaviors;
+	return config;
+}
+
+/** Drop every behavior of the given type(s) immutably (returns a NEW config). */
+function removeBehaviors(config: EmitterConfigV3, ...types: string[]): EmitterConfigV3 {
+	const next = cloneConfig(config);
+	const drop = new Set(types);
+	return withBehaviors(
+		next,
+		behaviorsOf(next).filter((b) => !drop.has(b.type)),
+	);
+}
+
+/**
+ * Upsert a behavior immutably: if one of `type` exists, hand it to `edit` to mutate its config
+ * in place (on the clone); otherwise append `{ type, config: make() }`. Returns a NEW config.
+ */
+function upsertBehavior(
+	config: EmitterConfigV3,
+	type: string,
+	make: () => Record<string, unknown>,
+	edit?: (b: BehaviorEntry) => void,
+): EmitterConfigV3 {
+	const next = cloneConfig(config);
+	const behaviors = behaviorsOf(next);
+	const existing = behaviors.find((b) => b.type === type);
+	if (existing) {
+		edit?.(existing);
+	} else {
+		behaviors.push({ type, config: make() });
+	}
+	return withBehaviors(next, behaviors);
+}
+
+// ---------------------------------------------------------------------------
+// Emission direction + spread, and particle spin.
+//
+// `@barvynkoa/particle-emitter` gives a particle its launch DIRECTION via a
+// rotation behavior — `rotationStatic { min, max }` (no spin) or `rotation
+// { minStart, maxStart, minSpeed, maxSpeed, accel }` (with spin). Both speak
+// the library's angle convention: **0° = right, 90° = up, 180° = left, 270° =
+// down.** The MOVEMENT behavior (`moveSpeed` / `moveAcceleration`) then pushes
+// the particle along that direction — so direction + a gravity model = a
+// fountain. We author direction as CENTRE + SPREAD (half-angle), the natural
+// FX knobs, and project them onto the behavior's min/max angles.
+// ---------------------------------------------------------------------------
+
+/** Find the single rotation behavior driving emission direction (`rotation` or `rotationStatic`). */
+function rotationBehavior(config: EmitterConfigV3): BehaviorEntry | undefined {
+	return behaviorsOf(config).find((b) => b.type === 'rotation' || b.type === 'rotationStatic');
+}
+
+/** Read the start-angle min/max out of whichever rotation behavior is present. */
+function rotationStartRange(b: BehaviorEntry): { min: number; max: number } {
+	const c = b.config;
+	if (b.type === 'rotation') {
+		return { min: Number(c.minStart ?? 0), max: Number(c.maxStart ?? 0) };
+	}
+	return { min: Number(c.min ?? 0), max: Number(c.max ?? 0) };
+}
+
+/**
+ * The emission CENTRE (degrees) + SPREAD (half-angle, degrees) read from the config's rotation
+ * behavior. `undefined` when the config has no rotation behavior (degrades gracefully). A full
+ * `0..360` static rotation reads as centre 180 / spread 180 (omnidirectional).
+ */
+export function emissionArc(
+	config: EmitterConfigV3,
+): { center: number; spread: number } | undefined {
+	const b = rotationBehavior(config);
+	if (!b) return undefined;
+	const { min, max } = rotationStartRange(b);
+	return { center: (min + max) / 2, spread: Math.abs(max - min) / 2 };
+}
+
+/**
+ * Set the emission centre + spread immutably, writing min = centre − spread / max = centre + spread
+ * into whichever rotation behavior exists (preserving any spin on a `rotation`); if none exists, a
+ * `rotationStatic` is appended. ONLY the rotation behavior changes.
+ */
+export function setEmissionArc(
+	config: EmitterConfigV3,
+	center: number,
+	spread: number,
+): EmitterConfigV3 {
+	const min = center - spread;
+	const max = center + spread;
+	const b = rotationBehavior(config);
+	const type = b?.type ?? 'rotationStatic';
+	return upsertBehavior(
+		config,
+		type,
+		() => ({ min, max }),
+		(entry) => {
+			if (entry.type === 'rotation') {
+				entry.config.minStart = min;
+				entry.config.maxStart = max;
+			} else {
+				entry.config.min = min;
+				entry.config.max = max;
+			}
+		},
+	);
+}
+
+/** The particle spin (rotation-over-life) read from a `rotation` behavior — all zero for `rotationStatic`. */
+export function particleSpin(config: EmitterConfigV3): {
+	minSpeed: number;
+	maxSpeed: number;
+	accel: number;
+} {
+	const b = rotationBehavior(config);
+	if (!b || b.type !== 'rotation') return { minSpeed: 0, maxSpeed: 0, accel: 0 };
+	return {
+		minSpeed: Number(b.config.minSpeed ?? 0),
+		maxSpeed: Number(b.config.maxSpeed ?? 0),
+		accel: Number(b.config.accel ?? 0),
+	};
+}
+
+/**
+ * Set particle spin immutably. When all of min/max speed + accel are zero we DOWNGRADE to the
+ * lighter `rotationStatic` (direction only); any non-zero spin UPGRADES to `rotation`, carrying
+ * the existing emission arc across so the launch direction is preserved. The two rotation
+ * behaviors never coexist — exactly one drives both direction and spin.
+ */
+export function setParticleSpin(
+	config: EmitterConfigV3,
+	spin: { minSpeed: number; maxSpeed: number; accel: number },
+): EmitterConfigV3 {
+	const arc = emissionArc(config) ?? { center: 180, spread: 180 };
+	const min = arc.center - arc.spread;
+	const max = arc.center + arc.spread;
+	const stripped = removeBehaviors(config, 'rotation', 'rotationStatic');
+	const spinning = spin.minSpeed !== 0 || spin.maxSpeed !== 0 || spin.accel !== 0;
+	const next = cloneConfig(stripped);
+	const behaviors = behaviorsOf(next);
+	behaviors.push(
+		spinning
+			? {
+					type: 'rotation',
+					config: {
+						minStart: min,
+						maxStart: max,
+						minSpeed: spin.minSpeed,
+						maxSpeed: spin.maxSpeed,
+						accel: spin.accel,
+					},
+				}
+			: { type: 'rotationStatic', config: { min, max } },
+	);
+	return withBehaviors(next, behaviors);
+}
+
+// ---------------------------------------------------------------------------
+// Burst spawn — a fifth spawn KIND (explosions, fireworks, coin pops).
+//
+// `spawnBurst` sends particles out in evenly-spaced angles from a point or
+// ring. It is a SPAWN-position behavior like `spawnShape`, and the two have no
+// defined order between them in the library — so they are MUTUALLY EXCLUSIVE
+// (exactly one spawn-position behavior). Critically, `spawnBurst` also SETS each
+// particle's launch `rotation` (its fan angle), and runs FIRST (order Spawn);
+// the `rotation`/`rotationStatic` behaviors run later (order Normal) and `+=`
+// onto it — so an omnidirectional `rotationStatic{0,360}` would randomize the
+// burst back into a plain spray. Therefore burst OWNS direction: selecting it
+// strips the rotation behavior (the Emission section hides), and switching back
+// to a shape restores an omnidirectional `rotationStatic` so movement has a
+// direction again. `setSpawnKind` is the single switch that keeps this invariant.
+// ---------------------------------------------------------------------------
+
+/** Every authoring spawn kind: the four shapes plus the burst emitter. */
+export type SpawnKind = SpawnShapeKind | 'burst';
+
+/** Default burst params for a fresh burst — a fine, even ring fan from the origin. */
+function defaultBurst(): Record<string, unknown> {
+	return { spacing: 30, start: 0, distance: 0 };
+}
+
+/** The burst params (`undefined` when the config has no `spawnBurst` behavior). */
+export function burst(
+	config: EmitterConfigV3,
+): { spacing: number; start: number; distance: number } | undefined {
+	const b = behaviorsOf(config).find((x) => x.type === 'spawnBurst');
+	if (!b) return undefined;
+	return {
+		spacing: Number(b.config.spacing ?? 0),
+		start: Number(b.config.start ?? 0),
+		distance: Number(b.config.distance ?? 0),
+	};
+}
+
+/**
+ * The active spawn kind: `'burst'` when a `spawnBurst` behavior is present, otherwise the
+ * `spawnShape` kind (point/circle/ring/rectangle), or `undefined` for a config with neither.
+ */
+export function spawnKind(config: EmitterConfigV3): SpawnKind | undefined {
+	if (behaviorsOf(config).some((b) => b.type === 'spawnBurst')) return 'burst';
+	return spawnShape(config)?.kind;
+}
+
+/**
+ * Switch the spawn kind immutably, keeping exactly one spawn-position behavior:
+ * - `'burst'` → drop `spawnShape` + BOTH rotation behaviors, add `spawnBurst` (preserving any
+ *   prior burst params). Burst owns direction, so the Emission controls drop out.
+ * - a shape → drop `spawnBurst`; if no rotation behavior remains (e.g. coming back FROM burst),
+ *   restore an omnidirectional `rotationStatic` so movement has a launch direction again; then
+ *   write the shape via `setSpawnShape` (params preserved / defaulted exactly as before).
+ */
+export function setSpawnKind(config: EmitterConfigV3, kind: SpawnKind): EmitterConfigV3 {
+	if (kind === 'burst') {
+		const prior = burst(config);
+		const stripped = removeBehaviors(config, 'spawnShape', 'rotation', 'rotationStatic');
+		return upsertBehavior(
+			stripped,
+			'spawnBurst',
+			() => (prior as Record<string, unknown> | undefined) ?? defaultBurst(),
+		);
+	}
+	let next = removeBehaviors(config, 'spawnBurst');
+	if (!rotationBehavior(next)) {
+		const seeded = cloneConfig(next);
+		behaviorsOf(seeded).push({ type: 'rotationStatic', config: { min: 0, max: 360 } });
+		next = seeded;
+	}
+	return setSpawnShape(next, kind);
+}
+
+/** Set one burst field immutably (forces a `spawnBurst` behavior, stripping any `spawnShape`/rotation). */
+export function setBurst(
+	config: EmitterConfigV3,
+	field: 'spacing' | 'start' | 'distance',
+	value: number,
+): EmitterConfigV3 {
+	const seeded = burst(config) ? config : setSpawnKind(config, 'burst');
+	return upsertBehavior(
+		seeded,
+		'spawnBurst',
+		() => ({ ...defaultBurst(), [field]: value }),
+		(b) => {
+			b.config[field] = value;
+		},
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Movement model — eased speed vs gravity (acceleration).
+//
+// `moveSpeed` (a speed curve along the launch direction) and `moveAcceleration`
+// (an initial speed + a constant acceleration vector — GRAVITY) are BOTH the
+// library's Movement behavior and are mutually exclusive (two would double-move
+// a particle). So the inspector models movement as a MODE: switching swaps one
+// behavior for the other, carrying a sensible start speed across.
+// ---------------------------------------------------------------------------
+
+export type MovementModel = 'speed' | 'gravity';
+
+/** Which movement behavior the config carries (`moveAcceleration` ⇒ gravity, else eased speed). */
+export function movementModel(config: EmitterConfigV3): MovementModel {
+	return behaviorsOf(config).some((b) => b.type === 'moveAcceleration') ? 'gravity' : 'speed';
+}
+
+/** The gravity params read from a `moveAcceleration` behavior (`undefined` in the speed model). */
+export function gravity(config: EmitterConfigV3):
+	| {
+			accelX: number;
+			accelY: number;
+			minStart: number;
+			maxStart: number;
+			maxSpeed: number;
+			rotate: boolean;
+	  }
+	| undefined {
+	const b = behaviorsOf(config).find((x) => x.type === 'moveAcceleration');
+	if (!b) return undefined;
+	const accel = (b.config.accel as { x?: number; y?: number } | undefined) ?? {};
+	return {
+		accelX: Number(accel.x ?? 0),
+		accelY: Number(accel.y ?? 0),
+		minStart: Number(b.config.minStart ?? 0),
+		maxStart: Number(b.config.maxStart ?? 0),
+		maxSpeed: Number(b.config.maxSpeed ?? 0),
+		rotate: b.config.rotate === true,
+	};
+}
+
+/** The default gravity block when first switching into the gravity model — a downward fall. */
+function defaultGravity(startSpeed: number): Record<string, unknown> {
+	return {
+		accel: { x: 0, y: 1200 },
+		minStart: startSpeed,
+		maxStart: startSpeed,
+		rotate: false,
+		maxSpeed: 0,
+	};
+}
+
+/** The default eased-speed block when first switching into the speed model. */
+function defaultSpeed(startSpeed: number): Record<string, unknown> {
+	return {
+		speed: {
+			list: [
+				{ time: 0, value: startSpeed },
+				{ time: 1, value: Math.round(startSpeed * 0.4) },
+			],
+		},
+		minMult: 1,
+	};
+}
+
+/**
+ * Switch the movement model immutably, swapping `moveSpeed` ⇄ `moveAcceleration`. The start speed
+ * is carried across (the speed curve's first value ⇄ the acceleration's start speed) so the toggle
+ * is roughly volume-preserving. A no-op when already in the requested model.
+ */
+export function setMovementModel(config: EmitterConfigV3, model: MovementModel): EmitterConfigV3 {
+	if (movementModel(config) === model) return config;
+	if (model === 'gravity') {
+		const speed = listEndpoints(config, 'moveSpeed', 'speed');
+		const startSpeed = speed ? speed.start : 300;
+		const stripped = removeBehaviors(config, 'moveSpeed', 'moveSpeedStatic');
+		const next = cloneConfig(stripped);
+		behaviorsOf(next).push({ type: 'moveAcceleration', config: defaultGravity(startSpeed) });
+		return next;
+	}
+	const g = gravity(config);
+	const startSpeed = g ? g.minStart || 300 : 300;
+	const stripped = removeBehaviors(config, 'moveAcceleration');
+	const next = cloneConfig(stripped);
+	behaviorsOf(next).push({ type: 'moveSpeed', config: defaultSpeed(startSpeed) });
+	return next;
+}
+
+/** Set one gravity field immutably (forces the gravity model — adds `moveAcceleration` if absent). */
+export function setGravity(
+	config: EmitterConfigV3,
+	field: 'accelX' | 'accelY' | 'minStart' | 'maxStart' | 'maxSpeed' | 'rotate',
+	value: number | boolean,
+): EmitterConfigV3 {
+	const seeded = movementModel(config) === 'gravity' ? config : setMovementModel(config, 'gravity');
+	return upsertBehavior(
+		seeded,
+		'moveAcceleration',
+		() => defaultGravity(300),
+		(b) => {
+			const accel = (b.config.accel as { x?: number; y?: number } | undefined) ?? { x: 0, y: 0 };
+			switch (field) {
+				case 'accelX':
+					b.config.accel = { ...accel, x: Number(value) };
+					break;
+				case 'accelY':
+					b.config.accel = { ...accel, y: Number(value) };
+					break;
+				case 'rotate':
+					b.config.rotate = value === true;
+					break;
+				default:
+					b.config[field] = Number(value);
+			}
+		},
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Colour over life (tint) + blend mode.
+//
+// `color` applies an interpolated tint across the particle's life (6-digit hex
+// in the library's `ValueList<string>`); `blendMode` sets the Pixi blend at
+// init (`add`/`screen` give the additive GLOW that fire/sparks/magic want).
+// ---------------------------------------------------------------------------
+
+/** The start/end tint of a `color` behavior, or `undefined` when the layer has no colour behavior. */
+export function particleColor(config: EmitterConfigV3): { start: string; end: string } | undefined {
+	const b = behaviorsOf(config).find((x) => x.type === 'color');
+	const list = (b?.config.color as { list?: { value: string }[] } | undefined)?.list;
+	if (!Array.isArray(list) || list.length === 0) return undefined;
+	return { start: list[0].value, end: list[list.length - 1].value };
+}
+
+/** Enable/disable the colour tint immutably. Enabling seeds a gentle warm gradient as a starting point. */
+export function setColorEnabled(config: EmitterConfigV3, on: boolean): EmitterConfigV3 {
+	if (!on) return removeBehaviors(config, 'color');
+	if (particleColor(config)) return config;
+	const next = cloneConfig(config);
+	behaviorsOf(next).push({
+		type: 'color',
+		config: {
+			color: {
+				list: [
+					{ time: 0, value: '#fff1a8' },
+					{ time: 1, value: '#ff5a3c' },
+				],
+			},
+		},
+	});
+	return next;
+}
+
+/** Set the start or end tint of the `color` behavior immutably (adds the behavior if absent). */
+export function setParticleColor(
+	config: EmitterConfigV3,
+	which: 'start' | 'end',
+	hex: string,
+): EmitterConfigV3 {
+	const seeded = particleColor(config) ? config : setColorEnabled(config, true);
+	return upsertBehavior(
+		seeded,
+		'color',
+		() => ({ color: { list: [{ time: 0, value: hex }] } }),
+		(b) => {
+			const holder = b.config.color as { list?: { time: number; value: string }[] } | undefined;
+			const list = holder?.list;
+			if (!Array.isArray(list) || list.length === 0) return;
+			if (which === 'start') list[0].value = hex;
+			else list[list.length - 1].value = hex;
+		},
+	);
+}
+
+/** The four blend modes the inspector offers (`normal` = no `blendMode` behavior, the clean default). */
+export type BlendKind = 'normal' | 'add' | 'screen' | 'multiply';
+
+/** The layer's blend mode (`normal` when no `blendMode` behavior is present). */
+export function blendMode(config: EmitterConfigV3): BlendKind {
+	const b = behaviorsOf(config).find((x) => x.type === 'blendMode');
+	const mode = b?.config.blendMode;
+	return mode === 'add' || mode === 'screen' || mode === 'multiply' ? mode : 'normal';
+}
+
+/**
+ * Set the blend mode immutably. `normal` REMOVES the `blendMode` behavior (keeps the config clean
+ * — normal is the library default), any other mode upserts it.
+ */
+export function setBlendMode(config: EmitterConfigV3, mode: BlendKind): EmitterConfigV3 {
+	if (mode === 'normal') return removeBehaviors(config, 'blendMode');
+	return upsertBehavior(
+		config,
+		'blendMode',
+		() => ({ blendMode: mode }),
+		(b) => {
+			b.config.blendMode = mode;
+		},
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Preset library — full, known-good configs the author can drop in then tune.
+//
+// Each preset BUILDS a complete `EmitterConfigV3` (the library's verbatim shape),
+// so `applyPreset` replaces a layer's `config` while keeping its art / placement
+// / trigger. They're the fast path to a professional look — and a live demo of
+// every knob above (direction, gravity, colour, blend). All use a `torus` spawn
+// shape so the spawn-shape picker stays consistent after applying one.
+// ---------------------------------------------------------------------------
+
+const alpha = (start: number, end: number): BehaviorEntry => ({
+	type: 'alpha',
+	config: {
+		alpha: {
+			list: [
+				{ time: 0, value: start },
+				{ time: 1, value: end },
+			],
+		},
+	},
+});
+const scale = (start: number, end: number): BehaviorEntry => ({
+	type: 'scale',
+	config: {
+		scale: {
+			list: [
+				{ time: 0, value: start },
+				{ time: 1, value: end },
+			],
+		},
+	},
+});
+const colorList = (start: string, end: string): BehaviorEntry => ({
+	type: 'color',
+	config: {
+		color: {
+			list: [
+				{ time: 0, value: start },
+				{ time: 1, value: end },
+			],
+		},
+	},
+});
+const torus = (radius: number, innerRadius?: number): BehaviorEntry => ({
+	type: 'spawnShape',
+	config: {
+		type: 'torus',
+		data: innerRadius ? { x: 0, y: 0, radius, innerRadius } : { x: 0, y: 0, radius },
+	},
+});
+const rotStatic = (center: number, spread: number): BehaviorEntry => ({
+	type: 'rotationStatic',
+	config: { min: center - spread, max: center + spread },
+});
+const accel = (
+	x: number,
+	y: number,
+	minStart: number,
+	maxStart: number,
+	rotate = false,
+): BehaviorEntry => ({
+	type: 'moveAcceleration',
+	config: { accel: { x, y }, minStart, maxStart, rotate, maxSpeed: 0 },
+});
+const moveSpeed = (start: number, end: number): BehaviorEntry => ({
+	type: 'moveSpeed',
+	config: {
+		speed: {
+			list: [
+				{ time: 0, value: start },
+				{ time: 1, value: end },
+			],
+		},
+		minMult: 0.8,
+	},
+});
+const burstShape = (spacing: number, start: number, distance: number): BehaviorEntry => ({
+	type: 'spawnBurst',
+	config: { spacing, start, distance },
+});
+const blend = (mode: BlendKind): BehaviorEntry => ({
+	type: 'blendMode',
+	config: { blendMode: mode },
+});
+
+function baseConfig(over: {
+	lifetime: { min: number; max: number };
+	frequency: number;
+	maxParticles: number;
+	behaviors: BehaviorEntry[];
+	emitterLifetime?: number;
+}): EmitterConfigV3 {
+	return {
+		lifetime: over.lifetime,
+		frequency: over.frequency,
+		emitterLifetime: over.emitterLifetime ?? -1,
+		maxParticles: over.maxParticles,
+		pos: { x: 0, y: 0 },
+		addAtBack: false,
+		behaviors: over.behaviors,
+	} as EmitterConfigV3;
+}
+
+/** A named, ready-to-tune effect config. */
+export interface FxPreset {
+	key: string;
+	label: string;
+	build: () => EmitterConfigV3;
+}
+
+/**
+ * The preset menu. Ordered roughly by how common they are in slot FX. Each is a self-contained
+ * config — `applyPreset` swaps it onto the selected layer (art is preserved, so binding a spark/
+ * smoke texture afterward makes it real).
+ */
+export const FX_PRESETS: FxPreset[] = [
+	{
+		key: 'fountain',
+		label: 'Fountain',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 1, max: 1.4 },
+				frequency: 0.008,
+				maxParticles: 400,
+				behaviors: [
+					alpha(1, 0),
+					scale(0.4, 0.18),
+					colorList('#bfe6ff', '#3b82f6'),
+					rotStatic(90, 16),
+					accel(0, 1500, 520, 720),
+					torus(8),
+					blend('add'),
+				],
+			}),
+	},
+	{
+		key: 'fire',
+		label: 'Fire',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 0.5, max: 0.9 },
+				frequency: 0.01,
+				maxParticles: 300,
+				behaviors: [
+					alpha(0.85, 0),
+					scale(0.5, 0.9),
+					colorList('#fff1a8', '#ff3b1d'),
+					rotStatic(90, 28),
+					moveSpeed(140, 60),
+					torus(14),
+					blend('add'),
+				],
+			}),
+	},
+	{
+		key: 'smoke',
+		label: 'Smoke',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 1.4, max: 2.2 },
+				frequency: 0.05,
+				maxParticles: 120,
+				behaviors: [
+					alpha(0.5, 0),
+					scale(0.5, 1.6),
+					colorList('#9aa3ad', '#3b4250'),
+					rotStatic(90, 22),
+					moveSpeed(70, 30),
+					torus(18),
+				],
+			}),
+	},
+	{
+		key: 'sparks',
+		label: 'Sparks',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 0.4, max: 0.8 },
+				frequency: 0.004,
+				maxParticles: 400,
+				behaviors: [
+					alpha(1, 0),
+					scale(0.35, 0.05),
+					colorList('#fff7cc', '#ff8a1f'),
+					rotStatic(90, 60),
+					accel(0, 1800, 500, 900, true),
+					torus(6),
+					blend('add'),
+				],
+			}),
+	},
+	{
+		key: 'explosion',
+		label: 'Explosion (burst)',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 0.4, max: 0.9 },
+				frequency: 0.001,
+				maxParticles: 600,
+				emitterLifetime: 0.12,
+				behaviors: [
+					alpha(1, 0),
+					scale(0.6, 0.1),
+					colorList('#fff3c2', '#ff3b1d'),
+					accel(0, 400, 800, 1200, true),
+					burstShape(8, 0, 4),
+					blend('add'),
+				],
+			}),
+	},
+	{
+		key: 'rain',
+		label: 'Rain',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 0.7, max: 1 },
+				frequency: 0.006,
+				maxParticles: 400,
+				behaviors: [
+					alpha(0.6, 0.4),
+					scale(0.4, 0.4),
+					colorList('#cfe8ff', '#9ec5ff'),
+					rotStatic(270, 4),
+					accel(0, 2200, 900, 1100, true),
+					torus(0),
+					{
+						type: 'spawnShape',
+						config: { type: 'rect', data: { x: -400, y: -300, w: 800, h: 20 } },
+					},
+				],
+			}),
+	},
+	{
+		key: 'snow',
+		label: 'Snow',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 3, max: 5 },
+				frequency: 0.04,
+				maxParticles: 200,
+				behaviors: [
+					alpha(0.9, 0.7),
+					scale(0.3, 0.3),
+					colorList('#ffffff', '#e8f1ff'),
+					{
+						type: 'rotation',
+						config: { minStart: 250, maxStart: 290, minSpeed: -40, maxSpeed: 40, accel: 0 },
+					},
+					moveSpeed(90, 70),
+					{
+						type: 'spawnShape',
+						config: { type: 'rect', data: { x: -400, y: -320, w: 800, h: 20 } },
+					},
+				],
+			}),
+	},
+	{
+		key: 'confetti',
+		label: 'Confetti',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 1.4, max: 2.2 },
+				frequency: 0.012,
+				maxParticles: 300,
+				behaviors: [
+					alpha(1, 0.6),
+					scale(0.35, 0.35),
+					{
+						type: 'rotation',
+						config: { minStart: 60, maxStart: 120, minSpeed: -260, maxSpeed: 260, accel: 0 },
+					},
+					accel(0, 700, 500, 900, false),
+					torus(10),
+				],
+			}),
+	},
+	{
+		key: 'magic',
+		label: 'Magic glow',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 0.8, max: 1.4 },
+				frequency: 0.02,
+				maxParticles: 200,
+				behaviors: [
+					{
+						type: 'alpha',
+						config: {
+							alpha: {
+								list: [
+									{ time: 0, value: 0 },
+									{ time: 0.3, value: 1 },
+									{ time: 1, value: 0 },
+								],
+							},
+						},
+					},
+					scale(0.2, 0.7),
+					colorList('#d8b4fe', '#7c3aed'),
+					rotStatic(90, 180),
+					moveSpeed(40, 10),
+					torus(26),
+					blend('add'),
+				],
+			}),
+	},
+];
+
+/**
+ * Replace the selected layer's emitter config with a preset's, immutably. Art, placement,
+ * particle kind, and trigger are PRESERVED (a preset tunes the emitter, not where it lives or
+ * what it's made of). An unknown key is a no-op.
+ */
+export function applyPreset(layer: EmitterLayer, presetKey: string): EmitterLayer {
+	const preset = FX_PRESETS.find((p) => p.key === presetKey);
+	if (!preset) return layer;
+	return { ...layer, config: preset.build() };
 }
