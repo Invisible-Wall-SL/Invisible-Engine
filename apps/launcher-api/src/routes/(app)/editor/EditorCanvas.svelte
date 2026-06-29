@@ -1254,6 +1254,29 @@
 		return hudTextFilter;
 	}
 
+	/** Synthetic scene key for the HUD spine overlay's report buffers — it covers ALL HUD
+	 * scenes on one overlay (the HUD draws on its own top layer), mirroring `HUD_TEXT_KEY`. */
+	const HUD_SPINE_KEY = '__hud-spine__';
+
+	/** Non-hidden HUD scenes carrying a spine ANYWHERE in their tree (incl. nested in a
+	 * placed component — a spin button's `R_SpinButton`). The per-game-scene `{#each}`
+	 * excludes HUD scenes (they draw on `hudCanvas`), so without this the HUD's spines only
+	 * ever show their 2D placeholder box and never the live skeleton. */
+	function hudSpineScenes(): Scene[] {
+		return scenes.filter((s) => isHudScene(s) && !hiddenSceneIds.has(s.id) && sceneHasSpine(s));
+	}
+
+	/** Memoized multi-id `sceneFilter` for the HUD spine overlay — a stable Set reference
+	 * (rebuilt only when membership changes) so the overlay doesn't churn each render. */
+	let hudSpineFilter = new Set<string>();
+	function hudSpineSceneFilter(): Set<string> {
+		const ids = hudSpineScenes().map((s) => s.id);
+		if (ids.length !== hudSpineFilter.size || ids.some((id) => !hudSpineFilter.has(id))) {
+			hudSpineFilter = new Set(ids);
+		}
+		return hudSpineFilter;
+	}
+
 	/** Per-scene 2D canvas registry — each game scene's node art draws onto its OWN
 	 * canvas (registered here on mount) so it z-orders with the rest of its group. */
 	const sceneCanvases = new Map<string, HTMLCanvasElement>();
@@ -2939,6 +2962,48 @@
 	{/each}
 
 	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
+	<!-- HUD spine overlay: like the HUD text overlay below, the HUD scenes draw on the
+	     top-most `hudCanvas` and are excluded from the per-game-scene `{#each}` above — so a
+	     spine nested in a placed HUD component (a spin button's `R_SpinButton`) would only
+	     ever show its 2D placeholder. This live spine layer (filtered to the HUD scenes) sits
+	     just above the HUD's 2D canvas, so the editor reflects the in-game button. -->
+	{#if hudSpineScenes().length > 0}
+		<div class="hud-spine-layer">
+			<EditorSpineLayer
+				{scenes}
+				{mainSizesMap}
+				{layoutType}
+				{frameWidth}
+				{frameHeight}
+				{panX}
+				{panY}
+				{zoom}
+				{assets}
+				{componentMap}
+				worldTransformOf={nodeTransform}
+				reloadToken={spineReload}
+				{hiddenSceneIds}
+				sceneFilter={hudSpineSceneFilter()}
+				activeSceneId={null}
+				playing={playingSpines}
+				onReadyKeysChange={(keys) => {
+					mergeSpineReady(HUD_SPINE_KEY, keys);
+					schedule();
+				}}
+				onNaturalSizesChange={(sizes) => {
+					mergeSpineNatural(HUD_SPINE_KEY, sizes);
+					schedule();
+				}}
+				onSpineMetaChange={(meta) => {
+					mergeSpineMeta(HUD_SPINE_KEY, meta);
+					schedule();
+				}}
+				onLoadingChange={(c) => {
+					mergeSpineLoading(HUD_SPINE_KEY, c);
+				}}
+			/>
+		</div>
+	{/if}
 	<!-- HUD text overlay: the HUD scenes (hudBar/hudCorners) draw on the top-most
 	     `hudCanvas`, NOT in the per-game-scene `{#each}` above — so their text (which the
 	     2D canvas no longer fills) needs its OWN pixi overlay, layered just over the HUD
@@ -3077,6 +3142,16 @@
 		position: absolute;
 		inset: 0;
 		z-index: 1000;
+		pointer-events: none;
+	}
+	.hud-spine-layer {
+		/* The HUD's spine overlay — sits just ABOVE the HUD's 2D canvas (z-index 1000) so a
+		   placed HUD component's live spine (a spin button) draws over its 2D base sprite,
+		   mirroring the in-game button. Below the HUD text overlay (same z-index, earlier in
+		   the DOM) so readout text stays on top. Input passes through to the base canvas. */
+		position: absolute;
+		inset: 0;
+		z-index: 1001;
 		pointer-events: none;
 	}
 	.hud-text-layer {
