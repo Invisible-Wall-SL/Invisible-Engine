@@ -398,15 +398,6 @@ export interface ReelGridNode extends BaseNode {
 	 */
 	rowPadding?: number;
 	/**
-	 * Symbol size as a ratio of one cell (`{ width, height }`, `1` = the symbol fills
-	 * its cell). Applied on top of the cell pitch so it scales the symbol art WITHIN
-	 * each cell, independent of the board/cell scaling that {@link cellSize} + the
-	 * node transform drive. Absent ⇒ the game's coded per-symbol sizes
-	 * (`SYMBOL_INFO_MAP` `sizeRatios`) are used unchanged (parity). Edited on the reel
-	 * in the Scene Editor; reaches the game via the layout doc (no bake step).
-	 */
-	symbolSizeRatios?: { width: number; height: number };
-	/**
 	 * Spin-FEEL tuning (animation, not layout): optional per-field overrides of the
 	 * game's coded `SPIN_OPTIONS_*`, applied by the game's `spinOptions` getter.
 	 * Absent / empty ⇒ the coded constants are used unchanged (parity).

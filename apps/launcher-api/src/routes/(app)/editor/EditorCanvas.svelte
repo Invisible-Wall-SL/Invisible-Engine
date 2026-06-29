@@ -1678,12 +1678,11 @@
 			}
 		}
 
-		// Real symbol art per cell: the static binding (sprite frame) drawn CENTRED in
-		// each cell and CLIPPED to it, at the effective size — reel-global
-		// (`symbolSizeRatios`) first, else the per-cell coded `sizeRatios`, else {1,1}
-		// (matches the engine's precedence now per-cell editing is gone). The static list
-		// is cycled across cells so the board looks populated. A spine static (can't draw
-		// on a 2D canvas) or an unresolved frame falls back to the amber marker square.
+		// Real symbol art per cell: the static binding (sprite frame) drawn CENTRED in each
+		// cell, CLIPPED to it, and CONTAIN-fit to the cell by its own art (no size param —
+		// matches the engine's `Sprite`/`Spine` `contain`). The static list is cycled across
+		// cells so the board looks populated. A spine static (can't draw on a 2D canvas) or an
+		// unresolved frame falls back to the amber marker square.
 		const padX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
 		const padY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
 		const statics = symbolStatics;

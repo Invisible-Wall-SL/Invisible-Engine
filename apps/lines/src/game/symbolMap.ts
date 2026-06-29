@@ -1,5 +1,4 @@
 import { bakedSymbolMap } from '../editor-scenes';
-import { boardSymbolSizeRatios } from './stateGame.svelte';
 import { SYMBOL_INFO_MAP } from './constants';
 import type { SymbolInfoMap } from './types';
 
@@ -54,27 +53,18 @@ export function resetSymbolMapCache(): void {
 const DEFAULT_SIZE_RATIOS = { width: 1, height: 1 } as const;
 
 /**
- * The size a symbol×state cell renders at. Order: the reel's `symbolSizeRatios` (Scene Editor
- * "Symbol size (× cell)") > per-cell baked `sizeRatios` (Symbols State Machine) > coded
- * `SYMBOL_INFO_MAP` size > {1,1}. The reel control wins FIRST because it is the explicit
- * "applied to EVERY symbol" global the author set in the editor — and once a symbols doc is
- * baked EVERY cell carries a (default `{1,1}`) `sizeRatios`, so checking the baked map first
- * silently shadowed the reel control for every published game. This matches the editor
- * preview's `node.symbolSizeRatios ?? cell.sizeRatios` precedence; clear the reel control to
- * fall back to the per-symbol sizes. Read from the ORIGINAL layers (not the merged map, which
- * replaces whole cells). Consumed via `getSymbolInfo`, so render components read a resolved size.
- *
- * `fit` signals provenance so the renderer knows how to apply the ratio: the reel-override
- * path is `'contain'` (the ratio is a bounding box; the symbol fits inside preserving its
- * native aspect), every other path is `'stretch'` (today's behavior — width/height applied
- * directly to `SYMBOL_SIZE × ratio`). Parity for the stretch paths is non-negotiable.
+ * VESTIGIAL — symbol size no longer comes from a `sizeRatios` param (the render now
+ * contain-fits each symbol to the cell by its own art; see `SymbolSprite`/`SymbolSpineMain`).
+ * Kept only so `getSymbolInfo`'s shape is unchanged for any caller that still reads it; the
+ * returned ratio does NOT affect the rendered size. The reel "Symbol size (× cell)" control
+ * and `reelGrid.symbolSizeRatios` were removed (owner direction — see
+ * `feedback_symbols_size_from_art_no_param`). Returns the baked/coded per-cell ratio if one
+ * exists, else `{1,1}`.
  */
 export function resolveSymbolSizeRatios(
 	name: string,
 	state: string,
 ): { width: number; height: number; fit: 'contain' | 'stretch' } {
-	const reel = boardSymbolSizeRatios();
-	if (reel) return { ...reel, fit: 'contain' };
 	const override = bakedSymbolMap()?.[name]?.[state]?.sizeRatios;
 	if (override) return { ...override, fit: 'stretch' };
 	const coded =
