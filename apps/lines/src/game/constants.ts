@@ -18,7 +18,7 @@ export const SYMBOL_SIZE = 120;
  * sprites are untouched. Tune to taste (1 = same as sprites). See
  * `feedback_symbols_size_from_art_no_param`.
  */
-export const SYMBOL_SPINE_FILL = 0.6;
+export const SYMBOL_SPINE_FILL = 0.5;
 
 export const REEL_PADDING = 0.53;
 
