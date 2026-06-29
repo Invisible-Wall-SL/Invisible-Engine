@@ -2,5 +2,6 @@ packages:
   - "apps/*"
   - "packages/*"
   - "tools/bg-scene-spike"
+  - "tools/generic-mount-spike"
   - "tools/flow-spike"
   - "tools/fx-spike"

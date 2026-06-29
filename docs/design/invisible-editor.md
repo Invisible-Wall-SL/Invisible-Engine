@@ -1186,6 +1186,42 @@ step: make the runtime render doc scenes generically (by id-driven slots that re
 "reflects the position in the game", not just the editor. Scope this against the per-game special scenes
 (`loading`/`hudBar`/`hudCorners`/`basegame` split around the reel) before generalizing.
 
+#### 20.1 — Generic doc-driven scene mounting (BUILT 2026-06-29)
+
+The deferred step above is closed (the §25 `space:'background'` slice generalised to ALL author scenes). A
+brand-new author screen — a scene with a custom id (e.g. `hud_xxk3a9`), any non-background space — now mounts
+in the shipped game, in doc order, with **no FlowDoc required**. Mirrors §25 exactly (selection by a
+contract, not by id):
+
+- **New engine-layout contract** `packages/engine-layout/src/lib/genericMountScenes.ts` (exported from the
+  bare `engine-layout` barrel, so the editor + every game share it):
+  - `extraMountScenes(scenes, reservedIds)` → the scenes **in doc order** whose `id` is NOT in `reservedIds`
+    AND whose `space !== 'background'` (background scenes are already handled by `backgroundScenes`/§25). Pure
+    TS, Svelte-free, dependency-free.
+- **The runtime** (`apps/lines/Game.svelte`) builds a `reservedSceneIds` set = the hard-coded ids it already
+  mounts (`basegame`, `basegameOverlays`, `freeSpinIntro`, `freeSpinIntroVisual`, `freeSpinCounter`,
+  `freeSpinOutro`, `freeSpinOutroVisual`, `specialBook`, `hudBar`, `hudCorners`, `loading`, `background`)
+  **plus** any FlowDoc-authored screen ids, then renders `{#each extraMountScenes(editorDoc.scenes,
+  reservedSceneIds) as scene}` `<LayoutScene {scene} />` as a TOP overlay layer (rendered after the base game,
+  the overlays AND the HUD — so author screens currently sit ABOVE the HUD; whether an author "extra" screen
+  should sit above or below the HUD bar/corners is a deliberate **live-verify decision**, parity-safe to defer
+  since `apps/lines` ships none). `<LayoutScene>` already self-wraps by `scene.space`
+  and honours `scene.visibleSource`, so **no scaling/gating code was needed** — the gap was purely the runtime
+  *mounting* a custom-id scene.
+- **FlowDoc exclusion (no double-mount):** a Flow-mounted screen is owned by the interpreter (`<FlowMount>` /
+  the generic mounter), so it must NOT also mount here. `SceneMounter` gained an `authoredScreenIds()`
+  accessor (`packages/engine-flow/src/mounter.ts`); the runtime folds `flow?.mounter.authoredScreenIds()`
+  into `reservedSceneIds`. No FlowDoc ⇒ empty set ⇒ no effect (parity).
+- **Parity (non-negotiable):** `apps/lines` ships no extra scene and reserves all its current ids ⇒
+  `extraMountScenes(...)` returns `[]` ⇒ the `{#each}` renders nothing ⇒ byte-identical to `main` (same
+  discipline as §25).
+- **Headless spike** `tools/generic-mount-spike` (`pnpm --filter generic-mount-spike run select`) proves the
+  selection contract OFFLINE: (1) `defaultLayout('lines')` + the full reserved set → EMPTY (apps/lines
+  parity); (2) an authored extra scene (custom id, non-background space) IS selected; (3) a reserved id is
+  NOT selected; (4) a `space:'background'` scene is NOT selected (handled by §25); (5) doc order preserved
+  across multiple extras. 5/5 GREEN.
+- `engine-layout` + `lines` builds GREEN.
+
 ## 21. Addendum — Author a brand-new game KIND in the editor (owner direction 2026-06-13)
 
 Completes §19.8 / the §7.5 + §19.3 "Template-mode for a new kind" loose end: the "New game from kind" picker

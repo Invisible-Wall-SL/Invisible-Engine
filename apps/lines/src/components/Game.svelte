@@ -59,6 +59,7 @@
 		backgroundFit,
 		backgroundScenes,
 		hasAuthoredBackground,
+		extraMountScenes,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -508,6 +509,34 @@
 		return { ...basegameMount, nodes: basegameMount.nodes.slice(mountReelGridIndex + 1) };
 	});
 
+	// §20.1 — generic doc-driven scene mounting. Every scene the game ALREADY mounts/handles
+	// by hard-coded id (below), PLUS any FlowDoc-authored screen ids (the interpreter owns
+	// those — `flow.mounter.authoredScreenIds()` — so a Flow-mounted screen isn't also mounted
+	// here). `background`-space scenes aren't listed: `extraMountScenes` excludes them by
+	// space (they're handled by `backgroundScenes`/§25), and the coded `background`-id /
+	// `space:'canvas'` spine anchor IS listed so it never double-mounts.
+	const RESERVED_SCENE_IDS = [
+		'basegame',
+		'basegameOverlays',
+		'freeSpinIntro',
+		'freeSpinIntroVisual',
+		'freeSpinCounter',
+		'freeSpinOutro',
+		'freeSpinOutroVisual',
+		'specialBook',
+		'hudBar',
+		'hudCorners',
+		'loading',
+		'background',
+	] as const;
+	const reservedSceneIds = $derived(
+		new Set<string>([...RESERVED_SCENE_IDS, ...(flow?.mounter.authoredScreenIds() ?? [])]),
+	);
+	// The author's NEW screens (custom ids, non-background space) the game would otherwise
+	// never mount. Empty for `apps/lines`' fallback doc (it reserves all its ids + ships no
+	// extra scene) ⇒ the `{#each}` renders nothing ⇒ byte-identical to `main` (parity).
+	const extraScenes = $derived(extraMountScenes(editorDoc.scenes, reservedSceneIds));
+
 	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
 	// above. Maps the game's win presentation events → signal NAMES from the
 	// catalog, so a placed `componentInstance` whose `kind:'spine'` node carries
@@ -915,6 +944,19 @@
 			{/snippet}
 		</UI>
 		<LayoutScene scene={basegameOverlaysScene} />
+		<!--
+			§20.1 — generic doc-driven scene mounting. Mount every AUTHOR-created screen the
+			game doesn't already handle (custom-id scenes from the Scene Editor), as an overlay
+			layer above the base game. `extraMountScenes` returns them in doc order, excluding
+			the reserved ids (everything mounted by hard-coded id above + any FlowDoc-authored
+			screens) and `space:'background'` scenes (handled by `backgroundScenes` above).
+			`<LayoutScene>` self-wraps by `scene.space` and honours `scene.visibleSource`, so an
+			ungated author screen is always-on and a gated one shows only in its phase. Empty for
+			`apps/lines`' fallback doc ⇒ renders nothing (parity, byte-identical to `main`).
+		-->
+		{#each extraScenes as scene (scene.id)}
+			<LayoutScene {scene} />
+		{/each}
 		<!--
 			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
 			Exactly one full-screen `<FreeSpinIntroGate>` / `<FreeSpinOutroGate>` is mounted

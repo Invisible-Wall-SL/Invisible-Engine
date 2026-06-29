@@ -48,6 +48,9 @@ export type SceneMounter = {
 	resolve: (screenId: string | undefined) => MountDecision | undefined;
 	/** Whether a screen id is authored in the FlowDoc AND has a backing LayoutDoc scene. */
 	has: (screenId: string) => boolean;
+	/** Every screen id the FlowDoc authors — so a game can RESERVE them from the generic
+	 *  doc-driven mounter (§20.1), preventing a Flow-mounted screen from double-mounting. */
+	authoredScreenIds: () => ReadonlySet<string>;
 };
 
 /**
@@ -75,5 +78,5 @@ export const createSceneMounter = (params: {
 	const has = (screenId: string): boolean =>
 		authoredScreenIds.has(screenId) && resolveScene(screenId) !== undefined;
 
-	return { resolve, has };
+	return { resolve, has, authoredScreenIds: () => authoredScreenIds };
 };
