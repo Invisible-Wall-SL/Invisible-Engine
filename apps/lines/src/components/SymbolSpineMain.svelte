@@ -3,7 +3,7 @@
 	import { stateBetDerived } from 'state-shared';
 
 	import { getSymbolInfo } from '../game/utils';
-	import { SYMBOL_SIZE, SYMBOL_CONTENT_FILL } from '../game/constants';
+	import { SYMBOL_SIZE, SYMBOL_SPINE_FILL } from '../game/constants';
 
 	type Props = {
 		symbolInfo: ReturnType<typeof getSymbolInfo>;
@@ -17,18 +17,16 @@
 </script>
 
 <!--
-	Symbol size comes from the ART, not a size param: the spine CONTAIN-fits its bounds to
-	`SYMBOL_SIZE × SYMBOL_CONTENT_FILL` — the SAME fraction the sprite path fits its content to,
-	so a spine character and a sprite icon end up the same on-screen size. The rig's bounds (its
-	visible content, authored tight in the Rigger) decide the fit; keep them tight (don't pad)
-	so the spine's content matches the sprites' content. No `sizeRatios` multiplier.
+	Spine symbols read visually bigger than sprite icons (a character + badge fills its bounds),
+	so we contain-fit the rig's bounds to `SYMBOL_SIZE × SYMBOL_SPINE_FILL` (< 1) to bring them
+	down to match the sprites. Spine-only knob — sprites are full contain. Tune SYMBOL_SPINE_FILL.
 -->
 <SpineProvider
 	x={props.x}
 	y={props.y}
 	key={props.symbolInfo.assetKey}
-	width={SYMBOL_SIZE * SYMBOL_CONTENT_FILL}
-	height={SYMBOL_SIZE * SYMBOL_CONTENT_FILL}
+	width={SYMBOL_SIZE * SYMBOL_SPINE_FILL}
+	height={SYMBOL_SIZE * SYMBOL_SPINE_FILL}
 	fit="contain"
 >
 	<SpineTrack
