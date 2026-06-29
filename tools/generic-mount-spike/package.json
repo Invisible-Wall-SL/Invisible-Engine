@@ -1,0 +1,13 @@
+{
+	"name": "generic-mount-spike",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"select": "tsx select.ts"
+	},
+	"devDependencies": {
+		"tsx": "4.19.2",
+		"engine-layout": "workspace:*"
+	}
+}
