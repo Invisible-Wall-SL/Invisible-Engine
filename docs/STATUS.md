@@ -18,13 +18,16 @@ There are two tracks in this repo:
 > parallel domain audits, 2026-06-29). **When this section disagrees with a bullet below,
 > this section wins.** Re-run the audit and refresh this block when it goes stale.
 
-**The headline:** almost every scoped feature is **built and on `main`**. The dominant
-remaining category is **owner live-verification in the browser** — the tools were proven
-by headless Node spikes + green builds, but the authed launcher pages (need
-Postgres/R2/auth) and the WebGL/WebGPU render were never driven by an automated check.
-A structured owner walkthrough would retire most of the "⏳" items at once.
+**The headline:** almost every scoped feature is **built and on `main`**, and **the owner
+has now live-verified all of it in the browser (2026-06-29)** — so the previously-dominant
+"⏳ owner-live-verify" bucket is **cleared**. What remains is the genuinely-**unbuilt** work
+list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
+submodule bumps).
 
-### Shipped on `main` (built + headless-green; ⏳ = still owner-live-verify)
+### Shipped on `main` (built + headless-green + **owner-verified live 2026-06-29**)
+
+> The inline "⏳" notes below were the pre-2026-06-29 live-verify caveats; the owner has
+> since verified the changes on `main`, so treat them as resolved unless a new bug surfaces.
 
 - **Engine & games** — symbol sizing (sprites plain contain-fit; SPINE symbols shrink via
   `SYMBOL_SPINE_FILL=0.5`, `apps/lines/src/game/constants.ts:21`; ⏳ live size judgement);
@@ -91,12 +94,12 @@ A structured owner walkthrough would retire most of the "⏳" items at once.
   info-bar; per-game-engine branches are owner-merged ([[feedback_bump_game_submodule]]).
 - **prod DB migrations 0011/0012 applied?** — couldn't verify here (no `DATABASE_URL`).
 
-### The biggest cross-cutting need
+### The biggest cross-cutting need — ✅ RESOLVED 2026-06-29
 
-**A live-verification pass with the owner in the browser.** The single largest "outstanding"
-bucket is not unbuilt code — it's that Flow, Rigger, the Editor's font/render paths, Symbols,
-FX perf, and the atlas compose/slice + FTP-admin paths were all verified **only headlessly**.
-One structured owner walkthrough would clear most of the roadmap's "⏳" items.
+The live-verification pass (Flow, Rigger, Editor font/render paths, Symbols, FX, atlas
+compose/slice + FTP-admin) is **done — the owner verified the changes on `main`**. With that
+cleared, the roadmap is now the **"What's actually next (genuinely UNBUILT)"** list above
+plus the owner/external blockers. Pick the next build from there.
 
 ---
 
