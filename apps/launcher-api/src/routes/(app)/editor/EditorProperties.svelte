@@ -263,6 +263,65 @@
 		return typeof sib?.default === 'string' ? sib.default : undefined;
 	}
 
+	/** Per-`assetKey` spine meta read from the skeleton MANIFEST (`/api/editor/spine/meta`)
+	 * — the fallback the spine dropdowns use when the canvas hasn't published LIVE meta for a
+	 * bundle. Live meta is only emitted once a bundle renders "ready" on the WebGL layer; a
+	 * marker-only preview (or a GL render that never settles) never gets there, which used to
+	 * drop the panel to a free-text box even though the animation names are knowable. Live
+	 * meta always wins; this only fills the gaps. Svelte 5 makes a `$state` Map reactive, so
+	 * `.set()` here re-renders the dropdowns. */
+	let staticSpineMeta = $state(new Map<string, SpineMeta>());
+	/** Bundles already requested (hit OR miss) so the prefetch fires once per assetKey. */
+	const requestedSpineMetaKeys = new Set<string>();
+
+	/** Live meta first, then the manifest fallback — the single resolver every spine dropdown
+	 * uses so they all populate from whichever source has the names. */
+	function spineMetaFor(key: string | undefined): SpineMeta | undefined {
+		if (!key) return undefined;
+		return spineMeta.get(key) ?? staticSpineMeta.get(key);
+	}
+
+	/** assetKeys the selected node's spine panels need names for: a selected spine node, every
+	 * spine inside a selected component instance, and each spine its `spineAnimation`/
+	 * `spineSlot` params resolve to. */
+	const neededSpineKeys = $derived.by<string[]>(() => {
+		const keys = new Set<string>();
+		if (node?.kind === 'spine' && node.assetKey) keys.add(node.assetKey);
+		for (const sp of instanceSpineNodes) if (sp.assetKey) keys.add(sp.assetKey);
+		for (const p of componentParams) {
+			if (p.kind === 'spineAnimation' || p.kind === 'spineSlot') {
+				const k = resolveSpineAssetKey(effectiveSpineBundle(p));
+				if (k) keys.add(k);
+			}
+		}
+		return [...keys];
+	});
+
+	/** Prefetch manifest meta for any needed bundle the canvas hasn't already covered.
+	 * `requestedSpineMetaKeys` dedupes so a re-render never re-requests, and a key that later
+	 * gains live meta is simply skipped (the resolver prefers it anyway). */
+	$effect(() => {
+		for (const key of neededSpineKeys) {
+			if (spineMeta.has(key) || requestedSpineMetaKeys.has(key)) continue;
+			requestedSpineMetaKeys.add(key);
+			void (async () => {
+				try {
+					const res = await fetch(`/api/editor/spine/meta?key=${encodeURIComponent(key)}`);
+					if (!res.ok) return;
+					const body = (await res.json()) as { found?: boolean } & Partial<SpineMeta>;
+					if (!body.found) return;
+					staticSpineMeta.set(key, {
+						animations: body.animations ?? [],
+						skins: body.skins ?? [],
+						slots: body.slots ?? [],
+					});
+				} catch {
+					/* offline / transient — a later selection retries via a fresh key set */
+				}
+			})();
+		}
+	});
+
 	/** Param keys of the instance's def that drive a FONT — rendered as a font dropdown
 	 * (like a text node's font field) instead of a free-text box. Covers both bound
 	 * `style.fontFamily` params and the engine's canonical `fontFamily` key (a coded
@@ -1516,7 +1575,7 @@
 						{:else if p.kind === 'spineAnimation' || p.kind === 'spineSlot'}
 							{@const cur = (node.params?.[p.key] as string) ?? ''}
 							{@const bundle = effectiveSpineBundle(p)}
-							{@const meta = spineMeta.get(resolveSpineAssetKey(bundle))}
+							{@const meta = spineMetaFor(resolveSpineAssetKey(bundle))}
 							{@const opts = p.kind === 'spineSlot' ? meta?.slots : meta?.animations}
 							{#if opts && opts.length > 0}
 								<select
@@ -1620,7 +1679,7 @@
 							<em>(inherit)</em> to keep the component's default, so two copies can look different.
 						</p>
 						{#each instanceSpineNodes as sp (sp.id)}
-							{@const meta = spineMeta.get(sp.assetKey)}
+							{@const meta = spineMetaFor(sp.assetKey)}
 							{@const rest = instanceSpineRestOf(sp.id)}
 							<div class="state-anim-node">
 								<h5 class="sub-h">{sp.label ?? sp.id}</h5>
@@ -2184,7 +2243,7 @@
 			</section>
 		{/if}
 	{:else if node.kind === 'spine'}
-		{@const meta = spineMeta.get(node.assetKey)}
+		{@const meta = spineMetaFor(node.assetKey)}
 		<section>
 			<h3>Spine</h3>
 			<div class="row">

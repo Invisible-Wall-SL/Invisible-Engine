@@ -465,6 +465,62 @@ export async function resolveEditorSpine(
 	};
 }
 
+/** Animation / skin / slot NAME lists the editor's spine panels turn into dropdowns.
+ * The SAME shape the canvas publishes per loaded bundle (`SpineMeta`) — but sourced
+ * from the skeleton manifest, not a live render. */
+export interface EditorSpineMeta {
+	animations: string[];
+	skins: string[];
+	slots: string[];
+}
+
+/**
+ * Resolve a spine node's `assetKey` to its animation / skin / slot NAME lists by
+ * reading the skeleton straight from R2 — the author-facing dropdown source that does
+ * NOT depend on a live WebGL render. The canvas only publishes `SpineMeta` once a
+ * bundle renders "ready"; a GL hiccup or a marker-only preview never gets there, which
+ * left the Properties panel falling back to free-text inputs even though the data
+ * exists. JSON / `.irig` skeletons parse directly; a binary `.skel` returns empty
+ * lists (only the live render can read those). Returns `null` when the bundle can't be
+ * resolved (unknown `assetKey`, no `skeletons.json` entry).
+ */
+export async function resolveEditorSpineMeta(
+	clientKey: string,
+	projectKey: string,
+	assetKey: string,
+): Promise<EditorSpineMeta | null> {
+	const descriptor = await resolveEditorSpine(clientKey, projectKey, assetKey, true);
+	if (!descriptor) return null;
+	const empty: EditorSpineMeta = { animations: [], skins: [], slots: [] };
+	if (descriptor.format !== 'json') return empty;
+	const text = await getObjectText(descriptor.skeletonKey);
+	if (!text) return empty;
+	try {
+		const data = JSON.parse(text) as {
+			animations?: Record<string, unknown>;
+			skins?: Array<{ name?: unknown }> | Record<string, unknown>;
+			slots?: Array<{ name?: unknown }>;
+		};
+		// Spine 4.x writes `skins` as an array of `{ name }` (older exports as an object
+		// keyed by skin name); `slots` is always an array of `{ name }`.
+		const named = (
+			v: Array<{ name?: unknown }> | Record<string, unknown> | undefined,
+		): string[] =>
+			Array.isArray(v)
+				? v.map((e) => e?.name).filter((n): n is string => typeof n === 'string')
+				: Object.keys(v ?? {});
+		return {
+			animations: Object.keys(data.animations ?? {}),
+			skins: named(data.skins),
+			slots: Array.isArray(data.slots)
+				? data.slots.map((s) => s?.name).filter((n): n is string => typeof n === 'string')
+				: [],
+		};
+	} catch {
+		return empty;
+	}
+}
+
 /** A spine bundle copied into a game-loadable `deploy/` subtree. `key` is the
  * binding/node `assetKey` (the engine's lookup key); `atlas`/`skeleton` are paths
  * relative to `deploy/` (= relative to `static/assets/`). */
