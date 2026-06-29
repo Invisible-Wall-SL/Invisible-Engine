@@ -2946,6 +2946,34 @@ function copyMeshToActiveSkin(){
 function applyMeshVertexDelta(k, wdx, wdy){
   if (!meshCtx || !rawDoc) return;
   const att = meshCtx.attachment;
+
+  // ANIMATE mode: a vertex drag authors a DEFORM key at the playhead (a delta from setup),
+  // NOT a setup-geometry edit. We move ONLY the live MeshAttachment.vertices (instant render);
+  // keyDeform() then records the live shape minus setup as the deform key. (Setup snapshot is
+  // captured first so the delta is measured from the unposed mesh.)
+  if (animMode){
+    setupVertsFor(att); // ensure the setup snapshot exists before we mutate the live verts
+    if (!att.bones || !att.bones.length){
+      const bone = skeleton.slots[meshCtx.slotIndex].bone;
+      const lv = invWorldVec(bone, wdx, wdy);
+      att.vertices[k * 2] += lv.x; att.vertices[k * 2 + 1] += lv.y;
+    } else {
+      let rtB = 0, rtV = 0;
+      for (let v = 0; v < k; v++){ const n = att.bones[rtB]; rtB += 1 + n; rtV += n * 3; }
+      const n = att.bones[rtB];
+      for (let j = 0; j < n; j++){
+        const boneIdx = att.bones[rtB + 1 + j];
+        const lv = invWorldVec(skeleton.bones[boneIdx], wdx, wdy);
+        att.vertices[rtV + j * 3] += lv.x; att.vertices[rtV + j * 3 + 1] += lv.y;
+      }
+    }
+    if (att.updateRegion) att.updateRegion();
+    keyDeform();
+    return;
+  }
+
+  // SETUP mode (unchanged): edit the mesh's setup geometry in BOTH the live attachment and
+  // the rawDoc packed array.
   const rd = rawDocMeshEntry();
   if (!rd || !Array.isArray(rd.vertices)) return;
 
@@ -3083,6 +3111,115 @@ function applyVertexUV(key, value){
   const att = meshCtx.attachment;
   if (att.regionUVs){ att.regionUVs[idx] = v; if (att.updateRegion) att.updateRegion(); }
   markDirty();
+}
+
+// ===== Mesh DEFORM timelines (§18.1) ========================================
+// Spine 4.2 serializes a deform timeline at
+//   animations.<anim>.attachments.<skin>.<slot>.<att>.deform = [{time, offset?, vertices, curve?}, …]
+// where `vertices` is per-component DELTAS (offset 0 + full length in v1). Length + space —
+// validated against spine-core in tools/rigger-spike/deform.mjs:
+//   UNWEIGHTED: length = 2*vertexCount, [dx,dy] per vertex in the mesh's (slot-bone) local space.
+//   WEIGHTED:   length = 2*totalInfluences, [dx,dy] per INFLUENCE (influence-walk order, same
+//               order as the packed bones array), each in that influence's bone-local space.
+// We never mutate the SETUP geometry in animate mode — deltas are computed against a cached
+// setup snapshot of the live MeshAttachment.vertices.
+
+// Cached setup-pose copy of each MeshAttachment's local `vertices` (so animate-mode deform
+// preview can rebuild setup+delta each frame without corrupting the source). Keyed by the
+// live attachment object; cleared on rebuild.
+let meshSetupVerts = new WeakMap();
+function setupVertsFor(att){
+  let s = meshSetupVerts.get(att);
+  if (!s){ s = Float64Array ? Float64Array.from(att.vertices) : att.vertices.slice(); meshSetupVerts.set(att, s); }
+  return s;
+}
+
+// The full deform-array length for a live MeshAttachment (matches the loader's deformLength).
+function deformFullLength(att){
+  return (att.bones && att.bones.length) ? (att.vertices.length / 3) * 2 : att.vertices.length;
+}
+
+// The deform skin/slot/att path's array in the current animation (or null). create=true upserts.
+function deformArr(create){
+  if (!meshCtx) return null;
+  const a = animOf(curAnim); if (!a && !create) return null;
+  const skName = activeSkinName(), slotName = selSlot, attName = meshCtx.attName;
+  if (create){
+    const an = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+    const at = (an.attachments = an.attachments || {});
+    const sk = (at[skName] = at[skName] || {});
+    const sl = (sk[slotName] = sk[slotName] || {});
+    const am = (sl[attName] = sl[attName] || {});
+    return (am.deform = am.deform || []);
+  }
+  const at = a.attachments, sk = at && at[skName], sl = sk && sk[slotName], am = sl && sl[attName];
+  return am && Array.isArray(am.deform) ? am.deform : null;
+}
+
+// Convert the live MeshAttachment's CURRENT local vertices (relative to its setup snapshot)
+// into a full deform `vertices` array in the verified per-component layout.
+function liveDeformVertices(att){
+  const setup = setupVertsFor(att), cur = att.vertices, weighted = !!(att.bones && att.bones.length);
+  if (!weighted) return Array.from(cur, (v, i) => roundN(v - setup[i], 3)); // [dx,dy] per vertex
+  // weighted: per-influence (skip the weight component every 3rd float)
+  const len = (cur.length / 3) * 2, out = new Array(len);
+  for (let inf = 0, o = 0; o < len; inf++, o += 2){ out[o] = roundN(cur[inf * 3] - setup[inf * 3], 3); out[o + 1] = roundN(cur[inf * 3 + 1] - setup[inf * 3 + 1], 3); }
+  return out;
+}
+
+// Write/update the deform key at the playhead from the live mesh's current shape.
+function keyDeform(){
+  if (!rawDoc || !animMode || !meshCtx || !ensureCurAnim()) return;
+  // Capture the deform delta from the CURRENT live attachment BEFORE any copy-into-skin
+  // rebuild (which replaces meshCtx.attachment) so the just-dragged shape isn't lost.
+  const verts = liveDeformVertices(meshCtx.attachment);
+  if (!meshInActiveSkin()) copyMeshToActiveSkin(); // deform keys are per-skin; ensure an own copy
+  const arr = deformArr(true);
+  upsertKey(arr, animTime, { offset: 0, vertices: verts });
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+
+// Sample the deform timeline at t (curve-aware, mirrors sampleChannel) and APPLY it to the
+// live MeshAttachment — setup + interpolated delta — so animate mode previews deform. Restores
+// pure setup when there are no deform keys. Returns true if a deform timeline exists.
+// PARITY: if this attachment has no deform AND has never been deformed, do NOTHING (no snapshot,
+// no writes) — a deform-less mesh/anim behaves byte-identically to before.
+function applyDeformAtTime(att, t){
+  const weighted = !!(att.bones && att.bones.length);
+  // resolve THIS attachment's deform list under the active skin in the named animation
+  const a = animOf(curAnim);
+  const at = a && a.attachments, sk = at && at[activeSkinName()], sl = sk && sk[selSlot], am = sl && sl[meshCtx ? meshCtx.attName : null];
+  const keys = am && Array.isArray(am.deform) ? am.deform : null;
+  if (!keys || !keys.length){
+    if (!att._ieDeformed) return false; // never touched → leave setup geometry exactly as-is
+    const setup0 = setupVertsFor(att); for (let i = 0; i < att.vertices.length; i++) att.vertices[i] = setup0[i]; if (att.updateRegion) att.updateRegion();
+    att._ieDeformed = false; return false;
+  }
+  att._ieDeformed = true;
+  const setup = setupVertsFor(att);
+  const len = deformFullLength(att);
+  const d = sampleDeform(keys, t, len);
+  if (!weighted){ for (let i = 0; i < att.vertices.length; i++) att.vertices[i] = setup[i] + (d[i] || 0); }
+  else { for (let inf = 0, o = 0; o < len; inf++, o += 2){ att.vertices[inf * 3] = setup[inf * 3] + (d[o] || 0); att.vertices[inf * 3 + 1] = setup[inf * 3 + 1] + (d[o + 1] || 0); } }
+  if (att.updateRegion) att.updateRegion();
+  return true;
+}
+
+// Interpolate a deform key list at t honouring the FROM key's `curve` (one easing per key —
+// linear default / "stepped" / bezier in (time,progress) coords). Expands offset+vertices to
+// a full-length delta array. Verified vs spine-core (deform.mjs).
+function sampleDeform(keys, t, len){
+  const expand = (k) => { const v = new Array(len).fill(0); const off = k.offset || 0, src = k.vertices || []; for (let i = 0; i < src.length; i++) v[off + i] = src[i]; return v; };
+  if (!keys.length) return new Array(len).fill(0);
+  if (t <= keys[0].time) return expand(keys[0]);
+  if (t >= keys[keys.length - 1].time) return expand(keys[keys.length - 1]);
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1];
+  if (a.curve === "stepped") return expand(a);
+  const av = expand(a), bv = expand(b);
+  let u = (b.time - a.time) > 0 ? (t - a.time) / (b.time - a.time) : 0;
+  if (Array.isArray(a.curve)) u = bezierValue(a.time, 0, a.curve[0], a.curve[1], a.curve[2], a.curve[3], b.time, 1, t); // progress 0→1
+  return av.map((x, j) => x + (bv[j] - x) * u);
 }
 
 // Draw the selected mesh's vertices as handles (world space, via the shape API).
@@ -3866,6 +4003,10 @@ function poseAtTime(name, t){
       skeleton.drawOrder = order.map((oi) => skeleton.slots[oi]);
     }
   }
+  // deform channel: apply the selected mesh's deform timeline (setup + interpolated delta) to
+  // the live attachment so vertex deformation previews in animate mode. (Other meshes' deform
+  // plays in Preview, which rebuilds the real runtime from rawDoc.)
+  if (meshCtx && meshCtx.attachment) applyDeformAtTime(meshCtx.attachment, t);
 }
 
 const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; };
@@ -4144,38 +4285,104 @@ function timelineTracks(){
       const cs = (a && a.slots && a.slots[selSlot]) || {};
       for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
     }
+    // deform track for the selected mesh slot (always show a row to key into when a mesh is active)
+    if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
     return evt.concat(out);
   }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
+  for (const d of deformTracksWithKeys(a)) if (!out.some((t) => t.kind === "deform" && t.name === d.name && t.att === d.att)) out.push(d);
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
+  if (meshCtx && selSlot && !out.some((t) => t.kind === "deform" && t.name === selSlot && t.att === meshCtx.attName)) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
   return evt.concat(out);
+}
+// Every (slot, attachment) that carries deform keys in animation `a`, across all skins.
+function deformTracksWithKeys(a){
+  const out = [], seen = new Set();
+  const at = a && a.attachments; if (!at) return out;
+  for (const skName of Object.keys(at)){
+    const sk = at[skName];
+    for (const slotName of Object.keys(sk)){
+      const sl = sk[slotName];
+      for (const attName of Object.keys(sl)){
+        const am = sl[attName];
+        if (am && Array.isArray(am.deform) && am.deform.length){ const id = slotName + "::" + attName; if (!seen.has(id)){ seen.add(id); out.push({ kind: "deform", name: slotName, att: attName, label: "deform" }); } }
+      }
+    }
+  }
+  return out;
+}
+// The deform key array for a deform track, resolved across skins (active skin first, then any).
+function deformArrForTrack(tr){
+  const a = animOf(curAnim), at = a && a.attachments; if (!at) return null;
+  const order = [activeSkinName(), "default", ...Object.keys(at)];
+  for (const skName of order){ const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att]; if (am && Array.isArray(am.deform)) return am.deform; }
+  return null;
 }
 const chArr = (tr) => { const grp = (tr.kind === "slotch") ? (animOf(curAnim) || {}).slots : (animOf(curAnim) || {}).bones; const n = grp && grp[tr.name]; return n && Array.isArray(n[tr.ch]) ? n[tr.ch] : null; };
 const trackKeyTimes = (tr) => {
   if (tr.kind === "events") return eventKeyTimes();
   if (tr.kind === "draworder") return drawOrderKeyTimes();
+  if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
 };
 const trackKeyCurve = (tr, time) => {
+  if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   return tr.kind === "bone" ? keyCurveType(tr.name, time) : "linear";
 };
 // Set the outgoing easing of a dopesheet key, dispatched by track kind (mirrors retimeTrackKey).
 // Bone keys → all channels (matches the Properties panel + graph menu); slot colour → rgba.
+// A deform key carries ONE curve, so it is directly easable.
 function setTrackKeyCurve(tr, time, preset){
   if (tr.kind === "bone" || tr.kind === "bonech") setKeyCurve(tr.name, time, preset); // setKeyCurve re-renders the timeline
+  else if (tr.kind === "deform"){ setDeformKeyCurve(tr, time, preset); renderTimeline(); }
   else if (tr.kind === "slot" || (tr.kind === "slotch" && tr.ch === "rgba")){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
 }
+// Set the OUTGOING easing of a deform key (one curve for the whole vertex frame). Bezier
+// controls are in (time, progress) coords — the deform sampler reads progress 0→1 (see
+// sampleDeform); presets baked from the segment's time span.
+function setDeformKeyCurve(tr, time, preset){
+  const arr = deformArrForTrack(tr); if (!arr) return;
+  const idx = arr.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
+  const k = arr[idx];
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  if (idx >= arr.length - 1 || preset === "linear"){ delete k.curve; }
+  else if (preset === "stepped"){ k.curve = "stepped"; }
+  else if (!F){ delete k.curve; }
+  else { const b = arr[idx + 1], dt = b.time - k.time; k.curve = [roundN(k.time + dt * F[0], 4), roundN(F[1], 4), roundN(k.time + dt * F[2], 4), roundN(F[3], 4)]; }
+  markDirty(); animsDirty = true;
+}
 // Whether a dopesheet key can carry easing. events / draw-order / attachment-swap keys are
-// stepped-by-nature (no interpolation), so they get no easing menu.
+// stepped-by-nature (no interpolation), so they get no easing menu. Deform keys ARE easable.
 function trackKeyEasable(tr, time){
   if (tr.kind === "bone" || tr.kind === "bonech") return true;
+  if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "slotch") return tr.ch === "rgba";
   if (tr.kind === "slot"){ const cs = slotChannel(tr.name); return !!(cs && Array.isArray(cs.rgba) && cs.rgba.some((k) => Math.abs(k.time - time) < 1e-4)); }
   return false;
+}
+// Retime / delete a single deform key.
+function retimeDeformKey(tr, oldTime, newTime){
+  const arr = deformArrForTrack(tr); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
+  const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4) arr.splice(i, 1);
+  k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+function deleteDeformKeyAt(tr, time){
+  const a = animOf(curAnim), at = a && a.attachments; if (!at) return;
+  for (const skName of Object.keys(at)){
+    const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att];
+    if (am && Array.isArray(am.deform)){
+      am.deform = am.deform.filter((k) => Math.abs(k.time - time) >= 1e-3);
+      if (!am.deform.length){ delete am.deform; if (!Object.keys(at[skName][tr.name][tr.att]).length) delete at[skName][tr.name][tr.att]; if (!Object.keys(at[skName][tr.name]).length) delete at[skName][tr.name]; if (!Object.keys(at[skName]).length) delete at[skName]; }
+    }
+  }
+  if (!Object.keys(at).length) delete a.attachments;
+  markDirty(); animsDirty = true; refreshAnimCounts();
 }
 // Retime / delete a single channel's key (used by the expanded per-channel rows).
 function retimeChannelKey(tr, oldTime, newTime){
@@ -4294,7 +4501,7 @@ function showDrawOrderEditor(){
 // ---- Dopesheet multi-select (keys + whole lines) ---------------------------
 // A dopesheet "key" is one (track, time): for a bone row that's all channels at
 // that time — matching how the retime* fns move keys.
-function trackId(tr){ return tr.kind + ":" + (tr.name || "") + ":" + (tr.ch || ""); }
+function trackId(tr){ return tr.kind + ":" + (tr.name || "") + ":" + (tr.ch || tr.att || ""); }
 const dopeSelHas = (tid, time) => dopeSel.some((s) => s.tid === tid && Math.abs(s.time - time) < 1e-4);
 function toggleDopeSel(tid, time){
   const i = dopeSel.findIndex((s) => s.tid === tid && Math.abs(s.time - time) < 1e-4);
@@ -4312,6 +4519,7 @@ function selectLineKeys(tr, additive){
 function retimeTrackKey(tr, oldTime, newTime){
   if (tr.kind === "events") retimeEventKey(oldTime, newTime);
   else if (tr.kind === "draworder") retimeDrawOrderKey(oldTime, newTime);
+  else if (tr.kind === "deform") retimeDeformKey(tr, oldTime, newTime);
   else if (tr.kind === "bonech" || tr.kind === "slotch") retimeChannelKey(tr, oldTime, newTime);
   else if (tr.kind === "slot") retimeSlotKey(tr.name, oldTime, newTime);
   else retimeBoneKey(tr.name, oldTime, newTime);
@@ -4352,6 +4560,7 @@ function copyEventKey(srcTime, destTime){
 function copyTrackKey(tr, srcTime, destTime){
   if (tr.kind === "events") copyEventKey(srcTime, destTime);
   else if (tr.kind === "draworder") copyDrawOrderKey(srcTime, destTime);
+  else if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "bonech" || tr.kind === "slotch") copyChannelKey(tr, srcTime, destTime);
   else if (tr.kind === "slot") copySlotKey(tr.name, srcTime, destTime);
   else copyBoneKey(tr.name, srcTime, destTime);
@@ -4467,15 +4676,16 @@ function renderTimeline(){
   timelineTracks().forEach((tr) => {
     const isEvents = tr.kind === "events", isDraw = tr.kind === "draworder", isAnim = isEvents || isDraw;
     const isChan = tr.kind === "bonech" || tr.kind === "slotch";
-    const isSlotKind = tr.kind === "slot" || tr.kind === "slotch";
+    const isDeform = tr.kind === "deform";
+    const isSlotKind = tr.kind === "slot" || tr.kind === "slotch" || isDeform; // deform selects its slot
     const tid = trackId(tr); dopeTrackById[tid] = tr;
     const isSel = isAnim ? false : isChan ? true : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
     g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan ? "color:var(--dim);" : "");
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
@@ -4508,6 +4718,7 @@ function renderTimeline(){
       dot.ondblclick = (e) => { e.stopPropagation();
         if (isEvents) deleteEventKeyAt(kt);
         else if (isDraw) deleteDrawOrderKeyAt(kt);
+        else if (tr.kind === "deform") deleteDeformKeyAt(tr, kt);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
@@ -4848,11 +5059,22 @@ function rebuildFromRawDoc(selName){
     skeleton.setSkinByName(def.name);
   }
   skeleton.setToSetupPose();
+  // New attachment objects → drop the deform setup-snapshot cache (recaptured pristine below).
+  meshSetupVerts = new WeakMap();
   updateWorld();
   buildInspector(selected);
   const idx = selName != null ? skeletonData.bones.findIndex((b) => b.name === selName) : -1;
   selBone = idx >= 0 ? idx : null;
   if (selBone != null) selectBone(selBone); else renderBoneDetail();
+  // Re-point meshCtx at the freshly-loaded attachment (the frame loop's deform preview reads
+  // meshCtx.attachment) and capture its pristine setup vertices for deform deltas. Lightweight
+  // (no selectSlot re-render — that would disturb existing flows that call rebuild).
+  if (meshCtx && selSlot){
+    const si = skeletonData.slots.findIndex((s) => s.name === selSlot);
+    const att = si >= 0 ? skeleton.getAttachment(si, meshCtx.attName) : null;
+    if (att && isMeshAtt(att)){ meshCtx.slotIndex = si; meshCtx.attachment = att; meshCtx.weighted = !!(att.bones && att.bones.length); setupVertsFor(att); }
+    else meshCtx = null;
+  }
   refreshArtWarn();
 }
 
@@ -5606,6 +5828,7 @@ function wire(){
         const tr = dopeTrackById[s.tid]; if (!tr) continue;
         if (tr.kind === "events") deleteEventKeyAt(s.time);
         else if (tr.kind === "draworder") deleteDrawOrderKeyAt(s.time);
+        else if (tr.kind === "deform") deleteDeformKeyAt(tr, s.time);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, s.time);
         else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
         else deleteBoneKeyAt(tr.name, s.time);

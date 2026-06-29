@@ -14,9 +14,10 @@
 2026-06-29; this §0 was previously a stale "not built" plan header). What shipped: bones,
 mesh (move/add/remove/region→mesh/CDT/UV), weights (bind/per-vertex/brush/auto-weight-to-chain),
 animation (keyframing, dopesheet, curves, graph editor, slot/event/draw-order channels),
-rig + animation libraries, isolated-mesh edit, `.irig` export + R2 save. **Genuinely
+rig + animation libraries, isolated-mesh edit, mesh-**deform** animation timelines (§18 item 1),
+`.irig` export + R2 save. **Genuinely
 outstanding:** ship-from-Rigger (rule-8 export→deploy→bake→pull→register — rigs only save to
-R2 today), mesh-**deform** animation timelines, Phase 3.6 visual texture-panel UV editor +
+R2 today), Phase 3.6 visual texture-panel UV editor +
 hull editing, and the better auto-weights algorithm (a proximity chain-skinner shipped; the
 quality gate against a real character mesh is still open). **The whole tool still needs
 owner live-verify** (headless spikes use un-mangled spine-core, not the vendored minified
@@ -907,10 +908,29 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
 (add/rename/delete/switch + per-skin attachments); `.irig` 4.2 round-trip.
 
 ### Gaps (prioritized build order)
-1. **Mesh deform timelines** — ABSENT (deform survives round-trip via ref-cleanup but is
-   not authorable). The headline animation gap. Reuses setup-pose vertex editing + the
-   dopesheet/curve infra. JSON: `animations.<a>.deform.<skin>.<slot>.<att> = [{time,
-   offset?, vertices:[…delta], curve?}]`. **← building first.**
+1. **Mesh deform timelines** — ✅ **LANDED** (`rigger/mesh-deform-timelines`). Authorable now:
+   in **animate mode**, dragging a mesh vertex writes/updates a **deform key at the playhead**
+   (a delta from setup) instead of editing the setup mesh; `poseAtTime` applies the deform
+   timeline (curve-aware: linear / stepped / bezier) to the live `MeshAttachment` for preview,
+   and a **`deform` dopesheet track** shows the keys (retime / Alt-drag duplicate / dbl-click
+   delete / right-click easing — a deform key carries ONE curve so it is easable). Setup-mode
+   mesh editing is unchanged; a deform-less mesh/anim is byte-identical to before (no track,
+   no per-frame writes). **Format crux corrected vs this audit's guess** — deform is NOT a
+   top-level `deform.<skin>…` block; the 4.2 loader reads it under the per-attachment map:
+   `animations.<a>.attachments.<skin>.<slot>.<att>.deform = [{time, offset?, vertices:[…delta],
+   curve?}]`, pure per-component deltas (offset 0 + full length in v1). **Array length +
+   coordinate space (validated headless against spine-core@4.2.74 in `tools/rigger-spike/
+   deform.mjs`, both mesh types):**
+   - **unweighted:** length = `2*vertexCount`, interleaved `[dx,dy]` per vertex in mesh
+     (slot-bone) **local** space; the loader pre-adds setup at parse → runtime holds setup+delta.
+   - **weighted:** length = `2*totalInfluences` (NOT `2*vertexCount` — e.g. anticipation
+     `payframe` = 384 for 40 verts/192 influences), `[dx,dy]` per **influence** in
+     influence-walk order, each in that influence's **bone-local** space (added before the
+     weighted blend); pure deltas (loader does not pre-add setup).
+   Spike GREEN: a known world delta moves exactly the target vertex by that delta with all
+   others unchanged, on both meshes; linear midpoint == runtime sampling; bezier ease-in is
+   sub-linear and matches our evaluator. Graph editor ignores deform (too many verts) — dopesheet
+   only, per plan. ⏳ owner-verify the drag-to-deform + dopesheet UI live.
 2. **Bone shear keying** — PRESERVE-ONLY (data model + tracks already handle shear; `keyBone`
    just has no shear branch). Cheap completeness win.
 3. **IK constraint authoring** (create/edit/delete + target + mix/softness/bend) **+ the IK
@@ -943,8 +963,9 @@ a reorder popover (slots in order-at-playhead, ↑/↓, reset, Key @ t). `keyDra
 generates minimal Spine `offsets` (newDrawPos−setupIndex, moved-only); `poseAtTime`
 reconstructs via `reconstructDrawOrder` (mirrors SkeletonJson) for live preview. Offsets
 format verified vs spine-core (`draworder.mjs`, 5 random 68-slot perms exact).
-**Non-bone channels done: attachment · colour · events · draw order.** Remaining: free-form
-mesh deform (per-vertex `deform` timelines — the largest). Ship-from-Rigger (export rig →
+**Non-bone channels done: attachment · colour · events · draw order · mesh deform.** The
+free-form mesh-deform timeline (the largest non-bone channel, §18 item 1) LANDED — see the
+item-1 note above for the validated format. Ship-from-Rigger (export rig →
 `deploy/` as `.json` + register) is the separate open gap. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
 disable until an editable rig loads. Animation settings (working length / stretch / speed)
 landed alongside 5.3 (`83073da`). UI is owner-verified live.
