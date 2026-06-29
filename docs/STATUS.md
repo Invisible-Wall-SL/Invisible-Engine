@@ -35,7 +35,10 @@ submodule bumps).
   + `Game.svelte`, merged PR #65); bitmap-font layout text ships in-game
   (`LayoutNodeView.svelte:215` BitmapText branch + `registerFontCatalog` — fonts Phase 3
   done); component value/defaults system + HUD readouts (B1–B3); per-sheet editor-art
-  namespacing.
+  namespacing; **generic doc-driven scene mounting** (§20.1 — an author's new Scene Editor
+  screen ships without hardcoding it in `Game.svelte`; `engine-layout/genericMountScenes.ts`
+  + parity-gated `{#each}`, merged PR #67). ⏳ z-order of author extra-scenes (currently
+  above the HUD) is a live-verify tuning call.
 - **Invisible FX** — all three tiers + trigger on `main` (sprite particles, spine-attach,
   spine-as-particle, event-bus trigger + `/fx` event/spawn-shape picker). ⏳ Tier-C
   GPU/perf ceiling in-game; Borut submodule bump (owner).
@@ -61,27 +64,26 @@ submodule bumps).
 
 ### What's actually next (genuinely UNBUILT — prioritized)
 
-1. **§20.1 generic doc-driven scene mounting** (engine) — the runtime still mounts scenes
-   by **hardcoded id**, so author-created / reordered screens (new HUD screens, etc.) change
-   the editor preview but **not** the shipped game. Highest-leverage gap; root cause of
-   several known bugs (e.g. unmounted author HUD screens). *Note: Invisible Flow's generic
-   mounter already solves this for flow-driven games — decide whether §20.1 is now subsumed
-   by adopting Flow, or still needed for non-flow games.*
-2. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is **no**
+> ✅ **§20.1 generic doc-driven scene mounting — SHIPPED (PR #67, 2026-06-29)**, was #1
+> here; moved to "Shipped on main" above. (Author screens with custom ids now mount in the
+> shipped game via `extraMountScenes`, parity-gated.)
+
+1. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is **no**
    export→deploy→bake→pull→register wiring, so a Rigger rig doesn't actually reach a game.
-3. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the
+   *(Recommended next.)*
+2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the
    largest missing animation channel).
-4. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have
+3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have
    rich reference scene sets; other kinds scaffold from a bare skeleton.
-5. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing (numeric UV
+4. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing (numeric UV
    editing exists; the visual panel does not).
-6. **Rigger auto-weights quality** — a proximity chain-skinner shipped; the better
+5. **Rigger auto-weights quality** — a proximity chain-skinner shipped; the better
    geodesic/heat algorithm + character-mesh validation gate is still open.
-7. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances
+6. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances
    behind the parity gate (B1–B3 done).
-8. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints currently
+7. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints currently
    assume their models are already installed locally.
-9. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit (vocab can silently drift);
+8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit (vocab can silently drift);
    refresh `docs/tools/fx.md` for the sliders + spawn-shape picker (CLAUDE.md rule 9).
 
 ### Blocked on owner / external (not code)
