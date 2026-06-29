@@ -12,7 +12,7 @@
 		initial: boolean;
 		invalid?: boolean;
 	};
-	let { data }: NodeProps = $props();
+	let { data, selected }: NodeProps = $props();
 	const d = data as Data;
 
 	// The full binding behind a pin, for the hover tooltip — the label truncates in the
@@ -40,7 +40,7 @@
 	};
 </script>
 
-<div class="screen-node" class:initial={d.initial} class:invalid={d.invalid}>
+<div class="screen-node" class:initial={d.initial} class:invalid={d.invalid} class:selected>
 	<header>
 		<span class="title" title={d.label}>{d.label}</span>
 		{#if d.initial}<span class="badge">start</span>{/if}
@@ -107,6 +107,14 @@
 	.screen-node.invalid {
 		border-color: #b45309;
 		box-shadow: 0 0 0 1px #b4530933;
+	}
+	/* Canvas selection: an accent ring + lift so the picked node reads at a glance,
+	   not just via the properties panel. Placed last so it wins over initial/invalid. */
+	.screen-node.selected {
+		border-color: #2563eb;
+		box-shadow:
+			0 0 0 2px #2563eb66,
+			0 6px 18px #00000066;
 	}
 	header {
 		display: flex;
