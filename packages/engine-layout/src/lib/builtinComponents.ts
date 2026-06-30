@@ -846,6 +846,100 @@ export const TAP_TO_CONTINUE_DEF: ComponentDef = {
 	},
 };
 
+/**
+ * A droppable LOADING BAR overlay (flow-driven-game §1) — the loading-gate, AUTHORABLE
+ * in the flow. An author drops this on the `loading` screen from the Scene Editor palette
+ * to get the boot progress bar PLUS a built-in `completeOnLoaded: true`, so the flow's
+ * `complete` edge fires the moment asset-loading finishes — the author then wires what
+ * happens next in `/flow` instead of it being hard-coded in `LoadingScreen.svelte`.
+ *
+ * It reuses the PROVEN coded `LoadingBar` bound part (the masked progress fill the static
+ * node model can't express, already registered by the game) that {@link LOADING_INTRO_DEF}
+ * mounts — but is JUST the bar (no logo/title spine), so it composes freely with whatever
+ * splash art the author places around it. Same progress-bar geometry/frame/percentage params
+ * as the loading-intro splash, defaulted to the coded look. The `completeOnLoaded` capability
+ * itself is the SHARED `overlay` instance param (read by `<ComponentInstance>`); the def only
+ * SEEDS it true on drop via `defaultInstanceParams` (an author can clear it for a non-advancing
+ * bar). Additive: a doc that doesn't reference this def is unchanged.
+ */
+export const LOADING_BAR_DEF: ComponentDef = {
+	id: 'loadingBar',
+	name: 'Loading Bar',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	// Seed the flow-advance capability on a freshly-dropped instance, so the bar IS a
+	// flow-driven loading gate out of the box (the editor still surfaces the shared toggle,
+	// so the author can clear it). Not declared in `params` — it's the shared overlay param.
+	defaultInstanceParams: { completeOnLoaded: true },
+	root: {
+		id: 'loadingBar-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'loadingBar-bar',
+				label: 'Progress bar',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0 },
+				bind: { component: 'LoadingBar' },
+				// Editor-only placeholder: a tile sized to the coded bar. The game ignores
+				// `preview` and mounts the real `LoadingBar` (the live masked fill).
+				preview: { w: LOADING_BAR_WIDTH, h: LOADING_BAR_HEIGHT, style: 'tile' },
+				children: [],
+			},
+		],
+	},
+	params: [
+		// Progress-bar geometry — forwarded through the param context to the bound
+		// `LoadingBar` (mirrors {@link LOADING_INTRO_DEF}'s bar params).
+		{ key: 'barWidth', kind: 'number', default: LOADING_BAR_WIDTH, group: 'Progress bar' },
+		{ key: 'barHeight', kind: 'number', default: LOADING_BAR_HEIGHT, group: 'Progress bar' },
+		{
+			key: 'imageBackground',
+			kind: 'image',
+			default: 'progressBarBackground.png',
+			group: 'Progress bar',
+			label: 'track',
+		},
+		{
+			key: 'imageProgress',
+			kind: 'image',
+			default: 'progressBar.png',
+			group: 'Progress bar',
+			label: 'fill',
+		},
+		{
+			key: 'imageFrame',
+			kind: 'image',
+			default: 'progressBarFrame.png',
+			group: 'Progress bar',
+			label: 'frame',
+		},
+		// Percentage readout — drawn BY the bound `LoadingBar` (shares its `{#if !loaded}`).
+		{ key: 'showPercent', kind: 'boolean', default: true, group: 'Percentage' },
+		{ key: 'percentFill', kind: 'color', default: HUD_FILL, group: 'Percentage', label: 'colour' },
+		{
+			key: 'percentFontSize',
+			kind: 'number',
+			default: LOADING_PERCENT_FONT_SIZE,
+			group: 'Percentage',
+			label: 'font size',
+		},
+		{
+			key: 'percentFontFamily',
+			kind: 'string',
+			default: HUD_FONT_FAMILY,
+			group: 'Percentage',
+			label: 'font',
+		},
+		{ key: 'percentOffsetY', kind: 'number', default: 0, group: 'Percentage', label: 'offset Y' },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -858,4 +952,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_INTRO_VISUAL_DEF,
 	FREE_SPIN_OUTRO_VISUAL_DEF,
 	TAP_TO_CONTINUE_DEF,
+	LOADING_BAR_DEF,
 ];
