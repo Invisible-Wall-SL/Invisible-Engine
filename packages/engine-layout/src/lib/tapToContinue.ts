@@ -24,6 +24,19 @@ export const TAP_TO_CONTINUE_PARAM = 'tapToContinue';
  * active screen). Empty/absent ⇒ no signal is emitted, only `completeActiveScreen`. */
 export const TAP_SIGNAL_PARAM = 'tapSignal';
 
+/** Param key: the full-screen DIM backdrop colour the tap surface draws behind its
+ * hit area (`color`). Only visible when `tapDimAlpha` > 0; defaults to black. */
+export const TAP_DIM_COLOR_PARAM = 'tapDimColor';
+
+/** Param key: the full-screen DIM backdrop OPACITY (`number`, 0–1). PARITY DEFAULT
+ * `0` ⇒ no dim ⇒ existing tap overlays render byte-identically; the author opts into
+ * a dim by setting alpha > 0. */
+export const TAP_DIM_ALPHA_PARAM = 'tapDimAlpha';
+
+/** Param key: hide the default press-to-continue prompt graphic WITHOUT disabling the
+ * full-screen tap / Space (`boolean`, default false — prompt shown). */
+export const TAP_HIDE_PROMPT_PARAM = 'tapHidePrompt';
+
 /**
  * The `registerBoundComponents` name the engine mounts for the tap press surface.
  * The game registers a coded component under this name (apps/lines:
@@ -44,6 +57,9 @@ export const TAP_TO_CONTINUE_COMPONENT = 'TapToContinue';
 export const TAP_TO_CONTINUE_PARAMS: ComponentParam[] = [
 	{ key: TAP_TO_CONTINUE_PARAM, kind: 'boolean', default: false, label: 'Tap to continue' },
 	{ key: TAP_SIGNAL_PARAM, kind: 'string', label: 'Tap signal' },
+	{ key: TAP_DIM_COLOR_PARAM, kind: 'color', label: 'Dim colour' },
+	{ key: TAP_DIM_ALPHA_PARAM, kind: 'number', label: 'Dim opacity (0–1)' },
+	{ key: TAP_HIDE_PROMPT_PARAM, kind: 'boolean', label: 'Hide prompt' },
 ];
 
 /** Read whether an instance's resolved params switched the tap surface on. */
@@ -55,4 +71,25 @@ export function isTapToContinueEnabled(params: Record<string, unknown>): boolean
 export function tapSignalOf(params: Record<string, unknown>): string {
 	const value = params[TAP_SIGNAL_PARAM];
 	return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Read the tap surface's dim backdrop colour (a hex number); default black. */
+export function tapDimColorOf(params: Record<string, unknown>): number {
+	const value = params[TAP_DIM_COLOR_PARAM];
+	return typeof value === 'number' ? value : 0x000000;
+}
+
+/**
+ * Read the tap surface's dim backdrop OPACITY. PARITY DEFAULT `0` (no dim) — an
+ * instance with no `tapDimAlpha` set resolves to a fully transparent backdrop, so an
+ * existing tap overlay is byte-identical to today; the author opts in with alpha > 0.
+ */
+export function tapDimAlphaOf(params: Record<string, unknown>): number {
+	const value = params[TAP_DIM_ALPHA_PARAM];
+	return typeof value === 'number' ? value : 0;
+}
+
+/** Read whether the tap surface should hide its default prompt graphic (default false). */
+export function tapHidePromptOf(params: Record<string, unknown>): boolean {
+	return params[TAP_HIDE_PROMPT_PARAM] === true;
 }

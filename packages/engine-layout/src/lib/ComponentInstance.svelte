@@ -38,7 +38,14 @@
 	import { getComponentDefaults } from './registerComponentDefaults';
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 	import { getBoundComponent } from './registerBoundComponents';
-	import { isTapToContinueEnabled, tapSignalOf, TAP_TO_CONTINUE_COMPONENT } from './tapToContinue';
+	import {
+		isTapToContinueEnabled,
+		tapSignalOf,
+		tapDimColorOf,
+		tapDimAlphaOf,
+		tapHidePromptOf,
+		TAP_TO_CONTINUE_COMPONENT,
+	} from './tapToContinue';
 
 	const { node, space }: Props = $props();
 
@@ -118,6 +125,13 @@
 	const tapEnabled = allowed && def?.category === 'overlay' && isTapToContinueEnabled(staticParams);
 	const tapComponent = tapEnabled ? getBoundComponent(TAP_TO_CONTINUE_COMPONENT) : undefined;
 	const tapSignal = tapEnabled ? tapSignalOf(staticParams) : '';
+	// Per-instance dim/prompt styling for the tap surface (mirrors `Scene.gate`'s
+	// dim+prompt look). `tapDimAlpha` defaults to 0 ⇒ a transparent backdrop ⇒ an
+	// existing tap overlay (no dim params) is byte-identical to today; the author opts
+	// into a dim by setting opacity > 0. Read off the same static params as `tapSignal`.
+	const tapDimColor = tapEnabled ? tapDimColorOf(staticParams) : 0x000000;
+	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
+	const tapHidePrompt = tapEnabled ? tapHidePromptOf(staticParams) : false;
 
 	// Engine value feed (§13.2 step 2 / Phase B2): if the resolved params name a
 	// `source` AND the game registered a value store under it, subscribe and keep
@@ -505,7 +519,12 @@
 {#snippet tapSurface()}
 	{#if tapComponent}
 		{@const TapComponent = tapComponent}
-		<TapComponent signal={tapSignal} />
+		<TapComponent
+			signal={tapSignal}
+			dimColor={tapDimColor}
+			dimAlpha={tapDimAlpha}
+			hidePrompt={tapHidePrompt}
+		/>
 	{/if}
 {/snippet}
 
