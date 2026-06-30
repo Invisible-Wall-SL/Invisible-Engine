@@ -6856,6 +6856,43 @@ function openCurveMenu(x, y, apply, current){
 function showCurveMenu(x, y, boneName, time){
   openCurveMenu(x, y, (preset) => setKeyCurve(boneName, time, preset), keyCurveType(boneName, time));
 }
+// Per-FIELD easing for the GRAPH editor: set the outgoing curve of ONE channel-field (e.g.
+// just scaleY) at `time`, leaving the channel's other fields as they are — so easing one
+// graphed curve doesn't ease every channel of that key.
+function setKeyCurveField(boneName, ch, vi, time, preset){
+  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return;
+  const keys = cb[ch]; if (!Array.isArray(keys)) return;
+  const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
+  const a0 = keys[idx];
+  if (idx >= keys.length - 1){ markDirty(); animsDirty = true; renderTimeline(); return; } // last key: no outgoing segment
+  if (preset === "stepped"){ a0.curve = "stepped"; markDirty(); animsDirty = true; renderTimeline(); return; } // stepped is whole-key in Spine
+  const b0 = keys[idx + 1], dt = b0.time - a0.time, fields = ch === "rotate" ? ["value"] : ["x", "y"];
+  const prev = Array.isArray(a0.curve) ? a0.curve : null;
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  const linCp = (va, vb) => [a0.time + dt / 3, va + (vb - va) / 3, a0.time + dt * 2 / 3, va + (vb - va) * 2 / 3];
+  const out = []; let anyEased = false;
+  fields.forEach((fn, i) => {
+    const va = a0[fn] ?? 0, vb = b0[fn] ?? 0;
+    let cp;
+    if (i === vi) cp = F ? (anyEased = true, [a0.time + dt * F[0], va + (vb - va) * F[1], a0.time + dt * F[2], va + (vb - va) * F[3]]) : linCp(va, vb);
+    else if (prev && typeof prev[i * 4] === "number"){ cp = prev.slice(i * 4, i * 4 + 4); anyEased = true; } // keep other already-eased fields
+    else cp = linCp(va, vb);
+    for (const n of cp) out.push(roundN(n, 4));
+  });
+  if (anyEased) a0.curve = out; else delete a0.curve; // all fields linear ⇒ plain linear key
+  markDirty(); animsDirty = true; renderTimeline();
+}
+// The eased/stepped/linear state of ONE channel-field's key (for the per-field menu ✓).
+function keyFieldCurveType(boneName, ch, vi, time){
+  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return "linear";
+  const keys = cb[ch]; if (!Array.isArray(keys)) return "linear";
+  const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear";
+  if (k.curve === "stepped") return "stepped";
+  return (Array.isArray(k.curve) && typeof k.curve[vi * 4] === "number") ? "bezier" : "linear";
+}
+function showFieldCurveMenu(x, y, boneName, ch, vi, time){
+  openCurveMenu(x, y, (preset) => setKeyCurveField(boneName, ch, vi, time, preset), keyFieldCurveType(boneName, ch, vi, time));
+}
 // Right-click a DOPESHEET key → set its outgoing easing (dispatched by track kind).
 function showTrackCurveMenu(x, y, tr, time){
   openCurveMenu(x, y, (preset) => setTrackKeyCurve(tr, time, preset), trackKeyCurve(tr, time));
@@ -6911,7 +6948,24 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
       renderTimeline();
     });
     svg.appendChild(hit);
-    // bezier tangent handles for eased segments (curve = control points in abs time/value)
+    for (const k of c.keys){
+      const cx = timeToX(k.time), cy = valueToY(k[c.field] ?? 0), atPh = Math.abs(k.time - animTime) < 1e-3, sel = graphSelHas(k, c.field);
+      const dot = svgEl("circle", { cx, cy, r: sel ? 6 : (atPh ? 5 : 4), fill: sel ? "#ffffff" : (atPh ? "#ffd24a" : c.color), stroke: sel ? c.color : "#0c0f14", "stroke-width": sel ? 2 : 1, style: "cursor:move;" });
+      dot.dataset.key = "1";
+      dot.addEventListener("mousedown", (e) => {
+        e.stopPropagation(); e.preventDefault();
+        if (e.button === 2) return; // right-click handled by contextmenu
+        if (e.shiftKey){ toggleGraphSel(k, c); renderTimeline(); return; }
+        if (!graphSelHas(k, c.field)) graphSel = [{ keyObj: k, ch: c.ch, field: c.field, vi: c.vi }];
+        startGraphMove(e, k);
+        if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + graphSel.length + " key(s) — release to drop";
+      });
+      // per-FIELD easing: right-click eases ONLY this curve's channel-field, not every channel.
+      dot.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); showFieldCurveMenu(e.clientX, e.clientY, boneName, c.ch, c.vi, k.time); });
+      svg.appendChild(dot);
+    }
+    // bezier tangent handles drawn AFTER the dots so BOTH control points stay visible +
+    // grabbable on top — incl. one that sits on a keyframe (e.g. ease-in's incoming handle).
     for (let i = 0; i < c.keys.length - 1; i++){
       const a = c.keys[i], b = c.keys[i + 1];
       if (!Array.isArray(a.curve)) continue;
@@ -6927,21 +6981,6 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
         hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, vi: c.vi, ctrl: h.ctrl }; });
         svg.appendChild(hd);
       }
-    }
-    for (const k of c.keys){
-      const cx = timeToX(k.time), cy = valueToY(k[c.field] ?? 0), atPh = Math.abs(k.time - animTime) < 1e-3, sel = graphSelHas(k, c.field);
-      const dot = svgEl("circle", { cx, cy, r: sel ? 6 : (atPh ? 5 : 4), fill: sel ? "#ffffff" : (atPh ? "#ffd24a" : c.color), stroke: sel ? c.color : "#0c0f14", "stroke-width": sel ? 2 : 1, style: "cursor:move;" });
-      dot.dataset.key = "1";
-      dot.addEventListener("mousedown", (e) => {
-        e.stopPropagation(); e.preventDefault();
-        if (e.button === 2) return; // right-click handled by contextmenu
-        if (e.shiftKey){ toggleGraphSel(k, c); renderTimeline(); return; }
-        if (!graphSelHas(k, c.field)) graphSel = [{ keyObj: k, ch: c.ch, field: c.field, vi: c.vi }];
-        startGraphMove(e, k);
-        if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + graphSel.length + " key(s) — release to drop";
-      });
-      dot.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); showCurveMenu(e.clientX, e.clientY, boneName, k.time); });
-      svg.appendChild(dot);
     }
   }
   // selection bounding box with scale handles (≥2 points): edges stretch timing/values
