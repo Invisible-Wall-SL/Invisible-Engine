@@ -625,6 +625,22 @@
 		return next;
 	}
 
+	/** Set (or clear) a custom `string` param's closed enum — a placed instance then renders
+	 * it as a dropdown of these options (the `paramField` options branch). An empty list
+	 * drops the field so the param reverts to free text (kept sparse). */
+	function setParamOptions(key: string, options: string[]): void {
+		if (!componentDraft?.params) return;
+		componentDraft.params = componentDraft.params.map((p) => {
+			if (p.key !== key) return p;
+			if (options.length === 0) {
+				const next = { ...p };
+				delete next.options;
+				return next;
+			}
+			return { ...p, options };
+		});
+	}
+
 	/** "Expose as params" for a text node: create grouped author params for its
 	 * text / font / size / colour and bind the node's fields to them, so every placed
 	 * instance can edit this text. Keys are namespaced (group slug + field) to stay
@@ -1120,6 +1136,7 @@
 						onAddParam={addCustomParam}
 						onRemoveParam={removeComponentParam}
 						onSetParamDefault={setParamDefault}
+						onSetParamOptions={setParamOptions}
 						{fontParamKeys}
 						onExposeTextParams={exposeTextParams}
 						onUnexposeTextParams={unexposeTextParams}

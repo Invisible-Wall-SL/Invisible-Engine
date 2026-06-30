@@ -2622,6 +2622,7 @@
 				node={selectedNode}
 				layoutType={currentLayoutType}
 				onDirty={markDirty}
+				sceneSpace={activeScene?.space}
 				{templateMode}
 				{slotMeta}
 				sceneSlots={activeSceneSlots}

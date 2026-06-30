@@ -27,6 +27,7 @@
 		type NodeOverride,
 		type ReelGridNode,
 		type ReelSpinProfile,
+		type Scene,
 		type SpineCue,
 		type SpineNode,
 		type SpineRestOverride,
@@ -54,6 +55,10 @@
 		layoutType: LayoutType;
 		/** Called after any user-driven mutation to the selected node. */
 		onDirty?: () => void;
+		/** The active scene's `space` (`game` | `standard` | `canvas` | `background`). Only
+		 * `canvas` scenes surface the per-node `screenAnchor` control (it's the window-edge
+		 * anchor the runtime honours for canvas space; ignored elsewhere). */
+		sceneSpace?: Scene['space'];
 		/** Template-authoring mode (§7.5): reveal the per-node slot tagging UI. */
 		templateMode?: boolean;
 		/** Slot metadata not stored on the node (keyed by `slotId`). */
@@ -111,6 +116,10 @@
 		/** Set a custom param's DEFAULT value (component mode) — the value the component's
 		 * preview + every placed instance use until overridden. `undefined` clears it. */
 		onSetParamDefault?: (key: string, value: unknown) => void;
+		/** Set a custom `string`-kind param's closed enum (component mode) — a placed
+		 * instance then renders it as a dropdown of these options (the `paramField`
+		 * options branch). An empty list clears it (free-text again). */
+		onSetParamOptions?: (key: string, options: string[]) => void;
 		/** Param keys that drive a font (bound to a text node's `style.fontFamily`) in the
 		 * open component — the "Your params" default editor renders these as a font dropdown.
 		 * Component mode only (the parent scans the draft tree). */
@@ -149,6 +158,7 @@
 		node,
 		layoutType,
 		onDirty,
+		sceneSpace,
 		templateMode = false,
 		slotMeta = {},
 		onSlotRequiredChange,
@@ -170,6 +180,7 @@
 		onAddParam,
 		onRemoveParam,
 		onSetParamDefault,
+		onSetParamOptions,
 		fontParamKeys = new Set(),
 		onExposeTextParams,
 		onUnexposeTextParams,
@@ -858,6 +869,60 @@
 		markDirty();
 	}
 
+	/** The four layoutTypes a node's `visibleFor` gate (BaseNode.visibleFor) can list —
+	 * matches the {@link LayoutType} union. A node visible on ALL of them (or absent)
+	 * shows everywhere, so we store `undefined` rather than the full array (sparse docs). */
+	const LAYOUT_TYPES = ['desktop', 'tablet', 'landscape', 'portrait'] as const;
+
+	/** Whether the node is visible on `lt` per its base-node `visibleFor` gate — absent
+	 * (visible everywhere) ⇒ true. This is the BASE-NODE gate, distinct from the per-layout
+	 * `visible` override above; it always writes the base node (no override path). */
+	function visibleForOn(n: LayoutNode, lt: LayoutType): boolean {
+		return !n.visibleFor || n.visibleFor.includes(lt);
+	}
+
+	/** Toggle a node's `visibleFor` gate for one layoutType. All-four-on (or none left to
+	 * gate) ⇒ clear the field (`undefined`) so it stays sparse and behaves as today. */
+	function setVisibleFor(n: LayoutNode, lt: LayoutType, on: boolean): void {
+		const cur = new Set<LayoutType>(n.visibleFor ?? LAYOUT_TYPES);
+		if (on) cur.add(lt);
+		else cur.delete(lt);
+		const next = LAYOUT_TYPES.filter((t) => cur.has(t));
+		n.visibleFor = next.length === LAYOUT_TYPES.length ? undefined : (next as LayoutType[]);
+		markDirty();
+	}
+
+	/** Read a node's `screenAnchor` axis (canvas-space window-edge anchor), honouring the
+	 * active layout's per-layout override (NodeOverride.screenAnchor) first, then the base
+	 * node; absent ⇒ 0 (top/left, today's behaviour). */
+	function screenAnchorValue(n: LayoutNode, axis: 'x' | 'y'): number {
+		const ov = n.overrides?.[layoutType]?.screenAnchor;
+		const base = n.screenAnchor;
+		const pt = (isOverrideMode && ov) || base;
+		return pt ? pt[axis] : 0;
+	}
+
+	/** Set a node's `screenAnchor` axis (0..1 window-edge anchor for canvas-space scenes).
+	 * Base node in desktop, the per-layout override otherwise (NodeOverride.screenAnchor) —
+	 * same override discipline as the other transform setters. An axis pair that returns to
+	 * the default {0,0} clears the field so an untouched node round-trips unchanged. */
+	function setScreenAnchor(n: LayoutNode, axis: 'x' | 'y', value: number): void {
+		if (Number.isNaN(value)) return;
+		const clamped = Math.min(1, Math.max(0, value));
+		if (isOverrideMode) {
+			const o = ensureOverride(n);
+			const cur = o.screenAnchor ?? { ...(n.screenAnchor ?? { x: 0, y: 0 }) };
+			cur[axis] = clamped;
+			if (cur.x === 0 && cur.y === 0) delete o.screenAnchor;
+			else o.screenAnchor = cur;
+			if (Object.keys(o).length === 0 && n.overrides) delete n.overrides[layoutType];
+		} else {
+			const cur = { ...(n.screenAnchor ?? { x: 0, y: 0 }), [axis]: clamped };
+			n.screenAnchor = cur.x === 0 && cur.y === 0 ? undefined : cur;
+		}
+		markDirty();
+	}
+
 	/** Set a rect's fill colour (`#rrggbb` → hex int); a malformed hex is a no-op. */
 	function setRectColor(n: LayoutNode, hex: string): void {
 		if (n.kind !== 'rect') return;
@@ -1278,6 +1343,27 @@
 										/>
 									{/if}
 								</label>
+								<!-- Closed enum for a string param: a comma-separated list ⇒ the placed
+								     instance renders this param as a dropdown (paramField's options branch).
+								     Empty ⇒ free text, as today. Only for `string`-kind, non-font params. -->
+								{#if p.kind === 'string' && !fontParamKeys.has(p.key)}
+									<label class="param-default">
+										<span>options</span>
+										<input
+											type="text"
+											placeholder="comma,separated,values"
+											value={p.options?.join(', ') ?? ''}
+											oninput={(e) =>
+												onSetParamOptions?.(
+													p.key,
+													e.currentTarget.value
+														.split(',')
+														.map((s) => s.trim())
+														.filter(Boolean),
+												)}
+										/>
+									</label>
+								{/if}
 							{/if}
 						{/if}
 					</li>
@@ -2058,6 +2144,77 @@
 				{/if}
 			</label>
 		</div>
+
+		<!-- Per-node layout gate (BaseNode.visibleFor): show this node only on the ticked
+		     layouts. All ticked (or none) = visible everywhere — a base-node gate, distinct
+		     from the per-layout `visible` override above. -->
+		<div class="field wide">
+			<span class="sub-label">shows on layouts</span>
+			<div class="row visible-for">
+				{#each LAYOUT_TYPES as lt (lt)}
+					<label class="field check">
+						<input
+							type="checkbox"
+							checked={visibleForOn(node, lt)}
+							onchange={(e) => setVisibleFor(node, lt, e.currentTarget.checked)}
+						/>
+						<span>{lt}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<!-- Window-edge anchor (BaseNode.screenAnchor) — only meaningful for canvas-space
+		     scenes, where x/y become an offset from `screenAnchor × canvasSize` (0 = top/left,
+		     0.5 = centre, 1 = bottom/right). Ignored for game/standard/background scenes. -->
+		{#if sceneSpace === 'canvas'}
+			<div class="row">
+				<label class="field">
+					<span>screen anchor x</span>
+					<input
+						type="number"
+						step="0.5"
+						min="0"
+						max="1"
+						value={screenAnchorValue(node, 'x')}
+						oninput={(e) => setScreenAnchor(node, 'x', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>screen anchor y</span>
+					<input
+						type="number"
+						step="0.5"
+						min="0"
+						max="1"
+						value={screenAnchorValue(node, 'y')}
+						oninput={(e) => setScreenAnchor(node, 'y', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+			<div class="row anchor-presets">
+				<span class="sub-label">anchor x</span>
+				<button type="button" class="ghost-sm" onclick={() => setScreenAnchor(node, 'x', 0)}>
+					left
+				</button>
+				<button type="button" class="ghost-sm" onclick={() => setScreenAnchor(node, 'x', 0.5)}>
+					centre
+				</button>
+				<button type="button" class="ghost-sm" onclick={() => setScreenAnchor(node, 'x', 1)}>
+					right
+				</button>
+				<span class="sub-label">anchor y</span>
+				<button type="button" class="ghost-sm" onclick={() => setScreenAnchor(node, 'y', 0)}>
+					top
+				</button>
+				<button type="button" class="ghost-sm" onclick={() => setScreenAnchor(node, 'y', 0.5)}>
+					centre
+				</button>
+				<button type="button" class="ghost-sm" onclick={() => setScreenAnchor(node, 'y', 1)}>
+					bottom
+				</button>
+			</div>
+		{/if}
 	</section>
 
 	{#if isBackgroundCover}
@@ -3279,6 +3436,21 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: #777;
+	}
+	.sub-label {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #777;
+	}
+	.row.visible-for {
+		flex-wrap: wrap;
+		gap: 6px 12px;
+	}
+	.row.anchor-presets {
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px 6px;
 	}
 	.field input[type='number'],
 	.field input[type='text'],

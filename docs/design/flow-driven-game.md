@@ -421,8 +421,29 @@ through on a def declaring neither, an untouched instance carries no binding key
 def-declared param still wins. **Parity (§7):** an unset binding produces no key ⇒ the runtime reads
 `undefined` ⇒ no hit surface / no visibility wrapper ⇒ byte-identical to today.
 
+### Progress — Phase 6 slice 2 DONE (the UI-vs-schema gaps, 2026-06-30)
+
+Branch `flow/driven-game`. THREE editor controls for schema fields that already existed AND were
+runtime-honored — purely additive authoring UI, no runtime/resolve change.
+
+- **`visibleFor`** — a "shows on layouts" row (desktop/tablet/landscape/portrait checkboxes) in the
+  Transform section, for any node (`EditorProperties.svelte` `setVisibleFor`/`visibleForOn`). Writes
+  the BASE node; all-ticked ⇒ `undefined` (sparse). Runtime gate already at `resolveTransform.ts:10`.
+- **`screenAnchor`** — x/y inputs (0..1) + left/centre/right + top/centre/bottom presets, shown ONLY
+  for a `space:'canvas'` scene (`setScreenAnchor`/`screenAnchorValue`; new `sceneSpace` prop fed by
+  the page). Respects the per-layout override path; clears at `{0,0}` (sparse). Runtime applies it at
+  `LayoutNodeView.svelte:65`.
+- **Custom-param `options`** — a comma-separated "options" input in the Component Editor's "Your
+  params" (`components/+page.svelte` `setParamOptions`) for `kind:'string'` author params; sets/clears
+  `param.options`. `paramField` ALREADY dropdown-renders a param with `options` (confirmed, no change),
+  so a placed instance gets a dropdown automatically.
+
+**Verified:** `pnpm --filter launcher-api build` GREEN (the typecheck). **Parity:** every writer is
+sparse — an untouched node/param never gains the key, so it serializes byte-identical and the
+runtime stays inert. engine-layout untouched.
+
 **Remaining for Phase 6:** `value`/`signal` universal binding (need a def node to consume them),
-per-instance signal rebinding, and the `visibleFor`/`screenAnchor`/custom-`options`/`def.slots` UI gaps.
+per-instance signal rebinding, and the `def.slots` / component-`space` UI gaps.
 
 ---
 

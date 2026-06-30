@@ -131,9 +131,14 @@ submodule bumps).
 >   shared `engineBindings.ts` (mirrors `tapToContinue`) + an "Engine bindings" tray in
 >   `EditorProperties` (suppressed where the def already declares the param). No merge change needed
 >   (`resolveComponentParams` already passes through undeclared instance params; runtime reads them).
->   engine-layout + launcher builds green; dist fixture 11/11; parity-inert default. Remaining Phase 6:
->   `value`/`signal` universal binding, per-instance signal rebind, `visibleFor`/`screenAnchor`/
->   custom-`options`/`def.slots` UI. **Then Phase 7** (behaviour/timeline layer — the long tail).
+>   engine-layout + launcher builds green; dist fixture 11/11; parity-inert default.
+> - **Phase 6 slice 2 (UI-vs-schema gaps) — DONE 2026-06-30** (branch `flow/driven-game`). Three
+>   additive editor controls for runtime-honored schema fields that had no UI: `visibleFor` (per-node
+>   layout-visibility checkboxes), `screenAnchor` (canvas-space window-edge anchor x/y + presets), and
+>   custom-param `options` (comma-separated enum → instance dropdown). All sparse-writing (untouched =
+>   byte-identical); launcher build green; no runtime change. Remaining Phase 6: `value`/`signal`
+>   universal binding (needs a def consuming node), per-instance signal rebind, `def.slots`/component-
+>   `space` UI. **Then Phase 7** (behaviour/timeline layer — the long tail).
 
 ### Blocked on owner / external (not code)
 
