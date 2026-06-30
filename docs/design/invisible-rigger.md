@@ -1022,8 +1022,64 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
    `new Function` syntax check. ⏳ owner-verify the add/edit + transform dopesheet + solve preview
    live (the vendored runtime is minified; the spike uses un-mangled core). Builds on (3) =
    foundation extended toward (7/8).
-7. **Path attachment + path constraint** authoring + `path` timeline — needs the path
-   attachment type first; bigger.
+7. **Path attachment + path constraint authoring + `path` timeline** — LANDED.
+   **Attachment authoring:** a slot's detail panel gets **✎ Draw path** → click the canvas to
+   drop spline control points (mirrors the mesh draw machinery: click to add, drag to nudge,
+   Delete/Backspace drops a point, Enter/Esc commit/cancel), persisted into the active skin as
+   `{type:"path",…}` in the slot-bone LOCAL space. Selecting a path attachment opens an editor
+   (closed/constant-speed toggles, ＋ Add point / － Remove selected). Paths aren't textured, so
+   the Rigger draws the control hull + on-curve nodes itself on the canvas overlay
+   (`drawPathOverlay`, the runtime debug renderer's `drawPaths` is off).
+   **Constraint authoring:** the constraints panel's **path** rows are now editable (click → editor)
+   + **＋ Add path constraint** (mirrors IK/transform `addCons`): pick constrained bone(s) + a
+   target SLOT that holds a path attachment; `<select>`s for positionMode/spacingMode/rotateMode;
+   numeric position/spacing/rotation; three mix fields (mixRotate/X/Y). Select→edit, rename (rekeys
+   the `path` timeline), delete (prunes the timeline + **re-packs `order`** — see crux). Reuses the
+   shared `renderConstraintEditor` dispatch.
+   **Animation:** the dopesheet gets **`pathch`** tracks — ONE row per channel (`position`,
+   `spacing`, `mix`) so retime / Alt-drag duplicate / dbl-click delete / right-click easing reuse
+   the same per-channel dispatch as `bonech`/`slotch`. **◆ Key position / spacing / mix @ t** upsert
+   into `animations.<a>.path.<name>.<channel>`; `poseAtTime` sets the live `PathConstraint`'s
+   position/spacing/mixRotate/X/Y before `updateWorld`, so animate-mode preview reflects the path
+   solve (Preview mode already solves it via AnimationState).
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/path.mjs`, 22/22,
+   cross-checked vs the real cluster `anticipation` rig which ships 12 path constraints + 2 path
+   attachments + 120 `position` sub-timelines):**
+   - **Path attachment** = `{type:"path", closed(false), constantSpeed(true), vertexCount,
+     vertices, lengths}`. `vertices` are the cubic-bezier **CONTROL POINTS** in the EXACT
+     `VertexAttachment` packed format (same as a mesh): UNWEIGHTED ⇒ flat `[x,y,…]` of length
+     `vertexCount*2`; WEIGHTED ⇒ `[boneCount, boneIdx,vx,vy,weight, …]`. #cubic curves =
+     `vertexCount/3` (control points run `[p0, c0a, c0b, p1, …]`; a closed path wraps its last
+     curve to p0). `lengths` is **REQUIRED**, one per-curve arc length ⇒ `lengths.length ==
+     vertexCount/3` (Fixed-scaled). We recompute `lengths` on every geometry edit.
+   - **Path constraint** = top-level `path` array: `{name, order, bones:[…constrained],
+     target:<SLOT name — NOT a bone>, positionMode, spacingMode, rotateMode, position, spacing,
+     rotation, mixRotate, mixX, mixY}`. **Enum strings are case-INSENSITIVE on the first letter**
+     (`enumValue()` does `name[0].toUpperCase()+slice(1)`), Spine exports lowercase
+     (`percent`/`length`/`tangent`/`chainScale`) — we author lower. Defaults: positionMode
+     **Percent**, spacingMode **Length**, rotateMode **Tangent**; `position`/`spacing`/`rotation` 0;
+     **mixRotate/mixX/mixY default 1** (absent `mixY`→`mixX`). ⚠ path has ONLY mixRotate/mixX/mixY
+     (NO mixScale*/mixShear* — unlike transform). **CRUX: `order` MUST be a contiguous index in
+     `[0, totalConstraintCount)`** — `Skeleton.updateCache` only sorts a constraint whose
+     `order == loopIndex`; an out-of-range order is never sorted → `active` stays false → NO solve
+     and NO timeline applies (this cost the spike a false-green until fixed). The editor assigns
+     `order = totalConstraintCount()` on add + **re-packs** all constraints on delete.
+   - **Path timeline** = `animations.<a>.path.<name>` with THREE INDEPENDENT sub-timelines:
+     `position:[{time,value,curve?}]` + `spacing:[{time,value,curve?}]` (each a `readTimeline1`
+     single channel, ONE `[cx1,cy1,cx2,cy2]` curve) + `mix:[{time,mixRotate,mixX,mixY,curve?}]`
+     (a `PathConstraintMixTimeline` whose shared `curve` drives THREE channels 0=mixRotate 1=mixX
+     2=mixY ⇒ a flat **12-number** curve; `"stepped"`/omit are the other options).
+   Spike GREEN (22/22): loader builds the PathAttachment + `computeWorldVertices` yields the control
+   points; the constraint loads with the right enum/mix defaults and **REPOSITIONS** the bone onto
+   the path (all-mix-0 == setup/FK); position@0.5==40 / spacing@0.5==50 / mix@0.5==0.5 linear, and a
+   baked ease-in bezier matches our evaluator on position (single curve) AND across all three mix
+   channels (shared 12-number curve). **Parity:** no path authored ⇒ no `path` array / no path
+   attachment / no `path` track / no per-frame writes; existing preserved path constraints
+   round-trip + become editable (verified: anticipation's 12 constraints + 120 position timelines
+   load + re-stringify deterministically). IK/transform + mesh authoring unchanged. Build GREEN
+   (`pnpm --filter launcher-api build`); inline `<script>` passes a `new Function` syntax check.
+   ⏳ owner-verify the draw/edit + constraint setup + path dopesheet + solve-preview live (the
+   vendored runtime is minified; the spike uses un-mangled core).
 8. **Physics constraint** authoring + `physics` timeline (NEW in 4.2: inertia/strength/
    damping/mass/wind/gravity/mix/reset) — most complex; after IK/transform.
 9. **Attachments:** clipping (mask), bounding-box, point (locator — cheap + useful for FX),
