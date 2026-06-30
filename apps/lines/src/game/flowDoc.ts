@@ -213,3 +213,38 @@ export const LINES_FLOW_DOC: FlowDoc = {
 		{ event: 'setWin', choreography: setWinChoreography },
 	],
 };
+
+// ---------------------------------------------------------------------------
+// Phase 1 (flow-driven-game §1) — the loading→basegame entry-leg fixture.
+//
+// A SEPARATE committed fixture (NOT folded into `LINES_FLOW_DOC`, which authors only
+// `basegame` so the default boot stays parity-inert, §7). It promotes the loading splash to
+// a Flow screen node (`loading`, `initial: true`) and authors a `complete` edge to
+// `basegame`, fired by the existing tap-to-continue overlay (`TapToContinue.svelte` →
+// `completeActiveScreen()`). The asset-load gate is unchanged: the tap only arms after the
+// coded `<LoadingScreen>` press-to-continue appears (gated on `stateApp.loaded`).
+//
+// Reached ONLY via the dev hook `window.__IE_FLOW_LOADING__` (see `flowRuntime.svelte.ts`),
+// never on a normal boot — so the default game is byte-identical to current `main`. The
+// `basegame` node + per-event choreographies are reused from `LINES_FLOW_DOC` so this fixture
+// drives the full game, not just the entry leg.
+// ---------------------------------------------------------------------------
+
+/** A small enter/exit choreography so the swap's order is observable in the harness (and a
+ *  hook for real loading/basegame intro beats later). Mirrors the coded transition feel via
+ *  the emitter `transition` event the coded `<LoadingScreen>` shell already broadcasts. */
+const loadingExitChoreography: ChoreographyNode = broadcast('flowLoadingExit');
+const basegameEnterChoreography: ChoreographyNode = broadcast('flowBasegameEnter');
+
+export const LINES_FLOW_LOADING_DOC: FlowDoc = {
+	version: 1,
+	projectKey: 'lines',
+	screens: [
+		{ id: 'loading', initial: true, choreography: { exit: loadingExitChoreography } },
+		{ id: 'basegame', choreography: { enter: basegameEnterChoreography } },
+	],
+	transitions: [
+		{ id: 'loading→basegame', from: 'loading', to: 'basegame', trigger: { kind: 'complete' } },
+	],
+	events: LINES_FLOW_DOC.events,
+};

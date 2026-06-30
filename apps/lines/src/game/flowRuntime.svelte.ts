@@ -11,9 +11,11 @@
  * byte-identical to current `main`. A FlowDoc reaches the game only via:
  *   - the baked `flow` slot in `BakedBundle` (Phase 6 — the real ship source), filled by the
  *     export→deploy→bake→register chain; absent for an un-baked `apps/lines` dev boot;
- *   - two dev-only escape hatches on top: `window.__IE_FLOW_DOC__` (an arbitrary FlowDoc, the
- *     Phase-4 ad-hoc live-verify hook) and `window.__IE_FLOW_LINES__` (the committed full
- *     `LINES_FLOW_DOC` fixture), neither set on a normal boot.
+ *   - dev-only escape hatches on top: `window.__IE_FLOW_DOC__` (an arbitrary FlowDoc, the
+ *     Phase-4 ad-hoc live-verify hook), `window.__IE_FLOW_LOADING__` (the committed
+ *     `LINES_FLOW_LOADING_DOC` loading→basegame entry-leg fixture, flow-driven-game §1), and
+ *     `window.__IE_FLOW_LINES__` (the committed full `LINES_FLOW_DOC` fixture), none set on a
+ *     normal boot.
  * With none of these present this module is a pure no-op, byte-identical to current `main`.
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
@@ -30,7 +32,7 @@ import { bakedFlowDoc } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
-import { LINES_FLOW_DOC } from './flowDoc';
+import { LINES_FLOW_DOC, LINES_FLOW_LOADING_DOC } from './flowDoc';
 import type { BookEvent, BookEventContext } from './typesBookEvent';
 
 declare global {
@@ -38,6 +40,8 @@ declare global {
 	var __IE_FLOW_DOC__: FlowDoc | undefined;
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_LINES__: boolean | undefined;
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_LOADING__: boolean | undefined;
 }
 
 /**
@@ -58,6 +62,10 @@ declare global {
 export const loadFlowDoc = (): FlowDoc | undefined => {
 	if (typeof globalThis !== 'undefined') {
 		if (globalThis.__IE_FLOW_DOC__) return globalThis.__IE_FLOW_DOC__;
+		// Phase 1 (flow-driven-game §1) — the loading→basegame entry-leg fixture, for live-verify
+		// of the tap-to-enter leg without a deploy/bake. Checked BEFORE the full `LINES_FLOW_DOC`
+		// so a loading-leg verify wins. Unset on a normal boot ⇒ inert (parity, §7).
+		if (globalThis.__IE_FLOW_LOADING__) return LINES_FLOW_LOADING_DOC;
 		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
 	return bakedFlowDoc();
@@ -73,7 +81,14 @@ export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookE
  * screen id to its `Scene` from it, so an authored screen mounts the SAME scene the editor
  * authored (the real scenes, untouched).
  */
-export const createLinesFlow = (editorDoc: LayoutDoc): LinesFlow | undefined => {
+export const createLinesFlow = (
+	editorDoc: LayoutDoc,
+	/** Notified whenever the interpreter's active screen swaps (Phase 1 loading↔basegame). The
+	 *  game uses it to drive a `$state` so the mounted scene re-renders — the interpreter's
+	 *  internal `activeScreenId` is a plain variable (not a rune), so a getter read alone is not
+	 *  reactive. Absent ⇒ no notification (headless harnesses don't need it). */
+	onActiveScreenChange?: (screenId: string | undefined) => void,
+): LinesFlow | undefined => {
 	const flowDoc = loadFlowDoc();
 	if (!flowDoc) return undefined;
 
@@ -82,6 +97,7 @@ export const createLinesFlow = (editorDoc: LayoutDoc): LinesFlow | undefined => 
 
 	return createFlowInterpreter<BookEvent, BookEventContext>({
 		flowDoc,
+		onActiveScreenChange,
 		runtime: {
 			emitter: {
 				broadcast: (e) => eventEmitter.broadcast(e as never),

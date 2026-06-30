@@ -93,6 +93,12 @@ submodule bumps).
 > Decision: button→flow advance uses the existing tap-to-continue screen for now; the real
 > per-button `action` trigger is deferred (its Phase 8). Also folds in the missing
 > `docs/tools/editor.md` (rule 9).
+> - **Phase 1 (loading → tap → basegame) — DONE headlessly + build-shipped 2026-06-30**
+>   (branch `flow/driven-game`). The loading splash is now a Flow screen the interpreter can
+>   own (`apps/lines` Game.svelte/flowRuntime/flowDoc); a tap fires its `complete` edge to
+>   `basegame`. `tools/flow-spike/phase1Loading.ts` 14/14 + all prior harnesses green; lines
+>   build ships the `__IE_FLOW_LOADING__` hook. Parity-inert by default (no `engine-flow`
+>   change needed). **Next: Phase 2** (author win-presentation transitions). ⏳ owner live-verify.
 
 ### Blocked on owner / external (not code)
 

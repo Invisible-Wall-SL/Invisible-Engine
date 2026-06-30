@@ -12,9 +12,10 @@
 
 ## 0. Status
 
-**PLAN ONLY — nothing built.** This doc decomposes the gap analysis from the 2026-06-30
-review into phases that mirror the Flow tool's own phase/parity-harness discipline. The
-review found the data model ~80% complete; the gaps are concentrated, not diffuse.
+**Phase 1 BUILT (headless-green + build-shipped, 2026-06-30) — the rest is plan.** This doc
+decomposes the gap analysis from the 2026-06-30 review into phases that mirror the Flow
+tool's own phase/parity-harness discipline. The review found the data model ~80% complete;
+the gaps are concentrated, not diffuse. See the Phase 1 progress note in §1.
 
 ### What already works (the foundation — do not rebuild)
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
@@ -82,6 +83,51 @@ swaps `loading`→`basegame`. Assert the swap runs the loading `exit` then baseg
 choreography in order.
 
 **Deferred (owner):** real per-button `action` trigger — see Phase 8.
+
+### Progress — Phase 1 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. Engine-side only (`apps/lines` + `engine-flow` API already had the
+mounter/`completeActiveScreen`/`onActiveScreenChange` surface from prior Flow phases — no
+`engine-flow` change needed). No game submodule bump (that's Phase 5).
+
+**What landed:**
+- `apps/lines/src/components/Game.svelte` — the live seam. An `activeScreenId` `$state` rune
+  (pushed via the interpreter's `onActiveScreenChange` + seeded at boot) replaces the
+  non-reactive `flow.activeScreenId` read so the loading→basegame swap actually re-mounts.
+  `flowOwnsLoading = flow?.mounter.has('loading')` gates the new path: when the FlowDoc
+  authors `loading`, the splash shows while `activeScreenId === 'loading'` and dismisses via
+  `flow.completeActiveScreen()` (the tap's `complete` edge → `basegame`); otherwise the coded
+  `showLoadingScreen`/`onloaded` flag-flip runs **byte-identical** to `main`. `splashAuthoredScene`
+  prefers the interpreter-resolved `loading` scene when owned (shared `stripLoadingAnchor`
+  filter), else the coded `authoredLoadingScene`.
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `createLinesFlow` gained an optional
+  `onActiveScreenChange` passthrough; a new `window.__IE_FLOW_LOADING__` dev hook (checked
+  before `__IE_FLOW_LINES__`) sources the fixture. Default boot unchanged ⇒ inert.
+- `apps/lines/src/game/flowDoc.ts` — `LINES_FLOW_LOADING_DOC` fixture (`loading` initial +
+  `exit` beat → `complete` edge → `basegame` + `enter` beat, reusing `LINES_FLOW_DOC.events`),
+  kept **separate** from `LINES_FLOW_DOC` so the default doc stays parity-inert.
+- `tools/flow-spike/phase1Loading.ts` (+ `phase1` script) — the parity harness.
+
+**Verified:** `pnpm --filter flow-spike run phase1` = 14/14 GREEN (no-doc + basegame-only-doc ⇒
+`loading` NOT interpreter-owned, coded fall-through; loading-doc ⇒ starts on `loading`, tap
+fires `complete` → swap to `basegame` running loading `exit` then basegame `enter` in order).
+All existing harnesses GREEN (`parity`/`pins`/`roundtrip`/`phase4`/`phase5`/`phase6`/`phase7`/
+`tap`/`vocab`). `engine-flow` tsc exit 0; `engine-layout` + `lines` builds exit 0; the
+`__IE_FLOW_LOADING__`/`flowLoadingExit` literals confirmed in the minified client bundle
+(shipment, not just compile).
+
+**Parity invariant held by construction:** `flowOwnsLoading` is `false` whenever no FlowDoc
+authors a `loading` screen — every normal boot, AND the full `LINES_FLOW_DOC` (basegame-only)
+— so the coded loading path is untouched.
+
+**Deferred to Phase 4 (as scoped):** the swap is a focused loading↔basegame version — the
+above/below-reel z-order split stays `basegame`-specific; the fully-generic any-screen
+exclusive swap is Phase 4.
+
+**Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
+`window.__IE_FLOW_LOADING__ = true` before boot, confirm the splash shows then a tap swaps to
+`basegame` (verify via the `app.stage` read / dynamic-import override, not `preview_screenshot`
+— it times out on WebGPU). Default boot (no hook) must render byte-identical.
 
 ---
 

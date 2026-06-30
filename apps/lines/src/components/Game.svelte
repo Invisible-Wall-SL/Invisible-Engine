@@ -477,15 +477,48 @@
 	// it drives book-event dispatch (via `flowInterpreterHolder`, read in `game/utils.ts`)
 	// and the generic mounter resolves which authored screen mounts here.
 	let flow = $state<LinesFlow | undefined>(undefined);
+	// The interpreter's CURRENT active screen, mirrored into a rune so the loading↔basegame
+	// swap (Phase 1) re-mounts. The interpreter's internal `activeScreenId` is a plain variable
+	// (not a rune), so it is pushed here via `onActiveScreenChange` (wired in `onMount`) + seeded
+	// from `flow.activeScreenId` at boot. `undefined` ⇒ inert (no FlowDoc) ⇒ pure coded path.
+	let activeScreenId = $state<string | undefined>(undefined);
 	// The active screen's resolved scene for the generic mounter. `undefined` ⇒ the
 	// interpreter is not driving this screen ⇒ `<FlowMount>` renders the coded fall-through.
 	const basegameMount = $derived.by(() => {
-		const decision = flow?.mounter.resolve(flow.activeScreenId);
+		const decision = flow?.mounter.resolve(activeScreenId);
 		if (decision?.kind === 'authored' && decision.screenId === 'basegame') {
 			return decision.scene as Scene;
 		}
 		return undefined;
 	});
+	// Flow-driven Phase 1 — the loading splash as a Flow screen (design doc flow-driven-game
+	// §1). The interpreter OWNS `loading` only when the FlowDoc authors it AND a backing
+	// `loading` scene exists (`mounter.has`). When it does, the interpreter decides when the
+	// splash is shown (it is the `initial` active screen) and dismissed (a tap fires its
+	// `complete` edge → `activeScreenId` becomes `basegame`), instead of the coded
+	// `showLoadingScreen=false` on `onloaded`. When it does NOT (every normal apps/lines boot —
+	// `LINES_FLOW_DOC` has only `basegame`), this is `false` and the coded `showLoadingScreen` /
+	// `onloaded` path below is byte-identical to current `main` (§7).
+	const flowOwnsLoading = $derived(flow?.mounter.has('loading') ?? false);
+	// Whether the splash should render this frame. Flow-owned ⇒ while the interpreter's active
+	// screen is `loading`; coded ⇒ the existing mutable `showLoadingScreen` flag (untouched).
+	const showLoading = $derived(
+		flowOwnsLoading ? activeScreenId === 'loading' : context.stateLayout.showLoadingScreen,
+	);
+	// The authored `loading` scene the interpreter resolved (when it owns loading) — its placed
+	// content becomes the splash VISUAL via `<LoadingScreen authoredScene>`, exactly as the
+	// coded `authoredLoadingScene` path does. `undefined` ⇒ no Flow ownership ⇒ coded path.
+	const flowLoadingMount = $derived.by((): Scene | undefined => {
+		if (!flowOwnsLoading) return undefined;
+		const decision = flow?.mounter.resolve('loading');
+		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
+	});
+	// Dismiss the splash. Flow-owned ⇒ the tap/transition completes the active `loading` screen
+	// (its `complete` edge swaps to `basegame`); coded ⇒ the existing flag flip (parity).
+	const dismissLoading = (): void => {
+		if (flowOwnsLoading) void flow?.completeActiveScreen();
+		else context.stateLayout.showLoadingScreen = false;
+	};
 	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
 	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
 	// (the reel is not a flow screen), so the interpreter must STILL reproduce the coded
@@ -757,13 +790,22 @@
 	// stays coded. No authored content ⇒ `undefined` ⇒ the coded splash renders unchanged
 	// (parity for un-authored docs). The `loading-screen` anchor is dropped so it can't
 	// double-draw (it's inert in-game anyway — `LoadingScreen` isn't a bound component).
-	const authoredLoadingScene = $derived.by((): Scene | undefined => {
-		if (!loadingScene) return undefined;
-		const nodes = loadingScene.nodes.filter(
+	const stripLoadingAnchor = (scene: Scene): Scene | undefined => {
+		const nodes = scene.nodes.filter(
 			(node) => node.id !== 'loading-screen' && node.bind?.component !== 'LoadingScreen',
 		);
-		return nodes.length > 0 ? { ...loadingScene, nodes } : undefined;
-	});
+		return nodes.length > 0 ? { ...scene, nodes } : undefined;
+	};
+	const authoredLoadingScene = $derived(
+		loadingScene ? stripLoadingAnchor(loadingScene) : undefined,
+	);
+	// The splash VISUAL the game hands to `<LoadingScreen authoredScene>`. When the interpreter
+	// OWNS loading (Phase 1), it is the interpreter-resolved `loading` scene (still stripped of
+	// the inert `LoadingScreen` anchor so it can't double-draw); otherwise the coded
+	// `authoredLoadingScene`. Identical filter either way, so an un-owned boot is unchanged.
+	const splashAuthoredScene = $derived(
+		flowLoadingMount ? stripLoadingAnchor(flowLoadingMount) : authoredLoadingScene,
+	);
 	const loadingTransform = $derived(
 		loadingNode
 			? resolveTransform(loadingNode, context.stateLayoutDerived.layoutType())
@@ -800,8 +842,11 @@
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
 			// path (parity, §7). `start()` runs the initial screen's enter choreography.
-			flow = createLinesFlow(doc);
+			flow = createLinesFlow(doc, (screenId) => (activeScreenId = screenId));
 			setFlowInterpreter(flow);
+			// Seed the rune from the interpreter's initial active screen (the `initial` node),
+			// then run its enter choreography. `onActiveScreenChange` keeps it in sync on swaps.
+			activeScreenId = flow?.activeScreenId;
 			void flow?.start();
 		});
 	});
@@ -841,7 +886,7 @@
 		<Background cover={backgroundCover} />
 	{/if}
 
-	{#if context.stateLayout.showLoadingScreen}
+	{#if showLoading}
 		<!--
 			Move 3 Phase B — the doc-driven `loading` scene transform repositions/rescales
 			the whole splash as one unit. Default node (x:0, y:0, no scale) → no-op container
@@ -849,7 +894,7 @@
 			The coded mount + `onloaded` callback are kept verbatim (LoadingScreen is an
 			either/or with the game, so it can't be a generic `bind`).
 		-->
-		{#if authoredLoadingScene}
+		{#if splashAuthoredScene}
 			<!--
 				AUTHORED splash: the editor's `loading` scene carries placed visual content
 				(a `loadingIntro` component = logo + progress + percentage, a bare logo, ...),
@@ -857,11 +902,12 @@
 				self-positions via its own canvas-space transform) and keeps only the coded
 				press-to-continue / transition / `onloaded` shell. The `loadingIntro` bar
 				self-hides on `stateApp.loaded`, then the coded press-to-continue appears.
+				`dismissLoading` flips the coded flag, OR — when the interpreter owns `loading`
+				(Phase 1) — completes the active `loading` screen so its `complete` edge swaps to
+				`basegame`. The asset-load gate stays inside `<LoadingScreen>` (press-to-continue
+				is gated on `stateApp.loaded`), so the tap only arms after load.
 			-->
-			<LoadingScreen
-				authoredScene={authoredLoadingScene}
-				onloaded={() => (context.stateLayout.showLoadingScreen = false)}
-			/>
+			<LoadingScreen authoredScene={splashAuthoredScene} onloaded={dismissLoading} />
 		{:else}
 			<Container
 				x={loadingPos.x}
@@ -871,7 +917,7 @@
 				alpha={loadingTransform?.alpha}
 				zIndex={loadingTransform?.zIndex}
 			>
-				<LoadingScreen onloaded={() => (context.stateLayout.showLoadingScreen = false)} />
+				<LoadingScreen onloaded={dismissLoading} />
 			</Container>
 		{/if}
 	{:else}
