@@ -476,6 +476,7 @@ let showAttachments = true; // when false, the skin's images/meshes are hidden (
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let selIk = null; // selected IK constraint NAME (constraints panel editor + ik dopesheet track)
+let selTc = null; // selected transform constraint NAME (constraints panel editor + transform dopesheet track)
 let collapsedBones = new Set(); // bone names whose subtree is collapsed in the tree
 let dragBoneIdx = null; // bone index being drag-reparented in the hierarchy tree
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
@@ -764,6 +765,7 @@ function buildSkeleton(entry){
   selBone = null;          // reset selection BEFORE setMode (its tail restores selBone)
   selSlot = null;
   selIk = null;
+  selTc = null;
   collapsedBones.clear();
   setMode("preview");
 
@@ -1037,37 +1039,50 @@ function buildInspector(entry){
   renderAnimSection();
 
   // ---- constraints ----
-  // IK constraints are editable (click a row → editor below). transform/path stay
-  // display-only (later items) — they list but don't open an editor.
+  // IK + transform constraints are editable (click a row → editor below). path stays
+  // display-only (next item) — it lists but doesn't open an editor.
   const consList = $("#consList"); clearChildren(consList);
   if (rawDoc){
     const tools = document.createElement("div");
     tools.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin:4px 14px 6px;";
-    const add = document.createElement("button");
-    add.textContent = "＋ Add IK constraint";
-    add.title = "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone";
-    add.disabled = selBone == null;
-    add.onclick = addIkConstraint; tools.appendChild(add);
+    const addIk = document.createElement("button");
+    addIk.textContent = "＋ Add IK constraint";
+    addIk.title = "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone";
+    addIk.disabled = selBone == null;
+    addIk.onclick = addIkConstraint; tools.appendChild(addIk);
+    const addTc = document.createElement("button");
+    addTc.textContent = "＋ Add transform constraint";
+    addTc.title = "constrain the selected bone(s) to follow a target bone's transform (mix + offsets)";
+    addTc.disabled = selBone == null;
+    addTc.onclick = addTransformConstraint; tools.appendChild(addTc);
     if (selBone == null){ const h = document.createElement("span"); h.textContent = "select a bone first"; h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;"; tools.appendChild(h); }
     consList.appendChild(tools);
   }
-  const addCons = (arr, kind, editable) => arr.forEach(c => {
+  const addCons = (arr, kind, onPick, selName) => arr.forEach(c => {
     const row = document.createElement("div");
-    row.className = "trow" + (editable && c.name === selIk ? " sel" : "");
+    row.className = "trow" + (onPick && c.name === selName ? " sel" : "");
     row.textContent = c.name;
     const t = document.createElement("span"); t.className = "tag"; t.textContent = kind; row.appendChild(t);
-    if (editable) row.onclick = () => selectIk(c.name);
+    if (onPick) row.onclick = () => onPick(c.name);
     consList.appendChild(row);
   });
-  addCons(skeletonData.ikConstraints || [], "IK", true);
-  addCons(skeletonData.transformConstraints || [], "transform", false);
-  addCons(skeletonData.pathConstraints || [], "path", false);
+  addCons(skeletonData.ikConstraints || [], "IK", selectIk, selIk);
+  addCons(skeletonData.transformConstraints || [], "transform", selectTc, selTc);
+  addCons(skeletonData.pathConstraints || [], "path", null, null);
   const cCount = (skeletonData.ikConstraints||[]).length + (skeletonData.transformConstraints||[]).length
     + (skeletonData.pathConstraints||[]).length;
   $("#cCons").textContent = "(" + cCount + ")";
   if (!cCount){ const e = document.createElement("div"); e.className = "empty"; e.textContent = "none"; consList.appendChild(e); }
   if (selIk && !(skeletonData.ikConstraints || []).some((c) => c.name === selIk)) selIk = null;
-  renderIkEditor();
+  if (selTc && !(skeletonData.transformConstraints || []).some((c) => c.name === selTc)) selTc = null;
+  renderConstraintEditor();
+}
+
+// The constraints panel shares one detail box (#consDetail): show the editor for whichever
+// constraint kind is selected. Selecting one kind clears the other (one editor at a time).
+function renderConstraintEditor(){
+  if (selTc) renderTransformEditor();
+  else renderIkEditor();
 }
 
 // Fill the bottom-bar animation <select> from the editable doc (so new anims appear).
@@ -1935,7 +1950,7 @@ function markDirty(){
 // softness, compress, stretch }. bendPositive serialises as a BOOLEAN (runtime → ±1).
 const ikArr = () => (rawDoc && Array.isArray(rawDoc.ik)) ? rawDoc.ik : null;
 const ikByName = (n) => { const a = ikArr(); return a ? a.find((c) => c.name === n) : null; };
-function selectIk(name){ selIk = name; buildInspector(selected); if (animMode) renderTimeline(); }
+function selectIk(name){ selIk = name; selTc = null; buildInspector(selected); if (animMode) renderTimeline(); }
 
 // Add a 2-bone IK chain on the selected bone: chain = [parent, selected], reaching a target
 // bone. Falls back to a 1-bone chain when the selected bone has no parent.
@@ -2057,6 +2072,151 @@ function renderIkEditor(){
   rn.onclick = () => { const n = prompt("Rename IK constraint", c.name); if (n) renameIkConstraint(c.name, n); };
   const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
   del.onclick = () => { if (confirm('Delete IK constraint "' + c.name + '"?')) deleteIkConstraint(c.name); };
+  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
+}
+
+// ---- transform constraints (§18 item 6) -----------------------------------
+// Validated against spine-core@4.2.74 (tools/rigger-spike/transform.mjs): top-level
+// `transform` array, each = { name, order, bones:[…constrained], target, mixRotate, mixX,
+// mixY, mixScaleX, mixScaleY, mixShearY (all default 1), rotation, x, y, scaleX, scaleY,
+// shearY (offsets, default 0), relative, local }. The offset JSON keys are the SHORT names
+// (rotation/x/y/scaleX/scaleY/shearY) — the runtime stores them as data.offset*.
+const TC_MIXES = ["mixRotate", "mixX", "mixY", "mixScaleX", "mixScaleY", "mixShearY"];
+const TC_OFFSETS = ["rotation", "x", "y", "scaleX", "scaleY", "shearY"];
+const tcArr = () => (rawDoc && Array.isArray(rawDoc.transform)) ? rawDoc.transform : null;
+const tcByName = (n) => { const a = tcArr(); return a ? a.find((c) => c.name === n) : null; };
+function selectTc(name){ selTc = name; selIk = null; buildInspector(selected); if (animMode) renderTimeline(); }
+
+// Add a transform constraint on the selected bone, following a target bone's transform with
+// full mixes + zero offsets. The target excludes the constrained bone (a bone can't follow
+// itself) and its descendants (degenerate / circular follow).
+function addTransformConstraint(){
+  if (!rawDoc || selBone == null) return;
+  const bone = skeletonData.bones[selBone];
+  const banned = new Set([bone.name]);
+  for (const d of descendantNames(bone.name)) banned.add(d);
+  const pick = (skip) => skeletonData.bones.find((b) => b.name !== "root" && !skip.has(b.name));
+  const target = pick(banned) || pick(new Set([bone.name]));
+  if (!target){ $("#hint").textContent = "Need another bone to use as the transform target."; return; }
+  rawDoc.transform = rawDoc.transform || [];
+  const name = uniqueName("transform", new Set(rawDoc.transform.map((c) => c.name)));
+  rawDoc.transform.push({ name, order: rawDoc.transform.length, bones: [bone.name], target: target.name,
+    mixRotate: 1, mixX: 1, mixY: 1, mixScaleX: 1, mixScaleY: 1, mixShearY: 1 });
+  selTc = name; selIk = null;
+  rebuildFromRawDoc(bone.name);
+  markDirty();
+}
+
+// Mutate one field of the selected transform constraint + rebuild (keeps the live
+// TransformConstraint in sync). Omits offset fields that are 0 (the default) to keep parity.
+function editTc(field, value){
+  const c = tcByName(selTc); if (!c) return;
+  if (TC_OFFSETS.includes(field) && !value) delete c[field]; else c[field] = value;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function renameTransformConstraint(oldName, newName){
+  newName = cleanName(newName);
+  const a = tcArr(); if (!a) return;
+  if (!newName || newName === oldName || a.some((c) => c.name === newName)) return;
+  const c = a.find((x) => x.name === oldName); if (!c) return;
+  c.name = newName;
+  for (const an of Object.values(rawDoc.animations || {}))
+    if (an.transform && an.transform[oldName]){ an.transform[newName] = an.transform[oldName]; delete an.transform[oldName]; }
+  selTc = newName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function deleteTransformConstraint(name){
+  const a = tcArr(); if (!a) return;
+  rawDoc.transform = a.filter((c) => c.name !== name);
+  if (!rawDoc.transform.length) delete rawDoc.transform;
+  for (const an of Object.values(rawDoc.animations || {})) if (an.transform){ delete an.transform[name]; if (!Object.keys(an.transform).length) delete an.transform; }
+  if (selTc === name) selTc = null;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty(); animsDirty = true;
+}
+
+// Render the editor for the selected transform constraint into #consDetail.
+function renderTransformEditor(){
+  const det = $("#consDetail"); if (!det) return;
+  clearChildren(det);
+  const c = tcByName(selTc);
+  if (!c || !rawDoc){ det.style.display = "none"; return; }
+  det.style.display = "block";
+
+  const title = document.createElement("div");
+  title.textContent = "transform · " + c.name;
+  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
+  det.appendChild(title);
+  const chain = document.createElement("div");
+  chain.textContent = "bones: " + (c.bones || []).join(", ");
+  chain.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+  det.appendChild(chain);
+
+  const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
+
+  // target dropdown (every bone except the constrained bones)
+  const tr = crow("target");
+  const tsel = document.createElement("select");
+  const inChain = new Set(c.bones || []);
+  for (const b of skeletonData.bones){ if (inChain.has(b.name)) continue; const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; if (b.name === c.target) o.selected = true; tsel.appendChild(o); }
+  tsel.onchange = () => editTc("target", tsel.value); tr.appendChild(tsel);
+
+  // six mix sliders (0..1, default 1)
+  const mixHdr = document.createElement("div"); mixHdr.textContent = "mix (0 = ignore, 1 = full follow)";
+  mixHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(mixHdr);
+  const MIX_LABEL = { mixRotate: "rotate", mixX: "X", mixY: "Y", mixScaleX: "scaleX", mixScaleY: "scaleY", mixShearY: "shearY" };
+  // Loader fallbacks: absent mixY → mixX; absent mixScaleY → mixScaleX; otherwise default 1.
+  // Display those resolved defaults so the editor matches the runtime (no silent baseline drift).
+  const mixDefault = (f) => f === "mixY" ? (c.mixX ?? 1) : f === "mixScaleY" ? (c.mixScaleX ?? 1) : 1;
+  for (const f of TC_MIXES){
+    const r = crow(MIX_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? mixDefault(f));
+    inp.onchange = () => editTc(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+  }
+
+  // six offsets (default 0; rotation in degrees, x/y in px, scale/shear unitless)
+  const offHdr = document.createElement("div"); offHdr.textContent = "offset (added on top of the target's transform)";
+  offHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(offHdr);
+  const OFF_LABEL = { rotation: "rotation°", x: "X", y: "Y", scaleX: "scaleX", scaleY: "scaleY", shearY: "shearY" };
+  for (const f of TC_OFFSETS){
+    const r = crow(OFF_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = (f === "rotation" || f === "x" || f === "y") ? "1" : "0.05"; inp.value = (c[f] ?? 0);
+    inp.onchange = () => editTc(f, parseFloat(inp.value) || 0); r.appendChild(inp);
+  }
+
+  // relative / local toggles
+  const togRow = document.createElement("div"); togRow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;";
+  const tog = (label, field) => {
+    const w = document.createElement("label"); w.style.cssText = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt);cursor:pointer;";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!c[field];
+    cb.onchange = () => editTc(field, cb.checked || undefined); w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
+  };
+  tog("relative", "relative"); tog("local", "local");
+  det.appendChild(togRow);
+
+  // animate-mode: key the six mixes at the playhead
+  if (animMode){
+    const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
+    const kb = document.createElement("button"); kb.textContent = "◆ Key transform mix @ t";
+    kb.title = "key this constraint's six mix values at the playhead"; kb.onclick = () => keyTransform(c.name);
+    ar.appendChild(kb);
+    const times = transformKeyTimes(c.name);
+    const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;";
+    info.textContent = times.length ? (times.length + " key" + (times.length === 1 ? "" : "s")) : "no mix keys";
+    ar.appendChild(info);
+    det.appendChild(ar);
+  }
+
+  // rename + delete
+  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
+  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
+  rn.onclick = () => { const n = prompt("Rename transform constraint", c.name); if (n) renameTransformConstraint(c.name, n); };
+  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.onclick = () => { if (confirm('Delete transform constraint "' + c.name + '"?')) deleteTransformConstraint(c.name); };
   foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
@@ -4251,6 +4411,15 @@ function poseAtTime(name, t){
       if (bk && "bendPositive" in bk) ic.bendDirection = bk.bendPositive ? 1 : -1;
     }
   }
+  // transform channel: set the live TransformConstraint's six mixes (the shared curve eases
+  // all of them) so the constraint preview tracks the playhead. Validated in transform.mjs.
+  if (a.transform && skeleton.transformConstraints){
+    for (const [name, keys] of Object.entries(a.transform)){
+      const tc = skeleton.transformConstraints.find((c) => c.data.name === name); if (!tc || !Array.isArray(keys) || !keys.length) continue;
+      const k = sampleChannel(keys, t, TC_MIXES); if (!k) continue;
+      for (const f of TC_MIXES) tc[f] = k[f] ?? tc.data[f];
+    }
+  }
   // deform channel: apply the selected mesh's deform timeline (setup + interpolated delta) to
   // the live attachment so vertex deformation previews in animate mode. (Other meshes' deform
   // plays in Preview, which rebuilds the real runtime from rawDoc.)
@@ -4599,16 +4768,20 @@ function timelineTracks(){
     if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
     // ik track for the selected constraint (empty row to key into)
     if (selIk && ikByName(selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
+    // transform track for the selected constraint (empty row to key into)
+    if (selTc && tcByName(selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
     return evt.concat(out);
   }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
   for (const d of deformTracksWithKeys(a)) if (!out.some((t) => t.kind === "deform" && t.name === d.name && t.att === d.att)) out.push(d);
   for (const k of ikTracksWithKeys(a)) if (!out.some((t) => t.kind === "ik" && t.name === k.name)) out.push(k);
+  for (const k of transformTracksWithKeys(a)) if (!out.some((t) => t.kind === "transform" && t.name === k.name)) out.push(k);
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
   if (meshCtx && selSlot && !out.some((t) => t.kind === "deform" && t.name === selSlot && t.att === meshCtx.attName)) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
   if (selIk && ikByName(selIk) && !out.some((t) => t.kind === "ik" && t.name === selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
+  if (selTc && tcByName(selTc) && !out.some((t) => t.kind === "transform" && t.name === selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
   return evt.concat(out);
 }
 // Every (slot, attachment) that carries deform keys in animation `a`, across all skins.
@@ -4640,12 +4813,14 @@ const trackKeyTimes = (tr) => {
   if (tr.kind === "draworder") return drawOrderKeyTimes();
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   if (tr.kind === "ik") return ikKeyTimes(tr.name);
+  if (tr.kind === "transform") return transformKeyTimes(tr.name);
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
 };
 const trackKeyCurve = (tr, time) => {
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   return tr.kind === "bone" ? keyCurveType(tr.name, time) : "linear";
 };
@@ -4656,6 +4831,7 @@ function setTrackKeyCurve(tr, time, preset){
   if (tr.kind === "bone" || tr.kind === "bonech") setKeyCurve(tr.name, time, preset); // setKeyCurve re-renders the timeline
   else if (tr.kind === "deform"){ setDeformKeyCurve(tr, time, preset); renderTimeline(); }
   else if (tr.kind === "ik"){ setIkKeyCurve(tr.name, time, preset); renderTimeline(); }
+  else if (tr.kind === "transform"){ setTransformKeyCurve(tr.name, time, preset); renderTimeline(); }
   else if (tr.kind === "slot" || (tr.kind === "slotch" && (tr.ch === "rgba" || tr.ch === "rgba2"))){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
 }
 // Set the OUTGOING easing of a deform key (one curve for the whole vertex frame). Bezier
@@ -4678,6 +4854,7 @@ function trackKeyEasable(tr, time){
   if (tr.kind === "bone" || tr.kind === "bonech") return true;
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
+  if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "slotch") return tr.ch === "rgba" || tr.ch === "rgba2";
   if (tr.kind === "slot"){ const cs = slotChannel(tr.name); const keys = cs && (slotIsTwoColor(tr.name) ? cs.rgba2 : cs.rgba); return !!(Array.isArray(keys) && keys.some((k) => Math.abs(k.time - time) < 1e-4)); }
   return false;
@@ -4750,6 +4927,70 @@ function setIkKeyCurve(name, time, preset){
 function ikTracksWithKeys(a){
   const out = []; if (!a || !a.ik) return out;
   for (const name of Object.keys(a.ik)) if (Array.isArray(a.ik[name]) && a.ik[name].length) out.push({ kind: "ik", name, label: "IK mix" });
+  return out;
+}
+
+// ---- transform constraint timeline (§18 item 6) ---------------------------
+// animations.<a>.transform.<name> = [{ time, mixRotate, mixX, mixY, mixScaleX, mixScaleY,
+// mixShearY, curve? }]. We key the SIX mixes; curve eases all six channels (one shared ease
+// baked per-channel — readCurve indexes curve[channel<<2], so 24 numbers). Validated in
+// tools/rigger-spike/transform.mjs.
+const tcChannelArr = (name) => { const a = animOf(curAnim); return a && a.transform && Array.isArray(a.transform[name]) ? a.transform[name] : null; };
+function transformKeyTimes(name){ const arr = tcChannelArr(name); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
+// Key the constraint's six mixes at the playhead. The author sets the values via the editor's
+// mix fields (which edit the setup `rawDoc.transform` mixes), so we key THAT intent — not the
+// frame-loop-sampled live mixes (which would echo the sampled value once a key exists).
+function keyTransform(name){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const def = tcByName(name); if (!def) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.transform = a.transform || {}; a.transform[name] = a.transform[name] || [];
+  // Resolve the loader's mix fallbacks (mixY→mixX, mixScaleY→mixScaleX) so the keyed value
+  // matches the constraint's actual setup, not a bare 1.
+  const resolve = (f) => f === "mixY" ? (def.mixY ?? def.mixX ?? 1) : f === "mixScaleY" ? (def.mixScaleY ?? def.mixScaleX ?? 1) : (def[f] ?? 1);
+  const fields = {}; for (const f of TC_MIXES) fields[f] = roundN(resolve(f), 4);
+  upsertKey(a.transform[name], animTime, fields);
+  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+}
+function deleteTransformKeyAt(name, time){
+  const a = animOf(curAnim); if (!a || !a.transform || !Array.isArray(a.transform[name])) return;
+  a.transform[name] = a.transform[name].filter((k) => Math.abs(k.time - time) >= 1e-3);
+  if (!a.transform[name].length){ delete a.transform[name]; if (!Object.keys(a.transform).length) delete a.transform; }
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function retimeTransformKey(name, oldTime, newTime){
+  const arr = tcChannelArr(name); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
+  const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4) arr.splice(i, 1);
+  k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+// Set the OUTGOING easing of a transform mix key. A single shared ease is baked across all
+// SIX channels (curve[channel<<2]); handle y-values in absolute value-space, like rgba/rgba2.
+function setTransformKeyCurve(name, time, preset){
+  const arr = tcChannelArr(name); if (!arr) return;
+  const idx = arr.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
+  const k = arr[idx];
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  if (idx >= arr.length - 1 || preset === "linear" || (preset !== "stepped" && !F)){ delete k.curve; }
+  else if (preset === "stepped"){ k.curve = "stepped"; }
+  else {
+    const b = arr[idx + 1], dt = b.time - k.time, curve = [];
+    TC_MIXES.forEach((f, vi) => {
+      const va = k[f] ?? 1, vb = b[f] ?? 1, dv = vb - va;
+      curve[vi * 4 + 0] = roundN(k.time + dt * F[0], 4);
+      curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
+      curve[vi * 4 + 2] = roundN(k.time + dt * F[2], 4);
+      curve[vi * 4 + 3] = roundN(va + dv * F[3], 4);
+    });
+    k.curve = curve;
+  }
+  markDirty(); animsDirty = true;
+}
+// Every transform constraint that carries mix keys in animation `a`.
+function transformTracksWithKeys(a){
+  const out = []; if (!a || !a.transform) return out;
+  for (const name of Object.keys(a.transform)) if (Array.isArray(a.transform[name]) && a.transform[name].length) out.push({ kind: "transform", name, label: "transform mix" });
   return out;
 }
 
@@ -4890,6 +5131,7 @@ function retimeTrackKey(tr, oldTime, newTime){
   else if (tr.kind === "draworder") retimeDrawOrderKey(oldTime, newTime);
   else if (tr.kind === "deform") retimeDeformKey(tr, oldTime, newTime);
   else if (tr.kind === "ik") retimeIkKey(tr.name, oldTime, newTime);
+  else if (tr.kind === "transform") retimeTransformKey(tr.name, oldTime, newTime);
   else if (tr.kind === "bonech" || tr.kind === "slotch") retimeChannelKey(tr, oldTime, newTime);
   else if (tr.kind === "slot") retimeSlotKey(tr.name, oldTime, newTime);
   else retimeBoneKey(tr.name, oldTime, newTime);
@@ -4932,6 +5174,7 @@ function copyTrackKey(tr, srcTime, destTime){
   else if (tr.kind === "draworder") copyDrawOrderKey(srcTime, destTime);
   else if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
+  else if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "bonech" || tr.kind === "slotch") copyChannelKey(tr, srcTime, destTime);
   else if (tr.kind === "slot") copySlotKey(tr.name, srcTime, destTime);
   else copyBoneKey(tr.name, srcTime, destTime);
@@ -5049,23 +5292,25 @@ function renderTimeline(){
     const isChan = tr.kind === "bonech" || tr.kind === "slotch";
     const isDeform = tr.kind === "deform";
     const isIk = tr.kind === "ik";
+    const isTc = tr.kind === "transform";
     const isSlotKind = tr.kind === "slot" || tr.kind === "slotch" || isDeform; // deform selects its slot
     const tid = trackId(tr); dopeTrackById[tid] = tr;
-    const isSel = isAnim ? false : isChan ? true : isIk ? (tr.name === selIk) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
+    const isSel = isAnim ? false : isChan ? true : isIk ? (tr.name === selIk) : isTc ? (tr.name === selTc) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
     g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk ? "color:var(--dim);" : "");
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isTc ? "⤧" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk || isTc ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
-    g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
+    g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isTc ? "transform constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
     g.onclick = (e) => {
       if (e.shiftKey || e.ctrlKey || e.metaKey){ selectLineKeys(tr, true); renderTimeline(); return; }
       if (isAnim) return;
       if (isIk) selectIk(tr.name);
+      else if (isTc) selectTc(tr.name);
       else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
     };
     const track = document.createElement("div");
@@ -5093,6 +5338,7 @@ function renderTimeline(){
         else if (isDraw) deleteDrawOrderKeyAt(kt);
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, kt);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, kt);
+        else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, kt);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
@@ -6204,6 +6450,7 @@ function wire(){
         else if (tr.kind === "draworder") deleteDrawOrderKeyAt(s.time);
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, s.time);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, s.time);
+        else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, s.time);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, s.time);
         else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
         else deleteBoneKeyAt(tr.name, s.time);
