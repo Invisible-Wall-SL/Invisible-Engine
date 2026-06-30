@@ -815,6 +815,37 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * A droppable full-screen TAP-TO-CONTINUE overlay (Invisible Flow §6.2). An author
+ * drops this on ANY Flow screen from the Scene Editor palette to get a full-screen
+ * tap-to-continue that advances the flow (`completeActiveScreen` + optional
+ * `emitFlowSignal`), with an optional per-instance dim/prompt look.
+ *
+ * The def is deliberately a MINIMAL empty-root `overlay` container — it carries no art
+ * of its own. Its behaviour comes from the SHARED `tapToContinue` capability (which the
+ * editor surfaces for every `overlay` instance and `<ComponentInstance>` honours
+ * universally): a freshly-placed instance is invisible until the author flips
+ * `tapToContinue` on, and stays transparent until they raise `tapDimAlpha` above 0 —
+ * the parity-safe default. The dim/prompt + tap surface mount via the coded
+ * `TAP_TO_CONTINUE_COMPONENT` bind, not via this def's children.
+ *
+ * Additive: a doc that doesn't reference this def is unchanged.
+ */
+export const TAP_TO_CONTINUE_DEF: ComponentDef = {
+	id: 'tapToContinue',
+	name: 'Tap to Continue',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'tapToContinue-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [],
+	},
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -826,4 +857,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	TRANSITION_DEF,
 	FREE_SPIN_INTRO_VISUAL_DEF,
 	FREE_SPIN_OUTRO_VISUAL_DEF,
+	TAP_TO_CONTINUE_DEF,
 ];

@@ -1981,7 +1981,9 @@
 						<summary>Tap to continue</summary>
 						<p class="muted small">
 							Let a tap anywhere (or Space) dismiss this overlay — completes the active flow screen
-							and, with a signal set, fires that signal's transition. Off by default.
+							and, with a signal set, fires that signal's transition. Off by default. Set a dim
+							opacity above 0 to draw a full-screen dim behind the tap (colour + opacity); hide the
+							prompt to draw your own continue graphic.
 						</p>
 						{#each TAP_TO_CONTINUE_PARAMS as p (p.key)}
 							<div class="row">{@render paramField(p)}</div>

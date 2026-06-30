@@ -52,6 +52,7 @@
 		TRANSITION_DEF,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
+		TAP_TO_CONTINUE_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -236,6 +237,13 @@
 		[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
 		// §17 Phase 3 — same for the outro's positionable visual.
 		[FREE_SPIN_OUTRO_VISUAL_DEF.id]: FREE_SPIN_OUTRO_VISUAL_DEF,
+		// Invisible Flow §6.2 — the droppable full-screen tap-to-continue overlay. A
+		// minimal empty-root `overlay` def: an author can drop it on ANY Flow screen from
+		// the palette to get a full-screen tap-to-continue. Its behaviour + per-instance
+		// dim come from the SHARED `tapToContinue` capability (mounts the coded
+		// `TapToContinue` bind), so a freshly-placed instance starts transparent until the
+		// author flips the toggle and raises the dim — parity otherwise.
+		[TAP_TO_CONTINUE_DEF.id]: TAP_TO_CONTINUE_DEF,
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose

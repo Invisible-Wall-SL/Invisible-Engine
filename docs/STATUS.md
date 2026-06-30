@@ -145,6 +145,17 @@ submodule bumps).
 >   launcher builds green; fixture proves the remap + parity + round-trip. Remaining Phase 6:
 >   `value`/`signal` universal binding (needs a def consuming node), `def.slots`/component-`space` UI.
 >   **Then Phase 7** (behaviour/timeline layer — the long tail). **⏳ Phase 5 live-verify still pending.**
+> - **Phases 1–4 + 6.1–6.3 MERGED TO MAIN 2026-06-30** (`bdc849f`) — full build + 13-harness suite green
+>   on the integrated tree. Auto-deploys the launcher (editor/`/flow` UI); the flow ENGINE reaches a live
+>   game only via a runtime-bundle publish / engine-submodule bump (not a main merge).
+> - **Tap-to-continue full-screen dim (per instance) — DONE 2026-06-30** (branch `feat/tap-continue-dim`).
+>   The flow tap-to-continue (`tapToContinue` overlay param → `completeActiveScreen`) now renders the
+>   free-spin gate's dim, styled per instance: new shared params `tapDimColor`/`tapDimAlpha`/`tapHidePrompt`
+>   (`tapToContinue.ts`) → forwarded by `ComponentInstance` → coded `TapToContinue.svelte` renders
+>   `CanvasSizeRectangle` + `PressToContinue` (reuses the gate primitives). Plus a droppable built-in
+>   **"Tap to Continue"** overlay def (`builtinComponents.ts`, registered in `Game.svelte`) so it's
+>   addable to any screen from the palette. Parity: `tapDimAlpha` defaults to 0 (transparent) so existing
+>   tap overlays are unchanged. engine-layout + lines + launcher builds green; ships in the bundle.
 
 ### Blocked on owner / external (not code)
 
