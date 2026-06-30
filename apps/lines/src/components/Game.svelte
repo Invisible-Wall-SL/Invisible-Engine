@@ -563,6 +563,27 @@
 		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
 	});
 
+	// Phase 3 (flow-driven-game §3) — DRIVE the interpreter's `condition` transitions. A
+	// `condition` edge re-checks its `$engine.*` guard only when the game pings `flow.evaluate()`
+	// (presentation.ts `evaluate`); without this, the `condition` trigger can never fire (the
+	// pre-Phase-3 dead state). This effect reads the SAME live engine values the bounded
+	// `linesEngineReader` (flowRuntime) exposes — so it re-runs (and pings) whenever any of them
+	// changes — and is a SAFE no-op when the interpreter is inert: with no FlowDoc, `flow` is
+	// `undefined` ⇒ `flow?.evaluate()` is a no-op ⇒ byte-identical to `main` (§7). A FlowDoc that
+	// authors no `condition` edge makes `evaluate()` itself a no-op (the HSM finds no matching
+	// edge), so this is parity-safe for the Phase-1/2/4 fixtures too. Kept cheap: it tracks only
+	// the closed reader vocabulary (free-spin counter, game type, the win/balance/bet feeds).
+	$effect(() => {
+		// Touch every value the reader can expose so the effect re-runs on any of their changes.
+		void stateBet.balanceAmount;
+		void stateBet.winBookEventAmount;
+		void stateBetDerived.betCost();
+		void stateGame.gameType;
+		void stateUi.freeSpinCounterTotal;
+		void stateUi.freeSpinCounterCurrent;
+		void flow?.evaluate();
+	});
+
 	// §20.1 — generic doc-driven scene mounting. Every scene the game ALREADY mounts/handles
 	// by hard-coded id (below), PLUS any FlowDoc-authored screen ids (the interpreter owns
 	// those — `flow.mounter.authoredScreenIds()` — so a Flow-mounted screen isn't also mounted

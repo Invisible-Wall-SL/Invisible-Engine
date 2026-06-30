@@ -12,14 +12,17 @@
 
 ## 0. Status
 
-**Phases 1, 2, 4 BUILT (headless-green + build-shipped, 2026-06-30) — Phases 3, 5+ remain.**
+**Phases 1–4 BUILT (headless-green + build-shipped, 2026-06-30) — Phase 5+ remain.**
 This doc decomposes the gap analysis from the 2026-06-30 review into phases that mirror the
 Flow tool's own phase/parity-harness discipline. The review found the data model ~80%
 complete; the gaps are concentrated, not diffuse. See the progress notes in §1
-(loading→tap→basegame), §2 (win → bigWin/freeSpinIntro branch), and §4 (the generic
-exclusive-screen takeover mount that makes those swaps visual). All ride dev-hook fixtures
-behind a parity-inert default boot; the remaining work is Phase 3 (engine-state guards) and
-Phase 5 (author real backing scenes + bake + ship a game).
+(loading→tap→basegame), §2 (win → bigWin/freeSpinIntro branch), §3 (engine-state `condition`
+guards), and §4 (the generic exclusive-screen takeover mount). All ride dev-hook fixtures
+behind a parity-inert default boot. **The runtime engine story is now complete** — every
+trigger kind (bookEvent / complete-tap / condition) is live and any authored screen mounts.
+The remaining work is Phase 5 (author real backing scenes + bake + ship a game — the owner's
+live/editor checkpoint) and the larger Phases 6–7 (universal per-instance exposure; behaviour
+layer).
 
 ### What already works (the foundation — do not rebuild)
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
@@ -241,6 +244,41 @@ remaining), not only on the book-event payload — the `condition` trigger is cu
 **Parity harness:** a `condition` edge guarded on `$engine.winLevel >= 3` fires when the
 injected reader crosses the threshold and `evaluate()` is pinged; stays put otherwise. With
 no reader injected (default), the path is inert (parity).
+
+### Progress — Phase 3 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. `apps/lines` + one new harness only — no `engine-flow` change needed
+(the interpreter/presentation already threaded `engine` to the guard scope; the gap was purely
+that no app injected a reader or called `evaluate()`).
+
+**What landed:**
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `linesEngineReader`, a CLOSED `(key)→value`
+  getter over live state (NOT an expression VM, §11.4): `balance`/`win`/`totalWin`/`bet` (the
+  numeric value feeds), `gameType`, `isFreeGame`, `freeSpinsRemaining`/`freeSpinsTotal` — each
+  sourced from the SAME state singletons the component registries read, so a guard sees exactly
+  what a bound readout/gate sees. Injected via `engine: linesEngineReader` into
+  `createFlowInterpreter`. Unknown keys ⇒ `undefined` (the bounded line). New `__IE_FLOW_COND__`
+  dev hook → `LINES_FLOW_COND_DOC`.
+- `apps/lines/src/components/Game.svelte` — an `$effect` that touches the reader's live values and
+  calls `flow?.evaluate()` on any change, so a `condition` edge actually re-checks. Inert when
+  `flow` is undefined (no-op `flow?.evaluate()`).
+- `apps/lines/src/game/flowDoc.ts` — `LINES_FLOW_COND_DOC` with two `condition` edges guarded on
+  `$engine.freeSpinsRemaining` (`gte 1` enter free game / `lt 1` end). The other fixtures unchanged.
+- `tools/flow-spike/phase3Condition.ts` (+ `phase3` script).
+
+**Verified:** `phase3` 36/36 GREEN turbo on/off (condition fires only after the reader crosses AND
+`evaluate()` is pinged; NO reader ⇒ never fires — the pre-Phase-3 dead state; boundary correctness;
+`evaluate()` no-op without a matching edge; bookEvent/complete unaffected; author-order precedence).
+ALL existing harnesses GREEN; `engine-flow` tsc exit 0; `lines` build ships
+(`__IE_FLOW_COND__`/`freeSpinsRemaining`/`flowFreeGameEnter` in the minified bundle).
+
+**Parity (§7):** no FlowDoc ⇒ `flow` undefined ⇒ the `$effect` is a no-op + the reader is never
+reached ⇒ byte-identical to `main`. Injecting the reader is harmless for the Phase-1/2/4 fixtures
+(they author no `condition` edge ⇒ `evaluate()` finds nothing).
+
+**Note:** branching on the win-event *payload* (`$trigger.winLevel`) already worked in Phase 2
+without this; Phase 3 adds branching on LIVE engine *state* (the `condition` trigger), the
+genuinely-new capability.
 
 ---
 

@@ -56,6 +56,7 @@ const lit = (value: string | number | boolean) => ({ kind: 'literal' as const, v
 const trigger = (path: string) => ({ kind: 'trigger' as const, path });
 const item = (path: string) => ({ kind: 'item' as const, path });
 const context = (path: string) => ({ kind: 'context' as const, path });
+const engine = (key: string) => ({ kind: 'engine' as const, key });
 const seq = (...children: ChoreographyNode[]): ChoreographyNode => ({ kind: 'sequence', children });
 
 // ---------------------------------------------------------------------------
@@ -353,4 +354,73 @@ export const LINES_FLOW_WIN_DOC: FlowDoc = {
 		{ event: 'setWin', choreography: setWinBranchedChoreography },
 		{ event: 'freeSpinTrigger', choreography: freeSpinTriggerNoopChoreography },
 	],
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3 (flow-driven-game §3) — REVIVE engine-state transitions (state-driven branching).
+//
+// A SEPARATE committed fixture (NOT folded into `LINES_FLOW_DOC`, which authors zero
+// transitions so the default boot stays parity-inert, §7). Reached ONLY via the dev hook
+// `window.__IE_FLOW_COND__` (see `flowRuntime.svelte.ts`), never on a normal boot.
+//
+// It demonstrates the `condition` trigger — the leg that was DEAD before Phase 3 (no app
+// injected an `$engine` reader, so `$engine.*` guards resolved `undefined`, and no app ever
+// called `interpreter.evaluate()`). Now `createLinesFlow` injects the bounded `linesEngineReader`
+// AND `Game.svelte` pings `flow.evaluate()` whenever an exposed engine value changes, so a
+// `condition` edge re-checks its `$engine.*` guard on a LIVE state change (not a book-event
+// payload — that is the `bookEvent` trigger, Phase 2).
+//
+// The graph: `basegame` --condition `$engine.freeSpinsRemaining >= 1`--> `freeGame`, and the
+// complementary return `freeGame` --condition `$engine.freeSpinsRemaining < 1`--> `basegame`.
+// The free-spin counter is LIVE engine state (`stateUi.freeSpinCounterTotal/Current`, the same
+// fields the `freeSpins` value feed reads), so the screen swaps when the counter crosses the
+// threshold and `evaluate()` is pinged — branching on engine state held in state, not on a
+// book event. The `basegame` per-event choreographies are reused for a realistic flow.
+// ---------------------------------------------------------------------------
+
+/** Guard: the LIVE engine free-spins-remaining counter has at least one spin left (free game on). */
+const freeGameActiveGuard: FlowGuard = {
+	all: [{ left: engine('freeSpinsRemaining'), op: 'gte', right: lit(1) }],
+};
+
+/** Guard: the LIVE engine free-spins-remaining counter has run out (back to base game). */
+const freeGameEndedGuard: FlowGuard = {
+	all: [{ left: engine('freeSpinsRemaining'), op: 'lt', right: lit(1) }],
+};
+
+/** Small enter beats so the swap order is observable in the harness (a hook for real beats). */
+const freeGameEnterChoreography: ChoreographyNode = broadcast('flowFreeGameEnter');
+const basegameReturnChoreography: ChoreographyNode = broadcast('flowBasegameReturn');
+
+export const LINES_FLOW_COND_DOC: FlowDoc = {
+	version: 1,
+	projectKey: 'lines',
+	screens: [
+		// The basegame `enter` return beat fires on the `freeGame → basegame` swap (and once at
+		// boot, which is a harmless single broadcast).
+		{ id: 'basegame', initial: true, choreography: { enter: basegameReturnChoreography } },
+		{ id: 'freeGame', choreography: { enter: freeGameEnterChoreography } },
+	],
+	transitions: [
+		// LIVE engine-state branch: enter the free game when the free-spin counter arms (≥ 1),
+		// re-checked on `evaluate()` (the §6.3 condition trigger). NOT a book-event trigger.
+		{
+			id: 'basegame→freeGame',
+			from: 'basegame',
+			to: 'freeGame',
+			trigger: { kind: 'condition' },
+			guard: freeGameActiveGuard,
+		},
+		// Return to base game once the counter runs out (< 1) — the complementary condition.
+		{
+			id: 'freeGame→basegame',
+			from: 'freeGame',
+			to: 'basegame',
+			trigger: { kind: 'condition' },
+			guard: freeGameEndedGuard,
+		},
+	],
+	// Reuse the full per-event choreographies for a realistic flow (the condition branch is the
+	// new mechanism Phase 3 proves; the events are unaffected by it).
+	events: LINES_FLOW_DOC.events,
 };

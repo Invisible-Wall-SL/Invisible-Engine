@@ -114,8 +114,17 @@ submodule bumps).
 >   Phase-2 `bigWin`/`freeSpinIntro` swaps become visual. `tools/flow-spike/phase4Mount.ts` + all
 >   prior harnesses green; lines build ships the gate; parity-inert by default. Also corrected the
 >   stale Scene Editor "won't ship until wired in code" comments (closed by PR #67 + this phase).
->   **Next: Phase 5** (author real `bigWin`/`freeSpinIntro` backing scenes + bake + ship a game) or
->   **Phase 3** (engine-state guards for richer branching). ⏳ owner live-verify.
+>   parity-inert by default. ⏳ owner live-verify.
+> - **Phase 3 (engine-state `condition` guards) — DONE headlessly + build-shipped 2026-06-30**
+>   (branch `flow/driven-game`). Revived the dead `condition` trigger: a bounded `$engine.*` reader
+>   (`linesEngineReader` — balance/win/bet/gameType/freeSpinsRemaining/… from live state) is injected
+>   into the interpreter, and a `Game.svelte` `$effect` drives `flow.evaluate()` on state changes so
+>   condition edges re-check. Fixture `LINES_FLOW_COND_DOC` behind `__IE_FLOW_COND__`;
+>   `tools/flow-spike/phase3Condition.ts` 36/36 + all prior harnesses green; lines build ships;
+>   parity-inert by default. **The runtime engine story is now complete** — every trigger kind
+>   (bookEvent / complete-tap / condition) is live + any authored screen mounts.
+>   **Next: Phase 5** = author real `bigWin`/`freeSpinIntro`/`loading` backing scenes in the editor +
+>   bake + ship to a game (the owner's online-authoring + republish step). ⏳ owner live-verify.
 
 ### Blocked on owner / external (not code)
 
