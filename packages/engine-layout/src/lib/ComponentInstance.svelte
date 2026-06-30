@@ -226,10 +226,18 @@
 		if (!allowed || !def) return map;
 		const walk = (n: LayoutNode): void => {
 			if (n.kind === 'spine' && n.cues?.length) {
+				const rebinds = node.cueSignalOverrides?.[n.id];
 				for (const cue of n.cues as SpineCue[]) {
-					const targets = map.get(cue.signal) ?? [];
+					// Per-instance signal rebinding (flow-driven-game §6 slice 3): this
+					// placement may drive the cue from a DIFFERENT engine signal than the
+					// def named. Remap the cue's original `signal` through the instance's
+					// `cueSignalOverrides[nodeId]` BEFORE indexing — so the subscription
+					// below listens on the override signal. No entry ⇒ the def signal
+					// verbatim (parity).
+					const signal = rebinds?.[cue.signal] || cue.signal;
+					const targets = map.get(signal) ?? [];
 					targets.push({ nodeId: n.id, animation: cue.animation, loop: cue.loop });
-					map.set(cue.signal, targets);
+					map.set(signal, targets);
 				}
 			} else if (n.kind === 'container') {
 				for (const child of n.children) walk(child);

@@ -2687,6 +2687,18 @@
 					selectedNode.spineRestOverrides = Object.keys(all).length ? all : undefined;
 					markDirty();
 				}}
+				onSetInstanceCueSignal={(nodeId, origSignal, signal) => {
+					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+					const all = { ...(selectedNode.cueSignalOverrides ?? {}) };
+					const map = { ...(all[nodeId] ?? {}) };
+					const trimmed = signal.trim();
+					if (trimmed) map[origSignal] = trimmed;
+					else delete map[origSignal];
+					if (Object.keys(map).length) all[nodeId] = map;
+					else delete all[nodeId];
+					selectedNode.cueSignalOverrides = Object.keys(all).length ? all : undefined;
+					markDirty();
+				}}
 				onOpenComponentEditor={openComponentEditor}
 				onUpdateInstanceToLatest={updateInstanceToLatest}
 			/>

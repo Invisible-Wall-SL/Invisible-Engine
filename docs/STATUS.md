@@ -136,9 +136,15 @@ submodule bumps).
 >   additive editor controls for runtime-honored schema fields that had no UI: `visibleFor` (per-node
 >   layout-visibility checkboxes), `screenAnchor` (canvas-space window-edge anchor x/y + presets), and
 >   custom-param `options` (comma-separated enum → instance dropdown). All sparse-writing (untouched =
->   byte-identical); launcher build green; no runtime change. Remaining Phase 6: `value`/`signal`
->   universal binding (needs a def consuming node), per-instance signal rebind, `def.slots`/component-
->   `space` UI. **Then Phase 7** (behaviour/timeline layer — the long tail).
+>   byte-identical); launcher build green; no runtime change.
+> - **Phase 6 slice 3 (per-instance signal rebinding) — DONE 2026-06-30** (branch `flow/driven-game`).
+>   A placed instance can override WHICH engine signal drives a spine cue (`win` vs `bigWin`), via a new
+>   `ComponentInstanceNode.cueSignalOverrides` (keyed by spine node id), mirroring the
+>   `spineRestOverrides` precedent: runtime remap in `ComponentInstance.svelte`, a per-cue "Driven by
+>   signal" dropdown in `EditorProperties`, round-trip via pass-through `normalizeNode`. engine-layout +
+>   launcher builds green; fixture proves the remap + parity + round-trip. Remaining Phase 6:
+>   `value`/`signal` universal binding (needs a def consuming node), `def.slots`/component-`space` UI.
+>   **Then Phase 7** (behaviour/timeline layer — the long tail). **⏳ Phase 5 live-verify still pending.**
 
 ### Blocked on owner / external (not code)
 

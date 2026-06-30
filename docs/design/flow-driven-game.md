@@ -442,8 +442,33 @@ runtime-honored — purely additive authoring UI, no runtime/resolve change.
 sparse — an untouched node/param never gains the key, so it serializes byte-identical and the
 runtime stays inert. engine-layout untouched.
 
-**Remaining for Phase 6:** `value`/`signal` universal binding (need a def node to consume them),
-per-instance signal rebinding, and the `def.slots` / component-`space` UI gaps.
+### Progress — Phase 6 slice 3 DONE (per-instance signal rebinding, 2026-06-30)
+
+Branch `flow/driven-game`. Lets a placed `componentInstance` override WHICH engine signal drives a
+spine cue — so two placements of one component can react to different signals (`win` vs `bigWin`).
+Mirrors the existing per-instance spine-override precedent (`spineRestOverrides`/
+`stateAnimationOverrides`, keyed by spine node id) exactly.
+
+- **Type** — `ComponentInstanceNode.cueSignalOverrides?: Record<string, Record<string, string>>`
+  (`types.ts:349`): outer key = spine node id in the resolved def `root`, inner = cue's original
+  signal → replacement engine-signal key.
+- **Runtime** — `ComponentInstance.svelte:229`: in the `signalToTargets` walk, each cue's signal is
+  remapped through `node.cueSignalOverrides?.[n.id]?.[cue.signal] || cue.signal` BEFORE the
+  subscription, so it listens on the override signal. No context plumbing needed (the cue
+  subscription is built where the instance `node` is already in scope). Absent ⇒ def signal verbatim.
+- **Editor** — `EditorProperties.svelte`: a per-cue "Driven by signal" dropdown (options
+  `ENGINE_SIGNAL_CATALOG`, blank = inherit the def signal) in the existing "Spine (this placement)"
+  panel; sparse writer in `editor/+page.svelte` (prunes empty maps → `undefined`).
+- **Round-trip** — no normalize change needed: `editorStorage.ts` `normalizeNode` is pass-through
+  (`return input as unknown as LayoutNode`), the same mechanism `spineRestOverrides` already rides.
+
+**Verified:** `engine-layout` + `launcher-api` builds GREEN; a headless fixture (guarded against
+drift from the shipped line) proves the override remaps only the listed cue, an un-overridden
+instance keeps the def signal (parity), and the field survives the `normalizeNode` round-trip.
+**Parity (§7):** absent override ⇒ `|| cue.signal` yields the def signal ⇒ subscriptions byte-identical.
+
+**Remaining for Phase 6:** `value`/`signal` universal binding (needs a def node to consume them) and
+the `def.slots` / component-`space` UI gaps.
 
 ---
 

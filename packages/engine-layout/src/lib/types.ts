@@ -335,6 +335,18 @@ export interface ComponentInstanceNode extends BaseNode {
 	 * component can show a different resting pose. Provided to `<LayoutNodeView>` via
 	 * `componentSpineRestContext`; absent ⇒ the def values are used verbatim (parity). */
 	spineRestOverrides?: Record<string, SpineRestOverride>;
+	/**
+	 * Per-instance rebinding of WHICH engine signal drives a spine node's
+	 * {@link SpineCue}s — keyed by the spine node's `id` in the resolved
+	 * {@link ComponentDef.root} (the signal-feed sibling of {@link spineRestOverrides}).
+	 * The inner map remaps a cue's ORIGINAL {@link SpineCue.signal} → the replacement
+	 * engine-signal key, so two placements of one component can react to different
+	 * signals (e.g. one cue driven by `win`, another copy by `bigWin`) without forking
+	 * the def. Keyed by original signal (not cue index) so a spine carrying several
+	 * cues remaps cleanly. A cue not listed (or no entry for the node) ⇒ its def signal
+	 * is used verbatim, so an absent map is byte-identical to today (parity). Applied
+	 * when `<ComponentInstance>` builds its cue → `SignalSource` subscriptions. */
+	cueSignalOverrides?: Record<string, Record<string, string>>;
 }
 
 /** Per-instance overrides for a spine node's resting look (see

@@ -145,6 +145,10 @@
 		 * skin) for the selected instance (scene mode). Only the fields present in `patch`
 		 * change; a field set to `undefined`/`''` clears that override (inherits the def). */
 		onSetInstanceSpineRest?: (nodeId: string, patch: Partial<SpineRestOverride>) => void;
+		/** Rebind which engine signal drives a spine node's cue for THIS placement
+		 * (scene mode). `origSignal` = the cue's def signal; `signal` = the replacement
+		 * engine-signal key, or `''`/`undefined` to clear the override (inherit the def). */
+		onSetInstanceCueSignal?: (nodeId: string, origSignal: string, signal: string) => void;
 		/** "Edit in Component Editor": open the selected instance's def (`componentId`) in
 		 * the standalone Component Editor (new tab). Scene mode, componentInstance only. */
 		onOpenComponentEditor?: (componentId: string) => void;
@@ -189,6 +193,7 @@
 		onSetInstanceStateAnim,
 		onSetInstanceStateAnimLoop,
 		onSetInstanceSpineRest,
+		onSetInstanceCueSignal,
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
 	}: Props = $props();
@@ -224,6 +229,12 @@
 	function instanceSpineRestOf(nodeId: string): SpineRestOverride | undefined {
 		if (node?.kind !== 'componentInstance') return undefined;
 		return node.spineRestOverrides?.[nodeId];
+	}
+	/** This instance's signal-rebind for a spine node's cue (by the cue's def signal),
+	 * or undefined when the placement inherits the def signal. */
+	function instanceCueSignalOf(nodeId: string, origSignal: string): string | undefined {
+		if (node?.kind !== 'componentInstance') return undefined;
+		return node.cueSignalOverrides?.[nodeId]?.[origSignal];
 	}
 
 	/** True when the selected instance's resolved def is an OVERLAY — only overlays
@@ -1860,6 +1871,30 @@
 											</select>
 										</label>
 									</div>
+								{/if}
+								{#if sp.cues?.length}
+									<h6 class="sub-h state-sub">Driven by signal</h6>
+									{#each sp.cues as cue (cue.signal)}
+										{@const ov = instanceCueSignalOf(sp.id, cue.signal)}
+										<div class="bind-grid cue-row">
+											<label class="field">
+												<span>{cue.animation || cue.signal}</span>
+												<select
+													value={ov ?? ''}
+													onchange={(e) =>
+														onSetInstanceCueSignal?.(sp.id, cue.signal, e.currentTarget.value)}
+												>
+													<option value="">(inherit: {cue.signal})</option>
+													{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
+														<option value={s.key}>{s.label}</option>
+													{/each}
+													{#if ov && !ENGINE_SIGNAL_CATALOG.some((s) => s.key === ov)}
+														<option value={ov}>{ov} (custom)</option>
+													{/if}
+												</select>
+											</label>
+										</div>
+									{/each}
 								{/if}
 								{#if instanceInteractive}
 									<h6 class="sub-h state-sub">Plays on button state</h6>
