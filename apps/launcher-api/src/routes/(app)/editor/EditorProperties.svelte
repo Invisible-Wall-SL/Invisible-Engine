@@ -5,9 +5,11 @@
 		BUTTON_STATE_PARAMS,
 		defaultHudText,
 		ENGINE_ACTION_CATALOG,
+		ENGINE_BINDING_PARAMS,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
 		fontParamKeysOf,
+		VISIBILITY_SOURCE_LABELS,
 		getEditableParams,
 		isHudButtonBind,
 		resolveTransform,
@@ -221,6 +223,28 @@
 			node?.kind === 'componentInstance' &&
 			instanceComponent?.category === 'overlay',
 	);
+
+	/** Universal engine bindings (flow-driven-game §6, requirement 2): the shared
+	 * per-instance bindings any `componentInstance` can carry WITHOUT its def declaring
+	 * the param — `action` (clickable) + `visibleSource` (lifecycle-gated). Surfaced only
+	 * where the def LACKS the param (a `button` def already declares `action`, a
+	 * `freeSpinCounter` already declares `visibleSource`) — suppressing it there avoids
+	 * double-surfacing, so the def's own param stays the single source. Scene mode only;
+	 * the params live on the instance, not the def, so any instance gets them. */
+	const engineBindingParams = $derived.by<ComponentParam[]>(() => {
+		if (componentMode || node?.kind !== 'componentInstance') return [];
+		const declared = new Set((instanceComponent?.params ?? []).map((p) => p.key));
+		return ENGINE_BINDING_PARAMS.filter((p) => !declared.has(p.key));
+	});
+
+	/** Dropdown options for the universal `visibleSource` binding: the registered
+	 * visibility-feed catalog, plus the current value if it's a custom key not in the
+	 * catalog (so a hand-set source isn't dropped). */
+	function visibleSourceOptions(current: unknown): string[] {
+		const opts = ENGINE_BINDING_PARAMS.find((p) => p.key === 'visibleSource')?.options ?? [];
+		const v = typeof current === 'string' ? current : '';
+		return v && !opts.includes(v) ? [...opts, v] : opts;
+	}
 
 	/** The version the selected instance currently renders against (its pin, falling back
 	 * to the resolved def's version when the node carries no explicit pin — an un-pinned
@@ -1796,6 +1820,38 @@
 									{/each}
 								{/if}
 							</div>
+						{/each}
+					</details>
+				{/if}
+				{#if engineBindingParams.length > 0}
+					<details
+						class="param-group"
+						open={Boolean(node.params?.action) || Boolean(node.params?.visibleSource)}
+					>
+						<summary>Engine bindings</summary>
+						<p class="muted small">
+							Make this instance clickable (Action) or lifecycle-gated (Shows during), regardless of
+							what its component declares. The game registers the matching handler/feed; an
+							unregistered name simply does nothing. Both blank by default.
+						</p>
+						{#each engineBindingParams as p (p.key)}
+							{#if p.key === 'visibleSource'}
+								<label class="field wide">
+									<span>{p.label}</span>
+									<select
+										value={(node.params?.[p.key] as string) ?? ''}
+										onchange={(e) =>
+											onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+									>
+										<option value="">(always)</option>
+										{#each visibleSourceOptions(node.params?.[p.key]) as k (k)}
+											<option value={k}>{VISIBILITY_SOURCE_LABELS[k] ?? k}</option>
+										{/each}
+									</select>
+								</label>
+							{:else}
+								<div class="row">{@render paramField(p)}</div>
+							{/if}
 						{/each}
 					</details>
 				{/if}

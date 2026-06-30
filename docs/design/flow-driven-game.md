@@ -22,7 +22,8 @@ behind a parity-inert default boot. **The runtime engine story is now complete**
 trigger kind (bookEvent / complete-tap / condition) is live and any authored screen mounts.
 The remaining work is Phase 5 (author real backing scenes + bake + ship a game — the owner's
 live/editor checkpoint) and the larger Phases 6–7 (universal per-instance exposure; behaviour
-layer).
+layer). **Phase 6 slice 1 is also done** — the universal `action`/`visibleSource` bindings tray
+(any instance clickable / lifecycle-gated regardless of def); see the §6 progress note.
 
 ### What already works (the foundation — do not rebuild)
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
@@ -390,6 +391,38 @@ regardless of what its def declared.
 
 **Harness:** an instance with a tray-attached `source` binds the live feed without the def
 declaring it; a per-instance signal binding plays a different animation than the def default.
+
+### Progress — Phase 6 slice 1 DONE (the universal `action`/`visibleSource` tray, 2026-06-30)
+
+Branch `flow/driven-game`. The two GENUINELY-universal bindings (the runtime already gates/clicks
+the WHOLE instance from these param keys regardless of def): an instance can be made **clickable**
+(`action`) or **lifecycle-gated** (`visibleSource`) without its def declaring the param.
+
+**What landed:**
+- `packages/engine-layout/src/lib/engineBindings.ts` (NEW, mirrors `tapToContinue.ts`) —
+  `ENGINE_BINDING_PARAMS` (shared instance params: `action` opts `ENGINE_ACTION_CATALOG`,
+  `visibleSource` opts `VISIBILITY_SOURCE_KEYS`) + `actionBindingOf`/`visibleSourceBindingOf`
+  readers. NOT added to any `ComponentDef.params` — they live only on the placed instance's
+  `params`. Re-exported from `index.ts`.
+- **No merge change needed:** `resolveComponentParams` already ends with `mergeDefined(out,
+  instanceParams)` which iterates EVERY instance param key (not just def-declared) — the same
+  passthrough `tapToContinue` relies on — and `ComponentInstance.svelte` reads
+  `staticParams['action']`/`['visibleSource']` directly. Verified, not assumed.
+- `apps/launcher-api/.../editor/EditorProperties.svelte` — an **"Engine bindings"** tray for a
+  selected `componentInstance`: an Action dropdown + a "Shows during" dropdown (labels from
+  `VISIBILITY_SOURCE_LABELS`, blank = always). **Suppressed** for any param the instance's def
+  ALREADY declares (a `button` declares `action`, a `freeSpinCounter` declares `visibleSource`),
+  so the universal control never double-surfaces. Writes through the existing `onSetInstanceParam`
+  → `node.params` path.
+
+**Verified:** `engine-layout` + `launcher-api` builds GREEN (the launcher build is the typecheck);
+a Node fixture against the built `dist` (11/11) proves an undeclared `action`/`visibleSource` passes
+through on a def declaring neither, an untouched instance carries no binding keys (parity), and a
+def-declared param still wins. **Parity (§7):** an unset binding produces no key ⇒ the runtime reads
+`undefined` ⇒ no hit surface / no visibility wrapper ⇒ byte-identical to today.
+
+**Remaining for Phase 6:** `value`/`signal` universal binding (need a def node to consume them),
+per-instance signal rebinding, and the `visibleFor`/`screenAnchor`/custom-`options`/`def.slots` UI gaps.
 
 ---
 

@@ -14,6 +14,7 @@ export * from './genericMountScenes';
 export * from './resolveTransform';
 export * from './componentParams';
 export * from './tapToContinue';
+export * from './engineBindings';
 export * from './collectComponentIds';
 export * from './reelGrid';
 export * from './buttonConvert';

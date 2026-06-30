@@ -123,8 +123,17 @@ submodule bumps).
 >   `tools/flow-spike/phase3Condition.ts` 36/36 + all prior harnesses green; lines build ships;
 >   parity-inert by default. **The runtime engine story is now complete** — every trigger kind
 >   (bookEvent / complete-tap / condition) is live + any authored screen mounts.
->   **Next: Phase 5** = author real `bigWin`/`freeSpinIntro`/`loading` backing scenes in the editor +
->   bake + ship to a game (the owner's online-authoring + republish step). ⏳ owner live-verify.
+>   Phase 5 = author real `bigWin`/`freeSpinIntro`/`loading` backing scenes in the editor + bake +
+>   ship to a game (the owner's online-authoring + republish step). ⏳ owner live-verify.
+> - **Phase 6 slice 1 (universal `action`/`visibleSource` tray) — DONE 2026-06-30**
+>   (branch `flow/driven-game`). Requirement 2: any `componentInstance` can be made clickable
+>   (`action`) or lifecycle-gated (`visibleSource`) WITHOUT its def declaring the param — a new
+>   shared `engineBindings.ts` (mirrors `tapToContinue`) + an "Engine bindings" tray in
+>   `EditorProperties` (suppressed where the def already declares the param). No merge change needed
+>   (`resolveComponentParams` already passes through undeclared instance params; runtime reads them).
+>   engine-layout + launcher builds green; dist fixture 11/11; parity-inert default. Remaining Phase 6:
+>   `value`/`signal` universal binding, per-instance signal rebind, `visibleFor`/`screenAnchor`/
+>   custom-`options`/`def.slots` UI. **Then Phase 7** (behaviour/timeline layer — the long tail).
 
 ### Blocked on owner / external (not code)
 
