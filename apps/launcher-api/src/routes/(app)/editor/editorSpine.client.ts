@@ -5,7 +5,7 @@
  * `SpineInstance`. All loading is async and defensive — a missing index, unknown
  * bundle, or load error resolves to `null` so the canvas keeps its placeholder.
  */
-import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
+import { SPINE_LOAD_SCALE } from '$lib/spineScale';
 import {
 	loadSpineRuntime,
 	type SpineAnimationState,
@@ -106,14 +106,14 @@ function buildSkeleton(
 	let data: SpineSkeletonData;
 	// Apply the SAME load scale the deploy pipeline bakes in + the game applies on load
 	// (`assetLoad.ts` sets `parser.scale`), so a natural-sized spine previews at its true
-	// in-game size instead of 1/N of it. See `EDITOR_SPINE_LOAD_SCALE`.
+	// in-game size instead of 1/N of it. See `SPINE_LOAD_SCALE`.
 	if (descriptor.format === 'skel') {
 		const reader = new spine.SkeletonBinary(loader);
-		reader.scale = EDITOR_SPINE_LOAD_SCALE;
+		reader.scale = SPINE_LOAD_SCALE;
 		data = reader.readSkeletonData(new Uint8Array(skeletonBytes as ArrayBuffer));
 	} else {
 		const reader = new spine.SkeletonJson(loader);
-		reader.scale = EDITOR_SPINE_LOAD_SCALE;
+		reader.scale = SPINE_LOAD_SCALE;
 		data = reader.readSkeletonData(skeletonBytes as string);
 	}
 

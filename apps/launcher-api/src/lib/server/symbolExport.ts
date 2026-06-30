@@ -43,7 +43,7 @@ import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
 import { exportSpineBundle, loadSkeletonIndex } from './spine';
-import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
+import { SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 import { loadSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
 
@@ -295,7 +295,7 @@ export async function exportEditorSymbols(
 			subtree: EXPORT_SUBTREE,
 			stem: claimStem(assetKey.replace(/\/$/, '')),
 			skeletonIndex,
-			scale: SYMBOL_SPINE_LOAD_SCALE,
+			scale: SPINE_LOAD_SCALE,
 		});
 		if (!result) continue;
 		for (const k of result.written) written.add(k);

@@ -12,13 +12,19 @@ export const PADDING_REELS = config.paddingReels as Record<GameType, RawSymbol[]
 export const SYMBOL_SIZE = 120;
 
 /**
- * Fraction of the cell a SPINE (animated) symbol fills — sprite symbols are fine at full
- * contain, but a spine character (badge + figure) reads visually bigger, so we contain its
- * bounds to `SYMBOL_SIZE × this` to bring it down to match the sprite icons. Spine-only:
- * sprites are untouched. Tune to taste (1 = same as sprites). See
- * `feedback_symbols_size_from_art_no_param`.
+ * Fraction of the cell a SPINE (animated) symbol contains to — `1` = full contain, same box
+ * as a sprite symbol. The ONLY knob for spine-symbol size: rendered size is
+ * `SYMBOL_SIZE × this` (sprites are untouched). Tune below 1 if a spine character reads
+ * visually bigger than the sprite icons and you want it smaller.
+ *
+ * Was `0.5` — but that was a hidden PAIR with the deploy pipeline's old `scale: 2` spine
+ * load scale (the load scale multiplies this, so `2 × 0.5` = full cell). The load scale is
+ * now `1` ({@link spineScale.SPINE_LOAD_SCALE}), so this carries the full size alone (`1 × 1`
+ * = the same full cell as before). See `feedback_symbols_size_from_art_no_param`.
+ * NOTE: tied to the baked `index.scale` — a game must run an engine build with THIS value
+ * AND republish its symbols at `scale: 1` together (see `SPINE_LOAD_SCALE` migration note).
  */
-export const SYMBOL_SPINE_FILL = 0.5;
+export const SYMBOL_SPINE_FILL = 1;
 
 export const REEL_PADDING = 0.53;
 
