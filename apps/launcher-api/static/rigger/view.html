@@ -476,6 +476,8 @@ let showAttachments = true; // when false, the skin's images/meshes are hidden (
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let selIk = null; // selected IK constraint NAME (constraints panel editor + ik dopesheet track)
+let selTc = null; // selected transform constraint NAME (constraints panel editor + transform dopesheet track)
+let selPath = null; // selected path constraint NAME (constraints panel editor + path dopesheet track)
 let collapsedBones = new Set(); // bone names whose subtree is collapsed in the tree
 let dragBoneIdx = null; // bone index being drag-reparented in the hierarchy tree
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
@@ -487,6 +489,14 @@ let brushSubtract = false, brushPainting = false, lastDabWorld = null;
 // Phase A-canvas: draw-a-mesh-from-scratch
 let drawMeshMode = false, drawPoints = [];
 let drawDragIdx = null, selDrawPoint = null; // drag/select a boundary point while drawing
+// §18.7 path attachment authoring. A path attachment is a slot attachment whose `vertices`
+// are cubic-bezier CONTROL POINTS (the spline a path constraint walks). We author them in
+// WORLD space and persist them slot-bone-local (mirroring the mesh draw/edit machinery).
+let pathCtx = null; // { slotIndex, attName, attachment } when a PATH slot attachment is selected
+let drawPathMode = false; // click to drop control points for a brand-new path
+let pathAddMode = false;   // append a control point to the END of the selected path
+let pathDragIdx = null, selPathPoint = null; // drag/select a control point on the canvas
+let pathDrawPts = []; // in-progress path control points (WORLD coords) while drawing a new path
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
@@ -538,6 +548,11 @@ function isMeshAtt(a){
   if (!a) return false;
   if (SPINE && SPINE.MeshAttachment && a instanceof SPINE.MeshAttachment) return true;
   return /Mesh/.test((a.constructor && a.constructor.name) || "");
+}
+function isPathAtt(a){
+  if (!a) return false;
+  if (SPINE && SPINE.PathAttachment && a instanceof SPINE.PathAttachment) return true;
+  return /Path/.test((a.constructor && a.constructor.name) || "");
 }
 
 // ---- runtime loading (one spine-webgl global at a time) -------------------
@@ -764,6 +779,7 @@ function buildSkeleton(entry){
   selBone = null;          // reset selection BEFORE setMode (its tail restores selBone)
   selSlot = null;
   selIk = null;
+  selTc = null;
   collapsedBones.clear();
   setMode("preview");
 
@@ -1037,37 +1053,57 @@ function buildInspector(entry){
   renderAnimSection();
 
   // ---- constraints ----
-  // IK constraints are editable (click a row → editor below). transform/path stay
-  // display-only (later items) — they list but don't open an editor.
+  // IK + transform + path constraints are editable (click a row → editor below).
   const consList = $("#consList"); clearChildren(consList);
   if (rawDoc){
     const tools = document.createElement("div");
     tools.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin:4px 14px 6px;";
-    const add = document.createElement("button");
-    add.textContent = "＋ Add IK constraint";
-    add.title = "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone";
-    add.disabled = selBone == null;
-    add.onclick = addIkConstraint; tools.appendChild(add);
+    const addIk = document.createElement("button");
+    addIk.textContent = "＋ Add IK constraint";
+    addIk.title = "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone";
+    addIk.disabled = selBone == null;
+    addIk.onclick = addIkConstraint; tools.appendChild(addIk);
+    const addTc = document.createElement("button");
+    addTc.textContent = "＋ Add transform constraint";
+    addTc.title = "constrain the selected bone(s) to follow a target bone's transform (mix + offsets)";
+    addTc.disabled = selBone == null;
+    addTc.onclick = addTransformConstraint; tools.appendChild(addTc);
+    const addPc = document.createElement("button");
+    addPc.textContent = "＋ Add path constraint";
+    addPc.title = "lay the selected bone(s) along a path attachment — pick a target slot that holds a path";
+    addPc.disabled = selBone == null || !slotsWithPath().length;
+    addPc.onclick = addPathConstraint; tools.appendChild(addPc);
     if (selBone == null){ const h = document.createElement("span"); h.textContent = "select a bone first"; h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;"; tools.appendChild(h); }
+    else if (!slotsWithPath().length){ const h = document.createElement("span"); h.textContent = "draw a path on a slot to enable path constraints"; h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;"; tools.appendChild(h); }
     consList.appendChild(tools);
   }
-  const addCons = (arr, kind, editable) => arr.forEach(c => {
+  const addCons = (arr, kind, onPick, selName) => arr.forEach(c => {
     const row = document.createElement("div");
-    row.className = "trow" + (editable && c.name === selIk ? " sel" : "");
+    row.className = "trow" + (onPick && c.name === selName ? " sel" : "");
     row.textContent = c.name;
     const t = document.createElement("span"); t.className = "tag"; t.textContent = kind; row.appendChild(t);
-    if (editable) row.onclick = () => selectIk(c.name);
+    if (onPick) row.onclick = () => onPick(c.name);
     consList.appendChild(row);
   });
-  addCons(skeletonData.ikConstraints || [], "IK", true);
-  addCons(skeletonData.transformConstraints || [], "transform", false);
-  addCons(skeletonData.pathConstraints || [], "path", false);
+  addCons(skeletonData.ikConstraints || [], "IK", selectIk, selIk);
+  addCons(skeletonData.transformConstraints || [], "transform", selectTc, selTc);
+  addCons(skeletonData.pathConstraints || [], "path", selectPath, selPath);
   const cCount = (skeletonData.ikConstraints||[]).length + (skeletonData.transformConstraints||[]).length
     + (skeletonData.pathConstraints||[]).length;
   $("#cCons").textContent = "(" + cCount + ")";
   if (!cCount){ const e = document.createElement("div"); e.className = "empty"; e.textContent = "none"; consList.appendChild(e); }
   if (selIk && !(skeletonData.ikConstraints || []).some((c) => c.name === selIk)) selIk = null;
-  renderIkEditor();
+  if (selTc && !(skeletonData.transformConstraints || []).some((c) => c.name === selTc)) selTc = null;
+  if (selPath && !(skeletonData.pathConstraints || []).some((c) => c.name === selPath)) selPath = null;
+  renderConstraintEditor();
+}
+
+// The constraints panel shares one detail box (#consDetail): show the editor for whichever
+// constraint kind is selected. Selecting one kind clears the other (one editor at a time).
+function renderConstraintEditor(){
+  if (selPath) renderPathConstraintEditor();
+  else if (selTc) renderTransformEditor();
+  else renderIkEditor();
 }
 
 // Fill the bottom-bar animation <select> from the editable doc (so new anims appear).
@@ -1935,7 +1971,7 @@ function markDirty(){
 // softness, compress, stretch }. bendPositive serialises as a BOOLEAN (runtime → ±1).
 const ikArr = () => (rawDoc && Array.isArray(rawDoc.ik)) ? rawDoc.ik : null;
 const ikByName = (n) => { const a = ikArr(); return a ? a.find((c) => c.name === n) : null; };
-function selectIk(name){ selIk = name; buildInspector(selected); if (animMode) renderTimeline(); }
+function selectIk(name){ selIk = name; selTc = null; selPath = null; buildInspector(selected); if (animMode) renderTimeline(); }
 
 // Add a 2-bone IK chain on the selected bone: chain = [parent, selected], reaching a target
 // bone. Falls back to a 1-bone chain when the selected bone has no parent.
@@ -2057,6 +2093,331 @@ function renderIkEditor(){
   rn.onclick = () => { const n = prompt("Rename IK constraint", c.name); if (n) renameIkConstraint(c.name, n); };
   const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
   del.onclick = () => { if (confirm('Delete IK constraint "' + c.name + '"?')) deleteIkConstraint(c.name); };
+  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
+}
+
+// ---- transform constraints (§18 item 6) -----------------------------------
+// Validated against spine-core@4.2.74 (tools/rigger-spike/transform.mjs): top-level
+// `transform` array, each = { name, order, bones:[…constrained], target, mixRotate, mixX,
+// mixY, mixScaleX, mixScaleY, mixShearY (all default 1), rotation, x, y, scaleX, scaleY,
+// shearY (offsets, default 0), relative, local }. The offset JSON keys are the SHORT names
+// (rotation/x/y/scaleX/scaleY/shearY) — the runtime stores them as data.offset*.
+const TC_MIXES = ["mixRotate", "mixX", "mixY", "mixScaleX", "mixScaleY", "mixShearY"];
+const TC_OFFSETS = ["rotation", "x", "y", "scaleX", "scaleY", "shearY"];
+const tcArr = () => (rawDoc && Array.isArray(rawDoc.transform)) ? rawDoc.transform : null;
+const tcByName = (n) => { const a = tcArr(); return a ? a.find((c) => c.name === n) : null; };
+function selectTc(name){ selTc = name; selIk = null; selPath = null; buildInspector(selected); if (animMode) renderTimeline(); }
+
+// Add a transform constraint on the selected bone, following a target bone's transform with
+// full mixes + zero offsets. The target excludes the constrained bone (a bone can't follow
+// itself) and its descendants (degenerate / circular follow).
+function addTransformConstraint(){
+  if (!rawDoc || selBone == null) return;
+  const bone = skeletonData.bones[selBone];
+  const banned = new Set([bone.name]);
+  for (const d of descendantNames(bone.name)) banned.add(d);
+  const pick = (skip) => skeletonData.bones.find((b) => b.name !== "root" && !skip.has(b.name));
+  const target = pick(banned) || pick(new Set([bone.name]));
+  if (!target){ $("#hint").textContent = "Need another bone to use as the transform target."; return; }
+  rawDoc.transform = rawDoc.transform || [];
+  const name = uniqueName("transform", new Set(rawDoc.transform.map((c) => c.name)));
+  rawDoc.transform.push({ name, order: rawDoc.transform.length, bones: [bone.name], target: target.name,
+    mixRotate: 1, mixX: 1, mixY: 1, mixScaleX: 1, mixScaleY: 1, mixShearY: 1 });
+  selTc = name; selIk = null;
+  rebuildFromRawDoc(bone.name);
+  markDirty();
+}
+
+// Mutate one field of the selected transform constraint + rebuild (keeps the live
+// TransformConstraint in sync). Omits offset fields that are 0 (the default) to keep parity.
+function editTc(field, value){
+  const c = tcByName(selTc); if (!c) return;
+  if (TC_OFFSETS.includes(field) && !value) delete c[field]; else c[field] = value;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function renameTransformConstraint(oldName, newName){
+  newName = cleanName(newName);
+  const a = tcArr(); if (!a) return;
+  if (!newName || newName === oldName || a.some((c) => c.name === newName)) return;
+  const c = a.find((x) => x.name === oldName); if (!c) return;
+  c.name = newName;
+  for (const an of Object.values(rawDoc.animations || {}))
+    if (an.transform && an.transform[oldName]){ an.transform[newName] = an.transform[oldName]; delete an.transform[oldName]; }
+  selTc = newName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function deleteTransformConstraint(name){
+  const a = tcArr(); if (!a) return;
+  rawDoc.transform = a.filter((c) => c.name !== name);
+  if (!rawDoc.transform.length) delete rawDoc.transform;
+  for (const an of Object.values(rawDoc.animations || {})) if (an.transform){ delete an.transform[name]; if (!Object.keys(an.transform).length) delete an.transform; }
+  if (selTc === name) selTc = null;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty(); animsDirty = true;
+}
+
+// Render the editor for the selected transform constraint into #consDetail.
+function renderTransformEditor(){
+  const det = $("#consDetail"); if (!det) return;
+  clearChildren(det);
+  const c = tcByName(selTc);
+  if (!c || !rawDoc){ det.style.display = "none"; return; }
+  det.style.display = "block";
+
+  const title = document.createElement("div");
+  title.textContent = "transform · " + c.name;
+  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
+  det.appendChild(title);
+  const chain = document.createElement("div");
+  chain.textContent = "bones: " + (c.bones || []).join(", ");
+  chain.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+  det.appendChild(chain);
+
+  const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
+
+  // target dropdown (every bone except the constrained bones)
+  const tr = crow("target");
+  const tsel = document.createElement("select");
+  const inChain = new Set(c.bones || []);
+  for (const b of skeletonData.bones){ if (inChain.has(b.name)) continue; const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; if (b.name === c.target) o.selected = true; tsel.appendChild(o); }
+  tsel.onchange = () => editTc("target", tsel.value); tr.appendChild(tsel);
+
+  // six mix sliders (0..1, default 1)
+  const mixHdr = document.createElement("div"); mixHdr.textContent = "mix (0 = ignore, 1 = full follow)";
+  mixHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(mixHdr);
+  const MIX_LABEL = { mixRotate: "rotate", mixX: "X", mixY: "Y", mixScaleX: "scaleX", mixScaleY: "scaleY", mixShearY: "shearY" };
+  // Loader fallbacks: absent mixY → mixX; absent mixScaleY → mixScaleX; otherwise default 1.
+  // Display those resolved defaults so the editor matches the runtime (no silent baseline drift).
+  const mixDefault = (f) => f === "mixY" ? (c.mixX ?? 1) : f === "mixScaleY" ? (c.mixScaleX ?? 1) : 1;
+  for (const f of TC_MIXES){
+    const r = crow(MIX_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? mixDefault(f));
+    inp.onchange = () => editTc(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+  }
+
+  // six offsets (default 0; rotation in degrees, x/y in px, scale/shear unitless)
+  const offHdr = document.createElement("div"); offHdr.textContent = "offset (added on top of the target's transform)";
+  offHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(offHdr);
+  const OFF_LABEL = { rotation: "rotation°", x: "X", y: "Y", scaleX: "scaleX", scaleY: "scaleY", shearY: "shearY" };
+  for (const f of TC_OFFSETS){
+    const r = crow(OFF_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = (f === "rotation" || f === "x" || f === "y") ? "1" : "0.05"; inp.value = (c[f] ?? 0);
+    inp.onchange = () => editTc(f, parseFloat(inp.value) || 0); r.appendChild(inp);
+  }
+
+  // relative / local toggles
+  const togRow = document.createElement("div"); togRow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;";
+  const tog = (label, field) => {
+    const w = document.createElement("label"); w.style.cssText = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt);cursor:pointer;";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!c[field];
+    cb.onchange = () => editTc(field, cb.checked || undefined); w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
+  };
+  tog("relative", "relative"); tog("local", "local");
+  det.appendChild(togRow);
+
+  // animate-mode: key the six mixes at the playhead
+  if (animMode){
+    const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
+    const kb = document.createElement("button"); kb.textContent = "◆ Key transform mix @ t";
+    kb.title = "key this constraint's six mix values at the playhead"; kb.onclick = () => keyTransform(c.name);
+    ar.appendChild(kb);
+    const times = transformKeyTimes(c.name);
+    const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;";
+    info.textContent = times.length ? (times.length + " key" + (times.length === 1 ? "" : "s")) : "no mix keys";
+    ar.appendChild(info);
+    det.appendChild(ar);
+  }
+
+  // rename + delete
+  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
+  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
+  rn.onclick = () => { const n = prompt("Rename transform constraint", c.name); if (n) renameTransformConstraint(c.name, n); };
+  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.onclick = () => { if (confirm('Delete transform constraint "' + c.name + '"?')) deleteTransformConstraint(c.name); };
+  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
+}
+
+// ---- path constraints (§18 item 7) ----------------------------------------
+// Validated against spine-core@4.2.74 (tools/rigger-spike/path.mjs): top-level `path` array,
+// each = { name, order, bones:[…constrained], target:<SLOT with a path attachment>,
+// positionMode:"percent"|"fixed", spacingMode:"length"|"fixed"|"percent"|"proportional",
+// rotateMode:"tangent"|"chain"|"chainScale", position, spacing, rotation, mixRotate, mixX, mixY
+// (mixes default 1; absent mixY → mixX). Enum strings are case-insensitive on the first letter.
+// ⚠ `order` must be a CONTIGUOUS index across all constraints (Skeleton.updateCache only sorts a
+// constraint whose order == its loop index; an out-of-range order leaves it inactive → no solve).
+const PC_MODE = {
+  positionMode: { label: "position", opts: ["percent", "fixed"], def: "percent",
+    title: "How `position` is interpreted: percent (0..1 along the path) or fixed (px from start)." },
+  spacingMode: { label: "spacing", opts: ["length", "fixed", "percent", "proportional"], def: "length",
+    title: "How bones are spaced along the path." },
+  rotateMode: { label: "rotate", opts: ["tangent", "chain", "chainScale"], def: "tangent",
+    title: "How bones rotate to the path: tangent (face the curve), chain (preserve the chain), chainScale." },
+};
+const PC_MIXES = ["mixRotate", "mixX", "mixY"];
+const pcArr = () => (rawDoc && Array.isArray(rawDoc.path)) ? rawDoc.path : null;
+const pcByName = (n) => { const a = pcArr(); return a ? a.find((c) => c.name === n) : null; };
+function selectPath(name){ selPath = name; selIk = null; selTc = null; buildInspector(selected); if (animMode) renderTimeline(); }
+// Total constraint count = the next free contiguous `order` (see CRUX above).
+const totalConstraintCount = () => ((rawDoc && rawDoc.ik) ? rawDoc.ik.length : 0) + ((rawDoc && rawDoc.transform) ? rawDoc.transform.length : 0) + ((rawDoc && rawDoc.path) ? rawDoc.path.length : 0) + ((rawDoc && rawDoc.physics) ? rawDoc.physics.length : 0);
+// Slots whose ACTIVE-or-default attachment is a path (valid path-constraint targets).
+function slotsWithPath(){
+  if (!skeleton || !skeletonData) return [];
+  const out = [];
+  for (let i = 0; i < skeletonData.slots.length; i++){
+    const sd = skeletonData.slots[i];
+    // any attachment on this slot (across skins) that is a path makes the slot a candidate
+    const defs = slotAttachmentList(sd.name);
+    if (defs.some((d) => d.def && d.def.type === "path") || isPathAtt(skeleton.getAttachment(i, sd.attachmentName))) out.push(sd.name);
+  }
+  return out;
+}
+
+// Add a path constraint: the selected bone laid along the first path-target slot. Bone excludes
+// nothing special (a bone CAN be on a path that its own slot hosts), but we pick a sane default.
+function addPathConstraint(){
+  if (!rawDoc || selBone == null) return;
+  const targets = slotsWithPath();
+  if (!targets.length){ $("#hint").textContent = "Draw a path on a slot first (a path constraint needs a path-attachment target)."; return; }
+  const bone = skeletonData.bones[selBone];
+  rawDoc.path = rawDoc.path || [];
+  const name = uniqueName("path", new Set(rawDoc.path.map((c) => c.name)));
+  rawDoc.path.push({ name, order: totalConstraintCount(), bones: [bone.name], target: targets[0],
+    positionMode: "percent", spacingMode: "length", rotateMode: "tangent", position: 0, spacing: 0,
+    mixRotate: 1, mixX: 1, mixY: 1 });
+  selPath = name; selIk = null; selTc = null;
+  rebuildFromRawDoc(bone.name);
+  markDirty();
+}
+
+// Mutate one field of the selected path constraint + rebuild (keeps the live PathConstraint in
+// sync). Omits a mode that equals its default + a 0 position/spacing/rotation to keep parity.
+function editPc(field, value){
+  const c = pcByName(selPath); if (!c) return;
+  const modeDef = PC_MODE[field];
+  if (modeDef && value === modeDef.def) delete c[field];
+  else if ((field === "position" || field === "spacing" || field === "rotation") && !value) delete c[field];
+  else c[field] = value;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function renamePathConstraint(oldName, newName){
+  newName = cleanName(newName);
+  const a = pcArr(); if (!a) return;
+  if (!newName || newName === oldName || a.some((c) => c.name === newName)) return;
+  const c = a.find((x) => x.name === oldName); if (!c) return;
+  c.name = newName;
+  for (const an of Object.values(rawDoc.animations || {}))
+    if (an.path && an.path[oldName]){ an.path[newName] = an.path[oldName]; delete an.path[oldName]; }
+  selPath = newName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function deletePathConstraint(name){
+  const a = pcArr(); if (!a) return;
+  rawDoc.path = a.filter((c) => c.name !== name);
+  if (!rawDoc.path.length) delete rawDoc.path;
+  // re-pack `order` contiguously so the remaining constraints stay active (CRUX above)
+  repackConstraintOrders();
+  for (const an of Object.values(rawDoc.animations || {})) if (an.path){ delete an.path[name]; if (!Object.keys(an.path).length) delete an.path; }
+  if (selPath === name) selPath = null;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty(); animsDirty = true;
+}
+
+// Re-pack every constraint's `order` to a contiguous 0..N-1 (preserving relative order), so a
+// delete never strands a remaining constraint at an out-of-range order (→ inactive). Sorts the
+// combined ik+transform+path+physics list by current order, then renumbers in place.
+function repackConstraintOrders(){
+  if (!rawDoc) return;
+  const all = [];
+  for (const k of ["ik", "transform", "path", "physics"]) for (const c of (rawDoc[k] || [])) all.push(c);
+  all.sort((a, b) => (a.order || 0) - (b.order || 0));
+  all.forEach((c, i) => { c.order = i; });
+}
+
+// Render the editor for the selected path constraint into #consDetail.
+function renderPathConstraintEditor(){
+  const det = $("#consDetail"); if (!det) return;
+  clearChildren(det);
+  const c = pcByName(selPath);
+  if (!c || !rawDoc){ det.style.display = "none"; return; }
+  det.style.display = "block";
+
+  const title = document.createElement("div");
+  title.textContent = "path · " + c.name;
+  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
+  det.appendChild(title);
+  const chain = document.createElement("div");
+  chain.textContent = "bones: " + (c.bones || []).join(", ");
+  chain.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+  det.appendChild(chain);
+
+  const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
+
+  // target dropdown — every slot that holds a path attachment
+  const tr = crow("target");
+  const tsel = document.createElement("select");
+  const targets = slotsWithPath();
+  if (!targets.includes(c.target)) targets.unshift(c.target); // keep the current target visible even if its path went away
+  for (const sn of targets){ const o = document.createElement("option"); o.value = sn; o.textContent = sn; if (sn === c.target) o.selected = true; tsel.appendChild(o); }
+  tsel.title = "the SLOT holding the path attachment these bones follow";
+  tsel.onchange = () => editPc("target", tsel.value); tr.appendChild(tsel);
+
+  // mode <select>s
+  for (const field of ["positionMode", "spacingMode", "rotateMode"]){
+    const m = PC_MODE[field];
+    const r = crow(m.label); const sel = document.createElement("select"); sel.title = m.title;
+    for (const opt of m.opts){ const o = document.createElement("option"); o.value = opt; o.textContent = opt; if ((c[field] || m.def) === opt) o.selected = true; sel.appendChild(o); }
+    sel.onchange = () => editPc(field, sel.value); r.appendChild(sel);
+  }
+
+  // position + spacing + rotation numeric fields
+  const numField = (label, field, step, title) => {
+    const r = crow(label); r.title = title || "";
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = String(step); inp.value = (c[field] ?? 0);
+    inp.onchange = () => editPc(field, parseFloat(inp.value) || 0); r.appendChild(inp);
+  };
+  numField("position", "position", c.positionMode === "fixed" ? 1 : 0.01, "position along the path (percent: 0..1; fixed: px)");
+  numField("spacing", "spacing", 1, "spacing between bones along the path");
+  numField("rotation°", "rotation", 1, "rotation offset added to the path tangent (degrees)");
+
+  // three mix sliders (0..1, default 1)
+  const mixHdr = document.createElement("div"); mixHdr.textContent = "mix (0 = ignore, 1 = full follow)";
+  mixHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(mixHdr);
+  const MIX_LABEL = { mixRotate: "rotate", mixX: "X", mixY: "Y" };
+  const mixDefault = (f) => f === "mixY" ? (c.mixX ?? 1) : 1; // loader fallback: absent mixY → mixX
+  for (const f of PC_MIXES){
+    const r = crow(MIX_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? mixDefault(f));
+    inp.onchange = () => editPc(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+  }
+
+  // animate-mode: key position / spacing / mix at the playhead
+  if (animMode){
+    const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
+    const mk = (label, ch, title) => { const b = document.createElement("button"); b.textContent = label; b.title = title; b.onclick = () => keyPath(c.name, ch); ar.appendChild(b); };
+    mk("◆ Key position", "position", "key this path constraint's position at the playhead");
+    mk("◆ Key spacing", "spacing", "key this path constraint's spacing at the playhead");
+    mk("◆ Key mix", "mix", "key this path constraint's mixRotate/X/Y at the playhead");
+    det.appendChild(ar);
+    const times = pathKeyTimesAll(c.name);
+    const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;display:block;margin-top:3px;";
+    info.textContent = times ? (times) : "no path keys";
+    det.appendChild(info);
+  }
+
+  // rename + delete
+  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
+  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
+  rn.onclick = () => { const n = prompt("Rename path constraint", c.name); if (n) renamePathConstraint(c.name, n); };
+  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.onclick = () => { if (confirm('Delete path constraint "' + c.name + '"?')) deletePathConstraint(c.name); };
   foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
@@ -2463,6 +2824,7 @@ function selectSlot(name){
   meshAddMode = false; meshRemoveMode = false; selMeshVert = null;
   weightBrush = false; brushBone = null; brushPainting = false;
   drawMeshMode = false; drawPoints = [];
+  drawPathMode = false; pathAddMode = false; pathDragIdx = null; selPathPoint = null;
   meshIsolate = false; // exit isolated-mesh editing when moving to another slot
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   if (animMode) renderTimeline();
@@ -2570,6 +2932,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
 function renderSlotDetail(){
   const det = $("#slotDetail");
   meshCtx = null; meshDragVert = null; // recomputed below if a mesh slot is selected
+  pathCtx = null; // recomputed below if a PATH slot attachment is selected (§18.7)
   if (selSlot == null){ det.style.display = "none"; return; }
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
   if (slotIndex < 0){ det.style.display = "none"; return; }
@@ -2859,6 +3222,13 @@ function renderSlotDetail(){
     }
     return;
   }
+  // path attachment → spline control-point editing (§18.7). Paths aren't textured; the
+  // constraint walks the spline. We draw the polyline overlay on the canvas ourselves.
+  if (isPathAtt(att)){
+    pathCtx = { slotIndex, attName, attachment: att };
+    renderPathAttachmentEditor(det, att);
+    return;
+  }
   if (!isRegionAtt(att)){
     const t = document.createElement("div");
     t.textContent = (att ? att.constructor.name.replace(/^_/, "").replace("Attachment", "").toLowerCase() : "missing") +
@@ -2915,6 +3285,29 @@ function renderSlotDetail(){
   }
   };
   renderAtt();
+
+  // ＋ Add path attachment (§18.7): a slot can also hold a PATH attachment (a spline a path
+  // constraint walks). Offered on every slot — independent of any image/mesh. Clicking starts
+  // draw mode (click the canvas to drop control points). Hidden while a path is being drawn or
+  // when the slot's active attachment already IS a path (its editor handles drawing/adding).
+  if (drawPathMode){
+    const info = document.createElement("div");
+    info.innerHTML = "drawing a path: click to drop control points (" + pathDrawPts.length + ") · drag a point to nudge it · " +
+      "Spine uses <b>3 points per cubic curve</b> · <b>Enter</b>/Finish commits · <b>Esc</b> cancels";
+    info.style.cssText = "margin:8px 0 4px;color:var(--dim);font-size:11px;line-height:1.4;";
+    det.appendChild(info);
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin-top:5px;";
+    const fin = document.createElement("button"); fin.textContent = "✓ Finish path"; fin.disabled = pathDrawPts.length < 4; fin.style.flex = "1"; fin.onclick = finishDrawPath;
+    const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawPath;
+    row.appendChild(fin); row.appendChild(can); det.appendChild(row);
+  } else if (!isPathAtt(skeleton.getAttachment(slotIndex, attName))){
+    const ap = document.createElement("button");
+    ap.textContent = "✎ Draw path";
+    ap.title = "Add a path attachment to this slot — click on the canvas to drop spline control points (3 per cubic curve). A path constraint can then lay bones along it.";
+    ap.style.cssText = "margin:8px 0 2px;";
+    ap.onclick = () => startDrawPath();
+    det.appendChild(ap);
+  }
 
   // dark colour (two-color tinting / "tint black", Spine rgba2) — §18.4. Enabling writes
   // rawDoc.slots[i].dark (default black); clearing removes it. A slot is two-color iff `dark`
@@ -3117,6 +3510,266 @@ function drawDrawingOverlay(){
   if (drawPoints.length > 2 && hasLine){
     const a = drawPoints[drawPoints.length - 1], b = drawPoints[0];
     renderer.line(a.x, a.y, b.x, b.y, col);
+  }
+}
+
+// ====================== PATH ATTACHMENT AUTHORING (§18.7) ======================
+// A path attachment = {type:"path", closed, constantSpeed, vertexCount, vertices, lengths}.
+// `vertices` are the cubic-bezier CONTROL POINTS (unweighted: flat [x,y…] in the slot bone's
+// LOCAL space). vertexCount = #control points; #cubic curves = vertexCount/3 (each curve uses
+// 3 new points; a closed path wraps its last curve back to p0). `lengths` holds one per-curve
+// arc length. Validated headless in tools/rigger-spike/path.mjs (22/22 vs spine-core@4.2.74).
+// We reuse the mesh draw/edit machinery: drag/click control points in WORLD space, persist
+// them bone-local. The runtime debug renderer's drawPaths is OFF, so we draw the polyline
+// ourselves in drawPathOverlay (mirrors drawDrawingOverlay).
+
+// The rawDoc skin entry for the selected path attachment (the persisted geometry), resolved
+// active-skin-first then default — mirroring rawDocMeshEntry / skeleton.getAttachment.
+function rawDocPathEntry(){
+  if (!rawDoc || !pathCtx) return null;
+  const inSkin = (skName) => { const sk = rawDoc.skins.find((s) => s.name === skName); return (sk && sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][pathCtx.attName]) || null; };
+  return inSkin(activeSkinName()) || inSkin("default") || null;
+}
+
+// Setup-pose WORLD positions of the selected path's control points ([x0,y0,x1,y1,…]).
+function pathWorldVerts(){
+  if (!pathCtx) return null;
+  const att = pathCtx.attachment;
+  const slot = skeleton.slots[pathCtx.slotIndex];
+  const out = new Array(att.worldVerticesLength).fill(0);
+  att.computeWorldVertices(slot, 0, att.worldVerticesLength, out, 0, 2);
+  return out;
+}
+
+// Per-curve arc length (vertexCount/3 entries) estimated from the control-point polygon — the
+// runtime recomputes exact lengths when constantSpeed needs them; this just satisfies the
+// loader (lengths.length must == vertexCount/3) and is a reasonable cumulative estimate.
+function recomputePathLengths(localFlat, closed){
+  const n = localFlat.length / 2;
+  const curves = Math.floor(n / 3);
+  const lengths = [];
+  let acc = 0;
+  for (let c = 0; c < curves; c++){
+    // approximate this cubic by its 3 control-leg segments (p0→c0a→c0b→p1)
+    const i0 = c * 3;
+    const pts = [i0, i0 + 1, i0 + 2, (closed && c === curves - 1) ? 0 : i0 + 3];
+    let seg = 0;
+    for (let k = 0; k < 3; k++){
+      const a = pts[k] * 2, b = pts[k + 1] * 2;
+      if (b + 1 >= localFlat.length) break;
+      seg += Math.hypot(localFlat[b] - localFlat[a], localFlat[b + 1] - localFlat[a + 1]);
+    }
+    acc += seg; lengths.push(roundN(acc, 2));
+  }
+  return lengths;
+}
+
+// Begin drawing a brand-new path on the selected slot. Click the canvas to drop control points.
+function startDrawPath(){
+  if (!rawDoc || selSlot == null) return;
+  drawMeshMode = false; drawPoints = []; selDrawPoint = null; // never both at once
+  drawPathMode = true; selPathPoint = null;
+  pathDrawPts = [];
+  renderSlotDetail();
+}
+
+// Commit the in-progress path: persist {type:"path",…} into the active skin (default if the
+// slot's attachment lives there) with bone-local control points. Needs ≥4 points (1 cubic
+// curve, but a useful path is several). Keeps any existing image as a SEPARATE attachment.
+function finishDrawPath(){
+  const done = () => { drawPathMode = false; pathDrawPts = []; selPathPoint = null; };
+  if (!rawDoc || selSlot == null || pathDrawPts.length < 4){ if (pathDrawPts.length < 4) $("#hint").textContent = "A path needs at least 4 control points (one cubic curve)."; done(); renderSlotDetail(); return; }
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  const slot = skeleton.slots[slotIndex];
+  const bone = slot.bone;
+  // Spine path vertexCount must be a multiple of 3 (control points come in triples per cubic
+  // curve; the last curve of a closed path wraps to p0, an open path's tail curve is dropped).
+  // Trim to the largest multiple of 3 ≤ count, min 6 (2 curves) so there's a usable spline.
+  let pts = pathDrawPts.slice();
+  let vc = pts.length - (pts.length % 3);
+  if (vc < 6) vc = Math.min(pts.length - (pts.length % 3), pts.length); // allow 3 if that's all
+  if (vc < 3){ done(); renderSlotDetail(); return; }
+  pts = pts.slice(0, vc);
+  const localFlat = [];
+  for (const p of pts){ const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y)); localFlat.push(roundN(loc.x, 2), roundN(loc.y, 2)); }
+  // unique attachment name on this slot (don't clobber an image attachment)
+  const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name));
+  let attName = "path"; let i = 2; while (existing.has(attName)) attName = "path" + (i++);
+  const path = { type: "path", closed: false, constantSpeed: true, vertexCount: vc, vertices: localFlat, lengths: recomputePathLengths(localFlat, false) };
+  // write into the skin that defines this slot (active skin; create the slot map if absent)
+  const skName = activeSkinName();
+  let sk = rawDoc.skins.find((s) => s.name === skName); if (!sk){ sk = { name: skName, attachments: {} }; rawDoc.skins.push(sk); }
+  sk.attachments = sk.attachments || {}; sk.attachments[selSlot] = sk.attachments[selSlot] || {};
+  sk.attachments[selSlot][attName] = path;
+  // if the slot has no setup attachment, make the path the active one so it renders/edits
+  const sdRaw = rawDoc.slots.find((s) => s.name === selSlot);
+  if (sdRaw && !sdRaw.attachment) sdRaw.attachment = attName;
+  done();
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot){ selectSlot(selSlot); selectSlotAttachment(attName); }
+  markDirty();
+}
+function cancelDrawPath(){ drawPathMode = false; pathDrawPts = []; selPathPoint = null; renderSlotDetail(); }
+
+// Move path control point k by a WORLD delta — updates the live PathAttachment.vertices (instant
+// render) AND the rawDoc packed array (export/save). Paths are unweighted, so vertices are in the
+// slot bone's local space: convert the world delta through the bone's inverse basis.
+function applyPathVertexDelta(k, wdx, wdy){
+  if (!pathCtx || !rawDoc) return;
+  const att = pathCtx.attachment;
+  const bone = skeleton.slots[pathCtx.slotIndex].bone;
+  const det = bone.a * bone.d - bone.b * bone.c;
+  if (Math.abs(det) < 1e-8) return;
+  const ldx = (bone.d * wdx - bone.b * wdy) / det;
+  const ldy = (bone.a * wdy - bone.c * wdx) / det;
+  if (att.vertices && k * 2 + 1 < att.vertices.length){ att.vertices[k * 2] += ldx; att.vertices[k * 2 + 1] += ldy; }
+  const rd = rawDocPathEntry();
+  if (rd && Array.isArray(rd.vertices) && k * 2 + 1 < rd.vertices.length){
+    rd.vertices[k * 2] = roundN(rd.vertices[k * 2] + ldx, 2);
+    rd.vertices[k * 2 + 1] = roundN(rd.vertices[k * 2 + 1] + ldy, 2);
+    rd.lengths = recomputePathLengths(rd.vertices, !!rd.closed);
+  }
+  markDirty();
+}
+
+// Append a control point at the END of the selected path (world coords). Keeps vertexCount a
+// multiple of 3 by padding: a single click adds 1 point; lengths recompute on each whole curve.
+function addPathVertex(wx, wy){
+  const rd = rawDocPathEntry(); if (!rd || !pathCtx) return;
+  const attName = pathCtx.attName; // capture before rebuild nulls pathCtx
+  const bone = skeleton.slots[pathCtx.slotIndex].bone;
+  const loc = bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  rd.vertices.push(roundN(loc.x, 2), roundN(loc.y, 2));
+  rd.vertexCount = rd.vertices.length / 2;
+  rd.lengths = recomputePathLengths(rd.vertices, !!rd.closed);
+  reselectPathAttachment(attName);
+  markDirty();
+}
+
+// After a structural rawDoc edit we rebuild the runtime (which nulls pathCtx); re-open the slot
+// + re-select the path attachment by NAME so its editor + canvas overlay come back.
+function reselectPathAttachment(attName){
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot){ selectSlot(selSlot); if (attName) selectSlotAttachment(attName); }
+}
+
+// Remove control point k from the selected path (keeps ≥3).
+function removePathVertex(k){
+  const rd = rawDocPathEntry(); if (!rd || !pathCtx) return;
+  if (rd.vertexCount <= 3){ $("#hint").textContent = "A path needs at least 3 control points."; return; }
+  const attName = pathCtx.attName;
+  rd.vertices.splice(k * 2, 2);
+  rd.vertexCount = rd.vertices.length / 2;
+  rd.lengths = recomputePathLengths(rd.vertices, !!rd.closed);
+  selPathPoint = null;
+  reselectPathAttachment(attName);
+  markDirty();
+}
+
+// Toggle the closed flag of the selected path (closed loops wrap the last curve back to p0).
+function setPathClosed(closed){
+  const rd = rawDocPathEntry(); if (!rd || !pathCtx) return;
+  const attName = pathCtx.attName;
+  if (closed) rd.closed = true; else delete rd.closed; // omit false (loader defaults false → parity)
+  rd.lengths = recomputePathLengths(rd.vertices, closed);
+  reselectPathAttachment(attName);
+  markDirty();
+}
+function setPathConstantSpeed(cs){
+  const rd = rawDocPathEntry(); if (!rd || !pathCtx) return;
+  const attName = pathCtx.attName;
+  if (cs) delete rd.constantSpeed; else rd.constantSpeed = false; // omit true (loader default true → parity)
+  reselectPathAttachment(attName);
+  markDirty();
+}
+
+// Nearest path control point (WORLD) to the cursor, within a screen-scaled threshold; -1 if none.
+function nearestPathPoint(e){
+  const w = pathWorldVerts(); if (!w) return -1;
+  const cw = cursorWorld(e); if (!cw) return -1;
+  const thr = renderer.camera.zoom * 10;
+  let best = -1, bestD = Infinity;
+  for (let k = 0; k < w.length / 2; k++){ const d = Math.hypot(w[k * 2] - cw.x, w[k * 2 + 1] - cw.y); if (d < bestD){ bestD = d; best = k; } }
+  return bestD < thr ? best : -1;
+}
+
+// Render the in-progress NEW path polyline + the SELECTED path's control points/spline on canvas.
+function drawPathOverlay(){
+  if (!editMode && !animMode) return;
+  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const hasLine = typeof renderer.line === "function";
+  const r = renderer.camera.zoom * 4;
+  // (a) drawing a brand-new path
+  if (drawPathMode && pathDrawPts.length){
+    const col = new SPINE.Color(0.55, 0.78, 1, 1), selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    for (let i = 0; i < pathDrawPts.length; i++){
+      const p = pathDrawPts[i], isNode = i % 3 === 0; // every 3rd point is an on-curve node
+      renderer.circle(true, p.x, p.y, (i === selPathPoint ? r * 1.6 : r) * (isNode ? 1.25 : 0.9), i === selPathPoint ? selCol : col, 12);
+      if (i > 0 && hasLine) renderer.line(pathDrawPts[i - 1].x, pathDrawPts[i - 1].y, p.x, p.y, col);
+    }
+    return;
+  }
+  // (b) the selected path attachment's control hull
+  if (pathCtx){
+    const w = pathWorldVerts(); if (!w) return;
+    const att = pathCtx.attachment;
+    const col = new SPINE.Color(0.45, 0.85, 0.7, 1), nodeCol = new SPINE.Color(0.55, 0.78, 1, 1), selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    const n = w.length / 2;
+    if (hasLine) for (let i = 1; i < n; i++) renderer.line(w[(i - 1) * 2], w[(i - 1) * 2 + 1], w[i * 2], w[i * 2 + 1], col);
+    if (hasLine && att.closed && n > 2) renderer.line(w[(n - 1) * 2], w[(n - 1) * 2 + 1], w[0], w[1], col);
+    for (let k = 0; k < n; k++){
+      const isNode = k % 3 === 0;
+      const c = k === selPathPoint ? selCol : (isNode ? nodeCol : col);
+      renderer.circle(true, w[k * 2], w[k * 2 + 1], (k === selPathPoint ? r * 1.6 : r) * (isNode ? 1.25 : 0.85), c, 12);
+    }
+  }
+}
+
+// Editor for the selected PATH attachment (§18.7): closed/constantSpeed toggles, add/remove
+// control points, plus the canvas hint. Mirrors the mesh editor block in renderAtt.
+function renderPathAttachmentEditor(det, att){
+  const rd = rawDocPathEntry();
+  const t = document.createElement("div");
+  t.textContent = "path · " + (att.worldVerticesLength / 2) + " control pts · " +
+    Math.floor((att.worldVerticesLength / 2) / 3) + " curve" + (Math.floor((att.worldVerticesLength / 2) / 3) === 1 ? "" : "s") +
+    " — drag the points on the canvas to reshape";
+  t.style.color = "var(--accent2)"; det.appendChild(t);
+
+  // closed / constantSpeed toggles
+  const togRow = document.createElement("div"); togRow.style.cssText = "display:flex;flex-wrap:wrap;gap:10px;margin-top:7px;";
+  const tog = (label, checked, title, onset) => {
+    const w = document.createElement("label"); w.style.cssText = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt);cursor:pointer;"; w.title = title || "";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = checked; cb.onchange = () => onset(cb.checked);
+    w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
+  };
+  tog("closed", !!(rd && rd.closed), "Closed loop: the last cubic curve wraps back to the first point.", setPathClosed);
+  tog("constant speed", !(rd && rd.constantSpeed === false), "Even arc-length spacing along the spline (Spine default on).", setPathConstantSpeed);
+  det.appendChild(togRow);
+
+  // add / remove control points
+  const tools = document.createElement("div"); tools.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;";
+  const addBtn = document.createElement("button");
+  addBtn.textContent = pathAddMode ? "＋ adding…" : "＋ Add point";
+  if (pathAddMode) addBtn.className = "active";
+  addBtn.title = "Click on the canvas to append a control point to the end of the path.";
+  addBtn.onclick = () => { pathAddMode = !pathAddMode; renderSlotDetail(); };
+  const remBtn = document.createElement("button");
+  remBtn.textContent = "－ Remove selected";
+  remBtn.title = "Remove the selected control point (click a point on the canvas to select it).";
+  remBtn.disabled = selPathPoint == null;
+  remBtn.onclick = () => { if (selPathPoint != null) removePathVertex(selPathPoint); };
+  tools.appendChild(addBtn); tools.appendChild(remBtn); det.appendChild(tools);
+
+  const h = document.createElement("div");
+  h.innerHTML = pathAddMode
+    ? "click on the canvas to append a point — Spine paths use 3 control points per cubic curve (every 3rd is on-curve)"
+    : "drag a control point to reshape · click to select (then － removes it) · on-curve nodes are larger";
+  h.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;"; det.appendChild(h);
+
+  if (att.worldVerticesLength / 2 % 3 !== 0){
+    const warn = document.createElement("div");
+    warn.textContent = "⚠ control-point count is not a multiple of 3 — Spine derives curves as vertexCount/3, so trailing points are ignored. Add/remove to a multiple of 3.";
+    warn.style.cssText = "margin-top:6px;color:var(--accent2);font-size:11px;line-height:1.4;"; det.appendChild(warn);
   }
 }
 
@@ -4251,6 +4904,29 @@ function poseAtTime(name, t){
       if (bk && "bendPositive" in bk) ic.bendDirection = bk.bendPositive ? 1 : -1;
     }
   }
+  // transform channel: set the live TransformConstraint's six mixes (the shared curve eases
+  // all of them) so the constraint preview tracks the playhead. Validated in transform.mjs.
+  if (a.transform && skeleton.transformConstraints){
+    for (const [name, keys] of Object.entries(a.transform)){
+      const tc = skeleton.transformConstraints.find((c) => c.data.name === name); if (!tc || !Array.isArray(keys) || !keys.length) continue;
+      const k = sampleChannel(keys, t, TC_MIXES); if (!k) continue;
+      for (const f of TC_MIXES) tc[f] = k[f] ?? tc.data[f];
+    }
+  }
+  // path channel: set the live PathConstraint's position/spacing/mix so the constraint solve
+  // previews in animate mode (updateWorld() lays the bones along the path). Validated in path.mjs.
+  // position/spacing are single-value sub-timelines; mix carries mixRotate/X/Y.
+  if (a.path && skeleton.pathConstraints){
+    for (const [name, chans] of Object.entries(a.path)){
+      const pc = skeleton.pathConstraints.find((c) => c.data.name === name); if (!pc || !chans) continue;
+      let k;
+      if (Array.isArray(chans.position) && chans.position.length && (k = sampleChannel(chans.position, t, ["value"]))) pc.position = k.value ?? pc.data.position;
+      if (Array.isArray(chans.spacing) && chans.spacing.length && (k = sampleChannel(chans.spacing, t, ["value"]))) pc.spacing = k.value ?? pc.data.spacing;
+      if (Array.isArray(chans.mix) && chans.mix.length && (k = sampleChannel(chans.mix, t, PC_MIXES))){
+        pc.mixRotate = k.mixRotate ?? pc.data.mixRotate; pc.mixX = k.mixX ?? pc.data.mixX; pc.mixY = k.mixY ?? pc.data.mixY;
+      }
+    }
+  }
   // deform channel: apply the selected mesh's deform timeline (setup + interpolated delta) to
   // the live attachment so vertex deformation previews in animate mode. (Other meshes' deform
   // plays in Preview, which rebuilds the real runtime from rawDoc.)
@@ -4599,16 +5275,24 @@ function timelineTracks(){
     if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
     // ik track for the selected constraint (empty row to key into)
     if (selIk && ikByName(selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
+    // transform track for the selected constraint (empty row to key into)
+    if (selTc && tcByName(selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
+    // path tracks for the selected constraint — one row per channel (empty rows to key into)
+    if (selPath && pcByName(selPath)) for (const ch of PATH_CH) out.push({ kind: "pathch", name: selPath, ch, label: "path " + PATH_CH_LABEL[ch] });
     return evt.concat(out);
   }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
   for (const d of deformTracksWithKeys(a)) if (!out.some((t) => t.kind === "deform" && t.name === d.name && t.att === d.att)) out.push(d);
   for (const k of ikTracksWithKeys(a)) if (!out.some((t) => t.kind === "ik" && t.name === k.name)) out.push(k);
+  for (const k of transformTracksWithKeys(a)) if (!out.some((t) => t.kind === "transform" && t.name === k.name)) out.push(k);
+  for (const k of pathTracksWithKeys(a)) if (!out.some((t) => t.kind === "pathch" && t.name === k.name && t.ch === k.ch)) out.push(k);
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
   if (meshCtx && selSlot && !out.some((t) => t.kind === "deform" && t.name === selSlot && t.att === meshCtx.attName)) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
   if (selIk && ikByName(selIk) && !out.some((t) => t.kind === "ik" && t.name === selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
+  if (selTc && tcByName(selTc) && !out.some((t) => t.kind === "transform" && t.name === selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
+  if (selPath && pcByName(selPath)) for (const ch of PATH_CH) if (!out.some((t) => t.kind === "pathch" && t.name === selPath && t.ch === ch)) out.push({ kind: "pathch", name: selPath, ch, label: "path " + PATH_CH_LABEL[ch] });
   return evt.concat(out);
 }
 // Every (slot, attachment) that carries deform keys in animation `a`, across all skins.
@@ -4640,12 +5324,16 @@ const trackKeyTimes = (tr) => {
   if (tr.kind === "draworder") return drawOrderKeyTimes();
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   if (tr.kind === "ik") return ikKeyTimes(tr.name);
+  if (tr.kind === "transform") return transformKeyTimes(tr.name);
+  if (tr.kind === "pathch") return pathKeyTimes(tr.name, tr.ch);
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
 };
 const trackKeyCurve = (tr, time) => {
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  if (tr.kind === "pathch"){ const arr = pathChannelArr(tr.name, tr.ch); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   return tr.kind === "bone" ? keyCurveType(tr.name, time) : "linear";
 };
@@ -4656,6 +5344,8 @@ function setTrackKeyCurve(tr, time, preset){
   if (tr.kind === "bone" || tr.kind === "bonech") setKeyCurve(tr.name, time, preset); // setKeyCurve re-renders the timeline
   else if (tr.kind === "deform"){ setDeformKeyCurve(tr, time, preset); renderTimeline(); }
   else if (tr.kind === "ik"){ setIkKeyCurve(tr.name, time, preset); renderTimeline(); }
+  else if (tr.kind === "transform"){ setTransformKeyCurve(tr.name, time, preset); renderTimeline(); }
+  else if (tr.kind === "pathch"){ setPathKeyCurve(tr.name, tr.ch, time, preset); renderTimeline(); }
   else if (tr.kind === "slot" || (tr.kind === "slotch" && (tr.ch === "rgba" || tr.ch === "rgba2"))){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
 }
 // Set the OUTGOING easing of a deform key (one curve for the whole vertex frame). Bezier
@@ -4678,6 +5368,8 @@ function trackKeyEasable(tr, time){
   if (tr.kind === "bone" || tr.kind === "bonech") return true;
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
+  if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
+  if (tr.kind === "pathch"){ const arr = pathChannelArr(tr.name, tr.ch); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "slotch") return tr.ch === "rgba" || tr.ch === "rgba2";
   if (tr.kind === "slot"){ const cs = slotChannel(tr.name); const keys = cs && (slotIsTwoColor(tr.name) ? cs.rgba2 : cs.rgba); return !!(Array.isArray(keys) && keys.some((k) => Math.abs(k.time - time) < 1e-4)); }
   return false;
@@ -4752,6 +5444,155 @@ function ikTracksWithKeys(a){
   for (const name of Object.keys(a.ik)) if (Array.isArray(a.ik[name]) && a.ik[name].length) out.push({ kind: "ik", name, label: "IK mix" });
   return out;
 }
+
+// ---- transform constraint timeline (§18 item 6) ---------------------------
+// animations.<a>.transform.<name> = [{ time, mixRotate, mixX, mixY, mixScaleX, mixScaleY,
+// mixShearY, curve? }]. We key the SIX mixes; curve eases all six channels (one shared ease
+// baked per-channel — readCurve indexes curve[channel<<2], so 24 numbers). Validated in
+// tools/rigger-spike/transform.mjs.
+const tcChannelArr = (name) => { const a = animOf(curAnim); return a && a.transform && Array.isArray(a.transform[name]) ? a.transform[name] : null; };
+function transformKeyTimes(name){ const arr = tcChannelArr(name); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
+// Key the constraint's six mixes at the playhead. The author sets the values via the editor's
+// mix fields (which edit the setup `rawDoc.transform` mixes), so we key THAT intent — not the
+// frame-loop-sampled live mixes (which would echo the sampled value once a key exists).
+function keyTransform(name){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const def = tcByName(name); if (!def) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.transform = a.transform || {}; a.transform[name] = a.transform[name] || [];
+  // Resolve the loader's mix fallbacks (mixY→mixX, mixScaleY→mixScaleX) so the keyed value
+  // matches the constraint's actual setup, not a bare 1.
+  const resolve = (f) => f === "mixY" ? (def.mixY ?? def.mixX ?? 1) : f === "mixScaleY" ? (def.mixScaleY ?? def.mixScaleX ?? 1) : (def[f] ?? 1);
+  const fields = {}; for (const f of TC_MIXES) fields[f] = roundN(resolve(f), 4);
+  upsertKey(a.transform[name], animTime, fields);
+  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+}
+function deleteTransformKeyAt(name, time){
+  const a = animOf(curAnim); if (!a || !a.transform || !Array.isArray(a.transform[name])) return;
+  a.transform[name] = a.transform[name].filter((k) => Math.abs(k.time - time) >= 1e-3);
+  if (!a.transform[name].length){ delete a.transform[name]; if (!Object.keys(a.transform).length) delete a.transform; }
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function retimeTransformKey(name, oldTime, newTime){
+  const arr = tcChannelArr(name); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
+  const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4) arr.splice(i, 1);
+  k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+// Set the OUTGOING easing of a transform mix key. A single shared ease is baked across all
+// SIX channels (curve[channel<<2]); handle y-values in absolute value-space, like rgba/rgba2.
+function setTransformKeyCurve(name, time, preset){
+  const arr = tcChannelArr(name); if (!arr) return;
+  const idx = arr.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
+  const k = arr[idx];
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  if (idx >= arr.length - 1 || preset === "linear" || (preset !== "stepped" && !F)){ delete k.curve; }
+  else if (preset === "stepped"){ k.curve = "stepped"; }
+  else {
+    const b = arr[idx + 1], dt = b.time - k.time, curve = [];
+    TC_MIXES.forEach((f, vi) => {
+      const va = k[f] ?? 1, vb = b[f] ?? 1, dv = vb - va;
+      curve[vi * 4 + 0] = roundN(k.time + dt * F[0], 4);
+      curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
+      curve[vi * 4 + 2] = roundN(k.time + dt * F[2], 4);
+      curve[vi * 4 + 3] = roundN(va + dv * F[3], 4);
+    });
+    k.curve = curve;
+  }
+  markDirty(); animsDirty = true;
+}
+// Every transform constraint that carries mix keys in animation `a`.
+function transformTracksWithKeys(a){
+  const out = []; if (!a || !a.transform) return out;
+  for (const name of Object.keys(a.transform)) if (Array.isArray(a.transform[name]) && a.transform[name].length) out.push({ kind: "transform", name, label: "transform mix" });
+  return out;
+}
+
+// ---- path constraint timeline (§18 item 7) --------------------------------
+// animations.<a>.path.<name> = { position:[{time,value,curve?}], spacing:[{time,value,curve?}],
+// mix:[{time,mixRotate,mixX,mixY,curve?}] }. position/spacing are single-value (readTimeline1,
+// ONE [cx1,cy1,cx2,cy2] curve); mix shares a 12-number curve across channels 0=mixRotate 1=mixX
+// 2=mixY. Validated in tools/rigger-spike/path.mjs. We model each channel as a `pathch` dopesheet
+// track (mirrors bonech/slotch) so retime/delete/easing reuse the per-channel dispatch.
+const PATH_CH = ["position", "spacing", "mix"];
+const PATH_CH_LABEL = { position: "position", spacing: "spacing", mix: "mix" };
+const pathChannelArr = (name, ch) => { const a = animOf(curAnim); return a && a.path && a.path[name] && Array.isArray(a.path[name][ch]) ? a.path[name][ch] : null; };
+function pathKeyTimes(name, ch){ const arr = pathChannelArr(name, ch); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
+// Compact "N pos · M spc · K mix" summary for the editor.
+function pathKeyTimesAll(name){
+  const n = (pathChannelArr(name, "position") || []).length, m = (pathChannelArr(name, "spacing") || []).length, k = (pathChannelArr(name, "mix") || []).length;
+  if (!n && !m && !k) return "";
+  return n + " pos · " + m + " spc · " + k + " mix key" + (k === 1 ? "" : "s");
+}
+// Key one path channel at the playhead from the constraint's CURRENT setup intent (the editor
+// fields edit the setup `rawDoc.path` values), so the key matches what the author set.
+function keyPath(name, ch){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const def = pcByName(name); if (!def) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.path = a.path || {}; a.path[name] = a.path[name] || {}; a.path[name][ch] = a.path[name][ch] || [];
+  if (ch === "mix"){
+    const fields = { mixRotate: roundN(def.mixRotate ?? 1, 4), mixX: roundN(def.mixX ?? 1, 4), mixY: roundN(def.mixY ?? def.mixX ?? 1, 4) };
+    upsertKey(a.path[name].mix, animTime, fields);
+  } else {
+    upsertKey(a.path[name][ch], animTime, { value: roundN(def[ch] ?? 0, 4) });
+  }
+  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+}
+function deletePathKeyAt(name, ch, time){
+  const a = animOf(curAnim); if (!a || !a.path || !a.path[name] || !Array.isArray(a.path[name][ch])) return;
+  a.path[name][ch] = a.path[name][ch].filter((k) => Math.abs(k.time - time) >= 1e-3);
+  if (!a.path[name][ch].length) delete a.path[name][ch];
+  if (a.path[name] && !Object.keys(a.path[name]).length) delete a.path[name];
+  if (a.path && !Object.keys(a.path).length) delete a.path;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+function retimePathKey(name, ch, oldTime, newTime){
+  const arr = pathChannelArr(name, ch); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
+  const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4) arr.splice(i, 1);
+  k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+// Set the OUTGOING easing of a path key. position/spacing = ONE [cx1,cy1,cx2,cy2] (channel 0).
+// mix = a shared ease baked across THREE channels (curve[channel<<2]; 12 numbers), value handles
+// in absolute value-space — same pattern as transform/rgba.
+function setPathKeyCurve(name, ch, time, preset){
+  const arr = pathChannelArr(name, ch); if (!arr) return;
+  const idx = arr.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
+  const k = arr[idx];
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  if (idx >= arr.length - 1 || preset === "linear" || (preset !== "stepped" && !F)){ delete k.curve; }
+  else if (preset === "stepped"){ k.curve = "stepped"; }
+  else {
+    const b = arr[idx + 1], dt = b.time - k.time;
+    if (ch === "mix"){
+      const curve = [];
+      PC_MIXES.forEach((f, vi) => {
+        const va = k[f] ?? 1, vb = b[f] ?? 1, dv = vb - va;
+        curve[vi * 4 + 0] = roundN(k.time + dt * F[0], 4);
+        curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
+        curve[vi * 4 + 2] = roundN(k.time + dt * F[2], 4);
+        curve[vi * 4 + 3] = roundN(va + dv * F[3], 4);
+      });
+      k.curve = curve;
+    } else {
+      const va = k.value ?? 0, vb = b.value ?? 0, dv = vb - va;
+      k.curve = [roundN(k.time + dt * F[0], 4), roundN(va + dv * F[1], 4), roundN(k.time + dt * F[2], 4), roundN(va + dv * F[3], 4)];
+    }
+  }
+  markDirty(); animsDirty = true;
+}
+// Every path constraint channel that carries keys in animation `a` (one row per channel).
+function pathTracksWithKeys(a){
+  const out = []; if (!a || !a.path) return out;
+  for (const name of Object.keys(a.path)){
+    for (const ch of PATH_CH) if (Array.isArray(a.path[name][ch]) && a.path[name][ch].length) out.push({ kind: "pathch", name, ch, label: "path " + PATH_CH_LABEL[ch] });
+  }
+  return out;
+}
+function copyPathKey(name, ch, srcTime, destTime){ const arr = pathChannelArr(name, ch); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
 
 // Retime / delete a single channel's key (used by the expanded per-channel rows).
 function retimeChannelKey(tr, oldTime, newTime){
@@ -4890,6 +5731,8 @@ function retimeTrackKey(tr, oldTime, newTime){
   else if (tr.kind === "draworder") retimeDrawOrderKey(oldTime, newTime);
   else if (tr.kind === "deform") retimeDeformKey(tr, oldTime, newTime);
   else if (tr.kind === "ik") retimeIkKey(tr.name, oldTime, newTime);
+  else if (tr.kind === "transform") retimeTransformKey(tr.name, oldTime, newTime);
+  else if (tr.kind === "pathch") retimePathKey(tr.name, tr.ch, oldTime, newTime);
   else if (tr.kind === "bonech" || tr.kind === "slotch") retimeChannelKey(tr, oldTime, newTime);
   else if (tr.kind === "slot") retimeSlotKey(tr.name, oldTime, newTime);
   else retimeBoneKey(tr.name, oldTime, newTime);
@@ -4932,6 +5775,8 @@ function copyTrackKey(tr, srcTime, destTime){
   else if (tr.kind === "draworder") copyDrawOrderKey(srcTime, destTime);
   else if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
+  else if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
+  else if (tr.kind === "pathch") copyPathKey(tr.name, tr.ch, srcTime, destTime);
   else if (tr.kind === "bonech" || tr.kind === "slotch") copyChannelKey(tr, srcTime, destTime);
   else if (tr.kind === "slot") copySlotKey(tr.name, srcTime, destTime);
   else copyBoneKey(tr.name, srcTime, destTime);
@@ -5046,26 +5891,30 @@ function renderTimeline(){
   dopeTrackById = {}; dopeDotEls = {}; // rebuilt each render — tid→track + (tid@time)→dot
   timelineTracks().forEach((tr) => {
     const isEvents = tr.kind === "events", isDraw = tr.kind === "draworder", isAnim = isEvents || isDraw;
-    const isChan = tr.kind === "bonech" || tr.kind === "slotch";
+    const isPathCh = tr.kind === "pathch";
+    const isChan = tr.kind === "bonech" || tr.kind === "slotch" || isPathCh;
     const isDeform = tr.kind === "deform";
     const isIk = tr.kind === "ik";
+    const isTc = tr.kind === "transform";
     const isSlotKind = tr.kind === "slot" || tr.kind === "slotch" || isDeform; // deform selects its slot
     const tid = trackId(tr); dopeTrackById[tid] = tr;
-    const isSel = isAnim ? false : isChan ? true : isIk ? (tr.name === selIk) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
+    const isSel = isAnim ? false : isPathCh ? (tr.name === selPath) : isChan ? true : isIk ? (tr.name === selIk) : isTc ? (tr.name === selTc) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
     g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk ? "color:var(--dim);" : "");
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isTc ? "⤧" : isPathCh ? "⟿" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPathCh ? (tr.name + " · " + tr.label) : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk || isTc ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
-    g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
+    g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isTc ? "transform constraint" : isPathCh ? "path constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
     g.onclick = (e) => {
       if (e.shiftKey || e.ctrlKey || e.metaKey){ selectLineKeys(tr, true); renderTimeline(); return; }
       if (isAnim) return;
       if (isIk) selectIk(tr.name);
+      else if (isTc) selectTc(tr.name);
+      else if (isPathCh) selectPath(tr.name);
       else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
     };
     const track = document.createElement("div");
@@ -5093,6 +5942,8 @@ function renderTimeline(){
         else if (isDraw) deleteDrawOrderKeyAt(kt);
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, kt);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, kt);
+        else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, kt);
+        else if (tr.kind === "pathch") deletePathKeyAt(tr.name, tr.ch, kt);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
@@ -5513,7 +6364,7 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
 }
 
 // ---- transform gizmo (move + rotate the selected bone on the canvas) -------
-function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode)); }
+function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !drawPathMode && !pathAddMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode)); }
 function gizmoCenter(){ const b = skeleton && selBone != null ? skeleton.bones[selBone] : null; return b ? { x: b.worldX, y: b.worldY } : null; }
 function gizmoGeom(){ const z = renderer ? renderer.camera.zoom : 1; return { ringR: z * 58, centerR: z * 13, tol: z * 9 }; }
 // Which gizmo part is under the cursor: "move" (centre) / "rotate" (ring) / null.
@@ -5821,6 +6672,7 @@ function frame(now){
     }
     drawMeshOverlay();
     drawDrawingOverlay();
+    drawPathOverlay();
     if (showBones) drawBonesOverlay();
     drawGizmo();
     drawBoundsOverlay();
@@ -6100,6 +6952,21 @@ function wire(){
       }
     }
     // Drawing a mesh: click an existing boundary point to select+drag it; else add one.
+    // §18.7 drawing a brand-new path: click drops control points (drag a point to nudge it).
+    if (editMode && drawPathMode && !e.shiftKey){
+      const cw = cursorWorld(e);
+      let hit = -1;
+      for (let k = 0; k < pathDrawPts.length; k++){ if (cw && Math.hypot(pathDrawPts[k].x - cw.x, pathDrawPts[k].y - cw.y) < renderer.camera.zoom * 10){ hit = k; break; } }
+      if (hit >= 0){ pathDragIdx = -2 - hit; selPathPoint = hit; } // -2-k marks an in-progress draw drag
+      else if (cw){ pathDrawPts.push({ x: cw.x, y: cw.y }); selPathPoint = pathDrawPts.length - 1; }
+      renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return;
+    }
+    // §18.7 editing the selected path: add-mode appends a point; otherwise drag/select a point.
+    if (editMode && pathCtx && !e.shiftKey){
+      if (pathAddMode){ const cw = cursorWorld(e); if (cw) addPathVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
+      const hit = nearestPathPoint(e);
+      if (hit >= 0){ pathDragIdx = hit; selPathPoint = hit; renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return; }
+    }
     if (editMode && drawMeshMode && !e.shiftKey){
       const hit = nearestDrawPoint(e);
       if (hit >= 0){ drawDragIdx = hit; selDrawPoint = hit; }
@@ -6153,6 +7020,7 @@ function wire(){
     const wasMeshDrag = meshDragVert != null;
     if (wasMeshDrag){ meshDragVert = null; meshUVFrame = null; }
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
+    if (pathDragIdx != null){ pathDragIdx = null; renderSlotDetail(); } // commit path control-point move
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
     gizmoDrag = null; lastGizmoCursor = null;
     if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
@@ -6166,9 +7034,23 @@ function wire(){
     dragging = false;
   });
   window.addEventListener("keydown", e => {
-    if (!editMode || !drawMeshMode) return;
     const ae = document.activeElement;
     if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return; // don't hijack typing
+    // §18.7 drawing a new path: Enter commits, Esc cancels, Delete/Backspace drops a point.
+    if (editMode && drawPathMode){
+      if (e.key === "Enter"){ e.preventDefault(); finishDrawPath(); return; }
+      if (e.key === "Escape"){ e.preventDefault(); cancelDrawPath(); return; }
+      if (e.key === "Backspace" || e.key === "Delete"){
+        e.preventDefault();
+        if (!pathDrawPts.length) return;
+        const idx = (selPathPoint != null && selPathPoint < pathDrawPts.length) ? selPathPoint : pathDrawPts.length - 1;
+        pathDrawPts.splice(idx, 1);
+        selPathPoint = pathDrawPts.length ? Math.min(idx, pathDrawPts.length - 1) : null;
+        renderSlotDetail();
+      }
+      return;
+    }
+    if (!editMode || !drawMeshMode) return;
     if (e.key === "Backspace" || e.key === "Delete"){
       e.preventDefault();
       if (!drawPoints.length) return;
@@ -6204,6 +7086,8 @@ function wire(){
         else if (tr.kind === "draworder") deleteDrawOrderKeyAt(s.time);
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, s.time);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, s.time);
+        else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, s.time);
+        else if (tr.kind === "pathch") deletePathKeyAt(tr.name, tr.ch, s.time);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, s.time);
         else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
         else deleteBoneKeyAt(tr.name, s.time);
@@ -6227,6 +7111,13 @@ function wire(){
         const newRot = gizmoDrag.startRot + (ang - gizmoDrag.startAngle);
         if (animMode && posingBone){ posingBone.rotation = newRot; }
         else { const bd = skeletonData.bones[selBone]; bd.rotation = newRot; const rb = rawDoc.bones.find((b) => b.name === bd.name); if (rb) rb.rotation = newRot; skeleton.setToSetupPose(); updateWorld(); markDirty(); }
+      }
+      lastXY = [e.clientX, e.clientY];
+    } else if (pathDragIdx != null){
+      const cw = cursorWorld(e);
+      if (cw){
+        if (pathDragIdx <= -2){ const k = -2 - pathDragIdx; if (pathDrawPts[k]){ pathDrawPts[k].x = cw.x; pathDrawPts[k].y = cw.y; } } // dragging an in-progress draw point
+        else { const w = pathWorldVerts(); if (w && pathDragIdx < w.length / 2){ const k = pathDragIdx; applyPathVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); } } // dragging an existing control point
       }
       lastXY = [e.clientX, e.clientY];
     } else if (drawDragIdx != null){

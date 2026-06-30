@@ -974,9 +974,112 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
    (see the §18.4 note below).
 5. **Blend-mode authoring** (slot `blend` dropdown) — setup-only. **LANDED** (see the §18.5 note
    below).
-6. **Transform constraint** authoring + `transform` mix timeline — builds on (3).
-7. **Path attachment + path constraint** authoring + `path` timeline — needs the path
-   attachment type first; bigger.
+6. **Transform constraint** authoring + `transform` mix timeline — ✅ **LANDED**
+   (`rigger/transform-constraints`). Mirrors the IK path (3): the constraints panel's transform
+   rows are now clickable → a **transform editor** (target `<select>`, the six mix sliders
+   rotate/X/Y/scaleX/scaleY/shearY, the six offsets rotation/X/Y/scaleX/scaleY/shearY, relative +
+   local toggles, rename, delete). **＋ Add transform constraint** creates one on the selected
+   bone (full mixes, zero offsets) following an auto-picked target (excludes the bone + its
+   descendants → no circular/degenerate follow). Every edit mutates `rawDoc.transform[i]` +
+   `rebuildFromRawDoc`; `editTc` only writes the touched field (offsets that go to 0 are dropped)
+   so an untouched preserve-only constraint is never corrupted. The IK + transform editors share
+   one `#consDetail` box via `renderConstraintEditor` (selecting one kind clears the other); the
+   bone rename/delete constraint-ref cleanup already walked `["ik","transform","path"]`, so
+   transform refs (bones/target) were already rewritten/dropped — delete also clears a dropped
+   constraint's `transform` timeline, rename rekeys it. path stays display-only (item 7).
+   **Animation:** a **`transform` dopesheet track** per constraint with keys (+ the selected one
+   as an empty row); **◆ Key transform mix @ t** (`keyTransform(name)`) upserts the six live mixes
+   into `animations.<a>.transform.<name>`; retime / Alt-drag duplicate / dbl-click delete /
+   right-click easing via the shared dispatch (extends the same fns the `ik` kind uses — a
+   transform key carries ONE shared curve so it is easable). `poseAtTime` sets the live
+   `TransformConstraint`'s six mix fields before `updateWorld`, so animate-mode preview reflects
+   the constraint solve; Preview mode (AnimationState) already solves it.
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/transform.mjs`,
+   18/18):**
+   - **Setup** = top-level `transform` array: `{name, order, bones:[…constrained], target,
+     mixRotate, mixX, mixY, mixScaleX, mixScaleY, mixShearY, rotation, x, y, scaleX, scaleY,
+     shearY, relative, local}`. **All six MIXES default to 1**; absent `mixY` falls back to `mixX`
+     and absent `mixScaleY` to `mixScaleX` (loader fallbacks — the editor displays those resolved
+     defaults so the baseline never drifts). The **offset JSON keys are the SHORT names**
+     (`rotation/x/y/scaleX/scaleY/shearY`, all default 0) — the runtime stores them as
+     `data.offset{Rotation,X,Y,ScaleX,ScaleY,ShearY}`. `order` defaults 0; `relative`/`local`/
+     `skin` default false. Verified against real cluster rigs (`loader.json`, `mm_bg.json`) which
+     use exactly these keys with partial mixes.
+   - **Timeline** = `animations.<a>.transform.<name> = [{time, mixRotate, mixX, mixY, mixScaleX,
+     mixScaleY, mixShearY, curve?}]` (a `TransformConstraintTimeline`); all six mixes interpolate
+     (linear/bezier), there are NO stepped-only fields. **CRUX:** the shared `curve` drives SIX
+     bezier channels in order **0=mixRotate 1=mixX 2=mixY 3=mixScaleX 4=mixScaleY 5=mixShearY**;
+     `readCurve` indexes `curve[channel<<2]`, so a single `[cx1,cy1,cx2,cy2]` is NOT enough
+     (channels 1-5 read undefined → NaN). One shared ease must be BAKED across all six channels
+     (24 numbers, per-channel value handles in absolute value-space — same pattern as rgba/rgba2).
+   Spike GREEN (18/18): loader builds the TransformConstraintData with all-mixes-default-1;
+   **mixRotate=1 FOLLOWS** the target's world rotation, a rotation offset shifts it by exactly that
+   offset, **all-mixes=0 == setup/FK**, mixRotate=0.5 blends; a mix-0→1 timeline samples linear
+   mixRotate@0.5==0.5 and a baked bezier ease-in mix VALUE@0.5 (0.318) matches our evaluator
+   (0.315) across mixRotate AND mixScaleX (shared curve). **Parity:** no transform authored ⇒ no
+   `transform` array / no `transform` track / no per-frame writes (SkeletonJson does not write
+   back). Build GREEN (`pnpm --filter launcher-api build`); inline `<script>` passes a
+   `new Function` syntax check. ⏳ owner-verify the add/edit + transform dopesheet + solve preview
+   live (the vendored runtime is minified; the spike uses un-mangled core). Builds on (3) =
+   foundation extended toward (7/8).
+7. **Path attachment + path constraint authoring + `path` timeline** — LANDED.
+   **Attachment authoring:** a slot's detail panel gets **✎ Draw path** → click the canvas to
+   drop spline control points (mirrors the mesh draw machinery: click to add, drag to nudge,
+   Delete/Backspace drops a point, Enter/Esc commit/cancel), persisted into the active skin as
+   `{type:"path",…}` in the slot-bone LOCAL space. Selecting a path attachment opens an editor
+   (closed/constant-speed toggles, ＋ Add point / － Remove selected). Paths aren't textured, so
+   the Rigger draws the control hull + on-curve nodes itself on the canvas overlay
+   (`drawPathOverlay`, the runtime debug renderer's `drawPaths` is off).
+   **Constraint authoring:** the constraints panel's **path** rows are now editable (click → editor)
+   + **＋ Add path constraint** (mirrors IK/transform `addCons`): pick constrained bone(s) + a
+   target SLOT that holds a path attachment; `<select>`s for positionMode/spacingMode/rotateMode;
+   numeric position/spacing/rotation; three mix fields (mixRotate/X/Y). Select→edit, rename (rekeys
+   the `path` timeline), delete (prunes the timeline + **re-packs `order`** — see crux). Reuses the
+   shared `renderConstraintEditor` dispatch.
+   **Animation:** the dopesheet gets **`pathch`** tracks — ONE row per channel (`position`,
+   `spacing`, `mix`) so retime / Alt-drag duplicate / dbl-click delete / right-click easing reuse
+   the same per-channel dispatch as `bonech`/`slotch`. **◆ Key position / spacing / mix @ t** upsert
+   into `animations.<a>.path.<name>.<channel>`; `poseAtTime` sets the live `PathConstraint`'s
+   position/spacing/mixRotate/X/Y before `updateWorld`, so animate-mode preview reflects the path
+   solve (Preview mode already solves it via AnimationState).
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/path.mjs`, 22/22,
+   cross-checked vs the real cluster `anticipation` rig which ships 12 path constraints + 2 path
+   attachments + 120 `position` sub-timelines):**
+   - **Path attachment** = `{type:"path", closed(false), constantSpeed(true), vertexCount,
+     vertices, lengths}`. `vertices` are the cubic-bezier **CONTROL POINTS** in the EXACT
+     `VertexAttachment` packed format (same as a mesh): UNWEIGHTED ⇒ flat `[x,y,…]` of length
+     `vertexCount*2`; WEIGHTED ⇒ `[boneCount, boneIdx,vx,vy,weight, …]`. #cubic curves =
+     `vertexCount/3` (control points run `[p0, c0a, c0b, p1, …]`; a closed path wraps its last
+     curve to p0). `lengths` is **REQUIRED**, one per-curve arc length ⇒ `lengths.length ==
+     vertexCount/3` (Fixed-scaled). We recompute `lengths` on every geometry edit.
+   - **Path constraint** = top-level `path` array: `{name, order, bones:[…constrained],
+     target:<SLOT name — NOT a bone>, positionMode, spacingMode, rotateMode, position, spacing,
+     rotation, mixRotate, mixX, mixY}`. **Enum strings are case-INSENSITIVE on the first letter**
+     (`enumValue()` does `name[0].toUpperCase()+slice(1)`), Spine exports lowercase
+     (`percent`/`length`/`tangent`/`chainScale`) — we author lower. Defaults: positionMode
+     **Percent**, spacingMode **Length**, rotateMode **Tangent**; `position`/`spacing`/`rotation` 0;
+     **mixRotate/mixX/mixY default 1** (absent `mixY`→`mixX`). ⚠ path has ONLY mixRotate/mixX/mixY
+     (NO mixScale*/mixShear* — unlike transform). **CRUX: `order` MUST be a contiguous index in
+     `[0, totalConstraintCount)`** — `Skeleton.updateCache` only sorts a constraint whose
+     `order == loopIndex`; an out-of-range order is never sorted → `active` stays false → NO solve
+     and NO timeline applies (this cost the spike a false-green until fixed). The editor assigns
+     `order = totalConstraintCount()` on add + **re-packs** all constraints on delete.
+   - **Path timeline** = `animations.<a>.path.<name>` with THREE INDEPENDENT sub-timelines:
+     `position:[{time,value,curve?}]` + `spacing:[{time,value,curve?}]` (each a `readTimeline1`
+     single channel, ONE `[cx1,cy1,cx2,cy2]` curve) + `mix:[{time,mixRotate,mixX,mixY,curve?}]`
+     (a `PathConstraintMixTimeline` whose shared `curve` drives THREE channels 0=mixRotate 1=mixX
+     2=mixY ⇒ a flat **12-number** curve; `"stepped"`/omit are the other options).
+   Spike GREEN (22/22): loader builds the PathAttachment + `computeWorldVertices` yields the control
+   points; the constraint loads with the right enum/mix defaults and **REPOSITIONS** the bone onto
+   the path (all-mix-0 == setup/FK); position@0.5==40 / spacing@0.5==50 / mix@0.5==0.5 linear, and a
+   baked ease-in bezier matches our evaluator on position (single curve) AND across all three mix
+   channels (shared 12-number curve). **Parity:** no path authored ⇒ no `path` array / no path
+   attachment / no `path` track / no per-frame writes; existing preserved path constraints
+   round-trip + become editable (verified: anticipation's 12 constraints + 120 position timelines
+   load + re-stringify deterministically). IK/transform + mesh authoring unchanged. Build GREEN
+   (`pnpm --filter launcher-api build`); inline `<script>` passes a `new Function` syntax check.
+   ⏳ owner-verify the draw/edit + constraint setup + path dopesheet + solve-preview live (the
+   vendored runtime is minified; the spike uses un-mangled core).
 8. **Physics constraint** authoring + `physics` timeline (NEW in 4.2: inertia/strength/
    damping/mass/wind/gravity/mix/reset) — most complex; after IK/transform.
 9. **Attachments:** clipping (mask), bounding-box, point (locator — cheap + useful for FX),
