@@ -6894,6 +6894,17 @@ function keyFieldCurveType(boneName, ch, vi, time){
 function showFieldCurveMenu(x, y, boneName, ch, vi, time){
   openCurveMenu(x, y, (preset) => setKeyCurveField(boneName, ch, vi, time, preset), keyFieldCurveType(boneName, ch, vi, time));
 }
+// All-fields linear-equivalent bezier for the a→b segment: control points at 1/3 and 2/3
+// along each field's straight line, so converting a linear segment to bezier looks identical
+// until a tangent handle is dragged. (Used when a still-linear handle is first grabbed.)
+function linEquivCurve(a, b, ch){
+  const fields = ch === "rotate" ? ["value"] : ["x", "y"], dt = b.time - a.time, out = [];
+  for (const fn of fields){
+    const va = a[fn] ?? 0, vb = b[fn] ?? 0;
+    out.push(roundN(a.time + dt / 3, 4), roundN(va + (vb - va) / 3, 3), roundN(a.time + dt * 2 / 3, 4), roundN(va + (vb - va) * 2 / 3, 3));
+  }
+  return out;
+}
 // Right-click a DOPESHEET key → set its outgoing easing (dispatched by track kind).
 function showTrackCurveMenu(x, y, tr, time){
   openCurveMenu(x, y, (preset) => setTrackKeyCurve(tr, time, preset), trackKeyCurve(tr, time));
@@ -6965,21 +6976,24 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
       dot.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); showFieldCurveMenu(e.clientX, e.clientY, boneName, c.ch, c.vi, k.time); });
       svg.appendChild(dot);
     }
-    // bezier tangent handles drawn AFTER the dots so BOTH control points stay visible +
-    // grabbable on top — incl. one that sits on a keyframe (e.g. ease-in's incoming handle).
+    // Tangent handles on EVERY segment (drawn after the dots → on top + grabbable): each key
+    // gets an out-tangent (cp1 of its outgoing segment) and the next key an in-tangent (cp2).
+    // A not-yet-eased segment shows FAINT linear-default handles; dragging one lazily converts
+    // that segment to bezier (graphDrag.isHandle mousemove). Stepped segments get no tangents.
     for (let i = 0; i < c.keys.length - 1; i++){
       const a = c.keys[i], b = c.keys[i + 1];
-      if (!Array.isArray(a.curve)) continue;
-      const o = c.vi * 4;
-      const ctrls = [{ ctrl: 0, ax: a.time, av: a[c.field] ?? 0, cxr: a.curve[o], cyr: a.curve[o + 1] },
-                     { ctrl: 1, ax: b.time, av: b[c.field] ?? 0, cxr: a.curve[o + 2], cyr: a.curve[o + 3] }];
+      if (a.curve === "stepped") continue;
+      const o = c.vi * 4, va = a[c.field] ?? 0, vb = b[c.field] ?? 0, dt = b.time - a.time;
+      const eased = Array.isArray(a.curve) && typeof a.curve[o] === "number";
+      const c1x = eased ? a.curve[o] : a.time + dt / 3, c1y = eased ? a.curve[o + 1] : va + (vb - va) / 3;
+      const c2x = eased ? a.curve[o + 2] : a.time + dt * 2 / 3, c2y = eased ? a.curve[o + 3] : va + (vb - va) * 2 / 3;
+      const ctrls = [{ ctrl: 0, ax: a.time, av: va, cx: c1x, cy: c1y }, { ctrl: 1, ax: b.time, av: vb, cx: c2x, cy: c2y }];
       for (const h of ctrls){
-        if (typeof h.cxr !== "number") continue;
-        const ax = timeToX(h.ax), ay = valueToY(h.av), hx = timeToX(h.cxr), hy = valueToY(h.cyr);
-        svg.appendChild(svgEl("line", { x1: ax, y1: ay, x2: hx, y2: hy, stroke: c.color, "stroke-opacity": 0.5, "stroke-dasharray": "2,2" }));
-        const hd = svgEl("rect", { x: hx - 3, y: hy - 3, width: 6, height: 6, fill: "#0c0f14", stroke: c.color, "stroke-width": 1.5, style: "cursor:move;" });
+        const ax = timeToX(h.ax), ay = valueToY(h.av), hx = timeToX(h.cx), hy = valueToY(h.cy);
+        svg.appendChild(svgEl("line", { x1: ax, y1: ay, x2: hx, y2: hy, stroke: c.color, "stroke-opacity": eased ? 0.5 : 0.22, "stroke-dasharray": "2,2" }));
+        const hd = svgEl("rect", { x: hx - 3, y: hy - 3, width: 6, height: 6, fill: c.color, "fill-opacity": eased ? 1 : 0.3, stroke: c.color, "stroke-width": 1.5, style: "cursor:move;" });
         hd.dataset.key = "1";
-        hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, vi: c.vi, ctrl: h.ctrl }; });
+        hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, ch: c.ch, vi: c.vi, ctrl: h.ctrl }; });
         svg.appendChild(hd);
       }
     }
@@ -8071,10 +8085,13 @@ function wire(){
       const t = roundN(((e.clientX - r.left) - graphMap.gutter) / (graphMap.pps || 1), 4);
       const v = graphMap.maxV - ((e.clientY - r.top) - graphMap.top) / (graphMap.areaH || 1) * (graphMap.maxV - graphMap.minV);
       if (graphDrag.isHandle){ // drag a bezier tangent control point (clamped within its segment)
-        const cx = Math.max(graphDrag.keyObj.time, Math.min(graphDrag.nextObj.time, t));
+        const a0 = graphDrag.keyObj;
+        // lazily convert a still-linear segment to bezier so its default tangent becomes real
+        if (!Array.isArray(a0.curve)) a0.curve = linEquivCurve(a0, graphDrag.nextObj, graphDrag.ch);
+        const cx = Math.max(a0.time, Math.min(graphDrag.nextObj.time, t));
         const o = graphDrag.vi * 4 + graphDrag.ctrl * 2;
-        graphDrag.keyObj.curve[o] = roundN(cx, 4);
-        graphDrag.keyObj.curve[o + 1] = roundN(v, 3);
+        a0.curve[o] = roundN(cx, 4);
+        a0.curve[o + 1] = roundN(v, 3);
       } else if (graphDrag.isMulti){ // move the whole selection together (absolute from snapshot)
         let dT = t - graphDrag.grabStartT;
         if (graphSnap){ dT = graphSnapTime(graphDrag.anchorT + dT) - graphDrag.anchorT; } // snap the grabbed key's time
