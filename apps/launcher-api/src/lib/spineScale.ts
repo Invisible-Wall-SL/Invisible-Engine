@@ -1,19 +1,30 @@
 /**
- * The skeleton LOAD scale for every editor-rendered spine — the SINGLE source of truth for
- * both the deploy pipeline (`exportSpineBundle` writes it as each spine's `scale` in the
- * deploy index) and the editor preview (`editorSpine.client.ts` sets `reader.scale`). The
- * running game applies the index value on load via `parser.scale` (pixi-svelte
- * `assetLoad.ts`), which scales the skeleton GEOMETRY (and `skeleton.data.width/height`).
+ * Skeleton LOAD scales the deploy pipeline bakes into a spine's deploy-index `scale`. The
+ * running game applies it on load via `parser.scale` (pixi-svelte `assetLoad.ts`), which
+ * scales the skeleton GEOMETRY — but NOT `skeleton.data.width/height` (the Spine readers
+ * copy those through un-scaled). So the load scale is NOT normalised away by a width-fit:
+ * a width-fitted spine renders at `scale × width`, and a natural-sized one at `scale ×
+ * naturalSize`. The editor preview (`editorSpine.client.ts`) applies the matching scale so
+ * it's WYSIWYG with the game.
  *
- * Keep this at **1** = render spines at their authored, atlas-true size. A spine's display
- * size is then governed ONLY by explicit, visible inputs: its node `width`/`height` + the
- * placement's `scale` (and, for symbols, the deliberate `SYMBOL_SPINE_FILL` contain ratio).
- *
- * History: this defaulted to `2` (a copied "symbols convention"). But symbol spines are
- * width-FITTED, so any load scale normalises away for them — the 2× did nothing there and
- * silently DOUBLED every natural-sized spine (e.g. a placed button: atlas region 223px ==
- * skeleton width 223px, so 2× was a pure, slightly-blurry over-scale). Set to 1 2026-06-29.
- * NOTE: a game published BEFORE this change keeps the old `scale` baked into ITS deploy
- * index until it is republished, so it still loads at the old factor until then.
+ * Two scales, because two spine classes have genuinely different needs:
+ */
+
+/**
+ * COMPONENT / placed editor-art spines (a spin button, a free-spin frame, …). **1** = render
+ * at authored, atlas-true size; display size is governed only by the node `width`/`height`
+ * and placement `scale`. Was `2` until 2026-06-29 — a copied "symbols convention" that, for
+ * a natural-sized spine (no width/height, e.g. a button whose atlas region == skeleton
+ * width), was a pure 2× over-scale with nothing to cancel it.
  */
 export const EDITOR_SPINE_LOAD_SCALE = 1;
+
+/**
+ * SYMBOL spines (the reel character rigs). Kept at **2** because the runtime sizes a symbol
+ * spine by `SYMBOL_SIZE × SYMBOL_SPINE_FILL` (a WIDTH fit, `SYMBOL_SPINE_FILL = 0.5` in the
+ * game's `constants.ts`) — and since the load scale multiplies that (`2 × 0.5 = 1` cell),
+ * the two are a tuned PAIR. Dropping this to 1 without also raising `SYMBOL_SPINE_FILL` to 1
+ * halves every symbol. A future cleanup could make it `1` + `SYMBOL_SPINE_FILL = 1`, but
+ * that's a coordinated engine-runtime + per-game-republish change, so it stays 2 here.
+ */
+export const SYMBOL_SPINE_LOAD_SCALE = 2;
