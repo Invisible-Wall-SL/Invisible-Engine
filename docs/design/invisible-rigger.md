@@ -15,6 +15,7 @@
 mesh (move/add/remove/region→mesh/CDT/UV), weights (bind/per-vertex/brush/auto-weight-to-chain),
 animation (keyframing, dopesheet, curves, graph editor, slot/event/draw-order channels),
 rig + animation libraries, isolated-mesh edit, mesh-**deform** animation timelines (§18 item 1),
+IK constraint authoring + the IK mix timeline (§18 item 3),
 `.irig` export + R2 save. **Genuinely
 outstanding:** ship-from-Rigger (rule-8 export→deploy→bake→pull→register — rigs only save to
 R2 today), Phase 3.6 visual texture-panel UV editor +
@@ -934,8 +935,41 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
 2. **Bone shear keying** — PRESERVE-ONLY (data model + tracks already handle shear; `keyBone`
    just has no shear branch). Cheap completeness win.
 3. **IK constraint authoring** (create/edit/delete + target + mix/softness/bend) **+ the IK
-   `ik` mix timeline** — constraints panel is display-only today. Highest-value constraint
-   (foot/hand pinning). Makes the panel editable = foundation for 4/6/7.
+   `ik` mix timeline** — ✅ **LANDED** (`rigger/ik-constraints`). The constraints panel was
+   display-only; IK rows are now clickable → an **IK editor** (target `<select>`, mix 0–1,
+   softness, bend+/compress/stretch toggles, chain-bones display, rename, delete). **＋ Add IK
+   constraint** creates a 2-bone chain on the selected bone (its parent + itself; falls back to
+   a 1-bone chain when the bone has no parent) reaching a target bone, defaults
+   mix=1/bendPositive=true/softness=0. Every edit mutates `rawDoc.ik[i]` + `rebuildFromRawDoc`.
+   transform/path stay display-only (items 6/7). Bone rename/delete already rewrote/dropped
+   `ik` bone+target refs; delete now ALSO clears a dropped constraint's `ik` timeline (else the
+   loader throws "IK Constraint not found"); constraint rename rekeys its `ik` timeline.
+   **Animation:** an **`ik` dopesheet track** per constraint with keys (+ the selected one as an
+   empty row to key into); **◆ Key IK mix @ t** (and `keyIk(name)`) upserts the live mix into
+   `animations.<a>.ik.<name>`; retime / Alt-drag duplicate / dbl-click delete / right-click
+   easing (one curve → the mix channel) via the shared `openCurveMenu`. `poseAtTime` sets the
+   live `IkConstraint.mix` (+ softness/bend if keyed) before `updateWorld`, so animate-mode
+   preview shows the runtime IK solve; Preview mode (AnimationState) already solves it.
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/ik.mjs`):**
+   - **Setup** = top-level `ik` array: `{name, order, bones:[parent,child]|[bone], target, mix,
+     bendPositive, softness, compress, stretch}`. `bendPositive` serialises as a **BOOLEAN**
+     (runtime → `bendDirection` ±1), NOT `bendDirection`. `order` defaults 0; 1-bone vs 2-bone
+     is purely `bones.length`.
+   - **Timeline** = `animations.<a>.ik.<name> = [{time, mix, softness, bendPositive, compress,
+     stretch, curve?}]` (an `IkConstraintTimeline`); mix + softness interpolate (linear/bezier),
+     bend/compress/stretch are stepped; `curve` (read off the current key) drives two bezier
+     channels (0=mix, 1=softness) — we author one ease for the mix channel.
+   Spike GREEN (18/18): loader builds the IkConstraint; **mix=1 SOLVES** toward the target (chain
+   tip reaches it), **mix=0 == setup/FK**, a mix-0→1 timeline blends FK→IK, linear mix@0.5==0.5
+   and a bezier ease-in mix-value@0.5 (0.318) matches our evaluator (0.315); 1-bone loads;
+   `bendPositive:false`→−1. **Parity:** no IK authored ⇒ no `ik` array / no `ik` track / no
+   behaviour change (SkeletonJson does not write back, so a no-IK doc round-trips unchanged).
+   Existing PRESERVE-ONLY IK constraints round-trip (whole `rawDoc` is saved verbatim) and are
+   now editable. **`◆ Key all` intentionally does NOT key IK mix** (mix is a constraint reveal,
+   not a per-bone pose — keying it everywhere would fight the FK→IK intent); key it explicitly
+   via the IK editor. The auto-picked default target excludes descendants of the chain bones (a
+   descendant target moves with the chain → degenerate solve). Makes the panel editable =
+   foundation for 4/6/7. ⏳ owner-verify the add/edit + IK dopesheet + solve preview live.
 4. **Slot dark colour (`rgba2`)** setup + timeline — extends the slot-colour path.
 5. **Blend-mode authoring** (slot `blend` dropdown) — cheap; survives round-trip but unedited.
 6. **Transform constraint** authoring + `transform` mix timeline — builds on (3).
