@@ -1898,7 +1898,7 @@ function renderBoneAnimDetail(det, i){
     del.textContent = "✕ Delete key"; del.style.cssText = "margin-top:6px;color:var(--bad,#e66);border-color:var(--bad,#e66);";
     del.onclick = () => deleteBoneKeyAt(bd.name, animTime);
     det.appendChild(del);
-    const cur = keyCurveType(bd.name, animTime);
+    const cur = keyCurveType(bd.name, nearestBoneKeyTime(bd.name, animTime));
     const cl = document.createElement("div");
     cl.textContent = "easing out of this key:"; cl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;font-size:11px;";
     det.appendChild(cl);
@@ -1906,7 +1906,7 @@ function renderBoneAnimDetail(det, i){
     const mk = (label, preset, on) => {
       const b = document.createElement("button"); b.textContent = label; b.style.cssText = "padding:2px 7px;font-size:11px;";
       if (on) b.className = "active";
-      b.onclick = () => setKeyCurve(bd.name, animTime, preset); return b;
+      b.onclick = () => setKeyCurve(bd.name, nearestBoneKeyTime(bd.name, animTime), preset); return b;
     };
     row.appendChild(mk("Linear", "linear", cur === "linear"));
     row.appendChild(mk("Stepped", "stepped", cur === "stepped"));
@@ -5727,6 +5727,12 @@ function boneKeyTimes(boneName){
   for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch])) for (const k of cb[ch]) set.add(roundN(k.time, 4));
   return [...set].sort((x, y) => x - y);
 }
+// The exact time of the bone key NEAREST the playhead — easing/curve ops target "this key"
+// even when the playhead sits a hair off the key (the scrubber rarely lands on it exactly).
+function nearestBoneKeyTime(boneName, t){
+  const ts = boneKeyTimes(boneName); if (!ts.length) return t;
+  return ts.reduce((best, k) => (Math.abs(k - t) < Math.abs(best - t) ? k : best), ts[0]);
+}
 
 // Jump the playhead to the prev/next key (of the selected bone, else any bone).
 function gotoKey(dir){
@@ -6838,7 +6844,9 @@ function openCurveMenu(x, y, apply, current){
     const b = document.createElement("button"); b.textContent = (active ? "✓ " : "") + label;
     b.style.cssText = "display:block;width:100%;text-align:left;border:none;background:none;padding:5px 9px;font-size:12px;";
     b.onmouseenter = () => b.style.background = "var(--panel2)"; b.onmouseleave = () => b.style.background = "none";
-    b.onclick = () => { apply(preset); closeCurveMenu(); };
+    // Act on mousedown + stopPropagation: the close-on-outside-mousedown listener would
+    // otherwise remove the menu before a `click` could fire, swallowing the choice.
+    b.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); apply(preset); closeCurveMenu(); };
     m.appendChild(b);
   });
   document.body.appendChild(m);
