@@ -6,6 +6,7 @@
 	"scripts": {
 		"parity": "tsx winInfoParity.ts",
 		"phase1": "tsx phase1Loading.ts",
+		"phase2": "tsx phase2WinTransitions.ts",
 		"pins": "tsx pinDerivation.ts",
 		"roundtrip": "tsx roundTrip.ts",
 		"phase4": "tsx phase4Runtime.ts",

@@ -13,9 +13,10 @@
  *     export→deploy→bake→register chain; absent for an un-baked `apps/lines` dev boot;
  *   - dev-only escape hatches on top: `window.__IE_FLOW_DOC__` (an arbitrary FlowDoc, the
  *     Phase-4 ad-hoc live-verify hook), `window.__IE_FLOW_LOADING__` (the committed
- *     `LINES_FLOW_LOADING_DOC` loading→basegame entry-leg fixture, flow-driven-game §1), and
- *     `window.__IE_FLOW_LINES__` (the committed full `LINES_FLOW_DOC` fixture), none set on a
- *     normal boot.
+ *     `LINES_FLOW_LOADING_DOC` loading→basegame entry-leg fixture, flow-driven-game §1),
+ *     `window.__IE_FLOW_WIN__` (the committed `LINES_FLOW_WIN_DOC` win-presentation-transitions
+ *     fixture, flow-driven-game §2), and `window.__IE_FLOW_LINES__` (the committed full
+ *     `LINES_FLOW_DOC` fixture), none set on a normal boot.
  * With none of these present this module is a pure no-op, byte-identical to current `main`.
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
@@ -32,7 +33,7 @@ import { bakedFlowDoc } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
-import { LINES_FLOW_DOC, LINES_FLOW_LOADING_DOC } from './flowDoc';
+import { LINES_FLOW_DOC, LINES_FLOW_LOADING_DOC, LINES_FLOW_WIN_DOC } from './flowDoc';
 import type { BookEvent, BookEventContext } from './typesBookEvent';
 
 declare global {
@@ -42,6 +43,8 @@ declare global {
 	var __IE_FLOW_LINES__: boolean | undefined;
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_LOADING__: boolean | undefined;
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_WIN__: boolean | undefined;
 }
 
 /**
@@ -66,6 +69,11 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
 		// of the tap-to-enter leg without a deploy/bake. Checked BEFORE the full `LINES_FLOW_DOC`
 		// so a loading-leg verify wins. Unset on a normal boot ⇒ inert (parity, §7).
 		if (globalThis.__IE_FLOW_LOADING__) return LINES_FLOW_LOADING_DOC;
+		// Phase 2 (flow-driven-game §2) — the win-presentation-transitions fixture, for
+		// live-verify of the win-branch leg (big-win + free-spin-intro as exclusive screen nodes,
+		// small win as a feed-driven overlay) without a deploy/bake. Checked before the full
+		// `LINES_FLOW_DOC` so a win-branch verify wins. Unset on a normal boot ⇒ inert (parity, §7).
+		if (globalThis.__IE_FLOW_WIN__) return LINES_FLOW_WIN_DOC;
 		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
 	return bakedFlowDoc();

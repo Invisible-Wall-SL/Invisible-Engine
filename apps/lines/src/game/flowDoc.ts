@@ -23,7 +23,7 @@
  * comment cites the coded handler it mirrors.
  */
 
-import type { ChoreographyNode, FlowDoc, FlowPayload } from 'engine-flow';
+import type { ChoreographyNode, FlowDoc, FlowGuard, FlowPayload } from 'engine-flow';
 
 // ---------------------------------------------------------------------------
 // Small authoring helpers (keep the tree readable; they emit plain FlowDoc nodes).
@@ -247,4 +247,110 @@ export const LINES_FLOW_LOADING_DOC: FlowDoc = {
 		{ id: 'loading→basegame', from: 'loading', to: 'basegame', trigger: { kind: 'complete' } },
 	],
 	events: LINES_FLOW_DOC.events,
+};
+
+// ---------------------------------------------------------------------------
+// Phase 2 (flow-driven-game §2) — author win-presentation TRANSITIONS (the win-branch leg).
+//
+// A SEPARATE committed fixture (NOT folded into `LINES_FLOW_DOC`, which authors zero
+// transitions so the default boot stays parity-inert, §7). Reached ONLY via the dev hook
+// `window.__IE_FLOW_WIN__` (see `flowRuntime.svelte.ts`), never on a normal boot.
+//
+// The owner-approved "recommended split" (§2):
+//  - BIG win + FREE-SPIN INTRO celebrations TAKE OVER the screen ⇒ they become EXCLUSIVE
+//    Flow screen nodes (`bigWin`, `freeSpinIntro`), reached by a guarded `bookEvent`
+//    transition out of `basegame`. The presentation is lifted VERBATIM into the screen's
+//    `enter` choreography (identical by construction, not re-derived).
+//  - SMALL / idle win READOUTS stay FEED-DRIVEN overlays — they keep presenting via the
+//    `setWin` EVENT choreography (the overlay show/update/hide, exactly as coded).
+//
+// Avoiding double-presentation (the §6.1 orthogonality crux): `dispatchBookEvent` runs the
+// event choreography AND fires a `bookEvent` transition INDEPENDENTLY (interpreter.ts). So
+// the fixture's `setWin` EVENT choreography is BRANCHED on the win tier — a BIG win runs a
+// no-op (the `basegame→bigWin` transition + `bigWin.enter` owns the presentation), a SMALL
+// win runs the overlay presentation (no transition fires — the guard rejects it). The
+// `freeSpinTrigger` EVENT is removed entirely (the `freeSpinIntro` screen owns it). Exactly
+// one path presents per case.
+// ---------------------------------------------------------------------------
+
+/** The `winLevel` numbers whose `winLevelMap` `type === 'big'` (levels 6–10: BIG/SUPER/MEGA/
+ *  EPIC/MAX WIN). The SINGLE source of truth shared by the `basegame→bigWin` transition guard
+ *  AND the `setWin` event-choreography branch, so the two never diverge. `setWin.winLevel` is
+ *  a number (`typesBookEvent.ts`), so the tier test is a numeric `in` membership. */
+const BIG_WIN_LEVELS = [6, 7, 8, 9, 10];
+
+/** Guard: the triggering `setWin` payload's `winLevel` is in the big-win tier (6–10). */
+const bigWinGuard: FlowGuard = {
+	all: [
+		{
+			left: trigger('winLevel'),
+			op: 'in',
+			right: lit(BIG_WIN_LEVELS),
+		},
+	],
+};
+
+/** The fixture's `setWin` EVENT choreography — feed-driven overlay for SMALL wins only.
+ *  Branched on the big-win tier: BIG ⇒ no-op (`bigWin.enter` owns it via the screen swap);
+ *  otherwise ⇒ the lifted small-win overlay presentation (`setWinChoreography`, verbatim). */
+const setWinBranchedChoreography: ChoreographyNode = {
+	kind: 'branch',
+	guard: bigWinGuard,
+	then: seq(), // BIG win ⇒ the screen swap presents; the overlay path is a no-op (no double-fire).
+	otherwise: setWinChoreography, // SMALL win ⇒ the feed-driven overlay (exactly as coded).
+};
+
+/** The fixture's `freeSpinTrigger` EVENT choreography — a NO-OP. EVERY `freeSpinTrigger`
+ *  swaps to the `freeSpinIntro` screen, whose `enter` owns the presentation. This MUST stay an
+ *  authored (no-op) event, NOT be dropped from `events`: a dropped event falls THROUGH to the
+ *  coded `bookEventHandlerMap.freeSpinTrigger` (the full intro presentation) which, together
+ *  with the screen swap's `enter` (the same presentation), would DOUBLE-present (§6.1 — the
+ *  dispatch + transition are orthogonal). The no-op event is the same no-double-fire discipline
+ *  the big-win `setWin` branch uses. */
+const freeSpinTriggerNoopChoreography: ChoreographyNode = seq();
+
+export const LINES_FLOW_WIN_DOC: FlowDoc = {
+	version: 1,
+	projectKey: 'lines',
+	screens: [
+		{ id: 'basegame', initial: true },
+		// The big-win celebration screen — its ENTER is the lifted `setWin` presentation VERBATIM.
+		{ id: 'bigWin', choreography: { enter: setWinChoreography } },
+		// The free-spin-intro screen — its ENTER is the lifted `freeSpinTrigger` presentation VERBATIM.
+		{ id: 'freeSpinIntro', choreography: { enter: freeSpinTriggerChoreography } },
+	],
+	transitions: [
+		// BIG win ⇒ swap to the bigWin screen (its `enter` presents); the tap returns.
+		{
+			id: 'basegame→bigWin',
+			from: 'basegame',
+			to: 'bigWin',
+			trigger: { kind: 'bookEvent', event: 'setWin' },
+			guard: bigWinGuard,
+		},
+		{ id: 'bigWin→basegame', from: 'bigWin', to: 'basegame', trigger: { kind: 'complete' } },
+		// Free-spin trigger ⇒ swap to the freeSpinIntro screen (its `enter` presents); tap returns.
+		{
+			id: 'basegame→freeSpinIntro',
+			from: 'basegame',
+			to: 'freeSpinIntro',
+			trigger: { kind: 'bookEvent', event: 'freeSpinTrigger' },
+		},
+		{
+			id: 'freeSpinIntro→basegame',
+			from: 'freeSpinIntro',
+			to: 'basegame',
+			trigger: { kind: 'complete' },
+		},
+	],
+	// Reuse the full per-event choreographies for a realistic flow, overriding only the win
+	// moments: `setWin` is BRANCHED (small overlay vs big no-op) and `freeSpinTrigger` is
+	// authored as a NO-OP (the `freeSpinIntro` screen owns its presentation via the transition +
+	// `enter`). Both win events stay AUTHORED — never dropped — so dispatch never falls through
+	// to their coded handler and double-presents alongside the screen swap (§6.1 orthogonality).
+	events: [
+		...LINES_FLOW_DOC.events.filter((e) => e.event !== 'setWin' && e.event !== 'freeSpinTrigger'),
+		{ event: 'setWin', choreography: setWinBranchedChoreography },
+		{ event: 'freeSpinTrigger', choreography: freeSpinTriggerNoopChoreography },
+	],
 };

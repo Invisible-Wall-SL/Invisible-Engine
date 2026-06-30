@@ -152,6 +152,72 @@ The mechanism is already live (`bookEvent` trigger + `$trigger.*` guards,
 book event, the guard selects the right branch by `winLevel`, and the screen swap's
 choreography order matches the coded presentation. Default (no transitions) stays inert.
 
+### Progress — Phase 2 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. `apps/lines` only — `engine-flow` already had the `bookEvent` /
+`complete` triggers + `$trigger.*` guards from prior Flow phases (no engine change needed). No
+game submodule bump (that's Phase 5).
+
+**Per-presentation decisions (the §2 "exclusive screen node vs feed-driven overlay" split):**
+- **`winInfo` — feed-driven overlay (NO transition).** It fires on every paying spin and never
+  takes over the screen (it is the per-line readout / board symbol highlight), so promoting it
+  would swap the screen on every win. It also carries **no `winLevel`** in its payload
+  (`typesBookEvent.ts` — only `setWin`/`freeSpinEnd` do), so it could not be win-tier-branched
+  anyway. Its event choreography runs in place.
+- **`setWin` — split by win tier.** SMALL/MEDIUM wins (`winLevel < 6`, `type:'small'|'medium'`
+  in `winLevelMap.ts`) are an idle readout ⇒ stay a **feed-driven overlay** (no swap). BIG wins
+  (`winLevel >= 6`, `type:'big'` — BIG/SUPER/MEGA/EPIC/MAX) are a screen-takeover celebration ⇒
+  promoted to the **`bigWin` exclusive screen node**, selected by a `$trigger.winLevel in [6..10]`
+  guard that resolves **today** off the book-event payload (no engine reader — that is Phase 3).
+- **`freeSpinTrigger` — exclusive screen node.** The free-spin intro is a full-screen takeover
+  (`uiHide` → `transition` → `freeSpinIntroShow`) ⇒ promoted to the **`freeSpinIntro` exclusive
+  screen node**.
+
+**What landed:**
+- `apps/lines/src/game/flowDoc.ts` — a SEPARATE `LINES_FLOW_WIN_DOC` fixture (NOT folded into
+  `LINES_FLOW_DOC`, which keeps `transitions: []` so the default boot stays parity-inert, §7). It
+  authors the `bigWin` + `freeSpinIntro` screen nodes (each `enter` = the coded `setWin` /
+  `freeSpinTrigger` presentation **lifted verbatim**), a guarded `basegame→bigWin` `bookEvent`
+  edge + an unguarded `basegame→freeSpinIntro` edge, and `complete` (tap) return edges. The crux
+  is the **no-double-fire discipline** (§6.1 — dispatch + transition are orthogonal): both win
+  events stay **authored** in `events[]` — `setWin` as a `winLevel`-branch (big ⇒ no-op, the
+  screen presents; small ⇒ the overlay choreography) and `freeSpinTrigger` as an **authored
+  no-op** (NOT dropped — a dropped event falls THROUGH to the coded `bookEventHandlerMap`
+  handler, which together with the screen swap's `enter` would double-present).
+- `apps/lines/src/game/flowRuntime.svelte.ts` — a `window.__IE_FLOW_WIN__` dev hook (checked
+  after `__IE_FLOW_LOADING__`, before `__IE_FLOW_LINES__`) sources the fixture. Default boot
+  unchanged ⇒ inert.
+- `tools/flow-spike/phase2WinTransitions.ts` (+ `phase2` script) — the parity harness. It drives
+  the REAL `createFlowInterpreter` over the REAL imported `LINES_FLOW_WIN_DOC` and reuses the
+  Phase-5 recording rig (same effect surface) so the `bigWin`/`freeSpinIntro` enter op log is
+  compared position-for-position to the coded `setWin`/`freeSpinTrigger` presentation. It wires
+  **coded-handler spies** so the no-double-present invariant is proven (the coded handler must
+  NOT fire when the event is authored).
+
+**Verified:** `pnpm --filter flow-spike run phase2` = GREEN (turbo on/off): big-win swaps to
+`bigWin` with the lifted presentation and the coded handler does NOT fire; small-win stays on
+`basegame` with the overlay in place; `freeSpinTrigger` swaps to `freeSpinIntro` (coded handler
+does NOT fire); taps return each screen → `basegame`; the `winLevel` tier boundary (5⇒small,
+6⇒big, 10⇒big) selects correctly; default `LINES_FLOW_DOC` authors zero transitions; the win doc
+`normalizeFlowDoc` round-trips idempotently. ALL existing harnesses GREEN (`parity`/`phase1`/
+`phase4`/`phase5`/`phase6`/`phase7`/`pins`/`roundtrip`/`tap`/`vocab`). `engine-flow` tsc exit 0;
+`lines` build exit 0; the `__IE_FLOW_WIN__` / `freeSpinIntro` / `basegame→bigWin` literals
+confirmed in the minified client bundle (shipment, not just compile).
+
+**Parity invariant held by construction:** the win-branch behaviour rides ONLY the
+`LINES_FLOW_WIN_DOC` fixture (reached only via `__IE_FLOW_WIN__`); the default `LINES_FLOW_DOC`
+keeps `transitions: []` and only the `basegame` screen — every normal boot is byte-identical to
+current `main`.
+
+**Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
+`window.__IE_FLOW_WIN__ = true` before boot; on a big win the screen swaps to the `bigWin`
+takeover and a tap returns to `basegame`, and a free-spin trigger swaps to `freeSpinIntro` (verify
+via the `app.stage` read / dynamic-import override, not `preview_screenshot`). A small win must
+NOT swap. Default boot (no hook) renders byte-identical. NB: `bigWin`/`freeSpinIntro` have no
+authored backing Scene in the lines LayoutDoc yet, so the mounter falls through for the takeover
+*scene* — the swap + lifted presentation choreography are what Phase 2 proves; authoring the real
+takeover scenes is a Phase-4/5 editor step.
+
 ---
 
 ## 3. Phase 3 — Revive engine-state transitions (state-driven branching)
