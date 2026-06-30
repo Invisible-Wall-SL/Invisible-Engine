@@ -1466,3 +1466,25 @@ Implementation (isolate mode only; normal setup-mode dragging still deforms, as 
 re-project-UVs-onto-a-different-region flow (re-skin / retopo+reproject). The data model
 supports it (recompute `uvs` via the affine fit `✎ Draw mesh` already uses), but it's a
 separate, larger feature; left for a future phase if the owner wants image-swap rebinding.
+
+## §18.8 — physics constraints (Spine 4.2's new sim constraint) — LANDED
+
+Authoring + the `physics` animation timeline for secondary motion (hair/cloth/jiggle).
+Mirrors the IK/transform/path constraint subsystem. **Setup** = top-level `physics` array,
+each `{name, order, bone (SINGLE), x,y,rotate,scaleX,shearX (0..1 amounts), limit, fps
+(→step=1/fps), inertia, strength, damping, mass (→massInverse=1/mass), wind, gravity, mix}`.
+**Timeline** = `animations.<a>.physics.<name>` = a per-channel map
+`{inertia|strength|damping|mass|wind|gravity|mix: [{time,value,curve?}], reset:[{time}]}`.
+UI: the constraints panel lists/counts physics + `＋ Add physics constraint`, a
+`renderPhysicsEditor` (bone + 5 driven amounts + limit/fps + 7 sim props), rename/delete;
+a `physics` dopesheet track keys the sim params + a `↺ reset` step; `poseAtTime` drives the
+live `PhysicsConstraint` and the preview steps the sim (`skeleton.update(delta)` gated on
+`hasPhysics()` so non-physics rigs stay byte-identical). Validated against spine-core@4.2.74
+(`tools/rigger-spike/physics.mjs`): the sim runs (finite, changes, differs from rigid),
+`mix=0` inert, `Physics.reset` re-inits, all channels animate, linear+bezier match the
+runtime. Re-integrated onto `main` alongside the path feature (renamed the physics
+identifiers that collided with path: `pcByName`→`physByName`, the add-button + `editPc`
+→`addPhys`/`editPhys`). ⏳ owner live-verify the sim in `/rigger`.
+
+**Remaining parity item:** §18.9 extra attachments (clipping / bounding-box / point /
+linked-mesh authoring).
