@@ -3145,6 +3145,14 @@ function renderSlotDetail(){
   const sd = skeletonData.slots[slotIndex];
   det.style.display = "block";
 
+  // Set meshCtx in BOTH modes (the full mesh-edit UI below is setup-only and returns early
+  // for animate). Animate mode needs meshCtx so the vertex overlay + drag → deform work.
+  {
+    const att0 = sd.attachmentName ? skeleton.getAttachment(slotIndex, sd.attachmentName) : null;
+    if (att0 && (isMeshAtt(att0) || isLinkedMeshAtt(att0)))
+      meshCtx = { slotIndex, attName: sd.attachmentName, attachment: att0, weighted: !!(att0.bones && att0.bones.length), linked: isLinkedMeshAtt(att0) };
+  }
+
   if (animMode){ renderSlotAnimDetail(det, slotIndex, sd); return; }
 
   if (!editMode){
