@@ -498,6 +498,20 @@ let drawPathMode = false; // click to drop control points for a brand-new path
 let pathAddMode = false;   // append a control point to the END of the selected path
 let pathDragIdx = null, selPathPoint = null; // drag/select a control point on the canvas
 let pathDrawPts = []; // in-progress path control points (WORLD coords) while drawing a new path
+// §18.9 polygon attachments (boundingbox + clipping). Both are UNWEIGHTED polygons (vertices
+// packed flat [x,y,…] like a mesh/path, but no triples-of-3 / lengths). Shared draw+edit machinery
+// parameterised by `polyKind` ("boundingbox" | "clipping"). Authored in WORLD space, persisted
+// slot-bone-local — mirrors the path machinery above (drag/select/add/remove a point on canvas).
+let polyCtx = null; // { slotIndex, attName, attachment, kind } when a box/clip slot attachment is selected
+let drawPolyMode = false; // click to drop polygon points for a brand-new box/clip
+let polyKind = null; // "boundingbox" | "clipping" — what drawPolyMode is creating
+let polyAddMode = false; // append a point to the END of the selected polygon
+let polyDragIdx = null, selPolyPoint = null; // drag/select a polygon point on the canvas
+let polyDrawPts = []; // in-progress polygon points (WORLD coords) while drawing a new box/clip
+// §18.9 point attachment. A point is a single locator (x/y/rotation) — NOT a vertex list. Selecting
+// one shows its x/y/rotation editor; placing one drops a locator on the canvas.
+let pointCtx = null; // { slotIndex, attName, attachment } when a POINT slot attachment is selected
+let placePointMode = false; // click the canvas to set the selected point's position
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
@@ -554,6 +568,29 @@ function isPathAtt(a){
   if (!a) return false;
   if (SPINE && SPINE.PathAttachment && a instanceof SPINE.PathAttachment) return true;
   return /Path/.test((a.constructor && a.constructor.name) || "");
+}
+// §18.9 extra attachment types. The vendored runtime is MINIFIED so constructor.name is mangled
+// (`_BoundingBoxAttachment`) — prefer instanceof against the runtime's exported class, fall back to
+// a name substring. ⚠ a linkedmesh IS a MeshAttachment (with a parentMesh), so test it BEFORE the
+// generic mesh path: isLinkedMeshAtt narrows on getParentMesh()/parentMesh.
+function isPointAtt(a){
+  if (!a) return false;
+  if (SPINE && SPINE.PointAttachment && a instanceof SPINE.PointAttachment) return true;
+  return /Point/.test((a.constructor && a.constructor.name) || "");
+}
+function isBoundingBoxAtt(a){
+  if (!a) return false;
+  if (SPINE && SPINE.BoundingBoxAttachment && a instanceof SPINE.BoundingBoxAttachment) return true;
+  return /BoundingBox/.test((a.constructor && a.constructor.name) || "");
+}
+function isClippingAtt(a){
+  if (!a) return false;
+  if (SPINE && SPINE.ClippingAttachment && a instanceof SPINE.ClippingAttachment) return true;
+  return /Clipping/.test((a.constructor && a.constructor.name) || "");
+}
+function isLinkedMeshAtt(a){
+  if (!isMeshAtt(a)) return false;
+  return !!(a.getParentMesh ? a.getParentMesh() : a.parentMesh);
 }
 
 // ---- runtime loading (one spine-webgl global at a time) -------------------
@@ -2992,6 +3029,7 @@ function selectSlot(name){
   weightBrush = false; brushBone = null; brushPainting = false;
   drawMeshMode = false; drawPoints = [];
   drawPathMode = false; pathAddMode = false; pathDragIdx = null; selPathPoint = null;
+  drawPolyMode = false; polyKind = null; polyAddMode = false; polyDragIdx = null; selPolyPoint = null; placePointMode = false;
   meshIsolate = false; // exit isolated-mesh editing when moving to another slot
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   if (animMode) renderTimeline();
@@ -3100,6 +3138,7 @@ function renderSlotDetail(){
   const det = $("#slotDetail");
   meshCtx = null; meshDragVert = null; // recomputed below if a mesh slot is selected
   pathCtx = null; // recomputed below if a PATH slot attachment is selected (§18.7)
+  polyCtx = null; pointCtx = null; // recomputed below if a box/clip/point attachment is selected (§18.9)
   if (selSlot == null){ det.style.display = "none"; return; }
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
   if (slotIndex < 0){ det.style.display = "none"; return; }
@@ -3159,7 +3198,13 @@ function renderSlotDetail(){
       wrap.appendChild(hdr);
       defs.forEach((d) => {
         const rt = skeleton.getAttachment(slotIndex, d.name);
-        const type = isMeshAtt(rt) ? (rt.bones && rt.bones.length ? "weighted mesh" : "mesh") : (isRegionAtt(rt) ? "image" : "?");
+        const type = isLinkedMeshAtt(rt) ? "linked mesh"
+          : isMeshAtt(rt) ? (rt.bones && rt.bones.length ? "weighted mesh" : "mesh")
+          : isPathAtt(rt) ? "path"
+          : isPointAtt(rt) ? "point"
+          : isBoundingBoxAtt(rt) ? "bounding box"
+          : isClippingAtt(rt) ? "clipping"
+          : isRegionAtt(rt) ? "image" : "?";
         const row = document.createElement("div");
         row.className = "trow" + (d.name === attName ? " sel" : "");
         row.style.cssText = "display:flex;align-items:center;gap:6px;";
@@ -3184,6 +3229,14 @@ function renderSlotDetail(){
     const t = document.createElement("div"); t.textContent = "no setup attachment — attach an image above"; det.appendChild(t); return;
   }
   const att = skeleton.getAttachment(slotIndex, attName);
+  // §18.9 linked mesh → parent picker + deform-inherit (a linkedmesh IS a MeshAttachment with a
+  // parentMesh, so test it BEFORE the generic mesh branch). meshCtx so the linkedmesh editor's
+  // rawDoc lookups + reselect work, but no vertex/weight tools (geometry comes from the parent).
+  if (isLinkedMeshAtt(att)){
+    meshCtx = { slotIndex, attName, attachment: att, weighted: !!(att.bones && att.bones.length), linked: true };
+    renderLinkedMeshEditor(det, att);
+    return;
+  }
   // mesh → vertex editing (Phase 3): drag the points on the canvas
   if (isMeshAtt(att)){
     meshCtx = { slotIndex, attName, attachment: att, weighted: !!(att.bones && att.bones.length) };
@@ -3396,6 +3449,19 @@ function renderSlotDetail(){
     renderPathAttachmentEditor(det, att);
     return;
   }
+  // §18.9 point → locator editor (x/y/rotation + place-on-canvas)
+  if (isPointAtt(att)){
+    pointCtx = { slotIndex, attName, attachment: att };
+    renderPointAttachmentEditor(det, att);
+    return;
+  }
+  // §18.9 boundingbox / clipping → polygon point editing (overlay drawn on canvas)
+  if (isBoundingBoxAtt(att) || isClippingAtt(att)){
+    const kind = isClippingAtt(att) ? "clipping" : "boundingbox";
+    polyCtx = { slotIndex, attName, attachment: att, kind };
+    renderPolyAttachmentEditor(det, att, kind);
+    return;
+  }
   if (!isRegionAtt(att)){
     const t = document.createElement("div");
     t.textContent = (att ? att.constructor.name.replace(/^_/, "").replace("Attachment", "").toLowerCase() : "missing") +
@@ -3474,6 +3540,59 @@ function renderSlotDetail(){
     ap.style.cssText = "margin:8px 0 2px;";
     ap.onclick = () => startDrawPath();
     det.appendChild(ap);
+  }
+
+  // §18.9 extra attachment types — point / boundingbox / clipping / linkedmesh. Offered on every
+  // slot (independent of any image/mesh); each goes into the active skin. While a polygon is being
+  // drawn we show finish/cancel; otherwise the ＋ Add buttons. Suppressed when the slot's active
+  // attachment already IS that type (its own editor handles add/edit).
+  if (drawPolyMode){
+    const isClip = polyKind === "clipping";
+    const info = document.createElement("div");
+    info.innerHTML = "drawing a " + (isClip ? "clipping" : "bounding box") + " polygon: click to drop points (" + polyDrawPts.length + ") · drag a point to nudge it · " +
+      "<b>Enter</b>/Finish commits · <b>Esc</b> cancels";
+    info.style.cssText = "margin:8px 0 4px;color:var(--dim);font-size:11px;line-height:1.4;";
+    det.appendChild(info);
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin-top:5px;";
+    const fin = document.createElement("button"); fin.textContent = "✓ Finish " + (isClip ? "clipping" : "box"); fin.disabled = polyDrawPts.length < 3; fin.style.flex = "1"; fin.onclick = finishDrawPoly;
+    const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawPoly;
+    row.appendChild(fin); row.appendChild(can); det.appendChild(row);
+  } else {
+    const liveAtt = skeleton.getAttachment(slotIndex, attName);
+    const extras = document.createElement("div"); extras.style.cssText = "margin:8px 0 2px;display:flex;flex-wrap:wrap;gap:6px;";
+    if (!isPointAtt(liveAtt)){
+      const b = document.createElement("button");
+      b.textContent = "＋ Point";
+      b.title = "Add a point attachment — a single locator (position + rotation) to spawn projectiles, particles, or FX from.";
+      b.onclick = () => startAddPoint();
+      extras.appendChild(b);
+    }
+    if (!isBoundingBoxAtt(liveAtt)){
+      const b = document.createElement("button");
+      b.textContent = "✎ Bounding box";
+      b.title = "Draw a bounding-box polygon on this slot — click the canvas to place points (a collision/hit region).";
+      b.onclick = () => startDrawPoly("boundingbox");
+      extras.appendChild(b);
+    }
+    if (!isClippingAtt(liveAtt)){
+      const b = document.createElement("button");
+      b.textContent = "✎ Clipping";
+      b.title = "Draw a clipping polygon (a mask) on this slot — click the canvas to place points; pick the end slot it masks through.";
+      b.onclick = () => startDrawPoly("clipping");
+      extras.appendChild(b);
+    }
+    // Linked mesh: only offered when there's at least one source mesh to reference.
+    if (sourceMeshCandidates().length){
+      const b = document.createElement("button");
+      b.textContent = "＋ Linked mesh";
+      b.title = "Add a linked mesh — references another mesh's geometry/UVs (edit the source, this follows). Pick the source after.";
+      b.onclick = () => {
+        const c = sourceMeshCandidates()[0];
+        if (c) addLinkedMesh(c.name, c.skin, c.def);
+      };
+      extras.appendChild(b);
+    }
+    if (extras.children.length) det.appendChild(extras);
   }
 
   // dark colour (two-color tinting / "tint black", Spine rgba2) — §18.4. Enabling writes
@@ -3938,6 +4057,380 @@ function renderPathAttachmentEditor(det, att){
     warn.textContent = "⚠ control-point count is not a multiple of 3 — Spine derives curves as vertexCount/3, so trailing points are ignored. Add/remove to a multiple of 3.";
     warn.style.cssText = "margin-top:6px;color:var(--accent2);font-size:11px;line-height:1.4;"; det.appendChild(warn);
   }
+}
+
+// =============================================================================
+// §18.9 EXTRA ATTACHMENT TYPES — point / boundingbox / clipping / linkedmesh.
+// Formats validated empirically by tools/rigger-spike/attachments.mjs vs spine-core@4.2.74:
+//   point       {type:"point", x, y, rotation, color?}             — scalars (NOT a vertex list)
+//   boundingbox {type:"boundingbox", vertexCount, vertices, color?}— unweighted polygon, len 2*vc
+//   clipping    {type:"clipping", end:<slot>, vertexCount, vertices, color?} — polygon mask
+//   linkedmesh  {type:"linkedmesh", path:<region>, parent:<mesh>, skin?, timelines?, width?,height?}
+// All authored into the ACTIVE skin's attachment map (like region/mesh/path).
+// =============================================================================
+
+// The raw-doc skin entry of an attachment by name on the selected slot (active skin → default).
+function rawDocAttEntry(attName){
+  if (!rawDoc || selSlot == null || !attName) return null;
+  const inSkin = (skName) => { const sk = rawDoc.skins.find((s) => s.name === skName); return (sk && sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName]) || null; };
+  return inSkin(activeSkinName()) || inSkin("default") || null;
+}
+
+// Write a new attachment def into the skin that should define this slot (active skin; create the
+// slot map if absent). Returns the chosen attachment name (unique on the slot). If makeActive and
+// the slot has no setup attachment, make this the active one so it renders/edits.
+function addAttachmentToActiveSkin(baseName, def, makeActive){
+  const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name));
+  let attName = baseName; let i = 2; while (existing.has(attName)) attName = baseName + (i++);
+  const skName = activeSkinName();
+  let sk = rawDoc.skins.find((s) => s.name === skName); if (!sk){ sk = { name: skName, attachments: {} }; rawDoc.skins.push(sk); }
+  sk.attachments = sk.attachments || {}; sk.attachments[selSlot] = sk.attachments[selSlot] || {};
+  sk.attachments[selSlot][attName] = def;
+  const sdRaw = rawDoc.slots.find((s) => s.name === selSlot);
+  if (makeActive && sdRaw && !sdRaw.attachment) sdRaw.attachment = attName;
+  return attName;
+}
+
+// After a structural rawDoc edit (rebuild nulls polyCtx/pointCtx); re-open the slot + re-select by
+// NAME so the editor + canvas overlay come back. Mirrors reselectPathAttachment.
+function reselectAttachment(attName){
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot){ selectSlot(selSlot); if (attName) selectSlotAttachment(attName); }
+}
+
+// ---- POINT ------------------------------------------------------------------
+// Create a point at the slot bone's origin (0,0 local) + enter place-mode (click the canvas to
+// position it). rotation defaults 0; all three are editable in the point editor.
+function startAddPoint(){
+  if (!rawDoc || selSlot == null) return;
+  const attName = addAttachmentToActiveSkin("point", { type: "point", x: 0, y: 0, rotation: 0 }, true);
+  reselectAttachment(attName);
+  placePointMode = true;
+  renderSlotDetail();
+  markDirty();
+}
+
+// Set the selected point's WORLD position (converted through the slot bone's inverse basis).
+function setPointWorld(wx, wy){
+  const rd = rawDocAttEntry(pointCtx && pointCtx.attName); if (!rd || !pointCtx) return;
+  const bone = skeleton.slots[pointCtx.slotIndex].bone;
+  const loc = bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  rd.x = roundN(loc.x, 2); rd.y = roundN(loc.y, 2);
+  if (pointCtx.attachment){ pointCtx.attachment.x = rd.x; pointCtx.attachment.y = rd.y; }
+  markDirty();
+  renderSlotDetail();
+}
+
+// Edit one of the point's scalar fields (x/y/rotation). Live attachment + rawDoc.
+function setPointField(key, value){
+  const rd = rawDocAttEntry(pointCtx && pointCtx.attName); if (!rd || !pointCtx) return;
+  const v = parseFloat(value); if (Number.isNaN(v)) return;
+  rd[key] = roundN(v, 2);
+  if (pointCtx.attachment) pointCtx.attachment[key] = rd[key];
+  markDirty();
+}
+
+// Setup-pose WORLD position of the selected point (for the overlay).
+function pointWorldPos(){
+  if (!pointCtx || !pointCtx.attachment) return null;
+  const bone = skeleton.slots[pointCtx.slotIndex].bone;
+  return pointCtx.attachment.computeWorldPosition(bone, new SPINE.Vector2());
+}
+
+// Editor for the selected POINT attachment: x/y/rotation fields + place-on-canvas.
+function renderPointAttachmentEditor(det, att){
+  const rd = rawDocAttEntry(pointCtx && pointCtx.attName);
+  const t = document.createElement("div");
+  t.textContent = "point · a single locator (position + rotation) — used to spawn projectiles, particles, FX";
+  t.style.color = "var(--accent2)"; det.appendChild(t);
+  const field = (label, key, step) => {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.step = String(step); inp.value = (rd && rd[key] != null) ? rd[key] : (att[key] || 0);
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.oninput = () => setPointField(key, inp.value);
+    row.appendChild(lb); row.appendChild(inp); return row;
+  };
+  det.appendChild(field("x", "x", 1));
+  det.appendChild(field("y", "y", 1));
+  det.appendChild(field("rotation", "rotation", 1));
+  const place = document.createElement("button");
+  place.textContent = placePointMode ? "✎ click canvas…" : "✎ Place on canvas";
+  if (placePointMode) place.className = "active";
+  place.title = "Click on the canvas to set this point's position.";
+  place.style.cssText = "margin-top:8px;";
+  place.onclick = () => { placePointMode = !placePointMode; renderSlotDetail(); };
+  det.appendChild(place);
+  const h = document.createElement("div");
+  h.textContent = placePointMode ? "click on the canvas to position the point" : "edit x/y/rotation above, or place it on the canvas";
+  h.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;"; det.appendChild(h);
+}
+
+// Draw the selected point's locator marker + rotation tick on the canvas.
+function drawPointOverlay(){
+  if (!pointCtx) return;
+  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const p = pointWorldPos(); if (!p) return;
+  const bone = skeleton.slots[pointCtx.slotIndex].bone;
+  const r = renderer.camera.zoom * 5;
+  const col = new SPINE.Color(0.38, 0.94, 0, 1); // Spine's point-attachment green
+  renderer.circle(false, p.x, p.y, r, col, 20);
+  renderer.circle(true, p.x, p.y, r * 0.3, col, 12);
+  if (typeof renderer.line === "function"){ // rotation tick: world rotation as a short ray
+    const deg = pointCtx.attachment.computeWorldRotation(bone);
+    const rad = deg * Math.PI / 180, len = r * 3;
+    renderer.line(p.x, p.y, p.x + Math.cos(rad) * len, p.y + Math.sin(rad) * len, col);
+  }
+}
+
+// ---- POLYGON (boundingbox + clipping) ---------------------------------------
+// Setup-pose WORLD positions of the selected polygon's points ([x0,y0,…]).
+function polyWorldVerts(){
+  if (!polyCtx) return null;
+  const att = polyCtx.attachment;
+  const slot = skeleton.slots[polyCtx.slotIndex];
+  const out = new Array(att.worldVerticesLength).fill(0);
+  att.computeWorldVertices(slot, 0, att.worldVerticesLength, out, 0, 2);
+  return out;
+}
+
+// Begin drawing a new polygon (boundingbox or clipping) on the selected slot.
+function startDrawPoly(kind){
+  if (!rawDoc || selSlot == null) return;
+  drawMeshMode = false; drawPoints = []; selDrawPoint = null;
+  drawPathMode = false; pathDrawPts = []; selPathPoint = null;
+  drawPolyMode = true; polyKind = kind; polyDrawPts = []; selPolyPoint = null;
+  renderSlotDetail();
+}
+
+// Commit the in-progress polygon: persist {type:kind,…} into the active skin with bone-local points.
+// Needs ≥3 points. For clipping, default `end` to this slot (mask affects only itself until edited).
+function finishDrawPoly(){
+  const kind = polyKind;
+  const done = () => { drawPolyMode = false; polyKind = null; polyDrawPts = []; selPolyPoint = null; };
+  if (!rawDoc || selSlot == null || polyDrawPts.length < 3){
+    if (polyDrawPts.length < 3) $("#hint").textContent = "A " + (kind === "clipping" ? "clipping" : "bounding box") + " polygon needs at least 3 points.";
+    done(); renderSlotDetail(); return;
+  }
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  const bone = skeleton.slots[slotIndex].bone;
+  const localFlat = [];
+  for (const p of polyDrawPts){ const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y)); localFlat.push(roundN(loc.x, 2), roundN(loc.y, 2)); }
+  const vc = polyDrawPts.length;
+  const def = (kind === "clipping")
+    ? { type: "clipping", end: selSlot, vertexCount: vc, vertices: localFlat, color: "ce3a3aff" }
+    : { type: "boundingbox", vertexCount: vc, vertices: localFlat, color: "60f000ff" };
+  const attName = addAttachmentToActiveSkin(kind === "clipping" ? "clip" : "bbox", def, false);
+  done();
+  reselectAttachment(attName);
+  markDirty();
+}
+function cancelDrawPoly(){ drawPolyMode = false; polyKind = null; polyDrawPts = []; selPolyPoint = null; renderSlotDetail(); }
+
+// Move polygon point k by a WORLD delta (live attachment.vertices + rawDoc packed array).
+function applyPolyVertexDelta(k, wdx, wdy){
+  if (!polyCtx || !rawDoc) return;
+  const att = polyCtx.attachment;
+  const bone = skeleton.slots[polyCtx.slotIndex].bone;
+  const det = bone.a * bone.d - bone.b * bone.c;
+  if (Math.abs(det) < 1e-8) return;
+  const ldx = (bone.d * wdx - bone.b * wdy) / det;
+  const ldy = (bone.a * wdy - bone.c * wdx) / det;
+  if (att.vertices && k * 2 + 1 < att.vertices.length){ att.vertices[k * 2] += ldx; att.vertices[k * 2 + 1] += ldy; }
+  const rd = rawDocAttEntry(polyCtx.attName);
+  if (rd && Array.isArray(rd.vertices) && k * 2 + 1 < rd.vertices.length){
+    rd.vertices[k * 2] = roundN(rd.vertices[k * 2] + ldx, 2);
+    rd.vertices[k * 2 + 1] = roundN(rd.vertices[k * 2 + 1] + ldy, 2);
+  }
+  markDirty();
+}
+
+// Append a point at the END of the selected polygon (world coords).
+function addPolyVertex(wx, wy){
+  const rd = rawDocAttEntry(polyCtx && polyCtx.attName); if (!rd || !polyCtx) return;
+  const attName = polyCtx.attName;
+  const bone = skeleton.slots[polyCtx.slotIndex].bone;
+  const loc = bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  rd.vertices.push(roundN(loc.x, 2), roundN(loc.y, 2));
+  rd.vertexCount = rd.vertices.length / 2;
+  reselectAttachment(attName);
+  markDirty();
+}
+
+// Remove point k from the selected polygon (keeps ≥3).
+function removePolyVertex(k){
+  const rd = rawDocAttEntry(polyCtx && polyCtx.attName); if (!rd || !polyCtx) return;
+  if (rd.vertexCount <= 3){ $("#hint").textContent = "A polygon needs at least 3 points."; return; }
+  const attName = polyCtx.attName;
+  rd.vertices.splice(k * 2, 2);
+  rd.vertexCount = rd.vertices.length / 2;
+  selPolyPoint = null;
+  reselectAttachment(attName);
+  markDirty();
+}
+
+// Set the `end` slot of the selected clipping attachment (the last slot the mask affects).
+function setClippingEnd(endSlotName){
+  const rd = rawDocAttEntry(polyCtx && polyCtx.attName); if (!rd || !polyCtx) return;
+  const attName = polyCtx.attName;
+  if (endSlotName) rd.end = endSlotName; else delete rd.end;
+  reselectAttachment(attName);
+  markDirty();
+}
+
+// Nearest polygon point (WORLD) to the cursor, within a screen-scaled threshold; -1 if none.
+function nearestPolyPoint(e){
+  const w = polyWorldVerts(); if (!w) return -1;
+  const cw = cursorWorld(e); if (!cw) return -1;
+  const thr = renderer.camera.zoom * 10;
+  let best = -1, bestD = Infinity;
+  for (let k = 0; k < w.length / 2; k++){ const d = Math.hypot(w[k * 2] - cw.x, w[k * 2 + 1] - cw.y); if (d < bestD){ bestD = d; best = k; } }
+  return bestD < thr ? best : -1;
+}
+
+// Render the in-progress NEW polygon + the SELECTED polygon's points/outline. Clipping is drawn in
+// a distinct (red) colour vs boundingbox (green).
+function drawPolyOverlay(){
+  if (!editMode && !animMode) return;
+  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  const hasLine = typeof renderer.line === "function";
+  const r = renderer.camera.zoom * 4;
+  if (drawPolyMode && polyDrawPts.length){ // (a) drawing a brand-new polygon
+    const isClip = polyKind === "clipping";
+    const col = isClip ? new SPINE.Color(0.95, 0.3, 0.3, 1) : new SPINE.Color(0.4, 0.95, 0.1, 1);
+    const selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    for (let i = 0; i < polyDrawPts.length; i++){
+      const p = polyDrawPts[i];
+      renderer.circle(true, p.x, p.y, i === selPolyPoint ? r * 1.6 : r, i === selPolyPoint ? selCol : col, 12);
+      if (i > 0 && hasLine) renderer.line(polyDrawPts[i - 1].x, polyDrawPts[i - 1].y, p.x, p.y, col);
+    }
+    if (hasLine && polyDrawPts.length > 2){ const a = polyDrawPts[polyDrawPts.length - 1], b = polyDrawPts[0]; renderer.line(a.x, a.y, b.x, b.y, col); }
+    return;
+  }
+  if (polyCtx){ // (b) the selected polygon attachment
+    const w = polyWorldVerts(); if (!w) return;
+    const isClip = polyCtx.kind === "clipping";
+    const col = isClip ? new SPINE.Color(0.95, 0.3, 0.3, 1) : new SPINE.Color(0.4, 0.95, 0.1, 1);
+    const selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    const n = w.length / 2;
+    if (hasLine) for (let i = 0; i < n; i++){ const j = (i + 1) % n; renderer.line(w[i * 2], w[i * 2 + 1], w[j * 2], w[j * 2 + 1], col); }
+    for (let k = 0; k < n; k++) renderer.circle(true, w[k * 2], w[k * 2 + 1], k === selPolyPoint ? r * 1.6 : r, k === selPolyPoint ? selCol : col, 12);
+  }
+}
+
+// Editor for the selected polygon (boundingbox or clipping): point add/remove + (clipping) end slot.
+function renderPolyAttachmentEditor(det, att, kind){
+  const rd = rawDocAttEntry(polyCtx && polyCtx.attName);
+  const t = document.createElement("div");
+  t.textContent = (kind === "clipping" ? "clipping" : "bounding box") + " · " + (att.worldVerticesLength / 2) +
+    " points — drag the points on the canvas to reshape";
+  t.style.color = "var(--accent2)"; det.appendChild(t);
+  if (kind === "clipping"){
+    const er = document.createElement("label");
+    er.style.cssText = "display:flex;align-items:center;gap:6px;margin:6px 0;color:var(--dim);";
+    const el = document.createElement("span"); el.textContent = "end slot"; el.style.cssText = "width:54px;font-size:11px;"; el.title = "The LAST slot this mask clips (the mask affects this slot through the end slot, in draw order).";
+    const esel = document.createElement("select");
+    esel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    skeletonData.slots.forEach((s) => { const o = document.createElement("option"); o.value = s.name; o.textContent = s.name; esel.appendChild(o); });
+    esel.value = (rd && rd.end) || (att.endSlot && att.endSlot.name) || selSlot;
+    esel.onchange = () => setClippingEnd(esel.value);
+    er.appendChild(el); er.appendChild(esel); det.appendChild(er);
+  }
+  const tools = document.createElement("div"); tools.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;";
+  const addBtn = document.createElement("button");
+  addBtn.textContent = polyAddMode ? "＋ adding…" : "＋ Add point";
+  if (polyAddMode) addBtn.className = "active";
+  addBtn.title = "Click on the canvas to append a point to the end of the polygon.";
+  addBtn.onclick = () => { polyAddMode = !polyAddMode; renderSlotDetail(); };
+  const remBtn = document.createElement("button");
+  remBtn.textContent = "－ Remove selected";
+  remBtn.title = "Remove the selected point (click a point on the canvas to select it).";
+  remBtn.disabled = selPolyPoint == null;
+  remBtn.onclick = () => { if (selPolyPoint != null) removePolyVertex(selPolyPoint); };
+  tools.appendChild(addBtn); tools.appendChild(remBtn); det.appendChild(tools);
+  const h = document.createElement("div");
+  h.textContent = polyAddMode ? "click on the canvas to append a point" : "drag a point to reshape · click to select (then － removes it)";
+  h.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;"; det.appendChild(h);
+}
+
+// ---- LINKED MESH ------------------------------------------------------------
+// Every MESH attachment in the rig that is NOT itself a linked mesh — candidate parents, with their
+// skin + slot name so we can resolve them across skins. Returns [{skin, slot, name, def}].
+function sourceMeshCandidates(){
+  if (!rawDoc) return [];
+  const out = [];
+  for (const sk of rawDoc.skins || []){
+    if (!sk.attachments) continue;
+    for (const slotName of Object.keys(sk.attachments)){
+      const atts = sk.attachments[slotName];
+      for (const an of Object.keys(atts)){
+        const d = atts[an];
+        const isMesh = d && (d.type === "mesh" || (Array.isArray(d.uvs) && Array.isArray(d.triangles)));
+        if (isMesh && d.type !== "linkedmesh" && !d.parent) out.push({ skin: sk.name, slot: slotName, name: an, def: d });
+      }
+    }
+  }
+  return out;
+}
+
+// Create a linkedmesh on the selected slot referencing a source mesh. A linkedmesh STILL resolves
+// its own `path` against the atlas (validated in the spike), so copy the parent's path/region.
+function addLinkedMesh(parentName, parentSkin, parentDef){
+  if (!rawDoc || selSlot == null || !parentName) return;
+  const def = { type: "linkedmesh", parent: parentName };
+  const path = (parentDef && parentDef.path) || parentName; // a linkedmesh needs a resolvable region
+  if (path) def.path = path;
+  if (parentSkin && parentSkin !== activeSkinName()) def.skin = parentSkin;
+  if (parentDef && parentDef.width != null) def.width = parentDef.width;
+  if (parentDef && parentDef.height != null) def.height = parentDef.height;
+  const attName = addAttachmentToActiveSkin(parentName, def, true);
+  reselectAttachment(attName);
+  markDirty();
+}
+
+// Edit a linkedmesh: change which parent it references.
+function setLinkedMeshParent(parentName, parentSkin, parentDef){
+  const rd = rawDocAttEntry(meshCtx && meshCtx.attName); if (!rd || !meshCtx) return;
+  const attName = meshCtx.attName;
+  rd.parent = parentName;
+  if (parentSkin && parentSkin !== activeSkinName()) rd.skin = parentSkin; else delete rd.skin;
+  if (parentDef && parentDef.path) rd.path = parentDef.path; else if (parentName) rd.path = parentName;
+  reselectAttachment(attName);
+  markDirty();
+}
+// Toggle deform-inherit (the `timelines` field). Omit true (loader default true → parity).
+function setLinkedMeshInheritTimeline(inherit){
+  const rd = rawDocAttEntry(meshCtx && meshCtx.attName); if (!rd || !meshCtx) return;
+  const attName = meshCtx.attName;
+  if (inherit) delete rd.timelines; else rd.timelines = false;
+  reselectAttachment(attName);
+  markDirty();
+}
+
+// Editor for a selected LINKED MESH (a mesh with a parentMesh): parent picker + deform-inherit.
+function renderLinkedMeshEditor(det, att){
+  const rd = rawDocAttEntry(meshCtx && meshCtx.attName);
+  const t = document.createElement("div");
+  t.textContent = "linked mesh · shares another mesh's geometry/UVs — edit the source, this follows";
+  t.style.color = "var(--accent2)"; det.appendChild(t);
+  const cands = sourceMeshCandidates();
+  const pr = document.createElement("label");
+  pr.style.cssText = "display:flex;align-items:center;gap:6px;margin:6px 0;color:var(--dim);";
+  const pl = document.createElement("span"); pl.textContent = "source"; pl.style.cssText = "width:54px;font-size:11px;";
+  const psel = document.createElement("select");
+  psel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+  cands.forEach((c) => { const o = document.createElement("option"); o.value = c.skin + "›" + c.name; o.textContent = c.name + " (" + c.skin + ")"; psel.appendChild(o); });
+  const curParent = rd && rd.parent ? ((rd.skin || activeSkinName()) + "›" + rd.parent) : "";
+  if (curParent) psel.value = curParent;
+  psel.onchange = () => { const c = cands.find((x) => (x.skin + "›" + x.name) === psel.value); if (c) setLinkedMeshParent(c.name, c.skin, c.def); };
+  pr.appendChild(pl); pr.appendChild(psel); det.appendChild(pr);
+  const tg = document.createElement("label");
+  tg.style.cssText = "display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--txt);cursor:pointer;";
+  tg.title = "Inherit deform: the linked mesh follows the SOURCE mesh's deform animation timelines (Spine's 'Inherit Timelines'). Off → it can have its own deform.";
+  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !(rd && rd.timelines === false); cb.onchange = () => setLinkedMeshInheritTimeline(cb.checked);
+  tg.appendChild(cb); tg.appendChild(document.createTextNode("inherit deform (timelines)")); det.appendChild(tg);
 }
 
 // Distinct bone names a weighted mesh is bound to (walks the runtime packed `bones`
@@ -6981,6 +7474,8 @@ function frame(now){
     drawMeshOverlay();
     drawDrawingOverlay();
     drawPathOverlay();
+    drawPolyOverlay(); // §18.9 boundingbox / clipping
+    drawPointOverlay(); // §18.9 point locator
     if (showBones) drawBonesOverlay();
     drawGizmo();
     drawBoundsOverlay();
@@ -7275,6 +7770,26 @@ function wire(){
       const hit = nearestPathPoint(e);
       if (hit >= 0){ pathDragIdx = hit; selPathPoint = hit; renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return; }
     }
+    // §18.9 drawing a brand-new polygon (boundingbox/clipping): click drops points / drags one.
+    if (editMode && drawPolyMode && !e.shiftKey){
+      const cw = cursorWorld(e);
+      let hit = -1;
+      for (let k = 0; k < polyDrawPts.length; k++){ if (cw && Math.hypot(polyDrawPts[k].x - cw.x, polyDrawPts[k].y - cw.y) < renderer.camera.zoom * 10){ hit = k; break; } }
+      if (hit >= 0){ polyDragIdx = -2 - hit; selPolyPoint = hit; } // -2-k marks an in-progress draw drag
+      else if (cw){ polyDrawPts.push({ x: cw.x, y: cw.y }); selPolyPoint = polyDrawPts.length - 1; }
+      renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return;
+    }
+    // §18.9 editing the selected polygon: add-mode appends a point; otherwise drag/select a point.
+    if (editMode && polyCtx && !e.shiftKey){
+      if (polyAddMode){ const cw = cursorWorld(e); if (cw) addPolyVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
+      const hit = nearestPolyPoint(e);
+      if (hit >= 0){ polyDragIdx = hit; selPolyPoint = hit; renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return; }
+    }
+    // §18.9 placing the selected point: click sets its position.
+    if (editMode && pointCtx && placePointMode && !e.shiftKey){
+      const cw = cursorWorld(e); if (cw) setPointWorld(cw.x, cw.y);
+      placePointMode = false; lastXY = [e.clientX, e.clientY]; return;
+    }
     if (editMode && drawMeshMode && !e.shiftKey){
       const hit = nearestDrawPoint(e);
       if (hit >= 0){ drawDragIdx = hit; selDrawPoint = hit; }
@@ -7329,6 +7844,7 @@ function wire(){
     if (wasMeshDrag){ meshDragVert = null; meshUVFrame = null; }
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
     if (pathDragIdx != null){ pathDragIdx = null; renderSlotDetail(); } // commit path control-point move
+    if (polyDragIdx != null){ polyDragIdx = null; renderSlotDetail(); } // commit polygon point move
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
     gizmoDrag = null; lastGizmoCursor = null;
     if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
@@ -7354,6 +7870,20 @@ function wire(){
         const idx = (selPathPoint != null && selPathPoint < pathDrawPts.length) ? selPathPoint : pathDrawPts.length - 1;
         pathDrawPts.splice(idx, 1);
         selPathPoint = pathDrawPts.length ? Math.min(idx, pathDrawPts.length - 1) : null;
+        renderSlotDetail();
+      }
+      return;
+    }
+    // §18.9 drawing a new polygon (box/clip): Enter commits, Esc cancels, Delete/Backspace drops one.
+    if (editMode && drawPolyMode){
+      if (e.key === "Enter"){ e.preventDefault(); finishDrawPoly(); return; }
+      if (e.key === "Escape"){ e.preventDefault(); cancelDrawPoly(); return; }
+      if (e.key === "Backspace" || e.key === "Delete"){
+        e.preventDefault();
+        if (!polyDrawPts.length) return;
+        const idx = (selPolyPoint != null && selPolyPoint < polyDrawPts.length) ? selPolyPoint : polyDrawPts.length - 1;
+        polyDrawPts.splice(idx, 1);
+        selPolyPoint = polyDrawPts.length ? Math.min(idx, polyDrawPts.length - 1) : null;
         renderSlotDetail();
       }
       return;
@@ -7427,6 +7957,13 @@ function wire(){
       if (cw){
         if (pathDragIdx <= -2){ const k = -2 - pathDragIdx; if (pathDrawPts[k]){ pathDrawPts[k].x = cw.x; pathDrawPts[k].y = cw.y; } } // dragging an in-progress draw point
         else { const w = pathWorldVerts(); if (w && pathDragIdx < w.length / 2){ const k = pathDragIdx; applyPathVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); } } // dragging an existing control point
+      }
+      lastXY = [e.clientX, e.clientY];
+    } else if (polyDragIdx != null){ // §18.9 box/clip point drag
+      const cw = cursorWorld(e);
+      if (cw){
+        if (polyDragIdx <= -2){ const k = -2 - polyDragIdx; if (polyDrawPts[k]){ polyDrawPts[k].x = cw.x; polyDrawPts[k].y = cw.y; } } // in-progress draw point
+        else { const w = polyWorldVerts(); if (w && polyDragIdx < w.length / 2){ const k = polyDragIdx; applyPolyVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); } } // existing polygon point
       }
       lastXY = [e.clientX, e.clientY];
     } else if (drawDragIdx != null){
