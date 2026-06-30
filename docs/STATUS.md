@@ -98,7 +98,16 @@ submodule bumps).
 >   own (`apps/lines` Game.svelte/flowRuntime/flowDoc); a tap fires its `complete` edge to
 >   `basegame`. `tools/flow-spike/phase1Loading.ts` 14/14 + all prior harnesses green; lines
 >   build ships the `__IE_FLOW_LOADING__` hook. Parity-inert by default (no `engine-flow`
->   change needed). **Next: Phase 2** (author win-presentation transitions). ⏳ owner live-verify.
+>   change needed). ⏳ owner live-verify.
+> - **Phase 2 (win → flow branch) — DONE headlessly + build-shipped 2026-06-30**
+>   (branch `flow/driven-game`). Owner-approved split: big-win + free-spin-intro promoted to
+>   exclusive Flow screen nodes (`bigWin`/`freeSpinIntro`) reached by guarded `bookEvent`
+>   transitions (`setWin` with a `winLevel in [6..10]` guard; `freeSpinTrigger`), returning via
+>   `complete` (tap); small wins stay feed-driven overlays. Separate `LINES_FLOW_WIN_DOC` fixture
+>   behind `__IE_FLOW_WIN__` — no-double-fire discipline (branched `setWin` + authored-no-op
+>   `freeSpinTrigger`). `tools/flow-spike/phase2WinTransitions.ts` + all prior harnesses green;
+>   lines build ships the hook. Parity-inert by default. **Next: Phase 4** (live exclusive-screen
+>   mount for the win takeovers) or **Phase 3** (engine-state guards). ⏳ owner live-verify.
 
 ### Blocked on owner / external (not code)
 

@@ -12,10 +12,12 @@
 
 ## 0. Status
 
-**Phase 1 BUILT (headless-green + build-shipped, 2026-06-30) — the rest is plan.** This doc
+**Phases 1–2 BUILT (headless-green + build-shipped, 2026-06-30) — the rest is plan.** This doc
 decomposes the gap analysis from the 2026-06-30 review into phases that mirror the Flow
 tool's own phase/parity-harness discipline. The review found the data model ~80% complete;
-the gaps are concentrated, not diffuse. See the Phase 1 progress note in §1.
+the gaps are concentrated, not diffuse. See the progress notes in §1 (loading→tap→basegame)
+and §2 (win → bigWin/freeSpinIntro branch). Both ride dev-hook fixtures behind a parity-inert
+default boot; the live exclusive-screen mount for the win takeovers is the Phase 4 follow-up.
 
 ### What already works (the foundation — do not rebuild)
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
