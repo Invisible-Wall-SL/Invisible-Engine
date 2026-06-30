@@ -14,6 +14,7 @@
 		isHudButtonBind,
 		resolveTransform,
 		TAP_TO_CONTINUE_PARAMS,
+		COMPLETE_ON_LOADED_PARAMS,
 		type ComponentDef,
 		type ComponentParam,
 		type ComponentSignal,
@@ -1986,6 +1987,17 @@
 							prompt to draw your own continue graphic.
 						</p>
 						{#each TAP_TO_CONTINUE_PARAMS as p (p.key)}
+							<div class="row">{@render paramField(p)}</div>
+						{/each}
+					</details>
+					<details class="param-group" open={Boolean(node.params?.completeOnLoaded)}>
+						<summary>On loaded</summary>
+						<p class="muted small">
+							Advance the flow the moment boot asset-loading finishes — completes the active flow
+							screen (and, with a signal set, fires that signal's transition), no tap needed. Drop
+							the Loading Bar component to get this on by default. Off otherwise.
+						</p>
+						{#each COMPLETE_ON_LOADED_PARAMS as p (p.key)}
 							<div class="row">{@render paramField(p)}</div>
 						{/each}
 					</details>

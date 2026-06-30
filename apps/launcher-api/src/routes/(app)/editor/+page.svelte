@@ -559,6 +559,10 @@
 			y: Math.round(main.height / 2),
 			anchor: { x: 0.5, y: 0.5 },
 		};
+		// Seed any def-declared default instance params onto the placement (e.g. the
+		// `loadingBar` def carries `completeOnLoaded: true`, so dropping it is a
+		// flow-driven loading screen out of the box). Absent ⇒ a bare instance (parity).
+		if (def.defaultInstanceParams) node.params = { ...def.defaultInstanceParams };
 		onSpawn(node);
 		selectOnly(node.id);
 	}

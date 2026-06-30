@@ -669,6 +669,17 @@ export interface ComponentDef {
 	root: ContainerNode;
 	/** Typed inputs an instance or the engine can set. */
 	params?: ComponentParam[];
+	/**
+	 * Per-instance param values seeded onto a freshly DROPPED instance (the editor's
+	 * `placeComponentInstance`). Unlike a {@link ComponentParam.default} (which lives on the
+	 * def and is merged at resolve), these are written onto the new `node.params` so the
+	 * placement starts with a SHARED-capability param turned on — e.g. the `loadingBar` def
+	 * carries `{ completeOnLoaded: true }` so dropping it = a flow-driven loading screen with
+	 * no extra clicks. Keys here are NOT declared in `params` (so the editor still surfaces
+	 * the shared `completeOnLoaded` control); they're an authoring convenience. Absent ⇒ a
+	 * bare instance (parity) — only `loadingBar` sets it.
+	 */
+	defaultInstanceParams?: Record<string, unknown>;
 	/** Named triggers the engine fires (enter/exit/win/…). */
 	signals?: ComponentSignal[];
 	/** A component may expose its own slots. */

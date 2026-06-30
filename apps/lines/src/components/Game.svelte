@@ -38,6 +38,7 @@
 		registerComponentValues,
 		registerComponentActions,
 		registerComponentVisibility,
+		registerFlowComplete,
 		registerComponentSignals,
 		registerFontCatalog,
 		mergeBakedFontCatalog,
@@ -53,6 +54,7 @@
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		TAP_TO_CONTINUE_DEF,
+		LOADING_BAR_DEF,
 		findReelGridNode,
 		resolveTransform,
 		backgroundCoverScale,
@@ -67,7 +69,11 @@
 	import { infoManifest } from '../game/infoManifest';
 	import { resetSymbolMapCache } from '../game/symbolMap';
 	import { createLinesFlow, type LinesFlow } from '../game/flowRuntime.svelte';
-	import { setFlowInterpreter } from '../game/flowInterpreterHolder';
+	import {
+		setFlowInterpreter,
+		completeActiveScreen,
+		emitFlowSignal,
+	} from '../game/flowInterpreterHolder';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
@@ -244,6 +250,22 @@
 		// `TapToContinue` bind), so a freshly-placed instance starts transparent until the
 		// author flips the toggle and raises the dim — parity otherwise.
 		[TAP_TO_CONTINUE_DEF.id]: TAP_TO_CONTINUE_DEF,
+		// Flow-driven-game §1 — the droppable LOADING BAR. A minimal `overlay` def that
+		// mounts the proven coded `LoadingBar` part and carries `completeOnLoaded: true` (seeded
+		// on drop), so dropping it on the `loading` screen makes the flow's `complete` edge fire
+		// when boot loading finishes — the loading gate becomes authorable in `/flow`. Inert
+		// until a doc references it (parity); the capability is a no-op with no active interpreter.
+		[LOADING_BAR_DEF.id]: LOADING_BAR_DEF,
+	});
+	// Flow-driven-game §1 — wire the engine's feed-triggered `completeOnLoaded` capability
+	// (`<ComponentInstance>` → `getFlowComplete()`) to THIS game's Flow holder, the non-visual
+	// sibling of the `TapToContinue` bound-component mount. A `completeOnLoaded` instance's
+	// `assetsLoaded` rising edge then advances the active Flow screen exactly as a tap does.
+	// SAFE: the holder helpers are no-ops with no active interpreter (no FlowDoc ⇒ pure coded
+	// path), so this is inert on a normal boot — parity.
+	registerFlowComplete({
+		completeActiveScreen: () => void completeActiveScreen(),
+		emitSignal: (signal: string) => void emitFlowSignal(signal),
 	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose

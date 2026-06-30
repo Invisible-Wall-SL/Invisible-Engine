@@ -46,6 +46,8 @@
 		tapHidePromptOf,
 		TAP_TO_CONTINUE_COMPONENT,
 	} from './tapToContinue';
+	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
+	import { getFlowComplete } from './registerFlowComplete';
 
 	const { node, space }: Props = $props();
 
@@ -133,6 +135,25 @@
 	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
 	const tapHidePrompt = tapEnabled ? tapHidePromptOf(staticParams) : false;
 
+	// Complete-on-loaded (flow-driven-game §1): the FEED-TRIGGERED sibling of
+	// tap-to-continue. A SHARED per-instance toggle any `overlay`-category instance can
+	// switch on (no def declaration — same gating + parity discipline as `tapEnabled`).
+	// When on, the engine subscribes the registered `assetsLoaded` BoolSource (the same
+	// feed `visibleSource` gates on) and, on its RISING EDGE (false→true, fired ONCE),
+	// advances the active Flow screen — so dropping a loading-bar component that carries
+	// `completeOnLoaded: true` makes the flow's `complete` edge fire when boot loading
+	// finishes. OFF by default ⇒ no subscription below ⇒ byte-identical. Init-stable like
+	// the tap reads (the toggle lives on the placed instance, read once).
+	const completeOnLoadedEnabled =
+		allowed && def?.category === 'overlay' && isCompleteOnLoadedEnabled(staticParams);
+	const loadedSignal = completeOnLoadedEnabled ? loadedSignalOf(staticParams) : '';
+	// The boot-load feed the rising edge listens on — the SAME `assetsLoaded` source the
+	// `visibleSource` path resolves (registered by the game via `registerComponentVisibility`).
+	// Absent (game registered no such feed) ⇒ no subscription ⇒ inert (parity).
+	const loadedSource: BoolSource | undefined = completeOnLoadedEnabled
+		? getComponentVisibility('assetsLoaded')
+		: undefined;
+
 	// Engine value feed (§13.2 step 2 / Phase B2): if the resolved params name a
 	// `source` AND the game registered a value store under it, subscribe and keep
 	// the latest number in `liveValue`. The subscription lives in an `$effect` so
@@ -219,6 +240,38 @@
 		if (!visibilitySource) return;
 		return visibilitySource.subscribe((value) => {
 			liveVisible = value;
+		});
+	});
+
+	// Complete-on-loaded rising edge (flow-driven-game §1): when the instance enabled the
+	// capability AND the game registered the `assetsLoaded` feed, subscribe it and fire
+	// ONCE on the false→true transition. The `subscribe` contract emits synchronously with
+	// the CURRENT value, so we seed `wasLoaded` from the first emit WITHOUT firing (an
+	// instance mounted AFTER loading already finished must not retro-fire) and only act on a
+	// later false→true edge — the real "loading just completed" moment. `fired` guards a
+	// second edge (a feed that toggles back) from re-advancing. Each fire routes through the
+	// game-registered Flow holder (`getFlowComplete`); UNREGISTERED ⇒ no-op (parity). The
+	// interpreter's own `onComplete()` only fires an outgoing edge from the CURRENT active
+	// screen, so even a stray fire after `loading` already advanced (coded press-to-continue)
+	// matches nothing — no double-fire, the `fired` guard is belt-and-suspenders.
+	let loadedSeeded = false;
+	let wasLoaded = false;
+	let fired = false;
+	$effect(() => {
+		if (!loadedSource) return;
+		return loadedSource.subscribe((value) => {
+			if (!loadedSeeded) {
+				loadedSeeded = true;
+				wasLoaded = value;
+				return;
+			}
+			if (value && !wasLoaded && !fired) {
+				fired = true;
+				const flow = getFlowComplete();
+				flow?.completeActiveScreen();
+				if (loadedSignal) flow?.emitSignal(loadedSignal);
+			}
+			wasLoaded = value;
 		});
 	});
 
