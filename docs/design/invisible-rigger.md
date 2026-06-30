@@ -16,6 +16,7 @@ mesh (move/add/remove/region→mesh/CDT/UV), weights (bind/per-vertex/brush/auto
 animation (keyframing, dopesheet, curves, graph editor, slot/event/draw-order channels),
 rig + animation libraries, isolated-mesh edit, mesh-**deform** animation timelines (§18 item 1),
 IK constraint authoring + the IK mix timeline (§18 item 3),
+physics constraint authoring + the `physics` timeline (§18 item 8),
 `.irig` export + R2 save. **Genuinely
 outstanding:** ship-from-Rigger (rule-8 export→deploy→bake→pull→register — rigs only save to
 R2 today), Phase 3.6 visual texture-panel UV editor +
@@ -1025,7 +1026,8 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
 7. **Path attachment + path constraint** authoring + `path` timeline — needs the path
    attachment type first; bigger.
 8. **Physics constraint** authoring + `physics` timeline (NEW in 4.2: inertia/strength/
-   damping/mass/wind/gravity/mix/reset) — most complex; after IK/transform.
+   damping/mass/wind/gravity/mix/reset) — ✅ **LANDED** (`rigger/physics-constraints`). See the
+   §18.8 note below for the validated format + the parity-safe sim-step.
 9. **Attachments:** clipping (mask), bounding-box, point (locator — cheap + useful for FX),
    linked-mesh authoring (PRESERVE-ONLY today).
 10. Lower priority: separated translatex/y·scalex/y·shearx/y channels, sequence attachment +
@@ -1092,6 +1094,64 @@ format verified vs spine-core (`draworder.mjs`, 5 random 68-slot perms exact).
   written, existing slots untouched. Build GREEN (`pnpm --filter launcher-api build`); inline
   `<script>` passes a `new Function` syntax check. ⏳ owner-verify the in-browser blend RENDER (the
   vendored runtime is minified; the spike uses un-mangled core).
+
+**§18.8 Physics constraint authoring + the `physics` timeline LANDED** (`rigger/physics-constraints`).
+Physics is NEW in 4.2 and is a SIMULATION (secondary motion — hair/cloth/jiggle), so it is
+non-deterministic; the spike (`tools/rigger-spike/physics.mjs`, GREEN on anticipation + transition
+vs spine-core@4.2.74's `SkeletonJson` + `PhysicsConstraint(Data)` + the eight `Physics*Timeline`
+classes) asserts STRUCTURALLY (finite / changes / stable / resets), not exact values.
+- **Setup** = top-level `physics` array (`skeletonData.physicsConstraints`):
+  `{name, order, skin?, bone, x, y, rotate, scaleX, shearX, limit, fps, inertia, strength, damping,
+  mass, wind, gravity, mix, <prop>Global…}`. **CRUX (field names + defaults):** `bone` is a
+  **SINGLE** driven bone NAME (NOT a `bones[]` array; loader throws "Physics bone not found" if
+  absent). `x/y/rotate/scaleX/shearX` are **0..1 amounts** (which transform components physics
+  drives), all default **0** (off). The JSON key is **`fps`** (default 60) → loader stores
+  `data.step = 1/fps`; and **`mass`** (default 1) → `data.massInverse = 1/mass` (NOT `step`/
+  `massInverse` in JSON). `limit` default **5000** (× skeleton scale), `inertia` 1, `strength` 100,
+  `damping` 1, `wind` 0, `gravity` 0, `mix` 1 (mix==0 ⇒ the constraint early-returns, inert).
+  `order` default 0. The seven `*Global` flags (`inertiaGlobal`…`mixGlobal`) are bools default false.
+- **`order` is the trap (proven):** SkeletonJson's `updateCache` dispatches by
+  `constraint.data.order == i`, taking at most ONE constraint per `i` ACROSS ALL kinds
+  (ik+transform+path+physics). A physics `order` that collides with an existing constraint's order
+  is **never sorted → `constraint.active` stays false → the constraint AND its timeline silently do
+  nothing** (the spike's inertia/wind/gravity timelines all read the setup value until the order was
+  made unique). So the UI appends at the next free order (`nextConstraintOrder`) and **re-packs to
+  contiguous 0..N-1** (`repackConstraintOrders`) on delete + import.
+- **Timeline** = `animations.<a>.physics.<name>` is a **MAP of per-channel arrays** (NOT one keyed
+  array like ik/transform): `{inertia|strength|damping|mass|wind|gravity|mix: [{time, value,
+  curve?}], reset: [{time}]}`. Each non-reset channel is a single-value timeline (`readTimeline1`:
+  the JSON key is **`value`**, interpolates linear or bezier via a per-key `curve` =
+  ONE `[cx1,cy1,cx2,cy2]` channel — channel 0, like a bone single channel). `mass` animates
+  `massInverse`. `reset` is a value-less STEP (`{time}` only) → `PhysicsConstraintResetTimeline`
+  fires `constraint.reset()` at that frame (snaps the secondary motion to rest).
+- **Authoring UI:** the constraints panel now LISTS physics (the audit said it was uncounted) +
+  `＋ Add physics constraint` (on the selected bone, rotate-driven default). Select → a physics
+  editor (`renderPhysicsEditor`): bone `<select>`, the five driven amounts, limit + fps, and the
+  seven sim props; rename (rekeys the `physics` timeline), delete (prunes the timeline + re-packs
+  `order`). Bone rename/delete already walked `["ik","transform","path"]` for ref cleanup — extended
+  to `"physics"` (singular `bone`), so a deleted driven bone drops its physics constraint + clears
+  its timeline.
+- **Animation UI:** a single merged **`physics` dopesheet track** per constraint (union of all
+  channel key times). `◆ Key physics @ t` upserts the live sim values into all seven value
+  channels; `↺ Key reset @ t` adds a reset step; retime / Alt-drag duplicate / dbl-click delete /
+  right-click easing operate across every channel (one shared ease baked per value channel; a
+  reset-only key is a step → not easable) via the shared dopesheet dispatch
+  (`trackKeyTimes`/`trackKeyCurve`/`setTrackKeyCurve`/`trackKeyEasable`/`retimeTrackKey`/
+  `copyTrackKey` + the dblclick/multi-delete sites). `poseAtTime` sets the live `PhysicsConstraint`
+  params from the sampled channels (and fires `reset()` when the playhead crosses a reset key).
+- **The preview STEPS the sim (parity-safe):** the runtime moves physics only when
+  `skeleton.time` advances (read ONLY by `PhysicsConstraint`). The frame loop now calls
+  `skeleton.update(delta)` BEFORE `updateWorld()` (which already passed `Physics.update`) — but
+  **only when `hasPhysics()`** (the live skeleton has ≥1 physics constraint) AND a "running" view is
+  active (animate-with-clip / preview; setup/edit hold the pose). Because the step is gated on
+  `hasPhysics()`, **a rig with no physics constraints never advances `skeleton.time` → its output is
+  byte-identical to before** (IK/transform/path + mesh + the existing updateWorld path unchanged).
+- **Parity:** no physics authored ⇒ no `physics` array, no `physics` track, no per-frame sim step,
+  no behaviour change (SkeletonJson does not write back; the whole `rawDoc` is saved verbatim, so a
+  no-physics doc round-trips unchanged and existing PRESERVE-ONLY physics constraints become
+  editable). Build GREEN (`pnpm --filter launcher-api build`); inline `<script>` passes a
+  `new Function` syntax check. ⏳ owner-verify the in-browser SIM live (the vendored runtime is
+  minified; the spike uses un-mangled core).
 
 **Non-bone channels done: attachment · colour · dark colour (2-tone) · events · draw order · mesh deform.** The
 free-form mesh-deform timeline (the largest non-bone channel, §18 item 1) LANDED — see the

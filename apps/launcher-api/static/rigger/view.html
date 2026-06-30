@@ -477,6 +477,7 @@ let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let selIk = null; // selected IK constraint NAME (constraints panel editor + ik dopesheet track)
 let selTc = null; // selected transform constraint NAME (constraints panel editor + transform dopesheet track)
+let selPc = null; // selected physics constraint NAME (constraints panel editor + physics dopesheet track)
 let collapsedBones = new Set(); // bone names whose subtree is collapsed in the tree
 let dragBoneIdx = null; // bone index being drag-reparented in the hierarchy tree
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
@@ -766,6 +767,7 @@ function buildSkeleton(entry){
   selSlot = null;
   selIk = null;
   selTc = null;
+  selPc = null;
   collapsedBones.clear();
   setMode("preview");
 
@@ -1055,6 +1057,11 @@ function buildInspector(entry){
     addTc.title = "constrain the selected bone(s) to follow a target bone's transform (mix + offsets)";
     addTc.disabled = selBone == null;
     addTc.onclick = addTransformConstraint; tools.appendChild(addTc);
+    const addPc = document.createElement("button");
+    addPc.textContent = "＋ Add physics constraint";
+    addPc.title = "add secondary-motion physics (hair/cloth/jiggle) to the selected bone";
+    addPc.disabled = selBone == null;
+    addPc.onclick = addPhysicsConstraint; tools.appendChild(addPc);
     if (selBone == null){ const h = document.createElement("span"); h.textContent = "select a bone first"; h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;"; tools.appendChild(h); }
     consList.appendChild(tools);
   }
@@ -1069,19 +1076,22 @@ function buildInspector(entry){
   addCons(skeletonData.ikConstraints || [], "IK", selectIk, selIk);
   addCons(skeletonData.transformConstraints || [], "transform", selectTc, selTc);
   addCons(skeletonData.pathConstraints || [], "path", null, null);
+  addCons(skeletonData.physicsConstraints || [], "physics", selectPc, selPc);
   const cCount = (skeletonData.ikConstraints||[]).length + (skeletonData.transformConstraints||[]).length
-    + (skeletonData.pathConstraints||[]).length;
+    + (skeletonData.pathConstraints||[]).length + (skeletonData.physicsConstraints||[]).length;
   $("#cCons").textContent = "(" + cCount + ")";
   if (!cCount){ const e = document.createElement("div"); e.className = "empty"; e.textContent = "none"; consList.appendChild(e); }
   if (selIk && !(skeletonData.ikConstraints || []).some((c) => c.name === selIk)) selIk = null;
   if (selTc && !(skeletonData.transformConstraints || []).some((c) => c.name === selTc)) selTc = null;
+  if (selPc && !(skeletonData.physicsConstraints || []).some((c) => c.name === selPc)) selPc = null;
   renderConstraintEditor();
 }
 
 // The constraints panel shares one detail box (#consDetail): show the editor for whichever
 // constraint kind is selected. Selecting one kind clears the other (one editor at a time).
 function renderConstraintEditor(){
-  if (selTc) renderTransformEditor();
+  if (selPc) renderPhysicsEditor();
+  else if (selTc) renderTransformEditor();
   else renderIkEditor();
 }
 
@@ -1622,8 +1632,8 @@ function prefixRigNames(src, p){
     }
     sk.attachments = rekeyed;
   }
-  // constraints: name + bone/target/bones refs (ik/transform/path).
-  for (const grp of ["ik", "transform", "path"]) for (const c of src[grp] || []){
+  // constraints: name + bone/target/bones refs (ik/transform/path/physics).
+  for (const grp of ["ik", "transform", "path", "physics"]) for (const c of src[grp] || []){
     if (typeof c.name === "string") c.name = p + c.name;
     if (typeof c.bone === "string") c.bone = p + c.bone;
     if (typeof c.target === "string") c.target = p + c.target;
@@ -1642,6 +1652,7 @@ function prefixRigNames(src, p){
     if (an.ik) an.ik = rekey(an.ik);
     if (an.transform) an.transform = rekey(an.transform);
     if (an.path) an.path = rekey(an.path);
+    if (an.physics) an.physics = rekey(an.physics);
     if (an.deform){
       const skinMap = {};
       for (const skinName of Object.keys(an.deform)){
@@ -1677,7 +1688,7 @@ function mergeRigInto(dst, src, attachBone){
   if (srcRoot && srcRoot !== attachBone){
     for (const b of srcBones) if (b.parent === srcRoot) b.parent = attachBone;
     for (const s of src.slots || []) if (s.bone === srcRoot) s.bone = attachBone;
-    for (const grp of ["ik", "transform", "path"]) for (const c of src[grp] || []){
+    for (const grp of ["ik", "transform", "path", "physics"]) for (const c of src[grp] || []){
       if (c.bone === srcRoot) c.bone = attachBone;
       if (c.target === srcRoot) c.target = attachBone;
       if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (n === srcRoot ? attachBone : n));
@@ -1697,12 +1708,15 @@ function mergeRigInto(dst, src, attachBone){
   for (const s of src.slots || []) dst.slots.push(s);
   dst.skins = dst.skins || [];
   for (const sk of src.skins || []) dst.skins.push(sk);
-  for (const grp of ["ik", "transform", "path"]) if (Array.isArray(src[grp])){
+  for (const grp of ["ik", "transform", "path", "physics"]) if (Array.isArray(src[grp])){
     dst[grp] = dst[grp] || [];
     for (const c of src[grp]) dst[grp].push(c);
   }
   dst.animations = dst.animations || {};
   for (const k of Object.keys(src.animations || {})) dst.animations[k] = src.animations[k];
+  // imported constraints append their own `order`s after the host's — re-pack so every kind's
+  // order is contiguous (physics is order-sensitive: a collision/gap leaves it unsortable).
+  repackConstraintOrders(dst);
 }
 
 // D4 — import a saved rig into the OPEN rig, collision-safe via namespacing.
@@ -1725,13 +1739,13 @@ async function importRig(id){
   for (const b of rawDoc.bones || []) existing.add("b:" + b.name);
   for (const s of rawDoc.slots || []) existing.add("s:" + s.name);
   for (const sk of rawDoc.skins || []) existing.add("k:" + sk.name);
-  for (const grp of ["ik", "transform", "path"]) for (const c of rawDoc[grp] || []) existing.add("c:" + c.name);
+  for (const grp of ["ik", "transform", "path", "physics"]) for (const c of rawDoc[grp] || []) existing.add("c:" + c.name);
   for (const k of Object.keys(rawDoc.animations || {})) existing.add("a:" + k);
   const collides = (p) => {
     for (const b of src.bones || []) if (existing.has("b:" + p + b.name)) return true;
     for (const s of src.slots || []) if (existing.has("s:" + p + s.name)) return true;
     for (const sk of src.skins || []) if (existing.has("k:" + p + sk.name)) return true;
-    for (const grp of ["ik", "transform", "path"]) for (const c of src[grp] || []) if (existing.has("c:" + p + c.name)) return true;
+    for (const grp of ["ik", "transform", "path", "physics"]) for (const c of src[grp] || []) if (existing.has("c:" + p + c.name)) return true;
     for (const k of Object.keys(src.animations || {})) if (existing.has("a:" + p + k)) return true;
     return false;
   };
@@ -2220,6 +2234,175 @@ function renderTransformEditor(){
   foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
+// ---- physics constraints (§18 item 8) -------------------------------------
+// Validated against spine-core@4.2.74 (tools/rigger-spike/physics.mjs): top-level `physics`
+// array, each = { name, order, bone (SINGLE), x/y/rotate/scaleX/shearX (0..1 amounts, default
+// 0 = off), limit (5000), fps (60 → step=1/fps), inertia (1), strength (100), damping (1),
+// mass (1 → massInverse=1/mass), wind (0), gravity (0), mix (1), *Global bools }. Physics is a
+// SIMULATION (secondary motion for hair/cloth/jiggle), NEW in 4.2.
+const PC_DRIVEN = ["x", "y", "rotate", "scaleX", "shearX"];          // 0..1 amounts (which channels physics drives)
+const PC_SIM = ["inertia", "strength", "damping", "mass", "wind", "gravity", "mix"]; // animatable sim params
+const PC_SIM_DEFAULT = { inertia: 1, strength: 100, damping: 1, mass: 1, wind: 0, gravity: 0, mix: 1 };
+const pcArr = () => (rawDoc && Array.isArray(rawDoc.physics)) ? rawDoc.physics : null;
+const pcByName = (n) => { const a = pcArr(); return a ? a.find((c) => c.name === n) : null; };
+// True iff the live skeleton has any physics constraint (gates the frame-loop sim step → a
+// no-physics rig never advances skeleton.time, keeping its output byte-identical to before).
+const hasPhysics = () => !!(skeleton && skeleton.physicsConstraints && skeleton.physicsConstraints.length);
+function selectPc(name){ selPc = name; selIk = null; selTc = null; buildInspector(selected); if (animMode) renderTimeline(); }
+
+// Next free `order` across ALL constraint kinds. CRUX (proven in physics.mjs): SkeletonJson's
+// updateCache dispatches by `constraint.data.order == i`, taking at most one constraint per i —
+// a physics order that collides with an existing ik/transform/path order is NEVER sorted, so
+// the constraint stays inactive and silently does nothing (incl. its timeline). So append at the
+// end and keep orders contiguous when packing.
+function nextConstraintOrder(){
+  let n = 0;
+  for (const grp of ["ik", "transform", "path", "physics"]) n += (rawDoc[grp] || []).length;
+  return n;
+}
+// Re-pack `order` to be contiguous 0..N-1 across every kind (preserving relative order). Run
+// after a delete so no gap leaves a later constraint's order > count and unsortable.
+function repackConstraintOrders(doc){
+  const d = doc || rawDoc; if (!d) return;
+  const all = [];
+  for (const grp of ["ik", "transform", "path", "physics"]) for (const c of d[grp] || []) all.push(c);
+  all.sort((a, b) => (a.order || 0) - (b.order || 0));
+  all.forEach((c, i) => { c.order = i; });
+}
+
+// Add a physics constraint on the selected bone, driving rotation by default (the most common
+// jiggle channel). Defaults match the runtime so the feel is Spine-native.
+function addPhysicsConstraint(){
+  if (!rawDoc || selBone == null) return;
+  const bone = skeletonData.bones[selBone];
+  rawDoc.physics = rawDoc.physics || [];
+  const name = uniqueName("physics", new Set(rawDoc.physics.map((c) => c.name)));
+  rawDoc.physics.push({ name, order: nextConstraintOrder(), bone: bone.name,
+    x: 0, y: 0, rotate: 1, scaleX: 0, shearX: 0,
+    limit: 5000, fps: 60, inertia: 1, strength: 100, damping: 1, mass: 1, wind: 0, gravity: 0, mix: 1 });
+  selPc = name; selIk = null; selTc = null;
+  rebuildFromRawDoc(bone.name);
+  markDirty();
+}
+
+// Mutate one field of the selected physics constraint + rebuild (keeps the live
+// PhysicsConstraint in sync). Driven amounts that go to 0 (the default/off) are dropped to keep
+// parity; sim params that match the loader default are likewise dropped.
+function editPc(field, value){
+  const c = pcByName(selPc); if (!c) return;
+  const isDriven = PC_DRIVEN.includes(field);
+  const isDefault = (field === "limit" && value === 5000) || (field === "fps" && value === 60)
+    || (isDriven && !value) || (PC_SIM.includes(field) && value === PC_SIM_DEFAULT[field]);
+  if (isDefault) delete c[field]; else c[field] = value;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function renamePhysicsConstraint(oldName, newName){
+  newName = cleanName(newName);
+  const a = pcArr(); if (!a) return;
+  if (!newName || newName === oldName || a.some((c) => c.name === newName)) return;
+  const c = a.find((x) => x.name === oldName); if (!c) return;
+  c.name = newName;
+  for (const an of Object.values(rawDoc.animations || {}))
+    if (an.physics && an.physics[oldName]){ an.physics[newName] = an.physics[oldName]; delete an.physics[oldName]; }
+  selPc = newName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+}
+
+function deletePhysicsConstraint(name){
+  const a = pcArr(); if (!a) return;
+  rawDoc.physics = a.filter((c) => c.name !== name);
+  if (!rawDoc.physics.length) delete rawDoc.physics;
+  for (const an of Object.values(rawDoc.animations || {})) if (an.physics){ delete an.physics[name]; if (!Object.keys(an.physics).length) delete an.physics; }
+  if (selPc === name) selPc = null;
+  repackConstraintOrders();
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty(); animsDirty = true;
+}
+
+// Render the editor for the selected physics constraint into #consDetail.
+function renderPhysicsEditor(){
+  const det = $("#consDetail"); if (!det) return;
+  clearChildren(det);
+  const c = pcByName(selPc);
+  if (!c || !rawDoc){ det.style.display = "none"; return; }
+  det.style.display = "block";
+
+  const title = document.createElement("div");
+  title.textContent = "physics · " + c.name;
+  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
+  det.appendChild(title);
+  const sub = document.createElement("div");
+  sub.textContent = "bone: " + c.bone + "  · secondary motion (hair/cloth/jiggle)";
+  sub.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+  det.appendChild(sub);
+
+  const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
+
+  // bone dropdown (a physics constraint drives exactly one bone)
+  const br = crow("bone");
+  const bsel = document.createElement("select");
+  for (const b of skeletonData.bones){ if (b.name === "root") continue; const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; if (b.name === c.bone) o.selected = true; bsel.appendChild(o); }
+  bsel.onchange = () => editPc("bone", bsel.value); br.appendChild(bsel);
+
+  // driven channels — 0..1 amounts (which transform components physics moves)
+  const drvHdr = document.createElement("div"); drvHdr.textContent = "driven channels (0 = off, 1 = full)";
+  drvHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(drvHdr);
+  const DRV_LABEL = { x: "X", y: "Y", rotate: "rotate", scaleX: "scaleX", shearX: "shearX" };
+  for (const f of PC_DRIVEN){
+    const r = crow(DRV_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? 0);
+    inp.onchange = () => editPc(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+  }
+
+  // limit + fps (sampling)
+  const lr = crow("limit (px)");
+  const lim = document.createElement("input"); lim.type = "number"; lim.min = "0"; lim.step = "10"; lim.value = (c.limit ?? 5000);
+  lim.title = "max per-step movement clamp"; lim.onchange = () => editPc("limit", Math.max(0, parseFloat(lim.value) || 0)); lr.appendChild(lim);
+  const fr = crow("fps");
+  const fps = document.createElement("input"); fps.type = "number"; fps.min = "1"; fps.step = "1"; fps.value = (c.fps ?? 60);
+  fps.title = "simulation rate (frames per second)"; fps.onchange = () => editPc("fps", Math.max(1, parseFloat(fps.value) || 60)); fr.appendChild(fps);
+
+  // sim properties — the secondary-motion feel
+  const simHdr = document.createElement("div"); simHdr.textContent = "simulation";
+  simHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(simHdr);
+  const SIM_LABEL = { inertia: "inertia", strength: "strength", damping: "damping", mass: "mass", wind: "wind", gravity: "gravity", mix: "mix" };
+  const SIM_STEP = { inertia: "0.05", strength: "1", damping: "0.05", mass: "0.1", wind: "1", gravity: "1", mix: "0.05" };
+  for (const f of PC_SIM){
+    const r = crow(SIM_LABEL[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = SIM_STEP[f]; inp.value = (c[f] ?? PC_SIM_DEFAULT[f]);
+    if (f === "inertia" || f === "damping" || f === "mix"){ inp.min = "0"; inp.max = "1"; }
+    else if (f === "mass"){ inp.min = "0.01"; }
+    inp.onchange = () => { let v = parseFloat(inp.value); if (!Number.isFinite(v)) v = PC_SIM_DEFAULT[f]; if (f === "mass") v = Math.max(0.01, v); editPc(f, v); }; r.appendChild(inp);
+  }
+
+  // animate-mode: key the sim params (+ a reset step) at the playhead
+  if (animMode){
+    const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
+    const kb = document.createElement("button"); kb.textContent = "◆ Key physics @ t";
+    kb.title = "key inertia/strength/damping/mass/wind/gravity/mix at the playhead"; kb.onclick = () => keyPhysics(c.name);
+    ar.appendChild(kb);
+    const rb = document.createElement("button"); rb.textContent = "↺ Key reset @ t";
+    rb.title = "key a physics RESET at the playhead (snaps the secondary motion to rest)"; rb.onclick = () => keyPhysicsReset(c.name);
+    ar.appendChild(rb);
+    const times = physicsKeyTimes(c.name);
+    const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;";
+    info.textContent = times.length ? (times.length + " key" + (times.length === 1 ? "" : "s")) : "no physics keys";
+    ar.appendChild(info);
+    det.appendChild(ar);
+  }
+
+  // rename + delete
+  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
+  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
+  rn.onclick = () => { const n = prompt("Rename physics constraint", c.name); if (n) renamePhysicsConstraint(c.name, n); };
+  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.onclick = () => { if (confirm('Delete physics constraint "' + c.name + '"?')) deletePhysicsConstraint(c.name); };
+  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
+}
+
 // ---- authoring primitives (Phase 5.1) -------------------------------------
 function uniqueName(base, existing){ let n = 1; while (existing.has(base + n)) n++; return base + n; }
 
@@ -2264,7 +2447,7 @@ function renameBone(oldName, newName){
   if (!newName || newName === oldName || rawDoc.bones.some((b) => b.name === newName)) return;
   for (const b of rawDoc.bones){ if (b.name === oldName) b.name = newName; if (b.parent === oldName) b.parent = newName; }
   for (const s of rawDoc.slots || []) if (s.bone === oldName) s.bone = newName;
-  for (const grp of ["ik", "transform", "path"]) for (const c of rawDoc[grp] || []){
+  for (const grp of ["ik", "transform", "path", "physics"]) for (const c of rawDoc[grp] || []){
     if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (n === oldName ? newName : n));
     if (c.target === oldName) c.target = newName;
     if (c.bone === oldName) c.bone = newName;
@@ -2321,7 +2504,8 @@ function deleteBone(name){
   const oldNames = rawDoc.bones.map((b) => b.name); // index→name BEFORE removal
   for (const b of rawDoc.bones) if (b.parent === name) b.parent = parentName;
   for (const s of rawDoc.slots || []) if (s.bone === name) s.bone = parentName;
-  for (const grp of ["ik", "transform", "path"]){
+  let droppedAnyConstraint = false;
+  for (const grp of ["ik", "transform", "path", "physics"]){
     if (!Array.isArray(rawDoc[grp])) continue;
     const dropped = [];
     rawDoc[grp] = rawDoc[grp].filter((c) => {
@@ -2331,9 +2515,12 @@ function deleteBone(name){
       return !broken;
     });
     // a dropped constraint's per-constraint timelines would dangle (loader throws) — clear them
-    if (dropped.length) for (const an of Object.values(rawDoc.animations || {})){ const tl = an[grp]; if (tl) for (const dn of dropped){ delete tl[dn]; if (!Object.keys(tl).length) delete an[grp]; } }
+    if (dropped.length){ droppedAnyConstraint = true; for (const an of Object.values(rawDoc.animations || {})){ const tl = an[grp]; if (tl) for (const dn of dropped){ delete tl[dn]; if (!Object.keys(tl).length) delete an[grp]; } } }
     if (!rawDoc[grp].length) delete rawDoc[grp];
   }
+  // dropping a constraint leaves a hole in the contiguous `order` sequence — re-pack so no later
+  // constraint's order exceeds the count (else updateCache can't sort it → silently inactive).
+  if (droppedAnyConstraint) repackConstraintOrders();
   rawDoc.bones.splice(idx, 1);
   for (const an of Object.values(rawDoc.animations || {})) if (an.bones) delete an.bones[name];
 
@@ -4420,6 +4607,25 @@ function poseAtTime(name, t){
       for (const f of TC_MIXES) tc[f] = k[f] ?? tc.data[f];
     }
   }
+  // physics channel: set the live PhysicsConstraint's sim params from the per-channel timelines
+  // so the simulation previews with the keyed values; the frame loop steps the sim (see frame()).
+  // A `reset` key fires constraint.reset() when the playhead is at/just past it (re-inits motion).
+  // Validated in tools/rigger-spike/physics.mjs.
+  if (a.physics && skeleton.physicsConstraints){
+    for (const [name, m] of Object.entries(a.physics)){
+      const pc = skeleton.physicsConstraints.find((c) => c.data.name === name); if (!pc || !m) continue;
+      for (const ch of PC_VAL_CHANS){
+        if (!Array.isArray(m[ch]) || !m[ch].length) continue;
+        const k = sampleChannel(m[ch], t, ["value"]); if (!k) continue;
+        const v = k.value; if (!Number.isFinite(v)) continue;
+        if (ch === "mass") pc.massInverse = v > 1e-6 ? 1 / v : 1; else pc[ch] = v;
+      }
+      if (Array.isArray(m.reset) && m.reset.length){
+        // fire the reset whose time the playhead just crossed (within a frame of it)
+        for (const rk of m.reset) if (t >= rk.time - 1e-3 && t <= rk.time + 0.05){ pc.reset(); break; }
+      }
+    }
+  }
   // deform channel: apply the selected mesh's deform timeline (setup + interpolated delta) to
   // the live attachment so vertex deformation previews in animate mode. (Other meshes' deform
   // plays in Preview, which rebuilds the real runtime from rawDoc.)
@@ -4770,6 +4976,8 @@ function timelineTracks(){
     if (selIk && ikByName(selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
     // transform track for the selected constraint (empty row to key into)
     if (selTc && tcByName(selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
+    // physics track for the selected constraint (empty row to key into)
+    if (selPc && pcByName(selPc)) out.push({ kind: "physics", name: selPc, label: "physics" });
     return evt.concat(out);
   }
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
@@ -4777,11 +4985,13 @@ function timelineTracks(){
   for (const d of deformTracksWithKeys(a)) if (!out.some((t) => t.kind === "deform" && t.name === d.name && t.att === d.att)) out.push(d);
   for (const k of ikTracksWithKeys(a)) if (!out.some((t) => t.kind === "ik" && t.name === k.name)) out.push(k);
   for (const k of transformTracksWithKeys(a)) if (!out.some((t) => t.kind === "transform" && t.name === k.name)) out.push(k);
+  for (const k of physicsTracksWithKeys(a)) if (!out.some((t) => t.kind === "physics" && t.name === k.name)) out.push(k);
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
   if (meshCtx && selSlot && !out.some((t) => t.kind === "deform" && t.name === selSlot && t.att === meshCtx.attName)) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
   if (selIk && ikByName(selIk) && !out.some((t) => t.kind === "ik" && t.name === selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
   if (selTc && tcByName(selTc) && !out.some((t) => t.kind === "transform" && t.name === selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
+  if (selPc && pcByName(selPc) && !out.some((t) => t.kind === "physics" && t.name === selPc)) out.push({ kind: "physics", name: selPc, label: "physics" });
   return evt.concat(out);
 }
 // Every (slot, attachment) that carries deform keys in animation `a`, across all skins.
@@ -4814,6 +5024,7 @@ const trackKeyTimes = (tr) => {
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   if (tr.kind === "ik") return ikKeyTimes(tr.name);
   if (tr.kind === "transform") return transformKeyTimes(tr.name);
+  if (tr.kind === "physics") return physicsKeyTimes(tr.name);
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   return tr.kind === "slot" ? slotKeyTimes(tr.name) : boneKeyTimes(tr.name);
 };
@@ -4821,6 +5032,7 @@ const trackKeyCurve = (tr, time) => {
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  if (tr.kind === "physics") return physicsKeyCurve(tr.name, time);
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   return tr.kind === "bone" ? keyCurveType(tr.name, time) : "linear";
 };
@@ -4832,6 +5044,7 @@ function setTrackKeyCurve(tr, time, preset){
   else if (tr.kind === "deform"){ setDeformKeyCurve(tr, time, preset); renderTimeline(); }
   else if (tr.kind === "ik"){ setIkKeyCurve(tr.name, time, preset); renderTimeline(); }
   else if (tr.kind === "transform"){ setTransformKeyCurve(tr.name, time, preset); renderTimeline(); }
+  else if (tr.kind === "physics"){ setPhysicsKeyCurve(tr.name, time, preset); renderTimeline(); }
   else if (tr.kind === "slot" || (tr.kind === "slotch" && (tr.ch === "rgba" || tr.ch === "rgba2"))){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
 }
 // Set the OUTGOING easing of a deform key (one curve for the whole vertex frame). Bezier
@@ -4855,6 +5068,7 @@ function trackKeyEasable(tr, time){
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
+  if (tr.kind === "physics") return physicsKeyEasable(tr.name, time);
   if (tr.kind === "slotch") return tr.ch === "rgba" || tr.ch === "rgba2";
   if (tr.kind === "slot"){ const cs = slotChannel(tr.name); const keys = cs && (slotIsTwoColor(tr.name) ? cs.rgba2 : cs.rgba); return !!(Array.isArray(keys) && keys.some((k) => Math.abs(k.time - time) < 1e-4)); }
   return false;
@@ -4991,6 +5205,106 @@ function setTransformKeyCurve(name, time, preset){
 function transformTracksWithKeys(a){
   const out = []; if (!a || !a.transform) return out;
   for (const name of Object.keys(a.transform)) if (Array.isArray(a.transform[name]) && a.transform[name].length) out.push({ kind: "transform", name, label: "transform mix" });
+  return out;
+}
+
+// ---- physics constraint timeline (§18 item 8) -----------------------------
+// animations.<a>.physics.<name> = { inertia|strength|damping|mass|wind|gravity|mix: [{time,
+// value, curve?}], reset: [{time}] }. Each non-reset channel is a single-value timeline
+// (readTimeline1: value, curve = one bezier channel); reset is a value-less step. We expose ONE
+// merged dopesheet track per constraint (◆ Key physics writes all seven sim values at the
+// playhead; ↺ Key reset adds a reset step). Validated in tools/rigger-spike/physics.mjs.
+const PC_VAL_CHANS = PC_SIM;                       // ["inertia","strength","damping","mass","wind","gravity","mix"]
+const PC_ALL_CHANS = PC_SIM.concat(["reset"]);
+const pcAnim = (name) => { const a = animOf(curAnim); return a && a.physics && a.physics[name] ? a.physics[name] : null; };
+// union of key times across every channel of one physics constraint, sorted.
+function physicsKeyTimes(name){
+  const m = pcAnim(name); if (!m) return [];
+  const set = new Set();
+  for (const ch of PC_ALL_CHANS) if (Array.isArray(m[ch])) for (const k of m[ch]) set.add(roundN(k.time, 4));
+  return Array.from(set).sort((a, b) => a - b);
+}
+// Key the live sim params into all seven value channels at the playhead. Authors the editor's
+// intent (the setup rawDoc.physics values), not the frame-loop-sampled live values (which would
+// echo a sampled value once a key exists, blocking a new distinct value at a later time).
+function keyPhysics(name){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const def = pcByName(name); if (!def) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.physics = a.physics || {}; const m = (a.physics[name] = a.physics[name] || {});
+  for (const ch of PC_VAL_CHANS){ m[ch] = m[ch] || []; upsertKey(m[ch], animTime, { value: roundN(def[ch] ?? PC_SIM_DEFAULT[ch], 4) }); }
+  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+}
+// Key a physics RESET step at the playhead (re-initialises the sim → snaps secondary motion).
+function keyPhysicsReset(name){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  if (!pcByName(name)) return;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.physics = a.physics || {}; const m = (a.physics[name] = a.physics[name] || {});
+  m.reset = m.reset || []; upsertKey(m.reset, animTime, {}); // reset keys carry only `time`
+  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+}
+// Delete the constraint's key at `time` across every channel.
+function deletePhysicsKeyAt(name, time){
+  const a = animOf(curAnim); if (!a || !a.physics || !a.physics[name]) return;
+  const m = a.physics[name];
+  for (const ch of PC_ALL_CHANS) if (Array.isArray(m[ch])){ m[ch] = m[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!m[ch].length) delete m[ch]; }
+  if (!Object.keys(m).length) delete a.physics[name];
+  if (a.physics && !Object.keys(a.physics).length) delete a.physics;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+// Retime the constraint's key at oldTime→newTime across every channel (overwrites a clash).
+function retimePhysicsKey(name, oldTime, newTime){
+  const m = pcAnim(name); if (!m) return; newTime = Math.max(0, roundN(newTime, 4));
+  for (const ch of PC_ALL_CHANS){ const arr = m[ch]; if (!Array.isArray(arr)) continue;
+    const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) continue;
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4) arr.splice(i, 1);
+    k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  }
+  markDirty(); animsDirty = true;
+}
+// Alt-drag duplicate: copy the key at srcTime→destTime across every channel.
+function copyPhysicsKey(name, srcTime, destTime){
+  const m = pcAnim(name); if (!m) return;
+  for (const ch of PC_ALL_CHANS){ const arr = m[ch]; if (Array.isArray(arr)) dupKeyInArr(arr, srcTime, destTime); }
+  markDirty(); animsDirty = true;
+}
+// Outgoing easing of a physics key: bake ONE shared ease into each VALUE channel's segment
+// (each is a single bezier channel — [cx1,cy1,cx2,cy2]). The reset channel is value-less, so it
+// carries no curve. Matches the per-channel readTimeline1/readCurve contract.
+function setPhysicsKeyCurve(name, time, preset){
+  const m = pcAnim(name); if (!m) return;
+  const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
+  for (const ch of PC_VAL_CHANS){ const arr = m[ch]; if (!Array.isArray(arr)) continue;
+    const idx = arr.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) continue;
+    const k = arr[idx];
+    if (idx >= arr.length - 1 || preset === "linear" || (preset !== "stepped" && !F)){ delete k.curve; }
+    else if (preset === "stepped"){ k.curve = "stepped"; }
+    else { const b = arr[idx + 1], dt = b.time - k.time, va = k.value ?? 0, vb = b.value ?? 0, dv = vb - va;
+      k.curve = [roundN(k.time + dt * F[0], 4), roundN(va + dv * F[1], 4), roundN(k.time + dt * F[2], 4), roundN(va + dv * F[3], 4)]; }
+  }
+  markDirty(); animsDirty = true;
+}
+// Curve type of a merged physics key (read from the first value channel present at that time).
+function physicsKeyCurve(name, time){
+  const m = pcAnim(name); if (!m) return "linear";
+  for (const ch of PC_VAL_CHANS){ const arr = m[ch]; if (!Array.isArray(arr)) continue;
+    const k = arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) continue;
+    if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  return "linear";
+}
+// A physics key is easable iff a VALUE channel has a key there (a reset-only key is a step).
+function physicsKeyEasable(name, time){
+  const m = pcAnim(name); if (!m) return false;
+  for (const ch of PC_VAL_CHANS){ const arr = m[ch]; if (Array.isArray(arr) && arr.some((k) => Math.abs(k.time - time) < 1e-4)) return true; }
+  return false;
+}
+// Every physics constraint that carries keys in animation `a`.
+function physicsTracksWithKeys(a){
+  const out = []; if (!a || !a.physics) return out;
+  for (const name of Object.keys(a.physics)){
+    const m = a.physics[name]; if (m && PC_ALL_CHANS.some((ch) => Array.isArray(m[ch]) && m[ch].length)) out.push({ kind: "physics", name, label: "physics" });
+  }
   return out;
 }
 
@@ -5132,6 +5446,7 @@ function retimeTrackKey(tr, oldTime, newTime){
   else if (tr.kind === "deform") retimeDeformKey(tr, oldTime, newTime);
   else if (tr.kind === "ik") retimeIkKey(tr.name, oldTime, newTime);
   else if (tr.kind === "transform") retimeTransformKey(tr.name, oldTime, newTime);
+  else if (tr.kind === "physics") retimePhysicsKey(tr.name, oldTime, newTime);
   else if (tr.kind === "bonech" || tr.kind === "slotch") retimeChannelKey(tr, oldTime, newTime);
   else if (tr.kind === "slot") retimeSlotKey(tr.name, oldTime, newTime);
   else retimeBoneKey(tr.name, oldTime, newTime);
@@ -5175,6 +5490,7 @@ function copyTrackKey(tr, srcTime, destTime){
   else if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
+  else if (tr.kind === "physics") copyPhysicsKey(tr.name, srcTime, destTime);
   else if (tr.kind === "bonech" || tr.kind === "slotch") copyChannelKey(tr, srcTime, destTime);
   else if (tr.kind === "slot") copySlotKey(tr.name, srcTime, destTime);
   else copyBoneKey(tr.name, srcTime, destTime);
@@ -5293,24 +5609,26 @@ function renderTimeline(){
     const isDeform = tr.kind === "deform";
     const isIk = tr.kind === "ik";
     const isTc = tr.kind === "transform";
+    const isPc = tr.kind === "physics";
     const isSlotKind = tr.kind === "slot" || tr.kind === "slotch" || isDeform; // deform selects its slot
     const tid = trackId(tr); dopeTrackById[tid] = tr;
-    const isSel = isAnim ? false : isChan ? true : isIk ? (tr.name === selIk) : isTc ? (tr.name === selTc) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
+    const isSel = isAnim ? false : isChan ? true : isIk ? (tr.name === selIk) : isTc ? (tr.name === selTc) : isPc ? (tr.name === selPc) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
     g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isTc ? "⤧" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk || isTc ? "color:var(--dim);" : "");
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isTc ? "⤧" : isPc ? "〜" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPc ? (tr.name + " · physics") : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk || isTc || isPc ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
-    g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isTc ? "transform constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
+    g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isTc ? "transform constraint" : isPc ? "physics constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
     g.onclick = (e) => {
       if (e.shiftKey || e.ctrlKey || e.metaKey){ selectLineKeys(tr, true); renderTimeline(); return; }
       if (isAnim) return;
       if (isIk) selectIk(tr.name);
       else if (isTc) selectTc(tr.name);
+      else if (isPc) selectPc(tr.name);
       else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
     };
     const track = document.createElement("div");
@@ -5339,6 +5657,7 @@ function renderTimeline(){
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, kt);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, kt);
         else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, kt);
+        else if (tr.kind === "physics") deletePhysicsKeyAt(tr.name, kt);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, kt);
         else if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); deleteSlotKeyAt(tr.name, kt); }
         else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); deleteBoneKeyAt(tr.name, kt); }
@@ -6046,6 +6365,15 @@ function frame(now){
       if (playing) animState.update(delta);
       animState.apply(skeleton);
     }
+    // Physics: advance the simulation clock so updateWorld()'s Physics.update produces secondary
+    // motion. Only while a "running" view is active (animate-with-clip / preview) — in setup/edit
+    // (or animate with no clip) we DON'T advance skeleton.time, so the sim holds the static pose.
+    // PARITY: skeleton.time is read ONLY by PhysicsConstraint; gating on hasPhysics() means a rig
+    // with no physics constraints never enters this path → its output is byte-identical to before.
+    if (hasPhysics()){
+      const running = (animMode && curAnim) || (!animMode && !editMode);
+      if (running) skeleton.update(delta);
+    }
     // setup mode: hold whatever pose the edits set (no per-frame reset)
     updateWorld();
     renderer.begin();
@@ -6451,6 +6779,7 @@ function wire(){
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, s.time);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, s.time);
         else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, s.time);
+        else if (tr.kind === "physics") deletePhysicsKeyAt(tr.name, s.time);
         else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, s.time);
         else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
         else deleteBoneKeyAt(tr.name, s.time);
