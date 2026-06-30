@@ -4770,7 +4770,8 @@ function sampleDeform(keys, t, len){
 
 // Draw the selected mesh's vertices as handles (world space, via the shape API).
 function drawMeshOverlay(){
-  if (!editMode || !meshCtx || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  // shown in SETUP (geometry/weights) AND ANIMATE (drag a vertex → keys a deform) modes
+  if ((!editMode && !animMode) || !meshCtx || typeof renderer.circle !== "function" || !SPINE.Color) return;
   const w = meshWorldVerts();
   if (!w) return;
   const col = new SPINE.Color(0.36, 0.69, 1, 1);
@@ -7845,10 +7846,11 @@ function wire(){
       lastXY = [e.clientX, e.clientY]; return;
     }
     // Mesh interactions (only when a mesh slot is active) — each returns only if it hits.
-    if (editMode && meshCtx && !e.shiftKey){
-      if (weightBrush && brushBone != null){ const cw = cursorWorld(e); if (cw){ brushPainting = true; paintDab(cw.x, cw.y); lastDabWorld = cw; } lastXY = [e.clientX, e.clientY]; return; }
-      if (meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
-      if (meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
+    if ((editMode || animMode) && meshCtx && !e.shiftKey){
+      // geometry + weight edits are SETUP-only; vertex DRAG also works in ANIMATE mode (→ keys a deform)
+      if (editMode && weightBrush && brushBone != null){ const cw = cursorWorld(e); if (cw){ brushPainting = true; paintDab(cw.x, cw.y); lastDabWorld = cw; } lastXY = [e.clientX, e.clientY]; return; }
+      if (editMode && meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
+      if (editMode && meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
     // Transform gizmo on the SELECTED bone: move (centre) or rotate (ring).
