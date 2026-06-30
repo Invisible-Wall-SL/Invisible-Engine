@@ -12,12 +12,14 @@
 
 ## 0. Status
 
-**Phases 1–2 BUILT (headless-green + build-shipped, 2026-06-30) — the rest is plan.** This doc
-decomposes the gap analysis from the 2026-06-30 review into phases that mirror the Flow
-tool's own phase/parity-harness discipline. The review found the data model ~80% complete;
-the gaps are concentrated, not diffuse. See the progress notes in §1 (loading→tap→basegame)
-and §2 (win → bigWin/freeSpinIntro branch). Both ride dev-hook fixtures behind a parity-inert
-default boot; the live exclusive-screen mount for the win takeovers is the Phase 4 follow-up.
+**Phases 1, 2, 4 BUILT (headless-green + build-shipped, 2026-06-30) — Phases 3, 5+ remain.**
+This doc decomposes the gap analysis from the 2026-06-30 review into phases that mirror the
+Flow tool's own phase/parity-harness discipline. The review found the data model ~80%
+complete; the gaps are concentrated, not diffuse. See the progress notes in §1
+(loading→tap→basegame), §2 (win → bigWin/freeSpinIntro branch), and §4 (the generic
+exclusive-screen takeover mount that makes those swaps visual). All ride dev-hook fixtures
+behind a parity-inert default boot; the remaining work is Phase 3 (engine-state guards) and
+Phase 5 (author real backing scenes + bake + ship a game).
 
 ### What already works (the foundation — do not rebuild)
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
@@ -265,6 +267,46 @@ layer gated by `visibleSource`, in doc order, no FlowDoc needed.
 **Parity harness:** a doc making a non-`basegame` screen active swaps to it with correct
 z-order in a built bundle; a doc with only canonical screens is byte-identical to coded
 mounting.
+
+### Progress — Phase 4 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. `apps/lines` + one new harness only — no `engine-flow`/`engine-layout`
+change needed (the mounter `resolve`/`has`/`authoredScreenIds` surface already existed).
+
+**What landed:**
+- `apps/lines/src/components/Game.svelte` — a single GENERIC derived `activeScreenTakeover`
+  (`:565`): resolves `flow?.mounter.resolve(activeScreenId)` and returns the scene ONLY when the
+  decision is `authored` AND the active id is NEITHER `basegame` (the persistent base, reel-split
+  mount) NOR `loading` (the Phase-1 splash). Template (`:1024`, in the `{:else}` game branch, just
+  after the `extraScenes` overlay block and before the free-spin gates): `{#if
+  activeScreenTakeover}<LayoutScene scene={activeScreenTakeover} />`. So a swap to any authored
+  non-base/non-loading screen (`bigWin`/`freeSpinIntro`/future ids) mounts that scene as a
+  TRANSIENT top-layer takeover OVER the persisting board (a celebration overlays the reels, not
+  replaces them); it unmounts on the swap back. `<LayoutScene>` self-wraps by `space` + honours
+  `visibleSource`. NOT per-id casing — one generic gate.
+- `tools/flow-spike/phase4Mount.ts` (+ `phase4mount` script; the prior `phase4`/`phase4Runtime.ts`
+  left untouched) — proves takeover mount+unmount on swap, base/loading excluded (no regression),
+  fall-through for unbacked/non-authored/no-doc ids, and the reservation from `extraMountScenes`.
+
+**Verified:** `phase4mount` GREEN + every existing harness (`parity`/`pins`/`roundtrip`/`phase1`/
+`phase2`/`phase4`/`phase5`/`phase6`/`phase7`/`tap`/`vocab`) GREEN; `engine-flow` tsc exit 0;
+`engine-layout` + `lines` builds exit 0; the minified gate `==="basegame"||…==="loading"` (the
+distinctive `activeScreenTakeover` signature) confirmed in the client bundle (shipment).
+
+**Parity (§7):** no FlowDoc ⇒ `flow` undefined ⇒ `resolve` undefined ⇒ nothing mounts. An
+authored-but-unbacked id (apps/lines has no `bigWin`/`freeSpinIntro` backing scene yet) resolves
+`fallThrough` ⇒ nothing mounts. Default boot byte-identical to `main`. The mechanism stays inert
+until an author adds those scenes (Phase 5/editor).
+
+**Stale-signal cleanup (the §4 "correct the stale signals" item):** updated the Scene Editor's
+`addEmptyScreen`/`addHudScreen` comments (`editor/+page.svelte`) — author-created custom-id
+screens DO ship now (generic overlay mounting, PR #67; exclusive Flow takeover, this phase), no
+per-id code wiring needed; and refreshed the `gotcha_author_hud_screens_unmounted` memory note.
+
+**Deferred:** authoring real lines `bigWin`/`freeSpinIntro` backing scenes (Phase 5 / editor).
+**Owner-verify live:** `window.__IE_FLOW_WIN__ = true`, trigger a big win / free-spin → the
+takeover scene mounts over the persisting board, a tap returns to `basegame` (verify via the
+`app.stage` read, not `preview_screenshot`).
 
 ---
 

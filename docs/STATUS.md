@@ -106,8 +106,16 @@ submodule bumps).
 >   `complete` (tap); small wins stay feed-driven overlays. Separate `LINES_FLOW_WIN_DOC` fixture
 >   behind `__IE_FLOW_WIN__` — no-double-fire discipline (branched `setWin` + authored-no-op
 >   `freeSpinTrigger`). `tools/flow-spike/phase2WinTransitions.ts` + all prior harnesses green;
->   lines build ships the hook. Parity-inert by default. **Next: Phase 4** (live exclusive-screen
->   mount for the win takeovers) or **Phase 3** (engine-state guards). ⏳ owner live-verify.
+>   lines build ships the hook. Parity-inert by default. ⏳ owner live-verify.
+> - **Phase 4 (generic exclusive-screen takeover mount) — DONE headlessly + build-shipped
+>   2026-06-30** (branch `flow/driven-game`). One generic `activeScreenTakeover` derived in
+>   `Game.svelte`: any authored non-`basegame`/non-`loading` active Flow screen mounts its backing
+>   scene as a top-layer takeover over the persisting board, unmounting on the swap back — so the
+>   Phase-2 `bigWin`/`freeSpinIntro` swaps become visual. `tools/flow-spike/phase4Mount.ts` + all
+>   prior harnesses green; lines build ships the gate; parity-inert by default. Also corrected the
+>   stale Scene Editor "won't ship until wired in code" comments (closed by PR #67 + this phase).
+>   **Next: Phase 5** (author real `bigWin`/`freeSpinIntro` backing scenes + bake + ship a game) or
+>   **Phase 3** (engine-state guards for richer branching). ⏳ owner live-verify.
 
 ### Blocked on owner / external (not code)
 

@@ -542,6 +542,27 @@
 		return { ...basegameMount, nodes: basegameMount.nodes.slice(mountReelGridIndex + 1) };
 	});
 
+	// Phase 4 (flow-driven-game §4) — the GENERIC active-screen TAKEOVER mount. When the
+	// interpreter's active screen is an authored exclusive screen that is NEITHER `basegame`
+	// (the persistent base, mounted via the reel-split above) NOR `loading` (the splash, owned
+	// by the Phase-1 path), it is a TRANSIENT TOP-LAYER takeover (`bigWin`, `freeSpinIntro`, any
+	// future authored id): the base game (board) PERSISTS behind it, the takeover overlays it
+	// (a big-win celebration sits OVER the reels, it does not replace them). This is a single
+	// GENERIC mount, NOT per-id special-casing — the swap to ANY such screen reproduces the
+	// right stacking. The scene is `<LayoutScene>`-mounted, which self-wraps by `scene.space`
+	// and honours `scene.visibleSource` (no double-wrap). It renders ONLY while that screen is
+	// the active screen (gated on `activeScreenId` via the resolve below), so it unmounts on the
+	// swap back to `basegame`. `undefined` ⇒ nothing extra mounts:
+	//   - no FlowDoc ⇒ `flow` is undefined ⇒ `resolve` is undefined (parity, §7);
+	//   - the active screen falls through / has no backing scene ⇒ `fallThrough`/undefined;
+	//   - the active screen IS `basegame`/`loading` ⇒ handled by their own paths above.
+	// apps/lines' default doc authors no such screen ⇒ inert (byte-identical to `main`, §7).
+	const activeScreenTakeover = $derived.by((): Scene | undefined => {
+		if (activeScreenId === 'basegame' || activeScreenId === 'loading') return undefined;
+		const decision = flow?.mounter.resolve(activeScreenId);
+		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
+	});
+
 	// §20.1 — generic doc-driven scene mounting. Every scene the game ALREADY mounts/handles
 	// by hard-coded id (below), PLUS any FlowDoc-authored screen ids (the interpreter owns
 	// those — `flow.mounter.authoredScreenIds()` — so a Flow-mounted screen isn't also mounted
@@ -1003,6 +1024,22 @@
 		{#each extraScenes as scene (scene.id)}
 			<LayoutScene {scene} />
 		{/each}
+		<!--
+			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen TAKEOVER
+			layer. When the interpreter swaps the active exclusive screen to an authored id that is
+			NOT `basegame`/`loading` (a `bigWin`/`freeSpinIntro`/future celebration), it mounts here
+			as a TRANSIENT layer OVER the base game + HUD — at the z-position the coded win/free-spin
+			celebration overlays occupy (this sits just above `extraScenes` + the base/HUD and beside
+			the free-spin gates/visuals below). The base board PERSISTS behind it (the reel is
+			engine-owned, not a flow screen), so a celebration overlays the reels rather than
+			replacing them. `<LayoutScene>` self-wraps by `scene.space` + honours `visibleSource` (no
+			double-wrap); it unmounts on the swap back to `basegame` (gated on `activeScreenId`).
+			`undefined` ⇒ nothing renders: no FlowDoc, a fall-through/unbacked active screen, or the
+			base/loading screens (their own paths) — byte-identical to current `main` (§7).
+		-->
+		{#if activeScreenTakeover}
+			<LayoutScene scene={activeScreenTakeover} />
+		{/if}
 		<!--
 			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
 			Exactly one full-screen `<FreeSpinIntroGate>` / `<FreeSpinOutroGate>` is mounted
