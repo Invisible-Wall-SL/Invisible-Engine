@@ -17,9 +17,9 @@
 </script>
 
 <!--
-	Contain-fit the rig's bounds to `SYMBOL_SIZE × SYMBOL_SPINE_FILL` — the single knob for
-	spine-symbol size (sprites are full contain). `SYMBOL_SPINE_FILL = 1` = same box as a
-	sprite; lower it if a spine character reads visually bigger and you want it smaller.
+	Spine symbols read visually bigger than sprite icons (a character + badge fills its bounds),
+	so we contain-fit the rig's bounds to `SYMBOL_SIZE × SYMBOL_SPINE_FILL` (< 1) to bring them
+	down to match the sprites. Spine-only knob — sprites are full contain. Tune SYMBOL_SPINE_FILL.
 -->
 <SpineProvider
 	x={props.x}
