@@ -970,7 +970,8 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
    via the IK editor. The auto-picked default target excludes descendants of the chain bones (a
    descendant target moves with the chain → degenerate solve). Makes the panel editable =
    foundation for 4/6/7. ⏳ owner-verify the add/edit + IK dopesheet + solve preview live.
-4. **Slot dark colour (`rgba2`)** setup + timeline — extends the slot-colour path.
+4. **Slot dark colour (`rgba2`)** setup + timeline — extends the slot-colour path. **LANDED**
+   (see the §18.4 note below).
 5. **Blend-mode authoring** (slot `blend` dropdown) — cheap; survives round-trip but unedited.
 6. **Transform constraint** authoring + `transform` mix timeline — builds on (3).
 7. **Path attachment + path constraint** authoring + `path` timeline — needs the path
@@ -997,7 +998,36 @@ a reorder popover (slots in order-at-playhead, ↑/↓, reset, Key @ t). `keyDra
 generates minimal Spine `offsets` (newDrawPos−setupIndex, moved-only); `poseAtTime`
 reconstructs via `reconstructDrawOrder` (mirrors SkeletonJson) for live preview. Offsets
 format verified vs spine-core (`draworder.mjs`, 5 random 68-slot perms exact).
-**Non-bone channels done: attachment · colour · events · draw order · mesh deform.** The
+**§18.4 Slot dark colour (`rgba2`, two-color tinting / "tint black") LANDED.** Validated format
+(spike `tools/rigger-spike/darkcolor.mjs`, 18/18 vs spine-core@4.2.74's `SkeletonJson` +
+`RGBA2Timeline` + `Color.setFromString`):
+- **Setup:** per-slot `rawDoc.slots[i].dark = "rrggbb"` — RGB-only (6 hex, NO alpha; the loader's
+  `Color.fromString` sets a=1 for non-8-hex and the runtime never animates dark alpha). The
+  loader does `SlotData.darkColor = Color.fromString(dark)`. A slot has two-color tinting **iff**
+  `dark` is present (`SlotData.darkColor` non-null); with no `dark` it stays null.
+- **Timeline:** `animations.<a>.slots.<slot>.rgba2 = [{time, light:"rrggbbaa", dark:"rrggbb",
+  curve?}]` → `RGBA2Timeline`. On apply it sets `slot.color` from `light` (r,g,b,a) AND
+  `slot.darkColor` from `dark` (r,g,b; dark alpha untouched). A single shared key `curve` drives
+  SEVEN bezier channels (0=R 1=G 2=B 3=A 4=R2 5=G2 6=B2); bezier handle y-values are ABSOLUTE
+  value-space (not normalized). Linear + bezier both verified against the runtime's own sampling.
+  A slot WITHOUT a setup `dark` can't safely use rgba2 (its live `Slot.darkColor` is null →
+  applying rgba2 throws) — hence the rule below.
+- **rgba↔rgba2 reconciliation:** a slot with `dark` keys/reads colour through **`rgba2`** (light
+  carried from the existing colour/opacity controls + the dark); a slot without `dark` stays on
+  the plain **`rgba`** timeline exactly as before. `slotIsTwoColor()` is the single gate;
+  `slotColorAt`/`setSlotColorCurve`/`poseAtTime`/dopesheet all branch on it. `poseAtTime` sets
+  `slot.darkColor` from the sampled dark for the live preview.
+- **Setup UI** (`renderSlotDetail`): a "dark colour (two-tone tint)" swatch + ＋Enable / ✕Remove
+  (writes/removes `slots[i].dark`, `rebuildFromRawDoc`). **Animate UI** (`renderSlotAnimDetail`):
+  a "dark" swatch + "◆ Key dark colour @ t" shown only for two-color slots; the dopesheet shows
+  a `slotch` `rgba2` channel ("colour (2-tone)") with retime/delete/easing via the shared
+  dispatch (rgba2 keys are easable, single shared curve).
+- **Parity:** a slot with no `dark` is byte-identical to before — still `rgba`, no `rgba2`
+  anywhere; existing rgba colour/opacity animation untouched. Build GREEN
+  (`pnpm --filter launcher-api build`). ⏳ owner-verify the in-browser two-color RENDER (the
+  vendored runtime is minified; the spike uses un-mangled core).
+
+**Non-bone channels done: attachment · colour · dark colour (2-tone) · events · draw order · mesh deform.** The
 free-form mesh-deform timeline (the largest non-bone channel, §18 item 1) LANDED — see the
 item-1 note above for the validated format. Ship-from-Rigger (export rig →
 `deploy/` as `.json` + register) is the separate open gap. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
