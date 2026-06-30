@@ -972,7 +972,8 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
    foundation for 4/6/7. ⏳ owner-verify the add/edit + IK dopesheet + solve preview live.
 4. **Slot dark colour (`rgba2`)** setup + timeline — extends the slot-colour path. **LANDED**
    (see the §18.4 note below).
-5. **Blend-mode authoring** (slot `blend` dropdown) — cheap; survives round-trip but unedited.
+5. **Blend-mode authoring** (slot `blend` dropdown) — setup-only. **LANDED** (see the §18.5 note
+   below).
 6. **Transform constraint** authoring + `transform` mix timeline — builds on (3).
 7. **Path attachment + path constraint** authoring + `path` timeline — needs the path
    attachment type first; bigger.
@@ -1025,6 +1026,24 @@ format verified vs spine-core (`draworder.mjs`, 5 random 68-slot perms exact).
 - **Parity:** a slot with no `dark` is byte-identical to before — still `rgba`, no `rgba2`
   anywhere; existing rgba colour/opacity animation untouched. Build GREEN
   (`pnpm --filter launcher-api build`). ⏳ owner-verify the in-browser two-color RENDER (the
+  vendored runtime is minified; the spike uses un-mangled core).
+
+**§18.5 Slot blend mode (setup `blend`) LANDED.** Validated format (spike
+`tools/rigger-spike/blendmode.mjs`, 7/7 vs spine-core@4.2.74's `SkeletonJson` + `BlendMode` enum +
+`Utils.enumValue`):
+- **Setup-only:** Spine slot blend mode is a SETUP property (`SlotData.blendMode`) — there is **NO
+  blend timeline** (it is not animated). So no dopesheet/channel changes.
+- **Format:** per-slot `rawDoc.slots[i].blend = "additive"|"multiply"|"screen"` (a lowercase
+  string). The loader does `data.blendMode = Utils.enumValue(BlendMode, getValue(slotMap, "blend",
+  "normal"))`; `enumValue` capitalises the first letter and looks it up in the enum
+  `{Normal:0, Additive:1, Multiply:2, Screen:3}`. Absent `blend` defaults to `"normal"` → Normal.
+- **Setup UI** (`renderSlotDetail`): a "blend mode" `<select>` (Normal / Additive / Multiply /
+  Screen) placed below the dark-colour controls. Selecting Normal **removes** `slots[i].blend`
+  (Normal is the default — keeps parity); any other value writes the lowercase token. Either way it
+  `rebuildFromRawDoc`s so the spine-webgl preview re-renders with the blend mode.
+- **Parity:** a slot with no `blend` (or Normal) is byte-identical to before — no `blend` field
+  written, existing slots untouched. Build GREEN (`pnpm --filter launcher-api build`); inline
+  `<script>` passes a `new Function` syntax check. ⏳ owner-verify the in-browser blend RENDER (the
   vendored runtime is minified; the spike uses un-mangled core).
 
 **Non-bone channels done: attachment · colour · dark colour (2-tone) · events · draw order · mesh deform.** The

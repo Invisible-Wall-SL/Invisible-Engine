@@ -2944,6 +2944,32 @@ function renderSlotDetail(){
     det.appendChild(wrap);
   }
 
+  // blend mode (Spine slot `blend`) — §18.5. Setup-only (Spine has no blend timeline). Writes
+  // rawDoc.slots[i].blend = "additive"|"multiply"|"screen"; Normal removes the field (the loader
+  // defaults absent → BlendMode.Normal) so a Normal slot stays byte-identical.
+  {
+    const sdRaw = rawDoc && rawDoc.slots && rawDoc.slots.find((s) => s.name === sd.name);
+    const wrap = document.createElement("div"); wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
+    const hdr = document.createElement("div");
+    hdr.textContent = "blend mode";
+    hdr.title = "Spine slot blend mode (additive / multiply / screen). Normal is the default and writes no data. Setup-only — blend mode is not animated by a timeline in Spine.";
+    hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+    wrap.appendChild(hdr);
+    const sel = document.createElement("select");
+    sel.style.cssText = "width:100%;padding:3px 6px;font-size:11px;background:var(--panel2);color:var(--text,#ddd);border:1px solid var(--line);border-radius:5px;";
+    for (const [val, label] of [["normal", "Normal"], ["additive", "Additive"], ["multiply", "Multiply"], ["screen", "Screen"]]) {
+      const opt = document.createElement("option"); opt.value = val; opt.textContent = label; sel.appendChild(opt);
+    }
+    sel.value = (sdRaw && sdRaw.blend) || "normal";
+    sel.onchange = () => {
+      if (!sdRaw) return;
+      if (sel.value === "normal") delete sdRaw.blend; else sdRaw.blend = sel.value;
+      rebuildFromRawDoc(sd.name);
+    };
+    wrap.appendChild(sel);
+    det.appendChild(wrap);
+  }
+
   const del = document.createElement("button");
   del.textContent = "🗑 Delete slot";
   del.style.cssText = "margin:12px 0 8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
