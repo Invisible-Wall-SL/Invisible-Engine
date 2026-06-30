@@ -1083,7 +1083,39 @@ bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
 8. **Physics constraint** authoring + `physics` timeline (NEW in 4.2: inertia/strength/
    damping/mass/wind/gravity/mix/reset) — most complex; after IK/transform.
 9. **Attachments:** clipping (mask), bounding-box, point (locator — cheap + useful for FX),
-   linked-mesh authoring (PRESERVE-ONLY today).
+   linked-mesh authoring. ✅ **LANDED** (`tools/rigger-spike/attachments.mjs` GREEN vs
+   spine-core@4.2.74; UI in `static/rigger/view.html`). Validated JSON formats (empirical, off the
+   SkeletonJson loader — NOT memory):
+   - **point** `{type:"point", x, y, rotation, color?}` — x/y/rotation are SCALARS (NOT a vertex
+     list, despite extending VertexAttachment) · x/y * skeleton scale, rotation not scaled →
+     `PointAttachment` w/ `computeWorldPosition`/`computeWorldRotation`. UI: ＋ Point places a locator
+     (click-canvas x/y + a rotation field); overlay = a ring + centre dot + a rotation-tick ray.
+   - **boundingbox** `{type:"boundingbox", vertexCount, vertices, color?}` — `vertices` packed EXACTLY
+     like a mesh/path (`readVertices`, len `vertexCount*2` unweighted, or weighted packed) →
+     `BoundingBoxAttachment`; `computeWorldVertices` yields the polygon. UI: ✎ Bounding box reuses the
+     mesh/path draw-mode (click points, Enter/✓ commits, Esc cancels) + add/remove/drag points; green
+     outline overlay.
+   - **clipping** `{type:"clipping", end:<endSlotName>, vertexCount, vertices, color?}` — same packed
+     `vertices`; `end` → `skeletonData.findSlot(end)` → `attachment.endSlot` (the last slot the mask
+     clips, in draw order; omitted end → null, no throw) → `ClippingAttachment`. UI: ✎ Clipping = same
+     polygon draw + an `end` slot `<select>`; distinct red outline overlay.
+   - **linkedmesh** `{type:"linkedmesh", path:<atlasRegion>, parent:<sourceMeshName>, skin?:<srcSkin>,
+     timelines?:<bool>, width?, height?}` (also accepted as `"mesh"` + `parent`). ⚠ a linkedmesh STILL
+     resolves its OWN `path` (default = name) against the atlas via `newMeshAttachment` BEFORE the
+     deferred parent-resolve — so it MUST carry a `path` pointing at the parent's region (we copy the
+     parent's). `parent`/`skin` (default null → default skin) resolved post-load: `setParentMesh`
+     shares the parent's `vertices`/`triangles`/`regionUVs`/`worldVerticesLength`; `timelines`
+     (default TRUE → `inheritTimeline`: true ⇒ `timelineAttachment=parent`, false ⇒ self). Missing
+     parent throws "Parent mesh not found". UI: ＋ Linked mesh (offered when ≥1 source mesh exists);
+     editor = source picker (across skins) + an "inherit deform (timelines)" checkbox.
+   All four author into the ACTIVE skin's attachment map (like region/mesh/path), show in the
+   per-slot attachment picker with type labels, support per-attachment delete, and reuse the existing
+   mesh/path draw/drag machinery. Type checks use `instanceof SPINE.X` (minified-safe;
+   `isPointAtt`/`isBoundingBoxAtt`/`isClippingAtt`/`isLinkedMeshAtt`). **Parity:** no extra attachment
+   authored ⇒ byte-identical (the diff is purely additive; `rawDoc` is only mutated by the add
+   functions, gated behind user clicks). Build GREEN; inline `<script>` passes `new Function`;
+   `grep '^function …' | uniq -d` empty. ⏳ owner-verify the in-browser overlays + clipping mask live
+   (vendored runtime is minified; the spike uses un-mangled core).
 10. Lower priority: separated translatex/y·scalex/y·shearx/y channels, sequence attachment +
     `sequence` timeline, skin placeholders, mixing/mix-times, `inherit` timeline.
 
@@ -1486,5 +1518,10 @@ runtime. Re-integrated onto `main` alongside the path feature (renamed the physi
 identifiers that collided with path: `pcByName`→`physByName`, the add-button + `editPc`
 →`addPhys`/`editPhys`). ⏳ owner live-verify the sim in `/rigger`.
 
-**Remaining parity item:** §18.9 extra attachments (clipping / bounding-box / point /
-linked-mesh authoring).
+**§18.9 extra attachments — ✅ LANDED** (the final Spine 4.2 parity item). point /
+bounding-box / clipping / linked-mesh authoring, formats validated in
+`tools/rigger-spike/attachments.mjs` (GREEN vs spine-core@4.2.74) and built into
+`static/rigger/view.html` (see §18 build-plan item 9 for the exact JSON formats + UI). Parity
+preserved (purely additive; `rawDoc` mutated only by the add functions). Build GREEN; inline
+`<script>` passes `new Function`; no duplicate top-level functions. ⏳ owner live-verify the
+in-browser overlays + clipping mask (vendored runtime minified; spike uses un-mangled core).
