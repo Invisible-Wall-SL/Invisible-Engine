@@ -2521,15 +2521,34 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     kb.onclick = commit;
     det.appendChild(kb);
   }
+  // dark colour (two-color tinting, rgba2) — only for slots that HAVE a setup dark colour.
+  // Keying light/opacity above on such a slot also writes rgba2 (carrying the dark); this
+  // control keys the DARK channel (carrying the current light). §18.4.
+  if (slotIsTwoColor(sd.name)){
+    const darkHex = slotDarkAt(sd.name, animTime);
+    const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:7px 0 4px;color:var(--dim);font-size:11px;";
+    const l = document.createElement("span"); l.textContent = "dark"; l.style.cssText = "width:54px;";
+    const cp = document.createElement("input"); cp.type = "color"; cp.value = "#" + darkHex.slice(0, 6); cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
+    const note = document.createElement("span"); note.textContent = "2-tone"; note.style.cssText = "color:var(--dim);";
+    cp.oninput = () => keySlotDark(sd.name, cp.value.slice(1));
+    r.appendChild(l); r.appendChild(cp); r.appendChild(note); det.appendChild(r);
+    const kb = document.createElement("button");
+    kb.textContent = "◆ Key dark colour @ " + animTime.toFixed(2) + "s"; kb.style.cssText = "margin-top:2px;width:100%;";
+    kb.title = "Plant a dark-colour keyframe (two-color tinting) for this slot at the playhead — animates light + dark together via the rgba2 timeline";
+    kb.onclick = () => keySlotDark(sd.name, cp.value.slice(1));
+    det.appendChild(kb);
+  }
   const times = slotKeyTimes(sd.name);
   if (times.some((t) => Math.abs(t - animTime) < 1e-3)){ // only when a key sits at the playhead
     const del = document.createElement("button");
     del.textContent = "✕ Delete key"; del.style.cssText = "margin-top:6px;color:var(--bad,#e66);border-color:var(--bad,#e66);";
     del.onclick = () => deleteSlotKeyAt(sd.name, animTime);
     det.appendChild(del);
-    // easing out of a colour/opacity key — smooth fades vs an instant cut
+    // easing out of a colour/opacity key — smooth fades vs an instant cut. Two-color slots
+    // ease the rgba2 (light+dark) key; all others ease rgba.
     const cs = slotChannel(sd.name);
-    if (cs && Array.isArray(cs.rgba) && cs.rgba.some((k) => Math.abs(k.time - animTime) < 1e-3)){
+    const colKeys = cs && (slotIsTwoColor(sd.name) ? cs.rgba2 : cs.rgba);
+    if (Array.isArray(colKeys) && colKeys.some((k) => Math.abs(k.time - animTime) < 1e-3)){
       const cur = slotColorCurveType(sd.name, animTime);
       const cl = document.createElement("div"); cl.textContent = "opacity / colour easing:"; cl.style.cssText = "margin-top:9px;color:var(--txt);font-weight:600;font-size:11px;"; det.appendChild(cl);
       const row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;";
@@ -2896,6 +2915,34 @@ function renderSlotDetail(){
   }
   };
   renderAtt();
+
+  // dark colour (two-color tinting / "tint black", Spine rgba2) — §18.4. Enabling writes
+  // rawDoc.slots[i].dark (default black); clearing removes it. A slot is two-color iff `dark`
+  // is present — only then can its colour animate via the rgba2 (light+dark) timeline.
+  {
+    const sdRaw = rawDoc && rawDoc.slots && rawDoc.slots.find((s) => s.name === sd.name);
+    const has = !!(sdRaw && sdRaw.dark);
+    const wrap = document.createElement("div"); wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
+    const hdr = document.createElement("div");
+    hdr.textContent = "dark colour (two-tone tint)";
+    hdr.title = "Two-color tinting (Spine rgba2 / 'tint black'): a second colour multiplied into the dark areas. Enable it to author a dark colour in setup and animate light+dark together.";
+    hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+    wrap.appendChild(hdr);
+    const row = document.createElement("label"); row.style.cssText = "display:flex;gap:6px;align-items:center;margin:3px 0;color:var(--dim);font-size:11px;";
+    const cp = document.createElement("input"); cp.type = "color"; cp.value = "#" + (sdRaw && sdRaw.dark ? sdRaw.dark.slice(0, 6) : "000000");
+    cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
+    cp.disabled = !has;
+    cp.oninput = () => { if (!sdRaw) return; sdRaw.dark = cp.value.slice(1); rebuildFromRawDoc(sd.name); };
+    const tg = document.createElement("button"); tg.textContent = has ? "✕ Remove" : "＋ Enable"; tg.style.cssText = "padding:2px 9px;font-size:11px;";
+    tg.onclick = () => {
+      if (!sdRaw) return;
+      if (sdRaw.dark) delete sdRaw.dark; else sdRaw.dark = "000000";
+      rebuildFromRawDoc(sd.name);
+    };
+    row.appendChild(cp); row.appendChild(tg);
+    wrap.appendChild(row);
+    det.appendChild(wrap);
+  }
 
   const del = document.createElement("button");
   del.textContent = "🗑 Delete slot";
@@ -4153,6 +4200,8 @@ function poseAtTime(name, t){
         if (set) slot.setAttachment(nm ? skeleton.getAttachment(si, nm) : null);
       }
       if (ch.rgba && ch.rgba.length){ const c = sampleColor(ch.rgba, t); if (c) slot.color.set(c.r, c.g, c.b, c.a); }
+      // §18.4 two-color tinting: rgba2 drives slot.color (light) AND slot.darkColor (dark).
+      if (ch.rgba2 && ch.rgba2.length){ const c = sampleColor2(ch.rgba2, t); if (c){ slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a); if (slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a); } }
     }
   }
   // draw-order channel: reorder the live draw order to the last key ≤ t (setup otherwise)
@@ -4322,6 +4371,13 @@ function refreshAnimCounts(){ if (skeletonData && selected) renderAnimSection();
 const hexToRGBA = (h) => ({ r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt((h.slice(6, 8) || "ff"), 16) / 255 });
 const hex2 = (v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0");
 const rgbaToHex = (c) => hex2(c.r) + hex2(c.g) + hex2(c.b) + hex2(c.a);
+// Dark colour (two-color tinting, Spine `rgba2`) is RGB-only (6 hex, no alpha) — see §18.4
+// spike. (hexToRGB is declared below as a hoisted function decl; reuse it for the dark channel.)
+const rgbToHex = (c) => hex2(c.r) + hex2(c.g) + hex2(c.b);
+// A slot has two-color tinting iff its setup def carries a `dark` hex. Such slots animate
+// colour via the `rgba2` timeline (light+dark together); all others use plain `rgba`.
+function slotIsTwoColor(slotName){ const sd = rawDoc && rawDoc.slots && rawDoc.slots.find((s) => s.name === slotName); return !!(sd && sd.dark); }
+function slotSetupDark(slotName){ const sd = rawDoc && rawDoc.slots && rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.dark) || "000000"; }
 function slotChannel(slotName){ const a = animOf(curAnim); return (a && a.slots && a.slots[slotName]) || null; }
 // Sample an rgba keyframe list at t (curve-aware, like sampleChannel but on colour hex).
 function sampleColor(keys, t){
@@ -4339,6 +4395,27 @@ function sampleColor(keys, t){
   });
   return out;
 }
+// Sample an rgba2 keyframe list at t. Each key = {time, light:"rrggbbaa", dark:"rrggbb",
+// curve?}. A single shared key curve drives all 7 channels (0=R 1=G 2=B 3=A 4=R2 5=G2 6=B2)
+// — light → {r,g,b,a}, dark → {r,g,b}. Verified vs spine-core RGBA2Timeline (darkcolor.mjs).
+function sampleColor2(keys, t){
+  if (!keys || !keys.length) return null;
+  const pick = (k) => ({ light: hexToRGBA(k.light), dark: hexToRGB(k.dark) });
+  if (t <= keys[0].time) return pick(keys[0]);
+  if (t >= keys[keys.length - 1].time) return pick(keys[keys.length - 1]);
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1], la = hexToRGBA(a.light), lb = hexToRGBA(b.light), da = hexToRGB(a.dark), db = hexToRGB(b.dark);
+  const u = (b.time - a.time) > 0 ? (t - a.time) / (b.time - a.time) : 0;
+  const light = {}, dark = {};
+  const lerpCh = (vi, va, vb) => {
+    if (a.curve === "stepped") return va;
+    if (Array.isArray(a.curve)){ const c = vi << 2; return bezierValue(a.time, va, a.curve[c], a.curve[c + 1], a.curve[c + 2], a.curve[c + 3], b.time, vb, t); }
+    return va + (vb - va) * u;
+  };
+  ["r", "g", "b", "a"].forEach((f, vi) => { light[f] = lerpCh(vi, la[f], lb[f]); });
+  ["r", "g", "b"].forEach((f, vi) => { dark[f] = lerpCh(vi + 4, da[f], db[f]); });
+  return { light, dark };
+}
 // Resolved attachment name / colour for a slot at the playhead (timeline over setup).
 function slotAttachmentAt(slotName, t){
   const cs = slotChannel(slotName);
@@ -4347,8 +4424,16 @@ function slotAttachmentAt(slotName, t){
 }
 function slotColorAt(slotName, t){
   const cs = slotChannel(slotName);
-  if (cs && cs.rgba && cs.rgba.length){ const c = sampleColor(cs.rgba, t); if (c) return rgbaToHex(c); }
+  // Two-color slots carry their LIGHT colour on the rgba2 timeline (not rgba).
+  if (slotIsTwoColor(slotName)){ if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbaToHex(c.light); } }
+  else if (cs && cs.rgba && cs.rgba.length){ const c = sampleColor(cs.rgba, t); if (c) return rgbaToHex(c); }
   const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff";
+}
+// Resolved DARK colour (rgb hex) for a two-color slot at the playhead (rgba2 over setup `dark`).
+function slotDarkAt(slotName, t){
+  const cs = slotChannel(slotName);
+  if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbToHex(c.dark); }
+  return slotSetupDark(slotName);
 }
 // Key a slot's attachment (stepped) / colour at the playhead.
 function keySlotAttachment(slotName, name){
@@ -4363,6 +4448,8 @@ function keySlotAttachment(slotName, name){
 }
 function keySlotColor(slotName, hex){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  // Two-color slots key LIGHT + DARK together through rgba2; carry the current dark.
+  if (slotIsTwoColor(slotName)){ keySlotRgba2(slotName, hex.slice(0, 8), slotDarkAt(slotName, animTime)); return; }
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
   cs.rgba = cs.rgba || [];
@@ -4371,30 +4458,53 @@ function keySlotColor(slotName, hex){
   if (i >= 0){ if (cs.rgba[i].curve) key.curve = cs.rgba[i].curve; cs.rgba[i] = key; } else { cs.rgba.push(key); cs.rgba.sort((x, y) => x.time - y.time); }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
-// Outgoing-curve type of a slot's rgba (colour/opacity) key at a time ("linear"|"stepped"|"bezier").
+// Key a two-color slot's DARK colour at the playhead; carries the current light.
+function keySlotDark(slotName, darkHex){
+  if (!rawDoc || !animMode || !ensureCurAnim() || !slotIsTwoColor(slotName)) return;
+  keySlotRgba2(slotName, slotColorAt(slotName, animTime).slice(0, 8), darkHex.slice(0, 6));
+}
+// Write a single rgba2 key {light: rrggbbaa, dark: rrggbb} at the playhead (two-color slots).
+function keySlotRgba2(slotName, lightHex, darkHex){
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  cs.rgba2 = cs.rgba2 || [];
+  const i = cs.rgba2.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
+  const key = { time: roundN(animTime, 4), light: lightHex, dark: darkHex };
+  if (i >= 0){ if (cs.rgba2[i].curve) key.curve = cs.rgba2[i].curve; cs.rgba2[i] = key; } else { cs.rgba2.push(key); cs.rgba2.sort((x, y) => x.time - y.time); }
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+// Outgoing-curve type of a slot's colour key at a time ("linear"|"stepped"|"bezier").
+// Two-color slots read the rgba2 timeline; all others read rgba.
 function slotColorCurveType(slotName, time){
-  const cs = slotChannel(slotName); const keys = cs && cs.rgba; if (!Array.isArray(keys)) return "linear";
+  const cs = slotChannel(slotName); const keys = cs && (slotIsTwoColor(slotName) ? cs.rgba2 : cs.rgba); if (!Array.isArray(keys)) return "linear";
   const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear";
   if (k.curve === "stepped") return "stepped";
   if (Array.isArray(k.curve)) return "bezier";
   return "linear";
 }
-// Set the OUTGOING interpolation of a slot's rgba (colour/opacity) key at `time`. presets:
-// linear (drop curve), stepped, easein/easeout/easeinout (bezier baked per channel from the segment).
+// Set the OUTGOING interpolation of a slot's colour key at `time`. presets: linear (drop
+// curve), stepped, easein/easeout/easeinout (bezier baked per channel from the segment).
+// Two-color slots ease the rgba2 timeline (7 channels: light r,g,b,a + dark r,g,b); others
+// the rgba timeline (4 channels: r,g,b,a).
 function setSlotColorCurve(slotName, time, preset){
-  const cs = slotChannel(slotName); const keys = cs && cs.rgba; if (!Array.isArray(keys)) return;
+  const two = slotIsTwoColor(slotName);
+  const cs = slotChannel(slotName); const keys = cs && (two ? cs.rgba2 : cs.rgba); if (!Array.isArray(keys)) return;
   const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
   const a0 = keys[idx];
   const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
   if (idx >= keys.length - 1 || preset === "linear" || (preset !== "stepped" && !F)){ delete a0.curve; }
   else if (preset === "stepped"){ a0.curve = "stepped"; }
   else {
-    const b0 = keys[idx + 1], ca = hexToRGBA(a0.color), cb = hexToRGBA(b0.color), curve = [];
-    ["r", "g", "b", "a"].forEach((fn, vi) => {
-      const va = ca[fn], vb = cb[fn], dt = b0.time - a0.time, dv = vb - va;
-      curve[vi * 4 + 0] = roundN(a0.time + dt * F[0], 4); curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
-      curve[vi * 4 + 2] = roundN(a0.time + dt * F[2], 4); curve[vi * 4 + 3] = roundN(va + dv * F[3], 4);
-    });
+    const b0 = keys[idx + 1], dt = b0.time - a0.time, curve = [];
+    const bake = (vi, va, vb) => { const dv = vb - va; curve[vi * 4 + 0] = roundN(a0.time + dt * F[0], 4); curve[vi * 4 + 1] = roundN(va + dv * F[1], 4); curve[vi * 4 + 2] = roundN(a0.time + dt * F[2], 4); curve[vi * 4 + 3] = roundN(va + dv * F[3], 4); };
+    if (two){
+      const la = hexToRGBA(a0.light), lb = hexToRGBA(b0.light), da = hexToRGB(a0.dark), db = hexToRGB(b0.dark);
+      ["r", "g", "b", "a"].forEach((fn, vi) => bake(vi, la[fn], lb[fn]));
+      ["r", "g", "b"].forEach((fn, vi) => bake(vi + 4, da[fn], db[fn]));
+    } else {
+      const ca = hexToRGBA(a0.color), cb = hexToRGBA(b0.color);
+      ["r", "g", "b", "a"].forEach((fn, vi) => bake(vi, ca[fn], cb[fn]));
+    }
     a0.curve = curve;
   }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
@@ -4402,18 +4512,18 @@ function setSlotColorCurve(slotName, time, preset){
 function slotKeyTimes(slotName){
   const cs = slotChannel(slotName); if (!cs) return [];
   const set = new Set();
-  for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch])) for (const k of cs[ch]) set.add(roundN(k.time, 4));
+  for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch])) for (const k of cs[ch]) set.add(roundN(k.time, 4));
   return [...set].sort((x, y) => x - y);
 }
 function deleteSlotKeyAt(slotName, time){
   const cs = slotChannel(slotName); if (!cs) return;
-  for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch])){ cs[ch] = cs[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cs[ch].length) delete cs[ch]; }
+  for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch])){ cs[ch] = cs[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cs[ch].length) delete cs[ch]; }
   const a = animOf(curAnim); if (a && a.slots && a.slots[slotName] && !Object.keys(a.slots[slotName]).length) delete a.slots[slotName];
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 function retimeSlotKey(slotName, oldTime, newTime){
   const cs = slotChannel(slotName); if (!cs) return; newTime = Math.max(0, roundN(newTime, 4));
-  for (const ch of ["attachment", "rgba"]){
+  for (const ch of ["attachment", "rgba", "rgba2"]){
     const keys = cs[ch]; if (!Array.isArray(keys)) continue;
     const k = keys.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) continue;
     cs[ch] = keys.filter((x) => x === k || Math.abs(x.time - newTime) >= 1e-4); k.time = newTime; cs[ch].sort((x, y) => x.time - y.time);
@@ -4442,7 +4552,7 @@ function retimeBoneKey(boneName, oldTime, newTime){
 }
 
 const BONE_CH_LABEL = { rotate: "rotation", translate: "translate", scale: "scale", shear: "shear" };
-const SLOT_CH_LABEL = { attachment: "image", rgba: "colour" };
+const SLOT_CH_LABEL = { attachment: "image", rgba: "colour", rgba2: "colour (2-tone)" };
 // Tracks shown as rows. Overview ("sel" off) = one collapsed row per keyed bone/slot.
 // Focused ("sel" on) = the selected bone/slot EXPANDED into per-channel rows, so each
 // keyframe is clearly tied to a property (rotation / translate / scale / image / colour).
@@ -4457,7 +4567,7 @@ function timelineTracks(){
     }
     if (selSlot){
       const cs = (a && a.slots && a.slots[selSlot]) || {};
-      for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
+      for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
     }
     // deform track for the selected mesh slot (always show a row to key into when a mesh is active)
     if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
@@ -4520,7 +4630,7 @@ function setTrackKeyCurve(tr, time, preset){
   if (tr.kind === "bone" || tr.kind === "bonech") setKeyCurve(tr.name, time, preset); // setKeyCurve re-renders the timeline
   else if (tr.kind === "deform"){ setDeformKeyCurve(tr, time, preset); renderTimeline(); }
   else if (tr.kind === "ik"){ setIkKeyCurve(tr.name, time, preset); renderTimeline(); }
-  else if (tr.kind === "slot" || (tr.kind === "slotch" && tr.ch === "rgba")){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
+  else if (tr.kind === "slot" || (tr.kind === "slotch" && (tr.ch === "rgba" || tr.ch === "rgba2"))){ setSlotColorCurve(tr.name, time, preset); renderTimeline(); }
 }
 // Set the OUTGOING easing of a deform key (one curve for the whole vertex frame). Bezier
 // controls are in (time, progress) coords — the deform sampler reads progress 0→1 (see
@@ -4542,8 +4652,8 @@ function trackKeyEasable(tr, time){
   if (tr.kind === "bone" || tr.kind === "bonech") return true;
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); return !!(arr && arr.some((k) => Math.abs(k.time - time) < 1e-4)); }
-  if (tr.kind === "slotch") return tr.ch === "rgba";
-  if (tr.kind === "slot"){ const cs = slotChannel(tr.name); return !!(cs && Array.isArray(cs.rgba) && cs.rgba.some((k) => Math.abs(k.time - time) < 1e-4)); }
+  if (tr.kind === "slotch") return tr.ch === "rgba" || tr.ch === "rgba2";
+  if (tr.kind === "slot"){ const cs = slotChannel(tr.name); const keys = cs && (slotIsTwoColor(tr.name) ? cs.rgba2 : cs.rgba); return !!(Array.isArray(keys) && keys.some((k) => Math.abs(k.time - time) < 1e-4)); }
   return false;
 }
 // Retime / delete a single deform key.
@@ -4777,7 +4887,7 @@ function copyBoneKey(boneName, srcTime, destTime){
 }
 function copySlotKey(slotName, srcTime, destTime){
   const cs = slotChannel(slotName); if (!cs) return;
-  for (const ch of ["attachment", "rgba"]) if (Array.isArray(cs[ch])) dupKeyInArr(cs[ch], srcTime, destTime);
+  for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch])) dupKeyInArr(cs[ch], srcTime, destTime);
   markDirty(); animsDirty = true;
 }
 function copyDrawOrderKey(srcTime, destTime){ const a = animOf(curAnim); if (!a || !Array.isArray(a.drawOrder)) return; dupKeyInArr(a.drawOrder, srcTime, destTime); markDirty(); animsDirty = true; }
