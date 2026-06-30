@@ -1120,10 +1120,10 @@
 	}
 
 	/** Add a blank game-space screen (auto-named "Screen 001", …) and focus it — the
-	 * generic counterpart to "New background screen". NOTE: the reference games mount
-	 * scenes by id in code, so a fresh screen renders in this editor preview but does
-	 * not yet appear in the shipped game until its id is wired into the game (deferred
-	 * engine work — see docs/STATUS.md). */
+	 * generic counterpart to "New background screen". A fresh custom-id screen DOES ship:
+	 * the game mounts it generically (`extraMountScenes`, PR #67) as an always-on overlay
+	 * gated by its `visibleSource`, or as an exclusive Flow takeover when a FlowDoc authors
+	 * it — no per-id code wiring needed (see docs/design/flow-driven-game.md §4). */
 	function addEmptyScreen(): void {
 		const id = 's_' + Math.random().toString(36).slice(2, 10);
 		scenes = [...scenes, { id, name: nextScreenName('Screen'), nodes: [] }];
@@ -1134,8 +1134,8 @@
 
 	/** Add a blank HUD-layer screen — a `standard`-space scene minted with a `hud_` id
 	 * so `isHudScene()` groups it under the always-on-top HUD section. Drop atlas
-	 * regions onto it to build a custom top-layer overlay. Same shipping caveat as
-	 * `addEmptyScreen` (needs game wiring to render in the live game). */
+	 * regions onto it to build a custom top-layer overlay. Ships the same way as
+	 * `addEmptyScreen` (generic `extraMountScenes` overlay / Flow takeover — no code wiring). */
 	function addHudScreen(): void {
 		const id = 'hud_' + Math.random().toString(36).slice(2, 10);
 		scenes = [...scenes, { id, name: nextScreenName('HUD'), space: 'standard', nodes: [] }];
