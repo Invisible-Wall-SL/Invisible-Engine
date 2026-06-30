@@ -13,6 +13,11 @@
 > the four-registry `declare ≠ implement` contract this reuses wholesale),
 > `live-assets.md` (the deploy→bake→register chain every authored doc must travel),
 > `invisible-symbols-state-machine.md` (a prior authored-doc through the same chain).
+> **See also `flow-driven-game.md`** (owner direction 2026-06-30) — the build plan to make
+> the pin graph functional, drive the whole game from Flow (loading → tap → basegame →
+> win-branch, shipped + baked), and generalize engine-signal exposure to every instance. The
+> per-button `action` trigger deferred there is the functional-output-pin work this doc's pin
+> model anticipates.
 
 ## 0. Status
 

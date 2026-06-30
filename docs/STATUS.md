@@ -86,6 +86,14 @@ submodule bumps).
 8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit (vocab can silently drift);
    refresh `docs/tools/fx.md` for the sliders + spawn-shape picker (CLAUDE.md rule 9).
 
+> 🆕 **Flow-driven game (owner direction 2026-06-30)** — registered build plan in
+> `docs/design/flow-driven-game.md`: make every component placeable on every screen with its
+> engine signals/params exposed, and drive the whole game from the Flow graph (loading → tap
+> to enter → basegame → win-branch, shipped + baked). Critical path = its Phases 1→2→4→5.
+> Decision: button→flow advance uses the existing tap-to-continue screen for now; the real
+> per-button `action` trigger is deferred (its Phase 8). Also folds in the missing
+> `docs/tools/editor.md` (rule 9).
+
 ### Blocked on owner / external (not code)
 
 - **gpt_image generation** — needs the `Images to RGB` ComfyUI node + `COMFY_ORG_API_KEY`/

@@ -1,5 +1,11 @@
 # Invisible Editor — Design (v1)
 
+> **See also `docs/design/flow-driven-game.md`** (owner direction 2026-06-30) — the build
+> plan that extends the component/scene model here to be fully drivable from Invisible Flow:
+> universal per-instance engine-signal exposure, exclusive screen-swapping for any screen,
+> the missing-UI-vs-schema gaps (`visibleFor`/`screenAnchor`/custom-param `options`/
+> `def.slots`), and the missing `docs/tools/editor.md`.
+
 The missing layout step in the pipeline. Sheet Maker defines regions, Atlas Maker generates art, Spine packs animations. The editor places those assets across game **screens**, exporting a JSON layout the engine renders. Animation/book-event logic stays in code on top of the static layout.
 
 ## 1. What the engine looks like today
