@@ -156,6 +156,12 @@ function normalizeScene(input: unknown): Scene | null {
 	if (input.space === 'standard' || input.space === 'canvas' || input.space === 'background') {
 		scene.space = input.space;
 	}
+	// Preserve the engine ROLE tag (`Scene.role`) — the id-independent identity the game
+	// resolves the loading splash / persistent base scene by, so scene ids stay renameable.
+	// Without this whitelist entry the field is silently dropped on save (the reported bug).
+	if (input.role === 'loading' || input.role === 'basegame') {
+		scene.role = input.role;
+	}
 	const align = normalizeAlign(input.align);
 	if (align) scene.align = align;
 	// Preserve the screen's game-lifecycle gate (`Scene.visibleSource`) — a key into the
