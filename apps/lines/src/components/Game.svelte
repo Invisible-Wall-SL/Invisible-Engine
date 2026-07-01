@@ -869,10 +869,11 @@
 	// `onloaded` callback (it's an either/or with the game, so it can't be a generic
 	// `bind`), so we mirror LayoutNodeView's canvas-space mount here and WRAP it.
 	const loadingScene = $derived(sceneByRole(editorDoc.scenes, 'loading'));
+	// Identify the coded splash anchor by its BIND, never by the reserved `loading-screen`
+	// id string: an author can place a real `componentInstance` (a logo prefab, …) that
+	// happens to carry that id, and it must NOT be mistaken for the inert coded anchor.
 	const loadingNode = $derived(
-		loadingScene?.nodes.find(
-			(node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen',
-		),
+		loadingScene?.nodes.find((node) => node.bind?.component === 'LoadingScreen'),
 	);
 	// Authored splash VISUAL: every loading-scene node EXCEPT the inert `LoadingScreen`
 	// bind anchor (which the game renders as the coded splash, not as a scene node). When
@@ -882,10 +883,11 @@
 	// stays coded. No authored content ⇒ `undefined` ⇒ the coded splash renders unchanged
 	// (parity for un-authored docs). The `loading-screen` anchor is dropped so it can't
 	// double-draw (it's inert in-game anyway — `LoadingScreen` isn't a bound component).
+	// Match the anchor by its BIND only — NOT the reserved `loading-screen` id string —
+	// so an author-placed node reusing that id (e.g. a logo componentInstance) survives
+	// and renders as the splash visual instead of being silently stripped.
 	const stripLoadingAnchor = (scene: Scene): Scene | undefined => {
-		const nodes = scene.nodes.filter(
-			(node) => node.id !== 'loading-screen' && node.bind?.component !== 'LoadingScreen',
-		);
+		const nodes = scene.nodes.filter((node) => node.bind?.component !== 'LoadingScreen');
 		return nodes.length > 0 ? { ...scene, nodes } : undefined;
 	};
 	const authoredLoadingScene = $derived(
