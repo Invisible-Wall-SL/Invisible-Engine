@@ -24,7 +24,7 @@
  * asset under the node's `assetKey` — the same value `LayoutNodeView` looks up.
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
-import { collectComponentIds, parseScopedFrameRef } from 'engine-layout';
+import { collectComponentIds, collectComponentPins, parseScopedFrameRef } from 'engine-layout';
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
@@ -198,6 +198,19 @@ async function resolveReferencedDefs(
 		for (const nested of collectComponentIds([def.root])) {
 			if (!seen.has(nested)) queue.push(nested);
 		}
+	}
+	// Also walk PINNED component versions the game actually renders — mirror the doc bake
+	// (`/api/editor/doc?components=1`, which ships `componentVersions` via `collectComponentPins`).
+	// An instance pinned to a non-latest version renders THAT version's nodes, so its atlas art
+	// must be exported from that version, not just latest. Without this the exporter and the doc
+	// bake drift: the game asks for the pinned version's sheet, only latest's was written to
+	// `deploy/editor-art/`, and the pinned sprites render black. Keyed by `id@version` so a pinned
+	// def is walked in addition to (not replacing) latest. Nested pins inside a pinned version are
+	// resolved against latest, matching the doc bake's scope.
+	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
+		if (defs[pin.id]?.version === pin.version) continue;
+		const pinned = await loadComponent(pin.id, projectKey, pin.version);
+		if (pinned) defs[`${pin.id}@${pin.version}`] = pinned;
 	}
 	return defs;
 }
