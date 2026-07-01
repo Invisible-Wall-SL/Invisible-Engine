@@ -38,8 +38,12 @@ diagnostic on `stateApp.loaded`, so a key is only flagged once loading has actua
 genuinely absent asset still surfaces); `debug` still forces the log. Purely a diagnostic change
 — render behaviour (EMPTY texture until resolve) is unchanged. Files:
 `packages/pixi-svelte/src/lib/components/{Sprite,SpriteSheet,SpineProvider,Particles}.svelte`.
-**Verified:** `pixi-svelte` `svelte-package` build exits 0. Reaches live online games only via a
-runtime-bundle publish (`_runtime/lines`).
+**SHIPPED to `_runtime/lines`** (2026-07-01): rebuilt `pixi-svelte`+`engine-layout` dist →
+`PUBLIC_RGS_TRANSPORT=play4fun` `lines` build (`bundle.DvWFElXX.js`) → uploaded via
+`publish-runtime-bundle.mjs` → POST `/refresh` → verified the served runtime index now
+references the new bundle and the guard (`EMPTY&&r.stateApp.loaded`) is in the served JS.
+(Note: Cloudflare negative-caches a pre-hydrate 404 on a fresh content-hash for a beat —
+re-check with a cache-busted asset URL before concluding a publish didn't land.)
 
 ### 2026-07-01 — Coded loading path REMOVED, loading is now generic (flow-driven-game §1)
 
