@@ -837,6 +837,19 @@
 		markDirty();
 	}
 
+	/** Tag the active scene's engine ROLE — the id-independent identity the game boot resolves
+	 * the loading splash / persistent base scene by (engine `Scene.role`), so scene ids stay
+	 * free-form / renameable. `''` clears it. Expect ONE scene per role (the game resolves the
+	 * first match). Sparse — an untouched scene carries no `role`, so it serializes as today. */
+	function setSceneRole(value: string): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value === 'loading' || value === 'basegame') sc.role = value;
+		else delete sc.role;
+		scenes = [...scenes];
+		markDirty();
+	}
+
 	/** Bind the WHOLE screen to a game-lifecycle state (engine `Scene.visibleSource`):
 	 * the game shows it ONLY while that state is active (e.g. Free-spin intro), so authored
 	 * overlay content follows the round flow. `''` clears the gate (renders always). The
@@ -1077,12 +1090,18 @@
 	}
 
 	/** Screens in the game's canonical full set (per game type) that this doc is
-	 * missing, matched by scene id — e.g. a `loading`/logo scene added after the
-	 * project was first seeded. */
+	 * missing, matched by scene id OR engine role — e.g. a `loading`/logo scene added
+	 * after the project was first seeded. A ref counts as present when a scene shares its
+	 * id, OR (when the ref carries a `role`) when a scene fills that same role — so a
+	 * role-tagged, custom-id loading/base scene is NOT falsely flagged as missing. */
 	const missingScreens = $derived.by(() => {
 		const full = getFullSceneSet(projectGameType);
 		if (!full) return [] as Scene[];
-		return full.scenes.filter((ref) => !scenes.some((cur) => cur.id === ref.id));
+		return full.scenes.filter(
+			(ref) =>
+				!scenes.some((cur) => cur.id === ref.id) &&
+				!(ref.role && scenes.some((cur) => cur.role === ref.role)),
+		);
 	});
 
 	/** Append every screen the game has that this doc lacks (e.g. the logo/loading
@@ -2326,6 +2345,18 @@
 									<option value="standard">standard (HUD box)</option>
 									<option value="canvas">canvas (window edges)</option>
 									<option value="background">background (cover-fit)</option>
+								</select>
+							</label>
+							<label class="space-field">
+								<span>role</span>
+								<select
+									value={activeScene.role ?? ''}
+									onchange={(e) => setSceneRole(e.currentTarget.value)}
+									title="Engine role this screen fills — the game finds the loading splash and the base game by ROLE, not by a fixed id, so you can rename screens freely. Tag exactly one scene per role."
+								>
+									<option value="">— none —</option>
+									<option value="loading">loading (splash)</option>
+									<option value="basegame">base game</option>
 								</select>
 							</label>
 							{#if activeScene.space === 'standard'}

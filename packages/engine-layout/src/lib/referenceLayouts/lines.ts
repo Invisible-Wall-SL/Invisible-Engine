@@ -255,6 +255,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				// LoadingScreen regardless (not registered → ignored in-game).
 				id: 'loading',
 				name: sceneName('loading'),
+				role: 'loading',
 				space: 'canvas',
 				nodes: [
 					{
@@ -277,6 +278,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 			{
 				id: 'basegame',
 				name: sceneName('basegame'),
+				role: 'basegame',
 				nodes: [
 					{
 						id: 'frame-bg',

@@ -24,6 +24,25 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-01 — Screen identity decoupled from magic ids (branch `feat/flow-screen-identity`)
+
+The game boot no longer identifies the loading splash / persistent base scene by matching a
+hardcoded scene id (`'loading'`/`'basegame'`). A new additive `Scene.role` field
+(`'loading' | 'basegame'`) carries the identity, resolved via engine-layout
+`sceneByRole`/`loadingSceneId`/`basegameSceneId` (role → legacy `id === role` fallback). So scene
+ids are now **free-form / renameable**, and a template- or hand-authored loading scene with a custom
+id is recognized as the splash once tagged (the coded logo/progress is then suppressed and it is
+reserved from the `extraMountScenes` overlay path, so it no longer double-renders). `Game.svelte`
+resolves loading/basegame + the takeover-exclusion + `reservedSceneIds` through the role helper; the
+Scene Editor gained a per-scene **role** dropdown; `missingScreens` now matches by role-or-id;
+reference layouts (lines/bookof) tag their loading/base scenes so new projects seed the role.
+**Parity:** no role + no flow ⇒ byte-identical boot (the `?? id` fallback + sparse writer). Verified:
+engine-flow tsc + engine-layout/lines/launcher builds green; full flow-spike suite (14 harnesses incl.
+new `scenerole`) green. NOT yet merged; a shipped game (Borut) picks it up via an `engine`
+submodule bump post-merge + the owner tagging its loading scene's role. Remaining owner authoring for
+the double-background: move the backdrop into a `background`-space scene (suppresses the coded
+`<Background>` + cover-fits) — separate from this id decoupling.
+
 ### Shipped on `main` (built + headless-green + **owner-verified live 2026-06-29**)
 
 > The inline "⏳" notes below were the pre-2026-06-29 live-verify caveats; the owner has

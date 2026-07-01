@@ -99,6 +99,7 @@ export function bookofReferenceLayout(): LayoutDoc {
 				// LoadingScreen regardless (not in registerBoundComponents → ignored).
 				id: 'loading',
 				name: 'Loading / logo',
+				role: 'loading',
 				space: 'canvas',
 				nodes: [
 					{
@@ -137,6 +138,7 @@ export function bookofReferenceLayout(): LayoutDoc {
 			{
 				id: 'basegame',
 				name: 'Base game',
+				role: 'basegame',
 				nodes: [
 					{
 						id: 'frame-bg',

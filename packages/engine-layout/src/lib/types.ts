@@ -483,6 +483,19 @@ export interface Scene {
 	name: string;
 	nodes: LayoutNode[];
 	/**
+	 * The engine ROLE this scene fills — the id-independent identity the game boot resolves
+	 * behaviour by, so scene ids stay free-form / renameable. The game reads e.g. the
+	 * loading splash and the persistent base scene by `role`, NOT by matching a magic id.
+	 * - `loading` — the loading splash (its authored nodes become the splash visual; the
+	 *   coded logo/progress is suppressed). One per doc.
+	 * - `basegame` — the persistent base scene (the reel-split mount / offline fallback).
+	 * Resolution order at boot: the flow's `initial`/`start` node (when a FlowDoc is loaded)
+	 * → the scene with this `role` → the legacy scene whose `id` equals the role name
+	 * (parity for un-migrated docs). Absent ⇒ falls back to the legacy id match, so a doc
+	 * with no roles boots byte-identically to today. Additive.
+	 */
+	role?: 'loading' | 'basegame';
+	/**
 	 * Which coordinate space this scene authors into. `<LayoutScene>` reads this
 	 * and **self-wraps** in the matching container, so a scene renders identically
 	 * regardless of where the game mounts it (this is what fixes the "scene mounted

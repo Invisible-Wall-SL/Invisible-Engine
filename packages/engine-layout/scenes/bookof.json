@@ -24,6 +24,7 @@
 		{
 			"id": "loading",
 			"name": "Loading / logo",
+			"role": "loading",
 			"space": "canvas",
 			"nodes": [
 				{
@@ -63,6 +64,7 @@
 		{
 			"id": "basegame",
 			"name": "Base game",
+			"role": "basegame",
 			"nodes": [
 				{
 					"id": "frame-bg",

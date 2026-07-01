@@ -16,6 +16,7 @@ export * from './componentParams';
 export * from './tapToContinue';
 export * from './completeOnLoaded';
 export * from './engineBindings';
+export * from './sceneRole';
 export * from './collectComponentIds';
 export * from './reelGrid';
 export * from './buttonConvert';

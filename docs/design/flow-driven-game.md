@@ -137,6 +137,27 @@ exclusive swap is Phase 4.
 `basegame` (verify via the `app.stage` read / dynamic-import override, not `preview_screenshot`
 — it times out on WebGPU). Default boot (no hook) must render byte-identical.
 
+### Follow-up — screen identity by ROLE, not magic id (2026-07-01, branch `feat/flow-screen-identity`)
+
+The original Phase-1/4 code keyed the loading splash and the persistent base scene on the literal
+scene ids `'loading'`/`'basegame'` (`Game.svelte` `scenes.find(id==='loading')`,
+`mounter.has('loading')`, the takeover exclusion, `RESERVED_SCENE_IDS`). That coupled behaviour to a
+magic name — a template- or hand-authored loading scene with a different id (e.g. "Loading / logo")
+was not recognized, so the coded splash still ran and the authored scene leaked in as an overlay
+(double background, missing logo). **Fix:** an additive `Scene.role` (`'loading' | 'basegame'`,
+`engine-layout/src/lib/types.ts`) is the id-independent identity, resolved by
+`sceneByRole`/`loadingSceneId`/`basegameSceneId` (`engine-layout/src/lib/sceneRole.ts`) with a
+`role → legacy id` fallback. `Game.svelte` resolves loading/basegame + the takeover exclusion +
+`reservedSceneIds` through those helpers; a role-tagged custom-id scene is recognized as the splash
+AND reserved (no double-mount). The Scene Editor has a per-scene **role** dropdown; `missingScreens`
+matches by role-or-id; the lines/bookof reference layouts tag their loading/base scenes. A FlowDoc
+still "drives" the screen by authoring that same scene id (`mounter.has(loadingScreenId)`); the flow's
+`initial` node was deliberately NOT used as the loading id — the default lines flow's initial screen
+is `basegame`, so conflating `initial` with `loading` would misfire. **Parity (§7):** no role + a scene
+id'd `loading`/`basegame` ⇒ exactly today's selection (`?? id`), byte-identical. Harness:
+`tools/flow-spike/sceneRole.ts` (`scenerole`). Ships to a game via an `engine` submodule bump +
+tagging the game's loading scene's role.
+
 ---
 
 ## 2. Phase 2 — Author win-presentation transitions (the win-branch leg)

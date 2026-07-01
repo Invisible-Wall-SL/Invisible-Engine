@@ -16,7 +16,8 @@
 		"phase6": "tsx phase6Pipeline.ts",
 		"phase7": "tsx phase7Authoring.ts",
 		"vocab": "tsx vocabulary.ts",
-		"tap": "tsx tapToContinue.ts"
+		"tap": "tsx tapToContinue.ts",
+		"scenerole": "tsx sceneRole.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

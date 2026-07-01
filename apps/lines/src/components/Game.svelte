@@ -63,6 +63,9 @@
 		backgroundScenes,
 		hasAuthoredBackground,
 		extraMountScenes,
+		sceneByRole,
+		loadingSceneId,
+		basegameSceneId,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -387,9 +390,14 @@
 	/** Fetched at boot from the launcher; seeded with the bundled fallback so the
 	 * game renders immediately and degrades gracefully when offline. */
 	let editorDoc = $state(fallbackEditorScenes);
-	const basegameScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'basegame') ?? fallbackBasegame,
-	);
+	// Screen identity resolves by ROLE (engine-layout `sceneByRole`) — not by matching a magic
+	// scene id — so scene ids stay free-form and renameable (the owner's ask). It reads the scene
+	// `role`, falling back to the legacy scene whose id equals the role name (parity for un-migrated
+	// docs). It needs no FlowDoc, which is why it fixes the CODED boot — no shipped game loads a flow
+	// yet. A flow still "drives" the screen by authoring that same scene id
+	// (`flow.mounter.has(loadingScreenId)` below). Absent role + absent flow ⇒ today's selection.
+	const basegameScreenId = $derived(basegameSceneId(editorDoc.scenes));
+	const basegameScene = $derived(sceneByRole(editorDoc.scenes, 'basegame') ?? fallbackBasegame);
 	// Reel z-order: the editor lets you order the `reelGrid` placeholder among the
 	// basegame layers, but the real <Board/> mounts in its OWN trailing MainContainer
 	// (a separate Pixi container), so it always paints over the whole scene — no editor
@@ -516,7 +524,7 @@
 	// interpreter is not driving this screen ⇒ `<FlowMount>` renders the coded fall-through.
 	const basegameMount = $derived.by(() => {
 		const decision = flow?.mounter.resolve(activeScreenId);
-		if (decision?.kind === 'authored' && decision.screenId === 'basegame') {
+		if (decision?.kind === 'authored' && decision.screenId === basegameScreenId) {
 			return decision.scene as Scene;
 		}
 		return undefined;
@@ -529,18 +537,22 @@
 	// `showLoadingScreen=false` on `onloaded`. When it does NOT (every normal apps/lines boot —
 	// `LINES_FLOW_DOC` has only `basegame`), this is `false` and the coded `showLoadingScreen` /
 	// `onloaded` path below is byte-identical to current `main` (§7).
-	const flowOwnsLoading = $derived(flow?.mounter.has('loading') ?? false);
+	// The loading screen's id, resolved by ROLE (id-independent): the `role:'loading'` scene, else
+	// the legacy `loading` id (parity). A renamed loading scene is still recognized as the splash,
+	// and a flow drives it by authoring this same id (`flow.mounter.has(loadingScreenId)`).
+	const loadingScreenId = $derived(loadingSceneId(editorDoc.scenes));
+	const flowOwnsLoading = $derived(flow?.mounter.has(loadingScreenId) ?? false);
 	// Whether the splash should render this frame. Flow-owned ⇒ while the interpreter's active
-	// screen is `loading`; coded ⇒ the existing mutable `showLoadingScreen` flag (untouched).
+	// screen is the loading screen; coded ⇒ the existing mutable `showLoadingScreen` flag.
 	const showLoading = $derived(
-		flowOwnsLoading ? activeScreenId === 'loading' : context.stateLayout.showLoadingScreen,
+		flowOwnsLoading ? activeScreenId === loadingScreenId : context.stateLayout.showLoadingScreen,
 	);
 	// The authored `loading` scene the interpreter resolved (when it owns loading) — its placed
 	// content becomes the splash VISUAL via `<LoadingScreen authoredScene>`, exactly as the
 	// coded `authoredLoadingScene` path does. `undefined` ⇒ no Flow ownership ⇒ coded path.
 	const flowLoadingMount = $derived.by((): Scene | undefined => {
 		if (!flowOwnsLoading) return undefined;
-		const decision = flow?.mounter.resolve('loading');
+		const decision = flow?.mounter.resolve(loadingScreenId);
 		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
 	});
 	// Dismiss the splash. Flow-owned ⇒ the tap/transition completes the active `loading` screen
@@ -588,7 +600,7 @@
 	//   - the active screen IS `basegame`/`loading` ⇒ handled by their own paths above.
 	// apps/lines' default doc authors no such screen ⇒ inert (byte-identical to `main`, §7).
 	const activeScreenTakeover = $derived.by((): Scene | undefined => {
-		if (activeScreenId === 'basegame' || activeScreenId === 'loading') return undefined;
+		if (activeScreenId === basegameScreenId || activeScreenId === loadingScreenId) return undefined;
 		const decision = flow?.mounter.resolve(activeScreenId);
 		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
 	});
@@ -635,7 +647,15 @@
 		'background',
 	] as const;
 	const reservedSceneIds = $derived(
-		new Set<string>([...RESERVED_SCENE_IDS, ...(flow?.mounter.authoredScreenIds() ?? [])]),
+		new Set<string>([
+			...RESERVED_SCENE_IDS,
+			// The role-resolved loading/basegame scenes (custom ids included) — so a renamed,
+			// role-tagged loading/base scene is handled by its own path and never ALSO mounts
+			// here as a generic overlay (the double-background/double-splash the owner hit).
+			loadingScreenId,
+			basegameScreenId,
+			...(flow?.mounter.authoredScreenIds() ?? []),
+		]),
 	);
 	// The author's NEW screens (custom ids, non-background space) the game would otherwise
 	// never mount. Empty for `apps/lines`' fallback doc (it reserves all its ids + ships no
@@ -848,7 +868,7 @@
 	// the whole splash in-game. `LoadingScreen` keeps its coded mount + required
 	// `onloaded` callback (it's an either/or with the game, so it can't be a generic
 	// `bind`), so we mirror LayoutNodeView's canvas-space mount here and WRAP it.
-	const loadingScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'loading'));
+	const loadingScene = $derived(sceneByRole(editorDoc.scenes, 'loading'));
 	const loadingNode = $derived(
 		loadingScene?.nodes.find(
 			(node) => node.id === 'loading-screen' || node.bind?.component === 'LoadingScreen',
