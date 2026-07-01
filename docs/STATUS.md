@@ -43,6 +43,32 @@ submodule bump post-merge + the owner tagging its loading scene's role. Remainin
 the double-background: move the backdrop into a `background`-space scene (suppresses the coded
 `<Background>` + cover-fits) — separate from this id decoupling.
 
+### 2026-07-01 — Background componentInstance cover-fit (SHIPPED to `_runtime/lines`)
+
+A `componentInstance` placed in a `background`-space scene now cover-fits the window as ONE
+composed group: the instance's wrapping container gets the synthetic cover transform (design
+size = the union bounding box of the def content, via new `componentDesignSize`; the editor
+mirrors it, `LayoutNodeView` `bgComponent` + `EditorCanvas` `backgroundTransform`), and — the
+crux — the group's CHILDREN render in LOCAL (`canvas`) space, not `background`, so they stay put
+at their real size and animate instead of each independently cover-fitting the window (which
+ballooned a decorative spine to full-screen). The child-space override (`ComponentInstance`
+`childSpace = space==='background' ? 'canvas' : space`) had to be applied to BOTH render
+branches (interactive + non-interactive) — a bulk edit initially missed the non-interactive
+`{:else}` branch, which is the one a plain group uses. Commits `34a8e3a` (cover-fit) →
+`955a3c8` (editor centre) → `5a413f9` + `3d30160` (child-space, both branches).
+
+**Delivery:** this is an engine RUNTIME change, so it reaches the online games only via a
+runtime-release, NOT a game republish: rebuild the `engine-layout` **dist** first (stale-dist
+trap), then `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build`, then
+`node apps/launcher-api/scripts/publish-runtime-bundle.mjs lines apps/lines/build`, then
+`POST https://games.invisiblewall.org/refresh`. See `reference_runtime_release` memory.
+
+**Parked (NOT merged):** the "center everything" change (componentInstances draw with their
+content-CENTRE at the placement point, in all non-background spaces) — an owner-approved
+breaking change — is WIP in `git stash@{0}` ("center-everything WIP"). It was briefly shipped
+by accident (built from a dirty tree) then reverted. Finish it on its own branch, reviewed,
+with the reference-layout re-positioning, before shipping.
+
 ### Shipped on `main` (built + headless-green + **owner-verified live 2026-06-29**)
 
 > The inline "⏳" notes below were the pre-2026-06-29 live-verify caveats; the owner has
