@@ -303,7 +303,10 @@
 					}
 				: t;
 		}
-		if (space === 'background' && (node.kind === 'sprite' || node.kind === 'spine')) {
+		if (
+			space === 'background' &&
+			(node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'componentInstance')
+		) {
 			return backgroundTransform(node, t);
 		}
 		// game space: map the node's main-box coords into the fixed window the way
@@ -630,7 +633,10 @@
 		// A cover-placement anchor (the full-bleed Background) stays non-draggable;
 		// every other preview-art anchor is offset-draggable.
 		if (art && art.placement === 'cover') return true;
-		return scene.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
+		return (
+			scene.space === 'background' &&
+			(node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'componentInstance')
+		);
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
@@ -1083,6 +1089,17 @@
 
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
 	function naturalSize(node: LayoutNode): { w: number; h: number } | null {
+		// A componentInstance's "natural size" is the union of its expanded content (the
+		// same box `nodeBox` frames + `drawComponentInstance` draws), so a background-space
+		// instance cover-fits against its real drawn extent via `backgroundTransform`.
+		// `nodeBox` routes an instance through `componentInstanceContentBox`; a missing def
+		// or empty content falls back to its generic 160×100, which we treat as "unknown"
+		// (null) so the cover uses the frame size instead of a tiny box.
+		if (node.kind === 'componentInstance') {
+			const box = nodeBox(node, resolveTransform(node, layoutType), naturalSize, componentMap, layoutType);
+			if (box.w > 0 && box.h > 0 && !(box.w === 160 && box.h === 100)) return { w: box.w, h: box.h };
+			return null;
+		}
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
 		// math frames the rendered art, not an empty container).
 		const art = artNaturalSize(node);

@@ -9,6 +9,7 @@ export * from './types';
 export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
 export * from './editorArtKey';
 export * from './coverTransform';
+export * from './componentDesignSize';
 export * from './backgroundScenes';
 export * from './genericMountScenes';
 export * from './resolveTransform';

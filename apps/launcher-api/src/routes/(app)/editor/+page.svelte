@@ -705,7 +705,10 @@
 		const art = resolveAnchorPreviewArt(node, data.assets);
 		if (art && art.placement === 'cover') return true;
 		if (node.preview?.art?.fit) return true;
-		return activeScene?.space === 'background' && (node.kind === 'sprite' || node.kind === 'spine');
+		return (
+			activeScene?.space === 'background' &&
+			(node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'componentInstance')
+		);
 	});
 
 	const sceneCount = $derived(scenes.length);

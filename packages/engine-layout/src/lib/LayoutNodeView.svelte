@@ -28,6 +28,8 @@
 		backgroundFit,
 		coverTransform,
 	} from './coverTransform';
+	import { componentDesignSize } from './componentDesignSize';
+	import { resolveComponent } from './registerComponents';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { getComponentStateAnims } from './componentStateAnimContext';
@@ -151,6 +153,75 @@
 		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
 	});
 	const bgSpineScale = $derived(isBackground ? bgStretch : undefined);
+
+	// A background COMPONENT INSTANCE covers the canvas as ONE composed unit: a
+	// `componentInstance` placed in a `background`-space scene (e.g. a backdrop +
+	// tumbleweed + windmill grouped in one prefab) cover-fits the window exactly like a
+	// plain sprite/spine does, instead of rendering at its authored transform and
+	// letterboxing. The component declares no design size, so we compute the union
+	// bounding box of its `def.root` content (via the shared `componentDesignSize` — the
+	// same union the editor previews), feed it to the SAME `coverTransform`, and place
+	// the wrapping <Container> so that union's CENTRE lands on the canvas centre. The
+	// component's children keep drawing at their authored LOCAL coords inside that
+	// container. Sprite child sizes come from the loaded texture store (mirroring
+	// `bgTexture`); a not-yet-loaded child is skipped (the box grows as assets resolve).
+	// Gated on `isBackground && kind==='componentInstance'` AND a resolved box, so every
+	// other placement (and every existing doc — none has a background instance) keeps its
+	// authored transform byte-identically.
+	const bgComponent = $derived.by(() => {
+		if (!isBackground || node.kind !== 'componentInstance') return undefined;
+		const def = resolveComponent(node.componentId, node.componentVersion).def;
+		if (!def) return undefined;
+		const assets = appContext.stateApp.loadedAssets;
+		// Intrinsic size of a leaf child. Sprite: the loaded texture's natural size,
+		// resolved by the SAME scoped→bare region/assetKey precedence a sprite node uses
+		// (`parseScopedFrameRef` + editor-art namespacing). Spine: unmeasurable without a
+		// live skeleton, so `null` (the union is driven by the dominant sprite art — the
+		// full-bleed backdrop). Not-yet-loaded ⇒ `null` (skipped by the walk).
+		const intrinsic = (n: LayoutNode): { w: number; h: number } | null => {
+			if (n.kind !== 'sprite') return null;
+			const scoped = parseScopedFrameRef(n.region);
+			const region = scoped.region;
+			const assetKey = scoped.assetKey ?? n.assetKey;
+			const key =
+				region && isManifestAssetKey(assetKey)
+					? editorArtTextureKey(assetKey, region)
+					: (region ?? assetKey);
+			const fallback = region && isManifestAssetKey(assetKey) ? region : undefined;
+			const tex = ((key ? assets?.[key] : undefined) ??
+				(fallback ? assets?.[fallback] : undefined)) as
+				| { width?: number; height?: number }
+				| undefined;
+			if (!tex || !(tex.width && tex.width > 0) || !(tex.height && tex.height > 0)) return null;
+			return { w: tex.width, h: tex.height };
+		};
+		const box = componentDesignSize(
+			def,
+			intrinsic,
+			layoutContext.stateLayoutDerived.layoutType(),
+			undefined,
+		);
+		if (!box) return undefined;
+		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+		const cover = coverTransform({
+			artWidth: box.width,
+			artHeight: box.height,
+			targetWidth: canvasBox.width,
+			targetHeight: canvasBox.height,
+			coverScale: bgCoverScale,
+			stretchX: bgStretch.x,
+			stretchY: bgStretch.y,
+			fit: bgFit,
+		});
+		// `cover.x/y` is the canvas CENTRE; the container's children draw at local coords,
+		// so offset the container so the union's local centre (`box.min + size/2`) maps
+		// onto it: worldCentre = containerPos + unionLocalCentre * coverScale.
+		return {
+			x: cover.x - (box.minX + box.width / 2) * cover.scaleX,
+			y: cover.y - (box.minY + box.height / 2) * cover.scaleY,
+			scale: { x: cover.scaleX, y: cover.scaleY },
+		};
+	});
 
 	// Param threading (§13.2 / Phase B1) — TEXT branch only. When this text node
 	// renders inside a `componentInstance` expansion that provides params, a
@@ -337,11 +408,18 @@
 			renders `def.root` through this same node-walk (so a component composes
 			identically to an inlined container). Static only in v1 — params/signals are
 			ignored (see ComponentInstance.svelte).
+
+			In a `background`-space scene the instance cover-fits the window as ONE unit:
+			`bgComponent` synthesises a centred cover transform (position + per-axis cover
+			scale) from the component's computed design box, replacing the authored x/y/
+			scale — mirroring the sprite/spine `bg` path. Outside background space, or until
+			the design box resolves, `bgComponent` is undefined ⇒ the authored transform is
+			used verbatim (byte-identical parity).
 		-->
 		<Container
-			x={posX}
-			y={posY}
-			scale={transform.scale}
+			x={bgComponent ? bgComponent.x : posX}
+			y={bgComponent ? bgComponent.y : posY}
+			scale={bgComponent ? bgComponent.scale : transform.scale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
