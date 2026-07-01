@@ -357,17 +357,54 @@
 	 * tiny offset sprite.
 	 */
 	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
-		const nat = naturalSize(node);
 		const stretch = backgroundCoverStretch(node);
+		const coverScale = backgroundCoverScale(node);
+		const fit = backgroundFit(node);
+		// A background componentInstance covers as ONE composed unit, matching the runtime
+		// (`LayoutNodeView` `bgComponent`). Unlike a sprite (drawn anchored 0.5 at the frame
+		// centre), `drawComponentInstance` expands the def's children from the transform
+		// ORIGIN and does NOT apply the transform anchor — so we must place the origin
+		// EXPLICITLY so the content's union CENTRE lands on the frame centre. `nodeBox`
+		// returns the union box `{w,h,ax,ay}` (ax=-minX/w), from which the local union
+		// top-left is `minX = -ax*w`, `minY = -ay*h`. The cover then lives in per-axis
+		// scale (anchor {0,0}), and the offset `cover.x - (minX + w/2)*scaleX` centres it —
+		// so the 2D draw AND the selection box (`nodeCornersWorld`, which uses the SAME
+		// box ax/ay as the origin-in-box) frame the identical centred cover extent.
+		if (node.kind === 'componentInstance') {
+			const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+			const minX = -box.ax * box.w;
+			const minY = -box.ay * box.h;
+			const cover = coverTransform({
+				artWidth: box.w,
+				artHeight: box.h,
+				targetWidth: frameWidth,
+				targetHeight: frameHeight,
+				coverScale,
+				stretchX: stretch.x,
+				stretchY: stretch.y,
+				fit,
+			});
+			return {
+				...t,
+				x: cover.x - (minX + box.w / 2) * cover.scaleX,
+				y: cover.y - (minY + box.h / 2) * cover.scaleY,
+				anchor: { x: 0, y: 0 },
+				scale: { x: cover.scaleX, y: cover.scaleY },
+				rotation: 0,
+				width: box.w,
+				height: box.h,
+			};
+		}
+		const nat = naturalSize(node);
 		const cover = coverTransform({
 			artWidth: nat?.w ?? frameWidth,
 			artHeight: nat?.h ?? frameHeight,
 			targetWidth: frameWidth,
 			targetHeight: frameHeight,
-			coverScale: backgroundCoverScale(node),
+			coverScale,
 			stretchX: stretch.x,
 			stretchY: stretch.y,
-			fit: backgroundFit(node),
+			fit,
 		});
 		return {
 			...t,
