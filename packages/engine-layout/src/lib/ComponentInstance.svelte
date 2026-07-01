@@ -51,6 +51,17 @@
 
 	const { node, space }: Props = $props();
 
+	// The space the component's OWN children render in. A component placed in a
+	// `background` scene is cover-fit as ONE unit by the instance's wrapping container
+	// (`LayoutNodeView` `bgComponent`); its children must therefore render at their raw
+	// LOCAL coords, NOT re-inherit `background` — otherwise each child (a backdrop sprite,
+	// a decorative spine, …) independently cover-fits the WINDOW, so a small spine balloons
+	// to full-screen, sits centred, and renders through the background-cover spine path
+	// instead of as a normal animating spine. `canvas` gives raw x/y + no cover, so the
+	// children compose inside the cover-scaled container exactly as authored. Any other
+	// space is passed through unchanged (parity — no existing non-background component moves).
+	const childSpace = $derived(space === 'background' ? 'canvas' : space);
+
 	// Resolve the def the instance references. Missing → render nothing (warned
 	// once below), mirroring the bound-component miss path. Init-stable: the
 	// component registry is populated once at boot (before any scene renders) and a
@@ -601,7 +612,7 @@
 				onpress();
 			}}
 		>
-			<LayoutNodeView node={root} {space} />
+			<LayoutNodeView node={root} space={childSpace} />
 		</Container>
 	{:else}
 		<LayoutNodeView node={root} {space} />
