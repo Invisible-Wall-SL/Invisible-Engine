@@ -48,6 +48,102 @@ make-or-break gate**: the runtime interpreter must mount one real screen and run
 hand-authored choreography for one event (`winInfo` in `apps/lines`) with zero visual
 regression and clean fall-through, before any editor UI is built.
 
+### Progress — pin-driven active-SET model (engine core) DONE headlessly (2026-07-01)
+
+**What landed.** The presentation model moved from a SINGLE `activeScreenId` (an exclusive
+swap) to an ordered **active SET**, so a base-game screen persists while an overlay screen
+layers on top. This fixes the Book-of-Borut bug where the reels board mounted UNCONDITIONALLY
+in `Game.svelte` and was visible behind the loading splash. Pin semantics, generic (no magic
+ids):
+- a screen becomes active on its **Enter** pin (added to the set, on top);
+- a screen turns **itself off** when it fires its **Complete** pin (removed from the set);
+- a `complete` edge DEACTIVATES its source + ACTIVATES its target; a `bookEvent`/`signal`/
+  `condition` edge ACTIVATES its target **layered on top** and LEAVES the source active.
+- The base game never fires Complete (no `complete`-triggered outgoing edge), so it PERSISTS
+  under celebrations; an overlay removes itself on its own Complete — the "celebration over a
+  live board" behaviour now falls out of the set, not a special case.
+
+Files: `packages/engine-flow/src/presentation.ts` (ordered `activeScreenIds` set + `activate`/
+`deactivate`; `outgoing()` scans EVERY active screen top-first; `complete` edges deactivate the
+source, others layer; getters `activeScreenIds`/`isActive(id)` + kept `activeScreenId` = topmost);
+`packages/engine-flow/src/interpreter.ts` (exposes `activeScreenIds` + `isScreenActive`; renamed
+host callback `onActiveScreenChange`→`onActiveScreensChange`); `apps/lines/src/game/flowRuntime.svelte.ts`
+(callback rename + `withDefaultLoadingLeg` doc for the active-set loading→basegame leg);
+`apps/lines/src/components/Game.svelte` (active-set rune `activeScreenIds` + derived
+`isBasegameActive`; the reel board + basegame below/above-reel slices now gate on
+`{#if !flow || isBasegameActive}` — the **inert-flow fall-through** renders unconditionally as
+today when no FlowDoc drives the game; `basegameMount` resolves on `isBasegameActive`, not
+topmost, so an overlay never drops the base's authored slices).
+
+**How verified (headless + build).** A Node harness driving `createPresentationMachine` with a
+fake runtime asserts the full active set across boot (only `loading` active → reels hidden) →
+loading `complete` (loading removed, basegame added, exit-then-enter order) → `setWin` bookEvent
+(`bigWin` layers over persisting `basegame`) → `bigWin` complete (removes itself, basegame stays
+underneath in correct z-order), plus a multi-overlay stack/unwind proving the base never leaves —
+**22/22 assertions pass**. `pnpm --filter engine-flow typecheck` clean; `apps/lines` production
+build (`PUBLIC_RGS_TRANSPORT=play4fun`) clean.
+
+**Still owed (owner will sequence).** The ship chain (bake FlowDoc → register →
+`publish-runtime-bundle` → Borut submodule bump). Owner live-verify of the loading→basegame reveal
+in a running bundle (headless-only so far). The dev-only `LINES_FLOW_COND_DOC` fixture was updated
+for the active-set model: `basegame → freeGame` stays a `condition` LAYER (proving the condition
+trigger), and the return `freeGame → basegame` is now a `complete` HANDOFF (an overlay leaves only
+by its own Complete pin — a condition-return onto the still-active base would be a layer no-op).
+
+**Review follow-up (2026-07-01, same day).** Code review found a runtime bug: a LAYER edge
+(`bookEvent`/`condition`/`signal`) whose target is already active kept re-running the target's
+`enter` + `notify()` on every repeat trigger — and `Game.svelte` pings `evaluate()` on every
+observed engine-value change, so a live overlay replayed its entrance animation repeatedly. Fixed in
+`presentation.ts`: `fire()` now skips a transition that would NOT change the active set (a layer onto
+an already-active target — `changesActiveSet(edge)`), so it is a consumed no-op (no re-enter, no
+re-notify); a `complete` handoff always changes state (it deactivates its source) so it is never
+skipped, including a re-entrant handoff onto an already-active base. The interpreter active-set
+harness gained repeated-layer + re-entrant-handoff cases (now 41/41). The committed flow-spike
+regression harnesses (`phase1Loading`/`phase2WinTransitions`/`phase3Condition`/`phase4Runtime`/
+`tapToContinue`) were updated to the `onActiveScreensChange` array callback + the new layer/handoff
+semantics (bookEvent/condition/signal LAYER + keep the source; only `complete` runs source exit +
+deactivates) and all pass.
+
+### Progress — active-SET authoring UI (Phase A) DONE, build-verified (2026-07-01)
+
+**What landed.** The `/flow` editor now authors the active-SET model (no schema change — it rides
+the existing edge/pin/trigger representation). The **trigger IS the lever**: a `complete` edge is a
+HANDOFF (source hides), any other trigger is a LAYER (target activates over the persistent source).
+- **Trigger inference from the drawn pin** (`+page.svelte onConnect`): dragging FROM a screen's
+  Complete pin (`${screenId}::complete`) mints a `complete` (handoff) edge; from any other pin, a
+  `bookEvent` (layer) edge with a blank event. `addTransition` (`flowModel.client.ts`) now takes an
+  optional trigger.
+- **Legible canvas semantics** (`+page.svelte buildEdges` + `<style>`): handoff = solid slate,
+  layer = dashed amber (+ animated for book events); edge labels lead with `⇥`/`⧉`; a sub-bar
+  legend spells it out. The edge inspector (`EdgeInspector.svelte`) shows a live handoff/layer
+  explainer under the trigger selector.
+- **"persistent (base)" badge** (`FlowScreenNode.svelte` + `isPersistentScreen` in `validate.ts`):
+  a computed, read-only teal badge on any screen with no outgoing `complete` edge — the base-game
+  trait. Pure derivation over the transitions, no new field; the base is designated by the existing
+  `initial` toggle + having no complete edge out.
+- **`stuck-overlay` validation** (`validate.ts` + `ValidationPanel.svelte`): a layered screen
+  (incoming non-`complete` edge) with no outgoing `complete` edge would never remove itself —
+  warned (never blocks). The initial/base screen is exempt.
+- **DRY:** the two active-SET semantics helpers (`edgeSemantics`, `isPersistentScreen`) live once in
+  the shared `engine-flow/validate.ts` and are read by the page, node, and inspector; the existing
+  ValidationPanel / EdgeInspector / FlowScreenNode / undo-redo were extended, not duplicated.
+
+Files: `packages/engine-flow/src/validate.ts` (+`edgeSemantics`/`isPersistentScreen`/`stuck-overlay`
++`EdgeSemantics`), `apps/launcher-api/src/routes/(app)/flow/{+page.svelte,EdgeInspector.svelte,
+FlowScreenNode.svelte,ValidationPanel.svelte,flowModel.client.ts}`.
+
+**How verified.** A Node validator harness (esbuild-transpiled `validate.ts`) asserts
+`edgeSemantics` (complete⇒handoff, others⇒layer), `isPersistentScreen` (base persists, completing
+screens don't), and `stuck-overlay` (flags a layered overlay with no complete edge, exempts the
+base/initial) — **12/12 pass**. `pnpm --filter engine-flow typecheck` clean; `pnpm --filter
+launcher-api build` clean (the `/flow` route compiles; the only two `+page.svelte` warnings are
+pre-existing, on the untouched `clipboard`/`history` lines). Not live-verified in the browser
+(preview owed to the owner). `docs/tools/flow.md` refreshed (rule 9).
+
+**Still owed before authorable end-to-end.** Owner live-verify in `/flow` (draw a loading→base
+handoff + a base→overlay→base layer round-trip, confirm the badges/edge styles/validation read
+right). Then the ship chain (bake → register → publish-runtime-bundle → Borut submodule bump).
+
 ### Progress — Phase 0 PASSED headlessly (2026-06-24)
 
 Branch `flow/phase0-interpreter-spike`. No editor UI built; no game submodule bump.

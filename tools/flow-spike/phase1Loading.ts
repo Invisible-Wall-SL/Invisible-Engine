@@ -167,12 +167,12 @@ const main = async () => {
 	console.log('\nB. Loading-owned advance — start on loading, tap completes to basegame:');
 	{
 		const { log, runtime } = makeRig(false);
-		const screenChanges: (string | undefined)[] = [];
+		const setChanges: string[][] = [];
 		const interp = createFlowInterpreter({
 			flowDoc: loadingDoc,
 			runtime,
 			resolveScene,
-			onActiveScreenChange: (id) => screenChanges.push(id),
+			onActiveScreensChange: (ids) => setChanges.push([...ids]),
 			codedHandlers: {},
 		});
 
@@ -197,16 +197,16 @@ const main = async () => {
 		// `TapToContinue.svelte` / the loading bar's `completeOnLoaded` capability call.
 		const advanced = await interp.completeActiveScreen();
 		assert(
-			'tap (completeActiveScreen) fires the `complete` edge ⇒ loading → basegame',
-			advanced && interp.activeScreenId === 'basegame',
+			'tap (completeActiveScreen) fires the `complete` HANDOFF ⇒ loading hides, basegame active',
+			advanced && eq(interp.activeScreenIds, ['basegame']),
 		);
 		assert(
-			'swap ran loading `exit` then basegame `enter` choreography IN ORDER (§1)',
+			'handoff ran loading `exit` then basegame `enter` choreography IN ORDER (§1)',
 			eq(log, ['broadcast flowLoadingExit', 'broadcast flowBasegameEnter']),
 		);
 		assert(
-			'onActiveScreenChange fired the loading → basegame swap (drives the game re-mount)',
-			eq(screenChanges, ['basegame']),
+			'onActiveScreensChange snapshotted the loading → basegame handoff (drives the re-mount)',
+			eq(setChanges, [['basegame']]),
 		);
 
 		// On basegame there is no complete edge ⇒ a further tap is a safe no-op (stays put).

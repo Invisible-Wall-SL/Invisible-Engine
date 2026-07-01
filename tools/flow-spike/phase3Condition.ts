@@ -8,16 +8,22 @@
  * DEAD before Phase 3 — is REVIVED by injecting a bounded `$engine.*` reader AND pinging
  * `interpreter.evaluate()`:
  *
- *  A. A `condition` edge guarded on `$engine.<key> <cmp> <value>` does NOT fire until the
- *     injected reader crosses the threshold AND `evaluate()` is pinged; it then DOES fire.
+ * Under the ACTIVE-SET model a `condition` edge LAYERS its target over the persistent source (it
+ * does not swap); the return to base is a `complete` HANDOFF (the overlay's Complete pin), not a
+ * complementary condition (a condition onto the already-active base would be a layer no-op).
+ *
+ *  A. A `condition` edge guarded on `$engine.<key> <cmp> <value>` does NOT fire until the injected
+ *     reader crosses the threshold AND `evaluate()` is pinged; it then LAYERS its target. A repeated
+ *     `evaluate()` on an already-active layer is a consumed no-op (no re-enter / re-notify). The
+ *     return is a `complete` handoff that dismisses the overlay, leaving the persistent base.
  *  B. With NO `engine` reader injected, the SAME edge can NEVER fire (`$engine.*` ⇒ `undefined`
  *     ⇒ guard false) — the pre-Phase-3 dead state, proving the reader is what revives it.
- *  C. Guard boundary correctness — `>= 1` arms exactly at 1, `< 1` returns exactly at 0.
+ *  C. Guard boundary correctness — `>= 1` arms (layers) exactly at 1, not below.
  *  D. `evaluate()` with no matching `condition` edge (or a guard that does not hold) is a no-op
  *     (the parity-safe inert ping the Phase-1/2/4 fixtures rely on).
  *  E. A `bookEvent`/`complete` edge is UNAFFECTED by the engine reader (orthogonal triggers).
  *  F. Author `order`/guard precedence — among `condition` edges the first whose guard holds wins.
- *  G. Parity — the default `LINES_FLOW_DOC` authors ZERO `condition` edges (inert by default).
+ *  G. Parity — the default `LINES_FLOW_DOC` authors ZERO transitions (inert by default).
  *
  * The reader is HARNESS-controlled (a mutable `engineState` map) so the harness can cross the
  * threshold deterministically — exactly what the game's live `$effect` does when `stateUi`'s
@@ -76,14 +82,14 @@ const CONTEXT = { bookEvents: [] as unknown[] };
 const makeInterp = (
 	doc: FlowDoc,
 	rig: ReturnType<typeof makeRig>,
-	changes: (string | undefined)[],
+	setChanges: string[][],
 	engineState?: Record<string, unknown>,
 ) =>
 	createFlowInterpreter<{ type: string }, { bookEvents: unknown[] }>({
 		flowDoc: doc,
 		runtime: rig.runtime,
 		resolveScene: (id) => scenes[id],
-		onActiveScreenChange: (id) => changes.push(id),
+		onActiveScreensChange: (ids) => setChanges.push([...ids]),
 		codedHandlers: {},
 		// The bounded reader — closed key→value over the harness state. Absent ⇒ the pre-Phase-3
 		// dead state (a `$engine.*` accessor resolves `undefined`).
@@ -117,46 +123,66 @@ const main = async () => {
 		console.log(`A. condition fires only after reader crosses AND evaluate() pinged (${tag}):`);
 		{
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
+			const setChanges: string[][] = [];
 			const engineState: Record<string, unknown> = { freeSpinsRemaining: 0 };
-			const interp = makeInterp(LINES_FLOW_COND_DOC, rig, changes, engineState);
+			const interp = makeInterp(LINES_FLOW_COND_DOC, rig, setChanges, engineState);
 			await interp.start();
 
-			// Pinging evaluate() BEFORE the threshold is crossed ⇒ no swap (guard false).
+			// Pinging evaluate() BEFORE the threshold is crossed ⇒ no layer (guard false).
 			const firedEarly = await interp.evaluate();
 			await settle();
 			assert(
-				`evaluate() with freeSpinsRemaining=0 ⇒ NO swap, stays basegame (${tag})`,
-				!firedEarly && interp.activeScreenId === 'basegame' && changes.length === 0,
+				`evaluate() with freeSpinsRemaining=0 ⇒ NO layer, base only (${tag})`,
+				!firedEarly && eqJson(interp.activeScreenIds, ['basegame']) && setChanges.length === 0,
 			);
 
-			// Cross the threshold but DON'T ping ⇒ still no swap (evaluate is the trigger).
+			// Cross the threshold but DON'T ping ⇒ still no layer (evaluate is the trigger).
 			engineState.freeSpinsRemaining = 5;
 			assert(
-				`crossing threshold WITHOUT evaluate() ⇒ still basegame (evaluate is the trigger) (${tag})`,
-				interp.activeScreenId === 'basegame',
+				`crossing threshold WITHOUT evaluate() ⇒ still base only (evaluate is the trigger) (${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame']),
 			);
 
-			// Now ping ⇒ the condition fires.
+			// Now ping ⇒ the condition fires, LAYERING freeGame over the persistent base.
 			const fired = await interp.evaluate();
 			await settle();
 			assert(
-				`evaluate() with freeSpinsRemaining=5 ⇒ swaps basegame → freeGame (${tag})`,
-				fired && interp.activeScreenId === 'freeGame' && eqJson(changes, ['freeGame']),
+				`evaluate() with freeSpinsRemaining=5 ⇒ LAYERS freeGame over base (${tag})`,
+				fired && eqJson(interp.activeScreenIds, ['basegame', 'freeGame']),
 			);
 			assert(
-				`freeGame.enter beat ran on the swap (${tag})`,
+				`freeGame.enter beat ran on the layer (${tag})`,
 				rig.log.includes('broadcast flowFreeGameEnter'),
 			);
 
-			// The complementary return: counter runs out ⇒ condition returns to basegame.
-			changes.length = 0;
-			engineState.freeSpinsRemaining = 0;
-			const returned = await interp.evaluate();
+			// A REPEATED evaluate while freeGame is already active is a layer NO-OP (the game pings
+			// evaluate() on every value change) — no re-enter, no re-notify.
+			rig.log.length = 0;
+			const notifiesBefore = setChanges.length;
+			const repeated = await interp.evaluate();
 			await settle();
 			assert(
-				`evaluate() with freeSpinsRemaining=0 from freeGame ⇒ returns → basegame (${tag})`,
-				returned && interp.activeScreenId === 'basegame' && eqJson(changes, ['basegame']),
+				`repeated evaluate on an already-active layer ⇒ consumed, NO re-enter / re-notify (${tag})`,
+				repeated &&
+					!rig.log.includes('broadcast flowFreeGameEnter') &&
+					setChanges.length === notifiesBefore &&
+					eqJson(interp.activeScreenIds, ['basegame', 'freeGame']),
+			);
+
+			// The RETURN is a `complete` HANDOFF: freeGame's Complete pin dismisses it, base remains.
+			setChanges.length = 0;
+			rig.log.length = 0;
+			const returned = await interp.completeActiveScreen();
+			await settle();
+			assert(
+				`completeActiveScreen() from freeGame ⇒ HANDS OFF, freeGame dismissed, base remains (${tag})`,
+				returned &&
+					eqJson(interp.activeScreenIds, ['basegame']) &&
+					eqJson(setChanges, [['basegame']]),
+			);
+			assert(
+				`freeGame.exit beat ran on the handoff (${tag})`,
+				rig.log.includes('broadcast flowFreeGameExit'),
 			);
 		}
 
@@ -164,15 +190,15 @@ const main = async () => {
 		console.log(`B. NO engine reader ⇒ $engine.* is undefined ⇒ condition never fires (${tag}):`);
 		{
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
+			const setChanges: string[][] = [];
 			// engineState omitted ⇒ no reader injected.
-			const interp = makeInterp(LINES_FLOW_COND_DOC, rig, changes);
+			const interp = makeInterp(LINES_FLOW_COND_DOC, rig, setChanges);
 			await interp.start();
 			const fired = await interp.evaluate();
 			await settle();
 			assert(
-				`no reader ⇒ evaluate() never swaps (the dead state the reader revives) (${tag})`,
-				!fired && interp.activeScreenId === 'basegame' && changes.length === 0,
+				`no reader ⇒ evaluate() never layers (the dead state the reader revives) (${tag})`,
+				!fired && eqJson(interp.activeScreenIds, ['basegame']) && setChanges.length === 0,
 			);
 		}
 
@@ -188,16 +214,16 @@ const main = async () => {
 			await interp.evaluate();
 			await settle();
 			assert(
-				`freeSpinsRemaining=0.5 (< 1) ⇒ stays basegame (gte 1 not satisfied) (${tag})`,
-				interp.activeScreenId === 'basegame',
+				`freeSpinsRemaining=0.5 (< 1) ⇒ base only (gte 1 not satisfied) (${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame']),
 			);
 
 			engineState.freeSpinsRemaining = 1; // exactly the threshold
 			await interp.evaluate();
 			await settle();
 			assert(
-				`freeSpinsRemaining=1 (== 1) ⇒ swaps to freeGame (gte 1 satisfied at boundary) (${tag})`,
-				interp.activeScreenId === 'freeGame',
+				`freeSpinsRemaining=1 (== 1) ⇒ LAYERS freeGame (gte 1 satisfied at boundary) (${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame', 'freeGame']),
 			);
 		}
 
@@ -205,16 +231,19 @@ const main = async () => {
 		console.log(`D. evaluate() is a no-op for a doc with no condition edge (${tag}):`);
 		{
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
+			const setChanges: string[][] = [];
 			// The default doc (basegame only, zero transitions) — evaluate() must be inert.
-			const interp = makeInterp(LINES_FLOW_DOC, rig, changes, { freeSpinsRemaining: 99 });
+			const interp = makeInterp(LINES_FLOW_DOC, rig, setChanges, { freeSpinsRemaining: 99 });
 			await interp.start();
 			rig.log.length = 0;
 			const fired = await interp.evaluate();
 			await settle();
 			assert(
-				`evaluate() on the default doc ⇒ false, no swap, no beats (parity-safe) (${tag})`,
-				!fired && interp.activeScreenId === 'basegame' && changes.length === 0 && rig.log.length === 0,
+				`evaluate() on the default doc ⇒ false, no change, no beats (parity-safe) (${tag})`,
+				!fired &&
+					eqJson(interp.activeScreenIds, ['basegame']) &&
+					setChanges.length === 0 &&
+					rig.log.length === 0,
 			);
 		}
 
@@ -226,11 +255,7 @@ const main = async () => {
 			const doc: FlowDoc = {
 				version: 1,
 				projectKey: 'lines',
-				screens: [
-					{ id: 'a', initial: true },
-					{ id: 'b' },
-					{ id: 'c' },
-				],
+				screens: [{ id: 'a', initial: true }, { id: 'b' }, { id: 'c' }],
 				transitions: [
 					{ id: 'a→b', from: 'a', to: 'b', trigger: { kind: 'bookEvent', event: 'go' } },
 					{
@@ -238,32 +263,43 @@ const main = async () => {
 						from: 'b',
 						to: 'c',
 						trigger: { kind: 'condition' },
-						guard: { all: [{ left: { kind: 'engine', key: 'k' }, op: 'eq', right: { kind: 'literal', value: 1 } }] },
+						guard: {
+							all: [
+								{
+									left: { kind: 'engine', key: 'k' },
+									op: 'eq',
+									right: { kind: 'literal', value: 1 },
+								},
+							],
+						},
 					},
 				],
 				events: [],
 			};
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
+			const setChanges: string[][] = [];
 			const engineState: Record<string, unknown> = { k: 0 };
-			const interp = makeInterp(doc, rig, changes, engineState);
+			const interp = makeInterp(doc, rig, setChanges, engineState);
 			await interp.start();
 
 			await interp.dispatchBookEvent({ type: 'go' }, CONTEXT);
 			await settle();
 			assert(
-				`bookEvent edge fires on the event irrespective of engine state (${tag})`,
-				interp.activeScreenId === 'b',
+				`bookEvent edge LAYERS b over a irrespective of engine state (${tag})`,
+				eqJson(interp.activeScreenIds, ['a', 'b']),
 			);
 
-			// On 'b' the condition edge needs k===1; evaluate with k=0 ⇒ no fire, k=1 ⇒ fire.
+			// From 'b' the condition edge needs k===1; evaluate with k=0 ⇒ no fire, k=1 ⇒ layers c.
 			await interp.evaluate();
 			await settle();
-			assert(`condition stays put while k=0 (${tag})`, interp.activeScreenId === 'b');
+			assert(`condition stays put while k=0 (${tag})`, eqJson(interp.activeScreenIds, ['a', 'b']));
 			engineState.k = 1;
 			await interp.evaluate();
 			await settle();
-			assert(`condition fires once k=1 (${tag})`, interp.activeScreenId === 'c');
+			assert(
+				`condition LAYERS c once k=1 (${tag})`,
+				eqJson(interp.activeScreenIds, ['a', 'b', 'c']),
+			);
 		}
 
 		// --- F. author order / guard precedence among condition edges ---
@@ -281,7 +317,15 @@ const main = async () => {
 						to: 'high',
 						order: 2,
 						trigger: { kind: 'condition' },
-						guard: { all: [{ left: { kind: 'engine', key: 'v' }, op: 'gte', right: { kind: 'literal', value: 1 } }] },
+						guard: {
+							all: [
+								{
+									left: { kind: 'engine', key: 'v' },
+									op: 'gte',
+									right: { kind: 'literal', value: 1 },
+								},
+							],
+						},
 					},
 					{
 						id: 'a→low',
@@ -289,37 +333,50 @@ const main = async () => {
 						to: 'low',
 						order: 1,
 						trigger: { kind: 'condition' },
-						guard: { all: [{ left: { kind: 'engine', key: 'v' }, op: 'gte', right: { kind: 'literal', value: 1 } }] },
+						guard: {
+							all: [
+								{
+									left: { kind: 'engine', key: 'v' },
+									op: 'gte',
+									right: { kind: 'literal', value: 1 },
+								},
+							],
+						},
 					},
 				],
 				events: [],
 			};
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
-			const interp = makeInterp(doc, rig, changes, { v: 5 });
+			const setChanges: string[][] = [];
+			const interp = makeInterp(doc, rig, setChanges, { v: 5 });
 			await interp.start();
 			await interp.evaluate();
 			await settle();
 			assert(
-				`both guards hold ⇒ lower author order (low) wins (${tag})`,
-				interp.activeScreenId === 'low' && eqJson(changes, ['low']),
+				`both guards hold ⇒ lower author order (low) wins, layered over a (${tag})`,
+				eqJson(interp.activeScreenIds, ['a', 'low']) && eqJson(setChanges, [['a', 'low']]),
 			);
 		}
 	}
 
 	// --- G. Parity (turbo-independent) ---
-	console.log('\nG. Parity — default doc authors zero condition edges:');
+	console.log(
+		'\nG. Parity — default doc inert; cond doc = 1 condition layer + 1 complete handoff:',
+	);
 	{
 		assert(
 			'default LINES_FLOW_DOC authors ZERO transitions (condition branch inert by default, §7)',
 			LINES_FLOW_DOC.transitions.length === 0,
 		);
 		const condEdges = LINES_FLOW_COND_DOC.transitions.filter((t) => t.trigger.kind === 'condition');
-		assert(
-			'LINES_FLOW_COND_DOC authors exactly 2 condition edges (basegame↔freeGame)',
-			condEdges.length === 2,
+		const completeEdges = LINES_FLOW_COND_DOC.transitions.filter(
+			(t) => t.trigger.kind === 'complete',
 		);
-		// Both condition guards read an $engine.* accessor (the revived path) — not $trigger.*.
+		assert(
+			'LINES_FLOW_COND_DOC authors 1 condition LAYER (basegame→freeGame) + 1 complete HANDOFF back',
+			condEdges.length === 1 && completeEdges.length === 1,
+		);
+		// The condition guard reads an $engine.* accessor (the revived path) — not $trigger.*.
 		const allEngineGuarded = condEdges.every((t) =>
 			t.guard?.all.every((p) => p.left.kind === 'engine' || p.right.kind === 'engine'),
 		);

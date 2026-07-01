@@ -513,15 +513,29 @@
 	// it drives book-event dispatch (via `flowInterpreterHolder`, read in `game/utils.ts`)
 	// and the generic mounter resolves which authored screen mounts here.
 	let flow = $state<LinesFlow | undefined>(undefined);
-	// The interpreter's CURRENT active screen, mirrored into a rune so the loading↔basegame
-	// swap (Phase 1) re-mounts. The interpreter's internal `activeScreenId` is a plain variable
-	// (not a rune), so it is pushed here via `onActiveScreenChange` (wired in `onMount`) + seeded
-	// from `flow.activeScreenId` at boot. `undefined` ⇒ inert (no FlowDoc) ⇒ pure coded path.
-	let activeScreenId = $state<string | undefined>(undefined);
-	// The active screen's resolved scene for the generic mounter. `undefined` ⇒ the
-	// interpreter is not driving this screen ⇒ `<FlowMount>` renders the coded fall-through.
+	// The interpreter's CURRENT active SET (the pin-driven active-SET model), mirrored into a
+	// rune so screen add/remove re-mounts. Render-ordered: base first, later-activated overlays on
+	// top. The interpreter's internal active set is a plain array (not a rune), so it is pushed
+	// here via `onActiveScreensChange` (wired in `onMount`) + seeded from `flow.activeScreenIds` at
+	// boot. EMPTY ⇒ inert (no FlowDoc) ⇒ pure coded path.
+	let activeScreenIds = $state<readonly string[]>([]);
+	// The TOPMOST active screen (the last-activated) — the transient takeover/celebration layer.
+	// `undefined` ⇒ the active set is empty (inert) ⇒ pure coded path.
+	const activeScreenId = $derived(activeScreenIds[activeScreenIds.length - 1]);
+	// Whether the base-game screen node is currently active. The reel board + basegame mount gate
+	// on this: during `loading` (basegame not yet active) the reels are HIDDEN; once loading
+	// completes and basegame activates, they appear. INERT-FLOW FALL-THROUGH: with no FlowDoc the
+	// interpreter is undefined and this is `false` — but the board then falls through to its coded
+	// unconditional mount (the `!flow` fall-through below), so a non-flow game is unchanged (§7).
+	const isBasegameActive = $derived(activeScreenIds.includes(basegameScreenId));
+	// The base-game screen's resolved scene for the generic mounter. Resolved whenever the
+	// base-game screen is ACTIVE (in the active set) — NOT only when it is the topmost screen —
+	// so an overlay layered ON TOP (a celebration) never drops the base's authored below/above-reel
+	// slices back to the coded fallback. `undefined` ⇒ the interpreter is not driving basegame ⇒
+	// `<FlowMount>` renders the coded fall-through.
 	const basegameMount = $derived.by(() => {
-		const decision = flow?.mounter.resolve(activeScreenId);
+		if (!isBasegameActive) return undefined;
+		const decision = flow?.mounter.resolve(basegameScreenId);
 		if (decision?.kind === 'authored' && decision.screenId === basegameScreenId) {
 			return decision.scene as Scene;
 		}
@@ -853,11 +867,11 @@
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
 			// path (parity, §7). `start()` runs the initial screen's enter choreography.
-			flow = createLinesFlow(doc, (screenId) => (activeScreenId = screenId));
+			flow = createLinesFlow(doc, (screenIds) => (activeScreenIds = screenIds));
 			setFlowInterpreter(flow);
-			// Seed the rune from the interpreter's initial active screen (the `initial` node),
-			// then run its enter choreography. `onActiveScreenChange` keeps it in sync on swaps.
-			activeScreenId = flow?.activeScreenId;
+			// Seed the rune from the interpreter's initial active set (the `initial` node), then run
+			// its enter choreography. `onActiveScreensChange` keeps it in sync on add/remove.
+			activeScreenIds = flow?.activeScreenIds ?? [];
 			void flow?.start();
 		});
 	});
@@ -926,24 +940,39 @@
 			 `main` (§7). The board MainContainer always mounts (the reel is engine-owned, not a
 			 flow screen), and the ABOVE-reel slice renders AFTER it below — so an authored
 			 basegame reproduces the exact below-reel → board → above-reel z-order (§11.5 B.1). -->
-	<FlowMount scene={basegameMountBelowReel}>
-		{#snippet fallback()}
-			<LayoutScene scene={basegameBelowReel} />
-		{/snippet}
-	</FlowMount>
+	<!--
+			Base-game visibility gate (the pin-driven active-SET model). The base game — its
+			below-reel layers, the reel board (BoardFrame + Board + Anticipations), and its
+			above-reel layers — renders ONLY while the base-game screen NODE is active
+			(`isBasegameActive`). During `loading` (basegame not yet activated) the reels are
+			HIDDEN behind the loading splash; the `complete` swap to basegame reveals them on the
+			clean background. This fixes the reels being visible behind the loading overlay.
 
-	<MainContainer>
-		<BoardFrame />
-		<Board />
-		<Anticipations />
-	</MainContainer>
+			INERT-FLOW FALL-THROUGH (parity §7): when NO flow drives the game (`!flow` — no
+			FlowDoc, the interpreter is undefined), the base game renders UNCONDITIONALLY exactly
+			as today, so a non-flow game is byte-identical to current `main`. Only a flow-driven
+			boot (which always exists in apps/lines via the synthesized loading leg) gates on the
+			active set. -->
+	{#if !flow || isBasegameActive}
+		<FlowMount scene={basegameMountBelowReel}>
+			{#snippet fallback()}
+				<LayoutScene scene={basegameBelowReel} />
+			{/snippet}
+		</FlowMount>
 
-	{#if basegameMount}
-		{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
-			<LayoutScene scene={basegameMountAboveReel} />
+		<MainContainer>
+			<BoardFrame />
+			<Board />
+			<Anticipations />
+		</MainContainer>
+
+		{#if basegameMount}
+			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+				<LayoutScene scene={basegameMountAboveReel} />
+			{/if}
+		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
+			<LayoutScene scene={basegameAboveReel} />
 		{/if}
-	{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-		<LayoutScene scene={basegameAboveReel} />
 	{/if}
 
 	<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>

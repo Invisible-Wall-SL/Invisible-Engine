@@ -12,6 +12,17 @@
 
 ## 0. Status
 
+> **Model update 2026-07-01 (supersedes the "exclusive screen swap" framing below).** The
+> presentation model is now a pin-driven **active SET**, not a single active screen. A base-game
+> screen PERSISTS while overlays layer on top; a screen activates on its Enter pin and removes
+> ITSELF on its Complete pin. So `bigWin`/`freeSpinIntro` are no longer an *exclusive swap that
+> replaces* `basegame` — they LAYER over the persisting base (a `bookEvent`/`condition` edge adds
+> its target on top; a `complete` edge removes its source). The §4 "takeover" mount is now the
+> TOPMOST overlay over the still-mounted base, and the reel board gates on the base-game screen
+> being active (hidden during `loading`, revealed on its `complete`). See `invisible-flow.md`
+> "Progress — pin-driven active-SET model (2026-07-01)" for the engine-core change. Where the
+> text below says "exclusive screen"/"swap", read "layered overlay over the persisting base".
+
 **Phases 1–4 BUILT (headless-green + build-shipped, 2026-06-30) — Phase 5+ remain.**
 This doc decomposes the gap analysis from the 2026-06-30 review into phases that mirror the
 Flow tool's own phase/parity-harness discipline. The review found the data model ~80%

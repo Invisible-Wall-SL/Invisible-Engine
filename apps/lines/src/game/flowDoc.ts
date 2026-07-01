@@ -370,12 +370,15 @@ export const LINES_FLOW_WIN_DOC: FlowDoc = {
 // `condition` edge re-checks its `$engine.*` guard on a LIVE state change (not a book-event
 // payload — that is the `bookEvent` trigger, Phase 2).
 //
-// The graph: `basegame` --condition `$engine.freeSpinsRemaining >= 1`--> `freeGame`, and the
-// complementary return `freeGame` --condition `$engine.freeSpinsRemaining < 1`--> `basegame`.
-// The free-spin counter is LIVE engine state (`stateUi.freeSpinCounterTotal/Current`, the same
-// fields the `freeSpins` value feed reads), so the screen swaps when the counter crosses the
-// threshold and `evaluate()` is pinged — branching on engine state held in state, not on a
-// book event. The `basegame` per-event choreographies are reused for a realistic flow.
+// The graph (active-SET model): `basegame` --condition `$engine.freeSpinsRemaining >= 1`-->
+// `freeGame`, which LAYERS the free game over the persistent base (condition edges layer, they do
+// not swap). The counter is LIVE engine state (`stateUi.freeSpinCounterTotal/Current`, the same
+// fields the `freeSpins` value feed reads), so `freeGame` activates when the counter crosses the
+// threshold and `evaluate()` is pinged. The RETURN is a `complete` HANDOFF — `freeGame` fires its
+// own Complete pin (`completeActiveScreen()`) once the free game ends, which dismisses it and
+// leaves the persistent base. (Under the active-set model a screen leaves only by its Complete pin;
+// a condition-return onto the still-active base would be a layer no-op.) The `basegame` per-event
+// choreographies are reused for a realistic flow.
 // ---------------------------------------------------------------------------
 
 /** Guard: the LIVE engine free-spins-remaining counter has at least one spin left (free game on). */
@@ -383,26 +386,22 @@ const freeGameActiveGuard: FlowGuard = {
 	all: [{ left: engine('freeSpinsRemaining'), op: 'gte', right: lit(1) }],
 };
 
-/** Guard: the LIVE engine free-spins-remaining counter has run out (back to base game). */
-const freeGameEndedGuard: FlowGuard = {
-	all: [{ left: engine('freeSpinsRemaining'), op: 'lt', right: lit(1) }],
-};
-
-/** Small enter beats so the swap order is observable in the harness (a hook for real beats). */
+/** Small enter/exit beats so the layer + handoff order is observable in the harness. */
 const freeGameEnterChoreography: ChoreographyNode = broadcast('flowFreeGameEnter');
-const basegameReturnChoreography: ChoreographyNode = broadcast('flowBasegameReturn');
+const freeGameExitChoreography: ChoreographyNode = broadcast('flowFreeGameExit');
 
 export const LINES_FLOW_COND_DOC: FlowDoc = {
 	version: 1,
 	projectKey: 'lines',
 	screens: [
-		// The basegame `enter` return beat fires on the `freeGame → basegame` swap (and once at
-		// boot, which is a harmless single broadcast).
-		{ id: 'basegame', initial: true, choreography: { enter: basegameReturnChoreography } },
-		{ id: 'freeGame', choreography: { enter: freeGameEnterChoreography } },
+		{ id: 'basegame', initial: true },
+		{
+			id: 'freeGame',
+			choreography: { enter: freeGameEnterChoreography, exit: freeGameExitChoreography },
+		},
 	],
 	transitions: [
-		// LIVE engine-state branch: enter the free game when the free-spin counter arms (≥ 1),
+		// LIVE engine-state branch: LAYER the free game over the base when the counter arms (≥ 1),
 		// re-checked on `evaluate()` (the §6.3 condition trigger). NOT a book-event trigger.
 		{
 			id: 'basegame→freeGame',
@@ -411,13 +410,13 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 			trigger: { kind: 'condition' },
 			guard: freeGameActiveGuard,
 		},
-		// Return to base game once the counter runs out (< 1) — the complementary condition.
+		// Return: `freeGame`'s Complete pin HANDS OFF back to the base (dismisses the overlay). Fired
+		// by `completeActiveScreen()` when the free game ends — a handoff, not a condition swap.
 		{
 			id: 'freeGame→basegame',
 			from: 'freeGame',
 			to: 'basegame',
-			trigger: { kind: 'condition' },
-			guard: freeGameEndedGuard,
+			trigger: { kind: 'complete' },
 		},
 	],
 	// Reuse the full per-event choreographies for a realistic flow (the condition branch is the

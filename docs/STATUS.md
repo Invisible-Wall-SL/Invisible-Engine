@@ -24,6 +24,49 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-01 — Flow `/flow` authoring UI for the active-SET model (Phase A)
+
+The `/flow` launcher editor now authors the pin-driven active-SET model (entry below), with NO
+schema change — it rides the existing edge/pin/trigger representation. The **trigger is the lever**:
+a `complete` edge HANDS OFF (source screen hides), any other trigger LAYERS the target over the
+persistent source. Added: (1) trigger inferred from the pin the author drags FROM — a screen's
+Complete pin ⇒ a handoff edge, any other pin ⇒ a layer (book-event) edge; (2) legible canvas
+semantics — handoff edges solid slate, layer edges dashed amber, `⇥`/`⧉` label marks, a sub-bar
+legend, and a live handoff/layer explainer in the edge inspector; (3) a computed read-only
+**persistent (base)** node badge (a screen with no outgoing complete edge — the base-game trait —
+derived, not a field); (4) a **stuck-overlay** validation warning (a layered screen with no
+complete edge back out would never dismiss). Two shared helpers (`edgeSemantics`,
+`isPersistentScreen`) live once in `engine-flow/validate.ts` and are read by page/node/inspector
+(DRY — existing shared components extended, not duplicated). Files:
+`packages/engine-flow/src/validate.ts`, `apps/launcher-api/src/routes/(app)/flow/{+page.svelte,
+EdgeInspector.svelte,FlowScreenNode.svelte,ValidationPanel.svelte,flowModel.client.ts}`.
+`docs/tools/flow.md` refreshed (rule 9). **Verified:** Node validator harness 12/12 (edgeSemantics,
+isPersistentScreen, stuck-overlay); `engine-flow` tsc + `launcher-api` build clean (the two
+pre-existing `+page.svelte` warnings are on untouched lines). Owner live-verify in `/flow` + the
+ship chain (bake → register → publish-runtime-bundle → Borut submodule bump) still owed.
+
+### 2026-07-01 — Flow presentation model → pin-driven active-SET (engine core; fixes reels-behind-loading)
+
+The flow interpreter moved from a SINGLE active screen (an exclusive swap) to an ordered **active
+SET**, so a base-game screen persists while an overlay layers on top. This fixes the bug where the
+reels board mounted UNCONDITIONALLY in `apps/lines`/Borut `Game.svelte` and was visible behind the
+loading splash. Semantics are generic (no magic ids): a screen activates on its **Enter** pin and
+removes ITSELF on its **Complete** pin; a `complete` edge deactivates its source + activates its
+target, while a `bookEvent`/`signal`/`condition` edge activates its target **layered on top** and
+leaves the source active. The base game never fires Complete, so it persists under celebrations
+(which remove themselves on their own Complete) — the "celebration over a live board" behaviour now
+falls out of the set. The reel board + basegame slices in `Game.svelte` gate on
+`{#if !flow || isBasegameActive}`: **inert-flow fall-through** renders unconditionally as today when
+no FlowDoc drives the game (parity §7), so non-flow games are byte-identical to `main`. Changes:
+`packages/engine-flow/src/presentation.ts` (ordered active-set + activate/deactivate),
+`packages/engine-flow/src/interpreter.ts` (`activeScreenIds` + `isScreenActive`, callback rename
+`onActiveScreenChange`→`onActiveScreensChange`), `apps/lines/src/game/flowRuntime.svelte.ts`,
+`apps/lines/src/components/Game.svelte`. **Verified:** Node active-set harness 22/22 (boot reels
+hidden → loading complete reveals base → bigWin layers over persisting base → bigWin complete leaves
+base; multi-overlay stack/unwind); `engine-flow` tsc clean; `apps/lines` prod build clean. NOT
+shipped — owner sequences the `/flow` authoring UI + bake→register→publish-runtime-bundle→Borut
+submodule bump next. Owner live-verify of the reveal in a running bundle still owed (headless-only).
+
 ### 2026-07-01 — Asset-not-found diagnostics made load-aware (regression from the loading-path removal)
 
 Removing the coded loading gate (entry below) means the game scene tree now mounts GENERICALLY

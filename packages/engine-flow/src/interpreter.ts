@@ -29,8 +29,16 @@ import { isAuthoredFlow } from './normalize';
 export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	/** The generic scene mounter — the game reads `resolve(activeScreenId)` to render. */
 	mounter: SceneMounter;
-	/** The active screen id (the scene the game mounts via the interpreter). */
+	/** The TOPMOST active screen id (the last-activated screen). The full render-ordered
+	 *  active set is `activeScreenIds`; this is a convenience for a single "current" screen. */
 	readonly activeScreenId: string | undefined;
+	/** The ORDERED active SET (base first, later-activated on top) — the pin-driven active-SET
+	 *  model. A base-game screen persists under overlays layered on it, so the game mounts every
+	 *  entry in this order (base underneath, overlays on top). Empty ⇒ inert / no active screen. */
+	readonly activeScreenIds: readonly string[];
+	/** Whether a screen id is currently active (in the set) — the game gates a scene's mount
+	 *  (e.g. the reel board on the base-game screen being active) on this. */
+	isScreenActive: (screenId: string) => boolean;
 	/** Dispatch a book event: run its presentation (authored choreography or coded handler)
 	 *  AND let the macro graph take a `bookEvent` transition. The two are orthogonal (§6.1).
 	 *  Awaits the presentation; the transition is fired after (so a screen swap follows the
@@ -74,17 +82,19 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 	/** Read a registered engine value feed by `ENGINE_PARAM_CATALOG` key (`$engine.*`),
 	 *  for transition/Branch guards over engine conditions. */
 	engine?: (key: string) => unknown;
-	/** Notified whenever the active screen changes (the game swaps the mounted scene). */
-	onActiveScreenChange?: (screenId: string | undefined) => void;
+	/** Notified whenever the active SET changes (a screen was added/removed). The ids are
+	 *  render-ordered (base first, later-activated on top); the game mirrors them into a rune
+	 *  so the mounted scenes re-render. */
+	onActiveScreensChange?: (screenIds: readonly string[]) => void;
 }): FlowInterpreter<TBookEvent, TContext> => {
-	const { flowDoc, runtime, resolveScene, codedHandlers, engine, onActiveScreenChange } = params;
+	const { flowDoc, runtime, resolveScene, codedHandlers, engine, onActiveScreensChange } = params;
 
 	const mounter = createSceneMounter({ flowDoc, resolveScene });
 
 	// A NULL machine when there is no FlowDoc: every transition is a no-op, the active
-	// screen is undefined, and the game mounts entirely via its coded path (parity, §7).
+	// set is empty, and the game mounts entirely via its coded path (parity, §7).
 	const machine: PresentationMachine | undefined = flowDoc
-		? createPresentationMachine(flowDoc, { runtime, engine, onActiveScreenChange })
+		? createPresentationMachine(flowDoc, { runtime, engine, onActiveScreensChange })
 		: undefined;
 
 	const { dispatch, isAuthored } = createBookEventDispatcher<TBookEvent, TContext>({
@@ -101,6 +111,10 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		get activeScreenId() {
 			return machine?.activeScreenId;
 		},
+		get activeScreenIds() {
+			return machine?.activeScreenIds ?? [];
+		},
+		isScreenActive: (screenId) => machine?.isActive(screenId) ?? false,
 		dispatchBookEvent: async (bookEvent, context) => {
 			await dispatch(bookEvent, context);
 			await machine?.onBookEvent(bookEvent);

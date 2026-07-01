@@ -15,6 +15,12 @@
  *  - `no-initial`  — zero screens flagged `initial` (the flow has no entry).
  *  - `multiple-initial` — more than one `initial` screen (ambiguous entry).
  *  - `orphaned-pins` — a screen has pins whose backing component was deleted (§4).
+ *  - `stuck-overlay` — a screen activated as a LAYER (an incoming non-`complete` edge, so it
+ *    stacks OVER a persistent source) that has no outgoing `complete` edge to remove itself. In
+ *    the pin-driven active-SET model a screen only leaves the active set by firing its own
+ *    Complete pin, so such an overlay never unmounts — it stays stuck over the base. (The base
+ *    game itself legitimately persists with no `complete` edge; the check targets only screens
+ *    that were LAYERED on, never the initial/base screen.)
  *
  * The choreography check (the silent-literal-typo guard, §11.4):
  *  - `unresolved-accessor` — a `$context.`/`$engine.` accessor whose root/key isn't known
@@ -27,7 +33,30 @@
  * authoring aid, not a runtime gate.
  */
 
-import type { ChoreographyNode, FlowAccessor, FlowDoc, FlowGuard } from './types';
+import type { ChoreographyNode, FlowAccessor, FlowDoc, FlowGuard, FlowTransition } from './types';
+
+/**
+ * The active-SET semantics of a transition edge (the core authoring lever). A `complete`
+ * edge is a HANDOFF: the source fired its own Complete pin, so it DEACTIVATES (hides) and
+ * the target activates. Every other trigger (`bookEvent` / `signal` / `condition`) is a
+ * LAYER: the target activates ON TOP while the source PERSISTS underneath (a celebration over
+ * a live board). The editor renders these two classes distinctly so the author sees which is
+ * which; the interpreter (`presentation.ts`) enforces the same split at runtime — one rule,
+ * two readers.
+ */
+export type EdgeSemantics = 'handoff' | 'layer';
+
+/** Classify an edge by its trigger — `complete` ⇒ handoff (source hides), else ⇒ layer
+ *  (source persists). The single source of truth the canvas + base-badge derivation share. */
+export const edgeSemantics = (transition: FlowTransition): EdgeSemantics =>
+	transition.trigger.kind === 'complete' ? 'handoff' : 'layer';
+
+/** True when a screen PERSISTS in the active set — it has no outgoing `complete` edge, so it
+ *  never fires its own Complete pin and is never removed (the base game's defining property).
+ *  A pure derivation over the transitions (no schema flag), shared by the "persistent (base)"
+ *  node badge and any caller needing the base/overlay distinction. */
+export const isPersistentScreen = (doc: FlowDoc, screenId: string): boolean =>
+	!doc.transitions.some((t) => t.from === screenId && t.trigger.kind === 'complete');
 
 /** The class of a validation issue — drives the icon/severity in the UI. */
 export type FlowIssueKind =
@@ -36,6 +65,7 @@ export type FlowIssueKind =
 	| 'unreachable'
 	| 'dead-end'
 	| 'orphaned-pins'
+	| 'stuck-overlay'
 	| 'unresolved-accessor';
 
 /** Issue severity. All Phase-7 issues are warnings (never block authoring, §7). */
@@ -217,6 +247,31 @@ export const validateFlowDoc = (
 					message: `"${labelOf(id)}" is a dead-end — no outgoing transition leaves it.`,
 				});
 			}
+		}
+	}
+
+	// --- Stuck overlays: a layered screen that can never remove itself -------
+	// In the active-SET model a screen leaves the set only by firing its own Complete pin (an
+	// outgoing `complete` edge). A screen ACTIVATED AS A LAYER — reached by a non-`complete`
+	// incoming edge, so it stacks OVER a persistent source — with no outgoing `complete` edge
+	// stays stuck over the base forever. The initial/base screen is exempt: it legitimately
+	// persists (it is never layered on, and persisting IS its role).
+	const layeredTargets = new Set(
+		doc.transitions.filter((t) => t.trigger.kind !== 'complete').map((t) => t.to),
+	);
+	const completesItself = new Set(
+		doc.transitions.filter((t) => t.trigger.kind === 'complete').map((t) => t.from),
+	);
+	for (const id of screenIds) {
+		const isInitial = doc.screens.find((s) => s.id === id)?.initial ?? false;
+		if (isInitial) continue;
+		if (layeredTargets.has(id) && !completesItself.has(id)) {
+			issues.push({
+				kind: 'stuck-overlay',
+				severity: 'warning',
+				screenId: id,
+				message: `"${labelOf(id)}" layers over a persistent screen but has no outgoing "on complete" transition — it would never remove itself (add a Complete edge back to dismiss the overlay).`,
+			});
 		}
 	}
 

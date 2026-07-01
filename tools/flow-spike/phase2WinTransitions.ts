@@ -243,14 +243,14 @@ const makeCodedSpies = (firedCoded: string[]) => ({
 
 const makeInterp = (
 	rig: ReturnType<typeof makeRig>,
-	changes: (string | undefined)[],
+	setChanges: string[][],
 	firedCoded: string[] = [],
 ) =>
 	createFlowInterpreter<{ type: string }, { bookEvents: unknown[] }>({
 		flowDoc: LINES_FLOW_WIN_DOC,
 		runtime: rig.runtime,
 		resolveScene: (id) => scenes[id],
-		onActiveScreenChange: (id) => changes.push(id),
+		onActiveScreensChange: (ids) => setChanges.push([...ids]),
 		codedHandlers: makeCodedSpies(firedCoded),
 	});
 
@@ -297,17 +297,23 @@ const main = async () => {
 		console.log(`A. BIG-win setWin ⇒ swap to bigWin, lifted presentation (${tag}):`);
 		{
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
+			const setChanges: string[][] = [];
 			const firedCoded: string[] = [];
-			const interp = makeInterp(rig, changes, firedCoded);
+			const interp = makeInterp(rig, setChanges, firedCoded);
 			await interp.start();
 			rig.log.length = 0;
 
 			await interp.dispatchBookEvent(FIXTURES.setWinBig, CONTEXT);
 			await settle();
 
-			assert(`active screen swapped to bigWin (${tag})`, interp.activeScreenId === 'bigWin');
-			assert(`onActiveScreenChange fired basegame → bigWin (${tag})`, eqJson(changes, ['bigWin']));
+			assert(
+				`BIG win LAYERS bigWin over the persistent base (${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame', 'bigWin']),
+			);
+			assert(
+				`onActiveScreensChange snapshotted basegame → +bigWin (${tag})`,
+				eqJson(setChanges, [['basegame', 'bigWin']]),
+			);
 			assert(
 				`setWin stayed authored — coded handler did NOT fire (no double-present) (${tag})`,
 				firedCoded.length === 0,
@@ -324,16 +330,19 @@ const main = async () => {
 		console.log(`B. SMALL-win setWin ⇒ stays basegame, feed-driven overlay (${tag}):`);
 		{
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
-			const interp = makeInterp(rig, changes);
+			const setChanges: string[][] = [];
+			const interp = makeInterp(rig, setChanges);
 			await interp.start();
 			rig.log.length = 0;
 
 			await interp.dispatchBookEvent(FIXTURES.setWinSmall, CONTEXT);
 			await settle();
 
-			assert(`active screen STAYS basegame (${tag})`, interp.activeScreenId === 'basegame');
-			assert(`no screen swap fired (${tag})`, changes.length === 0);
+			assert(
+				`active set STAYS just basegame (${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame']),
+			);
+			assert(`no screen swap fired (${tag})`, setChanges.length === 0);
 
 			const coded = makeRig(turbo);
 			await codedSetWin(coded, FIXTURES.setWinSmall);
@@ -349,9 +358,9 @@ const main = async () => {
 		console.log(`C. freeSpinTrigger ⇒ swap to freeSpinIntro, lifted presentation (${tag}):`);
 		{
 			const rig = makeRig(turbo);
-			const changes: (string | undefined)[] = [];
+			const setChanges: string[][] = [];
 			const firedCoded: string[] = [];
-			const interp = makeInterp(rig, changes, firedCoded);
+			const interp = makeInterp(rig, setChanges, firedCoded);
 			await interp.start();
 			rig.log.length = 0;
 
@@ -359,12 +368,12 @@ const main = async () => {
 			await settle();
 
 			assert(
-				`active screen swapped to freeSpinIntro (${tag})`,
-				interp.activeScreenId === 'freeSpinIntro',
+				`freeSpinTrigger LAYERS freeSpinIntro over the persistent base (${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame', 'freeSpinIntro']),
 			);
 			assert(
-				`onActiveScreenChange fired basegame → freeSpinIntro (${tag})`,
-				eqJson(changes, ['freeSpinIntro']),
+				`onActiveScreensChange snapshotted basegame → +freeSpinIntro (${tag})`,
+				eqJson(setChanges, [['basegame', 'freeSpinIntro']]),
 			);
 			// THE no-double-fire guard: freeSpinTrigger is an AUTHORED no-op event (not dropped),
 			// so dispatch does NOT fall through to the coded handler — only the screen swap presents.
@@ -387,9 +396,9 @@ const main = async () => {
 		// --- D. complete (tap) returns each win screen → basegame ---
 		console.log(`D. complete (tap) returns each win screen → basegame (${tag}):`);
 		{
-			// bigWin → basegame
+			// bigWin --complete--> basegame (handoff dismisses the overlay; base persists throughout)
 			const rig1 = makeRig(turbo);
-			const c1: (string | undefined)[] = [];
+			const c1: string[][] = [];
 			const i1 = makeInterp(rig1, c1);
 			await i1.start();
 			await i1.dispatchBookEvent(FIXTURES.setWinBig, CONTEXT);
@@ -398,13 +407,13 @@ const main = async () => {
 			c1.length = 0;
 			const tapped1 = await i1.completeActiveScreen();
 			assert(
-				`bigWin --complete--> basegame (${tag})`,
-				tapped1 && i1.activeScreenId === 'basegame' && eqJson(c1, ['basegame']),
+				`bigWin --complete--> dismissed, base remains (${tag})`,
+				tapped1 && eqJson(i1.activeScreenIds, ['basegame']) && eqJson(c1, [['basegame']]),
 			);
 
-			// freeSpinIntro → basegame
+			// freeSpinIntro --complete--> basegame
 			const rig2 = makeRig(turbo);
-			const c2: (string | undefined)[] = [];
+			const c2: string[][] = [];
 			const i2 = makeInterp(rig2, c2);
 			await i2.start();
 			await i2.dispatchBookEvent(FIXTURES.freeSpinTrigger, CONTEXT);
@@ -412,15 +421,15 @@ const main = async () => {
 			c2.length = 0;
 			const tapped2 = await i2.completeActiveScreen();
 			assert(
-				`freeSpinIntro --complete--> basegame (${tag})`,
-				tapped2 && i2.activeScreenId === 'basegame' && eqJson(c2, ['basegame']),
+				`freeSpinIntro --complete--> dismissed, base remains (${tag})`,
+				tapped2 && eqJson(i2.activeScreenIds, ['basegame']) && eqJson(c2, [['basegame']]),
 			);
 
 			// On basegame a further tap is a no-op (no complete edge from basegame).
 			const noEdge = await i2.completeActiveScreen();
 			assert(
 				`basegame tap ⇒ no-op (no complete edge) (${tag})`,
-				!noEdge && i2.activeScreenId === 'basegame',
+				!noEdge && eqJson(i2.activeScreenIds, ['basegame']),
 			);
 		}
 

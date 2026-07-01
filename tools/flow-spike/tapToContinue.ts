@@ -5,10 +5,11 @@
  *
  * Proves, HEADLESSLY, the tap-to-continue runtime additions:
  *
- *  A. `signal` transition trigger — `emitSignal(name)` fires an active-screen edge whose
- *     trigger is `{kind:'signal', signal:<name>}`, and is IGNORED for a non-matching name
- *     (mirroring how a `bookEvent` trigger matches the arriving event `type`, §6.2). A
- *     signal with no listening edge is a safe no-op.
+ *  A. `signal` transition trigger — `emitSignal(name)` fires an active-screen edge whose trigger
+ *     is `{kind:'signal', signal:<name>}`, and is IGNORED for a non-matching name (mirroring how a
+ *     `bookEvent` trigger matches the arriving event `type`, §6.2). A signal is a LAYER trigger
+ *     (active-set model): it activates the target OVER the still-active source. A signal with no
+ *     listening edge, or one onto an already-active layer, is a consumed no-op (no re-enter).
  *
  *  B. `completeActiveScreen()` — runs the active screen's `exit` choreography then fires its
  *     `complete`/`exited` pin, so a `complete`-triggered edge from that screen advances the
@@ -76,26 +77,27 @@ const exit = (label: string): ChoreographyNode => ({
 	payload: { screen: { kind: 'literal', value: label } },
 });
 
-// A tap-driven flow: an idle/win-presentation screen that the user TAPS to continue.
-//  - a `signal` edge (`tapContinue`) advances winPresentation → basegame;
-//  - a `complete` edge advances bonusIntro → bonus (the "complete the active screen" path).
+// A tap-driven flow under the ACTIVE-SET model:
+//  - a `signal` edge (`tapContinue`) LAYERS a `tapPrompt` overlay over the persistent `basegame`
+//    (a signal is a layer trigger — a user tap activates the target ON TOP of the source);
+//  - a `complete` edge advances `bonusIntro` → `bonus` (the handoff "complete the active screen").
 const flowDoc: FlowDoc = {
 	version: 1,
 	screens: [
 		{
-			id: 'winPresentation',
+			id: 'basegame',
 			initial: true,
-			choreography: { enter: enter('winPresentation'), exit: exit('winPresentation') },
+			choreography: { enter: enter('basegame'), exit: exit('basegame') },
 		},
-		{ id: 'basegame', choreography: { enter: enter('basegame'), exit: exit('basegame') } },
+		{ id: 'tapPrompt', choreography: { enter: enter('tapPrompt'), exit: exit('tapPrompt') } },
 		{ id: 'bonusIntro', choreography: { enter: enter('bonusIntro'), exit: exit('bonusIntro') } },
 		{ id: 'bonus', choreography: { enter: enter('bonus'), exit: exit('bonus') } },
 	],
 	transitions: [
 		{
 			id: 't_tap',
-			from: 'winPresentation',
-			to: 'basegame',
+			from: 'basegame',
+			to: 'tapPrompt',
 			trigger: { kind: 'signal', signal: 'tapContinue' },
 			order: 0,
 		},
@@ -110,8 +112,8 @@ const flowDoc: FlowDoc = {
 };
 
 const scenes: Record<string, MountableScene> = {
-	winPresentation: { id: 'winPresentation', space: 'game' },
 	basegame: { id: 'basegame', space: 'game' },
+	tapPrompt: { id: 'tapPrompt', space: 'game' },
 	bonusIntro: { id: 'bonusIntro', space: 'game' },
 	bonus: { id: 'bonus', space: 'game' },
 };
@@ -145,7 +147,10 @@ const main = async () => {
 			codedHandlers: {},
 		});
 		assert('interpreter is active with a FlowDoc', interp.isActive);
-		assert('initial screen is winPresentation', interp.activeScreenId === 'winPresentation');
+		assert(
+			'initial active set is just the base',
+			eq(interp.activeScreenIds, ['basegame']) && interp.activeScreenId === 'basegame',
+		);
 		await interp.start();
 		log.length = 0;
 
@@ -153,29 +158,28 @@ const main = async () => {
 		const wrong = await interp.emitSignal('somethingElse');
 		assert(
 			'non-matching signal name ⇒ no transition (ignored)',
-			!wrong && interp.activeScreenId === 'winPresentation' && log.length === 0,
+			!wrong && eq(interp.activeScreenIds, ['basegame']) && log.length === 0,
 		);
 
-		// The matching signal advances winPresentation → basegame, running exit then enter.
+		// The matching signal LAYERS tapPrompt over the persistent base, running ONLY its enter.
 		const tapped = await interp.emitSignal('tapContinue');
 		assert(
-			'matching signal `tapContinue` ⇒ winPresentation → basegame',
-			tapped && interp.activeScreenId === 'basegame',
+			'matching signal `tapContinue` ⇒ LAYERS tapPrompt over base',
+			tapped && eq(interp.activeScreenIds, ['basegame', 'tapPrompt']),
 		);
 		assert(
-			'swap ran exit(winPresentation) then enter(basegame) in order',
-			eq(log, [
-				'broadcast flowExit {"screen":"winPresentation"}',
-				'broadcast flowEnter {"screen":"basegame"}',
-			]),
+			'layer ran ONLY enter(tapPrompt) — NO source exit (base persists)',
+			eq(log, ['broadcast flowEnter {"screen":"tapPrompt"}']),
 		);
 
-		// On basegame there is no signal edge ⇒ a tap is a safe no-op.
+		// A REPEATED matching signal onto the already-active layer is a consumed NO-OP: the base's
+		// `t_tap` edge still matches (base is still active), but tapPrompt is already up ⇒ no
+		// re-enter, no set change (the layer-idempotence fix).
 		log.length = 0;
-		const noEdge = await interp.emitSignal('tapContinue');
+		const repeated = await interp.emitSignal('tapContinue');
 		assert(
-			'signal with no listening edge on the active screen ⇒ no-op',
-			!noEdge && interp.activeScreenId === 'basegame' && log.length === 0,
+			'repeated signal onto an already-active layer ⇒ consumed but NO re-enter',
+			repeated && eq(interp.activeScreenIds, ['basegame', 'tapPrompt']) && log.length === 0,
 		);
 	}
 

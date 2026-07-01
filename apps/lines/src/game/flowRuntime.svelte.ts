@@ -157,6 +157,14 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
  * Add a DEFAULT `loading → basegame` leg so an un-authored game still boots generically (the
  * coded loading path is gone — flow-driven-game §1).
  *
+ * Active-SET semantics (the pin-driven model): `loading` is the `initial` (base) screen, so it —
+ * and ONLY it — is active at boot; `basegame` is NOT yet active, so the reel board is HIDDEN
+ * behind the loading splash (the board mount in `Game.svelte` gates on the base-game screen being
+ * active). The `complete` edge (fired by the loading bar's `completeOnLoaded` capability, or a
+ * tap) DEACTIVATES `loading` and ACTIVATES `basegame` — the splash unmounts and the reels appear
+ * on the clean, undimmed background. `basegame` has no `complete`-triggered outgoing edge, so it
+ * PERSISTS thereafter (celebration overlays layer over it and remove themselves on their Complete).
+ *
  * - No `base` doc ⇒ synthesize the minimal `loading` (initial) → `basegame` doc with `events: []`
  *   (book events keep falling through to the coded `bookEventHandlerMap`).
  * - A `base` doc that LACKS the loading screen ⇒ PREPEND the loading leg: add the `loading` screen
@@ -165,7 +173,6 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
  *   `__IE_FLOW_LINES__` fixture keeps its full per-event choreographies, now with a loading leg).
  * - A `base` doc that ALREADY includes the loading screen is handled by the caller (it WINS).
  *
- * The `complete` edge is fired by the loading bar's `completeOnLoaded` capability (or a tap).
  * Returns `undefined` (inert) if the loading or basegame scene can't be resolved, so nothing
  * crashes on a boot with no such scenes (keeps the coded path).
  */
@@ -227,11 +234,12 @@ export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookE
  */
 export const createLinesFlow = (
 	editorDoc: LayoutDoc,
-	/** Notified whenever the interpreter's active screen swaps (Phase 1 loading↔basegame). The
-	 *  game uses it to drive a `$state` so the mounted scene re-renders — the interpreter's
-	 *  internal `activeScreenId` is a plain variable (not a rune), so a getter read alone is not
-	 *  reactive. Absent ⇒ no notification (headless harnesses don't need it). */
-	onActiveScreenChange?: (screenId: string | undefined) => void,
+	/** Notified whenever the interpreter's active SET changes (a screen was added/removed —
+	 *  the pin-driven active-SET model). The ids are render-ordered (base first, overlays on
+	 *  top). The game uses it to drive a `$state` so the mounted scenes re-render — the
+	 *  interpreter's internal active set is a plain array (not a rune), so a getter read alone
+	 *  is not reactive. Absent ⇒ no notification (headless harnesses don't need it). */
+	onActiveScreensChange?: (screenIds: readonly string[]) => void,
 ): LinesFlow | undefined => {
 	const authoredDoc = loadFlowDoc();
 	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,
@@ -251,7 +259,7 @@ export const createLinesFlow = (
 
 	return createFlowInterpreter<BookEvent, BookEventContext>({
 		flowDoc,
-		onActiveScreenChange,
+		onActiveScreensChange,
 		// The bounded `$engine.*` reader (flow-driven-game §3) — sourced from the SAME live state
 		// the component value/visibility registries read, so a `condition`/Branch guard sees the
 		// same engine values a bound readout/gate does. Harmless to inject for every fixture: a

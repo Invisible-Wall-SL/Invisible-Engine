@@ -10,12 +10,14 @@
  *     `fallThrough` (the game keeps its coded mounting — the §7 parity boundary). A screen
  *     authored in the FlowDoc but with NO backing scene also falls through (never a blank).
  *
- *  B. Transitions — all three triggers (§6):
- *     1. bookEvent — a `freeSpinTrigger` book event takes BaseGame → FreeSpinsIntro.
- *     2. complete  — the intro's `complete` pin takes FreeSpinsIntro → FreeSpins.
- *     3. condition — a guard over an `$engine.*` value takes FreeSpins → BaseGame when it holds.
- *     Author order + guards are honoured; an unguarded edge is the default; a mid-swap
- *     trigger is ignored (serial gate). The enter/exit choreography runs on each swap.
+ *  B. Transitions — all three triggers under the ACTIVE-SET model (§6):
+ *     1. bookEvent — `freeSpinTrigger` LAYERS FreeSpinsIntro over the persistent base (no source
+ *        exit; base stays active underneath).
+ *     2. complete  — the intro's `complete` pin HANDS OFF: runs its exit + removes it, base remains.
+ *     3. condition — a guard over an `$engine.*` value LAYERS BonusPick over the base when it holds;
+ *        a repeated eval on the already-active layer is a consumed no-op (no re-enter / re-notify).
+ *     Author order + guards are honoured; an unguarded edge is the default; a mid-swap trigger is
+ *     ignored (serial gate). Enter runs on every activation; exit runs only on a `complete` handoff.
  *
  *  C. Observe-don't-drive (§12) — the HSM NEVER calls into the platform FSM; it only reads
  *     the injected `$engine.*` for guards and reacts to pushed book events / completes. This
@@ -76,7 +78,12 @@ const makeRig = (turbo: boolean) => {
 };
 
 // ---------------------------------------------------------------------------
-// A representative apps/lines-shaped flow: BaseGame → FreeSpinsIntro → FreeSpins → BaseGame.
+// A representative apps/lines-shaped flow under the ACTIVE-SET model: `basegame` is the
+// persistent base (initial, no outgoing `complete` edge). `freeSpinIntro` (a bookEvent LAYER)
+// and `bonusPick` (a condition LAYER) each stack OVER the still-active base and hand BACK via a
+// `complete` edge (their Complete pin). This exercises all three triggers AND the layer-vs-
+// handoff split: bookEvent/condition LAYER the target (source persists, no source exit);
+// `complete` HANDS OFF (runs source exit, deactivates source).
 // ---------------------------------------------------------------------------
 const enter = (label: string): ChoreographyNode => ({
 	kind: 'broadcast',
@@ -101,9 +108,10 @@ const flowDoc: FlowDoc = {
 			id: 'freeSpinIntro',
 			choreography: { enter: enter('freeSpinIntro'), exit: exit('freeSpinIntro') },
 		},
-		{ id: 'freeSpins', choreography: { enter: enter('freeSpins'), exit: exit('freeSpins') } },
+		{ id: 'bonusPick', choreography: { enter: enter('bonusPick'), exit: exit('bonusPick') } },
 	],
 	transitions: [
+		// bookEvent LAYER: freeSpinTrigger stacks freeSpinIntro over the persistent base.
 		{
 			id: 't1',
 			from: 'basegame',
@@ -111,11 +119,13 @@ const flowDoc: FlowDoc = {
 			trigger: { kind: 'bookEvent', event: 'freeSpinTrigger' },
 			order: 0,
 		},
-		{ id: 't2', from: 'freeSpinIntro', to: 'freeSpins', trigger: { kind: 'complete' }, order: 0 },
+		// complete HANDOFF: the intro's Complete pin dismisses it back to the base.
+		{ id: 't2', from: 'freeSpinIntro', to: 'basegame', trigger: { kind: 'complete' }, order: 0 },
+		// condition LAYER: a guarded `$engine.*` change stacks bonusPick over the persistent base.
 		{
 			id: 't3',
-			from: 'freeSpins',
-			to: 'basegame',
+			from: 'basegame',
+			to: 'bonusPick',
 			trigger: { kind: 'condition' },
 			guard: {
 				all: [
@@ -128,10 +138,12 @@ const flowDoc: FlowDoc = {
 			},
 			order: 0,
 		},
+		// complete HANDOFF: the bonus pick's Complete pin dismisses it back to the base.
+		{ id: 't4', from: 'bonusPick', to: 'basegame', trigger: { kind: 'complete' }, order: 0 },
 	],
 };
 
-// Backing LayoutDoc scenes (the mounter resolves these). `freeSpins` is intentionally
+// Backing LayoutDoc scenes (the mounter resolves these). `bonusPick` is intentionally
 // MISSING a backing scene to prove the authored-but-no-scene fall-through.
 const scenes: Record<string, MountableScene> = {
 	basegame: { id: 'basegame', space: 'game' },
@@ -176,7 +188,7 @@ const main = async () => {
 			JSON.stringify(intro),
 		);
 
-		const fs = mounter.resolve('freeSpins');
+		const fs = mounter.resolve('bonusPick');
 		assert(
 			'authored screen with NO backing scene ⇒ fall-through (never a blank mount)',
 			fs?.kind === 'fallThrough',
@@ -192,76 +204,103 @@ const main = async () => {
 
 		assert(
 			'mounter.has tracks authored AND backed',
-			mounter.has('basegame') && !mounter.has('freeSpins') && !mounter.has('hudBar'),
+			mounter.has('basegame') && !mounter.has('bonusPick') && !mounter.has('hudBar'),
 		);
 		assert('resolve(undefined) ⇒ undefined', mounter.resolve(undefined) === undefined);
 	}
 
-	// --- B. Transitions — all three triggers (§6) ---
-	console.log('\nB. Transitions (bookEvent / complete / condition):');
+	// --- B. Transitions — all three triggers, ACTIVE-SET semantics (§6) ---
+	console.log('\nB. Transitions (bookEvent-layer / complete-handoff / condition-layer):');
 	{
 		const { log, runtime } = makeRig(false);
 		let freeSpinsLeft = 3;
-		const screenChanges: (string | undefined)[] = [];
+		// Record a SNAPSHOT of the active set on each change (the new array callback), so the
+		// parity check asserts the full set (base persistence + layer order), not just a topmost id.
+		const setChanges: string[][] = [];
 		const machine = createPresentationMachine(flowDoc, {
 			runtime,
 			engine: (key) => (key === 'freeSpinsLeft' ? freeSpinsLeft : undefined),
-			onActiveScreenChange: (id) => screenChanges.push(id),
+			onActiveScreensChange: (ids) => setChanges.push([...ids]),
 		});
 
-		assert('initial screen is the `initial` node', machine.activeScreenId === 'basegame');
+		assert(
+			'initial active set is the `initial` node alone',
+			eq(machine.activeScreenIds, ['basegame']) && machine.activeScreenId === 'basegame',
+		);
 		await machine.start();
 		assert(
-			'start() runs the initial enter choreography',
-			eq(log, ['broadcast flowEnter {"screen":"basegame"}']),
+			'start() runs the initial enter choreography (no initial notify)',
+			eq(log, ['broadcast flowEnter {"screen":"basegame"}']) && setChanges.length === 0,
 		);
 
-		// 1. bookEvent — freeSpinTrigger takes BaseGame → FreeSpinsIntro.
+		// 1. bookEvent LAYER — freeSpinTrigger stacks freeSpinIntro OVER the persistent base.
 		log.length = 0;
 		const took1 = await machine.onBookEvent({ type: 'freeSpinTrigger' });
 		assert(
-			'bookEvent trigger took BaseGame → FreeSpinsIntro',
-			took1 && machine.activeScreenId === 'freeSpinIntro',
+			'bookEvent LAYERS freeSpinIntro over the still-active base',
+			took1 && eq(machine.activeScreenIds, ['basegame', 'freeSpinIntro']),
 		);
 		assert(
-			'swap ran exit(basegame) then enter(freeSpinIntro) in order',
-			eq(log, [
-				'broadcast flowExit {"screen":"basegame"}',
-				'broadcast flowEnter {"screen":"freeSpinIntro"}',
-			]),
+			'layer ran ONLY enter(freeSpinIntro) — NO source exit (base persists)',
+			eq(log, ['broadcast flowEnter {"screen":"freeSpinIntro"}']),
 		);
 
 		// A non-matching book event does NOT transition.
 		const tookNone = await machine.onBookEvent({ type: 'winInfo' });
 		assert(
 			'non-matching book event takes no transition',
-			!tookNone && machine.activeScreenId === 'freeSpinIntro',
+			!tookNone && eq(machine.activeScreenIds, ['basegame', 'freeSpinIntro']),
 		);
 
-		// 2. complete — the intro's complete pin takes FreeSpinsIntro → FreeSpins.
+		// 2. complete HANDOFF — the intro's Complete pin runs its exit + removes it, back to base.
 		log.length = 0;
 		const took2 = await machine.onComplete();
 		assert(
-			'complete trigger took FreeSpinsIntro → FreeSpins',
-			took2 && machine.activeScreenId === 'freeSpins',
+			'complete HANDS OFF: freeSpinIntro exits + deactivates, base remains',
+			took2 && eq(machine.activeScreenIds, ['basegame']),
+		);
+		assert(
+			'handoff ran exit(freeSpinIntro) then enter(basegame) in order',
+			eq(log, [
+				'broadcast flowExit {"screen":"freeSpinIntro"}',
+				'broadcast flowEnter {"screen":"basegame"}',
+			]),
 		);
 
-		// 3. condition — guard false (3 left) ⇒ no transition; flip to 0 ⇒ transition.
+		// 3. condition LAYER — guard false (3 left) ⇒ no transition; flip to 0 ⇒ layers bonusPick.
+		log.length = 0;
 		const tookCondFalse = await machine.evaluate();
 		assert(
 			'condition guard false ⇒ no transition',
-			!tookCondFalse && machine.activeScreenId === 'freeSpins',
+			!tookCondFalse && eq(machine.activeScreenIds, ['basegame']),
 		);
 		freeSpinsLeft = 0;
 		const tookCondTrue = await machine.evaluate();
 		assert(
-			'condition guard true ⇒ FreeSpins → BaseGame',
-			tookCondTrue && machine.activeScreenId === 'basegame',
+			'condition guard true ⇒ LAYERS bonusPick over the still-active base',
+			tookCondTrue && eq(machine.activeScreenIds, ['basegame', 'bonusPick']),
+		);
+		assert(
+			'condition layer ran ONLY enter(bonusPick) — NO source exit',
+			eq(log, ['broadcast flowEnter {"screen":"bonusPick"}']),
+		);
+
+		// A REPEATED condition eval (the game pings evaluate() on every value change) is a NO-OP:
+		// bonusPick is already active, so no re-enter and no re-notify (the layer-idempotence fix).
+		log.length = 0;
+		const notifiesBefore = setChanges.length;
+		const tookRepeat = await machine.evaluate();
+		assert(
+			'repeated condition on an already-active layer ⇒ consumed but NO re-enter / NO re-notify',
+			tookRepeat &&
+				log.length === 0 &&
+				setChanges.length === notifiesBefore &&
+				eq(machine.activeScreenIds, ['basegame', 'bonusPick']),
 		);
 
 		assert(
-			'onActiveScreenChange fired for each swap in order',
-			eq(screenChanges, ['freeSpinIntro', 'freeSpins', 'basegame']),
+			'onActiveScreensChange snapshotted each real set change in order',
+			eq(setChanges, [['basegame', 'freeSpinIntro'], ['basegame'], ['basegame', 'bonusPick']]),
 		);
 	}
 
@@ -339,7 +378,9 @@ const main = async () => {
 		// that would drive the platform FSM.
 		const allowed = [
 			'activeScreenId',
+			'activeScreenIds',
 			'evaluate',
+			'isActive',
 			'isTransitioning',
 			'onBookEvent',
 			'onComplete',
