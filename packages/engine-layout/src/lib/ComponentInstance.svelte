@@ -615,7 +615,7 @@
 			<LayoutNodeView node={root} space={childSpace} />
 		</Container>
 	{:else}
-		<LayoutNodeView node={root} {space} />
+		<LayoutNodeView node={root} space={childSpace} />
 	{/if}
 	{@render tapSurface()}
 {/snippet}
