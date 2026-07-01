@@ -13,8 +13,17 @@ the next. The authored graph (a **FlowDoc**) is saved alongside the Scene Editor
 > end-to-end (export → bake → register), so a baked game runs its presentation from the
 > document with safe fall-through to the coded path for anything un-authored. Phase 7 adds
 > the **authoring conveniences**: palette + canvas **search**, **copy/paste** of screen
-> subgraphs, a **validation** panel (unreachable / dead-end / no-initial / orphaned-pin
-> warnings), an **authored-vs-coded diff** view, and pin **tooltips**. The choreography
+> subgraphs, a **validation** panel (unreachable / dead-end / no-initial / orphaned-pin /
+> stuck-overlay warnings), an **authored-vs-coded diff** view, and pin **tooltips**.
+>
+> **Active-SET model (2026-07-01):** the runtime tracks a *set* of active screens, not one.
+> A screen turns ITSELF off when it fires its **Complete** pin, and an edge's trigger decides
+> what happens: a **Screen complete** edge is a **handoff** (the source screen hides, the
+> target activates); every other trigger (**book event / tap signal / engine condition**) is a
+> **layer** (the target activates OVER the source, which stays active underneath). A screen with
+> no outgoing Complete edge **persists** — the base game's defining trait — so celebrations layer
+> over a live board. The canvas shows this: handoff edges are solid slate, layer edges are dashed
+> amber, and a persistent screen wears a **persistent** badge. The choreography
 > editor's preview is still a **deterministic timeline** (ordered broadcasts + delays); a
 > true live-animating visual preview is not part of this tool. See "What it does not do
 > yet" below.
@@ -74,15 +83,27 @@ no screens at all the canvas says so.
 
 Drag from a node's **output** handle (a `complete`, action, or other right-side pin) to
 another node's **input** handle (its left-side `Enter` pin is the natural target) to
-create a transition edge. A new edge defaults to the **on complete** trigger; select
-the edge to change it. Book-event edges are drawn animated so they stand out.
+create a transition edge. The trigger is **inferred from the pin you dragged from**: from a
+screen's **Complete** pin you get an **on complete** (handoff) edge — the natural "when this
+screen finishes, move to the next"; from any other output pin you get a **book event** (layer)
+edge with the event type left blank for you to fill in. Either way, select the edge to change
+the trigger.
+
+The edge's look tells you its active-SET semantic at a glance (the legend in the sub-bar spells
+it out): **handoff** edges (Screen complete) are **solid slate** — the source screen hides;
+**layer** edges (book event / tap signal / engine condition) are **dashed amber** — the target
+activates OVER the source, which stays active underneath. Book-event edges are also animated so
+they stand out. A layer edge means you usually want a **Complete** edge back OUT of the overlay
+so it can dismiss itself (the validation panel flags a "stuck overlay" that has none).
 
 ### Edit a transition
 
 Click an edge to open the **Transition** inspector on the left. You can set:
 
-- **Trigger** — *Book event* (then type the event type, e.g. `freeSpinTrigger`),
-  *Screen complete*, or *Engine condition*.
+- **Trigger** — *Book event* (then type the event type, e.g. `freeSpinTrigger`), *Screen
+  complete*, *Tap signal* (then a signal name), or *Engine condition*. A live line under the
+  selector spells out the effect: **⇥ Handoff** (Screen complete — the source screen hides) vs
+  **⧉ Layer** (any other trigger — the target activates over the still-active source).
 - **Delay (ms)** — an optional pause before the transition (leave blank for none).
 - **Order** — when a screen has several outgoing edges, the order they are evaluated in.
 - **Guard (optional)** — a single bounded comparison: a left value, an operator
@@ -104,6 +125,13 @@ node (clears the flag on any other node), **Copy** / **Paste** the screen with i
 choreography (see below), or **Remove screen** to take it off the canvas (which also
 removes any transitions touching it; if it was the initial screen, the first remaining
 node is promoted).
+
+A node that has **no outgoing Screen-complete edge** wears a computed, read-only
+**persistent** badge — it never fires its own Complete pin, so it stays active in the set
+(overlays layer over it and it remains underneath). This is how you designate the **base
+game**: make it the **initial** screen and give it no outgoing complete edge (its
+book-event/condition edges to overlays keep it persistent). The badge is derived from the
+edges, not a setting you toggle.
 
 Hovering a screen node's pin shows a **tooltip** with the pin's full role + binding (the
 handle row truncates long labels like `Loading / Intro · loadingProgress`), so you can
@@ -146,6 +174,11 @@ authoring, and the sub-bar shows a `⚠ N issues` badge. Each issue is one of:
 - **No initial screen** / **Multiple initial screens** — the flow has no entry, or more
   than one.
 - **Orphaned pins** — the screen has pins whose backing component was deleted.
+- **Stuck overlay** — a screen reached by a **layer** edge (book event / tap signal / engine
+  condition, so it stacks over a persistent source) that has **no outgoing Screen-complete
+  edge**. In the active-SET model a screen only leaves the set by firing its own Complete pin,
+  so such an overlay would never remove itself — it stays stuck over the base. Add a Complete
+  edge back out to dismiss it. (The initial/base screen persists by design and is not flagged.)
 - **Unresolved accessor** — a choreography `$engine.<key>` or `$context.<path>` accessor
   whose key/root isn't a known engine value or context root. A typo here silently falls
   through to a literal string at runtime, so this warning is the only guard against it.

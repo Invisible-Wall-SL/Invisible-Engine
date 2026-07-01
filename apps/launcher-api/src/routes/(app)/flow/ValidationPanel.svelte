@@ -19,6 +19,7 @@
 		unreachable: '⤳',
 		'dead-end': '⊘',
 		'orphaned-pins': '⚠',
+		'stuck-overlay': '⧉',
 		'unresolved-accessor': '✗',
 	};
 </script>

@@ -13,6 +13,8 @@
 	import {
 		DEFAULT_CODED_EVENTS,
 		diffFlowDoc,
+		edgeSemantics,
+		isPersistentScreen,
 		validateFlowDoc,
 		type FlowDoc,
 		type FlowTransition,
@@ -95,9 +97,7 @@
 	// literal at runtime — this surfaces it as a non-blocking warning (§11.4).
 	const engineKeys = ENGINE_PARAM_CATALOG.map((p) => p.key);
 	const contextRoots = ['bookEvents'];
-	const issues = $derived(
-		validateFlowDoc(doc, orphanSummary, { engineKeys, contextRoots }),
-	);
+	const issues = $derived(validateFlowDoc(doc, orphanSummary, { engineKeys, contextRoots }));
 	// Screen ids the validation pass flagged — drives the inline node marker.
 	const invalidScreenIds = $derived(
 		new Set(issues.map((i) => i.screenId).filter((id): id is string => Boolean(id))),
@@ -122,13 +122,21 @@
 				pins: view.pins,
 				orphanCount: view.orphanedPins.length,
 				initial: view.screen.initial ?? false,
+				// Computed, read-only: a screen with no outgoing `complete` edge PERSISTS in the
+				// active set (never removes itself) — the base game's defining property. Pure
+				// derivation over the transitions, no schema field (design doc active-SET model).
+				persistent: isPersistentScreen(doc, view.screen.id),
 				invalid: invalidScreenIds.has(view.screen.id),
 			},
 		}));
 	}
 
 	function edgeLabel(t: FlowTransition): string {
-		const base = triggerLabel(t.trigger);
+		// Lead with the active-SET semantic so the author reads it at a glance: a HANDOFF
+		// (⇥, source hides) vs a LAYER (⧉, source persists underneath). Then the trigger + any
+		// guard/delay. The colour (below) carries the same distinction redundantly.
+		const mark = edgeSemantics(t) === 'handoff' ? '⇥' : '⧉';
+		const base = `${mark} ${triggerLabel(t.trigger)}`;
 		const extra = [t.guard ? 'guard' : '', t.delayMs ? `+${t.delayMs}ms` : '']
 			.filter(Boolean)
 			.join(' ');
@@ -148,18 +156,39 @@
 		}
 	}
 
+	// Handoff edges (source hides) read in a cool slate; layering edges (source persists) read
+	// in amber — the same hue the "layers over" overlay concept uses elsewhere. The selected
+	// edge overrides to the accent blue. One colour per active-SET class, so the graph's
+	// hide-vs-layer structure is legible without reading every label.
+	const HANDOFF_COLOR = '#64748b';
+	const LAYER_COLOR = '#f59e0b';
+	const SELECTED_EDGE_COLOR = '#2563eb';
+
 	function buildEdges(): Edge[] {
-		return doc.transitions.map((t) => ({
-			id: t.id,
-			source: t.from,
-			target: t.to,
-			label: edgeLabel(t),
-			// The label div is portalled out of the edge <g>, so a `.selected …` descendant
-			// selector can't reach it — drive the selected chip accent via labelStyle instead.
-			labelStyle: t.id === selectedEdgeId ? 'border-color:#2563eb' : undefined,
-			animated: t.trigger.kind === 'bookEvent',
-			selected: t.id === selectedEdgeId,
-		}));
+		return doc.transitions.map((t) => {
+			const selected = t.id === selectedEdgeId;
+			const semantic = edgeSemantics(t);
+			const color = selected
+				? SELECTED_EDGE_COLOR
+				: semantic === 'handoff'
+					? HANDOFF_COLOR
+					: LAYER_COLOR;
+			return {
+				id: t.id,
+				source: t.from,
+				target: t.to,
+				label: edgeLabel(t),
+				// The label div is portalled out of the edge <g>, so a `.selected …` descendant
+				// selector can't reach it — drive the selected/semantic chip accent via labelStyle.
+				labelStyle: `border-color:${color};color:${selected ? '#bfdbfe' : '#cbd5e1'}`,
+				style: `stroke:${color}`,
+				// A layering edge is dashed (the target rides OVER the persistent source, not a
+				// clean baton-pass); a handoff edge is solid. Book-event edges stay animated.
+				animated: t.trigger.kind === 'bookEvent',
+				class: semantic === 'layer' ? 'flow-edge-layer' : 'flow-edge-handoff',
+				selected,
+			};
+		});
 	}
 
 	function syncCanvas(): void {
@@ -181,7 +210,16 @@
 
 	function onConnect(c: Connection): void {
 		if (!c.source || !c.target) return;
-		commit(addTransition(doc, c.source, c.target));
+		// Infer the active-SET semantic from the SOURCE pin the author dragged FROM. The
+		// structural Complete pin id is `${screenId}::complete` (engine-flow `pins.ts`); wiring
+		// FROM it means "hand off when this screen completes" ⇒ a `complete` (handoff) edge.
+		// Dragging from any other source pin means "activate the target while I persist" ⇒ a
+		// `bookEvent` (layer) edge the author names in the inspector. Either is refined after.
+		const fromComplete = c.sourceHandle?.endsWith('::complete') ?? false;
+		const trigger: FlowTrigger = fromComplete
+			? { kind: 'complete' }
+			: { kind: 'bookEvent', event: '' };
+		commit(addTransition(doc, c.source, c.target, trigger));
 	}
 
 	function onNodeDragStop({ targetNode }: { targetNode: Node | null }): void {
@@ -397,6 +435,13 @@
 	<div class="subbar">
 		<strong>Invisible Flow</strong>
 		<span class="tag">macro graph</span>
+		<span
+			class="legend"
+			title="Edge semantics: a 'Screen complete' edge HANDS OFF (source screen hides); any other trigger LAYERS the target over the still-active source (a celebration over a persistent base)."
+		>
+			<span class="key handoff">⇥ handoff</span>
+			<span class="key layer">⧉ layer</span>
+		</span>
 		<button onclick={undo} disabled={!history.canUndo()} title="Undo (Ctrl+Z)">↶ Undo</button>
 		<button onclick={redo} disabled={!history.canRedo()} title="Redo (Ctrl+Y)">↷ Redo</button>
 		<span class="spacer"></span>
@@ -556,6 +601,26 @@
 		border-radius: 999px;
 		background: #1f2937;
 		color: #93c5fd;
+	}
+	/* The edge-semantics key — mirrors the canvas edge colours (slate handoff, amber layer). */
+	.legend {
+		display: inline-flex;
+		gap: 6px;
+		cursor: help;
+	}
+	.legend .key {
+		font-size: 10px;
+		padding: 1px 6px;
+		border-radius: 4px;
+		border: 1px solid #2a323d;
+	}
+	.legend .key.handoff {
+		color: #94a3b8;
+		border-color: #3a4655;
+	}
+	.legend .key.layer {
+		color: #fdba74;
+		border-color: #4a3a1c;
 	}
 	.subbar button {
 		font-size: 12px;
@@ -734,6 +799,13 @@
 		color: #cbd5e1;
 		font-size: 11px;
 		font-weight: 500;
+	}
+	/* A LAYER edge (target rides OVER the persistent source) is dashed; a HANDOFF edge (clean
+	   source-hides baton-pass) stays solid. The per-edge `style` sets the stroke colour; this
+	   only adds the dash pattern for the layer class (xyflow's `animated` flag would override a
+	   static dash, so the dash reads on non-animated layer edges — condition/signal). */
+	.canvas :global(.svelte-flow__edge.flow-edge-layer:not(.animated) .svelte-flow__edge-path) {
+		stroke-dasharray: 6 4;
 	}
 	.empty {
 		display: grid;

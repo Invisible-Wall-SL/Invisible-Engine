@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		edgeSemantics,
 		flowAccessorText,
 		parseFlowAccessor,
 		type FlowAccessor,
@@ -30,6 +31,11 @@
 	} = $props();
 
 	const labelFor = (id: string): string => screens.find((s) => s.id === id)?.label ?? id;
+
+	// The active-SET semantic of the current trigger — the core authoring lever. A `complete`
+	// edge HANDS OFF (the source screen hides); every other trigger LAYERS the target over the
+	// still-active source. Shown live under the trigger selector so the author sees the effect.
+	const semantic = $derived(edgeSemantics(edge));
 
 	const COMPARATORS: FlowComparator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in'];
 
@@ -66,11 +72,7 @@
 	// --- Minimal single-predicate guard authoring (the `all[0]` slot) -------------
 	const firstPredicate = $derived<FlowPredicate | undefined>(edge.guard?.all[0]);
 
-	function buildGuard(
-		left: FlowAccessor,
-		op: FlowComparator,
-		right: FlowAccessor,
-	): FlowGuard {
+	function buildGuard(left: FlowAccessor, op: FlowComparator, right: FlowAccessor): FlowGuard {
 		return { all: [{ left, op, right }] };
 	}
 
@@ -102,13 +104,28 @@
 
 	<label class="field">
 		<span>Trigger</span>
-		<select value={edge.trigger.kind} onchange={(e) => setKind(e.currentTarget.value as FlowTrigger['kind'])}>
+		<select
+			value={edge.trigger.kind}
+			onchange={(e) => setKind(e.currentTarget.value as FlowTrigger['kind'])}
+		>
 			<option value="bookEvent">Book event</option>
 			<option value="complete">Screen complete</option>
 			<option value="signal">Tap signal</option>
 			<option value="condition">Engine condition</option>
 		</select>
 	</label>
+
+	<p class="semantic" class:handoff={semantic === 'handoff'} class:layer={semantic === 'layer'}>
+		{#if semantic === 'handoff'}
+			<span class="mark">⇥ Handoff</span> — "{labelFor(edge.from)}" hides and "{labelFor(edge.to)}"
+			becomes active. Use to move BETWEEN screens (e.g. loading → base game).
+		{:else}
+			<span class="mark">⧉ Layer</span> — "{labelFor(edge.to)}" activates OVER "{labelFor(
+				edge.from,
+			)}", which stays active underneath. Use for a celebration/overlay above a persistent screen.
+			Add a Complete edge back from "{labelFor(edge.to)}" so it can dismiss itself.
+		{/if}
+	</p>
 
 	{#if edge.trigger.kind === 'bookEvent'}
 		<label class="field">
@@ -143,11 +160,7 @@
 
 	<label class="field">
 		<span>Order</span>
-		<input
-			type="number"
-			value={edge.order ?? 0}
-			oninput={(e) => setOrder(e.currentTarget.value)}
-		/>
+		<input type="number" value={edge.order ?? 0} oninput={(e) => setOrder(e.currentTarget.value)} />
 	</label>
 
 	<div class="guard">
@@ -188,6 +201,33 @@
 	.route {
 		margin: 0 0 10px;
 		color: #93c5fd;
+	}
+	/* The live handoff/layer explainer — colour-matched to the canvas edge classes (slate for
+	   handoff, amber for layer) so the inspector reads the same as the wire. */
+	.semantic {
+		margin: 0 0 12px;
+		padding: 7px 9px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #11161d;
+		font-size: 11px;
+		line-height: 1.45;
+		color: #94a3b8;
+	}
+	.semantic.handoff {
+		border-color: #3a4655;
+	}
+	.semantic.layer {
+		border-color: #4a3a1c;
+	}
+	.semantic .mark {
+		font-weight: 600;
+	}
+	.semantic.handoff .mark {
+		color: #cbd5e1;
+	}
+	.semantic.layer .mark {
+		color: #fdba74;
 	}
 	.field {
 		display: flex;

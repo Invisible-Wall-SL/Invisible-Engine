@@ -144,17 +144,22 @@ let edgeSeq = 0;
 export const freshTransitionId = (): string =>
 	`t_${Date.now().toString(36)}_${(edgeSeq++).toString(36)}`;
 
-/** Add a transition `from → to` with a default `bookEvent` trigger (author edits it after). */
-export const addTransition = (doc: FlowDoc, from: string, to: string): FlowDoc => {
+/**
+ * Add a transition `from → to`. The `trigger` defaults to `complete` (a HANDOFF: the source
+ * hides, the target activates) — the natural act of wiring one screen's Complete pin to the
+ * next — but the caller passes a different trigger (e.g. `bookEvent`) when the author drew
+ * from a NON-complete source pin, so the edge LAYERS the target over the persistent source.
+ * The author refines it in the edge inspector afterward either way.
+ */
+export const addTransition = (
+	doc: FlowDoc,
+	from: string,
+	to: string,
+	trigger: FlowTrigger = { kind: 'complete' },
+): FlowDoc => {
 	const next = cloneDoc(doc);
 	const order = next.transitions.filter((t) => t.from === from).length;
-	next.transitions.push({
-		id: freshTransitionId(),
-		from,
-		to,
-		trigger: { kind: 'complete' },
-		order,
-	});
+	next.transitions.push({ id: freshTransitionId(), from, to, trigger, order });
 	return next;
 };
 

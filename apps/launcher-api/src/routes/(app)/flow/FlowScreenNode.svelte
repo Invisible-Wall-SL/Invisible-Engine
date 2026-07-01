@@ -10,6 +10,10 @@
 		pins: FlowPin[];
 		orphanCount: number;
 		initial: boolean;
+		// Computed, read-only: the screen has no outgoing `complete` edge, so it PERSISTS in the
+		// active set (never removes itself) — the base game's defining property (design doc
+		// active-SET model). Not a schema field; derived from the transitions by the page.
+		persistent?: boolean;
 		invalid?: boolean;
 	};
 	let { data, selected }: NodeProps = $props();
@@ -44,6 +48,11 @@
 	<header>
 		<span class="title" title={d.label}>{d.label}</span>
 		{#if d.initial}<span class="badge">start</span>{/if}
+		{#if d.persistent}<span
+				class="badge persistent"
+				title="Persistent (base) — no outgoing 'on complete' edge, so this screen never removes itself: overlays layer over it and it stays active underneath."
+				>persistent</span
+			>{/if}
 		{#if d.orphanCount > 0}<span class="badge warn" title="{d.orphanCount} orphaned pin(s)"
 				>⚠ {d.orphanCount}</span
 			>{/if}
@@ -142,6 +151,12 @@
 	.badge.warn {
 		background: #5b2a18;
 		color: #fed7aa;
+	}
+	/* The persistent (base) badge — a calm teal, distinct from the blue "start" and amber
+	   "warn", signalling "this screen stays active under overlays" (the active-SET base). */
+	.badge.persistent {
+		background: #10362f;
+		color: #6ee7b7;
 	}
 	.pins {
 		display: flex;
