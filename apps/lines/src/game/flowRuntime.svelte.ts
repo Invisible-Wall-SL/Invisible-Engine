@@ -6,9 +6,16 @@
  * (design doc §8 — "the game wires it to the same primitives the coded path uses at boot")
  * — and the live editor doc's scenes (for the generic mounter to resolve).
  *
- * PARITY-FIRST (the §7 invariant, non-negotiable): the FlowDoc source is ABSENT by default,
- * so the interpreter is INERT and the game mounts + animates ENTIRELY via its coded path —
- * byte-identical to current `main`. A FlowDoc reaches the game only via:
+ * LOADING IS NOW GENERIC (flow-driven-game §1): the coded `<LoadingScreen>` path was removed,
+ * so an un-authored game no longer falls through to a coded splash. Instead `createLinesFlow`
+ * SYNTHESIZES a default `loading → basegame` FlowDoc (`synthesizeDefaultFlowDoc`), so the
+ * interpreter ALWAYS exists at boot, starts on `loading`, and advances to `basegame` on the
+ * loading bar's `completeOnLoaded` capability (or a tap). The synthetic doc carries `events: []`,
+ * so book events STILL fall through to the coded `bookEventHandlerMap` (the game's presentation
+ * is otherwise unchanged — only the loading/dismiss display moved to the generic mounter).
+ *
+ * An AUTHORED FlowDoc WINS: a FlowDoc that already includes the loading screen is used verbatim
+ * (never overridden by the synthetic default). Authored docs reach the game via:
  *   - the baked `flow` slot in `BakedBundle` (Phase 6 — the real ship source), filled by the
  *     export→deploy→bake→register chain; absent for an un-baked `apps/lines` dev boot;
  *   - dev-only escape hatches on top: `window.__IE_FLOW_DOC__` (an arbitrary FlowDoc, the
@@ -17,7 +24,6 @@
  *     `window.__IE_FLOW_WIN__` (the committed `LINES_FLOW_WIN_DOC` win-presentation-transitions
  *     fixture, flow-driven-game §2), and `window.__IE_FLOW_LINES__` (the committed full
  *     `LINES_FLOW_DOC` fixture), none set on a normal boot.
- * With none of these present this module is a pure no-op, byte-identical to current `main`.
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
  * (§12). The dispatcher's coded handlers are the un-authored fall-through.
@@ -26,6 +32,7 @@
 import type { FlowDoc } from 'engine-flow';
 import { createFlowInterpreter } from 'engine-flow';
 import type { LayoutDoc, Scene } from 'engine-layout';
+import { basegameSceneId, loadingSceneId, sceneByRole } from 'engine-layout';
 import { stateBet, stateBetDerived, stateUi } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
@@ -146,6 +153,68 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
 	return bakedFlowDoc();
 };
 
+/**
+ * Add a DEFAULT `loading → basegame` leg so an un-authored game still boots generically (the
+ * coded loading path is gone — flow-driven-game §1).
+ *
+ * - No `base` doc ⇒ synthesize the minimal `loading` (initial) → `basegame` doc with `events: []`
+ *   (book events keep falling through to the coded `bookEventHandlerMap`).
+ * - A `base` doc that LACKS the loading screen ⇒ PREPEND the loading leg: add the `loading` screen
+ *   as the new `initial`, demote the base doc's own `initial`, and add the `complete` edge to the
+ *   role-resolved basegame — preserving all of the base doc's screens/transitions/events (so a dev
+ *   `__IE_FLOW_LINES__` fixture keeps its full per-event choreographies, now with a loading leg).
+ * - A `base` doc that ALREADY includes the loading screen is handled by the caller (it WINS).
+ *
+ * The `complete` edge is fired by the loading bar's `completeOnLoaded` capability (or a tap).
+ * Returns `undefined` (inert) if the loading or basegame scene can't be resolved, so nothing
+ * crashes on a boot with no such scenes (keeps the coded path).
+ */
+const withDefaultLoadingLeg = (
+	editorDoc: LayoutDoc,
+	base: FlowDoc | undefined,
+): FlowDoc | undefined => {
+	const loadingId = loadingSceneId(editorDoc.scenes);
+	const basegameId = basegameSceneId(editorDoc.scenes);
+	// Bail out (inert) if either scene doesn't actually resolve to a real scene — a boot with
+	// no loading/basegame scene keeps the coded path, nothing to synthesize.
+	const hasLoading =
+		sceneByRole(editorDoc.scenes, 'loading') !== undefined ||
+		editorDoc.scenes.some((scene) => scene.id === loadingId);
+	const hasBasegame =
+		sceneByRole(editorDoc.scenes, 'basegame') !== undefined ||
+		editorDoc.scenes.some((scene) => scene.id === basegameId);
+	if (!hasLoading || !hasBasegame) return undefined;
+
+	const completeEdge: FlowDoc['transitions'][number] = {
+		id: `${loadingId}→${basegameId}`,
+		from: loadingId,
+		to: basegameId,
+		trigger: { kind: 'complete' },
+	};
+
+	if (!base) {
+		return {
+			version: 1,
+			projectKey: editorDoc.projectKey ?? 'lines',
+			screens: [{ id: loadingId, initial: true }, { id: basegameId }],
+			transitions: [completeEdge],
+			events: [],
+		};
+	}
+
+	// Prepend the loading leg to the base doc: `loading` becomes the new initial, the base's own
+	// initial is demoted, and the `complete` edge feeds into the role-resolved basegame. The base's
+	// screens/transitions/events are otherwise untouched.
+	return {
+		...base,
+		screens: [
+			{ id: loadingId, initial: true },
+			...base.screens.map((screen) => (screen.initial ? { ...screen, initial: false } : screen)),
+		],
+		transitions: [completeEdge, ...base.transitions],
+	};
+};
+
 /** The interpreter handle the game holds (or `undefined` when no FlowDoc ⇒ pure coded path). */
 export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookEventContext>>;
 
@@ -164,7 +233,17 @@ export const createLinesFlow = (
 	 *  reactive. Absent ⇒ no notification (headless harnesses don't need it). */
 	onActiveScreenChange?: (screenId: string | undefined) => void,
 ): LinesFlow | undefined => {
-	const flowDoc = loadFlowDoc();
+	const authoredDoc = loadFlowDoc();
+	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,
+	// never overridden). Otherwise add the default loading leg so an un-authored game (or an
+	// authored doc that omitted loading) still boots generically through the loading screen — the
+	// coded loading path is gone. If the loading/basegame scenes can't resolve, fall back to the
+	// authored doc as-is (inert loading, but the rest of the flow still runs).
+	const loadingId = loadingSceneId(editorDoc.scenes);
+	const authoredHasLoading = authoredDoc?.screens.some((screen) => screen.id === loadingId);
+	const flowDoc = authoredHasLoading
+		? authoredDoc
+		: (withDefaultLoadingLeg(editorDoc, authoredDoc) ?? authoredDoc);
 	if (!flowDoc) return undefined;
 
 	const resolveScene = (screenId: string): Scene | undefined =>

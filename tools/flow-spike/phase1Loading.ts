@@ -6,11 +6,13 @@
  * Proves, HEADLESSLY and before the live game swap, the Phase-1 entry leg:
  * loading (tap to enter) → basegame, owned by the interpreter.
  *
- *  A. Fall-through parity (§7) — with NO FlowDoc the interpreter is inert: the `loading`
+ *  A. Inert-interpreter primitive — with NO FlowDoc the interpreter is inert: the `loading`
  *     active screen is NOT interpreter-owned (`mounter.has('loading')` is false, the mount
- *     decision is `fallThrough`), so the game keeps its coded `<LoadingScreen>` mount —
- *     byte-identical to current `main`. A FlowDoc that authors ONLY `basegame` (the default
- *     `LINES_FLOW_DOC` shape) likewise does NOT own `loading` — every normal boot.
+ *     decision is `fallThrough`). This is the engine-flow PRIMITIVE (still true). NOTE: the
+ *     coded `<LoadingScreen>` fall-through it once backed is GONE — apps/lines now SYNTHESIZES
+ *     a default `loading → basegame` FlowDoc when none is authored (flowRuntime.svelte.ts), so
+ *     the game's live interpreter is never inert at boot: loading mounts generically. This
+ *     section exercises the interpreter primitive, not the game's boot path.
  *
  *  B. Loading-owned advance — a FlowDoc authoring `loading` (initial) + a `complete` edge to
  *     `basegame` (the `LINES_FLOW_LOADING_DOC` shape): the interpreter STARTS on `loading`,
@@ -116,10 +118,12 @@ const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const main = async () => {
 	console.log('Invisible Flow — Phase 1 loading-screen harness\n');
 
-	// --- A. Fall-through parity (§7) — loading is NOT interpreter-owned by default ---
-	console.log('A. Fall-through parity — coded loading mount stays (§7):');
+	// --- A. Inert-interpreter primitive — loading is NOT interpreter-owned with no doc ---
+	console.log('A. Inert-interpreter primitive — no doc ⇒ loading not owned (game synthesizes):');
 	{
-		// No FlowDoc ⇒ inert: no active screen, loading falls through to the coded mount.
+		// No FlowDoc ⇒ inert: no active screen, loading falls through. (The game no longer
+		// relies on this at boot — it synthesizes a default loading→basegame doc — but the
+		// engine-flow primitive still returns fall-through when handed no doc.)
 		const { runtime } = makeRig(false);
 		const inert = createFlowInterpreter({
 			flowDoc: undefined,
@@ -136,11 +140,13 @@ const main = async () => {
 			!inert.mounter.has('loading'),
 		);
 		assert(
-			'no FlowDoc ⇒ loading mount decision is fall-through (coded <LoadingScreen>)',
+			'no FlowDoc ⇒ loading mount decision is fall-through (game synthesizes a default doc)',
 			inert.mounter.resolve('loading')?.kind === 'fallThrough',
 		);
 
-		// The default LINES_FLOW_DOC shape (only basegame authored) ALSO does not own loading.
+		// A basegame-only doc does not own loading either — the game's synthesizer only kicks in
+		// when the authored doc lacks the loading screen, replacing this shape with a
+		// loading→basegame default (verified in the game, not this engine-flow primitive).
 		const { runtime: r2 } = makeRig(false);
 		const basegameOnly = createFlowInterpreter({
 			flowDoc: basegameOnlyDoc,
@@ -149,7 +155,7 @@ const main = async () => {
 			codedHandlers: {},
 		});
 		assert(
-			'basegame-only doc ⇒ active on basegame, loading still NOT owned (coded splash)',
+			'basegame-only doc ⇒ active on basegame, loading not owned by THIS doc',
 			basegameOnly.isActive &&
 				basegameOnly.activeScreenId === 'basegame' &&
 				!basegameOnly.mounter.has('loading') &&
@@ -188,7 +194,7 @@ const main = async () => {
 		log.length = 0;
 
 		// The tap-to-continue hook — `completeActiveScreen()` is exactly what
-		// `TapToContinue.svelte` / the coded `<LoadingScreen>` `onloaded` shell call.
+		// `TapToContinue.svelte` / the loading bar's `completeOnLoaded` capability call.
 		const advanced = await interp.completeActiveScreen();
 		assert(
 			'tap (completeActiveScreen) fires the `complete` edge ⇒ loading → basegame',

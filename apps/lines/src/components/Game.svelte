@@ -56,7 +56,6 @@
 		TAP_TO_CONTINUE_DEF,
 		LOADING_BAR_DEF,
 		findReelGridNode,
-		resolveTransform,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -103,7 +102,6 @@
 	import ResumeBet from './ResumeBet.svelte';
 	import Sound from './Sound.svelte';
 	import Background from './Background.svelte';
-	import LoadingScreen from './LoadingScreen.svelte';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
 	import Anticipations from './Anticipations.svelte';
@@ -529,38 +527,17 @@
 		}
 		return undefined;
 	});
-	// Flow-driven Phase 1 — the loading splash as a Flow screen (design doc flow-driven-game
-	// §1). The interpreter OWNS `loading` only when the FlowDoc authors it AND a backing
-	// `loading` scene exists (`mounter.has`). When it does, the interpreter decides when the
-	// splash is shown (it is the `initial` active screen) and dismissed (a tap fires its
-	// `complete` edge → `activeScreenId` becomes `basegame`), instead of the coded
-	// `showLoadingScreen=false` on `onloaded`. When it does NOT (every normal apps/lines boot —
-	// `LINES_FLOW_DOC` has only `basegame`), this is `false` and the coded `showLoadingScreen` /
-	// `onloaded` path below is byte-identical to current `main` (§7).
+	// Flow-driven Phase 1 (design doc flow-driven-game §1) — the loading splash is a Flow screen,
+	// mounted through the GENERIC active-screen path (below), NOT a coded `<LoadingScreen>`. The
+	// interpreter ALWAYS exists at boot (a synthesized default `loading → basegame` flow when no
+	// doc is authored — see `flowRuntime.svelte.ts`), STARTS on `loading` (its `initial` screen),
+	// and the loading bar's `completeOnLoaded` capability (or a tap) fires the `complete` edge →
+	// `activeScreenId` becomes `basegame`. The coded `<LoadingScreen>` splash + its
+	// `showLoadingScreen` flag are GONE.
 	// The loading screen's id, resolved by ROLE (id-independent): the `role:'loading'` scene, else
 	// the legacy `loading` id (parity). A renamed loading scene is still recognized as the splash,
-	// and a flow drives it by authoring this same id (`flow.mounter.has(loadingScreenId)`).
+	// and reserved below so it doesn't ALSO mount as a generic overlay/extra scene.
 	const loadingScreenId = $derived(loadingSceneId(editorDoc.scenes));
-	const flowOwnsLoading = $derived(flow?.mounter.has(loadingScreenId) ?? false);
-	// Whether the splash should render this frame. Flow-owned ⇒ while the interpreter's active
-	// screen is the loading screen; coded ⇒ the existing mutable `showLoadingScreen` flag.
-	const showLoading = $derived(
-		flowOwnsLoading ? activeScreenId === loadingScreenId : context.stateLayout.showLoadingScreen,
-	);
-	// The authored `loading` scene the interpreter resolved (when it owns loading) — its placed
-	// content becomes the splash VISUAL via `<LoadingScreen authoredScene>`, exactly as the
-	// coded `authoredLoadingScene` path does. `undefined` ⇒ no Flow ownership ⇒ coded path.
-	const flowLoadingMount = $derived.by((): Scene | undefined => {
-		if (!flowOwnsLoading) return undefined;
-		const decision = flow?.mounter.resolve(loadingScreenId);
-		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
-	});
-	// Dismiss the splash. Flow-owned ⇒ the tap/transition completes the active `loading` screen
-	// (its `complete` edge swaps to `basegame`); coded ⇒ the existing flag flip (parity).
-	const dismissLoading = (): void => {
-		if (flowOwnsLoading) void flow?.completeActiveScreen();
-		else context.stateLayout.showLoadingScreen = false;
-	};
 	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
 	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
 	// (the reel is not a flow screen), so the interpreter must STILL reproduce the coded
@@ -585,22 +562,21 @@
 	});
 
 	// Phase 4 (flow-driven-game §4) — the GENERIC active-screen TAKEOVER mount. When the
-	// interpreter's active screen is an authored exclusive screen that is NEITHER `basegame`
-	// (the persistent base, mounted via the reel-split above) NOR `loading` (the splash, owned
-	// by the Phase-1 path), it is a TRANSIENT TOP-LAYER takeover (`bigWin`, `freeSpinIntro`, any
-	// future authored id): the base game (board) PERSISTS behind it, the takeover overlays it
-	// (a big-win celebration sits OVER the reels, it does not replace them). This is a single
-	// GENERIC mount, NOT per-id special-casing — the swap to ANY such screen reproduces the
-	// right stacking. The scene is `<LayoutScene>`-mounted, which self-wraps by `scene.space`
-	// and honours `scene.visibleSource` (no double-wrap). It renders ONLY while that screen is
-	// the active screen (gated on `activeScreenId` via the resolve below), so it unmounts on the
-	// swap back to `basegame`. `undefined` ⇒ nothing extra mounts:
-	//   - no FlowDoc ⇒ `flow` is undefined ⇒ `resolve` is undefined (parity, §7);
-	//   - the active screen falls through / has no backing scene ⇒ `fallThrough`/undefined;
-	//   - the active screen IS `basegame`/`loading` ⇒ handled by their own paths above.
-	// apps/lines' default doc authors no such screen ⇒ inert (byte-identical to `main`, §7).
+	// interpreter's active screen is an authored exclusive screen that is NOT `basegame` (the
+	// persistent base, mounted via the reel-split above), it is a TOP-LAYER takeover: the
+	// `loading` splash at boot, and TRANSIENT celebrations (`bigWin`, `freeSpinIntro`, any future
+	// authored id) mid-round. The base game (board) PERSISTS behind it (the reel is engine-owned,
+	// not a flow screen), so a celebration/splash overlays the reels rather than replacing them.
+	// This is a single GENERIC mount, NOT per-id special-casing — the swap to ANY such screen
+	// (loading included) reproduces the right stacking. The scene is `<LayoutScene>`-mounted,
+	// which self-wraps by `scene.space` and honours `scene.visibleSource` (no double-wrap). It
+	// renders ONLY while that screen is the active screen (gated on `activeScreenId` via the
+	// resolve below), so the loading splash unmounts on the `complete` swap to `basegame`.
+	// `undefined` ⇒ nothing extra mounts (the active screen IS `basegame`, or falls through / has
+	// no backing scene). `loading` is STILL reserved (below) so it doesn't ALSO mount as an
+	// overlay/extra scene.
 	const activeScreenTakeover = $derived.by((): Scene | undefined => {
-		if (activeScreenId === basegameScreenId || activeScreenId === loadingScreenId) return undefined;
+		if (activeScreenId === basegameScreenId) return undefined;
 		const decision = flow?.mounter.resolve(activeScreenId);
 		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
 	});
@@ -863,66 +839,7 @@
 		}
 	};
 
-	// Move 3 Phase B — doc-driven loading splash. The `loading` scene holds one
-	// `canvas`-space node bound to `LoadingScreen`; its transform repositions/rescales
-	// the whole splash in-game. `LoadingScreen` keeps its coded mount + required
-	// `onloaded` callback (it's an either/or with the game, so it can't be a generic
-	// `bind`), so we mirror LayoutNodeView's canvas-space mount here and WRAP it.
-	const loadingScene = $derived(sceneByRole(editorDoc.scenes, 'loading'));
-	// Identify the coded splash anchor by its BIND, never by the reserved `loading-screen`
-	// id string: an author can place a real `componentInstance` (a logo prefab, …) that
-	// happens to carry that id, and it must NOT be mistaken for the inert coded anchor.
-	const loadingNode = $derived(
-		loadingScene?.nodes.find((node) => node.bind?.component === 'LoadingScreen'),
-	);
-	// Authored splash VISUAL: every loading-scene node EXCEPT the inert `LoadingScreen`
-	// bind anchor (which the game renders as the coded splash, not as a scene node). When
-	// the author placed real content here (a `loadingIntro` component, a logo, …) we hand
-	// those nodes to `<LoadingScreen authoredScene>` so they ARE the splash visual; the
-	// coded logo+progress is suppressed and only the press-to-continue/transition shell
-	// stays coded. No authored content ⇒ `undefined` ⇒ the coded splash renders unchanged
-	// (parity for un-authored docs). The `loading-screen` anchor is dropped so it can't
-	// double-draw (it's inert in-game anyway — `LoadingScreen` isn't a bound component).
-	// Match the anchor by its BIND only — NOT the reserved `loading-screen` id string —
-	// so an author-placed node reusing that id (e.g. a logo componentInstance) survives
-	// and renders as the splash visual instead of being silently stripped.
-	const stripLoadingAnchor = (scene: Scene): Scene | undefined => {
-		const nodes = scene.nodes.filter((node) => node.bind?.component !== 'LoadingScreen');
-		return nodes.length > 0 ? { ...scene, nodes } : undefined;
-	};
-	const authoredLoadingScene = $derived(
-		loadingScene ? stripLoadingAnchor(loadingScene) : undefined,
-	);
-	// The splash VISUAL the game hands to `<LoadingScreen authoredScene>`. When the interpreter
-	// OWNS loading (Phase 1), it is the interpreter-resolved `loading` scene (still stripped of
-	// the inert `LoadingScreen` anchor so it can't double-draw); otherwise the coded
-	// `authoredLoadingScene`. Identical filter either way, so an un-owned boot is unchanged.
-	const splashAuthoredScene = $derived(
-		flowLoadingMount ? stripLoadingAnchor(flowLoadingMount) : authoredLoadingScene,
-	);
-	const loadingTransform = $derived(
-		loadingNode
-			? resolveTransform(loadingNode, context.stateLayoutDerived.layoutType())
-			: undefined,
-	);
-	// Canvas-space placement, identical formula to LayoutNodeView: pin to a window edge
-	// via `screenAnchor * canvasSize + (x, y)`, else use x/y verbatim. Default node
-	// (x:0, y:0, no screenAnchor) → posX/posY = 0, so the container is a no-op.
-	const loadingPos = $derived.by(() => {
-		if (!loadingTransform) return { x: 0, y: 0 };
-		const canvas = context.stateLayoutDerived.canvasSizes();
-		return {
-			x: loadingTransform.screenAnchor
-				? loadingTransform.screenAnchor.x * canvas.width + loadingTransform.x
-				: loadingTransform.x,
-			y: loadingTransform.screenAnchor
-				? loadingTransform.screenAnchor.y * canvas.height + loadingTransform.y
-				: loadingTransform.y,
-		};
-	});
-
 	onMount(() => {
-		context.stateLayout.showLoadingScreen = true;
 		void loadEditorScenes().then((doc) => {
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
@@ -980,60 +897,25 @@
 		<Background cover={backgroundCover} />
 	{/if}
 
-	{#if showLoading}
-		<!--
-			Move 3 Phase B — the doc-driven `loading` scene transform repositions/rescales
-			the whole splash as one unit. Default node (x:0, y:0, no scale) → no-op container
-			(x=0, y=0, scale/rotation/alpha undefined), byte-identical to the hardcoded mount.
-			The coded mount + `onloaded` callback are kept verbatim (LoadingScreen is an
-			either/or with the game, so it can't be a generic `bind`).
-		-->
-		{#if splashAuthoredScene}
-			<!--
-				AUTHORED splash: the editor's `loading` scene carries placed visual content
-				(a `loadingIntro` component = logo + progress + percentage, a bare logo, ...),
-				so it IS the splash. `<LoadingScreen authoredScene>` renders those nodes (each
-				self-positions via its own canvas-space transform) and keeps only the coded
-				press-to-continue / transition / `onloaded` shell. The `loadingIntro` bar
-				self-hides on `stateApp.loaded`, then the coded press-to-continue appears.
-				`dismissLoading` flips the coded flag, OR — when the interpreter owns `loading`
-				(Phase 1) — completes the active `loading` screen so its `complete` edge swaps to
-				`basegame`. The asset-load gate stays inside `<LoadingScreen>` (press-to-continue
-				is gated on `stateApp.loaded`), so the tap only arms after load.
-			-->
-			<LoadingScreen authoredScene={splashAuthoredScene} onloaded={dismissLoading} />
-		{:else}
-			<Container
-				x={loadingPos.x}
-				y={loadingPos.y}
-				scale={loadingTransform?.scale}
-				rotation={loadingTransform?.rotation}
-				alpha={loadingTransform?.alpha}
-				zIndex={loadingTransform?.zIndex}
-			>
-				<LoadingScreen onloaded={dismissLoading} />
-			</Container>
-		{/if}
-	{:else}
-		<ResumeBet />
-		<!--
+	<ResumeBet />
+	<!--
 			The reason why <Sound /> is rendered after clicking the loading screen:
 			"Autoplay with sound is allowed if: The user has interacted with the domain (click, tap, etc.)."
 			Ref: https://developer.chrome.com/blog/autoplay
 		-->
-		<Sound />
+	<Sound />
 
-		<!--
+	<!--
 			§16.4 B6.4 — replacement Space hotkey for the flipped spin button. Mounted
 			ONLY when `HUD_BUTTON_INSTANCES` is on (the flip suppresses the coded
 			`ButtonBet`'s own `<OnHotkey>`); OFF ⇒ not rendered, so the coded hotkey is the
 			sole Space binding (parity, no double-fire). Mirrors `ButtonBet`'s binding.
 		-->
-		{#if HUD_BUTTON_INSTANCES}
-			<OnHotkey hotkey="Space" disabled={spinHotkeyDisabled} onpress={spinHotkeyPress} />
-		{/if}
+	{#if HUD_BUTTON_INSTANCES}
+		<OnHotkey hotkey="Space" disabled={spinHotkeyDisabled} onpress={spinHotkeyPress} />
+	{/if}
 
-		<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
+	<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
 			 MainContainer. Do NOT wrap it again here (that double-scales it).
 			 Split at the reelGrid placeholder: below-reel layers, then the board, then
 			 above-reel layers (so editor stacking order around the reel is honored).
@@ -1044,47 +926,47 @@
 			 `main` (§7). The board MainContainer always mounts (the reel is engine-owned, not a
 			 flow screen), and the ABOVE-reel slice renders AFTER it below — so an authored
 			 basegame reproduces the exact below-reel → board → above-reel z-order (§11.5 B.1). -->
-		<FlowMount scene={basegameMountBelowReel}>
-			{#snippet fallback()}
-				<LayoutScene scene={basegameBelowReel} />
-			{/snippet}
-		</FlowMount>
+	<FlowMount scene={basegameMountBelowReel}>
+		{#snippet fallback()}
+			<LayoutScene scene={basegameBelowReel} />
+		{/snippet}
+	</FlowMount>
 
-		<MainContainer>
-			<BoardFrame />
-			<Board />
-			<Anticipations />
-		</MainContainer>
+	<MainContainer>
+		<BoardFrame />
+		<Board />
+		<Anticipations />
+	</MainContainer>
 
-		{#if basegameMount}
-			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
-				<LayoutScene scene={basegameMountAboveReel} />
-			{/if}
-		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-			<LayoutScene scene={basegameAboveReel} />
+	{#if basegameMount}
+		{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+			<LayoutScene scene={basegameMountAboveReel} />
 		{/if}
+	{:else if basegameAboveReel && basegameAboveReel.nodes.length}
+		<LayoutScene scene={basegameAboveReel} />
+	{/if}
 
-		<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
-			{#snippet gameName(override)}
-				<UiGameName name="LINES GAME" {override} />
-			{/snippet}
-			{#snippet logo(override)}
-				<Text
-					anchor={{ x: 1, y: 0 }}
-					text={override?.text ?? 'ADD YOUR LOGO'}
-					style={{
-						fontFamily: 'proxima-nova',
-						fontSize: REM * 1.5,
-						fontWeight: '600',
-						lineHeight: REM * 2,
-						fill: 0xffffff,
-						...override?.style,
-					}}
-				/>
-			{/snippet}
-		</UI>
-		<LayoutScene scene={basegameOverlaysScene} />
-		<!--
+	<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
+		{#snippet gameName(override)}
+			<UiGameName name="LINES GAME" {override} />
+		{/snippet}
+		{#snippet logo(override)}
+			<Text
+				anchor={{ x: 1, y: 0 }}
+				text={override?.text ?? 'ADD YOUR LOGO'}
+				style={{
+					fontFamily: 'proxima-nova',
+					fontSize: REM * 1.5,
+					fontWeight: '600',
+					lineHeight: REM * 2,
+					fill: 0xffffff,
+					...override?.style,
+				}}
+			/>
+		{/snippet}
+	</UI>
+	<LayoutScene scene={basegameOverlaysScene} />
+	<!--
 			§20.1 — generic doc-driven scene mounting. Mount every AUTHOR-created screen the
 			game doesn't already handle (custom-id scenes from the Scene Editor), as an overlay
 			layer above the base game. `extraMountScenes` returns them in doc order, excluding
@@ -1094,10 +976,10 @@
 			ungated author screen is always-on and a gated one shows only in its phase. Empty for
 			`apps/lines`' fallback doc ⇒ renders nothing (parity, byte-identical to `main`).
 		-->
-		{#each extraScenes as scene (scene.id)}
-			<LayoutScene {scene} />
-		{/each}
-		<!--
+	{#each extraScenes as scene (scene.id)}
+		<LayoutScene {scene} />
+	{/each}
+	<!--
 			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen TAKEOVER
 			layer. When the interpreter swaps the active exclusive screen to an authored id that is
 			NOT `basegame`/`loading` (a `bigWin`/`freeSpinIntro`/future celebration), it mounts here
@@ -1110,10 +992,10 @@
 			`undefined` ⇒ nothing renders: no FlowDoc, a fall-through/unbacked active screen, or the
 			base/loading screens (their own paths) — byte-identical to current `main` (§7).
 		-->
-		{#if activeScreenTakeover}
-			<LayoutScene scene={activeScreenTakeover} />
-		{/if}
-		<!--
+	{#if activeScreenTakeover}
+		<LayoutScene scene={activeScreenTakeover} />
+	{/if}
+	<!--
 			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
 			Exactly one full-screen `<FreeSpinIntroGate>` / `<FreeSpinOutroGate>` is mounted
 			here (dim + press-to-continue + the round-blocking `waitForResolve`), so the round
@@ -1123,39 +1005,38 @@
 			scenes (`fsIntroScene`/`fsOutroScene`) and the composer never mount a gate now, so
 			there is never a second `waitForResolve` subscriber (two would hang the round).
 		-->
-		<FreeSpinIntroGate
-			dimColor={fsIntroGate?.dimColor}
-			dimAlpha={fsIntroGate?.dimAlpha}
-			hidePrompt={fsIntroGate?.hidePrompt}
-		/>
-		<FreeSpinOutroGate
-			dimColor={fsOutroGate?.dimColor}
-			dimAlpha={fsOutroGate?.dimAlpha}
-			hidePrompt={fsOutroGate?.hidePrompt}
-		/>
-		<LayoutScene scene={fsIntroScene} />
-		{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
-			<LayoutScene scene={fsIntroVisualScene} />
-		{/if}
-		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
-			<LayoutScene scene={fsCounterScene} />
-		{/if}
-		<LayoutScene scene={fsOutroScene} />
-		{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
-			<LayoutScene scene={fsOutroVisualScene} />
-		{/if}
-		<LayoutScene scene={specialBookScene} />
-		<InfoOverlay manifest={infoManifest} />
+	<FreeSpinIntroGate
+		dimColor={fsIntroGate?.dimColor}
+		dimAlpha={fsIntroGate?.dimAlpha}
+		hidePrompt={fsIntroGate?.hidePrompt}
+	/>
+	<FreeSpinOutroGate
+		dimColor={fsOutroGate?.dimColor}
+		dimAlpha={fsOutroGate?.dimAlpha}
+		hidePrompt={fsOutroGate?.hidePrompt}
+	/>
+	<LayoutScene scene={fsIntroScene} />
+	{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
+		<LayoutScene scene={fsIntroVisualScene} />
+	{/if}
+	{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
+		<LayoutScene scene={fsCounterScene} />
+	{/if}
+	<LayoutScene scene={fsOutroScene} />
+	{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
+		<LayoutScene scene={fsOutroVisualScene} />
+	{/if}
+	<LayoutScene scene={specialBookScene} />
+	<InfoOverlay manifest={infoManifest} />
 
-		<!--
+	<!--
 			Invisible FX (§4.4 / §8) — play this project's baked effects. Free effects mount at
 			the scene level; bone-placed effects mount inside a host `<SpineProvider>` so they
 			ride the rig. Renders nothing when no effects are baked (parity, byte-identical).
 		-->
-		<Effects />
+	<Effects />
 
-		<I18nTest />
-	{/if}
+	<I18nTest />
 
 	<DebugStage />
 </App>

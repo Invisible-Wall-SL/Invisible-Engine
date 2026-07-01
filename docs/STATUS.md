@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-01 — Coded loading path REMOVED, loading is now generic (flow-driven-game §1)
+
+The coded `<LoadingScreen>` splash is gone for `apps/lines`/bookof (preproduction). The loading
+screen now mounts ONLY through the flow/scene interpreter, and `apps/lines`
+`createLinesFlow` SYNTHESIZES a default `loading → basegame` FlowDoc (`withDefaultLoadingLeg`)
+when no doc is authored, so an un-authored game still boots generically: the interpreter always
+exists, starts on the `loading` screen, and advances to `basegame` on the loading bar's
+`completeOnLoaded` capability (or a tap). An authored FlowDoc that already includes loading WINS;
+one that omits it gets the loading leg prepended (its screens/transitions/events preserved).
+Changes: `apps/lines/src/components/Game.svelte` (removed the coded loading path — import,
+deriveds, `onMount` `showLoadingScreen=true`, the `{#if showLoading}` arm; the game body is now
+unconditional; `loading` mounts via the generic active-screen takeover, still reserved);
+`apps/lines/src/components/LoadingScreen.svelte` DELETED; `apps/lines/src/game/flowRuntime.svelte.ts`
+(the synthesizer); `packages/engine-layout/src/lib/referenceLayouts/{lines,bookof,engineSkeleton}.ts`
+(the `loading` scene's `LoadingScreen` bind anchor → a `loadingBar` componentInstance);
+`packages/engine-layout/scenes/bookof.json` regenerated; `tools/flow-spike/phase1Loading.ts`
+section A relaxed. Other games (cluster/scatter/price/ways) + their `LoadingScreen.svelte` +
+the shared `stateLayout.showLoadingScreen` field are UNTOUCHED. **Verified:**
+`engine-layout` + `lines` builds exit 0; `phase1` flow-spike harness GREEN. NOT shipped
+(no runtime-bundle publish, no submodule bump) — owner will review + ship.
+
 ### 2026-07-01 — Screen identity decoupled from magic ids (branch `feat/flow-screen-identity`)
 
 The game boot no longer identifies the loading splash / persistent base scene by matching a

@@ -132,6 +132,39 @@ authors a `loading` screen — every normal boot, AND the full `LINES_FLOW_DOC` 
 above/below-reel z-order split stays `basegame`-specific; the fully-generic any-screen
 exclusive swap is Phase 4.
 
+### Update — coded loading path REMOVED, loading is now fully generic (2026-07-01)
+
+The parity-gated dual path above is retired for `apps/lines`/bookof (preproduction — a coded
+splash breakage is acceptable, boot must still work generically). **The coded
+`<LoadingScreen>` is gone**; loading now mounts ONLY through the flow/scene interpreter:
+
+- `apps/lines/src/components/Game.svelte` — deleted the `LoadingScreen` import, the
+  `flowOwnsLoading`/`showLoading`/`flowLoadingMount`/`dismissLoading`/`splashAuthoredScene`/
+  `stripLoadingAnchor`/`loadingTransform`/`loadingPos` deriveds, the `onMount`
+  `showLoadingScreen = true`, and the whole `{#if showLoading} … <LoadingScreen> … {/if}`
+  arm — the game body is now unconditional. The `loading` scene mounts through the GENERIC
+  active-screen takeover (the `activeScreenId === loadingScreenId` exclusion was removed);
+  `loading` stays in the reserved-scene set so it doesn't also mount as an overlay. `apps/lines/src/components/LoadingScreen.svelte` was DELETED (`TransitionAnimation` kept —
+  `Transition.svelte` uses it; `PressToContinue` kept — `TapToContinue`/gates use it).
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `createLinesFlow` now SYNTHESIZES a default
+  `loading → basegame` FlowDoc (`withDefaultLoadingLeg`) when no authored/baked doc includes
+  the role-resolved loading screen, so an un-authored game STILL boots generically (interpreter
+  always exists, starts on `loading`, advances on the loading bar's `completeOnLoaded` / a tap).
+  An authored doc that already includes loading WINS; an authored doc that omits it gets the
+  loading leg PREPENDED (its screens/transitions/events preserved). Synthetic `events: []` ⇒
+  book events still fall through to `bookEventHandlerMap`.
+- `packages/engine-layout/src/lib/referenceLayouts/{lines,bookof,engineSkeleton}.ts` — the
+  `loading` scene's inert `bind: { component: 'LoadingScreen' }` anchor is replaced with a real
+  `loadingBar` `componentInstance` (`LOADING_BAR_DEF.defaultInstanceParams` seeds
+  `completeOnLoaded: true`). `packages/engine-layout/scenes/bookof.json` regenerated (no more
+  `loading-screen`/`LoadingScreen`).
+- `tools/flow-spike/phase1Loading.ts` — section A relaxed: it now exercises the engine-flow
+  inert-interpreter primitive, noting the coded fall-through it once backed is gone (the game
+  synthesizes a default doc). `phase1` harness GREEN; `engine-layout` + `lines` builds exit 0.
+
+Other games (cluster/scatter/price/ways) + their `LoadingScreen.svelte` are UNTOUCHED; the
+shared `stateLayout.showLoadingScreen` field stays in state-shared/utils-layout for them.
+
 **Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
 `window.__IE_FLOW_LOADING__ = true` before boot, confirm the splash shows then a tap swaps to
 `basegame` (verify via the `app.stage` read / dynamic-import override, not `preview_screenshot`

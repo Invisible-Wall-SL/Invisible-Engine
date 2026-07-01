@@ -28,16 +28,13 @@
 			"space": "canvas",
 			"nodes": [
 				{
-					"id": "loading-screen",
+					"id": "loading-bar",
 					"slotId": "loadingScreen",
-					"label": "Loading screen (logo)",
-					"kind": "container",
+					"label": "Loading bar",
+					"kind": "componentInstance",
+					"componentId": "loadingBar",
 					"x": 0,
-					"y": 0,
-					"bind": {
-						"component": "LoadingScreen"
-					},
-					"children": []
+					"y": 0
 				}
 			]
 		},

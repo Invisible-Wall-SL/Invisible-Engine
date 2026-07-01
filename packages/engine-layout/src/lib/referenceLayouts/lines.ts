@@ -250,23 +250,25 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
 			{
-				// Startup splash: the `loader` spine (logo + progress). Bind anchor —
-				// editor previews it from the catalog; the game mounts its coded
-				// LoadingScreen regardless (not registered → ignored in-game).
+				// Startup splash: a generic `loadingBar` componentInstance (the masked
+				// progress fill + percentage). It carries `completeOnLoaded: true` (seeded by
+				// `LOADING_BAR_DEF.defaultInstanceParams`), so the flow's `complete` edge fires
+				// when boot loading finishes and advances loading → basegame. The coded
+				// LoadingScreen path is gone — the loading screen mounts generically via the
+				// flow/scene interpreter.
 				id: 'loading',
 				name: sceneName('loading'),
 				role: 'loading',
 				space: 'canvas',
 				nodes: [
 					{
-						id: 'loading-screen',
+						id: 'loading-bar',
 						slotId: 'loadingScreen',
-						label: 'Loading screen (logo)',
-						kind: 'container',
+						label: 'Loading bar',
+						kind: 'componentInstance',
+						componentId: 'loadingBar',
 						x: 0,
 						y: 0,
-						bind: { component: 'LoadingScreen' },
-						children: [],
 					},
 				],
 			},
