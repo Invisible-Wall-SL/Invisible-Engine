@@ -57,7 +57,13 @@
 	});
 </script>
 
-{#if texture === PIXI.Texture.EMPTY || debug}
+<!-- Only a MISSING asset is an error, and it is only knowably missing once loading
+	 has finished: a sprite that mounts during the asset-load window (the game tree now
+	 mounts generically behind the loading screen, not gated behind it) legitimately
+	 renders `Texture.EMPTY` until its bundle arrives, then resolves reactively. Gate the
+	 diagnostic on `stateApp.loaded` so it flags a genuinely absent key, not one in flight.
+	 `debug` still forces the log. -->
+{#if (texture === PIXI.Texture.EMPTY && context.stateApp.loaded) || debug}
 	{console.error(
 		`Sprite: key "${key}"${fallbackKey ? ` (fallback "${fallbackKey}")` : ''} is not found in the loadedAssets`,
 	)}

@@ -24,6 +24,23 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-01 — Asset-not-found diagnostics made load-aware (regression from the loading-path removal)
+
+Removing the coded loading gate (entry below) means the game scene tree now mounts GENERICALLY
+during the asset-load window (behind the loading screen) instead of being held unmounted behind
+`{#if showLoading}`. Consequence: every asset-dependent pixi-svelte component (`Sprite`,
+`SpriteSheet`, `SpineProvider`, `Particles`) legitimately renders with an EMPTY texture / no
+`spineData` until its NON-preloaded bundle arrives, then resolves reactively — but each was
+`console.error`-ing "key … is not found in the loadedAssets" on every such frame, spamming the
+console at boot (reported live on `bookofborutremake`: `Frame_FSCounter.png` — the free-spin
+counter frame, packed in the non-preloaded `reelsFrame` atlas). Fix: gate each not-found
+diagnostic on `stateApp.loaded`, so a key is only flagged once loading has actually finished (a
+genuinely absent asset still surfaces); `debug` still forces the log. Purely a diagnostic change
+— render behaviour (EMPTY texture until resolve) is unchanged. Files:
+`packages/pixi-svelte/src/lib/components/{Sprite,SpriteSheet,SpineProvider,Particles}.svelte`.
+**Verified:** `pixi-svelte` `svelte-package` build exits 0. Reaches live online games only via a
+runtime-bundle publish (`_runtime/lines`).
+
 ### 2026-07-01 — Coded loading path REMOVED, loading is now generic (flow-driven-game §1)
 
 The coded `<LoadingScreen>` splash is gone for `apps/lines`/bookof (preproduction). The loading

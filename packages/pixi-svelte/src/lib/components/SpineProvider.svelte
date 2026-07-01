@@ -53,11 +53,14 @@
 	});
 </script>
 
-{#if !spineData}
+<!-- Load-aware diagnostic: a spine mounted by the (now generically mounted) game tree
+	 during the asset-load window has no `spineData` yet and resolves once its bundle
+	 arrives — only flag it as missing once loading is done. See Sprite.svelte. -->
+{#if !spineData && context.stateApp.loaded}
 	{console.error(`Spine: key "${key}" is not found in loadedAssets`)}
 {/if}
 
-{#if !spineData || debug}
+{#if (!spineData && context.stateApp.loaded) || debug}
 	{console.log('loadedAssets', $state.snapshot(context.stateApp).loadedAssets)}
 {/if}
 
