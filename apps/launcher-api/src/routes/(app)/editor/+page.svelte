@@ -2332,112 +2332,6 @@
 						{/if}
 					</ul>
 
-					{#if activeScene}
-						<div class="scene-space">
-							<label class="space-field">
-								<span>space</span>
-								<select
-									value={activeScene.space ?? 'game'}
-									onchange={(e) => setSceneSpace(e.currentTarget.value)}
-									title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
-								>
-									<option value="game">game (main box)</option>
-									<option value="standard">standard (HUD box)</option>
-									<option value="canvas">canvas (window edges)</option>
-									<option value="background">background (cover-fit)</option>
-								</select>
-							</label>
-							<label class="space-field">
-								<span>role</span>
-								<select
-									value={activeScene.role ?? ''}
-									onchange={(e) => setSceneRole(e.currentTarget.value)}
-									title="Engine role this screen fills — the game finds the loading splash and the base game by ROLE, not by a fixed id, so you can rename screens freely. Tag exactly one scene per role."
-								>
-									<option value="">— none —</option>
-									<option value="loading">loading (splash)</option>
-									<option value="basegame">base game</option>
-								</select>
-							</label>
-							{#if activeScene.space === 'standard'}
-								<div class="space-aligns">
-									<label class="space-field">
-										<span>v-align</span>
-										<select
-											value={activeScene.align?.vertical ?? ''}
-											onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
-										>
-											<option value="">centre</option>
-											<option value="center">center</option>
-											<option value="bottom">bottom</option>
-										</select>
-									</label>
-									<label class="space-field">
-										<span>h-align</span>
-										<select
-											value={activeScene.align?.horizontal ?? ''}
-											onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
-										>
-											<option value="">centre</option>
-											<option value="center">center</option>
-											<option value="left">left</option>
-											<option value="right">right</option>
-										</select>
-									</label>
-								</div>
-							{/if}
-							<label class="space-field">
-								<span>shows during</span>
-								<select
-									value={activeScene.visibleSource ?? ''}
-									onchange={(e) => setSceneVisibleSource(e.currentTarget.value)}
-									title="Game-lifecycle gate: in-game the WHOLE screen shows only while this state is active (e.g. the Free-spin intro). 'Always' = no gate. The editor always shows the screen so you can author it."
-								>
-									<option value="">Always (no gate)</option>
-									{#each VISIBILITY_SOURCE_KEYS as key (key)}
-										<option value={key}>{VISIBILITY_SOURCE_LABELS[key] ?? key}</option>
-									{/each}
-								</select>
-							</label>
-							{#if activeScene.visibleSource && BLOCKING_GATE_SOURCES.has(activeScene.visibleSource)}
-								<div class="gate-style">
-									<div class="space-aligns">
-										<label class="space-field">
-											<span>dim colour</span>
-											<input
-												type="color"
-												value={intToHex(activeScene.gate?.dimColor ?? 0x000000)}
-												oninput={(e) => setSceneGate({ dimColor: hexToInt(e.currentTarget.value) })}
-												title="Full-window dim colour behind this blocking screen (default black)"
-											/>
-										</label>
-										<label class="space-field">
-											<span>dim opacity</span>
-											<input
-												type="number"
-												min="0"
-												max="1"
-												step="0.05"
-												value={activeScene.gate?.dimAlpha ?? 0.5}
-												oninput={(e) => setSceneGate({ dimAlpha: e.currentTarget.valueAsNumber })}
-												title="Dim opacity 0–1 (default 0.5; 0 = no dim)"
-											/>
-										</label>
-									</div>
-									<label class="gate-check">
-										<input
-											type="checkbox"
-											checked={activeScene.gate?.hidePrompt ?? false}
-											onchange={(e) =>
-												setSceneGate({ hidePrompt: e.currentTarget.checked || undefined })}
-										/>
-										<span>hide default prompt</span>
-									</label>
-								</div>
-							{/if}
-						</div>
-					{/if}
-
 					<button
 						class="add-hud-btn"
 						type="button"
@@ -2653,6 +2547,112 @@
 					<span class="multi-pill">{selectedIds.length} selected</span>
 				{/if}
 			</h2>
+			{#if activeScene}
+				<div class="scene-space">
+					<h3>Screen</h3>
+					<label class="space-field">
+						<span>space</span>
+						<select
+							value={activeScene.space ?? 'game'}
+							onchange={(e) => setSceneSpace(e.currentTarget.value)}
+							title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
+						>
+							<option value="game">game (main box)</option>
+							<option value="standard">standard (HUD box)</option>
+							<option value="canvas">canvas (window edges)</option>
+							<option value="background">background (cover-fit)</option>
+						</select>
+					</label>
+					<label class="space-field">
+						<span>role</span>
+						<select
+							value={activeScene.role ?? ''}
+							onchange={(e) => setSceneRole(e.currentTarget.value)}
+							title="Engine role this screen fills — the game finds the loading splash and the base game by ROLE, not by a fixed id, so you can rename screens freely. Tag exactly one scene per role."
+						>
+							<option value="">— none —</option>
+							<option value="loading">loading (splash)</option>
+							<option value="basegame">base game</option>
+						</select>
+					</label>
+					{#if activeScene.space === 'standard'}
+						<div class="space-aligns">
+							<label class="space-field">
+								<span>v-align</span>
+								<select
+									value={activeScene.align?.vertical ?? ''}
+									onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
+								>
+									<option value="">centre</option>
+									<option value="center">center</option>
+									<option value="bottom">bottom</option>
+								</select>
+							</label>
+							<label class="space-field">
+								<span>h-align</span>
+								<select
+									value={activeScene.align?.horizontal ?? ''}
+									onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
+								>
+									<option value="">centre</option>
+									<option value="center">center</option>
+									<option value="left">left</option>
+									<option value="right">right</option>
+								</select>
+							</label>
+						</div>
+					{/if}
+					<label class="space-field">
+						<span>shows during</span>
+						<select
+							value={activeScene.visibleSource ?? ''}
+							onchange={(e) => setSceneVisibleSource(e.currentTarget.value)}
+							title="Game-lifecycle gate: in-game the WHOLE screen shows only while this state is active (e.g. the Free-spin intro). 'Always' = no gate. The editor always shows the screen so you can author it."
+						>
+							<option value="">Always (no gate)</option>
+							{#each VISIBILITY_SOURCE_KEYS as key (key)}
+								<option value={key}>{VISIBILITY_SOURCE_LABELS[key] ?? key}</option>
+							{/each}
+						</select>
+					</label>
+					{#if activeScene.visibleSource && BLOCKING_GATE_SOURCES.has(activeScene.visibleSource)}
+						<div class="gate-style">
+							<div class="space-aligns">
+								<label class="space-field">
+									<span>dim colour</span>
+									<input
+										type="color"
+										value={intToHex(activeScene.gate?.dimColor ?? 0x000000)}
+										oninput={(e) => setSceneGate({ dimColor: hexToInt(e.currentTarget.value) })}
+										title="Full-window dim colour behind this blocking screen (default black)"
+									/>
+								</label>
+								<label class="space-field">
+									<span>dim opacity</span>
+									<input
+										type="number"
+										min="0"
+										max="1"
+										step="0.05"
+										value={activeScene.gate?.dimAlpha ?? 0.5}
+										oninput={(e) => setSceneGate({ dimAlpha: e.currentTarget.valueAsNumber })}
+										title="Dim opacity 0–1 (default 0.5; 0 = no dim)"
+									/>
+								</label>
+							</div>
+							<label class="gate-check">
+								<input
+									type="checkbox"
+									checked={activeScene.gate?.hidePrompt ?? false}
+									onchange={(e) =>
+										setSceneGate({ hidePrompt: e.currentTarget.checked || undefined })}
+								/>
+								<span>hide default prompt</span>
+							</label>
+						</div>
+					{/if}
+				</div>
+			{/if}
 			<EditorProperties
 				node={selectedNode}
 				layoutType={currentLayoutType}
@@ -3064,12 +3064,19 @@
 		background: #16241f;
 	}
 	.scene-space {
-		margin-top: 10px;
-		padding-top: 10px;
-		border-top: 1px solid #1c1c24;
+		margin-bottom: 14px;
+		padding-bottom: 14px;
+		border-bottom: 1px solid #1c1c24;
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+	.scene-space h3 {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #888;
+		margin: 0 0 2px;
 	}
 	.space-aligns {
 		display: flex;
