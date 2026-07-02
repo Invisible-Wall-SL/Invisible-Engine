@@ -206,7 +206,14 @@
 		if (typeof fill === 'number') overrides.fill = fill;
 		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
 		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
-		return Object.keys(overrides).length > 0 ? { ...node.style, ...overrides } : node.style;
+		// ALWAYS spread `node.style` (never return it by reference): the properties panel
+		// mutates style fields in place (`node.style.fontFamily = …` + `markDirty()`, which
+		// does NOT reassign `scenes`). `rebuild()` deep-reads `node.text` (so content edits
+		// reflect) but only read `node.style` by reference here — so a font/size/colour edit
+		// was never a tracked dependency and the overlay never rebuilt. Spreading reads every
+		// field, making each an $effect dependency so the edit re-runs `rebuild()`. Mirrors
+		// `LayoutNodeView`'s `resolvedStyle`.
+		return { ...node.style, ...overrides };
 	}
 
 	/** Caption a HUD text bind anchor shows: the resolved `preview.textParam` (decomposed

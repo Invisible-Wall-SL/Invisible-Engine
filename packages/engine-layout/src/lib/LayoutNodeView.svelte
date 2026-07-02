@@ -283,7 +283,14 @@
 		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
 		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
 		if (typeof fill === 'number') overrides.fill = fill;
-		return Object.keys(overrides).length > 0 ? { ...node.style, ...overrides } : node.style;
+		// ALWAYS spread `node.style` (never return it by reference): the editor mutates
+		// style fields in place (`node.style.fontFamily = …`), and pixi's `<Text>` only
+		// re-syncs its `style` when the OBJECT REFERENCE changes (`propsSyncEffect` reads
+		// `props.style`, not its fields). Returning the same `node.style` reference meant a
+		// font/size/colour edit never reached PixiJS. The spread yields a fresh object on
+		// each style change AND deep-reads every field, so the `$derived` also re-runs on an
+		// in-place edit. `node.style` undefined ⇒ `{}` (default style — visually parity).
+		return { ...node.style, ...overrides };
 	});
 	// §9.4 bitmap vs system font: when the boot-registered catalog (the runtime
 	// sibling of the editor's `/api/editor/fonts`) marks `resolvedStyle.fontFamily`
