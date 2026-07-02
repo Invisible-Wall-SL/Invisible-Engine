@@ -657,9 +657,20 @@ host must be identified **generically, from data.** Options, in preference order
    scene sets `gameplayHost`.
 3. Reject: deriving intents on **every** screen (noisy — a loading screen showing a Spin input).
 
-**Decided (owner, 2026-07-02): (1) with (2) as the default** — a scene is the intent host if it
-sets `gameplayHost`, else the `initial` persistent screen is host by default. Both are generic
-derivations; neither hardcodes an id.
+**Decided (owner, 2026-07-02): (1) with a generic fallback.** `resolveIntentHostId` (in
+`flowModel.client.ts`), in order: **(1)** an explicit `gameplayHost` flag (a toggle in the screen
+inspector, single-host); else **(2)** the SOLE persistent screen if there's exactly one; else
+**(3)** among multiple persistent screens, the one that *receives* intents — no `action` OUTPUT pin
+(buttons live on HUD screens) AND reachable (has an incoming edge) — which is the base game; else
+`undefined` (UI hints to set the flag). Node shows an "intents" badge on the resolved host. All
+generic — no hardcoded ids.
+
+> **Corrected 2026-07-02 (`ca044d0`):** the first shipped fallback was "`initial` AND persistent",
+> which matched NOTHING in a real flow whose initial screen is a transient loading/progress screen
+> (not persistent) and whose base game is persistent but not initial — so no intent pins appeared.
+> Rule (3) above replaces it. Also fixed same commit: `/flow` edge delete now PERSISTS (SvelteFlow
+> owns the Delete key with screens `deletable:false`; its deletions reconcile into the FlowDoc via
+> `ondelete`, so a removed wire no longer reappears on move/reload).
 
 ### 8.7 Editor — make the wire real
 
