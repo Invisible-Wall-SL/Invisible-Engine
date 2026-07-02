@@ -17,6 +17,7 @@ import {
 	type FlowPin,
 	type FlowScreen,
 	type FlowTransition,
+	type FlowTransitionEffect,
 	type FlowTrigger,
 } from 'engine-flow';
 import type { ComponentDef, LayoutDoc, Scene } from 'engine-layout';
@@ -170,15 +171,17 @@ export const removeTransition = (doc: FlowDoc, transitionId: string): FlowDoc =>
 	return next;
 };
 
-/** The author-editable fields of a transition (trigger / guard / delay / order). */
+/** The author-editable fields of a transition (trigger / guard / delay / order / entrance
+ *  transition). `transition: null` REMOVES the entrance transition (back to a hard cut). */
 export interface TransitionEdit {
 	trigger?: FlowTrigger;
 	guard?: FlowGuard | null;
 	delayMs?: number | null;
 	order?: number;
+	transition?: FlowTransitionEffect | null;
 }
 
-/** Edit a transition's trigger/guard/delay/order. `null` clears the optional field. */
+/** Edit a transition's trigger/guard/delay/order/entrance-transition. `null` clears the field. */
 export const editTransition = (
 	doc: FlowDoc,
 	transitionId: string,
@@ -193,7 +196,17 @@ export const editTransition = (
 	if (edit.delayMs === null) delete t.delayMs;
 	else if (typeof edit.delayMs === 'number') t.delayMs = edit.delayMs;
 	if (typeof edit.order === 'number') t.order = edit.order;
+	if (edit.transition === null) delete t.transition;
+	else if (edit.transition) t.transition = edit.transition;
 	return next;
+};
+
+/** The default entrance transition seeded when the author drops the "Transition (fade)" palette
+ *  item onto an edge — a gentle 300ms ease-out fade-in, which they refine in the inspector. */
+export const DEFAULT_FADE_TRANSITION: FlowTransitionEffect = {
+	kind: 'fade',
+	ms: 300,
+	easing: 'easeOut',
 };
 
 export const findTransition = (doc: FlowDoc, id: string): FlowTransition | undefined =>

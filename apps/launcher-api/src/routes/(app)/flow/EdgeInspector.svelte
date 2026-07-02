@@ -8,9 +8,10 @@
 		type FlowGuard,
 		type FlowPredicate,
 		type FlowTransition,
+		type FlowTransitionEffect,
 		type FlowTrigger,
 	} from 'engine-flow';
-	import type { TransitionEdit } from './flowModel.client';
+	import { DEFAULT_FADE_TRANSITION, type TransitionEdit } from './flowModel.client';
 
 	// The transition inspector (design doc §6): edit a transition edge's trigger
 	// (bookEvent / complete / signal / condition), an optional bounded guard (a closed
@@ -96,6 +97,29 @@
 	function clearGuard(): void {
 		onedit({ guard: null });
 	}
+
+	// --- Entrance transition (the droppable "Transition (fade)" node, design doc §6) ----
+	// When present, the edge's TARGET screen mounts HIDDEN and fades in over `ms` (scaled by
+	// turbo) with the chosen easing; absent ⇒ a HARD CUT (instant mount, parity §7).
+	const EASINGS: NonNullable<FlowTransitionEffect['easing']>[] = ['linear', 'easeOut', 'easeInOut'];
+	const fade = $derived<FlowTransitionEffect | undefined>(edge.transition);
+
+	function attachFade(): void {
+		onedit({ transition: { ...DEFAULT_FADE_TRANSITION } });
+	}
+	function removeFade(): void {
+		onedit({ transition: null });
+	}
+	function setFadeMs(value: string): void {
+		if (!fade) return;
+		const ms = Number(value);
+		if (Number.isNaN(ms)) return;
+		onedit({ transition: { ...fade, ms: Math.max(0, ms) } });
+	}
+	function setFadeEasing(easing: string): void {
+		if (!fade) return;
+		onedit({ transition: { ...fade, easing: easing as FlowTransitionEffect['easing'] } });
+	}
 </script>
 
 <div class="edge-inspector">
@@ -178,6 +202,52 @@
 			<button onclick={applyGuard}>Set guard</button>
 			{#if edge.guard}<button class="link" onclick={clearGuard}>clear</button>{/if}
 		</div>
+	</div>
+
+	<div class="fade">
+		<span class="fade-title">Entrance transition</span>
+		<p class="fade-explain">
+			{#if fade}
+				<span class="mark">◐ Fade</span> — "{labelFor(edge.to)}" mounts hidden and fades in over
+				{fade.ms}ms (scaled by turbo). Remove for an instant cut.
+			{:else}
+				A hard CUT — "{labelFor(edge.to)}" appears instantly when it activates. Add a fade to ease
+				it in.
+			{/if}
+		</p>
+		{#if fade}
+			<div class="fade-row">
+				<label class="field">
+					<span>Kind</span>
+					<select value="fade" disabled>
+						<option value="fade">Fade</option>
+					</select>
+				</label>
+				<label class="field">
+					<span>Duration (ms)</span>
+					<input
+						type="number"
+						min="0"
+						value={fade.ms}
+						oninput={(e) => setFadeMs(e.currentTarget.value)}
+					/>
+				</label>
+				<label class="field">
+					<span>Easing</span>
+					<select
+						value={fade.easing ?? 'linear'}
+						onchange={(e) => setFadeEasing(e.currentTarget.value)}
+					>
+						{#each EASINGS as ease (ease)}
+							<option value={ease}>{ease}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+			<button class="link" onclick={removeFade}>Remove transition</button>
+		{:else}
+			<button class="fade-add" onclick={attachFade}>Add fade transition</button>
+		{/if}
 	</div>
 
 	<button class="danger" onclick={ondelete}>Delete transition</button>
@@ -283,6 +353,55 @@
 		color: #94a3b8;
 		text-decoration: underline;
 		padding: 0;
+	}
+	/* Entrance transition (the droppable fade) — amber to match the palette chip + LAYER edges. */
+	.fade {
+		border-top: 1px solid #1f2937;
+		padding-top: 10px;
+		margin: 6px 0 12px;
+	}
+	.fade-title {
+		color: #94a3b8;
+		display: block;
+		margin-bottom: 6px;
+	}
+	.fade-explain {
+		margin: 0 0 8px;
+		padding: 7px 9px;
+		border-radius: 6px;
+		border: 1px solid #4a3a1c;
+		background: #11161d;
+		font-size: 11px;
+		line-height: 1.45;
+		color: #94a3b8;
+	}
+	.fade-explain .mark {
+		font-weight: 600;
+		color: #fdba74;
+	}
+	.fade-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr;
+		gap: 4px;
+		margin-bottom: 6px;
+	}
+	.fade-add {
+		background: #1c1608;
+		border: 1px dashed #f59e0b;
+		border-radius: 5px;
+		color: #fdba74;
+		padding: 4px 10px;
+		cursor: pointer;
+		font-size: 12px;
+	}
+	.link {
+		border: none;
+		background: none;
+		color: #94a3b8;
+		text-decoration: underline;
+		padding: 0;
+		cursor: pointer;
+		font-size: 12px;
 	}
 	.danger {
 		width: 100%;

@@ -31,7 +31,8 @@
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
-	import { LayoutScene, FlowMount } from 'engine-layout/svelte';
+	import { LayoutScene, FlowMount, FlowScreenMount, FlowFade } from 'engine-layout/svelte';
+	import type { FlowEntranceTransition } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
 		registerComponents,
@@ -493,6 +494,13 @@
 	// Only consulted when `isHudFlowManaged` is true; during `loading` (HUD not yet activated) the
 	// chrome is HIDDEN, and the loading→HUD `complete` handoff (fan-out) reveals it on the tap.
 	const isHudActive = $derived(HUD_SCENE_IDS.some((id) => activeScreenIds.includes(id)));
+	// The entrance transition for the flow-managed HUD, if its activating edge carried one (design
+	// doc §6). The HUD is rendered by `<UI>` (not a `<LayoutScene>`, so `<FlowScreenMount>` can't
+	// wrap it), so we drive the HUD `<Container>`'s alpha from a Tween seeded off this — the same
+	// mount-hidden fade, applied to the chrome container. `undefined` ⇒ a hard cut (alpha stays 1).
+	const hudEntrance = $derived(
+		HUD_SCENE_IDS.map((id) => entranceById[id]).find((t) => t !== undefined),
+	);
 
 	// Doc-driven background cover: the node in the `background` scene bound to the coded
 	// `Background` component (id `bg`). When present the editor's cover scale/fit/stretch
@@ -539,6 +547,28 @@
 	// here via `onActiveScreensChange` (wired in `onMount`) + seeded from `flow.activeScreenIds` at
 	// boot. EMPTY ⇒ inert (no FlowDoc) ⇒ pure coded path.
 	let activeScreenIds = $state<readonly string[]>([]);
+	// Invisible Flow entrance transitions (the droppable "Transition" node, design doc §6). When a
+	// flow edge carries a `transition`, the interpreter SURFACES it here per activation (via
+	// `onActiveScreensChange`'s `entrances`); the mount sites below wrap the newly-activated screen
+	// in `<FlowScreenMount>`, which mounts it HIDDEN (alpha 0) and tweens it in — so there is no
+	// full-alpha flash. Keyed by screen id; an entry is set when a screen enters WITH a transition
+	// and cleared when it leaves the active set (so a fade never replays while the screen persists,
+	// and a hard-cut edge never has an entry ⇒ instant mount, parity §7). EMPTY on an inert boot.
+	let entranceById = $state<Record<string, FlowEntranceTransition | undefined>>({});
+	// Apply an active-set change: prune entrances for screens that left, then record the entrance
+	// transition for each freshly-entered screen (undefined for a hard cut). Called from the
+	// interpreter's `onActiveScreensChange` callback (wired in `onMount`).
+	const applyActiveScreens = (
+		screenIds: readonly string[],
+		entrances: readonly { screenId: string; transition?: FlowEntranceTransition }[],
+	): void => {
+		const present = new Set(screenIds);
+		const next: Record<string, FlowEntranceTransition | undefined> = {};
+		for (const [id, t] of Object.entries(entranceById)) if (present.has(id)) next[id] = t;
+		for (const e of entrances) next[e.screenId] = e.transition;
+		entranceById = next;
+		activeScreenIds = screenIds;
+	};
 	// The TOPMOST active screen (the last-activated) — the transient takeover/celebration layer.
 	// `undefined` ⇒ the active set is empty (inert) ⇒ pure coded path.
 	const activeScreenId = $derived(activeScreenIds[activeScreenIds.length - 1]);
@@ -917,7 +947,9 @@
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
 			// path (parity, §7). `start()` runs the initial screen's enter choreography.
-			flow = createLinesFlow(doc, (screenIds) => (activeScreenIds = screenIds));
+			flow = createLinesFlow(doc, (screenIds, entrances) =>
+				applyActiveScreens(screenIds, entrances),
+			);
 			setFlowInterpreter(flow);
 			// Seed the rune from the interpreter's initial active set (the `initial` node), then run
 			// its enter choreography. `onActiveScreensChange` keeps it in sync on add/remove.
@@ -1004,11 +1036,22 @@
 			boot (which always exists in apps/lines via the synthesized loading leg) gates on the
 			active set. -->
 	{#if !flow || isBasegameActive}
-		<FlowMount scene={basegameMountBelowReel}>
-			{#snippet fallback()}
-				<LayoutScene scene={basegameBelowReel} />
-			{/snippet}
-		</FlowMount>
+		{#if basegameMountBelowReel && entranceById[basegameScreenId]}
+			<!-- Flow-authored basegame with an ENTRANCE transition (design doc §6): fade the
+					 below-reel slice in via <FlowScreenMount> (mount-hidden, no flash). The board +
+					 above-reel slice below are engine-owned / render as normal. -->
+			<FlowScreenMount
+				scene={basegameMountBelowReel}
+				transition={entranceById[basegameScreenId]}
+				timeScale={stateBetDerived.timeScale}
+			/>
+		{:else}
+			<FlowMount scene={basegameMountBelowReel}>
+				{#snippet fallback()}
+					<LayoutScene scene={basegameBelowReel} />
+				{/snippet}
+			</FlowMount>
+		{/if}
 
 		<MainContainer>
 			<BoardFrame />
@@ -1041,25 +1084,34 @@
 				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
 				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
 		<Container zIndex={hudZIndex}>
-			<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
-				{#snippet gameName(override)}
-					<UiGameName name="LINES GAME" {override} />
-				{/snippet}
-				{#snippet logo(override)}
-					<Text
-						anchor={{ x: 1, y: 0 }}
-						text={override?.text ?? 'ADD YOUR LOGO'}
-						style={{
-							fontFamily: 'proxima-nova',
-							fontSize: REM * 1.5,
-							fontWeight: '600',
-							lineHeight: REM * 2,
-							fill: 0xffffff,
-							...override?.style,
-						}}
-					/>
-				{/snippet}
-			</UI>
+			<!-- The HUD is rendered by `<UI>`, not a `<LayoutScene>`, so it can't use
+					 `<FlowScreenMount>`; `<FlowFade>` wraps the chrome the same way (mount-hidden alpha
+					 0→1) when its activating edge carried an entrance transition, else renders it
+					 directly (hard cut — parity). Keyed on `hudEntrance` so a fresh entrance remounts
+					 the fader; `hudEntrance` is undefined when the HUD isn't flow-managed. -->
+			{#key hudEntrance}
+				<FlowFade transition={hudEntrance} timeScale={stateBetDerived.timeScale}>
+					<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
+						{#snippet gameName(override)}
+							<UiGameName name="LINES GAME" {override} />
+						{/snippet}
+						{#snippet logo(override)}
+							<Text
+								anchor={{ x: 1, y: 0 }}
+								text={override?.text ?? 'ADD YOUR LOGO'}
+								style={{
+									fontFamily: 'proxima-nova',
+									fontSize: REM * 1.5,
+									fontWeight: '600',
+									lineHeight: REM * 2,
+									fill: 0xffffff,
+									...override?.style,
+								}}
+							/>
+						{/snippet}
+					</UI>
+				</FlowFade>
+			{/key}
 		</Container>
 	{/if}
 	<Container zIndex={basegameOverlaysZIndex}>
@@ -1095,7 +1147,17 @@
 		-->
 	{#if activeScreenTakeover}
 		<Container zIndex={activeScreenTakeoverZIndex}>
-			<LayoutScene scene={activeScreenTakeover} />
+			{#if activeScreenId && entranceById[activeScreenId]}
+				<!-- The takeover screen (loading splash / a celebration) activated WITH an entrance
+						 transition (design doc §6): fade it in mount-hidden (no flash). -->
+				<FlowScreenMount
+					scene={activeScreenTakeover}
+					transition={entranceById[activeScreenId]}
+					timeScale={stateBetDerived.timeScale}
+				/>
+			{:else}
+				<LayoutScene scene={activeScreenTakeover} />
+			{/if}
 		</Container>
 	{/if}
 	<!--

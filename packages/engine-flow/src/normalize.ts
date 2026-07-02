@@ -25,6 +25,7 @@ import type {
 	FlowPredicate,
 	FlowScreen,
 	FlowTransition,
+	FlowTransitionEffect,
 	FlowTrigger,
 	FlowValue,
 	ScreenChoreography,
@@ -195,6 +196,22 @@ const normalizeTrigger = (input: unknown): FlowTrigger | null => {
 	}
 };
 
+const EASINGS = new Set(['linear', 'easeOut', 'easeInOut']);
+
+/** Coerce an entrance transition — only `fade` is known; clamp `ms` ≥ 0; default easing to
+ *  `linear`. Absent/invalid ⇒ `undefined` (a hard cut, parity §7). */
+const normalizeTransitionEffect = (input: unknown): FlowTransitionEffect | undefined => {
+	if (!isRecord(input) || input.kind !== 'fade') return undefined;
+	if (typeof input.ms !== 'number' || !Number.isFinite(input.ms)) return undefined;
+	const effect: FlowTransitionEffect = { kind: 'fade', ms: Math.max(0, input.ms) };
+	if (typeof input.easing === 'string' && EASINGS.has(input.easing)) {
+		effect.easing = input.easing as FlowTransitionEffect['easing'];
+	} else {
+		effect.easing = 'linear';
+	}
+	return effect;
+};
+
 const normalizeTransition = (input: unknown): FlowTransition | null => {
 	if (!isRecord(input)) return null;
 	const id = typeof input.id === 'string' && input.id ? input.id : null;
@@ -211,6 +228,8 @@ const normalizeTransition = (input: unknown): FlowTransition | null => {
 	if (typeof input.order === 'number' && Number.isFinite(input.order)) {
 		transition.order = input.order;
 	}
+	const effect = normalizeTransitionEffect(input.transition);
+	if (effect) transition.transition = effect;
 	return transition;
 };
 

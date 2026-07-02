@@ -33,6 +33,7 @@
 		buildFlowModel,
 		copyScreens,
 		createFlowHistory,
+		DEFAULT_FADE_TRANSITION,
 		editTransition,
 		moveScreen,
 		pasteScreens,
@@ -137,7 +138,10 @@
 		// guard/delay. The colour (below) carries the same distinction redundantly.
 		const mark = edgeSemantics(t) === 'handoff' ? '⇥' : '⧉';
 		const base = `${mark} ${triggerLabel(t.trigger)}`;
-		const extra = [t.guard ? 'guard' : '', t.delayMs ? `+${t.delayMs}ms` : '']
+		// A fade entrance transition reads as a "◐ fade Nms" chip so the author sees it at a glance
+		// (design doc §6, the droppable "Transition" node).
+		const fade = t.transition ? `◐ fade ${t.transition.ms}ms` : '';
+		const extra = [t.guard ? 'guard' : '', t.delayMs ? `+${t.delayMs}ms` : '', fade]
 			.filter(Boolean)
 			.join(' ');
 		return extra ? `${base} · ${extra}` : base;
@@ -220,6 +224,57 @@
 			? { kind: 'complete' }
 			: { kind: 'bookEvent', event: '' };
 		commit(addTransition(doc, c.source, c.target, trigger));
+	}
+
+	// --- Droppable "Transition (fade)" (design doc §6) --------------------------
+	// The author drags the palette chip and drops it ONTO an edge to give that edge's TARGET
+	// screen a fade-in. It is EDGE-BACKED data (`FlowTransition.transition`), NOT a new graph
+	// node — screens stay the only real nodes; the runtime just reads `edge.transition`.
+	const TRANSITION_DRAG_MIME = 'application/x-flow-transition';
+	// True while dragging the transition chip (drives a canvas drop-hint highlight).
+	let draggingTransition = $state(false);
+
+	function onTransitionDragStart(e: DragEvent): void {
+		if (!e.dataTransfer) return;
+		e.dataTransfer.setData(TRANSITION_DRAG_MIME, 'fade');
+		e.dataTransfer.effectAllowed = 'copy';
+		draggingTransition = true;
+	}
+	function onTransitionDragEnd(): void {
+		draggingTransition = false;
+	}
+
+	// Find the FlowDoc transition id under a drop point by hit-testing the xyflow edge SVG. xyflow
+	// renders each edge as `<g class="svelte-flow__edge" data-id="…">` with an invisible wide
+	// `.svelte-flow__edge-interaction` path for easy hovering; `elementsFromPoint` walks the stack
+	// at the pointer so a drop on (or near) the wire resolves its edge id. Returns undefined off-edge.
+	function edgeIdAtPoint(clientX: number, clientY: number): string | undefined {
+		const stack = document.elementsFromPoint(clientX, clientY);
+		for (const el of stack) {
+			const g = el.closest('.svelte-flow__edge');
+			const id = g?.getAttribute('data-id');
+			if (id && doc.transitions.some((t) => t.id === id)) return id;
+		}
+		return undefined;
+	}
+
+	function onCanvasDragOver(e: DragEvent): void {
+		if (!draggingTransition && !e.dataTransfer?.types.includes(TRANSITION_DRAG_MIME)) return;
+		e.preventDefault(); // allow the drop
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+	}
+
+	function onCanvasDrop(e: DragEvent): void {
+		const isTransition =
+			draggingTransition || (e.dataTransfer?.getData(TRANSITION_DRAG_MIME) ?? '') !== '';
+		draggingTransition = false;
+		if (!isTransition) return;
+		e.preventDefault();
+		const id = edgeIdAtPoint(e.clientX, e.clientY);
+		if (!id) return; // dropped off any edge — no-op
+		selectedEdgeId = id;
+		selectedScreenId = null;
+		commit(editTransition(doc, id, { transition: { ...DEFAULT_FADE_TRANSITION } }));
 	}
 
 	function onNodeDragStop({ targetNode }: { targetNode: Node | null }): void {
@@ -475,6 +530,24 @@
 				</ul>
 			{/if}
 
+			{#if doc.transitions.length > 0}
+				<h3>Transitions</h3>
+				<!-- Droppable "Transition (fade)" (design doc §6): drag onto a connection to give its
+						 TARGET screen a fade-in. Edge-backed data, not a graph node. -->
+				<div
+					class="drop-chip"
+					role="button"
+					tabindex="0"
+					draggable="true"
+					ondragstart={onTransitionDragStart}
+					ondragend={onTransitionDragEnd}
+					title="Drag onto an edge to fade its target screen in"
+				>
+					◐ Transition (fade)
+				</div>
+				<p class="hint">Drag onto an edge to fade its target screen in.</p>
+			{/if}
+
 			{#if model.screens.length > 0}
 				<h3>Find on canvas</h3>
 				<input
@@ -541,7 +614,16 @@
 			{/if}
 		</aside>
 
-		<div class="canvas">
+		<!-- The drop target for the "Transition (fade)" chip: `ondragover.preventDefault` allows the
+				 drop, `ondrop` hit-tests the pointer against the xyflow edge SVG and attaches the fade
+				 to that edge (design doc §6). `dropping` adds a subtle highlight while dragging. -->
+		<div
+			class="canvas"
+			class:dropping={draggingTransition}
+			role="region"
+			ondragover={onCanvasDragOver}
+			ondrop={onCanvasDrop}
+		>
 			{#if model.screens.length === 0 && model.available.length === 0}
 				<div class="empty">This project's layout has no screens yet.</div>
 			{:else}
@@ -747,6 +829,23 @@
 		color: #64748b;
 		font-size: 12px;
 	}
+	/* The droppable "Transition (fade)" palette chip (design doc §6) — amber like a LAYER edge,
+	   dashed so it reads as a draggable that attaches to a wire. */
+	.drop-chip {
+		display: inline-block;
+		border: 1px dashed #f59e0b;
+		border-radius: 6px;
+		background: #1c1608;
+		color: #fdba74;
+		padding: 6px 10px;
+		font-size: 12px;
+		cursor: grab;
+		user-select: none;
+		margin-bottom: 4px;
+	}
+	.drop-chip:active {
+		cursor: grabbing;
+	}
 	.inspector {
 		border-top: 1px solid #1f2937;
 		padding-top: 12px;
@@ -783,6 +882,11 @@
 	.canvas {
 		flex: 1;
 		min-width: 0;
+	}
+	/* Subtle amber inset while dragging the transition chip, hinting the canvas is a drop target. */
+	.canvas.dropping {
+		outline: 2px dashed #f59e0b66;
+		outline-offset: -2px;
 	}
 	.canvas :global(.svelte-flow) {
 		background: #0b0e13;

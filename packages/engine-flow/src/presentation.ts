@@ -56,10 +56,30 @@
  * `sequence()` (§8).
  */
 
-import type { ChoreographyNode, FlowDoc, FlowGuard, FlowScreen, FlowTransition } from './types';
+import type {
+	ChoreographyNode,
+	FlowDoc,
+	FlowGuard,
+	FlowScreen,
+	FlowTransition,
+	FlowTransitionEffect,
+} from './types';
 import type { FlowRuntime } from './runtime';
 import { runChoreography } from './executor';
 import { evaluateGuard, type FlowScope } from './accessor';
+
+/**
+ * A screen that just BECAME active in the current set change, paired with the ENTRANCE
+ * transition (if any) carried by the edge that activated it (design doc §6, the droppable
+ * "Transition" node). `transition` is `undefined` for a transition-less edge OR a re-activation
+ * (the screen was already active), so the host applies a fade ONLY on a genuine first entrance.
+ * The interpreter merely SURFACES this — the host owns the actual tween (mount-hidden alpha 0→1),
+ * keeping the interpreter framework-free (§8).
+ */
+export interface ScreenEntrance {
+	screenId: string;
+	transition?: FlowTransitionEffect;
+}
 
 /** The injected surface the HSM reads — never imports the rune modules (§8). */
 export type PresentationHost = {
@@ -67,10 +87,19 @@ export type PresentationHost = {
 	/** Read a registered engine value feed by `ENGINE_PARAM_CATALOG` key (`$engine.*`),
 	 *  for guard evaluation. Absent ⇒ guards over `$engine.*` read `undefined`. */
 	engine?: (key: string) => unknown;
-	/** Notified whenever the active SET changes (a screen was added/removed). The ids are
-	 *  render-ordered (base first, later-activated on top); the last entry is the topmost
-	 *  active screen. The game mirrors this into a rune so the mounted scenes re-render. */
-	onActiveScreensChange?: (screenIds: readonly string[]) => void;
+	/**
+	 * Notified whenever the active SET changes (a screen was added/removed). `screenIds` are
+	 * render-ordered (base first, later-activated on top; the last entry is the topmost active
+	 * screen). `entrances` lists the screens NEWLY activated by this change, each with the firing
+	 * edge's `transition` (undefined for a hard-cut edge or a re-activation) — so the host can
+	 * mount a fading screen HIDDEN from frame 0 (avoiding a full-alpha flash) and tween it in. The
+	 * game mirrors `screenIds` into a rune so the mounted scenes re-render, and reads `entrances`
+	 * to drive the entrance tween.
+	 */
+	onActiveScreensChange?: (
+		screenIds: readonly string[],
+		entrances: readonly ScreenEntrance[],
+	) => void;
 };
 
 const byOrder = (a: FlowTransition, b: FlowTransition) =>
@@ -91,7 +120,17 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 	 *  not the HSM, owns round gating — §12). Mirrors the coded serial `sequence()`. */
 	let transitioning = false;
 
-	const notify = (): void => host.onActiveScreensChange?.([...activeScreenIds]);
+	/** The entrance transition surfaced for the initial active screen at boot — read by the host
+	 *  via `entranceTransition(id)` (no `notify()` fires for the boot seed). The `initial` screen
+	 *  is not reached by an edge, so it has no entrance transition; kept for symmetry + future use. */
+	const bootEntrance = new Map<string, FlowTransitionEffect | undefined>();
+
+	/** Emit the current active set + the screens NEWLY activated by this set change (each with the
+	 *  firing edge's entrance transition). Only genuine first-time activations appear in
+	 *  `entrances` — a re-activated (already-present) screen is excluded by `activate` returning
+	 *  false, so a fade never replays on a repeat trigger. */
+	const notify = (entrances: readonly ScreenEntrance[] = []): void =>
+		host.onActiveScreensChange?.([...activeScreenIds], entrances);
 
 	const guardScope = (trigger: unknown): FlowScope => ({ trigger, engine: host.engine });
 
@@ -121,11 +160,14 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 
 	/** Add a screen to the active set (on top). Idempotent: re-activating an ALREADY-active
 	 *  screen is a no-op that LEAVES its position — so a `complete` edge returning to the base
-	 *  (already active underneath a sibling overlay) keeps the base underneath, not above it. */
-	const activate = (screenId: string): void => {
-		if (!screensById.has(screenId)) return;
-		if (activeScreenIds.includes(screenId)) return;
+	 *  (already active underneath a sibling overlay) keeps the base underneath, not above it.
+	 *  Returns true only when the screen was GENUINELY added (a first-time entrance), so the
+	 *  caller reports an entrance transition for it exactly once (no fade replay on re-activation). */
+	const activate = (screenId: string): boolean => {
+		if (!screensById.has(screenId)) return false;
+		if (activeScreenIds.includes(screenId)) return false;
 		activeScreenIds.push(screenId);
+		return true;
 	};
 
 	/** Remove a screen from the active set (it fired its own Complete pin). */
@@ -158,11 +200,15 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 				await runPhase(edge.from, 'exit', trigger);
 				deactivate(edge.from);
 			}
-			if (screensById.has(edge.to)) activate(edge.to);
+			// Surface the edge's entrance transition ONLY when `to` was genuinely newly activated
+			// (a first entrance) — a re-activated (already-present) target reports no entrance, so
+			// the host never replays the fade (a re-entrant `complete` handoff onto a live base).
+			const entrances: ScreenEntrance[] = [];
+			if (activate(edge.to)) entrances.push({ screenId: edge.to, transition: edge.transition });
 			// The set changed (a `complete` removed the source and/or `activate` added the target) —
-			// notify once, then run the target's enter. `changesActiveSet` gated the call, so this
-			// never fires for a no-op layer re-trigger.
-			notify();
+			// notify once (with any entrance), then run the target's enter. `changesActiveSet` gated
+			// the call, so this never fires for a no-op layer re-trigger.
+			notify(entrances);
 			await runPhase(edge.to, 'enter', trigger);
 		} finally {
 			transitioning = false;
@@ -193,13 +239,20 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 			// already-active base keeps it underneath) and re-runs its `enter`, matching the
 			// single-edge `performTransition` (a `complete` is a legitimately re-entrant handoff,
 			// §changesActiveSet). De-duped so two edges to the same target don't double-enter.
-			const targets: string[] = [];
+			const targets: { to: string; transition?: FlowTransitionEffect }[] = [];
 			for (const e of edges) {
-				if (screensById.has(e.to) && !targets.includes(e.to)) targets.push(e.to);
+				if (screensById.has(e.to) && !targets.some((t) => t.to === e.to)) {
+					targets.push({ to: e.to, transition: e.transition });
+				}
 			}
-			for (const to of targets) activate(to);
-			notify();
-			for (const to of targets) await runPhase(to, 'enter', trigger);
+			// Report an entrance only for a GENUINELY-new activation (a re-entrant handoff onto an
+			// already-active base reports none, so no fade replays) — `activate` returns that.
+			const entrances: ScreenEntrance[] = [];
+			for (const { to, transition } of targets) {
+				if (activate(to)) entrances.push({ screenId: to, transition });
+			}
+			notify(entrances);
+			for (const { to } of targets) await runPhase(to, 'enter', trigger);
 		} finally {
 			transitioning = false;
 		}
@@ -262,6 +315,13 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		},
 		/** Whether a screen id is currently active (in the set). */
 		isActive: (screenId: string): boolean => activeScreenIds.includes(screenId),
+		/** The entrance transition surfaced for a screen's LAST activation, or `undefined` for the
+		 *  initial (boot-seeded) screen / a hard-cut edge. `onActiveScreensChange`'s `entrances`
+		 *  arg is the primary channel (it fires on every set change); this getter serves the boot
+		 *  case where the host seeds `activeScreenIds` from `flow.activeScreenIds` and no notify
+		 *  fires — the initial screen has no entering edge, so this is `undefined` there. */
+		entranceTransition: (screenId: string): FlowTransitionEffect | undefined =>
+			bootEntrance.get(screenId),
 		/** True while a screen swap is in flight (a trigger is ignored, §8 serial gate). */
 		get isTransitioning() {
 			return transitioning;

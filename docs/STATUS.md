@@ -24,6 +24,57 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-02 — Invisible Flow: droppable "Transition (fade)" entrance transition
+
+A NEW Flow feature — a droppable **"Transition (fade)"** the author drops onto a connection to give
+that edge's TARGET screen a FADE-IN when it activates (with easing). EDGE-BACKED data
+(`FlowTransition.transition`), NOT a new runtime graph node — screens stay the only real nodes; the
+runtime reads `edge.transition`. Shared `apps/lines` runtime (ships to Book of Borut via
+`publish-runtime-bundle.mjs` — NOT published here; owner ships after review). Holds the §7 inert-flow
+fall-through: an edge WITHOUT a transition = today's hard cut (byte-identical to current `main`).
+
+- **Schema** (`packages/engine-flow/src/types.ts`): `FlowTransitionEffect = { kind:'fade'; ms; easing? }`
+  + `FlowTransition.transition?`. Threaded through `normalize.ts` (clamp `ms` ≥ 0, default easing
+  `linear`, drop unknown kinds). `diff.ts` unchanged (per-edge fields don't change WHICH screens are
+  authored — parity).
+- **Interpreter↔host fade contract** (the hard part — avoiding the mount-then-fade FLASH). The
+  interpreter is FRAMEWORK-FREE, so it SURFACES the entrance transition per activation instead of
+  tweening: `presentation.ts` `onActiveScreensChange(screenIds, entrances)` now carries an
+  `entrances: {screenId, transition?}[]` of the JUST-activated screens (a re-activation / a
+  transition-less edge surfaces `undefined`); `activate()` returns whether it genuinely added, so a
+  re-entrant handoff / repeat layer replays NO fade. A sibling `entranceTransition(id)` getter serves
+  the boot-seeded initial screen. Exposed on `interpreter.ts`.
+- **The HOST owns the tween** — a REUSABLE `engine-layout/svelte` wrapper (no per-site copies): new
+  `FlowFade.svelte` (wraps arbitrary children in a `<Container>` whose alpha starts at 0 and tweens
+  to 1 via `svelte/motion` `Tween` + `svelte/easing`, mapping `linear`/`easeOut`/`easeInOut` →
+  `linear`/`cubicOut`/`cubicInOut`, duration ÷ `timeScale()`) + `FlowScreenMount.svelte` (pairs it
+  with `<LayoutScene>`). Because the wrapper mounts HIDDEN (alpha 0) the instant the interpreter
+  surfaces the entrance, the FIRST painted frame is transparent — no full-alpha flash. `Game.svelte`
+  mirrors `entrances` into an `entranceById` rune (pruned on deactivate) and drives the THREE generic
+  mount paths a fade target hits: the takeover layer (loading/celebrations), the HUD `<UI>` gate (via
+  `FlowFade`, since the HUD isn't a `<LayoutScene>`), and the base-game below-reel mount. No
+  transition ⇒ the original `<FlowMount>`/`<LayoutScene>` path (parity). **Note:** the brief said
+  "GSAP is already a dep" but GSAP is nowhere in the workspace; the codebase-native alpha-tween
+  primitive is `svelte/motion` `Tween` (as `FadeContainer` uses) — used here instead, superior
+  (reactive alpha, no manual pixi handle).
+- **Editor** (`/flow`): a droppable **"Transition (fade)"** palette chip (HTML5 drag) → drop onto an
+  edge (hit-tested via `elementsFromPoint` against the xyflow edge SVG) attaches a default 300ms
+  ease-out fade + shows a `◐ fade Nms` chip on the edge label. `EdgeInspector.svelte` gained
+  attach/remove + duration + easing controls with a live explainer. `flowModel.client.ts`
+  `editTransition` threads `transition` (`null` removes); `DEFAULT_FADE_TRANSITION` seeded on drop.
+- **Verified:** `pnpm --filter engine-flow typecheck` clean; NEW `tools/flow-spike/phase8Transition.ts`
+  (`run transition`) 12/12 (fade edge surfaces the transition; transition-less surfaces none;
+  repeat-layer + re-entrant-handoff replay no fade; normalize clamps/defaults/idempotent); all prior
+  flow-spike harnesses still PASS (phase4 allow-list gained the pure `entranceTransition` read).
+  `apps/lines` prod build (play4fun) + `launcher-api` build clean; Prettier clean. **Owner-verify live
+  (WebGL):** the actual fade pixels (loading→base, a celebration overlay) turbo on/off.
+- Files: `packages/engine-flow/src/{types.ts,normalize.ts,presentation.ts,interpreter.ts}`,
+  `packages/engine-layout/src/lib/{FlowFade.svelte,FlowScreenMount.svelte,svelte.ts}`,
+  `apps/lines/src/game/flowRuntime.svelte.ts`, `apps/lines/src/components/Game.svelte`,
+  `apps/launcher-api/src/routes/(app)/flow/{+page.svelte,EdgeInspector.svelte,flowModel.client.ts}`,
+  `tools/flow-spike/{phase8Transition.ts,phase4Runtime.ts,package.json}`,
+  `docs/design/invisible-flow.md`, `docs/STATUS.md`.
+
 ### 2026-07-02 — Invisible Flow: complete FAN-OUT + HUD active-set gate + doc-order z-order
 
 **Context.** Owner authored a real FlowDoc (`loading` initial → `basegame` + a HUD "bottom bar"

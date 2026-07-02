@@ -475,6 +475,9 @@ const main = async () => {
 		const allowed = [
 			'activeScreenId',
 			'activeScreenIds',
+			// A pure READ of the entrance transition surfaced for a screen's activation (the fade
+			// contract, design doc §6) — observe-only, drives no platform transition.
+			'entranceTransition',
 			'evaluate',
 			'isActive',
 			'isTransitioning',

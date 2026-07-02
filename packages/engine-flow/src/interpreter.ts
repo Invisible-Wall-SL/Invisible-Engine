@@ -19,9 +19,13 @@
  * inert until a FlowDoc is supplied.
  */
 
-import type { FlowDoc } from './types';
+import type { FlowDoc, FlowTransitionEffect } from './types';
 import type { FlowRuntime } from './runtime';
-import { createPresentationMachine, type PresentationMachine } from './presentation';
+import {
+	createPresentationMachine,
+	type PresentationMachine,
+	type ScreenEntrance,
+} from './presentation';
 import { createSceneMounter, type MountableScene, type SceneMounter } from './mounter';
 import { createBookEventDispatcher, type CodedEventHandler } from './dispatch';
 import { isAuthoredFlow } from './normalize';
@@ -39,6 +43,11 @@ export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	/** Whether a screen id is currently active (in the set) — the game gates a scene's mount
 	 *  (e.g. the reel board on the base-game screen being active) on this. */
 	isScreenActive: (screenId: string) => boolean;
+	/** The entrance transition surfaced for a screen's last activation (the droppable "Transition"
+	 *  node, design doc §6), or `undefined` for the initial screen / a hard-cut edge. The host
+	 *  primarily reads entrances off the `onActiveScreensChange` `entrances` arg; this queries the
+	 *  boot-seeded initial screen (no notify fires for it). Inert ⇒ always `undefined`. */
+	entranceTransition: (screenId: string) => FlowTransitionEffect | undefined;
 	/** Dispatch a book event: run its presentation (authored choreography or coded handler)
 	 *  AND let the macro graph take a `bookEvent` transition. The two are orthogonal (§6.1).
 	 *  Awaits the presentation; the transition is fired after (so a screen swap follows the
@@ -83,9 +92,13 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 	 *  for transition/Branch guards over engine conditions. */
 	engine?: (key: string) => unknown;
 	/** Notified whenever the active SET changes (a screen was added/removed). The ids are
-	 *  render-ordered (base first, later-activated on top); the game mirrors them into a rune
-	 *  so the mounted scenes re-render. */
-	onActiveScreensChange?: (screenIds: readonly string[]) => void;
+	 *  render-ordered (base first, later-activated on top); `entrances` lists the newly-activated
+	 *  screens with the firing edge's entrance transition (design doc §6). The game mirrors the ids
+	 *  into a rune so the mounted scenes re-render, and reads `entrances` to drive the fade-in. */
+	onActiveScreensChange?: (
+		screenIds: readonly string[],
+		entrances: readonly ScreenEntrance[],
+	) => void;
 }): FlowInterpreter<TBookEvent, TContext> => {
 	const { flowDoc, runtime, resolveScene, codedHandlers, engine, onActiveScreensChange } = params;
 
@@ -115,6 +128,7 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 			return machine?.activeScreenIds ?? [];
 		},
 		isScreenActive: (screenId) => machine?.isActive(screenId) ?? false,
+		entranceTransition: (screenId) => machine?.entranceTransition(screenId),
 		dispatchBookEvent: async (bookEvent, context) => {
 			await dispatch(bookEvent, context);
 			await machine?.onBookEvent(bookEvent);

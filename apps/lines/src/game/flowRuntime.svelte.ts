@@ -29,7 +29,7 @@
  * (§12). The dispatcher's coded handlers are the un-authored fall-through.
  */
 
-import type { FlowDoc } from 'engine-flow';
+import type { FlowDoc, ScreenEntrance } from 'engine-flow';
 import { createFlowInterpreter } from 'engine-flow';
 import type { LayoutDoc, Scene } from 'engine-layout';
 import { basegameSceneId, loadingSceneId, sceneByRole } from 'engine-layout';
@@ -238,8 +238,13 @@ export const createLinesFlow = (
 	 *  the pin-driven active-SET model). The ids are render-ordered (base first, overlays on
 	 *  top). The game uses it to drive a `$state` so the mounted scenes re-render — the
 	 *  interpreter's internal active set is a plain array (not a rune), so a getter read alone
-	 *  is not reactive. Absent ⇒ no notification (headless harnesses don't need it). */
-	onActiveScreensChange?: (screenIds: readonly string[]) => void,
+	 *  is not reactive. Absent ⇒ no notification (headless harnesses don't need it). `entrances`
+	 *  lists the screens NEWLY activated by this change with the firing edge's entrance transition
+	 *  (the droppable "Transition" node, design doc §6) — the game uses it to fade a screen in. */
+	onActiveScreensChange?: (
+		screenIds: readonly string[],
+		entrances: readonly ScreenEntrance[],
+	) => void,
 ): LinesFlow | undefined => {
 	const authoredDoc = loadFlowDoc();
 	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,

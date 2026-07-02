@@ -48,6 +48,58 @@ make-or-break gate**: the runtime interpreter must mount one real screen and run
 hand-authored choreography for one event (`winInfo` in `apps/lines`) with zero visual
 regression and clean fall-through, before any editor UI is built.
 
+### Feature — droppable "Transition (fade)" entrance transition (2026-07-02)
+
+**What it is.** A droppable **"Transition (fade)"** the author drops onto a connection between two
+screens to give that edge's TARGET screen a FADE-IN (with easing) when it activates. Owner decision
+(locked): model it as EDGE-BACKED data (`FlowTransition.transition`), rendered as a chip ON the edge
+in `/flow` — NOT a new runtime graph node (screens-are-the-nodes stays invariant; the runtime reads
+`edge.transition`). Kind = FADE only for now: `transition?: { kind:'fade'; ms; easing?: 'linear' |
+'easeOut' | 'easeInOut' }`. Semantics: an edge WITH a `transition` mounts its target HIDDEN (alpha 0)
+and tweens alpha→1 over `ms` (scaled by `timeScale()` like `delayMs`/a `Delay`), with the chosen
+easing; an edge WITHOUT one = today's HARD CUT (byte-identical parity §7).
+
+**The interpreter↔host fade contract (the crux — no flash).** Mounting-then-fading would FLASH at
+full alpha for a frame because the host's `<LayoutScene>`/`<UI>` mounts the instant `notify()` lands.
+Fix: the interpreter (FRAMEWORK-FREE) SURFACES the entrance transition per activation instead of
+tweening. `presentation.ts` `PresentationHost.onActiveScreensChange(screenIds, entrances)` now carries
+`entrances: ScreenEntrance[] = { screenId, transition? }[]` — the screens NEWLY activated by this set
+change, each with the firing edge's `transition`. `activate()` returns whether it GENUINELY added the
+screen, so a re-activation (already-present target) or a transition-less edge surfaces `undefined` ⇒
+NO fade replay on a repeat trigger / a re-entrant handoff. Both `performTransition` and
+`performCompleteFanOut` collect entrances and pass them to `notify()`. A sibling
+`entranceTransition(id)` getter serves the boot-seeded initial screen (no notify fires for it). The
+HSM stays observe-don't-drive (the read is pure). The HOST owns the actual tween: a REUSABLE
+`engine-layout/svelte` `FlowFade.svelte` wraps content in a `<Container>` whose alpha STARTS at 0 and
+tweens to 1 via `svelte/motion` `Tween` (`svelte/easing` `linear`/`cubicOut`/`cubicInOut`, duration ÷
+`timeScale()`) — so the first painted frame is transparent (no flash); `FlowScreenMount.svelte` pairs
+it with `<LayoutScene>`. `Game.svelte` mirrors `entrances` into an `entranceById` rune (pruned when a
+screen leaves the set) and drives the THREE generic mount paths a fade target can hit — the takeover
+layer (loading/celebrations), the HUD `<UI>` gate (via `FlowFade`, since the HUD isn't a
+`<LayoutScene>`), and the base-game below-reel mount — falling back to the un-faded `<FlowMount>`/
+`<LayoutScene>` path when there's no entrance (parity). Serial `transitioning` gate,
+`changesActiveSet` no-op-layer skip, exit-then-enter order, and inert-flow fall-through are all
+preserved. (The brief's "GSAP is a dep" was inaccurate — GSAP is absent from the workspace; the
+codebase-native alpha tween is `svelte/motion` `Tween`, as `FadeContainer` uses.)
+
+**Editor.** A droppable "Transition (fade)" palette chip (HTML5 drag) drops onto an edge — hit-tested
+via `elementsFromPoint` against the xyflow edge SVG — attaching a default 300ms ease-out fade and a
+`◐ fade Nms` chip on the edge label; the handoff (solid) vs layer (dashed) edge visuals are intact.
+`EdgeInspector.svelte` exposes attach/remove + duration (ms) + easing (linear/easeOut/easeInOut) with
+a live explainer. `flowModel.client.ts` `editTransition` threads `transition` (`null` removes);
+`DEFAULT_FADE_TRANSITION` is seeded on drop.
+
+**Verified headlessly + build-shipped.** `pnpm --filter engine-flow typecheck` clean; new
+`tools/flow-spike/phase8Transition.ts` (`pnpm --filter flow-spike run transition`) 12/12 GREEN against
+the REAL `createPresentationMachine` + `normalizeFlowDoc` (fade edge surfaces the transition;
+transition-less surfaces none; repeat-layer + re-entrant-handoff replay NO fade; `complete` fan-out
+surfaces per-target; normalize clamps ms ≥ 0 / defaults easing / drops junk / idempotent). All prior
+flow-spike harnesses still PASS (phase4's observe-don't-drive allow-list gained the pure
+`entranceTransition` read). `apps/lines` prod build (`PUBLIC_RGS_TRANSPORT=play4fun`) + `launcher-api`
+build clean; Prettier clean. **Still owed:** owner live-verify the actual fade PIXELS in a running
+bundle (WebGL — the one thing headless can't prove), turbo on/off; then the ship chain
+(`publish-runtime-bundle` → Borut submodule bump) is the owner's step. NOT committed/pushed/published.
+
 ### Progress — complete FAN-OUT + HUD active gate + doc-order z (2026-07-02)
 
 **Context.** The owner authored a real FlowDoc (`loading` initial, `basegame`, and a HUD screen

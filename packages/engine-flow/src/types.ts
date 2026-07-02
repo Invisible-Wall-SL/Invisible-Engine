@@ -202,6 +202,27 @@ export interface FlowScreen {
 	initial?: boolean;
 }
 
+/**
+ * An ENTRANCE transition — the visual treatment applied when an edge ACTIVATES its target
+ * screen (design doc §6, the droppable "Transition" node). Edge-backed authoring data, NOT a
+ * runtime graph node: screens stay the only real nodes; the interpreter reads `edge.transition`
+ * and SURFACES it to the host per activation, and the HOST owns the actual tween (a mount-hidden
+ * alpha 0 → 1 over `ms`, scaled by `timeScale()` like `delayMs`, with the chosen easing). An edge
+ * with NO `transition` is a hard cut — byte-identical parity with today's instant mount (§7).
+ *
+ * `kind: 'fade'` is the only kind for now (a mount-hidden alpha fade-in). Kept a bounded, closed
+ * shape (NOT an animation scripting language, §11.4): a duration + an easing from a small set.
+ */
+export interface FlowTransitionEffect {
+	/** The entrance treatment. `fade` = mount the target hidden (alpha 0) and tween alpha→1. */
+	kind: 'fade';
+	/** Fade duration in ms, scaled at runtime by the live `timeScale()` (turbo) like `delayMs`. */
+	ms: number;
+	/** The easing curve. `linear` (constant), `easeOut` (decelerate in), `easeInOut` (both).
+	 *  Absent ⇒ `linear`. The host maps these to its tween easing (design doc §6). */
+	easing?: 'linear' | 'easeOut' | 'easeInOut';
+}
+
 /** What fires a transition edge (design doc §6). The first three are the original
  *  triggers; `signal` is the tap-to-continue addition — a named runtime signal a
  *  tap-enabled component emits via the interpreter (`emitSignal(name)`), so a user CLICK
@@ -239,6 +260,16 @@ export interface FlowTransition {
 	delayMs?: number;
 	/** Author evaluation order among the `from` screen's outgoing edges (ascending). */
 	order?: number;
+	/**
+	 * Optional ENTRANCE transition for the TARGET screen this edge activates (the droppable
+	 * "Transition" node, design doc §6). Present ⇒ the host mounts `to` hidden (alpha 0) and
+	 * tweens it in over `transition.ms` (scaled by `timeScale()`) with `transition.easing`.
+	 * Absent ⇒ a HARD CUT — byte-identical to today's instant mount (parity §7). The interpreter
+	 * only SURFACES this per activation (`onActiveScreensChange` `entrances` + `entranceTransition`);
+	 * the host owns the tween. A re-activation (target already active) or a transition-less edge
+	 * surfaces `undefined`, so no fade replays on a repeat trigger.
+	 */
+	transition?: FlowTransitionEffect;
 }
 
 /** The authored presentation document, sibling to `scenes.json` (design doc §7, §12). */
