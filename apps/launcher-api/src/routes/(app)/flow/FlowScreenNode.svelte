@@ -25,10 +25,19 @@
 	// The full binding behind a pin, for the hover tooltip — the label truncates in the
 	// handle row, so the title surfaces the role + binding key the wire actually points at.
 	const pinTitle = (pin: FlowPin): string => {
+		if (pin.role === 'complete' && d.persistent) {
+			return "Complete — unused: this screen is persistent (no outgoing handoff), so it never fires Complete. Wire FROM here to make it hand off (that clears 'persistent').";
+		}
 		const role = pin.role.charAt(0).toUpperCase() + pin.role.slice(1);
 		const tail = pin.orphaned ? ' (orphaned — backing component deleted)' : '';
 		return `${role}: ${pin.label}${tail}`;
 	};
+
+	// The `complete` OUTPUT pin is meaningless on a PERSISTENT screen (it never hands off), so it's
+	// dimmed to signal "unused" — but kept visible + connectable (wiring from it is exactly what
+	// makes the screen non-persistent, so hiding it would be a chicken-and-egg trap). Only the
+	// complete pin dims; a persistent HUD's real action outputs stay full-strength.
+	const isDimmed = (pin: FlowPin): boolean => pin.role === 'complete' && !!d.persistent;
 
 	// Inputs on the LEFT, outputs on the RIGHT, state pins shown inline (no handle —
 	// `active` is a status, not a wire endpoint).
@@ -86,7 +95,7 @@
 		</ul>
 		<ul class="col out">
 			{#each outputs as pin (pin.id)}
-				<li class:orphaned={pin.orphaned} title={pinTitle(pin)}>
+				<li class:orphaned={pin.orphaned} class:dimmed={isDimmed(pin)} title={pinTitle(pin)}>
 					<span class="label">{pin.label}</span>
 					<span class="dot" style="background:{roleColor[pin.role]}"></span>
 					<Handle
@@ -202,6 +211,16 @@
 	.col li.orphaned .label {
 		color: #fca5a5;
 		text-decoration: line-through;
+	}
+	/* The `complete` output on a persistent screen — dimmed to read as "unused" (the screen never
+	   hands off), while staying visible + connectable so it can still be wired (which is what makes
+	   the screen non-persistent). Opacity doesn't block pointer events, so the handle stays grabbable
+	   even dimmed; on node hover it lifts back so wiring it is easy. */
+	.col.out li.dimmed {
+		opacity: 0.35;
+	}
+	.screen-node:hover .col.out li.dimmed {
+		opacity: 0.75;
 	}
 	.dot {
 		width: 7px;
