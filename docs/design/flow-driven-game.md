@@ -671,6 +671,13 @@ generic — no hardcoded ids.
 > Rule (3) above replaces it. Also fixed same commit: `/flow` edge delete now PERSISTS (SvelteFlow
 > owns the Delete key with screens `deletable:false`; its deletions reconcile into the FlowDoc via
 > `ondelete`, so a removed wire no longer reappears on move/reload).
+>
+> **Edge pin-handle rendering (`b2c8a77`):** `FlowTransition` gained authoring-only `fromPin`/`toPin`
+> (the connected source/target pin handle ids; runtime-inert, `normalize`d). `onConnect` records
+> them and `buildEdges` renders the xyflow edge from them, so an `action → intent` wire draws
+> spin-out → spin-in (not Complete → Enter), and two edges between the same screens get DISTINCT
+> handles — fixing xyflow blocking the second pin's connection (`increase`) as a duplicate. Legacy
+> edges without `fromPin` infer handles from the trigger.
 
 ### 8.7 Editor — make the wire real
 
