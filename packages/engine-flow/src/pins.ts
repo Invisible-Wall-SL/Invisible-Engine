@@ -80,6 +80,22 @@ const structuralPin = (
 	return { id: `${screenId}::${role}`, role, direction, label };
 };
 
+/**
+ * A pin's SHORT display label (authoring UX). The on-node handle row is cramped and a wire's
+ * real identity is its stable id (the hover tooltip carries the full role + binding), so the
+ * label only needs the single most meaningful token — never the redundant `base · key` pair:
+ *
+ *  - when `base` already conveys `key` (they normalize to the SAME token: "Bet"/"bet",
+ *    "Total Win"/"totalWin", "Player Name"/"playerName") → the human `base` alone;
+ *  - otherwise → just `key`, the semantic verb/name — a button's action is "spin", so the
+ *    "Button_Square" instance prefix and the "Intent"/"Screen" role words are both noise.
+ *
+ * So "Button_Square · spin" → "spin", "Intent · decrease" → "decrease", "Bet · bet" → "Bet".
+ */
+const normalizeToken = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+export const pinLabel = (base: string, key: string): string =>
+	normalizeToken(base) === normalizeToken(key) ? base : key;
+
 const dynamicPin = (
 	instanceId: string,
 	role: Extract<FlowPinRole, 'value' | 'action' | 'gate' | 'signal'>,
@@ -117,21 +133,21 @@ const derivePinsFromNodes = (
 
 			const source = params[PARAM_KEY.value];
 			if (typeof source === 'string') {
-				out.push(dynamicPin(instance.id, 'value', source, `${labelBase} · ${source}`, orphaned));
+				out.push(dynamicPin(instance.id, 'value', source, pinLabel(labelBase, source), orphaned));
 			}
 			const action = params[PARAM_KEY.action];
 			if (typeof action === 'string') {
-				out.push(dynamicPin(instance.id, 'action', action, `${labelBase} · ${action}`, orphaned));
+				out.push(dynamicPin(instance.id, 'action', action, pinLabel(labelBase, action), orphaned));
 			}
 			const gate = params[PARAM_KEY.gate];
 			if (typeof gate === 'string') {
-				out.push(dynamicPin(instance.id, 'gate', gate, `${labelBase} · ${gate}`, orphaned));
+				out.push(dynamicPin(instance.id, 'gate', gate, pinLabel(labelBase, gate), orphaned));
 			}
 			if (def) {
 				const signals = new Set<string>();
 				collectSignals([def.root], signals);
 				for (const signal of signals) {
-					out.push(dynamicPin(instance.id, 'signal', signal, `${labelBase} · ${signal}`, false));
+					out.push(dynamicPin(instance.id, 'signal', signal, pinLabel(labelBase, signal), false));
 				}
 			}
 		} else if (node.bind?.props) {
@@ -144,7 +160,7 @@ const derivePinsFromNodes = (
 			][]) {
 				const value = props[paramKey];
 				if (typeof value === 'string') {
-					out.push(dynamicPin(node.id, role, value, `${labelBase} · ${value}`, false));
+					out.push(dynamicPin(node.id, role, value, pinLabel(labelBase, value), false));
 				}
 			}
 		}
@@ -191,7 +207,9 @@ const intentPin = (screenId: string, key: string): FlowPin => ({
 	role: 'intent',
 	direction: 'in',
 	key,
-	label: `Intent · ${key}`,
+	// Short label: the "Intent" role word is redundant (the pin sits among the host's intent
+	// inputs), so show just the semantic key — "Intent · decrease" → "decrease".
+	label: pinLabel('Intent', key),
 });
 
 /** Build a value-producer output pin for the host screen (design doc §11.4). Structural-style stable
@@ -202,7 +220,9 @@ const producerPin = (screenId: string, feed: EngineFeed): FlowPin => ({
 	role: 'producer',
 	direction: 'out',
 	key: feed.key,
-	label: `${feed.label} · ${feed.key}`,
+	// Short label: the feed's human name already conveys the key ("Bet · bet" → "Bet",
+	// "Total Win · totalWin" → "Total Win"), so drop the redundant machine key.
+	label: pinLabel(feed.label, feed.key),
 });
 
 /**
@@ -244,7 +264,8 @@ export const deriveScreenPins = (
 			role: 'gate',
 			direction: 'in',
 			key: scene.visibleSource,
-			label: `Screen · ${scene.visibleSource}`,
+			// Short label: drop the "Screen" role word, keep the gate key.
+			label: pinLabel('Screen', scene.visibleSource),
 		});
 	}
 	derivePinsFromNodes(scene.nodes, resolve, pins);
