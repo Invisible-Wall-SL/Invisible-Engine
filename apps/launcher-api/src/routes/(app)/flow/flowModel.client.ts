@@ -246,10 +246,16 @@ export const addTransition = (
 	from: string,
 	to: string,
 	trigger: FlowTrigger = { kind: 'complete' },
+	pins?: { fromPin?: string | null; toPin?: string | null },
 ): FlowDoc => {
 	const next = cloneDoc(doc);
 	const order = next.transitions.filter((t) => t.from === from).length;
-	next.transitions.push({ id: freshTransitionId(), from, to, trigger, order });
+	const edge: FlowTransition = { id: freshTransitionId(), from, to, trigger, order };
+	// Persist the exact pin handles the author connected (design doc §8) so the wire renders from
+	// the real source/target pin and two edges between the same screens get distinct handles.
+	if (pins?.fromPin) edge.fromPin = pins.fromPin;
+	if (pins?.toPin) edge.toPin = pins.toPin;
+	next.transitions.push(edge);
 	return next;
 };
 

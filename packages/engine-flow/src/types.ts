@@ -303,6 +303,17 @@ export interface FlowTransition {
 	 * surfaces `undefined`, so no fade replays on a repeat trigger.
 	 */
 	transition?: FlowTransitionEffect;
+	/**
+	 * AUTHORING-only (editor rendering): the exact SOURCE/TARGET pin handle ids the author connected
+	 * (`${instanceId}::${role}:${key}` for a dynamic pin, `${screenId}::${role}` for a structural
+	 * one). The runtime interpreter IGNORES these (it matches on `trigger`); the `/flow` canvas reads
+	 * them so a wire renders from the REAL pin (an `action → intent` edge draws spin-out → spin-in,
+	 * not Complete → Enter) and so two edges between the same screens use DISTINCT handles (xyflow
+	 * blocks a second edge that shares both endpoints AND handles). Absent ⇒ the editor infers handles
+	 * from the trigger (legacy edges), so this is purely additive + parity-inert.
+	 */
+	fromPin?: string;
+	toPin?: string;
 }
 
 /** The authored presentation document, sibling to `scenes.json` (design doc §7, §12). */

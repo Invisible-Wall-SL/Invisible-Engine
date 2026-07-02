@@ -179,6 +179,26 @@
 	const LAYER_COLOR = '#f59e0b';
 	const SELECTED_EDGE_COLOR = '#2563eb';
 
+	// The exact xyflow source/target HANDLES for an edge — so the wire renders from the REAL pins the
+	// author connected (an action→intent edge draws spin-out → spin-in, not Complete → Enter), and two
+	// edges between the same screens use DISTINCT handles (xyflow blocks a second edge sharing both
+	// endpoints AND handles — the "can't connect the second pin" bug). Prefer the persisted
+	// `fromPin`/`toPin`; fall back to inferring from the trigger for legacy edges (pre-fromPin docs).
+	function edgeHandles(t: FlowTransition): { sourceHandle?: string; targetHandle?: string } {
+		if (t.fromPin || t.toPin) return { sourceHandle: t.fromPin, targetHandle: t.toPin };
+		if (t.trigger.kind === 'complete') {
+			return { sourceHandle: `${t.from}::complete`, targetHandle: `${t.to}::enter` };
+		}
+		if (t.trigger.kind === 'action') {
+			const src = model.screens
+				.find((s) => s.screen.id === t.from)
+				?.pins.find((p) => p.role === 'action' && p.key === t.trigger.pin);
+			return { sourceHandle: src?.id, targetHandle: `${t.to}::intent:${t.trigger.intent}` };
+		}
+		// bookEvent / signal / condition activate the target's Enter; a legacy source pin is unknown.
+		return { targetHandle: `${t.to}::enter` };
+	}
+
 	function buildEdges(): Edge[] {
 		return doc.transitions.map((t) => {
 			const selected = t.id === selectedEdgeId;
@@ -188,10 +208,13 @@
 				: semantic === 'handoff'
 					? HANDOFF_COLOR
 					: LAYER_COLOR;
+			const { sourceHandle, targetHandle } = edgeHandles(t);
 			return {
 				id: t.id,
 				source: t.from,
 				target: t.to,
+				sourceHandle,
+				targetHandle,
 				label: edgeLabel(t),
 				// The label div is portalled out of the edge <g>, so a `.selected …` descendant
 				// selector can't reach it — drive the selected/semantic chip accent via labelStyle.
@@ -243,11 +266,13 @@
 			const intentKey = pinRoleKey(c.targetHandle, 'intent');
 			if (intentKey === undefined) return; // action → non-intent: ignore (invalid connection)
 			commit(
-				addTransition(doc, c.source, c.target, {
-					kind: 'action',
-					pin: actionKey,
-					intent: intentKey,
-				}),
+				addTransition(
+					doc,
+					c.source,
+					c.target,
+					{ kind: 'action', pin: actionKey, intent: intentKey },
+					{ fromPin: c.sourceHandle, toPin: c.targetHandle },
+				),
 			);
 			return;
 		}
@@ -260,7 +285,12 @@
 		const trigger: FlowTrigger = fromComplete
 			? { kind: 'complete' }
 			: { kind: 'bookEvent', event: '' };
-		commit(addTransition(doc, c.source, c.target, trigger));
+		commit(
+			addTransition(doc, c.source, c.target, trigger, {
+				fromPin: c.sourceHandle,
+				toPin: c.targetHandle,
+			}),
+		);
 	}
 
 	// --- Droppable "Transition (fade)" (design doc §6) --------------------------

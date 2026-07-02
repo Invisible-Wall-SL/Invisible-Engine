@@ -240,6 +240,11 @@ const normalizeTransition = (input: unknown): FlowTransition | null => {
 	}
 	const effect = normalizeTransitionEffect(input.transition);
 	if (effect) transition.transition = effect;
+	// Authoring-only pin handles (design doc §8) — the editor renders the wire from the real
+	// source/target pin. Runtime-inert (the interpreter matches on `trigger`), but must survive
+	// save/bake or a wire reverts to inferred (Complete→Enter) handles on reload.
+	if (typeof input.fromPin === 'string' && input.fromPin) transition.fromPin = input.fromPin;
+	if (typeof input.toPin === 'string' && input.toPin) transition.toPin = input.toPin;
 	return transition;
 };
 
