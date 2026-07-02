@@ -24,6 +24,24 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-02 — Game Maker Publish now pins the session to the project it built
+
+**Owner-reported bug:** rebuilding (Re-publish) a project from the online **Invisible Game Maker**
+made the client/project **selection jump to a different client** — it should stay put on the
+project you just built. **Root cause:** the active `(client, project)` scope is a single mutable
+session value (`sessions.activeProjectKey`) that `resolveToolScope` re-pins on every `?project=`
+tool launch, so it drifts while browsing Game Maker's cross-client project list — and the Publish
+endpoint (`/api/game-maker/publish`) never re-pinned it to the project being published. So after a
+rebuild the selection sat on whatever it last drifted to (a different client). This is the same
+"edit one / publish another" footgun the [project-explicit-scoping doc](design/project-explicit-tool-scoping.md)
+killed, in reverse; that doc's Open Question #1 ("sync-to-session on explicit `?project=`") was
+never wired for Publish. **Fix:** after a successful `publishGame`, the endpoint calls
+`setActiveProjectKey(session, project)` (default project stored as `null`, mirroring the home
+selector's `setProject`), so the top bar + home selector agree on the just-built project. The
+client `publish()` already `invalidateAll()`s, so the selector re-seeds with no reload. File:
+`apps/launcher-api/src/routes/api/game-maker/publish/+server.ts`. `pnpm --filter launcher-api build`
+GREEN. Owner live-verify (rebuild a non-active project → selection lands on it) still owed.
+
 ### 2026-07-01 — Flow `/flow` authoring UI for the active-SET model (Phase A)
 
 The `/flow` launcher editor now authors the pin-driven active-SET model (entry below), with NO

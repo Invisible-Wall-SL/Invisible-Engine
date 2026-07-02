@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { projectExists } from '$lib/server/projects';
+import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
+import { DEFAULT_PROJECT_KEY, projectExists } from '$lib/server/projects';
 import { PublishBlockedError, publishGame } from '$lib/server/publishGame';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -17,7 +18,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *   POST /api/game-maker/publish   { "project": "<key>" }
  *   → 200 { ok, key, url, playUrl }
  */
-export const POST: RequestHandler = async ({ request, locals, url }) => {
+export const POST: RequestHandler = async ({ request, locals, url, cookies }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
@@ -40,6 +41,16 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	try {
 		// The runtime fetches its authoring data back from THIS launcher's origin.
 		const result = await publishGame(project, url.origin);
+		// Pin the session's active project to the one just published — publishing is an
+		// EXPLICIT action on a specific project, so the whole UI (top bar + home selector)
+		// should now agree on it. Without this the active scope keeps whatever it drifted
+		// to while browsing Game Maker's cross-client project list, so rebuilding project Y
+		// left the selection sitting on a DIFFERENT client. Mirror the selector's storage
+		// rule: the default project is stored as null so an unset session resolves to it.
+		await setActiveProjectKey(
+			cookies.get(SESSION_COOKIE),
+			project === DEFAULT_PROJECT_KEY ? null : project,
+		);
 		return json({ ok: true, ...result }, { headers: NO_STORE });
 	} catch (e) {
 		// A blocked publish (e.g. a game with its own desktop build) is a 409 with the

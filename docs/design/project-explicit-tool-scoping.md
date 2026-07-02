@@ -111,6 +111,11 @@ habit.
    later tool opened without a param continues on X. Alternative (purer decouple):
    never touch the session — each page is independent — but then the top-bar/global
    selector can still show a different project than the page. Recommend sync.
+   **RESOLVED for tool launches** (`resolveToolScope` syncs). **Also extended to Publish
+   (2026-07-02):** the Game Maker Publish endpoint re-pins the session to the project it
+   just built — publishing is an explicit action on a specific project, so the selection
+   must land on it, not stay drifted on whatever was last active (owner-reported: rebuild
+   made the client selection jump). See `/api/game-maker/publish/+server.ts`.
 2. **Scope of hub actions** — which tools get per-project launch links in v1 (at
    least Edit + Publish; Atlas/Fonts/Symbols/Localization are easy adds).
 3. **Selector's future** — keep as default-context convenience, or retire once the
