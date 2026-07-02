@@ -331,6 +331,35 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		return edges.length > 0;
 	};
 
+	/**
+	 * The VALUE-BINDING table (design doc `flow-driven-game.md` §11.4). A PURE graph query, driven
+	 * by NO runtime event (unlike `onAction`/`onBookEvent`): every `value`-trigger edge maps a
+	 * display's binding key `${sink.instanceId}::${sink.source}` → the `producer` feed key it is
+	 * rebound to. The game reads this ONCE per display at mount to redirect which registered
+	 * `ValueSource` store it subscribes to — a subscription override, never a copy (§11.2 rule 1).
+	 *
+	 * Scoped over ALL transitions, NOT active-screen-outgoing: a display binding is a STATIC property
+	 * of the graph, not of which screen is currently active (a HUD readout keeps its rebinding whether
+	 * the base game or an overlay is on top). This is sound because the map is derived purely from the
+	 * immutable `flowDoc` (the doc never changes at runtime), so it is memoized — computed once, then
+	 * returned as a defensive copy so a caller can't mutate the cache. Duplicate sinks (two value edges
+	 * targeting the same `${instanceId}::${source}`, an author error) resolve LAST-WINS: transitions are
+	 * scanned in doc order and a later edge overwrites an earlier one — deterministic, never throws.
+	 */
+	let valueBindingCache: Map<string, string> | undefined;
+	const valueBindings = (): Map<string, string> => {
+		if (!valueBindingCache) {
+			const map = new Map<string, string>();
+			for (const t of flowDoc.transitions) {
+				if (t.trigger.kind === 'value') {
+					map.set(`${t.trigger.sink.instanceId}::${t.trigger.sink.source}`, t.trigger.producer);
+				}
+			}
+			valueBindingCache = map;
+		}
+		return new Map(valueBindingCache);
+	};
+
 	return {
 		/** The topmost active screen id (the last-activated screen). `undefined` when the active
 		 *  set is empty. Kept for callers that want a single "current" screen; the full ordered
@@ -378,6 +407,10 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		/** A flow-bound button's action pin fired — invoke the game intent on each matching
 		 *  `action → intent` edge's host (§8.5). Moves NO screen state (base game is already active). */
 		onAction,
+		/** Pure query — the value-binding table (`${instanceId}::${source}` → producer feed key) the
+		 *  game reads per display at mount to resolve a value edge's subscription override (§11.4).
+		 *  Static (derived from the doc, memoized); moves no state; last-wins on duplicate sinks. */
+		valueBindings,
 		/** Re-evaluate `condition` edges (the game pings this when an observed engine value
 		 *  changes). Fires the first whose guard now holds (§6.3). */
 		evaluate: (): Promise<boolean> => fire((t) => t.trigger.kind === 'condition', undefined),

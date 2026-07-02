@@ -158,6 +158,14 @@ export interface EventChoreography {
  *    the intent-host screen. The counterpart of an `action` OUTPUT pin: a button's `action` output
  *    wires INTO a matching intent input, which at runtime invokes the game intent (e.g. `spin` →
  *    today's coded bet). Not projected from a scene node — projected from the action vocabulary.
+ *
+ * Producer (design doc `flow-driven-game.md` §11 — value dataflow):
+ *  - `producer` (output) ← the game's DECLARED engine-signal registry (`ENGINE_PARAM_CATALOG`),
+ *    attached to the value-producer host screen (Base game for now, §11.3). The counterpart of a
+ *    `value` INPUT pin: an engine-owned value SOURCE (`balance`/`win`/`bet`/…) surfaced as an
+ *    output a HUD display's `value` input wires into, so a value binding is VISIBLE + routable on
+ *    the graph (a value edge = a reactive subscription override, §11.2 rule 1). Not projected from
+ *    a scene node — projected from the engine value-feed catalog (like `intent`, §8.3).
  */
 export type FlowPinRole =
 	| 'value'
@@ -167,7 +175,8 @@ export type FlowPinRole =
 	| 'enter'
 	| 'complete'
 	| 'active'
-	| 'intent';
+	| 'intent'
+	| 'producer';
 
 export type FlowPinDirection = 'in' | 'out' | 'state';
 
@@ -271,7 +280,19 @@ export type FlowTrigger =
 	 * (base game is already active) via `host.invokeIntent(to, intent)`, routed through a dedicated
 	 * path (`onAction`), NOT `fire()`/activate/deactivate. Mirrors how `signal` lets a tap drive the
 	 * flow, scoped to a specific button's action instead of a screen-wide tap. */
-	| { kind: 'action'; pin: string; intent: string };
+	| { kind: 'action'; pin: string; intent: string }
+	/**
+	 * A VALUE BINDING edge (design doc `flow-driven-game.md` §11): a HUD display's value INPUT pin is
+	 * bound to an engine-owned producer signal. `producer` is the producer feed KEY (`'balance'`, an
+	 * `ENGINE_PARAM_CATALOG` entry); `sink` is the consumer's instance-scoped value binding — the
+	 * `{ instanceId, source }` the display reads (its `componentInstance` id + `source` param key).
+	 * Unlike every OTHER trigger this is never FIRED by an event: it is a STATIC binding the
+	 * interpreter resolves ONCE at mount (a subscription override that redirects which registered
+	 * `ValueSource` store the display subscribes to — never a copy, §11.2 rule 1), and it moves NO
+	 * screen state (no `activate`/`deactivate`/`notify`). Absent edge ⇒ the display auto-binds to its
+	 * own `source` name exactly as today (auto-bind by name, override by edge, §11.2 rule 3). Runtime
+	 * resolution + editor wiring are later steps (§11.8); this variant is the schema/normalize half. */
+	| { kind: 'value'; producer: string; sink: { instanceId: string; source: string } };
 
 /**
  * A transition edge `from → to` (design doc §6). Fires on its `trigger`, gated by an

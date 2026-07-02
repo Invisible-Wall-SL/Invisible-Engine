@@ -484,6 +484,10 @@ const main = async () => {
 			// transition). Both observe/react, never send into the XState platform FSM.
 			'hasAction',
 			'onAction',
+			// The value-binding table (design doc §11.4) — a PURE graph query (${instanceId}::${source}
+			// → producer feed key) the game reads per display at mount; mutates nothing, drives no
+			// platform transition. Observe-only, exactly like `hasAction`.
+			'valueBindings',
 			'isActive',
 			'isTransitioning',
 			'onBookEvent',

@@ -733,11 +733,14 @@ Phase 4 (generic mount)  ─┘
 Phase 3 (engine-state)   → richer branching (parallel to 1–2)
 Phase 6 (universal tray) → scales it to every component/screen
 Phase 7 (behaviour/catalog) → long tail
-Phase 8 (action trigger → intent pins) → NEXT (Spin first, §8)
+Phase 8 (action trigger → intent pins) → SHIPPED (Spin, §8)
+Phase 9 (value dataflow pins → value edges) → NEXT (§11; mirrors Phase 8's shape)
 ```
 
 **Phases 1 → 2 → 4 → 5** is the critical path to the owner's exact flow running in a shipped
-game. Phase 3 enriches branching and can run in parallel. Phases 6–7 generalize.
+game. Phase 3 enriches branching and can run in parallel. Phases 6–7 generalize. Phase 8
+made *action* dataflow explicit (button → intent); **Phase 9 (§11)** completes the picture by
+making *value* dataflow explicit (engine signal → HUD display), the symmetric other half.
 
 ## 10. Rule-9 / docs debt to fold in
 
@@ -747,3 +750,273 @@ game. Phase 3 enriches branching and can run in parallel. Phases 6–7 generaliz
   surface changes (the pending Flow Phase-3/7 `docs-keeper` audit).
 - Record each phase in `docs/STATUS.md` as it lands (rule 6), and bump Borut's `engine`
   submodule when engine pieces must reach it (Phase 5).
+
+---
+
+## 11. Phase 9 — Explicit value-dataflow pins (engine signal → HUD display)
+
+> Owner direction 2026-07-02. The symmetric other half of Phase 8: Phase 8 made *action*
+> dataflow explicit (a button's `action` output pin wires into a base-game `intent` input);
+> Phase 9 makes *value* dataflow explicit (an engine-owned value SOURCE becomes an output pin
+> the HUD's display input pins wire into). PLANNING ONLY — no engine/editor code has been
+> written for this phase; this section is the build plan.
+
+### 11.1 Problem statement + the agreed model
+
+Today a screen's value pins (e.g. a HUD-Balance node's `Balance·balance`, `Bet·bet`,
+`Win·win`) are **implicit subscriptions**. A `componentInstance` carries a `source` param — a
+global feed NAME (`'balance'`) — and `ComponentInstance.svelte` reads
+`staticParams['source']`, calls `getComponentValueSource(source)` against the module-scoped
+registry the game filled at boot (`registerComponentValues` in `apps/lines/src/components/
+Game.svelte:311`), and subscribes. **Nothing on the canvas shows where the value comes from.**
+`deriveScreenPins` (`pins.ts:118-121`) already projects a `value`-role INPUT pin
+(`${instanceId}::value:${source}`) for exactly this binding, but that pin is cosmetic — no edge
+can terminate at a value SOURCE because no value source is a pin, and the interpreter never
+reads value pins (the same "pins are cosmetic" gap Phase 8 closed for actions, per §"The three
+structural gaps" gap 1).
+
+**The agreed model (locked with the owner):** complete the dataflow so it is *visible + routable*
+on the graph. Value SOURCES become **OUTPUT pins** (hosted on the Base game node — the value
+producer, §11.4); value SINKS (the HUD displays) stay the existing **INPUT pins**; you **wire
+them with edges**. "The game changes bet/balance/win → the HUD reflects it" becomes an authored
+wire, resolved dynamically by the interpreter instead of resolved implicitly by name inside
+`ComponentInstance.svelte`. This mirrors Phase 8's action→intent shape exactly: a new pin role,
+a new (non-active-set-moving) edge semantic, and an editor `onConnect` that mints the typed edge.
+
+### 11.2 The three locked rules (do not re-litigate — build around these)
+
+1. **A value edge = a REACTIVE SUBSCRIPTION to a single engine-owned signal, never an
+   imperative copy.** The single source of truth stays in the engine (the `ValueSource` store the
+   game registered); the edge only makes the *existing* subscription **visible + explicitly
+   routable**. A "copy the value on change" design is explicitly REJECTED — it reintroduces
+   two-sources-of-truth / desync. Concretely: a value edge resolves to "this display's `source`
+   binds to producer signal `X`", and `ComponentInstance.svelte` subscribes to `X`'s store exactly
+   as it does today; the edge never carries or caches a value.
+2. **Producers come from a DECLARED engine-signal registry surfaced as output pins** — not
+   hand-invented per node. This is the "generalize engine-signal exposure to every instance" item
+   parked in §6/§7 and referenced in `invisible-flow.md`. The registry ALREADY EXISTS in two
+   honest forms we build on, not a new invention: the DECLARE side is
+   `ENGINE_PARAM_CATALOG` (`packages/engine-layout/src/lib/componentCatalog.ts:29`) — the
+   code-owned list of engine-provided values (`bet`/`win`/`balance`/`totalWin`/`freeSpins`/…);
+   the IMPLEMENT side is `registerComponentValues` (`registerComponentValues.ts:58`) plus the
+   game's closed `linesEngineReader` (`apps/lines/src/game/flowRuntime.svelte.ts:84`) — the
+   already-bounded `$engine.*` key→value getter over the same live state singletons. The producer
+   output pins are a projection of `ENGINE_PARAM_CATALOG` (the same way intent pins are a
+   projection of the action vocabulary, §8.3), keyed by feed name.
+3. **Auto-bind by name, override by edge.** Dropping a value component still auto-wires to the
+   same-named producer signal (zero-config default = today's implicit `source`-name binding,
+   byte-parity §7). An author MAY draw an edge to OVERRIDE (point a display at a different signal,
+   e.g. a readout labelled "Win" driven by `totalWin`) or leave it unwired intentionally. The edge
+   is an *override*, never a *requirement* — an unwired display resolves its producer by its
+   `source` name exactly as today.
+
+### 11.3 The open decision to surface — Base-game node vs a "Engine / context" node
+
+Where do the value OUTPUT pins hang? Two options; the owner leans (a), with the ontology caveat
+below made honest.
+
+- **(a) On the Base game node.** That is where player actions already land (Phase 8 put the
+  `intent` inputs there), so the producer outputs sit symmetrically opposite the intent inputs on
+  one recognizable hub. Fewest new concepts (reuses the resolved intent-host, §8.6). Risk: the
+  base-game node accretes many pins (one per feed × produce/consume) and gets crowded.
+- **(b) A dedicated "Engine / context" node.** A single non-screen node that hosts every engine
+  value producer, keeping the base-game node about gameplay. Cleaner separation, room to grow;
+  costs a new node concept in a "screens are the only nodes" model (`invisible-flow.md` §5) — it
+  would be a *pseudo-node* (no backing `Scene`, never mounted), which the mounter + `Game.svelte`
+  reserved-scene logic must learn to ignore, and validation/diff must special-case.
+
+**Recommendation: start with (a) Base game, split to (b) later if crowded** — the same
+"start on Base game, split later" the owner chose for intents (§8.6). The resolver
+(`resolveIntentHostId`, `flowModel.client.ts:71`) already picks the host generically (no magic
+ids); the value producers ride the SAME host id. If (b) is ever needed, the pin-role +
+edge-semantic below are node-host-agnostic, so only the *derivation site* moves.
+
+**Ontology caveat (call it honestly — do not pretend the three feeds are alike):**
+- `bet` is a **continuous** player-controlled value (changes on increase/decrease, always
+  meaningful) — a clean "always-live producer".
+- `balance` really **originates from wallet/RGS**, not from gameplay — the base game merely
+  *reflects* it. Hosting it on the Base game node is a UI convenience (that is where the player
+  reads it), not an ontological claim that the base game *owns* balance. A future "Engine /
+  context" node (option b) is the more honest home for it.
+- `win` is **episodic** (per-round, transient — zero between rounds, set by `winInfo`/`setWin`),
+  not continuous like `bet`. Its producer pin is "the latest round's win", which is legitimately
+  empty/zero at idle. The value edge is still a subscription (the display shows whatever the
+  `win` store currently holds); the episodic nature is a property of the store, not the wire.
+
+This caveat does NOT block option (a) — all three are registered `ValueSource`s today and all
+three already drive HUD readouts by name — but it is why the design keeps the producer-node
+choice OPEN and the pin role node-host-agnostic.
+
+### 11.4 Concrete engine changes (`packages/engine-flow`)
+
+Mirror Phase 8 (§8.9) beat-for-beat — a new pin role, a new edge kind that does NOT move the
+active set, and a resolver — but the runtime effect is a *binding resolution*, not an intent
+invocation.
+
+- **Engine-signal registry (where it lives / how a signal is declared).** No new registry —
+  reuse `ENGINE_PARAM_CATALOG` (`componentCatalog.ts`) as the DECLARED producer list (the
+  `declare` side) and `registerComponentValues` as the runtime store map (the `implement` side).
+  A "value producer signal" is any `ENGINE_PARAM_CATALOG` entry (already keyed by feed name, with
+  `kind`/`label`). The FlowDoc references it by key (`'balance'`), never by store — the store stays
+  engine-owned. The launcher already loads this catalog; pass its keys into the flow model the same
+  way the action vocabulary is passed (§8, `flowModel.client.ts` `intentVocabulary`).
+- **Pin derivation — value OUTPUT pins (`pins.ts`).** Add a `producer` projection symmetric to
+  the intent projection (`deriveScreenPins` `DeriveScreenPinsOptions`, `pins.ts:161`): when a
+  screen is the value-producer host, derive one OUTPUT pin per `ENGINE_PARAM_CATALOG` feed key,
+  stable id `${screenId}::produces:${feedKey}` (structural-style, key-stable so a wire survives
+  relabels — the §8.3 intent-pin id pattern). Two sub-options for the role, decide in build:
+  either reuse `value` with `direction:'out'` (the existing consumer pin is `value`/`in`; a
+  producer is `value`/`out`), OR add a distinct `producer` role for a clearer canvas hue. Prefer a
+  **new `producer` role** (`FlowPinRole += 'producer'`, `types.ts:162`) so the editor can colour
+  producers distinctly from consumers and so `intentVocabulary`-style collection stays
+  unambiguous. The consumer INPUT pin stays exactly as `derivePinsFromNodes` derives it today
+  (`pins.ts:118`, `${instanceId}::value:${source}`) — unchanged, so existing docs' value pins
+  render identically.
+- **FlowDoc schema additions — value edges (`types.ts`).** Add a trigger variant, matching the
+  §8.4 action shape:
+  ```ts
+  /** A VALUE BINDING edge (design doc flow-driven §11): a HUD display's value INPUT pin is bound
+   *  to an engine-owned producer signal. `producer` is the producer feed KEY (`'balance'`); `sink`
+   *  is the consumer's instance-scoped value-pin binding (the `{ instanceId, source }` the display
+   *  reads). Firing this NEVER moves the active set and NEVER runs choreography — it is a static
+   *  binding the interpreter resolves once (a subscription override), NOT an event. Mirrors the
+   *  `action` edge's "does not move the active set" property, but is resolved at mount, not fired. */
+  | { kind: 'value'; producer: string; sink: { instanceId: string; source: string } };
+  ```
+  Reuse the existing `FlowTransition` carrier (from/to/trigger + `fromPin`/`toPin` for editor
+  rendering, §8.6 `b2c8a77`) — a value edge is a `FlowTransition` whose `trigger.kind === 'value'`,
+  `from` = the producer host screen, `to` = the display's screen. `normalize.ts`
+  `normalizeTrigger` (`normalize.ts:182`) gains a `case 'value'` that requires `producer` +
+  `sink.instanceId` + `sink.source` (drop partials, parity §7), exactly as the `action` case
+  requires `pin` + `intent`.
+- **Interpreter — resolve a value edge to a subscription (NOT fire it).** This is the one place
+  the value edge diverges from every other trigger: it is never "fired" by an event. It is a
+  **binding table** the interpreter exposes and the game reads at mount:
+  - `presentation.ts` — add `valueBindings(): Map<string, string>` (a pure graph query: for every
+    active-or-any `value`-trigger edge, map `${sink.instanceId}::${sink.source}` → `producer`
+    feed key). It reads the graph, mutates nothing, and — unlike `onAction`/`onBookEvent` — is NOT
+    driven by any runtime event. (Consider computing over ALL transitions, not just active-screen
+    outgoing, since a display binding is not scoped to an active screen; decide in build.)
+  - `interpreter.ts` — surface `resolveValueSource(instanceId, source): string` returning the
+    OVERRIDE producer key when an edge rebinds this display, else the display's own `source`
+    (the auto-bind default, rule 3). Inert interpreter (no FlowDoc) ⇒ always returns `source`
+    verbatim ⇒ byte-parity.
+  - The game (`ComponentInstance.svelte`) then resolves its feed name THROUGH this override
+    before calling `getComponentValueSource` — `const feed = flow?.resolveValueSource(node.id,
+    source) ?? source;` — so a wired display subscribes to the override producer's store and an
+    unwired one subscribes to its own `source` store exactly as today. **This is the whole runtime
+    change: a name indirection at the existing subscription site, not a new data path.** Because the
+    store is still the engine-owned `ValueSource` the game registered, single-source-of-truth and
+    the reactive subscription are preserved (rule 1) — no copy, no cache.
+- **Auto-bind-by-name / override-by-edge + byte-parity.** The resolution rule is exactly rule 3:
+  `override edge ? producer : source`. With NO value edges authored, `resolveValueSource` returns
+  `source` for every display ⇒ `ComponentInstance` subscribes by name ⇒ **byte-identical to
+  today's implicit binding**. A wire only ever *redirects* one display's subscription; it can never
+  introduce a value the store doesn't already hold. `deriveScreenPins` continues to emit the
+  consumer `value` INPUT pin unconditionally, so the auto-bound (unwired) case still SHOWS its pin
+  — it just has no incoming edge (the editor renders it as auto-wired, §11.5).
+
+### 11.5 Editor changes (`/flow`)
+
+- **Show value output (producer) pins.** `FlowScreenNode.svelte` already lists inputs left /
+  outputs right by `direction` and colours by role (`roleColor`, `FlowScreenNode.svelte:48`). Add a
+  `producer` colour (a value-blue kin to the consumer `value` hue `#3b82f6`, but distinct so
+  producer-vs-consumer reads at a glance). The producer host screen (Base game) then shows one
+  right-side `produces:<feed>` handle per `ENGINE_PARAM_CATALOG` feed, opposite its intent inputs.
+- **Draw / delete value edges.** `+page.svelte` `onConnect` (`+page.svelte:223`) gains a branch
+  mirroring the action→intent branch (§8.7): when the SOURCE handle is a `::produces:<feed>` pin
+  AND the TARGET is a `::value:<source>` consumer pin, mint `trigger: { kind:'value', producer:
+  <feedKey>, sink: { instanceId: <consumerInstanceId>, source: <consumerSourceKey> } }` — KEYS
+  extracted from the handle ids via `pinRoleKey` (`+page.svelte:217`), recording `fromPin`/`toPin`
+  so the wire renders from the real handles (§8.6). A producer dropped onto a NON-value target is
+  rejected (no blank edge), same discipline as action→non-intent. Delete rides the existing
+  `ondelete`/`onGraphDelete` edge-reconcile path (§8.6 `ca044d0`) unchanged.
+- **Auto-wired vs explicit shown distinctly.** A consumer `value` INPUT pin with an incoming
+  value edge is EXPLICIT (draw the edge, styled as a distinct "binding" edge class — a thin
+  value-blue line, not the handoff-solid/layer-dashed of the active-set edges, since it moves no
+  state). A consumer pin with NO incoming value edge is AUTO-WIRED by its `source` name — render a
+  subtle affordance on the pin (e.g. a faint "auto" dot / tooltip "auto-bound to `<source>`") so an
+  author can tell "this reads balance by default" from "this is explicitly rewired". `EdgeInspector`
+  gains a read-only value-edge explainer (producer → display, "reactive subscription; overrides the
+  display's default `source`"). `edgeSemantics` (`validate.ts`) classifies a `value` edge as its
+  own class (not handoff/layer) so it never mis-reads as an active-set edge.
+
+### 11.6 Migration (the parity invariant)
+
+- Existing FlowDocs (Borut has none; the lines fixtures author no value edges) carry NO `value`
+  triggers ⇒ `resolveValueSource` returns `source` for every display ⇒ **every display subscribes
+  by name exactly as today, byte-identical**. The whole feature is default-inert (§7): the producer
+  pins are derived-but-unwired, the runtime indirection is a no-op passthrough, and an absent
+  FlowDoc means `ComponentInstance` never calls `resolveValueSource` at all (the coded subscription
+  path is unchanged when the interpreter is inert).
+- A partially-authored doc (some displays rewired, others not) is safe by construction: each
+  display resolves independently (`override edge ? producer : source`), so wiring one readout never
+  affects another.
+- Orphan discipline (rule / §4): a value edge whose `sink.instanceId` was deleted, or whose
+  `producer` is not a registered `ENGINE_PARAM_CATALOG` feed, ORPHANS → a `validate.ts` warning
+  (never a silent drop). A `value` edge whose `sink` is intact but points at a feed the game did
+  not `registerComponentValues` resolves to nothing (empty readout) — the SAME behaviour as an
+  unbound `source` name today, so no new failure mode.
+
+### 11.7 Deploy → bake → register chain (rule 8)
+
+The FlowDoc already travels export → `deploy/flow.json` → bake (`BakedBundle.flow`) → register
+(`bakedFlowDoc()`), and a `value` trigger is just new content inside the SAME doc. The ONLY chain
+touch-points are the pure serializers, which MUST learn the new trigger or they will DROP value
+edges on save/bake (silently reverting to auto-bind): `normalize.ts` `normalizeTrigger` (the TS
+contract, §11.4) AND the hand-rolled copy in `scripts/bake-editor-doc.mjs` /
+`apps/launcher-api/src/lib/server/flowExport.ts`'s `normalizeFlowDoc` usage — check whether the
+bake script re-normalizes (it keeps a hand-rolled `isAuthoredFlow` copy per `normalize.ts:293`;
+confirm it does not also re-shape triggers, else mirror the `value` case there). No new R2 asset
+class, no `pull` step (a value edge references only feeds the engine already registers) — so the
+chain is "just works once the serializer knows the trigger", with a round-trip spike as the gate.
+
+### 11.8 Phased checklist (small, landable steps)
+
+1. **Schema + normalize.** `FlowTrigger += { kind:'value', producer, sink }` (`types.ts`);
+   `FlowPinRole += 'producer'` (`types.ts`); `normalizeTrigger` `case 'value'` (drop partials,
+   `normalize.ts`). Round-trip spike (`tools/flow-spike/roundTrip.ts` extension): a value edge
+   survives author → normalize → JSON → normalize idempotently; a partial value trigger is dropped
+   without corrupting siblings. GATE: `pnpm --filter engine-flow typecheck` + the spike green.
+2. **Producer pin derivation.** `deriveScreenPins` producer-host projection (one `producer`
+   OUTPUT pin per `ENGINE_PARAM_CATALOG` feed on the host). New `tools/flow-spike/valueDataflow.ts`:
+   producer pins appear only on the host, stable ids, deterministic order; consumer `value` INPUT
+   pins unchanged.
+3. **Interpreter resolution.** `presentation.ts` `valueBindings()` + `interpreter.ts`
+   `resolveValueSource(instanceId, source)` (override-or-source). Spike: no edge ⇒ returns `source`
+   (parity); one edge ⇒ returns `producer` for that display only; inert interpreter ⇒ always
+   `source`.
+4. **Game wiring (`apps/lines`).** `ComponentInstance.svelte` resolves the feed name through
+   `flow?.resolveValueSource(node.id, source) ?? source` before `getComponentValueSource`; thread
+   the interpreter to `ComponentInstance` (via context, mirroring how it reaches other flow hooks).
+   Parity-first: default boot (no FlowDoc) unchanged. A dev-hook fixture (`__IE_FLOW_VALUE__`) that
+   rebinds one readout to a different feed, verified via the `app.stage` read (WebGPU — not
+   `preview_screenshot`) that the readout shows the OVERRIDE feed's number.
+5. **Editor.** `onConnect` value-edge branch + reject; `FlowScreenNode` `producer` colour +
+   host producer pins; auto-vs-explicit affordance; `EdgeInspector` value explainer; `validate.ts`
+   value-edge semantics + orphan/`unresolved-producer` warning. `pnpm --filter launcher-api build`
+   green; RULE 9: refresh `docs/tools/flow.md` (value pins + value edges) in the SAME change via
+   `docs-keeper`.
+6. **Ship (owner step).** Bake a project authoring a value override, confirm the shipped game
+   resolves the override off the baked slot; bump Borut's `engine` submodule if the engine
+   `ComponentInstance` indirection must reach it.
+
+### 11.9 Rough size / lift estimate per area
+
+- **`engine-flow` schema + normalize (step 1):** small — one trigger variant + one pin role +
+  one normalize case + spike extension. ~half a day. Lowest risk (pure, headless-provable).
+- **Pin derivation (step 2):** small — a projection symmetric to the shipped intent projection.
+  ~half a day.
+- **Interpreter resolution (step 3):** small-medium — a pure binding-table query + a
+  passthrough resolver. The subtlety is deciding "all transitions vs active-screen-scoped" for
+  `valueBindings` and confirming it's a static resolve, not an evented fire. ~1 day incl. spike.
+- **Game wiring (step 4):** MEDIUM + the only real risk — threading the interpreter into
+  `ComponentInstance.svelte` and inserting the name indirection at the subscription site without
+  regressing the byte-parity default path or the reactive subscription (`$effect`). Needs the
+  live WebGPU verify (the one thing headless can't prove). ~1–2 days.
+- **Editor (step 5):** medium — mostly mirrors Phase 8's `onConnect`/node/inspector/validate
+  changes; the new bit is the auto-wired-vs-explicit affordance + a distinct value-edge visual
+  class. ~1–2 days incl. the RULE-9 doc.
+- **Total:** roughly a Phase-8-sized slice (~4–6 focused days), with the same discipline: prove
+  each step headless-green in `tools/flow-spike`, hold the default-inert parity invariant by
+  construction, and gate the runtime indirection on a live WebGPU verify before shipping.

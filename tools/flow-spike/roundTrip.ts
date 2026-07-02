@@ -351,17 +351,130 @@ const runPreview = async (): Promise<void> => {
 	const effects = normal.timeline.filter(
 		(e): e is Extract<PreviewEntry, { kind: 'effect' }> => e.kind === 'effect',
 	);
-	assert(effects.length === 1 && effects[0].name === 'revealBoard', 'effect node ran (revealBoard)');
+	assert(
+		effects.length === 1 && effects[0].name === 'revealBoard',
+		'effect node ran (revealBoard)',
+	);
 	assert(
 		eq(effects[0]?.payload?.bookEvents, FIXED_PREVIEW_CONTEXT.bookEvents),
 		'$context.bookEvents resolved against the fixed context feed in the effect payload',
 	);
 	// The effect is the FIRST op (it precedes soundOnce in the authored sequence) — ordering
 	// is preserved through round-trip + executor.
-	assert(normal.timeline[0]?.kind === 'effect', 'effect is the first timeline op (order preserved)');
+	assert(
+		normal.timeline[0]?.kind === 'effect',
+		'effect is the first timeline op (order preserved)',
+	);
 };
 
 await runPreview();
+
+// ---------------------------------------------------------------------------
+// 6. Value BINDING edges (design doc flow-driven §11.8 step 1) — a `value` trigger
+//    survives the save→reload round-trip idempotently, and a PARTIAL value trigger is
+//    dropped without corrupting its siblings in the same doc.
+// ---------------------------------------------------------------------------
+
+console.log('round-trip — value binding edges (§11)');
+
+// A doc with a VALID value edge (producer `balance` → the HUD balance display's value input)
+// alongside an ordinary bookEvent edge, to prove siblings are untouched.
+const valueDoc: FlowDoc = {
+	version: 1,
+	projectKey: 'p',
+	screens: [{ id: 'baseGame', initial: true }, { id: 'hud' }],
+	transitions: [
+		{
+			id: 't_value',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: {
+				kind: 'value',
+				producer: 'balance',
+				sink: { instanceId: 'inst_balance', source: 'balance' },
+			},
+		},
+		{
+			id: 't_book',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: { kind: 'bookEvent', event: 'setWin' },
+		},
+	],
+};
+
+const valueStored = normalizeFlowDoc(JSON.parse(JSON.stringify(valueDoc)), 'p');
+const valueReloaded = normalizeFlowDoc(JSON.parse(JSON.stringify(valueStored)), 'p');
+const valueEdge = valueStored.transitions.find((t) => t.id === 't_value');
+assert(
+	valueEdge?.trigger.kind === 'value' &&
+		valueEdge.trigger.producer === 'balance' &&
+		valueEdge.trigger.sink.instanceId === 'inst_balance' &&
+		valueEdge.trigger.sink.source === 'balance',
+	'valid value trigger preserved (producer + sink)',
+);
+assert(eq(valueStored, valueReloaded), 'value edge round-trips idempotently (normalize ∘ JSON)');
+assert(eq(normalizeFlowDoc(valueStored), valueStored), 'value-edge doc is a normalize fixed point');
+
+// PARTIAL value triggers — missing `producer`, or `sink.instanceId`, or `sink.source` — must be
+// dropped (the edge is invalid ⇒ no trigger ⇒ transition dropped), WITHOUT touching the valid
+// sibling in the same doc. This is the parity discipline (§11.6): a partial edge reverts to
+// auto-bind, never a stored half-edge.
+const partialDoc = {
+	version: 1,
+	projectKey: 'p',
+	screens: [{ id: 'baseGame' }, { id: 'hud' }],
+	transitions: [
+		{
+			id: 'noProducer',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: { kind: 'value', sink: { instanceId: 'i', source: 's' } },
+		},
+		{
+			id: 'noInstance',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: { kind: 'value', producer: 'balance', sink: { source: 's' } },
+		},
+		{
+			id: 'noSource',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: { kind: 'value', producer: 'balance', sink: { instanceId: 'i' } },
+		},
+		{
+			id: 'noSink',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: { kind: 'value', producer: 'balance' },
+		},
+		{
+			id: 'goodValue',
+			from: 'baseGame',
+			to: 'hud',
+			trigger: {
+				kind: 'value',
+				producer: 'win',
+				sink: { instanceId: 'inst_win', source: 'win' },
+			},
+		},
+	],
+};
+const partialCleaned = normalizeFlowDoc(partialDoc, 'p');
+const survivingIds = partialCleaned.transitions.map((t) => t.id).sort();
+assert(
+	eq(survivingIds, ['goodValue']),
+	'all partial value triggers dropped; the valid sibling survives',
+);
+const surviving = partialCleaned.transitions.find((t) => t.id === 'goodValue');
+assert(
+	surviving?.trigger.kind === 'value' &&
+		surviving.trigger.producer === 'win' &&
+		surviving.trigger.sink.instanceId === 'inst_win' &&
+		surviving.trigger.sink.source === 'win',
+	'the valid sibling value trigger is preserved intact after partials dropped',
+);
 
 console.log('');
 if (failures > 0) {
