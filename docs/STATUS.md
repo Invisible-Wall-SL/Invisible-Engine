@@ -24,6 +24,51 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-02 — Invisible Flow: tap-to-continue surface made TRANSFORM-INDEPENDENT (portrait fix)
+
+Fixes the known `STILL-OWED: transform-independent tapToContinue dim` gap. On a flow-driven screen
+whose overlay `componentInstance` has `tapToContinue: true` (e.g. Book of Borut's loading screen),
+the full-CANVAS tap surface (dim `CanvasSizeRectangle` + `OnPressFullScreen` hit rect +
+`PressToContinue` prompt) was broken in PORTRAIT — the prompt was mis-sized and the full-screen tap
+area landed nowhere; landscape was fine. **Root cause:** `ComponentInstance.svelte` rendered
+`tapSurface` INSIDE its `rendered` snippet, which `LayoutNodeView`'s componentInstance branch wraps
+in `<Container x=posX y=posY scale=transform.scale …>`, so the "full-screen" surface inherited the
+instance's PER-LAYOUTTYPE transform. In portrait the editor stores an offset+downscale for that
+instance → the `canvasSizes()`-sized rect was pushed off the visible canvas (clicks miss) and the
+`MainContainer`-anchored prompt was double-scaled. The free-spin gate works because it's a
+scene-root canvas bind (never positioned).
+
+**Fix (hoist to a scene-root sibling — no matrix math).** `ComponentInstance` now EXPOSES its
+`tapSurface` snippet UP via a new bindable `tap?: Snippet` prop (init-stable, assigned once to
+`tapComponent ? tapSurface : undefined`) and no longer renders it inside `rendered`.
+`LayoutNodeView`'s componentInstance branch binds it (`bind:tap={instanceTap}`) and `{@render}`s it
+as a SIBLING of the transform wrapper `<Container>` — so the tap surface renders in the
+scene-root/canvas frame, exactly like the engine-owned free-spin gate, independent of the instance's
+authored placement/scale. Generic (no loading-screen/magic-id special-casing) — any overlay instance
+on any flow screen benefits. Correct even under a rotated/non-uniform instance transform.
+
+**Parity (§7):** inert when `tapToContinue` is OFF (the default) — `tap`/`instanceTap` stay
+`undefined`, `{#if instanceTap}` renders nothing, and the non-tap `rendered` output is unchanged
+(byte-identical). Existing `tapDimColor`/`tapDimAlpha`/`tapHidePrompt`/`tapSignal` behaviour
+untouched.
+
+**Verified headlessly:** new CPU scene-graph harness
+`packages/engine-layout/scripts/test-tap-transform-independence.mjs` builds BOTH candidate PIXI
+trees (transform math is CPU-only, no GPU/DOM) and asserts world bounds of the full-canvas rect: OLD
+(child of instance transform) → portrait bounds do NOT cover the canvas (bug reproduced); NEW
+(hoisted sibling) → covers the full canvas in BOTH landscape `{0,0,1920,1080}` and portrait
+`{0,0,1080,1920}`, and under a hostile rotated/non-uniform instance transform. `pnpm --filter
+engine-layout build` GREEN; `pnpm --filter lines... build` GREEN (bindable-snippet contract compiles
+across the package boundary). Prettier-clean.
+
+**Runtime bundle:** engine-layout `dist` is `svelte-package` source-copy (already regenerated); the
+online games run the SHARED runtime bundle, so this reaches Book of Borut ONLY via a runtime-bundle
+republish (`publish-runtime-bundle.mjs`) — NOT a submodule bump. **Owner ships after review; not yet
+published.** Owner-verify live: portrait tap lands anywhere + prompt correctly sized, landscape
+unchanged. Files: `packages/engine-layout/src/lib/{ComponentInstance,LayoutNodeView}.svelte`,
+`packages/engine-layout/scripts/test-tap-transform-independence.mjs`,
+`docs/design/invisible-flow.md` (progress).
+
 ### 2026-07-02 — Invisible Flow: droppable "Transition (fade)" entrance transition
 
 A NEW Flow feature — a droppable **"Transition (fade)"** the author drops onto a connection to give

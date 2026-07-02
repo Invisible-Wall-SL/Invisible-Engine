@@ -1331,3 +1331,60 @@ Rule of thumb: if it's "build the well-understood thing," Opus 4.8; if it's "get
 subtle concurrency/timing exactly right or the game visibly breaks," Fable 5.
 Blanket Fable-5 for the whole build would waste tokens; Opus-only through the parity
 spikes risks missing a subtle timing mismatch — hence the split.
+
+### Progress — tap-to-continue surface made transform-independent DONE (2026-07-02)
+
+Fixes the known `STILL-OWED: transform-independent tapToContinue dim` gap: on a flow-driven
+screen whose overlay `componentInstance` has `tapToContinue: true`, the full-CANVAS tap surface
+(dim `CanvasSizeRectangle` + `OnPressFullScreen` hit rect + `PressToContinue` prompt) was broken
+in PORTRAIT — the prompt was mis-sized and the full-screen tap area landed nowhere. Landscape was
+fine. Reported on the shipped Book of Borut loading screen.
+
+**Root cause.** `ComponentInstance.svelte` rendered `tapSurface` INSIDE its `rendered` snippet,
+which `LayoutNodeView.svelte`'s componentInstance branch wraps in
+`<Container x={posX} y={posY} scale={transform.scale} rotation …>`. So the "full-screen" tap
+surface inherited the instance's PER-LAYOUTTYPE transform. In portrait the editor stores an
+offset + downscale for that instance, so the `canvasSizes()`-sized rectangle was pushed off the
+visible canvas (clicks miss) and the `MainContainer`-anchored prompt was double-scaled. The
+free-spin gate (`FreeSpinIntroGate`) uses the SAME primitives correctly because it is mounted as
+a scene-root canvas bind — never positioned.
+
+**Fix (approach: hoist to a scene-root sibling, no matrix math).** `ComponentInstance` now
+EXPOSES its `tapSurface` snippet UP via a new bindable `tap?: Snippet` prop (assigned once,
+init-stable, to `tapComponent ? tapSurface : undefined`) and no longer renders it inside
+`rendered`. `LayoutNodeView`'s componentInstance branch binds it (`bind:tap={instanceTap}`) and
+renders it as a SIBLING of the transform wrapper `<Container>` — so the tap surface renders in the
+scene-root/canvas frame, exactly like the engine-owned free-spin gate, independent of the
+instance's authored placement/scale. Generic (no loading-screen/magic-id special-casing) — any
+overlay instance on any flow screen benefits. Chosen over a transform-neutralizing wrapper because
+it needs no matrix inversion and is correct even under a rotated/non-uniform instance transform.
+
+**Parity (§7).** Inert when `tapToContinue` is OFF (the default): `tap`/`instanceTap` stay
+`undefined`, the `{#if instanceTap}` renders nothing, and the non-tap `rendered` output is
+unchanged — byte-identical for every instance that hasn't enabled the capability. Existing
+`tapDimColor`/`tapDimAlpha`/`tapHidePrompt`/`tapSignal` behaviour is untouched (same props, same
+coded `TapToContinue`/`PressToContinue`).
+
+**Files.** `packages/engine-layout/src/lib/ComponentInstance.svelte` (Props gains `tap?: Snippet`;
+`$bindable()` destructure; `$effect` hands the `tapSurface` snippet up; removed the in-transform
+`{@render tapSurface()}`). `packages/engine-layout/src/lib/LayoutNodeView.svelte` (import `Snippet`;
+`instanceTap` `$state`; `bind:tap` on `<ComponentInstance>`; `{#if instanceTap}{@render}` sibling
+of the wrapper).
+
+**Verified headlessly.** New CPU scene-graph harness
+`packages/engine-layout/scripts/test-tap-transform-independence.mjs` builds BOTH candidate PIXI
+trees (transform math is CPU-only, no GPU/DOM) and asserts world bounds of the full-canvas rect:
+OLD (child of the instance transform) → portrait bounds `{x:240,y:620,w:669.6,h:1190.4}` do NOT
+cover the canvas (bug reproduced); NEW (hoisted sibling) → covers the full canvas in BOTH landscape
+`{0,0,1920,1080}` and portrait `{0,0,1080,1920}`, AND under a hostile rotated/non-uniform instance
+transform. `pnpm --filter engine-layout build` GREEN; `pnpm --filter lines... build` GREEN
+(confirms the bindable-snippet contract compiles across the package boundary). Prettier-clean.
+
+**Runtime bundle.** engine-layout `dist` is `svelte-package` source-copy, already regenerated; the
+online games run the SHARED runtime bundle, so this reaches Book of Borut ONLY via a runtime-bundle
+republish (`publish-runtime-bundle.mjs`) — NOT a submodule bump. Owner will handle the release after
+review. Not yet shipped.
+
+**Still needs owner-verify live:** confirm in a running Book of Borut (or apps/lines with a
+tap-enabled overlay authored on the loading screen) that in PORTRAIT the tap lands anywhere on the
+canvas and the prompt is correctly sized, and that landscape is unchanged.

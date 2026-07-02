@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import type { Snippet } from 'svelte';
+
 	import type { LayoutNode, Scene, TextStyle } from './types';
 
 	export type Props = { node: LayoutNode; space?: Scene['space'] };
@@ -42,6 +44,12 @@
 	const { node, space }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
+
+	// The hoisted tap-to-continue surface exposed by a `tapToContinue`-enabled
+	// `componentInstance` child (see the componentInstance branch below). `undefined`
+	// for every other node kind and every non-tap instance ⇒ nothing extra renders
+	// (byte-identical parity).
+	let instanceTap = $state<Snippet | undefined>(undefined);
 
 	// Signal-driven spine-anim overrides (§8.5, spine-only). `undefined` when this
 	// node has no `componentInstance` ancestor providing the context — a scene-level
@@ -424,8 +432,21 @@
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
 		>
-			<ComponentInstance {node} {space} />
+			<ComponentInstance {node} {space} bind:tap={instanceTap} />
 		</Container>
+		<!--
+			Tap-to-continue hoist (Invisible Flow §6.2): a `tapToContinue`-enabled overlay
+			instance exposes its full-CANVAS tap surface (dim + full-screen hit area + prompt)
+			via `bind:tap`; we render it HERE, as a SIBLING of the transform wrapper above, so
+			it covers the real canvas regardless of the instance's per-layoutType placement/
+			scale (the portrait offset+scale used to push the "full-screen" hit rectangle off
+			the visible canvas and double-scale the prompt). This mirrors the engine-owned
+			free-spin gate, which is a scene-root canvas bind — never positioned. OFF ⇒
+			`instanceTap` stays undefined ⇒ nothing renders here (byte-identical parity).
+		-->
+		{#if instanceTap}
+			{@render instanceTap()}
+		{/if}
 	{:else if node.kind === 'sprite'}
 		<Sprite
 			key={spriteKey}

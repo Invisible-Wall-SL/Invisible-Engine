@@ -7,7 +7,21 @@
 		SpineCue,
 	} from './types';
 
-	export type Props = { node: ComponentInstanceNode; space?: Scene['space'] };
+	import type { Snippet } from 'svelte';
+
+	export type Props = {
+		node: ComponentInstanceNode;
+		space?: Scene['space'];
+		// The tap-to-continue surface (dim + full-screen hit area + prompt) is a full-CANVAS
+		// overlay: its coverage must NOT inherit the instance's per-layoutType placement/scale
+		// (else in portrait the offset+scaled instance transform pushes the "full-screen" hit
+		// rectangle off the visible canvas → clicks miss, and double-scales the prompt). So
+		// instead of rendering it inside this instance's transform, we EXPOSE it as a bindable
+		// snippet that the caller (`LayoutNodeView`'s componentInstance branch) renders as a
+		// SIBLING of the transform wrapper — untransformed, in the scene-root/canvas frame,
+		// exactly like the engine-owned free-spin gate. Undefined ⇒ nothing hoisted (parity).
+		tap?: Snippet;
+	};
 </script>
 
 <script lang="ts">
@@ -49,7 +63,7 @@
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
 
-	const { node, space }: Props = $props();
+	let { node, space, tap = $bindable() }: Props = $props();
 
 	// The space the component's OWN children render in. A component placed in a
 	// `background` scene is cover-fit as ONE unit by the instance's wrapping container
@@ -578,6 +592,16 @@
 		if (liveDisabled) return;
 		actionSource?.onpress?.();
 	};
+
+	// Hoist the tap-to-continue surface out of this instance's transform: hand the
+	// `tapSurface` snippet UP to the caller (`LayoutNodeView`) via the bindable `tap` prop
+	// so it renders as a SIBLING of the transform wrapper (canvas/scene-root frame), not a
+	// transformed child. OFF (no tap) ⇒ `tap` stays undefined ⇒ nothing is hoisted and the
+	// componentInstance branch renders byte-identically. Init-stable (like the other tap
+	// reads), assigned once. `tapSurface` is a markup snippet, referenced here as a value.
+	$effect(() => {
+		tap = tapComponent ? tapSurface : undefined;
+	});
 </script>
 
 {#snippet tapSurface()}
@@ -617,7 +641,6 @@
 	{:else}
 		<LayoutNodeView node={root} space={childSpace} />
 	{/if}
-	{@render tapSurface()}
 {/snippet}
 
 {#if allowed && def}
