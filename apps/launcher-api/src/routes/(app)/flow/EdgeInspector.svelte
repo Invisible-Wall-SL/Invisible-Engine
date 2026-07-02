@@ -123,33 +123,46 @@
 </script>
 
 <div class="edge-inspector">
-	<h3>Transition</h3>
+	<h3>{edge.trigger.kind === 'value' ? 'Value binding' : 'Transition'}</h3>
 	<p class="route">{labelFor(edge.from)} → {labelFor(edge.to)}</p>
 
-	<label class="field">
-		<span>Trigger</span>
-		<select
-			value={edge.trigger.kind}
-			onchange={(e) => setKind(e.currentTarget.value as FlowTrigger['kind'])}
-		>
-			<option value="bookEvent">Book event</option>
-			<option value="complete">Screen complete</option>
-			<option value="signal">Tap signal</option>
-			<option value="condition">Engine condition</option>
-		</select>
-	</label>
+	{#if edge.trigger.kind === 'value'}
+		<!-- A value binding edge (design doc §11) is NOT an active-set transition — it's a reactive
+		     subscription override, read-only in the inspector (its producer/sink live on the pins it
+		     connects; re-point it by re-drawing the wire, remove it with Delete). -->
+		<p class="semantic value">
+			<span class="mark">≈ Value binding</span> — a reactive subscription: display "{edge.trigger
+				.sink.instanceId}" ({edge.trigger.sink.source}) reads the
+			<strong>{edge.trigger.producer}</strong> feed instead of its own default source. It moves NO screen
+			state. Delete to revert the display to auto-binding by its own source name.
+		</p>
+	{:else}
+		<label class="field">
+			<span>Trigger</span>
+			<select
+				value={edge.trigger.kind}
+				onchange={(e) => setKind(e.currentTarget.value as FlowTrigger['kind'])}
+			>
+				<option value="bookEvent">Book event</option>
+				<option value="complete">Screen complete</option>
+				<option value="signal">Tap signal</option>
+				<option value="condition">Engine condition</option>
+			</select>
+		</label>
 
-	<p class="semantic" class:handoff={semantic === 'handoff'} class:layer={semantic === 'layer'}>
-		{#if semantic === 'handoff'}
-			<span class="mark">⇥ Handoff</span> — "{labelFor(edge.from)}" hides and "{labelFor(edge.to)}"
-			becomes active. Use to move BETWEEN screens (e.g. loading → base game).
-		{:else}
-			<span class="mark">⧉ Layer</span> — "{labelFor(edge.to)}" activates OVER "{labelFor(
-				edge.from,
-			)}", which stays active underneath. Use for a celebration/overlay above a persistent screen.
-			Add a Complete edge back from "{labelFor(edge.to)}" so it can dismiss itself.
-		{/if}
-	</p>
+		<p class="semantic" class:handoff={semantic === 'handoff'} class:layer={semantic === 'layer'}>
+			{#if semantic === 'handoff'}
+				<span class="mark">⇥ Handoff</span> — "{labelFor(edge.from)}" hides and "{labelFor(
+					edge.to,
+				)}" becomes active. Use to move BETWEEN screens (e.g. loading → base game).
+			{:else}
+				<span class="mark">⧉ Layer</span> — "{labelFor(edge.to)}" activates OVER "{labelFor(
+					edge.from,
+				)}", which stays active underneath. Use for a celebration/overlay above a persistent screen.
+				Add a Complete edge back from "{labelFor(edge.to)}" so it can dismiss itself.
+			{/if}
+		</p>
+	{/if}
 
 	{#if edge.trigger.kind === 'bookEvent'}
 		<label class="field">
@@ -171,86 +184,96 @@
 		</label>
 	{/if}
 
-	<label class="field">
-		<span>Delay (ms)</span>
-		<input
-			type="number"
-			min="0"
-			value={edge.delayMs ?? ''}
-			placeholder="none"
-			oninput={(e) => setDelay(e.currentTarget.value)}
-		/>
-	</label>
+	<!-- Delay / order / guard / entrance-fade are active-set concepts — hidden for a value binding
+	     edge (design doc §11.5), which carries none of them. -->
+	{#if edge.trigger.kind !== 'value'}
+		<label class="field">
+			<span>Delay (ms)</span>
+			<input
+				type="number"
+				min="0"
+				value={edge.delayMs ?? ''}
+				placeholder="none"
+				oninput={(e) => setDelay(e.currentTarget.value)}
+			/>
+		</label>
 
-	<label class="field">
-		<span>Order</span>
-		<input type="number" value={edge.order ?? 0} oninput={(e) => setOrder(e.currentTarget.value)} />
-	</label>
+		<label class="field">
+			<span>Order</span>
+			<input
+				type="number"
+				value={edge.order ?? 0}
+				oninput={(e) => setOrder(e.currentTarget.value)}
+			/>
+		</label>
 
-	<div class="guard">
-		<span class="guard-title">Guard (optional)</span>
-		<div class="guard-row">
-			<input bind:value={guardLeft} placeholder="$engine.win" />
-			<select bind:value={guardOp}>
-				{#each COMPARATORS as c (c)}
-					<option value={c}>{c}</option>
-				{/each}
-			</select>
-			<input bind:value={guardRight} placeholder="value" />
-		</div>
-		<div class="guard-actions">
-			<button onclick={applyGuard}>Set guard</button>
-			{#if edge.guard}<button class="link" onclick={clearGuard}>clear</button>{/if}
-		</div>
-	</div>
-
-	<div class="fade">
-		<span class="fade-title">Entrance transition</span>
-		<p class="fade-explain">
-			{#if fade}
-				<span class="mark">◐ Fade</span> — "{labelFor(edge.to)}" mounts hidden and fades in over
-				{fade.ms}ms (scaled by turbo). Remove for an instant cut.
-			{:else}
-				A hard CUT — "{labelFor(edge.to)}" appears instantly when it activates. Add a fade to ease
-				it in.
-			{/if}
-		</p>
-		{#if fade}
-			<div class="fade-row">
-				<label class="field">
-					<span>Kind</span>
-					<select value="fade" disabled>
-						<option value="fade">Fade</option>
-					</select>
-				</label>
-				<label class="field">
-					<span>Duration (ms)</span>
-					<input
-						type="number"
-						min="0"
-						value={fade.ms}
-						oninput={(e) => setFadeMs(e.currentTarget.value)}
-					/>
-				</label>
-				<label class="field">
-					<span>Easing</span>
-					<select
-						value={fade.easing ?? 'linear'}
-						onchange={(e) => setFadeEasing(e.currentTarget.value)}
-					>
-						{#each EASINGS as ease (ease)}
-							<option value={ease}>{ease}</option>
-						{/each}
-					</select>
-				</label>
+		<div class="guard">
+			<span class="guard-title">Guard (optional)</span>
+			<div class="guard-row">
+				<input bind:value={guardLeft} placeholder="$engine.win" />
+				<select bind:value={guardOp}>
+					{#each COMPARATORS as c (c)}
+						<option value={c}>{c}</option>
+					{/each}
+				</select>
+				<input bind:value={guardRight} placeholder="value" />
 			</div>
-			<button class="link" onclick={removeFade}>Remove transition</button>
-		{:else}
-			<button class="fade-add" onclick={attachFade}>Add fade transition</button>
-		{/if}
-	</div>
+			<div class="guard-actions">
+				<button onclick={applyGuard}>Set guard</button>
+				{#if edge.guard}<button class="link" onclick={clearGuard}>clear</button>{/if}
+			</div>
+		</div>
 
-	<button class="danger" onclick={ondelete}>Delete transition</button>
+		<div class="fade">
+			<span class="fade-title">Entrance transition</span>
+			<p class="fade-explain">
+				{#if fade}
+					<span class="mark">◐ Fade</span> — "{labelFor(edge.to)}" mounts hidden and fades in over
+					{fade.ms}ms (scaled by turbo). Remove for an instant cut.
+				{:else}
+					A hard CUT — "{labelFor(edge.to)}" appears instantly when it activates. Add a fade to ease
+					it in.
+				{/if}
+			</p>
+			{#if fade}
+				<div class="fade-row">
+					<label class="field">
+						<span>Kind</span>
+						<select value="fade" disabled>
+							<option value="fade">Fade</option>
+						</select>
+					</label>
+					<label class="field">
+						<span>Duration (ms)</span>
+						<input
+							type="number"
+							min="0"
+							value={fade.ms}
+							oninput={(e) => setFadeMs(e.currentTarget.value)}
+						/>
+					</label>
+					<label class="field">
+						<span>Easing</span>
+						<select
+							value={fade.easing ?? 'linear'}
+							onchange={(e) => setFadeEasing(e.currentTarget.value)}
+						>
+							{#each EASINGS as ease (ease)}
+								<option value={ease}>{ease}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
+				<button class="link" onclick={removeFade}>Remove transition</button>
+			{:else}
+				<button class="fade-add" onclick={attachFade}>Add fade transition</button>
+			{/if}
+		</div>
+	{/if}
+
+	<button class="danger" onclick={ondelete}
+		>{edge.trigger.kind === 'value' ? 'Delete binding' : 'Delete transition'}</button
+	>
 </div>
 
 <style>
@@ -290,6 +313,10 @@
 	.semantic.layer {
 		border-color: #4a3a1c;
 	}
+	/* Value binding explainer (design doc §11) — sky-blue, matching the producer/value edge hue. */
+	.semantic.value {
+		border-color: #164a5f;
+	}
 	.semantic .mark {
 		font-weight: 600;
 	}
@@ -298,6 +325,9 @@
 	}
 	.semantic.layer .mark {
 		color: #fdba74;
+	}
+	.semantic.value .mark {
+		color: #7dd3fc;
 	}
 	.field {
 		display: flex;

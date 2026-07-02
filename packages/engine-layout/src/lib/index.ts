@@ -33,6 +33,7 @@ export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerComponentVisibility';
 export * from './registerFlowComplete';
+export * from './registerFlowValueSource';
 export * from './registerComponentSignals';
 export * from './registerComponentDefaults';
 export * from './registerTextResolver';

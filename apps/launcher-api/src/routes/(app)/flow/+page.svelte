@@ -99,7 +99,28 @@
 	// literal at runtime — this surfaces it as a non-blocking warning (§11.4).
 	const engineKeys = ENGINE_PARAM_CATALOG.map((p) => p.key);
 	const contextRoots = ['bookEvents'];
-	const issues = $derived(validateFlowDoc(doc, orphanSummary, { engineKeys, contextRoots }));
+	// Value-dataflow validation (design doc §11.6): the producer feeds a `value` edge may name
+	// (the engine catalog keys) + the LIVE consumer value-pin keys `${instanceId}::${source}` its
+	// `sink` may target — so a typo'd producer or an orphaned sink (deleted display) is warned.
+	const valueSinkKeys = $derived(
+		model.screens.flatMap((s) =>
+			s.pins.filter((p) => p.role === 'value' && p.key).map((p) => `${p.instanceId}::${p.key}`),
+		),
+	);
+	const issues = $derived(
+		validateFlowDoc(doc, orphanSummary, {
+			engineKeys,
+			contextRoots,
+			producerFeeds: engineKeys,
+			valueSinkKeys,
+		}),
+	);
+	// Consumer value INPUT pin ids that HAVE an incoming `value` binding edge — an EXPLICIT
+	// override (design doc §11.5). A value pin NOT in this set is AUTO-WIRED by its own `source`
+	// name. Threaded to the node so it can mark auto-vs-explicit on each value pin.
+	const boundValuePinIds = $derived(
+		new Set(doc.transitions.filter((t) => t.trigger.kind === 'value').map((t) => t.toPin ?? '')),
+	);
 	// Screen ids the validation pass flagged — drives the inline node marker.
 	const invalidScreenIds = $derived(
 		new Set(issues.map((i) => i.screenId).filter((id): id is string => Boolean(id))),
@@ -135,6 +156,9 @@
 				// The resolved intent host (design doc §8.6) — the screen carrying the game's intent
 				// input pins. Shown as a badge so the author sees which node owns Spin/etc.
 				intentHost: view.screen.id === model.intentHostId,
+				// Consumer value pins WITH an incoming value binding edge (design doc §11.5) — the node
+				// marks these EXPLICIT vs the auto-wired (unbound) value pins.
+				boundValuePinIds,
 				invalid: invalidScreenIds.has(view.screen.id),
 			},
 		}));
@@ -147,6 +171,9 @@
 	// and cluttered; the trigger/guard/fade details live in the edge inspector on selection).
 	const HANDOFF_COLOR = '#64748b';
 	const LAYER_COLOR = '#f59e0b';
+	// Value binding edges (design doc §11) read in the bright sky-blue of the producer pin — a
+	// reactive subscription, visually its own thing (thin, static) vs the active-set hide/layer edges.
+	const VALUE_EDGE_COLOR = '#38bdf8';
 	const SELECTED_EDGE_COLOR = '#2563eb';
 
 	// The exact xyflow source/target HANDLES for an edge — so the wire renders from the REAL pins the
@@ -165,6 +192,13 @@
 				?.pins.find((p) => p.role === 'action' && p.key === t.trigger.pin);
 			return { sourceHandle: src?.id, targetHandle: `${t.to}::intent:${t.trigger.intent}` };
 		}
+		if (t.trigger.kind === 'value') {
+			// producer OUTPUT (`${from}::produces:<feed>`) → consumer value INPUT (`${sink}::value:<src>`).
+			return {
+				sourceHandle: `${t.from}::produces:${t.trigger.producer}`,
+				targetHandle: `${t.trigger.sink.instanceId}::value:${t.trigger.sink.source}`,
+			};
+		}
 		// bookEvent / signal / condition activate the target's Enter; a legacy source pin is unknown.
 		return { targetHandle: `${t.to}::enter` };
 	}
@@ -177,8 +211,18 @@
 				? SELECTED_EDGE_COLOR
 				: semantic === 'handoff'
 					? HANDOFF_COLOR
-					: LAYER_COLOR;
+					: semantic === 'value'
+						? VALUE_EDGE_COLOR
+						: LAYER_COLOR;
 			const { sourceHandle, targetHandle } = edgeHandles(t);
+			// A value binding edge is its OWN class — a thin value-blue line (design doc §11.5), NOT
+			// the handoff-solid / layer-dashed active-set styling, since it moves no state.
+			const edgeClass =
+				semantic === 'value'
+					? 'flow-edge-value'
+					: semantic === 'layer'
+						? 'flow-edge-layer'
+						: 'flow-edge-handoff';
 			return {
 				id: t.id,
 				source: t.from,
@@ -189,7 +233,7 @@
 				// A layering edge is dashed (the target rides OVER the persistent source, not a
 				// clean baton-pass); a handoff edge is solid. Book-event edges stay animated.
 				animated: t.trigger.kind === 'bookEvent',
-				class: semantic === 'layer' ? 'flow-edge-layer' : 'flow-edge-handoff',
+				class: edgeClass,
 				selected,
 			};
 		});
@@ -220,6 +264,15 @@
 		return at !== undefined && at >= 0 ? handle!.slice(at + marker.length) : undefined;
 	}
 
+	// Extract the INSTANCE-ID prefix from a `${instanceId}::${role}:${key}` dynamic pin id — the
+	// substring BEFORE `::<role>:`. Used to build a value edge's `sink.instanceId` from the consumer
+	// value pin the author dropped onto (design doc §11.4). Undefined when the handle isn't that role.
+	function pinInstanceId(handle: string | null | undefined, role: string): string | undefined {
+		const marker = `::${role}:`;
+		const at = handle?.lastIndexOf(marker);
+		return at !== undefined && at >= 0 ? handle!.slice(0, at) : undefined;
+	}
+
 	function onConnect(c: Connection): void {
 		if (!c.source || !c.target) return;
 		// An ACTION → INTENT wire (design doc §8): dragging FROM a button's `::action:<key>` output
@@ -237,6 +290,33 @@
 					c.source,
 					c.target,
 					{ kind: 'action', pin: actionKey, intent: intentKey },
+					{ fromPin: c.sourceHandle, toPin: c.targetHandle },
+				),
+			);
+			return;
+		}
+		// A PRODUCER → VALUE wire (design doc §11): dragging FROM the host's `::produces:<feed>` OUTPUT
+		// pin INTO a HUD display's `::value:<source>` INPUT pin mints a `value` binding edge — the
+		// display then SUBSCRIBES to the producer feed's store instead of its own `source` name (a
+		// reactive subscription override, never a copy; it moves NO active set). Orientation: the
+		// producer is the OUTPUT (xyflow source/right handle), the consumer value pin is the INPUT
+		// (target/left handle), so `sourceHandle` carries `produces` and `targetHandle` carries
+		// `value`. A producer dropped onto a NON-value target is rejected (no blank edge).
+		const producerKey = pinRoleKey(c.sourceHandle, 'produces');
+		if (producerKey !== undefined) {
+			const sinkSource = pinRoleKey(c.targetHandle, 'value');
+			const sinkInstanceId = pinInstanceId(c.targetHandle, 'value');
+			if (sinkSource === undefined || sinkInstanceId === undefined) return; // producer → non-value
+			commit(
+				addTransition(
+					doc,
+					c.source,
+					c.target,
+					{
+						kind: 'value',
+						producer: producerKey,
+						sink: { instanceId: sinkInstanceId, source: sinkSource },
+					},
 					{ fromPin: c.sourceHandle, toPin: c.targetHandle },
 				),
 			);
@@ -967,6 +1047,12 @@
 	   static dash, so the dash reads on non-animated layer edges — condition/signal). */
 	.canvas :global(.svelte-flow__edge.flow-edge-layer:not(.animated) .svelte-flow__edge-path) {
 		stroke-dasharray: 6 4;
+	}
+	/* A VALUE binding edge (design doc §11) — a THIN, static value-blue line, visually distinct
+	   from the active-set hide/layer edges (it moves no state, it's a reactive subscription). */
+	.canvas :global(.svelte-flow__edge.flow-edge-value .svelte-flow__edge-path) {
+		stroke-width: 1.25;
+		stroke-dasharray: 2 3;
 	}
 	/* The SELECTED edge (click to select, Delete/Backspace to remove) — thicken the wire so the
 	   pick reads at a glance, on top of the accent-blue stroke the per-edge `style` already sets

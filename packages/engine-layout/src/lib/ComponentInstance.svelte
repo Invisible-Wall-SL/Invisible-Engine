@@ -46,6 +46,7 @@
 	import { setComponentStateAnims } from './componentStateAnimContext';
 	import { setComponentSpineRest } from './componentSpineRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
+	import { getFlowValueSource } from './registerFlowValueSource';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getComponentSignal } from './registerComponentSignals';
@@ -187,7 +188,14 @@
 	// stays undefined and the provided params equal B1's static map exactly (parity
 	// — the `value` getter below then never appears).
 	const source = typeof staticParams['source'] === 'string' ? staticParams['source'] : undefined;
-	const valueSource: ValueSource | undefined = source ? getComponentValueSource(source) : undefined;
+	// Flow value dataflow (design doc §11.4): resolve the display's feed NAME through the Flow
+	// interpreter's authored value-binding overrides before the store lookup, so an authored value
+	// edge redirects which registered `ValueSource` this display subscribes to (a subscription
+	// override, never a copy). NO resolver registered (no FlowDoc / inert interpreter) ⇒ `?.` short-
+	// circuits and the `?? source` fallback yields the display's OWN feed verbatim ⇒ byte-identical
+	// to today (parity §11.6). Resolved once at init, exactly like `source` above (same reactivity).
+	const feed = source ? (getFlowValueSource()?.(node.id, source) ?? source) : undefined;
+	const valueSource: ValueSource | undefined = feed ? getComponentValueSource(feed) : undefined;
 	let liveValue = $state<number | string | undefined>(undefined);
 	$effect(() => {
 		if (!valueSource) return;

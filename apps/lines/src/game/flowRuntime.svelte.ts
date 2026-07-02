@@ -38,6 +38,7 @@ import { waitForTimeout } from 'utils-shared/wait';
 
 import { bakedFlowDoc } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
+import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
@@ -60,7 +61,57 @@ declare global {
 	var __IE_FLOW_WIN__: boolean | undefined;
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_COND__: boolean | undefined;
+	/**
+	 * Dev-only live-verify hook for value dataflow (design doc §11 step 4). Re-point a HUD value
+	 * display at a DIFFERENT engine feed at runtime WITHOUT authoring/baking a FlowDoc, so the
+	 * `app.stage` verify can confirm the readout switches to the override feed's number. Call
+	 * `window.__IE_FLOW_VALUE__('<instanceId>', '<producerFeed>')` before/after boot; pass a falsy
+	 * `producerFeed` to CLEAR an override. It writes a game-side override map the registered value
+	 * resolver consults FIRST — it does NOT touch the interpreter's memoized `valueBindings` cache
+	 * (so nothing ships-hacked), and it works even with no FlowDoc (inert interpreter). Unset ⇒ the
+	 * override map is empty ⇒ every display resolves its own `source` (parity §11.6).
+	 */
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_VALUE__: ((instanceId: string, producerFeed: string) => void) | undefined;
 }
+
+/**
+ * Dev-only value-binding overrides injected via `window.__IE_FLOW_VALUE__` (see the global above).
+ * Keyed `${instanceId}::${source}` → override feed key, mirroring the interpreter's binding table.
+ * Empty on a normal boot (the hook is never called) ⇒ the resolver falls straight through to the
+ * interpreter / the display's own `source` (parity §11.6).
+ */
+const devValueOverrides = new Map<string, string>();
+
+if (typeof globalThis !== 'undefined') {
+	globalThis.__IE_FLOW_VALUE__ = (instanceId: string, producerFeed: string): void => {
+		// A falsy feed clears the override for EVERY source key on that instance (the display's own
+		// `source` isn't known here); a truthy feed overrides regardless of the display's own source
+		// name, so the verify can target `${instanceId}::${anySource}`. Keyed by instance for a simple
+		// "re-point this readout" verify — the value resolver matches on instance id first.
+		if (!producerFeed) {
+			for (const key of [...devValueOverrides.keys()]) {
+				if (key.startsWith(`${instanceId}::`)) devValueOverrides.delete(key);
+			}
+			return;
+		}
+		devValueOverrides.set(instanceId, producerFeed);
+	};
+}
+
+/**
+ * Resolve a value display's engine FEED, honouring (in order): a dev-only `__IE_FLOW_VALUE__`
+ * override on this instance, then the Flow interpreter's authored value-binding override
+ * (`resolveValueSource`, design doc §11.4), else the display's own `source` verbatim (auto-bind by
+ * name, §11.2 rule 3). Registered into engine-layout's `registerFlowValueSource` so
+ * `<ComponentInstance>` calls it at the subscription site. Interpreter absent/inert AND no dev
+ * override ⇒ returns `source` unchanged (byte-parity §11.6).
+ */
+export const linesValueResolver = (instanceId: string, source: string): string => {
+	const devOverride = devValueOverrides.get(instanceId);
+	if (devOverride) return devOverride;
+	return getFlowInterpreter()?.resolveValueSource(instanceId, source) ?? source;
+};
 
 /**
  * The bounded `$engine.*` reader (flow-driven-game §3, design doc §11.4) — a CLOSED key→value

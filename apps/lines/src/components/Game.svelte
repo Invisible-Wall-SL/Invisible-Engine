@@ -40,6 +40,7 @@
 		registerComponentActions,
 		registerComponentVisibility,
 		registerFlowComplete,
+		registerFlowValueSource,
 		registerComponentSignals,
 		registerFontCatalog,
 		mergeBakedFontCatalog,
@@ -74,7 +75,7 @@
 
 	import { infoManifest } from '../game/infoManifest';
 	import { resetSymbolMapCache } from '../game/symbolMap';
-	import { createLinesFlow, type LinesFlow } from '../game/flowRuntime.svelte';
+	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
 	import {
 		setFlowInterpreter,
 		completeActiveScreen,
@@ -274,6 +275,11 @@
 		completeActiveScreen: () => void completeActiveScreen(),
 		emitSignal: (signal: string) => void emitFlowSignal(signal),
 	});
+	// Flow value dataflow (design doc §11.4) — wire `<ComponentInstance>`'s value-feed lookup through
+	// the interpreter's authored value-binding overrides (+ the dev `__IE_FLOW_VALUE__` hook). No
+	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
+	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
+	registerFlowValueSource(linesValueResolver);
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
 	// `style.fontFamily` names one of these families, instead of a system-font

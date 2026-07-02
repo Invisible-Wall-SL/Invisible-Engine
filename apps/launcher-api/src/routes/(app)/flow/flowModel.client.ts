@@ -13,6 +13,7 @@ import {
 	deriveScreenPins,
 	isPersistentScreen,
 	type ComponentDefResolver,
+	type EngineFeed,
 	type FlowDoc,
 	type FlowGuard,
 	type FlowPin,
@@ -21,7 +22,15 @@ import {
 	type FlowTransitionEffect,
 	type FlowTrigger,
 } from 'engine-flow';
-import type { ComponentDef, LayoutDoc, Scene } from 'engine-layout';
+import { ENGINE_PARAM_CATALOG, type ComponentDef, type LayoutDoc, type Scene } from 'engine-layout';
+
+/** The declared engine value feeds surfaced as producer OUTPUT pins on the host (design doc §11.4)
+ *  — the `{key,label}` projection of the code-owned `ENGINE_PARAM_CATALOG`. The value-producer host
+ *  (the intent host, §11.3 option a) exposes one `produces:<feed>` pin per entry. */
+const ENGINE_FEEDS: EngineFeed[] = ENGINE_PARAM_CATALOG.map((e) => ({
+	key: e.key,
+	label: e.label,
+}));
 
 /** A screen node with its derived pins + the backing LayoutDoc scene — the canvas's view. */
 export interface FlowScreenView {
@@ -141,11 +150,18 @@ export const buildFlowModel = (
 	);
 	const hostId = resolveIntentHostId(doc, actionScreenIds);
 
-	// Pass 2 — derive each screen's pins, adding intent input pins ONLY on the host (design doc §8).
+	// Pass 2 — derive each screen's pins, adding intent input pins AND value-producer output pins
+	// ONLY on the host (design doc §8 + §11.4). Producers ride the SAME resolved host as intents
+	// (§11.3 option a): the host shows intent inputs (Spin, …) on the left and one `produces:<feed>`
+	// output per engine feed (balance/win/bet/…) on the right — the source pins a HUD display's
+	// `value` input wires into.
 	const screens: FlowScreenView[] = basePins.map(({ screen, scene }) => {
+		const isHost = screen.id === hostId;
 		const pins = deriveScreenPins(scene, resolve, {
 			intents,
-			isIntentHost: screen.id === hostId,
+			isIntentHost: isHost,
+			engineFeeds: ENGINE_FEEDS,
+			isProducerHost: isHost,
 		});
 		return { screen, scene, pins, orphanedPins: pins.filter((p) => p.orphaned) };
 	});

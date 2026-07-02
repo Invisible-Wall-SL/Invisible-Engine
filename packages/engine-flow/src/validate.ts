@@ -38,18 +38,24 @@ import type { ChoreographyNode, FlowAccessor, FlowDoc, FlowGuard, FlowTransition
 /**
  * The active-SET semantics of a transition edge (the core authoring lever). A `complete`
  * edge is a HANDOFF: the source fired its own Complete pin, so it DEACTIVATES (hides) and
- * the target activates. Every other trigger (`bookEvent` / `signal` / `condition`) is a
- * LAYER: the target activates ON TOP while the source PERSISTS underneath (a celebration over
- * a live board). The editor renders these two classes distinctly so the author sees which is
- * which; the interpreter (`presentation.ts`) enforces the same split at runtime — one rule,
- * two readers.
+ * the target activates. A `value` edge is a BINDING: a reactive subscription override of a
+ * display's engine feed (design doc §11) that moves NO active set — its own class so it never
+ * mis-reads as an active-set edge. Every other trigger (`bookEvent` / `signal` / `condition`
+ * / `action`) is a LAYER: the target activates ON TOP while the source PERSISTS underneath
+ * (a celebration over a live board). The editor renders these classes distinctly so the author
+ * sees which is which; the interpreter (`presentation.ts`) enforces the same split at runtime.
  */
-export type EdgeSemantics = 'handoff' | 'layer';
+export type EdgeSemantics = 'handoff' | 'layer' | 'value';
 
-/** Classify an edge by its trigger — `complete` ⇒ handoff (source hides), else ⇒ layer
- *  (source persists). The single source of truth the canvas + base-badge derivation share. */
+/** Classify an edge by its trigger — `complete` ⇒ handoff (source hides), `value` ⇒ binding
+ *  (a subscription override, no active-set change), else ⇒ layer (source persists). The single
+ *  source of truth the canvas + base-badge derivation share. */
 export const edgeSemantics = (transition: FlowTransition): EdgeSemantics =>
-	transition.trigger.kind === 'complete' ? 'handoff' : 'layer';
+	transition.trigger.kind === 'complete'
+		? 'handoff'
+		: transition.trigger.kind === 'value'
+			? 'value'
+			: 'layer';
 
 /** True when a screen PERSISTS in the active set — it has no outgoing `complete` edge, so it
  *  never fires its own Complete pin and is never removed (the base game's defining property).
@@ -66,7 +72,11 @@ export type FlowIssueKind =
 	| 'dead-end'
 	| 'orphaned-pins'
 	| 'stuck-overlay'
-	| 'unresolved-accessor';
+	| 'unresolved-accessor'
+	// A value binding edge (design doc §11) whose `producer` is not a registered engine feed, or
+	// whose `sink` display no longer exists — warned, never silently dropped (§11.6). One kind
+	// covers both value-edge breakages (the message distinguishes them).
+	| 'unresolved-producer';
 
 /** Issue severity. All Phase-7 issues are warnings (never block authoring, §7). */
 export type FlowIssueSeverity = 'warning';
@@ -97,6 +107,12 @@ export interface FlowValidateOptions {
 	engineKeys?: ReadonlySet<string> | string[];
 	/** The known `$context.*` roots (today effectively just `bookEvents`). Absent ⇒ skip. */
 	contextRoots?: ReadonlySet<string> | string[];
+	/** The engine value-FEED keys a `value` edge's `producer` may name (from `ENGINE_PARAM_CATALOG`,
+	 *  design doc §11). Absent ⇒ skip the unresolved-producer check (no false positives). */
+	producerFeeds?: ReadonlySet<string> | string[];
+	/** The live consumer value-pin keys `${instanceId}::${source}` a `value` edge's `sink` may target
+	 *  (from `deriveScreenPins`, design doc §11). Absent ⇒ skip the orphaned-sink check. */
+	valueSinkKeys?: ReadonlySet<string> | string[];
 }
 
 const toSet = (v: ReadonlySet<string> | string[] | undefined): Set<string> | undefined =>
@@ -263,6 +279,36 @@ export const validateFlowDoc = (
 				screenId: id,
 				message: `"${labelOf(id)}" layers over a persistent screen but has no outgoing "on complete" transition — it would never remove itself (add a Complete edge back to dismiss the overlay).`,
 			});
+		}
+	}
+
+	// --- Value binding edges: unresolved producer / orphaned sink (design doc §11.6) --------
+	// A `value` edge redirects a display's subscription. Warn (never drop, §11.6) when its
+	// `producer` isn't a registered engine feed (a typo ⇒ the display subscribes to nothing =
+	// empty readout) or its `sink` display no longer exists (the component was deleted). Each check
+	// is skipped when its vocabulary isn't supplied (no false positives when the caller omits it).
+	const producerFeeds = toSet(options.producerFeeds);
+	const valueSinkKeys = toSet(options.valueSinkKeys);
+	for (const t of doc.transitions) {
+		if (t.trigger.kind !== 'value') continue;
+		if (producerFeeds && !producerFeeds.has(t.trigger.producer)) {
+			issues.push({
+				kind: 'unresolved-producer',
+				severity: 'warning',
+				screenId: t.from,
+				message: `A value binding names producer "${t.trigger.producer}", which is not a registered engine feed — the display would subscribe to nothing (check the spelling).`,
+			});
+		}
+		if (valueSinkKeys) {
+			const sinkKey = `${t.trigger.sink.instanceId}::${t.trigger.sink.source}`;
+			if (!valueSinkKeys.has(sinkKey)) {
+				issues.push({
+					kind: 'unresolved-producer',
+					severity: 'warning',
+					screenId: t.to,
+					message: `A value binding targets display "${t.trigger.sink.instanceId}" (${t.trigger.sink.source}), which no longer exists — the wire is orphaned (delete it or re-point it).`,
+				});
+			}
 		}
 	}
 

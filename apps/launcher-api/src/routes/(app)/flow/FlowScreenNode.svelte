@@ -17,6 +17,9 @@
 		// The resolved intent host (design doc §8.6) — this screen carries the game's intent INPUT
 		// pins (Spin, …). Set by the page from the model; drives the "intents" badge.
 		intentHost?: boolean;
+		// Consumer value INPUT pin ids WITH an incoming value binding edge (design doc §11.5) — those
+		// are EXPLICITLY rewired; a value pin NOT in this set is AUTO-WIRED by its own `source` name.
+		boundValuePinIds?: Set<string>;
 		invalid?: boolean;
 	};
 	let { data, selected }: NodeProps = $props();
@@ -24,9 +27,22 @@
 
 	// The full binding behind a pin, for the hover tooltip — the label truncates in the
 	// handle row, so the title surfaces the role + binding key the wire actually points at.
+	// A consumer `value` INPUT pin with NO incoming value binding edge is AUTO-WIRED by its own
+	// `source` name (design doc §11.5) — the default read. One WITH an incoming edge is EXPLICITLY
+	// rewired to a producer feed. Drives a subtle "auto" affordance so the author tells them apart.
+	const isAutoWiredValue = (pin: FlowPin): boolean =>
+		pin.role === 'value' && !d.boundValuePinIds?.has(pin.id);
+
 	const pinTitle = (pin: FlowPin): string => {
 		if (pin.role === 'complete' && d.persistent) {
 			return "Complete — unused: this screen is persistent (no outgoing handoff), so it never fires Complete. Wire FROM here to make it hand off (that clears 'persistent').";
+		}
+		if (pin.role === 'value') {
+			const bound = d.boundValuePinIds?.has(pin.id);
+			const note = bound
+				? ' (explicitly bound — wired to a producer feed, overriding the default source)'
+				: `\ (auto-bound to "${pin.key}" — wire a Base-game producer pin here to override)`;
+			return `Value: ${pin.label}${pin.orphaned ? ' (orphaned — backing component deleted)' : note}`;
 		}
 		const role = pin.role.charAt(0).toUpperCase() + pin.role.slice(1);
 		const tail = pin.orphaned ? ' (orphaned — backing component deleted)' : '';
@@ -53,6 +69,10 @@
 		// Intent input pins (design doc §8) share the action hue's family — a deeper amber — so an
 		// author reads "this wires to an action output" at a glance while staying distinct.
 		intent: '#d97706',
+		// Value-producer OUTPUT pins (design doc §11) — a bright sky-blue, KIN to the consumer `value`
+		// hue (#3b82f6) so "this feeds a value display" reads at a glance, yet DISTINCT (lighter/cyan)
+		// so an author never confuses the producer output with the consumer value input.
+		producer: '#38bdf8',
 		enter: '#64748b',
 		complete: '#64748b',
 		active: '#64748b',
@@ -81,7 +101,7 @@
 	<div class="pins">
 		<ul class="col in">
 			{#each inputs as pin (pin.id)}
-				<li class:orphaned={pin.orphaned} title={pinTitle(pin)}>
+				<li class:orphaned={pin.orphaned} class:auto={isAutoWiredValue(pin)} title={pinTitle(pin)}>
 					<Handle
 						type="target"
 						position={Position.Left}
@@ -90,6 +110,12 @@
 					/>
 					<span class="dot" style="background:{roleColor[pin.role]}"></span>
 					<span class="label">{pin.label}</span>
+					<!-- Auto-wired value pin (design doc §11.5): a faint "auto" tag so the author reads
+					     "reads its own source by default" vs an explicitly-rewired value pin. -->
+					{#if isAutoWiredValue(pin)}<span
+							class="auto-tag"
+							title="Auto-bound to “{pin.key}” — its default source">auto</span
+						>{/if}
 				</li>
 			{/each}
 		</ul>
@@ -233,6 +259,18 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		max-width: 150px;
+	}
+	/* Auto-wired value pin marker (design doc §11.5) — a faint sky-blue "auto" pill (kin to the
+	   producer/value hue) signalling "reads its own source by default, not explicitly rewired". */
+	.auto-tag {
+		flex: none;
+		font-size: 9px;
+		line-height: 1;
+		padding: 1px 4px;
+		border-radius: 999px;
+		color: #7dd3fc;
+		background: #0c2733;
+		border: 1px solid #164a5f;
 	}
 	footer {
 		padding: 5px 10px;
