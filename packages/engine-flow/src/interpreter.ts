@@ -82,6 +82,14 @@ export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	 * already active). A SAFE no-op when inert or when no edge wires the action. Returns true when
 	 * an action edge matched. Mirrors `emitSignal`, scoped to a button's action instead of a tap. */
 	emitAction: (pin: string) => Promise<boolean>;
+	/**
+	 * Resolve a HUD display's engine value FEED, honouring an authored value-binding override
+	 * (design doc `flow-driven-game.md` §11.4). Returns the OVERRIDE producer feed key when a
+	 * `value` edge rebinds this display (`${instanceId}::${source}`), else the display's OWN `source`
+	 * verbatim (auto-bind by name, §11.2 rule 3). The game calls this at mount and subscribes to the
+	 * resolved feed's registered `ValueSource` — a subscription redirect, never a copy (§11.2 rule 1).
+	 * INERT interpreter (no FlowDoc) ⇒ ALWAYS returns `source` unchanged (byte-parity, §11.6). */
+	resolveValueSource: (instanceId: string, source: string) => string;
 	/** Re-evaluate `condition` transitions (the game pings this on an observed value change). */
 	evaluate: () => Promise<boolean>;
 	/** Run the initial screen's enter choreography at boot. */
@@ -161,6 +169,11 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		emitSignal: (signal) => machine?.onSignal(signal) ?? Promise.resolve(false),
 		hasAction: (pin) => machine?.hasAction(pin) ?? false,
 		emitAction: (pin) => machine?.onAction(pin) ?? Promise.resolve(false),
+		// Inert (no FlowDoc) ⇒ `machine` is undefined ⇒ `?.` short-circuits BEFORE any binding map is
+		// built ⇒ `?? source` returns the display's own feed verbatim (byte-parity, §11.6). An active
+		// interpreter with no matching value edge also yields `undefined` from `.get` ⇒ same `source`.
+		resolveValueSource: (instanceId, source) =>
+			machine?.valueBindings().get(`${instanceId}::${source}`) ?? source,
 		evaluate: () => machine?.evaluate() ?? Promise.resolve(false),
 		start: () => machine?.start() ?? Promise.resolve(),
 		isAuthoredEvent: isAuthored,

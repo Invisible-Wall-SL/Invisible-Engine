@@ -201,6 +201,25 @@ const normalizeTrigger = (input: unknown): FlowTrigger | null => {
 				input.intent
 				? { kind: 'action', pin: input.pin, intent: input.intent }
 				: null;
+		case 'value': {
+			// A value BINDING edge (design doc `flow-driven-game.md` §11): `producer` (feed key) plus
+			// `sink.instanceId` + `sink.source` (the display's value binding) are ALL required — a
+			// partial edge is dropped, not stored (parity §11.6), mirroring the `action` case.
+			const sink = isRecord(input.sink) ? input.sink : undefined;
+			return typeof input.producer === 'string' &&
+				input.producer &&
+				sink &&
+				typeof sink.instanceId === 'string' &&
+				sink.instanceId &&
+				typeof sink.source === 'string' &&
+				sink.source
+				? {
+						kind: 'value',
+						producer: input.producer,
+						sink: { instanceId: sink.instanceId, source: sink.source },
+					}
+				: null;
+		}
 		default:
 			return null;
 	}

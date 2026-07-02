@@ -153,10 +153,22 @@ const derivePinsFromNodes = (
 	}
 };
 
+/** A declared engine value feed the producer projection surfaces as an output pin (design doc
+ *  `flow-driven-game.md` §11.4). One entry per `ENGINE_PARAM_CATALOG` feed — the CALLER supplies
+ *  the catalog so this module stays catalog-agnostic (it never imports the runtime catalog value,
+ *  exactly as it never reads the action registry for intents). `label` is the catalog's display
+ *  label; `key` is the feed name (`'balance'`) the FlowDoc's value edge references. */
+export interface EngineFeed {
+	key: string;
+	label: string;
+}
+
 /**
- * Options for {@link deriveScreenPins} — the intent-host projection (design doc §8). The CALLER
- * decides which screen is the intent host + supplies the game's action vocabulary; this module
- * stays pure/headless (it never reads the `registerComponentActions` registry itself).
+ * Options for {@link deriveScreenPins} — the intent-host projection (design doc §8) and the value-
+ * producer projection (design doc `flow-driven-game.md` §11). The CALLER decides which screen hosts
+ * intents/producers + supplies the game's action vocabulary + engine value-feed catalog; this module
+ * stays pure/headless (it never reads the `registerComponentActions`/`registerComponentValues`
+ * registries itself).
  */
 export interface DeriveScreenPinsOptions {
 	/** The game's registered action vocabulary — the union of action KEYS a button anywhere can
@@ -164,6 +176,12 @@ export interface DeriveScreenPinsOptions {
 	intents?: string[];
 	/** True when THIS screen is the intent host (design doc §8.6). Only then are intent pins added. */
 	isIntentHost?: boolean;
+	/** The game's declared engine value feeds (`ENGINE_PARAM_CATALOG`, e.g. `balance`/`win`/`bet`).
+	 *  One PRODUCER output pin is derived per feed, but ONLY on the producer host (design doc §11.4). */
+	engineFeeds?: EngineFeed[];
+	/** True when THIS screen is the value-producer host (design doc §11.3 — Base game for now). Only
+	 *  then are producer pins added. Reuses the SAME resolved host as intents (§11.3 option (a)). */
+	isProducerHost?: boolean;
 }
 
 /** Build an intent input pin for the host screen (design doc §8.3). Structural-style stable id
@@ -176,13 +194,25 @@ const intentPin = (screenId: string, key: string): FlowPin => ({
 	label: `Intent · ${key}`,
 });
 
+/** Build a value-producer output pin for the host screen (design doc §11.4). Structural-style stable
+ *  id `${screenId}::produces:${feedKey}` (key-stable, mirroring the §8.3 intent-pin id pattern) so a
+ *  wire survives relabels. Not tied to a scene node — projected from the engine value-feed catalog. */
+const producerPin = (screenId: string, feed: EngineFeed): FlowPin => ({
+	id: `${screenId}::produces:${feed.key}`,
+	role: 'producer',
+	direction: 'out',
+	key: feed.key,
+	label: `${feed.label} · ${feed.key}`,
+});
+
 /**
  * Derive the full pin set for one screen (a LayoutDoc {@link Scene}): the three fixed
  * structural pins plus every dynamic pin projected from the scene's components and its
  * scene-level visibility gate. When `options.isIntentHost`, one intent INPUT pin per intent
- * key is added right after the structural pins (design doc §8). Deterministic + order-stable
- * (structural → intents → dynamic in tree order), so two derivations of the same doc produce
- * identical ids.
+ * key is added right after the structural pins (design doc §8); when `options.isProducerHost`,
+ * one PRODUCER output pin per engine feed follows (design doc §11.4). Deterministic + order-stable
+ * (structural → intents → producers → gate → dynamic in tree order), so two derivations of the
+ * same doc produce identical ids.
  */
 export const deriveScreenPins = (
 	scene: Scene,
@@ -198,6 +228,12 @@ export const deriveScreenPins = (
 	// in stable key order so ids/order are deterministic. Placed right after the structural pins.
 	if (options.isIntentHost && options.intents?.length) {
 		for (const key of options.intents) pins.push(intentPin(scene.id, key));
+	}
+	// Value-producer output pins — only on the producer host (design doc §11.3), one per declared
+	// engine feed, in the caller's catalog order so ids/order are deterministic. Placed after the
+	// intent pins so the host's inputs (intents) and outputs (producers) group predictably.
+	if (options.isProducerHost && options.engineFeeds?.length) {
+		for (const feed of options.engineFeeds) pins.push(producerPin(scene.id, feed));
 	}
 	// The whole-screen lifecycle gate (`Scene.visibleSource`) is a gate pin on the screen
 	// itself (keyed by the scene id, role `gate`) — the same `registerComponentVisibility`
