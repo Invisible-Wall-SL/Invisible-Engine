@@ -5,9 +5,10 @@
  *
  * Proves, HEADLESSLY, the two PURE editor helpers Phase 7 adds to `engine-flow`:
  *
- *  1. `validateFlowDoc` — the validation pass: unreachable screens, dead-ends,
+ *  1. `validateFlowDoc` — the validation pass: unreachable screens, stuck overlays,
  *     no-initial / multiple-initial, and the orphaned-pin fold-in (§4/§6). These are
- *     WARNINGS surfaced in the UI, never a runtime gate (§7).
+ *     WARNINGS surfaced in the UI, never a runtime gate (§7). (The old `dead-end` warning
+ *     was removed under the active-SET model — a terminal leaf is a persistent screen.)
  *  2. `diffFlowDoc` — the authored-vs-coded diff: which screens/events the FlowDoc
  *     drives (interpreter) vs which fall through to the coded default (§7).
  *
@@ -45,10 +46,12 @@ const hasKind = (issues: FlowIssue[], kind: string, screenId?: string): boolean 
 
 console.log('\n[1] validateFlowDoc — graph structure + orphan fold-in');
 
-// A clean linear flow: A(initial) → B → C, C is terminal (allowed: it has an inbound path
-// and is the graph's leaf; a leaf screen with no outgoing edge is a dead-end UNLESS it is
-// reachable AND intentional — the validator flags any non-initial screen with no outgoing
-// edge as a dead-end, so C IS flagged; that's the honest warning the author resolves).
+// A clean linear flow: A(initial) → B → C, C is terminal. Under the active-SET model a terminal
+// leaf (no outgoing edge) is a PERSISTENT screen (it stays in the active set), not a mistake —
+// the old `dead-end` warning was removed as a false positive (every base/HUD is terminal by
+// design). C is reached by `complete` handoffs (never layered on), so it is a clean persistent
+// leaf, NOT flagged. The genuinely-broken case — a LAYER overlay that can never dismiss itself —
+// is caught by `stuck-overlay` instead.
 const linear: FlowDoc = {
 	version: 1,
 	screens: [
@@ -63,8 +66,11 @@ const linear: FlowDoc = {
 };
 const linearIssues = validateFlowDoc(linear);
 assert(!hasKind(linearIssues, 'unreachable'), 'linear: no unreachable screens');
-assert(hasKind(linearIssues, 'dead-end', 'C'), 'linear: leaf C flagged dead-end');
-assert(!hasKind(linearIssues, 'dead-end', 'A'), 'linear: A is not a dead-end (has outgoing)');
+assert(!hasKind(linearIssues, 'dead-end', 'C'), 'linear: terminal leaf C NOT flagged (persistent)');
+assert(
+	!hasKind(linearIssues, 'stuck-overlay', 'C'),
+	'linear: C reached by complete, not a stuck overlay',
+);
 assert(!hasKind(linearIssues, 'no-initial'), 'linear: initial present');
 
 // Unreachable: D has no inbound path from the initial A.
@@ -198,9 +204,7 @@ const pasted: FlowDoc = {
 			choreography: { enter: { kind: 'broadcast', event: 'boardShow' } },
 		},
 	],
-	transitions: [
-		{ id: 't_fresh_1', from: 'sceneA', to: 'sceneB', trigger: { kind: 'complete' } },
-	],
+	transitions: [{ id: 't_fresh_1', from: 'sceneA', to: 'sceneB', trigger: { kind: 'complete' } }],
 };
 const norm1 = normalizeFlowDoc(pasted);
 const norm2 = normalizeFlowDoc(JSON.parse(JSON.stringify(norm1)));
@@ -215,11 +219,11 @@ assert(
 	'pasted doc: carried-over choreography preserved on the pasted screen',
 );
 // Fresh-id discipline: the pasted screen + transition ids are distinct from the source.
-const ids = [
-	...norm1.screens.map((s) => s.id),
-	...norm1.transitions.map((t) => t.id),
-];
-assert(new Set(ids).size === ids.length, 'pasted doc: all screen + transition ids unique (no recycling)');
+const ids = [...norm1.screens.map((s) => s.id), ...norm1.transitions.map((t) => t.id)];
+assert(
+	new Set(ids).size === ids.length,
+	'pasted doc: all screen + transition ids unique (no recycling)',
+);
 
 // ---------------------------------------------------------------------------
 

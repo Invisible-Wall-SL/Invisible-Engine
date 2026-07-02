@@ -12,6 +12,7 @@ export * from './coverTransform';
 export * from './componentDesignSize';
 export * from './backgroundScenes';
 export * from './genericMountScenes';
+export * from './layerOrder';
 export * from './resolveTransform';
 export * from './componentParams';
 export * from './tapToContinue';

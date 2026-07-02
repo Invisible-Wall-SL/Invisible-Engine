@@ -62,6 +62,9 @@
 		backgroundScenes,
 		hasAuthoredBackground,
 		extraMountScenes,
+		docLayerZIndex,
+		LAYER_BAND_TAKEOVER,
+		LAYER_BAND_TOP,
 		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
@@ -473,6 +476,23 @@
 	// them (editable in the Invisible Editor); absent → coded layout.
 	const hudBarScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudBar'));
 	const hudCornersScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudCorners'));
+	// The HUD scene ids the `<UI>` chrome renders — the flow can model the HUD as its own screen
+	// by authoring one of these ids as a FlowDoc screen, so the loading→HUD `complete` handoff can
+	// reveal it on the tap (mirroring the base-game reel gate). Kept to the ids the engine already
+	// resolves — no magic per-game id.
+	const HUD_SCENE_IDS = ['hudBar', 'hudCorners'] as const;
+	// Whether the HUD is FLOW-MANAGED: at least one HUD scene id is an authored FlowDoc screen (the
+	// same source `reservedSceneIds` uses). INERT-FLOW FALL-THROUGH (§7): with no flow, or a flow
+	// that authors no HUD node, this is false ⇒ the `<UI>` renders UNCONDITIONALLY below exactly as
+	// today (byte-identical to `main`). Only a flow that AUTHORS a HUD screen gates the chrome.
+	const isHudFlowManaged = $derived.by(() => {
+		const authored = flow?.mounter.authoredScreenIds();
+		return authored ? HUD_SCENE_IDS.some((id) => authored.has(id)) : false;
+	});
+	// Whether the flow-managed HUD is currently ACTIVE (any of its scene ids is in the active set).
+	// Only consulted when `isHudFlowManaged` is true; during `loading` (HUD not yet activated) the
+	// chrome is HIDDEN, and the loading→HUD `complete` handoff (fan-out) reveals it on the tap.
+	const isHudActive = $derived(HUD_SCENE_IDS.some((id) => activeScreenIds.includes(id)));
 
 	// Doc-driven background cover: the node in the `background` scene bound to the coded
 	// `Background` component (id `bg`). When present the editor's cover scale/fit/stretch
@@ -591,6 +611,10 @@
 	// overlay/extra scene.
 	const activeScreenTakeover = $derived.by((): Scene | undefined => {
 		if (activeScreenId === basegameScreenId) return undefined;
+		// The HUD scenes render through the `<UI>` chrome (gated on `isHudActive`), never as a
+		// generic takeover LayoutScene — skip them here so a flow-managed HUD that is the topmost
+		// active screen doesn't ALSO double-mount as a raw takeover layer.
+		if (HUD_SCENE_IDS.includes(activeScreenId as (typeof HUD_SCENE_IDS)[number])) return undefined;
 		const decision = flow?.mounter.resolve(activeScreenId);
 		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
 	});
@@ -651,6 +675,32 @@
 	// never mount. Empty for `apps/lines`' fallback doc (it reserves all its ids + ships no
 	// extra scene) ⇒ the `{#each}` renders nothing ⇒ byte-identical to `main` (parity).
 	const extraScenes = $derived(extraMountScenes(editorDoc.scenes, reservedSceneIds));
+
+	// Cross-screen z-order (design doc §11.5 follow-up C). The LAYERABLE scenes — the HUD
+	// chrome, the base-game overlays, the special-book bonus, custom author overlays, and the
+	// flow takeover — now paint in the editor's screen-LIST order (their position in
+	// `editorDoc.scenes`) rather than this component's fixed markup sequence. `docLayerZIndex`
+	// maps each scene's doc index into a band ABOVE the base game and BELOW the engine-owned top
+	// band (`LAYER_BAND_TOP`, where the full-screen free-spin gates + loading + info overlay
+	// live, so a reorder can never bury a blocking gate). The reel board (`<MainContainer>`) is
+	// NOT layerable — it stays between the below/above-reel slices, unmoved. PARITY: the
+	// reference layout lists these scenes in the same relative order as the old markup (HUD →
+	// basegameOverlays → specialBook), so an un-reordered / flow-less boot assigns z that
+	// reproduces today's stacking (`undefined` ⇒ no override, default insertion order). The HUD
+	// takes the lower of its two scene ids' z so the whole chrome sits at one layer.
+	const hudZIndex = $derived(
+		Math.min(
+			docLayerZIndex(editorDoc.scenes, 'hudBar') ?? Number.MAX_SAFE_INTEGER,
+			docLayerZIndex(editorDoc.scenes, 'hudCorners') ?? Number.MAX_SAFE_INTEGER,
+		),
+	);
+	const basegameOverlaysZIndex = $derived(docLayerZIndex(editorDoc.scenes, 'basegameOverlays'));
+	const specialBookZIndex = $derived(docLayerZIndex(editorDoc.scenes, 'specialBook'));
+	// The takeover (loading splash at boot + transient celebrations) is NOT a doc-ordered
+	// persistent layer — it sits at the fixed TAKEOVER band ABOVE every layerable scene (so the
+	// boot splash is never painted under `basegameOverlays`/`specialBook`, matching the old markup
+	// where the takeover mounted OVER the base + HUD + overlays) and below the engine top band.
+	const activeScreenTakeoverZIndex = LAYER_BAND_TAKEOVER;
 
 	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
 	// above. Maps the game's win presentation events → signal NAMES from the
@@ -975,26 +1025,46 @@
 		{/if}
 	{/if}
 
-	<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
-		{#snippet gameName(override)}
-			<UiGameName name="LINES GAME" {override} />
-		{/snippet}
-		{#snippet logo(override)}
-			<Text
-				anchor={{ x: 1, y: 0 }}
-				text={override?.text ?? 'ADD YOUR LOGO'}
-				style={{
-					fontFamily: 'proxima-nova',
-					fontSize: REM * 1.5,
-					fontWeight: '600',
-					lineHeight: REM * 2,
-					fill: 0xffffff,
-					...override?.style,
-				}}
-			/>
-		{/snippet}
-	</UI>
-	<LayoutScene scene={basegameOverlaysScene} />
+	<!--
+			HUD chrome visibility gate (the pin-driven active-SET model, mirroring the base-game
+			reel gate above). When the flow MODELS the HUD as its own screen (`isHudFlowManaged` — a
+			`hudBar`/`hudCorners` id is an authored FlowDoc screen), the `<UI>` chrome renders ONLY
+			while that HUD screen is active (`isHudActive`). During `loading` the HUD is hidden; the
+			loading→HUD `complete` handoff reveals it on the tap, just like the base game.
+
+			INERT-FLOW FALL-THROUGH (parity §7): when there is NO flow, OR the HUD is NOT a flow
+			screen (`!isHudFlowManaged`), the `<UI>` renders UNCONDITIONALLY exactly as today — a
+			flow-less game and a flow that authors no HUD node are byte-identical to current `main`.
+		-->
+	{#if !isHudFlowManaged || isHudActive}
+		<!-- Cross-screen z-order (§11.5-C): the HUD chrome paints at its doc-list position via
+				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
+				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
+		<Container zIndex={hudZIndex}>
+			<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
+				{#snippet gameName(override)}
+					<UiGameName name="LINES GAME" {override} />
+				{/snippet}
+				{#snippet logo(override)}
+					<Text
+						anchor={{ x: 1, y: 0 }}
+						text={override?.text ?? 'ADD YOUR LOGO'}
+						style={{
+							fontFamily: 'proxima-nova',
+							fontSize: REM * 1.5,
+							fontWeight: '600',
+							lineHeight: REM * 2,
+							fill: 0xffffff,
+							...override?.style,
+						}}
+					/>
+				{/snippet}
+			</UI>
+		</Container>
+	{/if}
+	<Container zIndex={basegameOverlaysZIndex}>
+		<LayoutScene scene={basegameOverlaysScene} />
+	</Container>
 	<!--
 			§20.1 — generic doc-driven scene mounting. Mount every AUTHOR-created screen the
 			game doesn't already handle (custom-id scenes from the Scene Editor), as an overlay
@@ -1006,7 +1076,9 @@
 			`apps/lines`' fallback doc ⇒ renders nothing (parity, byte-identical to `main`).
 		-->
 	{#each extraScenes as scene (scene.id)}
-		<LayoutScene {scene} />
+		<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
+			<LayoutScene {scene} />
+		</Container>
 	{/each}
 	<!--
 			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen TAKEOVER
@@ -1022,7 +1094,9 @@
 			base/loading screens (their own paths) — byte-identical to current `main` (§7).
 		-->
 	{#if activeScreenTakeover}
-		<LayoutScene scene={activeScreenTakeover} />
+		<Container zIndex={activeScreenTakeoverZIndex}>
+			<LayoutScene scene={activeScreenTakeover} />
+		</Container>
 	{/if}
 	<!--
 			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
@@ -1034,29 +1108,40 @@
 			scenes (`fsIntroScene`/`fsOutroScene`) and the composer never mount a gate now, so
 			there is never a second `waitForResolve` subscriber (two would hang the round).
 		-->
-	<FreeSpinIntroGate
-		dimColor={fsIntroGate?.dimColor}
-		dimAlpha={fsIntroGate?.dimAlpha}
-		hidePrompt={fsIntroGate?.hidePrompt}
-	/>
-	<FreeSpinOutroGate
-		dimColor={fsOutroGate?.dimColor}
-		dimAlpha={fsOutroGate?.dimAlpha}
-		hidePrompt={fsOutroGate?.hidePrompt}
-	/>
-	<LayoutScene scene={fsIntroScene} />
-	{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
-		<LayoutScene scene={fsIntroVisualScene} />
-	{/if}
-	{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
-		<LayoutScene scene={fsCounterScene} />
-	{/if}
-	<LayoutScene scene={fsOutroScene} />
-	{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
-		<LayoutScene scene={fsOutroVisualScene} />
-	{/if}
-	<LayoutScene scene={specialBookScene} />
-	<InfoOverlay manifest={infoManifest} />
+	<!-- Engine-owned TOP band (§11.5-C): the full-screen free-spin gates + their doc VISUAL
+			 scenes + the free-spin counter + the info overlay sit at a FIXED `LAYER_BAND_TOP` z,
+			 ABOVE every doc-ordered layerable scene — so an author reordering the HUD/overlays/
+			 specialBook in the editor can never bury a round-blocking gate or the counter. Exactly
+			 one gate each is mounted (the single `waitForResolve` subscriber), unchanged. -->
+	<Container zIndex={LAYER_BAND_TOP}>
+		<FreeSpinIntroGate
+			dimColor={fsIntroGate?.dimColor}
+			dimAlpha={fsIntroGate?.dimAlpha}
+			hidePrompt={fsIntroGate?.hidePrompt}
+		/>
+		<FreeSpinOutroGate
+			dimColor={fsOutroGate?.dimColor}
+			dimAlpha={fsOutroGate?.dimAlpha}
+			hidePrompt={fsOutroGate?.hidePrompt}
+		/>
+		<LayoutScene scene={fsIntroScene} />
+		{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
+			<LayoutScene scene={fsIntroVisualScene} />
+		{/if}
+		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
+			<LayoutScene scene={fsCounterScene} />
+		{/if}
+		<LayoutScene scene={fsOutroScene} />
+		{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
+			<LayoutScene scene={fsOutroVisualScene} />
+		{/if}
+		<InfoOverlay manifest={infoManifest} />
+	</Container>
+	<!-- specialBook paints at its doc-list position (§11.5-C), interleaving with the HUD /
+			 overlays / extras band. Reference-layout order reproduces today's stacking. -->
+	<Container zIndex={specialBookZIndex}>
+		<LayoutScene scene={specialBookScene} />
+	</Container>
 
 	<!--
 			Invisible FX (§4.4 / §8) — play this project's baked effects. Free effects mount at

@@ -41,6 +41,16 @@
  * trigger matches AND whose guard holds wins. An edge with no guard is the author-order
  * default (§6).
  *
+ * The `complete` trigger is the ONE exception to first-match-wins: it FANS OUT. When a screen
+ * fires its own Complete pin it hands off to EVERY one of its outgoing `complete`-edge targets
+ * whose guard holds — the source is deactivated ONCE and each guard-holding target is activated
+ * (`loading --complete--> basegame` + `loading --complete--> HUD` light up BOTH on the tap).
+ * Mutually-exclusive guards still yield exactly one target (guarded branching is preserved);
+ * multiple UNGUARDED complete edges from one screen now all fire. The completing SOURCE is the
+ * first active screen (scanned top-of-stack first) that owns a guard-holding complete edge; only
+ * its complete edges fan out. Every OTHER trigger (`bookEvent`/`signal`/`condition`) keeps strict
+ * first-match-wins layer semantics — never fanned out.
+ *
  * A transition in flight is serialized — a trigger arriving mid-swap is ignored at the HSM
  * level (the platform FSM still owns round gating), matching the coded handler map's serial
  * `sequence()` (§8).
@@ -159,6 +169,42 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		}
 	};
 
+	/**
+	 * The `complete` FAN-OUT (§6.2). A screen firing its Complete pin hands off to EVERY one of its
+	 * guard-holding outgoing `complete` edges: the source's `exit` runs once, the source is removed
+	 * once, and each target is activated — a single `loading` Complete lighting up BOTH `basegame`
+	 * and `HUD`. `edges` are the completing source's guard-holding complete edges in author order;
+	 * the set change is notified ONCE (after every activation) so the game re-mounts the full new set
+	 * in one pass, then each newly-activated target's `enter` runs in order.
+	 */
+	const performCompleteFanOut = async (
+		edges: FlowTransition[],
+		trigger: unknown,
+	): Promise<void> => {
+		transitioning = true;
+		try {
+			const maxDelay = Math.max(0, ...edges.map((e) => e.delayMs ?? 0));
+			if (maxDelay > 0) await host.runtime.waitForTimeout(maxDelay / host.runtime.timeScale());
+			// All edges share the completing source; run its exit + remove it ONCE.
+			const source = edges[0].from;
+			await runPhase(source, 'exit', trigger);
+			deactivate(source);
+			// Each DISTINCT target activates (idempotent — a `complete` handoff back to an
+			// already-active base keeps it underneath) and re-runs its `enter`, matching the
+			// single-edge `performTransition` (a `complete` is a legitimately re-entrant handoff,
+			// §changesActiveSet). De-duped so two edges to the same target don't double-enter.
+			const targets: string[] = [];
+			for (const e of edges) {
+				if (screensById.has(e.to) && !targets.includes(e.to)) targets.push(e.to);
+			}
+			for (const to of targets) activate(to);
+			notify();
+			for (const to of targets) await runPhase(to, 'enter', trigger);
+		} finally {
+			transitioning = false;
+		}
+	};
+
 	/** Find + fire the first matching outgoing edge for a trigger kind. Returns true when an
 	 *  edge fired (so the caller knows the trigger was consumed by the macro graph). A matching
 	 *  edge whose firing would NOT change the active set (a layer edge onto an already-active
@@ -174,6 +220,32 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		if (!changesActiveSet(edge)) return true;
 		await performTransition(edge, trigger);
 		return true;
+	};
+
+	/**
+	 * Fire the `complete` trigger with FAN-OUT (§6.2). The completing SOURCE is the first active
+	 * screen (top-of-stack first) that owns a guard-holding outgoing `complete` edge — its OWN
+	 * guard-holding complete edges (in author order) all hand off. Mutually-exclusive guards still
+	 * fire exactly one; multiple unguarded edges from that source all fire. Returns true when a
+	 * complete edge was consumed. This is the only fan-out path — every other trigger routes through
+	 * `fire` (strict first-match-wins layer semantics), unchanged.
+	 */
+	const fireComplete = async (trigger: unknown): Promise<boolean> => {
+		if (transitioning) return false;
+		// Scan active screens top-of-stack first; the first with a guard-holding complete edge is
+		// the completing source. `outgoing()` already yields each source's edges in author order.
+		for (let i = activeScreenIds.length - 1; i >= 0; i--) {
+			const source = activeScreenIds[i];
+			const edges = flowDoc.transitions
+				.filter(
+					(t) => t.from === source && t.trigger.kind === 'complete' && guardHolds(t.guard, trigger),
+				)
+				.sort(byOrder);
+			if (edges.length === 0) continue;
+			await performCompleteFanOut(edges, trigger);
+			return true;
+		}
+		return false;
 	};
 
 	return {
@@ -200,10 +272,11 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		 *  TRANSITION trigger, orthogonal to the per-event presentation). */
 		onBookEvent: (bookEvent: { type: string }): Promise<boolean> =>
 			fire((t) => t.trigger.kind === 'bookEvent' && t.trigger.event === bookEvent.type, bookEvent),
-		/** A screen's exit/`complete` pin fired (its choreography signalled done) — fire a
-		 *  `complete` edge from an active screen. This is the genuinely-new self-driving output
-		 *  (§6.2); the edge deactivates its source and activates its target. */
-		onComplete: (): Promise<boolean> => fire((t) => t.trigger.kind === 'complete', undefined),
+		/** A screen's exit/`complete` pin fired (its choreography signalled done) — hand off from
+		 *  the completing screen to EVERY guard-holding outgoing `complete` edge (the fan-out, §6.2):
+		 *  the source deactivates once and all matching targets activate. Guarded branching still
+		 *  yields exactly one; multiple unguarded edges fan out. */
+		onComplete: (): Promise<boolean> => fireComplete(undefined),
 		/** A named runtime signal was emitted (the tap-to-continue path, §6.2) — fire the first
 		 *  outgoing edge whose trigger is `{kind:'signal', signal:<name>}`, mirroring the
 		 *  `bookEvent` match. A signal with no matching edge is a no-op. */

@@ -231,24 +231,15 @@ export const validateFlowDoc = (
 		}
 	}
 
-	// --- Dead-ends: a screen with no outgoing transition --------------------
-	// A dead-end is a screen the flow can land on but never leave via the graph. The
-	// initial screen alone is allowed to have no outgoing edge ONLY if it is the sole
-	// screen (a single-screen flow is terminal-by-design, e.g. apps/lines' basegame).
-	const hasOutgoing = new Set(doc.transitions.map((t) => t.from));
-	const singleScreenFlow = doc.screens.length <= 1;
-	if (!singleScreenFlow) {
-		for (const id of screenIds) {
-			if (!hasOutgoing.has(id)) {
-				issues.push({
-					kind: 'dead-end',
-					severity: 'warning',
-					screenId: id,
-					message: `"${labelOf(id)}" is a dead-end — no outgoing transition leaves it.`,
-				});
-			}
-		}
-	}
+	// --- Dead-ends superseded by the active-SET model -----------------------
+	// The old `dead-end` warning flagged any screen with no outgoing transition. In the
+	// active-SET model that is the DEFINING property of a PERSISTENT screen — the base game
+	// and HUD are reached by a `complete` handoff and then intentionally stay in the active
+	// set forever, so "no way out" is correct, not a mistake. Every no-outgoing screen is
+	// persistent by `isPersistentScreen`, so the check flagged only intended bases (false
+	// positives) and is removed. The genuinely-broken case — a LAYER overlay that can never
+	// dismiss itself — is caught by `stuck-overlay` below. `FlowIssueKind` keeps `dead-end`
+	// for any persisted issue payloads, but nothing produces it now.
 
 	// --- Stuck overlays: a layered screen that can never remove itself -------
 	// In the active-SET model a screen leaves the set only by firing its own Complete pin (an

@@ -24,6 +24,43 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-02 — Invisible Flow: complete FAN-OUT + HUD active-set gate + doc-order z-order
+
+**Context.** Owner authored a real FlowDoc (`loading` initial → `basegame` + a HUD "bottom bar"
+screen) and hit three engine gaps. All three land in the shared `apps/lines` runtime bundle (ships
+to Book of Borut via `publish-runtime-bundle.mjs` — NO submodule bump), hold the §7 inert-flow
+fall-through invariant, and are **NOT committed** (owner reviews + ships).
+
+- **A. HUD `<UI>` gated on the flow active-set** (`apps/lines/src/components/Game.svelte`). The HUD
+  chrome mounted unconditionally (visible during the loading splash; `loading→HUD` edge inert). Now
+  when a `hudBar`/`hudCorners` id is an authored flow screen (`isHudFlowManaged`), `<UI>` renders
+  only while the HUD is in the active set (`isHudActive`), mirroring the base-game reel gate. No
+  flow / HUD-not-a-flow-screen ⇒ unconditional, byte-identical to today. Skipped in
+  `activeScreenTakeover` so it never double-mounts.
+- **B. `complete` pin FAN-OUT** (`packages/engine-flow/src/presentation.ts`). Was first-match-wins
+  (`outgoing().find`), so `loading --complete--> basegame` + `loading --complete--> HUD` fired only
+  ONE. New `fireComplete`/`performCompleteFanOut`: the completing source deactivates once and EVERY
+  guard-holding complete-edge target activates (one `notify`, ordered enters). Guarded branching
+  preserved; only `complete` fans out (bookEvent/signal/condition keep first-match layer semantics).
+- **C. Cross-screen z-order = editor screen-list order** (`packages/engine-layout/src/lib/
+  layerOrder.ts` NEW, `Game.svelte`, `referenceLayouts/lines.ts`). `docLayerZIndex` maps a
+  layerable scene's `scenes[]` index into a band (100+index) above the base game and below an
+  engine-owned TOP band (10000: free-spin gates + single `waitForResolve` + counter + info
+  overlay). HUD / basegameOverlays / specialBook / takeover / extras now paint at their editor
+  position (wrapped in `<Container zIndex>`); the reel board stays engine-owned between the reel
+  slices. PARITY: lines reference now lists `...hudScenes` before `basegameOverlays`, so the
+  fallback doc reproduces today's stacking byte-for-byte. **Scoped out:** free-spin visual scenes
+  stay engine-owned-top (not doc-reorderable); specialBook now sits below the gate band.
+
+**Verified:** `pnpm --filter engine-flow typecheck` clean; flow-spike 14/14 harnesses PASS (phase4
+gained fan-out cases B4/B5; phase7 updated for the removed `dead-end` warning); `apps/lines` prod
+build with `PUBLIC_RGS_TRANSPORT=play4fun` clean; `engine-layout` build + generic-mount-spike GREEN;
+Prettier clean. **NEEDS LIVE OWNER-VERIFY (WebGL):** HUD hidden during loading + shown on tap; both
+basegame + HUD lighting up on the tap; an editor-reordered scene re-stacking in-game. Files:
+`packages/engine-flow/src/presentation.ts`, `packages/engine-layout/src/lib/{layerOrder.ts,index.ts,
+referenceLayouts/lines.ts}`, `apps/lines/src/components/Game.svelte`, `tools/flow-spike/
+{phase4Runtime.ts,phase7Authoring.ts}`, `docs/design/invisible-flow.md`, `docs/STATUS.md`.
+
 ### 2026-07-02 — Game Maker Publish now pins the session to the project it built
 
 **Owner-reported bug:** rebuilding (Re-publish) a project from the online **Invisible Game Maker**

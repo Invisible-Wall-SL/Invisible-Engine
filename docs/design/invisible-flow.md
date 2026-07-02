@@ -48,6 +48,56 @@ make-or-break gate**: the runtime interpreter must mount one real screen and run
 hand-authored choreography for one event (`winInfo` in `apps/lines`) with zero visual
 regression and clean fall-through, before any editor UI is built.
 
+### Progress — complete FAN-OUT + HUD active gate + doc-order z (2026-07-02)
+
+**Context.** The owner authored a real FlowDoc (`loading` initial, `basegame`, and a HUD screen
+"HUD — bottom bar") and hit three gaps that this pass closes; all three hold the §7 inert-flow
+fall-through invariant. Verified headlessly (flow-spike 14/14) + `apps/lines` prod build (play4fun).
+
+**A. HUD `<UI>` gated on the flow active-set (`apps/lines/src/components/Game.svelte`).** The HUD
+chrome mounted UNCONDITIONALLY, so it showed during the loading splash and the `loading→HUD` edge
+did nothing. Now a `hudBar`/`hudCorners` id that is an authored FlowDoc screen makes the HUD
+**flow-managed** (`isHudFlowManaged`, from `flow?.mounter.authoredScreenIds()`); the `<UI>` then
+renders only while the HUD is in the active set (`isHudActive`), mirroring the base-game reel gate.
+INERT-FLOW PARITY: no flow, or a flow that authors no HUD node ⇒ `<UI>` renders unconditionally
+exactly as today. The HUD is rendered by `<UI>` (positioned from the hud scenes), so it is skipped
+in `activeScreenTakeover` to avoid a double-mount when it is the topmost active screen.
+
+**B. `complete` pin FAN-OUT (`packages/engine-flow/src/presentation.ts`).** `fire()` used
+`outgoing().find(...)` — a single `onComplete()` fired only the FIRST matching complete edge, so the
+owner's `loading --complete--> basegame` + `loading --complete--> HUD` lit up only ONE target. A new
+`fireComplete()` + `performCompleteFanOut()` path collects EVERY guard-holding complete edge of the
+completing source (the first active screen, top-of-stack, that owns one), deactivates the source
+ONCE, activates each distinct target, `notify()`s the full new set ONCE, then runs each target's
+`enter` in author order. Guarded branching is preserved (mutually-exclusive guards ⇒ one target); an
+unguarded default is always a fan-out sibling. Only the `complete` trigger fans out —
+`bookEvent`/`signal`/`condition` keep strict first-match-wins layer semantics via the unchanged
+`fire()`. A re-entrant handoff back to an already-active base still re-runs its `enter` (parity with
+the old single-edge `performTransition`). Harness: `tools/flow-spike/phase4Runtime.ts` gained B4
+(one source, two unguarded complete edges → both targets active, source removed, one notify, ordered
+enters) + B5 (guarded branching). `phase7Authoring.ts` updated for the already-removed `dead-end`
+warning (terminal leaf = persistent, not a dead-end).
+
+**C. Cross-screen z-order from the editor's screen-list order (`packages/engine-layout/src/lib/
+layerOrder.ts` NEW + `Game.svelte` + `referenceLayouts/lines.ts`).** Only `extraScenes`/background
+mounted in doc order; the HUD, `basegameOverlays`, the flow takeover, and `specialBook` were pinned
+in fixed markup order, so reordering them in the editor had no effect. New `docLayerZIndex(scenes,
+id)` maps a layerable scene's index in `scenes[]` into a band (`LAYER_BAND_BASE=100 + docIndex`)
+ABOVE the base game and BELOW an engine-owned TOP band (`LAYER_BAND_TOP=10000`, where the
+full-screen free-spin gates + their single `waitForResolve` subscriber, the counter, and the info
+overlay now sit — so a reorder can never bury a round-blocking gate). Each layerable mount is wrapped
+in a `<Container zIndex={...}>`; PixiJS sorts children by zIndex. The reel board (`<MainContainer>`)
+is NOT layerable — it stays between the below/above-reel slices, unmoved. PARITY: `referenceLayouts/
+lines.ts` now lists `...hudScenes` right after `basegame` (before `basegameOverlays`), so the
+fallback doc's layerable order equals the old markup order (HUD → overlays → specialBook) and an
+un-reordered / flow-less boot assigns z that reproduces today's stacking byte-for-byte. **Scoped
+out (noted):** the free-spin intro/outro **visual** scenes + counter stay in the engine-owned TOP
+band, NOT the doc-ordered band — a full generic reorder of the engine-owned gate visuals was
+deferred as too risky in one pass; `specialBook` moved from above to below the free-spin gate band
+(mutually-exclusive game phases, no visual overlap). NEEDS LIVE OWNER-VERIFY (WebGL pixels): the HUD
+hidden during loading + appearing on the tap; both basegame + HUD lighting up on the tap; a scene
+reordered in the editor re-stacking in-game.
+
 ### Progress — pin-driven active-SET model (engine core) DONE headlessly (2026-07-01)
 
 **What landed.** The presentation model moved from a SINGLE `activeScreenId` (an exclusive

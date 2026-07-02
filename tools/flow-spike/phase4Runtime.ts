@@ -368,6 +368,102 @@ const main = async () => {
 		);
 	}
 
+	// --- B4. complete FAN-OUT — one source, multiple guard-holding complete edges ---
+	console.log('\nB4. complete fan-out (loading --complete--> {basegame, HUD}):');
+	{
+		// The owner's shape: `loading` (initial) hands off on its Complete pin to BOTH the
+		// persistent base AND a HUD screen. Both must activate; the source must be removed once.
+		const fanOutFlow: FlowDoc = {
+			version: 1,
+			screens: [
+				{
+					id: 'loading',
+					initial: true,
+					choreography: { enter: enter('loading'), exit: exit('loading') },
+				},
+				{ id: 'basegame', choreography: { enter: enter('basegame') } },
+				{ id: 'hud', choreography: { enter: enter('hud') } },
+			],
+			transitions: [
+				{ id: 'f1', from: 'loading', to: 'basegame', trigger: { kind: 'complete' }, order: 0 },
+				{ id: 'f2', from: 'loading', to: 'hud', trigger: { kind: 'complete' }, order: 1 },
+			],
+		};
+		const { log, runtime } = makeRig(false);
+		const setChanges: string[][] = [];
+		const m = createPresentationMachine(fanOutFlow, {
+			runtime,
+			onActiveScreensChange: (ids) => setChanges.push([...ids]),
+		});
+		assert('fan-out: initial active set is [loading]', eq(m.activeScreenIds, ['loading']));
+		await m.start();
+		log.length = 0;
+		const took = await m.onComplete();
+		assert(
+			'complete FANS OUT: BOTH basegame + HUD active, loading removed',
+			took && eq(m.activeScreenIds, ['basegame', 'hud']),
+		);
+		assert(
+			'fan-out ran source exit ONCE then each target enter in author order',
+			eq(log, [
+				'broadcast flowExit {"screen":"loading"}',
+				'broadcast flowEnter {"screen":"basegame"}',
+				'broadcast flowEnter {"screen":"hud"}',
+			]),
+		);
+		assert(
+			'fan-out notified the full new set ONCE (single re-mount pass)',
+			eq(setChanges, [['basegame', 'hud']]),
+		);
+	}
+
+	// --- B5. guarded complete edges — mutually-exclusive guards still yield exactly one ---
+	console.log('\nB5. guarded complete branching (exactly one target):');
+	for (const bonus of [true, false]) {
+		const branchFlow: FlowDoc = {
+			version: 1,
+			screens: [{ id: 'reveal', initial: true }, { id: 'bonus' }, { id: 'base' }],
+			transitions: [
+				{
+					id: 'b1',
+					from: 'reveal',
+					to: 'bonus',
+					trigger: { kind: 'complete' },
+					guard: {
+						all: [
+							{
+								left: { kind: 'engine', key: 'hasBonus' },
+								op: 'eq',
+								right: { kind: 'literal', value: true },
+							},
+						],
+					},
+					order: 0,
+				},
+				// unguarded author-order default.
+				{ id: 'b2', from: 'reveal', to: 'base', trigger: { kind: 'complete' }, order: 1 },
+			],
+		};
+		const { runtime } = makeRig(false);
+		const m = createPresentationMachine(branchFlow, {
+			runtime,
+			engine: (key) => (key === 'hasBonus' ? bonus : undefined),
+		});
+		await m.onComplete();
+		// Guard true ⇒ BOTH the guarded `bonus` and the unguarded default `base` hold ⇒ both fan out
+		// (an unguarded edge is ALWAYS a fan-out sibling). Guard false ⇒ only `base`. This documents
+		// that mutual exclusivity requires mutually-exclusive guards on EVERY sibling edge; an
+		// unguarded default fans out alongside a guarded one.
+		if (bonus) {
+			assert(
+				'guard true ⇒ guarded + unguarded-default both fan out',
+				eq(m.activeScreenIds, ['bonus', 'base']),
+			);
+		} else {
+			assert('guard false ⇒ only the unguarded default fires', eq(m.activeScreenIds, ['base']));
+		}
+	}
+
 	// --- C. Observe-don't-drive (§12) — the HSM exposes NO platform-driving surface ---
 	console.log("\nC. Observe-don't-drive (§12):");
 	{

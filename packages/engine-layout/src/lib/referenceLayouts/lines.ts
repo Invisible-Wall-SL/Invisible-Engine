@@ -332,6 +332,25 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 					},
 				],
 			},
+			// The HUD layer (logo/name corners + bottom bar) as editor scenes, placed HERE —
+			// right after `basegame`, BEFORE `basegameOverlays`/`specialBook` — so the doc's
+			// screen-list order matches the coded markup paint order (HUD below the win/bonus
+			// overlays). `docLayerZIndex` (layerOrder.ts) turns this position into the HUD's
+			// zIndex, so an author can move the HUD up/down the list to re-stack it; leaving it
+			// here reproduces today's z (parity). The game still renders `<UI>` from these scenes.
+			//
+			// `{ readouts: true }` (B4.4, `apps/lines` only): balance/win/bet become parametric
+			// `componentInstance(hudReadout)` nodes — the def mounts the coded `HudReadout`, fed
+			// live by `registerComponentValues`. `apps/lines`'s `Game.svelte` registers all three
+			// (def + bound component + value sources). Book of Borut keeps the default coded `bind`
+			// labels (it calls `hudScenes()` with no options), so it stays parity-safe until migrated.
+			//
+			// `buttons` (B6.4): forwarded from `options.buttons` — the editor picker +
+			// full-scene-set merge call `defaultLayout('lines')` with no options ⇒ OFF (coded
+			// `bind` buttons, parity); `apps/lines` passes its default-OFF `HUD_BUTTON_INSTANCES`
+			// flag, so flipping that one constant converts the cluster to `componentInstance(button)`
+			// nodes (+ the replacement hotkey).
+			...hudScenes({ readouts: true, buttons: options.buttons }),
 			{
 				id: 'basegameOverlays',
 				name: sceneName('basegameOverlays'),
@@ -417,24 +436,6 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 					},
 				],
 			},
-			// The HUD layer (logo/name corners + bottom bar) as editor scenes. The
-			// game still renders `<UI>` from code today; these become live once the
-			// HUD render path (phase 2) consumes them. Shown in the editor now so the
-			// HUD is visible + positionable.
-			//
-			// `{ readouts: true }` (B4.4, `apps/lines` only): balance/win/bet become
-			// parametric `componentInstance(hudReadout)` nodes — the def mounts the
-			// coded `HudReadout`, fed live by `registerComponentValues`. `apps/lines`'s
-			// `Game.svelte` registers all three (def + bound component + value sources).
-			// Book of Borut keeps the default coded `bind` labels (it calls
-			// `hudScenes()` with no options), so it stays parity-safe until migrated.
-			//
-			// `buttons` (B6.4): forwarded from `options.buttons` — the editor picker +
-			// full-scene-set merge call `defaultLayout('lines')` with no options ⇒ OFF
-			// (coded `bind` buttons, parity); `apps/lines` passes its default-OFF
-			// `HUD_BUTTON_INSTANCES` flag, so flipping that one constant converts the
-			// cluster to `componentInstance(button)` nodes (+ the replacement hotkey).
-			...hudScenes({ readouts: true, buttons: options.buttons }),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};
