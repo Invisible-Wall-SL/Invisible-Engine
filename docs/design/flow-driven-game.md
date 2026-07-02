@@ -758,8 +758,10 @@ making *value* dataflow explicit (engine signal → HUD display), the symmetric 
 > Owner direction 2026-07-02. The symmetric other half of Phase 8: Phase 8 made *action*
 > dataflow explicit (a button's `action` output pin wires into a base-game `intent` input);
 > Phase 9 makes *value* dataflow explicit (an engine-owned value SOURCE becomes an output pin
-> the HUD's display input pins wire into). PLANNING ONLY — no engine/editor code has been
-> written for this phase; this section is the build plan.
+> the HUD's display input pins wire into). **STATUS 2026-07-02 — steps 1–5 SHIPPED to `main`**
+> (PRs #84 engine-flow schema/derivation/interpreter; #85 runtime wiring + `/flow` editor). Remaining:
+> owner live click-verify in the deployed `/flow`, and **step 6 (§11.8) — ship a baked value edge in a
+> real game + Borut submodule bump**. The build plan below is preserved as-authored.
 
 ### 11.1 Problem statement + the agreed model
 

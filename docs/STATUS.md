@@ -24,6 +24,35 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-02 — Invisible Flow: value-dataflow pins (engine signal → HUD display), Phase 9 steps 1–5
+
+Explicit **value dataflow** for `/flow` (design `docs/design/flow-driven-game.md` §11) — the symmetric
+other half of the §8 action→intent work. An engine-owned value SOURCE (`balance`/`win`/`bet`/…) is now a
+**producer OUTPUT pin** on the Base-game host (rides the SAME resolved intent host, §11.3a); a HUD
+display's `value:<source>` INPUT wires into it, so "the game changes bet/balance/win → the HUD reflects
+it" is **visible + routable**. A value edge resolves to a **reactive subscription override, never a copy**
+(§11.2 rule 1): the store stays the engine-owned `ValueSource`, the edge only redirects *which* registered
+feed a display subscribes to. **Auto-bind by name, override by edge** — an unwired display reads its own
+`source` exactly as today (byte-parity §11.6), tagged `auto` in the editor.
+
+Shipped in two PRs (#84 = engine-flow schema/derivation/interpreter; #85 = runtime wiring + `/flow` editor):
+- **engine-flow:** `FlowTrigger` `value` variant + `producer` pin role (`types.ts`); `normalizeTrigger`
+  case (drops partials); `deriveScreenPins` producer projection from `ENGINE_PARAM_CATALOG` (`pins.ts`);
+  `valueBindings()` pure graph query + `resolveValueSource()` override-or-source (`presentation.ts`/
+  `interpreter.ts`); `edgeSemantics` `value` class + `unresolved-producer`/orphan warnings (`validate.ts`).
+- **engine runtime:** `registerFlowValueSource`/`getFlowValueSource` registry (mirrors `registerFlowComplete`)
+  — `ComponentInstance.svelte` resolves a display's feed through it WITHOUT engine-layout importing the game
+  holder; `apps/lines` `linesValueResolver` (+ dev `__IE_FLOW_VALUE__` hook) registers it at boot.
+- **launcher `/flow`:** `flowModel.client.ts` passes the feeds + `isProducerHost`; `FlowScreenNode.svelte`
+  producer colour `#38bdf8` + auto-vs-explicit affordance; `+page.svelte` `onConnect` producer→value branch;
+  `EdgeInspector.svelte` value-binding explainer; `docs/tools/flow.md` (RULE 9).
+
+**Default-inert** (three-layer short-circuit: unregistered registry → inert interpreter → `?? source`), so
+existing games are byte-identical — verified via `pnpm --filter launcher-api build` + the full flow-spike
+suite (18 harnesses incl. `valuedataflow`/`valueresolve`). **STILL OWED:** (1) owner live click-verify in the
+deployed `/flow` (producer pins appear + draw a value edge — auth-gated, can't be done headless); (2) **step 6
+— ship:** author+bake a value edge into a real game (deploy→bake→register) and bump Borut's engine submodule.
+
 ### 2026-07-02 — Invisible Flow: functional action pins (Base game as intent hub) + edge delete
 
 Two `/flow` slices (engine `main`; see `docs/design/flow-driven-game.md` §8, now marked shipped):
