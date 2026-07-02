@@ -70,6 +70,18 @@ export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	 * A SAFE no-op when inert or when no edge listens for the signal. Returns true when a
 	 * `signal` transition was taken. */
 	emitSignal: (signal: string) => Promise<boolean>;
+	/**
+	 * Pure query — is any active-screen outgoing edge an `action` edge for `pin` (design doc §8.5)?
+	 * A flow-bound button reads this to decide whether its press routes through the flow (an intent)
+	 * or its coded path. Inert interpreter (no FlowDoc) ⇒ always `false`, so the coded path stays
+	 * authoritative until a button's action pin is wired (parity §8.8). */
+	hasAction: (pin: string) => boolean;
+	/**
+	 * A flow-bound button's action pin fired — invoke the game intent on each matching
+	 * `action → intent` edge's host (design doc §8.5). Does NOT move the active set (base game is
+	 * already active). A SAFE no-op when inert or when no edge wires the action. Returns true when
+	 * an action edge matched. Mirrors `emitSignal`, scoped to a button's action instead of a tap. */
+	emitAction: (pin: string) => Promise<boolean>;
 	/** Re-evaluate `condition` transitions (the game pings this on an observed value change). */
 	evaluate: () => Promise<boolean>;
 	/** Run the initial screen's enter choreography at boot. */
@@ -91,6 +103,9 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 	/** Read a registered engine value feed by `ENGINE_PARAM_CATALOG` key (`$engine.*`),
 	 *  for transition/Branch guards over engine conditions. */
 	engine?: (key: string) => unknown;
+	/** Invoke a game INTENT on a host screen (design doc §8.5) — the target of an `action → intent`
+	 *  edge. The game implements this (for `spin`, today's coded bet/stop). Threaded to the HSM host. */
+	invokeIntent?: (screenId: string, intent: string) => void;
 	/** Notified whenever the active SET changes (a screen was added/removed). The ids are
 	 *  render-ordered (base first, later-activated on top); `entrances` lists the newly-activated
 	 *  screens with the firing edge's entrance transition (design doc §6). The game mirrors the ids
@@ -100,14 +115,22 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		entrances: readonly ScreenEntrance[],
 	) => void;
 }): FlowInterpreter<TBookEvent, TContext> => {
-	const { flowDoc, runtime, resolveScene, codedHandlers, engine, onActiveScreensChange } = params;
+	const {
+		flowDoc,
+		runtime,
+		resolveScene,
+		codedHandlers,
+		engine,
+		invokeIntent,
+		onActiveScreensChange,
+	} = params;
 
 	const mounter = createSceneMounter({ flowDoc, resolveScene });
 
 	// A NULL machine when there is no FlowDoc: every transition is a no-op, the active
 	// set is empty, and the game mounts entirely via its coded path (parity, §7).
 	const machine: PresentationMachine | undefined = flowDoc
-		? createPresentationMachine(flowDoc, { runtime, engine, onActiveScreensChange })
+		? createPresentationMachine(flowDoc, { runtime, engine, invokeIntent, onActiveScreensChange })
 		: undefined;
 
 	const { dispatch, isAuthored } = createBookEventDispatcher<TBookEvent, TContext>({
@@ -136,6 +159,8 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		complete: () => machine?.onComplete() ?? Promise.resolve(false),
 		completeActiveScreen: () => machine?.onComplete() ?? Promise.resolve(false),
 		emitSignal: (signal) => machine?.onSignal(signal) ?? Promise.resolve(false),
+		hasAction: (pin) => machine?.hasAction(pin) ?? false,
+		emitAction: (pin) => machine?.onAction(pin) ?? Promise.resolve(false),
 		evaluate: () => machine?.evaluate() ?? Promise.resolve(false),
 		start: () => machine?.start() ?? Promise.resolve(),
 		isAuthoredEvent: isAuthored,

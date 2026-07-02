@@ -553,17 +553,156 @@ but needed before Flow can express *all* presentation without coded `effect` nod
 
 ---
 
-## 8. Deferred — per-button `action` trigger (functional output pins)
+## 8. Functional action pins — Base game as the intent hub
 
-Per the owner's 2026-06-30 decision, this is **deferred** until the tap-driven flow works.
-When built, it makes the Flow pin graph functional for outputs:
+Per the owner's 2026-06-30 decision this was deferred until the tap-driven flow worked; the
+tap path (`signal` trigger) now ships, so this is the **next Flow slice** (design decided
+2026-07-02, owner picks: intent pins live **on Base game**; ship **Spin only, end-to-end**
+first). It closes the gap the owner named: *"my base game has no input/output — I'd expect a
+`spin` input pin that my HUD spin button's output wires into, and so on for every action."*
 
-- Add `FlowTrigger { kind: 'action', pin }` to the schema (`types.ts:209`).
-- Bridge `registerComponentActions` `onpress` → the flow interpreter holder so a flow-bound
-  button press fires its action trigger (today `onpress` goes only to the action registry,
-  `Game.svelte:600`, never to Flow).
-- Let edges originate from an action output pin in `/flow` (`addTransition` records a source
-  pin, `flowModel.client.ts:148`), turning the cosmetic action pin into a real wire.
+### 8.1 The gap today
+
+A bound button already derives an **`action` output pin** (`pins.ts` → `derivePinsFromNodes`,
+from its `registerComponentActions` param), and it renders as a right-side handle
+(`FlowScreenNode.svelte`). But it is **cosmetic**: the `FlowTrigger` union (`types.ts:230`) has
+no `action` kind, and `/flow`'s `onConnect` (`+page.svelte`) mints a blank `bookEvent` edge from
+it — the "this is a spin" meaning is lost, and nothing at runtime consumes it. Base game shows
+only `Enter`/`Complete`/`Active` because its scene carries **no bound components** (the reel
+board is engine-owned) — so today it derives no extra pins at all.
+
+### 8.2 The model — intent *input* pins, symmetric to action *output* pins
+
+Two pin categories, wired end to end:
+
+- **Action output pin** (exists): a button instance's `action` param → an `out` pin on the
+  screen that *owns the button* (e.g. the HUD screen's Spin button).
+- **Intent input pin** (new): the game's registered action **vocabulary** → an `in` pin on the
+  **intent-host screen** (Base game). One input pin per game intent: `Spin`, `Stop`,
+  `BuyBonus`, `ChangeBet`, `Autoplay`, … derived from the same `registerComponentActions`
+  registry the coded `spin` action already lives in (`Game.svelte`).
+
+Authoring: drag **button `action` → base-game `Spin` input**. Runtime: when that wire fires,
+the interpreter invokes the intent — which for `spin` is exactly today's coded path
+(`context.eventEmitter.broadcast({ type: 'bet' })` → `EnableGameActor` → XState `BET` →
+`requestBet`). So a wired Spin pin *is* the existing spin, just author-routed instead of
+hard-coded in `ButtonBetProvider`.
+
+This is the same shape as the shipped tap-to-continue path (`signal` trigger + `emitSignal` +
+`completeActiveScreen` + `flowInterpreterHolder`), scoped to a button's `action` pin instead of
+a screen-wide tap. It is the precedent to copy, not a new subsystem.
+
+### 8.3 New `FlowPinRole` — `intent` (input)
+
+Add `intent` to `FlowPinRole` (`types.ts:156`), direction `in`. Unlike the four component-derived
+roles, an intent pin is **not** projected from a node in the scene — it is projected from the
+**game's action vocabulary**, attached to the intent-host screen. Structural-style stable id
+`${screenId}::intent:${actionKey}` so a wire survives relabels. Derivation lives next to the
+structural pins in `deriveScreenPins` (`pins.ts:162`), gated on "is this the intent host"
+(§8.6).
+
+### 8.4 New `FlowTrigger` — `{ kind: 'action'; pin; intent }`
+
+Extend the union (`types.ts:230`):
+
+```ts
+/** A flow-bound button's action pin fired. `pin` is the SOURCE action KEY (`'spin'`, not the
+ *  instance-scoped pin id — `registerComponentActions` shares one action across every button
+ *  instance); `intent` is the TARGET intent key on the host. Firing INVOKES the game intent on
+ *  the host (`invokeIntent(to, intent)`) and moves NO screen state (§8.5). Mirrors how `signal`
+ *  lets a click drive the flow, scoped to a button's action instead of a screen-wide tap. */
+| { kind: 'action'; pin: string; intent: string };
+```
+
+### 8.5 Runtime — action edges INVOKE an intent (they don't move the active set)
+
+An `action → intent` edge is a **new edge semantic**: firing it does NOT activate/deactivate a
+screen (base game is already active) — it **invokes a game intent on the target host**. So it
+routes through a dedicated path, not the `fire()`/active-set machinery.
+
+- **Match by action KEY, not instance pin id.** `registerComponentActions` defines `spin` ONCE,
+  shared across every button instance; the `onpress` knows its action key (`'spin'`), not which
+  instance fired. So `FlowTrigger.action.pin` is the action **key** (`'spin'`), and the editor
+  extracts the key from the instance-scoped source pin id when it mints the edge. `trigger.intent`
+  is the target intent key.
+- `packages/engine-flow/src/presentation.ts` — add `hasAction(pin): boolean` (a pure graph query:
+  any active-screen outgoing edge with `trigger.kind==='action' && trigger.pin===pin`) and
+  `onAction(pin): Promise<boolean>` (for each matching edge, call `host.invokeIntent(edge.to,
+  edge.trigger.intent)`). Add `invokeIntent?: (screenId, intent) => void` to `PresentationHost`.
+- `packages/engine-flow/src/interpreter.ts` — surface `hasAction(pin)` (sync) + `emitAction(pin)`
+  (async) next to `emitSignal` (interpreter.ts:66); thread an `invokeIntent` param through to the
+  machine host.
+- `apps/lines/src/game/flowInterpreterHolder.ts` — expose `hasFlowAction(key)` + `emitFlowAction(key)`
+  (mirror `emitFlowSignal`, holder:34).
+- `apps/lines/src/components/Game.svelte` — (a) pass `invokeIntent: (screenId, intent) => { if
+  (intent === 'spin') <the same idle?bet:stop broadcast> }` into `createFlowInterpreter`; (b) in the
+  registered `spin` action's `onpress` (Game.svelte:892), **early-return through flow when wired**:
+  `if (holder.hasFlowAction('spin')) { holder.emitFlowAction('spin'); return; }` BEFORE the coded
+  broadcast. Unwired ⇒ `hasFlowAction` is false ⇒ the coded broadcast runs exactly as today. No
+  double-fire (one path or the other), full parity.
+
+### 8.6 The one open question — which screen hosts the intents (no hardcoding)
+
+Intents are game-global, but the owner wants them **on Base game**, and the no-hardcoding rule
+(`feedback_no_hardcoding_generic`) forbids `if (screen.id === 'basegame')` or any magic id. The
+host must be identified **generically, from data.** Options, in preference order:
+
+1. **Recommended — a scene-level opt-in flag `gameplayHost: true`** (authored once in the Scene
+   Editor, stored on the `Scene`, surfaced through `FlowScreen`). Any scene can be the intent
+   host; base game's scene sets it. Fully generic, explicit, survives multi-game flows (e.g. a
+   free-spins host screen with its own intent set). Costs one editor toggle + one schema field.
+2. **Zero-config default — the `initial` + persistent screen** (entry node with no outgoing
+   `complete` edge). Uniquely identifies base game in every current flow with no new field, but
+   is implicit and breaks if a flow has two persistent screens. Usable as the *fallback* when no
+   scene sets `gameplayHost`.
+3. Reject: deriving intents on **every** screen (noisy — a loading screen showing a Spin input).
+
+**Decided (owner, 2026-07-02): (1) with (2) as the default** — a scene is the intent host if it
+sets `gameplayHost`, else the `initial` persistent screen is host by default. Both are generic
+derivations; neither hardcodes an id.
+
+### 8.7 Editor — make the wire real
+
+- `apps/launcher-api/.../flow/+page.svelte` `onConnect`: when the **source** handle is an
+  `::action:<key>` pin AND the **target** is an `::intent:<key>` pin, mint `trigger: { kind:
+  'action', pin: <sourceKey>, intent: <targetKey> }` — the **KEYS extracted** from the handle ids
+  (`pinRoleKey`), NOT the full instance-scoped handle id (§8.5, match by key). An action source
+  dropped onto a non-intent target is rejected (no blank edge). Shipped as-built.
+- `flowModel.client.ts` `addTransition`: no change needed — it already forwards whatever
+  `FlowTrigger` it's given verbatim; the key extraction happens in `onConnect`, not here.
+- `FlowScreenNode.svelte`: `intent` pins are `direction: 'in'`, so they already flow into the
+  left `inputs`/`target`-handle list; only a `roleColor` entry was added (a deeper amber, kin to
+  the action hue). Cosmetic note: `edgeSemantics` still classifies an `action` edge as a "layer"
+  edge (dashed-amber) since it's non-`complete`; harmless (the label reads `intent: <key>`), left
+  for a future edge-class pass if a distinct look is wanted.
+
+### 8.8 Parity (§7 discipline)
+
+A FlowDoc with **no `action` edges** derives intent pins that nothing wires to, adds no
+`action` triggers, and calls `emitFlowAction` never — byte-identical to today. The coded
+`ButtonBetProvider`/`registerComponentActions` spin path stays live and authoritative until a
+game opts a button's `action` pin into a wire. Ship **Spin** first (one intent, fully wired +
+verified), then the rest follow the identical pattern (`Stop`, `BuyBonus`, `ChangeBet`,
+`Autoplay`).
+
+### 8.9 Touch list
+
+Shipped 2026-07-02 (Spin slice, engine `main`; flow-spike `phase8ActionIntent` 21/21; parity held).
+
+| File | Change |
+|---|---|
+| `packages/engine-flow/src/types.ts` | `FlowPinRole += 'intent'`; `FlowTrigger += {kind:'action',pin,intent}`; `FlowScreen.gameplayHost?` |
+| `packages/engine-flow/src/pins.ts` | `deriveScreenPins(scene, resolve, options)` — intent input pins on the host from the vocabulary |
+| `packages/engine-flow/src/presentation.ts` | `hasAction(pin)` + `onAction(pin)` (invoke `host.invokeIntent`, no active-set change) |
+| `packages/engine-flow/src/interpreter.ts` | surface `hasAction`/`emitAction`; thread `invokeIntent` param |
+| `packages/engine-flow/src/normalize.ts` | normalize the `action` trigger (`pin`+`intent`, drop partials) + preserve `gameplayHost` |
+| `apps/lines/src/game/flowInterpreterHolder.ts` | expose `hasFlowAction` + `emitFlowAction` |
+| `apps/lines/src/game/flowRuntime.svelte.ts` | thread `invokeIntent` into `createFlowInterpreter` |
+| `apps/lines/src/components/Game.svelte` | shared `doSpinBetOrStop`; `spin.onpress` early-returns through flow when wired; `invokeIntent` wires `spin` |
+| `apps/launcher-api/.../flow/+page.svelte` | `onConnect` mints an `action` edge (keys extracted) from `::action:*` into `::intent:*` |
+| `apps/launcher-api/.../flow/flowModel.client.ts` | `intentHostId` + `intentVocabulary`; 2-pass derive attaching intent pins on the host |
+| `apps/launcher-api/.../flow/FlowScreenNode.svelte` | `intent` role color |
+| `tools/flow-spike/phase8ActionIntent.ts` | headless parity/behaviour fixture (21 assertions) |
 
 ---
 
@@ -576,7 +715,7 @@ Phase 4 (generic mount)  ─┘
 Phase 3 (engine-state)   → richer branching (parallel to 1–2)
 Phase 6 (universal tray) → scales it to every component/screen
 Phase 7 (behaviour/catalog) → long tail
-Phase 8 (action trigger) → deferred (owner)
+Phase 8 (action trigger → intent pins) → NEXT (Spin first, §8)
 ```
 
 **Phases 1 → 2 → 4 → 5** is the critical path to the owner's exact flow running in a shipped

@@ -11,6 +11,7 @@
 
 import {
 	deriveScreenPins,
+	isPersistentScreen,
 	type ComponentDefResolver,
 	type FlowDoc,
 	type FlowGuard,
@@ -52,11 +53,45 @@ export const componentResolverFrom = (components: ComponentDef[]): ComponentDefR
 };
 
 /**
+ * The intent-host screen id (design doc §8.6, decided): the screen that sets `gameplayHost`,
+ * ELSE the zero-config fallback — the `initial` + persistent screen (initial flag AND no outgoing
+ * `complete` edge, so it's the base game). Generic, NO magic ids. `undefined` when neither resolves
+ * (no host ⇒ no intent pins ⇒ pure parity).
+ */
+export const intentHostId = (doc: FlowDoc): string | undefined => {
+	const explicit = doc.screens.find((s) => s.gameplayHost);
+	if (explicit) return explicit.id;
+	const fallback = doc.screens.find((s) => s.initial && isPersistentScreen(doc, s.id));
+	return fallback?.id;
+};
+
+/**
+ * The game's intent VOCABULARY (design doc §8.4) — the union of `action`-role pin KEYS across every
+ * placed screen's derived pins. Fully data-driven: if a button ANYWHERE in the flow has action
+ * `spin`, the host gets a `spin` intent input pin. Sorted for a deterministic pin order. No
+ * hardcoded catalog constant.
+ */
+const intentVocabulary = (screenPins: FlowPin[][]): string[] => {
+	const keys = new Set<string>();
+	for (const pins of screenPins) {
+		for (const pin of pins) {
+			if (pin.role === 'action' && typeof pin.key === 'string') keys.add(pin.key);
+		}
+	}
+	return [...keys].sort();
+};
+
+/**
  * Build the editable model for a project from its FlowDoc + LayoutDoc. The FlowDoc's
  * `screens[]` are the placed nodes (each resolved against its LayoutDoc scene for pins +
  * orphan warnings); LayoutDoc scenes not in the FlowDoc become palette items. A screen
  * referencing a scene the LayoutDoc no longer has is dropped from the view (its scene is
  * gone) but kept in the doc until the author removes it — surfaced as an orphan node.
+ *
+ * Intent pins (design doc §8): a first pass derives each screen's component pins to collect the
+ * action VOCABULARY (the union of `action` keys); the intent HOST then re-derives WITH those
+ * intent input pins attached. So a button's `action` output anywhere lights up a matching `intent`
+ * input on the host — the wire the runtime consumes.
  */
 export const buildFlowModel = (
 	doc: FlowDoc,
@@ -67,13 +102,25 @@ export const buildFlowModel = (
 	const sceneById = new Map(layout.scenes.map((s) => [s.id, s]));
 	const placedIds = new Set(doc.screens.map((s) => s.id));
 
-	const screens: FlowScreenView[] = [];
+	// Pass 1 — resolve each placed screen's backing scene + its component-derived pins (no intents
+	// yet), so we can collect the action vocabulary across the WHOLE flow.
+	const placed: { screen: FlowScreen; scene: Scene }[] = [];
 	for (const screen of doc.screens) {
 		const scene = sceneById.get(screen.id);
 		if (!scene) continue; // backing scene gone — kept in doc, not drawn (author removes it)
-		const pins = deriveScreenPins(scene, resolve);
-		screens.push({ screen, scene, pins, orphanedPins: pins.filter((p) => p.orphaned) });
+		placed.push({ screen, scene });
 	}
+	const intents = intentVocabulary(placed.map(({ scene }) => deriveScreenPins(scene, resolve)));
+	const hostId = intentHostId(doc);
+
+	// Pass 2 — derive each screen's pins, adding intent input pins ONLY on the host (design doc §8).
+	const screens: FlowScreenView[] = placed.map(({ screen, scene }) => {
+		const pins = deriveScreenPins(scene, resolve, {
+			intents,
+			isIntentHost: screen.id === hostId,
+		});
+		return { screen, scene, pins, orphanedPins: pins.filter((p) => p.orphaned) };
+	});
 
 	const available: AvailableScene[] = layout.scenes
 		.filter((s) => !placedIds.has(s.id))

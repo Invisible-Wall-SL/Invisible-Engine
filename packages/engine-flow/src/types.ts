@@ -152,8 +152,22 @@ export interface EventChoreography {
  *  - `gate`   ← `registerComponentVisibility` (`visibleSource`)       (input)
  * Fixed structural (every screen node, contents-independent — drive the macro flow):
  *  - `enter` (input), `complete`/`exited` (output), `active` (state).
+ *
+ * Intent (design doc §8 — Base game as the intent hub):
+ *  - `intent` (input) ← the game's registered `registerComponentActions` VOCABULARY, attached to
+ *    the intent-host screen. The counterpart of an `action` OUTPUT pin: a button's `action` output
+ *    wires INTO a matching intent input, which at runtime invokes the game intent (e.g. `spin` →
+ *    today's coded bet). Not projected from a scene node — projected from the action vocabulary.
  */
-export type FlowPinRole = 'value' | 'signal' | 'action' | 'gate' | 'enter' | 'complete' | 'active';
+export type FlowPinRole =
+	| 'value'
+	| 'signal'
+	| 'action'
+	| 'gate'
+	| 'enter'
+	| 'complete'
+	| 'active'
+	| 'intent';
 
 export type FlowPinDirection = 'in' | 'out' | 'state';
 
@@ -200,6 +214,15 @@ export interface FlowScreen {
 	choreography?: ScreenChoreography;
 	/** True for the initial active screen at boot (the flow's entry node). */
 	initial?: boolean;
+	/**
+	 * Opt-in flag marking this screen as the game-intent HOST (design doc §8.6). The intent host
+	 * gets one INTENT input pin per game action (`Spin`, `Stop`, …) that a button's `action` output
+	 * pin wires into. Authored once (Base game sets it); fully generic, NO magic ids. When NO screen
+	 * sets `gameplayHost`, the `initial` + persistent screen (initial AND no outgoing `complete`
+	 * edge) is the zero-config fallback host (design doc §8.6 decision). Surfaced on `FlowScreen`
+	 * (not engine-layout's `Scene`) for this slice.
+	 */
+	gameplayHost?: boolean;
 }
 
 /**
@@ -238,7 +261,17 @@ export type FlowTrigger =
 	/** A named runtime signal was emitted (`emitSignal(signal)` on the interpreter — the
 	 *  tap-to-continue path). Fires every active-screen edge whose `signal` matches, mirroring
 	 *  how a `bookEvent` trigger matches the arriving event `type` (design doc §6.2). */
-	| { kind: 'signal'; signal: string };
+	| { kind: 'signal'; signal: string }
+	/**
+	 * A flow-bound button's ACTION output pin fired (its `onpress` ran) — design doc §8. `pin` is
+	 * the action KEY (`'spin'`), matched by KEY not instance id (`registerComponentActions` defines
+	 * an action once, shared across every button instance, so the `onpress` knows its key, not which
+	 * instance fired). `intent` is the target intent key the host invokes (`'spin'`). Unlike every
+	 * other trigger this does NOT move the active set — it INVOKES a game intent on the target host
+	 * (base game is already active) via `host.invokeIntent(to, intent)`, routed through a dedicated
+	 * path (`onAction`), NOT `fire()`/activate/deactivate. Mirrors how `signal` lets a tap drive the
+	 * flow, scoped to a specific button's action instead of a screen-wide tap. */
+	| { kind: 'action'; pin: string; intent: string };
 
 /**
  * A transition edge `from → to` (design doc §6). Fires on its `trigger`, gated by an

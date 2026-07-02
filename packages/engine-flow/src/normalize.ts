@@ -173,6 +173,7 @@ const normalizeScreen = (input: unknown): FlowScreen | null => {
 		screen.position = { x, y };
 	}
 	if (input.initial === true) screen.initial = true;
+	if (input.gameplayHost === true) screen.gameplayHost = true;
 	const choreography = normalizeScreenChoreography(input.choreography);
 	if (choreography) screen.choreography = choreography;
 	return screen;
@@ -190,6 +191,15 @@ const normalizeTrigger = (input: unknown): FlowTrigger | null => {
 		case 'signal':
 			return typeof input.signal === 'string' && input.signal
 				? { kind: 'signal', signal: input.signal }
+				: null;
+		case 'action':
+			// An `action → intent` edge (design doc §8): both `pin` (source action key) and `intent`
+			// (target intent key) are required — a partial edge is dropped, not stored (parity §8.8).
+			return typeof input.pin === 'string' &&
+				input.pin &&
+				typeof input.intent === 'string' &&
+				input.intent
+				? { kind: 'action', pin: input.pin, intent: input.intent }
 				: null;
 		default:
 			return null;

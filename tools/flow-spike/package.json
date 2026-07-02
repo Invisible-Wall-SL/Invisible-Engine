@@ -16,6 +16,7 @@
 		"phase6": "tsx phase6Pipeline.ts",
 		"phase7": "tsx phase7Authoring.ts",
 		"transition": "tsx phase8Transition.ts",
+		"actionintent": "tsx phase8ActionIntent.ts",
 		"vocab": "tsx vocabulary.ts",
 		"tap": "tsx tapToContinue.ts",
 		"scenerole": "tsx sceneRole.ts"

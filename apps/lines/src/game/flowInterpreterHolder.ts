@@ -42,3 +42,21 @@ export const completeActiveScreen = (): Promise<boolean> =>
  */
 export const emitFlowSignal = (signal: string): Promise<boolean> =>
 	flowInterpreter?.emitSignal(signal) ?? Promise.resolve(false);
+
+/**
+ * Functional action pins (design doc §8.5) — "is this button's action wired into a flow intent?"
+ * A bound button reads this to decide whether its press routes through the flow (an authored
+ * intent) or its coded path. SAFE `false` when no interpreter is held or the action is unwired,
+ * so the coded spin/stop path stays authoritative until an author wires the pin (parity §8.8).
+ */
+export const hasFlowAction = (key: string): boolean => flowInterpreter?.hasAction(key) ?? false;
+
+/**
+ * Functional action pins (design doc §8.5) — fire a flow-bound button's action, invoking the game
+ * intent on the wired host (for `spin`, today's coded bet/stop via `invokeIntent`). Fire-and-forget
+ * (mirrors `emitFlowSignal`'s shape but discards the promise, since a button `onpress` is sync). A
+ * SAFE no-op when no interpreter is held or the action is unwired.
+ */
+export const emitFlowAction = (key: string): void => {
+	void flowInterpreter?.emitAction(key);
+};

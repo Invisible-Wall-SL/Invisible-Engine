@@ -479,6 +479,11 @@ const main = async () => {
 			// contract, design doc §6) — observe-only, drives no platform transition.
 			'entranceTransition',
 			'evaluate',
+			// Action → intent (design doc §8) — `hasAction` is a pure graph query; `onAction` invokes
+			// a game INTENT on the host via `invokeIntent` (moves no active set, drives no platform
+			// transition). Both observe/react, never send into the XState platform FSM.
+			'hasAction',
+			'onAction',
 			'isActive',
 			'isTransitioning',
 			'onBookEvent',

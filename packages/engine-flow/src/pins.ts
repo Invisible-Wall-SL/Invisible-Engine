@@ -154,17 +154,51 @@ const derivePinsFromNodes = (
 };
 
 /**
+ * Options for {@link deriveScreenPins} — the intent-host projection (design doc §8). The CALLER
+ * decides which screen is the intent host + supplies the game's action vocabulary; this module
+ * stays pure/headless (it never reads the `registerComponentActions` registry itself).
+ */
+export interface DeriveScreenPinsOptions {
+	/** The game's registered action vocabulary — the union of action KEYS a button anywhere can
+	 *  fire (e.g. `['spin']`). One INTENT input pin is derived per key, but ONLY on the host. */
+	intents?: string[];
+	/** True when THIS screen is the intent host (design doc §8.6). Only then are intent pins added. */
+	isIntentHost?: boolean;
+}
+
+/** Build an intent input pin for the host screen (design doc §8.3). Structural-style stable id
+ *  `${screenId}::intent:${key}` so a wire survives relabels. Not tied to a scene node. */
+const intentPin = (screenId: string, key: string): FlowPin => ({
+	id: `${screenId}::intent:${key}`,
+	role: 'intent',
+	direction: 'in',
+	key,
+	label: `Intent · ${key}`,
+});
+
+/**
  * Derive the full pin set for one screen (a LayoutDoc {@link Scene}): the three fixed
  * structural pins plus every dynamic pin projected from the scene's components and its
- * scene-level visibility gate. Deterministic + order-stable (structural first, then
- * dynamic in tree order), so two derivations of the same doc produce identical ids.
+ * scene-level visibility gate. When `options.isIntentHost`, one intent INPUT pin per intent
+ * key is added right after the structural pins (design doc §8). Deterministic + order-stable
+ * (structural → intents → dynamic in tree order), so two derivations of the same doc produce
+ * identical ids.
  */
-export const deriveScreenPins = (scene: Scene, resolve: ComponentDefResolver): FlowPin[] => {
+export const deriveScreenPins = (
+	scene: Scene,
+	resolve: ComponentDefResolver,
+	options: DeriveScreenPinsOptions = {},
+): FlowPin[] => {
 	const pins: FlowPin[] = [
 		structuralPin(scene.id, 'enter'),
 		structuralPin(scene.id, 'active'),
 		structuralPin(scene.id, 'complete'),
 	];
+	// Intent input pins — only on the intent host (design doc §8.6), one per registered action key,
+	// in stable key order so ids/order are deterministic. Placed right after the structural pins.
+	if (options.isIntentHost && options.intents?.length) {
+		for (const key of options.intents) pins.push(intentPin(scene.id, key));
+	}
 	// The whole-screen lifecycle gate (`Scene.visibleSource`) is a gate pin on the screen
 	// itself (keyed by the scene id, role `gate`) — the same `registerComponentVisibility`
 	// registry a component's `visibleSource` binds to (design doc §2/§4).

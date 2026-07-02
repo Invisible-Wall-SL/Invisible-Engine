@@ -88,6 +88,12 @@ export type PresentationHost = {
 	 *  for guard evaluation. Absent ⇒ guards over `$engine.*` read `undefined`. */
 	engine?: (key: string) => unknown;
 	/**
+	 * Invoke a game INTENT on a host screen (design doc §8.5) — the target of an `action → intent`
+	 * edge. The game implements this: for `spin` it runs today's coded bet/stop broadcast. Called by
+	 * `onAction`; it does NOT move the active set (base game is already active), so the HSM never
+	 * touches `activate`/`deactivate`/`notify` for it. Absent ⇒ an action edge is a safe no-op. */
+	invokeIntent?: (screenId: string, intent: string) => void;
+	/**
 	 * Notified whenever the active SET changes (a screen was added/removed). `screenIds` are
 	 * render-ordered (base first, later-activated on top; the last entry is the topmost active
 	 * screen). `entrances` lists the screens NEWLY activated by this change, each with the firing
@@ -301,6 +307,30 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		return false;
 	};
 
+	/** All active-screen outgoing `action` edges whose `pin` matches AND whose guard holds. Action
+	 *  edges have no trigger payload, so guards read an undefined trigger scope (consistent with how
+	 *  `complete`/`condition` matches read guards). */
+	const matchingActionEdges = (pin: string): FlowTransition[] =>
+		outgoing().filter(
+			(t) => t.trigger.kind === 'action' && t.trigger.pin === pin && guardHolds(t.guard, undefined),
+		);
+
+	/** Pure query — is any active-screen outgoing edge an `action` edge for `pin`? Lets the game
+	 *  decide whether a button press routes through the flow (an intent) or its coded path (§8.5).
+	 *  Does not mutate state; ignores `transitioning` (a query is always safe to answer). */
+	const hasAction = (pin: string): boolean => matchingActionEdges(pin).length > 0;
+
+	/** Fire an `action` edge — INVOKE the game intent on each matching edge's target host (§8.5).
+	 *  Unlike every other trigger this changes NO screen state: no `activate`/`deactivate`/`notify`
+	 *  and no `transitioning` gate (base game is already active). Returns true if any edge matched. */
+	const onAction = async (pin: string): Promise<boolean> => {
+		const edges = matchingActionEdges(pin);
+		for (const edge of edges) {
+			if (edge.trigger.kind === 'action') host.invokeIntent?.(edge.to, edge.trigger.intent);
+		}
+		return edges.length > 0;
+	};
+
 	return {
 		/** The topmost active screen id (the last-activated screen). `undefined` when the active
 		 *  set is empty. Kept for callers that want a single "current" screen; the full ordered
@@ -342,6 +372,12 @@ export const createPresentationMachine = (flowDoc: FlowDoc, host: PresentationHo
 		 *  `bookEvent` match. A signal with no matching edge is a no-op. */
 		onSignal: (signal: string): Promise<boolean> =>
 			fire((t) => t.trigger.kind === 'signal' && t.trigger.signal === signal, undefined),
+		/** Pure query — is any active-screen outgoing edge an `action` edge for `pin` (§8.5)? Lets a
+		 *  button decide whether it routes through the flow (an intent) or its coded path. */
+		hasAction,
+		/** A flow-bound button's action pin fired — invoke the game intent on each matching
+		 *  `action → intent` edge's host (§8.5). Moves NO screen state (base game is already active). */
+		onAction,
 		/** Re-evaluate `condition` edges (the game pings this when an observed engine value
 		 *  changes). Fires the first whose guard now holds (§6.3). */
 		evaluate: (): Promise<boolean> => fire((t) => t.trigger.kind === 'condition', undefined),

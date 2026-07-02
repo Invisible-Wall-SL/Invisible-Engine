@@ -38,6 +38,9 @@
 		signal: '#a855f7',
 		action: '#f59e0b',
 		gate: '#10b981',
+		// Intent input pins (design doc §8) share the action hue's family — a deeper amber — so an
+		// author reads "this wires to an action output" at a glance while staying distinct.
+		intent: '#d97706',
 		enter: '#64748b',
 		complete: '#64748b',
 		active: '#64748b',

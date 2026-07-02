@@ -79,6 +79,8 @@
 		setFlowInterpreter,
 		completeActiveScreen,
 		emitFlowSignal,
+		hasFlowAction,
+		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
@@ -792,6 +794,24 @@
 	// identically to its coded counterpart. `boolSource` replays each live derived as
 	// the registry's `BoolSource`. Nothing mounts a button instance yet (B6.3/B6.4),
 	// so this is pure registration plumbing — no render change.
+	// The idle→bet / else→stop decision, byte-for-byte `ButtonBetProvider.onpress`' body (minus
+	// the leading `soundPressBet`). Extracted so the coded spin `onpress` AND the flow `invokeIntent`
+	// share ONE source of truth for the decision — an authored Spin pin runs the EXACT same bet/stop
+	// as the hard-coded button (design doc §8.2/§8.5). Not the sound (that stays on the button press).
+	const doSpinBetOrStop = (): void => {
+		if (context.stateXstateDerived.isIdle()) {
+			// bet()
+			if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
+			context.eventEmitter.broadcast({ type: 'bet' });
+		} else {
+			// stop() — the `stopDisabled` latch makes a second tap a no-op.
+			if (!stopDisabled) {
+				if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
+				context.eventEmitter.broadcast({ type: 'stopButtonClick' });
+			}
+		}
+	};
+
 	registerComponentActions({
 		// ButtonMenu — open the menu overlay. No disabled/active.
 		menu: {
@@ -892,17 +912,16 @@
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressBet' });
 
-				if (context.stateXstateDerived.isIdle()) {
-					// bet()
-					if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
-					context.eventEmitter.broadcast({ type: 'bet' });
-				} else {
-					// stop() — the `stopDisabled` latch makes a second tap a no-op.
-					if (!stopDisabled) {
-						if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
-						context.eventEmitter.broadcast({ type: 'stopButtonClick' });
-					}
+				// Functional action pin (design doc §8.5): if an author wired this button's `spin`
+				// action into a flow intent, route the press THROUGH the flow (which calls
+				// `invokeIntent('…','spin')` → `doSpinBetOrStop()`) and stop — one path, no double-
+				// fire. UNWIRED ⇒ `hasFlowAction` is false ⇒ the coded bet/stop runs exactly as today
+				// (parity §8.8). The interpreter is inert with no FlowDoc, so this is `false` there.
+				if (hasFlowAction('spin')) {
+					emitFlowAction('spin');
+					return;
 				}
+				doSpinBetOrStop();
 			},
 			disabled: boolSource(() => ['spin_disabled', 'stop_disabled'].includes(getSpinKey())),
 			spinning: boolSource(isSpinning),
@@ -947,8 +966,15 @@
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
 			// path (parity, §7). `start()` runs the initial screen's enter choreography.
-			flow = createLinesFlow(doc, (screenIds, entrances) =>
-				applyActiveScreens(screenIds, entrances),
+			flow = createLinesFlow(
+				doc,
+				(screenIds, entrances) => applyActiveScreens(screenIds, entrances),
+				// Intent host bridge (design doc §8.5): a wired `spin` action → the host's `spin` intent
+				// invokes the EXACT coded bet/stop (shared `doSpinBetOrStop`). Other intents are no-ops
+				// until wired (parity §8.8) — Spin ships first, the rest follow the identical pattern.
+				(_screenId, intent) => {
+					if (intent === 'spin') doSpinBetOrStop();
+				},
 			);
 			setFlowInterpreter(flow);
 			// Seed the rune from the interpreter's initial active set (the `initial` node), then run

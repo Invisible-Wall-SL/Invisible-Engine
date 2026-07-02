@@ -24,6 +24,32 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-02 — Invisible Flow: functional action pins (Base game as intent hub) + edge delete
+
+Two `/flow` slices (engine `main`; see `docs/design/flow-driven-game.md` §8, now marked shipped):
+
+**1. Functional action pins — Spin, end-to-end.** The Base game node now exposes semantic **intent
+INPUT pins** (`Spin`, …) that a HUD spin button's existing `action` OUTPUT pin wires into — answering
+"my base game has no inputs; I'd expect a spin input a button drives." An `action → intent` edge is a
+NEW edge semantic: it **invokes a game intent on the host** (`invokeIntent(to,'spin')` → the exact
+coded bet/stop) and moves NO screen state (base game is already active). Model: intent pins derived on
+the **intent host** = the screen with `gameplayHost: true`, else the `initial`+persistent screen
+(generic, no magic ids); the intent **vocabulary** = the union of `action`-pin keys across the flow
+(data-driven). Matched by action **key** (`spin`), not instance pin id (`registerComponentActions`
+shares one action across instances). Parity is byte-exact: with no authored `action` edge,
+`hasFlowAction('spin')` is false ⇒ the coded `ButtonBetProvider`/registered-`spin` path runs exactly
+as today. `tools/flow-spike/phase8ActionIntent.ts` = 21/21. Files: engine-flow
+`types`/`pins`/`presentation`/`interpreter`/`normalize`; `apps/lines` `Game.svelte` (shared
+`doSpinBetOrStop`, `onpress` early-return, `invokeIntent`), `flowRuntime`, `flowInterpreterHolder`;
+launcher `/flow` `+page.svelte` (onConnect mints the edge), `flowModel.client.ts` (host + vocabulary),
+`FlowScreenNode.svelte` (intent color). **Next intents** (`Stop`, `BuyBonus`, `ChangeBet`, `Autoplay`)
+follow the identical pattern.
+
+**2. Delete a pin connection.** In `/flow`, select a wire and press **Delete/Backspace** to remove it —
+drops only the backing `FlowTransition` (screens untouched), routed through the existing
+`commit()`/undo/autosave path; guarded against firing while typing in a field; xyflow's built-in delete
+disabled (`deleteKeyCode={null}`) so the FlowDoc is the single delete authority.
+
 ### 2026-07-02 — Invisible Flow: tap-to-continue surface made TRANSFORM-INDEPENDENT (portrait fix)
 
 Fixes the known `STILL-OWED: transform-independent tapToContinue dim` gap. On a flow-driven screen

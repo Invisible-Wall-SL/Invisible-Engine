@@ -157,6 +157,9 @@
 				return `tap: ${trigger.signal || '…'}`;
 			case 'condition':
 				return 'condition';
+			case 'action':
+				// An action → intent wire (design doc §8): invokes a game intent, moves no screen.
+				return `intent: ${trigger.intent || '…'}`;
 		}
 	}
 
@@ -212,9 +215,35 @@
 		commit(addScreen(doc, scene, { x: 80 + (n % 4) * 300, y: 80 + Math.floor(n / 4) * 220 }));
 	}
 
+	// Extract the KEY tail from a `${instanceId}::${role}:${key}` dynamic pin id (design doc §12).
+	// Returns the substring after the LAST `:` when the handle matches `::<role>:<key>`, else undefined.
+	function pinRoleKey(handle: string | null | undefined, role: string): string | undefined {
+		const marker = `::${role}:`;
+		const at = handle?.lastIndexOf(marker);
+		return at !== undefined && at >= 0 ? handle!.slice(at + marker.length) : undefined;
+	}
+
 	function onConnect(c: Connection): void {
 		if (!c.source || !c.target) return;
-		// Infer the active-SET semantic from the SOURCE pin the author dragged FROM. The
+		// An ACTION → INTENT wire (design doc §8): dragging FROM a button's `::action:<key>` output
+		// INTO the host's `::intent:<key>` input mints an `action` edge that INVOKES a game intent
+		// (base game stays active — this does NOT move the active set). Matched by action KEY, not
+		// instance id (`registerComponentActions` shares one action across every button instance).
+		// An action source dropped onto a NON-intent target is rejected (kept valid, no blank edge).
+		const actionKey = pinRoleKey(c.sourceHandle, 'action');
+		if (actionKey !== undefined) {
+			const intentKey = pinRoleKey(c.targetHandle, 'intent');
+			if (intentKey === undefined) return; // action → non-intent: ignore (invalid connection)
+			commit(
+				addTransition(doc, c.source, c.target, {
+					kind: 'action',
+					pin: actionKey,
+					intent: intentKey,
+				}),
+			);
+			return;
+		}
+		// Otherwise infer the active-SET semantic from the SOURCE pin the author dragged FROM. The
 		// structural Complete pin id is `${screenId}::complete` (engine-flow `pins.ts`); wiring
 		// FROM it means "hand off when this screen completes" ⇒ a `complete` (handoff) edge.
 		// Dragging from any other source pin means "activate the target while I persist" ⇒ a
@@ -443,6 +472,15 @@
 			if (editing || !clipboard) return;
 			e.preventDefault();
 			pasteClipboard();
+		} else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod) {
+			// Delete/Backspace removes the SELECTED EDGE (a pin connection) — only the wire, never
+			// the connected screens (`removeTransition` drops just the `FlowTransition` by id). Guarded
+			// against firing while typing in an input/textarea so a text edit's Backspace isn't hijacked.
+			// A selected SCREEN is intentionally NOT deleted here (screen removal stays the inspector's
+			// explicit "Remove screen" action, so a stray Delete can't drop a whole node + its edges).
+			if (editing || !selectedEdgeId) return;
+			e.preventDefault();
+			deleteSelectedEdge();
 		}
 	}
 
@@ -633,6 +671,7 @@
 					{nodeTypes}
 					colorMode="dark"
 					fitView
+					deleteKeyCode={null}
 					onconnect={onConnect}
 					onnodedragstop={onNodeDragStop}
 					onnodeclick={onNodeClick}
@@ -910,6 +949,12 @@
 	   static dash, so the dash reads on non-animated layer edges — condition/signal). */
 	.canvas :global(.svelte-flow__edge.flow-edge-layer:not(.animated) .svelte-flow__edge-path) {
 		stroke-dasharray: 6 4;
+	}
+	/* The SELECTED edge (click to select, Delete/Backspace to remove) — thicken the wire so the
+	   pick reads at a glance, on top of the accent-blue stroke the per-edge `style` already sets
+	   for a selected edge. Pairs with the label accent so the selection is unmistakable. */
+	.canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-path) {
+		stroke-width: 2.5;
 	}
 	.empty {
 		display: grid;

@@ -245,6 +245,10 @@ export const createLinesFlow = (
 		screenIds: readonly string[],
 		entrances: readonly ScreenEntrance[],
 	) => void,
+	/** Invoke a game INTENT on a host screen (design doc §8.5) — the target of an `action → intent`
+	 *  edge. Supplied by `Game.svelte` (it needs the live `context` bet/stop decision); for `spin`
+	 *  it runs the exact coded bet/stop broadcast. Absent ⇒ an action edge is a safe no-op. */
+	invokeIntent?: (screenId: string, intent: string) => void,
 ): LinesFlow | undefined => {
 	const authoredDoc = loadFlowDoc();
 	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,
@@ -265,6 +269,7 @@ export const createLinesFlow = (
 	return createFlowInterpreter<BookEvent, BookEventContext>({
 		flowDoc,
 		onActiveScreensChange,
+		invokeIntent,
 		// The bounded `$engine.*` reader (flow-driven-game §3) — sourced from the SAME live state
 		// the component value/visibility registries read, so a `condition`/Branch guard sees the
 		// same engine values a bound readout/gate does. Harmless to inject for every fixture: a
