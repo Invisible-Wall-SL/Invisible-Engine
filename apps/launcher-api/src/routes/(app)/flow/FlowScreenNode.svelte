@@ -14,6 +14,9 @@
 		// active set (never removes itself) — the base game's defining property (design doc
 		// active-SET model). Not a schema field; derived from the transitions by the page.
 		persistent?: boolean;
+		// The resolved intent host (design doc §8.6) — this screen carries the game's intent INPUT
+		// pins (Spin, …). Set by the page from the model; drives the "intents" badge.
+		intentHost?: boolean;
 		invalid?: boolean;
 	};
 	let { data, selected }: NodeProps = $props();
@@ -55,6 +58,11 @@
 				class="badge persistent"
 				title="Persistent (base) — no outgoing 'on complete' edge, so this screen never removes itself: overlays layer over it and it stays active underneath."
 				>persistent</span
+			>{/if}
+		{#if d.intentHost}<span
+				class="badge intent"
+				title="Gameplay host — exposes the game's intent input pins (Spin, …); a button's action output wires into these."
+				>intents</span
 			>{/if}
 		{#if d.orphanCount > 0}<span class="badge warn" title="{d.orphanCount} orphaned pin(s)"
 				>⚠ {d.orphanCount}</span
@@ -160,6 +168,12 @@
 	.badge.persistent {
 		background: #10362f;
 		color: #6ee7b7;
+	}
+	/* The intent-host badge — a deep amber, kin to the `action`/`intent` pin hue, so "this node
+	   owns the game intents (Spin, …)" reads at a glance next to the persistent/start badges. */
+	.badge.intent {
+		background: #422006;
+		color: #fcd34d;
 	}
 	.pins {
 		display: flex;

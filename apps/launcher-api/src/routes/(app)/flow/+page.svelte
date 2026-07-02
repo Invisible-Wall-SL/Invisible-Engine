@@ -39,6 +39,7 @@
 		pasteScreens,
 		removeScreen,
 		removeTransition,
+		setGameplayHost,
 		setInitialScreen,
 		type AvailableScene,
 		type FlowClipboard,
@@ -118,6 +119,10 @@
 			type: 'screen',
 			position: view.screen.position ?? { x: 0, y: 0 },
 			selected: view.screen.id === selectedScreenId,
+			// Screens are removed via the inspector's explicit "Remove screen" button, never by the
+			// Delete key — so the Delete/Backspace key deletes only selected EDGES (a pin connection),
+			// and a stray Delete can't drop a whole node + its edges (design doc §8, edge-delete).
+			deletable: false,
 			data: {
 				label: view.screen.label ?? view.scene.name,
 				pins: view.pins,
@@ -127,6 +132,9 @@
 				// active set (never removes itself) — the base game's defining property. Pure
 				// derivation over the transitions, no schema field (design doc active-SET model).
 				persistent: isPersistentScreen(doc, view.screen.id),
+				// The resolved intent host (design doc §8.6) — the screen carrying the game's intent
+				// input pins. Shown as a badge so the author sees which node owns Spin/etc.
+				intentHost: view.screen.id === model.intentHostId,
 				invalid: invalidScreenIds.has(view.screen.id),
 			},
 		}));
@@ -329,6 +337,19 @@
 		commit(removeTransition(doc, id));
 	}
 
+	// SvelteFlow deleted element(s) via its own key handling (Delete/Backspace on a selected edge).
+	// Screens are `deletable:false`, so only edges arrive here — reconcile them into the FlowDoc so
+	// the removal PERSISTS (drop each `FlowTransition` by id). Without this, xyflow removes the wire
+	// from its own array only and it reappears on the next rebuild-from-doc (move/reload). One commit
+	// for the whole batch = one undo step; also drops the inspector selection if it was deleted.
+	function onGraphDelete({ edges: deleted }: { nodes: Node[]; edges: Edge[] }): void {
+		if (!deleted?.length) return;
+		let next = doc;
+		for (const e of deleted) next = removeTransition(next, e.id);
+		if (deleted.some((e) => e.id === selectedEdgeId)) selectedEdgeId = null;
+		commit(next);
+	}
+
 	function applyEdgeEdit(edit: TransitionEdit): void {
 		if (!selectedEdgeId) return;
 		commit(editTransition(doc, selectedEdgeId, edit));
@@ -369,6 +390,14 @@
 
 	function makeInitial(): void {
 		if (selectedScreenId) commit(setInitialScreen(doc, selectedScreenId));
+	}
+
+	// Toggle the selected screen as the gameplay/intent HOST (design doc §8.6) — the screen that
+	// exposes the game's intent INPUT pins (Spin, …). Single-host, so this also clears the flag
+	// elsewhere. Cleared ⇒ the generic resolver picks the host (the reachable persistent screen with
+	// no action pins). `checked` reflects the EXPLICIT flag, not the resolved fallback.
+	function toggleGameplayHost(on: boolean): void {
+		if (selectedScreenId) commit(setGameplayHost(doc, selectedScreenId, on));
 	}
 
 	function deleteSelectedScreen(): void {
@@ -472,16 +501,10 @@
 			if (editing || !clipboard) return;
 			e.preventDefault();
 			pasteClipboard();
-		} else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod) {
-			// Delete/Backspace removes the SELECTED EDGE (a pin connection) — only the wire, never
-			// the connected screens (`removeTransition` drops just the `FlowTransition` by id). Guarded
-			// against firing while typing in an input/textarea so a text edit's Backspace isn't hijacked.
-			// A selected SCREEN is intentionally NOT deleted here (screen removal stays the inspector's
-			// explicit "Remove screen" action, so a stray Delete can't drop a whole node + its edges).
-			if (editing || !selectedEdgeId) return;
-			e.preventDefault();
-			deleteSelectedEdge();
 		}
+		// NOTE: Delete/Backspace for edges is owned by SvelteFlow's own key handling (which ignores
+		// input fields and only targets SELECTED elements), reconciled into the doc via `onGraphDelete`
+		// (screens are `deletable:false`, so only edges delete). No custom branch needed here.
 	}
 
 	async function save(): Promise<void> {
@@ -619,6 +642,17 @@
 						/>
 						Initial screen
 					</label>
+					<label class="row" title="Expose the game's intent input pins (Spin, …) on this screen">
+						<input
+							type="checkbox"
+							checked={selectedScreen.screen.gameplayHost ?? false}
+							onchange={(e) => toggleGameplayHost(e.currentTarget.checked)}
+						/>
+						Gameplay host
+						{#if !selectedScreen.screen.gameplayHost && model.intentHostId === selectedScreen.screen.id}
+							<span class="hint">(auto)</span>
+						{/if}
+					</label>
 					<button class="choreo" onclick={() => openChoreography(selectedScreen.screen.id)}>
 						Edit choreography…
 					</button>
@@ -671,8 +705,9 @@
 					{nodeTypes}
 					colorMode="dark"
 					fitView
-					deleteKeyCode={null}
+					deleteKeyCode={['Delete', 'Backspace']}
 					onconnect={onConnect}
+					ondelete={onGraphDelete}
 					onnodedragstop={onNodeDragStop}
 					onnodeclick={onNodeClick}
 					onedgeclick={onEdgeClick}

@@ -44,6 +44,9 @@ export interface FlowModel {
 	screens: FlowScreenView[];
 	/** LayoutDoc scenes not yet placed on the canvas — the palette/picker. */
 	available: AvailableScene[];
+	/** The resolved intent-host screen id (design doc §8.6) — the screen that carries the game's
+	 *  intent INPUT pins. `undefined` when none resolves (no host ⇒ no intent pins ⇒ parity). */
+	intentHostId?: string;
 }
 
 /** Build a {@link ComponentDefResolver} from the project's loaded component defs. */
@@ -53,16 +56,31 @@ export const componentResolverFrom = (components: ComponentDef[]): ComponentDefR
 };
 
 /**
- * The intent-host screen id (design doc §8.6, decided): the screen that sets `gameplayHost`,
- * ELSE the zero-config fallback — the `initial` + persistent screen (initial flag AND no outgoing
- * `complete` edge, so it's the base game). Generic, NO magic ids. `undefined` when neither resolves
- * (no host ⇒ no intent pins ⇒ pure parity).
+ * The intent-host screen id (design doc §8.6) — the screen that carries the game's intent INPUT
+ * pins. Resolution, in order (all generic — NO magic ids):
+ *   1. an explicit `gameplayHost` flag (the author's override, set via the inspector);
+ *   2. the SOLE persistent screen (no outgoing `complete` edge), if there's exactly one;
+ *   3. among MULTIPLE persistent screens, the one that RECEIVES intents: it carries no `action`
+ *      OUTPUT pin (buttons live on HUD screens) AND is reachable (has an incoming transition) —
+ *      so a transient loading screen (not persistent), a HUD (has action pins), and an unreachable
+ *      stray are all excluded, leaving the base game.
+ * `actionScreenIds` are the screens that carry an `action` output pin (needed only for rule 3;
+ * omit it and rule 3 is skipped). `undefined` when nothing resolves (no host ⇒ no intent pins ⇒
+ * parity), which the UI surfaces as a hint to set the flag explicitly.
  */
-export const intentHostId = (doc: FlowDoc): string | undefined => {
+export const resolveIntentHostId = (
+	doc: FlowDoc,
+	actionScreenIds?: ReadonlySet<string>,
+): string | undefined => {
 	const explicit = doc.screens.find((s) => s.gameplayHost);
 	if (explicit) return explicit.id;
-	const fallback = doc.screens.find((s) => s.initial && isPersistentScreen(doc, s.id));
-	return fallback?.id;
+	const persistent = doc.screens.filter((s) => isPersistentScreen(doc, s.id));
+	if (persistent.length === 0) return undefined;
+	if (persistent.length === 1) return persistent[0].id;
+	if (!actionScreenIds) return undefined; // can't disambiguate without knowing who has actions
+	const hasIncoming = (id: string): boolean => doc.transitions.some((t) => t.to === id);
+	const candidates = persistent.filter((s) => !actionScreenIds.has(s.id) && hasIncoming(s.id));
+	return candidates[0]?.id;
 };
 
 /**
@@ -110,11 +128,21 @@ export const buildFlowModel = (
 		if (!scene) continue; // backing scene gone — kept in doc, not drawn (author removes it)
 		placed.push({ screen, scene });
 	}
-	const intents = intentVocabulary(placed.map(({ scene }) => deriveScreenPins(scene, resolve)));
-	const hostId = intentHostId(doc);
+	// Pass 1 pins (component-derived, no intents) — reused to collect the vocabulary AND to know
+	// which screens carry an `action` OUTPUT pin (so the host resolver can exclude HUD screens).
+	const basePins = placed.map(({ screen, scene }) => ({
+		screen,
+		scene,
+		pins: deriveScreenPins(scene, resolve),
+	}));
+	const intents = intentVocabulary(basePins.map((p) => p.pins));
+	const actionScreenIds = new Set(
+		basePins.filter((p) => p.pins.some((pin) => pin.role === 'action')).map((p) => p.screen.id),
+	);
+	const hostId = resolveIntentHostId(doc, actionScreenIds);
 
 	// Pass 2 — derive each screen's pins, adding intent input pins ONLY on the host (design doc §8).
-	const screens: FlowScreenView[] = placed.map(({ screen, scene }) => {
+	const screens: FlowScreenView[] = basePins.map(({ screen, scene }) => {
 		const pins = deriveScreenPins(scene, resolve, {
 			intents,
 			isIntentHost: screen.id === hostId,
@@ -126,7 +154,7 @@ export const buildFlowModel = (
 		.filter((s) => !placedIds.has(s.id))
 		.map((s) => ({ id: s.id, name: s.name }));
 
-	return { doc, screens, available };
+	return { doc, screens, available, intentHostId: hostId };
 };
 
 // ---------------------------------------------------------------------------
@@ -184,6 +212,20 @@ export const moveScreen = (
 export const setInitialScreen = (doc: FlowDoc, screenId: string): FlowDoc => {
 	const next = cloneDoc(doc);
 	for (const screen of next.screens) screen.initial = screen.id === screenId;
+	return next;
+};
+
+/**
+ * Mark (or clear) a screen as the gameplay/intent HOST — the screen that exposes the game's intent
+ * INPUT pins (design doc §8.6). SINGLE-host: setting one clears the flag on every other screen, so
+ * exactly one screen owns the intents. `on=false` clears it (falling back to the generic resolver).
+ */
+export const setGameplayHost = (doc: FlowDoc, screenId: string, on: boolean): FlowDoc => {
+	const next = cloneDoc(doc);
+	for (const screen of next.screens) {
+		if (screen.id === screenId && on) screen.gameplayHost = true;
+		else delete screen.gameplayHost;
+	}
 	return next;
 };
 
