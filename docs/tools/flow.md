@@ -41,10 +41,12 @@ starting one, and what makes the game transition from screen A to screen B.
   projected from the components already on that screen: value inputs (a readout bound
   to `win`/`balance`), action outputs (a button's `spin`/`buyBonus`), signal inputs (a
   spine cue), and the screen's visibility **gate** — plus three fixed structural pins
-  (`enter`, `complete`, `active`) that drive the flow. If you delete the component a
-  pin came from, the pin is shown **orphaned** (struck through, with a warning count on
-  the node, a `⚠ N issues` badge in the sub-bar, and an entry in the Validation panel)
-  rather than silently dropped, so a stale wire is always visible.
+  (`enter`, `complete`, `active`) that drive the flow. The Base-game **host** node also
+  carries game-level pins: **intent inputs** (Spin, …) and **value producers** (the engine
+  feeds a display can bind to). If you delete the component a pin came from, the pin is shown
+  **orphaned** (struck through, with a warning count on the node, a `⚠ N issues` badge in the
+  sub-bar, and an entry in the Validation panel) rather than silently dropped, so a stale wire
+  is always visible.
 - **Transitions describe the flow.** An edge from screen A to screen B fires on one of
   three triggers: a **book event** arriving, the source screen's **complete** signal
   (its exit finished), or an **engine condition**. Edges can carry an optional **guard**
@@ -95,6 +97,45 @@ it out): **handoff** edges (Screen complete) are **solid slate** — the source 
 activates OVER the source, which stays active underneath. Book-event edges are also animated so
 they stand out. A layer edge means you usually want a **Complete** edge back OUT of the overlay
 so it can dismiss itself (the validation panel flags a "stuck overlay" that has none).
+
+### The Base-game hub: intent inputs and value producers
+
+One screen — the **gameplay host** (badged `intents`) — carries pins that aren't projected
+from its own components but from the game itself. It's resolved automatically (the persistent
+base game, or the screen you tick as host in its inspector), so no id is hard-coded:
+
+- **Intent inputs** (left side, deep amber): one per game action (`Spin`, …). A HUD button's
+  **action output** wires into a matching intent input — pressing the button then invokes that
+  game intent (e.g. `spin` runs the real bet/stop). This moves no screen state.
+- **Value producers** (right side, bright **sky-blue**): one per engine value feed
+  (`balance`, `win`, `bet`, `totalWin`, `freeSpins`, …). These are the **source** ends of value
+  bindings — see below.
+
+### Value dataflow (wiring a display to an engine feed)
+
+Every value display on a screen (a readout bound to `win`/`balance`/`bet`/…) shows a
+**value input** pin on its left. By default that display **auto-binds by name** — it reads the
+feed its `source` param names, with no wire needed. Auto-wired value pins are tagged **`auto`**
+(a faint sky-blue pill; hover for "auto-bound to `<feed>`") so you can tell a default read from
+a rewired one at a glance.
+
+To **override** which feed a display reads, draw a **value binding edge**: drag from a
+**value producer** pin on the Base-game hub (right side, sky-blue, `produces:<feed>`) to the
+display's **value input** pin (left side). That display then subscribes to the producer feed's
+live value instead of its own `source` — e.g. point a readout labelled "Win" at the `totalWin`
+feed. Dropping a producer onto anything other than a value input is rejected (no stray edge).
+
+A value binding edge is drawn as its **own class** — a **thin, dashed sky-blue line**, visibly
+distinct from the solid-slate handoff and dashed-amber layer edges — because it is **not** an
+active-set transition. It is a **reactive subscription**: it never copies a value and never
+changes which screen is active; the engine stays the single source of truth. Selecting one opens
+a read-only **Value binding** explainer (producer → display) with a **Delete binding** button;
+deleting it reverts the display to auto-binding by its own source name. Because it moves no state,
+a value edge carries no trigger, guard, delay, order, or fade (those fields are hidden for it).
+
+If a value binding names a producer that isn't a registered feed, or targets a display that was
+deleted, the Validation panel flags it (**unresolved / orphaned value binding**) — a warning,
+never a silent drop.
 
 ### Edit a transition
 
@@ -183,6 +224,9 @@ authoring, and the sub-bar shows a `⚠ N issues` badge. Each issue is one of:
   whose key/root isn't a known engine value or context root. A typo here silently falls
   through to a literal string at runtime, so this warning is the only guard against it.
   (Unregistered Effect *names* are warned inline in the inspector, not in this panel.)
+- **Unresolved / orphaned value binding** — a value binding edge whose producer isn't a
+  registered engine feed (the display would subscribe to nothing), or whose target display was
+  deleted (the wire is orphaned). Re-point it or delete it.
 
 A flagged screen is also marked **inline** on the canvas (an amber node border). Click any
 node-scoped issue to select and focus the offending screen.
