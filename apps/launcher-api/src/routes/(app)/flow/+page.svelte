@@ -140,41 +140,11 @@
 		}));
 	}
 
-	function edgeLabel(t: FlowTransition): string {
-		// Lead with the active-SET semantic so the author reads it at a glance: a HANDOFF
-		// (⇥, source hides) vs a LAYER (⧉, source persists underneath). Then the trigger + any
-		// guard/delay. The colour (below) carries the same distinction redundantly.
-		const mark = edgeSemantics(t) === 'handoff' ? '⇥' : '⧉';
-		const base = `${mark} ${triggerLabel(t.trigger)}`;
-		// A fade entrance transition reads as a "◐ fade Nms" chip so the author sees it at a glance
-		// (design doc §6, the droppable "Transition" node).
-		const fade = t.transition ? `◐ fade ${t.transition.ms}ms` : '';
-		const extra = [t.guard ? 'guard' : '', t.delayMs ? `+${t.delayMs}ms` : '', fade]
-			.filter(Boolean)
-			.join(' ');
-		return extra ? `${base} · ${extra}` : base;
-	}
-
-	function triggerLabel(trigger: FlowTrigger): string {
-		switch (trigger.kind) {
-			case 'bookEvent':
-				return `event: ${trigger.event || '…'}`;
-			case 'complete':
-				return 'on complete';
-			case 'signal':
-				return `tap: ${trigger.signal || '…'}`;
-			case 'condition':
-				return 'condition';
-			case 'action':
-				// An action → intent wire (design doc §8): invokes a game intent, moves no screen.
-				return `intent: ${trigger.intent || '…'}`;
-		}
-	}
-
 	// Handoff edges (source hides) read in a cool slate; layering edges (source persists) read
 	// in amber — the same hue the "layers over" overlay concept uses elsewhere. The selected
 	// edge overrides to the accent blue. One colour per active-SET class, so the graph's
-	// hide-vs-layer structure is legible without reading every label.
+	// hide-vs-layer structure is legible without an on-edge text label (removed — it overlapped
+	// and cluttered; the trigger/guard/fade details live in the edge inspector on selection).
 	const HANDOFF_COLOR = '#64748b';
 	const LAYER_COLOR = '#f59e0b';
 	const SELECTED_EDGE_COLOR = '#2563eb';
@@ -215,10 +185,6 @@
 				target: t.to,
 				sourceHandle,
 				targetHandle,
-				label: edgeLabel(t),
-				// The label div is portalled out of the edge <g>, so a `.selected …` descendant
-				// selector can't reach it — drive the selected/semantic chip accent via labelStyle.
-				labelStyle: `border-color:${color};color:${selected ? '#bfdbfe' : '#cbd5e1'}`,
 				style: `stroke:${color}`,
 				// A layering edge is dashed (the target rides OVER the persistent source, not a
 				// clean baton-pass); a handoff edge is solid. Book-event edges stay animated.
@@ -995,19 +961,6 @@
 	.canvas :global(.svelte-flow) {
 		background: #0b0e13;
 	}
-	/* Edge transition labels: xyflow's default white pill washes out on the dark
-	   canvas. Force a solid dark chip with light text + rounded corners. In
-	   @xyflow/svelte 1.6 the label is an HTML <div class="svelte-flow__edge-label">
-	   (portalled into .svelte-flow__edge-labels), not the old SVG <rect>/<text>. */
-	.canvas :global(.svelte-flow__edge-label) {
-		background: #161b22;
-		border: 1px solid #2a323d;
-		border-radius: 5px;
-		padding: 2px 6px;
-		color: #cbd5e1;
-		font-size: 11px;
-		font-weight: 500;
-	}
 	/* A LAYER edge (target rides OVER the persistent source) is dashed; a HANDOFF edge (clean
 	   source-hides baton-pass) stays solid. The per-edge `style` sets the stroke colour; this
 	   only adds the dash pattern for the layer class (xyflow's `animated` flag would override a
@@ -1017,7 +970,7 @@
 	}
 	/* The SELECTED edge (click to select, Delete/Backspace to remove) — thicken the wire so the
 	   pick reads at a glance, on top of the accent-blue stroke the per-edge `style` already sets
-	   for a selected edge. Pairs with the label accent so the selection is unmistakable. */
+	   for a selected edge. */
 	.canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-path) {
 		stroke-width: 2.5;
 	}
