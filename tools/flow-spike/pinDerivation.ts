@@ -25,7 +25,7 @@
  * spine with a `win` cue) + the real `deriveScreenPins` from `engine-flow`.
  */
 
-import { deriveScreenPins, type ComponentDefResolver, type FlowPin } from 'engine-flow';
+import { deriveScreenPins, pinLabel, type ComponentDefResolver, type FlowPin } from 'engine-flow';
 import type { ComponentDef, Scene } from 'engine-layout';
 
 // ---------------------------------------------------------------------------
@@ -220,8 +220,11 @@ const sameIds =
 	ids(pins).every((id) => ids(renamedPins).includes(id));
 ok('rename + reorder preserves every pin id', sameIds);
 ok(
-	'relabel changes the LABEL only',
-	byId(renamedPins, 'n_win::value:win')?.label === 'Total Win · win',
+	// The pin id is stable across relabel (asserted above); the LABEL is the shipped SHORT
+	// `pinLabel(instanceLabel, key)` (commit de9c85a) — for "Total Win"/"win" the tokens differ so
+	// it's the key "win". Assert via the REAL helper so the test tracks the label contract.
+	'relabel keeps the id; the label is the shipped short pinLabel',
+	byId(renamedPins, 'n_win::value:win')?.label === pinLabel('Total Win', 'win'),
 );
 
 // 7. Orphan — a missing ComponentDef flags pins, never drops them.

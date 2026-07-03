@@ -26,6 +26,7 @@
 
 import {
 	deriveScreenPins,
+	pinLabel,
 	type ComponentDefResolver,
 	type EngineFeed,
 	type FlowPin,
@@ -153,10 +154,12 @@ ok(
 	producers(hostPins).every((p) => p.role === 'producer' && p.direction === 'out'),
 );
 ok(
-	'producer pin carries the feed key + a catalog label',
+	'producer pin carries the feed key + the shipped short label',
 	producers(hostPins).every((p, i) => {
 		const feed = engineFeeds[i];
-		return p.key === feed.key && p.label === `${feed.label} · ${feed.key}`;
+		// The label is the SHORT `pinLabel(base, key)` the editor renders (commit de9c85a) — the
+		// human name when it conveys the key ("Bet"), else the key. Assert via the REAL helper.
+		return p.key === feed.key && p.label === pinLabel(feed.label, feed.key);
 	}),
 );
 // Deterministic — two derivations are byte-identical.

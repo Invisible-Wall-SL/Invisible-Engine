@@ -11,6 +11,7 @@
 		"pins": "tsx pinDerivation.ts",
 		"valuedataflow": "tsx valueDataflow.ts",
 		"valueresolve": "tsx phase9ValueResolve.ts",
+		"valuechain": "tsx phase9ValueChain.ts",
 		"roundtrip": "tsx roundTrip.ts",
 		"phase4": "tsx phase4Runtime.ts",
 		"phase4mount": "tsx phase4Mount.ts",
