@@ -17,20 +17,21 @@
 	const windowHeight = $derived(
 		BOARD_DIMENSIONS.y * context.stateGameDerived.boardGeometry().rowPitchLocal,
 	);
+
+	// Visible window width = the flush board width GROWN by the horizontal gap spread.
+	// The symbol cluster is pushed rightward by `columnExtraLocal` per reel index
+	// (non-square cellWidth + gapX), so the rightmost reels sit past the flush width;
+	// the mask must include `(cols − 1) × columnExtraLocal` or a horizontal gap clips
+	// them. No override ⇒ columnExtraLocal === 0 ⇒ identical to `boardLayout().width`
+	// (byte-parity). This is the horizontal analogue of `windowHeight` above.
+	const windowWidth = $derived(
+		context.stateGameDerived.boardLayout().width +
+			(BOARD_DIMENSIONS.x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
+	);
 </script>
 
 {#if props.debug}
-	<Rectangle
-		alpha={0.5}
-		backgroundColor={0xffffff}
-		width={context.stateGameDerived.boardLayout().width}
-		height={windowHeight}
-	/>
+	<Rectangle alpha={0.5} backgroundColor={0xffffff} width={windowWidth} height={windowHeight} />
 {/if}
 
-<Rectangle
-	isMask
-	x={-SYMBOL_SIZE}
-	width={context.stateGameDerived.boardLayout().width + SYMBOL_SIZE * 2}
-	height={windowHeight}
-/>
+<Rectangle isMask x={-SYMBOL_SIZE} width={windowWidth + SYMBOL_SIZE * 2} height={windowHeight} />
