@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Coded HUD/label text now honors authored bitmap fonts (shared `CatalogText`) (SHIPPED to `_runtime/lines`)
+
+**Symptom.** A Font Maker BITMAP font assigned (via the editor's font field) to HUD readouts —
+`hudReadout` caption/value, the free-spin counter value — rendered in the browser **default face**
+in the live game, while the SAME font on buttons / tap-to-continue rendered correctly. Live-verified
+on Book of Borut Remake: `TURBO`/`AUTO SPIN` → pixi `bitmapText` pipe ✅; `Balance`/`$5,000.00` →
+canvas `text` pipe ❌. The font itself shipped fine (catalog + descriptor + PNG all 200, correct
+CORS/bindings) — the bug was purely in RENDERING.
+
+**Root cause.** The "separate coded parts" (§14.3/§16.2) — `HudCaption`, `HudValue`, `ButtonLabel`,
+the numeric `ParamReadoutText`, and reference `UiLabel` — rendered a plain pixi canvas `<Text>`
+regardless of the chosen font. A bitmap family handed to `<Text>` can't resolve as a system font →
+default face. Only `LayoutNodeView` (layout text nodes) made the bitmap-vs-canvas decision, which is
+why buttons worked but the coded HUD parts didn't.
+
+**Fix.** New shared `engine-layout` component **`CatalogText`** — renders `<BitmapText>` when
+`style.fontFamily` names a bitmap family in the boot-registered catalog, else `<Text>` (parity for
+proxima-nova/web fonts). Routed every coded text part through it, and collapsed `LayoutNodeView`'s own
+inline `isBitmap` branch into it so the two copies can't drift. Live-verified: HUD readouts now render
+the authored bitmap font. Commit `fbf2f6f`.
+
 ### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
 
 ### 2026-07-03 — Reel grid: split the conflated `reelPadding` into three honest, independent knobs (engine + editor)
