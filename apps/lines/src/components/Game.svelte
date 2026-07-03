@@ -392,6 +392,11 @@
 		baseGameShow: boolSource(() => stateGame.gameType === 'basegame'),
 		winShow: boolSource(() => stateUi.winShow),
 		bigWinShow: boolSource(() => stateUi.bigWinShow),
+		// Config-feature gates for the parametric turbo / auto-spin buttons (B6 M1) — mirror the
+		// coded `UIDefault` `{#if stateUi.config.features.turbo/.autoplay}` wraps so a flipped
+		// `componentInstance(button)` turbo/auto-spin hides when the config disables the feature.
+		turboFeature: boolSource(() => stateUi.config.features.turbo),
+		autoplayFeature: boolSource(() => stateUi.config.features.autoplay),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;

@@ -218,10 +218,28 @@ new ones get it automatically); place replacement HUD content on **"New HUD scre
 (content left on the default `hudBar`/`hudCorners` is treated as the coded HUD and suppressed); each
 replacement button needs an `action` (parametric button instance / Flow action pin) to function. Then
 hard-refresh (clean/incognito) to verify: coded buttons gone, bar bottom-pinned, flip applied.
-**Deferred (§16 B/C, apps/lines default only — do NOT affect `bookofborutremake`):** feature-gate parity
-for parametric turbo/autoSpin + flip `HUD_BUTTON_INSTANCES` so apps/lines' OWN default HUD is parametric.
 Files: `packages/engine-layout/src/lib/genericMountScenes.ts`, `apps/lines/src/components/Game.svelte`,
 `apps/launcher-api/src/routes/(app)/editor/+page.svelte`, `docs/STATUS.md`.
+
+**Follow-up SAME DAY — §16 Phase B + C SHIPPED (apps/lines' OWN default HUD is now parametric).**
+- **B (feature-gate parity):** new visibility keys `turboFeature`/`autoplayFeature`
+  (`componentCatalog.ts` `VISIBILITY_SOURCE_KEYS` + labels), registered from
+  `stateUi.config.features.turbo/.autoplay` in `Game.svelte`, and threaded as a per-button
+  `visibleSource` param on the turbo/auto-spin `componentInstance(button)` seed nodes
+  (`referenceLayouts/hud.ts` `buttonInstanceNode`/`btn`). Mirrors the coded `UIDefault`
+  `{#if config.features.*}` wraps so a flipped turbo/auto-spin hides under a feature-off config.
+- **C (flip):** `apps/lines/src/game/editorFlags.ts` `HUD_BUTTON_INSTANCES = false → true`. apps/lines'
+  fallback HUD now emits the 7-button `componentInstance(button)` cluster (spin/stop machine + disabled
+  + active + spinning + label + feature-gates lifted from `ButtonBetProvider`/`ButtonBet`/`UIDefault`).
+  Blast radius CONFINED to apps/lines: the launcher editor + every other game call `defaultLayout('lines')`
+  with no `buttons` option ⇒ coded `bind` buttons unchanged; online authored games (`bookofborutremake`,
+  Borut) use their OWN docs. **Verified:** `engine-layout` + play4fun `lines` builds GREEN; flag-consumer
+  audit confirms apps/lines-only. **SHIPPED:** rebuilt engine dist → lines build → `publish-runtime-bundle`
+  (164 files) → `/refresh` 202. **OWNER interactive-verify (WebGL, online — headless can't click):** press +
+  Space (single-fire, disabled mid-roll, enabled only to cancel autoplay), active border on turbo/auto-spin,
+  bet↔stop caption flip, spinning-icon rotation, turbo/auto-spin hide under a feature-off config, and a
+  `scaleX:-1` authored on the auto-spin instance flips. Files (B+C): `packages/engine-layout/src/lib/
+  {componentCatalog.ts,referenceLayouts/hud.ts}`, `apps/lines/src/{game/editorFlags.ts,components/Game.svelte}`.
 
 ### 2026-07-02 — Invisible Flow: complete FAN-OUT + HUD active-set gate + doc-order z-order
 

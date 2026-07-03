@@ -4,18 +4,18 @@
  * coherent across the two places that must agree:
  *   1. the fallback `LayoutDoc` (`editor-scenes.ts` → `defaultLayout('lines', …)`),
  *      which emits the 7 buttons as `componentInstance(button)` nodes when ON, and
- *   2. the replacement Space hotkey in `Game.svelte`, which must mount ONLY when ON
- *      (the flip suppresses the coded `ButtonBet`'s own `<OnHotkey>`, so the
- *      replacement would double-fire if it ran while the coded buttons are live).
+ *   2. the replacement Space hotkey in `Game.svelte`, which mounts when ON — OR when
+ *      an authored HUD suppresses the coded `<UI>` (`suppressCodedHud`); either way
+ *      the coded `ButtonBet`'s own `<OnHotkey>` is gone, so this is the sole binding.
  *
- * DEFAULT OFF (parity gate): the spin behaviour is re-implemented from
- * `ButtonBetProvider`/`ButtonBet` and needs online verification before it becomes
- * the default. With this `false`, `apps/lines` renders byte-identically to today —
- * the coded `bind` buttons + their coded hotkey. Flip to `true` to verify the
- * parametric cluster locally; once verified the constant (or its seed) becomes the
- * default and Borut's reference (`bookof.ts`) can opt in too.
+ * DEFAULT ON (§16 B6.4 flipped 2026-07-03): `apps/lines`' own default HUD renders the
+ * parametric `componentInstance(button)` cluster — the spin/stop machine + disabled +
+ * active + spinning + label + config-feature gates are all lifted from the coded
+ * `ButtonBetProvider`/`ButtonBet`/`UIDefault`. Set to `false` to fall back to the coded
+ * `bind` buttons + their coded hotkey (byte-identical to pre-flip). Book of Borut's
+ * reference (`bookof.ts`) still opts in separately via `hudScenes({ buttons: true })`.
  */
-export const HUD_BUTTON_INSTANCES = false;
+export const HUD_BUTTON_INSTANCES = true;
 
 /**
  * §17.4 step 4 (the editor-owned-overlay proof, HYBRID approach) — choose the shape of

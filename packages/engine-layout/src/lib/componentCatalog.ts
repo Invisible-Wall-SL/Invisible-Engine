@@ -123,6 +123,12 @@ export const VISIBILITY_SOURCE_KEYS: string[] = [
 	'winShow',
 	'bigWinShow',
 	'baseGameShow',
+	// Config-feature gates — mirror the coded `UIDefault` `{#if config.features.*}` wraps so a
+	// parametric turbo / auto-spin button hides when the game config disables that feature
+	// (e.g. a compliance profile). The auto-spin button binds `autoplayFeature`, turbo binds
+	// `turboFeature`; a game registers them from `stateUi.config.features.autoplay/.turbo`.
+	'turboFeature',
+	'autoplayFeature',
 ];
 
 /**
@@ -141,6 +147,8 @@ export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
 	winShow: 'Win',
 	bigWinShow: 'Big win',
 	baseGameShow: 'Base game / idle',
+	turboFeature: 'Turbo feature enabled',
+	autoplayFeature: 'Autoplay feature enabled',
 };
 
 /**
