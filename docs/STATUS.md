@@ -24,6 +24,33 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Live-asset cache-busting + dangling-binding guard (fixes "re-authored atlas, game shows old / not-found")
+
+Closes gap #3 of `docs/design/live-assets.md` (see that doc's dated section). Symptom: re-pack an
+atlas and the running game keeps loading the old frame set (`Sprite: key "T_Icon_Hat.png" is not
+found in the loadedAssets`); re-saving the Symbols State Machine only *appeared* to fix it (a red
+herring — `PUT /api/editor/symbols` has no side-effect; the heal was the fresh page load). Root
+cause: the editor-art / symbol exporters wrote each sheet to a **stable** deploy URL
+(`<stem>/<stem>.json` + page), so re-packing overwrote the same URL and a browser/Cloudflare cache
+served stale (`deployServe.ts` = `max-age=60`, edge can stretch).
+
+**Two fixes:**
+- **Content-versioned filenames** — new `apps/launcher-api/src/lib/server/assetVersion.ts`
+  (`sheetVersion`) stamps a content hash into every exported sheet's names
+  (`<stem>.<hash>.json` / `<stem>.<hash>.<ext>`), hashing region geometry + the source page's R2
+  ETag (added `headObject` to `r2.ts` — HEAD only, memory-flat copy preserved). Changed atlas ⇒
+  new URL the cache never saw; the existing prune drops the old version. Applied in
+  `editorArtExport.ts` + `symbolExport.ts`, so runtime boot AND bake version identically. Spine
+  bundles + Font Maker pages still use stable names (same class, deferred).
+- **Dangling-binding guard** — exporters now emit `missing: string[]` (placed region /
+  bound symbol frame that NO shipped atlas packs → renders blank). `bake-editor-doc.mjs` warns per
+  publish; the game warns once at boot (`warnMissingAssets` in `apps/lines/src/editor-scenes.ts`).
+
+`pnpm --filter launcher-api build` green; `editor-scenes.ts` type-checks. **Not yet shipped to
+`_runtime/lines`** — the engine-side boot warning needs a `publish-runtime-bundle.mjs` release; the
+launcher-side versioning + bake warnings go live on the next Railway deploy. Verify with a clean
+incognito load (reachability, not just deploy).
+
 ### 2026-07-02 — Invisible Flow: value-dataflow pins (engine signal → HUD display), Phase 9 steps 1–5
 
 Explicit **value dataflow** for `/flow` (design `docs/design/flow-driven-game.md` §11) — the symmetric

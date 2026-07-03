@@ -180,6 +180,43 @@ shipped game. This mirrors the editor-art transport exactly:
    `<BitmapText>`. **Web** fonts load via `registerBakedWebFonts()` (FontFace API). Un-baked
    repos keep only the game's hardcoded built-in fonts — dev parity.
 
+## Asset cache-busting + dangling-binding guard — added 2026-07-03 (closes gap #3)
+
+Symptom (observed on `bookofborutremake`): re-author an atlas (change the source
+image, re-pack the sheet), and the running game keeps loading the OLD frame set —
+`Sprite: key "T_Icon_Hat.png" is not found in the loadedAssets`. Re-saving the
+Symbols State Machine appeared to fix it, but that's a red herring: saving the doc
+has no server side-effect (`PUT /api/editor/symbols` only writes `symbols.json`),
+and both the tool preview and the exporter resolve a frame the SAME way — a live
+by-name scan of the current atlases. What actually healed it was the fresh page
+load that came with re-saving. The real cause is the unclosed gap #3 above:
+
+- **Stable URL + mutable content.** The editor-art / symbol exporters wrote each
+  sheet to a STABLE deploy URL (`editor-art/<stem>/<stem>.json` + page). Re-packing
+  overwrote the same URL, so any browser / Cloudflare copy served stale
+  (`deployServe.ts` sets `cache-control: public, max-age=60`, and the edge can
+  stretch that). The runtime re-exports every boot, but a cache at a stable URL
+  never re-fetches.
+
+**Fix — content-versioned filenames.** `sheetVersion()` (`assetVersion.ts`) stamps a
+short content hash into every exported sheet's filenames
+(`<stem>.<hash>.json` / `<stem>.<hash>.<ext>`, with `meta.image` pointing at the
+versioned page). The hash covers the region set (names + rects + page dims — a
+re-pack that changes geometry) AND the source page's R2 ETag (a pixel-only
+re-export). One `headObject` HEAD per sheet — no page bytes stream through the
+process, so the memory-flat `copyObject` path is preserved. A changed atlas ships
+at a NEW URL the cache has never seen; the exporter's existing prune drops the old
+version. Runtime + bake share the exporters, so both paths version identically.
+(Spine bundles + Font Maker pages still use stable names — same class, deferred.)
+
+**Fix — dangling-binding guard.** The exporters already knew both the bound names
+and the shipped names but never compared them. They now emit `missing: string[]` —
+every placed region (`editorArt.missing`) / bound symbol frame
+(`symbols.index.missing`) that NO shipped atlas packs (so it would render blank).
+Surfaced loudly at both ends: `bake-editor-doc.mjs` warns per publish, and the game
+warns once at boot (`warnMissingAssets` in `editor-scenes.ts`) — turning a silent
+runtime lookup-miss into an explicit "re-pack the atlas or re-pick the frame".
+
 ## The shared build/deploy token (admin-managed)
 
 All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,
