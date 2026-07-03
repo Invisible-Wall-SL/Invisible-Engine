@@ -430,9 +430,9 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 // A SEPARATE committed fixture (NOT folded into `LINES_FLOW_DOC`, which authors zero
 // transitions so the default boot stays parity-inert, §7). Reached ONLY via the dev hook
 // `window.__IE_FLOW_FREESPIN__` (see `flowRuntime.svelte.ts`), never on a normal boot; the ship
-// path is the baked `flow` slot. Ownership only actually flips ON when the auto-derived
-// `flowOwnsFreeSpins` predicate holds (see `flowRuntime.svelte.ts`) — otherwise the free-spin
-// events fall through to the coded handlers exactly as today (byte-parity).
+// path is the baked `flow` slot. Ownership is decided PER STEP by the auto-derived
+// `resolveFreeSpinOwnership` (see `flowRuntime.svelte.ts`) — an un-owned step's event falls through
+// to its coded handler exactly as today (byte-parity), an owned step's stays authored.
 //
 // THE MODEL (owner decision 2026-07-03, "same basegame + overlays"): there is NO distinct
 // `freeGame` screen node. The `basegame` screen PERSISTS throughout free spins; the free-spin
@@ -481,12 +481,19 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 // `FreeSpinOutroGate`: the dim + the round-blocking `waitForResolve` press-to-continue + the outro
 // count-up), which FS-6 KEEPS. They also carry the load-bearing `gameType`/counter/sound state.
 //
-// No-double is achieved WITHOUT touching these choreographies: `Game.svelte` MOUNT-GATES the coded
-// VISUAL + COUNTER scene mounts (`freeSpinIntro`/`freeSpinOutro` visuals + `freeSpinCounter`) OFF
-// under the SAME `flowOwnsFreeSpins` predicate that authored these events (an ATOMIC flip — never a
-// window where the events are authored but the coded scenes still mount, or vice-versa). The
-// owner's authored FlowDoc overlay screens REPLACE those coded visuals; the kept gates stay armed.
-// Deletes NO plumbing (stateUi / registrations / `bookEventHandlerMap` remain, re-activatable).
+// PER-STEP ownership (owner direction 2026-07-03): each overlay step — intro (`freeSpinTrigger` /
+// `freeSpinIntro`), counter (`updateFreeSpin` / `freeSpinCounter`), outro (`freeSpinEnd` /
+// `freeSpinOutro`) — is owned INDEPENDENTLY (`freeSpinOwnership.ts` `resolveFreeSpinOwnership`). A
+// step is flow-owned only when ITS screen is placed AND ITS bookEvent edge is wired AND ITS scene has
+// authored content. For an OWNED step the authored event runs + the coded scene is mount-gated off;
+// for an UN-OWNED step the event is STRIPPED (falls through to the coded handler) + the coded scene
+// mounts as today. MIXED states are valid (authored intro + coded outro, …). No-double is achieved
+// WITHOUT touching these choreographies: `Game.svelte` PER-SCENE mount-gates each coded VISUAL/COUNTER
+// off ITS step's ownership (the SAME per-step ownership that authored that step's event — an ATOMIC
+// per-step flip). Load-bearing state runs regardless: each event runs EITHER its authored choreography
+// OR its coded handler, each of which does THAT step's own `gameType`/counter/sound state, so the
+// cross-event chain (intro → `freegame`, outro → `basegame`) holds under any mix. Deletes NO plumbing
+// (stateUi / registrations / `bookEventHandlerMap` remain, re-activatable).
 //
 // FS-7 (future, NOT this pass): move the round-blocking gate + outro count-up OWNERSHIP itself into
 // the authored screens (a flow-driven `waitForResolve` / press-to-continue / count-up), retiring the
@@ -560,7 +567,7 @@ export const LINES_FLOW_FREESPIN_DOC: FlowDoc = {
 	// they still arm the kept round-gates + do the load-bearing gameType/counter/sound state). The
 	// full set of `LINES_FLOW_DOC.events` is reused verbatim, including `freeSpinTrigger`/
 	// `updateFreeSpin`/`freeSpinEnd` — the flow now OWNS the free-spin presentation timeline while
-	// `Game.svelte` mount-gates the coded visual/counter scenes off (no double). Only actually
-	// engaged when `flowOwnsFreeSpins` holds; otherwise this whole doc is behind the dev hook.
+	// `Game.svelte` mount-gates the coded visual/counter scenes off (no double). A step's event is
+	// only engaged when `resolveFreeSpinOwnership` owns it PER STEP; otherwise it is stripped.
 	events: LINES_FLOW_DOC.events,
 };

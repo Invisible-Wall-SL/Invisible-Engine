@@ -494,15 +494,17 @@
 	const fsOutroGate = $derived(
 		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinOutroShow')?.gate,
 	);
-	// FS-6 (design doc §14) — the AUTO-DERIVED free-spin ownership switch. TRUE only when the active
-	// authored FlowDoc BOTH wires the free-spin overlay transitions AND the four backing scenes carry
-	// real authored content (the conjunction in `resolveFlowOwnsFreeSpins`). When TRUE, the authored
-	// Flow overlays OWN the free-spin VISUALS, so the coded VISUAL + COUNTER scene mounts below are
-	// SUPPRESSED (no double-present) — the SAME predicate that made `createLinesFlow` author the
-	// free-spin events, so event-authoring + mount-suppression flip ATOMICALLY. The round-blocking
-	// `<FreeSpinIntroGate>`/`<FreeSpinOutroGate>` STAY mounted (armed by the choreographies' broadcasts
-	// — FS-6 keeps them; retiring them is FS-7). FALSE ⇒ today's coded overlays render (byte-parity §7).
-	const flowOwnsFreeSpins = $derived(resolveFlowOwnsFreeSpins(editorDoc));
+	// FS-6 (design doc §14) — the AUTO-DERIVED, PER-STEP free-spin ownership. Each overlay step
+	// (intro/counter/outro) is owned INDEPENDENTLY — a step is flow-owned only when its screen is
+	// placed AND its bookEvent edge is wired AND its backing scene carries real authored content
+	// (the per-step predicate in `resolveFlowOwnsFreeSpins`). When a step is owned, the authored Flow
+	// overlay OWNS that step's VISUAL, so its coded VISUAL/COUNTER scene mount below is SUPPRESSED (no
+	// double-present) — the SAME per-step ownership that made `createLinesFlow` author that step's
+	// event, so per-step event-authoring + mount-suppression flip ATOMICALLY. The round-blocking
+	// `<FreeSpinIntroGate>`/`<FreeSpinOutroGate>` STAY mounted (armed by whichever path — authored
+	// choreography OR coded handler — broadcasts the `*Show`/`*CountUp` events; FS-6 keeps them,
+	// retiring them is FS-7). An un-owned step's coded scene renders as today (byte-parity §7).
+	const freeSpinOwnership = $derived(resolveFlowOwnsFreeSpins(editorDoc));
 
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -1375,21 +1377,25 @@
 			hidePrompt={fsOutroGate?.hidePrompt}
 		/>
 		<!--
-				FS-6 (design doc §14) — the coded VISUAL + COUNTER scene mounts (surfaces #2/#3). When
-				`flowOwnsFreeSpins` holds (the authored Flow overlays own the free-spin visuals), these are
-				SUPPRESSED so the authored overlay screens aren't double-drawn. The round-blocking GATES above
-				STAY mounted (armed by the choreographies' `*Show`/`*CountUp` broadcasts — FS-6 keeps them).
-				FALSE ⇒ today's coded overlays render (byte-parity §7). Atomic with the interpreter's
-				event-authoring flip (SAME `resolveFlowOwnsFreeSpins` predicate), so no double / empty window.
+				FS-6 (design doc §14) — the coded VISUAL + COUNTER scene mounts (surfaces #2/#3), gated
+				PER STEP. Each coded scene is suppressed ONLY when ITS step is flow-owned (the authored
+				overlay owns that step's visual — no double-present); an un-owned step renders its coded
+				scene exactly as today (byte-parity §7). MIXED ownership is valid (e.g. authored intro +
+				coded outro). The round-blocking GATES above STAY mounted for every step (armed by whichever
+				path — authored choreography OR coded handler — broadcasts `*Show`/`*CountUp`; FS-6 keeps
+				them, FS-7 retires them). Atomic with the interpreter's per-event authoring flip (SAME
+				per-step ownership), so no double / empty window per step.
 			-->
-		{#if !flowOwnsFreeSpins}
+		{#if !freeSpinOwnership.ownsIntro}
 			<LayoutScene scene={fsIntroScene} />
 			{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
 				<LayoutScene scene={fsIntroVisualScene} />
 			{/if}
-			{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
-				<LayoutScene scene={fsCounterScene} />
-			{/if}
+		{/if}
+		{#if !freeSpinOwnership.ownsCounter && ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
+			<LayoutScene scene={fsCounterScene} />
+		{/if}
+		{#if !freeSpinOwnership.ownsOutro}
 			<LayoutScene scene={fsOutroScene} />
 			{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
 				<LayoutScene scene={fsOutroVisualScene} />

@@ -1476,7 +1476,7 @@ MOUNT-GATING only the coded VISUAL + COUNTER scenes off. See "Progress — FS-6"
 then do the `*Show`/`*CountUp` broadcasts become droppable. Keep exactly one `waitForResolve`
 subscriber or the round hangs.
 
-### Progress — FS-6 DONE headlessly (2026-07-03)
+### Progress — FS-6 DONE headlessly (2026-07-03; PER-STEP ownership)
 
 **Corrected model (owner, 2026-07-03).** The initial FS-6 brief said "presentation-stripped
 choreographies (drop the `*Show` broadcasts)". Tracing the code showed that would BREAK the round:
@@ -1487,63 +1487,85 @@ choreographies (byte-parity-proven 29/8/27 ops) and achieve no-double purely by 
 coded VISUAL + COUNTER scenes off. So flow OWNS the free-spin visuals; the engine still owns the
 round-gates (FS-7 retires those).
 
-**The auto-derived ownership switch (`apps/lines/src/game/freeSpinOwnership.ts`, NEW pure module).**
-`flowOwnsFreeSpins(flowDoc, scenes)` is a CONJUNCTION defaulting OFF, ON only when BOTH hold, so a
-stray node alone or wiring-alone can NEVER flip ownership:
-- **(i) the active authored FlowDoc WIRES the lifecycle** — the three `bookEvent` LAYER edges
-  (`freeSpinTrigger`/`updateFreeSpin`/`freeSpinEnd`) AND places the backing screens
-  (`freeSpinIntro`/`freeSpinCounter`/`freeSpinOutro`). The default synthesized `loading→basegame`
-  doc has none ⇒ OFF.
-- **(ii) the four backing SCENES resolve to REAL authored content** — each present in the LIVE
-  editor doc with ≥1 author-placed node that is NOT a coded engine bind-anchor (`FreeSpinIntroVisual`/
-  `FreeSpinOutroVisual`) nor the coded `freeSpinCounter` componentInstance, so the reference fallback
-  (whose only fs nodes ARE those coded anchors) can NEVER satisfy (ii).
-- `freeSpinRetrigger` is EXCLUDED (its `retrigger` event is the FS-4 seam; requiring it would keep
-  ownership permanently OFF — it joins the predicate when FS-4 lands).
+**PER-STEP ownership (owner correction, 2026-07-03 — SUPERSEDES the earlier whole-lifecycle boolean).**
+The first cut derived ONE `flowOwnsFreeSpins(flowDoc, scenes): boolean` that flipped the WHOLE
+free-spin lifecycle on/off atomically (all-four-scenes-authored AND all-edges-wired, else OFF). The
+owner then asked for PER-STEP ownership: each overlay step is owned INDEPENDENTLY, so a step can be
+authored on its own (and a flow-first game can simply omit a step). The boolean predicate + boolean
+gate NO LONGER EXIST; the module now exports the per-step API below.
 
-**Atomic flip (single source of truth).** `resolveActiveFlowDoc` (extracted in
+**The auto-derived PER-STEP ownership (`apps/lines/src/game/freeSpinOwnership.ts`, pure module).**
+`type FreeSpinStep = 'intro'|'counter'|'outro'`; `FREE_SPIN_STEPS` maps each step to its
+`{screen, event}` (`freeSpinIntro`/`freeSpinTrigger`, `freeSpinCounter`/`updateFreeSpin`,
+`freeSpinOutro`/`freeSpinEnd`). `resolveFreeSpinOwnership(flowDoc, scenes): FreeSpinOwnership` decides
+each step INDEPENDENTLY — a step is owned iff ALL THREE of ITS conditions hold, so no step can flip on
+wiring-alone or a stray node alone:
+- **(i) its overlay SCREEN is placed** in the active FlowDoc;
+- **(ii) its `bookEvent` LAYER edge is wired** in the active FlowDoc;
+- **(iii) its backing SCENE carries REAL authored content** — ≥1 author-placed node that is NOT a
+  coded engine bind-anchor (`FreeSpinIntroVisual`/`FreeSpinOutroVisual`) nor the coded
+  `freeSpinCounter` componentInstance, so the reference fallback can never satisfy (iii).
+`FreeSpinOwnership` exposes `owns(step)` / `ownsIntro` / `ownsCounter` / `ownsOutro` / `none` /
+`steps`. `freeSpinRetrigger` is the FS-4 seam — never a step yet; its screen/transitions are ALWAYS
+stripped (it joins the step set when FS-4 lands).
+
+**Atomic PER-STEP flip (single source of truth).** `resolveActiveFlowDoc` (in
 `flowRuntime.svelte.ts`) resolves the active doc ONCE; `createLinesFlow` runs
-`gateFreeSpinOwnership(doc, flowOwnsFreeSpins(doc, scenes))` — when OFF it STRIPS the free-spin
-events + overlay transitions/screens (they fall through to the coded handlers ⇒ byte-identical to
-pre-FS-6), when ON it leaves the full doc. `Game.svelte` reads the SAME predicate via
-`resolveFlowOwnsFreeSpins(editorDoc)` (`$derived`) to gate the coded VISUAL + COUNTER scene mounts
-(`{#if !flowOwnsFreeSpins}` around `fsIntroScene`/`fsIntroVisualScene`/`fsCounterScene`/`fsOutroScene`/
-`fsOutroVisualScene`). So event-authoring and mount-suppression flip TOGETHER off one value — no
-window where one is on and the other off (no double-present, no empty-present). The two `<...Gate>`
-holds STAY mounted; NO plumbing deleted (`stateUi`/`registerComponentVisibility`/`bookEventHandlerMap`
-all intact + re-activatable — the "defang, don't delete" rule).
+`gateFreeSpinOwnership(resolvedDoc, resolveFreeSpinOwnership(resolvedDoc, editorDoc.scenes))` — the
+gate strips EACH un-owned step's event + overlay screen + transitions INDEPENDENTLY (so an un-owned
+step falls through to its coded handler ⇒ byte-identical to a doc that never wired it) while an OWNED
+step keeps its authored event + overlay. MIXED states are valid. `Game.svelte` reads the SAME per-step
+ownership via `resolveFlowOwnsFreeSpins(editorDoc)` (`$derived FreeSpinOwnership`) and gates the coded
+VISUAL + COUNTER scene mounts PER STEP (`{#if !freeSpinOwnership.ownsIntro}` /`!ownsCounter`
+/`!ownsOutro`). So per step, event-authoring and coded-mount-suppression flip TOGETHER off one value
+— no double-present, no empty-present, independently for intro/counter/outro. The load-bearing state
+runs regardless: each event runs EITHER its authored choreography OR its coded handler, each doing
+THAT step's own `gameType`/counter/sound state, so the cross-event chain (intro → `freegame`, outro →
+`basegame`) holds under any mix. The two `<...Gate>` round-holds STAY mounted (armed by whichever path
+broadcasts `*Show`/`*CountUp`; FS-7 retires them). NO plumbing deleted
+(`stateUi`/`registerComponentVisibility`/`bookEventHandlerMap` all intact + re-activatable).
 
-**Files:** `apps/lines/src/game/freeSpinOwnership.ts` (NEW pure predicate + gate),
-`apps/lines/src/game/flowDoc.ts` (`LINES_FLOW_FREESPIN_DOC` now authors the free-spin events with the
-full Phase-5 choreographies), `apps/lines/src/game/flowRuntime.svelte.ts` (`resolveActiveFlowDoc` +
-`resolveFlowOwnsFreeSpins` + the gate in `createLinesFlow`), `apps/lines/src/components/Game.svelte`
-(the `flowOwnsFreeSpins` derived + the `{#if !flowOwnsFreeSpins}` coded-mount gate).
+Suppressing a coded step WITHOUT an authored replacement (an owner deliberately hiding a step) remains
+**FS-7**: FS-6 only flips a step to the AUTHORED path when its scene has real content, so a suppressed
+step always has a replacement.
+
+**Files:** `apps/lines/src/game/freeSpinOwnership.ts` (`FreeSpinStep`/`FREE_SPIN_STEPS`/
+`FreeSpinOwnership`/`resolveFreeSpinOwnership`/`gateFreeSpinOwnership`),
+`apps/lines/src/game/flowDoc.ts` (`LINES_FLOW_FREESPIN_DOC` authors the free-spin events with the full
+Phase-5 choreographies), `apps/lines/src/game/flowRuntime.svelte.ts` (`resolveActiveFlowDoc` +
+`resolveFlowOwnsFreeSpins` + the per-step gate in `createLinesFlow`),
+`apps/lines/src/components/Game.svelte` (the `freeSpinOwnership` derived + the per-step
+`{#if !freeSpinOwnership.owns*}` coded-mount gates).
 
 **How verified headlessly + build-shipped.** `tools/flow-spike/fs6FreeSpinOwnership.ts` (`pnpm
---filter flow-spike run fs6`) — ALL GREEN, turbo on/off, against the REAL predicate + interpreter over
-the REAL fixture: the conjunction (ON only with wiring AND all-four-scenes-authored; wiring-only,
-content-only, one-scene-only, fallback-anchor-only, no-doc all OFF); the gate (OFF strips events +
-overlay transitions/screens, base survives; ON is a pass-through `===`); OFF mode (events fall
-through to coded, no active-set layering, effects don't run — byte-parity); ON mode (events authored
-⇒ coded does NOT run (no double), load-bearing effects run, STILL broadcasts `freeSpinIntroShow`/
-`freeSpinIntroUpdate` + runs the `freeSpinOutroCountUp` effect that arm the kept gates, overlays layer
-over the persistent base); and the ATOMIC-FLIP invariant (event-authoring ⟺ coded-mount-suppressed ⟺
-`owns`). `fs1FreeSpins.ts` updated to the FS-6 reality (raw fixture = ownership-ON, events authored)
-and still GREEN. `engine-flow` typecheck clean; `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter
-"lines..." build` GREEN (the `flowOwnsFreeSpins`/`gateFreeSpinOwnership` symbols confirmed in the
-minified client bundle); all prior flow-spikes still GREEN.
+--filter flow-spike run fs6`) — ALL GREEN, turbo on/off, against the REAL per-step predicate + gate +
+interpreter over the REAL fixture: the per-step conjunction (each of (i) screen-placement, (ii)
+edge-wiring, (iii) scene-content independently gates its OWN step and only its own; no-doc ⇒ none);
+the per-step gate (keeps each owned step's screen+event+edges, strips each un-owned step's, always
+strips the FS-4 seam, base survives); and the interpreter over EACH of the six per-step combinations
+(intro-only, counter-only, outro-only, intro+outro, all-three, none) asserting per step: OWNED ⇒ event
+authored (coded skipped, no double) + overlay layers over the persistent base + load-bearing effects
+run + intro/outro still broadcast the round-gate arm; UN-OWNED ⇒ event falls through (coded ran) +
+overlay stripped (no layering); the load-bearing state runs on EXACTLY one path per step
+(authored-effect ⟺ owned; coded-handler ⟺ un-owned — never both, never neither = byte-identical to
+fully-coded); basegame never leaves the active set; and the per-step ATOMIC-FLIP
+(event-authoring ⟺ coded-mount-suppressed ⟺ `owns(step)`). The `none` combo = byte-identical to
+today. `fs1FreeSpins.ts` (raw fixture = ownership-ON, events authored) still GREEN. `engine-flow`
+typecheck clean; `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN; all prior
+flow-spikes (`fs2`/`parity`/`pins`/`phase3`/`phase4`/`phase5`/`roundtrip`/`tap`) still GREEN.
 
-**Owner-side go-live steps (STOP-AND-REPORT — the switch flipping ON for real).**
-1. Author the four backing scenes online with REAL content + the contract ids (`freeSpinIntro`/
-   `freeSpinCounter`/`freeSpinRetrigger`/`freeSpinOutro`) — the flip needs ≥1 author-placed node
-   (beyond the coded anchor) in intro/counter/outro.
-2. Wire the free-spin overlay edges in `/flow` (the `freeSpinTrigger`/`updateFreeSpin`/`freeSpinEnd`
-   bookEvent LAYER edges + the `--complete--> basegame` returns) — condition (i).
-3. Only when BOTH (1) and (2) are baked into the shipped FlowDoc does `flowOwnsFreeSpins` flip ON;
-   until then the game runs the coded lifecycle byte-identically.
+**Owner-side go-live steps (STOP-AND-REPORT — a step flipping ON for real, PER STEP).**
+1. Author a step's backing scene online with REAL content + its contract id (`freeSpinIntro` /
+   `freeSpinCounter` / `freeSpinOutro`) — the flip needs ≥1 author-placed node beyond the coded anchor
+   in THAT step's scene.
+2. Wire THAT step's overlay edge in `/flow` (its `bookEvent` LAYER edge + the `--complete--> basegame`
+   return) — conditions (i) + (ii).
+3. Each step flips ON independently once its (1) + (2) are baked into the shipped FlowDoc; an un-owned
+   step keeps running the coded lifecycle byte-identically. A flow-first game can author all three.
 4. Live WebGL verify (read `app.stage` / dynamic-import override, NOT `preview_screenshot`), turbo
-   on/off: the authored overlays present, the round still HOLDS at intro/outro (the kept gates), the
-   coded visual/counter scenes are gone (no double), `gameType`/counter/sounds behave as coded.
+   on/off: the authored (owned) overlays present, the coded (un-owned) ones present as before, the
+   round still HOLDS at intro/outro (the kept gates), no double-present, `gameType`/counter/sounds
+   behave as coded.
 
 ### Progress — FS-1 DONE headlessly (2026-07-03)
 

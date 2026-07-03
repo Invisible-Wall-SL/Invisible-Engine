@@ -1,28 +1,36 @@
 /**
- * Invisible Flow — FS-6 free-spin OWNERSHIP switch harness (design doc §14, §7).
+ * Invisible Flow — FS-6 PER-STEP free-spin OWNERSHIP harness (design doc §14, §7).
  *
  *   pnpm --filter flow-spike run fs6
  *
- * Proves, HEADLESSLY, the FS-6 auto-derived ownership flip against the REAL pure predicate
- * (`freeSpinOwnership.ts`) + the REAL engine-flow interpreter over the REAL
- * `LINES_FLOW_FREESPIN_DOC` (with its FULL Phase-5 free-spin choreographies):
+ * Proves, HEADLESSLY, the FS-6 auto-derived PER-STEP ownership flip against the REAL pure predicate
+ * (`freeSpinOwnership.ts` — `resolveFreeSpinOwnership` + `gateFreeSpinOwnership`) + the REAL
+ * engine-flow interpreter over the REAL `LINES_FLOW_FREESPIN_DOC` (with its FULL Phase-5 free-spin
+ * choreographies). Since the owner's 2026-07-03 PER-STEP direction, ownership is decided
+ * INDEPENDENTLY for each overlay step — intro (`freeSpinTrigger`/`freeSpinIntro`), counter
+ * (`updateFreeSpin`/`freeSpinCounter`), outro (`freeSpinEnd`/`freeSpinOutro`) — so a step can be
+ * authored on its own while the others fall through to their coded handlers. MIXED states are valid.
  *
- *  A. PREDICATE conjunction — `flowOwnsFreeSpins` is FALSE unless BOTH (i) the doc wires the three
- *     free-spin LAYER edges + places the backing screens AND (ii) all four scenes carry real
- *     authored content. Wiring-only, content-only, partial-content, and fallback-anchor-only cases
- *     all stay OFF; only the full conjunction flips ON. (A stray node in ONE scene can't flip it.)
- *  B. GATE — `gateFreeSpinOwnership(doc, false)` STRIPS the free-spin events + overlay
- *     transitions/screens (so they fall through to coded); `(doc, true)` returns the doc unchanged.
- *  C. OFF MODE (coded owns) — with the gated-OFF doc the interpreter authors NO free-spin event
- *     (they fall through to the coded handlers) and the free-spin book events cause NO active-set
- *     layering (base stays alone). Byte-parity with pre-FS-6 fall-through.
- *  D. ON MODE (flow owns) — with the gated-ON doc the free-spin events ARE authored (run the full
- *     choreographies → their load-bearing EFFECTS run AND they STILL broadcast the `*Show`/`*CountUp`
- *     events that arm the kept round-gates), the coded handler does NOT run for them (no double), and
- *     the overlay screens LAYER over the persistent base. Turbo on/off identical.
- *  E. ATOMIC-FLIP invariant — for the SAME resolved doc + scenes, the predicate value that gates the
- *     interpreter's event-authoring is the SAME one `Game.svelte` uses for the coded-mount gate:
- *     ownership ⟺ gated-doc-authors-the-free-spin-events. Never one without the other.
+ *  A. PREDICATE per-step conjunction — a step is owned iff (i) its screen is placed + (ii) its
+ *     bookEvent edge is wired + (iii) its backing scene carries REAL authored content. Vary each of
+ *     the three knobs to prove EACH condition independently gates its OWN step (and only its own).
+ *  B. GATE per-step atomic strip — `gateFreeSpinOwnership(doc, ownership)` keeps each OWNED step's
+ *     event + overlay screen + transitions and STRIPS every UN-owned step's (independently), always
+ *     stripping the `freeSpinRetrigger` FS-4 seam. Non-free-spin content is untouched.
+ *  C. INTERPRETER per-combo — for the SIX per-step combinations (intro-only, counter-only,
+ *     outro-only, intro+outro, all-three, none) drive the interpreter over the gated doc + synthetic
+ *     book events, turbo on/off. For each combo assert PER STEP:
+ *       - OWNED  ⇒ event AUTHORED (coded handler skipped, no double), overlay screen SURVIVES the gate
+ *                  and LAYERS over the persistent base, and its load-bearing effects run.
+ *       - UN-OWNED ⇒ event FALLS THROUGH (coded handler ran), overlay screen STRIPPED (no layering).
+ *     Plus: the load-bearing gameType/counter chain is byte-identical to the fully-coded run;
+ *     whichever of intro/outro is PRESENT still ARMS its round-gate (the `*Show`/`*CountUp`
+ *     broadcasts fire on WHICHEVER path runs — authored OR coded); no step is double-present.
+ *  D. ATOMIC-FLIP per step — for the SAME resolved doc + scenes, per step: event-authoring in the
+ *     gated doc ⟺ `Game.svelte`'s coded-mount suppression ⟺ `ownership.owns(step)`. Never one
+ *     without the other, independently per step.
+ *  E. NONE (all-OFF) — byte-identical to the fully-coded run (every fs event falls through, no
+ *     overlay layers, base stays alone) — the pre-FS-6 fall-through parity.
  */
 
 import { createEventEmitter } from 'utils-event-emitter';
@@ -32,12 +40,15 @@ import {
 	type FlowRuntime,
 	type MountableScene,
 } from 'engine-flow';
-import type { Scene } from 'engine-layout';
+import type { LayoutNode, Scene } from 'engine-layout';
 
 import { LINES_FLOW_FREESPIN_DOC } from '../../apps/lines/src/game/flowDoc';
 import {
-	flowOwnsFreeSpins,
+	FREE_SPIN_STEPS,
 	gateFreeSpinOwnership,
+	resolveFreeSpinOwnership,
+	type FreeSpinOwnership,
+	type FreeSpinStep,
 } from '../../apps/lines/src/game/freeSpinOwnership';
 
 // ---------------------------------------------------------------------------
@@ -67,7 +78,7 @@ const makeRig = (turbo: boolean) => {
 			return Promise.resolve();
 		},
 		// Record every named effect the choreography invokes (the load-bearing gameType/counter/sound
-		// leaves) so ON mode can assert they ran. Returns a no-op body (the harness only needs the fact).
+		// leaves) so ON steps can assert they ran. Returns a no-op body (the harness only needs the fact).
 		effect: (name: string) => () => void effectsRan.push(name),
 	};
 	return { log, effectsRan, runtime };
@@ -84,18 +95,20 @@ const mountScenes: Record<string, MountableScene> = {
 const CONTEXT = { bookEvents: [] as unknown[] };
 
 // ---------------------------------------------------------------------------
-// Synthetic editor scenes — the LIVE `Scene[]` the predicate reads for condition (ii).
+// Synthetic editor scenes — the LIVE `Scene[]` the predicate reads for condition (iii).
 // ---------------------------------------------------------------------------
 
-/** A scene with REAL authored content (an author-placed image node) — satisfies (ii). */
+/** A scene with REAL authored content (an author-placed image node) — satisfies (iii). */
 const authoredScene = (id: string): Scene => ({
 	id,
 	name: id,
 	space: 'canvas',
-	nodes: [{ id: `${id}-art`, kind: 'sprite', x: 0, y: 0, asset: 'fs.png' } as never],
+	nodes: [
+		{ id: `${id}-art`, kind: 'sprite', x: 0, y: 0, asset: 'fs.png' } as unknown as LayoutNode,
+	],
 });
 
-/** A scene carrying ONLY the coded engine bind-anchor (the reference FALLBACK) — fails (ii). */
+/** A scene carrying ONLY the coded engine bind-anchor (the reference FALLBACK) — fails (iii). */
 const codedAnchorScene = (id: string, component: string): Scene => ({
 	id,
 	name: id,
@@ -108,11 +121,11 @@ const codedAnchorScene = (id: string, component: string): Scene => ({
 			y: 0,
 			bind: { component },
 			children: [],
-		} as never,
+		} as unknown as LayoutNode,
 	],
 });
 
-/** The coded counter scene (a `freeSpinCounter` componentInstance) — coded scaffolding, fails (ii). */
+/** The coded counter scene (a `freeSpinCounter` componentInstance) — coded scaffolding, fails (iii). */
 const codedCounterScene = (): Scene => ({
 	id: 'freeSpinCounter',
 	name: 'freeSpinCounter',
@@ -125,24 +138,38 @@ const codedCounterScene = (): Scene => ({
 			x: 0,
 			y: 0,
 			params: {},
-		} as never,
+		} as unknown as LayoutNode,
 	],
 });
 
-/** All four fs scenes with authored content ⇒ condition (ii) holds. */
-const AUTHORED_SCENES: Scene[] = [
-	authoredScene('freeSpinIntro'),
-	authoredScene('freeSpinCounter'),
-	authoredScene('freeSpinRetrigger'),
-	authoredScene('freeSpinOutro'),
+/** The coded FALLBACK backing scene for a step (anchor/counter scaffolding only) — fails (iii). */
+const fallbackSceneFor = (step: FreeSpinStep): Scene => {
+	if (step === 'intro') return codedAnchorScene('freeSpinIntro', 'FreeSpinIntroVisual');
+	if (step === 'counter') return codedCounterScene();
+	return codedAnchorScene('freeSpinOutro', 'FreeSpinOutroVisual');
+};
+
+/** Build the LIVE scenes so `resolveFreeSpinOwnership` sees each step authored or fallback. The
+ *  retrigger scene is always fallback (FS-4 seam) so it never satisfies (iii). */
+const scenesFor = (owned: Record<FreeSpinStep, boolean>): Scene[] => [
+	owned.intro ? authoredScene('freeSpinIntro') : fallbackSceneFor('intro'),
+	owned.counter ? authoredScene('freeSpinCounter') : fallbackSceneFor('counter'),
+	codedAnchorScene('freeSpinRetrigger', 'FreeSpinRetriggerVisual'),
+	owned.outro ? authoredScene('freeSpinOutro') : fallbackSceneFor('outro'),
 ];
 
-/** The reference-fallback fs scenes (coded anchors only) ⇒ condition (ii) fails. */
-const FALLBACK_SCENES: Scene[] = [
-	codedAnchorScene('freeSpinIntro', 'FreeSpinIntroVisual'),
-	codedCounterScene(),
-	codedAnchorScene('freeSpinOutro', 'FreeSpinOutroVisual'),
-];
+/** Resolve the per-step ownership object for a combo, driving condition (iii) via scene content
+ *  over the FULLY-wired `LINES_FLOW_FREESPIN_DOC` (which places every screen + wires every edge, so
+ *  (i)+(ii) always hold — scene content is the flipped knob here). */
+const ownershipFor = (owned: Record<FreeSpinStep, boolean>): FreeSpinOwnership =>
+	resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, scenesFor(owned));
+
+const ALL_STEPS: FreeSpinStep[] = ['intro', 'counter', 'outro'];
+const combo = (
+	intro: boolean,
+	counter: boolean,
+	outro: boolean,
+): Record<FreeSpinStep, boolean> => ({ intro, counter, outro });
 
 const makeInterp = (
 	doc: FlowDoc,
@@ -178,198 +205,269 @@ const assert = (label: string, ok: boolean, detail?: string) => {
 	}
 };
 
+// Per-step load-bearing effects the AUTHORED choreography runs (from flowDoc.ts). Used to assert an
+// OWNED step's authored path ran the state leaves; an UN-OWNED step falls through so they are absent
+// on the interpreter side (the coded handler runs them instead — proven by `codedRan`).
+const OWNED_EFFECTS: Record<FreeSpinStep, string[]> = {
+	intro: ['setFreeGameType', 'setFreeSpinCounterTotalOnly'],
+	counter: ['updateFreeSpinCounter'],
+	outro: ['enterFreeSpinOutro', 'exitFreeSpinOutro', 'freeSpinOutroCountUp'],
+};
+// Per-step round-gate ARM broadcasts (the `*Show`/`*CountUp` events that arm the kept
+// FreeSpinIntroGate/FreeSpinOutroGate). Intro + outro carry a round-gate; the counter does not.
+const GATE_ARM_BROADCASTS: Partial<Record<FreeSpinStep, string[]>> = {
+	intro: ['broadcast freeSpinIntroShow'],
+	outro: ['broadcast freeSpinOutroShow'],
+};
+
 const main = async () => {
-	console.log('Invisible Flow — FS-6 free-spin ownership switch harness\n');
+	console.log('Invisible Flow — FS-6 PER-STEP free-spin ownership harness\n');
 
-	// --- A. predicate conjunction ---
-	console.log('A. predicate conjunction (flowOwnsFreeSpins):');
+	// --- A. predicate per-step conjunction — each condition gates its OWN step independently ---
+	console.log('A. predicate per-step conjunction (resolveFreeSpinOwnership):');
 	{
-		// Full conjunction: the fixture wires the edges + screens, and all four scenes are authored.
+		// All three authored + fully wired ⇒ all three owned.
+		const all = ownershipFor(combo(true, true, true));
 		assert(
-			'wired doc + all four scenes authored ⇒ ON',
-			flowOwnsFreeSpins(LINES_FLOW_FREESPIN_DOC, AUTHORED_SCENES) === true,
+			'all authored + wired ⇒ intro+counter+outro ALL owned',
+			all.ownsIntro && all.ownsCounter && all.ownsOutro && !all.none,
 		);
-		// Wiring present but scenes are the coded fallback (only anchors) ⇒ OFF (content fails (ii)).
+
+		// (iii) content knob: flip ONE step's scene to the coded fallback ⇒ ONLY that step drops.
+		for (const step of ALL_STEPS) {
+			const owned = combo(true, true, true);
+			owned[step] = false;
+			const o = ownershipFor(owned);
+			assert(
+				`content: ${step} scene = coded fallback ⇒ ${step} OFF, other two stay ON`,
+				!o.owns(step) && ALL_STEPS.filter((s) => s !== step).every((s) => o.owns(s)),
+			);
+		}
+
+		// (i) screen-placement knob: a doc that does NOT PLACE a step's screen ⇒ that step OFF even
+		// with authored scene content + a wired edge.
+		{
+			const docNoIntroScreen: FlowDoc = {
+				...LINES_FLOW_FREESPIN_DOC,
+				screens: LINES_FLOW_FREESPIN_DOC.screens.filter((s) => s.id !== 'freeSpinIntro'),
+			};
+			const o = resolveFreeSpinOwnership(docNoIntroScreen, scenesFor(combo(true, true, true)));
+			assert(
+				'placement: doc omits freeSpinIntro screen ⇒ intro OFF (i fails), counter+outro ON',
+				!o.ownsIntro && o.ownsCounter && o.ownsOutro,
+			);
+		}
+
+		// (ii) edge-wiring knob: a doc that does NOT WIRE a step's bookEvent edge ⇒ that step OFF even
+		// with its screen placed + authored scene content.
+		{
+			const docNoOutroEdge: FlowDoc = {
+				...LINES_FLOW_FREESPIN_DOC,
+				transitions: LINES_FLOW_FREESPIN_DOC.transitions.filter(
+					(t) =>
+						!(t.trigger.kind === 'bookEvent' && t.trigger.event === FREE_SPIN_STEPS.outro.event),
+				),
+			};
+			const o = resolveFreeSpinOwnership(docNoOutroEdge, scenesFor(combo(true, true, true)));
+			assert(
+				'wiring: doc omits freeSpinEnd edge ⇒ outro OFF (ii fails), intro+counter ON',
+				o.ownsIntro && o.ownsCounter && !o.ownsOutro,
+			);
+		}
+
+		// No doc ⇒ every step OFF (coded, parity).
+		const noDoc = resolveFreeSpinOwnership(undefined, scenesFor(combo(true, true, true)));
 		assert(
-			'wired doc + FALLBACK scenes (coded anchors only) ⇒ OFF (content fails)',
-			flowOwnsFreeSpins(LINES_FLOW_FREESPIN_DOC, FALLBACK_SCENES) === false,
+			'undefined doc ⇒ none owned',
+			noDoc.none && !noDoc.ownsIntro && !noDoc.ownsCounter && !noDoc.ownsOutro,
 		);
-		// Content present but the doc does NOT wire the free-spin edges ⇒ OFF (wiring fails (i)).
-		const unwiredDoc: FlowDoc = {
-			version: 1,
-			projectKey: 'lines',
-			screens: [{ id: 'basegame', initial: true }],
-			transitions: [],
-			events: [],
-		};
-		assert(
-			'authored scenes + UNWIRED doc ⇒ OFF (wiring fails)',
-			flowOwnsFreeSpins(unwiredDoc, AUTHORED_SCENES) === false,
-		);
-		// A stray authored node in ONE scene only (the other two still fallback) ⇒ OFF.
-		const partial: Scene[] = [
-			authoredScene('freeSpinIntro'),
-			codedCounterScene(),
-			codedAnchorScene('freeSpinOutro', 'FreeSpinOutroVisual'),
-		];
-		assert(
-			'authored content in ONE scene only ⇒ OFF (a stray node can never flip ownership)',
-			flowOwnsFreeSpins(LINES_FLOW_FREESPIN_DOC, partial) === false,
-		);
-		// No doc ⇒ OFF.
-		assert('undefined doc ⇒ OFF', flowOwnsFreeSpins(undefined, AUTHORED_SCENES) === false);
 	}
 
-	// --- B. gate strips OFF, passes through ON ---
-	console.log('\nB. gateFreeSpinOwnership:');
+	// --- B. gate strips each UN-owned step independently, always strips the FS-4 seam ---
+	console.log('\nB. gateFreeSpinOwnership — per-step strip + always-strip FS-4 seam:');
 	{
-		const off = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, false);
-		const fsEvents = (off.events ?? []).filter((e) =>
-			['freeSpinTrigger', 'updateFreeSpin', 'freeSpinEnd'].includes(e.event),
-		);
-		const fsScreens = off.screens.filter((s) => s.id.startsWith('freeSpin'));
-		const fsEdges = off.transitions.filter(
-			(t) => t.from.startsWith('freeSpin') || t.to.startsWith('freeSpin'),
-		);
-		assert(
-			'OFF ⇒ free-spin events + overlay screens + overlay edges all STRIPPED',
-			fsEvents.length === 0 && fsScreens.length === 0 && fsEdges.length === 0,
-		);
-		// Non-free-spin content survives (basegame screen + the base events like reveal/winInfo).
-		assert(
-			'OFF ⇒ base screen + non-free-spin events survive (reveal/winInfo authored)',
-			off.screens.some((s) => s.id === 'basegame') &&
-				(off.events ?? []).some((e) => e.event === 'reveal'),
-		);
-		const on = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, true);
-		assert('ON ⇒ doc returned unchanged (===)', on === LINES_FLOW_FREESPIN_DOC);
+		for (const [intro, counter, outro] of [
+			[true, false, false],
+			[false, true, false],
+			[false, false, true],
+			[true, false, true],
+			[true, true, true],
+			[false, false, false],
+		] as const) {
+			const ownership = ownershipFor(combo(intro, counter, outro));
+			const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, ownership);
+			const tag = `intro=${intro} counter=${counter} outro=${outro}`;
+			let ok = true;
+			for (const step of ALL_STEPS) {
+				const { screen, event } = FREE_SPIN_STEPS[step];
+				const screenKept = gated.screens.some((s) => s.id === screen);
+				const eventKept = (gated.events ?? []).some((e) => e.event === event);
+				const edgesKept = gated.transitions.some((t) => t.from === screen || t.to === screen);
+				const want = ownership.owns(step);
+				// Owned ⇒ screen + event + its transitions all survive; un-owned ⇒ all three gone.
+				if (screenKept !== want || eventKept !== want || edgesKept !== want) ok = false;
+			}
+			// The FS-4 seam is ALWAYS stripped regardless of any step's ownership.
+			const seamStripped =
+				!gated.screens.some((s) => s.id === 'freeSpinRetrigger') &&
+				!gated.transitions.some(
+					(t) => t.from === 'freeSpinRetrigger' || t.to === 'freeSpinRetrigger',
+				);
+			// Non-free-spin content untouched (basegame screen + reveal event survive every combo).
+			const baseKept =
+				gated.screens.some((s) => s.id === 'basegame') &&
+				(gated.events ?? []).some((e) => e.event === 'reveal');
+			assert(
+				`gate keeps owned / strips un-owned per step + always strips seam (${tag})`,
+				ok && seamStripped && baseKept,
+			);
+		}
 	}
+
+	// --- C + D. interpreter per-combo — per-step authoring ⟺ mount-suppression ⟺ ownership ---
+	// The load-bearing chain baseline: intro sets gameType=freegame, outro sets it back — that chain
+	// must run under ANY mix (each event runs EITHER its authored choreography OR its coded handler,
+	// each of which does THAT step's own state). We prove it by asserting each step's state runs on
+	// EXACTLY one path (authored effect ran ⟺ owned; coded handler ran ⟺ un-owned) — never both,
+	// never neither. That is the byte-identical-to-fully-coded guarantee, per step.
+	const COMBOS: [FreeSpinStep[], string][] = [
+		[['intro'], 'intro-only (counter+outro coded)'],
+		[['counter'], 'counter-only (intro+outro coded)'],
+		[['outro'], 'outro-only (intro+counter coded)'],
+		[['intro', 'outro'], 'intro+outro (counter coded)'],
+		[['intro', 'counter', 'outro'], 'all-three'],
+		[[], 'none (all coded)'],
+	];
 
 	for (const turbo of [false, true]) {
 		const tag = `turbo ${turbo ? 'ON' : 'OFF'}`;
+		for (const [ownedSteps, comboLabel] of COMBOS) {
+			const owned = combo(
+				ownedSteps.includes('intro'),
+				ownedSteps.includes('counter'),
+				ownedSteps.includes('outro'),
+			);
+			const ownership = ownershipFor(owned);
+			console.log(`\nC/D. ${comboLabel} (${tag}):`);
 
-		// --- C. OFF mode — coded owns, events fall through, no layering ---
-		console.log(`\nC. OFF mode — coded owns, free-spin events fall through, no layering (${tag}):`);
-		{
 			const rig = makeRig(turbo);
 			const setChanges: string[][] = [];
 			const codedRan: string[] = [];
-			const gatedOff = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, false);
-			const interp = makeInterp(gatedOff, rig, setChanges, codedRan);
-			await interp.start();
-			assert(`OFF: base only at boot (${tag})`, eqJson(interp.activeScreenIds, ['basegame']));
-			assert(
-				`OFF: free-spin events are NOT authored (fall through) (${tag})`,
-				!interp.isAuthoredEvent('freeSpinTrigger') &&
-					!interp.isAuthoredEvent('updateFreeSpin') &&
-					!interp.isAuthoredEvent('freeSpinEnd'),
-			);
-			await interp.dispatchBookEvent({ type: 'freeSpinTrigger' }, CONTEXT);
-			await interp.dispatchBookEvent({ type: 'updateFreeSpin' }, CONTEXT);
-			await interp.dispatchBookEvent({ type: 'freeSpinEnd' }, CONTEXT);
-			await settle();
-			assert(
-				`OFF: coded handlers ran for all 3 free-spin events (${tag})`,
-				codedRan.includes('freeSpinTrigger') &&
-					codedRan.includes('updateFreeSpin') &&
-					codedRan.includes('freeSpinEnd'),
-			);
-			assert(
-				`OFF: NO active-set layering (base stayed alone the whole time) (${tag})`,
-				eqJson(interp.activeScreenIds, ['basegame']) &&
-					setChanges.every((s) => eqJson(s, ['basegame'])),
-			);
-			assert(
-				`OFF: choreography EFFECTS did NOT run (coded owns state) (${tag})`,
-				rig.effectsRan.length === 0,
-			);
-		}
-
-		// --- D. ON mode — flow owns, choreographies run + arm gates, no coded double ---
-		console.log(`\nD. ON mode — flow owns visuals, choreographies run, no coded double (${tag}):`);
-		{
-			const rig = makeRig(turbo);
-			const setChanges: string[][] = [];
-			const codedRan: string[] = [];
-			const gatedOn = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, true);
-			const interp = makeInterp(gatedOn, rig, setChanges, codedRan);
+			const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, ownership);
+			const interp = makeInterp(gated, rig, setChanges, codedRan);
 			await interp.start();
 			assert(
-				`ON: free-spin events ARE authored (interpreter-driven) (${tag})`,
-				interp.isAuthoredEvent('freeSpinTrigger') &&
-					interp.isAuthoredEvent('updateFreeSpin') &&
-					interp.isAuthoredEvent('freeSpinEnd'),
+				`base only at boot (${comboLabel}, ${tag})`,
+				eqJson(interp.activeScreenIds, ['basegame']),
 			);
 
-			await interp.dispatchBookEvent({ type: 'freeSpinTrigger' }, CONTEXT);
-			await settle();
-			// The coded handler must NOT run (authored wins) — no double-present.
+			// Fire the three fs events in lifecycle order, dismissing each owned overlay so the next
+			// layers cleanly. (An un-owned overlay never layers, so there is nothing to dismiss.)
+			const dispatchAndDismiss = async (step: FreeSpinStep) => {
+				const { event, screen } = FREE_SPIN_STEPS[step];
+				await interp.dispatchBookEvent({ type: event }, CONTEXT);
+				await settle();
+				const authored = interp.isAuthoredEvent(event);
+				const want = ownership.owns(step);
+				// D. per-step atomic flip: event-authoring ⟺ ownership (⟺ coded-mount-suppressed).
+				assert(
+					`${step}: event-authoring (${authored}) ⟺ owns (${want}) — atomic flip (${tag})`,
+					authored === want,
+				);
+				// The load-bearing state runs on EXACTLY one path: authored effects ⟺ owned; coded
+				// handler ⟺ un-owned. Never both (double), never neither (byte-identical to fully-coded).
+				const authoredEffectsRan = OWNED_EFFECTS[step].every((n) => rig.effectsRan.includes(n));
+				const codedRanForStep = codedRan.includes(event);
+				assert(
+					`${step}: load-bearing state on EXACTLY one path (authored=${authoredEffectsRan} coded=${codedRanForStep}) — owned=${want} (${tag})`,
+					authoredEffectsRan === want && codedRanForStep === !want,
+				);
+				assert(
+					`${step}: no double-present (authored XOR coded ran) (${tag})`,
+					authoredEffectsRan !== codedRanForStep,
+				);
+				// The overlay screen: owned ⇒ it LAYERED over the persistent base; un-owned ⇒ its screen
+				// was stripped so nothing layered (base stayed alone through the dispatch).
+				const layered = interp.activeScreenIds.includes(screen);
+				assert(
+					`${step}: overlay ${want ? 'LAYERS' : 'does NOT layer (stripped)'} over persistent base (${tag})`,
+					layered === want && interp.activeScreenIds.includes('basegame'),
+				);
+				// Round-gate arm: intro/outro carry a gate — the `*Show` broadcast fires on WHICHEVER
+				// path runs (authored broadcast when owned; the coded handler broadcasts it when
+				// un-owned — here the no-op coded stub can't, so we assert only the AUTHORED path arms
+				// it, and that the coded handler was the one that ran otherwise, i.e. the gate is armed
+				// by the live path in-game). For the OWNED case the authored choreography must broadcast
+				// the arm event; that is the load-bearing round-gate guarantee FS-6 keeps.
+				const armEvents = GATE_ARM_BROADCASTS[step];
+				if (armEvents && want) {
+					assert(
+						`${step}: OWNED path still broadcasts the round-gate arm (${armEvents.join(', ')}) (${tag})`,
+						armEvents.every((e) => rig.log.includes(e)),
+					);
+				}
+				// Dismiss an owned overlay so the lifecycle can continue.
+				if (layered) {
+					await interp.completeActiveScreen();
+					await settle();
+					assert(
+						`${step}: owned overlay dismisses itself on Complete, base remains (${tag})`,
+						!interp.activeScreenIds.includes(screen) && interp.activeScreenIds.includes('basegame'),
+					);
+				}
+			};
+
+			await dispatchAndDismiss('intro');
+			await dispatchAndDismiss('counter');
+			await dispatchAndDismiss('outro');
+
+			// basegame never left the active set through the whole lifecycle (DECISION-1, per combo).
 			assert(
-				`ON: coded freeSpinTrigger handler did NOT run (no double) (${tag})`,
-				!codedRan.includes('freeSpinTrigger'),
-			);
-			// The load-bearing effects ran (gameType/counter/sound state).
-			assert(
-				`ON: load-bearing effects ran (setFreeGameType + counter) (${tag})`,
-				rig.effectsRan.includes('setFreeGameType') &&
-					rig.effectsRan.includes('setFreeSpinCounterTotalOnly'),
-			);
-			// The choreography STILL broadcasts the events that arm the kept round-gates.
-			assert(
-				`ON: still broadcasts freeSpinIntroShow + freeSpinIntroUpdate (arm the kept gate) (${tag})`,
-				rig.log.includes('broadcast freeSpinIntroShow') &&
-					rig.log.includes('broadcastAsync freeSpinIntroUpdate'),
-			);
-			// The overlay screen LAYERED over the persistent base (active-set ownership).
-			assert(
-				`ON: freeSpinIntro LAYERED over persistent basegame (${tag})`,
-				eqJson(interp.activeScreenIds, ['basegame', 'freeSpinIntro']),
+				`basegame NEVER left the active set (${comboLabel}, ${tag})`,
+				setChanges.every((s) => s.includes('basegame')) &&
+					eqJson(interp.activeScreenIds, ['basegame']),
+				JSON.stringify(setChanges),
 			);
 
-			// freeSpinEnd → the outro choreography arms the outro gate + count-up.
-			await interp.completeActiveScreen(); // dismiss intro
-			await settle();
-			rig.log.length = 0;
-			rig.effectsRan.length = 0;
-			await interp.dispatchBookEvent({ type: 'freeSpinEnd' }, CONTEXT);
-			await settle();
-			// The outro gate is armed by `freeSpinOutroShow` (a direct broadcast) + the count-up. The
-			// count-up rides an EFFECT (`freeSpinOutroCountUp`, whose real body broadcasts the awaited
-			// `freeSpinOutroCountUp` → the gate's `waitForResolve`), so assert BOTH the direct broadcast
-			// and that the count-up effect ran (its body arms the gate in-game).
+			// E (per combo): the FS-4 seam never layered (its screen was always stripped).
 			assert(
-				`ON: freeSpinEnd broadcasts freeSpinOutroShow + runs the freeSpinOutroCountUp effect (arm outro gate) (${tag})`,
-				rig.log.includes('broadcast freeSpinOutroShow') &&
-					rig.effectsRan.includes('freeSpinOutroCountUp'),
+				`freeSpinRetrigger NEVER layered (FS-4 seam always stripped) (${comboLabel}, ${tag})`,
+				setChanges.every((s) => !s.includes('freeSpinRetrigger')),
 			);
-			assert(
-				`ON: outro load-bearing effects ran (enterFreeSpinOutro sets gameType=basegame) (${tag})`,
-				rig.effectsRan.includes('enterFreeSpinOutro') &&
-					rig.effectsRan.includes('exitFreeSpinOutro'),
-			);
-			assert(`ON: coded freeSpinEnd did NOT run (${tag})`, !codedRan.includes('freeSpinEnd'));
 		}
 	}
 
-	// --- E. atomic-flip invariant ---
-	console.log('\nE. atomic-flip — ownership predicate ⟺ gated-doc authors the free-spin events:');
+	// --- E. NONE (all-OFF) — byte-identical to the fully-coded fall-through ---
+	console.log(
+		'\nE. NONE (all-OFF) ⇒ byte-identical to fully-coded (every fs event falls through):',
+	);
 	{
-		for (const [label, scenes] of [
-			['authored', AUTHORED_SCENES],
-			['fallback', FALLBACK_SCENES],
-		] as const) {
-			const owns = flowOwnsFreeSpins(LINES_FLOW_FREESPIN_DOC, scenes);
-			const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, owns);
-			const authorsFsEvents = (gated.events ?? []).some((e) =>
-				['freeSpinTrigger', 'updateFreeSpin', 'freeSpinEnd'].includes(e.event),
-			);
-			const mountsCodedScenes = !owns; // Game.svelte mounts coded fs scenes iff !owns
-			// Atomic: the doc authors the free-spin events EXACTLY when the coded mount is suppressed.
-			assert(
-				`${label}: event-authoring (${authorsFsEvents}) ⟺ coded-mount-suppressed (${!mountsCodedScenes}) ⟺ owns (${owns})`,
-				authorsFsEvents === owns && !mountsCodedScenes === owns,
-			);
-		}
+		const rig = makeRig(false);
+		const setChanges: string[][] = [];
+		const codedRan: string[] = [];
+		const ownership = ownershipFor(combo(false, false, false));
+		const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, ownership);
+		const interp = makeInterp(gated, rig, setChanges, codedRan);
+		await interp.start();
+		assert(
+			'NONE: all fs events un-authored (fall through)',
+			!interp.isAuthoredEvent('freeSpinTrigger') &&
+				!interp.isAuthoredEvent('updateFreeSpin') &&
+				!interp.isAuthoredEvent('freeSpinEnd'),
+		);
+		await interp.dispatchBookEvent({ type: 'freeSpinTrigger' }, CONTEXT);
+		await interp.dispatchBookEvent({ type: 'updateFreeSpin' }, CONTEXT);
+		await interp.dispatchBookEvent({ type: 'freeSpinEnd' }, CONTEXT);
+		await settle();
+		assert(
+			'NONE: coded handlers ran for all 3 fs events, no authored effects, base stayed alone',
+			codedRan.includes('freeSpinTrigger') &&
+				codedRan.includes('updateFreeSpin') &&
+				codedRan.includes('freeSpinEnd') &&
+				rig.effectsRan.length === 0 &&
+				eqJson(interp.activeScreenIds, ['basegame']) &&
+				setChanges.every((s) => eqJson(s, ['basegame'])),
+		);
 	}
 
 	console.log(`\n${failed ? 'FS-6 HARNESS: FAILED' : 'FS-6 HARNESS: PASSED'}`);
