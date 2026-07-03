@@ -463,6 +463,13 @@ Branch `flow/driven-game`. The two GENUINELY-universal bindings (the runtime alr
 the WHOLE instance from these param keys regardless of def): an instance can be made **clickable**
 (`action`) or **lifecycle-gated** (`visibleSource`) without its def declaring the param.
 
+> **Update 2026-07-03 — per-instance `visibleSource` authoring RETIRED.** Owner rule: Invisible Flow
+> owns visibility for everything (screens AND instances), so the per-instance "Shows during" control
+> was removed from the editor (`ENGINE_BINDING_PARAMS` now carries only `action`). The runtime STILL
+> honors a baked `visibleSource` instance param (`ComponentInstance.svelte` gate + `VISIBLE_SOURCE_PARAM`)
+> for back-compat — only the authoring is gone. See `feedback_flow_owns_visibility` (memory) and the
+> STATUS entry. The prose below describes the original two-binding tray as first shipped.
+
 **What landed:**
 - `packages/engine-layout/src/lib/engineBindings.ts` (NEW, mirrors `tapToContinue.ts`) —
   `ENGINE_BINDING_PARAMS` (shared instance params: `action` opts `ENGINE_ACTION_CATALOG`,

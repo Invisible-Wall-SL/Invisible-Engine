@@ -24,6 +24,34 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Editor: removed the per-INSTANCE "Shows during" engine binding (Flow owns visibility, standing rule)
+
+**Ask.** Follow-up to the per-screen removal below: the owner confirmed the **per-node** "Shows
+during" engine binding (`EditorProperties.svelte` → "Engine bindings" → the universal `visibleSource`
+control any component instance could carry) should **also** go — visibility for everything (screens
+AND instances) is owned by Invisible Flow. The owner flagged this as a **standing principle** (saved
+to memory `feedback_flow_owns_visibility`), not a one-off.
+
+**Change.**
+- `packages/engine-layout/src/lib/engineBindings.ts`: dropped the `visibleSource` entry from
+  `ENGINE_BINDING_PARAMS` (now just `action`) + the now-unused `VISIBILITY_SOURCE_KEYS` import;
+  reworded the module doc. Kept `VISIBLE_SOURCE_PARAM` + `visibleSourceBindingOf` as runtime
+  plumbing.
+- `EditorProperties.svelte`: removed the `visibleSource` `<select>` branch in the "Engine bindings"
+  group (now renders only `action`), the `visibleSourceOptions` helper, the `VISIBILITY_SOURCE_LABELS`
+  import, and the `visibleSource` references in the group's `open=` + summary copy.
+
+**Defang, not gut (per `feedback_engine_extensibility`).** The RUNTIME still honors a baked
+`visibleSource` instance param — `ComponentInstance.svelte` reads the raw string and wraps the
+subtree in a gated `<Container visible={liveVisible}>` — so existing docs (e.g. Borut) keep working;
+only the *authoring* is gone. `pnpm --filter {engine-layout,launcher-api} build` clean.
+
+**Still-open remnant.** Builtin component DEFS (`freeSpinCounter` in `builtinComponents.ts`) still
+DECLARE their own `visibleSource` param (surfaced via the normal params UI, using
+`VISIBILITY_SOURCE_KEYS/LABELS`). NOT touched — removing a def param changes the component contract +
+baked docs, so confirm with the owner first. This is an engine-package change, so it needs a
+`_runtime/lines` publish + Borut submodule bump to reach shipped games (not done yet).
+
 ### 2026-07-03 — Scene Editor: removed the per-screen "Shows during" gate entirely (Flow owns visibility)
 
 **Ask.** The per-screen **"Shows during"** control (`Scene.visibleSource` + its blocking-gate
@@ -70,7 +98,44 @@ cluster, price, scatter) and removed the five `I18nTest.svelte` files. No engine
 (build `bundle.DYd-qBB9.js` → R2 `_runtime/lines/` → `/refresh` 202 → **served hash verified** on
 `bookofborutremake`, debug string absent from the live bundle).
 
+### 2026-07-03 — Invisible Flow: FS-6 made PER-STEP (each overlay owned independently) (headless; not shipped)
+
+**What.** Owner correction to the FS-6 entry below (which flipped the WHOLE free-spin lifecycle on one
+boolean): ownership is now decided PER STEP, so intro / counter / outro are authored INDEPENDENTLY and
+a step can be authored on its own (a flow-first game can omit a step for free). The boolean
+`flowOwnsFreeSpins`/`gateFreeSpinOwnership(doc, boolean)` are GONE.
+
+**The per-step API (`apps/lines/src/game/freeSpinOwnership.ts`).** `FreeSpinStep = 'intro'|'counter'|
+'outro'`, `FREE_SPIN_STEPS` (per-step `{screen,event}`), `resolveFreeSpinOwnership(flowDoc, scenes):
+FreeSpinOwnership` (`owns(step)`/`ownsIntro`/`ownsCounter`/`ownsOutro`/`none`/`steps`), and
+`gateFreeSpinOwnership(doc, ownership)` which strips each UN-owned step's screen+event+transitions
+INDEPENDENTLY (the `freeSpinRetrigger` FS-4 seam always stripped). A step is owned iff (i) its screen
+placed + (ii) its bookEvent edge wired + (iii) its scene has authored content — so no step flips on
+wiring-alone or a stray node alone.
+
+**Atomic PER-STEP flip.** `createLinesFlow` runs `gateFreeSpinOwnership(resolvedDoc,
+resolveFreeSpinOwnership(resolvedDoc, scenes))`; `Game.svelte` gates each coded fs scene per step
+(`{#if !freeSpinOwnership.ownsIntro}`/`!ownsCounter`/`!ownsOutro`), the round-holds stay unconditional.
+Per step, event-authoring + coded-mount-suppression flip together; MIXED states valid; load-bearing
+state runs on exactly one path per step (authored OR coded), so the cross-event chain holds under any
+mix. Suppressing a coded step WITHOUT an authored replacement remains FS-7.
+
+**Verified.** `pnpm --filter flow-spike run fs6` GREEN turbo on/off — per-step predicate (each of the
+three conditions independently gates its own step), per-step gate, and the interpreter over all SIX
+combos (intro-only, counter-only, outro-only, intro+outro, all-three, none) asserting per step:
+owned ⇒ authored + layers + effects run + arms its gate; un-owned ⇒ falls through + stripped + no
+layer; load-bearing state on exactly one path (= byte-identical to fully-coded); the per-step
+atomic-flip; `none` = today. `fs1` GREEN; `engine-flow` typecheck clean;
+`PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN; all prior flow-spikes
+(`fs2`/`parity`/`pins`/`phase3`/`phase4`/`phase5`/`roundtrip`/`tap`) GREEN. **Not committed/pushed.**
+Owner owed to GO LIVE per step: author that step's scene online + wire its `/flow` edge + live WebGL
+verify (round still holds, no double), turbo on/off.
+
 ### 2026-07-03 — Invisible Flow: FS-6 flow OWNS free-spin visuals behind an auto-derived switch (headless; not shipped)
+
+> **SUPERSEDED (same day) by the PER-STEP entry above** — the whole-lifecycle boolean below was
+> replaced with independent per-step ownership. Kept for the corrected-scope rationale (do NOT strip
+> the choreographies, do NOT retire the round-gates — still true per step).
 
 **What.** FS-6 of the §14 free-spins plan — flip presentation OWNERSHIP of the free-spin VISUALS from
 the coded feed-driven overlays to the authored Flow, behind an AUTO-DERIVED switch defaulting OFF.
