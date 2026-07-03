@@ -5,6 +5,7 @@
 		BUTTON_STATE_PARAMS,
 		defaultHudText,
 		ENGINE_ACTION_CATALOG,
+		ENGINE_ACTION_LABELS,
 		ENGINE_BINDING_PARAMS,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
@@ -1635,7 +1636,7 @@
 							>
 								<option value="">(inherit default)</option>
 								{#each actionOptions(node.params?.[p.key]) as a (a)}
-									<option value={a}>{a}</option>
+									<option value={a}>{ENGINE_ACTION_LABELS[a] ?? a}</option>
 								{/each}
 							</select>
 						{:else if p.kind === 'boolean'}
