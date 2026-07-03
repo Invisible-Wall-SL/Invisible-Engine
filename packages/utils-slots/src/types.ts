@@ -45,6 +45,13 @@ type ReelCreateOptions<TRawSymbol extends object, TSymbolState extends string> =
 	 * so a plain `number` is byte-identical to passing the value directly.
 	 */
 	symbolHeight: number | (() => number);
+	/**
+	 * Row LEAD — the resting seat of each symbol within its pitch cell, in pitch
+	 * fractions (the `(symbolIndex + symbolLead)` term). A getter form lets a game
+	 * drive it reactively (e.g. the editor's `reelGrid` row-lead/align override).
+	 * Absent ⇒ `0.5` (centred = today's hard-coded value), byte-identical.
+	 */
+	symbolLead?: number | (() => number);
 	onReelStopping: () => void;
 	onSymbolLand: (args: { rawSymbol: TRawSymbol }) => void;
 };

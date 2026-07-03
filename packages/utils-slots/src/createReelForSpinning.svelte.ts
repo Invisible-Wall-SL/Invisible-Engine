@@ -19,7 +19,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		const rawSymbol = reelSymbolOptions.rawSymbol;
 		const symbolIndex = reelSymbolOptions.symbolIndex;
 		const symbolState = reelOptions.initialSymbolState;
-		const symbolY = () => reelY.current + (reelSymbol.symbolIndex + 0.5) * getSymbolHeight();
+		const symbolY = () =>
+			reelY.current + (reelSymbol.symbolIndex + getSymbolLead()) * getSymbolHeight();
 		const oncomplete = () => {};
 
 		const reelSymbol = $state({
@@ -61,6 +62,12 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		typeof reelOptions.symbolHeight === 'function'
 			? reelOptions.symbolHeight()
 			: reelOptions.symbolHeight;
+	// Resting seat of a symbol within its pitch cell (pitch fractions). Default 0.5
+	// (centred) keeps a game that passes nothing byte-identical.
+	const getSymbolLead = () =>
+		typeof reelOptions.symbolLead === 'function'
+			? reelOptions.symbolLead()
+			: (reelOptions.symbolLead ?? 0.5);
 	const homeY = () => -getSymbolHeight();
 	const reelLength = reelOptions.initialSymbols.length;
 

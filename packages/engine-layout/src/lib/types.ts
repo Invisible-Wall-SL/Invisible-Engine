@@ -398,17 +398,39 @@ export interface ReelGridNode extends BaseNode {
 	gapX?: number;
 	gapY?: number;
 	/**
-	 * Horizontal symbol-centre inset factor — the game's `REEL_PADDING` (the
-	 * `getSymbolX` `cellSize * (reelIndex + reelPadding)` term). ≈0.5 = centred.
-	 * Absent = 0.5.
+	 * Reel LEAD (horizontal) — where the FIRST column's centre is seated from the
+	 * grid's left edge, in cell-size units (the `getSymbolX` `cellSize * (reelIndex +
+	 * reelPadding)` lead term). `0.5` = symmetric (the reel cluster sits centred on
+	 * the grid's position); the engine's coded baseline is `0.53`. This ONLY seats the
+	 * reel cluster — it no longer doubles as a whole-board offset (that is now
+	 * {@link boardNudgeX}) nor a per-cell art seat (that is now {@link symbolAlignX}),
+	 * so changing it never moves the alignment and vice-versa. Absent = 0.5.
 	 */
 	reelPadding?: number;
 	/**
-	 * Vertical symbol-centre inset factor — the analog of {@link reelPadding} on
-	 * the row axis (the `getSymbolY` `(rowIndex + rowPadding)` term). ≈0.5 =
-	 * centred. Absent = 0.5 (today's hard-coded value).
+	 * Row LEAD (vertical) — the analog of {@link reelPadding}: where the FIRST row's
+	 * centre is seated from the grid's top edge, in cell-size units. `0.5` = symmetric.
+	 * Absent = 0.5.
 	 */
 	rowPadding?: number;
+	/**
+	 * Per-cell SEAT ALIGNMENT — where a symbol's art sits WITHIN its own cell on each
+	 * axis (`0` = top/left edge, `0.5` = centred, `1` = bottom/right edge). Fully
+	 * independent of the lead ({@link reelPadding}/{@link rowPadding}), which seats the
+	 * whole cluster: moving alignment never moves the cluster and vice-versa. Absent =
+	 * 0.5 (centred = today's behaviour).
+	 */
+	symbolAlignX?: number;
+	symbolAlignY?: number;
+	/**
+	 * Board NUDGE — a fine px offset of the WHOLE board (cells + mask + symbols move
+	 * together), added on top of the node's transform position. Use it to align the
+	 * live reels to fixed frame art. In the SAME units as the node's `transform.x`/`y`.
+	 * Absent = 0 (no shift). This replaces the old hidden "reelPadding − baseline"
+	 * board offset, so padding and board position are no longer entangled.
+	 */
+	boardNudgeX?: number;
+	boardNudgeY?: number;
 	/**
 	 * Spin-FEEL tuning (animation, not layout): optional per-field overrides of the
 	 * game's coded `SPIN_OPTIONS_*`, applied by the game's `spinOptions` getter.

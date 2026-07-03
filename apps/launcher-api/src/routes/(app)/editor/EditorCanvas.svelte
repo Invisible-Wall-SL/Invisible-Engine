@@ -1133,8 +1133,15 @@
 		// or empty content falls back to its generic 160×100, which we treat as "unknown"
 		// (null) so the cover uses the frame size instead of a tiny box.
 		if (node.kind === 'componentInstance') {
-			const box = nodeBox(node, resolveTransform(node, layoutType), naturalSize, componentMap, layoutType);
-			if (box.w > 0 && box.h > 0 && !(box.w === 160 && box.h === 100)) return { w: box.w, h: box.h };
+			const box = nodeBox(
+				node,
+				resolveTransform(node, layoutType),
+				naturalSize,
+				componentMap,
+				layoutType,
+			);
+			if (box.w > 0 && box.h > 0 && !(box.w === 160 && box.h === 100))
+				return { w: box.w, h: box.h };
 			return null;
 		}
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
@@ -1721,10 +1728,12 @@
 	 * cells (`cellWidth × cellHeight`, defaulting to the square `cellSize`) at the
 	 * `gapX/gapY` pitch, centred per the node's anchor (drawn in the node's already-
 	 * scaled local space — drawNode applied the transform). This stands in for the
-	 * coded dynamic symbols so the author can position/shape the board. A warm
-	 * inner SYMBOL marker per cell visualises the symbol's seat inside the cell —
-	 * `reelPadding`/`rowPadding` offset it (≠0.5 ⇒ off-centre), gaps separate the
-	 * cells. The footprint matches `nodeBox`, so selection lines up with the draw.
+	 * coded dynamic symbols so the author can position/shape the board. The cell
+	 * boxes are the reel WINDOW (they move only with the board `boardNudge`); the warm
+	 * inner SYMBOL marker per cell is the symbol seat, which the reel/row LEAD
+	 * (`reelPadding`/`rowPadding`, seats the whole cluster) and the per-cell SEAT
+	 * ALIGNMENT (`symbolAlignX/Y`, art within its own cell) move — mirroring the game's
+	 * `getSymbolX` / `getSymbolLead` exactly, so the preview matches the live board.
 	 */
 	function drawReelGrid(
 		ctx: CanvasRenderingContext2D,
@@ -1741,8 +1750,12 @@
 		const pitchY = cellH + gapY;
 		const w = reels * cellW + (reels - 1) * gapX;
 		const h = rows * cellH + (rows - 1) * gapY;
-		const left = -w * (t.anchor?.x ?? 0.5);
-		const top = -h * (t.anchor?.y ?? 0.5);
+		// Board NUDGE — a fine px offset of the WHOLE board (cells + seats move
+		// together), mirroring the game's `boardLayout` position offset. Default 0.
+		const nudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
+		const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
+		const left = -w * (t.anchor?.x ?? 0.5) + nudgeX;
+		const top = -h * (t.anchor?.y ?? 0.5) + nudgeY;
 
 		ctx.fillStyle = 'rgba(93, 176, 255, 0.06)';
 		ctx.fillRect(left, top, w, h);
@@ -1760,8 +1773,17 @@
 		// matches the engine's `Sprite`/`Spine` `contain`). The static list is cycled across
 		// cells so the board looks populated. A spine static (can't draw on a 2D canvas) or an
 		// unresolved frame falls back to the amber marker square.
-		const padX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
-		const padY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
+		// Seat offset from each cell's CENTRE — the same two independent contributions
+		// the game applies (see `getSymbolX` / `getSymbolLead`): the reel/row LEAD
+		// (`reelPadding`/`rowPadding`, in cell-SIZE units — seats the whole cluster) plus
+		// the per-cell SEAT ALIGNMENT (`symbolAlignX/Y`, in cell-W/H units — art inside
+		// its own cell). Both default 0.5 ⇒ 0 offset ⇒ centred (parity).
+		const leadX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
+		const leadY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
+		const alignX = Number.isFinite(node.symbolAlignX) ? (node.symbolAlignX as number) : 0.5;
+		const alignY = Number.isFinite(node.symbolAlignY) ? (node.symbolAlignY as number) : 0.5;
+		const seatDX = node.cellSize * (leadX - 0.5) + cellW * (alignX - 0.5);
+		const seatDY = node.cellSize * (leadY - 0.5) + cellH * (alignY - 0.5);
 		const statics = symbolStatics;
 		const drawMarker = (cx: number, cy: number, label?: string): void => {
 			const sym = Math.min(cellW, cellH);
@@ -1779,8 +1801,8 @@
 			for (let j = 0; j < rows; j++) {
 				const cellX = left + i * pitchX;
 				const cellY = top + j * pitchY;
-				const cx = cellX + cellW * padX;
-				const cy = cellY + cellH * padY;
+				const cx = cellX + cellW / 2 + seatDX;
+				const cy = cellY + cellH / 2 + seatDY;
 				const cell = statics.length ? statics[(j * reels + i) % statics.length] : undefined;
 				if (!cell) {
 					drawMarker(cx, cy);
@@ -1809,10 +1831,12 @@
 				}
 				// `drawArtRegionSprite` places the frame with its top-left at the origin offset by
 				// `-dw * anchor` — anchor {0.5,0.5} centres it on the origin, so translate to the
-				// cell's symbol seat (cx, cy). Clip to the cell rect so an oversize symbol crops.
+				// symbol seat (cx, cy). Clip to the whole reel WINDOW (not the single cell) — the
+				// game masks the board window, not each cell, so a lead/align-offset symbol crops
+				// at the window edge here exactly as it does live.
 				ctx.save();
 				ctx.beginPath();
-				ctx.rect(cellX, cellY, cellW, cellH);
+				ctx.rect(left, top, w, h);
 				ctx.clip();
 				ctx.translate(cx, cy);
 				const symTransform: import('engine-layout').ResolvedTransform = {

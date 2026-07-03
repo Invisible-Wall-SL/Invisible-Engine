@@ -55,29 +55,90 @@ export const setBoardOverride = (node: ReelGridNode | null) => {
  * Board LATTICE derived from the override, in board-LOCAL space (before the
  * container `scale`). `columnExtraLocal` = extra x added per reel index for
  * non-square cell width + horizontal gap; `rowPitchLocal` = the reel's symbol
- * pitch (drives `createReelForSpinning`'s reactive `symbolHeight`). No node ⇒
- * `{0, SYMBOL_SIZE}` = today's flush square lattice (byte-identical parity).
+ * pitch (drives `createReelForSpinning`'s reactive `symbolHeight`); `cellWidthLocal`/
+ * `cellHeightLocal` = the per-cell contain box; plus the reel/row LEAD, per-cell SEAT
+ * ALIGNMENT and board NUDGE consumed by `getSymbolX`/`getSymbolLead`/`boardLayout`. No
+ * node ⇒ coded lead (0.53/0.5), centred seats, no nudge = byte-identical parity.
  */
 const boardGeometry = () => {
 	const override = resolveReelGridFromNode(
 		boardOverride.node ?? undefined,
 		stateLayoutDerived.layoutType(),
 	);
-	if (!override) return { columnExtraLocal: 0, rowPitchLocal: SYMBOL_SIZE };
+	if (!override)
+		return {
+			columnExtraLocal: 0,
+			rowPitchLocal: SYMBOL_SIZE,
+			cellWidthLocal: SYMBOL_SIZE,
+			cellHeightLocal: SYMBOL_SIZE,
+			// No doc ⇒ the coded lead (0.53 X / 0.5 Y), centred seats, no nudge ⇒
+			// getSymbolX / symbolY / boardLayout are byte-identical to before.
+			reelLead: REEL_PADDING,
+			rowLead: 0.5,
+			symbolAlignX: 0.5,
+			symbolAlignY: 0.5,
+			boardNudgeX: 0,
+			boardNudgeY: 0,
+		};
 	const scale = override.cellSize / SYMBOL_SIZE;
 	const columnExtraLocal = (override.cellWidth - override.cellSize + override.gapX) / scale;
 	const rowPitchLocal = (override.cellHeight + override.gapY) / scale;
-	return { columnExtraLocal, rowPitchLocal };
+	const cellWidthLocal = override.cellWidth / scale;
+	const cellHeightLocal = override.cellHeight / scale;
+	return {
+		columnExtraLocal,
+		rowPitchLocal,
+		cellWidthLocal,
+		cellHeightLocal,
+		reelLead: override.reelPadding,
+		rowLead: override.rowPadding,
+		symbolAlignX: override.symbolAlignX,
+		symbolAlignY: override.symbolAlignY,
+		boardNudgeX: override.boardNudgeX,
+		boardNudgeY: override.boardNudgeY,
+	};
 };
 
-/** Reactive symbol-centre X in board-local space (honours non-square width + gap). */
-export const getSymbolX = (reelIndex: number) =>
-	SYMBOL_SIZE * (reelIndex + REEL_PADDING) + reelIndex * boardGeometry().columnExtraLocal;
+/**
+ * Reactive symbol-centre X in board-local space. Three independent contributions:
+ * the reel LEAD (`reelLead` — seats the whole cluster), the non-square width + gap
+ * pitch (`columnExtraLocal`), and the per-cell art SEAT ALIGNMENT (`symbolAlignX` —
+ * offsets the art inside its own cell). Defaults (0.53 lead / 0.5 align) reproduce
+ * the coded `SYMBOL_SIZE * (reelIndex + REEL_PADDING)`.
+ */
+export const getSymbolX = (reelIndex: number) => {
+	const geometry = boardGeometry();
+	return (
+		SYMBOL_SIZE * (reelIndex + geometry.reelLead) +
+		reelIndex * geometry.columnExtraLocal +
+		(geometry.symbolAlignX - 0.5) * geometry.cellWidthLocal
+	);
+};
+
+/**
+ * Reactive symbol resting SEAT (pitch fractions) fed to `createReelForSpinning`.
+ * Folds the row LEAD (`rowLead` — seats the cluster) with the per-cell art SEAT
+ * ALIGNMENT (`symbolAlignY`, expressed as a fraction of the pitch). Defaults
+ * (0.5 lead / 0.5 align) collapse to `0.5` = today's centred seat (byte-parity).
+ */
+const getSymbolLead = () => {
+	const geometry = boardGeometry();
+	// Both contributions are converted to the util's pitch-fraction seat so they read
+	// in the SAME units the X axis + editor use: the row LEAD in cell-SIZE units
+	// (`SYMBOL_SIZE` is one cell in board-local space), the SEAT ALIGNMENT in
+	// cell-HEIGHT units. Defaults (0.5 / 0.5) collapse to 0.5 = today's centred seat.
+	return (
+		0.5 +
+		((geometry.rowLead - 0.5) * SYMBOL_SIZE) / geometry.rowPitchLocal +
+		((geometry.symbolAlignY - 0.5) * geometry.cellHeightLocal) / geometry.rowPitchLocal
+	);
+};
 
 const board = _.range(BOARD_DIMENSIONS.x).map((reelIndex) => {
 	const reel = createReelForSpinning({
 		reelIndex,
 		symbolHeight: () => boardGeometry().rowPitchLocal,
+		symbolLead: () => getSymbolLead(),
 		initialSymbols: INITIAL_BOARD[reelIndex],
 		initialSymbolState: INITIAL_SYMBOL_STATE,
 		onReelStopping: () => {
@@ -146,10 +207,10 @@ const boardLayout = () => {
 	}
 
 	const scale = override.cellSize / SYMBOL_SIZE;
-	const paddingOffsetX = (override.reelPadding - REEL_PADDING) * SYMBOL_SIZE * scale;
-	// Row padding mirrors reel padding on the Y axis: a uniform vertical nudge of
-	// the whole board (the engine's coded vertical lead is 0.5). Default 0.5 ⇒ 0.
-	const paddingOffsetY = (override.rowPadding - 0.5) * SYMBOL_SIZE * scale;
+	// Board POSITION = the node position + the explicit board NUDGE (fine px offset,
+	// in layout units). The reel/row LEAD no longer moves the board here — it seats
+	// the symbol cluster inside a fixed pivot (via getSymbolX / getSymbolLead), so
+	// padding and board position are fully decoupled. Nudge default 0 ⇒ no shift.
 
 	// The flush pivot (BOARD_SIZES/2) is the gap-LESS board centre. `getSymbolX`
 	// grows the gap cumulatively rightward and the reel pitch grows it downward,
@@ -167,8 +228,8 @@ const boardLayout = () => {
 	const pivotY = BOARD_SIZES.height / 2 + (BOARD_DIMENSIONS.y / 2) * (rowPitchLocal - SYMBOL_SIZE);
 
 	return {
-		x: override.x + paddingOffsetX,
-		y: override.y + paddingOffsetY,
+		x: override.x + override.boardNudgeX,
+		y: override.y + override.boardNudgeY,
 		scale,
 		anchor: { x: 0.5, y: 0.5 },
 		pivot: { x: pivotX, y: pivotY },

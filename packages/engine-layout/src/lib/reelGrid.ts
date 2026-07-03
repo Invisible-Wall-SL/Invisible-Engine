@@ -30,9 +30,21 @@ export interface ReelGridLayout {
 	/** Inter-cell spacing in px (column pitch = `cellWidth + gapX`, etc.). Folds scale. */
 	gapX: number;
 	gapY: number;
-	/** Whole-grid centre inset factors (cell fractions). Default 0.5 each. */
+	/**
+	 * Reel/row LEAD — first column/row centre seat, in cell-size fractions (the
+	 * `getSymbolX/Y` lead term). Default 0.5 each = symmetric. Seats the cluster only.
+	 */
 	reelPadding: number;
 	rowPadding: number;
+	/** Per-cell art seat alignment (0..1 each axis). Default 0.5 = centred. */
+	symbolAlignX: number;
+	symbolAlignY: number;
+	/**
+	 * Whole-board fine px offset, added to the node position. In the node's transform
+	 * units (NOT folded through the cell scale — it lives in layout space). Default 0.
+	 */
+	boardNudgeX: number;
+	boardNudgeY: number;
 }
 
 /** Scan every scene's top-level nodes for the first `reelGrid` node. */
@@ -66,6 +78,10 @@ export function resolveReelGridFromNode(
 	const transform = resolveTransform(node, layoutType);
 	const reelPadding = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
 	const rowPadding = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
+	const symbolAlignX = Number.isFinite(node.symbolAlignX) ? (node.symbolAlignX as number) : 0.5;
+	const symbolAlignY = Number.isFinite(node.symbolAlignY) ? (node.symbolAlignY as number) : 0.5;
+	const boardNudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
+	const boardNudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
 	const scaleX = transform.scale?.x;
 	const cellScale = Number.isFinite(scaleX) && (scaleX as number) > 0 ? (scaleX as number) : 1;
 	// Non-square cell size + inter-cell gaps fold the same (uniform) scale as cellSize,
@@ -84,6 +100,10 @@ export function resolveReelGridFromNode(
 		gapY: gapY * cellScale,
 		reelPadding,
 		rowPadding,
+		symbolAlignX,
+		symbolAlignY,
+		boardNudgeX,
+		boardNudgeY,
 	};
 }
 
