@@ -16,12 +16,14 @@
 		diffFlowDoc,
 		edgeSemantics,
 		isPersistentScreen,
+		resolveOverlayOwnership,
 		validateFlowDoc,
 		type FlowDoc,
 		type FlowTransition,
 		type FlowTrigger,
 		type OrphanSummary,
 	} from 'engine-flow';
+	import { overlayStepsFromTable } from '$lib/flowOverlaySteps';
 	import { ENGINE_PARAM_CATALOG } from 'engine-layout';
 	import EdgeInspector from './EdgeInspector.svelte';
 	import FlowScreenNode from './FlowScreenNode.svelte';
@@ -145,6 +147,15 @@
 			mountedScreenIds: model.screens.map((s) => s.screen.id),
 		}),
 	);
+
+	// FS-6 per-step overlay-ownership diagnostic (design doc §14) — run the GENERIC resolver over the
+	// project gameType's step table (from the server `load`) + the live scenes, so the panel can show,
+	// per step (e.g. intro/counter/outro), which of screen-placed / edge-wired / scene-authored fails.
+	// No known table (unknown gameType) ⇒ empty steps ⇒ the panel renders no overlay-steps section.
+	const overlaySteps = $derived(
+		data.overlaySteps ? overlayStepsFromTable(data.overlaySteps) : [],
+	);
+	const overlayOwnership = $derived(resolveOverlayOwnership(doc, data.doc.scenes, overlaySteps));
 
 	// xyflow owns these arrays for live drag/selection; we rebuild them from the doc only
 	// on STRUCTURAL changes (add/remove screen+edge, undo/redo), not on every drag frame.
@@ -793,7 +804,7 @@
 
 			{#if model.screens.length > 0}
 				<ValidationPanel {issues} onfocus={focusScreen} />
-				<FlowDiffPanel {diff} onfocus={focusScreen} />
+				<FlowDiffPanel {diff} overlaySteps={overlayOwnership.statuses} onfocus={focusScreen} />
 			{/if}
 		</aside>
 

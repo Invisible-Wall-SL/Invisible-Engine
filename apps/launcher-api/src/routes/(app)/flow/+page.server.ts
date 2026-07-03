@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { resolveFlowVocabulary } from '$lib/flowVocabularies';
+import { resolveOverlayStepTable } from '$lib/flowOverlaySteps';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -47,5 +48,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// `gameType`; an unrecognized game falls back to `DEFAULT_EMITTER_VOCABULARY` (parity-safe,
 	// design doc §3/§7). Authoring-fidelity only — it never changes the runtime.
 	const vocabulary = resolveFlowVocabulary(doc.gameType);
-	return { clientKey, projectKey, doc, components, flow, vocabulary };
+	// FS-6 editor diagnostic (design doc §14) — the per-gameType overlay-step table (serializable), so
+	// the canvas can run the GENERIC per-step ownership resolver and show which of screen/edge/scene
+	// fails per step. Unknown gameType ⇒ undefined ⇒ the editor renders no overlay-steps section.
+	const overlaySteps = resolveOverlayStepTable(doc.gameType);
+	return { clientKey, projectKey, doc, components, flow, vocabulary, overlaySteps };
 };

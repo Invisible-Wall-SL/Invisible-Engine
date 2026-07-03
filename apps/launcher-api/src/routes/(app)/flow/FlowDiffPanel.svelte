@@ -1,15 +1,23 @@
 <script lang="ts">
-	import type { FlowDiff } from 'engine-flow';
+	import type { FlowDiff, OverlayStepStatus } from 'engine-flow';
 
 	// Flow-diff vs the coded default (design doc §7, Phase 7). Shows, per screen/event,
 	// whether it is AUTHORED (interpreter-driven) or falls through to the CODED default —
 	// so the author sees exactly what the FlowDoc overrides vs inherits. A compact summary
 	// line + per-item indicators. Screen rows are clickable to focus the node.
+	//
+	// FS-6 (design doc §14) — `overlaySteps` is the per-step OVERLAY-OWNERSHIP diagnostic (from the
+	// generic `resolveOverlayOwnership` over the project gameType's step table). For each step it shows
+	// which of the THREE conditions — screen placed / event edge wired / scene authored — passes, and
+	// whether the step is flow-OWNED (all three). A failing condition reads red, so the owner sees
+	// exactly why a step isn't owned (the silent guessing game FIX 1/2 ended). Empty ⇒ no section.
 	let {
 		diff,
+		overlaySteps = [],
 		onfocus,
 	}: {
 		diff: FlowDiff;
+		overlaySteps?: readonly OverlayStepStatus[];
 		onfocus: (screenId: string) => void;
 	} = $props();
 </script>
@@ -59,6 +67,54 @@
 							<span class="tag" class:authored={e.authored}>{e.authored ? 'authored' : 'coded'}</span>
 							<span class="name">{e.event}</span>
 						</div>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
+	{#if overlaySteps.length > 0}
+		<div class="group">
+			<span class="grouphead">Overlay steps</span>
+			<ul>
+				{#each overlaySteps as step (step.key)}
+					<li>
+						<button
+							class="row"
+							onclick={() => onfocus(step.screen)}
+							title={`${step.key}: screen "${step.screen}" · event "${step.event}"`}
+						>
+							<span class="tag" class:authored={step.owned}>{step.owned ? 'owned' : 'coded'}</span>
+							<span class="name">{step.key}</span>
+							<span class="conds">
+								<span
+									class="cond"
+									class:ok={step.screenPlaced}
+									class:bad={!step.screenPlaced}
+									title={step.screenPlaced
+										? `screen "${step.screen}" placed`
+										: `screen "${step.screen}" not placed in the flow`}>screen</span
+								>
+								<span
+									class="cond"
+									class:ok={step.edgeWired}
+									class:bad={!step.edgeWired}
+									title={step.edgeWired
+										? `bookEvent edge for "${step.event}" wired`
+										: `no bookEvent edge for "${step.event}" — drop the wire onto the target's bookEvent:${step.event} pin`}
+									>edge</span
+								>
+								<span
+									class="cond"
+									class:ok={step.sceneAuthored}
+									class:bad={!step.sceneAuthored}
+									title={step.sceneAuthored
+										? `scene "${step.screen}" has authored content`
+										: `scene "${step.screen}" has no authored content (only coded scaffolding)`}
+									>scene</span
+								>
+							</span>
+						</button>
 					</li>
 				{/each}
 			</ul>
@@ -163,5 +219,25 @@
 		font-size: 9px;
 		letter-spacing: 0.03em;
 		color: #64748b;
+	}
+	/* Per-step overlay-ownership conditions (screen / edge / scene). A passing condition reads in the
+	   authored blue; a failing one reads RED (the FIX-1 error hue) so the owner sees which of the three
+	   blocks ownership at a glance. */
+	.conds {
+		flex: none;
+		display: flex;
+		gap: 4px;
+		font-size: 9px;
+		letter-spacing: 0.02em;
+	}
+	.cond {
+		white-space: nowrap;
+	}
+	.cond.ok {
+		color: #60a5fa;
+	}
+	.cond.bad {
+		color: #fca5a5;
+		font-weight: 600;
 	}
 </style>

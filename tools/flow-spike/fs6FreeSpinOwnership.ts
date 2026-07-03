@@ -36,20 +36,30 @@
 import { createEventEmitter } from 'utils-event-emitter';
 import {
 	createFlowInterpreter,
+	excludeCodedComponents,
+	gateOverlayOwnership,
+	resolveOverlayOwnership,
 	type FlowDoc,
 	type FlowRuntime,
 	type MountableScene,
+	type OverlayScene,
+	type OverlayStep,
 } from 'engine-flow';
 import type { LayoutNode, Scene } from 'engine-layout';
 
 import { LINES_FLOW_FREESPIN_DOC } from '../../apps/lines/src/game/flowDoc';
 import {
 	FREE_SPIN_STEPS,
+	FS_OVERLAY_STEPS,
 	gateFreeSpinOwnership,
 	resolveFreeSpinOwnership,
 	type FreeSpinOwnership,
 	type FreeSpinStep,
 } from '../../apps/lines/src/game/freeSpinOwnership';
+// FS-6 drift cross-check (decision 2) — the launcher's SERIALIZABLE step table (the DATA the `/flow`
+// editor reads). Fed through `excludeCodedComponents`, it must produce the SAME `OverlayStep[]` the
+// game uses (`FS_OVERLAY_STEPS`). Imported by relative path (the file imports only `engine-flow`).
+import { resolveOverlayStepTable } from '../../apps/launcher-api/src/lib/flowOverlaySteps';
 
 // ---------------------------------------------------------------------------
 // Recording rig — logs broadcasts AND which named effects ran (the load-bearing state leaves).
@@ -468,6 +478,192 @@ const main = async () => {
 				eqJson(interp.activeScreenIds, ['basegame']) &&
 				setChanges.every((s) => eqJson(s, ['basegame'])),
 		);
+	}
+
+	// --- F. GENERIC EQUIVALENCE — the generic engine-flow core matches the legacy lines predicate ---
+	// The FS-6 refactor made `resolveFreeSpinOwnership`/`gateFreeSpinOwnership` thin wrappers over the
+	// generic `resolveOverlayOwnership`/`gateOverlayOwnership`. This block proves the GENERIC core, run
+	// DIRECTLY over the lines step table (`FS_OVERLAY_STEPS`), returns byte-identical results to the
+	// legacy wrappers across all six combos AND the three condition (i/ii/iii) knobs — so the wrapper
+	// added no divergence (parity-by-construction). The legacy assertions above are the oracle; this
+	// asserts the generic path === that oracle.
+	console.log('\nF. generic engine-flow core === legacy lines predicate (all six combos + knobs):');
+	{
+		const FS_SEAM = ['freeSpinRetrigger'];
+		// Compare a legacy FreeSpinOwnership against a generic OverlayOwnership: same owned set.
+		const sameOwned = (legacy: FreeSpinOwnership, generic: { owns: (k: FreeSpinStep) => boolean }) =>
+			ALL_STEPS.every((s) => legacy.owns(s) === generic.owns(s));
+		// Compare two FlowDocs by their kept screens/events/transitions (order-independent sets).
+		const sameGate = (a: FlowDoc, b: FlowDoc) =>
+			eqJson(
+				a.screens.map((s) => s.id).sort(),
+				b.screens.map((s) => s.id).sort(),
+			) &&
+			eqJson(
+				(a.events ?? []).map((e) => e.event).sort(),
+				(b.events ?? []).map((e) => e.event).sort(),
+			) &&
+			eqJson(
+				a.transitions.map((t) => t.id).sort(),
+				b.transitions.map((t) => t.id).sort(),
+			);
+
+		// All six combos: resolve + gate via BOTH paths over the SAME doc + scenes, assert identical.
+		const COMBOS6: [boolean, boolean, boolean][] = [
+			[true, false, false],
+			[false, true, false],
+			[false, false, true],
+			[true, false, true],
+			[true, true, true],
+			[false, false, false],
+		];
+		for (const [i, c, o] of COMBOS6) {
+			const scenes = scenesFor(combo(i, c, o)) as unknown as OverlayScene[];
+			const legacyOwn = resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, scenesFor(combo(i, c, o)));
+			const genericOwn = resolveOverlayOwnership<FreeSpinStep>(
+				LINES_FLOW_FREESPIN_DOC,
+				scenes,
+				FS_OVERLAY_STEPS,
+			);
+			const legacyGate = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, legacyOwn);
+			const genericGate = gateOverlayOwnership<FreeSpinStep>(
+				LINES_FLOW_FREESPIN_DOC,
+				genericOwn,
+				FS_OVERLAY_STEPS,
+				FS_SEAM,
+			);
+			const tag = `intro=${i} counter=${c} outro=${o}`;
+			assert(
+				`resolve: generic === legacy owned set (${tag})`,
+				sameOwned(legacyOwn, genericOwn) && legacyOwn.none === genericOwn.none,
+			);
+			assert(`gate: generic === legacy kept/stripped (${tag})`, sameGate(legacyGate, genericGate));
+		}
+
+		// The three condition knobs (i placement / ii wiring / iii content) — assert generic matches
+		// legacy when EACH is independently broken (the same knobs block A exercises on the legacy path).
+		{
+			// (i) placement: doc omits the intro screen.
+			const docNoIntro: FlowDoc = {
+				...LINES_FLOW_FREESPIN_DOC,
+				screens: LINES_FLOW_FREESPIN_DOC.screens.filter((s) => s.id !== 'freeSpinIntro'),
+			};
+			const s = scenesFor(combo(true, true, true));
+			const legacy = resolveFreeSpinOwnership(docNoIntro, s);
+			const generic = resolveOverlayOwnership<FreeSpinStep>(
+				docNoIntro,
+				s as unknown as OverlayScene[],
+				FS_OVERLAY_STEPS,
+			);
+			assert('knob (i) placement: generic === legacy', sameOwned(legacy, generic));
+		}
+		{
+			// (ii) wiring: doc omits the outro bookEvent edge.
+			const docNoOutroEdge: FlowDoc = {
+				...LINES_FLOW_FREESPIN_DOC,
+				transitions: LINES_FLOW_FREESPIN_DOC.transitions.filter(
+					(t) => !(t.trigger.kind === 'bookEvent' && t.trigger.event === FREE_SPIN_STEPS.outro.event),
+				),
+			};
+			const s = scenesFor(combo(true, true, true));
+			const legacy = resolveFreeSpinOwnership(docNoOutroEdge, s);
+			const generic = resolveOverlayOwnership<FreeSpinStep>(
+				docNoOutroEdge,
+				s as unknown as OverlayScene[],
+				FS_OVERLAY_STEPS,
+			);
+			assert('knob (ii) wiring: generic === legacy', sameOwned(legacy, generic));
+		}
+		{
+			// (iii) content: each step's scene flipped to the coded fallback independently.
+			for (const step of ALL_STEPS) {
+				const owned = combo(true, true, true);
+				owned[step] = false;
+				const s = scenesFor(owned);
+				const legacy = resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, s);
+				const generic = resolveOverlayOwnership<FreeSpinStep>(
+					LINES_FLOW_FREESPIN_DOC,
+					s as unknown as OverlayScene[],
+					FS_OVERLAY_STEPS,
+				);
+				assert(`knob (iii) content ${step}: generic === legacy`, sameOwned(legacy, generic));
+			}
+		}
+		// undefined doc: both paths ⇒ none owned.
+		{
+			const s = scenesFor(combo(true, true, true));
+			const legacy = resolveFreeSpinOwnership(undefined, s);
+			const generic = resolveOverlayOwnership<FreeSpinStep>(
+				undefined,
+				s as unknown as OverlayScene[],
+				FS_OVERLAY_STEPS,
+			);
+			assert('knob: undefined doc ⇒ both none', legacy.none && generic.none && sameOwned(legacy, generic));
+		}
+	}
+
+	// --- G. LAUNCHER-TABLE CROSS-CHECK (drift guard, decision 2) ---
+	// The `/flow` editor reads a SERIALIZABLE step table (`flowOverlaySteps.ts`), not the game's. This
+	// asserts that table for `lines`, fed through `excludeCodedComponents`, produces `OverlayStep[]`
+	// that resolve IDENTICALLY to the game's `FS_OVERLAY_STEPS` — so the editor's per-step readout can
+	// never silently drift from what the runtime decides. Compares the RESOLVED ownership (the content
+	// rule is a function, so we compare behaviour, not function identity) across all six combos.
+	console.log('\nG. launcher step table === game step table (drift guard):');
+	{
+		const table = resolveOverlayStepTable('lines');
+		assert('launcher exposes a `lines` overlay-step table', table !== undefined);
+		if (table) {
+			// Rebuild runtime OverlayStep[] from the launcher's serialized data (mirrors the editor's
+			// `overlayStepsFromTable`), keying the step union back to FreeSpinStep for the resolver.
+			const launcherSteps: OverlayStep<FreeSpinStep>[] = table.steps.map((s) => ({
+				key: s.key as FreeSpinStep,
+				screen: s.screen,
+				event: s.event,
+				contentRule: excludeCodedComponents({
+					excludeBindComponents: s.excludeBindComponents,
+					excludeComponentIds: s.excludeComponentIds,
+				}),
+			}));
+			// Structural agreement: same key/screen/event per step, in order.
+			const structOk =
+				launcherSteps.length === FS_OVERLAY_STEPS.length &&
+				launcherSteps.every(
+					(l, idx) =>
+						l.key === FS_OVERLAY_STEPS[idx].key &&
+						l.screen === FS_OVERLAY_STEPS[idx].screen &&
+						l.event === FS_OVERLAY_STEPS[idx].event,
+				);
+			assert('launcher steps match game steps (key/screen/event, in order)', structOk);
+			assert(
+				'launcher seam screens = [freeSpinRetrigger]',
+				eqJson(table.seamScreens ?? [], ['freeSpinRetrigger']),
+			);
+			// Behavioural agreement: the content rule resolves the same ownership across all six combos.
+			const COMBOS6: [boolean, boolean, boolean][] = [
+				[true, false, false],
+				[false, true, false],
+				[false, false, true],
+				[true, false, true],
+				[true, true, true],
+				[false, false, false],
+			];
+			let behOk = true;
+			for (const [i, c, o] of COMBOS6) {
+				const scenes = scenesFor(combo(i, c, o)) as unknown as OverlayScene[];
+				const gameOwn = resolveOverlayOwnership<FreeSpinStep>(
+					LINES_FLOW_FREESPIN_DOC,
+					scenes,
+					FS_OVERLAY_STEPS,
+				);
+				const launcherOwn = resolveOverlayOwnership<FreeSpinStep>(
+					LINES_FLOW_FREESPIN_DOC,
+					scenes,
+					launcherSteps,
+				);
+				if (!ALL_STEPS.every((s) => gameOwn.owns(s) === launcherOwn.owns(s))) behOk = false;
+			}
+			assert('launcher content rule resolves identical ownership (all six combos)', behOk);
+		}
 	}
 
 	console.log(`\n${failed ? 'FS-6 HARNESS: FAILED' : 'FS-6 HARNESS: PASSED'}`);
