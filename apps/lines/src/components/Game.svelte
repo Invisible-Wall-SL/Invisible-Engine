@@ -66,6 +66,8 @@
 		hasAuthoredBackground,
 		extraMountScenes,
 		authoredHudScenes,
+		fullReplaceHudScenes,
+		CODED_HUD_SCENE_IDS,
 		hasAuthoredHud,
 		docLayerZIndex,
 		LAYER_BAND_TAKEOVER,
@@ -497,7 +499,7 @@
 	// by authoring one of these ids as a FlowDoc screen, so the loading→HUD `complete` handoff can
 	// reveal it on the tap (mirroring the base-game reel gate). Kept to the ids the engine already
 	// resolves — no magic per-game id.
-	const HUD_SCENE_IDS = ['hudBar', 'hudCorners'] as const;
+	const HUD_SCENE_IDS = CODED_HUD_SCENE_IDS;
 	// Whether the HUD is FLOW-MANAGED: at least one HUD scene id is an authored FlowDoc screen (the
 	// same source `reservedSceneIds` uses). INERT-FLOW FALL-THROUGH (§7): with no flow, or a flow
 	// that authors no HUD node, this is false ⇒ the `<UI>` renders UNCONDITIONALLY below exactly as
@@ -548,17 +550,19 @@
 	const bgScenes = $derived(backgroundScenes(editorDoc.scenes));
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
 
-	// Authored REPLACEMENT HUD screens (§16 HUD generalization, FULL-REPLACE contract). The
-	// Scene Editor's "New HUD screen" mints `hud_`-prefixed scenes carrying the author's own HUD
-	// chrome (buttons / bottom bar / readouts). `authoredHudScenes` selects them by the `hud_`
-	// prefix (excluding the canonical `hudBar`/`hudCorners` that drive the coded `<UI>`);
-	// `hasAuthoredHud` is true when at least one has real content ⇒ the author screens BECOME the
-	// HUD and the coded `<UI>` is fully suppressed. Both are the engine-layout contract shared with
-	// the editor + other games (mirroring `backgroundScenes`/`hasAuthoredBackground`). `apps/lines`'
-	// fallback authors NO `hud_*` scene ⇒ list empty, flag false ⇒ the coded `<UI>` renders
-	// unconditionally as today (byte-identical parity).
-	const authoredHud = $derived(authoredHudScenes(editorDoc.scenes));
+	// Authored REPLACEMENT HUD screens (§16 HUD generalization, FULL-REPLACE contract). The Scene
+	// Editor's "New HUD screen" mints `hud_`-prefixed scenes carrying the author's own HUD chrome
+	// (buttons / bottom bar / readouts). `hasAuthoredHud` is true when at least one `hud_*` scene has
+	// real content ⇒ the author screens BECOME the HUD and the coded `<UI>` is fully suppressed
+	// (`suppressCodedHud`). Suppression is keyed on `hud_*` ONLY so a normal coded-HUD game with
+	// content on `hudBar` never trips full-replace (parity, mirroring `hasAuthoredBackground`).
+	// The RENDER list, however, is `fullReplaceHudScenes` — a superset that ALSO adopts a
+	// content-bearing canonical `hudBar`/`hudCorners`. Without that adoption, an author who put real
+	// buttons on the `hudBar` scene (its natural home) would see them mount NOWHERE once suppression
+	// switches off the coded `<UI>` (the only path that mounts `hudBar`). Empty ⇒ not suppressed ⇒
+	// the coded `<UI>` renders the HUD itself (byte-identical parity for `apps/lines`' fallback).
 	const suppressCodedHud = $derived(hasAuthoredHud(editorDoc.scenes));
+	const authoredHud = $derived(suppressCodedHud ? fullReplaceHudScenes(editorDoc.scenes) : []);
 
 	const context = getContext();
 

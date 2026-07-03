@@ -24,6 +24,38 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
+
+**Symptom.** On `bookofborutremake` the authored HUD **buttons rendered nothing** in-game (bottom bar +
+balance DID render); actions were all set; "worked before". **Root cause (from the LIVE doc,
+`invisible_wall/bookofborutremake/editor/scenes.json`):** the buttons scene is named "HUD — buttons"
+but carries the id **`hudBar`** — a reserved coded-`<UI>` id, NOT a `hud_*` id (its 8 button
+`componentInstance` nodes are well-formed: actions set, on-screen transforms, shipping art, pinned
+`c_kzdbwen7 v9`). The owner also authored `hud_*` screens (bottom bar / balance), so `hasAuthoredHud`
+→ `suppressCodedHud` → the coded `<UI>` (the ONLY mount path for `hudBar`) is off; but
+`authoredHudScenes`' `hud_` prefix filter refuses to adopt `hudBar`, and it's `RESERVED_SCENE_IDS`
+(excluded from `extraScenes`). Net: **zero mount paths** for a scene the author filled with buttons.
+`ba0d4a5` (full-replace) introduced the suppression that exposed this; before it the coded `<UI>`
+mounted `hudBar` unconditionally (hence "worked before"). Not `81f6469`/feature-gates (buttons never
+reach button-def expansion), not the active-set gate (`hudBar` IS reachable — `loading→hudBar` complete
+edge).
+
+**Fix (engine, generic — a HUD scene the author filled with nodes must always mount somewhere).**
+`packages/engine-layout/src/lib/genericMountScenes.ts`: new `CODED_HUD_SCENE_IDS` (single source of
+truth) + `fullReplaceHudScenes(scenes)` — a SUPERSET of `authoredHudScenes` that also adopts a
+content-bearing canonical `hudBar`/`hudCorners`. `Game.svelte`: `suppressCodedHud` stays keyed on
+`hud_*` only (parity — a normal coded-HUD game with `hudBar` content never trips full-replace); the
+RENDER list is now `suppressCodedHud ? fullReplaceHudScenes(scenes) : []`, and `HUD_SCENE_IDS` reuses
+`CODED_HUD_SCENE_IDS` (DRY). `hudBar`/`hudCorners` already reserved from `extraScenes` + coded `<UI>`
+suppressed ⇒ no double-mount; the 2026-07-03 active-set gate governs their visibility (hidden during
+loading, revealed on the `loading→hudBar` tap). **PARITY:** not suppressed ⇒ render list `[]` ⇒ coded
+`<UI>` renders the HUD itself, byte-identical.
+
+**Verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN (`engine-layout` dist
+rebuilt). **Owner live-verify (WebGL):** the 8 authored buttons now appear on the bar in-game and
+respond. Files: `packages/engine-layout/src/lib/genericMountScenes.ts`,
+`apps/lines/src/components/Game.svelte`, `docs/design/invisible-flow.md`, `docs/STATUS.md`.
+
 ### 2026-07-03 — Authored HUD: active-set gate for `hud_*` screens + flow-action routing generalized beyond `spin` + symbol art tracks the reel cell (SHIPPED to `_runtime/lines`)
 
 **Context.** Owner's `bookofborutremake` (a `runtime:lines` game) authored a split HUD via `/flow`

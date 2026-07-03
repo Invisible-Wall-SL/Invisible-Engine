@@ -100,6 +100,17 @@ build clean; Prettier clean. **Still owed:** owner live-verify the actual fade P
 bundle (WebGL — the one thing headless can't prove), turbo on/off; then the ship chain
 (`publish-runtime-bundle` → Borut submodule bump) is the owner's step. NOT committed/pushed/published.
 
+### Progress — full-replace HUD adopts content-bearing `hudBar`/`hudCorners` (2026-07-03)
+
+Fixes authored buttons rendering NOWHERE: the owner put real buttons on the DEFAULT `hudBar` scene (a
+reserved coded-`<UI>` id, not `hud_*`). Once a `hud_*` screen flips full-replace on, the coded `<UI>`
+(the only `hudBar` mount) is suppressed but the `hud_` prefix filter refuses to adopt `hudBar` → orphan.
+`genericMountScenes.ts` gains `CODED_HUD_SCENE_IDS` + `fullReplaceHudScenes` (superset of
+`authoredHudScenes` that also adopts content-bearing `hudBar`/`hudCorners`); `Game.svelte` render list =
+`suppressCodedHud ? fullReplaceHudScenes(scenes) : []`. `suppressCodedHud` stays keyed on `hud_*` only
+(parity: a normal coded-HUD game with `hudBar` content must not trip full-replace). Verified play4fun
+`lines...` build GREEN; owner live-verifies the buttons appear on the bar. See `docs/STATUS.md`.
+
 ### Progress — authored-`hud_*` active-set gate + intent routing generalized beyond `spin` (2026-07-03)
 
 **Context.** The 2026-07-02 pass (below) gated the CODED `<UI>` HUD (`hudBar`/`hudCorners`) on the
