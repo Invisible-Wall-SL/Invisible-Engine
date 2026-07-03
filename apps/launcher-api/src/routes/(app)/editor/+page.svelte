@@ -14,8 +14,6 @@
 		mountAnchor,
 		resolveAnchorPreviewArt,
 		STANDARD_MAIN_SIZES_MAP,
-		VISIBILITY_SOURCE_KEYS,
-		VISIBILITY_SOURCE_LABELS,
 	} from 'engine-layout';
 	import type {
 		ComponentDef,
@@ -857,48 +855,6 @@
 		else delete sc.role;
 		scenes = [...scenes];
 		markDirty();
-	}
-
-	/** Bind the WHOLE screen to a game-lifecycle state (engine `Scene.visibleSource`):
-	 * the game shows it ONLY while that state is active (e.g. Free-spin intro), so authored
-	 * overlay content follows the round flow. `''` clears the gate (renders always). The
-	 * editor keeps rendering the screen regardless so you can still author it. */
-	function setSceneVisibleSource(value: string): void {
-		const sc = scenes[activeSceneIdx];
-		if (!sc) return;
-		if (value) sc.visibleSource = value;
-		else delete sc.visibleSource;
-		scenes = [...scenes];
-		markDirty();
-	}
-
-	/** Visibility-source keys whose screen blocks the round behind a press-to-continue
-	 * gate, so the author can override the engine-owned gate's look (`Scene.gate`). */
-	const BLOCKING_GATE_SOURCES = new Set(['freeSpinIntroShow', 'freeSpinOutroShow']);
-
-	/** Override the engine-owned gate's look on a blocking screen (`Scene.gate`):
-	 * patches the active scene's `gate`, drops empty keys, and removes the whole
-	 * `gate` object once nothing is set so an ungated screen round-trips as absent. */
-	function setSceneGate(patch: Partial<NonNullable<Scene['gate']>>): void {
-		const sc = scenes[activeSceneIdx];
-		if (!sc) return;
-		const gate = { ...(sc.gate ?? {}) };
-		for (const [k, v] of Object.entries(patch) as [keyof typeof gate, unknown][]) {
-			if (v === undefined) delete gate[k];
-			else (gate as Record<string, unknown>)[k] = v;
-		}
-		if (Object.keys(gate).length > 0) sc.gate = gate;
-		else delete sc.gate;
-		scenes = [...scenes];
-		markDirty();
-	}
-
-	/** `#rrggbb` ↔ hex int helpers for the gate dim-colour input. */
-	function hexToInt(hex: string): number {
-		return parseInt(hex.slice(1), 16);
-	}
-	function intToHex(value: number): string {
-		return `#${(value & 0xffffff).toString(16).padStart(6, '0')}`;
 	}
 
 	/** Set an alignment axis on a `'standard'` scene; `''` clears that axis (and
@@ -2617,65 +2573,18 @@
 							</label>
 						</div>
 					{/if}
-					{#if activeSceneFlowDriven}
-						<div class="space-field flow-owned">
-							<span>shows during</span>
-							<p class="flow-owned-note">
-								Driven by Invisible Flow — this screen is placed on the flow canvas, so the
-								flow decides when it shows. Remove it from the flow to gate it here instead.
-							</p>
-						</div>
-					{:else}
-						<label class="space-field">
-							<span>shows during</span>
-							<select
-								value={activeScene.visibleSource ?? ''}
-								onchange={(e) => setSceneVisibleSource(e.currentTarget.value)}
-								title="Game-lifecycle gate: in-game the WHOLE screen shows only while this state is active (e.g. the Free-spin intro). 'Always' = no gate. The editor always shows the screen so you can author it."
-							>
-								<option value="">Always (no gate)</option>
-								{#each VISIBILITY_SOURCE_KEYS as key (key)}
-									<option value={key}>{VISIBILITY_SOURCE_LABELS[key] ?? key}</option>
-								{/each}
-							</select>
-						</label>
-					{/if}
-					{#if !activeSceneFlowDriven && activeScene.visibleSource && BLOCKING_GATE_SOURCES.has(activeScene.visibleSource)}
-						<div class="gate-style">
-							<div class="space-aligns">
-								<label class="space-field">
-									<span>dim colour</span>
-									<input
-										type="color"
-										value={intToHex(activeScene.gate?.dimColor ?? 0x000000)}
-										oninput={(e) => setSceneGate({ dimColor: hexToInt(e.currentTarget.value) })}
-										title="Full-window dim colour behind this blocking screen (default black)"
-									/>
-								</label>
-								<label class="space-field">
-									<span>dim opacity</span>
-									<input
-										type="number"
-										min="0"
-										max="1"
-										step="0.05"
-										value={activeScene.gate?.dimAlpha ?? 0.5}
-										oninput={(e) => setSceneGate({ dimAlpha: e.currentTarget.valueAsNumber })}
-										title="Dim opacity 0–1 (default 0.5; 0 = no dim)"
-									/>
-								</label>
-							</div>
-							<label class="gate-check">
-								<input
-									type="checkbox"
-									checked={activeScene.gate?.hidePrompt ?? false}
-									onchange={(e) =>
-										setSceneGate({ hidePrompt: e.currentTarget.checked || undefined })}
-								/>
-								<span>hide default prompt</span>
-							</label>
-						</div>
-					{/if}
+					<div class="space-field flow-owned">
+						<span>shows during</span>
+						<p class="flow-owned-note">
+							{#if activeSceneFlowDriven}
+								Driven by Invisible Flow — this screen is on the flow canvas, so the flow
+								decides when it shows.
+							{:else}
+								Driven by Invisible Flow — screen visibility is owned by the flow. Add this
+								screen to a flow to control when it shows.
+							{/if}
+						</p>
+					</div>
 				</div>
 			{/if}
 			<EditorProperties
@@ -3129,19 +3038,6 @@
 		font-size: 12px;
 		font-family: inherit;
 	}
-	.space-field input[type='color'] {
-		width: 100%;
-		height: 28px;
-		padding: 1px;
-		background: #16131c;
-		border: 1px solid #2a2433;
-		border-radius: 6px;
-	}
-	.gate-style {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
 	.flow-owned-note {
 		margin: 0;
 		padding: 6px 8px;
@@ -3151,14 +3047,6 @@
 		font-size: 11px;
 		line-height: 1.4;
 		color: #8a8296;
-	}
-	.gate-check {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-size: 11px;
-		color: #c8a3ff;
-		cursor: pointer;
 	}
 	.screens {
 		list-style: none;
