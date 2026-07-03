@@ -12,8 +12,17 @@ import FlowFade, {
 	type Props as FlowFadeProps,
 	type FlowEntranceTransition,
 } from './FlowFade.svelte';
+import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelte';
 
-export { LayoutScene, LayoutNodeView, ComponentInstance, FlowMount, FlowScreenMount, FlowFade };
+export {
+	LayoutScene,
+	LayoutNodeView,
+	ComponentInstance,
+	FlowMount,
+	FlowScreenMount,
+	FlowFade,
+	CatalogText,
+};
 export type {
 	LayoutSceneProps,
 	LayoutNodeViewProps,
@@ -22,6 +31,7 @@ export type {
 	FlowScreenMountProps,
 	FlowFadeProps,
 	FlowEntranceTransition,
+	CatalogTextProps,
 };
 
 // Param context (§13.2) — Svelte-dependent, so it lives on the component entry

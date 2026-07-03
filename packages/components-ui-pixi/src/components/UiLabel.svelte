@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Text } from 'pixi-svelte';
 	import { WHITE } from 'constants-shared/colors';
+	import { CatalogText } from 'engine-layout/svelte';
 	import type { TextStyle } from 'engine-layout';
 
 	import UiSprite from './UiSprite.svelte';
@@ -45,8 +45,13 @@
 			borderRadius={35}
 		/>
 	{/if}
-	<Text anchor={{ x: 0.5, y: 0 }} text={caption} style={labelStyle} />
-	<Text anchor={{ x: 0.5, y: 0 }} text={props.value} style={valueStyle} y={UI_BASE_FONT_SIZE} />
+	<CatalogText anchor={{ x: 0.5, y: 0 }} text={caption} style={labelStyle} />
+	<CatalogText
+		anchor={{ x: 0.5, y: 0 }}
+		text={props.value}
+		style={valueStyle}
+		y={UI_BASE_FONT_SIZE}
+	/>
 {:else}
 	{#if props.tiled}
 		<UiSprite
@@ -58,8 +63,8 @@
 			borderRadius={35}
 		/>
 	{/if}
-	<Text anchor={{ x: 0, y: 0.5 }} text={caption} style={labelStyle} />
-	<Text
+	<CatalogText anchor={{ x: 0, y: 0.5 }} text={caption} style={labelStyle} />
+	<CatalogText
 		anchor={{ x: 1, y: 0.5 }}
 		text={props.value}
 		style={valueStyle}
