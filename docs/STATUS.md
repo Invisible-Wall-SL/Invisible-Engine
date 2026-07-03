@@ -41,6 +41,34 @@ cluster, price, scatter) and removed the five `I18nTest.svelte` files. No engine
 (build `bundle.DYd-qBB9.js` → R2 `_runtime/lines/` → `/refresh` 202 → **served hash verified** on
 `bookofborutremake`, debug string absent from the live bundle).
 
+### 2026-07-03 — Invisible Flow: FS-1 free-spin lifecycle as author-controlled overlays (headless; not shipped)
+
+**What.** FS-1 of the §14 free-spins plan (`docs/design/invisible-flow.md`) — the free-spin lifecycle
+authored as Flow OVERLAYS layered over the PERSISTENT `basegame`, per owner decisions (2026-07-03):
+(1) "same basegame + overlays" — NO distinct `freeGame` node; intro/counter/retrigger/outro layer over
+the base and dismiss themselves on their own Complete pin, so **no edge ever deactivates `basegame`**;
+(2) owner authors the four backing Scenes online, this pass ships the FlowDoc wiring + a headless spike.
+
+**Change (additive; coded free-spin gates untouched — FS-6 deferred).**
+- `apps/lines/src/game/flowDoc.ts` — new `LINES_FLOW_FREESPIN_DOC`: `basegame --freeSpinTrigger/
+  updateFreeSpin/retrigger/freeSpinEnd (bookEvent LAYER)--> intro/counter/retrigger/outro`, each with a
+  `--complete--> basegame` self-dismiss. `basegame` has NO outgoing complete edge ⇒ persistent.
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `__IE_FLOW_FREESPIN__` dev hook (unset on a normal boot
+  ⇒ inert ⇒ byte-identical to `main`, §7).
+- `tools/flow-spike/fs1FreeSpins.ts` (+ `fs1` script) — proves the active-set lifecycle headlessly.
+
+**Key semantics settled.** The counter PERSISTS: a repeat `updateFreeSpin` is a `changesActiveSet`
+no-op (no re-enter/flicker); its number updates via the coded handler + `freeSpins` value pin. The
+free-spin events are LEFT UN-AUTHORED (fall through to the coded handlers that own presentation while
+the coded gates remain) — authoring them as no-ops would suppress the coded overlays and break the
+game; that "no-op events" state belongs to FS-6. The `retrigger` edge is inert until FS-4 emits the
+event (parity-safe), but wired + proven with a synthetic event.
+
+**Verified.** `pnpm --filter flow-spike run fs1` GREEN turbo on/off; `engine-flow` typecheck clean;
+`PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN (hook + beats shipped in the
+minified bundle); all prior flow-spikes still GREEN; Prettier clean. **Not committed/pushed.** Owner
+owed: author the four Scenes online + live-verify the WebGL overlays; then the ship chain.
+
 ### 2026-07-03 — Scene Editor suppresses the "Shows during" gate on flow-driven screens (single owner of visibility)
 
 **Why.** A screen's visibility was authorable in two places at once: the Scene Editor's per-screen

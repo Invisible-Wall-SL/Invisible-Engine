@@ -22,8 +22,10 @@
  *     Phase-4 ad-hoc live-verify hook), `window.__IE_FLOW_LOADING__` (the committed
  *     `LINES_FLOW_LOADING_DOC` loading→basegame entry-leg fixture, flow-driven-game §1),
  *     `window.__IE_FLOW_WIN__` (the committed `LINES_FLOW_WIN_DOC` win-presentation-transitions
- *     fixture, flow-driven-game §2), and `window.__IE_FLOW_LINES__` (the committed full
- *     `LINES_FLOW_DOC` fixture), none set on a normal boot.
+ *     fixture, flow-driven-game §2), `window.__IE_FLOW_FREESPIN__` (the committed
+ *     `LINES_FLOW_FREESPIN_DOC` free-spin-lifecycle fixture, design doc §14 FS-1), and
+ *     `window.__IE_FLOW_LINES__` (the committed full `LINES_FLOW_DOC` fixture), none set on a
+ *     normal boot.
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
  * (§12). The dispatcher's coded handlers are the un-authored fall-through.
@@ -45,6 +47,7 @@ import { flowEffect } from './flowEffects';
 import {
 	LINES_FLOW_COND_DOC,
 	LINES_FLOW_DOC,
+	LINES_FLOW_FREESPIN_DOC,
 	LINES_FLOW_LOADING_DOC,
 	LINES_FLOW_WIN_DOC,
 } from './flowDoc';
@@ -61,6 +64,8 @@ declare global {
 	var __IE_FLOW_WIN__: boolean | undefined;
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_COND__: boolean | undefined;
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_FREESPIN__: boolean | undefined;
 	/**
 	 * Dev-only live-verify hook for value dataflow (design doc §11 step 4). Re-point a HUD value
 	 * display at a DIFFERENT engine feed at runtime WITHOUT authoring/baking a FlowDoc, so the
@@ -199,6 +204,12 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
 		// live-verify of branching on LIVE engine state (a `$engine.*` guard) without a deploy/bake.
 		// Checked before the full `LINES_FLOW_DOC`. Unset on a normal boot ⇒ inert (parity, §7).
 		if (globalThis.__IE_FLOW_COND__) return LINES_FLOW_COND_DOC;
+		// FS-1 (design doc §14) — the free-spin lifecycle as author-controlled overlays layered over
+		// the persistent basegame, for live-verify of the intro/counter/retrigger/outro active-set
+		// transitions without a deploy/bake. Checked before the full `LINES_FLOW_DOC`. The free-spin
+		// book events stay UN-authored (fall through to the coded handlers that present while the
+		// coded gates remain — FS-6 deferred). Unset on a normal boot ⇒ inert (parity, §7).
+		if (globalThis.__IE_FLOW_FREESPIN__) return LINES_FLOW_FREESPIN_DOC;
 		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
 	return bakedFlowDoc();

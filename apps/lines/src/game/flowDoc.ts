@@ -423,3 +423,130 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 	// new mechanism Phase 3 proves; the events are unaffected by it).
 	events: LINES_FLOW_DOC.events,
 };
+
+// ---------------------------------------------------------------------------
+// FS-1 (design doc §14) — the FREE-SPIN lifecycle as author-controlled Flow overlays.
+//
+// A SEPARATE committed fixture (NOT folded into `LINES_FLOW_DOC`, which authors zero
+// transitions so the default boot stays parity-inert, §7). Reached ONLY via the dev hook
+// `window.__IE_FLOW_FREESPIN__` (see `flowRuntime.svelte.ts`), never on a normal boot.
+//
+// THE MODEL (owner decision 2026-07-03, "same basegame + overlays"): there is NO distinct
+// `freeGame` screen node. The `basegame` screen PERSISTS throughout free spins; the free-spin
+// phase is expressed purely by intro / counter / retrigger / outro screens LAYERED over the
+// persistent base via the active-SET model. So §14's `intro --complete--> freeGame` is
+// reinterpreted: the intro dismisses ITSELF on its Complete pin (basegame remains active
+// underneath), and every free-spin screen returns to the plain base the same way.
+//
+// ACTIVE-SET EDGE SEMANTICS — worked out so NO edge ever deactivates `basegame`:
+//   - `basegame --freeSpinTrigger (bookEvent, LAYER)--> freeSpinIntro` — layers the intro over
+//     the persistent base (a bookEvent edge activates the target and LEAVES the source active).
+//   - `freeSpinIntro --complete--> basegame` — the intro fires its OWN Complete pin: it runs its
+//     exit + deactivates ITSELF; `activate('basegame')` is an idempotent no-op (base is already
+//     active underneath), so the base stays in place. (This is the exact return-to-base pattern
+//     `LINES_FLOW_COND_DOC`'s `freeGame → basegame` uses.)
+//   - `basegame --updateFreeSpin (bookEvent, LAYER)--> freeSpinCounter` — layers the counter. The
+//     counter is meant to PERSIST across every free spin: once layered, a later `updateFreeSpin`
+//     is a `changesActiveSet` no-op (the target is already active), so its `enter` never replays
+//     and the counter stays up. Its displayed NUMBER updates through the `updateFreeSpin` coded
+//     handler + the `freeSpins` value pin, NOT a re-enter — the correct active-set behaviour.
+//   - `basegame --retrigger (bookEvent, LAYER)--> freeSpinRetrigger` — layers the "extra free
+//     spin" flourish. `retrigger` is the FS-4 dedicated event, NOT YET emitted by any handler, so
+//     this edge is INERT until FS-4 lands (an edge naming a never-arriving event never fires —
+//     parity-safe). It is authored now so the scene-id contract + graph shape are complete.
+//   - `freeSpinRetrigger --complete--> basegame` — dismisses the flourish back to the base.
+//   - `basegame --freeSpinEnd (bookEvent, LAYER)--> freeSpinOutro` — layers the outro.
+//   - `freeSpinOutro --complete--> basegame` — dismisses the outro back to the plain base.
+// `basegame` has NO outgoing `complete` edge, so it is PERSISTENT (never removes itself) — the
+// base-game invariant. Every free-spin edge is a LAYER (leaves the source) or a self-`complete`
+// (removes only the overlay), so `basegame` is active from the loading handoff onward, unbroken.
+//
+// SCENE-ID CONTRACT (owner authors these four scenes online with these EXACT ids):
+//   - `freeSpinIntro`     — the "you won N free spins" intro flourish (id already used by the
+//                           reference layout's feed-driven intro overlay).
+//   - `freeSpinCounter`   — the "X OF Y" persistent counter panel (reference-layout id; its
+//                           `freeSpinCounter` component reads `source:'freeSpins'`).
+//   - `freeSpinRetrigger` — NEW: the "extra free spins" retrigger flourish (owner authors it).
+//   - `freeSpinOutro`     — the free-spin total count-up outro (reference-layout id).
+//
+// FS-1 IS ADDITIVE — the coded free-spin gates stay (FS-6 deferred). CRUCIAL consequence: the
+// free-spin book events are LEFT UN-AUTHORED in `events[]` (they FALL THROUGH to the coded
+// `bookEventHandlerMap`, which flips the `stateUi` booleans that drive the coded feed-driven
+// `visibleSource` overlays — the ACTUAL pixels today). An authored event (even a no-op) would
+// SUPPRESS the coded handler (`dispatch.ts` — authored wins), leaving the coded overlays never
+// shown and the still-empty flow screens presenting nothing. So under FS-1 the transitions track
+// the active-set LIFECYCLE while the coded handlers own presentation; the flow screens become the
+// visual owner only once FS-6 retires the coded gates and moves the presentation into each
+// screen's `enter` (at which point the events become authored no-ops, per §14's end-state wording).
+// This diverges from §14 FS-1's "authored no-op events" note ON PURPOSE — that note describes the
+// FS-6 world; with the coded gates intact (this pass), fall-through is what keeps the game working.
+// ---------------------------------------------------------------------------
+
+/** A layer edge INTO a free-spin overlay: a `bookEvent` trigger that activates the overlay over
+ *  the persistent `basegame` and LEAVES the base active (the active-set LAYER semantics). */
+const freeSpinLayerEdge = (event: string, to: string): FlowDoc['transitions'][number] => ({
+	id: `basegame→${to}`,
+	from: 'basegame',
+	to,
+	trigger: { kind: 'bookEvent', event },
+});
+
+/** A return edge OUT of a free-spin overlay: the overlay fires its OWN Complete pin, dismissing
+ *  itself and leaving the persistent `basegame` active underneath (the active-set HANDOFF, whose
+ *  `activate('basegame')` is an idempotent no-op since the base never left). */
+const freeSpinReturnEdge = (from: string): FlowDoc['transitions'][number] => ({
+	id: `${from}→basegame`,
+	from,
+	to: 'basegame',
+	trigger: { kind: 'complete' },
+});
+
+/** Tiny enter/exit beats so the layer + handoff order is observable in the harness (and a hook
+ *  for the real intro/counter/retrigger/outro beats once FS-6 moves presentation into `enter`). */
+const fsBeat = (event: string): ChoreographyNode => broadcast(event);
+
+export const LINES_FLOW_FREESPIN_DOC: FlowDoc = {
+	version: 1,
+	projectKey: 'lines',
+	screens: [
+		{ id: 'basegame', initial: true },
+		{
+			id: 'freeSpinIntro',
+			choreography: { enter: fsBeat('flowFsIntroEnter'), exit: fsBeat('flowFsIntroExit') },
+		},
+		{
+			id: 'freeSpinCounter',
+			choreography: { enter: fsBeat('flowFsCounterEnter'), exit: fsBeat('flowFsCounterExit') },
+		},
+		{
+			id: 'freeSpinRetrigger',
+			choreography: {
+				enter: fsBeat('flowFsRetriggerEnter'),
+				exit: fsBeat('flowFsRetriggerExit'),
+			},
+		},
+		{
+			id: 'freeSpinOutro',
+			choreography: { enter: fsBeat('flowFsOutroEnter'), exit: fsBeat('flowFsOutroExit') },
+		},
+	],
+	transitions: [
+		// LAYER edges INTO the overlays (basegame persists under each).
+		freeSpinLayerEdge('freeSpinTrigger', 'freeSpinIntro'),
+		freeSpinLayerEdge('updateFreeSpin', 'freeSpinCounter'),
+		freeSpinLayerEdge('retrigger', 'freeSpinRetrigger'), // FS-4 seam — inert until `retrigger` exists.
+		freeSpinLayerEdge('freeSpinEnd', 'freeSpinOutro'),
+		// HANDOFF (self-complete) edges back to the persistent base.
+		freeSpinReturnEdge('freeSpinIntro'),
+		freeSpinReturnEdge('freeSpinCounter'),
+		freeSpinReturnEdge('freeSpinRetrigger'),
+		freeSpinReturnEdge('freeSpinOutro'),
+	],
+	// The free-spin book events are LEFT UN-AUTHORED (they fall through to the coded handlers that
+	// own presentation while the coded gates remain — FS-6 deferred; see the block comment above).
+	// Reuse ONLY the non-free-spin per-event choreographies for a realistic base-game flow.
+	events: LINES_FLOW_DOC.events.filter(
+		(e) =>
+			e.event !== 'freeSpinTrigger' && e.event !== 'updateFreeSpin' && e.event !== 'freeSpinEnd',
+	),
+};

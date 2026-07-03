@@ -1460,13 +1460,82 @@ holding the §7 fall-through invariant throughout (inert / un-authored ⇒ coded
 | **FS-2 — book-event trigger INPUT pins** | Project the book-event vocabulary (`typesBookEvent.ts` / `flowVocabulary.ts`) as **trigger input pins** on screen nodes so a `bookEvent` edge draws from a real `freeSpinTrigger`/`freeSpinEnd`/`retrigger` pin, not a typed string. Mirrors Phase-8 intent pins beat-for-beat. **Authoring-only — no interpreter behaviour change** (still matches on `trigger.event`). | `engine-flow` (`pins.ts`, `types.ts`), `/flow` (`EdgeInspector`, node coloring) | low |
 | **FS-3 — free-spin signal catalog** | Add `freeSpinStart` / `freeSpinEnd` (+ `freeSpinRetrigger`, pending FS-4) to `ENGINE_SIGNAL_CATALOG` + `registerComponentSignals`, wired to the existing emitter events, so a spine cue on an intro/outro/retrigger screen plays on the lifecycle (derives `signal` pins via `pins.ts`). | `engine-layout` (`componentCatalog.ts`), `Game.svelte` (`registerComponentSignals`) | low (additive; ⇒ Borut runtime republish/submodule) |
 | **FS-4 — dedicated `retrigger` event** | A first-class `retrigger` emitter/book event (owner decision), surfaced BOTH as an FS-2 trigger pin and an FS-3 signal. `bookEventHandlerMap` emits it when `updateFreeSpin` arrives with a grown `total`; a bounded `$engine.freeSpinsAdded` accessor also exposed for guards. Parity-safe: un-authored ⇒ existing `updateFreeSpin` coded path unchanged. | `typesBookEvent.ts`, emitter union, `bookEventHandlerMap.ts`, `flowRuntime.svelte.ts`, FS-2/FS-3 surfaces | medium (data-model touch — the "grown total" detection needs a stored previous-total, must not false-fire on the initial award) |
-| **FS-1 — author free-spin screens + wire the graph** | Real backing Scenes for `freeSpinIntro` / `freeSpinCounter` / `freeSpinRetrigger` / `freeSpinOutro`; a `LINES_FLOW_FREESPIN_DOC` fixture wiring `basegame --freeSpinTrigger(layer)--> intro --complete--> freeGame`, `--retrigger--> retrigger overlay`, `freeSpinEnd --> outro --complete--> basegame`; counter binds `source:'freeSpins'`. Uses the FS-2 pins + FS-3 signals + FS-4 retrigger. Every authored free-spin event stays an **authored no-op in `events[]`** so the coded feed-driven overlay doesn't double-present (the §2 win-branch discipline). | authoring fixture first (`__IE_FLOW_*` hook), then `/flow`; headless parity spike in `tools/flow-spike/` | medium |
+| **FS-1 — author free-spin screens + wire the graph** ✅ LANDED (headless, 2026-07-03) | The `LINES_FLOW_FREESPIN_DOC` fixture (`__IE_FLOW_FREESPIN__` hook) wires the free-spin lifecycle as author-controlled OVERLAYS over the PERSISTENT `basegame` (owner decision — see the "same basegame + overlays" model below); backing Scenes are OWNER-AUTHORED online against the documented scene-id contract (`freeSpinIntro`/`freeSpinCounter`/`freeSpinRetrigger`/`freeSpinOutro`). Additive — coded gates intact (FS-6 deferred), so free-spin events FALL THROUGH to the coded handlers (NOT authored no-ops — that is the FS-6 end-state; see the divergence note). `/flow` authoring UI for these is the owner's online step. | `flowDoc.ts` fixture + `flowRuntime.svelte.ts` hook; headless parity spike `tools/flow-spike/fs1FreeSpins.ts` | medium |
 | **FS-5 — placeable transition overlays** | Surface the reusable full-screen wipe (`transition` emitter event + `Transition.svelte`) as a **droppable choreography Broadcast beat** (`broadcast {event:'transition', await:true}`) in the choreography palette, so an author drops a wipe into any screen's enter/exit timeline. Complements the existing edge-backed *fade* entrance (`FlowTransition.transition`, kind `fade`). Optionally also a transition-**overlay screen node** (a Scene with the wipe on a self-completing layer edge). | `/flow` choreography palette; engine-side = reuse (no new event) | low |
 
 **FS-6 (deferred, high-risk, NOT this pass):** retire the coded `LAYER_BAND_TOP` free-spin gates /
 counter (`Game.svelte` ~L1343-1366) so the flow owns the whole lifecycle end-to-end. Gated on
 FS-1…5 proven live + owner confirming the game is post-preproduction. The round-blocking
 `waitForResolve` (`FreeSpinIntroGate.svelte`) must keep exactly one subscriber or the round hangs.
+
+### Progress — FS-1 DONE headlessly (2026-07-03)
+
+**Owner decisions this pass (2026-07-03).**
+- **DECISION 1 — "same basegame + overlays".** There is NO distinct `freeGame` screen node. The
+  `basegame` screen PERSISTS throughout free spins; the phase is expressed purely by intro / counter
+  / retrigger / outro screens LAYERED over the persistent base via the active-SET model. §14's
+  `intro --complete--> freeGame` is REINTERPRETED: each overlay dismisses ITSELF on its own Complete
+  pin (basegame remains active underneath). **No edge ever deactivates `basegame`.**
+- **DECISION 2 — owner authors the Scenes online; this pass ships the FlowDoc wiring + a headless
+  spike** against a documented scene-id contract.
+
+**The active-set edge semantics (worked out so `basegame` is never deactivated).**
+- `basegame --freeSpinTrigger (bookEvent, LAYER)--> freeSpinIntro` — a `bookEvent` edge activates
+  the target and LEAVES the source active, so the intro layers over the persistent base.
+- `freeSpinIntro --complete--> basegame` — the intro fires its OWN Complete pin: runs its `exit` +
+  deactivates ITSELF; `activate('basegame')` is an idempotent no-op (base already active
+  underneath), so the base stays in place. (Same return-to-base pattern as `LINES_FLOW_COND_DOC`'s
+  `freeGame → basegame`.)
+- `basegame --updateFreeSpin (LAYER)--> freeSpinCounter`, `--retrigger (LAYER)--> freeSpinRetrigger`,
+  `--freeSpinEnd (LAYER)--> freeSpinOutro`, each with a `<overlay> --complete--> basegame` return.
+- `basegame` has NO outgoing `complete` edge ⇒ it is PERSISTENT (the machine never deactivates it).
+- **The counter persists:** once `freeSpinCounter` is layered, a later `updateFreeSpin` is a
+  `changesActiveSet` no-op (target already active) — no re-`enter`, no re-`notify`, no flicker. Its
+  displayed NUMBER updates via the coded `updateFreeSpin` handler + the `freeSpins` value pin, NOT a
+  re-enter (the correct active-set behaviour — this settles the coordinator's "re-layer semantics"
+  question with the EXISTING engine design; no new code needed).
+
+**Scene-id contract (owner authors these four scenes online with these EXACT ids).**
+`freeSpinIntro`, `freeSpinCounter`, `freeSpinRetrigger`, `freeSpinOutro`. The first three-minus-one
+(`freeSpinIntro`/`freeSpinCounter`/`freeSpinOutro`) already exist as reference-layout scene ids;
+`freeSpinRetrigger` is NEW. Addressed by plain scene id (no `Scene.role` — that enum is
+`loading|basegame` only), exactly as `LINES_FLOW_WIN_DOC` references `bigWin`/`freeSpinIntro`.
+
+**The `retrigger` seam (FS-4 not yet built).** No `retrigger` book/emitter event exists yet, so the
+`basegame --retrigger--> freeSpinRetrigger` edge is INERT (an edge naming a never-arriving event
+never fires — parity-safe). It is authored NOW so the scene-id contract + graph shape are complete;
+the spike proves a SYNTHETIC `retrigger` layers it correctly, so the wiring is ready for FS-4.
+
+**Deliberate divergence from §14's "authored no-op events" (surfaced, not papered over).** §14 FS-1
+said "every authored free-spin event stays an authored no-op in `events[]`". That describes the
+FS-6 world where each flow screen's `enter` OWNS the presentation. Under FS-1 (ADDITIVE, coded gates
+intact), an authored event — even a no-op — SUPPRESSES the coded handler (`dispatch.ts`: authored
+wins), which would stop `stateUi` being flipped and leave the coded feed-driven overlays (the actual
+pixels today) never shown, with the still-empty flow screens presenting nothing. So this pass LEAVES
+the free-spin events UN-AUTHORED (they fall through to the coded handlers that own presentation); the
+transitions track the active-set LIFECYCLE in parallel. The events become authored no-ops only when
+FS-6 moves presentation into each screen's `enter`. This is the correct non-breaking FS-1.
+
+**How verified headlessly + build-shipped.** `tools/flow-spike/fs1FreeSpins.ts` (`pnpm --filter
+flow-spike run fs1`) — all assertions GREEN, turbo ON and OFF, against the REAL engine-flow
+interpreter over the REAL `LINES_FLOW_FREESPIN_DOC`: the canonical `freeSpinTrigger…updateFreeSpin…
+freeSpinEnd` stream layers intro→counter→outro with `basegame` active AT EVERY recorded set change
+(DECISION-1 invariant), each overlay returns on its Complete; the counter persists on a repeat
+`updateFreeSpin` (no re-enter/re-notify) while the coded handler STILL runs both times; the
+`retrigger` edge is inert on a normal stream but layers on a synthetic event; the free-spin events
+fall through to coded while `reveal`/`winInfo` stay authored; and the edge-shape parity (4 LAYER + 4
+HANDOFF, `basegame` persistent, the four scene-id targets, no free-spin events authored). `pnpm
+--filter engine-flow typecheck` clean; `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build`
+GREEN with the `__IE_FLOW_FREESPIN__` hook + beat names + `freeSpinRetrigger` confirmed in the
+minified client bundle (shipment). All prior flow-spikes (fs2/parity/pins/phase3/phase4/phase5/
+roundtrip) still GREEN; Prettier clean.
+
+**Still owed (owner will sequence).** (1) Owner authors the four backing Scenes online with the
+contract ids. (2) Owner live-verify in a running bundle (WebGL — read `app.stage`/dynamic-import
+override, not `preview_screenshot`) that the overlays layer/dismiss with the base persisting, turbo
+on/off. (3) FS-2 (book-event pins) is on `origin/main`; the `/flow` authoring of these edges is the
+online step. (4) The ship chain (bake `flow?` → register → `publish-runtime-bundle` → Borut submodule
+bump) is deferred to when the owner bakes an authored FlowDoc. NOT committed/pushed.
 
 ### Verification + ship (per phase)
 Each phase is proven headlessly in `tools/flow-spike/` (op-log / pin-derivation / round-trip
