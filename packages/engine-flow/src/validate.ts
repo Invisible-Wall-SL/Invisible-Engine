@@ -76,7 +76,11 @@ export type FlowIssueKind =
 	// A value binding edge (design doc §11) whose `producer` is not a registered engine feed, or
 	// whose `sink` display no longer exists — warned, never silently dropped (§11.6). One kind
 	// covers both value-edge breakages (the message distinguishes them).
-	| 'unresolved-producer';
+	| 'unresolved-producer'
+	// A `bookEvent` trigger edge (design doc §14 FS-2) whose event isn't in the game's book-event
+	// vocabulary — the pin it references doesn't exist (a typo or an event removed from the union).
+	// Warned, never silently dropped (mirrors the orphaned-pin discipline, §4).
+	| 'unknown-book-event';
 
 /** Issue severity. All Phase-7 issues are warnings (never block authoring, §7). */
 export type FlowIssueSeverity = 'warning';
@@ -113,6 +117,11 @@ export interface FlowValidateOptions {
 	/** The live consumer value-pin keys `${instanceId}::${source}` a `value` edge's `sink` may target
 	 *  (from `deriveScreenPins`, design doc §11). Absent ⇒ skip the orphaned-sink check. */
 	valueSinkKeys?: ReadonlySet<string> | string[];
+	/** The game's book-event vocabulary (`typesBookEvent.ts` union types, design doc §14 FS-2). A
+	 *  `bookEvent` trigger edge whose `event` (with a non-empty name) isn't in this set references a
+	 *  book-event pin that doesn't exist — warned, never dropped. Absent ⇒ skip the check (no false
+	 *  positives when the caller can't supply the vocabulary — e.g. a typed-name-only setup). */
+	bookEvents?: ReadonlySet<string> | string[];
 }
 
 const toSet = (v: ReadonlySet<string> | string[] | undefined): Set<string> | undefined =>
@@ -307,6 +316,27 @@ export const validateFlowDoc = (
 					severity: 'warning',
 					screenId: t.to,
 					message: `A value binding targets display "${t.trigger.sink.instanceId}" (${t.trigger.sink.source}), which no longer exists — the wire is orphaned (delete it or re-point it).`,
+				});
+			}
+		}
+	}
+
+	// --- Book-event trigger edges: unknown event (design doc §14 FS-2) ------------------------
+	// A `bookEvent` edge draws FROM a screen's `${screenId}::bookEvent:<event>` trigger pin. If the
+	// event isn't in the game's book-event vocabulary the referenced pin doesn't exist (a typo, or an
+	// event removed from the union) — warn, never drop (mirrors orphaned-pin discipline, §4). A blank
+	// event (a freshly-drawn typed-name edge awaiting a name) is skipped: `no-initial`-style graph
+	// warnings already nudge the author, and blank is a transient authoring state, not a broken pin.
+	const bookEvents = toSet(options.bookEvents);
+	if (bookEvents) {
+		for (const t of doc.transitions) {
+			if (t.trigger.kind !== 'bookEvent' || !t.trigger.event) continue;
+			if (!bookEvents.has(t.trigger.event)) {
+				issues.push({
+					kind: 'unknown-book-event',
+					severity: 'warning',
+					screenId: t.to,
+					message: `A book-event transition names event "${t.trigger.event}", which is not in the game's book-event vocabulary — the trigger pin doesn't exist (check the spelling).`,
 				});
 			}
 		}

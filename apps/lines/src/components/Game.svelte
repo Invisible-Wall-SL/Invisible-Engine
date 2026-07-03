@@ -779,6 +779,10 @@
 	// `<ComponentInstance>` only subscribes a signal a cue names. `win` fires when the
 	// win presentation begins (`winShow`); `bigWin` fires only on the `'big'` win-level
 	// tier (covers big/superwin/mega/epic/max — see game/winLevelMap.ts).
+	// `freeSpinStart`/`freeSpinEnd` fire on the free-spin lifecycle: the intro presents
+	// (`freeSpinIntroShow`, broadcast by the coded `freeSpinTrigger` handler) and the outro
+	// presents (`freeSpinOutroShow`, broadcast by the coded `freeSpinEnd` handler) — the
+	// existing emitter events, reused (no new event; the dedicated retrigger event is FS-4).
 	registerComponentSignals({
 		win: eventSignal((run) => context.eventEmitter.subscribe({ winShow: () => run() })),
 		bigWin: eventSignal((run) =>
@@ -787,6 +791,12 @@
 					if (e.winLevelData.type === 'big') run();
 				},
 			}),
+		),
+		freeSpinStart: eventSignal((run) =>
+			context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
+		),
+		freeSpinEnd: eventSignal((run) =>
+			context.eventEmitter.subscribe({ freeSpinOutroShow: () => run() }),
 		),
 	});
 

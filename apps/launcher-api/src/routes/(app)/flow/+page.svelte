@@ -11,6 +11,7 @@
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
+		bookEventTypes,
 		DEFAULT_CODED_EVENTS,
 		diffFlowDoc,
 		edgeSemantics,
@@ -65,8 +66,13 @@
 
 	const history = createFlowHistory<FlowDoc>(doc);
 
+	// The game's book-event trigger vocabulary (design doc §14 FS-2) — the `typesBookEvent.ts` union
+	// exported through the `EmitterVocabulary`, projected as `bookEvent` trigger input pins on every
+	// screen so an author draws a book-event edge FROM a real event pin (empty ⇒ typed-name only).
+	const flowBookEvents = bookEventTypes(data.vocabulary);
+
 	// The derived view: placed screens (with pins/orphans) + the unplaced-scene palette.
-	const model = $derived(buildFlowModel(doc, data.doc, data.components));
+	const model = $derived(buildFlowModel(doc, data.doc, data.components, flowBookEvents));
 
 	// Commit a new doc: record it for undo and mark dirty. Rebuilds the canvas arrays.
 	function commit(next: FlowDoc): void {
@@ -113,6 +119,9 @@
 			contextRoots,
 			producerFeeds: engineKeys,
 			valueSinkKeys,
+			// The game's book-event vocabulary (design doc §14 FS-2) — an edge naming an event not in
+			// it references a book-event pin that doesn't exist; warned, never dropped.
+			bookEvents: flowBookEvents,
 		}),
 	);
 	// Consumer value INPUT pin ids that HAVE an incoming `value` binding edge — an EXPLICIT
@@ -317,6 +326,24 @@
 						producer: producerKey,
 						sink: { instanceId: sinkInstanceId, source: sinkSource },
 					},
+					{ fromPin: c.sourceHandle, toPin: c.targetHandle },
+				),
+			);
+			return;
+		}
+		// A BOOK-EVENT trigger wire (design doc §14 FS-2): dropping ONTO a screen's `::bookEvent:<event>`
+		// INPUT pin mints a `bookEvent` (layer) edge whose `trigger.event` is that pin's event — exactly
+		// what the interpreter already matches on (`onBookEvent`), so it is an authoring-surface change
+		// only (no runtime change). The event name comes from the REAL pin, not a typed string. Mirrors
+		// the action→intent wire; a source pin is any outgoing pin (usually the base's Complete/anywhere).
+		const bookEventKey = pinRoleKey(c.targetHandle, 'bookEvent');
+		if (bookEventKey !== undefined) {
+			commit(
+				addTransition(
+					doc,
+					c.source,
+					c.target,
+					{ kind: 'bookEvent', event: bookEventKey },
 					{ fromPin: c.sourceHandle, toPin: c.targetHandle },
 				),
 			);

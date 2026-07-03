@@ -173,6 +173,13 @@
 				oninput={(e) => setEvent(e.currentTarget.value)}
 			/>
 		</label>
+		<!-- FS-2 (design doc §14): the event can be authored by wiring a screen's book-event trigger
+		     INPUT pin (draw into e.g. its `freeSpinTrigger` pin) instead of typing here. Typing stays
+		     a valid fallback — both produce the same `trigger.event` the interpreter matches on. -->
+		<p class="hint">
+			Tip: draw an edge INTO a screen's book-event trigger pin (e.g. <code>freeSpinTrigger</code>)
+			to set this from the graph — or type it here.
+		</p>
 	{:else if edge.trigger.kind === 'signal'}
 		<label class="field">
 			<span>Signal name</span>
@@ -328,6 +335,18 @@
 	}
 	.semantic.value .mark {
 		color: #7dd3fc;
+	}
+	.hint {
+		margin: -4px 0 10px;
+		font-size: 10px;
+		line-height: 1.4;
+		color: #7c8697;
+	}
+	.hint code {
+		color: #a5b4fc;
+		background: #12141f;
+		border-radius: 3px;
+		padding: 0 3px;
 	}
 	.field {
 		display: flex;

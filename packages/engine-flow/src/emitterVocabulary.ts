@@ -60,6 +60,20 @@ export interface EmitterEffectDef {
 	group?: string;
 }
 
+/**
+ * One book-event TYPE the game's RGS book carries (a member of the game's `BookEvent` union,
+ * `typesBookEvent.ts`). Like the emitter union it is a compile-time TypeScript discriminated union
+ * with no serialized form, so the vocabulary is carried alongside the emitter events as data (design
+ * doc §14 FS-2). A `bookEvent` trigger transition edge names one of these; the `/flow` editor
+ * projects each as a trigger INPUT pin on every screen so an author draws FROM a real event pin
+ * instead of typing the name as a free string. Authoring-fidelity only — the interpreter matches on
+ * `trigger.event` regardless of this list, so there is zero game-parity risk.
+ */
+export interface BookEventDef {
+	/** The book-event `type` discriminant the interpreter matches (`trigger.event`). */
+	type: string;
+}
+
 /** The full broadcast vocabulary handed to the authoring surface (the passed-in catalog). */
 export interface EmitterVocabulary {
 	/** A label for the source game/template (provenance only). */
@@ -67,6 +81,9 @@ export interface EmitterVocabulary {
 	events: EmitterEventDef[];
 	/** The game-registered effect names (`flowEffects` keys); absent ⇒ no exported catalog. */
 	effects?: EmitterEffectDef[];
+	/** The game's book-event vocabulary (`typesBookEvent.ts` union types, design doc §14 FS-2) —
+	 *  projected as `bookEvent` trigger input pins on every screen; absent ⇒ no exported catalog. */
+	bookEvents?: BookEventDef[];
 }
 
 /**
@@ -181,6 +198,22 @@ export const DEFAULT_EMITTER_VOCABULARY: EmitterVocabulary = {
 		{ type: 'drawerButtonHide', group: 'UI' },
 		{ type: 'stopButtonEnable', group: 'UI' },
 	],
+	// The book-event vocabulary (design doc §14 FS-2) — transcribed from the REAL `BookEvent` union
+	// in `apps/lines/src/game/typesBookEvent.ts`. Every `type` here is a real book event a coded
+	// handler already dispatches (see `bookEventHandlerMap.ts`); a `bookEvent` trigger edge names one.
+	bookEvents: [
+		{ type: 'reveal' },
+		{ type: 'winInfo' },
+		{ type: 'setTotalWin' },
+		{ type: 'freeSpinTrigger' },
+		{ type: 'updateFreeSpin' },
+		{ type: 'createBonusSnapshot' },
+		{ type: 'finalWin' },
+		{ type: 'setWin' },
+		{ type: 'freeSpinEnd' },
+		{ type: 'setExpandingSymbol' },
+		{ type: 'expandBookColumns' },
+	],
 };
 
 /** Group a vocabulary's events by their `group` label (palette rendering helper). */
@@ -207,3 +240,8 @@ export const findEmitterEffect = (
 	vocab: EmitterVocabulary,
 	name: string,
 ): EmitterEffectDef | undefined => vocab.effects?.find((e) => e.name === name);
+
+/** The book-event `type` names a vocabulary carries (design doc §14 FS-2) — the trigger vocabulary
+ *  `deriveScreenPins` projects as `bookEvent` input pins. Empty when the vocabulary exported none. */
+export const bookEventTypes = (vocab: EmitterVocabulary): string[] =>
+	(vocab.bookEvents ?? []).map((e) => e.type);

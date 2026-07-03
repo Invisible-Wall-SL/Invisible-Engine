@@ -21,6 +21,8 @@
 		'orphaned-pins': '⚠',
 		'stuck-overlay': '⧉',
 		'unresolved-accessor': '✗',
+		'unresolved-producer': '✗',
+		'unknown-book-event': '✗',
 	};
 </script>
 

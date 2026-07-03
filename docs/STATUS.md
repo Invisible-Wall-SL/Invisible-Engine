@@ -24,6 +24,23 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Scene Editor suppresses the "Shows during" gate on flow-driven screens (single owner of visibility)
+
+**Why.** A screen's visibility was authorable in two places at once: the Scene Editor's per-screen
+**"Shows during"** dropdown (`Scene.visibleSource`, the pre-Flow lifecycle gate) AND Invisible Flow
+(active-set mounting). At runtime the flow already wins — the generic `visibleSource` overlay mount is
+suppressed for any screen the flow owns (`Game.svelte`, the `authoredScreenIds().has(scene.id)` guard) —
+so the editor knob was stale double-information for those screens. **The mechanism is deliberately kept**
+(no shipped game runs a FlowDoc yet; every live game still gates free-spin intro/outro through
+`visibleSource`) — only the *editor control* is hidden per-screen once the flow takes over.
+
+**Change (editor-only, no engine/runtime change).** `editor/+page.server.ts` now also `loadFlowDoc`s
+and returns `flowScreenIds = flow.screens.map(s => s.id)` — the SAME set the runtime treats as flow-
+owned (a *placed* flow screen, not an un-placed palette scene). `editor/+page.svelte` derives
+`activeSceneFlowDriven` and, when true, replaces the "Shows during" select (and its blocking gate-style
+sub-controls) with an explanatory note pointing the author to the flow. `role` (the boot anchor) is
+untouched — the flow depends on it. Verified: `pnpm --filter launcher-api build` green.
+
 ### 2026-07-03 — Coded HUD/label text now honors authored bitmap fonts (shared `CatalogText`) (SHIPPED to `_runtime/lines`)
 
 **Symptom.** A Font Maker BITMAP font assigned (via the editor's font field) to HUD readouts —
@@ -44,6 +61,31 @@ why buttons worked but the coded HUD parts didn't.
 proxima-nova/web fonts). Routed every coded text part through it, and collapsed `LayoutNodeView`'s own
 inline `isBitmap` branch into it so the two copies can't drift. Live-verified: HUD readouts now render
 the authored bitmap font. Commit `fbf2f6f`.
+
+### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
+
+### 2026-07-03 — Reel grid: split the conflated `reelPadding` into three honest, independent knobs (engine + editor)
+
+**Symptom.** Authoring a `reelGrid` with specific sizing, the live board rendered **shifted/mis-anchored
+vs the editor**, symbols **clipped**, and per-cell spine seats sat in the wrong place. **Root cause:** the
+single `reelPadding`/`rowPadding` field did **two different jobs**: in the editor it placed the symbol
+**seat inside each cell**; in the game it was a hidden **whole-board offset** relative to the coded
+`REEL_PADDING = 0.53` baseline. Setting it to `0` (meaning "no padding") therefore both shoved seats to the
+cell corner (editor) AND translated the live board ~69px/65px (game) → editor and game disagreed.
+
+**Fix.** Three orthogonal, honestly-named knobs on `ReelGridNode` (all default to identity ⇒ Borut's
+`reelPadding: 0.53` + `rowPadding: 0.5` stay **byte-parity**):
+- **Reel/row LEAD** (`reelPadding`/`rowPadding`, cell-size fractions, 0.5 = symmetric) — seats the whole
+  reel cluster (the honest `getSymbolX`/`getSymbolLead` lead term). No longer a board offset or a seat.
+- **Seat ALIGNMENT** (`symbolAlignX`/`symbolAlignY`, 0..1, 0.5 = centred) — art WITHIN its own cell.
+- **Board NUDGE** (`boardNudgeX`/`boardNudgeY`, px) — fine offset of the whole board (cells + mask +
+  symbols), for lining up with frame art. Replaces the old hidden padding-offset.
+
+Editor `drawReelGrid` mirrors the game math exactly (verified: editor↔game on-screen positions match to
+< 1e-12 px across lead/align/nudge/non-square, both axes). Touched: `engine-layout` (`types.ts`,
+`reelGrid.ts`), `utils-slots` (`createReelForSpinning` gains `symbolLead`, default 0.5 = parity for all
+other games), `apps/lines/stateGame`, launcher editor (`EditorCanvas`, `EditorProperties`).
+**Not yet published to `_runtime/lines`** and **not yet mirrored to Borut's engine submodule.**
 
 ### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
 

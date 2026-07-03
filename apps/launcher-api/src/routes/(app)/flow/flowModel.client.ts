@@ -119,11 +119,19 @@ const intentVocabulary = (screenPins: FlowPin[][]): string[] => {
  * action VOCABULARY (the union of `action` keys); the intent HOST then re-derives WITH those
  * intent input pins attached. So a button's `action` output anywhere lights up a matching `intent`
  * input on the host — the wire the runtime consumes.
+ *
+ * Book-event pins (design doc §14 FS-2): `bookEvents` is the game's book-event vocabulary (from the
+ * exported `EmitterVocabulary`, selected by the LayoutDoc `gameType`). One `bookEvent` trigger INPUT
+ * pin per event is derived on EVERY screen (a book event can activate any screen — the vocabulary is
+ * a union advertised everywhere, unlike host-only intents), so an author draws a `bookEvent` edge
+ * FROM a real event pin instead of typing the name as a free string. Absent ⇒ no book-event pins
+ * (the typed-name inspector path still works — parity).
  */
 export const buildFlowModel = (
 	doc: FlowDoc,
 	layout: LayoutDoc,
 	components: ComponentDef[],
+	bookEvents: string[] = [],
 ): FlowModel => {
 	const resolve = componentResolverFrom(components);
 	const sceneById = new Map(layout.scenes.map((s) => [s.id, s]));
@@ -162,6 +170,8 @@ export const buildFlowModel = (
 			isIntentHost: isHost,
 			engineFeeds: ENGINE_FEEDS,
 			isProducerHost: isHost,
+			// Book-event trigger input pins on EVERY screen (design doc §14 FS-2), not host-gated.
+			bookEvents,
 		});
 		return { screen, scene, pins, orphanedPins: pins.filter((p) => p.orphaned) };
 	});

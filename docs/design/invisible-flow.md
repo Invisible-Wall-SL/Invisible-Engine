@@ -1426,3 +1426,53 @@ review. Not yet shipped.
 **Still needs owner-verify live:** confirm in a running Book of Borut (or apps/lines with a
 tap-enabled overlay authored on the loading screen) that in PORTRAIT the tap lands anywhere on the
 canvas and the prompt is correctly sized, and that landscape is unchanged.
+
+## 14. Free-Spins & Special-Mode flow (FS-1…FS-5) — build plan (owner direction 2026-07-03)
+
+Owner direction: **drive the whole free-spin / special-mode lifecycle from the Flow graph** —
+author the intro / counter / retrigger ("extra free spin") / outro screens and give each the
+correct pins to **activate/deactivate** it, plus **freely-placeable transition overlays**. Owner
+decisions on this pass: **build FS-1→FS-5 in one effort**, and represent retrigger as a
+**dedicated `retrigger` book/emitter event** (not just a derived condition).
+
+### Why this is an extension, not just wiring
+Today the free-spin phases are **not** flow screens. They are engine-owned `visibleSource`
+overlays hard-mounted in `Game.svelte`'s top z-band (`Game.svelte` ~L1343-1366), toggled by
+`stateUi` booleans that `bookEventHandlerMap.ts` flips on `freeSpinTrigger` / `updateFreeSpin` /
+`freeSpinEnd`. §5/Phase-5 deliberately left them feed-driven ("`apps/lines`' only exclusive screen
+is `basegame`"). This plan **promotes** them to author-controlled Flow screens with real pins,
+holding the §7 fall-through invariant throughout (inert / un-authored ⇒ coded path byte-identical).
+
+### What already exists (do NOT rebuild)
+- **Activation by book event** — a `bookEvent` layer edge already fires + layers a screen
+  (`presentation.ts` `onBookEvent`); generic takeover mount renders any authored active screen
+  (`Game.svelte` `activeScreenTakeover`). Missing only the **backing Scenes** + the wiring.
+- **Counter VALUE pin** — `freeSpins` ("current of total") + `freeSpinsWon` are registered engine
+  values (`componentCatalog.ts`), derived to a `value` input pin by `pins.ts`. No gap for the readout.
+- **Condition triggers** already read `freeSpinsRemaining` / `isFreeGame` / `gameType`
+  (`flowRuntime.svelte.ts` `linesEngineReader`) via the shipped `condition` machinery.
+- **Tap `complete`** return (outro → basegame) works via `completeActiveScreen()`.
+
+### Build order (dependency order — engine primitives first, then authoring, then transitions)
+
+| Phase | Delivers | Where | Risk |
+|---|---|---|---|
+| **FS-2 — book-event trigger INPUT pins** | Project the book-event vocabulary (`typesBookEvent.ts` / `flowVocabulary.ts`) as **trigger input pins** on screen nodes so a `bookEvent` edge draws from a real `freeSpinTrigger`/`freeSpinEnd`/`retrigger` pin, not a typed string. Mirrors Phase-8 intent pins beat-for-beat. **Authoring-only — no interpreter behaviour change** (still matches on `trigger.event`). | `engine-flow` (`pins.ts`, `types.ts`), `/flow` (`EdgeInspector`, node coloring) | low |
+| **FS-3 — free-spin signal catalog** | Add `freeSpinStart` / `freeSpinEnd` (+ `freeSpinRetrigger`, pending FS-4) to `ENGINE_SIGNAL_CATALOG` + `registerComponentSignals`, wired to the existing emitter events, so a spine cue on an intro/outro/retrigger screen plays on the lifecycle (derives `signal` pins via `pins.ts`). | `engine-layout` (`componentCatalog.ts`), `Game.svelte` (`registerComponentSignals`) | low (additive; ⇒ Borut runtime republish/submodule) |
+| **FS-4 — dedicated `retrigger` event** | A first-class `retrigger` emitter/book event (owner decision), surfaced BOTH as an FS-2 trigger pin and an FS-3 signal. `bookEventHandlerMap` emits it when `updateFreeSpin` arrives with a grown `total`; a bounded `$engine.freeSpinsAdded` accessor also exposed for guards. Parity-safe: un-authored ⇒ existing `updateFreeSpin` coded path unchanged. | `typesBookEvent.ts`, emitter union, `bookEventHandlerMap.ts`, `flowRuntime.svelte.ts`, FS-2/FS-3 surfaces | medium (data-model touch — the "grown total" detection needs a stored previous-total, must not false-fire on the initial award) |
+| **FS-1 — author free-spin screens + wire the graph** | Real backing Scenes for `freeSpinIntro` / `freeSpinCounter` / `freeSpinRetrigger` / `freeSpinOutro`; a `LINES_FLOW_FREESPIN_DOC` fixture wiring `basegame --freeSpinTrigger(layer)--> intro --complete--> freeGame`, `--retrigger--> retrigger overlay`, `freeSpinEnd --> outro --complete--> basegame`; counter binds `source:'freeSpins'`. Uses the FS-2 pins + FS-3 signals + FS-4 retrigger. Every authored free-spin event stays an **authored no-op in `events[]`** so the coded feed-driven overlay doesn't double-present (the §2 win-branch discipline). | authoring fixture first (`__IE_FLOW_*` hook), then `/flow`; headless parity spike in `tools/flow-spike/` | medium |
+| **FS-5 — placeable transition overlays** | Surface the reusable full-screen wipe (`transition` emitter event + `Transition.svelte`) as a **droppable choreography Broadcast beat** (`broadcast {event:'transition', await:true}`) in the choreography palette, so an author drops a wipe into any screen's enter/exit timeline. Complements the existing edge-backed *fade* entrance (`FlowTransition.transition`, kind `fade`). Optionally also a transition-**overlay screen node** (a Scene with the wipe on a self-completing layer edge). | `/flow` choreography palette; engine-side = reuse (no new event) | low |
+
+**FS-6 (deferred, high-risk, NOT this pass):** retire the coded `LAYER_BAND_TOP` free-spin gates /
+counter (`Game.svelte` ~L1343-1366) so the flow owns the whole lifecycle end-to-end. Gated on
+FS-1…5 proven live + owner confirming the game is post-preproduction. The round-blocking
+`waitForResolve` (`FreeSpinIntroGate.svelte`) must keep exactly one subscriber or the round hangs.
+
+### Verification + ship (per phase)
+Each phase is proven headlessly in `tools/flow-spike/` (op-log / pin-derivation / round-trip
+parity, turbo on/off) + `tsc --noEmit` + the affected `pnpm --filter … build` GREEN, before any
+live-verify — the WebGPU bundle is the only thing headless can't prove (read `app.stage` / dynamic-
+import override, not `preview_screenshot`). Engine changes (FS-3, FS-4) reach Book of Borut via a
+runtime-bundle republish / `engine` submodule bump; the FlowDoc + `/flow` changes ride
+export→`deploy/`→bake(`flow?`)→register (rule 8). Fall-through parity (§7) is the invariant on every
+slice: no authored free-spin screen / no FlowDoc ⇒ the coded feed-driven path is byte-identical.
