@@ -49,9 +49,17 @@ Shipped in two PRs (#84 = engine-flow schema/derivation/interpreter; #85 = runti
 
 **Default-inert** (three-layer short-circuit: unregistered registry → inert interpreter → `?? source`), so
 existing games are byte-identical — verified via `pnpm --filter launcher-api build` + the full flow-spike
-suite (18 harnesses incl. `valuedataflow`/`valueresolve`). **STILL OWED:** (1) owner live click-verify in the
-deployed `/flow` (producer pins appear + draw a value edge — auth-gated, can't be done headless); (2) **step 6
-— ship:** author+bake a value edge into a real game (deploy→bake→register) and bump Borut's engine submodule.
+suite (18 harnesses incl. `valuedataflow`/`valueresolve`/`valuechain`). **Step 6 — ship gate + engine release
+DONE:** the deploy→bake→register chain was audited and preserves `value` edges with NO fix needed (every
+serializer is pass-through; the one normalizer is engine-flow's value-aware `normalizeFlowDoc`; the bake's
+hand-rolled `isAuthoredFlow` gate keys on screens/events, embedding the doc verbatim) — proven by the
+`valuechain` full-chain fixture. The engine was **republished to `_runtime/lines`** (rebuild engine dist →
+lines build w/ play4fun → upload → `/refresh` 202 → **served hash verified** on `bookofborutremake` =
+`bundle.Dr0Hi3uO.js`, 2026-07-02), so the value-dataflow runtime is live for every `runtime:lines` game.
+Owner **live-verified the `/flow` editor** (producer pins + value-edge drawing). **STILL OWED:** the owner
+authors + publishes ONE real value edge on a `runtime:lines` game and confirms the readout re-points live
+(the feature is default-inert until an edge is authored). A `bookofborut`-own-bundle game would instead need
+an `engine` submodule bump (not required for the `runtime:lines` path just shipped).
 
 ### 2026-07-02 — Invisible Flow: functional action pins (Base game as intent hub) + edge delete
 
