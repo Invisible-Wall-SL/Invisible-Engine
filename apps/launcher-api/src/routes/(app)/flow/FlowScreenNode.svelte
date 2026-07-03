@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import {
+		Handle,
+		Position,
+		useNodeConnections,
+		type NodeConnection,
+		type NodeProps,
+	} from '@xyflow/svelte';
 	import type { FlowPin } from 'engine-flow';
 
 	// A screen node: its name + a thumbnail-less list of derived pins (design doc §12 —
@@ -22,8 +28,41 @@
 		boundValuePinIds?: Set<string>;
 		invalid?: boolean;
 	};
-	let { data, selected }: NodeProps = $props();
+	let { id, data, selected }: NodeProps = $props();
 	const d = data as Data;
+
+	// A pin is "connected" when an edge references its handle. xyflow keys edges by
+	// `sourceHandle`/`targetHandle` — which equal the pin `id` (design doc §12) — so we ask xyflow
+	// for every connection touching THIS node and collect the handle ids that live on our side:
+	// the `sourceHandle` when we are the edge's source, the `targetHandle` when we are its target.
+	// This reads the live edge set (add/remove reflects instantly), so no page plumbing is needed.
+	const connections = useNodeConnections();
+	const connectedPinIds = $derived(
+		new Set(
+			connections.current.flatMap((c: NodeConnection) => {
+				const ids: string[] = [];
+				if (c.source === id && c.sourceHandle) ids.push(c.sourceHandle);
+				if (c.target === id && c.targetHandle) ids.push(c.targetHandle);
+				return ids;
+			}),
+		),
+	);
+
+	// Structural pins (design doc §4 fixed pins) drive the macro transitions and are ALWAYS shown —
+	// they're the node's identity, not noise. Every other (dynamic) pin is shown only when it's
+	// wired, unless the author expands the node to reveal the full vocabulary to connect a new one.
+	const STRUCTURAL_ROLES = new Set(['enter', 'complete', 'active']);
+	const isStructural = (pin: FlowPin): boolean => STRUCTURAL_ROLES.has(pin.role);
+
+	// A pin is visible by default when it's structural OR currently wired OR orphaned (an orphaned
+	// pin is a validation warning we must never hide). Expanding reveals every remaining pin so the
+	// author can reach + wire one; collapsing hides the unconnected ones again.
+	const isVisiblePin = (pin: FlowPin): boolean =>
+		showAllPins || isStructural(pin) || pin.orphaned === true || connectedPinIds.has(pin.id);
+
+	// Per-node expand toggle (local UI only — not persisted). Off by default, so a freshly loaded
+	// graph shows only wired + structural pins; the author clicks "＋N more" to reveal the rest.
+	let showAllPins = $state(false);
 
 	// The full binding behind a pin, for the hover tooltip — the label truncates in the
 	// handle row, so the title surfaces the role + binding key the wire actually points at.
@@ -56,10 +95,19 @@
 	const isDimmed = (pin: FlowPin): boolean => pin.role === 'complete' && !!d.persistent;
 
 	// Inputs on the LEFT, outputs on the RIGHT, state pins shown inline (no handle —
-	// `active` is a status, not a wire endpoint).
-	const inputs = $derived(d.pins.filter((p) => p.direction === 'in'));
-	const outputs = $derived(d.pins.filter((p) => p.direction === 'out'));
+	// `active` is a status, not a wire endpoint). Each column is filtered to the CURRENTLY VISIBLE
+	// pins (structural + wired, or everything when expanded) — a display concern only; the full pin
+	// set stays in `d.pins`, so handle ids and edge endpoints are untouched by collapsing.
+	const inputs = $derived(d.pins.filter((p) => p.direction === 'in' && isVisiblePin(p)));
+	const outputs = $derived(d.pins.filter((p) => p.direction === 'out' && isVisiblePin(p)));
+	// State pins (the `active` status) are always structural, so they show regardless of expansion.
 	const stateP = $derived(d.pins.filter((p) => p.direction === 'state'));
+
+	// How many wire-able pins are hidden while collapsed — the "＋N more" pill count. Zero ⇒ the
+	// node already shows everything (no pill). State pins never count (they carry no handle).
+	const hiddenCount = $derived(
+		showAllPins ? 0 : d.pins.filter((p) => p.direction !== 'state' && !isVisiblePin(p)).length,
+	);
 
 	const roleColor: Record<string, string> = {
 		value: '#3b82f6',
@@ -138,6 +186,30 @@
 			{/each}
 		</ul>
 	</div>
+
+	<!-- Expand/collapse affordance (display-only): by default a screen shows just its structural +
+	     wired pins, so the ~11 book-event inputs etc. don't clutter every node. The pill reveals the
+	     hidden vocabulary so the author can drag a new connection, then collapses it away again. It's
+	     a `nodrag`/`nopan` control so clicking it toggles rather than starting a node drag. -->
+	{#if hiddenCount > 0}
+		<button
+			type="button"
+			class="pin-toggle nodrag nopan"
+			title="Show {hiddenCount} more pin(s) available to wire on this screen"
+			onclick={() => (showAllPins = true)}
+		>
+			＋{hiddenCount} more
+		</button>
+	{:else if showAllPins}
+		<button
+			type="button"
+			class="pin-toggle nodrag nopan"
+			title="Hide unconnected pins (keeps structural + wired pins)"
+			onclick={() => (showAllPins = false)}
+		>
+			− collapse pins
+		</button>
+	{/if}
 
 	{#if stateP.length}
 		<footer>
@@ -275,6 +347,28 @@
 		color: #7dd3fc;
 		background: #0c2733;
 		border: 1px solid #164a5f;
+	}
+	/* Expand/collapse pin pill — a full-width, muted control sitting under the pin columns, using the
+	   node's own surface/border tokens so it reads as node chrome (not a new design language). Hover
+	   lifts it to the header surface, echoing the dimmed-pin hover affordance. */
+	.pin-toggle {
+		display: block;
+		width: calc(100% - 20px);
+		margin: 2px 10px 6px;
+		padding: 3px 8px;
+		font-size: 10px;
+		font-weight: 600;
+		color: #94a3b8;
+		background: #1b212b;
+		border: 1px solid #2a323d;
+		border-radius: 999px;
+		cursor: pointer;
+		text-align: center;
+	}
+	.pin-toggle:hover {
+		color: #cbd5e1;
+		background: #232b36;
+		border-color: #3a4553;
 	}
 	footer {
 		padding: 5px 10px;
