@@ -258,6 +258,17 @@ popup still works. **Verified:** `engine-layout` + `launcher-api` builds GREEN, 
 Files: `packages/engine-layout/src/lib/componentCatalog.ts`, `apps/lines/src/components/Game.svelte`,
 `apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte`, `docs/STATUS.md`.
 
+**Follow-up (SAME DAY) — baked-def shadowed the new dropdown options (bug fix).** After deploy the new
+action options + "submenu (popup)" label did NOT appear on an existing button: its `action` param dropdown
+rendered from the param's BAKED `options` (a button def snapshots `options: ENGINE_ACTION_CATALOG` at save
+time — `components/+page.svelte`), and the `paramField` template checked `{#if p.options}` BEFORE
+`{:else if p.key === 'action'}`, so a pinned button froze to its stale 7-option list and skipped the label
+map. Fix: `EditorProperties.svelte` `paramField` now checks `p.key === 'action'` FIRST → the `action`
+dropdown ALWAYS uses the LIVE catalog (`actionOptions` + `ENGINE_ACTION_LABELS`), never the baked options
+(also covers the Engine-bindings Action field on non-button instances, which renders via the same snippet).
+Classic [[gotcha_baked_component_def_shadows_coded_fix]] — gate off the live feed, not the baked node
+attribute. `launcher-api` build GREEN. File: `apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte`.
+
 ### 2026-07-02 — Invisible Flow: complete FAN-OUT + HUD active-set gate + doc-order z-order
 
 **Context.** Owner authored a real FlowDoc (`loading` initial → `basegame` + a HUD "bottom bar"
