@@ -361,6 +361,41 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 		],
+		bookEvents: [
+			{
+				type: 'reveal',
+			},
+			{
+				type: 'winInfo',
+			},
+			{
+				type: 'setTotalWin',
+			},
+			{
+				type: 'freeSpinTrigger',
+			},
+			{
+				type: 'updateFreeSpin',
+			},
+			{
+				type: 'createBonusSnapshot',
+			},
+			{
+				type: 'finalWin',
+			},
+			{
+				type: 'setWin',
+			},
+			{
+				type: 'freeSpinEnd',
+			},
+			{
+				type: 'setExpandingSymbol',
+			},
+			{
+				type: 'expandBookColumns',
+			},
+		],
 	},
 	bookOf: {
 		source: 'lines',
@@ -705,6 +740,41 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				name: 'winHide',
 				group: 'Effect',
+			},
+		],
+		bookEvents: [
+			{
+				type: 'reveal',
+			},
+			{
+				type: 'winInfo',
+			},
+			{
+				type: 'setTotalWin',
+			},
+			{
+				type: 'freeSpinTrigger',
+			},
+			{
+				type: 'updateFreeSpin',
+			},
+			{
+				type: 'createBonusSnapshot',
+			},
+			{
+				type: 'finalWin',
+			},
+			{
+				type: 'setWin',
+			},
+			{
+				type: 'freeSpinEnd',
+			},
+			{
+				type: 'setExpandingSymbol',
+			},
+			{
+				type: 'expandBookColumns',
 			},
 		],
 	},

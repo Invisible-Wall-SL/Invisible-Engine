@@ -46,6 +46,9 @@ type BakedBundle = {
 		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
 		 * `scale` defaults to 2. */
 		spines?: { key: string; atlas: string; skeleton: string; scale?: number }[];
+		/** Placed region names no exported sheet packs — they render blank in-game.
+		 * The dangling-binding guard warns about these at boot (see `warnMissingAssets`). */
+		missing?: string[];
 	};
 	/** Fonts (Font Maker output) the project uses, exported to `deploy/editor-fonts/`
 	 * and mirrored into `static/assets/` by the deploy pull. The catalog's `prefix`
@@ -85,6 +88,9 @@ type BakedBundle = {
 			/** Spine bundles (atlas + skeleton, shared page on disk). `key` is the
 			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
 			spines: { key: string; atlas: string; skeleton: string; scale?: number }[];
+			/** Bound sprite-frame names no exported sheet packs — they render blank
+			 * in-game. The dangling-binding guard warns about these at boot. */
+			missing?: string[];
 		};
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
@@ -203,6 +209,35 @@ type EditorArtAssetEntry =
 	| { type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
 	| { type: 'spine'; src: { atlas: string; skeleton: string; scale: number }; preload: boolean };
 
+/**
+ * Dangling-binding guard (browser side). The exporters flag every placed region /
+ * bound symbol frame that no shipped atlas packs (`editorArt.missing` /
+ * `symbols.index.missing`) — those render blank in-game with a "… is not found in
+ * the loadedAssets" console spam. Surface the ROOT cause once, loudly, so the author
+ * knows to re-pack the atlas (or re-pick the frame) rather than chase the symptom.
+ * Warns a single time per boot across both asset registrations.
+ */
+let warnedMissingAssets = false;
+function warnMissingAssets(source: BakedBundle): void {
+	if (warnedMissingAssets) return;
+	const art = source.editorArt?.missing ?? [];
+	const sym = source.symbols?.index?.missing ?? [];
+	if (art.length === 0 && sym.length === 0) return;
+	warnedMissingAssets = true;
+	if (art.length) {
+		console.warn(
+			`[invisible] ${art.length} placed region(s) are in NO shipped atlas and will render blank: ` +
+				`${art.join(', ')}. Re-pack the atlas so it contains them, or re-pick the frame in the editor.`,
+		);
+	}
+	if (sym.length) {
+		console.warn(
+			`[invisible] ${sym.length} bound symbol frame(s) are in NO shipped atlas and will render blank: ` +
+				`${sym.join(', ')}. Re-pack the atlas so it contains them, or re-bind the symbol.`,
+		);
+	}
+}
+
 export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	const out: Record<string, EditorArtAssetEntry> = {};
 	// In runtime mode the live bundle supplies the same `editorArt` index; the only
@@ -210,6 +245,7 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	// stay identical so `LayoutNodeView` lookups resolve in both modes.
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return out;
+	warnMissingAssets(source);
 	const base = srcBase();
 	for (const sheet of source.editorArt?.sheets ?? []) {
 		// Scope each sheet's frames by its manifest key (the value sprite nodes store
@@ -317,6 +353,7 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 	const out: Record<string, SymbolAssetEntry> = {};
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return out;
+	warnMissingAssets(source);
 	const index = source.symbols?.index;
 	if (!index) return out;
 	const base = srcBase();

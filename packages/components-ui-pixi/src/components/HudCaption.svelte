@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { Text } from 'pixi-svelte';
 	import { WHITE } from 'constants-shared/colors';
 	import { stateBetDerived } from 'state-shared';
-	import { getComponentParams } from 'engine-layout/svelte';
+	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
 	import type { ResolvedTransform } from 'engine-layout';
 
 	import { UI_BASE_FONT_SIZE } from '../constants';
@@ -59,4 +58,4 @@
 	});
 </script>
 
-<Text anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={caption} {style} />
+<CatalogText anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={caption} {style} />

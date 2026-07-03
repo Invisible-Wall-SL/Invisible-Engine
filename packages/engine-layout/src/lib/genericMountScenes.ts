@@ -54,3 +54,33 @@ export const authoredHudScenes = (scenes: Scene[]): Scene[] =>
  * for every game (e.g. `apps/lines`' fallback doc) that authors no HUD screen.
  */
 export const hasAuthoredHud = (scenes: Scene[]): boolean => authoredHudScenes(scenes).length > 0;
+
+/**
+ * The canonical coded-`<UI>` HUD scene ids — the two scenes the bespoke coded HUD chrome draws
+ * (`hudBar` = the bottom bar, `hudCorners` = the corner buttons). The single source of truth so
+ * both `Game.svelte` (gating the coded `<UI>` on these ids) and `fullReplaceHudScenes` (adopting a
+ * content-bearing one) agree — no per-site literal.
+ */
+export const CODED_HUD_SCENE_IDS = ['hudBar', 'hudCorners'] as const;
+
+/**
+ * The HUD scenes to MOUNT once the coded `<UI>` is fully suppressed (the §16 FULL-REPLACE contract).
+ * A SUPERSET of `authoredHudScenes`: it also adopts a content-bearing canonical `hudBar`/`hudCorners`
+ * scene. Why this is needed: `hasAuthoredHud` (and thus suppression) is intentionally keyed on
+ * `hud_`-prefixed screens ONLY, so a normal coded-HUD game with content on `hudBar` never trips
+ * full-replace (parity). But the moment an author DOES add a `hud_*` screen, the coded `<UI>` — the
+ * only mount path for `hudBar`/`hudCorners` — is switched off; a `hudBar` the author had populated
+ * with real buttons would then mount NOWHERE (its nodes are orphaned). This selector re-adopts it, so
+ * the invariant "a HUD scene the author filled with nodes always mounts somewhere" holds. Empty
+ * `hudBar`/`hudCorners` scaffolds are dropped (`nodes.length > 0`); doc order preserved (an editor
+ * reorder re-layers). Callers use this ONLY when `hasAuthoredHud` is true — with no `hud_*` screen the
+ * coded `<UI>` renders `hudBar`/`hudCorners` itself, so adopting them here would double-mount.
+ */
+export const fullReplaceHudScenes = (scenes: Scene[]): Scene[] =>
+	scenes.filter(
+		(scene) =>
+			scene.space !== 'background' &&
+			scene.nodes.length > 0 &&
+			(scene.id.startsWith('hud_') ||
+				(CODED_HUD_SCENE_IDS as readonly string[]).includes(scene.id)),
+	);

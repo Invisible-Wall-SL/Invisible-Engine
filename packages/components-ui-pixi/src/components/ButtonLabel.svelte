@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { Text } from 'pixi-svelte';
-	import { getComponentParams } from 'engine-layout/svelte';
+	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
 	import type { ResolvedTransform } from 'engine-layout';
 
 	import { UI_BASE_FONT_SIZE } from '../constants';
@@ -56,4 +55,4 @@
 	});
 </script>
 
-<Text anchor={transform?.anchor ?? 0.5} {text} {style} />
+<CatalogText anchor={transform?.anchor ?? 0.5} {text} {style} />

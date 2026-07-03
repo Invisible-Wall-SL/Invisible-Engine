@@ -26,6 +26,7 @@
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
 import { collectComponentIds, collectComponentPins, parseScopedFrameRef } from 'engine-layout';
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
+import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
@@ -77,6 +78,12 @@ export interface EditorArtIndex {
 	images: EditorArtImage[];
 	spines: EditorArtSpine[];
 	collisions: EditorArtCollision[];
+	/** Region names the doc PLACES that no exported sheet packs — so they never
+	 *  reach the game's `loadedAssets` and the sprite renders blank ("… is not found
+	 *  in the loadedAssets"). Surfaced as a build/boot warning (the dangling-binding
+	 *  guard) so a re-authored atlas that dropped/renamed a placed region is caught at
+	 *  publish instead of silently in-game. */
+	missing: string[];
 }
 
 /** A doc `assetKey` that names an R2 atlas/sheet manifest (vs a game-bundled
@@ -301,9 +308,14 @@ export async function exportEditorArt(
 		let stem = stemFromManifestKey(manifestKey);
 		for (let i = 2; usedStems.has(stem); i++) stem = `${stemFromManifestKey(manifestKey)}_${i}`;
 
+		// Stamp a content hash into the filenames so a re-authored atlas ships at a NEW
+		// URL the cache can't serve stale (see assetVersion.ts). Null = source page gone.
+		const version = await sheetVersion(set);
+		if (!version) return;
+
 		const pageExt = set.pageKey.toLowerCase().endsWith('.webp') ? 'webp' : 'png';
-		const pageFile = `${stem}.${pageExt}`;
-		const jsonRel = `editor-art/${stem}/${stem}.json`;
+		const pageFile = `${stem}.${version}.${pageExt}`;
+		const jsonRel = `editor-art/${stem}/${stem}.${version}.json`;
 		const pageRel = `editor-art/${stem}/${pageFile}`;
 
 		// Server-side copy the packed page verbatim (no bytes through this process —
@@ -426,7 +438,21 @@ export async function exportEditorArt(
 	}
 	collisions.sort((a, b) => a.region.localeCompare(b.region));
 
-	const index: EditorArtIndex = { sheets, images, spines, collisions };
+	// Dangling-binding guard: a region the doc places that no exported sheet packs
+	// never reaches `loadedAssets` → the sprite renders blank in-game. Report it so a
+	// re-authored atlas that dropped/renamed a placed region is caught (bake warns; the
+	// engine warns at boot) instead of surfacing only as a runtime lookup miss. Image
+	// keys (standalone dropped pages) resolve by full assetKey, not a region name, so
+	// they're excluded — only frame/region references can dangle this way.
+	const danglingRegions = [...refs.usedRegions].filter((r) => !coveredRegions.has(r)).sort();
+
+	const index: EditorArtIndex = {
+		sheets,
+		images,
+		spines,
+		collisions,
+		missing: danglingRegions,
+	};
 	const indexKey = `${artPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);

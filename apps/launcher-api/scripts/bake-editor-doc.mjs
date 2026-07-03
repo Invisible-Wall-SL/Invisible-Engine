@@ -227,11 +227,24 @@ async function main() {
 				sheets: Array.isArray(art?.sheets) ? art.sheets : [],
 				images: Array.isArray(art?.images) ? art.images : [],
 				spines: Array.isArray(art?.spines) ? art.spines : [],
+				// Placed regions no shipped atlas packs — carried so the game warns at boot.
+				missing: Array.isArray(art?.missing) ? art.missing : [],
 			};
 			// Loud (non-fatal) warning when two referenced sheets share a region name.
 			// Rendering is correct (each sheet is scoped by its manifest), but it
 			// usually means a superseded sheet is still referenced — name the overlap
 			// so the author can retire the dead one.
+			// Dangling-binding guard: a placed region no shipped atlas packs renders
+			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
+			// re-authored atlas that dropped/renamed the region is caught at publish.
+			const artMissing = Array.isArray(art?.missing) ? art.missing : [];
+			if (artMissing.length) {
+				console.warn(
+					`⚠ bake-doc: ${artMissing.length} PLACED region(s) are in NO shipped atlas and will ` +
+						`render BLANK in-game: ${artMissing.join(', ')}. Re-pack the atlas so it contains ` +
+						'them, or re-pick the frame in the Scene Editor.',
+				);
+			}
 			const collisions = Array.isArray(art?.collisions) ? art.collisions : [];
 			for (const c of collisions) {
 				console.warn(
@@ -331,10 +344,23 @@ async function main() {
 					images: Array.isArray(s?.index?.images) ? s.index.images : [],
 					spines: Array.isArray(s?.index?.spines) ? s.index.spines : [],
 					collisions: Array.isArray(s?.index?.collisions) ? s.index.collisions : [],
+					// Bound frames no shipped atlas packs — carried so the game warns at boot.
+					missing: Array.isArray(s?.index?.missing) ? s.index.missing : [],
 				},
 				highlight,
 				winLine,
 			};
+			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
+			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
+			// re-authored atlas that dropped/renamed the frame is caught at publish.
+			const symMissing = Array.isArray(symbols.index.missing) ? symbols.index.missing : [];
+			if (symMissing.length) {
+				console.warn(
+					`⚠ bake-doc: ${symMissing.length} bound symbol frame(s) are in NO shipped atlas and will ` +
+						`render BLANK in-game: ${symMissing.join(', ')}. Re-pack the atlas so it contains them, ` +
+						'or re-bind the symbol in the Invisible Symbols State Machine.',
+				);
+			}
 			// Loud (non-fatal) warning when a bound frame name lives in two sheets.
 			// Symbol sheet frames register with NO namespace, so a colliding name is
 			// ambiguous (last-loaded wins) — name the overlap so the author can retire

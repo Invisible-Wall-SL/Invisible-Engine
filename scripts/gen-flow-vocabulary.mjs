@@ -56,6 +56,9 @@ const GAMES = [
 		key: 'lines',
 		source: 'apps/lines/src/game/typesEmitterEvent.ts',
 		flowEffects: 'apps/lines/src/game/flowEffects.ts',
+		// The game's book-event union (`typesBookEvent.ts`) — the FS-2 trigger vocabulary (design doc
+		// §14). Its member `type` discriminants become `bookEvent` trigger input pins in `/flow`.
+		bookEvents: 'apps/lines/src/game/typesBookEvent.ts',
 		out: 'apps/lines/src/game/flowVocabulary.ts',
 		exportName: 'LINES_EMITTER_VOCABULARY',
 		label: 'lines',
@@ -182,7 +185,9 @@ const parseMember = (memberBody) => {
  * stops too early).
  */
 const extractUnionBody = (src, typeName) => {
-	const head = new RegExp(`export\\s+type\\s+${typeName}\\s*=`).exec(src);
+	// `export` is optional — the `BookEvent` union is exported, but its member aliases
+	// (`type BookEventReveal = { … }`) are file-local (no `export`).
+	const head = new RegExp(`(?:export\\s+)?type\\s+${typeName}\\s*=`).exec(src);
 	if (!head) return null;
 	let i = head.index + head[0].length;
 	let depth = 0;
@@ -209,6 +214,36 @@ const parseEventUnion = (file, typeName, group) => {
 		if (fields.length) def.fields = fields;
 		return def;
 	});
+};
+
+/**
+ * Parse a game's `BookEvent` union (`typesBookEvent.ts`) into the ordered list of member `type`
+ * discriminants (design doc §14 FS-2 — the book-event trigger vocabulary). The union is written as
+ * `export type BookEvent = | BookEventReveal | BookEventWinInfo | …;` where each member is a
+ * separately-declared `type BookEventX = { … type: 'x'; … }` local alias — so we resolve each
+ * referenced alias to its `type: '…'` discriminant. Duplicate `type`s (the union may list a member
+ * twice) are de-duped, preserving first-seen order.
+ */
+const parseBookEventTypes = (bookEventsRel) => {
+	const src = read(bookEventsRel);
+	const body = extractUnionBody(src, 'BookEvent');
+	if (body === null) throw new Error(`could not find "export type BookEvent" in ${bookEventsRel}`);
+	const aliasRe = /\b(BookEvent\w+)\b/g;
+	const seen = new Set();
+	const types = [];
+	let m;
+	while ((m = aliasRe.exec(body))) {
+		const alias = m[1];
+		const aliasBody = extractUnionBody(src, alias);
+		if (aliasBody === null) continue;
+		const typeMatch = aliasBody.match(/type\s*:\s*'([^']+)'/);
+		if (!typeMatch) continue;
+		const type = typeMatch[1];
+		if (seen.has(type)) continue;
+		seen.add(type);
+		types.push(type);
+	}
+	return types;
 };
 
 /** Parse the `flowEffects.ts` effect-map keys (the `const effects: Record<…> = { … }` block). */
@@ -274,7 +309,10 @@ const buildVocabulary = (game) => {
 		name: n,
 		group: game.effectGroup,
 	}));
-	return { source: game.label, events, effects };
+	const bookEvents = game.bookEvents
+		? parseBookEventTypes(game.bookEvents).map((type) => ({ type }))
+		: [];
+	return { source: game.label, events, effects, bookEvents };
 };
 
 /** Render the committed fixture module (Prettier-shaped: tabs, single quotes, trailing commas). */
@@ -377,7 +415,7 @@ for (const { game, vocab } of games) {
 	await emit(
 		game.out,
 		renderModule(game, vocab),
-		`${vocab.events.length} events, ${vocab.effects.length} effects`,
+		`${vocab.events.length} events, ${vocab.effects.length} effects, ${vocab.bookEvents.length} book events`,
 	);
 }
 await emit(REGISTRY_OUT, renderRegistry(games), `${games.length} game(s)`);

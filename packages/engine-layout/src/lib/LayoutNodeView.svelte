@@ -8,19 +8,16 @@
 
 <script lang="ts">
 	import {
-		BitmapText,
 		Container,
 		Rectangle,
 		Sprite,
 		SpineProvider,
 		SpineTrack,
-		Text,
 		getContextApp,
 	} from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
 
-	import { isBitmapFont } from './fontCatalog';
-	import { getFontCatalog } from './registerFontCatalog';
+	import CatalogText from './CatalogText.svelte';
 	import { resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -292,14 +289,6 @@
 		// in-place edit. `node.style` undefined ⇒ `{}` (default style — visually parity).
 		return { ...node.style, ...overrides };
 	});
-	// §9.4 bitmap vs system font: when the boot-registered catalog (the runtime
-	// sibling of the editor's `/api/editor/fonts`) marks `resolvedStyle.fontFamily`
-	// as a bitmap font, the plain text path renders `<BitmapText>` (pixi's BitmapFont
-	// blitter) instead of `<Text>`. No catalog, or a family that isn't a bitmap
-	// entry, ⇒ `false` ⇒ `<Text>` exactly as before (parity). The catalog is set
-	// once at boot (like `getComponent`), so reading it here is a plain read.
-	const isBitmap = $derived(isBitmapFont(getFontCatalog(), resolvedStyle?.fontFamily));
-
 	// Sprite param bindings (§13.2): a `componentInstance` may drive a sprite's
 	// texture (`region`/`assetKey`) + `tint` from params, so ONE prefab renders a
 	// different icon / colour per instance. Unbound sprites (and any sprite outside a
@@ -594,27 +583,15 @@
 				{countUp}
 				format={formatValue}
 			/>
-		{:else if isBitmap && resolvedText !== undefined}
-			<!--
-				§9.4 bitmap text: `resolvedStyle.fontFamily` names a bitmap font in the
-				boot-registered catalog, so render through pixi's BitmapFont blitter with
-				the SAME positional props the `<Text>` path gets. (A bitmap-font numeric
-				readout is a later follow-on — the numeric `<ParamReadoutText>` path above
-				is unchanged.)
-			-->
-			<BitmapText
-				text={resolvedText}
-				x={posX}
-				y={posY}
-				anchor={transform.anchor}
-				scale={transform.scale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-				style={resolvedStyle}
-			/>
 		{:else}
-			<Text
+			<!--
+				§9.4 non-numeric text: `<CatalogText>` renders `<BitmapText>` (pixi's
+				BitmapFont blitter) when `resolvedStyle.fontFamily` names a bitmap family in
+				the boot-registered catalog, else the system-font `<Text>` (parity). The
+				SAME bitmap-vs-system decision every coded text part shares, kept in ONE
+				place so the HUD/button parts and layout text nodes can never drift.
+			-->
+			<CatalogText
 				text={resolvedText}
 				x={posX}
 				y={posY}

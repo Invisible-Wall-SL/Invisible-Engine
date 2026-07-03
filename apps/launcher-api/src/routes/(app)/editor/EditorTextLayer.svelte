@@ -227,7 +227,17 @@
 		params: Record<string, unknown>,
 	): TextTarget {
 		const ov = getHudTextOverride(n);
-		const style = { fontFamily: HUD_DEFAULT_FONT, ...ov?.style };
+		// Instance font params (fontFamily/fontSize/fill) — the SAME source the game's coded
+		// `HudCaption`/`HudValue` read (`stringParam('fontFamily')`, …). Without this the editor
+		// previewed every placed HUD readout in the default font even when the author assigned a
+		// (bitmap) family, so a bitmap-font readout looked right in-game but not in the editor.
+		// Precedence mirrors the game: default ◁ instance param ◁ node-level `bind.props` override
+		// (`ov`, the escape hatch the coded logo/game-name corners use — readout parts have none).
+		const paramStyle: Partial<LayoutTextStyle> = {};
+		if (typeof params.fontFamily === 'string') paramStyle.fontFamily = params.fontFamily;
+		if (typeof params.fontSize === 'number') paramStyle.fontSize = params.fontSize;
+		if (typeof params.fill === 'number') paramStyle.fill = params.fill;
+		const style = { fontFamily: HUD_DEFAULT_FONT, ...paramStyle, ...ov?.style };
 		const key = n.preview?.textParam;
 		const paramText = key ? hudParamValue(params[key]) : null;
 		const fallback =

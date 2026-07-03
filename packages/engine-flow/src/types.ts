@@ -159,6 +159,15 @@ export interface EventChoreography {
  *    wires INTO a matching intent input, which at runtime invokes the game intent (e.g. `spin` →
  *    today's coded bet). Not projected from a scene node — projected from the action vocabulary.
  *
+ * Book event (design doc §14 FS-2 — the book-event trigger vocabulary):
+ *  - `bookEvent` (input) ← the game's book-event vocabulary (`typesBookEvent.ts`, e.g.
+ *    `freeSpinTrigger`/`freeSpinEnd`/`updateFreeSpin`). One trigger INPUT pin per book-event type on
+ *    EVERY screen node (a book event can activate any screen, so the vocabulary is a union advertised
+ *    everywhere — unlike host-only intents). Drawing a `bookEvent` transition edge INTO this pin
+ *    records `trigger.event` on the edge, which is exactly what the interpreter already matches on
+ *    (`onBookEvent`), so it is an AUTHORING-surface change only — no runtime behaviour change. Not
+ *    projected from a scene node — projected from the book-event vocabulary (like `intent`, §8.3).
+ *
  * Producer (design doc `flow-driven-game.md` §11 — value dataflow):
  *  - `producer` (output) ← the game's DECLARED engine-signal registry (`ENGINE_PARAM_CATALOG`),
  *    attached to the value-producer host screen (Base game for now, §11.3). The counterpart of a
@@ -176,7 +185,8 @@ export type FlowPinRole =
 	| 'complete'
 	| 'active'
 	| 'intent'
-	| 'producer';
+	| 'producer'
+	| 'bookEvent';
 
 export type FlowPinDirection = 'in' | 'out' | 'state';
 

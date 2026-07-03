@@ -39,6 +39,7 @@
  * `bakedSymbolMap()` merges the map. Stale objects from a previous export are
  * pruned. Idempotent — re-running converges.
  */
+import { sheetVersion } from './assetVersion';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
@@ -86,6 +87,12 @@ export interface SymbolExportIndex {
 	images: { key: string; file: string }[];
 	spines: SymbolSpine[];
 	collisions: SymbolFrameCollision[];
+	/** Sprite-cell frame names a binding references that NO project atlas/sheet
+	 *  packs — so they never reach the game's `loadedAssets` and the symbol renders
+	 *  blank ("… is not found in the loadedAssets"). Surfaced as a build/boot warning
+	 *  (the dangling-binding guard) so a re-authored atlas that dropped/renamed a
+	 *  bound frame is caught at publish instead of silently in-game. */
+	missing: string[];
 }
 
 /** The global win-frame highlight, passed through to the bundle so the game can
@@ -232,10 +239,15 @@ export async function exportEditorSymbols(
 		exportedManifests.add(set.assetKey);
 		if (set.regions.length === 0 || !set.pageKey) return;
 
+		// Stamp a content hash into the filenames so a re-authored atlas ships at a NEW
+		// URL the cache can't serve stale (see assetVersion.ts). Null = source page gone.
+		const version = await sheetVersion(set);
+		if (!version) return;
+
 		const stem = claimStem(set.assetKey);
 		const pageExt = set.pageKey.toLowerCase().endsWith('.webp') ? 'webp' : 'png';
-		const pageFile = `${stem}.${pageExt}`;
-		const jsonRel = `${EXPORT_SUBTREE}/${stem}/${stem}.json`;
+		const pageFile = `${stem}.${version}.${pageExt}`;
+		const jsonRel = `${EXPORT_SUBTREE}/${stem}/${stem}.${version}.json`;
 		const pageRel = `${EXPORT_SUBTREE}/${stem}/${pageFile}`;
 
 		// Server-side copy the packed page verbatim (no bytes through this process —
@@ -323,7 +335,13 @@ export async function exportEditorSymbols(
 	}
 	collisions.sort((a, b) => a.frame.localeCompare(b.frame));
 
-	const index: SymbolExportIndex = { sheets, images: [], spines, collisions };
+	// Dangling-binding guard: a bound sprite frame no project atlas packs never
+	// reaches `loadedAssets` → the symbol renders blank in-game. Report it so a
+	// re-authored atlas that dropped/renamed the frame is caught (bake warns; the
+	// engine warns at boot) instead of surfacing only as a runtime lookup miss.
+	const missing = [...refs.frameNames].filter((f) => !coveredFrames.has(f)).sort();
+
+	const index: SymbolExportIndex = { sheets, images: [], spines, collisions, missing };
 	const indexKey = `${symbolsPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);

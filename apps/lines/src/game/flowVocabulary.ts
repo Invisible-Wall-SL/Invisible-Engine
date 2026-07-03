@@ -357,4 +357,39 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 	],
+	bookEvents: [
+		{
+			type: 'reveal',
+		},
+		{
+			type: 'winInfo',
+		},
+		{
+			type: 'setTotalWin',
+		},
+		{
+			type: 'freeSpinTrigger',
+		},
+		{
+			type: 'updateFreeSpin',
+		},
+		{
+			type: 'createBonusSnapshot',
+		},
+		{
+			type: 'finalWin',
+		},
+		{
+			type: 'setWin',
+		},
+		{
+			type: 'freeSpinEnd',
+		},
+		{
+			type: 'setExpandingSymbol',
+		},
+		{
+			type: 'expandBookColumns',
+		},
+	],
 };

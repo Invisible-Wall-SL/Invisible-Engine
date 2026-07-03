@@ -73,6 +73,10 @@
 		// hue (#3b82f6) so "this feeds a value display" reads at a glance, yet DISTINCT (lighter/cyan)
 		// so an author never confuses the producer output with the consumer value input.
 		producer: '#38bdf8',
+		// Book-event trigger INPUT pins (design doc §14 FS-2) — an indigo, KIN to the signal trigger
+		// hue (#a855f7) so "this is a runtime trigger" reads at a glance, yet DISTINCT (bluer) so an
+		// author never confuses a book-event trigger with a tap `signal`.
+		bookEvent: '#6366f1',
 		enter: '#64748b',
 		complete: '#64748b',
 		active: '#64748b',

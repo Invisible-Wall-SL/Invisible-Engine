@@ -27,6 +27,10 @@
 
 import { deriveScreenPins, pinLabel, type ComponentDefResolver, type FlowPin } from 'engine-flow';
 import type { ComponentDef, Scene } from 'engine-layout';
+// Import the catalog VALUE directly from its source module (not the `engine-layout` barrel,
+// whose top-level `constants-shared/layout` re-export is unresolvable under tsx — the other
+// spikes dodge it by importing types only, which are erased). Pure data, no runtime deps.
+import { ENGINE_SIGNAL_CATALOG } from '../../packages/engine-layout/src/lib/componentCatalog';
 
 // ---------------------------------------------------------------------------
 // Fixture — a representative base-game screen + the ComponentDefs it instances.
@@ -91,11 +95,43 @@ const winCelebrationDef: ComponentDef = {
 	},
 };
 
+// FS-3: a free-spin lifecycle spine that plays a cue on the free-spin signals — the
+// intro/outro presentation hook. The signal pins derive from these cues exactly as the
+// `win` cue above; the signal NAMES must exist in ENGINE_SIGNAL_CATALOG (the authoring
+// vocabulary) for the editor to offer them.
+const freeSpinLifecycleDef: ComponentDef = {
+	id: 'freeSpinLifecycle',
+	name: 'Free Spin Lifecycle',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		kind: 'container',
+		id: 'fsl_root',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				kind: 'spine',
+				id: 'fsl_spine',
+				x: 0,
+				y: 0,
+				assetKey: 'freeSpinLifecycle',
+				cues: [
+					{ signal: 'freeSpinStart', animation: 'intro' },
+					{ signal: 'freeSpinEnd', animation: 'outro' },
+				],
+			},
+		],
+	},
+};
+
 const DEFS: Record<string, ComponentDef> = {
 	hudReadout: readoutDef,
 	button: buttonDef,
 	freeSpinCounter: freeSpinCounterDef,
 	winCelebration: winCelebrationDef,
+	freeSpinLifecycle: freeSpinLifecycleDef,
 };
 
 const resolve: ComponentDefResolver = (id) => DEFS[id];
@@ -138,6 +174,14 @@ const baseScene: Scene = {
 			x: 0,
 			y: 0,
 			componentId: 'winCelebration',
+		},
+		// FS-3 signal source: a spine cue on the free-spin lifecycle signals.
+		{
+			kind: 'componentInstance',
+			id: 'n_freespin',
+			x: 0,
+			y: 0,
+			componentId: 'freeSpinLifecycle',
 		},
 	],
 };
@@ -203,6 +247,25 @@ ok('signal pin id (instanceId::signal:win)', !!signalPin);
 ok('signal pin role signal', signalPin?.role === 'signal');
 ok('signal pin direction in', signalPin?.direction === 'in');
 
+// 5b. FS-3 free-spin signal pins — a cue bound to freeSpinStart/freeSpinEnd derives a
+// `signal` input pin (no pins.ts change; the catalog additions flow straight through).
+const fsStartPin = byId(pins, 'n_freespin::signal:freeSpinStart');
+ok('signal pin id (instanceId::signal:freeSpinStart)', !!fsStartPin);
+ok('freeSpinStart pin role signal', fsStartPin?.role === 'signal');
+ok('freeSpinStart pin direction in', fsStartPin?.direction === 'in');
+const fsEndPin = byId(pins, 'n_freespin::signal:freeSpinEnd');
+ok('signal pin id (instanceId::signal:freeSpinEnd)', !!fsEndPin);
+ok('freeSpinEnd pin direction in', fsEndPin?.direction === 'in');
+// The signal NAMES must be in the authoring vocabulary the Scene Editor + Flow offer.
+ok(
+	'freeSpinStart in ENGINE_SIGNAL_CATALOG',
+	ENGINE_SIGNAL_CATALOG.some((s) => s.key === 'freeSpinStart'),
+);
+ok(
+	'freeSpinEnd in ENGINE_SIGNAL_CATALOG',
+	ENGINE_SIGNAL_CATALOG.some((s) => s.key === 'freeSpinEnd'),
+);
+
 // 6. Stable ids — rename + reorder must not change ANY id.
 const renamed: Scene = {
 	...baseScene,
@@ -210,6 +273,7 @@ const renamed: Scene = {
 		// reordered (spin first) AND the win readout RELABELLED — ids must be identical.
 		baseScene.nodes[1],
 		{ ...baseScene.nodes[0], label: 'Total Win' },
+		baseScene.nodes[4],
 		baseScene.nodes[3],
 		baseScene.nodes[2],
 	],

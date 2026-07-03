@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
 
-	import { Container, Text } from 'pixi-svelte';
+	import { Container } from 'pixi-svelte';
 	import { WHITE } from 'constants-shared/colors';
 	import { stateModal } from 'state-shared';
-	import { getComponentParams } from 'engine-layout/svelte';
+	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
 	import type { ResolvedTransform } from 'engine-layout';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
@@ -77,8 +77,8 @@
 
 {#if isBet}
 	<Container eventMode="static" cursor={disabled ? 'not-allowed' : 'pointer'} onpointerup={onpress}>
-		<Text anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
+		<CatalogText anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
 	</Container>
 {:else}
-	<Text anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
+	<CatalogText anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
 {/if}

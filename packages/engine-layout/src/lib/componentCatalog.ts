@@ -216,12 +216,28 @@ export const BUTTON_STATE_PARAMS: ComponentParam[] = [
  * Signals a component's spine can play a cue on. Tick one here, then on a spine node add
  * a "Plays on signal" cue (signal → animation). `enter` is fired by the component itself
  * when it becomes visible (mount, or a `visibleSource` gate opening) — the intro-on-appear
- * hook. `win`/`bigWin` are fired by the game's win presentation. (Former `exit`/`idle`
- * placeholders were removed — nothing fired them: an instant-hide gate cuts an exit
- * animation and idle had no trigger.)
+ * hook. `win`/`bigWin` are fired by the game's win presentation. `freeSpinStart`/
+ * `freeSpinEnd` are fired by the free-spin lifecycle (intro presents / outro presents), so a
+ * spine cue on an authored intro/counter/outro screen plays with the mode. (Former
+ * `exit`/`idle` placeholders were removed — nothing fired them: an instant-hide gate cuts an
+ * exit animation and idle had no trigger.)
+ *
+ * FS-4 seam: `freeSpinRetrigger` joins this list once the dedicated `retrigger` event exists
+ * (design doc §14) — an additive entry here + a matching `registerComponentSignals` wire, no
+ * other change.
  */
 export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{ key: 'enter', label: 'Enter', note: 'Played when the component appears (mount / gate opens).' },
 	{ key: 'win', label: 'Win', note: 'A winning result resolved.' },
 	{ key: 'bigWin', label: 'Big Win', note: 'A big-win threshold was crossed.' },
+	{
+		key: 'freeSpinStart',
+		label: 'Free-spin start',
+		note: 'The free-spin intro presents (free spins awarded).',
+	},
+	{
+		key: 'freeSpinEnd',
+		label: 'Free-spin end',
+		note: 'The free-spin outro presents (free spins finished).',
+	},
 ];

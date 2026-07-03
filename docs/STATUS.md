@@ -24,6 +24,44 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Scene Editor suppresses the "Shows during" gate on flow-driven screens (single owner of visibility)
+
+**Why.** A screen's visibility was authorable in two places at once: the Scene Editor's per-screen
+**"Shows during"** dropdown (`Scene.visibleSource`, the pre-Flow lifecycle gate) AND Invisible Flow
+(active-set mounting). At runtime the flow already wins — the generic `visibleSource` overlay mount is
+suppressed for any screen the flow owns (`Game.svelte`, the `authoredScreenIds().has(scene.id)` guard) —
+so the editor knob was stale double-information for those screens. **The mechanism is deliberately kept**
+(no shipped game runs a FlowDoc yet; every live game still gates free-spin intro/outro through
+`visibleSource`) — only the *editor control* is hidden per-screen once the flow takes over.
+
+**Change (editor-only, no engine/runtime change).** `editor/+page.server.ts` now also `loadFlowDoc`s
+and returns `flowScreenIds = flow.screens.map(s => s.id)` — the SAME set the runtime treats as flow-
+owned (a *placed* flow screen, not an un-placed palette scene). `editor/+page.svelte` derives
+`activeSceneFlowDriven` and, when true, replaces the "Shows during" select (and its blocking gate-style
+sub-controls) with an explanatory note pointing the author to the flow. `role` (the boot anchor) is
+untouched — the flow depends on it. Verified: `pnpm --filter launcher-api build` green.
+
+### 2026-07-03 — Coded HUD/label text now honors authored bitmap fonts (shared `CatalogText`) (SHIPPED to `_runtime/lines`)
+
+**Symptom.** A Font Maker BITMAP font assigned (via the editor's font field) to HUD readouts —
+`hudReadout` caption/value, the free-spin counter value — rendered in the browser **default face**
+in the live game, while the SAME font on buttons / tap-to-continue rendered correctly. Live-verified
+on Book of Borut Remake: `TURBO`/`AUTO SPIN` → pixi `bitmapText` pipe ✅; `Balance`/`$5,000.00` →
+canvas `text` pipe ❌. The font itself shipped fine (catalog + descriptor + PNG all 200, correct
+CORS/bindings) — the bug was purely in RENDERING.
+
+**Root cause.** The "separate coded parts" (§14.3/§16.2) — `HudCaption`, `HudValue`, `ButtonLabel`,
+the numeric `ParamReadoutText`, and reference `UiLabel` — rendered a plain pixi canvas `<Text>`
+regardless of the chosen font. A bitmap family handed to `<Text>` can't resolve as a system font →
+default face. Only `LayoutNodeView` (layout text nodes) made the bitmap-vs-canvas decision, which is
+why buttons worked but the coded HUD parts didn't.
+
+**Fix.** New shared `engine-layout` component **`CatalogText`** — renders `<BitmapText>` when
+`style.fontFamily` names a bitmap family in the boot-registered catalog, else `<Text>` (parity for
+proxima-nova/web fonts). Routed every coded text part through it, and collapsed `LayoutNodeView`'s own
+inline `isBitmap` branch into it so the two copies can't drift. Live-verified: HUD readouts now render
+the authored bitmap font. Commit `fbf2f6f`.
+
 ### 2026-07-03 — Reel grid: split the conflated `reelPadding` into three honest, independent knobs (engine + editor)
 
 **Symptom.** Authoring a `reelGrid` with specific sizing, the live board rendered **shifted/mis-anchored
@@ -46,6 +84,112 @@ Editor `drawReelGrid` mirrors the game math exactly (verified: editor↔game on-
 `reelGrid.ts`), `utils-slots` (`createReelForSpinning` gains `symbolLead`, default 0.5 = parity for all
 other games), `apps/lines/stateGame`, launcher editor (`EditorCanvas`, `EditorProperties`).
 **Not yet published to `_runtime/lines`** and **not yet mirrored to Borut's engine submodule.**
+
+### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
+
+**Symptom.** On `bookofborutremake` the authored HUD **buttons rendered nothing** in-game (bottom bar +
+balance DID render); actions were all set; "worked before". **Root cause (from the LIVE doc,
+`invisible_wall/bookofborutremake/editor/scenes.json`):** the buttons scene is named "HUD — buttons"
+but carries the id **`hudBar`** — a reserved coded-`<UI>` id, NOT a `hud_*` id (its 8 button
+`componentInstance` nodes are well-formed: actions set, on-screen transforms, shipping art, pinned
+`c_kzdbwen7 v9`). The owner also authored `hud_*` screens (bottom bar / balance), so `hasAuthoredHud`
+→ `suppressCodedHud` → the coded `<UI>` (the ONLY mount path for `hudBar`) is off; but
+`authoredHudScenes`' `hud_` prefix filter refuses to adopt `hudBar`, and it's `RESERVED_SCENE_IDS`
+(excluded from `extraScenes`). Net: **zero mount paths** for a scene the author filled with buttons.
+`ba0d4a5` (full-replace) introduced the suppression that exposed this; before it the coded `<UI>`
+mounted `hudBar` unconditionally (hence "worked before"). Not `81f6469`/feature-gates (buttons never
+reach button-def expansion), not the active-set gate (`hudBar` IS reachable — `loading→hudBar` complete
+edge).
+
+**Fix (engine, generic — a HUD scene the author filled with nodes must always mount somewhere).**
+`packages/engine-layout/src/lib/genericMountScenes.ts`: new `CODED_HUD_SCENE_IDS` (single source of
+truth) + `fullReplaceHudScenes(scenes)` — a SUPERSET of `authoredHudScenes` that also adopts a
+content-bearing canonical `hudBar`/`hudCorners`. `Game.svelte`: `suppressCodedHud` stays keyed on
+`hud_*` only (parity — a normal coded-HUD game with `hudBar` content never trips full-replace); the
+RENDER list is now `suppressCodedHud ? fullReplaceHudScenes(scenes) : []`, and `HUD_SCENE_IDS` reuses
+`CODED_HUD_SCENE_IDS` (DRY). `hudBar`/`hudCorners` already reserved from `extraScenes` + coded `<UI>`
+suppressed ⇒ no double-mount; the 2026-07-03 active-set gate governs their visibility (hidden during
+loading, revealed on the `loading→hudBar` tap). **PARITY:** not suppressed ⇒ render list `[]` ⇒ coded
+`<UI>` renders the HUD itself, byte-identical.
+
+**Verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN (`engine-layout` dist
+rebuilt). **Owner live-verify (WebGL):** the 8 authored buttons now appear on the bar in-game and
+respond. Files: `packages/engine-layout/src/lib/genericMountScenes.ts`,
+`apps/lines/src/components/Game.svelte`, `docs/design/invisible-flow.md`, `docs/STATUS.md`.
+
+### 2026-07-03 — Authored HUD: active-set gate for `hud_*` screens + flow-action routing generalized beyond `spin` + symbol art tracks the reel cell (SHIPPED to `_runtime/lines`)
+
+**Context.** Owner's `bookofborutremake` (a `runtime:lines` game) authored a split HUD via `/flow`
+(`loading` → base game + `hud_*` button/bottom-bar/balance screens, with `button → intent` edges) and
+hit three defects: (1) the authored bottom bar + balance infos were **visible during the loading
+splash**; (2) authored HUD **buttons did nothing** except spin; (3) after **shrinking the reel cell**
+in the editor, in-game **symbols clipped** (fine in the editor). All three land in the shared
+`apps/lines` runtime bundle (reaches Book of Borut via `publish-runtime-bundle.mjs` — NO submodule
+bump) and hold the §7 inert-flow fall-through (no flow ⇒ byte-identical to `main`).
+
+- **A. Authored-HUD active-set gate** (`apps/lines/src/components/Game.svelte`). The §16 full-replace
+  `{#each authoredHud}` block rendered `hud_*` scenes UNCONDITIONALLY — the flow active-set (and thus
+  the `loading→HUD` handoff) never reached them, so they painted over the loading takeover. Now each
+  scene renders only when `!flow || !flow.mounter.authoredScreenIds().has(scene.id) ||
+  activeScreenIds.includes(scene.id)` — same gate shape as the base-game reels + coded `<UI>`. A
+  `hud_*` scene the flow does NOT author still renders unconditionally (parity).
+- **B. Flow-action routing generalized beyond `spin`** (`Game.svelte`, §8.5). Previously ONLY the
+  `spin` action consulted the flow (`hasFlowAction`/`emitFlowAction`); `increase`/`decrease`/`turbo`/
+  `menu` `button → intent` edges were inert, and `invokeIntent` was a `spin`-only no-op. Lifted each
+  coded press body into a shared helper (`doIncreaseBet`/`doDecreaseBet`/`doToggleTurbo`/`doOpenMenu`;
+  `doSpinBetOrStop` is the `spin` member), added `invokeHostIntent(intent)` (one dispatch table shared
+  by the registered `onpress` and the interpreter bridge) and `routeActionThroughFlow(pin, coded)` (the
+  shared flow-guard). Every HUD `onpress` now routes through the flow when wired, else runs its coded
+  body — `spin` byte-identical. Intent bodies don't broadcast the press sound (no double-fire).
+  `flowRuntime.svelte.ts` `invokeIntent` JSDoc updated. Intents beyond the five HUD ones
+  (`buyBonus`/`autoSpin`/`payTable`/…) are NOT yet in the table — trivial to extend.
+- **C. Symbol art tracks the reel cell** (`apps/lines/src/game/stateGame.svelte.ts`,
+  `components/{SymbolSprite,SymbolSpineMain}.svelte`). Symbol art was drawn at the constant
+  `SYMBOL_SIZE` (120px) while the reel mask window followed the authored cell — shrink the cell and
+  symbols overflowed + clipped (invisible in the editor, which draws only a placeholder grid, no art /
+  no mask). `boardGeometry()` now also exposes `cellWidthLocal`/`cellHeightLocal` (the board-local
+  contain-fit box, same override+scale math the mask/pitch use); the Sprite reads them directly and the
+  Spine reads them × `SYMBOL_SPINE_FILL`. **PARITY:** no override AND any uniform-scaled board collapse
+  both edges to exactly `SYMBOL_SIZE`, so the default + Borut's own (uniform) symbols are byte-identical;
+  only a NON-uniform / absolute small cell now resizes art to fit its mask.
+
+**Verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN (build = typecheck).
+**Owner interactive-verify (WebGL, online — headless can't click):** bottom bar / balance hidden on the
+loading splash and revealed on tap; authored increase/decrease/turbo/menu buttons work via their intent
+edges (or a direct `params.action`); a re-authored smaller reel cell no longer clips symbols. **OWNER
+authoring caveats (unchanged from §16):** each HUD button still needs `params.action` set to be
+pressable; existing `hud_*` screens minted before the align fix still need `align.vertical:'bottom'`;
+shrink reels via the node's UNIFORM scale where possible (non-uniform now works too). Files:
+`apps/lines/src/components/{Game,SymbolSprite,SymbolSpineMain}.svelte`,
+`apps/lines/src/game/{stateGame.svelte.ts,flowRuntime.svelte.ts}`,
+`docs/design/invisible-flow.md`, `docs/STATUS.md`.
+
+### 2026-07-03 — Live-asset cache-busting + dangling-binding guard (fixes "re-authored atlas, game shows old / not-found")
+
+Closes gap #3 of `docs/design/live-assets.md` (see that doc's dated section). Symptom: re-pack an
+atlas and the running game keeps loading the old frame set (`Sprite: key "T_Icon_Hat.png" is not
+found in the loadedAssets`); re-saving the Symbols State Machine only *appeared* to fix it (a red
+herring — `PUT /api/editor/symbols` has no side-effect; the heal was the fresh page load). Root
+cause: the editor-art / symbol exporters wrote each sheet to a **stable** deploy URL
+(`<stem>/<stem>.json` + page), so re-packing overwrote the same URL and a browser/Cloudflare cache
+served stale (`deployServe.ts` = `max-age=60`, edge can stretch).
+
+**Two fixes:**
+- **Content-versioned filenames** — new `apps/launcher-api/src/lib/server/assetVersion.ts`
+  (`sheetVersion`) stamps a content hash into every exported sheet's names
+  (`<stem>.<hash>.json` / `<stem>.<hash>.<ext>`), hashing region geometry + the source page's R2
+  ETag (added `headObject` to `r2.ts` — HEAD only, memory-flat copy preserved). Changed atlas ⇒
+  new URL the cache never saw; the existing prune drops the old version. Applied in
+  `editorArtExport.ts` + `symbolExport.ts`, so runtime boot AND bake version identically. Spine
+  bundles + Font Maker pages still use stable names (same class, deferred).
+- **Dangling-binding guard** — exporters now emit `missing: string[]` (placed region /
+  bound symbol frame that NO shipped atlas packs → renders blank). `bake-editor-doc.mjs` warns per
+  publish; the game warns once at boot (`warnMissingAssets` in `apps/lines/src/editor-scenes.ts`).
+
+`pnpm --filter launcher-api build` green; `editor-scenes.ts` type-checks. **Not yet shipped to
+`_runtime/lines`** — the engine-side boot warning needs a `publish-runtime-bundle.mjs` release; the
+launcher-side versioning + bake warnings go live on the next Railway deploy. Verify with a clean
+incognito load (reachability, not just deploy).
 
 ### 2026-07-02 — Invisible Flow: value-dataflow pins (engine signal → HUD display), Phase 9 steps 1–5
 

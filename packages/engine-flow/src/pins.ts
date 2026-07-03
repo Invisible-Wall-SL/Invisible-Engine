@@ -198,6 +198,11 @@ export interface DeriveScreenPinsOptions {
 	/** True when THIS screen is the value-producer host (design doc §11.3 — Base game for now). Only
 	 *  then are producer pins added. Reuses the SAME resolved host as intents (§11.3 option (a)). */
 	isProducerHost?: boolean;
+	/** The game's book-event vocabulary (design doc §14 FS-2 — the `typesBookEvent.ts` union types,
+	 *  e.g. `['freeSpinTrigger', 'freeSpinEnd', 'updateFreeSpin']`). One `bookEvent` trigger INPUT pin
+	 *  is derived per event on EVERY screen (unlike host-only intents — a book event can activate any
+	 *  screen, so the vocabulary is advertised everywhere). Absent/empty ⇒ no book-event pins. */
+	bookEvents?: string[];
 }
 
 /** Build an intent input pin for the host screen (design doc §8.3). Structural-style stable id
@@ -225,14 +230,27 @@ const producerPin = (screenId: string, feed: EngineFeed): FlowPin => ({
 	label: pinLabel(feed.label, feed.key),
 });
 
+/** Build a book-event trigger INPUT pin for a screen (design doc §14 FS-2). Structural-style stable
+ *  id `${screenId}::bookEvent:${event}` (key-stable, mirroring the §8.3 intent-pin id pattern) so a
+ *  wire survives relabels. Not tied to a scene node — projected from the book-event vocabulary. The
+ *  label is the event name itself (the "BookEvent" role word is redundant among the trigger inputs). */
+const bookEventPin = (screenId: string, event: string): FlowPin => ({
+	id: `${screenId}::bookEvent:${event}`,
+	role: 'bookEvent',
+	direction: 'in',
+	key: event,
+	label: pinLabel('BookEvent', event),
+});
+
 /**
  * Derive the full pin set for one screen (a LayoutDoc {@link Scene}): the three fixed
  * structural pins plus every dynamic pin projected from the scene's components and its
  * scene-level visibility gate. When `options.isIntentHost`, one intent INPUT pin per intent
  * key is added right after the structural pins (design doc §8); when `options.isProducerHost`,
- * one PRODUCER output pin per engine feed follows (design doc §11.4). Deterministic + order-stable
- * (structural → intents → producers → gate → dynamic in tree order), so two derivations of the
- * same doc produce identical ids.
+ * one PRODUCER output pin per engine feed follows (design doc §11.4); when `options.bookEvents`,
+ * one `bookEvent` trigger INPUT pin per event follows on EVERY screen (design doc §14 FS-2 — a book
+ * event can activate any screen). Deterministic + order-stable (structural → intents → producers →
+ * bookEvents → gate → dynamic in tree order), so two derivations of the same doc produce identical ids.
  */
 export const deriveScreenPins = (
 	scene: Scene,
@@ -254,6 +272,12 @@ export const deriveScreenPins = (
 	// intent pins so the host's inputs (intents) and outputs (producers) group predictably.
 	if (options.isProducerHost && options.engineFeeds?.length) {
 		for (const feed of options.engineFeeds) pins.push(producerPin(scene.id, feed));
+	}
+	// Book-event trigger input pins (design doc §14 FS-2) — one per book-event type on EVERY screen
+	// (a book event can activate any screen, so the vocabulary is a union advertised everywhere; NOT
+	// host-gated like intents). In the caller's vocabulary order so ids/order are deterministic.
+	if (options.bookEvents?.length) {
+		for (const event of options.bookEvents) pins.push(bookEventPin(scene.id, event));
 	}
 	// The whole-screen lifecycle gate (`Scene.visibleSource`) is a gate pin on the screen
 	// itself (keyed by the scene id, role `gate`) — the same `registerComponentVisibility`

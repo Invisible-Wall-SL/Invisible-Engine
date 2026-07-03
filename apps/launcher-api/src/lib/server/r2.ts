@@ -198,6 +198,34 @@ export async function objectExists(key: string): Promise<boolean> {
 	}
 }
 
+export interface ObjectHead {
+	/** R2/S3 ETag — a content hash for a single-part upload (quoted). Null when absent. */
+	etag: string | null;
+	size: number;
+	/** Epoch ms of `LastModified` (0 when absent). */
+	lastModified: number;
+}
+
+/**
+ * HEAD one object for its content fingerprint (ETag) + size + mtime WITHOUT
+ * streaming its bytes — used to content-version a copied page for cache-busting
+ * (see `assetVersion.ts`). Returns null when the object is missing (mirrors
+ * `getObjectBytes`), so a caller can treat "no head" as "no source".
+ */
+export async function headObject(key: string): Promise<ObjectHead | null> {
+	try {
+		const res = await s3().send(new HeadObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
+		return {
+			etag: res.ETag ?? null,
+			size: res.ContentLength ?? 0,
+			lastModified: res.LastModified?.getTime() ?? 0,
+		};
+	} catch (e) {
+		if (isNotFound(e)) return null;
+		throw e;
+	}
+}
+
 export interface ListResult {
 	/** Object keys directly under the prefix (delimited listing excludes sub-prefixes). */
 	keys: string[];

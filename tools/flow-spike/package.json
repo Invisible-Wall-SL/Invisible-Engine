@@ -20,6 +20,7 @@
 		"phase7": "tsx phase7Authoring.ts",
 		"transition": "tsx phase8Transition.ts",
 		"actionintent": "tsx phase8ActionIntent.ts",
+		"fs2": "tsx fs2BookEventPins.ts",
 		"vocab": "tsx vocabulary.ts",
 		"tap": "tsx tapToContinue.ts",
 		"scenerole": "tsx sceneRole.ts"

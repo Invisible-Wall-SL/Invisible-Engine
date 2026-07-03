@@ -66,6 +66,8 @@
 		hasAuthoredBackground,
 		extraMountScenes,
 		authoredHudScenes,
+		fullReplaceHudScenes,
+		CODED_HUD_SCENE_IDS,
 		hasAuthoredHud,
 		docLayerZIndex,
 		LAYER_BAND_TAKEOVER,
@@ -497,7 +499,7 @@
 	// by authoring one of these ids as a FlowDoc screen, so the loading→HUD `complete` handoff can
 	// reveal it on the tap (mirroring the base-game reel gate). Kept to the ids the engine already
 	// resolves — no magic per-game id.
-	const HUD_SCENE_IDS = ['hudBar', 'hudCorners'] as const;
+	const HUD_SCENE_IDS = CODED_HUD_SCENE_IDS;
 	// Whether the HUD is FLOW-MANAGED: at least one HUD scene id is an authored FlowDoc screen (the
 	// same source `reservedSceneIds` uses). INERT-FLOW FALL-THROUGH (§7): with no flow, or a flow
 	// that authors no HUD node, this is false ⇒ the `<UI>` renders UNCONDITIONALLY below exactly as
@@ -548,17 +550,19 @@
 	const bgScenes = $derived(backgroundScenes(editorDoc.scenes));
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
 
-	// Authored REPLACEMENT HUD screens (§16 HUD generalization, FULL-REPLACE contract). The
-	// Scene Editor's "New HUD screen" mints `hud_`-prefixed scenes carrying the author's own HUD
-	// chrome (buttons / bottom bar / readouts). `authoredHudScenes` selects them by the `hud_`
-	// prefix (excluding the canonical `hudBar`/`hudCorners` that drive the coded `<UI>`);
-	// `hasAuthoredHud` is true when at least one has real content ⇒ the author screens BECOME the
-	// HUD and the coded `<UI>` is fully suppressed. Both are the engine-layout contract shared with
-	// the editor + other games (mirroring `backgroundScenes`/`hasAuthoredBackground`). `apps/lines`'
-	// fallback authors NO `hud_*` scene ⇒ list empty, flag false ⇒ the coded `<UI>` renders
-	// unconditionally as today (byte-identical parity).
-	const authoredHud = $derived(authoredHudScenes(editorDoc.scenes));
+	// Authored REPLACEMENT HUD screens (§16 HUD generalization, FULL-REPLACE contract). The Scene
+	// Editor's "New HUD screen" mints `hud_`-prefixed scenes carrying the author's own HUD chrome
+	// (buttons / bottom bar / readouts). `hasAuthoredHud` is true when at least one `hud_*` scene has
+	// real content ⇒ the author screens BECOME the HUD and the coded `<UI>` is fully suppressed
+	// (`suppressCodedHud`). Suppression is keyed on `hud_*` ONLY so a normal coded-HUD game with
+	// content on `hudBar` never trips full-replace (parity, mirroring `hasAuthoredBackground`).
+	// The RENDER list, however, is `fullReplaceHudScenes` — a superset that ALSO adopts a
+	// content-bearing canonical `hudBar`/`hudCorners`. Without that adoption, an author who put real
+	// buttons on the `hudBar` scene (its natural home) would see them mount NOWHERE once suppression
+	// switches off the coded `<UI>` (the only path that mounts `hudBar`). Empty ⇒ not suppressed ⇒
+	// the coded `<UI>` renders the HUD itself (byte-identical parity for `apps/lines`' fallback).
 	const suppressCodedHud = $derived(hasAuthoredHud(editorDoc.scenes));
+	const authoredHud = $derived(suppressCodedHud ? fullReplaceHudScenes(editorDoc.scenes) : []);
 
 	const context = getContext();
 
@@ -775,6 +779,10 @@
 	// `<ComponentInstance>` only subscribes a signal a cue names. `win` fires when the
 	// win presentation begins (`winShow`); `bigWin` fires only on the `'big'` win-level
 	// tier (covers big/superwin/mega/epic/max — see game/winLevelMap.ts).
+	// `freeSpinStart`/`freeSpinEnd` fire on the free-spin lifecycle: the intro presents
+	// (`freeSpinIntroShow`, broadcast by the coded `freeSpinTrigger` handler) and the outro
+	// presents (`freeSpinOutroShow`, broadcast by the coded `freeSpinEnd` handler) — the
+	// existing emitter events, reused (no new event; the dedicated retrigger event is FS-4).
 	registerComponentSignals({
 		win: eventSignal((run) => context.eventEmitter.subscribe({ winShow: () => run() })),
 		bigWin: eventSignal((run) =>
@@ -783,6 +791,12 @@
 					if (e.winLevelData.type === 'big') run();
 				},
 			}),
+		),
+		freeSpinStart: eventSignal((run) =>
+			context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
+		),
+		freeSpinEnd: eventSignal((run) =>
+			context.eventEmitter.subscribe({ freeSpinOutroShow: () => run() }),
 		),
 	});
 
@@ -844,12 +858,65 @@
 		}
 	};
 
+	// Shared coded bodies for the HUD action intents (design doc §8.5). Each is the exact
+	// press behaviour of the matching coded button, extracted so ONE source of truth serves
+	// BOTH the registered `onpress` (a directly-bound `params.action` button) AND the flow
+	// `invokeIntent` bridge (an authored `action → intent` edge). `doSpinBetOrStop` above is
+	// the `spin` member. None of these plays the press SOUND — that stays on the button press
+	// so an intent-invoked action doesn't double up the sound the button already made.
+	const doIncreaseBet = (): void => {
+		const biggest = stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1];
+		const nextBigger = [...stateConfig.betAmountOptions]
+			.sort((a, b) => a - b)
+			.find((option) => option > stateBet.betAmount);
+		stateBetDerived.setBetAmount(nextBigger || biggest);
+	};
+	const doDecreaseBet = (): void => {
+		const smallest = stateConfig.betAmountOptions[0];
+		const nextSmaller = [...stateConfig.betAmountOptions]
+			.sort((a, b) => b - a)
+			.find((option) => option < stateBet.betAmount);
+		stateBetDerived.setBetAmount(nextSmaller || smallest);
+	};
+	const doToggleTurbo = (): void => {
+		stateBetDerived.updateIsTurbo(!stateBet.isTurbo, { persistent: true });
+	};
+	const doOpenMenu = (): void => {
+		stateUi.menuOpen = true;
+	};
+
+	// The intent host bridge (design doc §8.5): the game IMPLEMENTS `invokeIntent`, called by
+	// the interpreter for every `action → intent` edge. Maps an intent NAME to its shared coded
+	// body above, so a HUD button whose action pin is wired into a Base-game intent runs the
+	// EXACT coded behaviour. An unknown intent is a safe no-op (parity §8.8). Shared with the
+	// `onMount` interpreter build below so there is ONE dispatch table.
+	const invokeHostIntent = (intent: string): void => {
+		if (intent === 'spin') doSpinBetOrStop();
+		else if (intent === 'increase') doIncreaseBet();
+		else if (intent === 'decrease') doDecreaseBet();
+		else if (intent === 'turbo') doToggleTurbo();
+		else if (intent === 'menu') doOpenMenu();
+	};
+
+	// Functional action pin routing (design doc §8.5): if an author wired this button's `pin`
+	// action into a flow intent, route the press THROUGH the flow (which calls `invokeIntent`)
+	// and stop — one path, no double-fire. UNWIRED / inert interpreter ⇒ `hasFlowAction` is
+	// false ⇒ `coded()` runs exactly as today (parity §8.8). Shared by every HUD action's
+	// `onpress` so the flow-routing lives in ONE place, not copied per button.
+	const routeActionThroughFlow = (pin: string, coded: () => void): void => {
+		if (hasFlowAction(pin)) {
+			emitFlowAction(pin);
+			return;
+		}
+		coded();
+	};
+
 	registerComponentActions({
 		// ButtonMenu — open the menu overlay. No disabled/active.
 		menu: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateUi.menuOpen = true;
+				routeActionThroughFlow('menu', doOpenMenu);
 			},
 		},
 		// The four buttons that live INSIDE the menu overlay, lifted so each can be
@@ -925,7 +992,7 @@
 		turbo: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateBetDerived.updateIsTurbo(!stateBet.isTurbo, { persistent: true });
+				routeActionThroughFlow('turbo', doToggleTurbo);
 			},
 			disabled: boolSource(() => stateBet.isSpaceHold),
 			active: boolSource(() => stateBet.isTurbo),
@@ -935,11 +1002,7 @@
 		increase: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				const biggest = stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1];
-				const nextBigger = [...stateConfig.betAmountOptions]
-					.sort((a, b) => a - b)
-					.find((option) => option > stateBet.betAmount);
-				stateBetDerived.setBetAmount(nextBigger || biggest);
+				routeActionThroughFlow('increase', doIncreaseBet);
 			},
 			disabled: boolSource(
 				() =>
@@ -953,11 +1016,7 @@
 		decrease: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				const smallest = stateConfig.betAmountOptions[0];
-				const nextSmaller = [...stateConfig.betAmountOptions]
-					.sort((a, b) => b - a)
-					.find((option) => option < stateBet.betAmount);
-				stateBetDerived.setBetAmount(nextSmaller || smallest);
+				routeActionThroughFlow('decrease', doDecreaseBet);
 			},
 			disabled: boolSource(
 				() =>
@@ -978,17 +1037,10 @@
 		spin: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressBet' });
-
-				// Functional action pin (design doc §8.5): if an author wired this button's `spin`
-				// action into a flow intent, route the press THROUGH the flow (which calls
-				// `invokeIntent('…','spin')` → `doSpinBetOrStop()`) and stop — one path, no double-
-				// fire. UNWIRED ⇒ `hasFlowAction` is false ⇒ the coded bet/stop runs exactly as today
-				// (parity §8.8). The interpreter is inert with no FlowDoc, so this is `false` there.
-				if (hasFlowAction('spin')) {
-					emitFlowAction('spin');
-					return;
-				}
-				doSpinBetOrStop();
+				// Functional action pin (design doc §8.5): an authored `spin` action → intent edge
+				// routes the press THROUGH the flow; unwired / inert ⇒ the coded bet/stop runs
+				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
+				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
 			disabled: boolSource(() => ['spin_disabled', 'stop_disabled'].includes(getSpinKey())),
 			spinning: boolSource(isSpinning),
@@ -1036,12 +1088,10 @@
 			flow = createLinesFlow(
 				doc,
 				(screenIds, entrances) => applyActiveScreens(screenIds, entrances),
-				// Intent host bridge (design doc §8.5): a wired `spin` action → the host's `spin` intent
-				// invokes the EXACT coded bet/stop (shared `doSpinBetOrStop`). Other intents are no-ops
-				// until wired (parity §8.8) — Spin ships first, the rest follow the identical pattern.
-				(_screenId, intent) => {
-					if (intent === 'spin') doSpinBetOrStop();
-				},
+				// Intent host bridge (design doc §8.5): a wired `action → intent` edge invokes the EXACT
+				// coded behaviour of that HUD button (spin/increase/decrease/turbo/menu) via the shared
+				// `invokeHostIntent` dispatch. An unknown intent is a safe no-op (parity §8.8).
+				(_screenId, intent) => invokeHostIntent(intent),
 			);
 			setFlowInterpreter(flow);
 			// Seed the rune from the interpreter's initial active set (the `initial` node), then run
@@ -1222,9 +1272,22 @@
 			game that authors no `hud_*` screen ⇒ renders nothing (parity, byte-identical to `main`).
 		-->
 	{#each authoredHud as scene (scene.id)}
-		<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
-			<LayoutScene {scene} />
-		</Container>
+		<!--
+				Active-SET gate (the pin-driven active-SET model, mirroring the base-game reel gate +
+				the coded `<UI>` gate above). When the flow MODELS this HUD screen as its own node
+				(`flow.mounter.authoredScreenIds().has(scene.id)`), it renders ONLY while that screen
+				is in the active set (`activeScreenIds.includes(scene.id)`): during `loading` the HUD is
+				hidden, and the `loading→HUD` `complete` handoff reveals it on the tap.
+
+				INERT-FLOW FALL-THROUGH (parity §7): with NO flow, OR a HUD screen the flow does NOT
+				author, this renders UNCONDITIONALLY exactly as today (byte-identical to `main`). Only a
+				flow that authors this exact HUD screen id gates it on the active set.
+			-->
+		{#if !flow || !flow.mounter.authoredScreenIds().has(scene.id) || activeScreenIds.includes(scene.id)}
+			<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
+				<LayoutScene {scene} />
+			</Container>
+		{/if}
 	{/each}
 	<Container zIndex={basegameOverlaysZIndex}>
 		<LayoutScene scene={basegameOverlaysScene} />

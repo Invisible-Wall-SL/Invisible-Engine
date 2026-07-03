@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Sprite, type SpriteProps } from 'pixi-svelte';
 
+	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
-	import { SYMBOL_SIZE } from '../game/constants';
 	import { onMount } from 'svelte';
 
 	type Props = {
@@ -13,6 +13,13 @@
 	};
 
 	const props: Props = $props();
+	const context = getContext();
+
+	// Contain-fit box = the reel's LIVE cell (the mask window's per-cell size in
+	// board-local space), the SAME source of truth the reel mask uses — so art can
+	// never overflow the mask when a non-square / small cell is authored. No override
+	// (and a uniform-scaled board) collapses to SYMBOL_SIZE × SYMBOL_SIZE ⇒ byte-parity.
+	const geometry = $derived(context.stateGameDerived.boardGeometry());
 
 	onMount(() => {
 		props.oncomplete?.();
@@ -33,7 +40,7 @@
 	y={props.y}
 	anchor={0.5}
 	key={props.symbolInfo.assetKey}
-	width={SYMBOL_SIZE}
-	height={SYMBOL_SIZE}
+	width={geometry.cellWidthLocal}
+	height={geometry.cellHeightLocal}
 	contain
 />

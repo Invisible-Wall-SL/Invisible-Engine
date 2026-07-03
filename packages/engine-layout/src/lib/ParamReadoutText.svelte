@@ -22,7 +22,7 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
 
-	import { Text } from 'pixi-svelte';
+	import CatalogText from './CatalogText.svelte';
 
 	const props: Props = $props();
 
@@ -41,7 +41,7 @@
 	const text = $derived(props.format(displayed.current));
 </script>
 
-<Text
+<CatalogText
 	{text}
 	x={props.x}
 	y={props.y}
