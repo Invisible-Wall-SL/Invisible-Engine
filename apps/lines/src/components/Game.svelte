@@ -129,7 +129,6 @@
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
 	import Effects from './Effects.svelte';
-	import I18nTest from './I18nTest.svelte';
 
 	// Invisible Debug — register this game's debug tools (symbol overlay + win-state
 	// probe). Dynamic-imported only under the build switch so the tools + their
@@ -1386,8 +1385,6 @@
 			ride the rig. Renders nothing when no effects are baked (parity, byte-identical).
 		-->
 	<Effects />
-
-	<I18nTest />
 
 	<DebugStage />
 </App>

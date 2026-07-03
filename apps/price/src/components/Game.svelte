@@ -38,7 +38,6 @@
 	import Transition from './Transition.svelte';
 	import ExpandingWilds from './ExpandingWilds.svelte';
 	import StickyBoard from './StickyBoard.svelte';
-	import I18nTest from './I18nTest.svelte';
 
 	// Invisible Debug — register this game's debug tools (symbol overlay). Dynamic-
 	// imported only under the build switch so the tools + their component modules
@@ -182,8 +181,6 @@
 		{/if}
 		<FreeSpinOutro />
 		<Transition />
-
-		<I18nTest />
 	{/if}
 
 	<DebugStage />
