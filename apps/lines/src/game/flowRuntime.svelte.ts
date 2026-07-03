@@ -35,6 +35,8 @@ import type { FlowDoc, ScreenEntrance } from 'engine-flow';
 import { createFlowInterpreter } from 'engine-flow';
 import type { LayoutDoc, Scene } from 'engine-layout';
 import { basegameSceneId, loadingSceneId, sceneByRole } from 'engine-layout';
+
+import { flowOwnsFreeSpins, gateFreeSpinOwnership } from './freeSpinOwnership';
 import { stateBet, stateBetDerived, stateUi } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
@@ -204,11 +206,12 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
 		// live-verify of branching on LIVE engine state (a `$engine.*` guard) without a deploy/bake.
 		// Checked before the full `LINES_FLOW_DOC`. Unset on a normal boot ⇒ inert (parity, §7).
 		if (globalThis.__IE_FLOW_COND__) return LINES_FLOW_COND_DOC;
-		// FS-1 (design doc §14) — the free-spin lifecycle as author-controlled overlays layered over
-		// the persistent basegame, for live-verify of the intro/counter/retrigger/outro active-set
-		// transitions without a deploy/bake. Checked before the full `LINES_FLOW_DOC`. The free-spin
-		// book events stay UN-authored (fall through to the coded handlers that present while the
-		// coded gates remain — FS-6 deferred). Unset on a normal boot ⇒ inert (parity, §7).
+		// FS-1 + FS-6 (design doc §14) — the free-spin lifecycle as author-controlled overlays layered
+		// over the persistent basegame, for live-verify of the intro/counter/retrigger/outro active-set
+		// transitions + the FS-6 ownership flip without a deploy/bake. Checked before the full
+		// `LINES_FLOW_DOC`. The free-spin book events ARE authored (full Phase-5 choreographies); the
+		// coded visual/counter scenes are mount-gated off by `flowOwnsFreeSpins` (see below). Unset on a
+		// normal boot ⇒ inert (parity, §7).
 		if (globalThis.__IE_FLOW_FREESPIN__) return LINES_FLOW_FREESPIN_DOC;
 		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
@@ -284,6 +287,36 @@ const withDefaultLoadingLeg = (
 	};
 };
 
+/**
+ * Resolve the ACTIVE FlowDoc the game runs: the sourced doc (`loadFlowDoc`) with the default
+ * loading leg applied exactly as `createLinesFlow` does. Extracted so `createLinesFlow` (which
+ * builds the interpreter) AND `resolveFlowOwnsFreeSpins` (the FS-6 mount-gate) read ONE source of
+ * truth — the SAME resolved doc drives event-authoring and the coded-mount suppression, so they
+ * flip atomically. Returns `undefined` when no doc is authored (inert / coded path, parity §7).
+ */
+const resolveActiveFlowDoc = (editorDoc: LayoutDoc): FlowDoc | undefined => {
+	const authoredDoc = loadFlowDoc();
+	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,
+	// never overridden). Otherwise add the default loading leg so an un-authored game (or an authored
+	// doc that omitted loading) still boots generically. If loading/basegame can't resolve, fall back
+	// to the authored doc as-is (inert loading, but the rest of the flow still runs).
+	const loadingId = loadingSceneId(editorDoc.scenes);
+	const authoredHasLoading = authoredDoc?.screens.some((screen) => screen.id === loadingId);
+	return authoredHasLoading
+		? authoredDoc
+		: (withDefaultLoadingLeg(editorDoc, authoredDoc) ?? authoredDoc);
+};
+
+/**
+ * FS-6 (design doc §14) — resolve the AUTO-DERIVED free-spin ownership flag from the SAME active doc
+ * `createLinesFlow` builds the interpreter from (via `resolveActiveFlowDoc`) + the live editor scenes.
+ * `Game.svelte` calls this to gate the coded fs scene mounts, so the mount-gate and the interpreter's
+ * event-authoring flip together off ONE source of truth (the atomic-flip invariant). The predicate
+ * itself lives in the pure `freeSpinOwnership.ts` (shared with the headless spike). Absent doc ⇒ false.
+ */
+export const resolveFlowOwnsFreeSpins = (editorDoc: LayoutDoc): boolean =>
+	flowOwnsFreeSpins(resolveActiveFlowDoc(editorDoc), editorDoc.scenes);
+
 /** The interpreter handle the game holds (or `undefined` when no FlowDoc ⇒ pure coded path). */
 export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookEventContext>>;
 
@@ -313,18 +346,14 @@ export const createLinesFlow = (
 	 *  intent, or an absent bridge, is a safe no-op (parity §8.8). */
 	invokeIntent?: (screenId: string, intent: string) => void,
 ): LinesFlow | undefined => {
-	const authoredDoc = loadFlowDoc();
-	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,
-	// never overridden). Otherwise add the default loading leg so an un-authored game (or an
-	// authored doc that omitted loading) still boots generically through the loading screen — the
-	// coded loading path is gone. If the loading/basegame scenes can't resolve, fall back to the
-	// authored doc as-is (inert loading, but the rest of the flow still runs).
-	const loadingId = loadingSceneId(editorDoc.scenes);
-	const authoredHasLoading = authoredDoc?.screens.some((screen) => screen.id === loadingId);
-	const flowDoc = authoredHasLoading
-		? authoredDoc
-		: (withDefaultLoadingLeg(editorDoc, authoredDoc) ?? authoredDoc);
-	if (!flowDoc) return undefined;
+	const resolvedDoc = resolveActiveFlowDoc(editorDoc);
+	if (!resolvedDoc) return undefined;
+	// FS-6 ATOMIC FLIP: until `flowOwnsFreeSpins` holds (edges wired AND scenes authored), the
+	// free-spin events + overlay transitions/screens are STRIPPED, so the free-spin book events fall
+	// through to the coded handlers and the coded gates own presentation — byte-identical to today.
+	// When it holds, the full doc drives the free-spin overlays AND `Game.svelte` mount-gates the
+	// coded visual/counter scenes off (the SAME predicate) — one atomic flip, no double / empty window.
+	const flowDoc = gateFreeSpinOwnership(resolvedDoc, flowOwnsFreeSpins(resolvedDoc, editorDoc.scenes));
 
 	const resolveScene = (screenId: string): Scene | undefined =>
 		editorDoc.scenes.find((scene) => scene.id === screenId);

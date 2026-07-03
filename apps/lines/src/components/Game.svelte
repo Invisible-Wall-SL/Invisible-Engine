@@ -80,7 +80,12 @@
 
 	import { infoManifest } from '../game/infoManifest';
 	import { resetSymbolMapCache } from '../game/symbolMap';
-	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
+	import {
+		createLinesFlow,
+		linesValueResolver,
+		resolveFlowOwnsFreeSpins,
+		type LinesFlow,
+	} from '../game/flowRuntime.svelte';
 	import {
 		setFlowInterpreter,
 		completeActiveScreen,
@@ -489,6 +494,15 @@
 	const fsOutroGate = $derived(
 		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinOutroShow')?.gate,
 	);
+	// FS-6 (design doc §14) — the AUTO-DERIVED free-spin ownership switch. TRUE only when the active
+	// authored FlowDoc BOTH wires the free-spin overlay transitions AND the four backing scenes carry
+	// real authored content (the conjunction in `resolveFlowOwnsFreeSpins`). When TRUE, the authored
+	// Flow overlays OWN the free-spin VISUALS, so the coded VISUAL + COUNTER scene mounts below are
+	// SUPPRESSED (no double-present) — the SAME predicate that made `createLinesFlow` author the
+	// free-spin events, so event-authoring + mount-suppression flip ATOMICALLY. The round-blocking
+	// `<FreeSpinIntroGate>`/`<FreeSpinOutroGate>` STAY mounted (armed by the choreographies' broadcasts
+	// — FS-6 keeps them; retiring them is FS-7). FALSE ⇒ today's coded overlays render (byte-parity §7).
+	const flowOwnsFreeSpins = $derived(resolveFlowOwnsFreeSpins(editorDoc));
 
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -1360,16 +1374,26 @@
 			dimAlpha={fsOutroGate?.dimAlpha}
 			hidePrompt={fsOutroGate?.hidePrompt}
 		/>
-		<LayoutScene scene={fsIntroScene} />
-		{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
-			<LayoutScene scene={fsIntroVisualScene} />
-		{/if}
-		{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
-			<LayoutScene scene={fsCounterScene} />
-		{/if}
-		<LayoutScene scene={fsOutroScene} />
-		{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
-			<LayoutScene scene={fsOutroVisualScene} />
+		<!--
+				FS-6 (design doc §14) — the coded VISUAL + COUNTER scene mounts (surfaces #2/#3). When
+				`flowOwnsFreeSpins` holds (the authored Flow overlays own the free-spin visuals), these are
+				SUPPRESSED so the authored overlay screens aren't double-drawn. The round-blocking GATES above
+				STAY mounted (armed by the choreographies' `*Show`/`*CountUp` broadcasts — FS-6 keeps them).
+				FALSE ⇒ today's coded overlays render (byte-parity §7). Atomic with the interpreter's
+				event-authoring flip (SAME `resolveFlowOwnsFreeSpins` predicate), so no double / empty window.
+			-->
+		{#if !flowOwnsFreeSpins}
+			<LayoutScene scene={fsIntroScene} />
+			{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
+				<LayoutScene scene={fsIntroVisualScene} />
+			{/if}
+			{#if ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
+				<LayoutScene scene={fsCounterScene} />
+			{/if}
+			<LayoutScene scene={fsOutroScene} />
+			{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
+				<LayoutScene scene={fsOutroVisualScene} />
+			{/if}
 		{/if}
 		<InfoOverlay manifest={infoManifest} />
 	</Container>

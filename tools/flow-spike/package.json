@@ -21,6 +21,7 @@
 		"transition": "tsx phase8Transition.ts",
 		"actionintent": "tsx phase8ActionIntent.ts",
 		"fs1": "tsx fs1FreeSpins.ts",
+		"fs6": "tsx fs6FreeSpinOwnership.ts",
 		"fs2": "tsx fs2BookEventPins.ts",
 		"vocab": "tsx vocabulary.ts",
 		"tap": "tsx tapToContinue.ts",

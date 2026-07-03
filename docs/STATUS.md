@@ -41,6 +41,39 @@ cluster, price, scatter) and removed the five `I18nTest.svelte` files. No engine
 (build `bundle.DYd-qBB9.js` → R2 `_runtime/lines/` → `/refresh` 202 → **served hash verified** on
 `bookofborutremake`, debug string absent from the live bundle).
 
+### 2026-07-03 — Invisible Flow: FS-6 flow OWNS free-spin visuals behind an auto-derived switch (headless; not shipped)
+
+**What.** FS-6 of the §14 free-spins plan — flip presentation OWNERSHIP of the free-spin VISUALS from
+the coded feed-driven overlays to the authored Flow, behind an AUTO-DERIVED switch defaulting OFF.
+Corrected scope (owner, 2026-07-03): do NOT strip the choreographies (that would break the round-gate)
+and do NOT retire the round-gates (that's FS-7). The free-spin events are authored with the FULL
+Phase-5 choreographies (they still arm the kept `FreeSpinIntroGate`/`FreeSpinOutroGate` + do the
+load-bearing `gameType`/counter/sound state); no-double is achieved purely by mount-gating the coded
+VISUAL + COUNTER scenes off.
+
+**The switch (`apps/lines/src/game/freeSpinOwnership.ts`, NEW pure module).** `flowOwnsFreeSpins` is a
+CONJUNCTION — ON only when BOTH (i) the FlowDoc wires the three free-spin `bookEvent` LAYER edges +
+places the backing screens, AND (ii) all four backing scenes resolve to real authored content (≥1
+author-placed node beyond the coded bind-anchor). So a stray node alone or wiring-alone can never flip
+ownership. `freeSpinRetrigger` excluded (FS-4 seam).
+
+**Atomic flip.** `resolveActiveFlowDoc` resolves the doc once; `createLinesFlow` runs
+`gateFreeSpinOwnership(doc, flowOwnsFreeSpins(...))` (OFF ⇒ strip the free-spin events + overlay
+transitions/screens ⇒ fall through to coded, byte-identical; ON ⇒ full doc). `Game.svelte` reads the
+SAME predicate (`resolveFlowOwnsFreeSpins`) to gate the coded visual/counter scene mounts
+(`{#if !flowOwnsFreeSpins}`). Event-authoring + mount-suppression flip together — no double/empty
+window. Both `<...Gate>` holds kept; NO plumbing deleted (defang, not delete).
+
+**Verified.** `pnpm --filter flow-spike run fs6` GREEN turbo on/off (predicate conjunction; gate
+strip/passthrough; OFF = coded byte-parity + fall-through + no layering; ON = authored, no coded
+double, load-bearing effects run, still arms the kept gates, overlays layer; atomic-flip invariant).
+`fs1` updated to the FS-6 reality + GREEN; `engine-flow` typecheck clean;
+`PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN (symbols shipped in the bundle);
+all prior flow-spikes GREEN. **Not committed/pushed.** Owner owed to GO LIVE: author the four scenes
+online + wire the `/flow` edges (both needed for the switch to flip ON) + live WebGL verify (round
+still holds, no double), turbo on/off. FS-7 = move the gate/count-up ownership into the authored
+screens (future).
+
 ### 2026-07-03 — Invisible Flow: FS-1 free-spin lifecycle as author-controlled overlays (headless; not shipped)
 
 **What.** FS-1 of the §14 free-spins plan (`docs/design/invisible-flow.md`) — the free-spin lifecycle

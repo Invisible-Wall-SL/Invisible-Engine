@@ -18,9 +18,11 @@
  *  D. The `retrigger` LAYER edge is INERT until the FS-4 event exists (an edge naming a
  *     never-arriving event never fires) — parity-safe; a synthetic `retrigger` DOES layer it,
  *     proving the wiring is correct for when FS-4 lands.
- *  E. FALL-THROUGH — the free-spin book events are UN-authored in `events[]`, so `dispatchBookEvent`
- *     calls the CODED handler (which owns presentation while the coded gates remain, FS-6 deferred).
- *     The non-free-spin events (`reveal`/`winInfo`/…) stay AUTHORED (interpreter-driven).
+ *  E. EVENT-AUTHORING — since FS-6, the RAW `LINES_FLOW_FREESPIN_DOC` AUTHORS the free-spin book
+ *     events (the full Phase-5 choreographies), so `dispatchBookEvent` runs the interpreter (not the
+ *     coded handler) — the flow owns the presentation. The OWNERSHIP GATING (OFF ⇒ these fall
+ *     through) is proven separately by `fs6FreeSpinOwnership.ts`; this harness drives the RAW fixture
+ *     (= the ownership-ON doc). `reveal`/`winInfo` are authored too (base flow).
  *  F. Parity — the default `LINES_FLOW_DOC` authors ZERO transitions (inert by default, §7); the
  *     free-spin doc's edge shape is exactly 4 LAYER (bookEvent) + 4 HANDOFF (complete), and
  *     `basegame` has NO outgoing complete edge (it is PERSISTENT).
@@ -45,6 +47,7 @@ type EmitterEvent = { type: string } & Record<string, unknown>;
 
 const makeRig = (turbo: boolean) => {
 	const log: string[] = [];
+	const effectsRan: string[] = [];
 	const { eventEmitter } = createEventEmitter<EmitterEvent>();
 	const recording = {
 		broadcast: (e: EmitterEvent) => {
@@ -63,9 +66,11 @@ const makeRig = (turbo: boolean) => {
 			log.push(`delay ${ms}`);
 			return Promise.resolve();
 		},
-		effect: () => undefined,
+		// Record which named effects the authored choreographies invoke (the load-bearing state
+		// leaves) — a no-op body; the harness only needs the fact that they ran.
+		effect: (name: string) => () => void effectsRan.push(name),
 	};
-	return { log, runtime };
+	return { log, effectsRan, runtime };
 };
 
 const scenes: Record<string, MountableScene> = {
@@ -209,8 +214,9 @@ const main = async () => {
 			await settle();
 			const notifiesAfterFirst = setChanges.length;
 			rig.log.length = 0;
+			rig.effectsRan.length = 0;
 
-			// A SECOND updateFreeSpin while the counter is already layered ⇒ consumed no-op.
+			// A SECOND updateFreeSpin while the counter is already layered ⇒ consumed no-op (transition).
 			await interp.dispatchBookEvent({ type: 'updateFreeSpin' }, CONTEXT);
 			await settle();
 			assert(
@@ -219,11 +225,13 @@ const main = async () => {
 					!rig.log.includes('broadcast flowFsCounterEnter') &&
 					setChanges.length === notifiesAfterFirst,
 			);
-			// But the coded handler STILL ran both times (it updates the displayed number — the
-			// fall-through owns presentation, the transition owns the active-set lifecycle).
+			// The AUTHORED updateFreeSpin choreography STILL ran on the repeat (its `updateFreeSpinCounter`
+			// effect updates the displayed number) — the number updates via the EVENT, not a re-enter,
+			// even though the transition no-ops the re-layer. (No coded handler runs — flow owns it.)
 			assert(
-				`coded updateFreeSpin handler ran BOTH times (number still updates) (${tag})`,
-				codedRan.filter((e) => e === 'updateFreeSpin').length === 2,
+				`authored updateFreeSpin ran on the repeat (number updates via the effect) (${tag})`,
+				rig.effectsRan.includes('updateFreeSpinCounter') &&
+					!codedRan.includes('updateFreeSpin'),
 			);
 		}
 
@@ -264,8 +272,8 @@ const main = async () => {
 			);
 		}
 
-		// --- E. fall-through — free-spin events call the CODED handler; non-FS events are authored ---
-		console.log(`E. free-spin events fall through to coded; base events stay authored (${tag}):`);
+		// --- E. event-authoring — the RAW (ownership-ON) fixture AUTHORS the free-spin events ---
+		console.log(`E. raw fixture authors the free-spin events (flow owns; ownership gating = fs6) (${tag}):`);
 		{
 			const rig = makeRig(turbo);
 			const codedRan: string[] = [];
@@ -273,10 +281,10 @@ const main = async () => {
 			await interp.start();
 
 			assert(
-				`freeSpinTrigger / updateFreeSpin / freeSpinEnd are NOT authored (fall through) (${tag})`,
-				!interp.isAuthoredEvent('freeSpinTrigger') &&
-					!interp.isAuthoredEvent('updateFreeSpin') &&
-					!interp.isAuthoredEvent('freeSpinEnd'),
+				`freeSpinTrigger / updateFreeSpin / freeSpinEnd ARE authored (flow owns presentation) (${tag})`,
+				interp.isAuthoredEvent('freeSpinTrigger') &&
+					interp.isAuthoredEvent('updateFreeSpin') &&
+					interp.isAuthoredEvent('freeSpinEnd'),
 			);
 			assert(
 				`reveal / winInfo stay AUTHORED (interpreter-driven base flow) (${tag})`,
@@ -287,8 +295,8 @@ const main = async () => {
 			await interp.dispatchBookEvent({ type: 'reveal' }, CONTEXT);
 			await settle();
 			assert(
-				`coded freeSpinTrigger handler RAN (owns presentation); reveal did NOT (authored) (${tag})`,
-				codedRan.includes('freeSpinTrigger') && !codedRan.includes('reveal'),
+				`authored ⇒ NO coded handler ran (no double); interpreter drove both (${tag})`,
+				!codedRan.includes('freeSpinTrigger') && !codedRan.includes('reveal'),
 			);
 		}
 	}
@@ -334,11 +342,13 @@ const main = async () => {
 				overlayTargets.has(id),
 			),
 		);
-		// The free-spin book events are NOT in events[] (fall-through discipline).
+		// Since FS-6, the free-spin book events ARE authored in events[] (the full Phase-5
+		// choreographies — flow owns the presentation). Ownership GATING (stripping them when OFF)
+		// is proven by fs6FreeSpinOwnership.ts; the raw fixture is the ownership-ON doc.
 		assert(
-			'free-spin book events are UN-authored in events[] (fall through to coded handlers, FS-6 deferred)',
-			!LINES_FLOW_FREESPIN_DOC.events?.some((e) =>
-				['freeSpinTrigger', 'updateFreeSpin', 'freeSpinEnd'].includes(e.event),
+			'free-spin book events ARE authored in events[] (full Phase-5 choreographies, flow owns)',
+			['freeSpinTrigger', 'updateFreeSpin', 'freeSpinEnd'].every((event) =>
+				LINES_FLOW_FREESPIN_DOC.events?.some((e) => e.event === event),
 			),
 		);
 	}
