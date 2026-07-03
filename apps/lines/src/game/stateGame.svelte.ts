@@ -59,13 +59,16 @@ export const setBoardOverride = (node: ReelGridNode | null) => {
  * `cellWidthLocal`/`cellHeightLocal` = the contain-fit box a symbol's ART draws
  * into (the mask window's per-cell size in board-local space) — the ONE source of
  * truth shared by the reel mask and the symbol sprites/spines, so art can never
- * overflow the mask when a non-square/small cell is authored. No node ⇒
- * `{0, SYMBOL_SIZE, SYMBOL_SIZE, SYMBOL_SIZE}` = today's flush square lattice
- * (byte-identical parity). The container `scale` is `cellSize / SYMBOL_SIZE`
- * (see `boardLayout`), so dividing each authored cell edge by that scale yields the
- * local box that renders AT the authored on-screen cell size; a UNIFORM cell
- * (`cellWidth == cellHeight == cellSize`, no gap) collapses both edges to exactly
- * `SYMBOL_SIZE`, so uniform-scaled boards draw art at 120px unchanged.
+ * overflow the mask when a non-square/small cell is authored; plus the reel/row
+ * LEAD, per-cell SEAT ALIGNMENT and board NUDGE consumed by
+ * `getSymbolX`/`getSymbolLead`/`boardLayout`. No node ⇒
+ * `{0, SYMBOL_SIZE, SYMBOL_SIZE, SYMBOL_SIZE}`, coded lead (0.53 X / 0.5 Y),
+ * centred seats, no nudge = today's flush square lattice (byte-identical parity).
+ * The container `scale` is `cellSize / SYMBOL_SIZE` (see `boardLayout`), so dividing
+ * each authored cell edge by that scale yields the local box that renders AT the
+ * authored on-screen cell size; a UNIFORM cell (`cellWidth == cellHeight == cellSize`,
+ * no gap) collapses both edges to exactly `SYMBOL_SIZE`, so uniform-scaled boards
+ * draw art at 120px unchanged.
  */
 const boardGeometry = () => {
 	const override = resolveReelGridFromNode(
