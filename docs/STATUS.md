@@ -24,6 +24,23 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Removed the hardcoded `I18nTest` translations debug panel from games (SHIPPED to `_runtime/lines`)
+
+**Symptom.** In the published game a fixed semi-transparent box of probe text ("TRANSLATIONS TEST /
+HOME (from game) / SETTINGS (from ui-pixi) / MASTER VOLUME (from ui-html) / NOT TRANSLATED") was
+**always on screen** at `x=300`, with no way to author, move, or delete it from the editor.
+
+**Root cause.** `I18nTest.svelte` was leftover developer scaffolding mounted directly in each game's
+`Game.svelte` (`<I18nTest />`) — a manual eyeball check that translations resolve from each layer
+(game / ui-pixi / ui-html). It rendered unconditionally and was never wired to the scene/flow system,
+so users couldn't control it.
+
+**Change (#88, `bb0cc2d`).** Deleted the mount + import in all five reference games (lines, ways,
+cluster, price, scatter) and removed the five `I18nTest.svelte` files. No engine/package change; the
+`i18nDerived` context it exercised is untouched. Shipped to online games via `publish-runtime-bundle.mjs`
+(build `bundle.DYd-qBB9.js` → R2 `_runtime/lines/` → `/refresh` 202 → **served hash verified** on
+`bookofborutremake`, debug string absent from the live bundle).
+
 ### 2026-07-03 — Scene Editor suppresses the "Shows during" gate on flow-driven screens (single owner of visibility)
 
 **Why.** A screen's visibility was authorable in two places at once: the Scene Editor's per-screen
