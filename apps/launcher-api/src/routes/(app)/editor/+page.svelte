@@ -1160,11 +1160,17 @@
 
 	/** Add a blank HUD-layer screen — a `standard`-space scene minted with a `hud_` id
 	 * so `isHudScene()` groups it under the always-on-top HUD section. Drop atlas
-	 * regions onto it to build a custom top-layer overlay. Ships the same way as
-	 * `addEmptyScreen` (generic `extraMountScenes` overlay / Flow takeover — no code wiring). */
+	 * regions onto it to build a custom top-layer overlay. Minted `align.vertical:'bottom'`
+	 * so `<LayoutScene>` bottom-frames it in-game exactly like the coded bottom bar (§16
+	 * HUD generalization — without this the wooden bar renders top-anchored). Ships via the
+	 * `authoredHudScenes` HUD-layer mount (full-replace: any `hud_*` content suppresses the
+	 * coded `<UI>` chrome). */
 	function addHudScreen(): void {
 		const id = 'hud_' + Math.random().toString(36).slice(2, 10);
-		scenes = [...scenes, { id, name: nextScreenName('HUD'), space: 'standard', nodes: [] }];
+		scenes = [
+			...scenes,
+			{ id, name: nextScreenName('HUD'), space: 'standard', align: { vertical: 'bottom' }, nodes: [] },
+		];
 		activeSceneIdx = scenes.length - 1;
 		clearSelection();
 		markDirty();

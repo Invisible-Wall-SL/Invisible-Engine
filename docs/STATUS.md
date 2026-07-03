@@ -183,6 +183,46 @@ fall-through: an edge WITHOUT a transition = today's hard cut (byte-identical to
   `tools/flow-spike/{phase8Transition.ts,phase4Runtime.ts,package.json}`,
   `docs/design/invisible-flow.md`, `docs/STATUS.md`.
 
+### 2026-07-03 — HUD generalization: author `hud_*` screens fully REPLACE the coded `<UI>` (§16 Phase A, SHIPPED to `_runtime/lines`)
+
+**Context.** Owner authored a split HUD as Scene-Editor screens (buttons / bottom bar / balance infos /
+corners) on `bookofborutremake` (a `runtime:lines` game). In-game: original CODED buttons still showed,
+the authored wooden bottom bar was missing, and an auto-spin flip didn't apply. **Root cause:** the
+in-game HUD is drawn by the bespoke coded `<UI>` → `LayoutEditable.svelte`, which only consumes the two
+canonical scenes `hudBar`/`hudCorners`. Author `hud_`-prefixed screens (editor-recognized via
+`isHudScene`) fell into generic `extraMountScenes()` and mounted as raw-space overlays — NOT
+bottom-aligned, wrong z-band, and with NO suppression of the coded `<UI>`. So the coded chrome kept
+drawing on top while the authored bar mounted mis-placed/hidden.
+
+**Fix (owner-chosen FULL-REPLACE contract; parity-safe, no flag):**
+- **New engine-layout contract** (`packages/engine-layout/src/lib/genericMountScenes.ts`, mirroring
+  `backgroundScenes`/`hasAuthoredBackground`): `authoredHudScenes(scenes)` selects `hud_`-prefixed,
+  non-background, content-bearing scenes in doc order; `hasAuthoredHud(scenes)` is true when ≥1 exists.
+- **`Game.svelte`:** when `hasAuthoredHud` (`suppressCodedHud`), the coded `<UI>` is suppressed entirely
+  and the `authoredHud` scenes render as the top HUD layer via `<LayoutScene>`, each wrapped at its
+  editor-list `docLayerZIndex` (the §11.5-C layerable band). `hud_`-prefixed ids are excluded from
+  `extraScenes` (no double-mount). The replacement Space hotkey now mounts on
+  `HUD_BUTTON_INSTANCES || suppressCodedHud` (a fully-authored HUD suppresses the coded `ButtonBet`
+  hotkey, so Space must come from the replacement binding).
+- **Editor `addHudScreen()`** (`apps/launcher-api/.../editor/+page.svelte`) mints new HUD screens
+  `align:{ vertical:'bottom' }` so `<LayoutScene>` bottom-frames them like the coded bar (the single
+  cause of the "missing bottom bar"). `align` is `normalizeScene`-whitelisted (survives save).
+
+**PARITY:** `apps/lines`' fallback authors no `hud_*` scene ⇒ `authoredHud=[]`, `suppressCodedHud=false`,
+`extraScenes` unchanged, hotkey gate unchanged ⇒ byte-identical to today. **Verified:** `engine-layout`,
+`launcher-api`, and `PUBLIC_RGS_TRANSPORT=play4fun lines` builds all GREEN. **SHIPPED:** rebuilt
+`engine-layout` dist → lines play4fun build → `publish-runtime-bundle.mjs lines` (164 files → R2
+`test_server/_runtime/lines/`) → `POST /refresh` (202). **OWNER STEP:** re-author each existing HUD
+screen's vertical-align to **bottom** (existing screens were minted before this fix, so they lack it —
+new ones get it automatically); place replacement HUD content on **"New HUD screen"** (`hud_*`) screens
+(content left on the default `hudBar`/`hudCorners` is treated as the coded HUD and suppressed); each
+replacement button needs an `action` (parametric button instance / Flow action pin) to function. Then
+hard-refresh (clean/incognito) to verify: coded buttons gone, bar bottom-pinned, flip applied.
+**Deferred (§16 B/C, apps/lines default only — do NOT affect `bookofborutremake`):** feature-gate parity
+for parametric turbo/autoSpin + flip `HUD_BUTTON_INSTANCES` so apps/lines' OWN default HUD is parametric.
+Files: `packages/engine-layout/src/lib/genericMountScenes.ts`, `apps/lines/src/components/Game.svelte`,
+`apps/launcher-api/src/routes/(app)/editor/+page.svelte`, `docs/STATUS.md`.
+
 ### 2026-07-02 — Invisible Flow: complete FAN-OUT + HUD active-set gate + doc-order z-order
 
 **Context.** Owner authored a real FlowDoc (`loading` initial → `basegame` + a HUD "bottom bar"

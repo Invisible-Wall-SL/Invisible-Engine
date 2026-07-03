@@ -29,3 +29,28 @@ export const extraMountScenes = (
 	const reserved = reservedIds instanceof Set ? reservedIds : new Set(reservedIds);
 	return scenes.filter((scene) => !reserved.has(scene.id) && scene.space !== 'background');
 };
+
+/**
+ * Author-created HUD screens (§16 HUD generalization). The Scene Editor's "New HUD screen"
+ * mints a Scene with a `hud_`-prefixed id (see `isHudScene` in `referenceLayouts/hud.ts`)
+ * carrying the author's OWN HUD chrome — buttons, a bottom bar, readouts. A game renders these
+ * as its TOP HUD layer via `<LayoutScene>` (a `space:'standard'` + `align.vertical:'bottom'`
+ * scene bottom-frames exactly like the coded bar). Selection is by the `hud_` id prefix — which
+ * excludes the canonical `hudBar`/`hudCorners` (camelCase, no underscore), because those drive
+ * the coded `<UI>` chrome — dropping `space:'background'` scenes and empty scaffolds, in doc
+ * order (so a reorder in the editor re-layers them).
+ */
+export const authoredHudScenes = (scenes: Scene[]): Scene[] =>
+	scenes.filter(
+		(scene) =>
+			scene.id.startsWith('hud_') && scene.space !== 'background' && scene.nodes.length > 0,
+	);
+
+/**
+ * Whether the author authored replacement HUD screen(s) that should SUPPRESS the entire coded
+ * `<UI>` chrome (the owner-confirmed FULL-REPLACE contract, mirroring `hasAuthoredBackground`).
+ * True when at least one `hud_`-prefixed non-background scene carries real content ⇒ the author
+ * screens BECOME the HUD. No such scene ⇒ `false` ⇒ the coded `<UI>` renders unchanged — parity
+ * for every game (e.g. `apps/lines`' fallback doc) that authors no HUD screen.
+ */
+export const hasAuthoredHud = (scenes: Scene[]): boolean => authoredHudScenes(scenes).length > 0;

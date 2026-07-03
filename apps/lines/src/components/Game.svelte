@@ -64,6 +64,8 @@
 		backgroundScenes,
 		hasAuthoredBackground,
 		extraMountScenes,
+		authoredHudScenes,
+		hasAuthoredHud,
 		docLayerZIndex,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
@@ -540,6 +542,18 @@
 	const bgScenes = $derived(backgroundScenes(editorDoc.scenes));
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
 
+	// Authored REPLACEMENT HUD screens (§16 HUD generalization, FULL-REPLACE contract). The
+	// Scene Editor's "New HUD screen" mints `hud_`-prefixed scenes carrying the author's own HUD
+	// chrome (buttons / bottom bar / readouts). `authoredHudScenes` selects them by the `hud_`
+	// prefix (excluding the canonical `hudBar`/`hudCorners` that drive the coded `<UI>`);
+	// `hasAuthoredHud` is true when at least one has real content ⇒ the author screens BECOME the
+	// HUD and the coded `<UI>` is fully suppressed. Both are the engine-layout contract shared with
+	// the editor + other games (mirroring `backgroundScenes`/`hasAuthoredBackground`). `apps/lines`'
+	// fallback authors NO `hud_*` scene ⇒ list empty, flag false ⇒ the coded `<UI>` renders
+	// unconditionally as today (byte-identical parity).
+	const authoredHud = $derived(authoredHudScenes(editorDoc.scenes));
+	const suppressCodedHud = $derived(hasAuthoredHud(editorDoc.scenes));
+
 	const context = getContext();
 
 	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
@@ -712,7 +726,13 @@
 	// The author's NEW screens (custom ids, non-background space) the game would otherwise
 	// never mount. Empty for `apps/lines`' fallback doc (it reserves all its ids + ships no
 	// extra scene) ⇒ the `{#each}` renders nothing ⇒ byte-identical to `main` (parity).
-	const extraScenes = $derived(extraMountScenes(editorDoc.scenes, reservedSceneIds));
+	// `hud_`-prefixed author HUD screens are EXCLUDED here — they mount as the top HUD layer
+	// (`authoredHud` below), so leaving them in `extraScenes` would double-mount them.
+	const extraScenes = $derived(
+		extraMountScenes(editorDoc.scenes, reservedSceneIds).filter(
+			(scene) => !scene.id.startsWith('hud_'),
+		),
+	);
 
 	// Cross-screen z-order (design doc §11.5 follow-up C). The LAYERABLE scenes — the HUD
 	// chrome, the base-game overlays, the special-book bonus, custom author overlays, and the
@@ -1034,12 +1054,15 @@
 	<Sound />
 
 	<!--
-			§16.4 B6.4 — replacement Space hotkey for the flipped spin button. Mounted
-			ONLY when `HUD_BUTTON_INSTANCES` is on (the flip suppresses the coded
-			`ButtonBet`'s own `<OnHotkey>`); OFF ⇒ not rendered, so the coded hotkey is the
-			sole Space binding (parity, no double-fire). Mirrors `ButtonBet`'s binding.
+			§16.4 B6.4 — replacement Space hotkey for the spin button. Mounted whenever the coded
+			`ButtonBet` (and its own `<OnHotkey hotkey="Space">`) is NOT present: either the cluster is
+			flipped to `componentInstance(button)` nodes (`HUD_BUTTON_INSTANCES`), OR the author
+			authored replacement HUD screens that suppress the whole coded `<UI>` (`suppressCodedHud`,
+			§16 full-replace). In both cases the coded hotkey is gone, so this is the SOLE Space binding
+			(no double-fire). Neither ⇒ not rendered, coded hotkey is the sole binding (parity). Mirrors
+			`ButtonBet`'s binding.
 		-->
-	{#if HUD_BUTTON_INSTANCES}
+	{#if HUD_BUTTON_INSTANCES || suppressCodedHud}
 		<OnHotkey hotkey="Space" disabled={spinHotkeyDisabled} onpress={spinHotkeyPress} />
 	{/if}
 
@@ -1110,8 +1133,11 @@
 			INERT-FLOW FALL-THROUGH (parity §7): when there is NO flow, OR the HUD is NOT a flow
 			screen (`!isHudFlowManaged`), the `<UI>` renders UNCONDITIONALLY exactly as today — a
 			flow-less game and a flow that authors no HUD node are byte-identical to current `main`.
+
+			FULL-REPLACE (§16): when the author authored replacement HUD screen(s) (`suppressCodedHud`),
+			the coded `<UI>` is suppressed entirely and the `authoredHud` scenes below BECOME the HUD.
 		-->
-	{#if !isHudFlowManaged || isHudActive}
+	{#if (!isHudFlowManaged || isHudActive) && !suppressCodedHud}
 		<!-- Cross-screen z-order (§11.5-C): the HUD chrome paints at its doc-list position via
 				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
 				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
@@ -1146,6 +1172,19 @@
 			{/key}
 		</Container>
 	{/if}
+	<!--
+			§16 — author REPLACEMENT HUD screens (the FULL-REPLACE contract). Each `hud_`-prefixed
+			author scene renders as the top HUD layer via `<LayoutScene>` (a `space:'standard'` +
+			`align.vertical:'bottom'` scene bottom-frames exactly like the coded bar), painted at its
+			editor screen-list position (`docLayerZIndex`, the §11.5-C layerable contract) so a
+			reorder re-layers it. Excluded from `extraScenes` above (no double-mount). Empty for any
+			game that authors no `hud_*` screen ⇒ renders nothing (parity, byte-identical to `main`).
+		-->
+	{#each authoredHud as scene (scene.id)}
+		<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
+			<LayoutScene {scene} />
+		</Container>
+	{/each}
 	<Container zIndex={basegameOverlaysZIndex}>
 		<LayoutScene scene={basegameOverlaysScene} />
 	</Container>
