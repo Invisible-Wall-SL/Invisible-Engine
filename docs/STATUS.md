@@ -24,30 +24,34 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
-### 2026-07-03 — Scene Editor: retired the per-screen "Shows during" gate (Flow owns visibility, universally)
+### 2026-07-03 — Scene Editor: removed the per-screen "Shows during" gate entirely (Flow owns visibility)
 
 **Ask.** The per-screen **"Shows during"** control (`Scene.visibleSource` + its blocking-gate
 dim/prompt style) was only suppressed for screens the FlowDoc currently carries — so the loading
-bar showed the "Driven by Invisible Flow" note while every other screen still exposed the old
-`Always (no gate) / freeSpinIntroShow / …` dropdown. Now that presentation flow is driven by
-Invisible Flow for everything, the gate should be gone from Scene Editor authoring **universally**,
-not per-screen.
+bar showed a "Driven by Invisible Flow" note while every other screen still exposed the old
+`Always (no gate) / freeSpinIntroShow / …` dropdown. Presentation flow is now Flow-driven for
+everything, so the gate — and the explanatory note that briefly replaced it — are **gone from
+Scene Editor authoring entirely**, freeing up the screen-properties space.
 
-**Change (`apps/launcher-api/src/routes/(app)/editor/+page.svelte`).** Replaced the
-`{#if activeSceneFlowDriven}` dropdown/note fork with a single always-shown note (wording adapts:
-on-flow vs "add this screen to a flow"). Deleted the now-dead authoring code: the `visibleSource`
-`<select>`, the blocking-gate style block (dim colour/opacity/hide-prompt), the helpers
-`setSceneVisibleSource` / `setSceneGate` / `hexToInt` / `intToHex` / the `BLOCKING_GATE_SOURCES`
-set, the `VISIBILITY_SOURCE_KEYS` / `VISIBILITY_SOURCE_LABELS` imports, and the orphaned
-`.gate-style` / `.gate-check` / `input[type='color']` CSS. `pnpm --filter launcher-api build`
-clean.
+**Change (two commits).** First cut (`1bb265f`) replaced the dropdown with an always-shown note;
+this follow-up removes the note too and strips every trace so nothing is left commented-out/unused:
+- `+page.svelte`: deleted the `.flow-owned` note block, the `flowScreenIds` / `activeSceneFlowDriven`
+  `$derived`s, and (from the first cut) the `visibleSource` `<select>`, the blocking-gate style
+  block, the helpers `setSceneVisibleSource` / `setSceneGate` / `hexToInt` / `intToHex`, the
+  `BLOCKING_GATE_SOURCES` set, the `VISIBILITY_SOURCE_KEYS` / `VISIBILITY_SOURCE_LABELS` imports,
+  and the orphaned `.flow-owned-note` / `.gate-style` / `.gate-check` / `input[type='color']` CSS.
+- `+page.server.ts`: dropped the `flowScreenIds` load entirely — the `loadFlowDoc` import, its
+  `Promise.all` entry, the `flow.screens.map(...)` derivation, and the returned `flowScreenIds`
+  field (the editor no longer needs to know which screens the flow carries).
+
+`pnpm --filter launcher-api build` clean.
 
 **Left intact (data model / runtime).** `Scene.visibleSource` and `Scene.gate` remain real schema
 fields the runtime still reads, so existing baked docs keep working — the editor just no longer
 authors them. The per-node engine-binding "Shows during" (an arbitrary instance's `visibleSource`)
 in `EditorProperties.svelte` was NOT touched — it's a different feature (per-instance, not
-per-screen); flag if that should go too. Not yet shipped to `_runtime/lines` (launcher-only change,
-ships on next launcher deploy).
+per-screen); flag if that should go too. Launcher-only change; ships on next launcher deploy (no
+`_runtime/lines` publish needed).
 
 ### 2026-07-03 — Removed the hardcoded `I18nTest` translations debug panel from games (SHIPPED to `_runtime/lines`)
 

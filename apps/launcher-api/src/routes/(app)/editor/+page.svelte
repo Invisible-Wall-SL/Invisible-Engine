@@ -669,12 +669,6 @@
 	}
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
-	/** Screen ids the project's FlowDoc drives (server-resolved from `flow.screens`, the same
-	 * set the runtime treats as flow-owned). A screen the flow carries has its visibility
-	 * decided by the flow's active-set, so the Scene Editor suppresses the per-screen "Shows
-	 * during" gate for it — one owner of visibility, no double-authoring. */
-	const flowScreenIds = $derived(new Set(data.flowScreenIds ?? []));
-	const activeSceneFlowDriven = $derived(!!activeScene && flowScreenIds.has(activeScene.id));
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
 	/** All scenes the canvas may composite. */
@@ -2573,18 +2567,6 @@
 							</label>
 						</div>
 					{/if}
-					<div class="space-field flow-owned">
-						<span>shows during</span>
-						<p class="flow-owned-note">
-							{#if activeSceneFlowDriven}
-								Driven by Invisible Flow — this screen is on the flow canvas, so the flow
-								decides when it shows.
-							{:else}
-								Driven by Invisible Flow — screen visibility is owned by the flow. Add this
-								screen to a flow to control when it shows.
-							{/if}
-						</p>
-					</div>
 				</div>
 			{/if}
 			<EditorProperties
@@ -3037,16 +3019,6 @@
 		padding: 5px 7px;
 		font-size: 12px;
 		font-family: inherit;
-	}
-	.flow-owned-note {
-		margin: 0;
-		padding: 6px 8px;
-		background: #16131c;
-		border: 1px solid #2a2433;
-		border-radius: 6px;
-		font-size: 11px;
-		line-height: 1.4;
-		color: #8a8296;
 	}
 	.screens {
 		list-style: none;

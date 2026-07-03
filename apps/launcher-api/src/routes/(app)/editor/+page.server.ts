@@ -9,7 +9,6 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc, saveDoc } from '$lib/server/editorStorage';
-import { loadFlowDoc } from '$lib/server/flowStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
@@ -69,7 +68,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// canvas-box seed (a never-saved project gets the game's REAL main box) and the
 	// template/symbol-default resolution below (the doc's own `gameType` wins when set).
 	const resolvedProjectGameType = await projectGameType(projectKey);
-	const [doc, assets, components, customKinds, symbolsDoc, publishedSymbolDefaults, flow] =
+	const [doc, assets, components, customKinds, symbolsDoc, publishedSymbolDefaults] =
 		await Promise.all([
 			loadDoc(clientKey, projectKey, resolvedProjectGameType),
 			listProjectAssets(clientKey, projectKey),
@@ -87,17 +86,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			// (mirrors symbols/+page.server.ts). Both degrade gracefully to a fallback.
 			loadSymbolsDoc(clientKey, projectKey),
 			loadPublishedSymbolDefaults(clientKey, projectKey),
-			// The project's FlowDoc — the ONLY thing we need from it here is which screens the
-			// Flow drives, so the Scene Editor can suppress the per-screen "Shows during" gate
-			// on a screen the flow already owns (single source of truth; the runtime likewise
-			// lets the flow's active-set supersede `visibleSource`). A placed flow screen lands
-			// in `flow.screens`; un-placed scenes stay in the flow palette and are NOT here.
-			loadFlowDoc(clientKey, projectKey),
 		]);
-	// Ids of screens the FlowDoc drives (mirrors the runtime `authoredScreenIds` set) — the
-	// Scene Editor gates the "Shows during" control on this so the flow stays the single
-	// owner of visibility for any screen it carries.
-	const flowScreenIds = flow.screens.map((s) => s.id);
 	// Template + initial slot warnings, so the UI shows slot state on first load
 	// (§7.1) — not only after a save round-trip. Resolve from the doc's persisted
 	// `gameType` first (the author's choice sticks across sessions), falling back
@@ -135,7 +124,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		symbolDefaults,
 		symbolsDoc,
 		referenceMainSizes,
-		flowScreenIds,
 	};
 };
 
