@@ -166,8 +166,32 @@ export const ENGINE_ACTION_CATALOG: string[] = [
 	'autoSpin',
 	'turbo',
 	'menu',
+	'payTable',
+	'gameRules',
+	'settings',
+	'soundToggle',
 	'buyBonus',
 ];
+
+/**
+ * Friendly DISPLAY labels for the action keys — the editor's `action` dropdown
+ * renders `ENGINE_ACTION_LABELS[key] ?? key`, so the STORED value stays the stable
+ * catalog key (no data-contract break) while the UI reads clearly. Notably `menu`
+ * shows as "submenu (popup)" because that action opens the settings/paytable popup,
+ * NOT a top-level menu — the four buttons inside that popup (`payTable`/`gameRules`/
+ * `settings`/`soundToggle`) are now first-class actions too, so an author can place
+ * them directly instead of going through the popup. Keys without an entry fall back
+ * to the raw key.
+ */
+export const ENGINE_ACTION_LABELS: Record<string, string> = {
+	menu: 'submenu (popup)',
+	payTable: 'paytable',
+	gameRules: 'game rules',
+	settings: 'settings',
+	soundToggle: 'sound on/off',
+	buyBonus: 'buy bonus',
+	autoSpin: 'auto spin',
+};
 
 /**
  * The button STATE-IMAGE params an author exposes on a from-scratch button via the

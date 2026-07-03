@@ -11,6 +11,7 @@
 		stateConfig,
 		stateMessage,
 		stateModal,
+		stateSound,
 		stateUi,
 		setUiFeatures,
 		UI_FEATURES_UK,
@@ -850,6 +851,41 @@
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
 				stateUi.menuOpen = true;
 			},
+		},
+		// The four buttons that live INSIDE the menu overlay, lifted so each can be
+		// placed as a STANDALONE authored button (no popup). Byte-for-byte the coded
+		// `ButtonPayTable`/`ButtonGameRules`/`ButtonSettings`/`ButtonSoundSwitch`
+		// `onpress` bodies. Each closes the overlay (harmless if it was never open) so
+		// they behave identically whether reached via the popup or as a direct button.
+		payTable: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateUi.menuOpen = false;
+				stateModal.modal = { name: 'payTable' };
+			},
+		},
+		gameRules: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateUi.menuOpen = false;
+				stateModal.modal = { name: 'gameRules' };
+			},
+		},
+		settings: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateUi.menuOpen = false;
+				stateModal.modal = { name: 'settings' };
+			},
+		},
+		// ButtonSoundSwitch — toggle master volume. `active` reflects sound-on so an
+		// authored button can show its selected-state image while unmuted.
+		soundToggle: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				stateSound.volumeValueMaster = stateSound.volumeValueMaster === 0 ? 50 : 0;
+			},
+			active: boolSource(() => stateSound.volumeValueMaster !== 0),
 		},
 		// ButtonBuyBonus — open the buy-bonus modal, or disable the active buy mode
 		// when one is armed. Disabled while not idle; active while a buy mode is on.

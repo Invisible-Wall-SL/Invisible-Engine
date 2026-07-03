@@ -241,6 +241,23 @@ Files: `packages/engine-layout/src/lib/genericMountScenes.ts`, `apps/lines/src/c
   `scaleX:-1` authored on the auto-spin instance flips. Files (B+C): `packages/engine-layout/src/lib/
   {componentCatalog.ts,referenceLayouts/hud.ts}`, `apps/lines/src/{game/editorFlags.ts,components/Game.svelte}`.
 
+**Follow-up SAME DAY — submenu buttons promoted to first-class actions (owner-requested).**
+The `menu` action only opens the settings/paytable POPUP overlay (`stateUi.menuOpen = true`); the four
+buttons INSIDE that popup (Paytable / Game Rules / Settings / Sound toggle) had no `action` key, so an
+author couldn't place them as standalone buttons. Lifted each coded `onpress`
+(`ButtonPayTable`/`ButtonGameRules`/`ButtonSettings`/`ButtonSoundSwitch`) into `registerComponentActions`
+in `Game.svelte` as new action keys `payTable`/`gameRules`/`settings`/`soundToggle` (each closes the
+overlay first, harmless if never open; `soundToggle` also exposes an `active` `BoolSource` = unmuted, so
+its selected-state image reflects sound-on). Added the four keys to `ENGINE_ACTION_CATALOG` and a new
+`ENGINE_ACTION_LABELS` map (`componentCatalog.ts`) that the editor dropdown renders via
+`ENGINE_ACTION_LABELS[key] ?? key` — the STORED value stays the stable catalog key (no data-contract
+break, existing `menu` buttons keep working) while `menu` now DISPLAYS as **"submenu (popup)"** for
+clarity (owner-chosen over a hard rename). **PARITY:** additive — no existing action changed; the coded
+popup still works. **Verified:** `engine-layout` + `launcher-api` builds GREEN, `apps/lines` svelte-check
+0 errors. **NOT yet shipped to `_runtime/lines`** (owner reviews + runs `publish-runtime-bundle.mjs`).
+Files: `packages/engine-layout/src/lib/componentCatalog.ts`, `apps/lines/src/components/Game.svelte`,
+`apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte`, `docs/STATUS.md`.
+
 ### 2026-07-02 — Invisible Flow: complete FAN-OUT + HUD active-set gate + doc-order z-order
 
 **Context.** Owner authored a real FlowDoc (`loading` initial → `basegame` + a HUD "bottom bar"
