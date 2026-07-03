@@ -26,6 +26,31 @@ submodule bumps).
 
 ### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
 
+### 2026-07-03 — Reel grid: split the conflated `reelPadding` into three honest, independent knobs (engine + editor)
+
+**Symptom.** Authoring a `reelGrid` with specific sizing, the live board rendered **shifted/mis-anchored
+vs the editor**, symbols **clipped**, and per-cell spine seats sat in the wrong place. **Root cause:** the
+single `reelPadding`/`rowPadding` field did **two different jobs**: in the editor it placed the symbol
+**seat inside each cell**; in the game it was a hidden **whole-board offset** relative to the coded
+`REEL_PADDING = 0.53` baseline. Setting it to `0` (meaning "no padding") therefore both shoved seats to the
+cell corner (editor) AND translated the live board ~69px/65px (game) → editor and game disagreed.
+
+**Fix.** Three orthogonal, honestly-named knobs on `ReelGridNode` (all default to identity ⇒ Borut's
+`reelPadding: 0.53` + `rowPadding: 0.5` stay **byte-parity**):
+- **Reel/row LEAD** (`reelPadding`/`rowPadding`, cell-size fractions, 0.5 = symmetric) — seats the whole
+  reel cluster (the honest `getSymbolX`/`getSymbolLead` lead term). No longer a board offset or a seat.
+- **Seat ALIGNMENT** (`symbolAlignX`/`symbolAlignY`, 0..1, 0.5 = centred) — art WITHIN its own cell.
+- **Board NUDGE** (`boardNudgeX`/`boardNudgeY`, px) — fine offset of the whole board (cells + mask +
+  symbols), for lining up with frame art. Replaces the old hidden padding-offset.
+
+Editor `drawReelGrid` mirrors the game math exactly (verified: editor↔game on-screen positions match to
+< 1e-12 px across lead/align/nudge/non-square, both axes). Touched: `engine-layout` (`types.ts`,
+`reelGrid.ts`), `utils-slots` (`createReelForSpinning` gains `symbolLead`, default 0.5 = parity for all
+other games), `apps/lines/stateGame`, launcher editor (`EditorCanvas`, `EditorProperties`).
+**Not yet published to `_runtime/lines`** and **not yet mirrored to Borut's engine submodule.**
+
+### 2026-07-03 — Full-replace HUD adopts a content-bearing `hudBar`/`hudCorners` (fixes authored buttons rendering NOWHERE) (SHIPPED to `_runtime/lines`)
+
 **Symptom.** On `bookofborutremake` the authored HUD **buttons rendered nothing** in-game (bottom bar +
 balance DID render); actions were all set; "worked before". **Root cause (from the LIVE doc,
 `invisible_wall/bookofborutremake/editor/scenes.json`):** the buttons scene is named "HUD — buttons"

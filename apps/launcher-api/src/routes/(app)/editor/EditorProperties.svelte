@@ -2802,7 +2802,7 @@
 			</div>
 			<p class="muted small">
 				Leave cell width/height blank for a square cell (= cell size). Gaps add empty space BETWEEN
-				cells; padding insets the whole grid.
+				cells. Lead / align / nudge (below) position the reels and symbols.
 			</p>
 			<div class="row">
 				<label class="field">
@@ -2870,9 +2870,15 @@
 					/>
 				</label>
 			</div>
+			<p class="muted small">
+				Three independent knobs — changing one never moves the others. <strong>Lead</strong>
+				seats the whole reel cluster (0.5 = symmetric); <strong>align</strong> places each symbol's
+				art inside its own cell (0.5 = centred); <strong>nudge</strong> fine-shifts the whole board in
+				px to line up with frame art.
+			</p>
 			<div class="row">
 				<label class="field">
-					<span>reel padding</span>
+					<span>reel lead</span>
 					<input
 						type="number"
 						step="0.01"
@@ -2887,7 +2893,7 @@
 					/>
 				</label>
 				<label class="field">
-					<span>row padding</span>
+					<span>row lead</span>
 					<input
 						type="number"
 						step="0.01"
@@ -2898,6 +2904,68 @@
 								node.rowPadding = v;
 								markDirty();
 							}
+						}}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span>symbol align X</span>
+					<input
+						type="number"
+						step="0.01"
+						value={node.symbolAlignX ?? 0.5}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.symbolAlignX = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>symbol align Y</span>
+					<input
+						type="number"
+						step="0.01"
+						value={node.symbolAlignY ?? 0.5}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (!Number.isNaN(v)) {
+								node.symbolAlignY = v;
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span>board nudge X</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="0"
+						value={node.boardNudgeX ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.boardNudgeX = Number.isFinite(v) && v !== 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>board nudge Y</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="0"
+						value={node.boardNudgeY ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.boardNudgeY = Number.isFinite(v) && v !== 0 ? v : undefined;
+							markDirty();
 						}}
 					/>
 				</label>
