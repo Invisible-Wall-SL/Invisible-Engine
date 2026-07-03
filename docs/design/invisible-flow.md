@@ -100,6 +100,33 @@ build clean; Prettier clean. **Still owed:** owner live-verify the actual fade P
 bundle (WebGL — the one thing headless can't prove), turbo on/off; then the ship chain
 (`publish-runtime-bundle` → Borut submodule bump) is the owner's step. NOT committed/pushed/published.
 
+### Progress — authored-`hud_*` active-set gate + intent routing generalized beyond `spin` (2026-07-03)
+
+**Context.** The 2026-07-02 pass (below) gated the CODED `<UI>` HUD (`hudBar`/`hudCorners`) on the
+active set, but the §16 full-replace path renders author-created `hud_*` screens through a SEPARATE
+`{#each authoredHud}` block that had NO gate — so on `bookofborutremake` the authored bottom bar +
+balance infos still showed during the loading splash, and the authored buttons (bar `spin`) did
+nothing. This pass closes both, holding §7 inert-flow parity, in the shared `apps/lines` runtime
+(reaches Borut via `publish-runtime-bundle` — no submodule bump).
+
+- **A. Gate `{#each authoredHud}` on the active set (`Game.svelte`).** Each `hud_*` scene now renders
+  only when `!flow || !flow.mounter.authoredScreenIds().has(scene.id) || activeScreenIds.includes(
+  scene.id)` — the same shape as the reel + coded-`<UI>` gates. A `hud_*` scene the flow does not
+  author renders unconditionally (byte-identical to today).
+- **B. Flow-action routing generalized (`Game.svelte`, §8.5).** Only `spin` consulted the flow; the
+  other HUD actions' `button → intent` edges were inert and `invokeIntent` was `spin`-only. Extracted
+  each coded press body to a shared helper, added `invokeHostIntent(intent)` (one dispatch table for
+  BOTH the registered `onpress` and the interpreter bridge) + `routeActionThroughFlow(pin, coded)` (the
+  shared flow-guard). All five HUD intents (`spin`/`increase`/`decrease`/`turbo`/`menu`) now route
+  through a wired edge, else run the coded body; `spin` byte-identical. Beyond-HUD intents
+  (`buyBonus`/`autoSpin`/…) remain unwired — one helper + one dispatch branch each to add.
+
+Also same day (separate concern): symbol art now tracks the reel cell (`boardGeometry().cellW/HLocal`
+feeding `SymbolSprite`/`SymbolSpineMain`) so a shrunk cell no longer clips — see `docs/STATUS.md`.
+**Verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN. NEEDS LIVE
+OWNER-VERIFY (WebGL): bottom bar/balance hidden on the splash + revealed on the tap; increase/decrease/
+turbo/menu buttons functional via their intent edges.
+
 ### Progress — complete FAN-OUT + HUD active gate + doc-order z (2026-07-02)
 
 **Context.** The owner authored a real FlowDoc (`loading` initial, `basegame`, and a HUD screen

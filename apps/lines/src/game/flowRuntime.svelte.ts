@@ -297,8 +297,9 @@ export const createLinesFlow = (
 		entrances: readonly ScreenEntrance[],
 	) => void,
 	/** Invoke a game INTENT on a host screen (design doc §8.5) — the target of an `action → intent`
-	 *  edge. Supplied by `Game.svelte` (it needs the live `context` bet/stop decision); for `spin`
-	 *  it runs the exact coded bet/stop broadcast. Absent ⇒ an action edge is a safe no-op. */
+	 *  edge. Supplied by `Game.svelte` (it needs the live `context` state): dispatches each HUD intent
+	 *  (`spin`/`increase`/`decrease`/`turbo`/`menu`) to that button's exact coded behaviour. An unknown
+	 *  intent, or an absent bridge, is a safe no-op (parity §8.8). */
 	invokeIntent?: (screenId: string, intent: string) => void,
 ): LinesFlow | undefined => {
 	const authoredDoc = loadFlowDoc();

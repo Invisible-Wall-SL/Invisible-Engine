@@ -55,19 +55,36 @@ export const setBoardOverride = (node: ReelGridNode | null) => {
  * Board LATTICE derived from the override, in board-LOCAL space (before the
  * container `scale`). `columnExtraLocal` = extra x added per reel index for
  * non-square cell width + horizontal gap; `rowPitchLocal` = the reel's symbol
- * pitch (drives `createReelForSpinning`'s reactive `symbolHeight`). No node ⇒
- * `{0, SYMBOL_SIZE}` = today's flush square lattice (byte-identical parity).
+ * pitch (drives `createReelForSpinning`'s reactive `symbolHeight`).
+ * `cellWidthLocal`/`cellHeightLocal` = the contain-fit box a symbol's ART draws
+ * into (the mask window's per-cell size in board-local space) — the ONE source of
+ * truth shared by the reel mask and the symbol sprites/spines, so art can never
+ * overflow the mask when a non-square/small cell is authored. No node ⇒
+ * `{0, SYMBOL_SIZE, SYMBOL_SIZE, SYMBOL_SIZE}` = today's flush square lattice
+ * (byte-identical parity). The container `scale` is `cellSize / SYMBOL_SIZE`
+ * (see `boardLayout`), so dividing each authored cell edge by that scale yields the
+ * local box that renders AT the authored on-screen cell size; a UNIFORM cell
+ * (`cellWidth == cellHeight == cellSize`, no gap) collapses both edges to exactly
+ * `SYMBOL_SIZE`, so uniform-scaled boards draw art at 120px unchanged.
  */
 const boardGeometry = () => {
 	const override = resolveReelGridFromNode(
 		boardOverride.node ?? undefined,
 		stateLayoutDerived.layoutType(),
 	);
-	if (!override) return { columnExtraLocal: 0, rowPitchLocal: SYMBOL_SIZE };
+	if (!override)
+		return {
+			columnExtraLocal: 0,
+			rowPitchLocal: SYMBOL_SIZE,
+			cellWidthLocal: SYMBOL_SIZE,
+			cellHeightLocal: SYMBOL_SIZE,
+		};
 	const scale = override.cellSize / SYMBOL_SIZE;
 	const columnExtraLocal = (override.cellWidth - override.cellSize + override.gapX) / scale;
 	const rowPitchLocal = (override.cellHeight + override.gapY) / scale;
-	return { columnExtraLocal, rowPitchLocal };
+	const cellWidthLocal = override.cellWidth / scale;
+	const cellHeightLocal = override.cellHeight / scale;
+	return { columnExtraLocal, rowPitchLocal, cellWidthLocal, cellHeightLocal };
 };
 
 /** Reactive symbol-centre X in board-local space (honours non-square width + gap). */

@@ -24,6 +24,53 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-03 — Authored HUD: active-set gate for `hud_*` screens + flow-action routing generalized beyond `spin` + symbol art tracks the reel cell (SHIPPED to `_runtime/lines`)
+
+**Context.** Owner's `bookofborutremake` (a `runtime:lines` game) authored a split HUD via `/flow`
+(`loading` → base game + `hud_*` button/bottom-bar/balance screens, with `button → intent` edges) and
+hit three defects: (1) the authored bottom bar + balance infos were **visible during the loading
+splash**; (2) authored HUD **buttons did nothing** except spin; (3) after **shrinking the reel cell**
+in the editor, in-game **symbols clipped** (fine in the editor). All three land in the shared
+`apps/lines` runtime bundle (reaches Book of Borut via `publish-runtime-bundle.mjs` — NO submodule
+bump) and hold the §7 inert-flow fall-through (no flow ⇒ byte-identical to `main`).
+
+- **A. Authored-HUD active-set gate** (`apps/lines/src/components/Game.svelte`). The §16 full-replace
+  `{#each authoredHud}` block rendered `hud_*` scenes UNCONDITIONALLY — the flow active-set (and thus
+  the `loading→HUD` handoff) never reached them, so they painted over the loading takeover. Now each
+  scene renders only when `!flow || !flow.mounter.authoredScreenIds().has(scene.id) ||
+  activeScreenIds.includes(scene.id)` — same gate shape as the base-game reels + coded `<UI>`. A
+  `hud_*` scene the flow does NOT author still renders unconditionally (parity).
+- **B. Flow-action routing generalized beyond `spin`** (`Game.svelte`, §8.5). Previously ONLY the
+  `spin` action consulted the flow (`hasFlowAction`/`emitFlowAction`); `increase`/`decrease`/`turbo`/
+  `menu` `button → intent` edges were inert, and `invokeIntent` was a `spin`-only no-op. Lifted each
+  coded press body into a shared helper (`doIncreaseBet`/`doDecreaseBet`/`doToggleTurbo`/`doOpenMenu`;
+  `doSpinBetOrStop` is the `spin` member), added `invokeHostIntent(intent)` (one dispatch table shared
+  by the registered `onpress` and the interpreter bridge) and `routeActionThroughFlow(pin, coded)` (the
+  shared flow-guard). Every HUD `onpress` now routes through the flow when wired, else runs its coded
+  body — `spin` byte-identical. Intent bodies don't broadcast the press sound (no double-fire).
+  `flowRuntime.svelte.ts` `invokeIntent` JSDoc updated. Intents beyond the five HUD ones
+  (`buyBonus`/`autoSpin`/`payTable`/…) are NOT yet in the table — trivial to extend.
+- **C. Symbol art tracks the reel cell** (`apps/lines/src/game/stateGame.svelte.ts`,
+  `components/{SymbolSprite,SymbolSpineMain}.svelte`). Symbol art was drawn at the constant
+  `SYMBOL_SIZE` (120px) while the reel mask window followed the authored cell — shrink the cell and
+  symbols overflowed + clipped (invisible in the editor, which draws only a placeholder grid, no art /
+  no mask). `boardGeometry()` now also exposes `cellWidthLocal`/`cellHeightLocal` (the board-local
+  contain-fit box, same override+scale math the mask/pitch use); the Sprite reads them directly and the
+  Spine reads them × `SYMBOL_SPINE_FILL`. **PARITY:** no override AND any uniform-scaled board collapse
+  both edges to exactly `SYMBOL_SIZE`, so the default + Borut's own (uniform) symbols are byte-identical;
+  only a NON-uniform / absolute small cell now resizes art to fit its mask.
+
+**Verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN (build = typecheck).
+**Owner interactive-verify (WebGL, online — headless can't click):** bottom bar / balance hidden on the
+loading splash and revealed on tap; authored increase/decrease/turbo/menu buttons work via their intent
+edges (or a direct `params.action`); a re-authored smaller reel cell no longer clips symbols. **OWNER
+authoring caveats (unchanged from §16):** each HUD button still needs `params.action` set to be
+pressable; existing `hud_*` screens minted before the align fix still need `align.vertical:'bottom'`;
+shrink reels via the node's UNIFORM scale where possible (non-uniform now works too). Files:
+`apps/lines/src/components/{Game,SymbolSprite,SymbolSpineMain}.svelte`,
+`apps/lines/src/game/{stateGame.svelte.ts,flowRuntime.svelte.ts}`,
+`docs/design/invisible-flow.md`, `docs/STATUS.md`.
+
 ### 2026-07-03 — Live-asset cache-busting + dangling-binding guard (fixes "re-authored atlas, game shows old / not-found")
 
 Closes gap #3 of `docs/design/live-assets.md` (see that doc's dated section). Symptom: re-pack an
