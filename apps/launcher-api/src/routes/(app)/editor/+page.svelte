@@ -671,6 +671,12 @@
 	}
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
+	/** Screen ids the project's FlowDoc drives (server-resolved from `flow.screens`, the same
+	 * set the runtime treats as flow-owned). A screen the flow carries has its visibility
+	 * decided by the flow's active-set, so the Scene Editor suppresses the per-screen "Shows
+	 * during" gate for it — one owner of visibility, no double-authoring. */
+	const flowScreenIds = $derived(new Set(data.flowScreenIds ?? []));
+	const activeSceneFlowDriven = $derived(!!activeScene && flowScreenIds.has(activeScene.id));
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
 	/** All scenes the canvas may composite. */
@@ -2611,20 +2617,30 @@
 							</label>
 						</div>
 					{/if}
-					<label class="space-field">
-						<span>shows during</span>
-						<select
-							value={activeScene.visibleSource ?? ''}
-							onchange={(e) => setSceneVisibleSource(e.currentTarget.value)}
-							title="Game-lifecycle gate: in-game the WHOLE screen shows only while this state is active (e.g. the Free-spin intro). 'Always' = no gate. The editor always shows the screen so you can author it."
-						>
-							<option value="">Always (no gate)</option>
-							{#each VISIBILITY_SOURCE_KEYS as key (key)}
-								<option value={key}>{VISIBILITY_SOURCE_LABELS[key] ?? key}</option>
-							{/each}
-						</select>
-					</label>
-					{#if activeScene.visibleSource && BLOCKING_GATE_SOURCES.has(activeScene.visibleSource)}
+					{#if activeSceneFlowDriven}
+						<div class="space-field flow-owned">
+							<span>shows during</span>
+							<p class="flow-owned-note">
+								Driven by Invisible Flow — this screen is placed on the flow canvas, so the
+								flow decides when it shows. Remove it from the flow to gate it here instead.
+							</p>
+						</div>
+					{:else}
+						<label class="space-field">
+							<span>shows during</span>
+							<select
+								value={activeScene.visibleSource ?? ''}
+								onchange={(e) => setSceneVisibleSource(e.currentTarget.value)}
+								title="Game-lifecycle gate: in-game the WHOLE screen shows only while this state is active (e.g. the Free-spin intro). 'Always' = no gate. The editor always shows the screen so you can author it."
+							>
+								<option value="">Always (no gate)</option>
+								{#each VISIBILITY_SOURCE_KEYS as key (key)}
+									<option value={key}>{VISIBILITY_SOURCE_LABELS[key] ?? key}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+					{#if !activeSceneFlowDriven && activeScene.visibleSource && BLOCKING_GATE_SOURCES.has(activeScene.visibleSource)}
 						<div class="gate-style">
 							<div class="space-aligns">
 								<label class="space-field">
@@ -3125,6 +3141,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+	.flow-owned-note {
+		margin: 0;
+		padding: 6px 8px;
+		background: #16131c;
+		border: 1px solid #2a2433;
+		border-radius: 6px;
+		font-size: 11px;
+		line-height: 1.4;
+		color: #8a8296;
 	}
 	.gate-check {
 		display: flex;
