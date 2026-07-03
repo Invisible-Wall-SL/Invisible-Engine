@@ -23,6 +23,7 @@
 		'unresolved-accessor': '✗',
 		'unresolved-producer': '✗',
 		'unknown-book-event': '✗',
+		'empty-book-event': '✗',
 	};
 </script>
 
@@ -35,12 +36,17 @@
 			{#each issues as issue, i (i)}
 				<li>
 					{#if issue.screenId}
-						<button class="issue" onclick={() => onfocus(issue.screenId!)} title={issue.message}>
+						<button
+							class="issue"
+							class:error={issue.severity === 'error'}
+							onclick={() => onfocus(issue.screenId!)}
+							title={issue.message}
+						>
 							<span class="icon">{ICON[issue.kind] ?? '⚠'}</span>
 							<span class="msg">{issue.message}</span>
 						</button>
 					{:else}
-						<div class="issue static" title={issue.message}>
+						<div class="issue static" class:error={issue.severity === 'error'} title={issue.message}>
 							<span class="icon">{ICON[issue.kind] ?? '⚠'}</span>
 							<span class="msg">{issue.message}</span>
 						</div>
@@ -97,6 +103,16 @@
 	}
 	.issue:not(.static):hover {
 		border-color: #f59e0b;
+	}
+	/* Errors read stronger than warnings (a red band vs the amber warning) — a dead edge that
+	   will misbehave at runtime, not just an authoring nit. Still non-blocking (§7). */
+	.issue.error {
+		border-color: #7f1d1d;
+		background: #1a0e0e;
+		color: #fca5a5;
+	}
+	.issue.error:not(.static):hover {
+		border-color: #ef4444;
 	}
 	.icon {
 		flex: none;

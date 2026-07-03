@@ -5,11 +5,19 @@
  * made legible: the author sees exactly which screens/events the doc takes over and which
  * still run their coded path, so a partially-migrated game is readable at a glance.
  *
- * "Authored" is the SAME predicate the interpreter's dispatch uses (`dispatch.ts` /
- * `interpreter.ts`): a screen is authored when the FlowDoc carries a `choreography` for it
- * (else its mount/enter/exit falls through), and an event is authored when the FlowDoc has
- * an `events[]` entry for it (else the coded handler runs). The diff does NOT decide
- * behaviour — it only REPORTS the boundary the runtime already enforces.
+ * "Authored" mirrors what the RUNTIME actually does, on two axes:
+ *   - a SCREEN is interpreter-MOUNTED when the FlowDoc lists it AND its backing LayoutDoc scene
+ *     resolves — the `mounter.ts` boundary (`resolve` returns `authored` for a listed screen with
+ *     a scene, NO `choreography` required). So a placed screen that mounts its authored scene reads
+ *     as authored EVEN WITHOUT an enter/while/exit choreography (the FS-6 fix: the free-spin intro
+ *     was mislabelled "coded" purely because it had no choreography, while the runtime mounts it).
+ *     The `phases` flags still report WHICH choreography phases exist (an extra, not the gate).
+ *   - an EVENT is authored when the FlowDoc has an `events[]` choreography for it (`dispatch.ts`
+ *     runs it; else the coded handler runs). Unchanged — events have no "mount" axis.
+ * The caller supplies `mountedScreenIds` (the ids whose backing scene resolves — the editor derives
+ * this from its placed-screen model, which already drops screens with no scene). Absent ⇒ the diff
+ * falls back to the choreography-only notion (headless callers with no scene resolver). The diff
+ * does NOT decide behaviour — it only REPORTS the boundary the runtime already enforces.
  *
  * Svelte-free + dependency-free, so the same summary runs headlessly and in the launcher.
  */
@@ -20,10 +28,15 @@ import type { FlowDoc } from './types';
 export interface ScreenDiff {
 	screenId: string;
 	label: string;
-	/** True when the screen carries an authored choreography (enter/while/exit) — the
-	 *  interpreter drives its presentation; false ⇒ it falls through to coded mounting. */
+	/** True when the runtime drives this screen via the interpreter — it is interpreter-MOUNTED
+	 *  (listed + backing scene resolves, the `mounter.ts` boundary) OR carries a choreography.
+	 *  False ⇒ it falls through to coded mounting. This is the display gate; `phases` is an extra. */
 	authored: boolean;
-	/** Which of the three phases are authored (for a compact per-phase indicator). */
+	/** True when the runtime interpreter MOUNTS this screen's scene (listed + backing scene
+	 *  resolves) — independent of whether it also has a choreography. Drives the "mounted" hint. */
+	mounted: boolean;
+	/** Which of the three CHOREOGRAPHY phases are authored (for a compact per-phase indicator). A
+	 *  screen can be `authored` (mounted) with no phase authored — it mounts its scene statically. */
 	phases: { enter: boolean; while: boolean; exit: boolean };
 	/** True for the initial (entry) screen. */
 	initial: boolean;
@@ -56,13 +69,33 @@ export interface FlowDiff {
 
 const hasNode = (node: unknown): boolean => node !== undefined && node !== null;
 
+/** Optional inputs beyond the coded-event list. `mountedScreenIds` is the set of screen ids the
+ *  runtime interpreter would MOUNT (listed in the doc AND their backing scene resolves — the
+ *  `mounter.ts` boundary). The editor supplies it from its placed-screen model (which already drops
+ *  screens with no backing scene), so the diff matches what the runtime does. Absent ⇒ the diff
+ *  falls back to the choreography-only "authored" notion (headless callers with no scene resolver). */
+export interface FlowDiffOptions {
+	mountedScreenIds?: ReadonlySet<string> | string[];
+}
+
 /**
  * Diff a FlowDoc against the coded default. `codedEvents` is the full list of book events
  * the game's coded `bookEventHandlerMap` handles (so the diff can show which coded events
  * remain un-authored / inherited); when omitted, the event diff lists only the FlowDoc's
- * authored events. The diff is the §7 boundary as data, not a behaviour change.
+ * authored events. `options.mountedScreenIds` lets the diff read a listed-with-a-scene screen as
+ * authored (mounted) even without a choreography, matching the runtime mounter. The diff is the §7
+ * boundary as data, not a behaviour change.
  */
-export const diffFlowDoc = (doc: FlowDoc, codedEvents: string[] = []): FlowDiff => {
+export const diffFlowDoc = (
+	doc: FlowDoc,
+	codedEvents: string[] = [],
+	options: FlowDiffOptions = {},
+): FlowDiff => {
+	const mounted = options.mountedScreenIds
+		? options.mountedScreenIds instanceof Set
+			? new Set(options.mountedScreenIds)
+			: new Set(options.mountedScreenIds as string[])
+		: undefined;
 	const screens: ScreenDiff[] = doc.screens.map((s) => {
 		const choreo = s.choreography;
 		const phases = {
@@ -70,11 +103,18 @@ export const diffFlowDoc = (doc: FlowDoc, codedEvents: string[] = []): FlowDiff 
 			while: hasNode(choreo?.while),
 			exit: hasNode(choreo?.exit),
 		};
-		const authored = phases.enter || phases.while || phases.exit;
+		const hasChoreo = phases.enter || phases.while || phases.exit;
+		// Interpreter-mounted when the caller says its scene resolves; absent set ⇒ fall back to the
+		// choreography-only notion (no scene resolver available). Either mounting OR a choreography
+		// means the runtime drives it (not coded). This is the FS-6 fix: a placed intro with a real
+		// scene but no authored choreography now reads AUTHORED, matching what the runtime mounts.
+		const isMounted = mounted ? mounted.has(s.id) : hasChoreo;
+		const authored = isMounted || hasChoreo;
 		return {
 			screenId: s.id,
 			label: s.label ?? s.id,
 			authored,
+			mounted: isMounted,
 			phases,
 			initial: s.initial ?? false,
 		};

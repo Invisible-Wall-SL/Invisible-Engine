@@ -80,10 +80,18 @@ export type FlowIssueKind =
 	// A `bookEvent` trigger edge (design doc §14 FS-2) whose event isn't in the game's book-event
 	// vocabulary — the pin it references doesn't exist (a typo or an event removed from the union).
 	// Warned, never silently dropped (mirrors the orphaned-pin discipline, §4).
-	| 'unknown-book-event';
+	| 'unknown-book-event'
+	// A `bookEvent` trigger edge with a BLANK event name — the `onConnect` fallback mints one when
+	// an edge is dropped ON A NODE BODY instead of onto the target's `bookEvent:<event>` INPUT pin
+	// (design doc §14 FS-2, the FS-6 foot-gun). Such an edge never matches at runtime (the machine
+	// keys on `trigger.event === bookEvent.type`, so `''` matches nothing), so the target screen is
+	// never activated by the book event — the silent guessing game this ERROR ends. `error` severity.
+	| 'empty-book-event';
 
-/** Issue severity. All Phase-7 issues are warnings (never block authoring, §7). */
-export type FlowIssueSeverity = 'warning';
+/** Issue severity. Most Phase-7 issues are WARNINGS (never block authoring, §7). `error` marks a
+ *  break that WILL misbehave at runtime (a dead `bookEvent` edge that matches nothing) — still
+ *  non-blocking (save is never gated, §7), but drawn stronger so the author cannot miss it. */
+export type FlowIssueSeverity = 'warning' | 'error';
 
 /** A single validation issue. `screenId` is set for node-scoped issues (clickable to
  *  focus the node); graph-scoped issues (`no-initial`) carry none. */
@@ -321,24 +329,37 @@ export const validateFlowDoc = (
 		}
 	}
 
-	// --- Book-event trigger edges: unknown event (design doc §14 FS-2) ------------------------
-	// A `bookEvent` edge draws FROM a screen's `${screenId}::bookEvent:<event>` trigger pin. If the
-	// event isn't in the game's book-event vocabulary the referenced pin doesn't exist (a typo, or an
-	// event removed from the union) — warn, never drop (mirrors orphaned-pin discipline, §4). A blank
-	// event (a freshly-drawn typed-name edge awaiting a name) is skipped: `no-initial`-style graph
-	// warnings already nudge the author, and blank is a transient authoring state, not a broken pin.
+	// --- Book-event trigger edges: empty / unknown event (design doc §14 FS-2) -----------------
+	// A `bookEvent` edge draws FROM a screen's `${screenId}::bookEvent:<event>` trigger pin. Two
+	// breakages both leave a DEAD edge that matches nothing at runtime (the machine keys on
+	// `trigger.event === bookEvent.type`, so neither `''` nor an unknown name ever fires), so the
+	// target screen is never activated — the exact silent guessing game the FS-6 diagnosis hit:
+	//   - EMPTY event ('') — the `onConnect` fallback mints this when an edge is dropped on a NODE
+	//     BODY instead of onto the target's `bookEvent:<event>` INPUT pin. ERROR (it can never work).
+	//   - UNKNOWN event — a name not in the game's book-event vocabulary (a typo, or an event removed
+	//     from the union): the referenced pin doesn't exist. ERROR (same runtime dead-edge outcome).
+	// Both name the offending edge (from → to) + the fix. `empty-book-event` needs no vocabulary (a
+	// blank name is broken regardless), so it is checked unconditionally; the unknown-name check needs
+	// the vocabulary (skipped when the caller can't supply it — no false positives, e.g. typed-name).
 	const bookEvents = toSet(options.bookEvents);
-	if (bookEvents) {
-		for (const t of doc.transitions) {
-			if (t.trigger.kind !== 'bookEvent' || !t.trigger.event) continue;
-			if (!bookEvents.has(t.trigger.event)) {
-				issues.push({
-					kind: 'unknown-book-event',
-					severity: 'warning',
-					screenId: t.to,
-					message: `A book-event transition names event "${t.trigger.event}", which is not in the game's book-event vocabulary — the trigger pin doesn't exist (check the spelling).`,
-				});
-			}
+	for (const t of doc.transitions) {
+		if (t.trigger.kind !== 'bookEvent') continue;
+		if (!t.trigger.event) {
+			issues.push({
+				kind: 'empty-book-event',
+				severity: 'error',
+				screenId: t.to,
+				message: `Book-event transition "${labelOf(t.from)}" → "${labelOf(t.to)}" has no event name — it will never fire. Redraw it by dropping the wire onto the target screen's "bookEvent:<event>" input pin (e.g. bookEvent:freeSpinTrigger).`,
+			});
+			continue;
+		}
+		if (bookEvents && !bookEvents.has(t.trigger.event)) {
+			issues.push({
+				kind: 'unknown-book-event',
+				severity: 'error',
+				screenId: t.to,
+				message: `Book-event transition "${labelOf(t.from)}" → "${labelOf(t.to)}" names event "${t.trigger.event}", which is not in the game's book-event vocabulary — the trigger pin doesn't exist, so it will never fire (check the spelling, or redraw onto the target's "bookEvent:<event>" pin).`,
+			});
 		}
 	}
 

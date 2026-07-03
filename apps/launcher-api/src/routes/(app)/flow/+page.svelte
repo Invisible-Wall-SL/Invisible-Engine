@@ -135,8 +135,16 @@
 		new Set(issues.map((i) => i.screenId).filter((id): id is string => Boolean(id))),
 	);
 
-	// Flow-diff vs the coded default (design doc §7, Phase 7): authored vs fall-through.
-	const diff = $derived(diffFlowDoc(doc, DEFAULT_CODED_EVENTS));
+	// Flow-diff vs the coded default (design doc §7, Phase 7): authored vs fall-through. Pass the
+	// ids the runtime would MOUNT — the placed screens whose backing scene resolves (`model.screens`
+	// already drops screens with no scene, `flowModel.client.ts`) — so a screen that mounts its
+	// authored scene reads AUTHORED even with no choreography, matching `mounter.ts` (the FS-6 fix:
+	// the free-spin intro no longer mislabels as CODED just because it has no enter/while/exit).
+	const diff = $derived(
+		diffFlowDoc(doc, DEFAULT_CODED_EVENTS, {
+			mountedScreenIds: model.screens.map((s) => s.screen.id),
+		}),
+	);
 
 	// xyflow owns these arrays for live drag/selection; we rebuild them from the doc only
 	// on STRUCTURAL changes (add/remove screen+edge, undo/redo), not on every drag frame.

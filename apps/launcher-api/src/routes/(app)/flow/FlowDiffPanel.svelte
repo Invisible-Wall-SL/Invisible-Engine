@@ -28,11 +28,19 @@
 							<span class="tag" class:authored={s.authored}>{s.authored ? 'authored' : 'coded'}</span>
 							<span class="name">{s.label}{s.initial ? ' ·start' : ''}</span>
 							{#if s.authored}
-								<span class="phases">
-									<span class:on={s.phases.enter} title="enter">e</span>
-									<span class:on={s.phases.while} title="while">w</span>
-									<span class:on={s.phases.exit} title="exit">x</span>
-								</span>
+								{#if s.mounted && !s.phases.enter && !s.phases.while && !s.phases.exit}
+									<!-- Mounted from its scene, no choreography authored (a static overlay). The
+											 runtime mounts it; the phases are just not scripted — an honest hint, not "coded". -->
+									<span class="hint" title="Mounted from its scene (no enter/while/exit choreography)"
+										>scene</span
+									>
+								{:else}
+									<span class="phases">
+										<span class:on={s.phases.enter} title="enter">e</span>
+										<span class:on={s.phases.while} title="while">w</span>
+										<span class:on={s.phases.exit} title="exit">x</span>
+									</span>
+								{/if}
 							{/if}
 						</button>
 					</li>
@@ -149,5 +157,11 @@
 	}
 	.phases span.on {
 		color: #60a5fa;
+	}
+	.hint {
+		flex: none;
+		font-size: 9px;
+		letter-spacing: 0.03em;
+		color: #64748b;
 	}
 </style>
