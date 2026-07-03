@@ -1619,17 +1619,11 @@
 				{#snippet paramField(p: ComponentParam)}
 					<label class="field wide">
 						<span>{p.label ?? `${p.key} (${p.kind})`}</span>
-						{#if p.options && p.options.length > 0}
-							<select
-								value={(node.params?.[p.key] as string) ?? ''}
-								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
-							>
-								<option value="">(inherit default)</option>
-								{#each p.options as opt (opt)}
-									<option value={opt}>{opt}</option>
-								{/each}
-							</select>
-						{:else if p.key === 'action'}
+						{#if p.key === 'action'}
+							<!-- `action` ALWAYS renders from the LIVE catalog + labels, never the
+							param's baked `options`. A pinned button def snapshots
+							`options: ENGINE_ACTION_CATALOG` at save time, so an older pin would
+							otherwise freeze the dropdown to a stale list (and skip the labels). -->
 							<select
 								value={(node.params?.[p.key] as string) ?? ''}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
@@ -1637,6 +1631,16 @@
 								<option value="">(inherit default)</option>
 								{#each actionOptions(node.params?.[p.key]) as a (a)}
 									<option value={a}>{ENGINE_ACTION_LABELS[a] ?? a}</option>
+								{/each}
+							</select>
+						{:else if p.options && p.options.length > 0}
+							<select
+								value={(node.params?.[p.key] as string) ?? ''}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value="">(inherit default)</option>
+								{#each p.options as opt (opt)}
+									<option value={opt}>{opt}</option>
 								{/each}
 							</select>
 						{:else if p.kind === 'boolean'}
