@@ -24,6 +24,28 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Rigger: "✨ Auto FX slots" — auto-author FX layers from the manifest
+
+**Ask.** Final piece of the FX pipeline: automate, in the Invisible Rigger, the manual
+"duplicate slot → replace image (keep mesh/animation)" for every FX layer found in the manifest.
+
+**Shipped** (`apps/launcher-api/static/rigger/view.html`, static client — not in the Svelte build):
+- Refactored `duplicateSlot` into a reusable `duplicateSlotCore(slotName, newName, position)` (clone
+  slot + attachments in every skin + slot/deform/attachment animation timelines; `position` =
+  before/after in draw order). The prompt wrapper is unchanged behaviourally.
+- New `autoCreateFxSlots()` + **✨ Auto FX slots** button (next to ＋ Add slot): scans the rig's
+  atlas (`assetMgr.require(selected.atlas_file).regions`) for `<base>_<mode>` FX regions (naming
+  mirrors `shine.py` `FX_SUFFIX_MODE`, incl. `_colour`); for each whose base region is on a slot
+  (`slotSetupRegion`), duplicates that slot and repoints the copy's setup image to the FX region
+  (`repointSlotSetupImage` — keeps mesh/UVs/weights/deform). Shadows placed BEHIND the base, other
+  FX in front. Idempotent (skips existing FX slots); reports created/skipped.
+- Docs: `docs/tools/rigger.md` updated.
+
+**Verified** (data-level test, stubbed globals): shadow lands behind + others in front, images
+repoint to the FX region while the base mesh verts are reused, slot+deform animation timelines are
+cloned onto the FX slots, non-FX regions are ignored, and a second run creates nothing. JS syntax
+of both `<script>` blocks OK. Not yet browser-smoked live / owner-verified.
+
 ### 2026-07-06 — Symbols export: scan ALL atlases for bound frames (fixes new symbol icons rendering blank)
 
 **Symptom.** On `bookofborutremake`, three symbols added to the Invisible Symbols State Machine

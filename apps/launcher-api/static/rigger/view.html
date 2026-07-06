@@ -964,6 +964,12 @@ function buildInspector(entry){
     as.style.cssText = "margin:6px 14px 2px;";
     as.onclick = () => addSlot(selBone != null ? skeletonData.bones[selBone].name : null);
     slotList.appendChild(as);
+    const afx = document.createElement("button");
+    afx.textContent = "✨ Auto FX slots";
+    afx.title = "For every _shine / _glow / _shadow / _blur / _zoom / _colour region in this rig's atlas whose base is slotted, duplicate the base slot (reusing its mesh + animation) and swap the copy's image to the FX region. Shadows go behind, others in front. Skips FX slots that already exist.";
+    afx.style.cssText = "margin:6px 14px 2px;";
+    afx.onclick = () => autoCreateFxSlots();
+    slotList.appendChild(afx);
   }
   const slots = skeletonData.slots;
   slots.forEach((sd, z) => {
@@ -2801,10 +2807,35 @@ function deleteSlot(name){
 // duplicate the driving clip (⧉ in Animations) and edit the copy. drawOrder offsets are
 // deliberately NOT cloned — the copy sits just in front of the source (its setup slot
 // position) across all frames, which keeps every existing drawOrder permutation valid.
+// Core of the duplicate: clone the slot, its attachment(s) in every skin, and
+// every slot/deform/attachment animation timeline that drives it, onto `newName`
+// on the SAME bone. `position` places the copy just after ('after', the default —
+// in front) or before ('before' — behind) the source in draw order. Pure rawDoc
+// mutation — the CALLER rebuilds + selects. Returns newName, or null if the
+// source slot is gone. Shared by the manual ⧉ and the FX auto-author below.
+function duplicateSlotCore(slotName, newName, position){
+  const idx = rawDoc.slots.findIndex((s) => s.name === slotName);
+  if (idx < 0) return null;
+  // 1. the slot itself — same bone, placed before/after the source in draw order
+  const dup = JSON.parse(JSON.stringify(rawDoc.slots[idx]));
+  dup.name = newName;
+  rawDoc.slots.splice(position === "before" ? idx : idx + 1, 0, dup);
+  // 2. its attachment(s) in every skin
+  for (const sk of rawDoc.skins || [])
+    if (sk.attachments && sk.attachments[slotName])
+      sk.attachments[newName] = JSON.parse(JSON.stringify(sk.attachments[slotName]));
+  // 3. slot-driving animation timelines (bone timelines are shared, untouched)
+  for (const an of Object.values(rawDoc.animations || {})){
+    if (an.slots && an.slots[slotName]) an.slots[newName] = JSON.parse(JSON.stringify(an.slots[slotName]));
+    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) sm[newName] = JSON.parse(JSON.stringify(sm[slotName]));
+    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[slotName]) sm[newName] = JSON.parse(JSON.stringify(sm[slotName]));
+  }
+  return newName;
+}
+
 function duplicateSlot(slotName){
   if (!rawDoc || !Array.isArray(rawDoc.slots)) return;
-  const idx = rawDoc.slots.findIndex((s) => s.name === slotName);
-  if (idx < 0) return;
+  if (rawDoc.slots.findIndex((s) => s.name === slotName) < 0) return;
   const existing = new Set(rawDoc.slots.map((s) => s.name));
   const answer = typeof prompt === "function"
     ? prompt('Name for the duplicate of "' + slotName + '":', slotName + "_copy")
@@ -2813,28 +2844,89 @@ function duplicateSlot(slotName){
   const base = cleanName(answer) || slotName + "_copy";
   let newName = base;
   if (existing.has(newName)){ let n = 2; while (existing.has(base + n)) n++; newName = base + n; }
-
-  // 1. the slot itself — same bone, placed right after the source in draw order
-  const dup = JSON.parse(JSON.stringify(rawDoc.slots[idx]));
-  dup.name = newName;
-  rawDoc.slots.splice(idx + 1, 0, dup);
-
-  // 2. its attachment(s) in every skin
-  for (const sk of rawDoc.skins || [])
-    if (sk.attachments && sk.attachments[slotName])
-      sk.attachments[newName] = JSON.parse(JSON.stringify(sk.attachments[slotName]));
-
-  // 3. slot-driving animation timelines (bone timelines are shared, untouched)
-  for (const an of Object.values(rawDoc.animations || {})){
-    if (an.slots && an.slots[slotName]) an.slots[newName] = JSON.parse(JSON.stringify(an.slots[slotName]));
-    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) sm[newName] = JSON.parse(JSON.stringify(sm[slotName]));
-    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[slotName]) sm[newName] = JSON.parse(JSON.stringify(sm[slotName]));
-  }
-
+  duplicateSlotCore(slotName, newName, "after");
   selSlot = newName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   selectSlot(newName);
   markDirty();
+}
+
+// FX-naming convention — mirrors atlas-tool/shine.py FX_SUFFIX_MODE. A region
+// named `<base><suffix>` is an FX layer derived from `<base>`.
+const FX_SUFFIX_MODE = { _shine: "shine", _glow: "glow", _shadow: "shadow", _blur: "blur", _zoom: "zoom", _colour: "colour" };
+function fxInfo(name){
+  for (const suf in FX_SUFFIX_MODE)
+    if (name.length > suf.length && name.endsWith(suf))
+      return { base: name.slice(0, -suf.length), mode: FX_SUFFIX_MODE[suf] };
+  return null;
+}
+
+// The atlas region a slot's SETUP attachment samples (its `path`, falling back to
+// the attachment name) — i.e. the image that slot shows in the setup pose.
+function slotSetupRegion(slotName){
+  const slot = (rawDoc.slots || []).find((s) => s.name === slotName);
+  if (!slot || !slot.attachment) return null;
+  for (const sk of rawDoc.skins || []){
+    const def = sk.attachments && sk.attachments[slotName] && sk.attachments[slotName][slot.attachment];
+    if (def) return def.path || slot.attachment;
+  }
+  return slot.attachment;
+}
+
+// Repoint a slot's SETUP attachment image to `regionName` in every skin that holds
+// it — keeps the mesh/UVs/weights/deform, only the sampled region changes (same as
+// replaceAttachmentImage, but non-interactive / no rebuild).
+function repointSlotSetupImage(slotName, regionName){
+  const slot = (rawDoc.slots || []).find((s) => s.name === slotName);
+  if (!slot || !slot.attachment) return;
+  for (const sk of rawDoc.skins || []){
+    const def = sk.attachments && sk.attachments[slotName] && sk.attachments[slotName][slot.attachment];
+    if (def && def.type !== "linkedmesh") def.path = regionName;
+  }
+}
+
+// Auto-author FX layers: for every `<base>_<mode>` region in this rig's atlas whose
+// base is slotted, duplicate the base slot (mesh + all animation) onto a same-named
+// slot and swap its image to the FX region — the automation of "duplicate slot →
+// replace image" for every FX layer. Shadows go BEHIND the base; every other FX
+// sits in front (matching the manual duplicate). Idempotent: skips FX slots that
+// already exist. This is the Rigger side of the Sheet/Atlas FX pipeline.
+function autoCreateFxSlots(){
+  if (!rawDoc || !Array.isArray(rawDoc.slots)) return;
+  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const regionNames = atlas && atlas.regions ? atlas.regions.map((rg) => rg.name) : [];
+  if (!regionNames.length){ alert("This rig has no atlas regions to scan for FX layers."); return; }
+  const regionSet = new Set(regionNames);
+  // base region -> the slot that shows it (first slot wins)
+  const slotForRegion = new Map();
+  for (const s of rawDoc.slots){
+    const rn = slotSetupRegion(s.name);
+    if (rn && !slotForRegion.has(rn)) slotForRegion.set(rn, s.name);
+  }
+  const existing = new Set(rawDoc.slots.map((s) => s.name));
+  const created = [], skipped = [];
+  for (const rn of regionNames){
+    const info = fxInfo(rn);
+    if (!info || !regionSet.has(info.base)) continue;   // not FX, or base region absent
+    if (existing.has(rn)){ skipped.push(rn + " (slot exists)"); continue; }
+    const baseSlot = slotForRegion.get(info.base);
+    if (!baseSlot){ skipped.push(rn + " (base “" + info.base + "” not slotted)"); continue; }
+    duplicateSlotCore(baseSlot, rn, info.mode === "shadow" ? "before" : "after");
+    repointSlotSetupImage(rn, rn);
+    existing.add(rn);
+    created.push(rn);
+  }
+  if (created.length){
+    selSlot = created[created.length - 1];
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    selectSlot(selSlot);
+    markDirty();
+  }
+  const lines = [created.length
+    ? "Created " + created.length + " FX slot(s): " + created.join(", ")
+    : "No new FX slots — none found, or their bases aren't slotted yet."];
+  if (skipped.length) lines.push("Skipped: " + skipped.join("; "));
+  alert(lines.join("\n"));
 }
 
 // Delete an attachment (image) from a slot in every skin; clear the slot's setup

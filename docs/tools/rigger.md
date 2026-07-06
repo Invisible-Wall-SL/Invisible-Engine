@@ -110,7 +110,18 @@ A floating segmented toggle at the top of the stage switches the workflow:
   deleted). Add a bone with **＋ Add bone** in the Bone hierarchy section.
 - **Slots:** reorder draw order with ↑/↓; place a region attachment
   (x/y/rotation/scale); pick a **shows / image** attachment; rename; delete.
-  **＋ Add slot** adds one.
+  **＋ Add slot** adds one. **⧉ Duplicate slot** copies a slot — its image(s) and
+  every animation timeline that drives it — onto the same bone, then you swap the
+  copy's image to a variant (the **replace image (keep mesh)** dropdown repoints
+  the region while keeping the mesh/UVs/weights/deform).
+- **✨ Auto FX slots** (top of the Slots list) automates that duplicate-and-swap
+  for the whole rig: for every `<base>_shine` / `_glow` / `_shadow` / `_blur` /
+  `_zoom` / `_colour` region in the rig's atlas whose base image is on a slot, it
+  duplicates the base slot (reusing its mesh **and** all animation) and repoints
+  the copy to the FX region. Shadows are placed behind the base, other FX in
+  front. It's idempotent — FX slots that already exist are skipped — so it's safe
+  to click again after adding sprites. This is the Rigger end of the Sheet Maker →
+  Atlas Maker FX pipeline (same `_shine`/`_glow`/… naming convention).
 - **Skins:** the **Skins** section lists skins; click one to make it the **active**
   skin (what determines which images/meshes/weights you see and paint). Rename
   (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**.
