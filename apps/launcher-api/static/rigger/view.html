@@ -2688,6 +2688,7 @@ function renameSlot(oldName, newName){
   for (const an of Object.values(rawDoc.animations || {})){
     if (an.slots && an.slots[oldName]){ an.slots[newName] = an.slots[oldName]; delete an.slots[oldName]; }
     if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[oldName]){ sm[newName] = sm[oldName]; delete sm[oldName]; }
+    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[oldName]){ sm[newName] = sm[oldName]; delete sm[oldName]; }
     if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) for (const o of fr.offsets) if (o.slot === oldName) o.slot = newName;
   }
   if (selSlot === oldName) selSlot = newName;
@@ -2775,7 +2776,7 @@ function deleteBone(name){
   markDirty();
 }
 
-// Delete a slot + its attachments (all skins) + animation slot/deform/drawOrder refs.
+// Delete a slot + its attachments (all skins) + animation slot/deform/attachments/drawOrder refs.
 function deleteSlot(name){
   if (!rawDoc) return;
   rawDoc.slots = (rawDoc.slots || []).filter((s) => s.name !== name);
@@ -2783,6 +2784,7 @@ function deleteSlot(name){
   for (const an of Object.values(rawDoc.animations || {})){
     if (an.slots) delete an.slots[name];
     if (an.deform) for (const sm of Object.values(an.deform)) if (sm) delete sm[name];
+    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm) delete sm[name];
     if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) fr.offsets = fr.offsets.filter((o) => o.slot !== name);
   }
   if (selSlot === name) selSlot = null;
@@ -2797,7 +2799,10 @@ function deleteAttachment(slotName, attName){
   for (const sk of rawDoc.skins || []) if (sk.attachments && sk.attachments[slotName]) delete sk.attachments[slotName][attName];
   const slot = (rawDoc.slots || []).find((s) => s.name === slotName);
   if (slot && slot.attachment === attName) delete slot.attachment;
-  for (const an of Object.values(rawDoc.animations || {})) if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) delete sm[slotName][attName];
+  for (const an of Object.values(rawDoc.animations || {})){
+    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) delete sm[slotName][attName];
+    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[slotName]) delete sm[slotName][attName];
+  }
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   if (selSlot) selectSlot(selSlot);
   markDirty();
