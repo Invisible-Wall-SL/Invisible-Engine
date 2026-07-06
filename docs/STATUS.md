@@ -24,6 +24,47 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Atlas Maker: sheet-derived FX cells now auto-derive on load/Process (not AI-generated)
+
+**Ask.** Follow-up to the Sheet Maker FX-picker below. Loading a sheet-derived manifest whose
+FX cells carry `mode` (`<base>_glow`/`_shadow`/…) into the Invisible Atlas Maker did NOT
+auto-generate the FX — the owner expected "load → click Process and the FX picks up from its
+base right away."
+
+**Root cause (three gaps, all in the atlas-tool).** `mode` survives ingest fine
+(`merge_atlas_regions` is a passthrough, not a whitelist — it only strips `_GEOM_KEYS`). The
+real gaps:
+1. **Activation seed bound FX cells verbatim.** On manifest activation, `_seed_refs_into_outputs`
+   (`ui_server.py`) bound EVERY empty region's `shape_ref` as its atlas tile — including FX cells,
+   whose `shape_ref` is a raw copy of the base. So the FX slot shipped the un-FX'd base pixels and
+   never derived.
+2. **"Process the FX cell" never rebuilt it.** `rebuild_fx_layers` only rebuilt an FX layer when
+   its BASE was in the processed `names`. Selecting the FX cell itself and clicking Process did
+   nothing (its base wasn't in the set).
+3. **Mode'd-but-unbuilt FX cell got AI-generated** (wasted credits, wrong art). `batch_atlas.main`
+   only classified OVERRIDDEN regions as local-FX; an FX cell with a `mode` but no `output_override`
+   fell into `gen_regions` and was sent to ComfyUI.
+
+**Fix (generic, no magic ids — keyed on `shine.fx_layer_info` + `mode in FX_PRESETS`).**
+- `ui_server.py` `_seed_refs_into_outputs`: skip canonical FX layers (base present + known mode) —
+  don't bind their raw ref; leave them for the rebuild.
+- `ui_server.py` `_saveconfig` activation block: after the seed, call `rebuild_fx_layers(nm,
+  base_names=None)` so a freshly-activated sheet manifest arrives with its FX tiles already
+  DERIVED from their bases.
+- `ui_server.py` `rebuild_fx_layers`: in the render case, rebuild an FX layer when EITHER its base
+  OR the FX layer itself is in `base_names` (so "select the FX cell → Process" works).
+- `batch_atlas.py` generation classify: a recognised local-FX layer (fx suffix + base present +
+  `mode` a preset) is skipped from AI generation whether or not it's built yet — left to
+  `rebuild_fx_layers`.
+
+**Verified locally** (ui_server booted on temp staging, no R2): activation via `_saveconfig`
+derives the FX cells (`output_override` + stored `fx[<mode>]`, i.e. real `make_glow`/`make_shadow`
+output — not the raw copy); Process-the-FX-cell rebuilds it; Process-the-base rebuilds its
+children; batch_atlas classification puts unbuilt FX cells in the skip set and only the true AI
+base generates. Edge cases hold: orphan `_zoom` (no base) → AI; plain committed override →
+"use my own image"; FX name without a mode → AI (can't derive). **Not yet deployed** — changes in
+the working tree for review.
+
 ### 2026-07-06 — Sheet Maker: per-sprite FX-layer picker (auto-spawns same-size FX sibling cells)
 
 **Ask.** Mirror the Atlas Maker's `_shine`/`_glow`/`_shadow`/… naming convention in the

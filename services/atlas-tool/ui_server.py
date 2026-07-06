@@ -1754,8 +1754,9 @@ def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
     Candidates: regions whose name is a canonical FX layer (shine.fx_layer_info
     returns truthy), whose base region exists in the manifest, and whose stored
     mode is a known FX preset. When `base_names` is given (render case) keep
-    only candidates whose base is in that set; when None (compose case) keep
-    all. Layers are ordered by suffix depth so a layer whose base is ITSELF an
+    candidates whose BASE was processed (base in the set) OR whose FX layer was
+    itself processed (name in the set); when None (compose case) keep all.
+    Layers are ordered by suffix depth so a layer whose base is ITSELF an
     FX layer rebuilds after its base. Each build is best-effort (one failure
     never aborts the rest). The CALLER saves the manifest. Returns the names
     that rebuilt successfully."""
@@ -1773,7 +1774,12 @@ def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
             continue
         if r.get("mode") not in shine.FX_PRESETS:
             continue
-        if base_names is not None and info["base"] not in base_names:
+        # `base_names` scopes the render case to what was just processed. Rebuild
+        # this FX layer when EITHER its base was regenerated (base in the set) OR
+        # the FX layer ITSELF was selected/processed (name in the set) — so
+        # "select the FX cell → Process" derives it, not only "process the base".
+        if base_names is not None and not (
+                info["base"] in base_names or name in base_names):
             continue
         candidates.append(name)
 
@@ -5626,13 +5632,24 @@ class Handler(BaseHTTPRequestHandler):
         # the seed would overwrite an existing generated variant. Idempotent.
         project_paths.ensure_lazy("batch/")
         want = set(names) if names else None
+        regions = all_regions(m)
+        present = {r.get("name") for r in regions}
         seeded: list[str] = []
         skipped_existing = 0
         noref = 0  # region genuinely has no reference image
         bad = 0    # ref present but unopenable (decode/format failure)
-        for region in all_regions(m):
+        for region in regions:
             nm = region.get("name", "")
             if want is not None and nm not in want:
+                continue
+            # Never bind an FX layer's raw ref verbatim: a `<base>_<mode>` cell
+            # (mode a known preset, base present) is DERIVED from its base by
+            # rebuild_fx_layers — seeding its own copy would ship the un-FX'd
+            # base pixels in the FX slot. The caller rebuilds these instead.
+            fx = shine.fx_layer_info(nm)
+            if (fx is not None and fx["base"] in present
+                    and str(region.get("mode") or "").strip().lower()
+                    in shine.FX_PRESETS):
                 continue
             if only_empty and self._region_has_output(region):
                 skipped_existing += 1
@@ -6000,7 +6017,13 @@ class Handler(BaseHTTPRequestHandler):
                 nm = load_manifest()
                 if bool(nm.get("export_prefix")):
                     res = self._seed_refs_into_outputs(nm, only_empty=True)
-                    if res["seeded"]:
+                    # Derive any FX layers (`<base>_<mode>` cells) from their
+                    # now-seeded bases so a sheet-derived manifest arrives with
+                    # its FX tiles already built — the user's "load and it picks
+                    # up the FX" expectation. The seed above deliberately leaves
+                    # FX cells un-bound; rebuild_fx_layers fills them here.
+                    fx = rebuild_fx_layers(nm, base_names=None)
+                    if res["seeded"] or fx:
                         save_manifest(nm)
             except Exception:  # noqa: BLE001 — a seed hiccup must not 500 a save
                 pass

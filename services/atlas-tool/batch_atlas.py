@@ -2677,10 +2677,43 @@ def main() -> None:
     # output_override whose file is gone is NOT skipped — we warn and let it
     # fall through to normal generation, so a missing image never silently
     # leaves the region blank.
+    region_names = {r["name"] for r in regions}
+
+    def _is_fx_layer(r: dict) -> dict | None:
+        """A region is a LOCAL-FX layer (derived from a base — never AI
+        generated) when its name carries a canonical FX suffix, the base it
+        derives from is present in the selection, and its stored `mode` is a
+        known FX preset. Returns fx_layer_info (with `mode`) or None. Guards
+        against a coincidental '_zoom'-named region with no matching base."""
+        info = shine.fx_layer_info(r.get("name", ""))
+        if info is None or info["base"] not in region_names:
+            return None
+        if str(r.get("mode") or "").strip().lower() not in shine.FX_PRESETS:
+            return None
+        return info
+
+    # A region is only treated as "use my own image" (skipped from generation)
+    # when its override file actually EXISTS. A region flagged output_override
+    # whose file is gone is NOT skipped — we warn and let it fall through to
+    # normal generation, so a missing image never silently leaves it blank.
+    # A mode'd FX layer (recognised by _is_fx_layer) is ALSO skipped even when
+    # it has no committed image yet: it's derived locally by rebuild_fx_layers
+    # from its base, so AI-generating it would waste credits and produce wrong
+    # art (a sheet-derived FX cell arrives mode'd-but-unbuilt — see shine.py /
+    # the Sheet Maker's FX picker).
     overridden = []
     gen_regions = []
+    fx_over = []
+    fx_details = []
     for r in regions:
-        if not r.get("output_override"):
+        info = _is_fx_layer(r)
+        has_override = bool(r.get("output_override"))
+        if info is not None and (not has_override
+                                 or override_image_path(r) is not None):
+            # Local-FX layer: skip generation whether or not it's built yet.
+            fx_over.append(r["name"])
+            fx_details.append(f"{r['name']} ← {info['base']} ({info['mode']})")
+        elif not has_override:
             gen_regions.append(r)
         elif override_image_path(r) is not None:
             overridden.append(r["name"])
@@ -2688,23 +2721,9 @@ def main() -> None:
             emit(diag("OUTPUT_OVERRIDE_FILE_MISSING", CATALOG,
                       name=r["name"], path=r["output_override"]))
             gen_regions.append(r)
-    # Split the overridden set into FX layers (derived locally from a base —
-    # skipped BY DESIGN) vs genuine "use my own image" regions. A name only
-    # counts as an FX layer when shine.fx_layer_info() recognises its suffix
-    # AND the base it derives from is actually present in the selection (so a
-    # coincidental '_zoom'-named region with no matching base isn't
-    # misclassified as FX).
-    region_names = {r["name"] for r in regions}
-    fx_over = []
-    fx_details = []
-    plain_over = []
-    for name in overridden:
-        info = shine.fx_layer_info(name)
-        if info is not None and info["base"] in region_names:
-            fx_over.append(name)
-            fx_details.append(f"{name} ← {info['base']} ({info['mode']})")
-        else:
-            plain_over.append(name)
+    # Genuine "use my own image" regions (a committed override that is NOT an
+    # FX layer) — reported separately from the FX skips below.
+    plain_over = list(overridden)
     if fx_over:
         emit(diag("FX_LAYERS_SKIPPED", CATALOG,
                   count=len(fx_over), names="; ".join(fx_details)))
