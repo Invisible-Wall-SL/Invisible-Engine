@@ -2792,6 +2792,51 @@ function deleteSlot(name){
   markDirty();
 }
 
+// Duplicate a slot onto the SAME bone (bones are shared, NOT duplicated) with a copy of
+// its attachment(s) in every skin, plus a clone of every animation timeline that drives
+// the slot — slot color/attachment channels, mesh deform, and attachment-sequence frames —
+// remapped onto the new name, so the copy animates identically out of the gate. Then swap
+// its image (attachment picker) to a variant (_shine / _shadow / …). The rig + bone
+// keyframes are shared, so both slots ride the same motion; to retime independently,
+// duplicate the driving clip (⧉ in Animations) and edit the copy. drawOrder offsets are
+// deliberately NOT cloned — the copy sits just in front of the source (its setup slot
+// position) across all frames, which keeps every existing drawOrder permutation valid.
+function duplicateSlot(slotName){
+  if (!rawDoc || !Array.isArray(rawDoc.slots)) return;
+  const idx = rawDoc.slots.findIndex((s) => s.name === slotName);
+  if (idx < 0) return;
+  const existing = new Set(rawDoc.slots.map((s) => s.name));
+  const answer = typeof prompt === "function"
+    ? prompt('Name for the duplicate of "' + slotName + '":', slotName + "_copy")
+    : slotName + "_copy";
+  if (answer == null) return; // cancelled
+  const base = cleanName(answer) || slotName + "_copy";
+  let newName = base;
+  if (existing.has(newName)){ let n = 2; while (existing.has(base + n)) n++; newName = base + n; }
+
+  // 1. the slot itself — same bone, placed right after the source in draw order
+  const dup = JSON.parse(JSON.stringify(rawDoc.slots[idx]));
+  dup.name = newName;
+  rawDoc.slots.splice(idx + 1, 0, dup);
+
+  // 2. its attachment(s) in every skin
+  for (const sk of rawDoc.skins || [])
+    if (sk.attachments && sk.attachments[slotName])
+      sk.attachments[newName] = JSON.parse(JSON.stringify(sk.attachments[slotName]));
+
+  // 3. slot-driving animation timelines (bone timelines are shared, untouched)
+  for (const an of Object.values(rawDoc.animations || {})){
+    if (an.slots && an.slots[slotName]) an.slots[newName] = JSON.parse(JSON.stringify(an.slots[slotName]));
+    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) sm[newName] = JSON.parse(JSON.stringify(sm[slotName]));
+    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[slotName]) sm[newName] = JSON.parse(JSON.stringify(sm[slotName]));
+  }
+
+  selSlot = newName;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  selectSlot(newName);
+  markDirty();
+}
+
 // Delete an attachment (image) from a slot in every skin; clear the slot's setup
 // attachment if it pointed there.
 function deleteAttachment(slotName, attName){
@@ -3662,9 +3707,16 @@ function renderSlotDetail(){
     det.appendChild(wrap);
   }
 
+  const dup = document.createElement("button");
+  dup.textContent = "⧉ Duplicate slot";
+  dup.title = "Copy this slot + its image(s) + its animation timelines onto the SAME bone under a new name (bones are shared). Then swap the copy's image to a variant (_shine / _shadow …).";
+  dup.style.cssText = "margin:12px 0 4px;width:100%;";
+  dup.onclick = () => duplicateSlot(sd.name);
+  det.appendChild(dup);
+
   const del = document.createElement("button");
   del.textContent = "🗑 Delete slot";
-  del.style.cssText = "margin:12px 0 8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
+  del.style.cssText = "margin:4px 0 8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
   del.onclick = () => { if (confirm('Delete slot "' + sd.name + '" and its attachments?')) deleteSlot(sd.name); };
   det.appendChild(del);
 }
