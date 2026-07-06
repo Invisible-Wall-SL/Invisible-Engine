@@ -274,7 +274,14 @@ export async function exportEditorSymbols(
 			...sheetItems.map((s) => s.key),
 		];
 		for (const candidate of candidates) {
-			if (coveredFrames.size >= refs.frameNames.size) break;
+			// Stop once every BOUND frame is covered — not when the running region
+			// COUNT reaches the bound count. `coveredFrames` holds all of an exported
+			// sheet's regions (icons AND their `_glow`/`_shine` siblings), so a size
+			// compare can trip early: a sheet with N unrelated extra regions makes the
+			// count reach the target while the actual bound frames are still missing
+			// (e.g. a 6-region icons+glows sheet "covers" 6 bindings but not the 3 in a
+			// later atlas). Check membership of the bound names themselves.
+			if ([...refs.frameNames].every((f) => coveredFrames.has(f))) break;
 			const set = await loadRegionSet(candidate, clientKey, projectKey);
 			if (exportedManifests.has(set.assetKey)) continue;
 			if (set.regions.some((r) => refs.frameNames.has(r.name))) {
