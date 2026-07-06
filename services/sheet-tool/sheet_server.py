@@ -535,8 +535,18 @@ def api_export(payload: dict) -> dict:
     if dupes:
         return {"error": f"Duplicate region names: {', '.join(dupes)}. Names must be unique."}
 
+    # Each sheet keeps its OWN sprite copies under sheet_src/<sheet>/ — they are
+    # not shared between sheets. A region whose file isn't in THIS sheet's folder
+    # would crash compose with a raw FileNotFoundError, so surface it as an
+    # actionable error naming exactly what to re-upload.
     out = _dest_output_dir(sheet, dest_dir)
     image_for = {r["name"]: (up / r["src"]) for r in regions}
+    missing = sorted({r["src"] for r in regions if not (up / r["src"]).exists()})
+    if missing:
+        return {"error": "These sprites are missing from this sheet's files ("
+                + f"sheet_src/{safe_name(sheet)}/): " + ", ".join(missing)
+                + ". Re-upload them here — a sprite added to another sheet isn't "
+                "shared; each sheet keeps its own copies."}
     sheet_img = packer.compose(regions, width, height, image_for)
     sheet_png = out / f"{basename}.png"
     sheet_img.save(sheet_png)

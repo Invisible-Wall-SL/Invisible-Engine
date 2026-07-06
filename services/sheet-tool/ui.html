@@ -1156,7 +1156,8 @@ async function runExport(destDir){
     formats:{manifest:$('f_manifest').checked,libgdx:$('f_libgdx').checked,texturepacker:$('f_tp').checked},
     regions:regions.map(r=>({src:r.src,name:r.name,x:r.x,y:r.y,w:r.w,h:r.h,
       iw:r.iw||r.w,ih:r.ih||r.h,rotated:r.rotated,
-      prompt:r.prompt,shape_ref:r.shape_ref,seed:r.seed}))};
+      prompt:r.prompt,shape_ref:r.shape_ref,seed:r.seed,
+      fx_mode:r.fx_mode||''}))};   // FX cells carry their mode into the manifest
   if(destDir) body.dest_dir=destDir;
   const j=await jpost('/api/export',body);
   if(j.error){ m.className='err'; m.textContent=j.error; return false; }
