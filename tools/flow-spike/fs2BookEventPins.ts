@@ -98,8 +98,11 @@ const main = async () => {
 	{
 		const basePins = deriveScreenPins(baseScene, resolveDef, { bookEvents });
 		const freePins = deriveScreenPins(freeScene, resolveDef, { bookEvents });
-		const baseBook = basePins.filter((p) => p.role === 'bookEvent');
-		const freeBook = freePins.filter((p) => p.role === 'bookEvent');
+		// The role is shared by BOTH the input pins (`::bookEvent:`) and the output pins
+		// (`::bookEventOut:`) — split by direction so each slice is asserted on its own.
+		const baseBook = basePins.filter((p) => p.role === 'bookEvent' && p.direction === 'in');
+		const freeBook = freePins.filter((p) => p.role === 'bookEvent' && p.direction === 'in');
+		const baseBookOut = basePins.filter((p) => p.role === 'bookEvent' && p.direction === 'out');
 		assert(
 			'base screen derives one bookEvent input pin per vocabulary event (stable ids, direction in)',
 			baseBook.length === 3 &&
@@ -113,10 +116,35 @@ const main = async () => {
 			freeBook.length === 3 && freeBook[0].id === 'freeGame::bookEvent:freeSpinTrigger',
 			JSON.stringify(freeBook.map((p) => p.id)),
 		);
-		// Deterministic order — vocabulary order, right after the structural pins (no intents here).
+		// NEW: a book-event OUTPUT pin per event ALONGSIDE the inputs (the "drag from the source"
+		// authoring alternative). One `${screenId}::bookEventOut:${event}` per event, direction out,
+		// role still `bookEvent` (reuses the color), keyed by the event.
 		assert(
-			'bookEvent pins are placed right after the structural pins (deterministic order)',
+			'base screen ALSO derives one bookEvent OUTPUT pin per event (stable ids, direction out)',
+			baseBookOut.length === 3 &&
+				baseBookOut.every((p) => p.direction === 'out' && p.role === 'bookEvent') &&
+				baseBookOut[0].id === 'basegame::bookEventOut:freeSpinTrigger' &&
+				baseBookOut[0].key === 'freeSpinTrigger',
+			JSON.stringify(baseBookOut.map((p) => p.id)),
+		);
+		// The output pin id must NOT collide with (or be a substring of) any input pin id — the
+		// `::bookEventOut:` marker keeps every handle id on the node distinct.
+		const allBookIds = basePins.filter((p) => p.role === 'bookEvent').map((p) => p.id);
+		assert(
+			'every bookEvent pin id is unique (no input/output handle-id collision)',
+			new Set(allBookIds).size === allBookIds.length && allBookIds.length === 6,
+			JSON.stringify(allBookIds),
+		);
+		// Deterministic order — vocabulary order, right after the structural pins (no intents here);
+		// the outputs then follow the inputs (inputs first, then outputs, both in vocabulary order).
+		assert(
+			'bookEvent input pins are placed right after the structural pins (deterministic order)',
 			basePins[3]?.id === 'basegame::bookEvent:freeSpinTrigger',
+			basePins.map((p) => p.id).join(', '),
+		);
+		assert(
+			'bookEvent OUTPUT pins follow the input pins (deterministic order)',
+			basePins[6]?.id === 'basegame::bookEventOut:freeSpinTrigger',
 			basePins.map((p) => p.id).join(', '),
 		);
 		// No vocabulary ⇒ no bookEvent pins (parity — the typed-name path still works).

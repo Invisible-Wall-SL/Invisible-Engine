@@ -24,6 +24,26 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Invisible Flow: book-event trigger pins are now OUTPUTS too (drag-from-source authoring)
+
+**What.** `/flow` screen nodes now advertise each book event as a NAMED OUTPUT pin (not just the input
+pin), so an author drags FROM (e.g.) the base game's `freeSpinTrigger` output pin onto `freeSpinIntro`
+to mint the trigger edge — instead of every book-event edge leaving one shared handle (a messy fan).
+Owner request 2026-07-06. Editor-only; ships via the launcher (Railway auto-deploy on push to `main`).
+
+**Change (purely additive).** `packages/engine-flow/src/pins.ts`: new `bookEventOutPin` → id
+`${screenId}::bookEventOut:${event}` (distinct marker from the input `::bookEvent:` so xyflow handle
+ids never collide), role `'bookEvent'` (reuses color/tooltip, no new `FlowPinRole`), direction `'out'`;
+`deriveScreenPins` appends one per event after the inputs (deterministic order). `+page.svelte`
+`onConnect`: new source-keyed branch — a drag from a `::bookEventOut:` pin mints the SAME
+`{kind:'bookEvent', event}` edge as dropping onto the target's input pin (dual authoring). Every screen
+gets the outputs; the editor already shows only CONNECTED non-structural pins (`isVisiblePin`), so an
+unused output stays hidden under "＋N more" — no clutter. Interpreter/runtime UNTOUCHED (reads
+transitions, not pins); the produced edge is what `onBookEvent` already matches (parity).
+
+**Verified.** `tools/flow-spike/fs2` updated + PASS (outputs derived, unique-id/no-collision, order);
+`fs7`/`pins`/`fs1` still green; `engine-flow` typecheck clean; `pnpm --filter launcher-api build` GREEN.
+
 ### 2026-07-06 — Invisible Flow: FS-7 INTRO step — flow screen OWNS the round-block + early-mount (SHIPPED to `_runtime/lines`)
 
 **SHIPPED** — published to R2 `_runtime/lines/` and served-hash verified on `bookofborutremake`

@@ -242,15 +242,38 @@ const bookEventPin = (screenId: string, event: string): FlowPin => ({
 	label: pinLabel('BookEvent', event),
 });
 
+/** Build a book-event trigger OUTPUT pin for a screen (design doc §14 FS-2 — the "drag FROM the
+ *  source" authoring alternative). It advertises the SAME book-event vocabulary on every screen's
+ *  OUTPUT side so an author can drag FROM (e.g.) the base game's `freeSpinTrigger` output pin onto
+ *  a target screen to mint the trigger edge — instead of always drawing into the target's shared
+ *  `enter`/`bookEvent` input handle (which fans every book-event edge out of one handle). The edge
+ *  produced is IDENTICAL to the input-drawn one (`{ kind:'bookEvent', event }`), so this is a pure
+ *  authoring-surface convenience — the interpreter never reads pins.
+ *
+ *  The id marker is `::bookEventOut:` — DISTINCT from the input pin's `::bookEvent:` so the two
+ *  xyflow handle ids on the same node never collide. This is safe because `'::bookEventOut:'` does
+ *  NOT contain `'::bookEvent:'` as a substring: after the shared `::bookEvent` prefix the next char
+ *  is `'O'` (of `Out`) here vs `':'` there, so neither id is a prefix/substring of the other and
+ *  `pinRoleKey(handle, 'bookEventOut')` / `pinRoleKey(handle, 'bookEvent')` each match only their
+ *  own pins. Role stays `'bookEvent'` (reuses the input pins' color + tooltip) — no new FlowPinRole. */
+const bookEventOutPin = (screenId: string, event: string): FlowPin => ({
+	id: `${screenId}::bookEventOut:${event}`,
+	role: 'bookEvent',
+	direction: 'out',
+	key: event,
+	label: pinLabel('BookEvent', event),
+});
+
 /**
  * Derive the full pin set for one screen (a LayoutDoc {@link Scene}): the three fixed
  * structural pins plus every dynamic pin projected from the scene's components and its
  * scene-level visibility gate. When `options.isIntentHost`, one intent INPUT pin per intent
  * key is added right after the structural pins (design doc §8); when `options.isProducerHost`,
  * one PRODUCER output pin per engine feed follows (design doc §11.4); when `options.bookEvents`,
- * one `bookEvent` trigger INPUT pin per event follows on EVERY screen (design doc §14 FS-2 — a book
- * event can activate any screen). Deterministic + order-stable (structural → intents → producers →
- * bookEvents → gate → dynamic in tree order), so two derivations of the same doc produce identical ids.
+ * one `bookEvent` trigger INPUT pin then one OUTPUT pin per event follow on EVERY screen (design doc
+ * §14 FS-2 — a book event can activate any screen, and either pin authors the same edge). Deterministic
+ * + order-stable (structural → intents → producers → bookEvent inputs → bookEvent outputs → gate →
+ * dynamic in tree order), so two derivations of the same doc produce identical ids.
  */
 export const deriveScreenPins = (
 	scene: Scene,
@@ -273,11 +296,16 @@ export const deriveScreenPins = (
 	if (options.isProducerHost && options.engineFeeds?.length) {
 		for (const feed of options.engineFeeds) pins.push(producerPin(scene.id, feed));
 	}
-	// Book-event trigger input pins (design doc §14 FS-2) — one per book-event type on EVERY screen
-	// (a book event can activate any screen, so the vocabulary is a union advertised everywhere; NOT
-	// host-gated like intents). In the caller's vocabulary order so ids/order are deterministic.
+	// Book-event trigger pins (design doc §14 FS-2) — one per book-event type on EVERY screen (a book
+	// event can activate any screen, so the vocabulary is a union advertised everywhere; NOT host-gated
+	// like intents). BOTH directions are advertised so the author can wire either way: the INPUT pin
+	// (`::bookEvent:<event>`, drop ONTO the target) and the OUTPUT pin (`::bookEventOut:<event>`, drag
+	// FROM the source, e.g. base game's `freeSpinTrigger` → `freeSpinIntro`). Both mint the identical
+	// `{ kind:'bookEvent', event }` edge — the outputs are a pure authoring convenience. Inputs first,
+	// then outputs, each in the caller's vocabulary order, so ids/order stay deterministic.
 	if (options.bookEvents?.length) {
 		for (const event of options.bookEvents) pins.push(bookEventPin(scene.id, event));
+		for (const event of options.bookEvents) pins.push(bookEventOutPin(scene.id, event));
 	}
 	// The whole-screen lifecycle gate (`Scene.visibleSource`) is a gate pin on the screen
 	// itself (keyed by the scene id, role `gate`) — the same `registerComponentVisibility`

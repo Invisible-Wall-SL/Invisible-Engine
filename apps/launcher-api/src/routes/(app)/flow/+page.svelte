@@ -152,9 +152,7 @@
 	// project gameType's step table (from the server `load`) + the live scenes, so the panel can show,
 	// per step (e.g. intro/counter/outro), which of screen-placed / edge-wired / scene-authored fails.
 	// No known table (unknown gameType) ⇒ empty steps ⇒ the panel renders no overlay-steps section.
-	const overlaySteps = $derived(
-		data.overlaySteps ? overlayStepsFromTable(data.overlaySteps) : [],
-	);
+	const overlaySteps = $derived(data.overlaySteps ? overlayStepsFromTable(data.overlaySteps) : []);
 	const overlayOwnership = $derived(resolveOverlayOwnership(doc, data.doc.scenes, overlaySteps));
 
 	// xyflow owns these arrays for live drag/selection; we rebuild them from the doc only
@@ -350,11 +348,36 @@
 			);
 			return;
 		}
-		// A BOOK-EVENT trigger wire (design doc §14 FS-2): dropping ONTO a screen's `::bookEvent:<event>`
-		// INPUT pin mints a `bookEvent` (layer) edge whose `trigger.event` is that pin's event — exactly
-		// what the interpreter already matches on (`onBookEvent`), so it is an authoring-surface change
-		// only (no runtime change). The event name comes from the REAL pin, not a typed string. Mirrors
-		// the action→intent wire; a source pin is any outgoing pin (usually the base's Complete/anywhere).
+		// A BOOK-EVENT trigger wire authored FROM the SOURCE side (design doc §14 FS-2): dragging FROM a
+		// screen's `::bookEventOut:<event>` OUTPUT pin (e.g. the base game's `freeSpinTrigger` output)
+		// onto ANY target screen mints the SAME `bookEvent` (layer) edge as dropping onto the target's
+		// input pin below — just keyed on the SOURCE output pin's event instead of the TARGET input pin's.
+		// This is the "drag from the source" authoring alternative: instead of every book-event edge
+		// leaving one shared target handle (a messy fan), the author pulls from the named output pin. The
+		// event name comes from the REAL output pin, not a typed string. Checked BEFORE the input branch
+		// because `::bookEventOut:` and `::bookEvent:` are distinct markers (Out follows the shared
+		// prefix), so `pinRoleKey(handle, 'bookEventOut')` matches only the output pin.
+		const bookEventOutKey = pinRoleKey(c.sourceHandle, 'bookEventOut');
+		if (bookEventOutKey !== undefined) {
+			commit(
+				addTransition(
+					doc,
+					c.source,
+					c.target,
+					{ kind: 'bookEvent', event: bookEventOutKey },
+					{ fromPin: c.sourceHandle, toPin: c.targetHandle },
+				),
+			);
+			return;
+		}
+		// A BOOK-EVENT trigger wire authored INTO the TARGET side (design doc §14 FS-2): dropping ONTO a
+		// screen's `::bookEvent:<event>` INPUT pin mints a `bookEvent` (layer) edge whose `trigger.event`
+		// is that pin's event — exactly what the interpreter already matches on (`onBookEvent`), so it is
+		// an authoring-surface change only (no runtime change). The event name comes from the REAL pin,
+		// not a typed string. Both this and the `::bookEventOut:` source branch above mint the IDENTICAL
+		// edge — dual authoring (drag FROM a source's book-event output OR INTO a target's book-event
+		// input). Mirrors the action→intent wire; a source pin is any outgoing pin (the base's Complete
+		// / anywhere) when authored into the target.
 		const bookEventKey = pinRoleKey(c.targetHandle, 'bookEvent');
 		if (bookEventKey !== undefined) {
 			commit(
