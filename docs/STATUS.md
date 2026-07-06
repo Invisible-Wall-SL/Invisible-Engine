@@ -24,7 +24,14 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
-### 2026-07-06 — Invisible Flow: FS-7 INTRO step — flow screen OWNS the round-block + early-mount (build-verified; not shipped)
+### 2026-07-06 — Invisible Flow: FS-7 INTRO step — flow screen OWNS the round-block + early-mount (SHIPPED to `_runtime/lines`)
+
+**SHIPPED** — published to R2 `_runtime/lines/` and served-hash verified on `bookofborutremake`
+(`bundle.CiJtNLYf.js`, confirmed under `no-store`). NOTE: `POST games.invisiblewall.org/refresh` was
+502 at publish time (test-server issue, separate) — the game route serves `_runtime/lines` directly
+from R2 so the upload alone made the new hash live; refresh was not required. AUTHORING REQUIREMENT for
+an owned intro: the `freeSpinIntro` instance MUST have `Tap to continue` ON (it now owns the round-block
+release) — with it off the free-spin intro HANGS (no tap surface to fire the screen's Complete pin).
 
 **What.** The deferred FS-7 ("move the round-blocking gate ownership into the authored screens"),
 **INTRO STEP ONLY** (outro/counter FS-7 still deferred). Gated behind the existing per-step
