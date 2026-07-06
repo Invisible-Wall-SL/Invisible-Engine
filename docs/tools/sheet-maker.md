@@ -71,6 +71,22 @@ binds `0.0.0.0:$PORT` (default **8766**).
 5. **Export** (`/api/export`) — choose `.atlas`, TexturePacker JSON, and/or the
    AI manifest. The AI manifest is also pushed to the Atlas Maker's R2
    `manifests/` prefix.
+
+### FX layers (auto-spawned sibling regions)
+
+The **Selected sprite** inspector has an **FX layers** picker — checkboxes for
+`shine`, `glow`, `shadow`, `blur`, `zoom`, `colour`. Ticking one spawns a
+**same-size sibling cell** named for the Invisible Atlas Maker's FX-naming
+convention (`<name>_glow`, `<name>_shadow`, …) and packs it alongside the sprite.
+Each cell is a server-made copy of the base art (`/api/fx-sync`) acting as a
+placeholder; the [Invisible Atlas Maker](atlas-maker.md) later **derives the
+real effect** from the base region (the manifest carries each cell's `mode`, so
+it opens in the matching local-FX mode ready to build — see `shine.py`
+`FX_SUFFIX_MODE`). FX cells are **slaved to their base**: they mirror its size
+and follow its name, so renaming/resizing the base updates them and deleting the
+base removes them (and their copies). They're drawn with a dashed purple outline
+and a mode badge on the canvas, and untick to remove. Because the names follow
+the convention, the effect travels the pipeline without any manual re-naming.
 6. In the Atlas Maker, **restart the service** (hydrate runs at boot) for the
    new manifest to appear, then generate art from it.
 

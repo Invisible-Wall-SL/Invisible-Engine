@@ -159,7 +159,7 @@ def load_session() -> dict | None:
 # else a (future/concurrent) client sends is dropped on save.
 _SESSION_REGION_KEYS = ("src", "name", "x", "y", "w", "h", "iw", "ih", "ow", "oh",
                         "rotated", "locked", "prompt", "shape_ref", "seed",
-                        "unplaced")
+                        "unplaced", "fx_of", "fx_mode")
 
 
 def api_session(payload: dict) -> dict:
@@ -375,6 +375,65 @@ def api_state() -> dict:
     }
 
 
+# Canonical FX-naming convention — mirrors atlas-tool/shine.py FX_SUFFIX_MODE.
+# A region named `<base>_<mode>` is an FX layer derived from `<base>` by the
+# Invisible Atlas Maker. The Sheet Maker spawns same-size placeholder cells with
+# these names (packing a copy of the base art) so the FX travels the pipeline.
+FX_MODES = ("shine", "glow", "shadow", "blur", "zoom", "colour")
+
+
+def api_fx_sync(payload: dict) -> dict:
+    """Materialise the FX placeholder sprite files for a base sprite.
+
+    Given a base sprite (`base_src`) and the FULL desired set of FX `modes`,
+    ensure a per-mode copy of the base image exists on disk (named
+    `<stem>_<mode><ext>`) for every requested mode, and delete the copies for
+    every known mode NOT requested. The copies are ordinary loose sprites (so
+    packing / compose / export treat them as normal regions) that just happen to
+    be named for the Atlas Maker's FX convention. Returns each live child's
+    file name + measured size so the client can register/refresh its region."""
+    sheet = safe_name(payload.get("sheet", "sheet"))
+    base_src = safe_name(Path(str(payload.get("base_src") or "")).name, "")
+    if not base_src:
+        return {"error": "No base sprite given."}
+    want = {m for m in (payload.get("modes") or []) if m in FX_MODES}
+
+    d = uploads_dir(sheet)
+    base = d / base_src
+    stem, ext = Path(base_src).stem, Path(base_src).suffix or ".png"
+    # A delete-only sync (want == {}) never touches the base, so a missing base
+    # must still be able to clean up its orphaned copies (e.g. base deleted while
+    # local staging was cleared). Only creating copies needs the base pixels.
+    if want and not base.exists():
+        return {"error": f"Base sprite not found: {base_src}"}
+
+    ctx = _ctx()
+    r2_prefix = ctx["r2_prefix"]
+    input_prefix = f"{r2_prefix}/sheet_src/{sheet}" if r2_prefix else ""
+
+    children, removed = [], []
+    data = base.read_bytes() if base.exists() else b""
+    for mode in FX_MODES:
+        child_name = f"{stem}_{mode}{ext}"
+        child = d / child_name
+        if mode in want:
+            # (Re)copy the base pixels so the placeholder tracks the source.
+            child.write_bytes(data)
+            try:
+                w, h = packer.measure(child)
+            except Exception as e:  # noqa: BLE001 — unreadable copy, skip it
+                child.unlink(missing_ok=True)
+                return {"error": f"{child_name}: copy failed ({e})"}
+            _mirror(child)
+            children.append({"mode": mode, "file": child_name, "w": w, "h": h})
+        elif child.exists():
+            child.unlink(missing_ok=True)
+            if input_prefix:
+                storage.delete(f"{input_prefix}/{child_name}")
+            removed.append(child_name)
+    return {"base_src": base_src, "children": children, "removed": removed}
+
+
 def api_upload(fields: dict, files: list) -> dict:
     sheet = safe_name(fields.get("sheet", "sheet"))
     d = uploads_dir(sheet)
@@ -464,6 +523,9 @@ def api_export(payload: dict) -> dict:
             "prompt": r.get("prompt", ""),
             "shape_ref": r.get("shape_ref", ""),
             "seed": r.get("seed", ""),
+            # FX placeholder cells (named `<base>_<mode>`) carry their mode so the
+            # manifest opens them in the Atlas Maker's matching local-FX mode.
+            "fx_mode": r.get("fx_mode", ""),
         })
     if not regions:
         return {"error": "Nothing to export — add some sprites first."}
@@ -1892,6 +1954,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8"))
             if path == "/api/arrange":
                 self._send_json(api_arrange(payload))
+            elif path == "/api/fx-sync":
+                self._send_json(api_fx_sync(payload))
             elif path == "/api/export":
                 self._send_json(api_export(payload))
             elif path == "/api/load":

@@ -125,7 +125,7 @@ def build_manifest(sheet_image: str, width: int, height: int,
         # Default shape_ref to the region's own trim (loose sprite) R2 key so
         # the Atlas Maker can ingest the silhouette without a manual re-pick.
         shape_ref = r.get("shape_ref") or shape_keys.get(r["name"], "")
-        man_regions.append({
+        man_region = {
             "name": r["name"],
             "x": int(r["x"]), "y": int(r["y"]),
             "w": int(r["w"]), "h": int(r["h"]),
@@ -140,7 +140,15 @@ def build_manifest(sheet_image: str, width: int, height: int,
             # distorting. fit_mode is a creative field, so it survives
             # merge_atlas_regions and overrides the spine-slot `fill` default.
             "fit_mode": "contain",
-        })
+        }
+        # FX placeholder cells (Sheet Maker's per-sprite FX picker) carry the
+        # local-FX mode their `<base>_<mode>` name encodes, so the Atlas Maker
+        # opens them in that mode (shine/glow/shadow/blur/zoom/colour) ready to
+        # build — rather than defaulting them to AI generation.
+        fx_mode = str(r.get("fx_mode") or "").strip().lower()
+        if fx_mode:
+            man_region["mode"] = fx_mode
+        man_regions.append(man_region)
     atlas: dict = {
         # Bare name only — NEVER a local OS/Windows staging path. The resolvable
         # location is `source_image_path` (an R2 key); a local absolute path here

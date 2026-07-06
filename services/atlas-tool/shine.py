@@ -137,16 +137,17 @@ FX_PRESETS = {
 }
 
 # Canonical FX-naming convention: a region named `<base><suffix>` is an FX
-# layer DERIVED LOCALLY from its base region (not AI-generated). This map is
-# exactly the suffix set ui_server._fx_source already loops over — keep the two
-# in sync (TODO: have _fx_source iterate FX_SUFFIX_MODE instead of its own
-# hard-coded tuple).
+# layer DERIVED LOCALLY from its base region (not AI-generated). `fx_source`
+# classifies via `fx_layer_info` (below), so adding an entry here is enough to
+# teach every consumer the new suffix — keep this the single source of truth.
+# Every suffix maps to a mode that also exists in FX_PRESETS.
 FX_SUFFIX_MODE = {
     "_shine": "shine",
     "_glow": "glow",
     "_shadow": "shadow",
     "_blur": "blur",
     "_zoom": "zoom",
+    "_colour": "colour",
 }
 
 

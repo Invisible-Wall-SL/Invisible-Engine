@@ -24,6 +24,33 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Sheet Maker: per-sprite FX-layer picker (auto-spawns same-size FX sibling cells)
+
+**Ask.** Mirror the Atlas Maker's `_shine`/`_glow`/`_shadow`/… naming convention in the
+Sheet Maker: while authoring a sprite, tick which FX it should carry and have same-size sibling
+cells created automatically, with a UI to see/elect them.
+
+**Shipped (not yet deployed to the Railway sheet-tool service).**
+- `services/atlas-tool/shine.py`: extended `FX_SUFFIX_MODE` with `_colour` → `colour` so the
+  full `shine.py` FX set (shine/glow/shadow/blur/zoom/colour) is naming-convention-backed
+  (`fx_source` classifies via `fx_layer_info`, so this one entry teaches every consumer).
+- `services/sheet-tool`: new `/api/fx-sync` endpoint (`api_fx_sync`) makes/removes per-mode
+  copies of a base sprite named `<stem>_<mode>.png`; session schema gains `fx_of`/`fx_mode`;
+  export propagates `fx_mode` → manifest region `mode` (via `atlas_writers.build_manifest`) so
+  the Atlas Maker opens each cell in its local-FX mode ready to build.
+- `ui.html`: **FX layers** picker in the Selected-sprite inspector (6 checkboxes); toggling
+  reconciles same-size sibling regions (slaved to the base's size/name, cascade rename/resize/
+  delete). FX cells render with a dashed-purple outline + mode badge; links are re-derived from
+  names on load/restore (`relinkFx`). FX children are size-slaved (read-only W/H, no resize
+  handle).
+
+**Verified locally** (server booted on temp staging, no R2): upload→fx-sync add/remove copies,
+export writes `mode` on the child region, `shine.fx_layer_info('H1_colour')` classifies, and a
+browser smoke test (load sheet → picker reflects existing `glow`, tick shadow spawns a badged
+same-size `H1_shadow` cell, untick removes). **Next:** deploy the sheet-tool service + owner
+live-verify; the Atlas Maker still needs its per-region FX **build** (or auto-rebuild) to turn
+the placeholders into real effects.
+
 ### 2026-07-03 — Editor: removed the per-INSTANCE "Shows during" engine binding (Flow owns visibility, standing rule)
 
 **Ask.** Follow-up to the per-screen removal below: the owner confirmed the **per-node** "Shows

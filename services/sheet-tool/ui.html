@@ -86,8 +86,19 @@
     border-radius:3px;padding:0 3px;color:#fc6;display:none}
   .sprite.locked .lockbadge{display:block}
   .sprite.unplaced{outline:2px dashed #e66}
+  /* FX placeholder cell (a `<base>_<mode>` sibling the Atlas Maker fills) */
+  .sprite.fx{outline:2px dashed #b98cff}
+  .sprite.fx.sel{outline:2px solid #b98cff}
+  .sprite .fxbadge{position:absolute;bottom:2px;right:2px;font-size:9px;line-height:1.4;
+    background:#b98cffdd;color:#160c2a;border-radius:3px;padding:0 4px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.03em;pointer-events:none}
   /* region larger than its art — show the padded cell extent */
   .sprite.padded{box-shadow:inset 0 0 0 1px #5a5a6688}
+  #fxpicker .fxgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;margin:5px 0 2px}
+  #fxpicker .fxgrid label{display:flex;align-items:center;gap:6px;color:#cbd;font-size:13px;
+    cursor:pointer;text-transform:capitalize}
+  #fxchildnote{background:#241a3a;border:1px solid #4a3d6b;color:#c9b8ff;border-radius:5px;
+    padding:8px 10px;font-size:12.5px;line-height:1.45;margin-bottom:9px}
   .handle{position:absolute;width:12px;height:12px;right:-6px;bottom:-6px;background:#4ad;
     border:1px solid #fff;border-radius:2px;cursor:nwse-resize}
   .sprite.locked .handle{display:none}
@@ -279,6 +290,8 @@
 
     <div class="card" id="inspector" style="display:none">
       <h2>Selected sprite</h2>
+      <div id="fxchildnote" style="display:none"></div>
+      <div class="baseonly">
       <div class="field"><label>Name</label><input id="i_name" oninput="renameSel(this.value)"></div>
       <div class="field">
         <label title="The packed / exported cell. Resize it freely; the image keeps its size and is centred inside.">Region</label>
@@ -296,6 +309,12 @@
       <input id="i_prompt" style="width:100%;margin-bottom:7px" oninput="setField('prompt',this.value)">
       <div class="field"><label>shape_ref</label><input id="i_shape" oninput="setField('shape_ref',this.value)"></div>
       <div class="field"><label>seed</label><input id="i_seed" oninput="setField('seed',this.value)"></div>
+      <div class="field" id="fxpicker" style="flex-direction:column;align-items:stretch">
+        <label>FX layers</label>
+        <div class="hint" style="margin:2px 0 0">Spawns same-size sibling cells (<code>name_glow</code>, …) packed alongside this sprite. The Invisible Atlas Maker derives the actual effect from this sprite's art.</div>
+        <div class="fxgrid" id="fxgrid"></div>
+      </div>
+      </div><!-- /baseonly -->
       <button class="danger wide" onclick="deleteSel()">Remove from sheet</button>
     </div>
   </aside>
@@ -342,6 +361,7 @@ function sessionSnapshot(){
       iw:r.iw||r.w,ih:r.ih||r.h,
       ow:r.ow,oh:r.oh,rotated:!!r.rotated,locked:!!r.locked,
       prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
+      fx_of:r.fx_of||'',fx_mode:r.fx_mode||'',
       unplaced:!!r.unplaced}))};
 }
 function markDirty(){ clearTimeout(sessTimer); sessTimer=setTimeout(saveSession,600); }
@@ -384,10 +404,12 @@ function restoreSession(s){
     ow:+r.ow||+r.w||1,oh:+r.oh||+r.h||1,
     rotated:!!r.rotated,locked:!!r.locked,
     prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
+    fx_of:r.fx_of||'',fx_mode:r.fx_mode||'',
     unplaced:!!r.unplaced}));
   // Re-derive image size from the native dims so a session saved by an older
   // build (where the image had been stretched to the region) self-corrects.
   regions.forEach(fitImg);
+  relinkFx();   // repair the FX parent/child links from names (idempotent)
   sel=null;
   const m=$('uploadmsg');
   if(dropped.length){
@@ -542,6 +564,7 @@ function _renderImpl(){
       const csrc=r.src;
       wrap.appendChild(img);
       const lb=document.createElement('div'); lb.className='lockbadge'; lb.textContent='🔒'; wrap.appendChild(lb);
+      if(r.fx_mode){ const fb=document.createElement('div'); fb.className='fxbadge'; fb.textContent=r.fx_mode; wrap.appendChild(fb); }
       wrap.addEventListener('mousedown',e=>{ const rr=reg(wrap.dataset.src); if(rr) onSpriteDown(e,rr); });
       cv.appendChild(wrap);
       s=spriteEls[r.src]={wrap,img};   // register BEFORE the image can load: a cached
@@ -561,7 +584,7 @@ function _renderImpl(){
     wrap.style.width=(fw*zoom)+'px'; wrap.style.height=(fh*zoom)+'px';
     wrap.style.transform='';
     wrap.className='sprite'+(r.src===sel?' sel':'')+(r.locked?' locked':'')
-      +(r.unplaced?' unplaced':'')+((r.w>iw||r.h>ih)?' padded':'');
+      +(r.unplaced?' unplaced':'')+((r.w>iw||r.h>ih)?' padded':'')+(r.fx_mode?' fx':'');
     // Position the image inside the region footprint. When the region is padded
     // (larger than the art) and we know the art's opaque bounds, centre the
     // VISIBLE content — mirrors packer.compose, so a PNG with asymmetric
@@ -578,8 +601,10 @@ function _renderImpl(){
       +(r.rotated?';transform:rotate(90deg);transform-origin:center':'');
     if(r.src===sel){
       wrap.appendChild(makeSelBar(r));
-      const h=document.createElement('div'); h.className='handle'; wrap.appendChild(h);
-      h.addEventListener('mousedown',e=>startResize(e,r));
+      if(!isFx(r)){   // FX cells are size-slaved to their base — no free resize
+        const h=document.createElement('div'); h.className='handle'; wrap.appendChild(h);
+        h.addEventListener('mousedown',e=>startResize(e,r));
+      }
     }
   });
   Object.keys(spriteEls).forEach(src=>{ if(!present.has(src)){ spriteEls[src].wrap.remove(); delete spriteEls[src]; } });
@@ -594,19 +619,22 @@ function makeSelBar(r){
   bar.className='selbar'+((r.y*zoom<34)?' below':'');   // flip below if no room above
   bar.addEventListener('mousedown',e=>e.stopPropagation());  // don't start a drag
   const dis=r.locked?' disabled':'';
+  // FX cells are size-slaved to their base, so their W/H are read-only here.
+  const disWH=(r.locked||isFx(r))?' disabled':'';
   bar.innerHTML=
     '<span class="bn" title="'+esc(r.name)+'">'+esc(r.name)+(r.unplaced?' ⚠':'')+'</span>'+
     '<label>X</label><input type="number" data-k="x" value="'+r.x+'"'+dis+'>'+
     '<label>Y</label><input type="number" data-k="y" value="'+r.y+'"'+dis+'>'+
-    '<label>W</label><input type="number" data-k="w" value="'+r.w+'"'+dis+'>'+
-    '<label>H</label><input type="number" data-k="h" value="'+r.h+'"'+dis+'>'+
+    '<label>W</label><input type="number" data-k="w" value="'+r.w+'"'+disWH+'>'+
+    '<label>H</label><input type="number" data-k="h" value="'+r.h+'"'+disWH+'>'+
     '<button data-lock class="'+(r.locked?'locked':'')+'" title="lock position & size">'+
       (r.locked?'🔒':'🔓')+'</button>';
   bar.querySelectorAll('input').forEach(inp=>{
     inp.onchange=()=>{
       const k=inp.dataset.k, v=parseInt(inp.value)||0;
       // W/H are the REGION box; the image keeps its size and re-fits/centres.
-      if(k==='w'||k==='h'){ r[k]=Math.max(8,v); fitImg(r); }
+      if(k==='w'||k==='h'){ r[k]=Math.max(8,v); fitImg(r);
+        if(!isFx(r)) fxChildren(r).forEach(c=>slaveFxGeom(c,r)); }
       else r[k]=Math.max(0,v);
       r.unplaced=false; render(); syncInspector(); markDirty();
     };
@@ -692,16 +720,96 @@ $('viewport').addEventListener('wheel',e=>{
   vp.scrollTop +=(ra.top +cy*zoom)-e.clientY;
 },{passive:false});
 
+/* ---------- FX layers (auto-spawned sibling regions) ----------
+   Ticking an FX on a sprite spawns a same-size sibling cell named for the
+   Invisible Atlas Maker's convention (`<name>_glow`, `_shadow`, …). The sibling
+   packs a server-made COPY of the base art as a placeholder; the Atlas Maker
+   later derives the real effect from the base. Modes mirror shine.py exactly. */
+const FX_MODES=['shine','glow','shadow','blur','zoom','colour'];
+const FX_SUFFIX={shine:'_shine',glow:'_glow',shadow:'_shadow',blur:'_blur',zoom:'_zoom',colour:'_colour'};
+const isFx=r=>!!(r&&r.fx_of);
+function fxChildren(base){ return regions.filter(r=>r.fx_of===base.src); }
+function fxModesOf(base){ return new Set(fxChildren(base).map(c=>c.fx_mode)); }
+/* Re-derive the parent/child links from region NAMES — used after load/restore,
+   where only the names survive (the manifest stores each child's `mode`, not the
+   live fx_of link). A `<base><suffix>` region whose base is present is a child. */
+function relinkFx(){
+  const byName={},bySrc={}; regions.forEach(r=>{ byName[r.name]=r; bySrc[r.src]=r; });
+  const stemOf=s=>String(s||'').replace(/\.[^.]+$/,'');
+  regions.forEach(r=>{
+    // Keep an already-valid link (authoritative — e.g. a restored session).
+    if(r.fx_of && bySrc[r.fx_of] && bySrc[r.fx_of]!==r) return;
+    r.fx_of=''; r.fx_mode='';
+    for(const mode of FX_MODES){
+      const suf=FX_SUFFIX[mode];
+      if(r.name.length>suf.length && r.name.endsWith(suf)){
+        const b=byName[r.name.slice(0,-suf.length)];
+        // Only adopt as an FX child when the SRC file ALSO follows the copy
+        // convention (`<baseStem>_<mode>`) — so a hand-named/imported sprite
+        // that merely ends in `_glow` isn't hijacked into a slaved child.
+        if(b&&b!==r && stemOf(r.src)===stemOf(b.src)+suf){ r.fx_of=b.src; r.fx_mode=mode; break; }
+      }
+    }
+  });
+}
+/* Slave an FX child's cell to its base: same footprint + native size + fit, so
+   the FX layer registers 1:1 with the base in-engine. Sheet position is free
+   (each is its own packed frame). */
+function slaveFxGeom(cr,base){ cr.w=base.w; cr.h=base.h; cr.ow=base.ow; cr.oh=base.oh; cr.rotated=false; fitImg(cr); }
+/* Reconcile a base's FX cells to the desired mode set: the server makes/removes
+   the per-mode art copies; we add/refresh/drop the matching regions, then pack. */
+async function syncFxChildren(base, want){
+  const j=await jpost('/api/fx-sync',{sheet:sheetName,base_src:base.src,modes:[...want]});
+  if(j.error){ const mm=$('uploadmsg'); mm.className='err'; mm.textContent=j.error; return; }
+  regions=regions.filter(r=>!(r.fx_of===base.src && !want.has(r.fx_mode)));
+  (j.children||[]).forEach(c=>{
+    let cr=regions.find(r=>r.fx_of===base.src && r.fx_mode===c.mode);
+    if(!cr){ cr={src:c.file,name:base.name+FX_SUFFIX[c.mode],x:0,y:0,
+      w:base.w,h:base.h,iw:base.iw,ih:base.ih,ow:c.w,oh:c.h,rotated:false,locked:false,
+      prompt:'',shape_ref:'',seed:'',fx_of:base.src,fx_mode:c.mode,unplaced:true};
+      regions.push(cr); }
+    cr.ow=c.w; cr.oh=c.h; cr.name=base.name+FX_SUFFIX[c.mode]; slaveFxGeom(cr,base); cr._cb=Date.now();
+  });
+  sel=base.src; render(); syncInspector(); markDirty(); await doArrange();
+}
+async function toggleFx(mode,on){
+  const base=reg(sel); if(!base||isFx(base)) return;
+  const want=fxModesOf(base); on?want.add(mode):want.delete(mode);
+  await syncFxChildren(base,want);
+}
+function syncFxPicker(base){
+  const grid=$('fxgrid'); if(!grid) return;
+  const have=fxModesOf(base); grid.innerHTML='';
+  FX_MODES.forEach(mode=>{
+    const lab=document.createElement('label');
+    lab.innerHTML='<input type="checkbox"'+(have.has(mode)?' checked':'')+'> '+mode;
+    lab.querySelector('input').onchange=e=>toggleFx(mode,e.target.checked);
+    grid.appendChild(lab);
+  });
+}
+
 function select(src){ sel=src; render(); syncInspector(); }
 function syncInspector(){
   const r=reg(sel);
   $('inspector').style.display=r?'':'none';
   { const n=$('nosel'); if(n) n.style.display=r?'none':''; }  // right panel = sprite props only
   if(!r) return;
+  const fx=isFx(r), note=$('fxchildnote');
+  // FX children are slaved to their base — hide the editable fields, show a note.
+  document.querySelectorAll('#inspector .baseonly').forEach(e=>e.style.display=fx?'none':'');
+  if(fx){
+    const base=reg(r.fx_of);
+    note.style.display='';
+    note.textContent='FX layer · '+(r.fx_mode||'?')+' of "'+(base?base.name:'?')
+      +'" — slaved to the base. Rename/resize the base to change it; the Atlas Maker fills this cell.';
+    return;
+  }
+  note.style.display='none';
   $('i_name').value=r.name; $('i_w').value=r.w; $('i_h').value=r.h;
   $('i_iw').value=r.iw||r.w; $('i_ih').value=r.ih||r.h;
   $('i_lock').checked=!!r.locked; $('i_prompt').value=r.prompt||'';
   $('i_shape').value=r.shape_ref||''; $('i_seed').value=r.seed||'';
+  syncFxPicker(r);
   flagName();
 }
 /* Region names are the recorded identity (manifest + .atlas + TP region keys),
@@ -712,10 +820,22 @@ function flagName(){
   const r=reg(sel), el=$('i_name'); if(!r) return;
   const nm=safeNm(r.name);
   const dup=nm && regions.some(o=>o!==r && safeNm(o.name)===nm);
-  el.style.borderColor=(!nm||dup)?'#e66':'';
-  el.title=!nm?'Name cannot be empty':(dup?'Another region already uses this name':'');
+  // A base rename also renames its FX cells to `<name><suffix>` — warn inline if
+  // one of those derived names would collide (else it only errors at export).
+  let childDup='';
+  if(nm && !isFx(r)){
+    for(const c of fxChildren(r)){
+      const cn=safeNm(nm+FX_SUFFIX[c.fx_mode]);
+      if(regions.some(o=>o!==c && o!==r && safeNm(o.name)===cn)){ childDup=cn; break; }
+    }
+  }
+  el.style.borderColor=(!nm||dup||childDup)?'#e66':'';
+  el.title=!nm?'Name cannot be empty':(dup?'Another region already uses this name'
+    :(childDup?('FX cell "'+childDup+'" would collide with an existing region'):''));
 }
-function renameSel(v){ const r=reg(sel); if(!r) return; r.name=v; flagName(); render(); markDirty(); }
+function renameSel(v){ const r=reg(sel); if(!r) return; r.name=v;
+  if(!isFx(r)) fxChildren(r).forEach(c=>{ c.name=r.name+FX_SUFFIX[c.fx_mode]; });   // FX cells follow the base name
+  flagName(); render(); markDirty(); }
 function setField(k,v){ const r=reg(sel); if(!r) return; r[k]=v; if(k==='locked') render(); markDirty(); }
 /* Image draw size = the art's NATIVE size, fitted into the region box:
    aspect-preserved, only shrunk when the region is smaller, never stretched or
@@ -731,8 +851,21 @@ function fitImg(r){
    own size and re-fits/centres inside it. */
 function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(8,parseInt(v)||8);
   r[k]=n; fitImg(r);
+  if(!isFx(r)) fxChildren(r).forEach(c=>slaveFxGeom(c,r));   // FX cells mirror the base size
   r.unplaced=false; render(); syncInspector(); markDirty(); }
-function deleteSel(){ const i=regions.findIndex(r=>r.src===sel); if(i<0) return; regions.splice(i,1); sel=null; render(); syncInspector(); markDirty(); }
+function deleteSel(){ const r=reg(sel); if(!r) return;
+  if(isFx(r)){
+    // Direct child removal — drop the region and let the server delete its copy.
+    const baseSrc=r.fx_of; regions=regions.filter(x=>x!==r);
+    const base=reg(baseSrc);
+    if(base) jpost('/api/fx-sync',{sheet:sheetName,base_src:baseSrc,modes:[...fxModesOf(base)]}).catch(()=>{});
+  }else{
+    // Removing a base takes its FX cells (+ their server copies) with it.
+    const kill=new Set([r.src,...fxChildren(r).map(c=>c.src)]);
+    regions=regions.filter(x=>!kill.has(x.src));
+    jpost('/api/fx-sync',{sheet:sheetName,base_src:r.src,modes:[]}).catch(()=>{});
+  }
+  sel=null; render(); syncInspector(); markDirty(); }
 
 window.addEventListener('keydown',e=>{
   if((e.key==='Delete'||e.key==='Backspace')&&sel&&document.activeElement.tagName!=='INPUT'){ deleteSel(); }
@@ -772,6 +905,12 @@ async function upload(){
       delete bboxCache[s.file];   // pixels changed → recompute opaque bounds on reload
       const el=spriteEls[s.file];
       if(el) el.img.src=spriteUrl(ex);
+      // Base art changed → re-slave its FX cells + refresh their server-side copies.
+      if(!isFx(ex) && fxChildren(ex).length){
+        fxChildren(ex).forEach(c=>{ c.ow=s.w; c.oh=s.h; slaveFxGeom(c,ex); c._cb=Date.now();
+          const ce=spriteEls[c.src]; if(ce) ce.img.src=spriteUrl(c); });
+        jpost('/api/fx-sync',{sheet:sheetName,base_src:ex.src,modes:[...fxModesOf(ex)]}).catch(()=>{});
+      }
       replaced++;
     } else { const nr={src:s.file,name:s.file.replace(/\.[^.]+$/,''),
       x:0,y:0,w:s.w,h:s.h,iw:s.w,ih:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:'',_cb:Date.now()};
@@ -838,6 +977,7 @@ async function loadSheet(){
   clearCanvasDom();
   regions=j.regions.map(r=>({...r,iw:r.iw||r.w,ih:r.ih||r.h,ow:r.ow||r.w,oh:r.oh||r.h}));
   regions.forEach(fitImg);   // image = native, fitted/centred in its region
+  relinkFx();                // reconstruct FX parent/child links from names
   sel=null;
   // Key the session on the sheet's OWN name: uploads accumulate into the same
   // sheet_src/<sheet>/ pile (upload() only clears when the name changes) and
@@ -979,6 +1119,7 @@ async function loadFile(path){
   clearCanvasDom();                          // drop any cached sprites from the previous sheet
   regions=j.regions.map(r=>({...r,iw:r.iw||r.w,ih:r.ih||r.h,ow:r.w,oh:r.h}));
   regions.forEach(fitImg);   // image = native, fitted/centred in its region
+  relinkFx();                // reconstruct FX parent/child links from names
   sel=null; activeSheet=sheetName;
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
