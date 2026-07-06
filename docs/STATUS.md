@@ -24,6 +24,35 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Symbols export: scan ALL atlases for bound frames (fixes new symbol icons rendering blank)
+
+**Symptom.** On `bookofborutremake`, three symbols added to the Invisible Symbols State Machine
+(H4→`T_Icon_Gun`, L3→`T_Icon_Hat`, L5→`T_Icon_HorseShoe`) rendered blank in-game with
+`Sprite: key "T_Icon_HorseShoe" is not found in the loadedAssets`, while the pre-existing icons
+(Boot/Bottle/Cactus) worked. The regions, page image, AND manifest were all correct — the new icons
+lived in `atlas_manifest_S_Game_Reel.json` (verified in R2). Owner-reported; NOT a data / caching /
+"re-pack" problem (there is no packing step).
+
+**Root cause.** `exportEditorSymbols` (`apps/launcher-api/src/lib/server/symbolExport.ts`) scanned the
+project's atlases only until `coveredFrames.size >= refs.frameNames.size`, then broke. But
+`coveredFrames` collects EVERY region of each exported sheet (icons AND their `_glow`/`_shine`
+siblings), so the running count can reach the bound-frame count while the actual bound frames are still
+uncovered. `atlas_manifest_S_AutomationTest.json` sorts first and packs exactly 6 regions (3 icons + 3
+glows) = the 6 bound symbols, so after exporting it the loop broke BEFORE reaching `S_Game_Reel`. The
+three frames only in `S_Game_Reel` were reported in `symbols.index.missing` and shipped blank. The
+dangling-binding guard's `warnMissingAssets` boot log was itself fed this wrong list.
+
+**Fix (`7c94f4f`).** Break only once every BOUND frame name is actually covered
+(`[...refs.frameNames].every((f) => coveredFrames.has(f))`), not on a size compare — bringing symbols
+to parity with `editorArtExport`'s bare-name loop (which already tracks the missing set correctly).
+Editor/pipeline-only (no engine bundle republish); ships via the launcher (Railway auto-deploy on push).
+
+**Verified.** Loop simulated on the real region data (OLD → misses Gun/Hat/HorseShoe; NEW → both sheets
+exported, `missing:[]`); `pnpm --filter launcher-api build` GREEN; live runtime bundle re-fetched after
+deploy → `symbols.index.missing: []` and `S_Game_Reel` now in the exported symbol sheets. Game just
+needs a hard reload (runtime re-exports every boot). Related: `docs/design/live-assets.md`
+§"dangling-binding guard".
+
 ### 2026-07-06 — Invisible Flow: book-event trigger pins are now OUTPUTS too (drag-from-source authoring)
 
 **What.** `/flow` screen nodes now advertise each book event as a NAMED OUTPUT pin (not just the input
