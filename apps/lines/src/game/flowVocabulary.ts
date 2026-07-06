@@ -160,6 +160,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Special book',
 		},
 		{
+			type: 'bookRevealGateShow',
+			group: 'Special book',
+		},
+		{
 			type: 'soundMusic',
 			group: 'Sound',
 			fields: [

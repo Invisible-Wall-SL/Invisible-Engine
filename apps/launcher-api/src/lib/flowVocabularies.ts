@@ -164,6 +164,10 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Special book',
 			},
 			{
+				type: 'bookRevealGateShow',
+				group: 'Special book',
+			},
+			{
 				type: 'soundMusic',
 				group: 'Sound',
 				fields: [
@@ -542,6 +546,10 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'specialBookHide',
+				group: 'Special book',
+			},
+			{
+				type: 'bookRevealGateShow',
 				group: 'Special book',
 			},
 			{

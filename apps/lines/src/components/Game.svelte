@@ -135,6 +135,7 @@
 	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
+	import BookRevealGate from './BookRevealGate.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
@@ -211,6 +212,10 @@
 		// Special-Book bonus overlay — board-centred, self-shows/animates off the
 		// `specialBookReveal`/`specialBookHide` book events; the doc owns only placement.
 		SpecialBook,
+		// Phase 3 — the OPTIONAL press-to-continue book-reveal GATE (dim + press + round-await),
+		// mirroring `FreeSpinIntroGate`. Armed by an AWAITABLE `bookRevealGateShow` broadcast the
+		// author drops into the choreography when they want a tap (vs the auto-play `delay`).
+		BookRevealGate,
 		// The board's chosen book expanding symbol as a POSITIONABLE part (the `expandingSymbol`
 		// def's bind) — renders `stateGame.specialSymbol` via `<Symbol>` WITHOUT the shuffle, so an
 		// author owns the reveal via their own spine + choreography (pure-hooks book reveal).
@@ -536,6 +541,12 @@
 	);
 	const fsOutroGate = $derived(
 		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinOutroShow')?.gate,
+	);
+	// Phase 3 — the OPTIONAL book-reveal gate look, read the SAME way (off the authored SCREEN
+	// gated to `bookRevealGateShow`). Absent scene / no `gate` ⇒ `undefined` ⇒ the free-spin
+	// intro gate default dim + prompt.
+	const bookRevealGate = $derived(
+		editorDoc.scenes.find((scene) => scene.visibleSource === 'bookRevealGateShow')?.gate,
 	);
 	// FS-6 (design doc §14) — the AUTO-DERIVED, PER-STEP free-spin ownership. Each overlay step
 	// (intro/counter/outro) is owned INDEPENDENTLY — a step is flow-owned only when its screen is
@@ -1452,6 +1463,17 @@
 			dimColor={fsOutroGate?.dimColor}
 			dimAlpha={fsOutroGate?.dimAlpha}
 			hidePrompt={fsOutroGate?.hidePrompt}
+		/>
+		<!--
+				Phase 3 — the OPTIONAL book-reveal press-to-continue GATE, mounted alongside the
+				free-spin gates at the fixed TOP z-band so an author reordering overlays can never bury
+				it. Always mounted; only shows while a `broadcastAwait('bookRevealGateShow')` holds. Idle
+				(never armed) when the choreography uses the auto-play `delay` pacing instead.
+			-->
+		<BookRevealGate
+			dimColor={bookRevealGate?.dimColor}
+			dimAlpha={bookRevealGate?.dimAlpha}
+			hidePrompt={bookRevealGate?.hidePrompt}
 		/>
 		<!--
 				FS-6 (design doc §14) — the coded VISUAL + COUNTER scene mounts (surfaces #2/#3), gated

@@ -3,7 +3,11 @@
 
 	export type EmitterEventSpecialBook =
 		| { type: 'specialBookReveal'; symbol: SymbolName }
-		| { type: 'specialBookHide' };
+		| { type: 'specialBookHide' }
+		// The optional press-to-continue book-reveal GATE arm — Phase 3, AWAITABLE, so a
+		// broadcastAwait of it in the choreography blocks the round until the player taps.
+		// Mirrors freeSpinIntroShow/freeSpinIntroUpdate and is owned by BookRevealGate.
+		| { type: 'bookRevealGateShow' };
 </script>
 
 <script lang="ts">
