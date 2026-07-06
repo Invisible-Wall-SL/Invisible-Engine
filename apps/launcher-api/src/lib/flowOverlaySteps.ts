@@ -42,37 +42,54 @@ export interface OverlayStepTable {
 /** The free-spin overlay steps — the SAME screen/event/exclusion data as `apps/lines`
  *  `FS_OVERLAY_STEPS` (kept in agreement by the fs6 spike cross-check). Shared by the `lines` and
  *  `bookOf` gameType entries (both run the lines free-spin lifecycle). */
-const FREE_SPIN_STEPS_TABLE: OverlayStepTable = {
-	steps: [
-		{
-			key: 'intro',
-			screen: 'freeSpinIntro',
-			event: 'freeSpinTrigger',
-			excludeBindComponents: ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'],
-			excludeComponentIds: ['freeSpinCounter'],
-		},
-		{
-			key: 'counter',
-			screen: 'freeSpinCounter',
-			event: 'updateFreeSpin',
-			excludeBindComponents: ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'],
-			excludeComponentIds: ['freeSpinCounter'],
-		},
-		{
-			key: 'outro',
-			screen: 'freeSpinOutro',
-			event: 'freeSpinEnd',
-			excludeBindComponents: ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'],
-			excludeComponentIds: ['freeSpinCounter'],
-		},
-	],
+const FREE_SPIN_STEPS: SerializableOverlayStep[] = [
+	{
+		key: 'intro',
+		screen: 'freeSpinIntro',
+		event: 'freeSpinTrigger',
+		excludeBindComponents: ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'],
+		excludeComponentIds: ['freeSpinCounter'],
+	},
+	{
+		key: 'counter',
+		screen: 'freeSpinCounter',
+		event: 'updateFreeSpin',
+		excludeBindComponents: ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'],
+		excludeComponentIds: ['freeSpinCounter'],
+	},
+	{
+		key: 'outro',
+		screen: 'freeSpinOutro',
+		event: 'freeSpinEnd',
+		excludeBindComponents: ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'],
+		excludeComponentIds: ['freeSpinCounter'],
+	},
+];
+
+/** The book-reveal overlay step — the SAME screen/event/exclusion data as `apps/lines`
+ *  `BOOK_OVERLAY_STEPS` (kept in agreement by the fs6 spike cross-check). Runs AFTER the free-spin
+ *  steps: `reveal` (screen `specialBook`, event `setExpandingSymbol`), excluding the coded
+ *  `SpecialBook` bind anchor as scaffolding. */
+const BOOK_STEPS: SerializableOverlayStep[] = [
+	{
+		key: 'reveal',
+		screen: 'specialBook',
+		event: 'setExpandingSymbol',
+		excludeBindComponents: ['SpecialBook'],
+	},
+];
+
+/** The combined lines overlay lifecycle — the free-spin steps then the book-reveal step — shared by
+ *  the `lines` and `bookOf` gameType entries (both run the same lines overlay lifecycle). */
+const LINES_STEPS_TABLE: OverlayStepTable = {
+	steps: [...FREE_SPIN_STEPS, ...BOOK_STEPS],
 	seamScreens: ['freeSpinRetrigger'],
 };
 
 /** Overlay-step tables keyed by LayoutDoc `gameType`. */
 export const FLOW_OVERLAY_STEP_TABLES: Record<string, OverlayStepTable> = {
-	lines: FREE_SPIN_STEPS_TABLE,
-	bookOf: FREE_SPIN_STEPS_TABLE,
+	lines: LINES_STEPS_TABLE,
+	bookOf: LINES_STEPS_TABLE,
 };
 
 /** Resolve the overlay-step table for a project's `gameType`; unknown ⇒ `undefined` (no section). */

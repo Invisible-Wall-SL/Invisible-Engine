@@ -940,6 +940,56 @@ export const LOADING_BAR_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * The board's chosen book EXPANDING SYMBOL as a PLACEABLE component (book-reveal authoring) —
+ * the "component authored to do this" half of the pure-hooks book reveal. It renders the chosen
+ * `stateGame.specialSymbol` via the coded `ExpandingSymbol` bind (the same `<Symbol>` state-machine
+ * render the coded `SpecialBook` uses), WITHOUT the shuffle: the author wraps their own reveal
+ * animation + timing around it (their spine cued by the `specialBookReveal`/`specialBookHide`
+ * signals + Flow choreography), while this simply shows the correct landed art at the instance's
+ * position. Gated by a `visibleSource` (default `specialBookShow`, true while a symbol is chosen)
+ * so it appears only during the reveal. Mirrors {@link FREE_SPIN_INTRO_VISUAL_DEF}: a `bind` child
+ * renders the coded part at the instance node's (`game`-space) position.
+ */
+export const EXPANDING_SYMBOL_DEF: ComponentDef = {
+	id: 'expandingSymbol',
+	name: 'Expanding Symbol',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'expandingSymbol-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'expandingSymbol-art',
+				label: 'Expanding symbol',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'ExpandingSymbol' },
+				children: [],
+			},
+		],
+	},
+	params: [
+		// The engine visibility feed — DEFAULTS to `specialBookShow` (true while a book symbol is
+		// chosen), so the landed art appears only during the reveal. Clear it to render ungated.
+		{
+			key: 'visibleSource',
+			kind: 'string',
+			options: VISIBILITY_SOURCE_KEYS,
+			default: 'specialBookShow',
+		},
+		// The symbol STATE the `<Symbol>` state machine renders (e.g. `bookIdle` to loop the
+		// idle spine, `bookIntro` for the intro animation, `static` for the resting frame).
+		{ key: 'state', kind: 'string', default: 'bookIdle', label: 'symbol state' },
+		{ key: 'scale', kind: 'number', default: 1, label: 'scale' },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -953,4 +1003,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_OUTRO_VISUAL_DEF,
 	TAP_TO_CONTINUE_DEF,
 	LOADING_BAR_DEF,
+	EXPANDING_SYMBOL_DEF,
 ];

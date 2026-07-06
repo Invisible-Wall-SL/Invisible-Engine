@@ -149,6 +149,14 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		space: 'canvas',
 		placement: 'boardCentre',
 	},
+	// The board's chosen book expanding symbol as a POSITIONABLE part (the `expandingSymbol`
+	// def's bind). Placed `game`-space at board centre, mirroring `FreeSpinIntroVisual`; its
+	// art is the chosen symbol's spine (state machine), so there's no fixed preview bundle —
+	// the editor shows a board-centred placeholder until the game runs.
+	ExpandingSymbol: {
+		space: 'game',
+		placement: 'boardCentre',
+	},
 };
 
 /** The default editor treatment for a coded component name, if known. */

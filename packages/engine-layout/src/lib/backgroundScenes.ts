@@ -28,3 +28,17 @@ export const hasAuthoredBackground = (scenes: Scene[]): boolean =>
 	backgroundScenes(scenes).some((scene) =>
 		scene.nodes.some((node) => node.bind?.component !== 'Background'),
 	);
+
+/**
+ * Whether an authored book reveal should SUPPRESS the coded bundled `<SpecialBook>` shuffle —
+ * true only when the `specialBook` scene carries REAL renderable content, i.e. at least one node
+ * that isn't the coded `SpecialBook` bind anchor (counting that anchor would suppress the very
+ * component it mounts). No `specialBook` scene / anchor-only scenes ⇒ `false` ⇒ the coded
+ * `<SpecialBook>` renders unchanged (parity for un-authored / hybrid docs and for a game — e.g.
+ * `apps/lines` dev — whose fallback ships only the coded anchor). Mirrors
+ * {@link hasAuthoredBackground} for the board's book-reveal mechanic.
+ */
+export const hasAuthoredBookReveal = (scenes: Scene[]): boolean =>
+	scenes
+		.filter((scene) => scene.id === 'specialBook')
+		.some((scene) => scene.nodes.some((node) => node.bind?.component !== 'SpecialBook'));

@@ -57,6 +57,12 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		label: 'Loading Progress',
 		note: 'Asset-load progress 0–100 (the loading/intro splash). The source formatter renders it "73%".',
 	},
+	{
+		key: 'specialSymbol',
+		kind: 'string',
+		label: 'Book Symbol',
+		note: 'Name of the chosen book expanding symbol (empty until one is revealed).',
+	},
 ];
 
 /**
@@ -79,7 +85,7 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
  * they're kept OUT of the numeric-only {@link VALUE_SOURCE_CATALOG} but still listed
  * here so the editor's Source dropdown lists them.
  */
-const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins', 'message'];
+const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins', 'message', 'specialSymbol'];
 export const VALUE_SOURCE_KEYS: string[] = [
 	...VALUE_SOURCE_CATALOG.map((p) => p.key),
 	...COMPOSED_STRING_SOURCE_KEYS,
@@ -123,6 +129,9 @@ export const VISIBILITY_SOURCE_KEYS: string[] = [
 	'winShow',
 	'bigWinShow',
 	'baseGameShow',
+	// True while a book expanding symbol is chosen (the reveal is live) — the natural gate for
+	// the `expandingSymbol` component so the landed art shows only during the book reveal.
+	'specialBookShow',
 	// Config-feature gates — mirror the coded `UIDefault` `{#if config.features.*}` wraps so a
 	// parametric turbo / auto-spin button hides when the game config disables that feature
 	// (e.g. a compliance profile). The auto-spin button binds `autoplayFeature`, turbo binds
@@ -147,6 +156,7 @@ export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
 	winShow: 'Win',
 	bigWinShow: 'Big win',
 	baseGameShow: 'Base game / idle',
+	specialBookShow: 'Book reveal (symbol chosen)',
 	turboFeature: 'Turbo feature enabled',
 	autoplayFeature: 'Autoplay feature enabled',
 };
@@ -239,5 +249,15 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 		key: 'freeSpinEnd',
 		label: 'Free-spin end',
 		note: 'The free-spin outro presents (free spins finished).',
+	},
+	{
+		key: 'specialBookReveal',
+		label: 'Book reveal',
+		note: 'The book expanding-symbol reveal presents (a symbol was chosen).',
+	},
+	{
+		key: 'specialBookHide',
+		label: 'Book hide',
+		note: 'The book expanding-symbol reveal dismisses.',
 	},
 ];

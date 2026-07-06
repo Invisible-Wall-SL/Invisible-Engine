@@ -56,6 +56,7 @@
 		TRANSITION_DEF,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
+		EXPANDING_SYMBOL_DEF,
 		TAP_TO_CONTINUE_DEF,
 		LOADING_BAR_DEF,
 		findReelGridNode,
@@ -64,6 +65,7 @@
 		backgroundFit,
 		backgroundScenes,
 		hasAuthoredBackground,
+		hasAuthoredBookReveal,
 		extraMountScenes,
 		authoredHudScenes,
 		fullReplaceHudScenes,
@@ -133,6 +135,7 @@
 	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
+	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
 	import Effects from './Effects.svelte';
@@ -208,6 +211,10 @@
 		// Special-Book bonus overlay — board-centred, self-shows/animates off the
 		// `specialBookReveal`/`specialBookHide` book events; the doc owns only placement.
 		SpecialBook,
+		// The board's chosen book expanding symbol as a POSITIONABLE part (the `expandingSymbol`
+		// def's bind) — renders `stateGame.specialSymbol` via `<Symbol>` WITHOUT the shuffle, so an
+		// author owns the reveal via their own spine + choreography (pure-hooks book reveal).
+		ExpandingSymbol,
 		// The ONE coded part of the `loadingIntro` splash def — the masked progress
 		// fill the static node model can't express (the logo + percentage around it are
 		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its
@@ -262,6 +269,11 @@
 		[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
 		// §17 Phase 3 — same for the outro's positionable visual.
 		[FREE_SPIN_OUTRO_VISUAL_DEF.id]: FREE_SPIN_OUTRO_VISUAL_DEF,
+		// Book-reveal authoring — makes `getComponent('expandingSymbol')` resolve so an
+		// `expandingSymbol` instance expands into its bound `ExpandingSymbol` part (the chosen
+		// symbol's art), positioned by the editor node. Placeable so an author renders the landed
+		// symbol inside their own reveal; the coded `SpecialBook` shuffle stays as the fallback.
+		[EXPANDING_SYMBOL_DEF.id]: EXPANDING_SYMBOL_DEF,
 		// Invisible Flow §6.2 — the droppable full-screen tap-to-continue overlay. A
 		// minimal empty-root `overlay` def: an author can drop it on ANY Flow screen from
 		// the palette to get a full-screen tap-to-continue. Its behaviour + per-instance
@@ -347,6 +359,11 @@
 		freeSpins: textSource(
 			() => `${stateUi.freeSpinCounterCurrent} OF ${stateUi.freeSpinCounterTotal}`,
 		),
+		// The name of the chosen book expanding symbol (empty until one is picked). A string
+		// source so an authored readout renders it verbatim; the LANDED symbol's ART is rendered
+		// by the `expandingSymbol` builtin (which reads `stateGame.specialSymbol` directly through
+		// the same `<Symbol>` + `getActiveSymbolInfoMap()` path the coded `SpecialBook` uses).
+		specialSymbol: textSource(() => stateGame.specialSymbol ?? ''),
 		// Composed-string feed for the `infoBar` def's `value` param — the transient
 		// `showMessage` toast text (e.g. "Win $1.00 — 2 of a kind"). A string source, so
 		// it renders verbatim through the text path. The `infoBar` scene's componentInstance
@@ -401,6 +418,10 @@
 		baseGameShow: boolSource(() => stateGame.gameType === 'basegame'),
 		winShow: boolSource(() => stateUi.winShow),
 		bigWinShow: boolSource(() => stateUi.bigWinShow),
+		// True while a book expanding symbol is chosen — gates the `expandingSymbol` component so
+		// the landed art shows only during the reveal (the author's own reveal spine + choreography
+		// own the timing; this simply mirrors `stateGame.specialSymbol`'s presence).
+		specialBookShow: boolSource(() => stateGame.specialSymbol !== null),
 		// Config-feature gates for the parametric turbo / auto-spin buttons (B6 M1) — mirror the
 		// coded `UIDefault` `{#if stateUi.config.features.turbo/.autoplay}` wraps so a flipped
 		// `componentInstance(button)` turbo/auto-spin hides when the config disables the feature.
@@ -479,9 +500,29 @@
 		editorDoc.scenes.find((scene) => scene.id === 'freeSpinOutroVisual') ??
 			fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinOutroVisual'),
 	);
+	// Authored BOOK REVEAL (book-reveal authoring). The `specialBook` scene normally carries only
+	// the coded `SpecialBook` bind anchor (the shuffle-through-symbols reference reveal). When an
+	// author places their OWN reveal content there (an `expandingSymbol` instance + their reveal
+	// spine), `hasAuthoredBookReveal` is true ⇒ the author's reveal BECOMES the mechanic and the
+	// coded `<SpecialBook>` shuffle is suppressed. `apps/lines`' fallback ships only the coded
+	// anchor, so the flag is false ⇒ the coded shuffle still plays (parity). Mirrors
+	// `suppressCodedBackground` / `suppressCodedHud`.
+	const suppressCodedBookReveal = $derived(hasAuthoredBookReveal(editorDoc.scenes));
 	const fallbackSpecialBook = fallbackEditorScenes.scenes.find((s) => s.id === 'specialBook')!;
-	const specialBookScene = $derived(
+	const rawSpecialBookScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'specialBook') ?? fallbackSpecialBook,
+	);
+	// Book-reveal authoring — when the author supplies their OWN reveal content the coded
+	// `SpecialBook` shuffle is suppressed: strip its bind anchor from the scene so only the
+	// authored nodes mount. Un-authored (`apps/lines` dev) ⇒ the anchor stays ⇒ the coded shuffle
+	// plays (parity). Mirrors `suppressCodedBackground`/`suppressCodedHud`.
+	const specialBookScene = $derived(
+		suppressCodedBookReveal
+			? {
+					...rawSpecialBookScene,
+					nodes: rawSpecialBookScene.nodes.filter((node) => node.bind?.component !== 'SpecialBook'),
+				}
+			: rawSpecialBookScene,
 	);
 	// §17 Phase 3 — author-overridable GATE look. The engine still owns exactly one
 	// full-screen intro/outro gate (mounted below) with the round-blocking hold + tap;
@@ -819,6 +860,16 @@
 		),
 		freeSpinEnd: eventSignal((run) =>
 			context.eventEmitter.subscribe({ freeSpinOutroShow: () => run() }),
+		),
+		// The book expanding-symbol reveal lifecycle — an authored spine cue on the author's own
+		// reveal component plays with the mechanic (mirrors `freeSpinStart`/`freeSpinEnd`). These
+		// are payload-less: the chosen symbol comes from the `specialSymbol` value source + the
+		// `expandingSymbol` def's live art, NOT through the signal.
+		specialBookReveal: eventSignal((run) =>
+			context.eventEmitter.subscribe({ specialBookReveal: () => run() }),
+		),
+		specialBookHide: eventSignal((run) =>
+			context.eventEmitter.subscribe({ specialBookHide: () => run() }),
 		),
 	});
 

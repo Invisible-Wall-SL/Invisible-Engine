@@ -41,6 +41,7 @@ import {
 	resolveFreeSpinOwnership,
 	type FreeSpinOwnership,
 } from './freeSpinOwnership';
+import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
 import { stateBet, stateBetDerived, stateUi } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
@@ -359,9 +360,18 @@ export const createLinesFlow = (
 	// keeps its authored event + overlay. `Game.svelte` gates each coded scene mount off the SAME
 	// per-step ownership, so event-authoring + mount-suppression flip together per step (no double /
 	// empty window). All steps un-owned ⇒ the whole free-spin lifecycle is coded (byte-parity §7).
-	const flowDoc = gateFreeSpinOwnership(
+	const fsGatedDoc = gateFreeSpinOwnership(
 		resolvedDoc,
 		resolveFreeSpinOwnership(resolvedDoc, editorDoc.scenes),
+	);
+	// Book-reveal authoring — the SAME per-step ownership flip for the single `reveal` step: an
+	// un-owned reveal's `setExpandingSymbol` event + `specialBook` overlay is STRIPPED so it falls
+	// through to the coded `SpecialBook` shuffle (byte-parity), while an OWNED reveal keeps its
+	// authored event + screen. `Game.svelte` gates the coded `SpecialBook` mount off the SAME
+	// ownership (`hasAuthoredBookReveal`), so event-authoring + mount-suppression flip together.
+	const flowDoc = gateBookOwnership(
+		fsGatedDoc,
+		resolveBookOwnership(resolvedDoc, editorDoc.scenes),
 	);
 
 	const resolveScene = (screenId: string): Scene | undefined =>

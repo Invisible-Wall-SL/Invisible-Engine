@@ -24,6 +24,44 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Book reveal: fully authorable (pure hooks, parity with free spins)
+
+**Ask.** The book random-selection reveal (shuffle → land on the chosen expanding symbol) was only
+half-generalized: the Flow `specialBookReveal`/`specialBookHide` broadcasts existed, but there was
+**no registered engine signal, no chosen-symbol value source, no placeable component, and no
+ownership gating** — so the coded `SpecialBook.svelte` shuffle was the ONLY renderer. Owner wants to
+author their own reveal like free spins (decision: **pure hooks**, author builds the visual;
+**author-decides pacing** in choreography). See `feedback_no_hardcoding_generic`.
+
+**Shipped — Phases 1–2 + editor diagnostic** (branch `editor/book-reveal-authorable`):
+- **Signals** `specialBookReveal` / `specialBookHide` in `ENGINE_SIGNAL_CATALOG`
+  (`componentCatalog.ts`) + wired in `Game.svelte` `registerComponentSignals` via `eventSignal`.
+  Payload-less (like `freeSpinStart/End`) — the symbol comes from the value source below.
+- **Value/visibility sources**: `specialSymbol` (chosen symbol name) + `specialBookShow` (true while
+  a symbol is chosen), registered in `Game.svelte` + `componentCatalog.ts`.
+- **Placeable `EXPANDING_SYMBOL_DEF`** (`builtinComponents.ts`) binding new coded
+  `apps/lines/src/components/ExpandingSymbol.svelte` — renders the chosen symbol's art via `<Symbol>`
+  WITHOUT the shuffle; the author wraps their own reveal spine + choreography around it.
+- **Suppression** `hasAuthoredBookReveal` (`backgroundScenes.ts`) — `Game.svelte` strips the coded
+  `SpecialBook` bind anchor from the `specialBook` scene when the author supplies their own reveal
+  content; un-authored `apps/lines` keeps the coded shuffle (parity). Mirrors `hasAuthoredHud`.
+- **Ownership** `apps/lines/src/game/bookOwnership.ts` (single `reveal` step →
+  `specialBook`/`setExpandingSymbol`) reusing generic `resolveOverlayOwnership`/`gateOverlayOwnership`;
+  applied in `flowRuntime.svelte.ts` after `gateFreeSpinOwnership`. Un-owned ⇒ `setExpandingSymbol`
+  falls through to the coded handler (byte-parity).
+- **Editor diagnostic**: `flowOverlaySteps.ts` now lists the `reveal` step (lines/bookOf) so the
+  `/flow` overlay-steps panel shows book-reveal ownership; fs6 drift guard extended to prove
+  launcher↔game book-step parity.
+
+**Verified.** flow-spike `phase5` (setExpandingSymbol still 3 ordered ops) + `fs6` (free-spin AND new
+book-step parity) PASS; `engine-layout`, `apps/lines` (svelte-check 0 errors), `launcher-api` build
+clean.
+
+**Remaining.** Phase 3 = optional `BookRevealGate` (press-to-continue); the auto-play path needs no
+code (choreography: `broadcast specialBookReveal` → `delay` → `broadcast specialBookHide`). Then ship
+via `publish-runtime-bundle.mjs` → `_runtime/lines` + push launcher (editor). `bookofborutremake`
+runs `runtime:lines`, so no submodule bump.
+
 ### 2026-07-06 — Rigger: "✨ Auto FX slots" — auto-author FX layers from the manifest
 
 **Ask.** Final piece of the FX pipeline: automate, in the Invisible Rigger, the manual

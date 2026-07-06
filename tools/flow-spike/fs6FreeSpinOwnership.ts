@@ -48,6 +48,7 @@ import {
 import type { LayoutNode, Scene } from 'engine-layout';
 
 import { LINES_FLOW_FREESPIN_DOC } from '../../apps/lines/src/game/flowDoc';
+import { BOOK_OVERLAY_STEPS, type BookStep } from '../../apps/lines/src/game/bookOwnership';
 import {
 	FREE_SPIN_STEPS,
 	FS_OVERLAY_STEPS,
@@ -605,64 +606,169 @@ const main = async () => {
 	// --- G. LAUNCHER-TABLE CROSS-CHECK (drift guard, decision 2) ---
 	// The `/flow` editor reads a SERIALIZABLE step table (`flowOverlaySteps.ts`), not the game's. This
 	// asserts that table for `lines`, fed through `excludeCodedComponents`, produces `OverlayStep[]`
-	// that resolve IDENTICALLY to the game's `FS_OVERLAY_STEPS` — so the editor's per-step readout can
-	// never silently drift from what the runtime decides. Compares the RESOLVED ownership (the content
-	// rule is a function, so we compare behaviour, not function identity) across all six combos.
-	console.log('\nG. launcher step table === game step table (drift guard):');
+	// that resolve IDENTICALLY to the game's step tables — so the editor's per-step readout can never
+	// silently drift from what the runtime decides. The launcher table now carries BOTH the free-spin
+	// steps (intro/counter/outro) AND the book-reveal step (reveal), so it is split into those two
+	// subsets and each is cross-checked against its OWN game table (`FS_OVERLAY_STEPS` /
+	// `BOOK_OVERLAY_STEPS`) — structurally + behaviourally (the content rule is a function, so we
+	// compare RESOLVED ownership, not function identity).
+	console.log('\nG. launcher step table === game step tables (drift guard):');
 	{
 		const table = resolveOverlayStepTable('lines');
 		assert('launcher exposes a `lines` overlay-step table', table !== undefined);
 		if (table) {
-			// Rebuild runtime OverlayStep[] from the launcher's serialized data (mirrors the editor's
-			// `overlayStepsFromTable`), keying the step union back to FreeSpinStep for the resolver.
-			const launcherSteps: OverlayStep<FreeSpinStep>[] = table.steps.map((s) => ({
-				key: s.key as FreeSpinStep,
-				screen: s.screen,
-				event: s.event,
-				contentRule: excludeCodedComponents({
-					excludeBindComponents: s.excludeBindComponents,
-					excludeComponentIds: s.excludeComponentIds,
-				}),
-			}));
-			// Structural agreement: same key/screen/event per step, in order.
-			const structOk =
-				launcherSteps.length === FS_OVERLAY_STEPS.length &&
-				launcherSteps.every(
-					(l, idx) =>
-						l.key === FS_OVERLAY_STEPS[idx].key &&
-						l.screen === FS_OVERLAY_STEPS[idx].screen &&
-						l.event === FS_OVERLAY_STEPS[idx].event,
-				);
-			assert('launcher steps match game steps (key/screen/event, in order)', structOk);
+			// Split the launcher steps into the free-spin subset (intro/counter/outro) and the book
+			// subset (reveal), then cross-check EACH against its own game table.
+			const FS_KEYS = new Set<string>(['intro', 'counter', 'outro']);
+			const BOOK_KEYS = new Set<string>(['reveal']);
+			const fsTableSteps = table.steps.filter((s) => FS_KEYS.has(s.key));
+			const bookTableSteps = table.steps.filter((s) => BOOK_KEYS.has(s.key));
+
 			assert(
 				'launcher seam screens = [freeSpinRetrigger]',
 				eqJson(table.seamScreens ?? [], ['freeSpinRetrigger']),
 			);
-			// Behavioural agreement: the content rule resolves the same ownership across all six combos.
-			const COMBOS6: [boolean, boolean, boolean][] = [
-				[true, false, false],
-				[false, true, false],
-				[false, false, true],
-				[true, false, true],
-				[true, true, true],
-				[false, false, false],
-			];
-			let behOk = true;
-			for (const [i, c, o] of COMBOS6) {
-				const scenes = scenesFor(combo(i, c, o)) as unknown as OverlayScene[];
-				const gameOwn = resolveOverlayOwnership<FreeSpinStep>(
-					LINES_FLOW_FREESPIN_DOC,
-					scenes,
-					FS_OVERLAY_STEPS,
-				);
-				const launcherOwn = resolveOverlayOwnership<FreeSpinStep>(
-					LINES_FLOW_FREESPIN_DOC,
-					scenes,
-					launcherSteps,
-				);
-				if (!ALL_STEPS.every((s) => gameOwn.owns(s) === launcherOwn.owns(s))) behOk = false;
+
+			// --- G.1 free-spin subset === game FS_OVERLAY_STEPS ---
+			{
+				// Rebuild runtime OverlayStep[] from the launcher's serialized data (mirrors the editor's
+				// `overlayStepsFromTable`), keying the step union back to FreeSpinStep for the resolver.
+				const launcherFsSteps: OverlayStep<FreeSpinStep>[] = fsTableSteps.map((s) => ({
+					key: s.key as FreeSpinStep,
+					screen: s.screen,
+					event: s.event,
+					contentRule: excludeCodedComponents({
+						excludeBindComponents: s.excludeBindComponents,
+						excludeComponentIds: s.excludeComponentIds,
+					}),
+				}));
+				// Structural agreement: same key/screen/event per step, in order.
+				const structOk =
+					launcherFsSteps.length === FS_OVERLAY_STEPS.length &&
+					launcherFsSteps.every(
+						(l, idx) =>
+							l.key === FS_OVERLAY_STEPS[idx].key &&
+							l.screen === FS_OVERLAY_STEPS[idx].screen &&
+							l.event === FS_OVERLAY_STEPS[idx].event,
+					);
+				assert('launcher FS steps match game FS steps (key/screen/event, in order)', structOk);
+				// Behavioural agreement: the content rule resolves the same ownership across all six combos.
+				const COMBOS6: [boolean, boolean, boolean][] = [
+					[true, false, false],
+					[false, true, false],
+					[false, false, true],
+					[true, false, true],
+					[true, true, true],
+					[false, false, false],
+				];
+				let behOk = true;
+				for (const [i, c, o] of COMBOS6) {
+					const scenes = scenesFor(combo(i, c, o)) as unknown as OverlayScene[];
+					const gameOwn = resolveOverlayOwnership<FreeSpinStep>(
+						LINES_FLOW_FREESPIN_DOC,
+						scenes,
+						FS_OVERLAY_STEPS,
+					);
+					const launcherOwn = resolveOverlayOwnership<FreeSpinStep>(
+						LINES_FLOW_FREESPIN_DOC,
+						scenes,
+						launcherFsSteps,
+					);
+					if (!ALL_STEPS.every((s) => gameOwn.owns(s) === launcherOwn.owns(s))) behOk = false;
+				}
+				assert('launcher FS content rule resolves identical ownership (all six combos)', behOk);
 			}
-			assert('launcher content rule resolves identical ownership (all six combos)', behOk);
+
+			// --- G.2 book subset === game BOOK_OVERLAY_STEPS ---
+			// The book reveal is ONE step (`reveal`, screen `specialBook`, event `setExpandingSymbol`)
+			// whose ownership flips on the SAME three knobs: (i) its screen placed, (ii) its
+			// `setExpandingSymbol` LAYER edge wired, (iii) its `specialBook` scene carries authored
+			// content (≥1 node that is NOT the coded `SpecialBook` bind anchor). We exercise all three.
+			{
+				// Rebuild runtime OverlayStep[] from the launcher's serialized data, keyed to BookStep.
+				const launcherBookSteps: OverlayStep<BookStep>[] = bookTableSteps.map((s) => ({
+					key: s.key as BookStep,
+					screen: s.screen,
+					event: s.event,
+					contentRule: excludeCodedComponents({
+						excludeBindComponents: s.excludeBindComponents,
+						excludeComponentIds: s.excludeComponentIds,
+					}),
+				}));
+				// Structural agreement: same key/screen/event, in order.
+				const structOk =
+					launcherBookSteps.length === BOOK_OVERLAY_STEPS.length &&
+					launcherBookSteps.every(
+						(l, idx) =>
+							l.key === BOOK_OVERLAY_STEPS[idx].key &&
+							l.screen === BOOK_OVERLAY_STEPS[idx].screen &&
+							l.event === BOOK_OVERLAY_STEPS[idx].event,
+					);
+				assert('launcher book step matches game book step (key/screen/event, in order)', structOk);
+
+				// A fully-wired book doc: places the `specialBook` screen + wires the `setExpandingSymbol`
+				// LAYER edge (so knobs (i)+(ii) hold and scene content is the flipped knob), reusing the
+				// same layer/return edge shape as the free-spin overlays.
+				const bookDoc: FlowDoc = {
+					...LINES_FLOW_FREESPIN_DOC,
+					screens: [...LINES_FLOW_FREESPIN_DOC.screens, { id: 'specialBook' }],
+					transitions: [
+						...LINES_FLOW_FREESPIN_DOC.transitions,
+						{
+							id: 'basegame→specialBook',
+							from: 'basegame',
+							to: 'specialBook',
+							trigger: { kind: 'bookEvent', event: 'setExpandingSymbol' },
+						},
+						{ id: 'specialBook→basegame', from: 'specialBook', to: 'basegame', trigger: { kind: 'complete' } },
+					],
+				};
+				// The `specialBook` scene toggled between authored content and the coded `SpecialBook`
+				// bind-anchor fallback (knob iii). The other scenes are irrelevant to the reveal step.
+				const bookScenesFor = (authored: boolean): OverlayScene[] =>
+					[
+						authored ? authoredScene('specialBook') : codedAnchorScene('specialBook', 'SpecialBook'),
+					] as unknown as OverlayScene[];
+
+				let behOk = true;
+				// (iii) content: authored ⇒ owned; coded anchor only ⇒ un-owned. Game === launcher.
+				for (const authored of [true, false]) {
+					const scenes = bookScenesFor(authored);
+					const gameOwn = resolveOverlayOwnership<BookStep>(bookDoc, scenes, BOOK_OVERLAY_STEPS);
+					const launcherOwn = resolveOverlayOwnership<BookStep>(bookDoc, scenes, launcherBookSteps);
+					if (gameOwn.owns('reveal') !== authored || launcherOwn.owns('reveal') !== authored) {
+						behOk = false;
+					}
+					if (gameOwn.owns('reveal') !== launcherOwn.owns('reveal')) behOk = false;
+				}
+				// (i) placement: doc omits the `specialBook` screen ⇒ un-owned even with authored content.
+				{
+					const docNoScreen: FlowDoc = {
+						...bookDoc,
+						screens: bookDoc.screens.filter((s) => s.id !== 'specialBook'),
+					};
+					const scenes = bookScenesFor(true);
+					const gameOwn = resolveOverlayOwnership<BookStep>(docNoScreen, scenes, BOOK_OVERLAY_STEPS);
+					const launcherOwn = resolveOverlayOwnership<BookStep>(docNoScreen, scenes, launcherBookSteps);
+					if (gameOwn.owns('reveal') || launcherOwn.owns('reveal')) behOk = false;
+					if (gameOwn.owns('reveal') !== launcherOwn.owns('reveal')) behOk = false;
+				}
+				// (ii) wiring: doc omits the `setExpandingSymbol` edge ⇒ un-owned even with authored content.
+				{
+					const docNoEdge: FlowDoc = {
+						...bookDoc,
+						transitions: bookDoc.transitions.filter(
+							(t) => !(t.trigger.kind === 'bookEvent' && t.trigger.event === 'setExpandingSymbol'),
+						),
+					};
+					const scenes = bookScenesFor(true);
+					const gameOwn = resolveOverlayOwnership<BookStep>(docNoEdge, scenes, BOOK_OVERLAY_STEPS);
+					const launcherOwn = resolveOverlayOwnership<BookStep>(docNoEdge, scenes, launcherBookSteps);
+					if (gameOwn.owns('reveal') || launcherOwn.owns('reveal')) behOk = false;
+					if (gameOwn.owns('reveal') !== launcherOwn.owns('reveal')) behOk = false;
+				}
+				assert('launcher book content rule resolves identical ownership (all three knobs)', behOk);
+			}
 		}
 	}
 
