@@ -53,6 +53,17 @@ export type FlowInterpreter<TBookEvent extends { type: string }, TContext> = {
 	 *  Awaits the presentation; the transition is fired after (so a screen swap follows the
 	 *  event's own animation, matching the coded serial flow). */
 	dispatchBookEvent: (bookEvent: TBookEvent, context: TContext) => Promise<void>;
+	/**
+	 * Take ONLY a book event's macro `bookEvent` transition (activate its screen) WITHOUT running
+	 * the event's presentation — the "early mount" hook. Unlike `dispatchBookEvent` (which runs the
+	 * choreography/coded handler THEN the transition), this fires the transition alone, so the game
+	 * can mount an overlay screen at a chosen point INSIDE that event's own choreography (e.g. the
+	 * moment its `*Show` emitter broadcasts, BEFORE a round-blocking await later in the same
+	 * choreography). It is idempotent: a layer edge onto an already-active target is a no-op
+	 * (`changesActiveSet`), so the later `dispatchBookEvent`'s own `onBookEvent` becomes a safe
+	 * no-op. Generic — the caller names the event type; the interpreter knows no game ids. A SAFE
+	 * no-op when inert (no FlowDoc). Returns true when a `bookEvent` transition was taken. */
+	activateForBookEvent: (bookEvent: { type: string }) => Promise<boolean>;
 	/** The active screen's `complete` pin fired — take a `complete` transition (§6.2). */
 	complete: () => Promise<boolean>;
 	/**
@@ -150,6 +161,16 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 
 	const isActive = isAuthoredFlow(flowDoc);
 
+	// Event types whose macro `bookEvent` transition was ALREADY taken via `activateForBookEvent`
+	// (the early-mount hook) during THIS event's own dispatch. `dispatchBookEvent` consumes the mark
+	// after `dispatch()` and SKIPS its own post-dispatch `onBookEvent`, so the transition is taken
+	// exactly once. Without this, a screen that early-mounts AND then self-completes DURING dispatch
+	// (the FS-7 round-gate: its tap-to-continue fires `complete` while the choreography is still
+	// blocked) would be RE-ACTIVATED by the post-dispatch `onBookEvent` (the layer edge onto a
+	// now-inactive target is no longer the intended no-op) — the overlay would pop back and stick.
+	// Empty for every event that never early-mounts ⇒ byte-parity for the whole coded/FS-6 path.
+	const earlyActivated = new Set<string>();
+
 	return {
 		mounter,
 		get activeScreenId() {
@@ -162,7 +183,21 @@ export const createFlowInterpreter = <TBookEvent extends { type: string }, TCont
 		entranceTransition: (screenId) => machine?.entranceTransition(screenId),
 		dispatchBookEvent: async (bookEvent, context) => {
 			await dispatch(bookEvent, context);
+			// If this event already took its transition early (during the dispatch above, via
+			// `activateForBookEvent`), do NOT re-take it — the screen may have self-completed mid-
+			// dispatch (FS-7), so re-firing would wrongly re-activate it. Consume the mark either way.
+			if (earlyActivated.delete(bookEvent.type)) return;
 			await machine?.onBookEvent(bookEvent);
+		},
+		// Early-mount hook: fire ONLY the macro `bookEvent` transition, no presentation, and MARK the
+		// event type so `dispatchBookEvent` skips its own post-dispatch `onBookEvent` (take-once). The
+		// mark is set only when a transition was actually taken (`onBookEvent` returned true — includes
+		// the idempotent already-active no-op, which correctly also suppresses a redundant re-fire).
+		// Inert ⇒ resolves false and marks nothing (parity). Generic — the caller names the type.
+		activateForBookEvent: async (bookEvent) => {
+			const took = (await machine?.onBookEvent(bookEvent)) ?? false;
+			if (took) earlyActivated.add(bookEvent.type);
+			return took;
 		},
 		complete: () => machine?.onComplete() ?? Promise.resolve(false),
 		completeActiveScreen: () => machine?.onComplete() ?? Promise.resolve(false),

@@ -1567,6 +1567,60 @@ flow-spikes (`fs2`/`parity`/`pins`/`phase3`/`phase4`/`phase5`/`roundtrip`/`tap`)
    round still HOLDS at intro/outro (the kept gates), no double-present, `gameType`/counter/sounds
    behave as coded.
 
+### Progress — FS-7 INTRO STEP DONE (build-verified, 2026-07-06; ⏳ live-verify)
+
+**Scope this pass:** the deferred FS-7 "move the round-blocking gate ownership into the authored
+screens", **INTRO STEP ONLY** (outro/counter FS-7 remain deferred). Gated entirely behind the
+existing per-step `freeSpinOwnership.ownsIntro` — un-owned intro (and cluster/scatter/ways/price, and
+any coded game) is **byte-identical to current `main`** (§7).
+
+**Root cause fixed.** The intro choreography broadcasts `freeSpinIntroShow` (flowDoc L119) then BLOCKS
+on `broadcastAwait('freeSpinIntroUpdate')` (L123), held by the engine `FreeSpinIntroGate`'s
+`waitForResolve` (its full-screen PressToContinue). The interpreter runs the event's choreography
+BEFORE the mount transition (`dispatchBookEvent`: `dispatch` then `machine.onBookEvent`), so the
+authored `freeSpinIntro` screen mounted only AFTER the player tapped the engine gate → spine appeared
+on tap, and the tap was consumed by the engine gate so the overlay never dismissed.
+
+**Mechanism.** Two responsibilities move off `FreeSpinIntroGate` into a new lines-side coordinator
+when (and only when) `ownsIntro`:
+1. **Early mount.** New generic interpreter method `activateForBookEvent(bookEvent)`
+   (`packages/engine-flow/src/interpreter.ts`) fires ONLY the macro `bookEvent` transition (no
+   presentation). The new `apps/lines/src/components/FreeSpinIntroFlowGate.svelte` subscribes to
+   `freeSpinIntroShow` and calls it with `FREE_SPIN_STEPS.intro.event` (`freeSpinTrigger`) → the
+   authored overlay activates on the `*Show` broadcast, BEFORE the L123 round-block. The dispatcher's
+   own later `onBookEvent('freeSpinTrigger')` no-ops (layer edge onto an already-active target, via
+   `presentation.ts` `changesActiveSet`). Generic — engine-flow learns NO game id; the id lives in the
+   lines step table.
+2. **Round-block transfer.** `FreeSpinIntroFlowGate` holds the `waitForResolve` on
+   `freeSpinIntroUpdate` and releases it when the `freeSpinIntro` screen leaves the interpreter's
+   active set (its Complete pin fired via `TapToContinue → completeActiveScreen()`), observed through
+   an `introScreenActive` prop + `$effect`. So a SINGLE tap on the authored screen resumes the
+   choreography past L123 AND dismisses the overlay via its `complete` edge. **Exactly-one-subscriber**
+   invariant held by SWAPPING at the mount site: `ownsIntro` ⇒ mount `FreeSpinIntroFlowGate`; else
+   mount `FreeSpinIntroGate` — never both, so never two holders on `freeSpinIntroUpdate`.
+
+The intro **choreography ops are unchanged** (FS-6 verbatim, byte-parity-proven) — only WHO holds the
+block + WHEN the screen mounts moved.
+
+**Files.** `packages/engine-flow/src/interpreter.ts` (new `activateForBookEvent` — generic early-mount
+hook, idempotent); `apps/lines/src/components/FreeSpinIntroFlowGate.svelte` (new — owned-only
+early-mount + round-block holder, script-only: mounts no visual, the authored screen provides it);
+`apps/lines/src/components/Game.svelte` (import `FREE_SPIN_STEPS`; `isFreeSpinIntroActive` derived; the
+per-step mount swap at the free-spin gate band).
+
+**Parity.** With `ownsIntro` false, `FreeSpinIntroFlowGate` is never mounted; the `{:else}` renders
+`FreeSpinIntroGate` verbatim with the same props as before; the new interpreter method is never called
+and returns `false` when inert. No coded plumbing removed. `ownsIntro` requires screen-placed +
+edge-wired + scene-authored (FS-6 predicate), so when true the `freeSpinTrigger` layer edge and the
+`freeSpinIntro --complete--> basegame` return both exist.
+
+**Verified.** `engine-flow` typecheck clean; `pnpm --filter lines build` GREEN (Svelte compiler
+transformed the new component). Prettier clean. **⏳ Live-verify owed** (read `app.stage`, turbo on/off,
+against a deterministic book feed): with intro owned, the authored spine appears ON TRIGGER (not on
+tap), the round HOLDS, and a single tap both resumes the round and dismisses the overlay; with intro
+un-owned, byte-identical to today. **NOT shipped** (no runtime-bundle publish / Borut submodule bump
+this pass — owner handles the deploy chain).
+
 ### Progress — FS-1 DONE headlessly (2026-07-03)
 
 **Owner decisions this pass (2026-07-03).**
