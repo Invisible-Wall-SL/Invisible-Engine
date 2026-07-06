@@ -24,6 +24,43 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-06 — Invisible Flow: FS-7 INTRO step — flow screen OWNS the round-block + early-mount (build-verified; not shipped)
+
+**What.** The deferred FS-7 ("move the round-blocking gate ownership into the authored screens"),
+**INTRO STEP ONLY** (outro/counter FS-7 still deferred). Gated behind the existing per-step
+`freeSpinOwnership.ownsIntro` — un-owned intro and every other game/app stay **byte-identical to
+`main`** (§7).
+
+**Root cause.** The interpreter runs an event's choreography BEFORE its mount transition. The intro
+choreography broadcasts `freeSpinIntroShow` then BLOCKS on `broadcastAwait('freeSpinIntroUpdate')`,
+held by the engine `FreeSpinIntroGate`'s `waitForResolve`. So the authored `freeSpinIntro` screen
+mounted only AFTER the player tapped the engine gate (spine on tap, not on trigger), and the tap was
+consumed by the gate so the overlay never dismissed.
+
+**Change (owned-only).** (1) EARLY MOUNT — new generic `activateForBookEvent(bookEvent)` on the
+interpreter (`packages/engine-flow/src/interpreter.ts`) fires only the macro `bookEvent` transition
+(no presentation); the new `apps/lines/src/components/FreeSpinIntroFlowGate.svelte` calls it on
+`freeSpinIntroShow` with `FREE_SPIN_STEPS.intro.event`, so the overlay activates BEFORE the round-block.
+**TAKE-ONCE dedup** (`earlyActivated` set in the interpreter) makes the dispatcher SKIP its own
+post-dispatch `onBookEvent` for an event whose transition was taken early — critical because the intro
+screen SELF-COMPLETES mid-dispatch (its tap releases the round-block AND fires Complete), so the naive
+`changesActiveSet` no-op reasoning FAILS: without the dedup the post-dispatch `onBookEvent` re-activates
+`freeSpinIntro` and the overlay pops back and STICKS (caught in review, not shipped). (2) ROUND-BLOCK
+TRANSFER — the flow gate holds `waitForResolve` on `freeSpinIntroUpdate` and releases it when the
+`freeSpinIntro` screen leaves the active set (its Complete pin fired via `TapToContinue`), so a single
+tap resumes the round AND dismisses the overlay. Exactly-one-subscriber held by swapping at the mount
+site: `ownsIntro` ⇒ `FreeSpinIntroFlowGate`; else `FreeSpinIntroGate` (verbatim). Intro choreography
+ops unchanged (FS-6 verbatim). No coded plumbing removed. engine-flow learns no game id (id lives in
+the lines step table).
+
+**Verified.** New headless harness `tools/flow-spike/fs7EarlyMount.ts` (`pnpm --filter flow-spike run
+fs7`) reproduces early-mount → self-complete mid-dispatch → asserts NO re-mount after dispatch (proven
+to FAIL without the take-once dedup, PASS with it); sibling `fs2`/`phase4`/`tap` harnesses still green.
+`engine-flow` typecheck clean; `pnpm --filter lines build` GREEN; Prettier clean.
+**⏳ Live-verify owed** (read `app.stage`, turbo on/off, deterministic book feed). **NOT shipped** — no
+runtime-bundle publish / Borut submodule bump this pass (owner handles the deploy chain). Design doc
+progress: `docs/design/invisible-flow.md` "Progress — FS-7 INTRO STEP".
+
 ### 2026-07-06 — Atlas Maker: sheet-derived FX cells now auto-derive on load/Process (not AI-generated)
 
 **Ask.** Follow-up to the Sheet Maker FX-picker below. Loading a sheet-derived manifest whose

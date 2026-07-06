@@ -93,6 +93,7 @@
 		hasFlowAction,
 		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
+	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
@@ -125,6 +126,7 @@
 	import Win from './Win.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
 	import FreeSpinIntroGate from './FreeSpinIntroGate.svelte';
+	import FreeSpinIntroFlowGate from './FreeSpinIntroFlowGate.svelte';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
@@ -625,6 +627,11 @@
 	// interpreter is undefined and this is `false` — but the board then falls through to its coded
 	// unconditional mount (the `!flow` fall-through below), so a non-flow game is unchanged (§7).
 	const isBasegameActive = $derived(activeScreenIds.includes(basegameScreenId));
+	// FS-7 (design doc §14, intro step) — whether the authored `freeSpinIntro` overlay screen is
+	// currently in the interpreter's active set. `<FreeSpinIntroFlowGate>` reads this to release the
+	// round-block the instant the screen leaves the set (its Complete pin fired via tap-to-continue).
+	// Un-owned intro ⇒ the flow gate is not mounted, so this drives nothing (parity §7).
+	const isFreeSpinIntroActive = $derived(activeScreenIds.includes(FREE_SPIN_STEPS.intro.screen));
 	// The base-game screen's resolved scene for the generic mounter. Resolved whenever the
 	// base-game screen is ACTIVE (in the active set) — NOT only when it is the topmost screen —
 	// so an overlay layered ON TOP (a celebration) never drops the base's authored below/above-reel
@@ -1298,7 +1305,9 @@
 				author, this renders UNCONDITIONALLY exactly as today (byte-identical to `main`). Only a
 				flow that authors this exact HUD screen id gates it on the active set.
 			-->
-		{#if !flow || !flow.mounter.authoredScreenIds().has(scene.id) || activeScreenIds.includes(scene.id)}
+		{#if !flow || !flow.mounter
+				.authoredScreenIds()
+				.has(scene.id) || activeScreenIds.includes(scene.id)}
 			<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
 				<LayoutScene {scene} />
 			</Container>
@@ -1366,11 +1375,28 @@
 			 specialBook in the editor can never bury a round-blocking gate or the counter. Exactly
 			 one gate each is mounted (the single `waitForResolve` subscriber), unchanged. -->
 	<Container zIndex={LAYER_BAND_TOP}>
-		<FreeSpinIntroGate
-			dimColor={fsIntroGate?.dimColor}
-			dimAlpha={fsIntroGate?.dimAlpha}
-			hidePrompt={fsIntroGate?.hidePrompt}
-		/>
+		<!--
+				FS-7 (design doc §14, intro step) — the round-block OWNER swaps by per-step ownership so
+				there is ALWAYS EXACTLY ONE `waitForResolve` subscriber on `freeSpinIntroUpdate` (two would
+				hang the round). NOT owned ⇒ the engine `<FreeSpinIntroGate>` owns the dim + press + hold
+				exactly as today (byte-parity §7). OWNED ⇒ `<FreeSpinIntroFlowGate>` owns it instead: it
+				early-mounts the authored `freeSpinIntro` overlay on `freeSpinIntroShow` (before the round
+				holds) and releases the block when that screen fires its Complete pin (tap-to-continue), so a
+				single tap resumes the choreography AND dismisses the overlay. The intro choreography is
+				unchanged (FS-6 verbatim); only WHO holds the block + WHEN the screen mounts moves.
+			-->
+		{#if freeSpinOwnership.ownsIntro}
+			<FreeSpinIntroFlowGate
+				ownsIntro={freeSpinOwnership.ownsIntro}
+				introScreenActive={isFreeSpinIntroActive}
+			/>
+		{:else}
+			<FreeSpinIntroGate
+				dimColor={fsIntroGate?.dimColor}
+				dimAlpha={fsIntroGate?.dimAlpha}
+				hidePrompt={fsIntroGate?.hidePrompt}
+			/>
+		{/if}
 		<FreeSpinOutroGate
 			dimColor={fsOutroGate?.dimColor}
 			dimAlpha={fsOutroGate?.dimAlpha}
