@@ -2931,6 +2931,28 @@ function attachRegion(regionName){
   markDirty();
 }
 
+// Swap the atlas region an EXISTING attachment samples, in place — keeps the attachment
+// name + all geometry (mesh vertices/uvs/triangles/hull, weights, deform timelines) and
+// only repoints its `path`. This is how you reuse a mesh/animation on a variant image
+// (_shine / _shadow …) that shares the same boundary: duplicate the slot, then replace
+// its image here rather than delete+add (which would build a fresh region attachment and
+// throw the mesh away). Spine resolves a region attachment's texture from `path` (falling
+// back to the attachment name), so setting `path` is all that changes on the wire.
+function replaceAttachmentImage(attName, regionName){
+  if (!rawDoc || selSlot == null || !attName || !regionName) return;
+  // find the skin that actually holds this attachment — active skin first, else default
+  const activeSkin = ($("#skin") && $("#skin").value) || "default";
+  const holder = (rawDoc.skins || []).find((s) => s.name === activeSkin && s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName])
+    || (rawDoc.skins || []).find((s) => s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName]);
+  if (!holder){ alert("Couldn't find that attachment to replace its image."); return; }
+  const def = holder.attachments[selSlot][attName];
+  if (def.type === "linkedmesh"){ alert("This is a linked mesh — change the image on its parent mesh instead."); return; }
+  def.path = regionName; // keep name + geometry; only the sampled region changes
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot);
+  markDirty();
+}
+
 // Create a NEW rig: a blank skeleton (root + default skin) saved INTO an existing
 // atlas folder (so it's indexed + loaded and that atlas's images are attachable),
 // then opened. dir = the chosen atlas folder's base64url token.
@@ -3242,6 +3264,26 @@ function renderSlotDetail(){
     asel.onchange = () => { if (asel.value) attachRegion(asel.value); };
     ar.appendChild(al); ar.appendChild(asel);
     det.appendChild(ar);
+  }
+
+  // replace the CURRENT attachment's image while keeping its mesh/geometry (repoints
+  // `path`, unlike "add image" which builds a fresh region attachment). Only shown when a
+  // setup attachment exists — this is the "swap _base for _shine" step after duplicating.
+  if (attName && regionNames.length){
+    const cur = skeleton.getAttachment(slotIndex, attName);
+    if (!isLinkedMeshAtt(cur)){
+      const curPath = (cur && cur.path) || attName;
+      const rr = document.createElement("label");
+      rr.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0 7px;color:var(--dim);";
+      const rl = document.createElement("span"); rl.textContent = "replace"; rl.title = "swap this attachment's image, keeping its mesh/UVs/weights/deform"; rl.style.cssText = "width:54px;font-size:11px;";
+      const rsel = document.createElement("select");
+      rsel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+      const r0 = document.createElement("option"); r0.value = ""; r0.textContent = "replace image (keep mesh)…"; rsel.appendChild(r0);
+      regionNames.forEach((n) => { const o = document.createElement("option"); o.value = n; o.textContent = n + (n === curPath ? "  · current" : ""); rsel.appendChild(o); });
+      rsel.onchange = () => { if (rsel.value && rsel.value !== curPath) replaceAttachmentImage(attName, rsel.value); };
+      rr.appendChild(rl); rr.appendChild(rsel);
+      det.appendChild(rr);
+    }
   }
 
   // attachments on this slot — a slot can hold several (Spine allows it; only one shows
