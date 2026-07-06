@@ -2600,6 +2600,12 @@ def main() -> None:
         regions = list(manifest["regions"])
         if args.include_rotated:
             regions += manifest.get("rotated_regions", [])
+    # The full region universe (BEFORE the --only / hidden filtering below). An
+    # FX layer's base may sit OUTSIDE the current selection, so FX layers are
+    # classified against this set — else selecting only the FX cells (not their
+    # bases) misreads them as plain "use my own image" overrides and wrongly
+    # warns "nothing to generate — every region uses your own image".
+    all_region_names = {r["name"] for r in regions}
     if args.only:
         wanted = {s.strip() for s in args.only.split(",")}
         regions = [r for r in regions if r["name"] in wanted]
@@ -2677,16 +2683,16 @@ def main() -> None:
     # output_override whose file is gone is NOT skipped — we warn and let it
     # fall through to normal generation, so a missing image never silently
     # leaves the region blank.
-    region_names = {r["name"] for r in regions}
-
     def _is_fx_layer(r: dict) -> dict | None:
         """A region is a LOCAL-FX layer (derived from a base — never AI
         generated) when its name carries a canonical FX suffix, the base it
-        derives from is present in the selection, and its stored `mode` is a
-        known FX preset. Returns fx_layer_info (with `mode`) or None. Guards
-        against a coincidental '_zoom'-named region with no matching base."""
+        derives from EXISTS IN THE MANIFEST (not necessarily in the current
+        selection — an FX cell can be processed on its own), and its stored
+        `mode` is a known FX preset. Returns fx_layer_info (with `mode`) or None.
+        Guards against a coincidental '_zoom'-named region with no matching
+        base."""
         info = shine.fx_layer_info(r.get("name", ""))
-        if info is None or info["base"] not in region_names:
+        if info is None or info["base"] not in all_region_names:
             return None
         if str(r.get("mode") or "").strip().lower() not in shine.FX_PRESETS:
             return None
@@ -2775,8 +2781,15 @@ def main() -> None:
         # your own image". The accurate cards (SOME_REGIONS_OVERRIDDEN +
         # LOCKED_ALREADY_GENERATED, or ALL_REGIONS_OVERRIDDEN) have already
         # been emitted upstream — just state plainly that there is no work.
-        print("Nothing to generate (all selected regions already done or "
-              "use a user image).")
+        if fx_over and not plain_over and not gen_regions and not done:
+            # Pure FX-only selection: not an error. The FX_LAYERS_SKIPPED info
+            # card already explained it; say plainly that AI had nothing to do
+            # but the FX layers derive from their base on Create Atlas.
+            print(f"No AI generation needed — the {len(fx_over)} selected FX "
+                  "layer(s) derive from their base (rebuilt on Create Atlas).")
+        else:
+            print("Nothing to generate (all selected regions already done or "
+                  "use a user image).")
         return
 
     preflight_models(gen_regions)
