@@ -422,4 +422,11 @@
 	.canvas :global(.svelte-flow__edge.v2-data .svelte-flow__edge-path) {
 		stroke-dasharray: 3 3;
 	}
+	/* Selected edge — click an edge (its ~20px hit area), then Delete/Backspace to remove it.
+	   `!important` overrides the per-edge inline stroke so the pick reads at a glance. */
+	.canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-path) {
+		stroke: #60a5fa !important;
+		stroke-width: 3.25 !important;
+		filter: drop-shadow(0 0 3px #60a5fabb);
+	}
 </style>
