@@ -118,9 +118,32 @@ surface it declares — replacing 4b's minimal stub + the editor's hardcoded sam
 - **Verified live:** with the real vocab, dispatching a `$engine.reels → stopReel → fireCue` flow runs
   clean and the coverage guard logs NOTHING (every declared action is backed).
 
-**Remaining:** editor 2d preview + real per-template vocab loading (the editor still hardcodes
+**Remaining after 4c:** editor real per-template vocab loading (the editor still hardcodes
 `BOOK_OF_VOCAB` rather than loading a per-project template's vocab), then Phase 5 (migrate the one
 book-of flow + hard-cut v1).
+
+### 2026-07-07 — Invisible Flow v2: Phase 2d (deterministic editor preview)
+
+**Shipped to `main`** (feature branch `flow-v2-2d-preview`, ff-merged; commits `65bbd82`, `2405c09`).
+The editor's deterministic preview — the last deferred Phase-2 item.
+
+- **`engine-flow-v2/src/preview.ts`** — `previewFlowEvent(doc, {vocab,library}, event, opts)`: runs the
+  REAL `runFlowEvent` against a recording `FlowV2Env` with a VIRTUAL CLOCK (delays accumulate + resolve
+  on a microtask — a 30s flow returns instantly) → an ordered `FlowPreviewEntry[]` timeline
+  (effect/cue/delay/show/hide, resolved payloads + `at` stamps). Deterministic sample-trigger synthesis
+  from the `EventDecl` + `FIXED_PREVIEW_ENGINE` (5-reel feed); a speed dial divides every delay.
+  Mirrors v1's `previewExecutor` — a TRUE visual preview needs the running game (the runtime), so the
+  editor's honest scope is the deterministic ORDER + TIMING of side effects. Exported from the index.
+- **`/flow-v2` `PreviewPanelV2.svelte`** (flow view, under the validation panel): pick an event node →
+  Run → the timeline renders with a 1×/2× speed dial + total steps/duration; reproducible; snapshots the
+  reactive doc/library before the pure walk; clears on any doc/library/event/speed change.
+- **Harness** `flowV2Preview.ts` (`pnpm v2preview`): the book-of reveal yields the exact stagger timeline
+  + virtual `at` stamps; speed halves delays; un-authored event = empty; branch picks then/else. All six
+  v2 harnesses (schema/collapse/runtime/mount/vocab/preview) PASS; `launcher-api` build passes. ⏳ owner
+  live-look on the auth-gated dev route.
+
+**Remaining:** editor real per-project vocab loading, then Phase 5 (migrate the one book-of flow +
+hard-cut v1).
 
 ### 2026-07-07 — engine: fix symbol "blink" on land (spine setup-pose flash)
 
