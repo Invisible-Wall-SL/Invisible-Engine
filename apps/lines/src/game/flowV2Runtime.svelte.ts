@@ -11,15 +11,18 @@
  *
  * v2 is a DEV-GATED opt-in: `loadFlowV2Doc()` returns a doc ONLY when `window.__IE_FLOW_V2_DOC__`
  * is set, so a normal boot leaves v2 inert and the v1/coded path unchanged (parity). Phase 5 will
- * hard-cut v1 and source the v2 doc from the baked bundle; Phase 4c fleshes out the real
- * per-template vocabulary (the starter `LINES_VOCAB_V2` below is intentionally minimal — the
- * interpreter resolves an action/cue payload from the authored node's own `inputs`, so a minimal
- * vocab already runs an authored doc correctly).
+ * hard-cut v1 and source the v2 doc from the baked bundle.
+ *
+ * Phase 4c — the game runs against the REAL reference `BOOK_OF_VOCAB` (shipped from `engine-flow-v2`,
+ * the SAME contract the `/flow-v2` editor authors against) and BACKS every surface it declares:
+ * `actions` → `flowEffect`, `cues` → `eventEmitter.broadcast`, `collections`/`$engine` reads →
+ * `linesEngineReader`. `assertVocabBacked` warns (dev) if an authored action has no implementation.
  */
 
 import type { LayoutDoc, Scene } from 'engine-layout';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
+	BOOK_OF_VOCAB,
 	createContainerMountModel,
 	createFlowV2Env,
 	runFlowEvent,
@@ -28,13 +31,12 @@ import {
 	type FunctionLibraryDoc,
 	type MountedContainer,
 	type RunContext,
-	type TemplateVocabulary,
 } from 'engine-flow-v2';
 import { stateBetDerived } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { eventEmitter } from './eventEmitter';
-import { flowEffect } from './flowEffects';
+import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
 
 declare global {
@@ -49,20 +51,28 @@ declare global {
 }
 
 /**
- * The starter `lines`/`book-of` template vocabulary (Phase 4b — minimal, Phase 4c replaces it with
- * the real per-template contract). Left mostly empty on purpose: at RUNTIME the interpreter reads
- * only action/cue param decls to name a payload, and it already unions those with the authored
- * node's own `inputs` keys — so an authored doc runs correctly against this minimal vocab. The
- * editor's type-checking (which DOES need the full vocab) is a separate, editor-side concern.
+ * The reference template vocabulary the game runs against (Phase 4c) — the SHARED, single-source-of-
+ * truth `BOOK_OF_VOCAB` shipped from `engine-flow-v2`, the SAME contract the `/flow-v2` editor
+ * authors against. The game BACKS every surface it declares: `actions` → `flowEffect`, `cues` →
+ * `eventEmitter.broadcast`, `collections`/engine keys → `linesEngineReader` (`assertVocabBacked`
+ * below verifies the action coverage in dev).
  */
-export const LINES_VOCAB_V2: TemplateVocabulary = {
-	templateId: 'lines',
-	structs: [],
-	enums: [],
-	events: [],
-	actions: [],
-	cues: [],
-	collections: [],
+const LINES_VOCAB_V2 = BOOK_OF_VOCAB;
+
+/**
+ * DEV coverage guard — every `action` the reference vocabulary declares MUST resolve to a real
+ * implementation in the `flowEffect` registry, else an authored flow would silently no-op that
+ * action. Logged (not thrown) so a partial in-progress vocab never crashes a boot; runs once when
+ * the handle is built. Empty diff on a normal boot (the vocab + registry are kept in lock-step).
+ */
+const assertVocabBacked = (): void => {
+	const implemented = new Set(flowEffectNames);
+	const missing = LINES_VOCAB_V2.actions.map((a) => a.name).filter((n) => !implemented.has(n));
+	if (missing.length) {
+		console.warn(
+			`[flow-v2] vocabulary actions with no flowEffect implementation: ${missing.join(', ')}`,
+		);
+	}
 };
 
 /** Source the authored v2 FlowDoc — DEV-gated (`window.__IE_FLOW_V2_DOC__`), else `undefined`
@@ -104,6 +114,7 @@ export const createLinesFlowV2 = (
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
+	assertVocabBacked(); // dev: warn if the vocabulary declares an action the game doesn't implement.
 
 	const mount = createContainerMountModel(doc.containers, onContainersChange);
 	const env = createFlowV2Env({

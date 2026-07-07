@@ -46,6 +46,7 @@ import { stateBet, stateBetDerived, stateUi } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { bakedFlowDoc } from '../editor-scenes';
+import { BOARD_DIMENSIONS } from './constants';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
@@ -138,6 +139,9 @@ export const linesValueResolver = (instanceId: string, source: string): string =
  *  - `gameType` — `'basegame'` | `'freegame'` (the same field `baseGameShow`/`freeGameShow` gate on).
  *  - `freeSpinsRemaining` / `freeSpinsTotal` — the live free-spin counter (the `freeSpins` feed's parts).
  *  - `isFreeGame` — boolean convenience for the common base/free branch.
+ *  - `reels` — the Flow v2 `reels` COLLECTION (`$engine.reels`): `[{ index }, …]`, one per board reel,
+ *    so a v2 `forEach` (e.g. the `StaggerStop` per-reel stagger) can iterate the reels. Sourced from
+ *    the live board length (falls back to the static reel count before the first spin lands).
  *
  * Keys outside this set resolve `undefined` (a guard over an unknown key is simply false) — the
  * bounded-accessor line we do not cross (no arbitrary state reads, §11.4). Pure-read: calling it
@@ -161,6 +165,13 @@ export const linesEngineReader = (key: string): unknown => {
 			return Math.max(stateUi.freeSpinCounterTotal - stateUi.freeSpinCounterCurrent, 0);
 		case 'freeSpinsTotal':
 			return stateUi.freeSpinCounterTotal;
+		case 'reels': {
+			// The `reels` collection: one `{ index }` per board reel. Prefer the live board length
+			// (post-spin), else the static reel count (BOARD_DIMENSIONS.x) so `$engine.reels` is a
+			// usable list even before the first reveal.
+			const count = stateGame.board?.length || BOARD_DIMENSIONS.x;
+			return Array.from({ length: count }, (_unused, index) => ({ index }));
+		}
 		default:
 			return undefined;
 	}
@@ -178,6 +189,7 @@ export const LINES_ENGINE_KEYS = [
 	'isFreeGame',
 	'freeSpinsRemaining',
 	'freeSpinsTotal',
+	'reels',
 ] as const;
 
 /**

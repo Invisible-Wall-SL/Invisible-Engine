@@ -238,7 +238,23 @@ const effects: Record<string, FlowEffect> = {
 		stateUi.winShow = false;
 		stateUi.bigWinShow = false;
 	},
+
+	/**
+	 * Flow v2 `stopReel(index)` command — settle one reel by index. The reference book-of board
+	 * spins whole-board (via `revealBoard`), so per-reel stop is exposed as a real `reelStop` emitter
+	 * broadcast: a reel component binds it to land that column (the hook the `StaggerStop` function
+	 * drives). Backs the `stopReel` command declared in `BOOK_OF_VOCAB` so an authored per-reel stagger
+	 * fires a real signal rather than a silent no-op (Phase 4c — the template implements its vocabulary).
+	 */
+	stopReel: (payload) => {
+		eventEmitter.broadcast({ type: 'reelStop', index: payload.index as number });
+	},
 };
 
-/** The effect resolver the runtime injects (`FlowRuntime.effect`). Unknown name ⇒ no-op. */
+/** The effect resolver the runtime injects (`FlowRuntime.effect` / v2 `FlowV2Env.effect`). Unknown
+ *  name ⇒ no-op. */
 export const flowEffect = (name: string): FlowEffect | undefined => effects[name];
+
+/** The names of every implemented effect/command (v2 vocabulary coverage — the runtime asserts every
+ *  declared `BOOK_OF_VOCAB` action resolves here). */
+export const flowEffectNames: readonly string[] = Object.keys(effects);

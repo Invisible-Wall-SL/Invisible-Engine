@@ -8,7 +8,10 @@
 		| {
 				type: 'boardWithAnimateSymbols';
 				symbolPositions: Position[];
-		  };
+		  }
+		// Flow v2 `stopReel(index)` command / `reelStop` cue — settle one reel by index. Declared so
+		// the per-reel stagger (the `StaggerStop` function) fires a real, typed signal a reel binds to.
+		| { type: 'reelStop'; index: number };
 </script>
 
 <script lang="ts">
