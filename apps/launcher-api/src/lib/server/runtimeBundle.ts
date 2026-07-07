@@ -26,6 +26,7 @@
  * NOT build `assetBase`; the endpoint adds it from the request origin + token.
  */
 import { type FlowDoc, isAuthoredFlow } from 'engine-flow';
+import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
@@ -39,6 +40,7 @@ import { loadComponent } from './componentStorage';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { exportEditorFlow } from './flowExport';
+import { exportEditorFlowV2 } from './flowV2Export';
 import { exportEditorFonts } from './fontExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -66,6 +68,10 @@ export interface RuntimeBundle {
 	/** The authored presentation graph (Invisible Flow). Omitted unless the project
 	 * authored a non-empty flow — absent ⇒ the interpreter is inert ⇒ coded path (§7). */
 	flow?: FlowDoc;
+	/** The authored Invisible Flow **v2** graph + shared library. Omitted unless the project
+	 * authored a non-empty v2 flow — absent ⇒ v2 inert, v1/coded owns (parity). */
+	flowV2?: FlowDocV2;
+	flowV2Library?: FlowV2LibraryDoc;
 }
 
 /**
@@ -82,7 +88,8 @@ function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string):
 		const bundle = bundleFromAssetKey(clientKey, projectKey, n.assetKey);
 		if (bundle) n.assetKey = bundle;
 	}
-	if (Array.isArray(n.children)) for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
+	if (Array.isArray(n.children))
+		for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
 }
 
 function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
@@ -90,7 +97,8 @@ function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: st
 	if (Array.isArray(scenes)) {
 		for (const scene of scenes) {
 			const nodes = (scene as { nodes?: unknown })?.nodes;
-			if (Array.isArray(nodes)) for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
+			if (Array.isArray(nodes))
+				for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
 		}
 	}
 }
@@ -207,10 +215,11 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then
 	//    embed the returned indices (paths are deploy-relative; the endpoint prefixes
 	//    them with assetBase). Localization is read straight from R2 (no export step).
-	const [{ editorArt, fonts, symbols, flow }, localization] = await Promise.all([
-		ensureDeployExports(projectKey, clientKey),
-		loadLocalizationMessages(clientKey, projectKey),
-	]);
+	const [{ editorArt, fonts, symbols, flow, flowV2, flowV2Library }, localization] =
+		await Promise.all([
+			ensureDeployExports(projectKey, clientKey),
+			loadLocalizationMessages(clientKey, projectKey),
+		]);
 
 	return {
 		doc,
@@ -224,6 +233,9 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		symbols,
 		// Omit an un-authored flow so the runtime interpreter stays inert (parity, §7).
 		...(flow ? { flow } : {}),
+		// Invisible Flow v2 — omit when un-authored so v2 stays inert and v1/coded owns (parity).
+		...(flowV2 ? { flowV2 } : {}),
+		...(flowV2 && flowV2Library ? { flowV2Library } : {}),
 	};
 }
 
@@ -244,22 +256,29 @@ export async function ensureDeployExports(
 	symbols: SymbolExportResult;
 	/** The exported FlowDoc, or undefined when the project authored no flow (parity). */
 	flow?: FlowDoc;
+	/** The exported v2 FlowDoc + shared library, or undefined when no v2 flow is authored. */
+	flowV2?: FlowDocV2;
+	flowV2Library?: FlowV2LibraryDoc;
 }> {
 	const client = clientKey ?? (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	const [editorArt, fontIndex, symbols, flowIndex] = await Promise.all([
+	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index] = await Promise.all([
 		exportEditorArt(client, projectKey),
 		exportEditorFonts(client, projectKey),
 		exportEditorSymbols(client, projectKey),
 		exportEditorFlow(client, projectKey),
+		exportEditorFlowV2(client, projectKey),
 	]);
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
 	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
 	// is the SAME gate the interpreter's `isActive` uses, so the baked slot and the runtime
-	// never diverge (a transitions-only doc is inert ⇒ not baked).
+	// never diverge (a transitions-only doc is inert ⇒ not baked). v2 mirrors this: the export
+	// already gates on an authored graph, so `flowV2Index` is undefined for an un-authored v2 doc.
 	return {
 		editorArt,
 		fonts: { catalog: fontIndex.catalog },
 		symbols,
 		...(isAuthoredFlow(flowIndex.flow) ? { flow: flowIndex.flow } : {}),
+		...(flowV2Index.flowV2 ? { flowV2: flowV2Index.flowV2 } : {}),
+		...(flowV2Index.flowV2Library ? { flowV2Library: flowV2Index.flowV2Library } : {}),
 	};
 }
