@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { validateFlowDoc, BOOK_OF_VOCAB } from 'engine-flow-v2';
 import type { FlowDoc as FlowDocV1 } from 'engine-flow';
-import { translateFlowDoc } from './flowV2Translate';
+import { translateFlowDoc } from 'engine-flow-migrate';
 
 const PATH =
 	'C:/Users/gualt/AppData/Local/Temp/claude/C--Invisible-Wall-SL-Engine-Invisible-Engine/70b6762b-6678-446d-9d95-3018c93811d7/scratchpad/remake-flow-v1.json';

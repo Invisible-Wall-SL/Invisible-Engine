@@ -1332,6 +1332,28 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
+  packages/engine-flow-migrate:
+    dependencies:
+      engine-flow:
+        specifier: workspace:*
+        version: link:../engine-flow
+      engine-flow-v2:
+        specifier: workspace:*
+        version: link:../engine-flow-v2
+    devDependencies:
+      config-ts:
+        specifier: workspace:*
+        version: link:../config-ts
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@1.21.7)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
   packages/engine-flow-v2:
     devDependencies:
       config-ts:
@@ -2028,6 +2050,9 @@ importers:
       engine-flow:
         specifier: workspace:*
         version: link:../../packages/engine-flow
+      engine-flow-migrate:
+        specifier: workspace:*
+        version: link:../../packages/engine-flow-migrate
       engine-flow-v2:
         specifier: workspace:*
         version: link:../../packages/engine-flow-v2

@@ -41,6 +41,7 @@
 		"tsx": "4.19.2",
 		"engine-flow": "workspace:*",
 		"engine-flow-v2": "workspace:*",
+		"engine-flow-migrate": "workspace:*",
 		"engine-layout": "workspace:*",
 		"utils-event-emitter": "workspace:*",
 		"utils-shared": "workspace:*"

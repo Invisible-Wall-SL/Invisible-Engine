@@ -1,0 +1,24 @@
+{
+	"name": "engine-flow-migrate",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\""
+	},
+	"dependencies": {
+		"engine-flow": "workspace:*",
+		"engine-flow-v2": "workspace:*"
+	},
+	"devDependencies": {
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"config-ts": "workspace:*",
+		"typescript": "5.8.3"
+	}
+}
