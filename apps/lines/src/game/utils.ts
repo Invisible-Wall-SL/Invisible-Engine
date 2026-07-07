@@ -28,27 +28,31 @@ export const playBookEvent = async (
 	bookEvent: BookEvent,
 	context: { bookEvents: BookEvent[] },
 ): Promise<void> => {
+	// Invisible Flow v2 — EVENT OWNERSHIP (the incremental v1→v2 migration mechanism). When a v2 flow
+	// authors this event (`ownsEvent`), v2 drives it ALONE and the coded/v1 twin is SUPPRESSED — so a
+	// migrated event runs through the flow with NO doubling. Un-owned events fall through unchanged to
+	// the v1 interpreter (if a FlowDoc is authored) or the coded handler map (parity). This lets the
+	// game hand events to v2 one at a time; with no v2 doc, `getFlowV2()` is undefined ⇒ byte-parity.
+	const v2 = getFlowV2();
+	if (v2?.ownsEvent(bookEvent.type)) {
+		await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>);
+		return;
+	}
+
 	const interpreter = getFlowInterpreter();
 	if (interpreter) {
 		await interpreter.dispatchBookEvent(bookEvent, context);
 	} else {
 		await coded.playBookEvent(bookEvent, context);
 	}
-	// Invisible Flow v2 (Phase 4b) — a DEV-gated v2 flow reacts to the event ADDITIVELY: the coded
-	// template still runs the mechanic above (reels, wins, state), while the v2 presentation graph
-	// drives its containers/cues/effects on top. `dispatch` is a no-op for an un-authored event
-	// (parity-safe), so this is inert unless `__IE_FLOW_V2_DOC__` authors a handler for this type.
-	// The whole book event is the event's data payload (its fields are the event node's data-outs).
-	const v2 = getFlowV2();
-	if (v2) await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>);
 };
 
 export const playBookEvents = async (
 	bookEvents: BookEvent[],
 	context?: { bookEvents?: BookEvent[] },
 ): Promise<void> => {
-	// v1 OR v2 flow active ⇒ run the SAME serial `sequence()` the coded path uses, routing each
-	// event through `playBookEvent` (which runs the v1/coded mechanic AND the additive v2 dispatch).
+	// v1 OR v2 flow active ⇒ run the SAME serial `sequence()` the coded path uses, routing each event
+	// through `playBookEvent` (which hands an event to v2 when it OWNS it, else v1/coded — see above).
 	// Neither active ⇒ defer entirely to the coded `playBookEvents` (byte-parity with `main`).
 	if (getFlowInterpreter() || getFlowV2()) {
 		await sequence(bookEvents, async (bookEvent) => {

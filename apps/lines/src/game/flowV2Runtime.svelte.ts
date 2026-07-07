@@ -13,7 +13,10 @@
  * baked bundle (`bakedFlowV2Doc()`) — so an authored v2 flow ships — with dev escape hatches on top
  * (`__IE_FLOW_V2_DOC__` ad-hoc; `__IE_FLOW_V2_LINES__` the committed reference flow). Unset + un-baked
  * ⇒ v2 stays inert and the v1/coded path owns the game (parity); v1 remains the incumbent until an
- * explicit cutover. Dispatch is ADDITIVE over the coded/v1 path (Phase 4b).
+ * explicit cutover. EVENT OWNERSHIP (`ownsEvent` + `game/utils.ts`): a v2 flow drives ONLY the events
+ * it authors — each SUPPRESSES its coded/v1 twin (no doubling) — so the game migrates to v2 one event
+ * at a time, with everything un-owned still coded (parity). Cues broadcast AWAITED (`broadcastAsync`),
+ * so a `fireCue` blocks on its subscribers' completion like the coded handlers' awaited broadcasts.
  *
  * Phase 4c — the game runs against the REAL template vocabulary resolved from the loaded doc's
  * `templateId` via the shared `templateVocabulary()` registry (only `book-of` today) — the SAME
@@ -108,6 +111,10 @@ const loadFlowV2Library = (): FunctionLibraryDoc => {
  *  model + a scene resolver the `<FlowV2Mount>` renders from. `undefined` when no v2 doc is
  *  authored (v2 inert). */
 export type LinesFlowV2 = {
+	/** Does the flow OWN this event — i.e. author an `event` node for it? An owned event is driven
+	 *  by v2 ALONE (its coded/v1 twin is suppressed, no doubling); an un-owned event falls through to
+	 *  the coded/v1 path (parity). This is how the game hands events to v2 ONE AT A TIME. */
+	ownsEvent: (eventType: string) => boolean;
 	/** Run the authored v2 handler for `eventName` with `payload` (a no-op if un-authored). */
 	dispatch: (eventName: string, payload: Record<string, unknown>) => Promise<void>;
 	/** The z-ordered container mount model (show/hide land here; drives `<FlowV2Mount>`). */
@@ -143,8 +150,12 @@ export const createLinesFlowV2 = (
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
 		// runs (`flowEffect`), so a v2 `action` node is byte-identical to its coded counterpart.
 		effect: flowEffect,
-		// A v2 `fireCue` → the existing emitter broadcast (the cue name is the emitter event type).
-		broadcast: (cue, payload) => eventEmitter.broadcast({ type: cue, ...payload } as never),
+		// A v2 `fireCue` → the existing emitter broadcast, AWAITED (`broadcastAsync`): the interpreter
+		// awaits it, so a cue whose subscriber returns a completion promise (e.g. the `specialBookReveal`
+		// shuffle→land→intro) BLOCKS the flow until it finishes — matching the coded handler's awaited
+		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
+		broadcast: (cue, payload) =>
+			eventEmitter.broadcastAsync({ type: cue, ...payload } as never).then(() => {}),
 		waitForTimeout,
 		// The LIVE turbo scalar — the same `stateBetDerived.timeScale()` the coded delays read, so a
 		// turbo toggle mid-round scales the v2 interpreter's delays identically.
@@ -158,7 +169,13 @@ export const createLinesFlowV2 = (
 	const resolveScene = (sceneId: string): Scene | undefined =>
 		editorDoc.scenes.find((scene) => scene.id === sceneId);
 
+	// The set of event types the flow authors (has an `event` node for) — the ownership set.
+	const ownedEvents = new Set(
+		doc.graph.nodes.filter((n) => n.kind === 'event').map((n) => (n as { ref: string }).ref),
+	);
+
 	return {
+		ownsEvent: (eventType) => ownedEvents.has(eventType),
 		dispatch: (eventName, payload) => runFlowEvent(doc, ctx, eventName, payload),
 		mount,
 		resolveScene,
