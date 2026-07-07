@@ -79,30 +79,40 @@ const assertVocabBacked = (vocab: TemplateVocabulary): void => {
 	}
 };
 
+/** True when the URL opts into the committed reference flow (`?flowV2=lines` or `?flowV2=1`). Read at
+ *  BOOT, so — unlike a `window` global — it SURVIVES a reload: paste the URL and the v2 flow drives the
+ *  game. This is the natural verify hook (a console global can't be set before the game mounts). */
+const flowV2UrlOptIn = (): boolean => {
+	if (typeof globalThis === 'undefined' || !globalThis.location) return false;
+	const v = new URLSearchParams(globalThis.location.search).get('flowV2');
+	return v === 'lines' || v === '1';
+};
+
 /**
  * Source the authored v2 FlowDoc. Precedence — dev escape hatches FIRST (a live-verify override
  * always wins), then the REAL ship source (the baked bundle):
  *  - `window.__IE_FLOW_V2_DOC__` — an arbitrary FlowDoc injected at runtime (the ad-hoc hook);
- *  - `window.__IE_FLOW_V2_LINES__` — the COMMITTED reference `LINES_FLOW_V2_DOC` (no bake needed);
+ *  - `?flowV2=lines` (URL) / `window.__IE_FLOW_V2_LINES__` — the COMMITTED reference `LINES_FLOW_V2_DOC`
+ *    (no bake needed; the URL form survives a reload — the natural verify hook);
  *  - `bakedFlowV2Doc()` — the v2 doc embedded in the baked bundle by the export→bake chain (Phase 5
- *    ship path). UNDEFINED on an un-baked / un-authored boot (incl. apps/lines dev with no globals),
+ *    ship path). UNDEFINED on an un-baked / un-authored boot (incl. apps/lines dev with no opt-in),
  *    so v2 stays inert and the v1/coded path owns the game (parity).
  */
 export const loadFlowV2Doc = (): FlowDocV2 | undefined => {
 	if (typeof globalThis !== 'undefined') {
 		if (globalThis.__IE_FLOW_V2_DOC__) return globalThis.__IE_FLOW_V2_DOC__;
-		if (globalThis.__IE_FLOW_V2_LINES__) return LINES_FLOW_V2_DOC;
+		if (globalThis.__IE_FLOW_V2_LINES__ || flowV2UrlOptIn()) return LINES_FLOW_V2_DOC;
 	}
 	return bakedFlowV2Doc();
 };
 
 /** Source the v2 function library, matching `loadFlowV2Doc`'s precedence: the injected
- *  `__IE_FLOW_V2_LIB__`, the committed library when the reference doc is loaded, else the baked
- *  library, else an empty library (a doc with no `functionCall` never needs it). */
+ *  `__IE_FLOW_V2_LIB__`, the committed library when the reference doc is loaded (global or `?flowV2`),
+ *  else the baked library, else an empty library (a doc with no `functionCall` never needs it). */
 const loadFlowV2Library = (): FunctionLibraryDoc => {
 	if (typeof globalThis !== 'undefined') {
 		if (globalThis.__IE_FLOW_V2_LIB__) return globalThis.__IE_FLOW_V2_LIB__;
-		if (globalThis.__IE_FLOW_V2_LINES__) return LINES_FLOW_V2_LIBRARY;
+		if (globalThis.__IE_FLOW_V2_LINES__ || flowV2UrlOptIn()) return LINES_FLOW_V2_LIBRARY;
 	}
 	return bakedFlowV2Library() ?? { version: 2, functions: [] };
 };
@@ -148,6 +158,13 @@ export const createLinesFlowV2 = (
 	// contract the /flow-v2 editor authors against. Only `book-of` exists today (registry falls back).
 	const vocab = templateVocabulary(doc.templateId);
 	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.
+
+	// Boot confirmation — v2 is ACTIVE and will drive the events it authors (v2 looks identical to v1,
+	// so this + the per-event `[flow-v2] drove …` lines are how you verify it's really v2 running).
+	if (import.meta.env.DEV) {
+		const owned = doc.graph.nodes.filter((n) => n.kind === 'event').map((n) => n.ref);
+		console.info(`[flow-v2] ACTIVE — driving ${owned.length} events: ${owned.join(', ')}`);
+	}
 
 	const mount = createContainerMountModel(doc.containers, onContainersChange);
 	const env = createFlowV2Env({

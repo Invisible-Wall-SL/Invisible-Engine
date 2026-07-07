@@ -35,6 +35,9 @@ export const playBookEvent = async (
 	// game hand events to v2 one at a time; with no v2 doc, `getFlowV2()` is undefined ⇒ byte-parity.
 	const v2 = getFlowV2();
 	if (v2?.ownsEvent(bookEvent.type)) {
+		// Confirm which path drove the event — v2 is a PARITY repro of v1 so it looks identical on
+		// screen; this console line is how you verify v2 (not v1/coded) actually handled it.
+		if (import.meta.env.DEV) console.info(`[flow-v2] drove '${bookEvent.type}'`);
 		// Pass the whole event as the trigger + the surrounding book list as `$context.bookEvents`
 		// (the `reveal` mechanic reads it for the bonus-game check), matching the coded handler's args.
 		await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>, {
