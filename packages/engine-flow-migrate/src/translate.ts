@@ -8,8 +8,12 @@
  *
  * Mapping (1:1 with the v2 constructs Phase A shipped):
  *  - screens → z-ordered containers (array order = stack).
- *  - each event = its book choreography + the show/hide/intent its transitions add. ONLY `complete`
- *    deactivates its source (v1 layers every other trigger over a still-active source):
+ *  - each event = its PRESENTATION + the show/hide/intent its transitions add. Presentation is the
+ *    event's authored v1 choreography if it has one; ELSE, for a book event, the TEMPLATE's canonical
+ *    choreography (`canonicalChoreo`, default `BOOK_OF_CHOREO`) is INJECTED — so a game whose v1 flow
+ *    only declared a screen transition for the event still gets faithful presentation (coded-handler
+ *    parity), not an empty screen swap. ONLY `complete` deactivates its source (v1 layers every other
+ *    trigger over a still-active source):
  *      bookEvent → the event's chain gains show(to) (layer — source stays shown);
  *      complete  → a synthetic `complete:<from>` event (the game dispatches it when the screen ends),
  *                  hide(from)+show(to) — the source leaves the active set;
@@ -32,7 +36,9 @@ import type {
 	FlowGuard,
 	FlowPayload,
 } from 'engine-flow';
+import { BOOK_OF_CHOREO, buildChoreo } from 'engine-flow-v2';
 import type {
+	ChoreoStep,
 	Compare,
 	ContainerRef,
 	DataEdge,
@@ -307,11 +313,14 @@ const containerNode = (kind: 'showContainer' | 'hideContainer', ref: string, uid
 	ref,
 });
 
-/** Translate a whole v1 `FlowDoc` into a v2 `FlowDoc`. */
+/** Translate a whole v1 `FlowDoc` into a v2 `FlowDoc`. `canonicalChoreo` supplies the TEMPLATE's
+ *  per-book-event presentation choreographies to inject where the v1 flow authored none — defaults to
+ *  the book-of set (`BOOK_OF_CHOREO`), the only template today. Pass `{}` to translate screens-only. */
 export const translateFlowDoc = (
 	v1: FlowDocV1,
 	vocab: TemplateVocabulary,
 	intentActions: IntentActionMap = DEFAULT_INTENT_ACTIONS,
+	canonicalChoreo: Record<string, ChoreoStep[]> = BOOK_OF_CHOREO,
 ): FlowDoc => {
 	const uid = makeUid();
 	const containers: ContainerRef[] = v1.screens.map((s, i) => ({
@@ -354,7 +363,13 @@ export const translateFlowDoc = (
 		const eventId = `on_${name}`;
 		nodes.push({ id: eventId, kind: 'event', pos: { x: 0, y: 0 }, ref: name });
 		const parts: SubGraph[] = [];
+		// Presentation FIRST, then the screen swap. An authored v1 choreography wins; otherwise, when
+		// the TEMPLATE ships a canonical choreography for this book event (e.g. `freeSpinTrigger`), INJECT
+		// it — so a game whose v1 flow only declared a screen transition for the event still gets the
+		// template's faithful presentation instead of an empty screen swap (the coded-handler parity a
+		// full flip needs). Un-choreographed non-book events (lifecycle/intents) have no canonical entry.
 		if (choreo) parts.push(compile(choreo, vocab, uid));
+		else if (canonicalChoreo[name]) parts.push(buildChoreo(canonicalChoreo[name], uid));
 		for (const op of ops) {
 			if (op.intent) {
 				const id = uid('act');

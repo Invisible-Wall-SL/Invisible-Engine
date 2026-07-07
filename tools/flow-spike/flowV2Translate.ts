@@ -194,6 +194,56 @@ const main = () => {
 		);
 	}
 
+	console.log(
+		'\n4. a book event with a screen transition but NO v1 choreography → the TEMPLATE choreography is INJECTED:',
+	);
+	{
+		// `freeSpinTrigger` has a screen transition but is NOT in `events[]` (no authored choreography) —
+		// the translator injects `BOOK_OF_CHOREO.freeSpinTrigger` so the migrated game keeps its
+		// presentation, not just an empty screen swap.
+		const v1: FlowDocV1 = {
+			version: 1,
+			projectKey: 'bookOf',
+			screens: [{ id: 'basegame', initial: true }, { id: 'freeSpinIntro' }],
+			transitions: [
+				{
+					id: 't1',
+					from: 'basegame',
+					to: 'freeSpinIntro',
+					trigger: { kind: 'bookEvent', event: 'freeSpinTrigger' },
+				},
+			],
+			events: [], // no choreography authored for freeSpinTrigger
+		};
+		const v2 = translateFlowDoc(v1, BOOK_OF_VOCAB);
+		const errors = validateFlowDoc(v2, BOOK_OF_VOCAB, EMPTY_LIB).filter(
+			(i) => i.severity === 'error',
+		);
+		assert(
+			'translated doc validates with 0 ERRORS',
+			errors.length === 0,
+			errors.map((i) => i.code).join(','),
+		);
+		assert(
+			'the injected presentation fires the intro cue (freeSpinIntroShow)',
+			v2.graph.nodes.some(
+				(n) => n.kind === 'fireCue' && (n as { ref: string }).ref === 'freeSpinIntroShow',
+			),
+		);
+		assert(
+			'…AND still performs the screen swap (show freeSpinIntro)',
+			v2.graph.nodes.some(
+				(n) => n.kind === 'showContainer' && (n as { ref: string }).ref === 'freeSpinIntro',
+			),
+		);
+		// Screens-only opt-out: passing `{}` for the canonical set injects NOTHING (empty swap).
+		const bare = translateFlowDoc(v1, BOOK_OF_VOCAB, undefined, {});
+		assert(
+			'canonicalChoreo={} → NO presentation injected (screens-only)',
+			!bare.graph.nodes.some((n) => n.kind === 'fireCue'),
+		);
+	}
+
 	console.log(`\n${failed ? 'V2 TRANSLATE HARNESS: FAILED' : 'V2 TRANSLATE HARNESS: PASSED'}`);
 	process.exit(failed ? 1 : 0);
 };
