@@ -1326,6 +1326,21 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
+  packages/engine-flow-v2:
+    devDependencies:
+      config-ts:
+        specifier: workspace:*
+        version: link:../config-ts
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@1.21.7)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
   packages/engine-fx:
     dependencies:
       '@barvynkoa/particle-emitter':
@@ -2007,6 +2022,9 @@ importers:
       engine-flow:
         specifier: workspace:*
         version: link:../../packages/engine-flow
+      engine-flow-v2:
+        specifier: workspace:*
+        version: link:../../packages/engine-flow-v2
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
