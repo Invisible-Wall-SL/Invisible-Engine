@@ -13,11 +13,21 @@
 		library,
 		doc,
 		onadd,
+		onopen,
+		ondelete,
+		deleteError = null,
 	}: {
 		vocab: TemplateVocabulary;
 		library: FunctionLibraryDoc;
 		doc: FlowDoc;
 		onadd: (kind: NodeKind, ref?: string) => void;
+		// Open a function's body for editing (2c.3). Optional — absent when the palette is shown
+		// inside a function body (no nested-open there).
+		onopen?: (functionId: string) => void;
+		// Delete a function from the library (guarded by the caller against in-use call sites).
+		ondelete?: (functionId: string) => void;
+		// A non-blocking message when a delete was blocked ("in use by N calls").
+		deleteError?: string | null;
 	} = $props();
 
 	// Control nodes carry no `ref` — their fields get defaults now (2b.1) and are edited in 2b.2.
@@ -95,16 +105,37 @@
 
 	<section>
 		<h4>Functions</h4>
+		{#if deleteError}
+			<p class="fn-error">Can't delete — {deleteError}.</p>
+		{/if}
 		{#each library.functions.filter((f) => matches(f.name)) as f (f.id)}
-			<button
-				class="entry fn"
-				draggable={true}
-				ondragstart={(ev) => onDragStart(ev, 'functionCall', f.id)}
-				onclick={() => onadd('functionCall', f.id)}
-				title="functionCall · {f.id}"
-			>
-				{f.name}
-			</button>
+			<div class="fn-row">
+				<button
+					class="entry fn"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, 'functionCall', f.id)}
+					onclick={() => onadd('functionCall', f.id)}
+					title="functionCall · {f.id} — drag/click to add a call; use ✎ to edit its body"
+				>
+					{f.name}
+				</button>
+				{#if onopen}
+					<button
+						class="fn-op"
+						type="button"
+						onclick={() => onopen?.(f.id)}
+						title="Edit this function's body">✎</button
+					>
+				{/if}
+				{#if ondelete}
+					<button
+						class="fn-op rm"
+						type="button"
+						onclick={() => ondelete?.(f.id)}
+						title="Delete this function (blocked if in use)">✕</button
+					>
+				{/if}
+			</div>
 		{/each}
 	</section>
 
@@ -224,6 +255,37 @@
 	}
 	.pair .entry {
 		flex: 1;
+	}
+	.fn-row {
+		display: flex;
+		gap: 4px;
+		align-items: stretch;
+	}
+	.fn-row .entry {
+		flex: 1;
+	}
+	.fn-op {
+		flex: none;
+		width: 28px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #94a3b8;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.fn-op:hover {
+		border-color: #3a4655;
+		color: #e2e8f0;
+	}
+	.fn-op.rm:hover {
+		border-color: #4a2a30;
+		color: #fca5a5;
+	}
+	.fn-error {
+		margin: 0 0 2px;
+		font-size: 11px;
+		color: #fca5a5;
 	}
 	.cat {
 		font-size: 9px;

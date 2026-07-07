@@ -5,9 +5,12 @@
 		collapseToFunction,
 		derivePins,
 		validateFlowDoc,
+		validateFunctionDef,
 		assignable,
 		type FlowDoc,
+		type FunctionDef,
 		type FunctionLibraryDoc,
+		type Graph,
 		type NodeKind,
 		type Node as V2Node,
 		type Pin,
@@ -17,13 +20,13 @@
 	import { BOOK_OF_VOCAB, LIBRARY, SAMPLE_DOC } from './sample';
 	import { typeColor } from './palette';
 	import {
-		addDataEdge,
-		addExecEdge,
-		addNode,
-		deleteFromGraph,
-		freshNodeId,
+		addDataEdgeIn,
+		addExecEdgeIn,
+		addNodeIn,
+		deleteFromGraphIn,
+		freshNodeIdIn,
 		makeNode,
-		moveNode,
+		moveNodeIn,
 	} from './graphOps';
 	import FlowV2Node from './FlowV2Node.svelte';
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
@@ -60,21 +63,82 @@
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library.
 	const ctx = $derived<PinContext>({ vocab: BOOK_OF_VOCAB, library });
 
+	// --- The editing TARGET (2c.3) ---------------------------------------------
+	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
+	// `FunctionDef.body`. `view` names which; `activeGraph` resolves it. Every editing handler
+	// reads/writes the active graph via `applyGraphEdit` (below), which routes the write back to
+	// the right target + arms the matching autosave. Default is the main flow (`{ kind: 'flow' }`).
+	type FlowView = { kind: 'flow' } | { kind: 'function'; functionId: string };
+	let view = $state<FlowView>({ kind: 'flow' });
+
+	// The FunctionDef currently open in function view (or null when in flow view / it vanished).
+	const activeFn = $derived<FunctionDef | null>(
+		view.kind === 'function'
+			? (library.functions.find((f) => f.id === view.functionId) ?? null)
+			: null,
+	);
+
+	// The graph the canvas + tools operate on. In flow view it is `doc.graph`; in function view it
+	// is the open function's `body`. Falls back to the flow graph if the function is gone (guarded
+	// by the effect below that snaps `view` back to flow when its function disappears).
+	const activeGraph = $derived<Graph>(
+		view.kind === 'function' ? (activeFn?.body ?? doc.graph) : doc.graph,
+	);
+
+	// If the open function is deleted (or otherwise vanishes), return to the flow view so the
+	// canvas never edits a dangling graph.
+	$effect(() => {
+		if (view.kind === 'function' && !activeFn) view = { kind: 'flow' };
+	});
+
+	// A monotonically-bumped signal that tells the canvas to re-fit the view (on a target switch).
+	let fitSignal = $state(0);
+
+	// Write an edited `Graph` back to whichever target is active, and arm the matching autosave:
+	//  - flow view     → replace `doc.graph`,               `markDirty()`.
+	//  - function view → replace `library.functions[i].body`, `markLibraryDirty()`.
+	// Then re-seed the canvas (derived pins / edge colors refresh). The single write-back path
+	// that keeps main-flow editing byte-for-byte unchanged while enabling body editing.
+	function applyGraphEdit(nextGraph: Graph): void {
+		if (view.kind === 'function') {
+			const fnId = view.functionId;
+			library = {
+				...library,
+				functions: library.functions.map((f) =>
+					f.id === fnId ? { ...f, body: nextGraph } : f,
+				),
+			};
+			syncCanvas();
+			markLibraryDirty();
+		} else {
+			doc = { ...doc, graph: nextGraph };
+			syncCanvas();
+			markDirty();
+		}
+	}
+
 	let selectedNodeId = $state<string | null>(null);
 
 	// The selected node object (or null) — drives the inspector in the left panel. Reads the
-	// live `doc` so an inspector edit that replaces the doc re-renders it with fresh fields.
+	// ACTIVE graph so an inspector edit re-renders it with fresh fields in either view.
 	const selectedNode = $derived<V2Node | null>(
-		selectedNodeId ? (doc.graph.nodes.find((n) => n.id === selectedNodeId) ?? null) : null,
+		selectedNodeId ? (activeGraph.nodes.find((n) => n.id === selectedNodeId) ?? null) : null,
 	);
 
-	// An inspector edit hands back the next `FlowDoc` (from a `graphOps` setter). Replace the
-	// source-of-truth `doc`, re-seed the xyflow arrays (so derived pins/edge colors refresh),
-	// and mark dirty (revalidate live + autosave — same contract as the wiring gestures).
+	// The inspector is handed a SYNTHETIC doc whose `graph` is the active graph, so its existing
+	// doc-level setters keep working in both views. Its `onchange(nextDoc)` hands back a full doc;
+	// we extract `.graph` and route it through `applyGraphEdit` (which writes to the right target).
+	const inspectorDoc = $derived<FlowDoc>({ ...doc, graph: activeGraph });
+
+	// The palette reads `doc` only for its `containers` (the show/hide-container entries). A
+	// function body has no containers, so in function view we hand it a container-less doc — a
+	// body must not offer showContainer/hideContainer nodes (they'd never resolve there).
+	const paletteDoc = $derived<FlowDoc>(
+		view.kind === 'function' ? { ...inspectorDoc, containers: [] } : inspectorDoc,
+	);
+
 	function applyDocEdit(next: FlowDoc): void {
-		doc = next;
-		syncCanvas();
-		markDirty();
+		applyGraphEdit(next.graph);
 	}
 
 	// The node types the canvas knows — one generic v2 node that derives its own pins.
@@ -94,18 +158,28 @@
 			case 'showContainer':
 			case 'hideContainer':
 				return n.ref;
+			case 'functionEntry':
+				return 'Entry';
+			case 'functionResult':
+				return 'Result';
 			default:
 				return n.kind;
 		}
 	};
 
-	// Validation runs reactively over the live doc — 2b editing revalidates for free.
-	const issues = $derived(validateFlowDoc(doc, BOOK_OF_VOCAB, library));
+	// Validation runs reactively over the ACTIVE graph: the main flow via `validateFlowDoc`, a
+	// function body via `validateFunctionDef` (entry/result are legal there). The panel shows the
+	// active graph's issues; the subbar count/valid pill follow suit.
+	const issues = $derived(
+		view.kind === 'function' && activeFn
+			? validateFunctionDef(activeFn, BOOK_OF_VOCAB, library)
+			: validateFlowDoc(doc, BOOK_OF_VOCAB, library),
+	);
 
 	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE
-	// pin's `TypeRef` (the wire reads the same color as the dot it leaves).
+	// pin's `TypeRef` (the wire reads the same color as the dot it leaves). Over the active graph.
 	const pinsByNode = $derived(
-		new Map<string, Pin[]>(doc.graph.nodes.map((n) => [n.id, derivePins(n, ctx)])),
+		new Map<string, Pin[]>(activeGraph.nodes.map((n) => [n.id, derivePins(n, ctx)])),
 	);
 
 	// xyflow owns these arrays for live drag/selection; we rebuild them from the doc on
@@ -114,13 +188,20 @@
 	let nodes = $state<Node[]>([]);
 	let edges = $state<Edge[]>([]);
 
+	// The function's entry/result nodes are the body's FIXED signature (§5) — they carry the
+	// function's declared pins. Editing a body rewires INTERNAL logic only, so they are never
+	// deletable. (Adding/removing function inputs/outputs — which WOULD change these — is a later
+	// feature.)
+	const isSignatureNode = (n: V2Node): boolean =>
+		n.kind === 'functionEntry' || n.kind === 'functionResult';
+
 	function buildNodes(): Node[] {
-		return doc.graph.nodes.map((n) => ({
+		return activeGraph.nodes.map((n) => ({
 			id: n.id,
 			type: 'v2',
 			position: n.pos,
 			selected: n.id === selectedNodeId,
-			deletable: true,
+			deletable: !isSignatureNode(n),
 			data: { node: n, ctx, title: nodeTitle(n) },
 		}));
 	}
@@ -135,7 +216,7 @@
 	}
 
 	function buildEdges(): Edge[] {
-		const exec: Edge[] = doc.graph.exec.map((e, i) => ({
+		const exec: Edge[] = activeGraph.exec.map((e, i) => ({
 			id: `exec-${i}`,
 			source: e.from.node,
 			target: e.to.node,
@@ -146,7 +227,7 @@
 			class: 'v2-exec',
 			markerEnd: { type: 'arrowclosed', color: EXEC_COLOR },
 		}));
-		const data: Edge[] = doc.graph.data.map((e, i) => {
+		const data: Edge[] = activeGraph.data.map((e, i) => {
 			const color = dataEdgeColor(e.from.node, e.from.pin);
 			return {
 				id: `data-${i}`,
@@ -266,13 +347,47 @@
 		}
 	}
 
+	// xyflow 1.6 has no node-double-click event, so detect it (mirrors v1 /flow): two clicks on
+	// the SAME node within 350ms of a `functionCall` OPENS its body for editing (2c.3).
+	let lastClickId: string | null = null;
+	let lastClickAt = 0;
 	function onNodeClick({ node }: { node: Node }): void {
+		const now = Date.now();
+		if (node.id === lastClickId && now - lastClickAt < 350) {
+			lastClickId = null;
+			const model = activeGraph.nodes.find((n) => n.id === node.id);
+			if (model?.kind === 'functionCall') {
+				openFunction(model.ref);
+				return;
+			}
+		}
+		lastClickId = node.id;
+		lastClickAt = now;
 		selectedNodeId = node.id;
 		nodes = buildNodes();
 	}
 	function onPaneClick(): void {
 		selectedNodeId = null;
 		nodes = buildNodes();
+	}
+
+	// --- View navigation (2c.3): open a function body / return to the flow -------
+	// Switch the editing TARGET. Clearing the selection + bumping `fitSignal` re-frames the new
+	// graph; `syncCanvas` re-seeds the canvas arrays from the now-active graph.
+	function openFunction(functionId: string): void {
+		if (!library.functions.some((f) => f.id === functionId)) return;
+		view = { kind: 'function', functionId };
+		selectedNodeId = null;
+		lastClickId = null;
+		fitSignal += 1;
+		syncCanvas();
+	}
+	function backToFlow(): void {
+		view = { kind: 'flow' };
+		selectedNodeId = null;
+		lastClickId = null;
+		fitSignal += 1;
+		syncCanvas();
 	}
 
 	// Issue click → select + re-seed so the node highlights (best-effort focus).
@@ -288,8 +403,9 @@
 
 	// The pins of a node, memoized per gesture (the `$derived` `pinsByNode` is for edge
 	// coloring; connect/validate need a fresh lookup that also disambiguates exec by dir).
+	// Reads the ACTIVE graph so wiring works identically inside a function body.
 	function pinsOf(nodeId: string): Pin[] {
-		const node = doc.graph.nodes.find((n) => n.id === nodeId);
+		const node = activeGraph.nodes.find((n) => n.id === nodeId);
 		return node ? derivePins(node, ctx) : [];
 	}
 
@@ -302,11 +418,11 @@
 
 	// True iff any data edge already feeds the given (node,pin) data-in (fan-in = 1).
 	function dataInTaken(nodeId: string, pin: string): boolean {
-		return doc.graph.data.some((e) => e.to.node === nodeId && e.to.pin === pin);
+		return activeGraph.data.some((e) => e.to.node === nodeId && e.to.pin === pin);
 	}
 	// True iff any exec edge already feeds the given (node,pin) exec-in (fan-in = 1).
 	function execInTaken(nodeId: string, pin: string): boolean {
-		return doc.graph.exec.some((e) => e.to.node === nodeId && e.to.pin === pin);
+		return activeGraph.exec.some((e) => e.to.node === nodeId && e.to.pin === pin);
 	}
 
 	// Strict connect-time gate (Unreal-style: an incompatible wire simply won't drop). Rejects
@@ -342,59 +458,55 @@
 		const inn = pinByHandle(c.target, targetHandle, 'in');
 		if (!out || !inn || out.kind !== inn.kind) return;
 
-		doc =
+		const next =
 			out.kind === 'exec'
-				? addExecEdge(
-						doc,
+				? addExecEdgeIn(
+						activeGraph,
 						{ node: c.source, pin: sourceHandle },
 						{ node: c.target, pin: targetHandle },
 					)
-				: addDataEdge(
-						doc,
+				: addDataEdgeIn(
+						activeGraph,
 						{ node: c.source, pin: sourceHandle },
 						{ node: c.target, pin: targetHandle },
 					);
-		syncCanvas();
-		markDirty();
+		applyGraphEdit(next);
 	}
 
 	// Delete (Delete/Backspace on selection): remove nodes + their incident edges + any
-	// explicitly-deleted edges, in one doc change, then re-seed. Clears a stale selection.
+	// explicitly-deleted edges, in one change, then re-seed. Clears a stale selection. Signature
+	// nodes (functionEntry/functionResult) are non-deletable (their canvas node carries
+	// `deletable: false`), so xyflow never includes them here.
 	function onGraphDelete({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }): void {
 		if (!dn?.length && !de?.length) return;
 		const nodeIds = dn.map((n) => n.id);
 		const edgeIds = de.map((e) => e.id);
 		if (selectedNodeId && nodeIds.includes(selectedNodeId)) selectedNodeId = null;
-		doc = deleteFromGraph(doc, nodeIds, edgeIds);
-		syncCanvas();
-		markDirty();
+		applyGraphEdit(deleteFromGraphIn(activeGraph, nodeIds, edgeIds));
 	}
 
 	// Move (drag-stop only — kept cheap, not per-frame): write the new position back.
 	function onNodeDragStop({ targetNode }: { targetNode: Node | null }): void {
 		if (!targetNode) return;
-		doc = moveNode(doc, targetNode.id, targetNode.position);
-		syncCanvas();
-		markDirty();
+		applyGraphEdit(moveNodeIn(activeGraph, targetNode.id, targetNode.position));
 	}
 
 	// Add a node at an explicit doc-space position — the PRIMARY path: the palette entry is
 	// dragged onto the canvas, whose `drop` handler maps the cursor via `screenToFlowPosition`
 	// (only reachable inside the flow's own context, hence `FlowCanvasV2` + `SvelteFlowProvider`)
-	// and calls this with the resolved position. Reuses `graphOps` for the actual creation.
+	// and calls this with the resolved position. Reuses `graphOps` for the actual creation, over
+	// whichever graph is active.
 	function addNodeAt(kind: NodeKind, ref: string | undefined, pos: { x: number; y: number }): void {
-		const id = freshNodeId(doc, kind);
-		doc = addNode(doc, makeNode(kind, id, pos, ref));
+		const id = freshNodeIdIn(activeGraph, kind);
 		selectedNodeId = id;
-		syncCanvas();
-		markDirty();
+		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
 	}
 
 	// Place an added node in doc-space near the CENTROID of the existing graph, nudged by a
 	// small staggered offset so successive adds don't stack exactly. Used by the click FALLBACK
-	// (clicking a palette entry, when there's no drop point to map).
+	// (clicking a palette entry, when there's no drop point to map). Over the active graph.
 	function placementPos(): { x: number; y: number } {
-		const ns = doc.graph.nodes;
+		const ns = activeGraph.nodes;
 		if (ns.length === 0) return { x: 200, y: 160 };
 		const cx = ns.reduce((s, n) => s + n.pos.x, 0) / ns.length;
 		const cy = ns.reduce((s, n) => s + n.pos.y, 0) / ns.length;
@@ -412,7 +524,9 @@
 	// `$state`), so no selection-change wiring is needed — the toolbar enables the moment ≥2
 	// nodes are selected.
 	const selectedIds = $derived(nodes.filter((n) => n.selected).map((n) => n.id));
-	const canCollapse = $derived(selectedIds.length >= 2);
+	// Collapse operates on the top-level `doc.graph` (it mints a functionCall there), so it is
+	// only offered in the flow view — a nested body cannot itself be collapsed here.
+	const canCollapse = $derived(view.kind === 'flow' && selectedIds.length >= 2);
 
 	// The inline "name this function" prompt (shown by the toolbar button) + a non-blocking
 	// error surfaced when the pure `collapseToFunction` rejects a selection.
@@ -481,6 +595,57 @@
 		collapseName = '';
 		collapseError = null;
 	}
+
+	// --- Library management (2c.3): rename + delete a function -------------------
+	// Rename the OPEN function. The `id` stays stable (call sites resolve by id), so only the
+	// display `name` changes; every functionCall's header re-reads it live via `nodeTitle`.
+	function renameActiveFunction(name: string): void {
+		if (view.kind !== 'function') return;
+		const fnId = view.functionId;
+		library = {
+			...library,
+			functions: library.functions.map((f) => (f.id === fnId ? { ...f, name } : f)),
+		};
+		markLibraryDirty();
+	}
+
+	// How many call sites reference `functionId` — the top-level flow graph AND every OTHER
+	// function body (a function may call another). Used to guard delete.
+	function callSiteCount(functionId: string): number {
+		let n = 0;
+		const scan = (g: Graph): void => {
+			for (const node of g.nodes) {
+				if (node.kind === 'functionCall' && node.ref === functionId) n += 1;
+			}
+		};
+		scan(doc.graph);
+		for (const f of library.functions) {
+			if (f.id === functionId) continue; // its own body's entry/result don't count as calls.
+			scan(f.body);
+		}
+		return n;
+	}
+
+	// A non-blocking message shown when a delete is blocked (function in use).
+	let deleteError = $state<string | null>(null);
+
+	// Delete a function. Guard: block if any functionCall (in the flow or any other body) still
+	// references it. If currently viewing it, return to the flow first so the canvas never edits a
+	// dangling graph. Id-stable removal keeps the remaining call sites resolving.
+	function deleteFunction(functionId: string): void {
+		deleteError = null;
+		const uses = callSiteCount(functionId);
+		if (uses > 0) {
+			deleteError = `in use by ${uses} call${uses === 1 ? '' : 's'}`;
+			return;
+		}
+		if (view.kind === 'function' && view.functionId === functionId) backToFlow();
+		library = {
+			...library,
+			functions: library.functions.filter((f) => f.id !== functionId),
+		};
+		markLibraryDirty();
+	}
 </script>
 
 <svelte:head><title>Invisible Flow v2 · dev</title></svelte:head>
@@ -492,21 +657,55 @@
 		<span class="scope" title="Active client / project this canvas persists to">
 			{data.clientKey} / {data.projectKey}
 		</span>
+
+		<!-- Breadcrumb: `Flow` in flow view; `Flow ↳ <FunctionName>` with a back button + inline
+		     rename while editing a function body. The name field renames the OPEN function (id
+		     stays stable, so call sites keep resolving). -->
+		<span class="crumb">
+			<button
+				class="crumb-link"
+				type="button"
+				disabled={view.kind === 'flow'}
+				onclick={backToFlow}
+				title="Back to the main flow"
+			>
+				Flow
+			</button>
+			{#if view.kind === 'function' && activeFn}
+				<span class="crumb-sep">↳</span>
+				<input
+					class="fn-name"
+					type="text"
+					value={activeFn.name}
+					title="Rename this function (its id stays stable)"
+					onchange={(e) => renameActiveFunction(e.currentTarget.value.trim() || activeFn.name)}
+				/>
+				<button
+					class="back-btn"
+					type="button"
+					onclick={backToFlow}
+					title="Return to the main flow">← Back to flow</button
+				>
+			{/if}
+		</span>
+
 		<span class="legend">
 			<span class="key exec">▷ exec</span>
 			<span class="key data">● data</span>
 		</span>
-		<button
-			class="collapse-btn"
-			type="button"
-			disabled={!canCollapse}
-			onclick={beginCollapse}
-			title={canCollapse
-				? 'Collapse the selected nodes into a reusable function'
-				: 'Select 2 or more nodes (marquee-drag or shift-click) to collapse'}
-		>
-			⤵ Collapse{canCollapse ? ` ${selectedIds.length} nodes` : ''}
-		</button>
+		{#if view.kind === 'flow'}
+			<button
+				class="collapse-btn"
+				type="button"
+				disabled={!canCollapse}
+				onclick={beginCollapse}
+				title={canCollapse
+					? 'Collapse the selected nodes into a reusable function'
+					: 'Select 2 or more nodes (marquee-drag or shift-click) to collapse'}
+			>
+				⤵ Collapse{canCollapse ? ` ${selectedIds.length} nodes` : ''}
+			</button>
+		{/if}
 		<span class="spacer"></span>
 		{#if hasProject}
 			{#if saveStatus === 'saving'}
@@ -539,7 +738,8 @@
 			{/if}
 		{/if}
 		<span class="count">
-			{doc.graph.nodes.length} nodes · {doc.graph.exec.length} exec · {doc.graph.data.length} data
+			{activeGraph.nodes.length} nodes · {activeGraph.exec.length} exec · {activeGraph.data.length}
+			data
 		</span>
 		{#if issues.length > 0}
 			<span class="warn" title="See the Validation panel"
@@ -559,15 +759,25 @@
 						>✕</button
 					>
 				</div>
-				<NodeInspector {doc} node={selectedNode} {ctx} onchange={applyDocEdit} />
+				<NodeInspector doc={inspectorDoc} node={selectedNode} {ctx} onchange={applyDocEdit} />
+			{:else if view.kind === 'function' && activeFn}
+				<h3>Function body</h3>
+				<p class="hint">
+					Editing <strong>{activeFn.name}</strong>'s body. Wire between the
+					<strong>Entry</strong> and <strong>Result</strong> nodes to define its logic — the
+					signature (its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag
+					nodes from the palette; Delete removes internal nodes.
+				</p>
+				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} doc={paletteDoc} onadd={addNodeOfKind} />
 			{:else}
 				<h3>Flow v2 · dev</h3>
 				<p class="hint">
 					Editable canvas (Phase 2b.2). Template <code>{doc.templateId}</code>. Pins are
 					<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible wires
 					won't drop. Select a node to edit its fields; Delete removes selection.
+					Double-click a <strong>function</strong> node to edit its body.
 				</p>
-				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} {doc} onadd={addNodeOfKind} />
+				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} doc={paletteDoc} onadd={addNodeOfKind} onopen={openFunction} ondelete={deleteFunction} deleteError={deleteError} />
 			{/if}
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 		</aside>
@@ -578,6 +788,7 @@
 					bind:nodes
 					bind:edges
 					{nodeTypes}
+					{fitSignal}
 					{isValidConnection}
 					{onConnect}
 					{onGraphDelete}
@@ -649,6 +860,61 @@
 		background: #11161d;
 		border: 1px solid #1f2937;
 		color: #94a3b8;
+	}
+	.crumb {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.crumb-link {
+		font-size: 12px;
+		padding: 3px 8px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #cbd5e1;
+		cursor: pointer;
+	}
+	.crumb-link:hover:not(:disabled) {
+		border-color: #3a4655;
+		color: #e2e8f0;
+	}
+	.crumb-link:disabled {
+		opacity: 0.85;
+		cursor: default;
+		color: #93c5fd;
+		border-color: #2a4a6a;
+	}
+	.crumb-sep {
+		color: #64748b;
+	}
+	.fn-name {
+		box-sizing: border-box;
+		background: #11161d;
+		border: 1px solid #2a4a6a;
+		border-radius: 6px;
+		color: #eab308;
+		font-size: 12px;
+		font-weight: 600;
+		padding: 3px 8px;
+		width: 160px;
+	}
+	.fn-name:focus {
+		outline: none;
+		border-color: #eab308;
+	}
+	.back-btn {
+		font-size: 12px;
+		padding: 3px 9px;
+		border-radius: 6px;
+		border: 1px solid #2a4a6a;
+		background: #10233a;
+		color: #93c5fd;
+		cursor: pointer;
+	}
+	.back-btn:hover {
+		border-color: #3b82f6;
+		color: #dbeafe;
 	}
 	.save-pill {
 		font-size: 11px;

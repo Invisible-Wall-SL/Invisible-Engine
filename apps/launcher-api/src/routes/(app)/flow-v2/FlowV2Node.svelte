@@ -31,6 +31,8 @@
 		sequence: '#64748b',
 		parallel: '#64748b',
 		compute: '#94a3b8', // pure value op — slate.
+		functionEntry: '#22d3ee', // function body start — cyan.
+		functionResult: '#22d3ee', // function body end — cyan.
 	};
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
@@ -71,6 +73,10 @@
 			case 'sequence':
 			case 'parallel':
 				return `${n.kind} · ${n.count}`;
+			case 'functionEntry':
+				return 'inputs →';
+			case 'functionResult':
+				return '→ outputs';
 			default:
 				return '';
 		}

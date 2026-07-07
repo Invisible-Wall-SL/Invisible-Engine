@@ -16,14 +16,22 @@ import type {
 	DataSource,
 	ExecEdge,
 	FlowDoc,
+	Graph,
 	Guard,
 	Node as V2Node,
 	NodeKind,
 } from 'engine-flow-v2';
 
-/** A fresh, collision-free node id keyed by kind (`event-1`, `delay-3`, …). */
-export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string => {
-	const used = new Set(doc.graph.nodes.map((n) => n.id));
+// ---------------------------------------------------------------------------
+// Graph-level ops (2c.3). Every structural edit is fundamentally a pure `Graph → Graph`;
+// the doc-level exports below are thin wrappers that swap `doc.graph`. This split lets the
+// SAME gestures edit EITHER the main `FlowDoc.graph` OR a `FunctionDef.body` (the "active
+// graph" abstraction) — the caller writes the result back to whichever target is active.
+// ---------------------------------------------------------------------------
+
+/** A fresh, collision-free node id keyed by kind (`event-1`, `delay-3`, …), scoped to a graph. */
+export const freshNodeIdIn = (graph: Graph, kind: NodeKind): string => {
+	const used = new Set(graph.nodes.map((n) => n.id));
 	let i = 1;
 	let id = `${kind}-${i}`;
 	while (used.has(id)) {
@@ -33,46 +41,49 @@ export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string => {
 	return id;
 };
 
-/** Append an exec edge (source exec-out → target exec-in). */
-export const addExecEdge = (
-	doc: FlowDoc,
+/** Append an exec edge (source exec-out → target exec-in) to a graph. */
+export const addExecEdgeIn = (
+	graph: Graph,
 	from: { node: string; pin: string },
 	to: { node: string; pin: string },
-): FlowDoc => {
+): Graph => {
 	const edge: ExecEdge = { from, to };
-	return { ...doc, graph: { ...doc.graph, exec: [...doc.graph.exec, edge] } };
+	return { ...graph, exec: [...graph.exec, edge] };
 };
 
-/** Append a data edge (source data-out → target data-in). */
-export const addDataEdge = (
-	doc: FlowDoc,
+/** Append a data edge (source data-out → target data-in) to a graph. */
+export const addDataEdgeIn = (
+	graph: Graph,
 	from: { node: string; pin: string },
 	to: { node: string; pin: string },
-): FlowDoc => {
+): Graph => {
 	const edge: DataEdge = { from, to };
-	return { ...doc, graph: { ...doc.graph, data: [...doc.graph.data, edge] } };
+	return { ...graph, data: [...graph.data, edge] };
 };
 
-/** Write a node's new canvas position back into the doc (move on drag-stop). */
-export const moveNode = (doc: FlowDoc, nodeId: string, pos: { x: number; y: number }): FlowDoc => ({
-	...doc,
-	graph: {
-		...doc.graph,
-		nodes: doc.graph.nodes.map((n) => (n.id === nodeId ? { ...n, pos } : n)),
-	},
+/** Write a node's new canvas position back into a graph (move on drag-stop). */
+export const moveNodeIn = (graph: Graph, nodeId: string, pos: { x: number; y: number }): Graph => ({
+	...graph,
+	nodes: graph.nodes.map((n) => (n.id === nodeId ? { ...n, pos } : n)),
+});
+
+/** Append a node to a graph. */
+export const addNodeIn = (graph: Graph, node: V2Node): Graph => ({
+	...graph,
+	nodes: [...graph.nodes, node],
 });
 
 /**
  * Remove nodes AND every exec/data edge incident to them, plus any explicitly-deleted
- * edges (identified by their canvas id: `exec-<i>` / `data-<i>`, indexing the doc arrays
- * in `buildEdges` order). Node + edge deletes are reconciled in one pass so a Delete-key
- * batch (nodes + edges) lands as a single doc change.
+ * edges (identified by their canvas id: `exec-<i>` / `data-<i>`, indexing the graph arrays
+ * in `buildEdges` order), from a graph. Node + edge deletes reconcile in one pass so a
+ * Delete-key batch lands as a single change.
  */
-export const deleteFromGraph = (
-	doc: FlowDoc,
+export const deleteFromGraphIn = (
+	graph: Graph,
 	nodeIds: readonly string[],
 	edgeIds: readonly string[],
-): FlowDoc => {
+): Graph => {
 	const removedNodes = new Set(nodeIds);
 	const removedExec = new Set<number>();
 	const removedData = new Set<number>();
@@ -82,14 +93,54 @@ export const deleteFromGraph = (
 		(m[1] === 'exec' ? removedExec : removedData).add(Number(m[2]));
 	}
 
-	const nodes = doc.graph.nodes.filter((n) => !removedNodes.has(n.id));
+	const nodes = graph.nodes.filter((n) => !removedNodes.has(n.id));
 	const incident = (e: ExecEdge | DataEdge) =>
 		removedNodes.has(e.from.node) || removedNodes.has(e.to.node);
-	const exec = doc.graph.exec.filter((e, i) => !removedExec.has(i) && !incident(e));
-	const data = doc.graph.data.filter((e, i) => !removedData.has(i) && !incident(e));
+	const exec = graph.exec.filter((e, i) => !removedExec.has(i) && !incident(e));
+	const data = graph.data.filter((e, i) => !removedData.has(i) && !incident(e));
 
-	return { ...doc, graph: { ...doc.graph, nodes, exec, data } };
+	return { ...graph, nodes, exec, data };
 };
+
+// ---------------------------------------------------------------------------
+// Doc-level wrappers — the main-flow editing loop (unchanged behaviour). Each simply runs the
+// graph-level op on `doc.graph` and swaps it back, so callers that edit the top-level flow keep
+// working exactly as before.
+// ---------------------------------------------------------------------------
+
+/** A fresh, collision-free node id keyed by kind, scoped to the doc's graph. */
+export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string =>
+	freshNodeIdIn(doc.graph, kind);
+
+/** Append an exec edge (source exec-out → target exec-in). */
+export const addExecEdge = (
+	doc: FlowDoc,
+	from: { node: string; pin: string },
+	to: { node: string; pin: string },
+): FlowDoc => ({ ...doc, graph: addExecEdgeIn(doc.graph, from, to) });
+
+/** Append a data edge (source data-out → target data-in). */
+export const addDataEdge = (
+	doc: FlowDoc,
+	from: { node: string; pin: string },
+	to: { node: string; pin: string },
+): FlowDoc => ({ ...doc, graph: addDataEdgeIn(doc.graph, from, to) });
+
+/** Write a node's new canvas position back into the doc (move on drag-stop). */
+export const moveNode = (doc: FlowDoc, nodeId: string, pos: { x: number; y: number }): FlowDoc => ({
+	...doc,
+	graph: moveNodeIn(doc.graph, nodeId, pos),
+});
+
+/**
+ * Remove nodes AND every exec/data edge incident to them, plus any explicitly-deleted
+ * edges, in one doc change (delegates to `deleteFromGraphIn`).
+ */
+export const deleteFromGraph = (
+	doc: FlowDoc,
+	nodeIds: readonly string[],
+	edgeIds: readonly string[],
+): FlowDoc => ({ ...doc, graph: deleteFromGraphIn(doc.graph, nodeIds, edgeIds) });
 
 /** A placeholder `compute` op (edited in 2b.2). Defaults to `mul` over two literal ints. */
 const defaultComputeOp = (): ComputeOp => ({
@@ -131,7 +182,7 @@ export const makeNode = (
 /** Append a node to the graph. */
 export const addNode = (doc: FlowDoc, node: V2Node): FlowDoc => ({
 	...doc,
-	graph: { ...doc.graph, nodes: [...doc.graph.nodes, node] },
+	graph: addNodeIn(doc.graph, node),
 });
 
 // ---------------------------------------------------------------------------
@@ -139,15 +190,21 @@ export const addNode = (doc: FlowDoc, node: V2Node): FlowDoc => ({
 // and replaces JUST the target node (all else shares reference identity), mirroring the
 // structural ops above. They edit a node's stored REFERENCE / per-kind fields / data-source
 // inputs — never pins (those stay derived) and never edges (those are the wiring loop).
+//
+// Each is a thin wrapper over a `Graph → Graph` core (`*In`), so the inspector can edit a
+// node in EITHER the main flow or a function body (2c.3). The core replaces just the target.
 // ---------------------------------------------------------------------------
+
+/** Replace just the node with id `nodeId` in a graph, mapped through `fn`. */
+const replaceNodeIn = (graph: Graph, nodeId: string, fn: (n: V2Node) => V2Node): Graph => ({
+	...graph,
+	nodes: graph.nodes.map((n) => (n.id === nodeId ? fn(n) : n)),
+});
 
 /** Replace just the node with id `nodeId`, mapped through `fn` (identity for others). */
 const replaceNode = (doc: FlowDoc, nodeId: string, fn: (n: V2Node) => V2Node): FlowDoc => ({
 	...doc,
-	graph: {
-		...doc.graph,
-		nodes: doc.graph.nodes.map((n) => (n.id === nodeId ? fn(n) : n)),
-	},
+	graph: replaceNodeIn(doc.graph, nodeId, fn),
 });
 
 /** Set a ref-carrying node's `ref` (event/action/fireCue/functionCall/show|hideContainer). */

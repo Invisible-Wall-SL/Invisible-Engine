@@ -44,9 +44,21 @@
 
 	const vocab = $derived(ctx.vocab);
 
+	// The function-boundary nodes (§5). Their pins ARE the function's FIXED signature, so the
+	// inspector renders them READ-ONLY here: no ref/field/data-source editing (that would alter the
+	// signature). Wiring TO/FROM their pins on the canvas is still allowed. (Adding/removing a
+	// function's inputs/outputs — which would change these — is a LATER feature.)
+	const isSignatureNode = $derived(
+		node.kind === 'functionEntry' || node.kind === 'functionResult',
+	);
+
 	// The node's derived pins — the summary + the DATA-IN editor list both read from these.
 	const pins = $derived<Pin[]>(derivePins(node, ctx));
-	const dataIns = $derived(pins.filter((p) => p.dir === 'in' && p.kind === 'data'));
+	// Entry/result data-ins are the function's declared outputs (fed by the body via wires), never
+	// literal/accessor-authored here — so the editable Inputs list is empty for signature nodes.
+	const dataIns = $derived(
+		isSignatureNode ? [] : pins.filter((p) => p.dir === 'in' && p.kind === 'data'),
+	);
 
 	// A data-in that is FED BY A WIRE (an incoming data edge) is set by that wire, so it is
 	// skipped by the source editor; only free data-ins expose a literal/accessor editor.
@@ -230,6 +242,14 @@
 	</div>
 
 	<div class="fields">
+		{#if isSignatureNode}
+			<p class="ro-note">
+				This is the function's {node.kind === 'functionEntry' ? 'Entry' : 'Result'} node — it
+				carries the function's fixed signature. Wire to/from its pins to author the body; the
+				signature itself isn't editable here.
+			</p>
+		{/if}
+
 		{#if isRefKind}
 			<label class="field">
 				<span class="flabel">Reference</span>
@@ -592,6 +612,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
+	}
+	.ro-note {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: #94a3b8;
+		border: 1px solid #1f2937;
+		border-radius: 6px;
+		background: #11161d;
+		padding: 8px 10px;
 	}
 	.field {
 		display: flex;

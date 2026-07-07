@@ -21,6 +21,7 @@
 		nodes = $bindable(),
 		edges = $bindable(),
 		nodeTypes,
+		fitSignal = 0,
 		isValidConnection,
 		onConnect,
 		onGraphDelete,
@@ -32,6 +33,9 @@
 		nodes: Node[];
 		edges: Edge[];
 		nodeTypes: Record<string, unknown>;
+		// A monotonically-incremented counter: bumping it re-fits the view to the current graph
+		// (used when the editing TARGET switches between the main flow and a function body).
+		fitSignal?: number;
 		isValidConnection: (edge: Edge | Connection) => boolean;
 		onConnect: (c: Connection) => void;
 		onGraphDelete: (detail: { nodes: Node[]; edges: Edge[] }) => void;
@@ -42,7 +46,17 @@
 	} = $props();
 
 	// Only reachable from a child of <SvelteFlowProvider> — the reason this component exists.
-	const { screenToFlowPosition } = useSvelteFlow();
+	const { screenToFlowPosition, fitView } = useSvelteFlow();
+
+	// Re-fit when the parent bumps `fitSignal` (view switch). Skip the initial 0 (the SvelteFlow
+	// `fitView` prop already fits on first render); a rAF lets the new nodes lay out first.
+	let lastFit = 0;
+	$effect(() => {
+		if (fitSignal === lastFit) return;
+		lastFit = fitSignal;
+		if (fitSignal === 0) return;
+		requestAnimationFrame(() => void fitView());
+	});
 
 	// A drag carrying our payload is a valid drop target; suppress the default (which would
 	// reject the drop) and show the move cursor.
