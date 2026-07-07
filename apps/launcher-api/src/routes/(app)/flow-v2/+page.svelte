@@ -1,13 +1,5 @@
 <script lang="ts">
-	import {
-		SvelteFlow,
-		Background,
-		Controls,
-		type Connection,
-		type Edge,
-		type Node,
-	} from '@xyflow/svelte';
-	import '@xyflow/svelte/dist/style.css';
+	import { SvelteFlowProvider, type Connection, type Edge, type Node } from '@xyflow/svelte';
 	import { onMount } from 'svelte';
 	import {
 		derivePins,
@@ -32,6 +24,7 @@
 		moveNode,
 	} from './graphOps';
 	import FlowV2Node from './FlowV2Node.svelte';
+	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
 
@@ -245,10 +238,20 @@
 		syncCanvas();
 	}
 
+	// Add a node at an explicit doc-space position — the PRIMARY path: the palette entry is
+	// dragged onto the canvas, whose `drop` handler maps the cursor via `screenToFlowPosition`
+	// (only reachable inside the flow's own context, hence `FlowCanvasV2` + `SvelteFlowProvider`)
+	// and calls this with the resolved position. Reuses `graphOps` for the actual creation.
+	function addNodeAt(kind: NodeKind, ref: string | undefined, pos: { x: number; y: number }): void {
+		const id = freshNodeId(doc, kind);
+		doc = addNode(doc, makeNode(kind, id, pos, ref));
+		selectedNodeId = id;
+		syncCanvas();
+	}
+
 	// Place an added node in doc-space near the CENTROID of the existing graph, nudged by a
-	// small staggered offset so successive adds don't stack exactly. (Doc→screen mapping via
-	// `useSvelteFlow` needs the flow's own context, which the page — the flow's PARENT — doesn't
-	// have; the centroid keeps a new node visible after `fitView` without that dependency.)
+	// small staggered offset so successive adds don't stack exactly. Used by the click FALLBACK
+	// (clicking a palette entry, when there's no drop point to map).
 	function placementPos(): { x: number; y: number } {
 		const ns = doc.graph.nodes;
 		if (ns.length === 0) return { x: 200, y: 160 };
@@ -259,10 +262,7 @@
 	}
 
 	function addNodeOfKind(kind: NodeKind, ref?: string): void {
-		const id = freshNodeId(doc, kind);
-		doc = addNode(doc, makeNode(kind, id, placementPos(), ref));
-		selectedNodeId = id;
-		syncCanvas();
+		addNodeAt(kind, ref, placementPos());
 	}
 </script>
 
@@ -301,25 +301,20 @@
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 		</aside>
 
-		<div class="canvas">
-			<SvelteFlow
+		<SvelteFlowProvider>
+			<FlowCanvasV2
 				bind:nodes
 				bind:edges
 				{nodeTypes}
-				colorMode="dark"
-				fitView
-				deleteKeyCode={['Delete', 'Backspace']}
 				{isValidConnection}
-				onconnect={onConnect}
-				ondelete={onGraphDelete}
-				onnodedragstop={onNodeDragStop}
-				onnodeclick={onNodeClick}
-				onpaneclick={onPaneClick}
-			>
-				<Background />
-				<Controls showLock={false} />
-			</SvelteFlow>
-		</div>
+				onConnect={onConnect}
+				onGraphDelete={onGraphDelete}
+				onNodeDragStop={onNodeDragStop}
+				onNodeClick={onNodeClick}
+				onPaneClick={onPaneClick}
+				ondropnode={addNodeAt}
+			/>
+		</SvelteFlowProvider>
 	</div>
 </div>
 
@@ -411,22 +406,6 @@
 		padding: 1px 4px;
 		border-radius: 4px;
 	}
-	.canvas {
-		flex: 1;
-		min-width: 0;
-	}
-	.canvas :global(.svelte-flow) {
-		background: #0b0e13;
-	}
-	/* Exec wires read as solid white control lines; data wires as thin dashed typed lines. */
-	.canvas :global(.svelte-flow__edge.v2-data .svelte-flow__edge-path) {
-		stroke-dasharray: 3 3;
-	}
-	/* Selected edge — click an edge (its ~20px hit area), then Delete/Backspace to remove it.
-	   `!important` overrides the per-edge inline stroke so the pick reads at a glance. */
-	.canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-path) {
-		stroke: #60a5fa !important;
-		stroke-width: 3.25 !important;
-		filter: drop-shadow(0 0 3px #60a5fabb);
-	}
+	/* The canvas + its flow-edge styling now live in FlowCanvasV2 (extracted so it can call
+	   `useSvelteFlow` inside the provider). The `.body` flex row still sizes it via `flex: 1`. */
 </style>
