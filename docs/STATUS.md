@@ -49,8 +49,21 @@ to `main` (feature branch `flow-v2-ship-ready`; commits `b09aa1e`, `1b34552`):
   v2 harnesses PASS; `lines` + `launcher-api` builds pass.
 
 **v2 status: authoring + runtime + real vocabulary + preview + per-project vocab loading + ship-ready
-are DONE.** Remaining (deferred, explicit later step): the v1→v2 hard cutover (retire `/flow` + the
-coded reveal, make v2 the sole path). ⏳ owner live-look on `/flow-v2` (auth-gated).
+are DONE.**
+
+**Event ownership + awaited cues** (`2f3c6d5`, branch `flow-v2-ownership`) — the mechanism for the
+INCREMENTAL v1→v2 migration (goal: the WHOLE game flow-driven, made to "work like it is now"):
+`LinesFlowV2.ownsEvent(type)` = the flow authors an `event` node for it; `playBookEvent` runs v2 ALONE
+for an owned event (its coded/v1 twin SUPPRESSED — no doubling), else falls through (parity). The v2 env
+broadcast is now AWAITED (`broadcastAsync`), so a `fireCue` blocks on its subscribers like the coded
+awaited broadcasts. `LINES_FLOW_V2_DOC` is a true parity repro of coded `setExpandingSymbol`
+(setSpecialSymbol + awaited specialBookReveal). Verified live: `ownsEvent` true only for
+setExpandingSymbol; the awaited cue blocks correctly. So events migrate to v2 one at a time; when ALL are
+owned + verified, the coded `bookEventHandlerMap` + v1 become dead code (the hard cut is then trivial).
+
+Remaining to FULL flow-driven: author the rest of the book-of events as v2 parity repros (mechanic-heavy
+events need the coarse effects exposed as vocab actions + the event CONTEXT passed to dispatch), then
+loading/intents/lifecycle. ⏳ owner live-look on `/flow-v2` (auth-gated).
 
 ### 2026-07-07 — Invisible Flow v2: design + schema Phase 1 (new initiative)
 
