@@ -255,6 +255,16 @@ export function flowV2DocKey(client: string, project: string): string {
 }
 
 /**
+ * The Invisible Flow **v2** shared FUNCTION LIBRARY — GLOBAL, not project-scoped. Functions
+ * authored via "Collapse to Function" on any project's `/flow-v2` canvas are reusable across
+ * every client/project, so the library lives under the shared `_shared/` prefix (like the
+ * Rigger's `_shared/rigs` / `_shared/animations` libraries), NOT inside a project tree. This
+ * is a CONSTANT key: there is no user-supplied path component, so the save endpoint has no
+ * path-injection surface — auth only gates that the caller may use Flow at all.
+ */
+export const FLOW_V2_LIBRARY_KEY = '_shared/flow-v2/functions.json';
+
+/**
  * Per-project Invisible Symbols State Machine doc:
  * `<client>/<project>/symbols/symbols.json` — the authored symbol→state→asset
  * binding map (sparse overrides over the coded `SYMBOL_INFO_MAP`). Same

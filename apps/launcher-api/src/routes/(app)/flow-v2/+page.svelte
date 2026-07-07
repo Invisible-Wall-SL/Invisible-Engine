@@ -2,10 +2,12 @@
 	import { SvelteFlowProvider, type Connection, type Edge, type Node } from '@xyflow/svelte';
 	import { onMount } from 'svelte';
 	import {
+		collapseToFunction,
 		derivePins,
 		validateFlowDoc,
 		assignable,
 		type FlowDoc,
+		type FunctionLibraryDoc,
 		type NodeKind,
 		type Node as V2Node,
 		type Pin,
@@ -38,12 +40,25 @@
 	// fall back to the built-in `SAMPLE_DOC`. Every editing gesture (wire/add/delete/move/drop)
 	// mutates this and triggers the debounced auto-save below.
 	//
-	// NOTE (out of scope, later increment): the template VOCABULARY (`BOOK_OF_VOCAB`) and the
-	// shared FUNCTION LIBRARY (`LIBRARY`) still come from `sample.ts` — only the FlowDoc persists.
+	// NOTE (out of scope, later increment): the template VOCABULARY (`BOOK_OF_VOCAB`) still comes
+	// from `sample.ts`. The shared FUNCTION LIBRARY now PERSISTS (Part 2c): it initializes from
+	// the GLOBAL `_shared/flow-v2/functions.json` (`data.library`), falling back to the sample
+	// `LIBRARY` when absent, and grows via the "Collapse to Function" gesture below.
 	const initialDoc = (data.doc ?? SAMPLE_DOC) as FlowDoc;
 	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(initialDoc)) as FlowDoc);
 
-	const ctx: PinContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY };
+	// The live function library — the single source of truth for the palette's Functions section,
+	// the inspector's functionCall ref dropdown, and `derivePins` on functionCall nodes. Held in
+	// `$state` and threaded through `ctx` (below) so collapsing a selection immediately surfaces
+	// the new function everywhere.
+	const initialLibrary = (data.library ?? LIBRARY) as FunctionLibraryDoc;
+	let library = $state<FunctionLibraryDoc>(
+		JSON.parse(JSON.stringify(initialLibrary)) as FunctionLibraryDoc,
+	);
+
+	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
+	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library.
+	const ctx = $derived<PinContext>({ vocab: BOOK_OF_VOCAB, library });
 
 	let selectedNodeId = $state<string | null>(null);
 
@@ -73,7 +88,7 @@
 			case 'fireCue':
 				return n.ref;
 			case 'functionCall': {
-				const fn = LIBRARY.functions.find((f) => f.id === n.ref);
+				const fn = library.functions.find((f) => f.id === n.ref);
 				return fn?.name ?? n.ref;
 			}
 			case 'showContainer':
@@ -85,7 +100,7 @@
 	};
 
 	// Validation runs reactively over the live doc — 2b editing revalidates for free.
-	const issues = $derived(validateFlowDoc(doc, BOOK_OF_VOCAB, LIBRARY));
+	const issues = $derived(validateFlowDoc(doc, BOOK_OF_VOCAB, library));
 
 	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE
 	// pin's `TypeRef` (the wire reads the same color as the dot it leaves).
@@ -202,6 +217,51 @@
 			if (pendingSave) {
 				pendingSave = false;
 				if (dirty) void saveDoc();
+			}
+		}
+	}
+
+	// --- Persistence: debounced auto-save for the shared FUNCTION LIBRARY --------
+	// The library is GLOBAL (not project-scoped), but we still only persist when a flow scope
+	// exists (`hasProject`) — the standalone dev sample must not write the shared library. A
+	// mutation (only "Collapse to Function" today) calls `markLibraryDirty`, which debounces a
+	// POST to `/api/flow-v2/library/save` writing the fixed `_shared/flow-v2/functions.json`.
+	let librarySaveStatus = $state<SaveStatus>('idle');
+	let libraryDirty = $state(false);
+	let libraryAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function markLibraryDirty(): void {
+		if (!hasProject) return; // standalone sample — never persist the shared library.
+		libraryDirty = true;
+		if (libraryAutosaveTimer) clearTimeout(libraryAutosaveTimer);
+		libraryAutosaveTimer = setTimeout(() => {
+			libraryAutosaveTimer = null;
+			void saveLibrary();
+		}, AUTOSAVE_MS);
+	}
+
+	let pendingLibrarySave = false;
+	async function saveLibrary(): Promise<void> {
+		if (librarySaveStatus === 'saving') {
+			pendingLibrarySave = true;
+			return;
+		}
+		librarySaveStatus = 'saving';
+		try {
+			const res = await fetch('/api/flow-v2/library/save', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ library }),
+			});
+			if (!res.ok) throw new Error(`library save failed (${res.status})`);
+			libraryDirty = false;
+			librarySaveStatus = 'saved';
+		} catch {
+			librarySaveStatus = 'error';
+		} finally {
+			if (pendingLibrarySave) {
+				pendingLibrarySave = false;
+				if (libraryDirty) void saveLibrary();
 			}
 		}
 	}
@@ -345,6 +405,82 @@
 	function addNodeOfKind(kind: NodeKind, ref?: string): void {
 		addNodeAt(kind, ref, placementPos());
 	}
+
+	// --- Collapse to Function (Part 2c) -----------------------------------------
+	// xyflow owns the live selection: marquee-drag and shift-click set each node's `selected`
+	// flag directly on the bound `nodes` array. We READ that set reactively (the array is
+	// `$state`), so no selection-change wiring is needed — the toolbar enables the moment ≥2
+	// nodes are selected.
+	const selectedIds = $derived(nodes.filter((n) => n.selected).map((n) => n.id));
+	const canCollapse = $derived(selectedIds.length >= 2);
+
+	// The inline "name this function" prompt (shown by the toolbar button) + a non-blocking
+	// error surfaced when the pure `collapseToFunction` rejects a selection.
+	let collapsing = $state(false);
+	let collapseName = $state('');
+	let collapseError = $state<string | null>(null);
+
+	function beginCollapse(): void {
+		if (!canCollapse) return;
+		collapseError = null;
+		collapseName = `Function ${library.functions.length + 1}`;
+		collapsing = true;
+	}
+	function cancelCollapse(): void {
+		collapsing = false;
+		collapseName = '';
+		collapseError = null;
+	}
+
+	// Mint a `functionId` from the name that does not collide with an existing function id.
+	function mintFunctionId(name: string): string {
+		const base = name
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '');
+		const stem = `fn.${base || 'function'}`;
+		const taken = new Set(library.functions.map((f) => f.id));
+		if (!taken.has(stem)) return stem;
+		let i = 2;
+		while (taken.has(`${stem}-${i}`)) i += 1;
+		return `${stem}-${i}`;
+	}
+
+	// Run the (pure) collapse: on error surface it and mutate NOTHING; on success adopt the new
+	// doc + library, persist BOTH, and select the freshly-minted functionCall node (the one node
+	// in the result graph absent from the pre-collapse graph).
+	function confirmCollapse(): void {
+		if (!canCollapse) return;
+		const name = collapseName.trim();
+		if (!name) {
+			collapseError = 'Enter a function name.';
+			return;
+		}
+		const selection = [...selectedIds];
+		const functionId = mintFunctionId(name);
+		const before = new Set(doc.graph.nodes.map((n) => n.id));
+
+		const result = collapseToFunction(
+			{ doc, library, selection, functionId, functionName: name },
+			ctx,
+		);
+		if ('error' in result) {
+			collapseError = result.error;
+			return;
+		}
+
+		doc = result.doc;
+		library = result.library;
+		const callNode = result.doc.graph.nodes.find((n) => !before.has(n.id));
+		selectedNodeId = callNode?.id ?? null;
+		syncCanvas();
+		markDirty();
+		markLibraryDirty();
+		collapsing = false;
+		collapseName = '';
+		collapseError = null;
+	}
 </script>
 
 <svelte:head><title>Invisible Flow v2 · dev</title></svelte:head>
@@ -360,6 +496,17 @@
 			<span class="key exec">▷ exec</span>
 			<span class="key data">● data</span>
 		</span>
+		<button
+			class="collapse-btn"
+			type="button"
+			disabled={!canCollapse}
+			onclick={beginCollapse}
+			title={canCollapse
+				? 'Collapse the selected nodes into a reusable function'
+				: 'Select 2 or more nodes (marquee-drag or shift-click) to collapse'}
+		>
+			⤵ Collapse{canCollapse ? ` ${selectedIds.length} nodes` : ''}
+		</button>
 		<span class="spacer"></span>
 		{#if hasProject}
 			{#if saveStatus === 'saving'}
@@ -377,6 +524,19 @@
 			<span class="save-pill ok" title="Standalone dev sample — no project bound, not persisted"
 				>sample · not saved</span
 			>
+		{/if}
+		{#if hasProject && librarySaveStatus !== 'idle'}
+			{#if librarySaveStatus === 'saving'}
+				<span class="save-pill busy" title="Shared function library">Library…</span>
+			{:else if librarySaveStatus === 'error'}
+				<button class="save-pill error" type="button" onclick={() => void saveLibrary()}
+					>Library save failed — retry</button
+				>
+			{:else if libraryDirty}
+				<span class="save-pill dirty" title="Shared function library">Library unsaved</span>
+			{:else}
+				<span class="save-pill ok" title="Shared function library saved">Library saved</span>
+			{/if}
 		{/if}
 		<span class="count">
 			{doc.graph.nodes.length} nodes · {doc.graph.exec.length} exec · {doc.graph.data.length} data
@@ -407,25 +567,52 @@
 					<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible wires
 					won't drop. Select a node to edit its fields; Delete removes selection.
 				</p>
-				<AddNodePalette vocab={BOOK_OF_VOCAB} library={LIBRARY} {doc} onadd={addNodeOfKind} />
+				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} {doc} onadd={addNodeOfKind} />
 			{/if}
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 		</aside>
 
-		<SvelteFlowProvider>
-			<FlowCanvasV2
-				bind:nodes
-				bind:edges
-				{nodeTypes}
-				{isValidConnection}
-				{onConnect}
-				{onGraphDelete}
-				{onNodeDragStop}
-				{onNodeClick}
-				{onPaneClick}
-				ondropnode={addNodeAt}
-			/>
-		</SvelteFlowProvider>
+		<div class="canvas-wrap">
+			<SvelteFlowProvider>
+				<FlowCanvasV2
+					bind:nodes
+					bind:edges
+					{nodeTypes}
+					{isValidConnection}
+					{onConnect}
+					{onGraphDelete}
+					{onNodeDragStop}
+					{onNodeClick}
+					{onPaneClick}
+					ondropnode={addNodeAt}
+				/>
+			</SvelteFlowProvider>
+
+			{#if collapsing}
+				<div class="collapse-prompt" role="dialog" aria-label="Name the new function">
+					<h4>Collapse {selectedIds.length} nodes → function</h4>
+					<!-- svelte-ignore a11y_autofocus -->
+					<input
+						class="collapse-input"
+						type="text"
+						autofocus
+						placeholder="Function name"
+						bind:value={collapseName}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') confirmCollapse();
+							else if (e.key === 'Escape') cancelCollapse();
+						}}
+					/>
+					{#if collapseError}
+						<p class="collapse-error">{collapseError}</p>
+					{/if}
+					<div class="collapse-actions">
+						<button type="button" class="ghost" onclick={cancelCollapse}>Cancel</button>
+						<button type="button" class="primary" onclick={confirmCollapse}>Collapse</button>
+					</div>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -575,5 +762,101 @@
 		border-radius: 4px;
 	}
 	/* The canvas + its flow-edge styling now live in FlowCanvasV2 (extracted so it can call
-	   `useSvelteFlow` inside the provider). The `.body` flex row still sizes it via `flex: 1`. */
+	   `useSvelteFlow` inside the provider). `.canvas-wrap` is the flex cell that sizes it and
+	   positions the floating collapse prompt over it. */
+	.canvas-wrap {
+		position: relative;
+		flex: 1;
+		min-width: 0;
+		display: flex;
+	}
+	.collapse-btn {
+		font-size: 12px;
+		padding: 4px 11px;
+		border-radius: 6px;
+		border: 1px solid #2a4a6a;
+		background: #10233a;
+		color: #93c5fd;
+		cursor: pointer;
+		letter-spacing: 0.02em;
+	}
+	.collapse-btn:hover:not(:disabled) {
+		border-color: #3b82f6;
+		background: #163150;
+		color: #dbeafe;
+	}
+	.collapse-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+	.collapse-prompt {
+		position: absolute;
+		top: 16px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 20;
+		width: 320px;
+		padding: 14px 16px;
+		border-radius: 10px;
+		border: 1px solid #2a4a6a;
+		background: #0d1420;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.collapse-prompt h4 {
+		margin: 0;
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #93c5fd;
+	}
+	.collapse-input {
+		width: 100%;
+		box-sizing: border-box;
+		background: #11161d;
+		border: 1px solid #2a323d;
+		border-radius: 6px;
+		color: #e2e8f0;
+		font-size: 13px;
+		padding: 7px 9px;
+	}
+	.collapse-input:focus {
+		outline: none;
+		border-color: #2563eb;
+	}
+	.collapse-error {
+		margin: 0;
+		font-size: 12px;
+		color: #ff9a9a;
+	}
+	.collapse-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+	.collapse-actions button {
+		font-size: 12px;
+		padding: 5px 12px;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+	.collapse-actions .ghost {
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #94a3b8;
+	}
+	.collapse-actions .ghost:hover {
+		border-color: #3a4655;
+		color: #e2e8f0;
+	}
+	.collapse-actions .primary {
+		border: 1px solid #2563eb;
+		background: #1d4ed8;
+		color: #eff6ff;
+	}
+	.collapse-actions .primary:hover {
+		background: #2563eb;
+	}
 </style>

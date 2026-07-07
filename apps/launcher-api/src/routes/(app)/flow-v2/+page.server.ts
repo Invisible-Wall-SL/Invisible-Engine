@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
+import { loadFlowV2Library } from '$lib/server/flowV2LibraryStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import type { PageServerLoad } from './$types';
 
@@ -18,9 +19,13 @@ import type { PageServerLoad } from './$types';
  * no project is selected OR the object is absent/malformed, `doc` is `null` and the page
  * falls back to its built-in `SAMPLE_DOC` (so the dev route still works standalone).
  *
- * OUT OF SCOPE (later increment): the template VOCABULARY + shared FUNCTION LIBRARY still
- * come from the client-side `sample.ts` (`BOOK_OF_VOCAB`, `LIBRARY`); only the project's
- * FlowDoc persists.
+ * The shared FUNCTION LIBRARY is loaded here too, from the GLOBAL key
+ * `_shared/flow-v2/functions.json` (project-agnostic — "Collapse to Function" grows one
+ * library reusable across every project). When absent/malformed, `library` is `null` and the
+ * page falls back to its built-in sample `LIBRARY`.
+ *
+ * OUT OF SCOPE (later increment): the template VOCABULARY still comes from the client-side
+ * `sample.ts` (`BOOK_OF_VOCAB`).
  */
 export const ssr = false;
 
@@ -35,5 +40,6 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		user: locals.user,
 	});
 	const doc = await loadFlowV2Doc(clientKey, projectKey);
-	return { clientKey, projectKey, doc };
+	const library = await loadFlowV2Library();
+	return { clientKey, projectKey, doc, library };
 };
