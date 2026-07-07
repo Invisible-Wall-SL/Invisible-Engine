@@ -50,9 +50,19 @@ blind seeding would break. All shipped to `main` in small harness-tested slices:
   handle is built. Harness `v2translateremake` REPLAYS this on the remake's real flow: `load`→splash
   `s_q9iw9aqf`, `complete:<top>`→`loading` (the authored splash→loading swap) ✓.
 
-**Remaining to flip the remake:** in-round show→complete of the counter/intro/outro screens (book-event
-driven); then translate→`--seed`→runtime release→verify live. **Phase C cutover** after: v2 default,
-retire v1 `/flow` + engine-flow + coded fall-through, `new-game.mjs` scaffolds v2, flip each game.
+- **A3 — v1-faithful complete scan + layer semantics** (`c3fea3f`): two fidelity bugs the remake's
+  free-spin lifecycle exposed. (a) `dispatchFlowV2Complete` now mirrors v1 `fireComplete` — SCAN shown
+  containers top-down for the first whose `complete:<id>` is owned, not the literal `.at(-1)` (the
+  translator gives HUDs a higher z than game screens, and HUDs own no complete → a tap during
+  `freeSpinIntro` was completing nothing). (b) The translator only hides the source on a `complete`
+  trigger; bookEvent/signal/action LAYER the target over a still-active source (v1 `performTransition`),
+  so `freeSpinTrigger` no longer hid `basegame` out from under the intro (remake `hideContainer` nodes
+  25→12). Harness `v2translateremake` replays the whole boot + free-spin lifecycle on the real flow (7/7).
+
+**Remaining to flip the remake:** the freeSpin screens must emit their `completeOnLoaded`/tap in-round
+(an authoring concern per scene, not engine — the mechanism is done); then translate→`--seed`→runtime
+release→verify live. **Phase C cutover** after: v2 default, retire v1 `/flow` + engine-flow + coded
+fall-through, `new-game.mjs` scaffolds v2, flip each game.
 
 ### 2026-07-07 — Invisible Flow v2: ship-ready (committed flow + full bake→ship chain)
 
