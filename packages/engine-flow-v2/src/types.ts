@@ -151,7 +151,9 @@ export type NodeKind =
 	| 'functionCall'
 	| 'sequence'
 	| 'parallel'
-	| 'compute';
+	| 'compute'
+	| 'functionEntry'
+	| 'functionResult';
 
 /** Shared node fields. `inputs` maps each DATA-IN pin id → its `DataSource` (a `wire`
  *  source defers to the data edges); it is absent for nodes with no data-ins. */
@@ -233,6 +235,23 @@ export interface ComputeNode extends NodeBase {
 	compute: ComputeOp;
 }
 
+/** Function Entry (§5): the body-side start of a function. Lives ONLY inside a
+ *  `FunctionDef.body`, never in the top-level `FlowDoc.graph`. Exposes the function's
+ *  declared `inputs` as data-OUTS (the body reads inputs by pulling from here) plus an
+ *  exec-OUT. `ref` is the function whose body it belongs to. */
+export interface FunctionEntryNode extends NodeBase {
+	kind: 'functionEntry';
+	ref: FunctionId; // the function whose body this entry belongs to.
+}
+
+/** Function Result (§5): the body-side end of a function. Lives ONLY inside a
+ *  `FunctionDef.body`. Exposes an exec-IN plus a data-IN per the function's declared
+ *  `outputs`; the values wired in become the call node's outputs. `ref` is that function. */
+export interface FunctionResultNode extends NodeBase {
+	kind: 'functionResult';
+	ref: FunctionId; // the function whose body this result belongs to.
+}
+
 export type Node =
 	| EventNode
 	| ActionNode
@@ -245,7 +264,9 @@ export type Node =
 	| FunctionCallNode
 	| SequenceNode
 	| ParallelNode
-	| ComputeNode;
+	| ComputeNode
+	| FunctionEntryNode
+	| FunctionResultNode;
 
 // ---------------------------------------------------------------------------
 // §5 — functions (the reuse model). A function is authored once and dropped as a

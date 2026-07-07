@@ -162,9 +162,51 @@ interface FunctionDef {
 }
 ```
 
-Inside `body`, two implicit nodes bridge the boundary (like Unreal's function entry/result):
-- **Entry** — an entry point exposing the function's `inputs` as data-outs + an exec-out.
-- **Result** — an exec-in + a data-in per output, whose values become the call node's outputs.
+Inside `body`, two dedicated node kinds bridge the boundary (like Unreal's function entry/result).
+They are real `Node`s (`kind: 'functionEntry' | 'functionResult'`, each storing `ref: FunctionId` =
+the function whose body it belongs to), and they live **only** inside a `FunctionDef.body` — never
+in the top-level `FlowDoc.graph`.
+- **`functionEntry`** — the body-side start. Derives an exec-**out** `exec` + one data-**out** per
+  the function's `inputs` (the body reads an input by pulling from the entry's matching output).
+- **`functionResult`** — the body-side end. Derives an exec-**in** `exec` + one data-**in** per the
+  function's `outputs`; the values wired in become the call node's outputs.
+
+So `FunctionDef.inputs` → the entry's data-outs, and `FunctionDef.outputs` → the result's data-ins
+(`derivePins`). If a boundary node's `ref` doesn't resolve, only its exec pin is derivable.
+
+**Validation (`validate.ts`).** `validateFlowDoc` rejects any `functionEntry`/`functionResult` in
+the top-level graph (`entry-outside-body`). `validateFunctionDef(fn, vocab, library)` validates a
+`FunctionDef.body` as its own graph — the same structural/type checks minus `entry-outside-body`,
+plus: the body must contain exactly one `functionEntry` and one `functionResult` referencing this
+function (`fn-body-entry` / `fn-body-result`).
+
+### 5.1 Collapse to Function (`collapse.ts`)
+
+`collapseToFunction({ doc, library, selection, functionId, functionName }, ctx)` is a **pure,
+immutable** transform (Unreal's "Collapse to Function"): it lifts a selection of nodes out of the
+main graph into a new `FunctionDef` and replaces them with a single `functionCall` wired to the same
+external endpoints — the macro behaviour is unchanged. It returns `{ doc, library, functionId }` or
+`{ error }`.
+
+- **Guards.** Error on an empty selection, an id not in `doc.graph.nodes`, or a selection that
+  contains an `event` (entry point) or a `functionEntry`/`functionResult` node.
+- **Edge partition.** Both `exec` and `data` edges are split by their endpoints' membership in the
+  selection `S`: **internal** (both ∈ S), **crossIn** (`to` ∈ S, `from` ∉ S), **crossOut** (`from`
+  ∈ S, `to` ∉ S), **external** (neither).
+- **Boundary pins.** One function **input** per distinct crossIn target pin (fan-in is 1, so targets
+  are unique); one function **output** per distinct crossOut source pin (a data-out may fan out to
+  many external targets → still one output). A data input's `dataType` is taken from the crossing's
+  **source** data-out (the well-typed side — a target like a `wire`-fed `forEach.in` may be untyped).
+  Exec crossings collapse onto a single canonical `exec` pin on the call/entry/result.
+- **Body.** The selected nodes (ids kept) + internal edges + a `functionEntry` + a `functionResult`,
+  with entry-out → each crossIn target and each crossOut source → result-in.
+- **`requires`.** Scanned from the body: `event`/`action`/`fireCue` refs, `$engine.<collection>`
+  accessors, and every struct/enum type the body's pins + the function's boundary types touch.
+- **New main graph.** Remove S + internal/crossIn/crossOut edges; add the `functionCall` at S's
+  centroid; re-attach the **external** side of each crossing to the call's matching pin (external
+  edges untouched).
+
+Verified headlessly by `tools/flow-spike/flowV2Collapse.ts` (`pnpm --filter flow-spike v2collapse`).
 
 **Cross-template compatibility (decision #2).** Because a function can touch template-specific
 vocabulary, `requires` lists the events/actions/cues/structs it references. The editor offers a

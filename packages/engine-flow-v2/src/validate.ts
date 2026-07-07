@@ -15,6 +15,10 @@
  *  - `accessor-unresolved` — an `accessor` DataSource that doesn't resolve in scope.
  *  - `fn-requires`         — a `functionCall` whose target's `requires` isn't satisfied by the
  *                            doc's `templateId` vocabulary.
+ *  - `entry-outside-body`  — a `functionEntry`/`functionResult` in the TOP-LEVEL `FlowDoc.graph`
+ *                            (§5: those two kinds live ONLY inside a `FunctionDef.body`).
+ *  - `fn-body-entry`       — a `FunctionDef.body` lacks exactly one `functionEntry` referencing it.
+ *  - `fn-body-result`      — a `FunctionDef.body` lacks exactly one `functionResult` referencing it.
  *
  * The checks mirror the schema's rules; a flagged doc is still structurally a FlowDoc — the
  * issues are an authoring aid + the connect-time gate, not a runtime crash.
@@ -50,7 +54,10 @@ export type FlowIssueCode =
 	| 'unfilled-data-in'
 	| 'literal-type'
 	| 'accessor-unresolved'
-	| 'fn-requires';
+	| 'fn-requires'
+	| 'entry-outside-body'
+	| 'fn-body-entry'
+	| 'fn-body-result';
 
 export type FlowIssueSeverity = 'error' | 'warning';
 
@@ -148,12 +155,71 @@ export const validateFlowDoc = (
 	library: FunctionLibraryDoc,
 ): FlowIssue[] => {
 	const ctx: PinContext = { vocab, library };
+	const containerIds = new Set(doc.containers.map((c) => c.id));
+	return validateGraph(doc.graph, ctx, {
+		mode: 'flow',
+		containerIds,
+		templateId: doc.templateId,
+	});
+};
+
+/**
+ * Validate a `FunctionDef.body` as its own graph (§5). Runs the same structural/type checks as
+ * `validateFlowDoc` — minus `entry-outside-body` (entry/result are LEGAL here) — and adds the
+ * body-shape checks: exactly one `functionEntry` and one `functionResult`, both referencing this
+ * function. A body has no containers, so container refs (if any) are reported as unresolved.
+ */
+export const validateFunctionDef = (
+	fn: FunctionDef,
+	vocab: TemplateVocabulary,
+	library: FunctionLibraryDoc,
+): FlowIssue[] => {
+	const ctx: PinContext = { vocab, library };
+	const issues = validateGraph(fn.body, ctx, {
+		mode: 'body',
+		containerIds: new Set<string>(),
+		templateId: fn.id,
+	});
+
+	const entries = fn.body.nodes.filter((n) => n.kind === 'functionEntry' && n.ref === fn.id);
+	const results = fn.body.nodes.filter((n) => n.kind === 'functionResult' && n.ref === fn.id);
+	if (entries.length !== 1) {
+		issues.push({
+			code: 'fn-body-entry',
+			severity: 'error',
+			message: `function '${fn.name}' body must contain exactly one functionEntry referencing it (found ${entries.length})`,
+			at: { on: 'node', node: entries[0]?.id ?? fn.id },
+		});
+	}
+	if (results.length !== 1) {
+		issues.push({
+			code: 'fn-body-result',
+			severity: 'error',
+			message: `function '${fn.name}' body must contain exactly one functionResult referencing it (found ${results.length})`,
+			at: { on: 'node', node: results[0]?.id ?? fn.id },
+		});
+	}
+	return issues;
+};
+
+interface GraphCheckOptions {
+	mode: 'flow' | 'body';
+	containerIds: Set<string>;
+	templateId: string;
+}
+
+const validateGraph = (
+	graph: FlowDoc['graph'],
+	ctx: PinContext,
+	opts: GraphCheckOptions,
+): FlowIssue[] => {
+	const { vocab, library } = ctx;
 	const issues: FlowIssue[] = [];
-	const { nodes, exec, data } = doc.graph;
+	const { nodes, exec, data } = graph;
+	const { containerIds } = opts;
 
 	const nodeById = new Map<string, Node>(nodes.map((n) => [n.id, n]));
 	const pinsById = new Map<string, Pin[]>(nodes.map((n) => [n.id, derivePins(n, ctx)]));
-	const containerIds = new Set(doc.containers.map((c) => c.id));
 
 	// --- (a) every node `ref` resolves; container refs resolve against the doc's containers ---
 	for (const node of nodes) {
@@ -175,6 +241,15 @@ export const validateFlowDoc = (
 				code: 'ref-unresolved',
 				severity: 'error',
 				message: `${node.kind} node '${node.id}' references unknown container '${node.ref}'`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+		// (§5) function entry/result nodes belong ONLY inside a `FunctionDef.body`.
+		if (opts.mode === 'flow' && (node.kind === 'functionEntry' || node.kind === 'functionResult')) {
+			issues.push({
+				code: 'entry-outside-body',
+				severity: 'error',
+				message: `${node.kind} node '${node.id}' cannot appear in the top-level flow graph (it lives only inside a function body)`,
 				at: { on: 'node', node: node.id },
 			});
 		}
@@ -294,7 +369,7 @@ export const validateFlowDoc = (
 			issues.push({
 				code: 'fn-requires',
 				severity: 'error',
-				message: `functionCall '${node.id}' → '${fn.name}': template '${doc.templateId}' does not satisfy its vocabulary requirements`,
+				message: `functionCall '${node.id}' → '${fn.name}': template '${opts.templateId}' does not satisfy its vocabulary requirements`,
 				at: { on: 'node', node: node.id },
 			});
 		}

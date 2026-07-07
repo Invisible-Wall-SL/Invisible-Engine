@@ -27,7 +27,8 @@
 		"vocab": "tsx vocabulary.ts",
 		"tap": "tsx tapToContinue.ts",
 		"scenerole": "tsx sceneRole.ts",
-		"v2schema": "tsx flowV2Schema.ts"
+		"v2schema": "tsx flowV2Schema.ts",
+		"v2collapse": "tsx flowV2Collapse.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

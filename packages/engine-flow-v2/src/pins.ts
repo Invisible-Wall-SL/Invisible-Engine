@@ -213,5 +213,26 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 				: { id: 'out', dir: 'out', kind: 'data', label: 'out' };
 			return [out]; // pure value op: NO exec pins.
 		}
+		case 'functionEntry': {
+			// The body reads the function's inputs by pulling from the entry's OUTPUTS:
+			// exec-OUT + one data-OUT per the FunctionDef's declared data input (§5). If `ref`
+			// doesn't resolve, only the exec pin is derivable.
+			const fn: FunctionDef | undefined = ctx.library.functions.find((f) => f.id === node.ref);
+			if (!fn) return [EXEC_OUT];
+			const outs = fn.inputs
+				.filter((p) => p.kind === 'data')
+				.map((p) => dataOut(p.id, p.dataType!, p.label));
+			return [EXEC_OUT, ...outs];
+		}
+		case 'functionResult': {
+			// The result collects the function's outputs: exec-IN + one data-IN per the
+			// FunctionDef's declared data output (§5). If `ref` doesn't resolve, only exec.
+			const fn: FunctionDef | undefined = ctx.library.functions.find((f) => f.id === node.ref);
+			if (!fn) return [EXEC_IN];
+			const ins = fn.outputs
+				.filter((p) => p.kind === 'data')
+				.map((p) => dataIn(p.id, p.dataType!, p.label));
+			return [EXEC_IN, ...ins];
+		}
 	}
 };
