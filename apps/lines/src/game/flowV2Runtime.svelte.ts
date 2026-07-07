@@ -115,8 +115,13 @@ export type LinesFlowV2 = {
 	 *  by v2 ALONE (its coded/v1 twin is suppressed, no doubling); an un-owned event falls through to
 	 *  the coded/v1 path (parity). This is how the game hands events to v2 ONE AT A TIME. */
 	ownsEvent: (eventType: string) => boolean;
-	/** Run the authored v2 handler for `eventName` with `payload` (a no-op if un-authored). */
-	dispatch: (eventName: string, payload: Record<string, unknown>) => Promise<void>;
+	/** Run the authored v2 handler for `eventName` with `payload` + dispatch `context` (e.g. the
+	 *  surrounding `bookEvents` list a mechanic effect reads); a no-op if un-authored. */
+	dispatch: (
+		eventName: string,
+		payload: Record<string, unknown>,
+		context?: Record<string, unknown>,
+	) => Promise<void>;
 	/** The z-ordered container mount model (show/hide land here; drives `<FlowV2Mount>`). */
 	mount: ContainerMountModel;
 	/** Resolve a container's `sceneId` → its backing editor `Scene` (for `<FlowV2Mount>`). */
@@ -176,7 +181,7 @@ export const createLinesFlowV2 = (
 
 	return {
 		ownsEvent: (eventType) => ownedEvents.has(eventType),
-		dispatch: (eventName, payload) => runFlowEvent(doc, ctx, eventName, payload),
+		dispatch: (eventName, payload, context) => runFlowEvent(doc, ctx, eventName, payload, context),
 		mount,
 		resolveScene,
 		ordered: () => mount.ordered(),

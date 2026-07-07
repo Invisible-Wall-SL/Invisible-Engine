@@ -35,7 +35,11 @@ export const playBookEvent = async (
 	// game hand events to v2 one at a time; with no v2 doc, `getFlowV2()` is undefined ⇒ byte-parity.
 	const v2 = getFlowV2();
 	if (v2?.ownsEvent(bookEvent.type)) {
-		await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>);
+		// Pass the whole event as the trigger + the surrounding book list as `$context.bookEvents`
+		// (the `reveal` mechanic reads it for the bonus-game check), matching the coded handler's args.
+		await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>, {
+			bookEvents: context.bookEvents,
+		});
 		return;
 	}
 
