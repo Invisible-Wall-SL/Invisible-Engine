@@ -1,0 +1,229 @@
+/**
+ * Invisible Flow v2 — the REFERENCE TEMPLATE vocabulary (`book-of` / apps/lines), Phase 4c.
+ *
+ * A `TemplateVocabulary` is the CONTRACT a flow is authored against (schema §7): the events it can
+ * react to, the actions/cues it can fire, the collections it can loop, and the types those carry.
+ * It is DECLARED BY THE TEMPLATE, not authored in the editor. This is the reference book-of
+ * template's REAL vocabulary — the single source of truth loaded by BOTH the `/flow-v2` editor
+ * (palettes + strict type-checking) AND the apps/lines runtime (which BACKS each declared surface).
+ *
+ * Everything here is transcribed VERBATIM from the reference game's real code, so the vocabulary is
+ * honest (never an invented contract):
+ *  - **enums** — `SymbolName` = `apps/lines` `config.symbols` keys; `GameType` = `paddingReels` keys.
+ *  - **events** — the `BookEvent` union (`typesBookEvent.ts`); each event node's data-outs are the
+ *    author-relevant payload fields. The game dispatches `runFlowEvent(bookEvent.type, bookEvent)`.
+ *  - **actions** — the `flowEffect` registry keys (`flowEffects.ts`), each a state mutation / awaited
+ *    op the game implements; category `effect`, plus the `command` mechanic ops (`stopReel`,
+ *    `expandBookColumns`). The game's env resolves these through `flowEffect(name)`.
+ *  - **cues** — the presentation signals components bind (the `EmitterEvent*` unions, transcribed in
+ *    v1's `DEFAULT_EMITTER_VOCABULARY`); a `fireCue` node → `eventEmitter.broadcast({ type, ... })`.
+ *  - **collections** — `reels` (`$engine.reels`), the iterable a `forEach` walks.
+ *
+ * The mechanic-owning effects that consume the WHOLE book event (e.g. `revealBoard`) are NOT actions
+ * here: the coded template still runs them (the flow dispatches ADDITIVELY, Phase 4b), so the flow
+ * only authors the presentation surface on top.
+ */
+
+import type { TemplateVocabulary, TypeRef } from '../types';
+
+// ---------------------------------------------------------------------------
+// Reusable TypeRefs.
+// ---------------------------------------------------------------------------
+
+const INT: TypeRef = { t: 'int' };
+const FLOAT: TypeRef = { t: 'float' };
+const SYMBOL: TypeRef = { t: 'enum', name: 'SymbolName' };
+const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
+const REEL: TypeRef = { t: 'struct', name: 'Reel' };
+const POSITION: TypeRef = { t: 'struct', name: 'Position' };
+const WIN: TypeRef = { t: 'struct', name: 'Win' };
+const list = (of: TypeRef): TypeRef => ({ t: 'list', of });
+
+// ---------------------------------------------------------------------------
+// The reference template vocabulary.
+// ---------------------------------------------------------------------------
+
+export const BOOK_OF_VOCAB: TemplateVocabulary = {
+	templateId: 'bookOf',
+
+	// Structs — the payload shapes an author reads a member off (`$item.index`, a Win's fields).
+	structs: [
+		{ name: 'Reel', fields: [{ name: 'index', type: INT }] },
+		{
+			name: 'Position',
+			fields: [
+				{ name: 'reel', type: INT },
+				{ name: 'row', type: INT },
+			],
+		},
+		{
+			name: 'Win',
+			fields: [
+				{ name: 'symbol', type: SYMBOL },
+				{ name: 'kind', type: INT },
+				{ name: 'win', type: FLOAT },
+			],
+		},
+	],
+
+	// Enums — `SymbolName` = the real `config.symbols` keys; `GameType` = the `paddingReels` keys.
+	enums: [
+		{
+			name: 'SymbolName',
+			values: ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'L5', 'S', 'W'],
+		},
+		{ name: 'GameType', values: ['basegame', 'freegame'] },
+	],
+
+	// Events — the `BookEvent` union (author-relevant payload fields only). The game dispatches
+	// `runFlowEvent(bookEvent.type, bookEvent)`, so each field name below IS the event's data-out pin.
+	events: [
+		{ name: 'reveal', payload: [{ name: 'gameType', type: GAME_TYPE }] },
+		{ name: 'setExpandingSymbol', payload: [{ name: 'symbol', type: SYMBOL }] },
+		{
+			name: 'expandBookColumns',
+			payload: [
+				{ name: 'symbol', type: SYMBOL },
+				{ name: 'reels', type: list(INT) },
+			],
+		},
+		{
+			name: 'winInfo',
+			payload: [
+				{ name: 'totalWin', type: FLOAT },
+				{ name: 'wins', type: list(WIN) },
+			],
+		},
+		{
+			name: 'setWin',
+			payload: [
+				{ name: 'amount', type: FLOAT },
+				{ name: 'winLevel', type: INT },
+			],
+		},
+		{ name: 'setTotalWin', payload: [{ name: 'amount', type: FLOAT }] },
+		{ name: 'finalWin', payload: [{ name: 'amount', type: FLOAT }] },
+		{
+			name: 'freeSpinTrigger',
+			payload: [
+				{ name: 'totalFs', type: INT },
+				{ name: 'positions', type: list(POSITION) },
+			],
+		},
+		{
+			name: 'updateFreeSpin',
+			payload: [
+				{ name: 'amount', type: INT },
+				{ name: 'total', type: INT },
+			],
+		},
+		{
+			name: 'freeSpinEnd',
+			payload: [
+				{ name: 'amount', type: FLOAT },
+				{ name: 'winLevel', type: INT },
+			],
+		},
+	],
+
+	// Actions — the `flowEffect` registry keys the game implements. `effect` = a state mutation /
+	// awaited op; `command` = a mechanic op. Every name here MUST resolve in `flowEffects.ts`.
+	actions: [
+		// --- state / presentation effects ---
+		{ name: 'setSpecialSymbol', params: [{ name: 'symbol', type: SYMBOL }], category: 'effect' },
+		{
+			name: 'setWinBookEventAmount',
+			params: [{ name: 'amount', type: FLOAT }],
+			category: 'effect',
+		},
+		{ name: 'setFreeGameType', params: [], category: 'effect' },
+		{ name: 'setFreeSpinCounterTotal', params: [{ name: 'total', type: INT }], category: 'effect' },
+		{
+			name: 'setFreeSpinCounterTotalOnly',
+			params: [{ name: 'total', type: INT }],
+			category: 'effect',
+		},
+		{ name: 'freeSpinIntroShow', params: [], category: 'effect' },
+		{ name: 'freeSpinIntroHide', params: [], category: 'effect' },
+		{ name: 'freeSpinCounterShow', params: [], category: 'effect' },
+		{
+			name: 'freeSpinCounterUpdate',
+			params: [
+				{ name: 'amount', type: INT },
+				{ name: 'total', type: INT },
+			],
+			category: 'effect',
+		},
+		{
+			name: 'updateFreeSpinCounter',
+			params: [
+				{ name: 'amount', type: INT },
+				{ name: 'total', type: INT },
+			],
+			category: 'effect',
+		},
+		{ name: 'enterFreeSpinOutro', params: [], category: 'effect' },
+		{ name: 'exitFreeSpinOutro', params: [], category: 'effect' },
+		{
+			name: 'freeSpinOutroCountUp',
+			params: [
+				{ name: 'amount', type: FLOAT },
+				{ name: 'winLevel', type: INT },
+			],
+			category: 'effect',
+		},
+		{ name: 'winLevelSoundsPlay', params: [{ name: 'winLevel', type: INT }], category: 'effect' },
+		{ name: 'winLevelSoundsStop', params: [], category: 'effect' },
+		{ name: 'winShow', params: [{ name: 'winLevel', type: INT }], category: 'effect' },
+		{
+			name: 'winUpdate',
+			params: [
+				{ name: 'amount', type: FLOAT },
+				{ name: 'winLevel', type: INT },
+			],
+			category: 'effect',
+		},
+		{ name: 'winHide', params: [], category: 'effect' },
+		// --- mechanic commands ---
+		{ name: 'stopReel', params: [{ name: 'index', type: INT }], category: 'command' },
+		{
+			name: 'expandBookColumns',
+			params: [
+				{ name: 'symbol', type: SYMBOL },
+				{ name: 'reels', type: list(INT) },
+			],
+			category: 'command',
+		},
+	],
+
+	// Cues — the presentation signals a `fireCue` node broadcasts; components in shown containers
+	// bind them (transcribed from the real `EmitterEvent*` unions). Backed by `eventEmitter.broadcast`.
+	cues: [
+		// Special book (the book-of reveal).
+		{ name: 'specialBookReveal', payload: [{ name: 'symbol', type: SYMBOL }] },
+		{ name: 'specialBookHide', payload: [] },
+		// Board.
+		{ name: 'boardShow', payload: [] },
+		{ name: 'boardHide', payload: [] },
+		{ name: 'boardFrameGlowShow', payload: [] },
+		{ name: 'boardFrameGlowHide', payload: [] },
+		{ name: 'reelStop', payload: [{ name: 'index', type: INT }] },
+		// Sound.
+		{ name: 'soundMusic', payload: [{ name: 'name', type: { t: 'string' } }] },
+		{ name: 'soundOnce', payload: [{ name: 'name', type: { t: 'string' } }] },
+		{ name: 'soundLoop', payload: [{ name: 'name', type: { t: 'string' } }] },
+		{ name: 'soundStop', payload: [{ name: 'name', type: { t: 'string' } }] },
+		{ name: 'soundScatterCounterIncrease', payload: [] },
+		{ name: 'soundScatterCounterClear', payload: [] },
+		// UI / drawer / transition.
+		{ name: 'uiShow', payload: [] },
+		{ name: 'uiHide', payload: [] },
+		{ name: 'drawerFold', payload: [] },
+		{ name: 'drawerUnfold', payload: [] },
+		{ name: 'stopButtonEnable', payload: [] },
+		{ name: 'transition', payload: [] },
+	],
+
+	// Collections — the engine-readable iterables a `forEach` walks (`$engine.reels`).
+	collections: [{ name: 'reels', of: REEL }],
+};
