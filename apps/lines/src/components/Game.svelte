@@ -102,7 +102,12 @@
 		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
 	import { createLinesFlowV2 } from '../game/flowV2Runtime.svelte';
-	import { setFlowV2, getFlowV2 } from '../game/flowV2InterpreterHolder';
+	import {
+		setFlowV2,
+		getFlowV2,
+		dispatchFlowV2Complete,
+		dispatchFlowV2Event,
+	} from '../game/flowV2InterpreterHolder';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
@@ -307,8 +312,15 @@
 	// `assetsLoaded` rising edge then advances the active Flow screen exactly as a tap does.
 	// SAFE: the holder helpers are no-ops with no active interpreter (no FlowDoc ⇒ pure coded
 	// path), so this is inert on a normal boot — parity.
+	// Phase A — a v2 flow scopes "the current screen finished" to its TOPMOST shown container
+	// (`complete:<top>`, e.g. a `loading` tap swapping loading→game). Try v2 first; it runs ALONE
+	// only when the flow OWNS that screen's complete, else falls through to the v1/coded
+	// `completeActiveScreen` (parity — no v2 doc / un-authored screen ⇒ v2 returns `false`).
 	registerFlowComplete({
-		completeActiveScreen: () => void completeActiveScreen(),
+		completeActiveScreen: () =>
+			void dispatchFlowV2Complete().then((owned) => {
+				if (!owned) void completeActiveScreen();
+			}),
 		emitSignal: (signal: string) => void emitFlowSignal(signal),
 	});
 	// Flow value dataflow (design doc §11.4) — wire `<ComponentInstance>`'s value-feed lookup through
@@ -1221,6 +1233,11 @@
 			setFlowV2(flowV2);
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
+			// Phase A boot — kick the flow's entry event so it shows its initial screen (a translated
+			// flow authors `load` → showContainer(initial); the mount `onChange` mirror updates
+			// `flowV2Containers`). Ownership-gated ⇒ inert for the book-event-only reference flow and a
+			// normal (no-v2) boot (parity). The screen swaps then run off `complete:<top>` (the tap).
+			void dispatchFlowV2Event('load');
 		});
 	});
 

@@ -10,7 +10,15 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { validateFlowDoc, BOOK_OF_VOCAB } from 'engine-flow-v2';
+import {
+	createContainerMountModel,
+	createFlowV2Env,
+	runFlowEvent,
+	validateFlowDoc,
+	BOOK_OF_VOCAB,
+	type FlowV2Effect,
+	type RunContext,
+} from 'engine-flow-v2';
 import type { FlowDoc as FlowDocV1 } from 'engine-flow';
 import { translateFlowDoc } from 'engine-flow-migrate';
 
@@ -55,7 +63,68 @@ if (warnings.length) {
 	);
 }
 
+// Replay the exact GAME-SIDE boot→tap sequence (`flowV2InterpreterHolder.dispatchFlowV2Event('load')`
+// + `dispatchFlowV2Complete()` scoping `complete:<topContainer>`) against the REAL translated flow —
+// so we prove the holder logic drives the remake's real lifecycle, not just a hand-built fixture.
+const replayLoadThenComplete = async () => {
+	const shows: string[] = [];
+	const mount = createContainerMountModel(v2.containers, () => {});
+	const noop: FlowV2Effect = () => {};
+	const baseEnv = createFlowV2Env({
+		mount,
+		effect: () => noop, // invoke-intent actions are no-ops here — we only assert screen swaps
+		broadcast: () => {},
+		waitForTimeout: () => Promise.resolve(),
+		timeScale: () => 1,
+		engineRead: () => undefined,
+	});
+	const env = {
+		...baseEnv,
+		showContainer: (id: string, z: number) => {
+			shows.push(`show ${id}`);
+			return baseEnv.showContainer(id, z);
+		},
+		hideContainer: (id: string) => {
+			shows.push(`hide ${id}`);
+			return baseEnv.hideContainer(id);
+		},
+	};
+	const ctx: RunContext = { vocab: BOOK_OF_VOCAB, library: { version: 2, functions: [] }, env };
+	const owns = (name: string) =>
+		v2.graph.nodes.some((n) => n.kind === 'event' && (n as { ref: string }).ref === name);
+
+	// boot: the game dispatches `load` (ownership-gated) → the flow shows its initial screen.
+	if (owns('load')) await runFlowEvent(v2, ctx, 'load', {});
+	const afterLoad = mount.ordered().map((c) => c.id);
+
+	// tap: dispatchFlowV2Complete scopes to the TOP shown container → `complete:<top>`.
+	const top = mount.ordered().at(-1)?.id;
+	const completeName = top ? `complete:${top}` : undefined;
+	const completeOwned = !!completeName && owns(completeName);
+	if (completeOwned) await runFlowEvent(v2, ctx, completeName!, {});
+	const afterComplete = mount.ordered().map((c) => c.id);
+
+	return { shows, afterLoad, top, completeName, completeOwned, afterComplete };
+};
+
+const run = await replayLoadThenComplete();
+console.log('\ngame-side boot→tap replay (holder logic on the real flow):');
+console.log(`  load → shown: ${run.afterLoad.join(', ') || '(none)'}`);
+console.log(`  top container = ${run.top} → dispatch ${run.completeName} (owned: ${run.completeOwned})`);
+console.log(`  after complete → shown: ${run.afterComplete.join(', ') || '(none)'}`);
+console.log(`  show/hide log: ${run.shows.join(' | ') || '(none)'}`);
+
+const bootAdvances =
+	run.afterLoad.length > 0 && // load showed the initial screen
+	run.completeOwned && // the top screen's complete is authored
+	JSON.stringify(run.afterLoad) !== JSON.stringify(run.afterComplete); // the tap changed the screen set
+
 console.log(
 	errors.length === 0 ? '\nREMAKE FLOW TRANSLATES with 0 ERRORS ✓' : '\nREMAKE FLOW HAS ERRORS ✗',
 );
-process.exit(errors.length === 0 ? 0 : 1);
+console.log(
+	bootAdvances
+		? 'GAME-SIDE load→complete DRIVES the initial screen swap ✓'
+		: 'GAME-SIDE boot→tap did NOT advance the screen ✗',
+);
+process.exit(errors.length === 0 && bootAdvances ? 0 : 1);
