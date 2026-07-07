@@ -40,6 +40,7 @@
 		"@xyflow/svelte": "^1.6.1",
 		"drizzle-orm": "0.39.3",
 		"engine-flow": "workspace:*",
+		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
 		"engine-layout": "workspace:*",
 		"marked": "^18.0.5",

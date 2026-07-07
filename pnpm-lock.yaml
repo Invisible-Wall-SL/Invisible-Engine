@@ -165,6 +165,9 @@ importers:
       engine-flow:
         specifier: workspace:*
         version: link:../../packages/engine-flow
+      engine-flow-v2:
+        specifier: workspace:*
+        version: link:../../packages/engine-flow-v2
       engine-fx:
         specifier: workspace:*
         version: link:../../packages/engine-fx
