@@ -13,8 +13,10 @@
 import type {
 	ComputeOp,
 	DataEdge,
+	DataSource,
 	ExecEdge,
 	FlowDoc,
+	Guard,
 	Node as V2Node,
 	NodeKind,
 } from 'engine-flow-v2';
@@ -131,3 +133,78 @@ export const addNode = (doc: FlowDoc, node: V2Node): FlowDoc => ({
 	...doc,
 	graph: { ...doc.graph, nodes: [...doc.graph.nodes, node] },
 });
+
+// ---------------------------------------------------------------------------
+// Node inspection setters (Phase 2b.2). Each is a pure `FlowDoc → FlowDoc` that clones
+// and replaces JUST the target node (all else shares reference identity), mirroring the
+// structural ops above. They edit a node's stored REFERENCE / per-kind fields / data-source
+// inputs — never pins (those stay derived) and never edges (those are the wiring loop).
+// ---------------------------------------------------------------------------
+
+/** Replace just the node with id `nodeId`, mapped through `fn` (identity for others). */
+const replaceNode = (doc: FlowDoc, nodeId: string, fn: (n: V2Node) => V2Node): FlowDoc => ({
+	...doc,
+	graph: {
+		...doc.graph,
+		nodes: doc.graph.nodes.map((n) => (n.id === nodeId ? fn(n) : n)),
+	},
+});
+
+/** Set a ref-carrying node's `ref` (event/action/fireCue/functionCall/show|hideContainer). */
+export const setNodeRef = (doc: FlowDoc, nodeId: string, ref: string): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		switch (n.kind) {
+			case 'event':
+			case 'action':
+			case 'fireCue':
+			case 'functionCall':
+			case 'showContainer':
+			case 'hideContainer':
+				return { ...n, ref };
+			default:
+				return n; // control kinds carry no ref.
+		}
+	});
+
+/**
+ * Set (or clear) the `DataSource` feeding a node's data-in pin `pinId`. Passing `undefined`
+ * removes the entry (the pin falls back to a plain `wire`/unfilled state). Operates on the
+ * shared `inputs` map — a `wire` source means "look at the data edges".
+ */
+export const setNodeInput = (
+	doc: FlowDoc,
+	nodeId: string,
+	pinId: string,
+	src: DataSource | undefined,
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		const inputs = { ...(n.inputs ?? {}) };
+		if (src === undefined) delete inputs[pinId];
+		else inputs[pinId] = src;
+		const next = { ...n, inputs };
+		if (Object.keys(inputs).length === 0) delete next.inputs;
+		return next as V2Node;
+	});
+
+/** Set a `forEach` node's iteration `mode` (sequence | parallel). */
+export const setForEachMode = (
+	doc: FlowDoc,
+	nodeId: string,
+	mode: 'sequence' | 'parallel',
+): FlowDoc => replaceNode(doc, nodeId, (n) => (n.kind === 'forEach' ? { ...n, mode } : n));
+
+/** Set a `sequence`/`parallel` node's exec-out `count` (clamped to ≥ 1). */
+export const setCount = (doc: FlowDoc, nodeId: string, count: number): FlowDoc =>
+	replaceNode(doc, nodeId, (n) =>
+		n.kind === 'sequence' || n.kind === 'parallel'
+			? { ...n, count: Math.max(1, Math.floor(count)) }
+			: n,
+	);
+
+/** Replace a `compute` node's whole `ComputeOp` (op + operands). */
+export const setComputeOp = (doc: FlowDoc, nodeId: string, op: ComputeOp): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => (n.kind === 'compute' ? { ...n, compute: op } : n));
+
+/** Replace a `branch` node's `Guard` (its `all[]` / `any[]` comparison set). */
+export const setBranchGuard = (doc: FlowDoc, nodeId: string, guard: Guard): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => (n.kind === 'branch' ? { ...n, guard } : n));

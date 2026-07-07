@@ -27,6 +27,7 @@
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
+	import NodeInspector from './NodeInspector.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -45,6 +46,21 @@
 	const ctx: PinContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY };
 
 	let selectedNodeId = $state<string | null>(null);
+
+	// The selected node object (or null) — drives the inspector in the left panel. Reads the
+	// live `doc` so an inspector edit that replaces the doc re-renders it with fresh fields.
+	const selectedNode = $derived<V2Node | null>(
+		selectedNodeId ? (doc.graph.nodes.find((n) => n.id === selectedNodeId) ?? null) : null,
+	);
+
+	// An inspector edit hands back the next `FlowDoc` (from a `graphOps` setter). Replace the
+	// source-of-truth `doc`, re-seed the xyflow arrays (so derived pins/edge colors refresh),
+	// and mark dirty (revalidate live + autosave — same contract as the wiring gestures).
+	function applyDocEdit(next: FlowDoc): void {
+		doc = next;
+		syncCanvas();
+		markDirty();
+	}
 
 	// The node types the canvas knows — one generic v2 node that derives its own pins.
 	const nodeTypes = { v2: FlowV2Node };
@@ -376,13 +392,23 @@
 
 	<div class="body">
 		<aside class="side">
-			<h3>Flow v2 · dev</h3>
-			<p class="hint">
-				Editable canvas (Phase 2b.1). Template <code>{doc.templateId}</code>. Pins are
-				<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible wires
-				won't drop. Delete removes selection.
-			</p>
-			<AddNodePalette vocab={BOOK_OF_VOCAB} library={LIBRARY} {doc} onadd={addNodeOfKind} />
+			{#if selectedNode}
+				<div class="inspector-head">
+					<h3>Inspector</h3>
+					<button class="close" type="button" onclick={onPaneClick} title="Deselect (show palette)"
+						>✕</button
+					>
+				</div>
+				<NodeInspector {doc} node={selectedNode} {ctx} onchange={applyDocEdit} />
+			{:else}
+				<h3>Flow v2 · dev</h3>
+				<p class="hint">
+					Editable canvas (Phase 2b.2). Template <code>{doc.templateId}</code>. Pins are
+					<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible wires
+					won't drop. Select a node to edit its fields; Delete removes selection.
+				</p>
+				<AddNodePalette vocab={BOOK_OF_VOCAB} library={LIBRARY} {doc} onadd={addNodeOfKind} />
+			{/if}
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 		</aside>
 
@@ -513,6 +539,29 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #94a3b8;
+	}
+	.inspector-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 8px;
+	}
+	.inspector-head h3 {
+		margin: 0;
+	}
+	.close {
+		font-size: 11px;
+		line-height: 1;
+		padding: 3px 8px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #94a3b8;
+		cursor: pointer;
+	}
+	.close:hover {
+		border-color: #3a4655;
+		color: #e2e8f0;
 	}
 	.hint {
 		color: #64748b;
