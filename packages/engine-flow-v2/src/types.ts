@@ -95,7 +95,9 @@ export type Accessor =
 	| { on: 'item'; member?: string } // $item / $item.index inside a forEach.
 	| { on: 'index' } // the forEach counter.
 	| { on: 'input'; name: string } // a function's input, inside its body.
-	| { on: 'engine'; key: string }; // a template global read (e.g. reels, slots).
+	| { on: 'engine'; key: string } // a template global read (e.g. reels, slots).
+	| { on: 'trigger'; member?: string } // the event payload — whole ($trigger) or a field.
+	| { on: 'context'; member?: string }; // the dispatch context (e.g. bookEvents) — whole or a field.
 
 /** Where a data-in gets its value. `wire` means "look at the data edges". */
 export type DataSource =
@@ -180,6 +182,9 @@ export interface ActionNode extends NodeBase {
 export interface FireCueNode extends NodeBase {
 	kind: 'fireCue';
 	ref: string; // the cue name (resolves in `TemplateVocabulary.cues`).
+	/** AWAIT the cue's subscribers before continuing the exec chain (an awaited `broadcastAsync` —
+	 *  e.g. a reveal that must finish before the next event). Default `false` = fire-and-forget. */
+	await?: boolean;
 }
 
 /** Delay: latent wait (turbo-scaled). One `ms: ms` data-in fed by wire/literal/accessor. */

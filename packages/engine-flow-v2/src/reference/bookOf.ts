@@ -19,9 +19,10 @@
  *    v1's `DEFAULT_EMITTER_VOCABULARY`); a `fireCue` node → `eventEmitter.broadcast({ type, ... })`.
  *  - **collections** — `reels` (`$engine.reels`), the iterable a `forEach` walks.
  *
- * The mechanic-owning effects that consume the WHOLE book event (e.g. `revealBoard`) are NOT actions
- * here: the coded template still runs them (the flow dispatches ADDITIVELY, Phase 4b), so the flow
- * only authors the presentation surface on top.
+ * Mechanic effects that consume the WHOLE book event (e.g. `revealBoard`) are declared as OPAQUE
+ * actions (no typed params): the flow feeds them via `$trigger` (whole payload) + `$context.*`
+ * accessors, and the interpreter passes those through to the flowEffect. This lets the flow OWN even
+ * the board-spin event so the whole game is flow-driven (event ownership, `game/utils.ts`).
  */
 
 import type { TemplateVocabulary, TypeRef } from '../types';
@@ -62,6 +63,7 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{ name: 'symbol', type: SYMBOL },
 				{ name: 'kind', type: INT },
 				{ name: 'win', type: FLOAT },
+				{ name: 'positions', type: list(POSITION) },
 			],
 		},
 	],
@@ -185,6 +187,12 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		},
 		{ name: 'winHide', params: [], category: 'effect' },
 		// --- mechanic commands ---
+		// `revealBoard` is the board SPIN — it consumes the WHOLE reveal event + the surrounding
+		// book-event list (the bonus-game check), so it takes no clean typed params: the flow feeds it
+		// via `$trigger` (whole payload) + `$context.bookEvents` accessors (the node's `inputs`), and
+		// the interpreter passes those through to the `revealBoard` flowEffect. (Opaque by design —
+		// the mechanic; the editor doesn't expose typed pins for it.)
+		{ name: 'revealBoard', params: [], category: 'command' },
 		{ name: 'stopReel', params: [{ name: 'index', type: INT }], category: 'command' },
 		{
 			name: 'expandBookColumns',
@@ -205,9 +213,27 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		// Board.
 		{ name: 'boardShow', payload: [] },
 		{ name: 'boardHide', payload: [] },
+		{
+			name: 'boardWithAnimateSymbols',
+			payload: [{ name: 'symbolPositions', type: list(POSITION) }],
+		},
 		{ name: 'boardFrameGlowShow', payload: [] },
 		{ name: 'boardFrameGlowHide', payload: [] },
 		{ name: 'reelStop', payload: [{ name: 'index', type: INT }] },
+		// Win panel (fired as cues; the state flags are the same-named `effect` actions above).
+		{ name: 'winShow', payload: [] },
+		{ name: 'winHide', payload: [] },
+		// Free-spin intro / counter / outro (fired as cues alongside the same-named state effects).
+		{ name: 'freeSpinIntroShow', payload: [] },
+		{ name: 'freeSpinIntroUpdate', payload: [{ name: 'totalFreeSpins', type: INT }] },
+		{ name: 'freeSpinIntroHide', payload: [] },
+		{ name: 'freeSpinCounterShow', payload: [] },
+		// The CUE carries only `total` (the intro fires it total-only; coded leaves `current`
+		// undefined). The per-step `current` update is the `freeSpinCounterUpdate` EFFECT (action).
+		{ name: 'freeSpinCounterUpdate', payload: [{ name: 'total', type: INT }] },
+		{ name: 'freeSpinCounterHide', payload: [] },
+		{ name: 'freeSpinOutroShow', payload: [] },
+		{ name: 'freeSpinOutroHide', payload: [] },
 		// Sound.
 		{ name: 'soundMusic', payload: [{ name: 'name', type: { t: 'string' } }] },
 		{ name: 'soundOnce', payload: [{ name: 'name', type: { t: 'string' } }] },
@@ -220,6 +246,8 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'uiHide', payload: [] },
 		{ name: 'drawerFold', payload: [] },
 		{ name: 'drawerUnfold', payload: [] },
+		{ name: 'drawerButtonShow', payload: [] },
+		{ name: 'drawerButtonHide', payload: [] },
 		{ name: 'stopButtonEnable', payload: [] },
 		{ name: 'transition', payload: [] },
 	],

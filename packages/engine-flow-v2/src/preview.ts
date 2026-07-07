@@ -50,6 +50,8 @@ export interface FlowPreviewOptions {
 	speed?: number;
 	/** Override the synthesized sample trigger payload (else one is built from the EventDecl). */
 	payload?: Record<string, unknown>;
+	/** Override the fixed dispatch context (`$context.*`, e.g. `bookEvents`) — else empty. */
+	context?: Record<string, unknown>;
 	/** Override the fixed `$engine.<key>` feed (else `FIXED_PREVIEW_ENGINE`). */
 	engine?: (key: string) => unknown;
 }
@@ -172,7 +174,7 @@ export const previewFlowEvent = async (
 	};
 
 	const ctx: RunContext = { vocab: lookups.vocab, library: lookups.library, env };
-	await runFlowEvent(doc, ctx, eventName, trigger);
+	await runFlowEvent(doc, ctx, eventName, trigger, options.context ?? {});
 
 	return { timeline, durationMs: clock, speed };
 };

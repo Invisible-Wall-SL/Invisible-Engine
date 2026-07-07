@@ -78,6 +78,9 @@ export interface RunContext {
 interface Scope {
 	/** The event payload that seeded this run (`$trigger.*` — read as the event's data-outs). */
 	trigger: Record<string, unknown>;
+	/** The dispatch context that seeded this run (`$context.*` — e.g. the surrounding `bookEvents`
+	 *  list a coded handler's second argument carries). Empty `{}` when the game passes none. */
+	context: Record<string, unknown>;
 	/** The current forEach element (`$item[.member]`), when inside a loop body. */
 	item?: unknown;
 	/** The current forEach counter (`$index`), when inside a loop body. */
@@ -110,11 +113,15 @@ class FlowInterpreter {
 		for (const node of graph.nodes) this.nodesById.set(node.id, node);
 	}
 
-	/** Find the `event` node reacting to `eventName`, seed the trigger scope, and run. */
-	async runEvent(eventName: string, payload: Record<string, unknown>): Promise<void> {
+	/** Find the `event` node reacting to `eventName`, seed the trigger + context scope, and run. */
+	async runEvent(
+		eventName: string,
+		payload: Record<string, unknown>,
+		context: Record<string, unknown>,
+	): Promise<void> {
 		const entry = this.doc.graph.nodes.find((n) => n.kind === 'event' && n.ref === eventName);
 		if (!entry) return; // no authored handler for this event → parity-safe no-op.
-		await this.execFrom(this.doc.graph, entry.id, 'exec', { trigger: payload });
+		await this.execFrom(this.doc.graph, entry.id, 'exec', { trigger: payload, context });
 	}
 
 	// -------------------------------------------------------------------------
@@ -180,9 +187,14 @@ class FlowInterpreter {
 				await this.ctx.env.effect(node.ref, this.resolvePayload(graph, node, scope));
 				return this.nextExec(graph, node.id, 'exec');
 
-			case 'fireCue':
-				await this.ctx.env.broadcast(node.ref, this.resolvePayload(graph, node, scope));
+			case 'fireCue': {
+				// AWAIT the cue's subscribers only when the node opts in (`await: true`), matching the
+				// coded handlers' `broadcast` (fire-and-forget) vs `broadcastAsync` (awaited) split. A
+				// fire-and-forget cue still triggers its subscribers; the flow just doesn't block.
+				const done = this.ctx.env.broadcast(node.ref, this.resolvePayload(graph, node, scope));
+				if (node.await) await done;
 				return this.nextExec(graph, node.id, 'exec');
+			}
 
 			case 'delay': {
 				const ms = Number(this.resolveDataIn(graph, node.id, 'ms', scope));
@@ -284,7 +296,7 @@ class FlowInterpreter {
 			input[pin.id] = this.resolveDataIn(graph, node.id, pin.id, scope);
 		}
 
-		const bodyScope: Scope = { trigger: scope.trigger, input };
+		const bodyScope: Scope = { trigger: scope.trigger, context: scope.context, input };
 		const entry = fn.body.nodes.find((n) => n.kind === 'functionEntry' && n.ref === fn.id);
 		if (entry) await this.execFrom(fn.body, entry.id, 'exec', bodyScope);
 
@@ -363,6 +375,12 @@ class FlowInterpreter {
 				return scope.input?.[acc.name];
 			case 'engine':
 				return this.ctx.env.engineRead(acc.key);
+			case 'trigger':
+				// No member → the WHOLE event payload (e.g. a mechanic effect that consumes the raw
+				// book event); a member → that payload field.
+				return acc.member === undefined ? scope.trigger : scope.trigger[acc.member];
+			case 'context':
+				return acc.member === undefined ? scope.context : scope.context[acc.member];
 		}
 	}
 
@@ -504,7 +522,8 @@ export const runFlowEvent = async (
 	ctx: RunContext,
 	eventName: string,
 	payload: Record<string, unknown>,
+	context: Record<string, unknown> = {},
 ): Promise<void> => {
 	const interpreter = new FlowInterpreter(doc, ctx);
-	await interpreter.runEvent(eventName, payload);
+	await interpreter.runEvent(eventName, payload, context);
 };
