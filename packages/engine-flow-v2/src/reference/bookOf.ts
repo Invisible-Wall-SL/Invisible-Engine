@@ -77,9 +77,20 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'GameType', values: ['basegame', 'freegame'] },
 	],
 
-	// Events — the `BookEvent` union (author-relevant payload fields only). The game dispatches
-	// `runFlowEvent(bookEvent.type, bookEvent)`, so each field name below IS the event's data-out pin.
+	// Events — the game dispatches any of these into the flow via `runFlowEvent(name, payload)`. Three
+	// families (Phase A parity with v1's triggers): BOOK events (the RGS `BookEvent` union), LIFECYCLE
+	// + SIGNAL events (boot/loading/tap), and INTENT events (button presses). Each field name IS the
+	// event's data-out pin. The flow OWNS an event → drives it (its coded/v1 twin suppressed).
 	events: [
+		// --- lifecycle + UI signals (v1's `complete`/loading triggers → events the game dispatches) ---
+		{ name: 'load', payload: [] }, // assets loaded — enter the game (hide loading, show basegame).
+		{ name: 'tapToStart', payload: [] }, // the loading press-to-continue tap.
+		{ name: 'idle', payload: [] }, // round settled, ready for the next spin.
+		// --- intents (v1's `action` button edges → events; the flow reacts + invokes the mechanic) ---
+		{ name: 'spin', payload: [] },
+		{ name: 'stop', payload: [] },
+		{ name: 'buyBonus', payload: [] },
+		// --- book events (the RGS `BookEvent` union) ---
 		{ name: 'reveal', payload: [{ name: 'gameType', type: GAME_TYPE }] },
 		{ name: 'setExpandingSymbol', payload: [{ name: 'symbol', type: SYMBOL }] },
 		{
@@ -194,6 +205,12 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		// the mechanic; the editor doesn't expose typed pins for it.)
 		{ name: 'revealBoard', params: [], category: 'command' },
 		{ name: 'stopReel', params: [{ name: 'index', type: INT }], category: 'command' },
+		// Intent-invoking commands — the flow reacts to a `spin`/`stop`/`buyBonus` button event and
+		// invokes the TEMPLATE's mechanic (start the bet, stop the reels, open buy-bonus). Opaque like
+		// `revealBoard`; the game backs them (they run the same coded intent the button did).
+		{ name: 'startSpin', params: [], category: 'command' },
+		{ name: 'stopSpin', params: [], category: 'command' },
+		{ name: 'confirmBuyBonus', params: [], category: 'command' },
 		{
 			name: 'expandBookColumns',
 			params: [

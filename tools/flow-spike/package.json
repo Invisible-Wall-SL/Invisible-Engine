@@ -32,7 +32,8 @@
 		"v2runtime": "tsx flowV2Runtime.ts",
 		"v2mount": "tsx flowV2Mount.ts",
 		"v2vocab": "tsx flowV2Vocab.ts",
-		"v2preview": "tsx flowV2Preview.ts"
+		"v2preview": "tsx flowV2Preview.ts",
+		"v2lifecycle": "tsx flowV2Lifecycle.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
