@@ -42,10 +42,52 @@ DERIVED from its `ref` + the template vocabulary = anti-drift, the root cause of
 v2schema`) encodes the reel-stagger scenario (book-of vocab + `StaggerStop` function + FlowDoc) and
 asserts it validates clean AND a type-mismatch is caught. typecheck + v2schema + phase5 + fs6 PASS.
 
-**Remaining:** Phase 2 = the v2 `/flow` canvas (new UI) → Phase 3 functions (define/collapse/reuse) →
-Phase 4 runtime interpreter (z-ordered show/hide mounter + bake-time function inliner) → Phase 5
-migrate the one flow + retire v1. An interactive canvas **spike** (reel-stagger, throwaway HTML)
-validated the feel first.
+**Since Phase 1 (all shipped to `main`):** Phase 2 = the unlisted DEV `/flow-v2` editor (render →
+wire → add[palette+DnD] → delete → move → inspector → project-scoped R2 autosave → functions
+create/reuse/edit/rename/delete) — the **entire authoring side is done**. `2c` added Collapse-to-
+Function + a shared cross-template library. **Phase 4a** (`ab251ce`) shipped the DEDICATED v2
+runtime interpreter `runFlowEvent(doc, ctx, event, payload)` over an injected `FlowV2Env` (walks the
+graph directly — dynamic delays, forEach, compute, function recursion — NOT compiled onto the v1
+executor). See the Phase 4b entry below for game integration. **Remaining:** Phase 4c (a template
+exposes its real vocabulary + implements actions/cues/collections), editor polish (2d preview, real
+per-template vocab loading), then Phase 5 (migrate the one flow + retire v1). An interactive canvas
+**spike** (reel-stagger, throwaway HTML) validated the feel first.
+
+### 2026-07-07 — Invisible Flow v2: Phase 4b game integration (a v2 flow drives pixels)
+
+**Shipped to `main`** (feature branch `flow-v2-4b-game-integration`, ff-merged; commits `3664354`,
+`c3df0b8`, `ee740b6`). The first time a v2 flow drives something ON SCREEN in a real game.
+
+- **`engine-flow-v2/src/mount.ts`** — `createContainerMountModel(containers, onChange?)`: a pure,
+  rune-free z-ordered show/hide model that **replaces v1's active-set + transition state machine**.
+  `show`/`hide` maintain a shown set; `ordered()` returns the containers z-sorted ASC (base under
+  overlays); an `onChange` mirror lets a game re-render on set changes; unknown/redundant ops no-op.
+- **`engine-flow-v2/src/env.ts`** — `createFlowV2Env(deps)`: assembles the interpreter's injected
+  `FlowV2Env` from a game's real primitives (effect registry, emitter broadcast, `waitForTimeout`,
+  turbo `timeScale`, `$engine` reader) + the mount model (show/hide delegate to it).
+- **`engine-layout` `FlowV2Mount.svelte`** — the generic z-ordered container MOUNTER: renders each
+  mounted container's backing scene via `<LayoutScene>` in z order (structural `MountedContainerRef`
+  keeps engine-layout free of an engine-flow-v2 dep).
+- **`apps/lines`** — `flowV2Runtime.svelte.ts` (`createLinesFlowV2` wires the RunContext to the
+  game's real primitives, reusing `flowEffect`/`linesEngineReader`/`eventEmitter`/`timeScale`),
+  `flowV2InterpreterHolder.ts` (singleton + `window.__IE_FLOW_V2__` dev live-verify handle),
+  `game/utils.ts` (playBookEvent dispatches the v2 flow ADDITIVELY after the coded/v1 mechanic;
+  playBookEvents routes through the wrapper when v1 OR v2 is active), and Game.svelte (builds the
+  handle in onMount, mirrors mounted containers into a rune, renders `<FlowV2Mount>` at the root
+  stack). **DEV-gated** by `window.__IE_FLOW_V2_DOC__` — unset on a normal boot ⇒ v2 inert, the
+  v1/coded path is byte-unchanged (parity).
+- **Harness** `flowV2Mount.ts` (`pnpm v2mount`): mount ordering + the full interpreter→env-factory→
+  mount-model seam. All PASS. `pnpm --filter lines build` passes.
+- **Verified live in the running game:** injected a v2 doc (`event probe → showContainer ov`,
+  `ov → basegameOverlays@z900`), dispatched `probe` → the mount model showed `ov` → `<FlowV2Mount>`
+  mounted the real `basegameOverlays` subtree onto the live Pixi stage (`window.__PIXI_APP__` stage
+  113 descendants); hide removed exactly its 3 nodes (→110), show restored them (→113). Clean boot,
+  no console errors, with the doc unset.
+
+**Remaining:** Phase 4c (real per-template vocabulary + actions/cues/collections), 2d preview, then
+Phase 5 (migrate the one book-of flow + hard-cut v1). Known interpreter edge-case to harden later: a
+`parallel` forEach containing a `functionCall` whose output is read downstream can race on the
+per-call output cache (real scenarios don't hit it).
 
 ### 2026-07-07 — engine: fix symbol "blink" on land (spine setup-pose flash)
 
