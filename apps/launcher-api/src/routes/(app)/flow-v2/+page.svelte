@@ -32,6 +32,7 @@
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
+	import PreviewPanelV2 from './PreviewPanelV2.svelte';
 	import NodeInspector from './NodeInspector.svelte';
 	import type { PageData } from './$types';
 
@@ -785,6 +786,9 @@
 				/>
 			{/if}
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
+			{#if view.kind === 'flow'}
+				<PreviewPanelV2 {doc} {library} vocab={BOOK_OF_VOCAB} />
+			{/if}
 		</aside>
 
 		<div class="canvas-wrap">
