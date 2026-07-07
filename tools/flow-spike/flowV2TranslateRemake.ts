@@ -63,68 +63,104 @@ if (warnings.length) {
 	);
 }
 
-// Replay the exact GAME-SIDE boot→tap sequence (`flowV2InterpreterHolder.dispatchFlowV2Event('load')`
-// + `dispatchFlowV2Complete()` scoping `complete:<topContainer>`) against the REAL translated flow —
-// so we prove the holder logic drives the remake's real lifecycle, not just a hand-built fixture.
-const replayLoadThenComplete = async () => {
-	const shows: string[] = [];
-	const mount = createContainerMountModel(v2.containers, () => {});
-	const noop: FlowV2Effect = () => {};
-	const baseEnv = createFlowV2Env({
-		mount,
-		effect: () => noop, // invoke-intent actions are no-ops here — we only assert screen swaps
-		broadcast: () => {},
-		waitForTimeout: () => Promise.resolve(),
-		timeScale: () => 1,
-		engineRead: () => undefined,
-	});
-	const env = {
-		...baseEnv,
-		showContainer: (id: string, z: number) => {
-			shows.push(`show ${id}`);
-			return baseEnv.showContainer(id, z);
-		},
-		hideContainer: (id: string) => {
-			shows.push(`hide ${id}`);
-			return baseEnv.hideContainer(id);
-		},
-	};
-	const ctx: RunContext = { vocab: BOOK_OF_VOCAB, library: { version: 2, functions: [] }, env };
-	const owns = (name: string) =>
-		v2.graph.nodes.some((n) => n.kind === 'event' && (n as { ref: string }).ref === name);
-
-	// boot: the game dispatches `load` (ownership-gated) → the flow shows its initial screen.
-	if (owns('load')) await runFlowEvent(v2, ctx, 'load', {});
-	const afterLoad = mount.ordered().map((c) => c.id);
-
-	// tap: dispatchFlowV2Complete scopes to the TOP shown container → `complete:<top>`.
-	const top = mount.ordered().at(-1)?.id;
-	const completeName = top ? `complete:${top}` : undefined;
-	const completeOwned = !!completeName && owns(completeName);
-	if (completeOwned) await runFlowEvent(v2, ctx, completeName!, {});
-	const afterComplete = mount.ordered().map((c) => c.id);
-
-	return { shows, afterLoad, top, completeName, completeOwned, afterComplete };
+// Replay the GAME-SIDE holder logic against the REAL translated flow: `dispatchFlowV2Event(name)` for
+// lifecycle/book events + `dispatchFlowV2Complete()`, which mirrors v1's `fireComplete` — scan the
+// SHOWN containers top-of-stack first and dispatch the FIRST whose complete event the flow owns (NOT
+// the literal topmost: persistent HUDs sit above the game screens by z but own no `complete`).
+let softFail = false;
+const check = (label: string, ok: boolean, detail?: string) => {
+	console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label}${ok || !detail ? '' : ` — ${detail}`}`);
+	if (!ok) softFail = true;
 };
 
-const run = await replayLoadThenComplete();
-console.log('\ngame-side boot→tap replay (holder logic on the real flow):');
-console.log(`  load → shown: ${run.afterLoad.join(', ') || '(none)'}`);
-console.log(`  top container = ${run.top} → dispatch ${run.completeName} (owned: ${run.completeOwned})`);
-console.log(`  after complete → shown: ${run.afterComplete.join(', ') || '(none)'}`);
-console.log(`  show/hide log: ${run.shows.join(' | ') || '(none)'}`);
+const mount = createContainerMountModel(v2.containers, () => {});
+const noop: FlowV2Effect = () => {};
+const env = createFlowV2Env({
+	mount,
+	effect: () => noop, // invoke-intent actions are no-ops here — we only assert screen swaps
+	broadcast: () => {},
+	waitForTimeout: () => Promise.resolve(),
+	timeScale: () => 1,
+	engineRead: () => undefined,
+});
+const ctx: RunContext = { vocab: BOOK_OF_VOCAB, library: { version: 2, functions: [] }, env };
+const owns = (name: string) =>
+	v2.graph.nodes.some((n) => n.kind === 'event' && (n as { ref: string }).ref === name);
+const shownIds = () => mount.ordered().map((c) => c.id);
 
-const bootAdvances =
-	run.afterLoad.length > 0 && // load showed the initial screen
-	run.completeOwned && // the top screen's complete is authored
-	JSON.stringify(run.afterLoad) !== JSON.stringify(run.afterComplete); // the tap changed the screen set
+// `dispatchFlowV2Event`: run the event iff the flow owns it (ownership-gated), else no-op.
+const dispatchEvent = async (name: string) => {
+	if (!owns(name)) return false;
+	await runFlowEvent(v2, ctx, name, {});
+	return true;
+};
+// `dispatchFlowV2Complete`: scan shown containers top-down for the first OWNED `complete:<id>`.
+const dispatchComplete = async () => {
+	const shown = mount.ordered();
+	for (let i = shown.length - 1; i >= 0; i--) {
+		if (await dispatchEvent(`complete:${shown[i].id}`)) return shown[i].id;
+	}
+	return undefined;
+};
+
+console.log('\ngame-side holder-logic replay on the REAL translated flow:');
+
+// 1. boot: `load` shows the initial screen; taps complete it up the lifecycle to the game.
+await dispatchEvent('load');
+check(
+	'load → shows the initial splash s_q9iw9aqf',
+	shownIds().join(',') === 's_q9iw9aqf',
+	shownIds().join(','),
+);
+
+const c1 = await dispatchComplete();
+check(
+	'tap completes the splash → loading',
+	c1 === 's_q9iw9aqf' && shownIds().join(',') === 'loading',
+	`${c1}: ${shownIds().join(',')}`,
+);
+
+const c2 = await dispatchComplete();
+const afterLoading = shownIds();
+check(
+	'tap completes loading → the game fans out (basegame + HUD layers)',
+	c2 === 'loading' && afterLoading.includes('basegame') && afterLoading.includes('hudBar'),
+	afterLoading.join(','),
+);
+
+// 2. the SCAN fix: enter free spins (a book event LAYERS freeSpinIntro over the still-shown basegame,
+//    UNDER the higher-z HUDs), then a tap must complete the INTRO, not the HUD sitting on top of it.
+await dispatchEvent('freeSpinTrigger');
+const duringIntro = shownIds();
+check(
+	'freeSpinTrigger LAYERS freeSpinIntro (basegame stays shown underneath)',
+	duringIntro.includes('freeSpinIntro') && duringIntro.includes('basegame'),
+	duringIntro.join(','),
+);
+const literalTop = duringIntro.at(-1);
+check(
+	'the literal-top container is a HUD (owns NO complete) — the old `.at(-1)` logic would MISS',
+	literalTop !== 'freeSpinIntro' && !owns(`complete:${literalTop}`),
+	`literal top = ${literalTop}`,
+);
+const c3 = await dispatchComplete();
+check(
+	'the scan completes freeSpinIntro (the game screen under the HUDs), not the HUD',
+	c3 === 'freeSpinIntro',
+	`completed ${c3}`,
+);
+check(
+	'completing the intro shows specialBook, basegame still shown',
+	shownIds().includes('specialBook') && shownIds().includes('basegame'),
+	shownIds().join(','),
+);
 
 console.log(
 	errors.length === 0 ? '\nREMAKE FLOW TRANSLATES with 0 ERRORS ✓' : '\nREMAKE FLOW HAS ERRORS ✗',
 );
 console.log(
-	bootAdvances
-		? 'GAME-SIDE load→complete DRIVES the initial screen swap ✓'
-		: 'GAME-SIDE boot→tap did NOT advance the screen ✗',
+	!softFail
+		? 'GAME-SIDE holder logic DRIVES the real lifecycle (boot + scan-based complete) ✓'
+		: 'GAME-SIDE holder replay had failures ✗',
 );
-process.exit(errors.length === 0 && bootAdvances ? 0 : 1);
+process.exit(errors.length === 0 && !softFail ? 0 : 1);

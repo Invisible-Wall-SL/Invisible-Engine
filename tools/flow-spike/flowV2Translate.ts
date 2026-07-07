@@ -180,12 +180,12 @@ const main = () => {
 			evs.join(','),
 		);
 		assert(
-			'setWin transition added hide basegame + show winScreen',
+			'setWin (bookEvent) LAYERS winScreen — show winScreen, NO hide basegame (v1 layer semantics)',
 			v2.graph.nodes.some(
-				(n) => n.kind === 'hideContainer' && (n as { ref: string }).ref === 'basegame',
+				(n) => n.kind === 'showContainer' && (n as { ref: string }).ref === 'winScreen',
 			) &&
-				v2.graph.nodes.some(
-					(n) => n.kind === 'showContainer' && (n as { ref: string }).ref === 'winScreen',
+				!v2.graph.nodes.some(
+					(n) => n.kind === 'hideContainer' && (n as { ref: string }).ref === 'basegame',
 				),
 		);
 		assert(

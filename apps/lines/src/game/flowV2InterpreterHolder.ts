@@ -51,12 +51,21 @@ export const dispatchFlowV2Event = async (
 
 /**
  * The tap-to-continue / `completeOnLoaded` "the current screen finished" hook (Phase A). v2 has no
- * stateful active screen, so "complete" is scoped to the TOPMOST shown container: dispatch
- * `complete:<top>` (a translated flow authors these — e.g. `complete:loading` swaps loading→game).
- * Runs v2 ALONE when the flow owns that screen's complete (returns `true`); else `false` so the v1
- * `completeActiveScreen` path runs (parity). No v2 doc / nothing shown / un-authored ⇒ `false`.
+ * stateful active screen, so "complete" is scoped to a shown container's `complete:<id>` event.
+ *
+ * Mirrors v1's `fireComplete` (engine-flow `presentation.ts`): scan the shown containers
+ * TOP-OF-STACK first and dispatch the FIRST whose complete event the flow AUTHORS. This is NOT the
+ * literal topmost container — persistent HUD layers commonly sit above the game screens by z yet own
+ * no `complete` edge, so the completing source is the highest *game* screen underneath them (e.g. a
+ * tap during `freeSpinIntro` completes the intro, not the HUD on top of it).
+ *
+ * Runs v2 ALONE when a shown screen's complete is owned (returns `true`); else `false` so the v1
+ * `completeActiveScreen` path runs (parity). No v2 doc / nothing owned ⇒ `false`.
  */
 export const dispatchFlowV2Complete = async (): Promise<boolean> => {
-	const top = flowV2?.ordered().at(-1)?.id;
-	return top ? dispatchFlowV2Event(`complete:${top}`) : false;
+	const shown = flowV2?.ordered() ?? []; // z-ascending
+	for (let i = shown.length - 1; i >= 0; i--) {
+		if (await dispatchFlowV2Event(`complete:${shown[i].id}`)) return true;
+	}
+	return false;
 };

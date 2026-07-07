@@ -8,10 +8,13 @@
  *
  * Mapping (1:1 with the v2 constructs Phase A shipped):
  *  - screens → z-ordered containers (array order = stack).
- *  - each event = its book choreography + the show/hide/intent its transitions add:
- *      bookEvent → the event's chain gains hide(from)+show(to);
- *      complete  → a synthetic `complete:<from>` event (the game dispatches it when the screen ends);
- *      signal    → an event named `<signal>`; action → an invoke-intent action (+show/hide if from≠to);
+ *  - each event = its book choreography + the show/hide/intent its transitions add. ONLY `complete`
+ *    deactivates its source (v1 layers every other trigger over a still-active source):
+ *      bookEvent → the event's chain gains show(to) (layer — source stays shown);
+ *      complete  → a synthetic `complete:<from>` event (the game dispatches it when the screen ends),
+ *                  hide(from)+show(to) — the source leaves the active set;
+ *      signal    → an event named `<signal>` with show(to); action → an invoke-intent action
+ *                  (+show(to) if from≠to);
  *      value     → SKIP (feed-gated overlays keep their component `visibleSource`);
  *      condition → SKIP (a Branch on an engine guard — a later refinement);
  *      the `initial` screen → shown on a `load` event.
@@ -326,14 +329,18 @@ export const translateFlowDoc = (
 	for (const ev of v1.events ?? []) bucket(ev.event).choreo = ev.choreography;
 	for (const t of v1.transitions ?? []) {
 		const trig = t.trigger;
-		if (trig.kind === 'bookEvent') bucket(trig.event).ops.push({ hide: t.from, show: t.to });
+		// v1 semantics (engine-flow `presentation.ts` `performTransition`/`changesActiveSet`): ONLY a
+		// `complete` trigger deactivates its source (the source runs its exit + leaves the active set);
+		// every OTHER trigger LAYERS the target over the still-active source. So only `complete` emits
+		// hide(from); bookEvent/signal/action just show(to) — the source stays shown underneath.
+		if (trig.kind === 'bookEvent') bucket(trig.event).ops.push({ show: t.to });
 		else if (trig.kind === 'complete')
 			bucket(`complete:${t.from}`).ops.push({ hide: t.from, show: t.to });
-		else if (trig.kind === 'signal') bucket(trig.signal).ops.push({ hide: t.from, show: t.to });
+		else if (trig.kind === 'signal') bucket(trig.signal).ops.push({ show: t.to });
 		else if (trig.kind === 'action')
 			bucket(trig.pin).ops.push({
 				intent: intentActions(trig.intent),
-				...(t.from !== t.to ? { hide: t.from, show: t.to } : {}),
+				...(t.from !== t.to ? { show: t.to } : {}),
 			});
 		// value / condition: skip (see header).
 	}
