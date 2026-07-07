@@ -1,18 +1,38 @@
 <script lang="ts">
-	import { SvelteFlow, Background, Controls, type Edge, type Node } from '@xyflow/svelte';
+	import {
+		SvelteFlow,
+		Background,
+		Controls,
+		type Connection,
+		type Edge,
+		type Node,
+	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 	import { onMount } from 'svelte';
 	import {
 		derivePins,
 		validateFlowDoc,
+		assignable,
 		type FlowDoc,
+		type NodeKind,
 		type Node as V2Node,
 		type Pin,
 		type PinContext,
+		type PinDir,
 	} from 'engine-flow-v2';
 	import { BOOK_OF_VOCAB, LIBRARY, SAMPLE_DOC } from './sample';
 	import { typeColor } from './palette';
+	import {
+		addDataEdge,
+		addExecEdge,
+		addNode,
+		deleteFromGraph,
+		freshNodeId,
+		makeNode,
+		moveNode,
+	} from './graphOps';
 	import FlowV2Node from './FlowV2Node.svelte';
+	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
 
 	// The FlowDoc is the single source of truth. Phase 2a is render + validate only — no
@@ -67,7 +87,7 @@
 			type: 'v2',
 			position: n.pos,
 			selected: n.id === selectedNodeId,
-			deletable: false,
+			deletable: true,
 			data: { node: n, ctx, title: nodeTitle(n) },
 		}));
 	}
@@ -88,6 +108,7 @@
 			target: e.to.node,
 			sourceHandle: e.from.pin,
 			targetHandle: e.to.pin,
+			deletable: true,
 			style: `stroke:${EXEC_COLOR}; stroke-width:2.25`,
 			class: 'v2-exec',
 			markerEnd: { type: 'arrowclosed', color: EXEC_COLOR },
@@ -100,6 +121,7 @@
 				target: e.to.node,
 				sourceHandle: e.from.pin,
 				targetHandle: e.to.pin,
+				deletable: true,
 				style: `stroke:${color}; stroke-width:1.25`,
 				class: 'v2-data',
 			};
@@ -127,6 +149,120 @@
 	function focusNode(nodeId: string): void {
 		selectedNodeId = nodeId;
 		nodes = buildNodes();
+	}
+
+	// --- Editing (Phase 2b.1) ---------------------------------------------------
+	// Every gesture mutates the `doc` `$state` (the single source of truth) via a pure
+	// `graphOps` op, then `syncCanvas()` re-seeds the xyflow arrays. `derivePins` +
+	// the `$derived` `validateFlowDoc` react for free — the panel updates live.
+
+	// The pins of a node, memoized per gesture (the `$derived` `pinsByNode` is for edge
+	// coloring; connect/validate need a fresh lookup that also disambiguates exec by dir).
+	function pinsOf(nodeId: string): Pin[] {
+		const node = doc.graph.nodes.find((n) => n.id === nodeId);
+		return node ? derivePins(node, ctx) : [];
+	}
+
+	// A node's exec-in and exec-out share the id `exec`; a lookup must disambiguate by
+	// direction (mirrors the validator's `pinOf`). `handle` may be null on a bare-node drop.
+	function pinByHandle(nodeId: string, handle: string | null, dir: PinDir): Pin | undefined {
+		if (handle === null) return undefined;
+		return pinsOf(nodeId).find((p) => p.id === handle && p.dir === dir);
+	}
+
+	// True iff any data edge already feeds the given (node,pin) data-in (fan-in = 1).
+	function dataInTaken(nodeId: string, pin: string): boolean {
+		return doc.graph.data.some((e) => e.to.node === nodeId && e.to.pin === pin);
+	}
+	// True iff any exec edge already feeds the given (node,pin) exec-in (fan-in = 1).
+	function execInTaken(nodeId: string, pin: string): boolean {
+		return doc.graph.exec.some((e) => e.to.node === nodeId && e.to.pin === pin);
+	}
+
+	// Strict connect-time gate (Unreal-style: an incompatible wire simply won't drop). Rejects
+	// exec↔data mismatch, wrong direction, non-assignable data types, and fan-in violations.
+	// `validateFlowDoc` stays the backstop for any doc loaded with pre-existing issues.
+	function isValidConnection(edge: Edge | Connection): boolean {
+		const source = edge.source;
+		const target = edge.target;
+		const sourceHandle = edge.sourceHandle ?? null;
+		const targetHandle = edge.targetHandle ?? null;
+		if (!source || !target) return false;
+
+		const out = pinByHandle(source, sourceHandle, 'out');
+		const inn = pinByHandle(target, targetHandle, 'in');
+		if (!out || !inn) return false; // wrong direction or unknown handle.
+		if (out.kind !== inn.kind) return false; // exec↔data mismatch.
+
+		if (out.kind === 'exec') {
+			return !execInTaken(target, inn.id); // exec-in fan-in = 1.
+		}
+		// data: types must be assignable AND the target data-in must be free.
+		if (out.dataType && inn.dataType && !assignable(out.dataType, inn.dataType)) return false;
+		return !dataInTaken(target, inn.id);
+	}
+
+	// A new connection → push the matching edge class, then re-seed. Guarded again by the same
+	// checks (isValidConnection already ran, but stay defensive against direct-call paths).
+	function onConnect(c: Connection): void {
+		const sourceHandle = c.sourceHandle ?? null;
+		const targetHandle = c.targetHandle ?? null;
+		if (!c.source || !c.target || sourceHandle === null || targetHandle === null) return;
+		const out = pinByHandle(c.source, sourceHandle, 'out');
+		const inn = pinByHandle(c.target, targetHandle, 'in');
+		if (!out || !inn || out.kind !== inn.kind) return;
+
+		doc =
+			out.kind === 'exec'
+				? addExecEdge(
+						doc,
+						{ node: c.source, pin: sourceHandle },
+						{ node: c.target, pin: targetHandle },
+					)
+				: addDataEdge(
+						doc,
+						{ node: c.source, pin: sourceHandle },
+						{ node: c.target, pin: targetHandle },
+					);
+		syncCanvas();
+	}
+
+	// Delete (Delete/Backspace on selection): remove nodes + their incident edges + any
+	// explicitly-deleted edges, in one doc change, then re-seed. Clears a stale selection.
+	function onGraphDelete({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }): void {
+		if (!dn?.length && !de?.length) return;
+		const nodeIds = dn.map((n) => n.id);
+		const edgeIds = de.map((e) => e.id);
+		if (selectedNodeId && nodeIds.includes(selectedNodeId)) selectedNodeId = null;
+		doc = deleteFromGraph(doc, nodeIds, edgeIds);
+		syncCanvas();
+	}
+
+	// Move (drag-stop only — kept cheap, not per-frame): write the new position back.
+	function onNodeDragStop({ targetNode }: { targetNode: Node | null }): void {
+		if (!targetNode) return;
+		doc = moveNode(doc, targetNode.id, targetNode.position);
+		syncCanvas();
+	}
+
+	// Place an added node in doc-space near the CENTROID of the existing graph, nudged by a
+	// small staggered offset so successive adds don't stack exactly. (Doc→screen mapping via
+	// `useSvelteFlow` needs the flow's own context, which the page — the flow's PARENT — doesn't
+	// have; the centroid keeps a new node visible after `fitView` without that dependency.)
+	function placementPos(): { x: number; y: number } {
+		const ns = doc.graph.nodes;
+		if (ns.length === 0) return { x: 200, y: 160 };
+		const cx = ns.reduce((s, n) => s + n.pos.x, 0) / ns.length;
+		const cy = ns.reduce((s, n) => s + n.pos.y, 0) / ns.length;
+		const k = ns.length % 6;
+		return { x: Math.round(cx + 40 + k * 28), y: Math.round(cy + 40 + k * 28) };
+	}
+
+	function addNodeOfKind(kind: NodeKind, ref?: string): void {
+		const id = freshNodeId(doc, kind);
+		doc = addNode(doc, makeNode(kind, id, placementPos(), ref));
+		selectedNodeId = id;
+		syncCanvas();
 	}
 </script>
 
@@ -157,9 +293,11 @@
 		<aside class="side">
 			<h3>Flow v2 · dev</h3>
 			<p class="hint">
-				Render + validate only (Phase 2a). Template <code>{doc.templateId}</code>. Pins are
-				<strong>derived</strong> from the vocabulary — nothing hand-stored.
+				Editable canvas (Phase 2b.1). Template <code>{doc.templateId}</code>. Pins are
+				<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible
+				wires won't drop. Delete removes selection.
 			</p>
+			<AddNodePalette vocab={BOOK_OF_VOCAB} library={LIBRARY} {doc} onadd={addNodeOfKind} />
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 		</aside>
 
@@ -170,6 +308,11 @@
 				{nodeTypes}
 				colorMode="dark"
 				fitView
+				deleteKeyCode={['Delete', 'Backspace']}
+				{isValidConnection}
+				onconnect={onConnect}
+				ondelete={onGraphDelete}
+				onnodedragstop={onNodeDragStop}
 				onnodeclick={onNodeClick}
 				onpaneclick={onPaneClick}
 			>
