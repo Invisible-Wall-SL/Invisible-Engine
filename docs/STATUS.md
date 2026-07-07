@@ -61,9 +61,19 @@ awaited broadcasts. `LINES_FLOW_V2_DOC` is a true parity repro of coded `setExpa
 setExpandingSymbol; the awaited cue blocks correctly. So events migrate to v2 one at a time; when ALL are
 owned + verified, the coded `bookEventHandlerMap` + v1 become dead code (the hard cut is then trivial).
 
-Remaining to FULL flow-driven: author the rest of the book-of events as v2 parity repros (mechanic-heavy
-events need the coarse effects exposed as vocab actions + the event CONTEXT passed to dispatch), then
-loading/intents/lifecycle. ⏳ owner live-look on `/flow-v2` (auth-gated).
+**FULL v1→v2 MIGRATION** (`3e451c3` + `5537116`) — the whole game is now flow-driven.
+`LINES_FLOW_V2_DOC` authors EVERY book event as a faithful 1:1 translation of v1's per-event
+choreographies (which mirror `bookEventHandlerMap`): reveal, winInfo (forEach over wins), setTotalWin,
+setExpandingSymbol, expandBookColumns, freeSpinTrigger (23 steps), updateFreeSpin, freeSpinEnd, setWin
+(70 nodes total). Enabling engine additions: `trigger`/`context` accessors (whole event + dispatch
+context), an awaited-`fireCue` flag (`broadcast` vs `broadcastAsync`), the full presentation cue set +
+the opaque `revealBoard` mechanic action. `finalWin` (no-op) + `createBonusSnapshot` (resume) stay
+coded — fall through exactly as v1. Verified: doc validates 0 issues; preview timelines match the coded
+handler order op-for-op; live — v2 owns all 9 events, dispatch resolves, no errors; builds pass.
+
+Remaining: loading/intents/lifecycle (spin/stop/buyBonus, loading→basegame) — the last non-book-event
+surfaces; then the coded `bookEventHandlerMap` + v1 can be retired (dead once every event is owned +
+live-verified in a real spin). ⏳ owner live-look on `/flow-v2` + a real spin with the reference flow.
 
 ### 2026-07-07 — Invisible Flow v2: design + schema Phase 1 (new initiative)
 
