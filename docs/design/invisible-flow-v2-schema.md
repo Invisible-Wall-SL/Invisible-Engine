@@ -283,3 +283,79 @@ survive.
    fan-out need appears (linear exec chains cover the rest until then).
 5. **Collections:** available BOTH as event payload pins (`reveal → reels`) AND `$engine` global
    reads (`$engine.reels`) — whichever the author reaches for.
+
+## 10. Runtime — the dedicated v2 interpreter (Phase 4a, `runtime.ts`)
+
+v2 is **NOT compiled onto the v1 `engine-flow` executor** (superseding §8's "compiles to" table).
+v2 is genuinely richer than v1's static tree — **dynamic delays** fed by a `compute`, **arithmetic**
+nodes, and **function inputs/outputs with recursion** — none of which the v1 tree-walker can express.
+So the v2 graph is **walked directly** by a dedicated interpreter in the `engine-flow-v2` package
+(`src/runtime.ts`), with the SAME injected-runtime discipline v1 uses: pure logic over an injected
+environment, so it's fully testable headlessly and the timing is real (every effect/broadcast/delay
+is awaited).
+
+### 10.1 The `FlowV2Env` contract (injected)
+
+The interpreter never imports a Svelte-rune module, the emitter, or `setTimeout`. A game (in Phase 4b)
+wires these once to the same primitives the coded path uses; the Phase-4a harness wires a recorder.
+
+```ts
+interface FlowV2Env {
+  effect(name: string, payload: Record<string, unknown>): void | Promise<void>;   // an `action` node
+  broadcast(cue: string, payload: Record<string, unknown>): void | Promise<void>;  // a `fireCue` node
+  waitForTimeout(ms: number): Promise<void>;                                       // a `delay` node
+  timeScale(): number;                                                             // turbo scalar
+  showContainer(containerId: string, z: number): void | Promise<void>;
+  hideContainer(containerId: string): void | Promise<void>;
+  engineRead(key: string): unknown;                                                // $engine.<key>
+}
+interface RunContext { vocab: TemplateVocabulary; library: FunctionLibraryDoc; env: FlowV2Env; }
+```
+
+The one entry point a game calls when a book/game event fires:
+
+```ts
+runFlowEvent(doc: FlowDoc, ctx: RunContext, eventName: string, payload: Record<string, unknown>): Promise<void>
+```
+
+**Show/hide go through the env's container mounter** (`showContainer(id, z)` / `hideContainer(id)`),
+where `z` is read from `doc.containers` — the interpreter never touches PixiJS; the game supplies the
+generic scene mounter behind the env.
+
+### 10.2 Interpretation
+
+- **Entry:** find the `event` node whose `ref === eventName`; seed a `Scope { trigger: payload }`; walk
+  its `exec` out-pin. No matching `event` node → **no-op** (parity-safe: falls through to the coded
+  handler, honoring the v1 fall-through invariant).
+- **Exec walk** `execFrom(node, execPin)`: run the node, then follow its outgoing exec edge from that
+  out-pin to the next node; an exec-out with no edge ends the chain (linear chains loop, not recurse).
+- **Per-node:** `action` → `await env.effect(ref, payload)`; `fireCue` → `await env.broadcast(...)`;
+  `delay` → `await env.waitForTimeout(ms / timeScale())` where **ms is resolved dynamically** (wire /
+  literal / accessor / compute); `branch` → evaluate the `guard` (`all`=AND, `any`=OR) and follow
+  `then`/`else`; `forEach` → per item seed `{ ...scope, item, index }` and run the `body` chain
+  (`sequence`=await in order, `parallel`=`Promise.all`), then follow `done`; `show`/`hideContainer` →
+  the env mounter; `sequence`/`parallel` → its `then[i]` subchains in order / concurrently;
+  `functionCall` → resolve the call's declared data inputs in the CURRENT scope, run the target
+  function's body seeded `{ trigger, input }`, capture the `functionResult`'s data-ins as the call's
+  outputs (**cached by call id** for later reads), then continue the outer chain (recurse — no
+  pre-inlining). `event`/`functionEntry` are exec START points; `functionResult` ends a body;
+  `compute` is never exec-run (pulled during data resolution).
+- **Data resolution** `resolveDataIn(node, pin)`: a data edge feeding the pin resolves its SOURCE
+  (`event`→`trigger[field]`, `forEach`→`item`/`index`, `functionEntry`→`input[name]`, `functionCall`→
+  its cached output, `compute`→`evalCompute`); otherwise the node's own `DataSource` (`literal`→value,
+  `accessor`→scope read incl. `$engine.<key>` via `env.engineRead`, unwired `wire`→`undefined`).
+- **Robustness:** unknown refs, missing edges, and authored-but-incomplete graphs resolve to a sensible
+  no-op / `undefined` — the interpreter **never throws** on a partial graph (mirrors v1's parity-safe
+  stance), so a half-authored flow degrades gracefully rather than crashing a live round.
+
+### 10.3 Verified headlessly
+
+`tools/flow-spike/flowV2Runtime.ts` (`pnpm --filter flow-spike v2runtime`) runs `runFlowEvent` against
+a MOCK recording `FlowV2Env` over the book-of fixture: `event reveal(reels) → functionCall
+StaggerStop(reels, step=120) → fireCue specialBookReveal`, where `StaggerStop`'s body is
+`forEach reels → compute($index × step) → delay(that ms) → stopReel($item.index)`. With
+`reels=[{0},{1},{2}]`, `step=120` the recorded order is asserted to be
+`delay 0, stopReel(0), delay 120, stopReel(1), delay 240, stopReel(2), broadcast specialBookReveal`
+(function recursion + forEach + compute-driven dynamic delays + trailing cue). Extra asserts cover a
+`branch` (guard picks `then`/`else`, driving `show`/`hideContainer` at the container's `z`) and a
+`parallel` forEach (all iterations fire). **NO game integration yet** — that is Phase 4b.
