@@ -24,11 +24,15 @@
 		screens,
 		onedit,
 		ondelete,
+		oneditResponse,
 	}: {
 		edge: FlowTransition;
 		screens: { id: string; label: string }[];
 		onedit: (edit: TransitionEdit) => void;
 		ondelete: () => void;
+		// Open the book-event RESPONSE choreography for this edge's event (design doc §14): the
+		// node-authored `Sequence[…]` the interpreter runs + awaits when the event arrives.
+		oneditResponse: (event: string) => void;
 	} = $props();
 
 	const labelFor = (id: string): string => screens.find((s) => s.id === id)?.label ?? id;
@@ -55,6 +59,10 @@
 	function setEvent(event: string): void {
 		onedit({ trigger: { kind: 'bookEvent', event } });
 	}
+
+	// The book-event type of a bookEvent edge (empty otherwise) — drives the response-choreography
+	// opener + its disabled state without re-narrowing inside a closure.
+	const bookEvent = $derived(edge.trigger.kind === 'bookEvent' ? edge.trigger.event : '');
 
 	function setSignal(signal: string): void {
 		onedit({ trigger: { kind: 'signal', signal } });
@@ -180,6 +188,16 @@
 			Tip: draw an edge INTO a screen's book-event trigger pin (e.g. <code>freeSpinTrigger</code>)
 			to set this from the graph — or type it here.
 		</p>
+		<!-- Author the node-level RESPONSE for this event (design doc §14) — the effect + broadcast
+		     timeline the interpreter runs + awaits when the event arrives (e.g. `setExpandingSymbol`
+		     → record the symbol then play the reveal). -->
+		<button
+			class="choreo"
+			disabled={bookEvent.trim() === ''}
+			onclick={() => oneditResponse(bookEvent)}
+		>
+			Edit response choreography…
+		</button>
 	{:else if edge.trigger.kind === 'signal'}
 		<label class="field">
 			<span>Signal name</span>
@@ -451,6 +469,22 @@
 		padding: 0;
 		cursor: pointer;
 		font-size: 12px;
+	}
+	/* "Edit response choreography" — matches the screen inspector's `.choreo` opener. */
+	.choreo {
+		width: 100%;
+		margin: 2px 0 12px;
+		padding: 6px 8px;
+		border-radius: 6px;
+		border: 1px solid #2563eb;
+		background: #14181f;
+		color: #bfdbfe;
+		cursor: pointer;
+		font-size: 12px;
+	}
+	.choreo:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.danger {
 		width: 100%;

@@ -24,6 +24,36 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-07 — /flow: node-level book-event RESPONSE authoring (finishes the reveal authoring)
+
+**Ask.** The book-reveal runtime shipped (see below), but the owner couldn't actually AUTHOR the
+`setExpandingSymbol` response — the `/flow` choreography editor was never finished for book-event
+responses: (1) `effect` nodes weren't creatable (`ADD_KINDS` omitted `'effect'`; `setPayloadField`
+was broadcast-only), and (2) no UI opened a book-event's response choreography (the editor only
+opened `{kind:'screen'}` targets, though the model + runtime already supported `{kind:'event'}` and
+`dispatch.ts` already awaits it). Free spins' choreographies are hand-written TS fixtures — this
+surface was simply unbuilt. Owner chose **full node-level authoring**.
+
+**Shipped** (editor-only, `apps/launcher-api/src/routes/(app)/flow/`; branch
+`editor/book-event-choreo-authoring`):
+- `ChoreoNodeInspector.svelte` — `'effect'` added to `ADD_KINDS`; `setPayloadField` generalized to
+  effects; free-form key→accessor payload editor for effects (same `parseFlowAccessor`/
+  `flowAccessorText`/`FLOW_ACCESSOR_HINT` grammar as broadcasts, e.g. `symbol = $trigger.symbol`).
+- `ChoreographyEditor.svelte` — target-agnostic: `{kind:'screen'}` keeps enter/while/exit tabs;
+  `{kind:'event'}` is a single root ("Event response · <event>", no phases). Props now
+  `target: ChoreoTarget` + `label`.
+- `EdgeInspector.svelte` — "Edit response choreography…" button on `bookEvent` edges.
+- `+page.svelte` — `choreoScreenId` → `choreoTarget: ChoreoTarget | null`; `openEventChoreography`.
+
+**No engine/runtime change** — executor already runs effect nodes; authored `doc.events` ships via
+the existing bake→runtime path. Deploy = launcher push to `main` (no runtime bundle).
+
+**Verified.** `pnpm --filter launcher-api build` clean; flow-spike `phase5` + `fs6` PASS. Authoring
+recipe: select the `setExpandingSymbol` edge → Edit response choreography → `Sequence[ effect
+setSpecialSymbol {symbol:$trigger.symbol}, broadcast(awaited) specialBookReveal, delay, broadcast
+specialBookHide ]`. **Open risk (untested live):** mount-vs-broadcast ordering — the `specialBook`
+spine must be mounted before `specialBookReveal` fires; mitigate with a leading `delay` if it races.
+
 ### 2026-07-06 — Book reveal: fully authorable (pure hooks, parity with free spins)
 
 **Ask.** The book random-selection reveal (shuffle → land on the chosen expanding symbol) was only

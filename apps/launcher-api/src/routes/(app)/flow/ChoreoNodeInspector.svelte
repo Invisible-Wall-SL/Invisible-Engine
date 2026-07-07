@@ -39,6 +39,7 @@
 
 	const ADD_KINDS: ChoreoKind[] = [
 		'broadcast',
+		'effect',
 		'delay',
 		'sequence',
 		'parallel',
@@ -80,11 +81,31 @@
 	// / literal). Keeping the parse/print in `engine-flow` lets both inspectors stay in
 	// lock-step on the recognised prefixes (e.g. `$context`).
 	function setPayloadField(key: string, text: string): void {
-		if (node.kind !== 'broadcast') return;
+		if (node.kind !== 'broadcast' && node.kind !== 'effect') return;
 		const payload: FlowPayload = { ...(node.payload ?? {}) };
 		if (text.trim() === '') delete payload[key];
 		else payload[key] = parseFlowAccessor(text);
 		onedit({ payload: Object.keys(payload).length > 0 ? payload : null });
+	}
+
+	// Effects declare no `fields` in the vocabulary (unlike broadcast events), so their payload
+	// is authored FREE-FORM: each existing `payload` key is an editable accessor row, plus an
+	// "add field" key input to introduce a new key. The accessor grammar is IDENTICAL to the
+	// broadcast payload editor (`$trigger.x` / `$context.x` / `$engine.x` / literal via
+	// `parseFlowAccessor`/`flowAccessorText`), so e.g. `symbol = $trigger.symbol` parses the
+	// same way here as it does for a broadcast payload.
+	const effectPayloadKeys = $derived(node.kind === 'effect' ? Object.keys(node.payload ?? {}) : []);
+	let newEffectKey = $state('');
+	function addEffectField(): void {
+		const key = newEffectKey.trim();
+		if (key === '' || node.kind !== 'effect') return;
+		if (node.payload?.[key] !== undefined) {
+			newEffectKey = '';
+			return;
+		}
+		const payload: FlowPayload = { ...(node.payload ?? {}), [key]: { kind: 'literal', value: '' } };
+		onedit({ payload });
+		newEffectKey = '';
 	}
 
 	// --- Delay -----------------------------------------------------------------
@@ -181,6 +202,27 @@
 		{#if node.name && !effectDef && hasEffects}
 			<p class="warn">Not a registered effect for this game.</p>
 		{/if}
+
+		<!-- Effects carry no declared `fields`, so the payload is a free-form key→accessor map
+		     (e.g. `symbol = $trigger.symbol` records the landed symbol into game state). Same
+		     accessor grammar as the broadcast payload editor. -->
+		<div class="payload">
+			<span class="sub">Payload</span>
+			{#each effectPayloadKeys as key (key)}
+				<label class="field small">
+					<span>{key}</span>
+					<input
+						value={flowAccessorText(node.payload?.[key])}
+						placeholder={FLOW_ACCESSOR_HINT}
+						oninput={(e) => setPayloadField(key, e.currentTarget.value)}
+					/>
+				</label>
+			{/each}
+			<div class="add-field">
+				<input bind:value={newEffectKey} placeholder="new field key" />
+				<button onclick={addEffectField} disabled={newEffectKey.trim() === ''}>+ field</button>
+			</div>
+		</div>
 	{:else if node.kind === 'delay'}
 		<label class="field">
 			<span>Delay (ms, divided by speed)</span>
@@ -312,6 +354,25 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 4px;
+	}
+	.add-field {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 4px;
+		margin-top: 4px;
+	}
+	.add-field button {
+		background: #161b22;
+		border: 1px solid #2a323d;
+		border-radius: 5px;
+		color: #cbd5e1;
+		padding: 4px 8px;
+		cursor: pointer;
+		font-size: 11px;
+	}
+	.add-field button:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.add-grid button,
 	.guard button,

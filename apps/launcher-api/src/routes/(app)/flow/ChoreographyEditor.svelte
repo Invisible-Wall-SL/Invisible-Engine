@@ -31,23 +31,33 @@
 	// deterministic preview live here too.
 	let {
 		doc,
-		screenId,
-		screenLabel,
+		target: initialTarget,
+		label,
 		vocab,
 		oncommit,
 		onclose,
 	}: {
 		doc: FlowDoc;
-		screenId: string;
-		screenLabel: string;
+		target: ChoreoTarget;
+		label: string;
 		vocab: EmitterVocabulary;
 		oncommit: (next: FlowDoc) => void;
 		onclose: () => void;
 	} = $props();
 
+	// Target-agnostic (design doc §9.A + §14): a SCREEN target authors an enter/while/exit
+	// timeline (phase tabs); an EVENT target (a book-event response, e.g. `setExpandingSymbol`)
+	// is a SINGLE root choreography with no phases. Both resolve to one {@link ChoreographyNode}
+	// root via the SAME command helpers — only the local `phase` (screen-only) and the header
+	// branch on the target kind.
 	type Phase = 'enter' | 'while' | 'exit';
+	const isEvent = $derived(initialTarget.kind === 'event');
 	let phase = $state<Phase>('enter');
-	const target = $derived<ChoreoTarget>({ kind: 'screen', screenId, phase });
+	const target = $derived<ChoreoTarget>(
+		initialTarget.kind === 'screen'
+			? { kind: 'screen', screenId: initialTarget.screenId, phase }
+			: initialTarget,
+	);
 
 	let selectedPath = $state<ChoreoPath | null>(null);
 
@@ -163,20 +173,24 @@
 <div class="overlay" role="dialog" aria-modal="true">
 	<div class="modal">
 		<header>
-			<strong>Choreography · {screenLabel}</strong>
-			<div class="phases">
-				{#each ['enter', 'while', 'exit'] as p (p)}
-					<button
-						class:active={phase === p}
-						onclick={() => {
-							phase = p as Phase;
-							selectedPath = null;
-						}}
-					>
-						{p}
-					</button>
-				{/each}
-			</div>
+			<strong>
+				{#if isEvent}Event response · {label}{:else}Choreography · {label}{/if}
+			</strong>
+			{#if !isEvent}
+				<div class="phases">
+					{#each ['enter', 'while', 'exit'] as p (p)}
+						<button
+							class:active={phase === p}
+							onclick={() => {
+								phase = p as Phase;
+								selectedPath = null;
+							}}
+						>
+							{p}
+						</button>
+					{/each}
+				</div>
+			{/if}
 			<span class="spacer"></span>
 			<button class="close" onclick={onclose}>Close</button>
 		</header>
@@ -185,7 +199,7 @@
 			<div class="canvas">
 				{#if !root}
 					<div class="empty">
-						<p>No {phase} choreography yet.</p>
+						<p>{#if isEvent}No response choreography yet.{:else}No {phase} choreography yet.{/if}</p>
 						<button onclick={seedRoot}>+ Start a Sequence</button>
 					</div>
 				{:else}

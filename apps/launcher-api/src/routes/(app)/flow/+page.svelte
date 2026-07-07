@@ -28,6 +28,7 @@
 	import EdgeInspector from './EdgeInspector.svelte';
 	import FlowScreenNode from './FlowScreenNode.svelte';
 	import ChoreographyEditor from './ChoreographyEditor.svelte';
+	import type { ChoreoTarget } from './choreographyModel.client';
 	import ValidationPanel from './ValidationPanel.svelte';
 	import FlowDiffPanel from './FlowDiffPanel.svelte';
 	import {
@@ -500,8 +501,10 @@
 		commit(editTransition(doc, selectedEdgeId, edit));
 	}
 
-	// The screen whose choreography sub-editor is open (double-click a node, design doc §9.A).
-	let choreoScreenId = $state<string | null>(null);
+	// The choreography sub-editor's open target (design doc §9.A + §14): either a SCREEN phase
+	// timeline (double-click a node) or a book-EVENT response (from the edge inspector). `null`
+	// ⇒ the modal is closed.
+	let choreoTarget = $state<ChoreoTarget | null>(null);
 
 	// xyflow 1.6 has no node-double-click event, so detect it: two clicks on the SAME node
 	// within 350ms opens its choreography sub-editor.
@@ -522,15 +525,31 @@
 	}
 
 	function openChoreography(screenId: string): void {
-		choreoScreenId = screenId;
+		choreoTarget = { kind: 'screen', screenId, phase: 'enter' };
+	}
+	function openEventChoreography(event: string): void {
+		choreoTarget = { kind: 'event', event };
 	}
 	function closeChoreography(): void {
-		choreoScreenId = null;
+		choreoTarget = null;
 		syncCanvas();
 	}
 
+	// The screen backing a SCREEN target (for the header label); undefined for an event target.
 	const choreoScreen = $derived(
-		choreoScreenId ? model.screens.find((s) => s.screen.id === choreoScreenId) : undefined,
+		choreoTarget?.kind === 'screen'
+			? model.screens.find((s) => s.screen.id === choreoTarget?.screenId)
+			: undefined,
+	);
+
+	// The label shown in the choreography modal header — the screen's name for a screen target,
+	// the book-event type for an event target.
+	const choreoLabel = $derived(
+		!choreoTarget
+			? ''
+			: choreoTarget.kind === 'event'
+				? choreoTarget.event
+				: (choreoScreen?.screen.label ?? choreoScreen?.scene.name ?? choreoTarget.screenId),
 	);
 
 	function makeInitial(): void {
@@ -822,6 +841,7 @@
 					}))}
 					onedit={applyEdgeEdit}
 					ondelete={deleteSelectedEdge}
+					oneditResponse={openEventChoreography}
 				/>
 			{/if}
 
@@ -865,11 +885,11 @@
 		</div>
 	</div>
 
-	{#if choreoScreen}
+	{#if choreoTarget}
 		<ChoreographyEditor
 			{doc}
-			screenId={choreoScreen.screen.id}
-			screenLabel={choreoScreen.screen.label ?? choreoScreen.scene.name}
+			target={choreoTarget}
+			label={choreoLabel}
 			vocab={data.vocabulary}
 			oncommit={commit}
 			onclose={closeChoreography}
