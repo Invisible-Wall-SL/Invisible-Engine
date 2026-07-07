@@ -89,6 +89,12 @@ const toDataSource = (acc: FlowAccessor, pinType?: TypeRef): DataSource => {
 	}
 };
 
+/** The declared params of an action OR the payload of a cue named `ref`. */
+const declaredParams = (vocab: TemplateVocabulary, ref: string) =>
+	vocab.actions.find((a) => a.name === ref)?.params ??
+	vocab.cues.find((c) => c.name === ref)?.payload ??
+	[];
+
 const toInputs = (
 	vocab: TemplateVocabulary,
 	ref: string,
@@ -97,6 +103,14 @@ const toInputs = (
 	const inputs: Record<string, DataSource> = {};
 	for (const [pin, acc] of Object.entries(payload ?? {})) {
 		inputs[pin] = toDataSource(acc, paramType(vocab, ref, pin));
+	}
+	// Default any DECLARED param the v1 payload omitted to `$trigger.<param>` (the same-named event
+	// field). v1 passed `{}` for a no-payload effect (leaving the param undefined); this both fills the
+	// v2 pin (so it validates) and is MORE correct — e.g. the remake's `setSpecialSymbol` (authored with
+	// no payload) now actually receives `$trigger.symbol`. Absent field ⇒ undefined (== v1's `{}`).
+	for (const p of declaredParams(vocab, ref)) {
+		if (!(p.name in inputs))
+			inputs[p.name] = { kind: 'accessor', path: { on: 'trigger', member: p.name } };
 	}
 	return inputs;
 };
@@ -589,4 +603,6 @@ const main = () => {
 	process.exit(failed ? 1 : 0);
 };
 
-main();
+// Run the harness only when executed directly (so another script can import the translator without
+// triggering the harness + process.exit).
+if (process.argv[1]?.replace(/\\/g, '/').endsWith('flowV2Translate.ts')) main();
