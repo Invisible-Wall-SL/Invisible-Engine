@@ -144,7 +144,7 @@ export const linesValueResolver = (instanceId: string, source: string): string =
  * never mutates state, so it is harmless to inject for every fixture (a doc with no `$engine.*`
  * guard never calls it).
  */
-const linesEngineReader = (key: string): unknown => {
+export const linesEngineReader = (key: string): unknown => {
 	switch (key) {
 		case 'balance':
 			return stateBet.balanceAmount;

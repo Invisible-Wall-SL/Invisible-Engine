@@ -10,6 +10,7 @@ import { eventEmitter } from './eventEmitter';
 import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { getFlowInterpreter } from './flowInterpreterHolder';
+import { getFlowV2 } from './flowV2InterpreterHolder';
 import type { RawSymbol, SymbolState } from './types';
 
 // general utils
@@ -30,18 +31,26 @@ export const playBookEvent = async (
 	const interpreter = getFlowInterpreter();
 	if (interpreter) {
 		await interpreter.dispatchBookEvent(bookEvent, context);
-		return;
+	} else {
+		await coded.playBookEvent(bookEvent, context);
 	}
-	await coded.playBookEvent(bookEvent, context);
+	// Invisible Flow v2 (Phase 4b) — a DEV-gated v2 flow reacts to the event ADDITIVELY: the coded
+	// template still runs the mechanic above (reels, wins, state), while the v2 presentation graph
+	// drives its containers/cues/effects on top. `dispatch` is a no-op for an un-authored event
+	// (parity-safe), so this is inert unless `__IE_FLOW_V2_DOC__` authors a handler for this type.
+	// The whole book event is the event's data payload (its fields are the event node's data-outs).
+	const v2 = getFlowV2();
+	if (v2) await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>);
 };
 
 export const playBookEvents = async (
 	bookEvents: BookEvent[],
 	context?: { bookEvents?: BookEvent[] },
 ): Promise<void> => {
-	// Interpreter active ⇒ run the SAME serial `sequence()` the coded path uses, routing each
-	// event through the interpreter; otherwise defer entirely to the coded `playBookEvents`.
-	if (getFlowInterpreter()) {
+	// v1 OR v2 flow active ⇒ run the SAME serial `sequence()` the coded path uses, routing each
+	// event through `playBookEvent` (which runs the v1/coded mechanic AND the additive v2 dispatch).
+	// Neither active ⇒ defer entirely to the coded `playBookEvents` (byte-parity with `main`).
+	if (getFlowInterpreter() || getFlowV2()) {
 		await sequence(bookEvents, async (bookEvent) => {
 			await playBookEvent(bookEvent, { ...context, bookEvents });
 		});

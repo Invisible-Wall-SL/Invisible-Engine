@@ -43,6 +43,7 @@
 		"components-shared": "workspace:*",
 		"components-layout": "workspace:*",
 		"engine-flow": "workspace:*",
+		"engine-flow-v2": "workspace:*",
 		"engine-layout": "workspace:*",
 		"engine-fx": "workspace:*",
 		"components-ui-html": "workspace:*",

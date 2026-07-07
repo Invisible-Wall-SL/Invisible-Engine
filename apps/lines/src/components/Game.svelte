@@ -32,8 +32,14 @@
 		i18nDerived,
 	} from 'components-ui-pixi';
 	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
-	import { LayoutScene, FlowMount, FlowScreenMount, FlowFade } from 'engine-layout/svelte';
-	import type { FlowEntranceTransition } from 'engine-layout/svelte';
+	import {
+		LayoutScene,
+		FlowMount,
+		FlowScreenMount,
+		FlowFade,
+		FlowV2Mount,
+	} from 'engine-layout/svelte';
+	import type { FlowEntranceTransition, MountedContainerRef } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
 		registerComponents,
@@ -95,6 +101,8 @@
 		hasFlowAction,
 		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
+	import { createLinesFlowV2 } from '../game/flowV2Runtime.svelte';
+	import { setFlowV2 } from '../game/flowV2InterpreterHolder';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
@@ -642,6 +650,11 @@
 	// it drives book-event dispatch (via `flowInterpreterHolder`, read in `game/utils.ts`)
 	// and the generic mounter resolves which authored screen mounts here.
 	let flow = $state<LinesFlow | undefined>(undefined);
+	// Invisible Flow v2 (Phase 4b) — the DEV-gated v2 handle + its z-ordered mounted containers,
+	// mirrored into a rune so `<FlowV2Mount>` re-renders on show/hide. `undefined`/empty on a normal
+	// boot (`__IE_FLOW_V2_DOC__` unset) ⇒ v2 inert, the v1/coded path above is untouched (parity).
+	let flowV2ResolveScene = $state<((sceneId: string) => Scene | undefined) | undefined>(undefined);
+	let flowV2Containers = $state<MountedContainerRef[]>([]);
 	// The interpreter's CURRENT active SET (the pin-driven active-SET model), mirrored into a
 	// rune so screen add/remove re-mounts. Render-ordered: base first, later-activated overlays on
 	// top. The interpreter's internal active set is a plain array (not a rune), so it is pushed
@@ -1182,6 +1195,16 @@
 			// its enter choreography. `onActiveScreensChange` keeps it in sync on add/remove.
 			activeScreenIds = flow?.activeScreenIds ?? [];
 			void flow?.start();
+			// Invisible Flow v2 (Phase 4b) — build the DEV-gated v2 handle from the same scenes and
+			// publish it for the book-event play path (`game/utils.ts` reads it via the holder). The
+			// mount model's `onChange` mirror pushes the z-ordered containers into the rune so
+			// `<FlowV2Mount>` re-renders on show/hide. `undefined` when no v2 doc is authored ⇒ v2 inert.
+			const flowV2 = createLinesFlowV2(doc, (containers) => {
+				flowV2Containers = containers;
+			});
+			setFlowV2(flowV2);
+			flowV2ResolveScene = flowV2?.resolveScene;
+			flowV2Containers = flowV2?.ordered() ?? [];
 		});
 	});
 
@@ -1514,6 +1537,18 @@
 			ride the rig. Renders nothing when no effects are baked (parity, byte-identical).
 		-->
 	<Effects />
+
+	<!--
+		Invisible Flow v2 (Phase 4b) — the generic z-ordered container MOUNTER. Renders each
+		container a v2 flow has SHOWN (via `showContainer`), each `<Container zIndex={z}>` sorting
+		within this root stack by its author-assigned z (so a v2 overlay can sit above/below any
+		coded band). Empty on a normal boot (`__IE_FLOW_V2_DOC__` unset ⇒ v2 inert) ⇒ nothing
+		renders, byte-identical to `main`. Phase 4c gives templates a real vocabulary; Phase 5
+		hard-cuts v1 and this becomes the sole scene mounter.
+	-->
+	{#if flowV2ResolveScene}
+		<FlowV2Mount containers={flowV2Containers} resolveScene={flowV2ResolveScene} />
+	{/if}
 
 	<DebugStage />
 </App>
