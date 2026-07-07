@@ -215,7 +215,7 @@
 							>Click a node to edit it; select a Sequence/Parallel to add children.</span
 						>
 					</div>
-					<SvelteFlow bind:nodes bind:edges {nodeTypes} fitView onnodeclick={onNodeClick}>
+					<SvelteFlow bind:nodes bind:edges {nodeTypes} colorMode="dark" fitView onnodeclick={onNodeClick}>
 						<Background />
 						<Controls showLock={false} />
 					</SvelteFlow>
