@@ -43,10 +43,12 @@
 	// fall back to the built-in `SAMPLE_DOC`. Every editing gesture (wire/add/delete/move/drop)
 	// mutates this and triggers the debounced auto-save below.
 	//
-	// NOTE (out of scope, later increment): the template VOCABULARY (`BOOK_OF_VOCAB`) still comes
-	// from `sample.ts`. The shared FUNCTION LIBRARY now PERSISTS (Part 2c): it initializes from
-	// the GLOBAL `_shared/flow-v2/functions.json` (`data.library`), falling back to the sample
-	// `LIBRARY` when absent, and grows via the "Collapse to Function" gesture below.
+	// The template VOCABULARY (`BOOK_OF_VOCAB`) is the SHARED, single-source-of-truth contract
+	// shipped from `engine-flow-v2` (Phase 4c) — the SAME vocab the apps/lines runtime backs —
+	// re-exported through `sample.ts` so this import is unchanged. The shared FUNCTION LIBRARY
+	// PERSISTS (Part 2c): it initializes from the GLOBAL `_shared/flow-v2/functions.json`
+	// (`data.library`), falling back to the sample `LIBRARY` when absent, and grows via the
+	// "Collapse to Function" gesture below.
 	const initialDoc = (data.doc ?? SAMPLE_DOC) as FlowDoc;
 	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(initialDoc)) as FlowDoc);
 
@@ -104,9 +106,7 @@
 			const fnId = view.functionId;
 			library = {
 				...library,
-				functions: library.functions.map((f) =>
-					f.id === fnId ? { ...f, body: nextGraph } : f,
-				),
+				functions: library.functions.map((f) => (f.id === fnId ? { ...f, body: nextGraph } : f)),
 			};
 			syncCanvas();
 			markLibraryDirty();
@@ -680,11 +680,8 @@
 					title="Rename this function (its id stays stable)"
 					onchange={(e) => renameActiveFunction(e.currentTarget.value.trim() || activeFn.name)}
 				/>
-				<button
-					class="back-btn"
-					type="button"
-					onclick={backToFlow}
-					title="Return to the main flow">← Back to flow</button
+				<button class="back-btn" type="button" onclick={backToFlow} title="Return to the main flow"
+					>← Back to flow</button
 				>
 			{/if}
 		</span>
@@ -764,20 +761,28 @@
 				<h3>Function body</h3>
 				<p class="hint">
 					Editing <strong>{activeFn.name}</strong>'s body. Wire between the
-					<strong>Entry</strong> and <strong>Result</strong> nodes to define its logic — the
-					signature (its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag
-					nodes from the palette; Delete removes internal nodes.
+					<strong>Entry</strong> and <strong>Result</strong> nodes to define its logic — the signature
+					(its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag nodes from the palette;
+					Delete removes internal nodes.
 				</p>
 				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} doc={paletteDoc} onadd={addNodeOfKind} />
 			{:else}
 				<h3>Flow v2 · dev</h3>
 				<p class="hint">
 					Editable canvas (Phase 2b.2). Template <code>{doc.templateId}</code>. Pins are
-					<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible wires
-					won't drop. Select a node to edit its fields; Delete removes selection.
-					Double-click a <strong>function</strong> node to edit its body.
+					<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible
+					wires won't drop. Select a node to edit its fields; Delete removes selection. Double-click
+					a <strong>function</strong> node to edit its body.
 				</p>
-				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} doc={paletteDoc} onadd={addNodeOfKind} onopen={openFunction} ondelete={deleteFunction} deleteError={deleteError} />
+				<AddNodePalette
+					vocab={BOOK_OF_VOCAB}
+					{library}
+					doc={paletteDoc}
+					onadd={addNodeOfKind}
+					onopen={openFunction}
+					ondelete={deleteFunction}
+					{deleteError}
+				/>
 			{/if}
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 		</aside>

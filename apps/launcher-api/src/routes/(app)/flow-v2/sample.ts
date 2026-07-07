@@ -1,54 +1,35 @@
 /**
- * Invisible Flow v2 — Phase 2a sample fixture (DEV route `/flow-v2`).
+ * Invisible Flow v2 — the DEV route `/flow-v2` fallback fixtures.
  *
- * A REAL, VALID `FlowDoc` for the `bookOf` template, consumed unchanged by the canvas.
- * It reuses the reel-stagger vocabulary/function/flow shape proven headlessly by the
- * Phase-1 schema spike (`tools/flow-spike/flowV2Schema.ts`), so this route renders the
- * same graph the validator already blesses:
+ * The template VOCABULARY is now the SHARED, single-source-of-truth `BOOK_OF_VOCAB` shipped from
+ * `engine-flow-v2` (Phase 4c) — the SAME contract the apps/lines runtime BACKS — re-exported here so
+ * the page's import path is unchanged. `SAMPLE_DOC` + `LIBRARY` are the FALLBACKS used when a project
+ * has no saved doc/library; both are authored against (and validate clean with 0 issues against) the
+ * real `BOOK_OF_VOCAB`.
  *
- *   event `reveal` (payload: reels: list<Reel>)
- *     →(exec) functionCall `StaggerStop`   (reels ← reveal.reels; step ← literal 120ms)
+ * The sample is the book-of reveal, using the real vocab:
+ *
+ *   event `reveal`
+ *     →(exec) functionCall `StaggerStop`   (reels ← $engine.reels; step ← literal 120ms)
  *     →(exec) action `setSpecialSymbol`     (symbol ← literal SymbolName 'S')
- *     →(exec) fireCue `specialBookReveal`
+ *     →(exec) fireCue `specialBookReveal`   (symbol ← literal SymbolName 'S')
  *
- * The `StaggerStop` FunctionDef body is the per-reel stagger:
+ * The `StaggerStop` body is the per-reel stagger:
  *   Entry → ForEach(reels) →(body) compute($index × step) → Delay(ms ← compute) → stopReel($item.index)
  *
- * It must pass `validateFlowDoc(SAMPLE_DOC, BOOK_OF_VOCAB, LIBRARY)` with ZERO issues.
+ * (The reels come from the `$engine.reels` collection, not the `reveal` event — the real `reveal`
+ * book event carries `gameType`, not a reels list.)
  */
 
-import type {
-	FlowDoc,
-	FunctionDef,
-	FunctionLibraryDoc,
-	TemplateVocabulary,
-	TypeRef,
-} from 'engine-flow-v2';
+import { BOOK_OF_VOCAB } from 'engine-flow-v2';
+import type { FlowDoc, FunctionDef, FunctionLibraryDoc, TypeRef } from 'engine-flow-v2';
+
+// Re-export the shared template vocabulary so the page keeps importing it from `./sample`.
+export { BOOK_OF_VOCAB };
 
 const REEL: TypeRef = { t: 'struct', name: 'Reel' };
 const LIST_REEL: TypeRef = { t: 'list', of: REEL };
 const SYMBOL_NAME: TypeRef = { t: 'enum', name: 'SymbolName' };
-
-// ---------------------------------------------------------------------------
-// The book-of TemplateVocabulary — the contract the flow is authored against
-// (declared by the template, not the editor). §7 of the schema.
-// ---------------------------------------------------------------------------
-
-export const BOOK_OF_VOCAB: TemplateVocabulary = {
-	templateId: 'bookOf',
-	structs: [{ name: 'Reel', fields: [{ name: 'index', type: { t: 'int' } }] }],
-	enums: [{ name: 'SymbolName', values: ['H1', 'H2', 'H3', 'L1', 'L2', 'S'] }],
-	events: [{ name: 'reveal', payload: [{ name: 'reels', type: LIST_REEL }] }],
-	actions: [
-		{ name: 'setSpecialSymbol', params: [{ name: 'symbol', type: SYMBOL_NAME }], category: 'effect' },
-		{ name: 'stopReel', params: [{ name: 'index', type: { t: 'int' } }], category: 'command' },
-	],
-	cues: [
-		{ name: 'specialBookReveal', payload: [] },
-		{ name: 'specialBookHide', payload: [] },
-	],
-	collections: [{ name: 'reels', of: REEL }],
-};
 
 // ---------------------------------------------------------------------------
 // StaggerStop(reels, step) — the reusable reel-stagger function (§5). Body:
@@ -67,6 +48,7 @@ const STAGGER_STOP: FunctionDef = {
 	outputs: [{ id: 'exec', dir: 'out', kind: 'exec' }],
 	body: {
 		nodes: [
+			{ id: 'entry', kind: 'functionEntry', pos: { x: -240, y: 0 }, ref: 'fn.staggerStop' },
 			{
 				id: 'each',
 				kind: 'forEach',
@@ -92,10 +74,13 @@ const STAGGER_STOP: FunctionDef = {
 				ref: 'stopReel',
 				inputs: { index: { kind: 'accessor', path: { on: 'item', member: 'index' } } },
 			},
+			{ id: 'result', kind: 'functionResult', pos: { x: 720, y: 0 }, ref: 'fn.staggerStop' },
 		],
 		exec: [
+			{ from: { node: 'entry', pin: 'exec' }, to: { node: 'each', pin: 'exec' } },
 			{ from: { node: 'each', pin: 'body' }, to: { node: 'wait', pin: 'exec' } },
 			{ from: { node: 'wait', pin: 'exec' }, to: { node: 'stop', pin: 'exec' } },
+			{ from: { node: 'each', pin: 'done' }, to: { node: 'result', pin: 'exec' } },
 		],
 		data: [{ from: { node: 'mul', pin: 'out' }, to: { node: 'wait', pin: 'ms' } }],
 	},
@@ -105,7 +90,7 @@ const STAGGER_STOP: FunctionDef = {
 export const LIBRARY: FunctionLibraryDoc = { version: 2, functions: [STAGGER_STOP] };
 
 // ---------------------------------------------------------------------------
-// The FlowDoc: reveal → StaggerStop → setSpecialSymbol → fireCue specialBookReveal.
+// The FlowDoc: reveal → StaggerStop(reels ← $engine.reels) → setSpecialSymbol → fireCue.
 // ---------------------------------------------------------------------------
 
 export const SAMPLE_DOC: FlowDoc = {
@@ -120,7 +105,7 @@ export const SAMPLE_DOC: FlowDoc = {
 				pos: { x: 360, y: 120 },
 				ref: 'fn.staggerStop',
 				inputs: {
-					reels: { kind: 'wire' },
+					reels: { kind: 'accessor', path: { on: 'engine', key: 'reels' } },
 					step: { kind: 'literal', type: { t: 'ms' }, value: 120 },
 				},
 			},
@@ -131,14 +116,20 @@ export const SAMPLE_DOC: FlowDoc = {
 				ref: 'setSpecialSymbol',
 				inputs: { symbol: { kind: 'literal', type: SYMBOL_NAME, value: 'S' } },
 			},
-			{ id: 'revealCue', kind: 'fireCue', pos: { x: 1020, y: 120 }, ref: 'specialBookReveal' },
+			{
+				id: 'revealCue',
+				kind: 'fireCue',
+				pos: { x: 1020, y: 120 },
+				ref: 'specialBookReveal',
+				inputs: { symbol: { kind: 'literal', type: SYMBOL_NAME, value: 'S' } },
+			},
 		],
 		exec: [
 			{ from: { node: 'onReveal', pin: 'exec' }, to: { node: 'stagger', pin: 'exec' } },
 			{ from: { node: 'stagger', pin: 'exec' }, to: { node: 'setSpecial', pin: 'exec' } },
 			{ from: { node: 'setSpecial', pin: 'exec' }, to: { node: 'revealCue', pin: 'exec' } },
 		],
-		data: [{ from: { node: 'onReveal', pin: 'reels' }, to: { node: 'stagger', pin: 'reels' } }],
+		data: [],
 	},
 	containers: [{ id: 'base', sceneId: 'basegame', z: 0 }],
 };
