@@ -6,4 +6,5 @@ export * from './src/collapse';
 export * from './src/runtime';
 export * from './src/mount';
 export * from './src/env';
+export * from './src/preview';
 export * from './src/reference/bookOf';
