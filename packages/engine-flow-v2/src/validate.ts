@@ -226,7 +226,11 @@ const validateGraph = (
 		if (!refResolves(node, ctx)) {
 			issues.push({
 				code: 'ref-unresolved',
-				severity: 'error',
+				// EVENTS are the OPEN input boundary: the game dispatches whatever name it likes (book
+				// events, lifecycle/signals, a translated `complete:<screen>`), so an event ref outside
+				// the vocab is a WARNING (fewer derived data-out pins), not an error. Actions/cues/
+				// containers/functions are CLOSED (the game must implement them) → an error.
+				severity: node.kind === 'event' ? 'warning' : 'error',
 				message: `${node.kind} node '${node.id}' references unknown '${
 					'ref' in node ? node.ref : ''
 				}'`,

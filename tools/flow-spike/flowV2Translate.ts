@@ -18,7 +18,13 @@
  * output VALIDATES clean vs BOOK_OF_VOCAB and its node/exec shape matches the hand-authored version.
  */
 
-import type { ChoreographyNode, FlowAccessor, FlowGuard, FlowPayload } from 'engine-flow';
+import type {
+	ChoreographyNode,
+	FlowAccessor,
+	FlowDoc as FlowDocV1,
+	FlowGuard,
+	FlowPayload,
+} from 'engine-flow';
 import {
 	validateFlowDoc,
 	BOOK_OF_VOCAB,
@@ -269,6 +275,122 @@ export const translateEventChoreography = (
 };
 
 // ---------------------------------------------------------------------------
+// Doc-level translate (Phase B.2): screens → z-ordered containers; each event's book choreography +
+// its transitions → one v2 event graph. Transition triggers map:
+//   bookEvent → the event's chain gains hide(from)+show(to)
+//   complete  → a synthetic `complete:<from>` event → hide(from)+show(to)  [game dispatches it at cutover]
+//   signal    → an event named `<signal>` → hide(from)+show(to)
+//   action    → an event named `<pin>` → invoke-intent action (if mapped) + hide/show when from≠to
+//   value     → SKIP (feed-gated overlays stay on the components' visibleSource)
+//   condition → SKIP for now (a Branch on an engine guard — B.3 refinement)
+// ---------------------------------------------------------------------------
+
+interface TransitionOp {
+	hide?: string;
+	show?: string;
+	intent?: string;
+}
+
+/** Map a v1 action-transition `intent` → the v2 invoke-intent action ref (book-of default). Absent ⇒
+ *  the flow just reacts (show/hide) without invoking a mechanic. */
+export type IntentActionMap = (intent: string) => string | undefined;
+const DEFAULT_INTENT_ACTIONS: IntentActionMap = (intent) =>
+	({ spin: 'startSpin', stop: 'stopSpin', buyBonus: 'confirmBuyBonus' })[intent];
+
+const containerNode = (kind: 'showContainer' | 'hideContainer', ref: string): Node => ({
+	id: uid(kind === 'showContainer' ? 'show' : 'hide'),
+	kind,
+	pos: { x: 0, y: 0 },
+	ref,
+});
+
+/** Translate a whole v1 `FlowDoc` into a v2 `FlowDoc`. */
+export const translateFlowDoc = (
+	v1: FlowDocV1,
+	vocab: TemplateVocabulary,
+	intentActions: IntentActionMap = DEFAULT_INTENT_ACTIONS,
+): FlowDoc => {
+	// Screens → z-ordered containers (array order = stack order; tune later).
+	const containers = v1.screens.map((s, i) => ({ id: s.id, sceneId: s.id, z: i * 10 }));
+
+	// Aggregate per-event: the book choreography (if any) + the show/hide/intent ops its triggers add.
+	const byEvent = new Map<string, { choreo?: ChoreographyNode; ops: TransitionOp[] }>();
+	const bucket = (name: string) => {
+		let e = byEvent.get(name);
+		if (!e) byEvent.set(name, (e = { ops: [] }));
+		return e;
+	};
+	for (const ev of v1.events ?? []) bucket(ev.event).choreo = ev.choreography;
+	for (const t of v1.transitions ?? []) {
+		const trig = t.trigger;
+		if (trig.kind === 'bookEvent') bucket(trig.event).ops.push({ hide: t.from, show: t.to });
+		else if (trig.kind === 'complete')
+			bucket(`complete:${t.from}`).ops.push({ hide: t.from, show: t.to });
+		else if (trig.kind === 'signal') bucket(trig.signal).ops.push({ hide: t.from, show: t.to });
+		else if (trig.kind === 'action')
+			bucket(trig.pin).ops.push({
+				intent: intentActions(trig.intent),
+				...(t.from !== t.to ? { hide: t.from, show: t.to } : {}),
+			});
+		// value / condition: skip (see header).
+	}
+	// The initial screen shows on `load` (the game dispatches it once assets are ready).
+	const initial = v1.screens.find((s) => s.initial);
+	if (initial) bucket('load').ops.push({ show: initial.id });
+
+	// Generate one event graph per bucketed event: event → choreography → its ops (chained).
+	const nodes: Node[] = [];
+	const exec: ExecEdge[] = [];
+	const data: DataEdge[] = [];
+	for (const [name, { choreo, ops }] of byEvent) {
+		const eventId = `on_${name}`;
+		nodes.push({ id: eventId, kind: 'event', pos: { x: 0, y: 0 }, ref: name });
+		const parts: SubGraph[] = [];
+		if (choreo) parts.push(compile(choreo, vocab));
+		for (const op of ops) {
+			if (op.intent) {
+				const id = uid('act');
+				parts.push({
+					nodes: [{ id, kind: 'action', pos: { x: 0, y: 0 }, ref: op.intent, inputs: {} }],
+					exec: [],
+					data: [],
+					entry: id,
+					tails: [{ node: id, pin: 'exec' }],
+				});
+			}
+			if (op.hide) {
+				const n = containerNode('hideContainer', op.hide);
+				parts.push({
+					nodes: [n],
+					exec: [],
+					data: [],
+					entry: n.id,
+					tails: [{ node: n.id, pin: 'exec' }],
+				});
+			}
+			if (op.show) {
+				const n = containerNode('showContainer', op.show);
+				parts.push({
+					nodes: [n],
+					exec: [],
+					data: [],
+					entry: n.id,
+					tails: [{ node: n.id, pin: 'exec' }],
+				});
+			}
+		}
+		const body = chain(parts);
+		nodes.push(...body.nodes);
+		exec.push(...body.exec);
+		data.push(...body.data);
+		if (body.entry)
+			exec.push({ from: { node: eventId, pin: 'exec' }, to: { node: body.entry, pin: 'exec' } });
+	}
+
+	return { version: 2, templateId: vocab.templateId, graph: { nodes, exec, data }, containers };
+};
+
+// ---------------------------------------------------------------------------
 // Harness — translate a re-encoded real v1 choreography and validate the v2 output.
 // ---------------------------------------------------------------------------
 
@@ -392,6 +514,75 @@ const main = () => {
 			(n) => n.kind === 'fireCue' && (n as { ref: string }).ref === 'boardWithAnimateSymbols',
 		) as { await?: boolean } | undefined;
 		assert('the awaited broadcast → fireCue { await: true }', animate?.await === true);
+	}
+
+	console.log('\n3. translate a whole v1 DOC — screens→containers + transitions→show/hide/intent:');
+	{
+		seq = 0;
+		const v1: FlowDocV1 = {
+			version: 1,
+			projectKey: 'bookOf',
+			screens: [{ id: 'loading', initial: true }, { id: 'basegame' }, { id: 'winScreen' }],
+			transitions: [
+				{ id: 't1', from: 'loading', to: 'basegame', trigger: { kind: 'complete' } },
+				{
+					id: 't2',
+					from: 'basegame',
+					to: 'winScreen',
+					trigger: { kind: 'bookEvent', event: 'setWin' },
+				},
+				{
+					id: 't3',
+					from: 'basegame',
+					to: 'basegame',
+					trigger: { kind: 'action', pin: 'spin', intent: 'spin' },
+				},
+			],
+			events: [{ event: 'setWin', choreography: setWinChoreo }],
+		};
+		const v2 = translateFlowDoc(v1, BOOK_OF_VOCAB);
+		// Errors gate; synthetic events (`complete:<screen>`) are warnings (the open input boundary).
+		const errors = validateFlowDoc(v2, BOOK_OF_VOCAB, { version: 2, functions: [] }).filter(
+			(i) => i.severity === 'error',
+		);
+		assert(
+			'translated doc validates with 0 ERRORS',
+			errors.length === 0,
+			errors.map((i) => `${i.code}:${i.message}`).join(' | '),
+		);
+		assert(
+			'screens → containers (loading z0, basegame z10, winScreen z20)',
+			JSON.stringify(v2.containers) ===
+				JSON.stringify([
+					{ id: 'loading', sceneId: 'loading', z: 0 },
+					{ id: 'basegame', sceneId: 'basegame', z: 10 },
+					{ id: 'winScreen', sceneId: 'winScreen', z: 20 },
+				]),
+			JSON.stringify(v2.containers),
+		);
+		const evs = v2.graph.nodes
+			.filter((n) => n.kind === 'event')
+			.map((n) => (n as { ref: string }).ref)
+			.sort();
+		assert(
+			'events = complete:loading, load, setWin, spin',
+			JSON.stringify(evs) === JSON.stringify(['complete:loading', 'load', 'setWin', 'spin']),
+			evs.join(','),
+		);
+		// setWin: choreography THEN hide basegame + show winScreen.
+		const hasHideShow =
+			v2.graph.nodes.some(
+				(n) => n.kind === 'hideContainer' && (n as { ref: string }).ref === 'basegame',
+			) &&
+			v2.graph.nodes.some(
+				(n) => n.kind === 'showContainer' && (n as { ref: string }).ref === 'winScreen',
+			);
+		assert('setWin transition added hide basegame + show winScreen', hasHideShow);
+		// spin action → invoke-intent action startSpin.
+		assert(
+			'spin action transition → invoke-intent action startSpin',
+			v2.graph.nodes.some((n) => n.kind === 'action' && (n as { ref: string }).ref === 'startSpin'),
+		);
 	}
 
 	console.log(`\n${failed ? 'V2 TRANSLATE HARNESS: FAILED' : 'V2 TRANSLATE HARNESS: PASSED'}`);
