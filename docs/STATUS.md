@@ -59,10 +59,30 @@ blind seeding would break. All shipped to `main` in small harness-tested slices:
   so `freeSpinTrigger` no longer hid `basegame` out from under the intro (remake `hideContainer` nodes
   25→12). Harness `v2translateremake` replays the whole boot + free-spin lifecycle on the real flow (7/7).
 
-**Remaining to flip the remake:** the freeSpin screens must emit their `completeOnLoaded`/tap in-round
-(an authoring concern per scene, not engine — the mechanism is done); then translate→`--seed`→runtime
-release→verify live. **Phase C cutover** after: v2 default, retire v1 `/flow` + engine-flow + coded
-fall-through, `new-game.mjs` scaffolds v2, flip each game.
+- **B1 — canonical book-of choreographies as a reusable template artifact** (`8e83150`): the real
+  book-event choreographies (`freeSpinTrigger`, `setExpandingSymbol`, `setWin`, the `winInfo` forEach,
+  …), transcribed 1:1 from `bookEventHandlerMap`, moved from apps/lines into the package
+  (`engine-flow-v2/reference/bookOfChoreo.ts`): `BOOK_OF_CHOREO` (a tiny action/cue/forEach step DSL) +
+  `buildChoreo(steps, uid)` → a v2 subgraph. apps/lines `LINES_FLOW_V2_DOC` now BUILDS from it (DRY).
+  Harness `v2choreo`.
+- **B2 — translator injects the canonical choreography** (`13fc5e5`): a migrated game's v1 flow usually
+  declared only a SCREEN transition for a book event (its presentation lived in the coded handler, which
+  v2-ownership would suppress). `translateFlowDoc` now injects `BOOK_OF_CHOREO[event]` (presentation
+  FIRST, then the screen swap) for a book event with no authored v1 choreography — so the migrated game
+  keeps faithful presentation, not an empty swap. The remake's real flow went 64→**111 nodes** (fireCue
+  2→34, action 2→16, +forEach), 0 errors. `canonicalChoreo={}` opts out (screens-only).
+
+  **Key discovery that drove B1/B2:** the "author real choreographies" work was already DONE for the
+  book-of template — `LINES_FLOW_V2_DOC` authors every book event faithfully. The gap was that those
+  choreographies lived in apps/lines, unreachable by the translator, so a migrated game got empty screen
+  swaps. B1+B2 make them a shared artifact the translator injects.
+
+**Remaining to flip the remake:** the injected choreography fires overlay CUES (`freeSpinIntroShow`, …)
+while the remake authored those same screens as flow CONTAINERS — the **overlay-cue vs flow-container
+model must be reconciled** so they don't double-drive the freeSpin screens (the last remake-specific
+design step). Then translate→`--seed`→runtime release→verify live. **Phase C cutover** after: v2
+default, retire v1 `/flow` + engine-flow + coded fall-through, `new-game.mjs` scaffolds v2, flip each
+game.
 
 ### 2026-07-07 — Invisible Flow v2: ship-ready (committed flow + full bake→ship chain)
 
