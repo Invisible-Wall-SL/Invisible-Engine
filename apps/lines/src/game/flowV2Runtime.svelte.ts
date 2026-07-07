@@ -9,9 +9,11 @@
  * replaces v1's active-set. Show/hide land in the model; the model's `onChange` mirror re-renders
  * the generic `<FlowV2Mount>` in Game.svelte.
  *
- * v2 is a DEV-GATED opt-in: `loadFlowV2Doc()` returns a doc ONLY when `window.__IE_FLOW_V2_DOC__`
- * is set, so a normal boot leaves v2 inert and the v1/coded path unchanged (parity). Phase 5 will
- * hard-cut v1 and source the v2 doc from the baked bundle.
+ * v2 SHIP SOURCE (Phase 5, decision "ship-ready v2, keep v1"): `loadFlowV2Doc()` sources from the
+ * baked bundle (`bakedFlowV2Doc()`) — so an authored v2 flow ships — with dev escape hatches on top
+ * (`__IE_FLOW_V2_DOC__` ad-hoc; `__IE_FLOW_V2_LINES__` the committed reference flow). Unset + un-baked
+ * ⇒ v2 stays inert and the v1/coded path owns the game (parity); v1 remains the incumbent until an
+ * explicit cutover. Dispatch is ADDITIVE over the coded/v1 path (Phase 4b).
  *
  * Phase 4c — the game runs against the REAL template vocabulary resolved from the loaded doc's
  * `templateId` via the shared `templateVocabulary()` registry (only `book-of` today) — the SAME
@@ -37,9 +39,11 @@ import {
 import { stateBetDerived } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
+import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
+import { LINES_FLOW_V2_DOC, LINES_FLOW_V2_LIBRARY } from './flowV2Doc';
 
 declare global {
 	/** DEV opt-in: an arbitrary v2 FlowDoc injected at runtime so a v2 flow can drive the game
@@ -50,6 +54,10 @@ declare global {
 	 *  (the editor's `_shared/flow-v2/functions.json`). Unset ⇒ an empty library (calls no-op). */
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_V2_LIB__: FunctionLibraryDoc | undefined;
+	/** DEV opt-in: load the COMMITTED reference book-of flow (`LINES_FLOW_V2_DOC` + its library) so
+	 *  v2 drives a real game without a bake (mirrors v1's `__IE_FLOW_LINES__`). Unset ⇒ not loaded. */
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_V2_LINES__: boolean | undefined;
 }
 
 /**
@@ -68,16 +76,33 @@ const assertVocabBacked = (vocab: TemplateVocabulary): void => {
 	}
 };
 
-/** Source the authored v2 FlowDoc — DEV-gated (`window.__IE_FLOW_V2_DOC__`), else `undefined`
- *  (v2 inert, v1/coded path owns). Phase 5 sources it from the baked bundle instead. */
-export const loadFlowV2Doc = (): FlowDocV2 | undefined =>
-	typeof globalThis !== 'undefined' ? globalThis.__IE_FLOW_V2_DOC__ : undefined;
+/**
+ * Source the authored v2 FlowDoc. Precedence — dev escape hatches FIRST (a live-verify override
+ * always wins), then the REAL ship source (the baked bundle):
+ *  - `window.__IE_FLOW_V2_DOC__` — an arbitrary FlowDoc injected at runtime (the ad-hoc hook);
+ *  - `window.__IE_FLOW_V2_LINES__` — the COMMITTED reference `LINES_FLOW_V2_DOC` (no bake needed);
+ *  - `bakedFlowV2Doc()` — the v2 doc embedded in the baked bundle by the export→bake chain (Phase 5
+ *    ship path). UNDEFINED on an un-baked / un-authored boot (incl. apps/lines dev with no globals),
+ *    so v2 stays inert and the v1/coded path owns the game (parity).
+ */
+export const loadFlowV2Doc = (): FlowDocV2 | undefined => {
+	if (typeof globalThis !== 'undefined') {
+		if (globalThis.__IE_FLOW_V2_DOC__) return globalThis.__IE_FLOW_V2_DOC__;
+		if (globalThis.__IE_FLOW_V2_LINES__) return LINES_FLOW_V2_DOC;
+	}
+	return bakedFlowV2Doc();
+};
 
-const loadFlowV2Library = (): FunctionLibraryDoc =>
-	(typeof globalThis !== 'undefined' && globalThis.__IE_FLOW_V2_LIB__) || {
-		version: 2,
-		functions: [],
-	};
+/** Source the v2 function library, matching `loadFlowV2Doc`'s precedence: the injected
+ *  `__IE_FLOW_V2_LIB__`, the committed library when the reference doc is loaded, else the baked
+ *  library, else an empty library (a doc with no `functionCall` never needs it). */
+const loadFlowV2Library = (): FunctionLibraryDoc => {
+	if (typeof globalThis !== 'undefined') {
+		if (globalThis.__IE_FLOW_V2_LIB__) return globalThis.__IE_FLOW_V2_LIB__;
+		if (globalThis.__IE_FLOW_V2_LINES__) return LINES_FLOW_V2_LIBRARY;
+	}
+	return bakedFlowV2Library() ?? { version: 2, functions: [] };
+};
 
 /** The v2 handle Game.svelte holds — dispatch a book/game event into the flow, plus the mount
  *  model + a scene resolver the `<FlowV2Mount>` renders from. `undefined` when no v2 doc is

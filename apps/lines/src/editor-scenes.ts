@@ -1,4 +1,5 @@
 import type { FlowDoc } from 'engine-flow';
+import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
 import type { ComponentDef, FontCatalog, LayoutDoc } from 'engine-layout';
 import {
@@ -125,6 +126,14 @@ type BakedBundle = {
 	 * (the §7 fall-through invariant). The FlowDoc carries NO binary assets (it
 	 * references scenes the Scene Editor already exported), so there is no `pull` step. */
 	flow?: FlowDoc;
+	/** The authored Invisible Flow **v2** graph (`/flow-v2` output), exported to
+	 * `deploy/flow-v2.json` and embedded by the bake. When present the game builds the v2
+	 * interpreter from it (`flowV2Runtime`); ABSENT ⇒ v2 stays inert and the v1/coded path
+	 * owns the game (parity). Like v1's `flow`, it carries no binary assets. */
+	flowV2?: FlowDocV2;
+	/** The shared v2 function library the `flowV2` graph's `functionCall` nodes resolve
+	 * against (`_shared/flow-v2/functions.json`), embedded alongside `flowV2` at bake. */
+	flowV2Library?: FlowV2LibraryDoc;
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
 
@@ -331,6 +340,26 @@ export function bakedFlowDoc(): FlowDoc | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.flow;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.flow;
+}
+
+/**
+ * The baked Invisible Flow **v2** graph (`/flow-v2` output). When present, the game's
+ * `flowV2Runtime` builds the v2 interpreter from it so a v2 flow drives the game; undefined ⇒ v2
+ * stays inert and the v1/coded path owns the game (parity, decision "ship-ready v2, keep v1").
+ * Same runtime→baked→undefined resolution as `bakedFlowDoc`.
+ */
+export function bakedFlowV2Doc(): FlowDocV2 | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.flowV2;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.flowV2;
+}
+
+/** The baked shared v2 function library the `flowV2` graph resolves `functionCall` nodes against
+ *  (undefined ⇒ an empty library; a doc with no `functionCall` never needs it). */
+export function bakedFlowV2Library(): FlowV2LibraryDoc | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.flowV2Library;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.flowV2Library;
 }
 
 type SymbolAssetEntry =
