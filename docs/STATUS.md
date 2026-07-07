@@ -84,10 +84,43 @@ per-template vocab loading), then Phase 5 (migrate the one flow + retire v1). An
   113 descendants); hide removed exactly its 3 nodes (→110), show restored them (→113). Clean boot,
   no console errors, with the doc unset.
 
-**Remaining:** Phase 4c (real per-template vocabulary + actions/cues/collections), 2d preview, then
-Phase 5 (migrate the one book-of flow + hard-cut v1). Known interpreter edge-case to harden later: a
-`parallel` forEach containing a `functionCall` whose output is read downstream can race on the
-per-call output cache (real scenarios don't hit it).
+**Remaining after 4b:** Phase 4c (below), 2d preview, then Phase 5 (migrate the one book-of flow +
+hard-cut v1). Known interpreter edge-case to harden later: a `parallel` forEach containing a
+`functionCall` whose output is read downstream can race on the per-call output cache (real scenarios
+don't hit it).
+
+### 2026-07-07 — Invisible Flow v2: Phase 4c (the template exposes + BACKS its real vocabulary)
+
+**Shipped to `main`** (feature branch `flow-v2-4c-real-vocab`, ff-merged; commits `0659fbe`,
+`7e552ca`, `257964f`). The reference `book-of` template now declares its REAL `TemplateVocabulary`
+as a single source of truth consumed by BOTH the editor and the game, and the game backs every
+surface it declares — replacing 4b's minimal stub + the editor's hardcoded sample.
+
+- **`engine-flow-v2/src/reference/bookOf.ts`** — `BOOK_OF_VOCAB`, transcribed VERBATIM from apps/lines
+  (honest, not invented): structs `Reel`/`Position`/`Win`; enums `SymbolName` (`config.symbols` keys)
+  / `GameType`; events = the `BookEvent` union with typed payloads; actions = the `flowEffect` keys
+  (`effect`) + `stopReel`/`expandBookColumns` (`command`); cues = the `EmitterEvent` presentation
+  signals; collections = `reels`. Exported from the package index.
+- **apps/lines BACKS it:** `flowV2Runtime` runs against `BOOK_OF_VOCAB` (drops the minimal stub) +
+  `assertVocabBacked()` (dev warns if a declared action has no `flowEffect`); `flowEffects` adds the
+  `stopReel(index)` command (fires a real, typed `reelStop` emitter broadcast — the per-reel stagger
+  hook) + exports `flowEffectNames`; `Board.svelte` declares the `reelStop` event; `linesEngineReader`
+  exposes the `reels` collection (`$engine.reels` → `[{index}]` from the live board length).
+- **`/flow-v2` editor** loads the shared `BOOK_OF_VOCAB` (re-exported through `sample.ts`); `SAMPLE_DOC`
+  rewritten valid against it (stagger off `$engine.reels`); fixed a latent bug — the sample
+  `StaggerStop` body was missing its `functionEntry`/`functionResult` nodes (the flow view only
+  validates the doc, not library bodies, so it slipped through).
+- **Harness** `flowV2Vocab.ts` (`pnpm v2vocab`): vocab internal consistency (every referenced
+  struct/enum declared, no dup names, `StaggerStop.requires` satisfied) + a representative book-of
+  flow + `StaggerStop` validate with 0 issues. All five v2 harnesses (schema/collapse/runtime/mount/
+  vocab) PASS; `pnpm --filter lines build` + `--filter launcher-api build` pass; headless validation
+  confirms `SAMPLE_DOC` = 0 issues.
+- **Verified live:** with the real vocab, dispatching a `$engine.reels → stopReel → fireCue` flow runs
+  clean and the coverage guard logs NOTHING (every declared action is backed).
+
+**Remaining:** editor 2d preview + real per-template vocab loading (the editor still hardcodes
+`BOOK_OF_VOCAB` rather than loading a per-project template's vocab), then Phase 5 (migrate the one
+book-of flow + hard-cut v1).
 
 ### 2026-07-07 — engine: fix symbol "blink" on land (spine setup-pose flash)
 
