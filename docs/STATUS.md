@@ -71,9 +71,22 @@ the opaque `revealBoard` mechanic action. `finalWin` (no-op) + `createBonusSnaps
 coded — fall through exactly as v1. Verified: doc validates 0 issues; preview timelines match the coded
 handler order op-for-op; live — v2 owns all 9 events, dispatch resolves, no errors; builds pass.
 
-Remaining: loading/intents/lifecycle (spin/stop/buyBonus, loading→basegame) — the last non-book-event
-surfaces; then the coded `bookEventHandlerMap` + v1 can be retired (dead once every event is owned +
-live-verified in a real spin). ⏳ owner live-look on `/flow-v2` + a real spin with the reference flow.
+**DIRECTION (2026-07-07): v2 is THE flow for EVERY game (existing + new); v1 is RETIRED** (reverses the
+earlier "keep v1"; the hard cut is the goal). Discovered while trying to make the committed flow live on
+the **Book of Borut remake** (client `invisible_wall`, project `bookofborutremake`): its REAL v1 flow
+(`.../editor/flow.json`) is a rich CUSTOM graph — 11 screens (loading, splash, freeSpin Intro/Counter/
+Outro, specialBook, custom HUD screens), 29 transitions (bookEvent×5 → screen swaps, complete×12
+[loading/tap], action×8 [HUD buttons→intents], value×4 [feed-gated overlays]), only `setExpandingSymbol`
+authored as an event choreography. **v2 is NOT at parity** — my committed flow owns all 9 book events, and
+ownership skips v1 for them, so the 5 bookEvent→screen transitions would stop firing and the free-spin/win
+screens would break. So we do NOT ship v2 to the remake yet.
+
+**Roadmap:** **A** — v2 authoring-surface parity (screens-as-containers on bookEvent/complete/value/action
+transitions + loading lifecycle + intents/HUD buttons; port v1's onComplete/onSignal/onAction/intent
+bridge to v2). **B** — a v1→v2 flow **translator** (convert an authored v1 FlowDoc → v2, so existing games
+migrate faithfully). **C** — the **cutover** (v2 default/only; retire the v1 `/flow` editor + engine-flow +
+coded fall-through; `new-game.mjs` scaffolds v2; flip each game → verify → delete v1). Shipped + reusable:
+the full book-event migration, the ship pipeline (5.1–5.3), `seed-flow-v2.ts`, the `?flowV2=lines` hooks.
 
 ### 2026-07-07 — Invisible Flow v2: design + schema Phase 1 (new initiative)
 
