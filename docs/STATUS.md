@@ -24,6 +24,29 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-07 — Invisible Flow v2: design + schema Phase 1 (new initiative)
+
+**Decision.** Redraw Invisible Flow as an Unreal-Blueprint-style node graph: one canvas of nodes with
+exec + data pins, reusable **functions** in a shared cross-template library, **screens dissolve into
+z-ordered containers**, and the flow is **presentation-only** while each game **template** ships its
+own reels/RGS/math and exposes a vocabulary (events, actions, cues, collections, per-item commands
+like `stopReel`) the flow orchestrates. Decided with the owner before building many flows (only one
+v1 flow exists — cheapest time to change). Design: `docs/design/invisible-flow-v2.md` +
+`invisible-flow-v2-schema.md`. Migration is a **hard cut** from v1.
+
+**Shipped — Phase 1 (`a3f3747`, greenfield; nothing shipped depends on it):**
+`packages/engine-flow-v2` — the schema `types.ts`; `pins.ts` `derivePins()` (a node's pins are
+DERIVED from its `ref` + the template vocabulary = anti-drift, the root cause of a class of v1 bugs);
+`types-check.ts` strict `assignable()` (structural + the one `ms↔int` widening); `validate.ts`
+`validateFlowDoc()` → typed issues. Fixture harness `tools/flow-spike/flowV2Schema.ts` (`pnpm
+v2schema`) encodes the reel-stagger scenario (book-of vocab + `StaggerStop` function + FlowDoc) and
+asserts it validates clean AND a type-mismatch is caught. typecheck + v2schema + phase5 + fs6 PASS.
+
+**Remaining:** Phase 2 = the v2 `/flow` canvas (new UI) → Phase 3 functions (define/collapse/reuse) →
+Phase 4 runtime interpreter (z-ordered show/hide mounter + bake-time function inliner) → Phase 5
+migrate the one flow + retire v1. An interactive canvas **spike** (reel-stagger, throwaway HTML)
+validated the feel first.
+
 ### 2026-07-07 — engine: fix symbol "blink" on land (spine setup-pose flash)
 
 **Symptom.** Owner reported animated symbols briefly blinking as they land (base game + free
