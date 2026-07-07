@@ -24,6 +24,34 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-07 — Invisible Flow v2: ship-ready (committed flow + full bake→ship chain)
+
+**Decided (superseding the "hard cut"): ship-ready v2, KEEP v1.** v1 `/flow` is now a shipped tool
+with a live author→bake→ship pipeline, so ripping it out is irreversible + risky. Instead v2 was made
+shippable ALONGSIDE v1; the v1→v2 cutover is deliberately deferred to an explicit later step. Shipped
+to `main` (feature branch `flow-v2-ship-ready`; commits `b09aa1e`, `1b34552`):
+
+- **Per-project vocab loading** (`9250496`): `engine-flow-v2` `templateVocabulary(templateId)` registry
+  (book-of registered; unknown id falls back). The editor + game resolve the vocab from `doc.templateId`
+  instead of hardcoding `BOOK_OF_VOCAB` — a future template is a data change.
+- **Committed reference v2 flow** (`apps/lines/flowV2Doc.ts` `LINES_FLOW_V2_DOC`): the book-of REVEAL
+  authored against `BOOK_OF_VOCAB` (setExpandingSymbol → setSpecialSymbol → show specialBook → reveal
+  cue → delay → hide cue → hide specialBook). The v2 analogue of v1's `LINES_FLOW_DOC`; validates 0
+  issues. Loadable via `window.__IE_FLOW_V2_LINES__` (mirrors v1's `__IE_FLOW_LINES__`).
+- **Game-side ship source**: `loadFlowV2Doc()` sources from the baked bundle (`bakedFlowV2Doc()`) with
+  dev hatches on top; `editor-scenes.ts` `BakedBundle` gains `flowV2`/`flowV2Library` slots +
+  `bakedFlowV2Doc()`/`bakedFlowV2Library()` (mirroring `bakedFlowDoc`). Un-baked ⇒ v2 inert (parity).
+- **Launcher-side bake export**: `flowV2Export.ts` (mirrors `flowExport`) writes `deploy/flow-v2.json`
+  + `-library.json`; `runtimeBundle` embeds the `flowV2`/`flowV2Library` slots. Completes the chain
+  **/flow-v2 author → R2 → bake → bundle slot → game `bakedFlowV2Doc()`**. Fully additive — v1 untouched.
+- **Verified live**: `__IE_FLOW_V2_LINES__` → the reveal mounts the real `specialBook` subtree onto the
+  live Pixi stage (110→122 nodes) for the 900ms hold, then unmounts (→110); no console errors. All six
+  v2 harnesses PASS; `lines` + `launcher-api` builds pass.
+
+**v2 status: authoring + runtime + real vocabulary + preview + per-project vocab loading + ship-ready
+are DONE.** Remaining (deferred, explicit later step): the v1→v2 hard cutover (retire `/flow` + the
+coded reveal, make v2 the sole path). ⏳ owner live-look on `/flow-v2` (auth-gated).
+
 ### 2026-07-07 — Invisible Flow v2: design + schema Phase 1 (new initiative)
 
 **Decision.** Redraw Invisible Flow as an Unreal-Blueprint-style node graph: one canvas of nodes with
