@@ -66,6 +66,8 @@ export const makeChoreoNode = (kind: ChoreoKind): ChoreographyNode => {
 			return { kind: 'parallel', children: [] };
 		case 'broadcast':
 			return { kind: 'broadcast', event: '' };
+		case 'effect':
+			return { kind: 'effect', name: '' };
 		case 'delay':
 			return { kind: 'delay', ms: 300 };
 		case 'forEach':
@@ -82,6 +84,11 @@ export const makeChoreoNode = (kind: ChoreoKind): ChoreographyNode => {
 				then: { kind: 'sequence', children: [] },
 			};
 	}
+	// Exhaustive guard — a ChoreoKind added to the union (or an add-menu button) WITHOUT a case
+	// above is now a COMPILE error here, not a silent `undefined` node that crashes the tree walk
+	// downstream (that shipped once as the `effect` add-button freezing the whole editor).
+	const unhandled: never = kind;
+	throw new Error(`makeChoreoNode: unhandled choreography kind "${String(unhandled)}"`);
 };
 
 // ---------------------------------------------------------------------------
