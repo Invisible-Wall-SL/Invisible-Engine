@@ -245,6 +245,16 @@ export function flowDocKey(client: string, project: string): string {
 }
 
 /**
+ * Per-project Invisible Flow **v2** document — `<client>/<project>/editor/flow-v2.json`.
+ * A DISTINCT sibling of v1's `flow.json` (they never share a file): v2 is the node-graph
+ * event flow (`engine-flow-v2`'s `FlowDoc`, `version: 2`), authored on the `/flow-v2` dev
+ * canvas. Same client/project slug-underscore convention as `flowDocKey`.
+ */
+export function flowV2DocKey(client: string, project: string): string {
+	return `${SUB.editor(client, project)}/flow-v2.json`;
+}
+
+/**
  * Per-project Invisible Symbols State Machine doc:
  * `<client>/<project>/symbols/symbols.json` — the authored symbol→state→asset
  * binding map (sparse overrides over the coded `SYMBOL_INFO_MAP`). Same

@@ -27,11 +27,20 @@
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
+	import type { PageData } from './$types';
 
-	// The FlowDoc is the single source of truth. Phase 2a is render + validate only — no
-	// write-back yet (that's 2b), so the doc is held in `$state` but not mutated here; the
-	// wiring already routes through `$derived` so live revalidation lands for free in 2b.
-	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(SAMPLE_DOC)) as FlowDoc);
+	let { data }: { data: PageData } = $props();
+
+	// The FlowDoc is the single source of truth. It initializes from the project's saved v2
+	// FlowDoc (loaded server-side from R2 at `flowV2DocKey`); when the project has none — or
+	// this is the standalone dev route with no project — the server sends `doc: null` and we
+	// fall back to the built-in `SAMPLE_DOC`. Every editing gesture (wire/add/delete/move/drop)
+	// mutates this and triggers the debounced auto-save below.
+	//
+	// NOTE (out of scope, later increment): the template VOCABULARY (`BOOK_OF_VOCAB`) and the
+	// shared FUNCTION LIBRARY (`LIBRARY`) still come from `sample.ts` — only the FlowDoc persists.
+	const initialDoc = (data.doc ?? SAMPLE_DOC) as FlowDoc;
+	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(initialDoc)) as FlowDoc);
 
 	const ctx: PinContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY };
 
@@ -129,6 +138,58 @@
 
 	onMount(syncCanvas);
 
+	// --- Persistence: debounced auto-save to R2 (Phase 2a persistence) ----------
+	// Mirrors the Scene Editor's autosave feel: a mutation marks the doc dirty, which (re)starts
+	// an ~800ms debounce; when it fires we POST the current doc to `/api/flow-v2/save` (which
+	// gates on the `flow` tool + session-bound project and writes `flowV2DocKey`). Only a REAL
+	// project persists — the standalone dev sample (server sent `doc: null`) is never saved.
+	const AUTOSAVE_MS = 800;
+	const hasProject = data.doc !== null;
+	type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+	let saveStatus = $state<SaveStatus>('idle');
+	let dirty = $state(false);
+
+	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Every editing gesture calls this after mutating `doc`. It arms the debounce; a fresh
+	// gesture within the window resets it (coalescing a burst of edits into one save).
+	function markDirty(): void {
+		if (!hasProject) return; // standalone sample — never persist.
+		dirty = true;
+		if (autosaveTimer) clearTimeout(autosaveTimer);
+		autosaveTimer = setTimeout(() => {
+			autosaveTimer = null;
+			void saveDoc();
+		}, AUTOSAVE_MS);
+	}
+
+	let pendingSave = false;
+	async function saveDoc(): Promise<void> {
+		if (saveStatus === 'saving') {
+			// Coalesce: the in-flight save's `finally` re-triggers if still dirty.
+			pendingSave = true;
+			return;
+		}
+		saveStatus = 'saving';
+		try {
+			const res = await fetch('/api/flow-v2/save', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ doc }),
+			});
+			if (!res.ok) throw new Error(`save failed (${res.status})`);
+			dirty = false;
+			saveStatus = 'saved';
+		} catch {
+			saveStatus = 'error';
+		} finally {
+			if (pendingSave) {
+				pendingSave = false;
+				if (dirty) void saveDoc();
+			}
+		}
+	}
+
 	function onNodeClick({ node }: { node: Node }): void {
 		selectedNodeId = node.id;
 		nodes = buildNodes();
@@ -218,6 +279,7 @@
 						{ node: c.target, pin: targetHandle },
 					);
 		syncCanvas();
+		markDirty();
 	}
 
 	// Delete (Delete/Backspace on selection): remove nodes + their incident edges + any
@@ -229,6 +291,7 @@
 		if (selectedNodeId && nodeIds.includes(selectedNodeId)) selectedNodeId = null;
 		doc = deleteFromGraph(doc, nodeIds, edgeIds);
 		syncCanvas();
+		markDirty();
 	}
 
 	// Move (drag-stop only — kept cheap, not per-frame): write the new position back.
@@ -236,6 +299,7 @@
 		if (!targetNode) return;
 		doc = moveNode(doc, targetNode.id, targetNode.position);
 		syncCanvas();
+		markDirty();
 	}
 
 	// Add a node at an explicit doc-space position — the PRIMARY path: the palette entry is
@@ -247,6 +311,7 @@
 		doc = addNode(doc, makeNode(kind, id, pos, ref));
 		selectedNodeId = id;
 		syncCanvas();
+		markDirty();
 	}
 
 	// Place an added node in doc-space near the CENTROID of the existing graph, nudged by a
@@ -272,11 +337,31 @@
 	<div class="subbar">
 		<strong>Invisible Flow v2</strong>
 		<span class="tag">dev</span>
+		<span class="scope" title="Active client / project this canvas persists to">
+			{data.clientKey} / {data.projectKey}
+		</span>
 		<span class="legend">
 			<span class="key exec">▷ exec</span>
 			<span class="key data">● data</span>
 		</span>
 		<span class="spacer"></span>
+		{#if hasProject}
+			{#if saveStatus === 'saving'}
+				<span class="save-pill busy">Saving…</span>
+			{:else if saveStatus === 'error'}
+				<button class="save-pill error" type="button" onclick={() => void saveDoc()}
+					>Save failed — retry</button
+				>
+			{:else if dirty}
+				<span class="save-pill dirty">Unsaved changes</span>
+			{:else}
+				<span class="save-pill ok">Saved</span>
+			{/if}
+		{:else}
+			<span class="save-pill ok" title="Standalone dev sample — no project bound, not persisted"
+				>sample · not saved</span
+			>
+		{/if}
 		<span class="count">
 			{doc.graph.nodes.length} nodes · {doc.graph.exec.length} exec · {doc.graph.data.length} data
 		</span>
@@ -294,8 +379,8 @@
 			<h3>Flow v2 · dev</h3>
 			<p class="hint">
 				Editable canvas (Phase 2b.1). Template <code>{doc.templateId}</code>. Pins are
-				<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible
-				wires won't drop. Delete removes selection.
+				<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible wires
+				won't drop. Delete removes selection.
 			</p>
 			<AddNodePalette vocab={BOOK_OF_VOCAB} library={LIBRARY} {doc} onadd={addNodeOfKind} />
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
@@ -307,11 +392,11 @@
 				bind:edges
 				{nodeTypes}
 				{isValidConnection}
-				onConnect={onConnect}
-				onGraphDelete={onGraphDelete}
-				onNodeDragStop={onNodeDragStop}
-				onNodeClick={onNodeClick}
-				onPaneClick={onPaneClick}
+				{onConnect}
+				{onGraphDelete}
+				{onNodeDragStop}
+				{onNodeClick}
+				{onPaneClick}
 				ondropnode={addNodeAt}
 			/>
 		</SvelteFlowProvider>
@@ -343,6 +428,40 @@
 		border-radius: 999px;
 		background: #1f2937;
 		color: #93c5fd;
+	}
+	.scope {
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: 999px;
+		background: #11161d;
+		border: 1px solid #1f2937;
+		color: #94a3b8;
+	}
+	.save-pill {
+		font-size: 11px;
+		padding: 3px 9px;
+		border-radius: 999px;
+		border: 1px solid #1f2937;
+		background: #16161c;
+		color: #888;
+		letter-spacing: 0.02em;
+	}
+	.save-pill.busy {
+		color: #7ee0c0;
+		border-color: #234038;
+	}
+	.save-pill.dirty {
+		color: #f0c878;
+		border-color: #3a3020;
+	}
+	.save-pill.error {
+		color: #ff9a9a;
+		border-color: #4a2a30;
+		cursor: pointer;
+		font: inherit;
+	}
+	.save-pill.ok {
+		color: #86efac;
 	}
 	.legend {
 		display: inline-flex;
