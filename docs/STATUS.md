@@ -24,6 +24,36 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible Flow v2: the CUTOVER track (Phase A parity + Phase B translator + game-side dispatch)
+
+The decision moved from "keep v1 alongside" to **v2 is THE flow for every game, v1 retires** (owner:
+"every game and new game should use this flow and the old one should go"). This entry is the path to
+flip a real game — the Book of Borut **remake** (client `invisible_wall`, project `bookofborutremake`),
+which runs shared `_runtime/lines` and has a rich CUSTOM v1 flow (11 screens / 29 transitions) that
+blind seeding would break. All shipped to `main` in small harness-tested slices:
+
+- **Phase A — v2 authoring-surface parity** with v1's non-book surface. Screens = z-ordered containers;
+  a v1 `complete`/loading transition → a lifecycle/signal EVENT → show/hideContainer; a v1 `action`
+  (button) transition → an intent EVENT → an invoke-intent ACTION (`startSpin`/`stopSpin`/
+  `confirmBuyBonus` resolve to the same coded body a press runs). Harness `v2lifecycle`.
+- **Phase B — v1→v2 TRANSLATOR** (`packages/engine-flow-migrate`): pure compile of a v1 `FlowDoc`
+  (choreographies + screens + transitions) → a v2 doc. `translate-flow.ts` CLI (`82757e5`) reads R2
+  `<client>/<project>/editor/flow.json` → translate → validate → LOCAL review file (default) or `--seed`
+  to R2 `editor/flow-v2.json` (guardrail-gated; refuses on any error). The remake's real flow converts
+  with **0 errors** (77 nodes, 11 containers; 13 warnings = synthetic `complete:<screen>`/intent events,
+  the open input boundary).
+- **A2 — game-side dispatch of the synthetic events** (`2404fe9`): `flowV2InterpreterHolder`
+  `dispatchFlowV2Event(name)` (e.g. `load`) + `dispatchFlowV2Complete()` scoping "current screen
+  finished" to the mount model's TOPMOST shown container → `complete:<top>`. Both ownership-gated (run
+  v2 alone only when the flow owns the event, else the v1/coded path runs — parity). `Game.svelte`
+  `registerFlowComplete` tries v2 complete before v1 `completeActiveScreen`; boot kicks `load` after the
+  handle is built. Harness `v2translateremake` REPLAYS this on the remake's real flow: `load`→splash
+  `s_q9iw9aqf`, `complete:<top>`→`loading` (the authored splash→loading swap) ✓.
+
+**Remaining to flip the remake:** in-round show→complete of the counter/intro/outro screens (book-event
+driven); then translate→`--seed`→runtime release→verify live. **Phase C cutover** after: v2 default,
+retire v1 `/flow` + engine-flow + coded fall-through, `new-game.mjs` scaffolds v2, flip each game.
+
 ### 2026-07-07 — Invisible Flow v2: ship-ready (committed flow + full bake→ship chain)
 
 **Decided (superseding the "hard cut"): ship-ready v2, KEEP v1.** v1 `/flow` is now a shipped tool
