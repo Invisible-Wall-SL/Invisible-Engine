@@ -29,7 +29,8 @@
 		"scenerole": "tsx sceneRole.ts",
 		"v2schema": "tsx flowV2Schema.ts",
 		"v2collapse": "tsx flowV2Collapse.ts",
-		"v2runtime": "tsx flowV2Runtime.ts"
+		"v2runtime": "tsx flowV2Runtime.ts",
+		"v2mount": "tsx flowV2Mount.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
