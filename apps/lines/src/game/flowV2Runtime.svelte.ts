@@ -70,7 +70,8 @@ declare global {
  * the handle is built. Empty diff on a normal boot (the vocab + registry are kept in lock-step).
  */
 const assertVocabBacked = (vocab: TemplateVocabulary): void => {
-	const implemented = new Set(flowEffectNames);
+	// An action is backed by the `flowEffect` registry OR routed to the `invokeIntent` bridge.
+	const implemented = new Set([...flowEffectNames, ...Object.keys(INTENT_COMMANDS)]);
 	const missing = vocab.actions.map((a) => a.name).filter((n) => !implemented.has(n));
 	if (missing.length) {
 		console.warn(
@@ -148,9 +149,24 @@ export type LinesFlowV2 = {
  * z-ordered list into a `$state`, so `<FlowV2Mount>` re-renders whenever a `show`/`hide` changes
  * the shown set (the interpreter's mount model is a plain object, not a rune).
  */
+/**
+ * Intent-invoking `command` actions → the game intent they invoke (Phase A). When the flow reacts to
+ * a `spin`/`buyBonus` button EVENT and runs one of these actions, the env routes it to the game's
+ * `invokeIntent` bridge (the SAME coded body the button press runs) instead of the `flowEffect`
+ * registry — so a flow-driven button is byte-identical to the coded one.
+ */
+const INTENT_COMMANDS: Record<string, string> = {
+	startSpin: 'spin',
+	stopSpin: 'spin', // the spin button is bet-or-stop; the coded body decides by state.
+	confirmBuyBonus: 'buyBonus',
+};
+
 export const createLinesFlowV2 = (
 	editorDoc: LayoutDoc,
 	onContainersChange?: (containers: MountedContainerRef[]) => void,
+	/** Invoke a game INTENT (spin/buyBonus/…) — the SAME `invokeHostIntent` bridge the v1 flow uses.
+	 *  The env routes an intent-command action (startSpin/…) here. Absent ⇒ those actions no-op. */
+	invokeIntent?: (intent: string) => void,
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
@@ -170,8 +186,13 @@ export const createLinesFlowV2 = (
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
-		// runs (`flowEffect`), so a v2 `action` node is byte-identical to its coded counterpart.
-		effect: flowEffect,
+		// runs (`flowEffect`), so a v2 `action` node is byte-identical to its coded counterpart. An
+		// intent-command action (startSpin/…) routes to the `invokeIntent` bridge instead (Phase A).
+		effect: (name) => {
+			const intent = INTENT_COMMANDS[name];
+			if (intent) return invokeIntent ? () => invokeIntent(intent) : undefined;
+			return flowEffect(name);
+		},
 		// A v2 `fireCue` → the existing emitter broadcast, AWAITED (`broadcastAsync`): the interpreter
 		// awaits it, so a cue whose subscriber returns a completion promise (e.g. the `specialBookReveal`
 		// shuffle→land→intro) BLOCKS the flow until it finishes — matching the coded handler's awaited

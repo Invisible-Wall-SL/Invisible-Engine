@@ -102,7 +102,7 @@
 		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
 	import { createLinesFlowV2 } from '../game/flowV2Runtime.svelte';
-	import { setFlowV2 } from '../game/flowV2InterpreterHolder';
+	import { setFlowV2, getFlowV2 } from '../game/flowV2InterpreterHolder';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
@@ -993,6 +993,7 @@
 		else if (intent === 'decrease') doDecreaseBet();
 		else if (intent === 'turbo') doToggleTurbo();
 		else if (intent === 'menu') doOpenMenu();
+		else if (intent === 'buyBonus') stateModal.modal = { name: 'buyBonus' };
 	};
 
 	// Functional action pin routing (design doc §8.5): if an author wired this button's `pin`
@@ -1001,6 +1002,15 @@
 	// false ⇒ `coded()` runs exactly as today (parity §8.8). Shared by every HUD action's
 	// `onpress` so the flow-routing lives in ONE place, not copied per button.
 	const routeActionThroughFlow = (pin: string, coded: () => void): void => {
+		// Phase A — a v2 flow that OWNS this button's intent EVENT (`pin` = `spin`/`menu`/…) drives the
+		// press: dispatch the event into v2 (its `event <pin>` runs presentation + an invoke-intent
+		// action that calls back into `invokeHostIntent`, so the real bet/stop fires once). v2 not
+		// owning it ⇒ fall through to v1's action edge, then the coded body (parity).
+		const v2 = getFlowV2();
+		if (v2?.ownsEvent(pin)) {
+			void v2.dispatch(pin, {});
+			return;
+		}
 		if (hasFlowAction(pin)) {
 			emitFlowAction(pin);
 			return;
@@ -1199,9 +1209,15 @@
 			// publish it for the book-event play path (`game/utils.ts` reads it via the holder). The
 			// mount model's `onChange` mirror pushes the z-ordered containers into the rune so
 			// `<FlowV2Mount>` re-renders on show/hide. `undefined` when no v2 doc is authored ⇒ v2 inert.
-			const flowV2 = createLinesFlowV2(doc, (containers) => {
-				flowV2Containers = containers;
-			});
+			const flowV2 = createLinesFlowV2(
+				doc,
+				(containers) => {
+					flowV2Containers = containers;
+				},
+				// Phase A intent bridge — an intent-command action (startSpin/…) invokes the SAME coded
+				// body the button press runs (shared with v1's `invokeIntent`).
+				(intent) => invokeHostIntent(intent),
+			);
 			setFlowV2(flowV2);
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
