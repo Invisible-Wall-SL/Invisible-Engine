@@ -12,6 +12,10 @@ import FlowFade, {
 	type Props as FlowFadeProps,
 	type FlowEntranceTransition,
 } from './FlowFade.svelte';
+import FlowV2Mount, {
+	type Props as FlowV2MountProps,
+	type MountedContainerRef,
+} from './FlowV2Mount.svelte';
 import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelte';
 
 export {
@@ -21,6 +25,7 @@ export {
 	FlowMount,
 	FlowScreenMount,
 	FlowFade,
+	FlowV2Mount,
 	CatalogText,
 };
 export type {
@@ -31,6 +36,8 @@ export type {
 	FlowScreenMountProps,
 	FlowFadeProps,
 	FlowEntranceTransition,
+	FlowV2MountProps,
+	MountedContainerRef,
 	CatalogTextProps,
 };
 
