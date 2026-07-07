@@ -4,6 +4,7 @@
 	import {
 		collapseToFunction,
 		derivePins,
+		templateVocabulary,
 		validateFlowDoc,
 		validateFunctionDef,
 		assignable,
@@ -17,7 +18,7 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
-	import { BOOK_OF_VOCAB, LIBRARY, SAMPLE_DOC } from './sample';
+	import { LIBRARY, SAMPLE_DOC } from './sample';
 	import { typeColor } from './palette';
 	import {
 		addDataEdgeIn,
@@ -62,9 +63,14 @@
 		JSON.parse(JSON.stringify(initialLibrary)) as FunctionLibraryDoc,
 	);
 
+	// The template VOCABULARY is resolved from the doc's `templateId` via the shared registry
+	// (Phase — per-project vocab loading), not hardcoded — so a future template is a data change.
+	// Only `book-of` exists today; an unknown id falls back to it (registry-side).
+	const vocab = $derived(templateVocabulary(doc.templateId));
+
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library.
-	const ctx = $derived<PinContext>({ vocab: BOOK_OF_VOCAB, library });
+	const ctx = $derived<PinContext>({ vocab, library });
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
 	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
@@ -173,8 +179,8 @@
 	// active graph's issues; the subbar count/valid pill follow suit.
 	const issues = $derived(
 		view.kind === 'function' && activeFn
-			? validateFunctionDef(activeFn, BOOK_OF_VOCAB, library)
-			: validateFlowDoc(doc, BOOK_OF_VOCAB, library),
+			? validateFunctionDef(activeFn, vocab, library)
+			: validateFlowDoc(doc, vocab, library),
 	);
 
 	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE
@@ -766,7 +772,7 @@
 					(its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag nodes from the palette;
 					Delete removes internal nodes.
 				</p>
-				<AddNodePalette vocab={BOOK_OF_VOCAB} {library} doc={paletteDoc} onadd={addNodeOfKind} />
+				<AddNodePalette {vocab} {library} doc={paletteDoc} onadd={addNodeOfKind} />
 			{:else}
 				<h3>Flow v2 · dev</h3>
 				<p class="hint">
@@ -776,7 +782,7 @@
 					a <strong>function</strong> node to edit its body.
 				</p>
 				<AddNodePalette
-					vocab={BOOK_OF_VOCAB}
+					{vocab}
 					{library}
 					doc={paletteDoc}
 					onadd={addNodeOfKind}
@@ -787,7 +793,7 @@
 			{/if}
 			<ValidationPanelV2 {issues} onfocus={focusNode} />
 			{#if view.kind === 'flow'}
-				<PreviewPanelV2 {doc} {library} vocab={BOOK_OF_VOCAB} />
+				<PreviewPanelV2 {doc} {library} {vocab} />
 			{/if}
 		</aside>
 

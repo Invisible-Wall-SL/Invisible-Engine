@@ -13,24 +13,26 @@
  * is set, so a normal boot leaves v2 inert and the v1/coded path unchanged (parity). Phase 5 will
  * hard-cut v1 and source the v2 doc from the baked bundle.
  *
- * Phase 4c — the game runs against the REAL reference `BOOK_OF_VOCAB` (shipped from `engine-flow-v2`,
- * the SAME contract the `/flow-v2` editor authors against) and BACKS every surface it declares:
- * `actions` → `flowEffect`, `cues` → `eventEmitter.broadcast`, `collections`/`$engine` reads →
- * `linesEngineReader`. `assertVocabBacked` warns (dev) if an authored action has no implementation.
+ * Phase 4c — the game runs against the REAL template vocabulary resolved from the loaded doc's
+ * `templateId` via the shared `templateVocabulary()` registry (only `book-of` today) — the SAME
+ * contract the `/flow-v2` editor authors against — and BACKS every surface it declares: `actions` →
+ * `flowEffect`, `cues` → `eventEmitter.broadcast`, `collections`/`$engine` reads → `linesEngineReader`.
+ * `assertVocabBacked` warns (dev) if an authored action has no implementation.
  */
 
 import type { LayoutDoc, Scene } from 'engine-layout';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
-	BOOK_OF_VOCAB,
 	createContainerMountModel,
 	createFlowV2Env,
 	runFlowEvent,
+	templateVocabulary,
 	type ContainerMountModel,
 	type FlowDoc as FlowDocV2,
 	type FunctionLibraryDoc,
 	type MountedContainer,
 	type RunContext,
+	type TemplateVocabulary,
 } from 'engine-flow-v2';
 import { stateBetDerived } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
@@ -51,23 +53,14 @@ declare global {
 }
 
 /**
- * The reference template vocabulary the game runs against (Phase 4c) — the SHARED, single-source-of-
- * truth `BOOK_OF_VOCAB` shipped from `engine-flow-v2`, the SAME contract the `/flow-v2` editor
- * authors against. The game BACKS every surface it declares: `actions` → `flowEffect`, `cues` →
- * `eventEmitter.broadcast`, `collections`/engine keys → `linesEngineReader` (`assertVocabBacked`
- * below verifies the action coverage in dev).
- */
-const LINES_VOCAB_V2 = BOOK_OF_VOCAB;
-
-/**
- * DEV coverage guard — every `action` the reference vocabulary declares MUST resolve to a real
- * implementation in the `flowEffect` registry, else an authored flow would silently no-op that
+ * DEV coverage guard — every `action` the resolved template vocabulary declares MUST resolve to a
+ * real implementation in the `flowEffect` registry, else an authored flow would silently no-op that
  * action. Logged (not thrown) so a partial in-progress vocab never crashes a boot; runs once when
  * the handle is built. Empty diff on a normal boot (the vocab + registry are kept in lock-step).
  */
-const assertVocabBacked = (): void => {
+const assertVocabBacked = (vocab: TemplateVocabulary): void => {
 	const implemented = new Set(flowEffectNames);
-	const missing = LINES_VOCAB_V2.actions.map((a) => a.name).filter((n) => !implemented.has(n));
+	const missing = vocab.actions.map((a) => a.name).filter((n) => !implemented.has(n));
 	if (missing.length) {
 		console.warn(
 			`[flow-v2] vocabulary actions with no flowEffect implementation: ${missing.join(', ')}`,
@@ -114,7 +107,10 @@ export const createLinesFlowV2 = (
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
-	assertVocabBacked(); // dev: warn if the vocabulary declares an action the game doesn't implement.
+	// Resolve the template vocabulary from the doc's `templateId` (shared registry) — the SAME
+	// contract the /flow-v2 editor authors against. Only `book-of` exists today (registry falls back).
+	const vocab = templateVocabulary(doc.templateId);
+	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.
 
 	const mount = createContainerMountModel(doc.containers, onContainersChange);
 	const env = createFlowV2Env({
@@ -133,7 +129,7 @@ export const createLinesFlowV2 = (
 		engineRead: linesEngineReader,
 	});
 
-	const ctx: RunContext = { vocab: LINES_VOCAB_V2, library: loadFlowV2Library(), env };
+	const ctx: RunContext = { vocab, library: loadFlowV2Library(), env };
 	const resolveScene = (sceneId: string): Scene | undefined =>
 		editorDoc.scenes.find((scene) => scene.id === sceneId);
 
