@@ -53,6 +53,12 @@
 				if (props.then) {
 					spine.state.addAnimation(props.trackIndex, props.then, props.thenLoop ?? true, 0);
 				}
+				// Pose the skeleton to the just-set animation's FIRST frame right now, before the
+				// next render. A freshly-mounted symbol spine (e.g. a cell entering `land`/`win`)
+				// otherwise paints its setup pose for one frame until the ticker first advances it —
+				// read on the reels as the landing symbol art "blinking". `update(0)` applies the
+				// animation state without advancing time, so this is a pure pose, not a skip.
+				spine.update(0);
 			} catch (error) {
 				console.error(error);
 				const animations = spine?.state?.data?.skeletonData?.animations;

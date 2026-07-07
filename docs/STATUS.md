@@ -24,6 +24,25 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-07 — engine: fix symbol "blink" on land (spine setup-pose flash)
+
+**Symptom.** Owner reported animated symbols briefly blinking as they land (base game + free
+spins; the symbol ART, not a frame/glow). Diagnosed live on `bookofborutremake` (runtime:lines)
+with a per-frame scene-graph probe (constructor names are mangled in the runtime bundle → detect
+render nodes structurally by `skeleton`/`texture`). The probe showed **~30 short-lived render
+nodes (1–4 frame lifetimes)** during each reel settle — i.e. symbol spines mount then are torn
+down within a few frames — with **no** alpha/visible toggles and **no** visible-count dips. So a
+freshly-mounted symbol spine paints its **setup pose for one frame** before the `land`/`win`
+animation is applied → reads as a blink.
+
+**Fix.** `packages/pixi-svelte/src/lib/components/SpineTrack.svelte` — after `state.setAnimation`
+(and any queued `then`), call `spine.update(0)` to pose the skeleton to the new animation's first
+frame immediately, before the next render. Pure pose (no time advance); shared across every spine
+(symbols, FX, backgrounds), so any just-mounted or re-targeted spine stops flashing its setup pose.
+Shipped to `_runtime/lines` (build w/ `PUBLIC_RGS_TRANSPORT=play4fun` + publish-runtime-bundle +
+`POST games.invisiblewall.org/refresh`). `bookofborut` (own-bundle) still needs an engine submodule
+bump to receive it. ⏳ owner live-verify on a hard refresh.
+
 ### 2026-07-07 — /flow: node-level book-event RESPONSE authoring (finishes the reveal authoring)
 
 **Ask.** The book-reveal runtime shipped (see below), but the owner couldn't actually AUTHOR the
