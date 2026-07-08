@@ -1,7 +1,7 @@
 import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
-import type { ComponentDef, FontCatalog, LayoutDoc } from 'engine-layout';
+import type { ComponentDef, FontCatalog, LayoutDoc, LayoutNode } from 'engine-layout';
 import {
 	editorArtNamespace,
 	registerComponentDefaults,
@@ -303,6 +303,27 @@ export function bakedEffects(): EffectDoc[] {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return [];
 	return source.effects ?? [];
+}
+
+/**
+ * The effect ids PLACED as `effect` nodes in the baked layout (walking scenes + container children).
+ * `components/Effects.svelte` skips these when auto-mounting free effects — a placed EffectNode
+ * already mounts the effect at its position via `LayoutNodeView`, so an effect is never
+ * double-mounted. Empty when un-baked / no placed effects (parity).
+ */
+export function placedEffectIds(): Set<string> {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	const ids = new Set<string>();
+	const scenes = source?.doc?.scenes;
+	if (!Array.isArray(scenes)) return ids;
+	const walk = (nodes: LayoutNode[]): void => {
+		for (const n of nodes) {
+			if (n.kind === 'effect' && typeof n.effectId === 'string' && n.effectId) ids.add(n.effectId);
+			else if (n.kind === 'container' && Array.isArray(n.children)) walk(n.children);
+		}
+	};
+	for (const scene of scenes) if (Array.isArray(scene.nodes)) walk(scene.nodes);
+	return ids;
 }
 
 /**

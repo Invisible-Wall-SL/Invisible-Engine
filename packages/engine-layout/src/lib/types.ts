@@ -491,6 +491,28 @@ export interface AnticipationProfile {
 	sound?: string;
 }
 
+/**
+ * A placed Invisible FX particle effect (design `invisible-fx.md` §4.4 / `invisible-editor.md`).
+ * References an authored `EffectDoc` by `effectId` (its file stem in `<client>/<project>/<id>.fx.json`,
+ * the same id the `/api/editor/effects` picker lists). At runtime `LayoutNodeView` mounts an
+ * `<EffectPlayer>` for the resolved doc INSIDE this node's transform `<Container>`, so the effect
+ * plays at the placed position (the layer's own `placement.offset` composes on top). The effect doc
+ * itself ships via the FX export chain (`bakedEffects()` → `registerEffects()`), so the node carries
+ * only the id + placement — never the layers.
+ *
+ * v1 constraint: a scene-placed effect is for FREE-layer effects. A `bone`-placed layer needs a host
+ * `<SpineProvider>` a scene node doesn't provide (it falls back to origin+offset); bone effects are
+ * mounted on their host rig via the game's `components/Effects.svelte` path instead.
+ *
+ * The editor can't run a WebGL emitter in its 2D canvas (same as `reelGrid`/`bind`), so it draws a
+ * labelled placeholder chip; the game ALWAYS mounts the real `<EffectPlayer>`.
+ */
+export interface EffectNode extends BaseNode {
+	kind: 'effect';
+	/** The authored effect's id (file stem of its `.fx.json`), resolved via `registerEffects`. */
+	effectId: string;
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
@@ -498,7 +520,8 @@ export type LayoutNode =
 	| TextNode
 	| RectNode
 	| ComponentInstanceNode
-	| ReelGridNode;
+	| ReelGridNode
+	| EffectNode;
 
 export interface Scene {
 	id: string;

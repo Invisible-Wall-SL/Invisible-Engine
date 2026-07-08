@@ -167,6 +167,11 @@ export function nodeBox(
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
 	}
+	// An effect draws a fixed placeholder chip (drawPlaceholder's 160×100) — frame the
+	// selection at that same box so it's hit-testable/movable like reelGrid.
+	if (node.kind === 'effect') {
+		return { w: 160, h: 100, ax, ay };
+	}
 	// A rect frames at its own width/height (the fill box) — like a sprite, but the
 	// size is intrinsic to the node (no art), so the transform handles resize it.
 	if (node.kind === 'rect') {

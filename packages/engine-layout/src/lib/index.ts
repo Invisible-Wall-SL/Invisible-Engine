@@ -29,6 +29,7 @@ export * from './bakedFonts';
 export * from './hudText';
 export * from './registerBoundComponents';
 export * from './registerComponents';
+export * from './registerEffects';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerComponentVisibility';

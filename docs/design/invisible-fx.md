@@ -213,6 +213,18 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     ships via editor-art export under namespaced per-frame keys, so `loadedAssets[assetKey]` was
     `undefined`. `bakedEffects()` was already un-gated (only its comments were stale — fixed). Harness
     `playerReduce.ts` covers weights-through-`bindArt`; WebGL pixels need owner live-verify.
+  - **Scene-Editor placement LANDED (2026-07-08, "in-game" Phase 1).** New `EffectNode
+    { kind:'effect'; effectId }` on the `engine-layout` `LayoutNode` union — an effect is placed like
+    an image/spine. Resolution registry `registerEffects()`/`resolveEffect()` (mirrors
+    `registerComponents`; game registers `bakedEffects()` at boot); `LayoutNodeView` mounts
+    `<EffectPlayer>` for the resolved doc at the node transform. Launcher editor: `/api/editor/effects`
+    list + an Effects palette section + spawn + a labelled placeholder chip (no live emitter in the 2D
+    editor) + a Properties effect-picker; `'effect'` added to the `NODE_KINDS` whitelist. `apps/lines`
+    `Effects.svelte` skips placed ids (`placedEffectIds()`) so a placed effect never double-mounts.
+    **v1: scene-placed = FREE layers** (a bone layer has no host `<SpineProvider>` in a scene → falls
+    back to origin+offset; bone effects stay on the host-rig path, timed in the Rigger = Phase 3).
+    **Effect art ships only if its atlas is ALSO placed** (existing dangling-`assetKey` guard) —
+    auto-shipping a placed effect's atlas is a tracked follow-up.
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

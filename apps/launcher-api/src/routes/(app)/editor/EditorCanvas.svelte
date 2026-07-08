@@ -51,7 +51,8 @@
 	interface AssetDragPayload {
 		// `text` / `rect` are not assets — they're blank ELEMENTS the
 		// Library's "Elements" palette drags in (key is unused for those).
-		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect';
+		// `effect` carries an authored FX id in `key` (the Library's Effects section).
+		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect' | 'effect';
 		key: string;
 		name: string;
 	}
@@ -1718,6 +1719,17 @@
 			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
 		} else if (node.kind === 'reelGrid') {
 			drawReelGrid(ctx, node, t);
+		} else if (node.kind === 'effect') {
+			// A placed Invisible FX effect. The editor's 2D canvas can't run a WebGL particle
+			// emitter (same as spine/reelGrid), so it stands in a labelled placeholder chip; the
+			// game ALWAYS mounts the real `<EffectPlayer>` for the resolved doc.
+			drawPlaceholder(
+				ctx,
+				t.anchor?.x ?? 0.5,
+				t.anchor?.y ?? 0.5,
+				'#3a5a4a',
+				`✨ ${node.label ?? node.effectId}`,
+			);
 		}
 
 		ctx.restore();
@@ -2721,6 +2733,11 @@
 					defaultAnimation: '',
 					loop: false,
 				};
+			// An authored Invisible FX effect (id in `key`). The editor can't run a WebGL
+			// emitter in its 2D canvas, so it draws a placeholder chip; the game mounts the
+			// real `<EffectPlayer>`.
+			case 'effect':
+				return { ...base, kind: 'effect', effectId: p.key };
 			// Blank elements (the Library's "Elements" palette) — a default text node
 			// (edited via Properties → Text).
 			case 'text':

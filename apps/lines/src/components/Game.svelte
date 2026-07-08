@@ -43,6 +43,7 @@
 	import {
 		registerBoundComponents,
 		registerComponents,
+		registerEffects,
 		registerComponentValues,
 		registerComponentActions,
 		registerComponentVisibility,
@@ -121,6 +122,7 @@
 		bakedEditorArtAssets,
 		bakedFontCatalog,
 		bakedFontSrcBase,
+		bakedEffects,
 		bakedSymbolAssets,
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
@@ -367,6 +369,10 @@
 	// author-added background node) shadows the coded one. No-op when not baked
 	// (`apps/lines` dev) → parity. See docs/design/live-assets.md → "Layout-doc bake".
 	registerBakedComponents();
+	// Register the project's baked Invisible FX effects so PLACED `effect` nodes resolve their
+	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
+	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
+	registerEffects(bakedEffects());
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(messagesMap);

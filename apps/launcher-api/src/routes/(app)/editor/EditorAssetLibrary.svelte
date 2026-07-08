@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 
 	import {
 		fetchRegions,
@@ -33,9 +33,25 @@
 	/** Per-key region set (loaded lazily on first expand; `null` while loading). */
 	let regionSets = $state<Record<string, RegionSet | null>>({});
 
+	/** The project's authored Invisible FX effects (id + name), fetched once on mount
+	 * from `/api/editor/effects` (the same list the `/fx` picker uses). Each is a
+	 * draggable row that spawns an `effect` node. `null` = still loading. */
+	let effects = $state<{ id: string; name: string }[] | null>(null);
+	onMount(() => {
+		void fetch('/api/editor/effects')
+			.then((r) => (r.ok ? r.json() : { effects: [] }))
+			.then((data: { effects?: { id: string; name: string }[] }) => {
+				effects = data.effects ?? [];
+			})
+			.catch(() => {
+				effects = [];
+			});
+	});
+
 	const atlasCount = $derived(assets.atlases.length);
 	const spineCount = $derived(assets.spines.length);
 	const sheetCount = $derived(assets.sheets.length);
+	const effectCount = $derived(effects?.length ?? 0);
 
 	async function toggleExpand(key: string): Promise<void> {
 		const open = !expanded[key];
@@ -67,6 +83,13 @@
 	): void {
 		if (!e.dataTransfer) return;
 		const payload = { kind: asset.kind, key: asset.key, name: asset.name };
+		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
+		e.dataTransfer.effectAllowed = 'copy';
+	}
+
+	function onEffectDragStart(e: DragEvent, effect: { id: string; name: string }): void {
+		if (!e.dataTransfer) return;
+		const payload = { kind: 'effect', key: effect.id, name: effect.name };
 		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
 		e.dataTransfer.effectAllowed = 'copy';
 	}
@@ -184,6 +207,29 @@
 	</ul>
 </PanelSection>
 
+<PanelSection id="lib-effects" title="Effects" count={effectCount}>
+	<ul>
+		{#if effects === null}
+			<li class="muted">Loading effects…</li>
+		{:else}
+			{#each effects as fx (fx.id)}
+				<li
+					draggable="true"
+					data-effect-id={fx.id}
+					data-effect-name={fx.name}
+					ondragstart={(e) => onEffectDragStart(e, fx)}
+				>
+					<span class="glyph">✨</span>
+					<span class="name">{fx.name}</span>
+					<span class="tag">effect</span>
+				</li>
+			{:else}
+				<li class="muted">No effects yet — make one in Invisible FX.</li>
+			{/each}
+		{/if}
+	</ul>
+</PanelSection>
+
 <style>
 	ul {
 		list-style: none;
@@ -231,6 +277,10 @@
 		background: #2a2430;
 		padding: 1px 6px;
 		border-radius: 999px;
+	}
+	.glyph {
+		font-size: 12px;
+		line-height: 1;
 	}
 	li.muted {
 		background: transparent;

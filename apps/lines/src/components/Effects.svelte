@@ -21,17 +21,21 @@
 	import type { EffectDoc } from 'engine-fx';
 
 	import { getContext } from '../game/context';
-	import { bakedEffects } from '../editor-scenes';
+	import { bakedEffects, placedEffectIds } from '../editor-scenes';
 
 	const context = getContext();
 
 	const effects = bakedEffects();
+	// Effects PLACED as `effect` nodes in the layout mount at their position via `LayoutNodeView`,
+	// so we skip them here to avoid a double-mount. Bone effects (not scene-placeable in v1) + any
+	// unplaced free effect still auto-mount below.
+	const placed = placedEffectIds();
 
 	/** Whether any of the effect's layers is pinned to a bone (⇒ needs a host `<SpineProvider>`). */
 	const placesOnBone = (doc: EffectDoc): boolean =>
 		doc.layers.some((layer) => layer.placement.space === 'bone' && !!layer.placement.bone);
 
-	const freeEffects = effects.filter((doc) => !placesOnBone(doc));
+	const freeEffects = effects.filter((doc) => !placesOnBone(doc) && !placed.has(doc.id));
 	const boneEffects = effects.filter((doc) => placesOnBone(doc));
 
 	// The host rig for bone-placed effects — the always-present foreground spine. Sized to the

@@ -636,12 +636,26 @@
 	// renders from), so the font dropdown offers exactly the fonts that will show.
 	let fontList = $state<EditorFont[]>([]);
 	let fontByName = $state<Map<string, EditorFont>>(new Map());
+	// The project's authored Invisible FX effects (id + name), for the `effect` node's
+	// picker — the same list `/api/editor/effects` gives the Library's Effects section.
+	let effectList = $state<{ id: string; name: string }[]>([]);
 	onMount(() => {
 		void fetchFontCatalog().then((c) => {
 			fontList = c.fonts;
 			fontByName = c.byName;
 		});
+		void fetch('/api/editor/effects')
+			.then((r) => (r.ok ? r.json() : { effects: [] }))
+			.then((data: { effects?: { id: string; name: string }[] }) => {
+				effectList = data.effects ?? [];
+			})
+			.catch(() => {});
 	});
+
+	/** Display name for an effect id (falls back to the raw id when the list is missing it). */
+	function effectName(id: string): string {
+		return effectList.find((e) => e.id === id)?.name ?? id;
+	}
 
 	/** The selected text node's font kind from the catalog (`null` = game default
 	 * or a family the catalog doesn't list). Bitmap fonts are baked atlases, so the
@@ -3423,6 +3437,37 @@
 			</div>
 			<p class="muted small">
 				Opacity is the <strong>Transform → alpha</strong> above (0 = transparent, 1 = solid).
+			</p>
+		</section>
+	{:else if node.kind === 'effect'}
+		<section>
+			<h3>Effect</h3>
+			<p class="muted small">
+				Invisible FX effect <strong>{effectName(node.effectId)}</strong>
+				<code>{node.effectId}</code>
+			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>effect</span>
+					<select
+						value={node.effectId}
+						onchange={(e) => {
+							node.effectId = e.currentTarget.value;
+							markDirty();
+						}}
+					>
+						{#if !effectList.some((fx) => fx.id === node.effectId)}
+							<option value={node.effectId}>{node.effectId} (missing)</option>
+						{/if}
+						{#each effectList as fx (fx.id)}
+							<option value={fx.id}>{fx.name}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+			<p class="muted small">
+				Bone-attached effects are timed on their rig in the Rigger; scene placement is for free
+				(scene) effects.
 			</p>
 		</section>
 	{/if}

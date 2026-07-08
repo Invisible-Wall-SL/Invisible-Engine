@@ -9,6 +9,7 @@
 <script lang="ts">
 	import {
 		Container,
+		EffectPlayer,
 		Rectangle,
 		Sprite,
 		SpineProvider,
@@ -29,6 +30,7 @@
 	} from './coverTransform';
 	import { componentDesignSize } from './componentDesignSize';
 	import { resolveComponent } from './registerComponents';
+	import { resolveEffect } from './registerEffects';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { getComponentStateAnims } from './componentStateAnimContext';
@@ -602,6 +604,29 @@
 				zIndex={transform.zIndex}
 				style={resolvedStyle}
 			/>
+		{/if}
+	{:else if node.kind === 'effect'}
+		<!--
+			Placed Invisible FX effect: mount an <EffectPlayer> for the resolved doc inside this
+			node's transform <Container> (the SAME wrapper container/componentInstance use), so the
+			effect plays at the placed position; each layer's own `placement.offset` composes on top.
+			The doc resolves from the boot-registered effects (`registerEffects` ← `bakedEffects()`);
+			a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes). A `bone`-placed
+			layer has no host <SpineProvider> here, so it falls back to origin+offset (v1: scene-placed
+			effects are for FREE layers; bone effects mount on their host rig via Effects.svelte).
+		-->
+		{@const effectDoc = resolveEffect(node.effectId)}
+		{#if effectDoc}
+			<Container
+				x={posX}
+				y={posY}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<EffectPlayer doc={effectDoc} />
+			</Container>
 		{/if}
 	{/if}
 {/if}
