@@ -96,11 +96,11 @@ type NodeKind =
 Per kind (pins listed as they're **derived**):
 
 - **event** — `{ ref: string }` an entry point (**no** exec-in). Pins: out `exec`; one data-out per
-  the resolved declaration's payload. `ref` addresses **either** a **global** template event
-  (`reveal` → `reels: list<Reel>`, `load`, `idle`) resolved against `TemplateVocabulary.events`,
-  **or** a **container-scoped component event** (`basegame/spinButton.onSpin`) resolved against the
-  container's aggregated component events (§6.1). Container-scoped events are how a container appears
-  as **one** node carrying all its buttons instead of a duplicate node per button.
+  the resolved declaration's payload. `ref` addresses a **global** template event (`reveal` →
+  `reels: list<Reel>`, `load`, `idle`) resolved against `TemplateVocabulary.events`. A container's
+  **configured component events** are NOT `event` nodes — they surface as exec-out pins on the
+  `showContainer` node itself (§6.1), so one container = one fused node carrying mount + all its
+  buttons.
 - **action** — `{ ref: string }` a template **effect or command** (both are template functions with
   typed params; `setSpecialSymbol`, `stopReel`, `settleSlot`). Pins: in `exec`, out `exec`; one
   data-in per the `ActionDecl` param. Category (state-effect vs mechanic-command) is a palette tag
@@ -113,7 +113,11 @@ Per kind (pins listed as they're **derived**):
 - **forEach** — `{ mode: 'sequence' | 'parallel' }`. Pins: in `exec`, in `in: list<T>`, out
   `body` (exec, the loop body), out `item: T`, out `index: int`, out `done` (exec, after all
   iterations). **The loop body is simply whatever's wired from `body`** — no nested canvas.
-- **showContainer** / **hideContainer** — `{ ref: ContainerId }`. Pins: in `exec`, out `exec`.
+- **showContainer** — `{ ref: ContainerId }`. Pins: in `exec`, out `exec`, **plus one exec-out per the
+  container's configured component event** (§6.1), keyed by `ContainerId` — the fused "mount + all its
+  buttons" node. Each event pin's `id` is the decl's `id` (`spinButton.onSpin`, unique on the node) and
+  its label is the `on<Event>` tail (`onSpin`). Absent surface for the ref ⇒ just `[exec-in, exec-out]`
+  (parity-safe). **hideContainer** — `{ ref: ContainerId }`. Pins: in `exec`, out `exec`.
 - **functionCall** — `{ ref: FunctionId }`. Pins mirror the `FunctionDef`'s declared `inputs`/
   `outputs` (in `exec` + input data-ins; out `exec` + output data-outs).
 - **sequence** — in `exec`; N ordered out execs `then[0..n]`, fired in order. **parallel** — same but
@@ -237,15 +241,17 @@ lower `z` and is never hidden. Visibility is entirely explicit + flow-owned.
 
 ### 6.1 Container-scoped component events (decision #6)
 
-A container **surfaces its components' configured events as exec-out pins** — the exec-out mirror of
-cue aggregation (§7, decision #4). The rendered container node is a single node carrying one entry pin
-per configured control; wiring a button's functionality means wiring *out* of that pin.
+A container **surfaces its components' configured events as exec-out pins on the `showContainer` node
+itself** — the exec-out mirror of cue aggregation (§7, decision #4). The rendered `showContainer` node
+is a single **fused** node (mount + all its buttons): its base `[exec-in, exec-out]` plus one event
+exec-out per configured control. Wiring a button's functionality means wiring *out* of that pin.
 
 ```ts
 interface ContainerEventDecl {
   id: string;            // 'spinButton.onSpin' — component-local, unique within the container
   componentId: string;   // the Scene-Editor component that declares it
   event: string;         // the configured action/intent name ('spin', 'increaseBet', 'soundToggle')
+  label: string;         // the exec-out pin label — the `on<Event>` tail ('onSpin')
   payload?: ParamDecl[]; // data-outs, iff the component's config carries a payload (usually none)
 }
 ```
@@ -254,9 +260,12 @@ The set is **derived from the scene, not stored on the node** (same anti-drift r
 component contributes an entry **only for the functionality configured on it** in the Scene Editor — a
 button with a `spin` action → one `onSpin` entry; a button with nothing wired, or a decorative sprite
 → nothing. So a container's exposed events are a 1:1 readout of what the game can actually do; the flow
-decides only **when** each fires. The editor aggregates them per container (alongside the scene's
-cues), and an `event` node's `ref` addresses one as `<sceneId>/<ContainerEventDecl.id>`. Nothing is
-auto-dumped — an unconfigured component surfaces no pins.
+decides only **when** each fires. The editor aggregates them per container (`deriveContainerEvents`,
+keyed by `ContainerId`) and `derivePins` fuses them onto the matching `showContainer` node; a saved
+FlowDoc keeps the wire as `{ from: { node, pin: 'spinButton.onSpin' }, to: {…} }` and the pins
+re-derive from the surface on reload (no stored pins). There is **no separate container-scoped event
+node** — the pin id `spinButton.onSpin` IS the pin on the fused node. Nothing is auto-dumped — an
+unconfigured component surfaces no pins.
 
 ## 7. Template vocabulary (the contract)
 
@@ -311,10 +320,13 @@ survive.
 5. **Collections:** available BOTH as event payload pins (`reveal → reels`) AND `$engine` global
    reads (`$engine.reels`) — whichever the author reaches for.
 6. **Container event pins (2026-07-08):** a container surfaces its components' **configured** events
-   as exec-out pins (§6.1), the exec mirror of cue aggregation. The set is derived from the scene —
-   authored via component config, never auto-dumped — so a container is one node carrying all its
-   buttons, and an `event` node's `ref` may address a container-scoped `<sceneId>/<id>` event as well
-   as a global template event.
+   as exec-out pins **on the `showContainer` node itself** (§6.1), keyed by `ContainerId` — the exec
+   mirror of cue aggregation. The set is derived from the scene — authored via component config, never
+   auto-dumped — so a container is one **fused** node (mount + all its buttons); wiring a control means
+   wiring out of its pin (`spinButton.onSpin`). There is **no separate container-scoped event node**
+   (the earlier `event`-node path with `ref = <sceneId>/<id>` is superseded and removed); `event` nodes
+   address only global template events. Authoring (render + wire + save + validate) is implemented;
+   runtime firing of these pins is a later phase.
 
 ## 10. Runtime — the dedicated v2 interpreter (Phase 4a, `runtime.ts`)
 

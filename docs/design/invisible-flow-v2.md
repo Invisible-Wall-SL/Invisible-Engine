@@ -146,12 +146,17 @@ reused.
 6. **Migration — DECIDED: hard cut.** No side-by-side v1/v2; retire v1 authoring, rebuild the one
    existing flow on v2.
 7. **Storage — DECIDED: one FlowDoc per project + a separate shared function-library doc.**
-8. **Container event pins — DECIDED (2026-07-08):** a container node surfaces its components'
-   **configured** events as exec-out pins (mirror of cue aggregation); the pin set is authored via
-   component config, never auto-dumped, and a container appears as **one** node rather than a
-   duplicate per button. See §3 (global vs container-scoped events) and §4. Consequence: the base
-   game container carries all the game's interactive functionality as pins, and the flow decides
-   *when* each fires.
+8. **Container event pins — DECIDED (2026-07-08); authoring landed (2026-07-08):** a container's
+   **configured** component events surface as exec-out pins **on the `showContainer` node itself**
+   (mirror of cue aggregation), keyed by `ContainerId`. The pin set is authored via component config
+   (`deriveContainerEvents`), never auto-dumped, and a container appears as **one fused node** (mount
+   + all its buttons) rather than a duplicate per button. There is **no separate container-scoped
+   event node** — the earlier `event`-node path (ref = `<sceneId>/<declId>`) is superseded and
+   removed, so there is exactly one mechanism. See §3 (global vs container-scoped events) and §4.
+   Consequence: the base game container carries all the game's interactive functionality as pins on
+   one node, and the flow decides *when* each fires. Authoring (render + wire + save + validate) is
+   implemented; runtime FIRING of these pins (the game emitting the container's component events) is a
+   later phase.
 
 ## 9. Phased build (strawman — not started)
 

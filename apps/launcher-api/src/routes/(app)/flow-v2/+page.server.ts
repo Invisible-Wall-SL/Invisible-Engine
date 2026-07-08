@@ -5,6 +5,12 @@ import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2Library } from '$lib/server/flowV2LibraryStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
+import { actionBindingOf } from 'engine-layout';
+import {
+	deriveContainerEvents,
+	type ConfiguredComponentEvent,
+	type ContainerEventDecl,
+} from 'engine-flow-v2';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -49,5 +55,28 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	const sceneNames: Record<string, string> = Object.fromEntries(
 		(layout.scenes ?? []).map((s) => [s.id, s.name ?? s.id]),
 	);
-	return { clientKey, projectKey, doc, library, sceneNames };
+
+	// §6.1 — the container-event surface, keyed by ContainerId. For each of the FlowDoc's
+	// `containers`, find its Scene-Editor scene by `sceneId`, project the scene's nodes down to the
+	// minimal `ConfiguredComponentEvent` shape (any node with a non-empty universal `action` binding
+	// contributes `{ componentId: node.id, event: <action> }`), then aggregate via
+	// `deriveContainerEvents`. The fused `showContainer` node reads its container's decls from this
+	// surface (`derivePins`). Best-effort: no project / no saved FlowDoc ⇒ `doc` is null ⇒ empty map,
+	// and the client's `SAMPLE_DOC` surfaces its own sample decls instead.
+	const scenesById = new Map((layout.scenes ?? []).map((s) => [s.id, s]));
+	const containerEvents: Record<string, ContainerEventDecl[]> = {};
+	for (const container of doc?.containers ?? []) {
+		const scene = scenesById.get(container.sceneId);
+		if (!scene) continue;
+		const configured: ConfiguredComponentEvent[] = (scene.nodes ?? []).map((node) => {
+			// The universal `action` binding lives on `node.params` for ANY instance (not only a def that
+			// declares it — see engine-layout `engineBindings.ts`); only `componentInstance` nodes type it,
+			// so read it off a widened shape. Empty/absent action ⇒ no configured event ⇒ no decl.
+			const params = (node as { params?: Record<string, unknown> }).params ?? {};
+			return { componentId: node.id, event: actionBindingOf(params) || undefined };
+		});
+		containerEvents[container.id] = deriveContainerEvents(configured);
+	}
+
+	return { clientKey, projectKey, doc, library, sceneNames, containerEvents };
 };

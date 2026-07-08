@@ -8,6 +8,7 @@
 		validateFlowDoc,
 		validateFunctionDef,
 		assignable,
+		type ContainerEventDecl,
 		type FlowComment,
 		type FlowDoc,
 		type FunctionDef,
@@ -19,7 +20,7 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
-	import { LIBRARY, SAMPLE_DOC } from './sample';
+	import { LIBRARY, SAMPLE_CONTAINER_EVENTS, SAMPLE_DOC } from './sample';
 	import { typeColor } from './palette';
 	import {
 		addDataEdgeIn,
@@ -71,9 +72,19 @@
 	// Only `book-of` exists today; an unknown id falls back to it (registry-side).
 	const vocab = $derived(templateVocabulary(doc.templateId));
 
+	// §6.1 — the container-event surface (ContainerId → its configured component-event decls). On a
+	// real project the server projects the actual Scene-Editor scenes (`data.containerEvents`); on the
+	// standalone dev route (server sent `doc: null`) we fall back to the sample surface so the fused
+	// exec-out pins still demonstrate. Threaded through `ctx` below so `derivePins` fuses them onto the
+	// matching `showContainer` node, and into `validateFlowDoc` (4th arg) + the preview.
+	const containerEvents = $derived<Record<string, ContainerEventDecl[]>>(
+		data.doc === null ? SAMPLE_CONTAINER_EVENTS : (data.containerEvents ?? {}),
+	);
+
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
-	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library.
-	const ctx = $derived<PinContext>({ vocab, library });
+	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library. It also
+	// carries the container-event surface so a `showContainer` node fuses its component events (§6.1).
+	const ctx = $derived<PinContext>({ vocab, library, containerEvents });
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
 	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
@@ -254,7 +265,7 @@
 	const issues = $derived(
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
-			: validateFlowDoc(doc, vocab, library),
+			: validateFlowDoc(doc, vocab, library, containerEvents),
 	);
 
 	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE

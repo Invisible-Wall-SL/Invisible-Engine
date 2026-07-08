@@ -318,18 +318,20 @@ export interface ContainerRef {
 
 // ---------------------------------------------------------------------------
 // §6.1 — container-scoped component events (decision #6). A container SURFACES its
-// components' CONFIGURED events as exec-out pins — the exec-out mirror of cue aggregation.
+// components' CONFIGURED events as exec-out pins ON THE `showContainer` NODE ITSELF — the
+// exec-out mirror of cue aggregation, keyed by the container's `ContainerId`. One fused
+// "Base game" node = mount + all its buttons; there is NO separate container-scoped event node.
 // Derived from the Scene-Editor component config (`deriveContainerEvents`, `containerEvents.ts`),
 // NEVER auto-dumped: a component contributes an entry ONLY for the functionality configured on it
 // (a button with a `spin` action → one `onSpin`; a decorative sprite or an unwired button → nothing).
 // Same anti-drift rule as §2 pins — the set is a projection of the scene, not stored on the node.
-// An `event` node addresses one as `<sceneId>/<ContainerEventDecl.id>`.
 // ---------------------------------------------------------------------------
 
 export interface ContainerEventDecl {
 	id: string; // component-local, unique within the container, e.g. 'spinButton.onSpin'.
 	componentId: string; // the Scene-Editor component that declares it.
 	event: string; // the configured action/intent name, e.g. 'spin'.
+	label: string; // the exec-out pin label — the `on<Event>` tail (e.g. 'onSpin').
 	payload?: ParamDecl[]; // data-outs; usually empty (mirrors `EventDecl`/`CueDecl` payloads).
 }
 

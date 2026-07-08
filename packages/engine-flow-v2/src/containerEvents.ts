@@ -30,16 +30,22 @@ const capitalize = (s: string): string => (s.length === 0 ? s : s.charAt(0).toUp
 /**
  * Turn a container's configured components into its aggregated `ContainerEventDecl[]`. Components with
  * no configured `event` are excluded (never auto-dumped); a configured one becomes
- * `{ id: '<componentId>.on<Event>', componentId, event, payload }`.
+ * `{ id: '<componentId>.on<Event>', componentId, event, label: 'on<Event>', payload }`.
+ * The `label` is the fused exec-out pin's caption (the `on<Event>` tail, stable regardless of which
+ * component owns it); the `id` stays fully-qualified so the pin is unique on the `showContainer` node.
  */
 export const deriveContainerEvents = (
 	components: ConfiguredComponentEvent[],
 ): ContainerEventDecl[] =>
 	components
 		.filter((c): c is ConfiguredComponentEvent & { event: string } => !!c.event)
-		.map((c) => ({
-			id: `${c.componentId}.on${capitalize(c.event)}`,
-			componentId: c.componentId,
-			event: c.event,
-			payload: c.payload,
-		}));
+		.map((c) => {
+			const label = `on${capitalize(c.event)}`;
+			return {
+				id: `${c.componentId}.${label}`,
+				componentId: c.componentId,
+				event: c.event,
+				label,
+				payload: c.payload,
+			};
+		});

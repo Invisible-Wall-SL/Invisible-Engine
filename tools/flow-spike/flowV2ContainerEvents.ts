@@ -4,14 +4,17 @@
  *
  *   pnpm --filter flow-spike run v2containerevents
  *
- * Proves the anti-drift rule for container-scoped component events:
+ * Proves the anti-drift rule for container-scoped component events — the FUSED model: a container's
+ * configured component events surface as exec-out pins ON THE `showContainer` NODE ITSELF (one "Base
+ * game" node = mount + all its buttons), keyed by ContainerId. There is NO separate event node.
  *   1. A container SURFACES its components' CONFIGURED events as decls — derived from Scene-Editor
  *      component config, NEVER auto-dumped. A base-game scene with five configured controls + one
  *      decorative sprite derives EXACTLY the five entries; the sprite (no configured event) is excluded.
- *   2. An `event` node whose `ref` is `<sceneId>/<declId>` derives its pins ([exec-out], no exec-in)
- *      against the scene's aggregated decls — the exec-out entry point a control's wire flows out of.
- *   3. A FlowDoc whose container-scoped event node wires (exec) into an action `validateFlowDoc`s with
- *      ZERO issues when the container-event surface is supplied.
+ *   2. A `showContainer` node whose `ref` is a ContainerId present in the surface derives
+ *      `[exec-in, exec-out, onSpin, onIncrease, onDecrease, onSoundToggle, onSettings]` — 2 base exec
+ *      pins + 5 event exec-outs, all correct dir/kind/label.
+ *   3. A FlowDoc whose FUSED event exec-out wires (exec) into an action `validateFlowDoc`s with ZERO
+ *      issues when the container-event surface is supplied.
  *
  * Prints PASS/FAIL per assertion + a final `V2 CONTAINER-EVENTS HARNESS: PASSED`.
  */
@@ -91,73 +94,90 @@ const main = () => {
 	);
 
 	// -------------------------------------------------------------------------
-	// 2. Pin derivation: a container-scoped `event` node → [exec-out], no exec-in.
+	// 2. Fused pin derivation: a `showContainer` node whose `ref` is a ContainerId in the surface
+	//    fuses one exec-out per decl onto itself, alongside its base [exec-in, exec-out].
 	// -------------------------------------------------------------------------
-	console.log('\n2. a container-scoped `event` node derives [exec-out] (entry point):');
-	const containerEvents: Record<string, ContainerEventDecl[]> = { basegame: decls };
+	console.log('\n2. a `showContainer` node FUSES its container events as exec-out pins:');
+	// The surface is keyed by ContainerId — the `showContainer` node's `ref` (`base`), NOT the sceneId.
+	const CONTAINER_ID = 'base';
+	const containerEvents: Record<string, ContainerEventDecl[]> = { [CONTAINER_ID]: decls };
 	const ctx: PinContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY, containerEvents };
 
-	const spinEventNode: Node = {
-		id: 'onSpin',
-		kind: 'event',
+	const showNode: Node = {
+		id: 'showBase',
+		kind: 'showContainer',
 		pos: { x: 0, y: 0 },
-		ref: 'basegame/spinButton.onSpin',
+		ref: CONTAINER_ID,
 	};
-	const pins: Pin[] = derivePins(spinEventNode, ctx);
-	const execOuts = pins.filter((p) => p.kind === 'exec' && p.dir === 'out');
-	const execIns = pins.filter((p) => p.kind === 'exec' && p.dir === 'in');
-	assert('derives exactly one exec-out', execOuts.length === 1, `got ${execOuts.length}`);
-	assert('derives NO exec-in (entry point)', execIns.length === 0, `got ${execIns.length}`);
+	const pins: Pin[] = derivePins(showNode, ctx);
+	assert('derives exactly 7 pins (2 base exec + 5 event exec-outs)', pins.length === 7, `got ${pins.length}: ${pins.map((p) => p.id).join(', ')}`);
+
+	const execIn = pins.find((p) => p.kind === 'exec' && p.dir === 'in');
+	const baseExecOut = pins.find((p) => p.kind === 'exec' && p.dir === 'out' && p.id === 'exec');
+	assert('has one base exec-in', !!execIn && execIn.id === 'exec');
+	assert('has one base exec-out (`exec`)', !!baseExecOut);
+
+	// The event pins: exec, out, id = decl.id (unique on the node), label = the on<Event> tail.
+	const eventOuts = pins.filter((p) => p.kind === 'exec' && p.dir === 'out' && p.id !== 'exec');
+	assert('derives exactly 5 event exec-outs', eventOuts.length === 5, `got ${eventOuts.length}`);
+	assert('every event pin is dir=out kind=exec', eventOuts.every((p) => p.dir === 'out' && p.kind === 'exec'));
+
+	const outById = new Map(eventOuts.map((p) => [p.id, p]));
+	const expectedEventPins: Array<[string, string]> = [
+		['spinButton.onSpin', 'onSpin'],
+		['increaseButton.onIncrease', 'onIncrease'],
+		['decreaseButton.onDecrease', 'onDecrease'],
+		['soundToggle.onSoundToggle', 'onSoundToggle'],
+		['settingsButton.onSettings', 'onSettings'],
+	];
 	assert(
-		'derives no data-outs (empty payload)',
-		pins.filter((p) => p.kind === 'data').length === 0,
+		'event exec-outs carry the expected id + label ([exec-in, exec-out, onSpin, onIncrease, onDecrease, onSoundToggle, onSettings])',
+		expectedEventPins.every(([id, label]) => outById.get(id)?.label === label),
+		eventOuts.map((p) => `${p.id}(${p.label})`).join(', '),
 	);
 
-	// An unresolved container-scoped ref is parity-safe: still just [exec-out].
-	const unknownNode: Node = {
-		id: 'onGhost',
-		kind: 'event',
-		pos: { x: 0, y: 0 },
-		ref: 'basegame/ghostButton.onGhost',
-	};
-	const unknownPins = derivePins(unknownNode, ctx);
+	// An ABSENT surface for a ref is parity-safe: still just [exec-in, exec-out].
+	const bareShow: Node = { id: 'showGhost', kind: 'showContainer', pos: { x: 0, y: 0 }, ref: 'ghostContainer' };
+	const barePins = derivePins(bareShow, ctx);
 	assert(
-		'an UNRESOLVED container-scoped ref stays [exec-out] (parity-safe)',
-		unknownPins.length === 1 && unknownPins[0].kind === 'exec' && unknownPins[0].dir === 'out',
-		unknownPins.map((p) => `${p.dir}:${p.kind}`).join(','),
+		'a showContainer with NO surface entry stays [exec-in, exec-out] (parity-safe)',
+		barePins.length === 2 && barePins.every((p) => p.kind === 'exec'),
+		barePins.map((p) => `${p.dir}:${p.kind}`).join(','),
 	);
 
 	// -------------------------------------------------------------------------
-	// 3. A FlowDoc wiring the container-scoped event → an action validates clean.
+	// 3. A FlowDoc wiring a fused event exec-out → an action validates clean.
 	// -------------------------------------------------------------------------
-	console.log('\n3. a FlowDoc wiring the container event into an action validates with 0 issues:');
-	// onSpin (container event) → startSpin (a BOOK_OF_VOCAB command action, no params).
+	console.log('\n3. a FlowDoc wiring a fused event exec-out into an action validates with 0 issues:');
+	// showBase.spinButton.onSpin → startSpin (a BOOK_OF_VOCAB command action, no params).
 	const DOC: FlowDoc = {
 		version: 2,
 		templateId: 'bookOf',
 		graph: {
 			nodes: [
-				spinEventNode,
+				showNode,
 				{ id: 'doSpin', kind: 'action', pos: { x: 300, y: 0 }, ref: 'startSpin' },
 			],
-			exec: [{ from: { node: 'onSpin', pin: 'exec' }, to: { node: 'doSpin', pin: 'exec' } }],
+			exec: [
+				{ from: { node: 'showBase', pin: 'spinButton.onSpin' }, to: { node: 'doSpin', pin: 'exec' } },
+			],
 			data: [],
 		},
-		containers: [{ id: 'base', sceneId: 'basegame', z: 0 }],
+		containers: [{ id: CONTAINER_ID, sceneId: 'basegame', z: 0 }],
 	};
 
 	const issues = validateFlowDoc(DOC, BOOK_OF_VOCAB, LIBRARY, containerEvents);
 	assert(
-		'validateFlowDoc reports ZERO issues (container-scoped ref resolved)',
+		'validateFlowDoc reports ZERO issues (fused exec-out is a real endpoint)',
 		issues.length === 0,
 		issues.map((i) => `${i.code}:${i.message}`).join(' | '),
 	);
 
-	// And WITHOUT the surface the ref is (correctly) an unknown-event WARNING, not silently clean.
+	// WITHOUT the surface the fused pin doesn't exist, so the edge names an invalid endpoint.
 	const issuesNoSurface = validateFlowDoc(DOC, BOOK_OF_VOCAB, LIBRARY);
 	assert(
-		'without the surface, the container-scoped ref is a ref-unresolved WARNING',
-		issuesNoSurface.some((i) => i.code === 'ref-unresolved' && i.severity === 'warning'),
+		'without the surface, the edge from the (absent) fused pin is an edge-endpoint error',
+		issuesNoSurface.some((i) => i.code === 'edge-endpoint'),
 		issuesNoSurface.map((i) => `${i.code}:${i.severity}`).join(' | '),
 	);
 

@@ -21,8 +21,14 @@
  * book event carries `gameType`, not a reels list.)
  */
 
-import { BOOK_OF_VOCAB } from 'engine-flow-v2';
-import type { FlowDoc, FunctionDef, FunctionLibraryDoc, TypeRef } from 'engine-flow-v2';
+import { BOOK_OF_VOCAB, deriveContainerEvents } from 'engine-flow-v2';
+import type {
+	ContainerEventDecl,
+	FlowDoc,
+	FunctionDef,
+	FunctionLibraryDoc,
+	TypeRef,
+} from 'engine-flow-v2';
 
 // Re-export the shared template vocabulary so the page keeps importing it from `./sample`.
 export { BOOK_OF_VOCAB };
@@ -132,4 +138,20 @@ export const SAMPLE_DOC: FlowDoc = {
 		data: [],
 	},
 	containers: [{ id: 'base', sceneId: 'basegame', z: 0 }],
+};
+
+// ---------------------------------------------------------------------------
+// §6.1 sample container-event surface — keyed by the SAMPLE_DOC container's `ContainerId` (`base`), so
+// the standalone dev route demonstrates the FUSED exec-out pins (mount + all its buttons in one node)
+// without a real project. On a real project the server projects the actual scene → this map instead.
+// ---------------------------------------------------------------------------
+
+export const SAMPLE_CONTAINER_EVENTS: Record<string, ContainerEventDecl[]> = {
+	base: deriveContainerEvents([
+		{ componentId: 'spinButton', event: 'spin' },
+		{ componentId: 'increaseButton', event: 'increase' },
+		{ componentId: 'decreaseButton', event: 'decrease' },
+		{ componentId: 'soundToggle', event: 'soundToggle' },
+		{ componentId: 'settingsButton', event: 'settings' },
+	]),
 };

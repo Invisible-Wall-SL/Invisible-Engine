@@ -12,7 +12,9 @@
  *  - branch        — in `exec`; the guard's operand data-ins; out `then`, out `else`.
  *  - forEach       — in `exec`, in `in: list<T>`; out `body`, out `item: T`, out `index: int`,
  *                    out `done`.
- *  - showContainer / hideContainer — in `exec`, out `exec`.
+ *  - showContainer — in `exec`, out `exec`, + one exec-out per the container's configured component
+ *                    event (§6.1, keyed by ContainerId in `PinContext.containerEvents`); hideContainer
+ *                    — in `exec`, out `exec`.
  *  - functionCall  — the target `FunctionDef`'s declared `inputs` / `outputs`, verbatim.
  *  - sequence / parallel — in `exec`; N ordered/concurrent out execs `then[0..count-1]`.
  *  - compute       — no exec; one data-out `out` whose type follows the op + operands.
@@ -37,10 +39,11 @@ export interface PinContext {
 	vocab: TemplateVocabulary;
 	library: FunctionLibraryDoc;
 	/**
-	 * §6.1 — per-scene container-scoped component events, keyed by `sceneId` → its aggregated decls
-	 * (`deriveContainerEvents`). Optional: when supplied, an `event` node whose `ref` is
-	 * `<sceneId>/<declId>` resolves against it (a container control's exec-out entry point) instead of
-	 * the global template vocabulary. Absent ⇒ container-scoped refs stay unresolved (parity-safe).
+	 * §6.1 — container-scoped component events, keyed by `ContainerId` (a `showContainer` node's `ref`)
+	 * → its aggregated decls (`deriveContainerEvents`). When supplied, the referenced `showContainer`
+	 * node FUSES one exec-out per decl onto itself (mount + all its buttons in one node), keyed by the
+	 * decl's `id`. Absent for a ref ⇒ that `showContainer` derives just `[exec-in, exec-out]`
+	 * (parity-safe).
 	 */
 	containerEvents?: Record<string, ContainerEventDecl[]>;
 }
@@ -162,17 +165,6 @@ const guardPins = (guard: Guard): Pin[] => {
 export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pin[] => {
 	switch (node.kind) {
 		case 'event': {
-			// §6.1: a `ref` with a `/` is container-scoped — `<sceneId>/<declId>` — and resolves against
-			// the scene's aggregated component events, not the global vocabulary. Unresolved ⇒ just the
-			// exec-out (parity-safe, like an unknown global event ref).
-			if (node.ref.includes('/')) {
-				const slash = node.ref.indexOf('/');
-				const sceneId = node.ref.slice(0, slash);
-				const declId = node.ref.slice(slash + 1);
-				const decl = ctx.containerEvents?.[sceneId]?.find((d) => d.id === declId);
-				const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name));
-				return [EXEC_OUT, ...outs]; // entry point: NO exec-in.
-			}
 			const decl = ctx.vocab.events.find((e) => e.name === node.ref);
 			const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name));
 			return [EXEC_OUT, ...outs]; // entry point: NO exec-in.
@@ -212,7 +204,15 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 				execOut('done'),
 			];
 		}
-		case 'showContainer':
+		case 'showContainer': {
+			// §6.1: the fused model — the container's configured component events surface as exec-out pins
+			// ON THIS NODE (mount + all its buttons in one node), keyed by ContainerId. Each decl's `id`
+			// is the (node-unique) pin id; its `label` (`onSpin`) is the pin caption. Absent surface ⇒
+			// just `[exec-in, exec-out]` (parity-safe).
+			const events = ctx.containerEvents?.[node.ref] ?? [];
+			const eventOuts = events.map((d) => ({ id: d.id, dir: 'out', kind: 'exec', label: d.label }) as Pin);
+			return [EXEC_IN, EXEC_OUT, ...eventOuts];
+		}
 		case 'hideContainer':
 			return [EXEC_IN, EXEC_OUT];
 		case 'functionCall': {
