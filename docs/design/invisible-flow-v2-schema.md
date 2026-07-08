@@ -91,7 +91,8 @@ type NodeKind =
   | 'action' | 'fireCue' | 'delay' | 'branch' | 'forEach'
   | 'showContainer' | 'hideContainer' | 'functionCall'
   | 'sequence' | 'parallel'      // exec fan-out helpers
-  | 'compute';                   // pure typed value ops (see §4)
+  | 'compute'                    // pure typed value ops (see §4)
+  | 'group';                     // an INLINE collapsed subgraph (§5.2)
 ```
 
 Per kind (pins listed as they're **derived**):
@@ -131,6 +132,26 @@ Per kind (pins listed as they're **derived**):
 - **sequence** — in `exec`; N ordered out execs `then[0..n]`, fired in order. **parallel** — same but
   fired concurrently. (Linear chains don't need these; they're for explicit fan-out.)
 - **compute** — a pure, typed value op (no exec). See §4.
+- **group** — `{ label: string; body: Graph; boundary: GroupPin[] }` an INLINE, non-reusable folding of
+  a node selection into one node (§5.2). Its pins are **stored** on `boundary` (the one deliberate
+  exception to derivation — the boundary IS the group's definition), one **per boundary crossing**
+  (N external exec edges → N distinct input pins, **no** exec-in fan-in). Flattened back to its nodes
+  at runtime + validation, so it is semantically identical to its expanded form.
+
+```ts
+interface GroupPin {
+  id: string;                 // unique on the group node (in_<i> / out_<i>)
+  dir: PinDir; kind: PinKind; dataType?: TypeRef;
+  label: string;              // descriptive (from the inner target/source node's ref/kind)
+  inner: PinPath;             // the internal (node, pin) this boundary pin bridges to
+}
+interface GroupNode extends NodeBase {
+  kind: 'group';
+  label: string;              // display name, e.g. 'Button actions'
+  body: Graph;                // the collapsed inner nodes + INTERNAL edges only
+  boundary: GroupPin[];       // one per boundary crossing; the node's pins ARE these
+}
+```
 
 ```ts
 interface Guard { all?: Compare[]; any?: Compare[]; }
@@ -232,6 +253,45 @@ functions (Show/Hide, Delay, Branch, a param-named FireCue) satisfy every templa
 surfaces only where those exist. **[OPEN]** versioning — auto-propagate a function edit to all call
 sites, or pin a version per call site (Unreal auto-propagates; I lean auto-propagate + a "used by N"
 warning).
+
+### 5.2 Collapse to Group (`collapse.ts`, 2026-07-08)
+
+A **group** is a second collapse — an INLINE collapsed subgraph, the counterpart to §5.1's function.
+It solves a different need: not *reuse of one behaviour*, but *visual folding of many distinct
+nodes into one node while keeping every input/output as its own labelled pin*. The two differ on
+exactly the axes that matter:
+
+| | Collapse to **Function** (§5.1) | Collapse to **Group** (§5.2) |
+|---|---|---|
+| Exec crossings | **merged** onto one canonical `exec` pin | **one pin PER crossing** (no merge) |
+| Body lives | in the shared `FunctionLibraryDoc` | **on the node** (`GroupNode.body`) |
+| Reusable | yes — drop the call node anywhere | no — inline, one site |
+| Pins | derived from the `FunctionDef` | **stored** on `boundary` (the definition) |
+
+The per-crossing rule is the point: N external exec edges into N distinct internal targets become N
+distinct group **input** pins, so a block of `onSpin→startSpin`, `onIncrease→increaseBet`, … collapses
+into ONE node with one entry pin per button — **no exec-in fan-in** (§2), which a function collapse
+would have forced.
+
+- **A group is a pure FOLDING, semantically identical to its expanded form.** `collapseToGroup` and
+  `expandGroup` are inverse pure transforms; `flattenGroups(graph)` recursively expands every `group`
+  (a body may nest a group) back to its nodes + edges. The runtime + validator **flatten first**, so
+  the interpreter never sees a `group` node — no new execution semantics, and "expand / un-collapse"
+  falls out for free.
+- **`collapseToGroup({ doc, selection, label })`** mirrors §5.1's edge partition (internal / crossIn /
+  crossOut / external) but builds ONE `GroupPin` per crossing: each crossIn → an input pin (`inner` =
+  the internal target, `label` from that target), each crossOut → an output pin (`inner` = the internal
+  source); a data-out fanning to many external targets stays ONE output pin. Same guards as §5.1 (no
+  empty selection / unknown id / `event`·`gameSignals`·`functionEntry`·`functionResult` in the
+  selection). **`expandGroup(doc, id)`** is its exact inverse (round-trip graph identity).
+- **Runtime** (`runtime.ts`) flattens groups at each public entry (`runFlowEvent` /
+  `runFlowContainerEvent`); **validation** (`validate.ts`) validates the flattened graph, so exec/data
+  rules apply to the real semantics. `derivePins` returns a group's `boundary` pins verbatim.
+
+Verified headlessly by `tools/flow-spike/flowV2Group.ts` (`pnpm --filter flow-spike v2group`): a
+fan-in-free two-button collapse validates with 0 issues; `expandGroup` round-trips to the pre-collapse
+graph; `runFlowEvent` records identically for collapsed / expanded / raw (transparency); a data
+crossing resolves through its boundary pin; the transform is pure and guard-checked.
 
 ## 6. Containers (decision #1 — custom z-order)
 

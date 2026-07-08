@@ -20,6 +20,7 @@
  * partially-authored flow degrades gracefully rather than crashing a live round.
  */
 
+import { flattenGroups } from './collapse';
 import { containerEventDeclId } from './containerEvents';
 import type {
 	Accessor,
@@ -30,6 +31,7 @@ import type {
 	DataSource,
 	FlowDoc,
 	ForEachNode,
+	FunctionId,
 	FunctionLibraryDoc,
 	Graph,
 	Guard,
@@ -100,14 +102,23 @@ class FlowInterpreter {
 	private readonly nodesById = new Map<NodeId, Node>();
 	/** Cached outputs per `functionCall` node id → { outputPinId: value }. */
 	private readonly callOutputs = new Map<NodeId, Record<string, unknown>>();
+	/** Each function's body FLATTENED of groups (§5.2), keyed by function id. */
+	private readonly fnBodies = new Map<FunctionId, Graph>();
 
-	constructor(
-		private readonly doc: FlowDoc,
-		private readonly ctx: RunContext,
-	) {
-		this.indexNodes(doc.graph);
+	private readonly doc: FlowDoc;
+
+	constructor(doc: FlowDoc, private readonly ctx: RunContext) {
+		// §5.2: FLATTEN all `group` nodes back into their bodies BEFORE interpreting — a group is a pure
+		// fold, semantically identical to its expanded form, so the interpreter never sees one. Function
+		// bodies may also carry groups, so flatten those too.
+		this.doc = { ...doc, graph: flattenGroups(doc.graph) };
+		this.indexNodes(this.doc.graph);
 		// A function body's nodes must also resolve by id (recursion into a call's body).
-		for (const fn of ctx.library.functions) this.indexNodes(fn.body);
+		for (const fn of ctx.library.functions) {
+			const body = flattenGroups(fn.body);
+			this.fnBodies.set(fn.id, body);
+			this.indexNodes(body);
+		}
 	}
 
 	private indexNodes(graph: Graph): void {
@@ -298,6 +309,11 @@ class FlowInterpreter {
 				// A result ends a function body (its data-ins are pulled by the caller); a compute
 				// is pure and never exec-run (pulled during data resolution). Nothing to continue.
 				return undefined;
+
+			case 'group':
+				// §5.2: groups are FLATTENED away in the ctor, so the walk never reaches one. An
+				// accidental visit is a safe no-op (exhaustiveness for the Node union).
+				return undefined;
 		}
 	}
 
@@ -336,6 +352,8 @@ class FlowInterpreter {
 			this.callOutputs.set(node.id, {}); // unknown function → no outputs, parity-safe.
 			return;
 		}
+		// The GROUP-FLATTENED body (§5.2), indexed once in the ctor (falls back to the raw body).
+		const body = this.fnBodies.get(fn.id) ?? fn.body;
 
 		// Build the input map from the FunctionDef's declared data inputs, resolved in the
 		// caller's scope (a wired data-in pulls its edge; else the call node's own DataSource).
@@ -346,16 +364,16 @@ class FlowInterpreter {
 		}
 
 		const bodyScope: Scope = { trigger: scope.trigger, context: scope.context, input };
-		const entry = fn.body.nodes.find((n) => n.kind === 'functionEntry' && n.ref === fn.id);
-		if (entry) await this.execFrom(fn.body, entry.id, 'exec', bodyScope);
+		const entry = body.nodes.find((n) => n.kind === 'functionEntry' && n.ref === fn.id);
+		if (entry) await this.execFrom(body, entry.id, 'exec', bodyScope);
 
 		// Capture the outputs from the body's functionResult data-ins.
-		const result = fn.body.nodes.find((n) => n.kind === 'functionResult' && n.ref === fn.id);
+		const result = body.nodes.find((n) => n.kind === 'functionResult' && n.ref === fn.id);
 		const outputs: Record<string, unknown> = {};
 		if (result) {
 			for (const pin of fn.outputs) {
 				if (pin.kind !== 'data') continue;
-				outputs[pin.id] = this.resolveDataIn(fn.body, result.id, pin.id, bodyScope);
+				outputs[pin.id] = this.resolveDataIn(body, result.id, pin.id, bodyScope);
 			}
 		}
 		this.callOutputs.set(node.id, outputs);

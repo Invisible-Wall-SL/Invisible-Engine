@@ -24,6 +24,29 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible Flow v2: Collapse to Group (inline subgraph node, Part 1 headless)
+- **What:** a second collapse — `collapseToGroup` folds a node selection into ONE inline `group` node,
+  the counterpart to Collapse-to-Function. Difference that matters: it keeps **each boundary crossing
+  as its own labelled pin** (N triggers → N distinct entry pins → NO exec-in fan-in), the body lives ON
+  the node (not the shared library), and it's non-reusable. Solves the owner's "group my 9 button→action
+  wires into one node with all the labelled I/O" ask (and the fan-in error a function collapse forced).
+- **A group is a pure FOLDING:** `collapseToGroup`/`expandGroup` are inverse pure transforms;
+  `flattenGroups(graph)` recursively expands every group. The runtime (`runFlowEvent`/
+  `runFlowContainerEvent`) + validator FLATTEN first, so the interpreter never sees a group (no new
+  execution semantics) and "expand / un-collapse" is free. `derivePins('group')` returns the stored
+  `boundary` pins.
+- **Engine (`packages/engine-flow-v2/`, headless):** `types.ts` `GroupNode`/`GroupPin` + `'group'`
+  NodeKind; `collapse.ts` `collapseToGroup`/`expandGroup`/`flattenGroups`; `pins.ts` group case;
+  `runtime.ts` flattens main graph + function bodies (`fnBodies` used in `runFunctionCall`);
+  `validate.ts` validates the flattened graph.
+- **Spike** `tools/flow-spike/flowV2Group.ts` (`pnpm --filter flow-spike run v2group`): fan-in-free
+  2-button collapse validates 0 issues; `expandGroup` round-trips to the pre-collapse graph;
+  `runFlowEvent` records identically for collapsed/expanded/raw (transparency); a data crossing resolves
+  through its boundary pin; pure + guard-checked. `v2collapse`/`v2runtime`/`v2containerfire`/
+  `v2gamesignals` unregressed; `engine-flow-v2` typecheck exit 0. Docs: schema §5.2 + design §5.
+- **Next (Part 2):** `/flow-v2` UI — a "Collapse to Group" toolbar action next to Collapse-to-Function,
+  render the `group` node with its boundary pins, and double-click-to-expand.
+
 ### 2026-07-08 — Invisible FX: per-rig bone hosting (attach a placed effect to a specific rig)
 - **Goal:** the last piece of the Rigger arc — attach a scene-placed effect to a SPECIFIC placed spine
   rig so a `bone` layer rides THAT rig's bone and the rig's timeline events (Phase 3b rebroadcast) time

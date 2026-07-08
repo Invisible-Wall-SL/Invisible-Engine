@@ -24,6 +24,7 @@
  * issues are an authoring aid + the connect-time gate, not a runtime crash.
  */
 
+import { flattenGroups } from './collapse';
 import { derivePins, type PinContext } from './pins';
 import { assignable } from './types-check';
 import type {
@@ -162,7 +163,9 @@ export const validateFlowDoc = (
 ): FlowIssue[] => {
 	const ctx: PinContext = { vocab, library, containerEvents };
 	const containerIds = new Set(doc.containers.map((c) => c.id));
-	return validateGraph(doc.graph, ctx, {
+	// §5.2: validate the FLATTENED graph so exec/data rules apply to the real semantics — a `group` is
+	// a pure fold, so its boundary pins would otherwise look like unfilled/dangling endpoints.
+	return validateGraph(flattenGroups(doc.graph), ctx, {
 		mode: 'flow',
 		containerIds,
 		templateId: doc.templateId,
@@ -181,14 +184,16 @@ export const validateFunctionDef = (
 	library: FunctionLibraryDoc,
 ): FlowIssue[] => {
 	const ctx: PinContext = { vocab, library };
-	const issues = validateGraph(fn.body, ctx, {
+	// §5.2: a function body may itself contain groups — flatten before the structural checks.
+	const body = flattenGroups(fn.body);
+	const issues = validateGraph(body, ctx, {
 		mode: 'body',
 		containerIds: new Set<string>(),
 		templateId: fn.id,
 	});
 
-	const entries = fn.body.nodes.filter((n) => n.kind === 'functionEntry' && n.ref === fn.id);
-	const results = fn.body.nodes.filter((n) => n.kind === 'functionResult' && n.ref === fn.id);
+	const entries = body.nodes.filter((n) => n.kind === 'functionEntry' && n.ref === fn.id);
+	const results = body.nodes.filter((n) => n.kind === 'functionResult' && n.ref === fn.id);
 	if (entries.length !== 1) {
 		issues.push({
 			code: 'fn-body-entry',

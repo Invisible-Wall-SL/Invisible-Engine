@@ -106,6 +106,13 @@ pins** (typed values). Mirrors Unreal Blueprints.
   where they fit.
 - **Versioning (design detail, settle in build):** shared edits propagate to call sites — needs a
   policy (auto-propagate vs. pin-a-version), decided during the Functions phase.
+- **Collapse to Group (2026-07-08) — the sibling of Collapse-to-Function.** Where a function is
+  *reuse of one behaviour* (merged exec entry, shared library), a **group** is a *visual folding of
+  many distinct nodes into one node* — inline, non-reusable, and keeping **each boundary crossing as
+  its own labelled pin** (so N triggers → N distinct entry pins, no exec-in fan-in). It is a pure
+  folding: collapse/expand are inverse transforms and the runtime flattens groups away before
+  interpreting, so it adds no execution semantics and gives "expand / un-collapse" for free. Schema
+  §5.2.
 
 ## 6. How it compiles onto the runtime we already have
 

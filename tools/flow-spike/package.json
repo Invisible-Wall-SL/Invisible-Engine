@@ -29,6 +29,7 @@
 		"scenerole": "tsx sceneRole.ts",
 		"v2schema": "tsx flowV2Schema.ts",
 		"v2collapse": "tsx flowV2Collapse.ts",
+		"v2group": "tsx flowV2Group.ts",
 		"v2runtime": "tsx flowV2Runtime.ts",
 		"v2mount": "tsx flowV2Mount.ts",
 		"v2vocab": "tsx flowV2Vocab.ts",

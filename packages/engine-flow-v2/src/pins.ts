@@ -254,6 +254,16 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 				: { id: 'out', dir: 'out', kind: 'data', label: 'out' };
 			return [out]; // pure value op: NO exec pins.
 		}
+		case 'group':
+			// §5.2: a group's pins are STORED on `boundary` (the deliberate exception to derivation —
+			// the boundary IS the group's definition), so map them verbatim to `Pin[]`.
+			return node.boundary.map((b) => ({
+				id: b.id,
+				dir: b.dir,
+				kind: b.kind,
+				dataType: b.dataType,
+				label: b.label,
+			}));
 		case 'functionEntry': {
 			// The body reads the function's inputs by pulling from the entry's OUTPUTS:
 			// exec-OUT + one data-OUT per the FunctionDef's declared data input (§5). If `ref`

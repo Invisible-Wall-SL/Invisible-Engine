@@ -155,6 +155,7 @@ export type NodeKind =
 	| 'sequence'
 	| 'parallel'
 	| 'compute'
+	| 'group'
 	| 'functionEntry'
 	| 'functionResult';
 
@@ -255,6 +256,39 @@ export interface ComputeNode extends NodeBase {
 	compute: ComputeOp;
 }
 
+/**
+ * A boundary pin on a `group` node (§5.2). Unlike a `functionCall` (whose pins are DERIVED from the
+ * target `FunctionDef`), a group's pins are STORED here on `boundary` — a deliberate exception to the
+ * anti-drift rule (§2), because the boundary IS the group's definition: it records exactly which
+ * internal endpoint each external crossing bridges to, one pin per crossing (no exec-in fan-in). Each
+ * pin's `inner` names the internal `(node, pin)` on the group's `body` that the external edge attaches
+ * to when the group is flattened/expanded.
+ */
+export interface GroupPin {
+	id: string; // unique on the group node (in_<i> / out_<i>).
+	dir: PinDir;
+	kind: PinKind;
+	dataType?: TypeRef; // present iff kind === 'data'.
+	label: string; // descriptive, from the inner target/source node's ref/kind (e.g. the action name).
+	inner: PinPath; // the internal (node, pin) this boundary pin bridges to.
+}
+
+/**
+ * Group (§5.2): an INLINE, non-reusable folding of a node selection into ONE node — semantically
+ * identical to its expanded form. Unlike `collapseToFunction` (which MERGES exec crossings onto one
+ * canonical exec pin and lifts the body into the shared `FunctionLibraryDoc`), a group keeps EACH
+ * boundary crossing as its own pin (N external exec edges → N distinct input pins, no fan-in) and
+ * stores its `body` ON the node. At runtime + validation the group is FLATTENED back into its nodes
+ * (`flattenGroups`) before anything walks it, so the interpreter never sees a `group`. Collapse and
+ * `expandGroup` are exact inverses (round-trip identity on graph semantics).
+ */
+export interface GroupNode extends NodeBase {
+	kind: 'group';
+	label: string; // display name, e.g. 'Button actions'.
+	body: Graph; // the collapsed inner nodes + INTERNAL edges only.
+	boundary: GroupPin[]; // one per boundary crossing; the node's pins ARE these.
+}
+
 /** Function Entry (§5): the body-side start of a function. Lives ONLY inside a
  *  `FunctionDef.body`, never in the top-level `FlowDoc.graph`. Exposes the function's
  *  declared `inputs` as data-OUTS (the body reads inputs by pulling from here) plus an
@@ -286,6 +320,7 @@ export type Node =
 	| SequenceNode
 	| ParallelNode
 	| ComputeNode
+	| GroupNode
 	| FunctionEntryNode
 	| FunctionResultNode;
 
