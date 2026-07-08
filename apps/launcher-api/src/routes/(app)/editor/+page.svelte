@@ -979,8 +979,8 @@
 			version: data.doc.version,
 			projectKey: data.projectKey,
 			gameType: id,
-			mainSizesMap: structuredClone($state.snapshot(mainSizesMap)),
-			scenes: structuredClone($state.snapshot(scenes)) as Scene[],
+			mainSizesMap: JSON.parse(JSON.stringify(mainSizesMap)),
+			scenes: JSON.parse(JSON.stringify(scenes)) as Scene[],
 			updatedAt: '',
 		};
 		try {
@@ -1448,8 +1448,12 @@
 		historyBaseline = snapshotDoc();
 	}
 	function applySnapshot(snap: DocSnapshot): void {
-		scenes = structuredClone(snap.scenes);
-		mainSizesMap = structuredClone(snap.mainSizesMap);
+		// A fresh detached copy so future in-place edits can't mutate the stack entry.
+		// `structuredClone` throws `DataCloneError` on `$state`-derived values here; the
+		// doc is pure JSON, so round-trip through JSON is the safe clone (see the /flow
+		// undo/redo fix for the same trap).
+		scenes = JSON.parse(JSON.stringify(snap.scenes)) as Scene[];
+		mainSizesMap = JSON.parse(JSON.stringify(snap.mainSizesMap)) as typeof mainSizesMap;
 		pruneSelection();
 		activeSceneIdx = Math.min(activeSceneIdx, Math.max(0, scenes.length - 1));
 		// The apply itself is not a new edit (don't recordEdit) — but it must persist.
