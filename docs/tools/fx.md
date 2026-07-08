@@ -67,9 +67,14 @@ The sub-bar shows the **Invisible FX** label, an **Effect name** field, and the
 following controls:
 
 - **⤓ Save** — writes the current effect to cloud storage (see "Save", below).
+- **⧉ Save As…** — prompts for a new name and writes a COPY under it, leaving the
+  original effect untouched. Use this to branch a variant from an existing effect.
 - **+ New** — starts a fresh, empty effect (reloads `/fx` with one default layer).
 - **Open effect…** — a dropdown of every effect already saved in this project; pick one
-  to open it (this loads the effect's layers and restores the last-selected layer).
+  to open it (this loads the effect's layers and restores the last-selected layer). A
+  just-saved effect appears here immediately, without a reload.
+- **🗑 Delete** — deletes the open effect from cloud storage (after a confirm) and
+  clears the editor. Disabled until an effect has actually been saved/opened.
 - **▶ Play / ❚❚ Pause** — toggles the live emitters in the preview.
 - **Reset view** — re-centres and re-fits the preview camera.
 
@@ -161,9 +166,12 @@ into two objects: the pure **EffectDoc** at `<client>/<project>/<id>.fx.json` an
 editor-only sidecar at `<id>.fx.meta.json` (your preview camera and last-selected
 layer) — the sidecar is kept out of the shipped doc on purpose, so editor state can
 never leak into the artifact. The save status in the sub-bar confirms the effect name
-and layer count, and the id is slugged from the name so a later save or **Open effect…**
-round-trips to the same files. Reopening an effect restores its layers, the Inspector,
-and the layer you last had selected.
+and layer count. A brand-new effect takes its filename from its **name** (slugged), so
+two effects with different names save to different files — give each effect a distinct
+name (or use **⧉ Save As…**) to keep them separate. Once saved (or opened), the id is
+stable, so renaming an effect and saving again updates the same file in place rather than
+spawning a duplicate. Reopening an effect restores its layers, the Inspector, and the
+layer you last had selected.
 
 ### Getting a saved effect into a game
 

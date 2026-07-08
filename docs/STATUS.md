@@ -45,6 +45,14 @@ submodule bumps).
   pins come from `deriveContainerEvents`, projecting the real Scene-Editor component configs into
   `ConfiguredComponentEvent[]`. No UI shipped in this pass.
 
+### 2026-07-08 — Invisible FX: Save As (copy) + Delete (SHIPPED)
+- **Added:** **⧉ Save As…** (prompts for a name and writes a COPY under it via the untitled-sentinel
+  id path, original untouched) and **🗑 Delete** (removes the open effect — both `.fx.json` and its
+  `.fx.meta.json` sidecar — after a confirm, then resets the editor + drops it from the picker).
+- **Server:** new `deleteEffect()` in `fxStorage.ts` + `POST /api/fx/delete` (`fx`-gated, mirrors
+  `/api/fx/save`; deletes both objects, id slugged the same way, idempotent). `launcher-api build`
+  GREEN. Tool doc `docs/tools/fx.md` updated (sub-bar controls + Save keying).
+
 ### 2026-07-08 — Invisible FX: distinct effects save to distinct files + picker reflects saves (SHIPPED)
 - **Symptom:** every save overwrote the SAME effect ("I can't save different FX"), and a just-saved
   effect never appeared in the "Open effect…" dropdown until a full reload.

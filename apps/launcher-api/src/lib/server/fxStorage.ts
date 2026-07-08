@@ -7,7 +7,7 @@ import {
 	projectPrefix,
 	r2Slug,
 } from './projectPaths';
-import { getObjectText, listObjects, putObjectText } from './r2';
+import { deleteObject, getObjectText, listObjects, putObjectText } from './r2';
 
 /**
  * R2 load/save for Invisible FX effects (design doc `invisible-fx.md` §4 / §6 / §8),
@@ -151,4 +151,21 @@ export async function saveEffect(
 		'application/json',
 	);
 	return { id, doc };
+}
+
+/**
+ * Delete one effect: BOTH the canonical `<id>.fx.json` and its editor-only `<id>.fx.meta.json`
+ * sidecar (the two objects `saveEffect` writes). The id is slugged with the SAME `r2Slug` the
+ * save path uses, so the caller's id maps to the exact keys on disk. Deleting a missing object
+ * is a no-op on R2, so this is idempotent (a double-delete never errors).
+ */
+export async function deleteEffect(
+	clientKey: string,
+	projectKey: string,
+	rawId: string,
+): Promise<{ id: string }> {
+	const id = r2Slug(rawId);
+	await deleteObject(fxDocKey(clientKey, projectKey, id));
+	await deleteObject(fxMetaKey(clientKey, projectKey, id));
+	return { id };
 }

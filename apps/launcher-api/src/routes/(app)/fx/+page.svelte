@@ -118,6 +118,59 @@
 		}
 	}
 
+	/**
+	 * Save a COPY of the current effect under a new name. We reset the in-memory doc's id to the
+	 * untitled sentinel so `saveEffect` keys the new file off the new name — the original effect's
+	 * R2 objects are untouched (we only mutate the in-memory doc, then write a fresh file).
+	 */
+	async function saveEffectAs(): Promise<void> {
+		const suggested = `${doc.name} copy`.trim();
+		const name = window.prompt('Save as a new effect named:', suggested);
+		if (name === null) return; // cancelled
+		const clean = name.trim();
+		if (!clean) return;
+		doc = { ...doc, id: UNTITLED_EFFECT_ID, name: clean };
+		await saveEffect();
+	}
+
+	/**
+	 * Delete the currently-open effect from R2 (both the `.fx.json` and its `.fx.meta.json`
+	 * sidecar) and drop it from the picker. If the open doc IS the deleted one, reset the editor
+	 * to a fresh untitled effect. Guarded to only fire on an actually-saved effect.
+	 */
+	async function deleteOpenEffect(): Promise<void> {
+		const id = pickerId || (doc.id !== UNTITLED_EFFECT_ID ? doc.id : '');
+		if (!id) return;
+		const label = effects.find((e) => e.id === id)?.name ?? id;
+		if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+		saving = true;
+		saveError = '';
+		savedNote = '';
+		try {
+			const res = await fetch('/api/fx/delete', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ id }),
+			});
+			if (!res.ok) {
+				saveError = `Delete failed (HTTP ${res.status}).`;
+				return;
+			}
+			effects = effects.filter((e) => e.id !== id);
+			savedNote = `Deleted "${label}".`;
+			if (doc.id === id) {
+				const fresh = emptyEffectDoc();
+				doc = fresh;
+				selectedKey = fresh.layers[0]?.key ?? '';
+			}
+			pickerId = '';
+		} catch {
+			saveError = 'Delete failed (network error).';
+		} finally {
+			saving = false;
+		}
+	}
+
 	function newEffect(): void {
 		// Navigate to a clean /fx (drops `?effect=`) so the loader seeds an empty doc.
 		window.location.href = '/fx';
@@ -430,6 +483,9 @@
 		<button class="primary" onclick={saveEffect} disabled={saving}>
 			{saving ? 'Saving…' : '⤓ Save'}
 		</button>
+		<button title="Save a copy under a new name" onclick={saveEffectAs} disabled={saving}
+			>⧉ Save As…</button
+		>
 		<button onclick={newEffect}>+ New</button>
 		<select
 			class="open"
@@ -442,6 +498,12 @@
 				<option value={eff.id}>{eff.name}</option>
 			{/each}
 		</select>
+		<button
+			class="danger"
+			title="Delete the open effect"
+			disabled={saving || !pickerId}
+			onclick={deleteOpenEffect}>🗑 Delete</button
+		>
 		<button onclick={() => (playing = !playing)}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
 		<button onclick={() => stage?.resetView()}>Reset view</button>
 		<span class="spacer"></span>
@@ -1126,6 +1188,10 @@
 	.subbar button.primary {
 		border-color: #2563eb;
 		color: #bfdbfe;
+	}
+	.subbar button.danger {
+		border-color: #5b2a2a;
+		color: #fca5a5;
 	}
 	.subbar button:disabled {
 		opacity: 0.5;
