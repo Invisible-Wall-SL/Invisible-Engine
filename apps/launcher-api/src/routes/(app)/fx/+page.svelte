@@ -43,6 +43,7 @@
 		setTriggerMode,
 		spawnKind,
 		spawnShape,
+		UNTITLED_EFFECT_ID,
 		type BlendKind,
 		type MovementModel,
 		type SpawnKind,
@@ -69,17 +70,32 @@
 	let saveError = $state<string>('');
 	let savedNote = $state<string>('');
 	let pickerId = $state<string>(data.openedDoc?.id ?? '');
+	// A LOCAL, reactive copy of the saved-effect index so the picker reflects a save WITHOUT a
+	// full reload (the loader only lists effects once, server-side). Upserted on every save.
+	let effects = $state<{ id: string; name: string }[]>(data.effects);
+
+	/** Merge a just-saved effect into the picker list (add or relabel), kept name-sorted. */
+	function upsertEffect(row: { id: string; name: string }): void {
+		const rest = effects.filter((e) => e.id !== row.id);
+		effects = [...rest, row].sort((a, b) => a.name.localeCompare(b.name));
+	}
 
 	async function saveEffect(): Promise<void> {
 		saving = true;
 		saveError = '';
 		savedNote = '';
 		try {
+			// The R2 file stem is the doc's id. A never-saved effect still holds the untitled
+			// sentinel, so key its id off the NAME — distinct names ⇒ distinct files (the fix for
+			// "every save overwrites the same effect"). Once saved/opened the id is the stable
+			// server-slugged stem, so a rename just relabels the same file (no orphan, no clobber).
+			const isUnsaved = doc.id === '' || doc.id === UNTITLED_EFFECT_ID;
+			const outgoingId = isUnsaved ? doc.name.trim() || doc.id : doc.id;
 			const res = await fetch('/api/fx/save', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					doc: $state.snapshot(doc),
+					doc: { ...$state.snapshot(doc), id: outgoingId },
 					// Editor-only sidecar — NEVER folded into the EffectDoc (out-of-band, §4).
 					meta: { selectedLayer: selectedKey },
 				}),
@@ -92,6 +108,8 @@
 			// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
 			doc = { ...doc, id: out.id };
 			pickerId = out.id;
+			// Reflect the save in the picker immediately (add a new effect, or relabel a renamed one).
+			upsertEffect({ id: out.id, name: out.name });
 			savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
 		} catch {
 			saveError = 'Save failed (network error).';
@@ -420,7 +438,7 @@
 			onchange={(e) => openEffect((e.currentTarget as HTMLSelectElement).value)}
 		>
 			<option value="">Open effect…</option>
-			{#each data.effects as eff (eff.id)}
+			{#each effects as eff (eff.id)}
 				<option value={eff.id}>{eff.name}</option>
 			{/each}
 		</select>

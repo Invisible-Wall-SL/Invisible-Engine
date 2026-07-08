@@ -45,6 +45,19 @@ submodule bumps).
   pins come from `deriveContainerEvents`, projecting the real Scene-Editor component configs into
   `ConfiguredComponentEvent[]`. No UI shipped in this pass.
 
+### 2026-07-08 — Invisible FX: distinct effects save to distinct files + picker reflects saves (SHIPPED)
+- **Symptom:** every save overwrote the SAME effect ("I can't save different FX"), and a just-saved
+  effect never appeared in the "Open effect…" dropdown until a full reload.
+- **Cause:** the R2 file stem is the doc's `id`, but `emptyEffectDoc()` seeds `id:'untitled-effect'`
+  and the name input only mutates `doc.name` — so every new effect wrote to `untitled_effect.fx.json`,
+  clobbering the last. Separately, the picker rendered the loader's `data.effects` (listed once,
+  server-side); a client save never updated it, and `pickerId` pointed at an id absent from the list.
+- **Fix (`(app)/fx/+page.svelte` + `fxModel.client.ts`):** a never-saved effect (id still the
+  `UNTITLED_EFFECT_ID` sentinel) now keys its id off the NAME at save → distinct names ⇒ distinct
+  files; once saved/opened the id is the stable server-slugged stem so a rename relabels in place
+  (no orphan). The picker now renders a LOCAL reactive `effects` list, upserted on every save, so a
+  save shows up immediately and stays selected. `launcher-api build` GREEN.
+
 ### 2026-07-08 — Invisible FX: save no longer drops an unbound-art layer (fixes "save → reopen is empty") (SHIPPED)
 - **Symptom:** author an FX with a layer, tune the emitter, Save → reopen the effect and it's EMPTY.
 - **Cause:** `normalizeEffectDoc` (`packages/engine-fx/src/normalize.ts`), which the `/api/fx/save`

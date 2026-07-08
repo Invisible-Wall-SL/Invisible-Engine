@@ -86,8 +86,15 @@ export function defaultEmitterConfig(): EmitterConfigV3 {
 	};
 }
 
+/**
+ * The sentinel id a brand-new (never-saved) effect carries. While the doc still holds this id,
+ * Save keys the R2 file stem off the effect's NAME (so distinct names save to distinct files);
+ * once saved/opened the id is the stable server-slugged stem and a rename relabels in place.
+ */
+export const UNTITLED_EFFECT_ID = 'untitled-effect';
+
 /** A fresh, empty EffectDoc (one default layer) the page seeds the in-memory state with. */
-export function emptyEffectDoc(id = 'untitled-effect', name = 'Untitled Effect'): EffectDoc {
+export function emptyEffectDoc(id = UNTITLED_EFFECT_ID, name = 'Untitled Effect'): EffectDoc {
 	return {
 		version: EFFECT_DOC_VERSION,
 		id,
