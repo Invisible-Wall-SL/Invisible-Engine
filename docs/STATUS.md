@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX: LIVE particle preview in the Scene Editor
+- **Goal (plan `ticklish-conjuring-lamport`):** a placed `effect` node only drew a static ✨ chip
+  (the editor's main canvas is 2D). Owner wanted to SEE the particles compose in the scene, like the
+  editor already renders placed spine rigs live.
+- **Shared foundation (`72be29d`):** pulled `FxStage`'s atlas page-load + per-frame slice
+  (`loadPageSource`/`framesToTextures`) into `$lib/fx/effectEmitter.client.ts` (DRY — `FxStage` now
+  imports them); added `GET /api/editor/effect?id=` (one `EffectDoc` via `fxStorage.loadEffect`).
+- **New overlay:** `EditorEffectLayer.svelte` mirrors `EditorSpineLayer` — one transparent,
+  `pointer-events:none` Pixi `Application` over the 2D canvas, playing each placed effect's `EffectDoc`
+  via `@barvynkoa/particle-emitter` (`bindArt` + `new Emitter`). **Transform parity:** each node's
+  container is placed at the SAME `worldTransformOf` (= `nodeTransform`) result the 2D chip uses, with
+  pan/zoom baked once on the parent `world` (no spine-style x-mirror — Pixi is y-down like the 2D
+  canvas). Nested effects compose via the shared `composeWorldMatrix`. Generation-guarded rebuilds +
+  `app.destroy(true)` on unmount (WebGL context discipline).
+- **`EditorCanvas` wiring:** mounts the overlay only for scenes that contain an effect
+  (`sceneHasEffect`, context-cap mitigation); a per-scene ready-union (`liveEffectIds`) drives chip
+  suppression (`drawNode` skips `drawPlaceholder` for live nodes — loading / bone-only stay chipped);
+  a **▶/❚❚ FX** toolbar toggle (`playingEffects`, default on). v1: FREE layers only (bone layers need a
+  rig host the editor overlay lacks). `launcher-api` build clean. **Owner live-verify the pixels**
+  (authed WebGL): particles land on the chip, follow pan/zoom, and nested-in-component parity.
+
 ### 2026-07-08 — Invisible FX in-game: effect atlases AUTO-SHIP (removes the "place the atlas too" trap)
 - **Follow-up from Phase 1's known gap:** a placed/mounted effect rendered INVISIBLE in-game unless
   the author ALSO placed its particle atlas as a sprite (its `art.assetKey` only shipped if the layout

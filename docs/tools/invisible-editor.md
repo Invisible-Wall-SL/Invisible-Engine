@@ -90,13 +90,15 @@ Open the **Library** tab. It is grouped into:
   Spine bundles into the project's storage.
 - **Sheets** — sheet outputs; expand to drag individual regions.
 - **Effects** — the project's authored **Invisible FX** particle effects; drag
-  one in to place it at a position in the scene. The editor draws a labelled
-  ✨ placeholder chip (a particle emitter can't run in the 2D editor canvas) —
-  the game plays the real effect there. Change which effect a placed node
+  one in to place it at a position in the scene. The editor renders the effect's
+  **live particles** right on the canvas (an overlay, the same way it shows spine
+  rigs live), following pan/zoom — toggle it with the **▶/❚❚ FX** button in the
+  toolbar. A ✨ placeholder chip still marks nodes that aren't rendering live yet
+  (still loading, or a bone-attached effect). Change which effect a placed node
   references from the Properties panel. Scene placement is for **free (scene)**
   effects; bone-attached effects are timed on their rig in the Rigger. The
-  effect's particle **atlas must also be placed/used in the scene** for its art
-  to ship (the bake warns if a referenced atlas isn't shipped).
+  effect's particle atlas ships automatically (the export bakes it in) — no need
+  to place the atlas separately.
 
 **Drag any library item onto the canvas** to spawn a node in the active screen.
 The editor renders the real texture (and spine bundles preview as a live

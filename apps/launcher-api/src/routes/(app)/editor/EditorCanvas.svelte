@@ -42,6 +42,7 @@
 		type RegionSet,
 	} from './editorRegions.client';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
+	import EditorEffectLayer from './EditorEffectLayer.svelte';
 	import EditorSpineLayer from './EditorSpineLayer.svelte';
 	import type { SpineMeta } from './spineRuntime.client';
 	import EditorTextLayer from './EditorTextLayer.svelte';
@@ -738,6 +739,12 @@
 	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
 	 * chips. UNION across the per-scene text sublayers. */
 	let readyTextIds = $state<Set<string>>(new Set());
+	/** Global play/pause for the live effect preview overlay (default playing). */
+	let playingEffects = $state(true);
+	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
+	 * skips their placeholder chip so only the live emitters show. UNION across the per-scene effect
+	 * sublayers (each reports only its own scene's node ids). */
+	let liveEffectIds = $state<Set<string>>(new Set());
 
 	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
 	// canvas folds their reports together (union of ready keys/ids + merged natural
@@ -746,6 +753,7 @@
 	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
 	const spineMetaByScene = new Map<string, Map<string, SpineMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
+	const effectReadyByScene = new Map<string, Set<string>>();
 	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
 
@@ -772,6 +780,12 @@
 		const union = new Set<string>();
 		for (const set of textReadyByScene.values()) for (const id of set) union.add(id);
 		readyTextIds = union;
+	}
+	function mergeEffectReady(sceneId: string, ids: Set<string>): void {
+		effectReadyByScene.set(sceneId, ids);
+		const union = new Set<string>();
+		for (const set of effectReadyByScene.values()) for (const id of set) union.add(id);
+		liveEffectIds = union;
 	}
 	function mergeSpineLoading(sceneId: string, c: { started: number; settled: number }): void {
 		spineLoadByScene.set(sceneId, c);
@@ -803,6 +817,7 @@
 		spineNaturalByScene.delete(id);
 		spineMetaByScene.delete(id);
 		textReadyByScene.delete(id);
+		effectReadyByScene.delete(id);
 		spineLoadByScene.delete(id);
 		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
@@ -818,6 +833,9 @@
 		const ids = new Set<string>();
 		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
 		readyTextIds = ids;
+		const effIds = new Set<string>();
+		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
+		liveEffectIds = effIds;
 		let ss = 0;
 		let sd = 0;
 		for (const v of spineLoadByScene.values()) {
@@ -1282,6 +1300,25 @@
 		return false;
 	}
 
+	/** Does a scene carry a placed `kind:'effect'` node ANYWHERE in its tree (incl. nested in a
+	 * container / component instance)? Only such scenes mount the (WebGL) effect sublayer, so Pixi
+	 * contexts stay bounded — mirroring `sceneHasSpine`. */
+	function sceneHasEffect(s: Scene): boolean {
+		return nodesHaveEffect(s.nodes, 0, []);
+	}
+	function nodesHaveEffect(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
+		for (const n of nodes) {
+			if (n.kind === 'effect') return true;
+			if (n.kind === 'container' && nodesHaveEffect(n.children, depth, stack)) return true;
+			if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				if (nodesHaveEffect(def.root.children, depth + 1, [...stack, def.id])) return true;
+			}
+		}
+		return false;
+	}
+
 	/** Stable single-id `sceneFilter` per scene — memoized so the spine/text sublayers
 	 * don't see a fresh Set reference (and rebuild) on every parent re-render. */
 	const sceneFilters = new Map<string, Set<string>>();
@@ -1337,6 +1374,28 @@
 			hudSpineFilter = new Set(ids);
 		}
 		return hudSpineFilter;
+	}
+
+	/** Synthetic scene key for the HUD effect overlay's report buffers — it covers ALL HUD scenes on
+	 * one overlay (the HUD draws on its own top layer), mirroring `HUD_SPINE_KEY`. */
+	const HUD_EFFECT_KEY = '__hud-effect__';
+
+	/** Non-hidden HUD scenes carrying a placed effect ANYWHERE in their tree (incl. nested in a placed
+	 * HUD component). The per-game-scene `{#each}` excludes HUD scenes (they draw on `hudCanvas`), so
+	 * without this a HUD effect only ever shows its 2D chip and never the live emitters. */
+	function hudEffectScenes(): Scene[] {
+		return scenes.filter((s) => isHudScene(s) && !hiddenSceneIds.has(s.id) && sceneHasEffect(s));
+	}
+
+	/** Memoized multi-id `sceneFilter` for the HUD effect overlay — a stable Set reference (rebuilt
+	 * only when membership changes) so the overlay doesn't churn each render. */
+	let hudEffectFilter = new Set<string>();
+	function hudEffectSceneFilter(): Set<string> {
+		const ids = hudEffectScenes().map((s) => s.id);
+		if (ids.length !== hudEffectFilter.size || ids.some((id) => !hudEffectFilter.has(id))) {
+			hudEffectFilter = new Set(ids);
+		}
+		return hudEffectFilter;
 	}
 
 	/** Per-scene 2D canvas registry — each game scene's node art draws onto its OWN
@@ -1720,16 +1779,20 @@
 		} else if (node.kind === 'reelGrid') {
 			drawReelGrid(ctx, node, t);
 		} else if (node.kind === 'effect') {
-			// A placed Invisible FX effect. The editor's 2D canvas can't run a WebGL particle
-			// emitter (same as spine/reelGrid), so it stands in a labelled placeholder chip; the
-			// game ALWAYS mounts the real `<EffectPlayer>` for the resolved doc.
-			drawPlaceholder(
-				ctx,
-				t.anchor?.x ?? 0.5,
-				t.anchor?.y ?? 0.5,
-				'#3a5a4a',
-				`✨ ${node.label ?? node.effectId}`,
-			);
+			// A placed Invisible FX effect. The live `EditorEffectLayer` overlay plays the real
+			// emitters on a Pixi canvas above this one, positioned at the SAME transform — so once it
+			// reports the node ready (`liveEffectIds`), skip the 2D chip and let the particles show.
+			// A node still loading its doc (or a bone-only effect the overlay skips) keeps the chip;
+			// the selection box + hit-test stay regardless (still selectable / movable).
+			if (!liveEffectIds.has(node.id)) {
+				drawPlaceholder(
+					ctx,
+					t.anchor?.x ?? 0.5,
+					t.anchor?.y ?? 0.5,
+					'#3a5a4a',
+					`✨ ${node.label ?? node.effectId}`,
+				);
+			}
 		}
 
 		ctx.restore();
@@ -3053,6 +3116,26 @@
 					}}
 				/>
 			{/if}
+			{#if sceneHasEffect(s)}
+				<EditorEffectLayer
+					{scenes}
+					{layoutType}
+					{frameWidth}
+					{frameHeight}
+					{panX}
+					{panY}
+					{zoom}
+					{componentMap}
+					worldTransformOf={nodeTransform}
+					{hiddenSceneIds}
+					sceneFilter={sceneFilterFor(s.id)}
+					playing={playingEffects}
+					onReadyKeysChange={(ids) => {
+						mergeEffectReady(s.id, ids);
+						schedule();
+					}}
+				/>
+			{/if}
 		</div>
 	{/each}
 
@@ -3130,6 +3213,31 @@
 			/>
 		</div>
 	{/if}
+	<!-- HUD effect overlay: HUD scenes draw on the top-most `hudCanvas` (excluded from the per-game-
+	     scene `{#each}`), so a placed HUD effect needs its OWN live particle overlay layered just over
+	     the HUD canvas. Covers every HUD scene at once (one filter Set). -->
+	{#if hudEffectScenes().length > 0}
+		<div class="hud-effect-layer">
+			<EditorEffectLayer
+				{scenes}
+				{layoutType}
+				{frameWidth}
+				{frameHeight}
+				{panX}
+				{panY}
+				{zoom}
+				{componentMap}
+				worldTransformOf={nodeTransform}
+				{hiddenSceneIds}
+				sceneFilter={hudEffectSceneFilter()}
+				playing={playingEffects}
+				onReadyKeysChange={(ids) => {
+					mergeEffectReady(HUD_EFFECT_KEY, ids);
+					schedule();
+				}}
+			/>
+		</div>
+	{/if}
 	{#if showOverlay}
 		<div class="load-overlay" role="status" aria-live="polite">
 			<div class="load-card">
@@ -3191,6 +3299,16 @@
 			title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
 		>
 			↻ Reload art
+		</button>
+		<button
+			class="fit"
+			class:on={playingEffects}
+			onclick={() => (playingEffects = !playingEffects)}
+			type="button"
+			aria-pressed={playingEffects}
+			title={playingEffects ? 'Pause effect preview' : 'Play effect preview'}
+		>
+			{playingEffects ? '❚❚' : '▶'} FX
 		</button>
 	</div>
 </div>
@@ -3258,6 +3376,15 @@
 		z-index: 1001;
 		pointer-events: none;
 	}
+	.hud-effect-layer {
+		/* The HUD's live particle overlay — sits just ABOVE the HUD's 2D canvas (z-index 1000) so a
+		   placed HUD effect's particles draw over the HUD chips. Input passes through to the base
+		   canvas. */
+		position: absolute;
+		inset: 0;
+		z-index: 1001;
+		pointer-events: none;
+	}
 	.scene-group {
 		/* One composite group per game scene; z-index (set inline by scene order) makes
 		   a later scene's whole group — its 2D + spine + text — sit above an earlier
@@ -3303,6 +3430,10 @@
 	}
 	.fit:hover {
 		border-color: #7ee0c0;
+	}
+	.fit.on {
+		color: #7ee0c0;
+		border-color: #3a5a4a;
 	}
 	.hist-grp {
 		display: inline-flex;
