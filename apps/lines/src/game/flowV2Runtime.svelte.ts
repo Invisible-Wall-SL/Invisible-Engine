@@ -170,6 +170,14 @@ const INTENT_COMMANDS: Record<string, string> = {
 	startSpin: 'spin',
 	stopSpin: 'spin', // the spin button is bet-or-stop; the coded body decides by state.
 	confirmBuyBonus: 'buyBonus',
+	// The standard HUD buttons — each routes to the game intent `invokeHostIntent` already bridges.
+	increaseBet: 'increase',
+	decreaseBet: 'decrease',
+	toggleTurbo: 'turbo',
+	openGameRules: 'gameRules',
+	openSettings: 'settings',
+	toggleSound: 'soundToggle',
+	autoSpin: 'autoSpin',
 };
 
 export const createLinesFlowV2 = (

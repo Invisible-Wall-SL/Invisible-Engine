@@ -3725,7 +3725,7 @@ function renderSlotDetail(){
     const fin = document.createElement("button"); fin.textContent = "✓ Finish path"; fin.disabled = pathDrawPts.length < 4; fin.style.flex = "1"; fin.onclick = finishDrawPath;
     const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawPath;
     row.appendChild(fin); row.appendChild(can); det.appendChild(row);
-  } else if (!isPathAtt(skeleton.getAttachment(slotIndex, attName))){
+  } else if (!isPathAtt(attName ? skeleton.getAttachment(slotIndex, attName) : null)){
     const ap = document.createElement("button");
     ap.textContent = "✎ Draw path";
     ap.title = "Add a path attachment to this slot — click on the canvas to drop spline control points (3 per cubic curve). A path constraint can then lay bones along it.";
@@ -3750,7 +3750,7 @@ function renderSlotDetail(){
     const can = document.createElement("button"); can.textContent = "Cancel"; can.onclick = cancelDrawPoly;
     row.appendChild(fin); row.appendChild(can); det.appendChild(row);
   } else {
-    const liveAtt = skeleton.getAttachment(slotIndex, attName);
+    const liveAtt = attName ? skeleton.getAttachment(slotIndex, attName) : null;
     const extras = document.createElement("div"); extras.style.cssText = "margin:8px 0 2px;display:flex;flex-wrap:wrap;gap:6px;";
     if (!isPointAtt(liveAtt)){
       const b = document.createElement("button");

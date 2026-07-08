@@ -1009,6 +1009,22 @@
 	const doOpenMenu = (): void => {
 		stateUi.menuOpen = true;
 	};
+	const doOpenGameRules = (): void => {
+		stateUi.menuOpen = false;
+		stateModal.modal = { name: 'gameRules' };
+	};
+	const doOpenSettings = (): void => {
+		stateUi.menuOpen = false;
+		stateModal.modal = { name: 'settings' };
+	};
+	const doToggleSound = (): void => {
+		stateSound.volumeValueMaster = stateSound.volumeValueMaster === 0 ? 50 : 0;
+	};
+	const doAutoSpin = (): void => {
+		stateBetDerived.hasAutoBetCounter()
+			? (stateBet.autoSpinsCounter = 0)
+			: (stateModal.modal = { name: 'autoSpin' });
+	};
 
 	// The intent host bridge (design doc §8.5): the game IMPLEMENTS `invokeIntent`, called by
 	// the interpreter for every `action → intent` edge. Maps an intent NAME to its shared coded
@@ -1022,6 +1038,10 @@
 		else if (intent === 'turbo') doToggleTurbo();
 		else if (intent === 'menu') doOpenMenu();
 		else if (intent === 'buyBonus') stateModal.modal = { name: 'buyBonus' };
+		else if (intent === 'gameRules') doOpenGameRules();
+		else if (intent === 'settings') doOpenSettings();
+		else if (intent === 'soundToggle') doToggleSound();
+		else if (intent === 'autoSpin') doAutoSpin();
 	};
 
 	// Functional action pin routing (design doc §8.5): if an author wired this button's `pin`
@@ -1069,15 +1089,13 @@
 		gameRules: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateUi.menuOpen = false;
-				stateModal.modal = { name: 'gameRules' };
+				doOpenGameRules();
 			},
 		},
 		settings: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateUi.menuOpen = false;
-				stateModal.modal = { name: 'settings' };
+				doOpenSettings();
 			},
 		},
 		// ButtonSoundSwitch — toggle master volume. `active` reflects sound-on so an
@@ -1085,7 +1103,7 @@
 		soundToggle: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateSound.volumeValueMaster = stateSound.volumeValueMaster === 0 ? 50 : 0;
+				doToggleSound();
 			},
 			active: boolSource(() => stateSound.volumeValueMaster !== 0),
 		},
@@ -1108,9 +1126,7 @@
 		autoSpin: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateBetDerived.hasAutoBetCounter()
-					? (stateBet.autoSpinsCounter = 0)
-					: (stateModal.modal = { name: 'autoSpin' });
+				doAutoSpin();
 			},
 			disabled: boolSource(() => {
 				if (stateBet.isSpaceHold) return true;

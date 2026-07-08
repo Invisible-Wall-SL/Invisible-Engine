@@ -225,6 +225,15 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'startSpin', params: [], category: 'command' },
 		{ name: 'stopSpin', params: [], category: 'command' },
 		{ name: 'confirmBuyBonus', params: [], category: 'command' },
+		// The standard HUD buttons every book-of game ships — wiring a fused container-event pin
+		// (onIncrease/onDecrease/…) to one of these fires the same coded body the button press runs.
+		{ name: 'increaseBet', params: [], category: 'command' },
+		{ name: 'decreaseBet', params: [], category: 'command' },
+		{ name: 'toggleTurbo', params: [], category: 'command' },
+		{ name: 'openGameRules', params: [], category: 'command' },
+		{ name: 'openSettings', params: [], category: 'command' },
+		{ name: 'toggleSound', params: [], category: 'command' },
+		{ name: 'autoSpin', params: [], category: 'command' },
 		{
 			name: 'expandBookColumns',
 			params: [
