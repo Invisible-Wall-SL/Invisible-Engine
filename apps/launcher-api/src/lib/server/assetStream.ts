@@ -105,13 +105,19 @@ export interface StreamAssetOptions {
 /**
  * These responses are auth-gated and per-user (the gate + project-prefix
  * allow-list run on EVERY request, including conditional ones), so the cache is
- * `private` — never shared across users by a proxy. A short `max-age` with
- * `must-revalidate` means the browser may reuse a cached image for a few minutes
- * without a request, then revalidate via `If-None-Match`. A 304 is safe because
- * the endpoint has already re-run its gate before we get here — caching never
+ * `private` — never shared across users by a proxy. `max-age=0, must-revalidate`
+ * means the browser ALWAYS revalidates via `If-None-Match` before reusing a
+ * cached copy: unchanged bytes cost a cheap stat-only `304`, while a re-authored
+ * page (same key, new pixels → new R2 ETag) is fetched fresh IMMEDIATELY. A prior
+ * `max-age=300` kept serving the stale cached page for up to 5 min after a deploy
+ * — so a re-authored atlas (new regions / recoloured art) rendered stale in the
+ * editor + Symbols State Machine (which crop live from the deployed page at a
+ * STABLE url), while the Rigger/Spine Viewer — self-contained `spines/<name>/`
+ * bundles at their OWN urls — showed the fresh copy. A 304 is safe because the
+ * endpoint has already re-run its gate before we get here — caching never
  * bypasses auth, it only saves re-streaming bytes the client already holds.
  */
-const VERBATIM_CACHE_CONTROL = 'private, max-age=300, must-revalidate';
+const VERBATIM_CACHE_CONTROL = 'private, max-age=0, must-revalidate';
 
 export async function streamAsset(opts: StreamAssetOptions): Promise<Response> {
 	const { key, rewriteFont, assetUrlBase, ifNoneMatch } = opts;
