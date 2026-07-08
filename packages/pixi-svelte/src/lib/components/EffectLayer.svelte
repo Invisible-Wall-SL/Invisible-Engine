@@ -25,6 +25,7 @@
 	 */
 	import { onDestroy } from 'svelte';
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import type { Texture } from 'pixi.js';
 	import { planLayer } from 'engine-fx';
 	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
 
@@ -74,6 +75,36 @@
 				createBacking: createPixiSpineBackingFactory(spineData),
 			};
 		},
+	);
+
+	// Resolve a SPRITE layer's authored `art.frames` → the loaded per-frame `Texture`s, honoring the
+	// editor-art scoped→bare key precedence (mirrors `LayoutNodeView` / `engine-layout`'s
+	// `editorArtTextureKey`; the `<assetKey>::<frame>` scheme is inlined here to avoid a
+	// `pixi-svelte → engine-layout` dependency). An FX atlas ships via the editor-art export, so its
+	// frames register under `<assetKey>::<frame>` (a manifest `.json` assetKey) with a bare-name
+	// fallback. Empty frames ⇒ undefined, so `<ParticleEmitter>` falls back to binding the whole
+	// `loadedAssets[key]` sheet (game-bundled spritesheet parity).
+	const isManifestAssetKey = (k: string): boolean => k.includes('/') && k.endsWith('.json');
+	const spriteTextures = $derived.by((): Texture[] | undefined => {
+		if (plan.particleKind === 'spine') return undefined;
+		const frames = props.layer.art.frames;
+		if (!frames || frames.length === 0) return undefined;
+		const loaded = context.stateApp.loadedAssets ?? {};
+		const assetKey = props.layer.art.assetKey;
+		const scoped = isManifestAssetKey(assetKey);
+		const out: Texture[] = [];
+		for (const frame of frames) {
+			const tex = (scoped ? loaded[`${assetKey}::${frame}`] : undefined) ?? loaded[frame];
+			if (tex) out.push(tex as Texture);
+		}
+		return out.length ? out : undefined;
+	});
+	// Weights only when EVERY frame resolved — a missing frame would misalign the parallel weights,
+	// so fall back to a uniform pick (mirrors the /fx preview stage's guard).
+	const spriteWeights = $derived(
+		spriteTextures && spriteTextures.length === (props.layer.art.frames?.length ?? 0)
+			? props.layer.art.weights
+			: undefined,
 	);
 
 	// Live emit flag: ambient layers start emitting; event layers start dormant and the
@@ -136,6 +167,8 @@
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
 				animated={props.layer.art.animated ?? false}
+				textures={spriteTextures}
+				weights={spriteWeights}
 				{spineParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
@@ -147,6 +180,8 @@
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
 				animated={props.layer.art.animated ?? false}
+				textures={spriteTextures}
+				weights={spriteWeights}
 				{spineParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}

@@ -7,6 +7,7 @@
 		type EmitterConfigV1,
 	} from '@barvynkoa/particle-emitter';
 	import { bindArt, behaviorsOf, type BehaviorEntry } from 'engine-fx';
+	import type { Texture } from 'pixi.js';
 
 	import type { LoadedSpriteSheet } from '../types';
 	import {
@@ -36,6 +37,20 @@
 		 * the pooled-`Spine` factory bound to the resolved `loadedAssets` skeleton).
 		 */
 		spineParticle?: Omit<SpineParticleBehaviorConfig, 'layerHost'>;
+		/**
+		 * Explicit per-frame textures for a V3 sprite layer — the layer's `art.frames` already
+		 * resolved (by `EffectLayer`) to the loaded per-frame `Texture`s, in frame order. When
+		 * present these are bound INSTEAD of the whole `loadedAssets[key]` sheet, so an effect that
+		 * selected a SUBSET of an atlas renders exactly those frames. Absent ⇒ the whole-sheet
+		 * fallback (back-compat with a game-bundled spritesheet `key`).
+		 */
+		textures?: Texture[];
+		/**
+		 * Relative per-frame spawn weights (parallel to `textures`) for a static mix — forwarded to
+		 * `bindArt`, which realises them as a repeated-texture multiset. Ignored for the flipbook
+		 * (`animated`) path and when no explicit `textures` are supplied.
+		 */
+		weights?: number[];
 	};
 
 	/**
@@ -72,12 +87,13 @@
 	 */
 	function bindConfig(
 		config: EmitterConfigV3 | EmitterConfigV2 | EmitterConfigV1,
-		textures: LoadedSpriteSheet | undefined,
+		textures: LoadedSpriteSheet | Texture[] | undefined,
 		animated: boolean,
+		weights?: number[],
 	): EmitterConfigV3 {
 		const art = textures ?? [];
 		if (config && 'behaviors' in config) {
-			return bindArt(config as EmitterConfigV3, art, animated);
+			return bindArt(config as EmitterConfigV3, art, animated, weights);
 		}
 		return upgradeConfig(config, art);
 	}
@@ -100,7 +116,10 @@
 	const isSpineParticle = !!props.spineParticle;
 	if (isSpineParticle) registerSpineParticleBehavior();
 
-	const textures = $derived(context.stateApp.loadedAssets?.[props.key] as LoadedSpriteSheet);
+	// A sprite layer binds its authored per-frame `textures` (resolved by `EffectLayer` from
+	// `art.frames`) when supplied; otherwise the whole `loadedAssets[key]` sheet (back-compat).
+	const sheetTextures = $derived(context.stateApp.loadedAssets?.[props.key] as LoadedSpriteSheet);
+	const spriteTextures = $derived(props.textures ?? sheetTextures);
 	const updatedConfig = $derived(
 		props.spineParticle && props.config && 'behaviors' in props.config
 			? bindSpineParticle(props.config as EmitterConfigV3, {
@@ -110,12 +129,16 @@
 					// unit-coverable), so a structural cast bridges the conservative PIXI generic.
 					layerHost: parentContext.parent as unknown as LayerHostLike,
 				})
-			: bindConfig(props.config, textures, props.animated ?? false),
+			: bindConfig(props.config, spriteTextures, props.animated ?? false, props.weights),
 	);
 	// svelte-ignore state_referenced_locally
 	const emitter = new Emitter(parentContext.parent, updatedConfig);
 
-	propsSyncEffect({ props, target: emitter, ignore: ['emit', 'animated', 'spineParticle'] });
+	propsSyncEffect({
+		props,
+		target: emitter,
+		ignore: ['emit', 'animated', 'spineParticle', 'textures', 'weights'],
+	});
 
 	$effect(() => {
 		// `emit` true ⇒ (re)start the emitter from the bound config; false ⇒ stop spawning so

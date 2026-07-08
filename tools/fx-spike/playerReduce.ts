@@ -195,6 +195,25 @@ const anim = (
 assert(anim?.framerate === -1 && anim?.loop === true, 'flipbook matches particle life + loops');
 assert(anim?.textures === tex, 'flipbook carries the live textures');
 
+// A static multi-frame layer's per-frame WEIGHTS (art.weights) flow through the player: EffectLayer
+// resolves art.frames → textures and passes art.weights alongside, and bindArt realises them as a
+// repeated-texture multiset (heavier frame repeats more). The flipbook path ignores weights.
+const wBound = bindArt(cfg, tex, false, [80, 10, 10]);
+const wList =
+	((wBound.behaviors.find((b) => b.type === 'textureRandom')?.config as { textures?: unknown[] })
+		?.textures as unknown[]) ?? [];
+assert(wList.length > tex.length, 'weights expand the textureRandom list into a repeated multiset');
+assert(
+	wList.filter((t) => t === tex[0]).length > wList.filter((t) => t === tex[1]).length,
+	'the heavier-weighted frame repeats more often than a lighter one',
+);
+const wAnim = bindArt(cfg, tex, true, [80, 10, 10]);
+assert(
+	wAnim.behaviors.some((b) => b.type === 'animatedSingle') &&
+		!wAnim.behaviors.some((b) => b.type === 'textureRandom'),
+	'the flipbook (animated) path ignores weights and plays all frames',
+);
+
 const unbound = bindArt(cfg, [], false);
 assert(
 	!unbound.behaviors.some((b) => ['textureRandom', 'animatedSingle'].includes(b.type)),

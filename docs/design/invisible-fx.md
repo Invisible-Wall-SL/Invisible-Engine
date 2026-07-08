@@ -204,6 +204,15 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     repeated-texture multiset (`weightedTextures` — the library's `textureRandom` is uniform). Preview
     honors it; **runtime `<ParticleEmitter>` still binds the whole sheet (ignores `frames` + `weights`)
     — the frame-filtering gap is the tracked follow-up, after which weights ship for free via `bindArt`.**
+  - **Runtime frame + weight filtering LANDED (2026-07-08, "in-game" Phase 0).** Closed the gap above.
+    `EffectLayer.svelte` resolves a sprite layer's `art.frames` → the loaded per-frame `Texture`s
+    (editor-art scoped→bare key precedence `<assetKey>::<frame>` — the SAME resolution `LayoutNodeView`
+    uses; inlined to avoid a `pixi-svelte→engine-layout` dep) and passes `textures` + `weights` to
+    `<ParticleEmitter>`, which forwards `weights` into `bindArt`. No `frames` ⇒ whole-sheet fallback
+    (game-bundled spritesheet parity). This is why the sprite runtime never rendered: an FX atlas
+    ships via editor-art export under namespaced per-frame keys, so `loadedAssets[assetKey]` was
+    `undefined`. `bakedEffects()` was already un-gated (only its comments were stale — fixed). Harness
+    `playerReduce.ts` covers weights-through-`bindArt`; WebGL pixels need owner live-verify.
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

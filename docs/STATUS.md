@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX in-game, Phase 0: runtime honors art.frames + art.weights (foundation)
+- **Goal (plan `ticklish-conjuring-lamport`):** author FX into a shipped game across Scene Editor /
+  Flow / Rigger. The ship chain (export→deploy→bake→pull→`bakedEffects()`→`Effects.svelte` mount) is
+  ALREADY wired; the blocker was the runtime never rendering the authored art correctly.
+- **Fixed the real bug:** the runtime `<ParticleEmitter>` bound the WHOLE sheet (`loadedAssets[key]`)
+  and ignored `art.frames` + `art.weights`. Worse, an FX atlas ships via editor-art export, whose
+  frames register under NAMESPACED per-frame keys `<assetKey>::<frame>` — so `loadedAssets[assetKey]`
+  is `undefined` in-game (why the sprite path was never live-verified). Now `EffectLayer.svelte`
+  resolves each `art.frame` → its loaded `Texture` via the SAME scoped→bare precedence
+  `LayoutNodeView` uses (`<assetKey>::<frame>` then bare; `::` scheme inlined to avoid a
+  `pixi-svelte→engine-layout` dep), and passes the resolved `textures` + `weights` to
+  `<ParticleEmitter>`, which forwards `weights` into the shared `bindArt`. Whole-sheet binding stays
+  the fallback when a layer has no `frames` (game-bundled spritesheet parity).
+- **Also:** corrected stale `bakedEffects()` doc comments in `apps/lines/src/editor-scenes.ts` (they
+  said "Phase-4 / returns []"; the code already ships effects).
+- **Verified:** `tools/fx-spike/playerReduce.ts` extended (weights → repeated multiset; flipbook
+  ignores weights) — all 12 fx harnesses GREEN; `pixi-svelte` type-checks clean (svelte-check: only
+  3 pre-existing unrelated errors). **NEEDS OWNER LIVE-VERIFY:** bake a real project with an ambient
+  sprite effect on a placed atlas, boot the game, confirm the authored frames render at their weights
+  (inspect `loadedAssets` keys) — the WebGL pixels can't be verified headlessly.
+
 ### 2026-07-08 — Invisible Flow v2: Game Signals node (mechanic signals as one source node, Part 1 headless)
 - **What:** ONE new `gameSignals` node surfaces the TEMPLATE's mechanic events (book + lifecycle) as
   exec-out + typed data-out pins, so an author wires presentation off the game's own signals from one
