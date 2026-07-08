@@ -182,8 +182,15 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
   - **Latent schema bug FIXED** — `normalizeEffectDoc` DROPPED any layer whose `art.assetKey` was
     empty, which would have killed EVERY spine-particle layer (a spine layer's particle IS the
     pooled `Spine`, not an atlas region — it legitimately carries empty art) at save→reopen / export.
-    A SPINE layer now keeps an empty `{ assetKey:'', frames:[] }` block; a SPRITE layer still drops
-    (its particle IS its atlas art — parity). Caught by the new harness.
+    A SPINE layer now keeps an empty `{ assetKey:'', frames:[] }` block.
+  - **Save-loses-the-layer bug FIXED (2026-07-08)** — the same drop ALSO killed a SPRITE layer
+    with unbound art: author a new effect, tune the emitter against the placeholder dots (the UI
+    explicitly invites this — "No art bound yet — tune the emitter"), Save, reopen → EMPTY. The
+    save-time canonicalizer was doing the ship-time gate's job. `normalizeEffectDoc` now keeps
+    EVERY layer (sprite too) with an empty `{ assetKey:'', frames:[] }` when art is unbound; empty
+    art is safe at runtime (`bindArt` with 0 textures renders nothing) and the dangling-`assetKey`
+    case is caught LOUDLY at bake (§8), the correct ship gate. Round-trip harness updated to assert
+    the unbound sprite layer survives.
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

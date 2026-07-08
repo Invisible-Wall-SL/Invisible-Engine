@@ -24,6 +24,20 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX: save no longer drops an unbound-art layer (fixes "save → reopen is empty") (SHIPPED)
+- **Symptom:** author an FX with a layer, tune the emitter, Save → reopen the effect and it's EMPTY.
+- **Cause:** `normalizeEffectDoc` (`packages/engine-fx/src/normalize.ts`), which the `/api/fx/save`
+  endpoint runs as its canonicalizer, DROPPED any SPRITE layer with an empty `art.assetKey`. But the
+  `/fx` UI explicitly invites authoring a layer BEFORE binding art ("No art bound yet — the preview
+  shows placeholder dots so you can tune the emitter"), so a WIP layer was silently destroyed at save.
+  The save-time normalizer was doing the ship-time gate's job. (A prior fix had already exempted SPINE
+  layers; this extends the same treatment to sprite layers.)
+- **Fix:** the normalizer now keeps EVERY layer with an empty `{ assetKey:'', frames:[] }` block when
+  art is unbound. Empty art is safe at runtime (`bindArt` with 0 textures renders nothing) and the
+  dangling-`assetKey` case is still caught LOUDLY at bake (§8) — the correct ship gate. Round-trip
+  harness updated (`tools/fx-spike/roundTrip.ts`) to assert the unbound sprite layer survives; all 12
+  fx harnesses + `launcher-api build` GREEN. Design doc `invisible-fx.md` note updated.
+
 ### 2026-07-08 — Launcher: re-authored atlas rendered STALE in the editor + Symbols State Machine (asset cache) (SHIPPED)
 
 Symptom (owner): re-authored `S_Game_reel` in the Atlas Maker with new regions and DEPLOYED it;

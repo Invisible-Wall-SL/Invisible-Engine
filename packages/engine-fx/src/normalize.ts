@@ -92,12 +92,14 @@ const normalizeLayer = (raw: unknown): EmitterLayer | undefined => {
 	if (!isObject(raw.config)) return undefined;
 
 	const particleKind = raw.particleKind === 'spine' ? 'spine' : 'sprite';
-	// A SPRITE layer's particle IS its atlas art, so a missing/empty `art.assetKey` is a broken
-	// layer (drop it). A SPINE layer's particle is a pooled `Spine` (Tier C) — it renders no atlas
-	// art, so it legitimately carries an EMPTY art block; never drop it for a missing assetKey.
-	const art =
-		normalizeArt(raw.art) ?? (particleKind === 'spine' ? { assetKey: '', frames: [] } : undefined);
-	if (!art) return undefined;
+	// A layer with no (or unbound) art is NEVER dropped — it keeps an EMPTY `{ assetKey:'', frames:[] }`
+	// block. The `/fx` editor explicitly supports authoring a layer before binding art ("No art bound
+	// yet — tune the emitter"), so dropping it here would silently destroy the author's work at
+	// save→reopen. Empty art is safe at runtime (`bindArt` with 0 textures just renders nothing) and the
+	// dangling-`assetKey` case is caught LOUDLY at bake (§8), which is the correct ship-time gate — not
+	// this save-time canonicalizer. (A SPINE layer's particle is a pooled `Spine` and legitimately
+	// carries empty art too.)
+	const art = normalizeArt(raw.art) ?? { assetKey: '', frames: [] };
 
 	const layer: EmitterLayer = {
 		key,

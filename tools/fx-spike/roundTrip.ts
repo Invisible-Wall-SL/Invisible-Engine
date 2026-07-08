@@ -167,7 +167,7 @@ const dirty = {
 			_uiHint: 'drop me', // unknown layer field — must vanish
 		},
 		{ label: 'no key — dropped' },
-		{ key: 'noart', config: {}, placement: { space: 'free' }, particleKind: 'sprite' }, // no art → dropped
+		{ key: 'noart', config: {}, placement: { space: 'free' }, particleKind: 'sprite' }, // unbound art → KEPT (empty art block; the editor authors a layer before binding art)
 		{ key: 'badconfig', config: 'not-an-object', art: { assetKey: 'a', frames: [] } }, // bad config → dropped
 		'not even an object',
 	],
@@ -177,8 +177,18 @@ assert(cleaned.version === EFFECT_DOC_VERSION, 'bad version forced to schema ver
 assert(!('camera' in cleaned), 'editor-only camera state dropped');
 assert(!('selectedLayer' in cleaned), 'editor-only selection dropped');
 assert(!('rogue' in cleaned), 'rogue top-level field dropped');
-assert(cleaned.layers.length === 1 && cleaned.layers[0].key === 'ok', 'invalid layers dropped');
+assert(
+	eq(
+		cleaned.layers.map((l) => l.key),
+		['ok', 'noart'],
+	),
+	'malformed layers dropped; an unbound-art sprite layer is KEPT (not destroyed at save)',
+);
 assert(!('_uiHint' in cleaned.layers[0]), 'unknown layer field dropped');
+assert(
+	eq(cleaned.layers[1].art, { assetKey: '', frames: [] }),
+	'unbound sprite layer keeps an empty art block (author binds art later)',
+);
 
 console.log('fx round-trip — absent doc');
 const empty = normalizeEffectDoc(undefined, 'fallback');
