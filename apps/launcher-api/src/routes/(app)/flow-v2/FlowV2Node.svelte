@@ -20,6 +20,7 @@
 	// graph's control shape is legible; pure `compute` and `event` stand apart.
 	const KIND_COLOR: Record<string, string> = {
 		event: '#22c55e', // entry point — green.
+		gameSignals: '#2dd4bf', // mechanic-signal source — teal.
 		action: '#f59e0b', // template effect/command — amber.
 		fireCue: '#a855f7', // broadcast a cue — violet.
 		delay: '#0ea5e9', // latent wait — sky.
@@ -62,6 +63,10 @@
 			case 'showContainer':
 			case 'hideContainer':
 				return n.ref;
+			case 'gameSignals':
+				// Ref-less source node — summarise by the count of surfaced mechanic signals (the
+				// derived exec-out pins), so the header reads without a `ref`.
+				return `${outputs.filter((p) => p.kind === 'exec').length} mechanic signals`;
 			case 'forEach':
 				return `forEach · ${n.mode}`;
 			case 'compute':

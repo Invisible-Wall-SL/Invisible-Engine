@@ -619,3 +619,18 @@ export const flowOwnsContainerEvent = (
 		(e) => e.from.pin === declId && nodesById.get(e.from.node)?.kind === 'showContainer',
 	);
 };
+
+/**
+ * PURE ownership predicate — true iff the FlowDoc wires an exec edge FROM a `gameSignals` node's
+ * exec-out pin named `eventName`. The `gameSignals` node surfaces ALL book+lifecycle events, but
+ * the author only WIRES some; ownership must be gated on the signal being wired, else an UNWIRED
+ * signal would suppress its coded handler and drop the event. The game (Part 2) calls this to
+ * SUPPRESS the coded handler ONLY for wired signals, so the two never double-fire. Mirrors
+ * `flowOwnsContainerEvent`'s shape — no env/ctx needed, a static graph read.
+ */
+export const flowOwnsSignal = (doc: FlowDoc, eventName: string): boolean => {
+	const nodesById = new Map(doc.graph.nodes.map((n) => [n.id, n] as const));
+	return doc.graph.exec.some(
+		(e) => e.from.pin === eventName && nodesById.get(e.from.node)?.kind === 'gameSignals',
+	);
+};

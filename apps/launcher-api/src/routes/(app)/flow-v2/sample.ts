@@ -109,6 +109,10 @@ export const SAMPLE_DOC: FlowDoc = {
 			// (`SAMPLE_CONTAINER_EVENTS['base']`) as exec-out pins (onSpin/onIncrease/…), so the
 			// standalone dev route DEMONSTRATES the fused-pin model without a real project.
 			{ id: 'showBase', kind: 'showContainer', pos: { x: 40, y: 420 }, ref: 'base' },
+			// The single mechanic-signal SOURCE node — surfaces every book+lifecycle event as an
+			// exec-out (§6.2). Wiring ONE pin (`freeSpinTrigger` → showBase) demonstrates the model on
+			// the standalone dev route; unwired signals stay parity-safe no-ops at runtime.
+			{ id: 'signals', kind: 'gameSignals', pos: { x: 40, y: 640 } },
 			{
 				id: 'stagger',
 				kind: 'functionCall',
@@ -138,6 +142,9 @@ export const SAMPLE_DOC: FlowDoc = {
 			{ from: { node: 'onReveal', pin: 'exec' }, to: { node: 'stagger', pin: 'exec' } },
 			{ from: { node: 'stagger', pin: 'exec' }, to: { node: 'setSpecial', pin: 'exec' } },
 			{ from: { node: 'setSpecial', pin: 'exec' }, to: { node: 'revealCue', pin: 'exec' } },
+			// One WIRED mechanic signal: the game's `freeSpinTrigger` book event → show the base
+			// container (the gameSignals node is a source, so the walk continues from `showBase`).
+			{ from: { node: 'signals', pin: 'freeSpinTrigger' }, to: { node: 'showBase', pin: 'exec' } },
 		],
 		data: [],
 	},

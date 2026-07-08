@@ -44,6 +44,11 @@
 	const matches = (label: string): boolean =>
 		!query.trim() || label.toLowerCase().includes(query.trim().toLowerCase());
 
+	// The `gameSignals` node is a SINGLE-SOURCE node — it surfaces every mechanic signal from ONE
+	// node, so two would duplicate every pin. Hide the palette entry once one exists in the active
+	// graph (`doc.graph` here; a function body never carries a gameSignals source).
+	const hasGameSignals = $derived(doc.graph.nodes.some((n) => n.kind === 'gameSignals'));
+
 	// Write the add-node payload onto the drag so the canvas can drop it at the cursor.
 	function onDragStart(event: DragEvent, kind: NodeKind, ref?: string): void {
 		if (!event.dataTransfer) return;
@@ -72,6 +77,21 @@
 			</button>
 		{/each}
 	</section>
+
+	{#if !hasGameSignals && matches('Game Signals')}
+		<section>
+			<h4>Sources</h4>
+			<button
+				class="entry signals"
+				draggable={true}
+				ondragstart={(ev) => onDragStart(ev, 'gameSignals')}
+				onclick={() => onadd('gameSignals')}
+				title="gameSignals · the single mechanic-signal source (one exec-out per book+lifecycle event)"
+			>
+				Game Signals
+			</button>
+		</section>
+	{/if}
 
 	<section>
 		<h4>Actions</h4>
@@ -296,6 +316,9 @@
 	/* Left accent per section, mirroring the node header hues. */
 	.entry.event {
 		border-left: 3px solid #22c55e;
+	}
+	.entry.signals {
+		border-left: 3px solid #2dd4bf;
 	}
 	.entry.action {
 		border-left: 3px solid #f59e0b;

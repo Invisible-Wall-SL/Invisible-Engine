@@ -254,6 +254,8 @@
 				return 'Entry';
 			case 'functionResult':
 				return 'Result';
+			case 'gameSignals':
+				return 'Game Signals';
 			default:
 				return n.kind;
 		}

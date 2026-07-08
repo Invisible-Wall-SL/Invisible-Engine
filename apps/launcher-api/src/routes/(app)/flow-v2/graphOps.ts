@@ -165,6 +165,10 @@ export const makeNode = (
 		case 'showContainer':
 		case 'hideContainer':
 			return { id, kind, pos, ref: ref ?? '' } as V2Node;
+		case 'gameSignals':
+			// The single mechanic-signal SOURCE node — ref-less, no fields; its pins are DERIVED from
+			// the vocabulary (one exec-out per non-intent event). Shaped like `delay` (just id/kind/pos).
+			return { id, kind, pos };
 		case 'delay':
 			return { id, kind, pos };
 		case 'branch':

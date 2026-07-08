@@ -31,6 +31,7 @@ import {
 	createContainerMountModel,
 	createFlowV2Env,
 	flowOwnsContainerEvent,
+	flowOwnsSignal,
 	runFlowContainerEvent,
 	runFlowEvent,
 	templateVocabulary,
@@ -228,7 +229,12 @@ export const createLinesFlowV2 = (
 	);
 
 	return {
-		ownsEvent: (eventType) => ownedEvents.has(eventType),
+		// An event is owned by v2 if a dedicated `event` node authors it OR a WIRED `gameSignals` pin
+		// drives it. Ownership on the gameSignals side MUST be gated on the signal being wired: the node
+		// surfaces every book+lifecycle event, but only wired ones are owned — an UNWIRED signal stays
+		// un-owned so its coded handler still runs (parity). `dispatch` (`runFlowEvent`) then walks the
+		// gameSignals pin (Part 1), so a wired mechanic signal drives v2 with its coded twin suppressed.
+		ownsEvent: (eventType) => ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType),
 		dispatch: (eventName, payload, context) => runFlowEvent(doc, ctx, eventName, payload, context),
 		mount,
 		resolveScene,

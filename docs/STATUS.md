@@ -45,6 +45,23 @@ submodule bumps).
   sprite effect on a placed atlas, boot the game, confirm the authored frames render at their weights
   (inspect `loadedAssets` keys) — the WebGL pixels can't be verified headlessly.
 
+### 2026-07-08 — Invisible Flow v2: Game Signals node — /flow-v2 palette + game ownership (Part 2, SHIPPED)
+- **UI (`/flow-v2`):** a new "Sources" section in the add-node palette drops a `gameSignals` node
+  (ref-less, mirrors the `delay`/`branch` factory path via `graphOps.makeNode`); the entry hides once
+  one exists (single-source node). `FlowV2Node` gained a teal `KIND_COLOR` + a `"<n> mechanic signals"`
+  ref-line; `+page.svelte` titles it "Game Signals"; `sample.ts` wires one signal
+  (`freeSpinTrigger` → `showBase`) so the dev route demonstrates it.
+- **Game ownership (`apps/lines`):** `engine-flow-v2` gained the pure predicate
+  `flowOwnsSignal(doc, eventName)` — true iff an exec edge is WIRED from a `gameSignals` node's pin
+  named `eventName`. `ownsEvent` is now `ownedEvents.has(t) || flowOwnsSignal(doc, t)`. Ownership is
+  gated on the signal being **wired** (not merely surfaced), so a wired mechanic signal drives v2 (its
+  coded twin suppressed via the existing gate) while every unwired signal falls through to the coded
+  path (parity). `dispatch` unchanged — `runFlowEvent` already walks the gameSignals pin (Part 1).
+- **Verified:** `launcher-api build` + `lines build` clean; `v2gamesignals`/`v2containerfire`/
+  `v2runtime` PASS; `engine-flow-v2` typecheck exit 0.
+- **Next:** LIVE in-browser verify of the whole arc (wire a HUD button pin + a Game Signals pin in the
+  Borut remake, confirm each fires once through v2, no double); the def-default `action` projection gap.
+
 ### 2026-07-08 — Invisible Flow v2: Game Signals node (mechanic signals as one source node, Part 1 headless)
 - **What:** ONE new `gameSignals` node surfaces the TEMPLATE's mechanic events (book + lifecycle) as
   exec-out + typed data-out pins, so an author wires presentation off the game's own signals from one
