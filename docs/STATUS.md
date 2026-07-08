@@ -24,6 +24,25 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Sheet Maker: fix duplicate FX-child names + stale glow/shine from atlas round-trip (SHIPPED)
+
+Symptom (owner): after bouncing a sheet between the Atlas Maker and Sheet Maker, some regions
+showed the WRONG `_glow`/`_shine` art and the sheet could no longer be saved ("Duplicate region
+names"). Root cause: FX children (`<base>_glow`/`_shine`) are slaved COPIES of the base. A
+round-trip could leave TWO regions bound as the same `(base, mode)` slot (e.g. a `.png` and a
+`.webp` copy sharing a stem); at export both were renamed to `<base>_glow` → server duplicate-name
+rejection. The stale image is the same root cause — FX cells are frozen base copies, only refreshed
+when the FX is re-synced. Fixed in `services/sheet-tool` (commit `d13a7c7`, Railway auto-deploy):
+- `ui.html relinkFx()` — enforce exactly one child per `(base, mode)` via a two-pass claim map
+  (honour live links first, then derive from names/src); a second claimant is DEMOTED to a plain
+  region (kept + deletable), not dropped.
+- `ui.html syncFxChildren()` — collapse duplicate live children for the same mode.
+- `sheet_server.py api_export()` — duplicate-names error now names the offending `src` files and
+  points at the stray-FX-cell cause.
+Verified the real `relinkFx` against `.png`/`.webp` round-trip + restored-session + hand-named
+cases (all pass); `code-reviewer` cleared it (no blocking findings). User recovery for an
+already-broken sheet: delete the base's `_glow`/`_shine` cells, re-tick the FX, export.
+
 ### 2026-07-08 — Invisible Flow v2: the CUTOVER track (Phase A parity + Phase B translator + game-side dispatch)
 
 The decision moved from "keep v1 alongside" to **v2 is THE flow for every game, v1 retires** (owner:
