@@ -105,6 +105,10 @@ export const SAMPLE_DOC: FlowDoc = {
 	graph: {
 		nodes: [
 			{ id: 'onReveal', kind: 'event', pos: { x: 40, y: 160 }, ref: 'reveal' },
+			// The base container's Show node — fuses its scene's configured component events
+			// (`SAMPLE_CONTAINER_EVENTS['base']`) as exec-out pins (onSpin/onIncrease/…), so the
+			// standalone dev route DEMONSTRATES the fused-pin model without a real project.
+			{ id: 'showBase', kind: 'showContainer', pos: { x: 40, y: 420 }, ref: 'base' },
 			{
 				id: 'stagger',
 				kind: 'functionCall',
