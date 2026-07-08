@@ -1347,26 +1347,27 @@
 			boot (which always exists in apps/lines via the synthesized loading leg) gates on the
 			active set. -->
 	{#if !isFlowDriven || isBasegameActive}
-		<!-- The basegame's authored below-/above-reel SCENES are suppressed under a v2 flow —
-				 `<FlowV2Mount>` renders the basegame container scene instead (else it would double). The
-				 reel board below is ENGINE-owned and always renders here. -->
-		{#if !flowV2DrivesScreens}
-			{#if basegameMountBelowReel && entranceById[basegameScreenId]}
-				<!-- Flow-authored basegame with an ENTRANCE transition (design doc §6): fade the
-						 below-reel slice in via <FlowScreenMount> (mount-hidden, no flash). The board +
-						 above-reel slice below are engine-owned / render as normal. -->
-				<FlowScreenMount
-					scene={basegameMountBelowReel}
-					transition={entranceById[basegameScreenId]}
-					timeScale={stateBetDerived.timeScale}
-				/>
-			{:else}
-				<FlowMount scene={basegameMountBelowReel}>
-					{#snippet fallback()}
-						<LayoutScene scene={basegameBelowReel} />
-					{/snippet}
-				</FlowMount>
-			{/if}
+		<!-- The base game INTERLEAVES with the engine-owned reels via the reelGrid split: the authored
+				 below-reel layers (e.g. the board background) render BEHIND the board, the above-reel layers
+				 in front. This runs under v1 AND v2 — a v2 flow shows the `basegame` CONTAINER, but
+				 `<FlowV2Mount>` SKIPS basegame (below), so THIS split is the sole basegame renderer and the
+				 reel z-order is preserved (rendering the whole scene as one block put the background above
+				 the reels). -->
+		{#if basegameMountBelowReel && entranceById[basegameScreenId]}
+			<!-- Flow-authored basegame with an ENTRANCE transition (design doc §6): fade the
+					 below-reel slice in via <FlowScreenMount> (mount-hidden, no flash). The board +
+					 above-reel slice below are engine-owned / render as normal. -->
+			<FlowScreenMount
+				scene={basegameMountBelowReel}
+				transition={entranceById[basegameScreenId]}
+				timeScale={stateBetDerived.timeScale}
+			/>
+		{:else}
+			<FlowMount scene={basegameMountBelowReel}>
+				{#snippet fallback()}
+					<LayoutScene scene={basegameBelowReel} />
+				{/snippet}
+			</FlowMount>
 		{/if}
 
 		<MainContainer>
@@ -1375,14 +1376,12 @@
 			<Anticipations />
 		</MainContainer>
 
-		{#if !flowV2DrivesScreens}
-			{#if basegameMount}
-				{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
-					<LayoutScene scene={basegameMountAboveReel} />
-				{/if}
-			{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-				<LayoutScene scene={basegameAboveReel} />
+		{#if basegameMount}
+			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+				<LayoutScene scene={basegameMountAboveReel} />
 			{/if}
+		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
+			<LayoutScene scene={basegameAboveReel} />
 		{/if}
 	{/if}
 
@@ -1620,7 +1619,13 @@
 		hard-cuts v1 and this becomes the sole scene mounter.
 	-->
 	{#if flowV2ResolveScene}
-		<FlowV2Mount containers={flowV2Containers} resolveScene={flowV2ResolveScene} />
+		<!-- SKIP the `basegame` container: it interleaves with the engine reels via the reelGrid split
+				 (rendered above), so mounting it here as one block would put the board background above the
+				 reels + double it. Every other container (loading / HUDs / overlays) mounts normally. -->
+		<FlowV2Mount
+			containers={flowV2Containers.filter((c) => c.id !== basegameScreenId)}
+			resolveScene={flowV2ResolveScene}
+		/>
 	{/if}
 
 	<DebugStage />
