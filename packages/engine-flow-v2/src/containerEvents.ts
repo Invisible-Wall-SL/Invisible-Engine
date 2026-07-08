@@ -28,6 +28,20 @@ export interface ConfiguredComponentEvent {
 const capitalize = (s: string): string => (s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1));
 
 /**
+ * The fused exec-out pin's LABEL — the `on<Event>` tail (stable regardless of which component owns it).
+ * The SINGLE source of the label format, shared by the deriver (surfacing the pin) and the runtime
+ * (firing it) so the two can never drift.
+ */
+export const containerEventPinLabel = (event: string): string => `on${capitalize(event)}`;
+
+/**
+ * The fused exec-out pin's DECL ID — fully-qualified (`<componentId>.on<Event>`) so it is unique on the
+ * `showContainer` node. The SINGLE source of the id format, shared by the deriver + the runtime.
+ */
+export const containerEventDeclId = (componentId: string, event: string): string =>
+	`${componentId}.${containerEventPinLabel(event)}`;
+
+/**
  * Turn a container's configured components into its aggregated `ContainerEventDecl[]`. Components with
  * no configured `event` are excluded (never auto-dumped); a configured one becomes
  * `{ id: '<componentId>.on<Event>', componentId, event, label: 'on<Event>', payload }`.
@@ -39,13 +53,10 @@ export const deriveContainerEvents = (
 ): ContainerEventDecl[] =>
 	components
 		.filter((c): c is ConfiguredComponentEvent & { event: string } => !!c.event)
-		.map((c) => {
-			const label = `on${capitalize(c.event)}`;
-			return {
-				id: `${c.componentId}.${label}`,
-				componentId: c.componentId,
-				event: c.event,
-				label,
-				payload: c.payload,
-			};
-		});
+		.map((c) => ({
+			id: containerEventDeclId(c.componentId, c.event),
+			componentId: c.componentId,
+			event: c.event,
+			label: containerEventPinLabel(c.event),
+			payload: c.payload,
+		}));

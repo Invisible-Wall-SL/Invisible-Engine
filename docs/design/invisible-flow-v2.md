@@ -155,8 +155,10 @@ reused.
    removed, so there is exactly one mechanism. See §3 (global vs container-scoped events) and §4.
    Consequence: the base game container carries all the game's interactive functionality as pins on
    one node, and the flow decides *when* each fires. Authoring (render + wire + save + validate) is
-   implemented; runtime FIRING of these pins (the game emitting the container's component events) is a
-   later phase.
+   implemented; runtime FIRING of these pins now exists too (2026-07-08, engine only): a container
+   component event fires via `runFlowContainerEvent` (entry from the `showContainer` exec-out pin — the
+   show node is NOT re-run), with `flowOwnsContainerEvent` the game uses to suppress the coded press.
+   See schema §10.4. Game wiring (the game calling these) is the remaining follow-up.
 
 ## 9. Phased build (strawman — not started)
 

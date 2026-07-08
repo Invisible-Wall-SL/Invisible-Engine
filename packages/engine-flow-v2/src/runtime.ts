@@ -20,6 +20,7 @@
  * partially-authored flow degrades gracefully rather than crashing a live round.
  */
 
+import { containerEventDeclId } from './containerEvents';
 import type {
 	Accessor,
 	BranchNode,
@@ -122,6 +123,30 @@ class FlowInterpreter {
 		const entry = this.doc.graph.nodes.find((n) => n.kind === 'event' && n.ref === eventName);
 		if (!entry) return; // no authored handler for this event → parity-safe no-op.
 		await this.execFrom(this.doc.graph, entry.id, 'exec', { trigger: payload, context });
+	}
+
+	/**
+	 * Fire a container's component event (the FUSED exec-out pin on a `showContainer` node). The
+	 * pin's decl id is `<componentId>.on<Event>`; find the authored exec edge FROM that pin on a
+	 * `showContainer` node and walk from the edge's TARGET — the show node is NOT re-run (re-running
+	 * it would re-mount the container). No wired edge → parity-safe no-op (the coded press runs).
+	 */
+	async runContainerEvent(
+		componentId: string,
+		event: string,
+		payload: Record<string, unknown>,
+		context: Record<string, unknown>,
+	): Promise<void> {
+		const declId = containerEventDeclId(componentId, event);
+		const edge = this.doc.graph.exec.find(
+			(e) =>
+				e.from.pin === declId && this.nodesById.get(e.from.node)?.kind === 'showContainer',
+		);
+		if (!edge) return; // no authored handler for this container-event pin → parity-safe no-op.
+		await this.execFrom(this.doc.graph, edge.to.node, edge.to.pin, {
+			trigger: payload,
+			context,
+		});
 	}
 
 	// -------------------------------------------------------------------------
@@ -526,4 +551,39 @@ export const runFlowEvent = async (
 ): Promise<void> => {
 	const interpreter = new FlowInterpreter(doc, ctx);
 	await interpreter.runEvent(eventName, payload, context);
+};
+
+/**
+ * Run the authored handler for a container's component event (`<componentId>` firing `<event>`).
+ * Entry is the FUSED exec-out pin on a `showContainer` node — the interpreter walks FROM the pin's
+ * wired target, without re-running the show node. If no exec edge is wired from that pin, it is a
+ * no-op (parity-safe: an un-authored press falls through to the coded handler). Mirrors `runFlowEvent`.
+ */
+export const runFlowContainerEvent = async (
+	doc: FlowDoc,
+	ctx: RunContext,
+	componentId: string,
+	event: string,
+	payload: Record<string, unknown> = {},
+	context: Record<string, unknown> = {},
+): Promise<void> => {
+	const interpreter = new FlowInterpreter(doc, ctx);
+	await interpreter.runContainerEvent(componentId, event, payload, context);
+};
+
+/**
+ * PURE ownership predicate — true iff the FlowDoc wires an exec edge FROM a `showContainer` node's
+ * fused pin for `<componentId>.on<Event>`. The game (Part 2) calls this to SUPPRESS the coded press
+ * when the flow owns it, so the two never double-fire. No env/ctx needed — a static graph read.
+ */
+export const flowOwnsContainerEvent = (
+	doc: FlowDoc,
+	componentId: string,
+	event: string,
+): boolean => {
+	const declId = containerEventDeclId(componentId, event);
+	const nodesById = new Map(doc.graph.nodes.map((n) => [n.id, n] as const));
+	return doc.graph.exec.some(
+		(e) => e.from.pin === declId && nodesById.get(e.from.node)?.kind === 'showContainer',
+	);
 };

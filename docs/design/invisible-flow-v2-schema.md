@@ -403,3 +403,27 @@ StaggerStop(reels, step=120) → fireCue specialBookReveal`, where `StaggerStop`
 (function recursion + forEach + compute-driven dynamic delays + trailing cue). Extra asserts cover a
 `branch` (guard picks `then`/`else`, driving `show`/`hideContainer` at the container's `z`) and a
 `parallel` forEach (all iterations fire). **NO game integration yet** — that is Phase 4b.
+
+### 10.4 Firing a container-event pin (`runFlowContainerEvent`)
+
+A container's configured component events surface as FUSED exec-out pins on the `showContainer` node
+(§6.1), keyed `containerEventDeclId(componentId, event)` = `<componentId>.on<Event>` (the SINGLE
+id/label format, shared by the deriver and the runtime via `containerEvents.ts` so they can never
+drift). Those pins are the entry point for a component press (a button's `onSpin`) — a second runtime
+entry alongside `runFlowEvent`:
+
+```ts
+runFlowContainerEvent(doc, ctx, componentId, event, payload?, context?): Promise<void>
+flowOwnsContainerEvent(doc, componentId, event): boolean   // pure static graph read — no ctx/env
+```
+
+- **Entry (critical):** find the authored exec edge whose `from.pin === containerEventDeclId(...)` and
+  whose `from.node` is a `showContainer` node, then walk from the edge's **target** — the `showContainer`
+  node is **NOT re-run** (re-running it would re-mount the container). No wired edge → **no-op**
+  (parity-safe: the coded press runs).
+- **Ownership:** `flowOwnsContainerEvent` returns true iff such an exec edge exists. The game (Part 2)
+  calls it to SUPPRESS the coded press when the flow owns the pin, so the two never double-fire.
+- **Verified headlessly:** `tools/flow-spike/flowV2ContainerFire.ts` (`pnpm --filter flow-spike
+  v2containerfire`) — a `showContainer(base)` whose `spinButton.onSpin` wires `startSpin → fireCue
+  boardShow`: firing records `effect startSpin, broadcast boardShow` and NO `show base`; an unwired
+  press records nothing; the ownership predicate is true for the wired pin, false otherwise.

@@ -33,6 +33,7 @@
 		"v2mount": "tsx flowV2Mount.ts",
 		"v2vocab": "tsx flowV2Vocab.ts",
 		"v2containerevents": "tsx flowV2ContainerEvents.ts",
+		"v2containerfire": "tsx flowV2ContainerFire.ts",
 		"v2preview": "tsx flowV2Preview.ts",
 		"v2lifecycle": "tsx flowV2Lifecycle.ts",
 		"v2translate": "tsx flowV2Translate.ts",
