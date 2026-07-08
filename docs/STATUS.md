@@ -24,6 +24,31 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX in-game, Phase 1: place effects in the Scene Editor (`effect` node)
+- **Goal (plan `ticklish-conjuring-lamport`, tool-by-tool after Phase 0):** place an authored FX
+  effect in a scene like an image/spine. New `effect` LayoutNode kind, end-to-end.
+- **Engine (`packages/engine-layout`):** `EffectNode { kind:'effect'; effectId }` on the `LayoutNode`
+  union (types.ts); new `registerEffects()`/`resolveEffect()` registry (mirrors `registerComponents`;
+  `EffectDoc` type derived from `pixi-svelte`'s `EffectPlayerProps` to avoid an `engine-fx` dep);
+  `LayoutNodeView` mounts `<EffectPlayer>` for the resolved doc inside the node's transform
+  `<Container>` (dangling/un-baked id ⇒ nothing renders, fail-safe).
+- **Game (`apps/lines`):** `Game.svelte` boot calls `registerEffects(bakedEffects())`;
+  `editor-scenes.ts` adds `placedEffectIds()` (walks baked scenes); `components/Effects.svelte` skips
+  placed ids when auto-mounting free effects so a placed effect never double-mounts (bone + unplaced
+  free effects still auto-mount).
+- **Launcher editor UI:** `'effect'` added to `NODE_KINDS` (editorStorage — the whitelist gotcha);
+  new `GET /api/editor/effects` (lists `fxStorage.listEffects()`); `EditorAssetLibrary` "Effects"
+  palette section (drag `{kind:'effect',key:id,name}`); `EditorCanvas.spawnNode` `effect` case + a
+  labelled placeholder chip (WebGL emitters can't run in the editor — same as spine/reelGrid);
+  `EditorProperties` effect-picker.
+- **v1 constraint:** scene-placed effects are FREE-layer (a `bone` layer has no host `<SpineProvider>`
+  in a scene → origin+offset fallback; bone effects stay on the host-rig path, timed in the Rigger in
+  Phase 3). **Effect ART still ships only if its atlas is also placed/used in the layout** (existing
+  loud dangling-`assetKey` bake guard) — auto-shipping a placed effect's atlas is a tracked follow-up.
+- **Verified:** `pixi-svelte`, `engine-layout`, `apps/lines`, `launcher-api` all build/type-check
+  clean. **NEEDS OWNER LIVE-VERIFY:** place an effect + its atlas, bake, boot — confirm it renders at
+  the placed transform.
+
 ### 2026-07-08 — Invisible FX in-game, Phase 0: runtime honors art.frames + art.weights (foundation)
 - **Goal (plan `ticklish-conjuring-lamport`):** author FX into a shipped game across Scene Editor /
   Flow / Rigger. The ship chain (export→deploy→bake→pull→`bakedEffects()`→`Effects.svelte` mount) is
@@ -44,6 +69,25 @@ submodule bumps).
   3 pre-existing unrelated errors). **NEEDS OWNER LIVE-VERIFY:** bake a real project with an ambient
   sprite effect on a placed atlas, boot the game, confirm the authored frames render at their weights
   (inspect `loadedAssets` keys) — the WebGL pixels can't be verified headlessly.
+
+### 2026-07-08 — Invisible Flow v2: intent-command actions for every standard HUD button (SHIPPED)
+- **Why:** with the fused HUD button pins (onIncrease/onDecrease/onTurbo/onGameRules/onSettings/
+  onSoundToggle/onAutoSpin), the palette only offered `startSpin` — the other buttons had no flow
+  action to wire to. (Behaviors already existed in the game; they just weren't reachable through the
+  intent bridge.)
+- **What:** added seven `category:'command'` actions to `BOOK_OF_VOCAB` (`increaseBet`, `decreaseBet`,
+  `toggleTurbo`, `openGameRules`, `openSettings`, `toggleSound`, `autoSpin`); mapped each in
+  `INTENT_COMMANDS` (apps/lines `flowV2Runtime`) to its game intent; extended `invokeHostIntent`
+  (Game.svelte) with the four intents it lacked (`gameRules`/`settings`/`soundToggle`/`autoSpin`),
+  routing to extracted `do*` helpers (`doOpenGameRules`/`doOpenSettings`/`doToggleSound`/`doAutoSpin`)
+  that the button onpress bodies now also call (DRY, byte-identical coded press). `assertVocabBacked`
+  clean (every action backed via INTENT_COMMANDS). `lines build` + `engine-flow-v2` typecheck + v2vocab/
+  v2* spikes green.
+- **Model reminder:** a pin is flow-owned ONLY when wired; unwired HUD buttons keep their coded
+  behavior (parity). Wire `onIncrease → increaseBet` to route the press through the flow.
+- **Known follow-up:** a flow-OWNED button press skips its `onpress`, so the press SOUND
+  (`soundPressBet`/`soundPressGeneral`) is currently lost for wired buttons — `firePress` should replay
+  the press sound (or the container-event dispatch should) before routing. Not yet fixed.
 
 ### 2026-07-08 — Invisible Flow v2: Game Signals node — /flow-v2 palette + game ownership (Part 2, SHIPPED)
 - **UI (`/flow-v2`):** a new "Sources" section in the add-node palette drops a `gameSignals` node
