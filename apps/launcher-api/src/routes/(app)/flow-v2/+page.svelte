@@ -8,6 +8,7 @@
 		validateFlowDoc,
 		validateFunctionDef,
 		assignable,
+		type FlowComment,
 		type FlowDoc,
 		type FunctionDef,
 		type FunctionLibraryDoc,
@@ -30,6 +31,7 @@
 		moveNodeIn,
 	} from './graphOps';
 	import FlowV2Node from './FlowV2Node.svelte';
+	import CommentNode from './CommentNode.svelte';
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
@@ -148,8 +150,47 @@
 		applyGraphEdit(next.graph);
 	}
 
-	// The node types the canvas knows — one generic v2 node that derives its own pins.
-	const nodeTypes = { v2: FlowV2Node };
+	// The node types the canvas knows — the generic v2 node (derives its own pins) + the editor-only
+	// comment/group box (a `FlowComment`, drawn behind the graph; the runtime ignores it).
+	const nodeTypes = { v2: FlowV2Node, comment: CommentNode };
+
+	// --- Comment / group boxes (editor-only annotations on `doc.comments`) -------
+	// Mutating a comment re-seeds the canvas and arms the SAME autosave as a graph edit, so the boxes
+	// persist in `editor/flow-v2.json` (which the runtime carries but never reads). Flow view only —
+	// function bodies have no comments.
+	function updateComment(id: string, patch: Partial<FlowComment>): void {
+		doc = {
+			...doc,
+			comments: (doc.comments ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c)),
+		};
+		syncCanvas();
+		markDirty();
+	}
+
+	function addComment(): void {
+		const n = (doc.comments ?? []).length;
+		// Place near the graph centroid, staggered so successive adds don't stack exactly.
+		const base = placementPos();
+		const c: FlowComment = {
+			id: `comment_${Date.now().toString(36)}_${n}`,
+			label: '',
+			x: base.x - 40,
+			y: base.y - 60,
+			width: 360,
+			height: 220,
+		};
+		doc = { ...doc, comments: [...(doc.comments ?? []), c] };
+		syncCanvas();
+		markDirty();
+	}
+
+	function deleteComments(ids: string[]): void {
+		if (!ids.length) return;
+		const drop = new Set(ids);
+		doc = { ...doc, comments: (doc.comments ?? []).filter((c) => !drop.has(c.id)) };
+		syncCanvas();
+		markDirty();
+	}
 
 	// A human title for a node (its ref, else its kind) shown in the node header.
 	const nodeTitle = (n: V2Node): string => {
@@ -203,14 +244,35 @@
 		n.kind === 'functionEntry' || n.kind === 'functionResult';
 
 	function buildNodes(): Node[] {
-		return activeGraph.nodes.map((n) => ({
+		const graphNodes: Node[] = activeGraph.nodes.map((n) => ({
 			id: n.id,
 			type: 'v2',
 			position: n.pos,
 			selected: n.id === selectedNodeId,
 			deletable: !isSignatureNode(n),
+			zIndex: 1,
 			data: { node: n, ctx, title: nodeTitle(n) },
 		}));
+		// Comment/group boxes render BEHIND the graph (zIndex 0, listed first). Flow view only —
+		// function bodies carry no comments. `width`/`height` come from the stored box; NodeResizer
+		// mutates them and persists on resize-end via `updateComment`.
+		const commentNodes: Node[] =
+			view.kind === 'flow'
+				? (doc.comments ?? []).map((c) => ({
+						id: c.id,
+						type: 'comment',
+						position: { x: c.x, y: c.y },
+						width: c.width,
+						height: c.height,
+						zIndex: 0,
+						deletable: true,
+						data: {
+							comment: c,
+							onchange: (patch: Partial<FlowComment>) => updateComment(c.id, patch),
+						},
+					}))
+				: [];
+		return [...commentNodes, ...graphNodes];
 	}
 
 	// Exec wires: white, thicker control edges with an arrowhead. Data wires: thin, colored
@@ -486,8 +548,12 @@
 	// `deletable: false`), so xyflow never includes them here.
 	function onGraphDelete({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }): void {
 		if (!dn?.length && !de?.length) return;
-		const nodeIds = dn.map((n) => n.id);
+		// Comment boxes delete off `doc.comments`; graph nodes/edges through the graph path.
+		const commentIds = dn.filter((n) => n.type === 'comment').map((n) => n.id);
+		if (commentIds.length) deleteComments(commentIds);
+		const nodeIds = dn.filter((n) => n.type !== 'comment').map((n) => n.id);
 		const edgeIds = de.map((e) => e.id);
+		if (!nodeIds.length && !edgeIds.length) return;
 		if (selectedNodeId && nodeIds.includes(selectedNodeId)) selectedNodeId = null;
 		applyGraphEdit(deleteFromGraphIn(activeGraph, nodeIds, edgeIds));
 	}
@@ -499,15 +565,58 @@
 	// skipped here and persist through their own path.)
 	function onNodeDragStop(): void {
 		let g = activeGraph;
-		let changed = false;
+		let graphChanged = false;
+		const shifted = new Set<string>(); // graph nodes a comment box just carried — don't re-persist below
+		let comments = doc.comments ?? [];
+		let commentsChanged = false;
+
+		// 1. Comment boxes (flow view): a moved box carries the graph nodes inside its OLD rect by the
+		//    same delta (Unreal-style grouping). Compute each box's delta from its stored position.
+		if (view.kind === 'flow') {
+			for (const fn of nodes) {
+				if (fn.type !== 'comment') continue;
+				const c = comments.find((x) => x.id === fn.id);
+				if (!c) continue;
+				const dx = Math.round(fn.position.x) - c.x;
+				const dy = Math.round(fn.position.y) - c.y;
+				if (dx === 0 && dy === 0) continue;
+				for (const gn of g.nodes) {
+					const inside =
+						gn.pos.x >= c.x &&
+						gn.pos.x <= c.x + c.width &&
+						gn.pos.y >= c.y &&
+						gn.pos.y <= c.y + c.height;
+					if (!inside) continue;
+					g = moveNodeIn(g, gn.id, { x: gn.pos.x + dx, y: gn.pos.y + dy });
+					shifted.add(gn.id);
+					graphChanged = true;
+				}
+				comments = comments.map((x) =>
+					x.id === c.id ? { ...x, x: Math.round(fn.position.x), y: Math.round(fn.position.y) } : x,
+				);
+				commentsChanged = true;
+			}
+		}
+
+		// 2. Graph nodes the user dragged directly (single / marquee). Skip any a box just carried —
+		//    their canvas position is stale (they weren't the dragged node), so persisting it reverts them.
 		for (const fn of nodes) {
+			if (fn.type === 'comment' || shifted.has(fn.id)) continue;
 			const dn = g.nodes.find((n) => n.id === fn.id);
 			if (dn && (dn.pos.x !== fn.position.x || dn.pos.y !== fn.position.y)) {
 				g = moveNodeIn(g, fn.id, fn.position);
-				changed = true;
+				graphChanged = true;
 			}
 		}
-		if (changed) applyGraphEdit(g);
+
+		if (view.kind === 'function') {
+			if (graphChanged) applyGraphEdit(g);
+			return;
+		}
+		if (!graphChanged && !commentsChanged) return;
+		doc = { ...doc, graph: g, comments };
+		syncCanvas();
+		markDirty();
 	}
 
 	// Add a node at an explicit doc-space position — the PRIMARY path: the palette entry is
@@ -710,6 +819,14 @@
 			<span class="key data">● data</span>
 		</span>
 		{#if view.kind === 'flow'}
+			<button
+				class="collapse-btn"
+				type="button"
+				onclick={addComment}
+				title="Add a labelled comment box to group + annotate part of the flow"
+			>
+				＋ Comment
+			</button>
 			<button
 				class="collapse-btn"
 				type="button"

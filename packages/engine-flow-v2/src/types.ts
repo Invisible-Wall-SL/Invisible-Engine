@@ -381,9 +381,29 @@ export interface TemplateVocabulary {
 // §0 — the FlowDoc itself.
 // ---------------------------------------------------------------------------
 
+/**
+ * An EDITOR-ONLY annotation (§0): a labeled, resizable box drawn BEHIND the nodes to visually group
+ * and comment a region of the graph (Unreal-Blueprint's "comment" boxes). Purely cosmetic — it has
+ * no pins and no runtime meaning, so `runFlowEvent` and `validateFlowDoc` IGNORE it. Persisted on the
+ * doc so the layout survives a reload; the game harmlessly carries (and never reads) it.
+ */
+export interface FlowComment {
+	id: string;
+	label: string;
+	/** Top-left + size in the SAME doc-space coordinates as node positions. */
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	/** Accent colour (header tint + border). The editor applies a default when absent. */
+	color?: string;
+}
+
 export interface FlowDoc {
 	version: 2;
 	templateId: string; // which TemplateVocabulary this flow targets.
 	graph: Graph; // the event graph.
 	containers: ContainerRef[]; // the containers this flow shows/hides, each with a z-order.
+	/** Editor-only labelled group boxes (see {@link FlowComment}). Ignored by runtime + validation. */
+	comments?: FlowComment[];
 }
