@@ -288,6 +288,10 @@
 						id: c.id,
 						type: 'comment',
 						position: { x: c.x, y: c.y },
+						// Track selection like the graph nodes — `onNodeClick` rebuilds the whole array via
+						// buildNodes, so WITHOUT this a click rebuilds the box DESELECTED (the "can't select the
+						// box" bug that only surfaces in the full page, not an isolated probe).
+						selected: c.id === selectedNodeId,
 						// Size via `style` ONLY. Setting BOTH `width`/`height` AND `style` fights xyflow's
 						// controlled-dimensions logic and spins an infinite measure loop that FREEZES the whole
 						// canvas (nothing grabbable) — the bug behind "can't select/drag the box". Verified in a
