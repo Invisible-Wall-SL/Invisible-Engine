@@ -667,6 +667,11 @@
 	// boot (`__IE_FLOW_V2_DOC__` unset) ⇒ v2 inert, the v1/coded path above is untouched (parity).
 	let flowV2ResolveScene = $state<((sceneId: string) => Scene | undefined) | undefined>(undefined);
 	let flowV2Containers = $state<MountedContainerRef[]>([]);
+	// Whether a v2 flow drives the game — when true `<FlowV2Mount>` is the SOLE scene renderer, so the
+	// v1 interpreter is NOT built (`flow` is undefined) and the coded AUTHORED-scene mounts below
+	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead
+	// gate on `isFlowDriven` (v1 OR v2) so they still hide during loading and reveal on the game screen.
+	let flowV2DrivesScreens = $state(false);
 	// The interpreter's CURRENT active SET (the pin-driven active-SET model), mirrored into a
 	// rune so screen add/remove re-mounts. Render-ordered: base first, later-activated overlays on
 	// top. The interpreter's internal active set is a plain array (not a rune), so it is pushed
@@ -698,6 +703,9 @@
 	// The TOPMOST active screen (the last-activated) — the transient takeover/celebration layer.
 	// `undefined` ⇒ the active set is empty (inert) ⇒ pure coded path.
 	const activeScreenId = $derived(activeScreenIds[activeScreenIds.length - 1]);
+	// Flow-driven (v1 OR v2): the engine-owned bands (reels, HUD chrome) gate on THIS instead of the
+	// v1-only `!flow`, so under v2 they still hide during loading and reveal once the game screen shows.
+	const isFlowDriven = $derived(!!flow || flowV2DrivesScreens);
 	// Whether the base-game screen node is currently active. The reel board + basegame mount gate
 	// on this: during `loading` (basegame not yet active) the reels are HIDDEN; once loading
 	// completes and basegame activates, they appear. INERT-FLOW FALL-THROUGH: with no FlowDoc the
@@ -1204,35 +1212,52 @@
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
 			// path (parity, §7). `start()` runs the initial screen's enter choreography.
-			flow = createLinesFlow(
-				doc,
-				(screenIds, entrances) => applyActiveScreens(screenIds, entrances),
-				// Intent host bridge (design doc §8.5): a wired `action → intent` edge invokes the EXACT
-				// coded behaviour of that HUD button (spin/increase/decrease/turbo/menu) via the shared
-				// `invokeHostIntent` dispatch. An unknown intent is a safe no-op (parity §8.8).
-				(_screenId, intent) => invokeHostIntent(intent),
-			);
-			setFlowInterpreter(flow);
-			// Seed the rune from the interpreter's initial active set (the `initial` node), then run
-			// its enter choreography. `onActiveScreensChange` keeps it in sync on add/remove.
-			activeScreenIds = flow?.activeScreenIds ?? [];
-			void flow?.start();
-			// Invisible Flow v2 (Phase 4b) — build the DEV-gated v2 handle from the same scenes and
-			// publish it for the book-event play path (`game/utils.ts` reads it via the holder). The
-			// mount model's `onChange` mirror pushes the z-ordered containers into the rune so
-			// `<FlowV2Mount>` re-renders on show/hide. `undefined` when no v2 doc is authored ⇒ v2 inert.
+			// Invisible Flow v2 (Phase 4b) — build the v2 handle FIRST. A v2 flow DRIVES SCREENS only when
+			// it authors the `load` lifecycle (a translated whole-game flow does; a book-events-only flow
+			// like the apps/lines reference does NOT — it just handles book events over the coded/v1
+			// screens). When it DRIVES screens it is the SOLE screen renderer (its containers via
+			// `<FlowV2Mount>`); its shown set becomes `activeScreenIds` (so the engine gates track it) and
+			// the v1 interpreter is NOT built (both mounting every screen is the double-logo/tap bug).
 			const flowV2 = createLinesFlowV2(
 				doc,
 				(containers) => {
 					flowV2Containers = containers;
+					// When v2 drives screens, its shown set IS the active set. (For a book-events-only flow
+					// this callback never fires with content — it shows no containers — so v1 keeps ownership.)
+					if (flowV2DrivesScreens) activeScreenIds = containers.map((c) => c.id);
 				},
 				// Phase A intent bridge — an intent-command action (startSpin/…) invokes the SAME coded
 				// body the button press runs (shared with v1's `invokeIntent`).
 				(intent) => invokeHostIntent(intent),
 			);
 			setFlowV2(flowV2);
+			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A
+			// book-events-only flow doesn't, so the coded/v1 screen path stays (no regression).
+			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
+
+			// Invisible Flow v1 — ONLY when v2 does NOT drive screens (else every screen doubles). v1's
+			// screen mounts are all `flow`-gated, so leaving `flow` undefined makes them inert;
+			// `<FlowV2Mount>` is then the sole scene renderer.
+			flow = flowV2DrivesScreens
+				? undefined
+				: createLinesFlow(
+						doc,
+						(screenIds, entrances) => applyActiveScreens(screenIds, entrances),
+						// Intent host bridge (design doc §8.5): a wired `action → intent` edge invokes the EXACT
+						// coded behaviour of that HUD button (spin/increase/decrease/turbo/menu) via the shared
+						// `invokeHostIntent` dispatch. An unknown intent is a safe no-op (parity §8.8).
+						(_screenId, intent) => invokeHostIntent(intent),
+					);
+			setFlowInterpreter(flow);
+			// Seed the rune from the active flow: v1's initial active set, else v2's shown containers.
+			if (flow) {
+				activeScreenIds = flow.activeScreenIds;
+				void flow.start();
+			} else {
+				activeScreenIds = flowV2Containers.map((c) => c.id);
+			}
 			// Phase A boot — kick the flow's entry event so it shows its initial screen (a translated
 			// flow authors `load` → showContainer(initial); the mount `onChange` mirror updates
 			// `flowV2Containers`). Ownership-gated ⇒ inert for the book-event-only reference flow and a
@@ -1321,22 +1346,27 @@
 			as today, so a non-flow game is byte-identical to current `main`. Only a flow-driven
 			boot (which always exists in apps/lines via the synthesized loading leg) gates on the
 			active set. -->
-	{#if !flow || isBasegameActive}
-		{#if basegameMountBelowReel && entranceById[basegameScreenId]}
-			<!-- Flow-authored basegame with an ENTRANCE transition (design doc §6): fade the
-					 below-reel slice in via <FlowScreenMount> (mount-hidden, no flash). The board +
-					 above-reel slice below are engine-owned / render as normal. -->
-			<FlowScreenMount
-				scene={basegameMountBelowReel}
-				transition={entranceById[basegameScreenId]}
-				timeScale={stateBetDerived.timeScale}
-			/>
-		{:else}
-			<FlowMount scene={basegameMountBelowReel}>
-				{#snippet fallback()}
-					<LayoutScene scene={basegameBelowReel} />
-				{/snippet}
-			</FlowMount>
+	{#if !isFlowDriven || isBasegameActive}
+		<!-- The basegame's authored below-/above-reel SCENES are suppressed under a v2 flow —
+				 `<FlowV2Mount>` renders the basegame container scene instead (else it would double). The
+				 reel board below is ENGINE-owned and always renders here. -->
+		{#if !flowV2DrivesScreens}
+			{#if basegameMountBelowReel && entranceById[basegameScreenId]}
+				<!-- Flow-authored basegame with an ENTRANCE transition (design doc §6): fade the
+						 below-reel slice in via <FlowScreenMount> (mount-hidden, no flash). The board +
+						 above-reel slice below are engine-owned / render as normal. -->
+				<FlowScreenMount
+					scene={basegameMountBelowReel}
+					transition={entranceById[basegameScreenId]}
+					timeScale={stateBetDerived.timeScale}
+				/>
+			{:else}
+				<FlowMount scene={basegameMountBelowReel}>
+					{#snippet fallback()}
+						<LayoutScene scene={basegameBelowReel} />
+					{/snippet}
+				</FlowMount>
+			{/if}
 		{/if}
 
 		<MainContainer>
@@ -1345,12 +1375,14 @@
 			<Anticipations />
 		</MainContainer>
 
-		{#if basegameMount}
-			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
-				<LayoutScene scene={basegameMountAboveReel} />
+		{#if !flowV2DrivesScreens}
+			{#if basegameMount}
+				{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+					<LayoutScene scene={basegameMountAboveReel} />
+				{/if}
+			{:else if basegameAboveReel && basegameAboveReel.nodes.length}
+				<LayoutScene scene={basegameAboveReel} />
 			{/if}
-		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-			<LayoutScene scene={basegameAboveReel} />
 		{/if}
 	{/if}
 
@@ -1423,9 +1455,10 @@
 				author, this renders UNCONDITIONALLY exactly as today (byte-identical to `main`). Only a
 				flow that authors this exact HUD screen id gates it on the active set.
 			-->
-		{#if !flow || !flow.mounter
-				.authoredScreenIds()
-				.has(scene.id) || activeScreenIds.includes(scene.id)}
+		{#if !flowV2DrivesScreens && (!flow || !flow.mounter
+					.authoredScreenIds()
+					.has(scene.id) || activeScreenIds.includes(scene.id))}
+			<!-- Suppressed under a v2 flow — `<FlowV2Mount>` renders the hud_* container instead. -->
 			<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
 				<LayoutScene {scene} />
 			</Container>
@@ -1444,11 +1477,15 @@
 			ungated author screen is always-on and a gated one shows only in its phase. Empty for
 			`apps/lines`' fallback doc ⇒ renders nothing (parity, byte-identical to `main`).
 		-->
-	{#each extraScenes as scene (scene.id)}
-		<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
-			<LayoutScene {scene} />
-		</Container>
-	{/each}
+	<!-- Suppressed under a v2 flow — every authored screen mounts through `<FlowV2Mount>` (its shown
+			 containers), so mounting them here too would double them. -->
+	{#if !flowV2DrivesScreens}
+		{#each extraScenes as scene (scene.id)}
+			<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
+				<LayoutScene {scene} />
+			</Container>
+		{/each}
+	{/if}
 	<!--
 			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen TAKEOVER
 			layer. When the interpreter swaps the active exclusive screen to an authored id that is
@@ -1560,9 +1597,12 @@
 	</Container>
 	<!-- specialBook paints at its doc-list position (§11.5-C), interleaving with the HUD /
 			 overlays / extras band. Reference-layout order reproduces today's stacking. -->
-	<Container zIndex={specialBookZIndex}>
-		<LayoutScene scene={specialBookScene} />
-	</Container>
+	{#if !flowV2DrivesScreens}
+		<!-- specialBook is a v2 container — `<FlowV2Mount>` renders it under a v2 flow (no double). -->
+		<Container zIndex={specialBookZIndex}>
+			<LayoutScene scene={specialBookScene} />
+		</Container>
+	{/if}
 
 	<!--
 			Invisible FX (§4.4 / §8) — play this project's baked effects. Free effects mount at
