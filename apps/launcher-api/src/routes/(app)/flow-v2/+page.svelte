@@ -37,6 +37,7 @@
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
 	import PreviewPanelV2 from './PreviewPanelV2.svelte';
 	import NodeInspector from './NodeInspector.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -810,12 +811,15 @@
 <svelte:head><title>Invisible Flow v2 · dev</title></svelte:head>
 
 <div class="page">
+	<ToolTopBar
+		current="flow"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	/>
+
 	<div class="subbar">
-		<strong>Invisible Flow v2</strong>
-		<span class="tag">dev</span>
-		<span class="scope" title="Active client / project this canvas persists to">
-			{data.clientKey} / {data.projectKey}
-		</span>
+		<strong>Invisible Flow</strong>
 
 		<!-- Breadcrumb: `Flow` in flow view; `Flow ↳ <FunctionName>` with a back button + inline
 		     rename while editing a function body. The name field renames the OPEN function (id
@@ -1020,21 +1024,6 @@
 	}
 	.subbar strong {
 		color: #e2e8f0;
-	}
-	.tag {
-		font-size: 11px;
-		padding: 2px 8px;
-		border-radius: 999px;
-		background: #1f2937;
-		color: #93c5fd;
-	}
-	.scope {
-		font-size: 11px;
-		padding: 2px 8px;
-		border-radius: 999px;
-		background: #11161d;
-		border: 1px solid #1f2937;
-		color: #94a3b8;
 	}
 	.crumb {
 		display: inline-flex;
