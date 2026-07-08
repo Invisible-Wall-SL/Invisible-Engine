@@ -337,7 +337,19 @@
 	// fused pin) the press fires the flow's chain ALONE and the coded `onpress` is SUPPRESSED (no
 	// double-fire); un-owned / no v2 doc ⇒ `resolveFlowV2Press` returns undefined ⇒ the coded press runs
 	// unchanged (parity). Consulted at click time, so it tracks the live handle regardless of boot order.
-	registerFlowPress(resolveFlowV2Press);
+	// Flow routing SKIPS the coded `onpress`, which is where the press-feedback SOUND is broadcast — so
+	// replay it here before dispatching (faithful mapping: spin → `soundPressBet`, every other HUD button
+	// → `soundPressGeneral`), else a flow-owned button press would be silent.
+	registerFlowPress((componentId, action) => {
+		const routed = resolveFlowV2Press(componentId, action);
+		if (!routed) return undefined;
+		return () => {
+			context.eventEmitter.broadcast({
+				type: action === 'spin' ? 'soundPressBet' : 'soundPressGeneral',
+			});
+			routed();
+		};
+	});
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
 	// `style.fontFamily` names one of these families, instead of a system-font

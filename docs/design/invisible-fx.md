@@ -225,6 +225,15 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     back to origin+offset; bone effects stay on the host-rig path, timed in the Rigger = Phase 3).
     **Effect art ships only if its atlas is ALSO placed** (existing dangling-`assetKey` guard) —
     auto-shipping a placed effect's atlas is a tracked follow-up.
+  - **Flow activation — shared cue-name picker (2026-07-08, "in-game" Phase 2).** The runtime join
+    already works + is harness-verified (`trigger.ts`): a Flow Broadcast (v1) / `fireCue` (v2) →
+    `eventEmitter.broadcast({type: name})` fires an FX `on:'event'` layer whose `trigger.eventType ===
+    name`. Closed the FX picker's dead-end: the Trigger→Event control is now a COMBOBOX (pick a
+    suggestion or type any custom cue). Suggestions union the game's exported emitter vocabulary (v1
+    Broadcast names) with the cues the project's saved Flow **v2** graph actually broadcasts (`fireCue`
+    `ref`s, via `loadFlowV2Doc` in the FX loader) — the v2 template vocabulary isn't project-loaded
+    yet (owner's in-progress flow-v2 work), so sourcing from the real FlowDoc is the non-blocked path.
+    A first-class `playEffect` Flow node stays deferred.
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

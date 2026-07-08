@@ -144,13 +144,15 @@ With a layer selected, the right **Inspector** edits it:
 - **Trigger** — *when* the layer fires. **Mode** is **Always (ambient)** (the layer
   emits continuously, the default) or **On event**. In **On event** mode two more
   controls appear:
-  - **Event** — the bus event type the layer fires on. When the project has an exported
-    emitter vocabulary, this is a dropdown of that project's broadcastable event types —
-    the **same vocabulary Invisible Flow uses**, so a Flow **Broadcast** node of that
-    type is what fires the effect in-game. If the project has no exported vocabulary, the
-    field degrades to a **free-text** box (type the Flow Broadcast event type yourself),
-    and a hint explains why. An empty event means the layer is set to fire on an event but
-    has none bound — it stays dormant (the fail-safe) until you pick one.
+  - **Event** — the bus event/cue name the layer fires on. It's a **combobox**: pick a
+    suggested name or type any custom cue. The suggestions are the project's real firing
+    names, unioned from two sources — the game's exported **emitter vocabulary** (the same
+    names a Flow **Broadcast** node offers) and every **cue** the project's **Flow v2**
+    graph actually broadcasts (its `fireCue` nodes). Whatever you enter must **match the
+    name Flow emits** exactly — the layer fires when a broadcast of that name crosses the
+    runtime event bus. Typing a custom cue is fine (e.g. a Flow v2 cue not yet in the
+    exported vocabulary). An empty event means the layer is set to fire on an event but has
+    none bound — it stays dormant (the fail-safe) until you enter one.
   - **Duration (ms)** — how long the burst emits after the event arrives, then stops.
     Leave it **blank** to let the emitter's own lifetime (`emitterLifetime` in the
     config) govern how long it runs instead.

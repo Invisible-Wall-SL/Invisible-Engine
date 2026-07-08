@@ -885,37 +885,36 @@
 					{#if triggerMode(selected) === 'event'}
 						<label class="row">
 							<span>Event</span>
-							{#if data.eventTypes.length > 0}
-								<select
-									value={selected.trigger?.eventType ?? ''}
-									onchange={(e) =>
-										updateSelected((l) =>
-											setTriggerEvent(l, (e.currentTarget as HTMLSelectElement).value),
-										)}
-								>
-									<option value="">— pick an event —</option>
-									{#each data.eventTypes as t (t)}
-										<option value={t}>{t}</option>
-									{/each}
-								</select>
-							{:else}
-								<input
-									placeholder="event type"
-									title="This project has no exported emitter vocabulary — type a Flow Broadcast event type"
-									value={selected.trigger?.eventType ?? ''}
-									onchange={(e) =>
-										updateSelected((l) =>
-											setTriggerEvent(l, (e.currentTarget as HTMLInputElement).value),
-										)}
-								/>
-							{/if}
+							<!--
+								A COMBOBOX (input + datalist): pick a known event from the project's exported
+								vocabulary (the same names Flow's Broadcast node offers), OR type any custom cue
+								name — e.g. a Flow v2 `fireCue` cue whose vocabulary isn't project-loaded here yet.
+								The layer fires when a broadcast of this EXACT name hits the event bus, so the name
+								must match what Flow emits. `setTriggerEvent` accepts any string (empty clears).
+							-->
+							<input
+								list="fx-event-types"
+								placeholder="event / cue name"
+								title="The event name a Flow Broadcast / fireCue emits — pick a known one or type a custom cue (must match the name used in Flow)"
+								value={selected.trigger?.eventType ?? ''}
+								onchange={(e) =>
+									updateSelected((l) =>
+										setTriggerEvent(l, (e.currentTarget as HTMLInputElement).value),
+									)}
+							/>
 						</label>
-						{#if data.eventTypes.length === 0}
-							<p class="hint">
-								No exported emitter vocabulary for this project — type the Flow Broadcast event type
-								the layer fires on.
-							</p>
+						{#if data.eventTypes.length > 0}
+							<datalist id="fx-event-types">
+								{#each data.eventTypes as t (t)}
+									<option value={t}></option>
+								{/each}
+							</datalist>
 						{/if}
+						<p class="hint">
+							Fires when a Flow <strong>Broadcast</strong> / <strong>fireCue</strong> (or any game
+							event) of this exact name is emitted. Pick a known event, or type a custom cue name —
+							it must match the name used in Flow.
+						</p>
 						<label class="row">
 							<span>Duration (ms)</span>
 							<input

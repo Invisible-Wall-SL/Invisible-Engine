@@ -3,6 +3,7 @@ import { resolveFlowVocabulary } from '$lib/flowVocabularies';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadDoc } from '$lib/server/editorStorage';
+import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { listEffects, loadEffect, type FxEffectRow, type FxMeta } from '$lib/server/fxStorage';
 import { SUB } from '$lib/server/projectPaths';
@@ -84,16 +85,26 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		openedMeta = meta;
 	}
 
-	// The trigger picker offers the game's EXPORTED emitter vocabulary — the SAME source `/flow`
-	// uses (Flow Phase 7, `flowVocabularies.ts`, codegen'd from `typesEmitterEvent.ts`), selected
-	// by the LayoutDoc `gameType` (the project's `scenes.json`, the Scene Editor's own doc). This
-	// is the FX⇄Flow seam: a layer's `trigger.eventType` must be a `type` a Flow Broadcast can
-	// emit. An unrecognized/absent game falls back to `DEFAULT_EMITTER_VOCABULARY`; the page
-	// further degrades to a free-text input when even that yields no events, so the picker never
-	// dead-ends. We only surface the broadcastable event `type`s (not the effect names).
+	// The trigger picker's suggestions are the SHARED name vocabulary a layer's `trigger.eventType`
+	// must match for a Flow to fire it (the FX⇄Flow seam — the layer fires when a broadcast of this
+	// exact name hits the event bus). Two real, per-project sources, unioned + deduped:
+	//   1. The game's EXPORTED emitter vocabulary (`flowVocabularies.ts`, codegen'd from
+	//      `typesEmitterEvent.ts`, keyed by the LayoutDoc `gameType`) — the SAME names Flow v1's
+	//      Broadcast node offers. Unknown/absent game ⇒ `DEFAULT_EMITTER_VOCABULARY`.
+	//   2. The cue names the project's Flow **v2** graph actually broadcasts — every `fireCue` node's
+	//      `ref` in the saved v2 FlowDoc. (The v2 template VOCABULARY isn't project-loaded yet, so we
+	//      source the cues the flow really uses instead.) Best-effort: no v2 doc ⇒ none.
+	// The picker is a combobox, so these are SUGGESTIONS — an author can still type any custom cue.
 	const layout = await loadDoc(clientKey, projectKey);
 	const vocab = resolveFlowVocabulary(layout.gameType);
-	const eventTypes = vocab.events.map((e) => e.type);
+	const flowV2 = await loadFlowV2Doc(clientKey, projectKey).catch(() => null);
+	const v2Cues: string[] = [];
+	for (const node of flowV2?.graph?.nodes ?? []) {
+		if (node.kind === 'fireCue' && typeof node.ref === 'string' && node.ref) v2Cues.push(node.ref);
+	}
+	const eventTypes = Array.from(
+		new Set([...vocab.events.map((e) => e.type), ...v2Cues]),
+	).sort((a, b) => a.localeCompare(b));
 
 	return { clientKey, projectKey, tools, atlases, effects, openedDoc, openedMeta, eventTypes };
 };

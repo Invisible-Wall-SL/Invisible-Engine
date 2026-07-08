@@ -24,6 +24,26 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX in-game, Phase 2: Flow activation (shared cue-name picker)
+- **Goal (plan `ticklish-conjuring-lamport`):** fire a placed/mounted effect from Flow. Decision was
+  event-name wiring + a shared picker (no new Flow node kind).
+- **The runtime join already works AND is harness-verified** (`tools/fx-spike/trigger.ts`): a
+  broadcast of `{type: name}` (a Flow v1 Broadcast or v2 `fireCue` → `eventEmitter.broadcast`) fires an
+  FX `on:'event'` layer whose `trigger.eventType === name`, then stops after `duration`. Flow v1's
+  Broadcast + the FX picker ALREADY share the same `flowVocabularies.ts` vocabulary.
+- **Fixed the real gap — the FX picker dead-ended.** The Trigger→Event control was a dropdown XOR
+  free-text (you couldn't type a custom cue when a vocabulary existed). Now it's a **combobox**
+  (`+page.svelte`): pick a suggestion or type any name. Suggestions are the project's REAL firing
+  names, unioned + deduped from (1) the game's exported emitter vocabulary (v1 Broadcast names) and
+  (2) every cue the project's saved **Flow v2** graph broadcasts (`fireCue` node `ref`s, loaded in
+  `+page.server.ts` via `loadFlowV2Doc`). So an author picks a real cue instead of guessing.
+- **Why not a full v2-cue dropdown / a `playEffect` node:** the Flow **v2 template vocabulary isn't
+  project-loaded yet** (the flow-v2 loader still uses the client `BOOK_OF_VOCAB` sample — owner's
+  in-progress work), so sourcing cues from the project's actual FlowDoc is the correct non-blocked
+  path. A first-class `playEffect` node stays deferred (the wiring approach covers it).
+- **Verified:** `launcher-api` build clean; the bus join is covered by the existing trigger harness.
+  **Owner live-verify:** author a `fireCue`/Broadcast + an `on:event` effect of the same name; fire it.
+
 ### 2026-07-08 — Invisible FX in-game, Phase 1: place effects in the Scene Editor (`effect` node)
 - **Goal (plan `ticklish-conjuring-lamport`, tool-by-tool after Phase 0):** place an authored FX
   effect in a scene like an image/spine. New `effect` LayoutNode kind, end-to-end.
@@ -85,9 +105,15 @@ submodule bumps).
   v2* spikes green.
 - **Model reminder:** a pin is flow-owned ONLY when wired; unwired HUD buttons keep their coded
   behavior (parity). Wire `onIncrease → increaseBet` to route the press through the flow.
-- **Known follow-up:** a flow-OWNED button press skips its `onpress`, so the press SOUND
-  (`soundPressBet`/`soundPressGeneral`) is currently lost for wired buttons — `firePress` should replay
-  the press sound (or the container-event dispatch should) before routing. Not yet fixed.
+- **Press-sound fix (FIXED 2026-07-08):** a flow-OWNED button press skips its `onpress` (where the
+  press-feedback sound is broadcast), so wired buttons were silent. Fixed at the ONE registration site
+  in `Game.svelte`: `registerFlowPress` now wraps `resolveFlowV2Press` to broadcast the press sound
+  before dispatching — faithful mapping `spin → soundPressBet`, every other HUD button →
+  `soundPressGeneral`. No `ActionSource`/`ComponentInstance` churn. `lines build` clean.
+- **Flow sounds — scope decision (2026-07-08):** owner chose "just fix the press sound for now."
+  DEFERRED: a `playSound` action + `SoundName` vocab enum (pick any of the game's ~50 catalog sounds
+  for any pin/signal), and — bigger — a custom-sound ASSET pipeline (upload → R2 → deploy→bake→pull→
+  register). Revisit when sound authoring is needed.
 
 ### 2026-07-08 — Invisible Flow v2: Game Signals node — /flow-v2 palette + game ownership (Part 2, SHIPPED)
 - **UI (`/flow-v2`):** a new "Sources" section in the add-node palette drops a `gameSignals` node
