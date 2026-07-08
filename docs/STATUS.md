@@ -24,6 +24,32 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible Flow v2: container events FUSED as exec-out pins on the Show node — /flow-v2 UI wired (§6.1, SHIPPED)
+- **Owner choice:** of the two shapes, the owner picked **fuse into the Base game node** — the
+  `SHOWCONTAINER` node grows one exec-out per configured component (`onSpin`/`onIncrease`/… ), so one
+  node = the mount AND all its buttons (not a separate events node, not per-button nodes).
+- **Model consolidated (`033f596`):** this SUPERSEDES the spike's per-button container-scoped
+  `event`-node path (`ref = <sceneId>/<declId>`, from `e78f293`) — that branch is REMOVED from
+  `derivePins` + `validate.ts`, leaving ONE mechanism. `PinContext.containerEvents` is now keyed by
+  **ContainerId** (a `showContainer` node's `ref`); `derivePins('showContainer')` →
+  `[exec-in, exec-out, ...one exec-out per decl]` (pin id = decl `id`, caption = new
+  `ContainerEventDecl.label` = the `on<Event>` tail). Absent surface ⇒ `[exec-in, exec-out]`
+  (parity-safe). `deriveContainerEvents` reused.
+- **/flow-v2 UI (`apps/launcher-api/src/routes/(app)/flow-v2/`):** `+page.server.ts` projects each
+  container's Scene-Editor scene → configured events via `actionBindingOf(node.params)` (engine-layout)
+  → `deriveContainerEvents`, returning a ContainerId→decls map; `+page.svelte` threads it into
+  `PinContext` + `validateFlowDoc` (4th arg) so the fused pins render (`FlowV2Node` already draws
+  derived pins), wire, persist by pin id, and re-derive on reload (anti-drift). `sample.ts` carries a
+  sample surface for the standalone dev route.
+- **Authoring only — no runtime firing yet.** The game must still emit these as its components' events
+  (later phase); nothing in a game reacts to the pins today, so no shipped-game bump.
+- **Verified:** `flow-spike v2containerevents` (rewritten: fused 7-pin assertion) + `v2vocab`/`v2runtime`
+  PASS; `engine-flow-v2` typecheck exit 0; `launcher-api build` clean. Docs §3/§4/§6.1 reframed to the
+  fused node.
+- **Known limit:** a component whose `action` is a def DEFAULT (not on the instance's `params`) doesn't
+  project yet — noted for a later slice. **Next:** runtime — make the game emit each container
+  component's event so the fused exec-out pins actually fire.
+
 ### 2026-07-08 — Invisible Flow v2: container surfaces its components' configured events as exec-out pins (§6.1, spike-proven)
 - **Design decision (why):** the owner found the graph confusing when the same container node (e.g.
   "Base game") was redrawn once per button, each button wired to its own duplicate `Show Base game`.
