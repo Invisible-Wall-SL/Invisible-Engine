@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible Flow v2: container surfaces its components' configured events as exec-out pins (§6.1, spike-proven)
+- **Design decision (why):** the owner found the graph confusing when the same container node (e.g.
+  "Base game") was redrawn once per button, each button wired to its own duplicate `Show Base game`.
+  The intent: **one** Base game node that carries all the game's functionality, so the flow only
+  decides *when* each thing fires. Resolved (`d6ff29a`): a container SURFACES its components' events
+  as **exec-OUT** pins (the exec mirror of cue aggregation), authored from Scene-Editor component
+  config — **never auto-dumped**. Design in `docs/design/invisible-flow-v2.md` §3/§4/§8 +
+  `invisible-flow-v2-schema.md` §3(event)/§6.1/§9(#6).
+- **Spike (headless-first, `e78f293`):** `engine-flow-v2` gained `ContainerEventDecl` (`types.ts`) +
+  `deriveContainerEvents(components)` (`containerEvents.ts`, decoupled via a minimal
+  `ConfiguredComponentEvent` projection — a component with no configured `event` yields no decl).
+  `derivePins` + `validateFlowDoc`/`refResolves` now resolve an `event` node whose `ref` is
+  `<sceneId>/<declId>` against a NEW optional `PinContext.containerEvents` (sceneId → decls); absent
+  ⇒ parity-safe unresolved. `validateFlowDoc` gained an optional 4th `containerEvents?` arg (all
+  existing callers still compile). Proven by `tools/flow-spike/flowV2ContainerEvents.ts`
+  (`pnpm --filter flow-spike run v2containerevents`, 11 asserts incl. decorative-excluded +
+  unresolved-ref + no-surface-warns); `v2vocab`/`v2runtime` unregressed; `engine-flow-v2` typechecks.
+- **Next:** wire this into the `/flow-v2` editor UI — render a container as one node whose exec-out
+  pins come from `deriveContainerEvents`, projecting the real Scene-Editor component configs into
+  `ConfiguredComponentEvent[]`. No UI shipped in this pass.
+
 ### 2026-07-08 — Invisible FX: save no longer drops an unbound-art layer (fixes "save → reopen is empty") (SHIPPED)
 - **Symptom:** author an FX with a layer, tune the emitter, Save → reopen the effect and it's EMPTY.
 - **Cause:** `normalizeEffectDoc` (`packages/engine-fx/src/normalize.ts`), which the `/api/fx/save`
