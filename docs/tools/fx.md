@@ -29,8 +29,9 @@ numbers, and watch the result spawn in real time.
   over a "glow" layer); each renders its own live emitter in the preview, stacked.
 - **Particle art comes from your project's atlases.** A layer points at one of the
   project's atlases (the same manifests the Scene Editor and Rigger read) and you tick
-  which **regions** become the particle frames. Pick more than one region and you can
-  turn the layer into a **flipbook** that animates through the frames. Particles are
+  which **regions** become the particle frames. Pick more than one region and each
+  particle is given one of them at random — weight the mix with the **per-image share**
+  sliders, or flip on **Flipbook** to animate through all the frames instead. Particles are
   always atlas-region sprites — there are no built-in abstract shapes. Until you bind a
   region, the preview spawns soft **placeholder dots** so the emitter is still visible
   (see below).
@@ -129,8 +130,12 @@ With a layer selected, the right **Inspector** edits it:
   Sheet Maker first.) While the layer has **no region bound**, the panel shows a hint
   reminding you the preview is showing placeholder dots and to pick an atlas + tick a
   region for the real particle. When a layer has **more than one** frame, a **Flipbook
-  (animate frames)** toggle appears — on, the particle cycles through the frames; off,
-  it's a multi-frame still.
+  (animate frames per particle)** toggle appears — on, each particle animates through all
+  the frames; off (the default), each particle is given **one** of the frames at random.
+  With Flipbook off, a **Mix — per-image share** control appears with a slider per frame:
+  drag them to weight how often each image is picked (a `%` readout shows the resulting
+  share). This is how you make, say, a 70/30 coins-to-gems burst. Leaving the sliders even
+  gives a uniform mix.
 - **Placement** — where the layer's emitter sits. **Mode** is **Free (scene)** (spawns
   at the scene origin) or **Bone (rig)** (follows a bone of the loaded Spine backdrop —
   enabled only when a backdrop is loaded). In **Bone** mode a **Bone** dropdown lists the

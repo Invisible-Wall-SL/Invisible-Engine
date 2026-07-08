@@ -23,6 +23,7 @@ import { upgradeConfig, type EmitterConfigV3 } from '@barvynkoa/particle-emitter
 import {
 	EFFECT_DOC_VERSION,
 	normalizeEffectDoc,
+	weightedTextures,
 	type EffectDoc,
 	type EmitterConfigV3 as FxEmitterConfigV3,
 } from 'engine-fx';
@@ -230,6 +231,64 @@ assert(
 assert(
 	spineLayer.layers[1].spineParticle === undefined,
 	'sprite layer drops a stray spineParticle (kind discipline)',
+);
+
+console.log('fx round-trip — art mix weights (per-frame spawn share)');
+// A valid, aligned weights array survives normalize; an unaligned/degenerate one is dropped (uniform).
+const weighted = normalizeEffectDoc({
+	id: 'w',
+	name: 'w',
+	layers: [
+		{
+			key: 'ok',
+			config: { lifetime: { min: 1, max: 1 }, frequency: 0.1, pos: { x: 0, y: 0 }, behaviors: [] },
+			art: { assetKey: 'a', frames: ['x', 'y'], weights: [70, 30] },
+			placement: { space: 'free' },
+			particleKind: 'sprite',
+		},
+		{
+			key: 'badlen',
+			config: { lifetime: { min: 1, max: 1 }, frequency: 0.1, pos: { x: 0, y: 0 }, behaviors: [] },
+			art: { assetKey: 'a', frames: ['x', 'y'], weights: [1] }, // length ≠ frames → dropped
+			placement: { space: 'free' },
+			particleKind: 'sprite',
+		},
+		{
+			key: 'single',
+			config: { lifetime: { min: 1, max: 1 }, frequency: 0.1, pos: { x: 0, y: 0 }, behaviors: [] },
+			art: { assetKey: 'a', frames: ['x'], weights: [5] }, // single frame → weights meaningless, dropped
+			placement: { space: 'free' },
+			particleKind: 'sprite',
+		},
+	],
+});
+assert(eq(weighted.layers[0].art.weights, [70, 30]), 'aligned mix weights survive normalize');
+assert(weighted.layers[1].art.weights === undefined, 'length-mismatched weights dropped (→ uniform)');
+assert(weighted.layers[2].art.weights === undefined, 'weights on a single-frame layer dropped');
+assert(
+	eq(normalizeEffectDoc(weighted), weighted),
+	'weights are an idempotent fixed point through normalize',
+);
+
+console.log('fx round-trip — weightedTextures expansion (bindArt seam)');
+const T = { a: 'A', b: 'B' } as const;
+const noWeights = weightedTextures([T.a, T.b]);
+assert(noWeights.length === 2, 'no weights ⇒ uniform list (one entry each)');
+const mix = weightedTextures([T.a, T.b], [75, 25]) as string[];
+const countA = mix.filter((t) => t === T.a).length;
+const countB = mix.filter((t) => t === T.b).length;
+assert(countA > countB && Math.abs(countA / mix.length - 0.75) < 0.02, '75/25 mix repeats A ~3× B');
+assert(
+	(weightedTextures([T.a, T.b], [1, 0]) as string[]).every((t) => t === T.a),
+	'a 0-share frame is excluded from the mix',
+);
+assert(
+	weightedTextures([T.a, T.b], [0, 0]).length === 2,
+	'all-zero weights fall back to the uniform list (never empty)',
+);
+assert(
+	weightedTextures([T.a, T.b], [1, 2, 3]).length === 2,
+	'a length-mismatched weights arg falls back to uniform',
 );
 
 // ===========================================================================

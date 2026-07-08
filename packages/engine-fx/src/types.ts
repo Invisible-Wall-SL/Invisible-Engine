@@ -39,6 +39,14 @@ export interface EmitterArt {
 	frames: string[];
 	/** True ⇒ AnimatedParticle (`animatedSingle`/`animatedRandom`); false ⇒ static texture. */
 	animated?: boolean;
+	/**
+	 * Optional RELATIVE spawn weights, parallel to `frames`, for a static (non-`animated`) MIX:
+	 * each particle picks one frame at random with probability ∝ its weight (a 70/30 boot/bottle
+	 * mix, say). Omitted / invalid ⇒ a uniform pick. Ignored when `animated` (a flipbook particle
+	 * plays ALL frames). The library's `textureRandom` is uniform, so `bindArt` realises the weights
+	 * by repeating a frame's texture in the list proportional to its share.
+	 */
+	weights?: number[];
 }
 
 /** Where the emitter sits: free in the scene, or pinned to follow a Spine rig bone (Tier B). */

@@ -36,10 +36,10 @@
 	import {
 		Application,
 		Container,
+		ImageSource,
 		Rectangle,
 		Sprite,
 		Texture,
-		Assets,
 		type TextureSource,
 	} from 'pixi.js';
 	import { onMount } from 'svelte';
@@ -319,17 +319,39 @@
 		return placeholder;
 	}
 
+	/**
+	 * Load an atlas page image into a Pixi `TextureSource`, robustly. We fetch the bytes ourselves
+	 * (same-origin, so the session cookie flows and an HTTP error is explicit) and decode via
+	 * `createImageBitmap`, rather than `Assets.load(url)`: Pixi's asset resolver picks a loader by the
+	 * URL's apparent extension, which the auth-gated `/api/editor/asset?key=…` streamer URL (a query
+	 * string, no clean extension) trips over — leaving the emitter textureless (the placeholder-dots
+	 * bug). This mirrors the Editor canvas, which loads the SAME endpoint via an `<img>` for exactly
+	 * this reason. Cached by URL so a page is decoded once.
+	 */
+	async function loadPageSource(url: string): Promise<TextureSource> {
+		const cached = sourceCache.get(url);
+		if (cached) return cached;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`asset HTTP ${res.status}`);
+		const blob = await res.blob();
+		const bitmap = await createImageBitmap(blob);
+		const source = new ImageSource({ resource: bitmap });
+		sourceCache.set(url, source);
+		return source;
+	}
+
 	/** Slice an atlas page into the per-frame textures named by a layer's `art.frames`. */
 	async function framesToTextures(layer: EmitterLayer): Promise<Texture[]> {
 		const { assetKey, frames } = layer.art;
 		if (!assetKey || frames.length === 0) return [];
 		const art = await resolveArt(assetKey);
 		if (!art) return [];
-		let source = sourceCache.get(art.pageUrl);
-		if (!source) {
-			const loaded = (await Assets.load(art.pageUrl)) as Texture;
-			source = loaded.source;
-			sourceCache.set(art.pageUrl, source);
+		let source: TextureSource;
+		try {
+			source = await loadPageSource(art.pageUrl);
+		} catch (err) {
+			console.warn('FxStage: page image load failed; showing placeholder', art.pageUrl, err);
+			return [];
 		}
 		const byName = new Map(art.regions.map((r) => [r.name, r]));
 		const out: Texture[] = [];
@@ -399,6 +421,11 @@
 			// an unbound layer). Once a region is picked, the real textures take over.
 			const usePlaceholder = real.length === 0;
 			const textures = usePlaceholder ? [placeholderTexture()] : real;
+			// Weighted mix (a static multi-frame layer's per-frame %) — only when the resolved
+			// textures line up 1:1 with `frames` (a skipped region would misalign the weights, so
+			// fall back to uniform). Ignored for the placeholder + flipbook paths.
+			const weights =
+				usePlaceholder || real.length !== layer.art.frames.length ? undefined : layer.art.weights;
 			// bindArt deep-clones the (texture-free) config itself, then attaches the live
 			// textures — so the emitter never sees the $state proxy and the result is NOT
 			// re-cloned (JSON-cloning would destroy the Texture objects).
@@ -406,6 +433,7 @@
 				layer.config,
 				textures,
 				usePlaceholder ? false : (layer.art.animated ?? false),
+				weights,
 			);
 			let entry = live.get(layer.key);
 			if (!entry) {
@@ -513,11 +541,12 @@
 		}
 		const art = await resolveArt(withArt.art.assetKey);
 		if (!art) return;
-		let source = sourceCache.get(art.pageUrl);
-		if (!source) {
-			const loaded = (await Assets.load(art.pageUrl)) as Texture;
-			source = loaded.source;
-			sourceCache.set(art.pageUrl, source);
+		let source: TextureSource;
+		try {
+			source = await loadPageSource(art.pageUrl);
+		} catch (err) {
+			console.warn('FxStage: reference page image load failed', art.pageUrl, err);
+			return;
 		}
 		if (!reference) {
 			reference = new Sprite();

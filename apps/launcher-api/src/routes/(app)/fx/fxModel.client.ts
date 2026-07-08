@@ -114,6 +114,81 @@ export function newLayer(key: string): EmitterLayer {
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Art MIX weights (a static multi-frame layer's per-frame spawn share). The
+// weights are RELATIVE (parallel to `art.frames`); the runtime/preview realise
+// them by repeating a frame's texture proportionally (see `bindArt`). These
+// helpers keep the array aligned to `frames` and expose a normalized-% readout.
+// ---------------------------------------------------------------------------
+
+/** The effective relative weights for a layer's frames — the stored array when it's clean +
+ * aligned, else a uniform `1` per frame. Always length === `frames.length`. */
+export function frameWeights(layer: EmitterLayer): number[] {
+	const n = layer.art.frames.length;
+	const w = layer.art.weights;
+	if (
+		Array.isArray(w) &&
+		w.length === n &&
+		w.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0) &&
+		w.some((x) => x > 0)
+	) {
+		return w.slice();
+	}
+	return new Array(n).fill(1);
+}
+
+/** The mix as PERCENTAGES (each frame's normalized share, summing ~100) for the inspector readout. */
+export function frameMixPercents(layer: EmitterLayer): number[] {
+	const w = frameWeights(layer);
+	const sum = w.reduce((a, b) => a + b, 0) || 1;
+	return w.map((x) => (x / sum) * 100);
+}
+
+/** The raw slider values for the Mix control: the STORED weights when present, else the equal
+ * normalized percentages — so the sliders start on a sensible 0–100 scale (each frame's share)
+ * even before any weight has been authored. */
+export function frameWeightInputs(layer: EmitterLayer): number[] {
+	const stored = layer.art.weights;
+	if (Array.isArray(stored) && stored.length === layer.art.frames.length) return stored.slice();
+	return frameMixPercents(layer);
+}
+
+/** Set one frame's mix weight immutably. The base is the current slider scale (stored weights, or
+ * the equal percentages) so dragging one frame reads intuitively against the others. A frame not in
+ * `art.frames` is a no-op; negatives clamp to 0 (that frame drops out of the mix). */
+export function setFrameWeight(layer: EmitterLayer, frame: string, weight: number): EmitterLayer {
+	const idx = layer.art.frames.indexOf(frame);
+	if (idx === -1) return layer;
+	const weights = frameWeightInputs(layer);
+	weights[idx] = Math.max(0, Number.isFinite(weight) ? weight : 0);
+	return { ...layer, art: { ...layer.art, weights } };
+}
+
+/** Toggle a frame in a layer's `art.frames`, keeping any `weights` array aligned (a new frame
+ * inherits the current average share; a removed frame drops its slot; art `weights` is cleared
+ * when it falls back to a single frame). Pure — the page calls this for the region checkboxes. */
+export function toggleArtFrame(layer: EmitterLayer, frame: string): EmitterLayer {
+	const frames = layer.art.frames;
+	const have = frames.includes(frame);
+	const nextFrames = have ? frames.filter((f) => f !== frame) : [...frames, frame];
+	let weights = layer.art.weights;
+	if (Array.isArray(weights) && weights.length === frames.length) {
+		if (have) {
+			const idx = frames.indexOf(frame);
+			weights = weights.filter((_, i) => i !== idx);
+		} else {
+			const avg = weights.length ? weights.reduce((a, b) => a + b, 0) / weights.length : 1;
+			weights = [...weights, avg];
+		}
+	} else {
+		weights = undefined;
+	}
+	const art = { ...layer.art, frames: nextFrames } as EmitterLayer['art'];
+	if (nextFrames.length > 1 && weights) art.weights = weights;
+	else delete art.weights;
+	return { ...layer, art };
+}
+
 /** Allocate a layer key unique within the doc (`layer-N`). */
 export function nextLayerKey(doc: EffectDoc): string {
 	let n = doc.layers.length + 1;

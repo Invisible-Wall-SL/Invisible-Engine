@@ -191,6 +191,19 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     art is safe at runtime (`bindArt` with 0 textures renders nothing) and the dangling-`assetKey`
     case is caught LOUDLY at bake (§8), the correct ship gate. Round-trip harness updated to assert
     the unbound sprite layer survives.
+  - **Particle-art-never-rendered bug FIXED (2026-07-08)** — `FxStage` loaded the atlas page via Pixi
+    `Assets.load(pageUrl)`, whose resolver keys off the URL's apparent extension; the auth-gated
+    `/api/editor/asset?key=…` streamer URL (query string, no clean extension) tripped it, so the
+    emitter got NO texture (placeholder dots) AND the faint backdrop never drew. The Editor loads the
+    SAME endpoint via an `<img>` and works — the tell. `FxStage.loadPageSource()` now fetches the bytes
+    itself + decodes via `createImageBitmap` → `ImageSource` (mirrors the Editor), per-load try/catch.
+  - **Weighted per-image MIX added (2026-07-08)** — new `EmitterArt.weights?: number[]` (parallel to
+    `frames`; normalized/validated, dropped unless aligned + a >1-frame layer). A static multi-frame
+    layer now defaults to a random MIX (was: auto-forced flipbook); the inspector's "Mix — per-image
+    share" sliders set the weights. `bindArt(config, textures, animated, weights?)` realises them via a
+    repeated-texture multiset (`weightedTextures` — the library's `textureRandom` is uniform). Preview
+    honors it; **runtime `<ParticleEmitter>` still binds the whole sheet (ignores `frames` + `weights`)
+    — the frame-filtering gap is the tracked follow-up, after which weights ship for free via `bindArt`.**
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

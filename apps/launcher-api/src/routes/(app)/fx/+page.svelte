@@ -9,12 +9,16 @@
 		burst,
 		emissionArc,
 		emptyEffectDoc,
+		frameMixPercents,
+		frameWeightInputs,
 		FX_PRESETS,
 		gravity,
 		listEndpoints,
 		movementModel,
 		newLayer,
 		nextLayerKey,
+		setFrameWeight,
+		toggleArtFrame,
 		particleColor,
 		particleSpin,
 		setBlendMode,
@@ -305,17 +309,16 @@
 		pickerRegions = a ? a.regions : [];
 	});
 
+	// Toggle a region in the layer's art. Selecting >1 frame no longer auto-forces a flipbook — the
+	// default is a random MIX (one image per particle, weightable below); Flipbook is opt-in.
 	function toggleFrame(name: string): void {
 		if (!selected) return;
-		const have = selected.art.frames.includes(name);
-		const frames = have
-			? selected.art.frames.filter((f) => f !== name)
-			: [...selected.art.frames, name];
-		updateSelected((l) => ({
-			...l,
-			art: { ...l.art, frames, animated: frames.length > 1 ? true : l.art.animated },
-		}));
+		updateSelected((l) => toggleArtFrame(l, name));
 	}
+
+	// The Mix control's per-frame slider values + their normalized % readout (static multi-frame).
+	const mixWeights = $derived(selected ? frameWeightInputs(selected) : []);
+	const mixPercents = $derived(selected ? frameMixPercents(selected) : []);
 
 	// --- Tier B: Spine backdrop -------------------------------------------------
 	// The backdrop is a project Spine rig loaded purely as an authoring aid: play a clip and
@@ -762,15 +765,41 @@
 								<label class="row check">
 									<input
 										type="checkbox"
-										checked={selected.art.animated ?? true}
+										checked={selected.art.animated ?? false}
 										onchange={(e) =>
 											updateSelected((l) => ({
 												...l,
 												art: { ...l.art, animated: (e.currentTarget as HTMLInputElement).checked },
 											}))}
 									/>
-									<span>Flipbook (animate frames)</span>
+									<span>Flipbook (animate frames per particle)</span>
 								</label>
+								{#if !(selected.art.animated ?? false)}
+									<div class="mix">
+										<span class="mixhead">Mix — per-image share</span>
+										{#each selected.art.frames as fname, i (fname)}
+											<div class="row slider">
+												<span class="mixname" title={fname}>{fname}</span>
+												<input
+													type="range"
+													min="0"
+													max="100"
+													step="1"
+													value={mixWeights[i] ?? 0}
+													oninput={(e) =>
+														updateSelected((l) =>
+															setFrameWeight(l, fname, Number((e.currentTarget as HTMLInputElement).value)),
+														)}
+												/>
+												<span class="pct">{Math.round(mixPercents[i] ?? 0)}%</span>
+											</div>
+										{/each}
+										<p class="hint">
+											Each particle gets ONE image, chosen by these shares (drag to weight). Turn on
+											Flipbook instead to animate all frames on every particle.
+										</p>
+									</div>
+								{/if}
 							{/if}
 						{/if}
 					</section>
@@ -1409,6 +1438,35 @@
 		width: 52px;
 		padding: 3px 4px;
 		text-align: right;
+	}
+	.mix {
+		margin: 6px 0 4px;
+		padding: 8px;
+		border: 1px solid #1f2937;
+		border-radius: 6px;
+	}
+	.mixhead {
+		display: block;
+		margin-bottom: 6px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #94a3b8;
+	}
+	.mix .mixname {
+		flex: none;
+		width: 96px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: #cbd5e1;
+	}
+	.mix .pct {
+		flex: none;
+		width: 36px;
+		text-align: right;
+		color: #93c5fd;
+		font-size: 11px;
 	}
 	.frames {
 		display: flex;

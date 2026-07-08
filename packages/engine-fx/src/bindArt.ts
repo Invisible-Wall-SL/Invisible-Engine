@@ -40,14 +40,42 @@ export function behaviorsOf(config: EmitterConfigV3): BehaviorEntry[] {
 }
 
 /**
+ * Expand a texture list into a WEIGHTED multiset for the library's (uniform) `textureRandom`:
+ * repeating a texture N times makes it N× as likely to be picked. `weights` is parallel to
+ * `textures` (relative shares). Falls back to the input list (uniform) when there's nothing to
+ * weight — ≤1 texture, no/short/degenerate weights, or a zero total. The multiset is capped at
+ * ~`RESOLUTION` entries (percentage granularity) so a lopsided mix can't balloon the array; a
+ * positive-but-tiny share still gets at least one entry so a chosen frame never silently vanishes.
+ */
+export function weightedTextures(textures: unknown[], weights?: number[]): unknown[] {
+	if (textures.length <= 1) return textures;
+	if (!Array.isArray(weights) || weights.length !== textures.length) return textures;
+	const clean = weights.map((w) =>
+		typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 0,
+	);
+	const sum = clean.reduce((a, b) => a + b, 0);
+	if (sum <= 0) return textures;
+	const RESOLUTION = 100;
+	const out: unknown[] = [];
+	for (let i = 0; i < textures.length; i++) {
+		if (clean[i] <= 0) continue; // a 0-share frame is excluded from the mix
+		const n = Math.max(1, Math.round((clean[i] / sum) * RESOLUTION));
+		for (let k = 0; k < n; k++) out.push(textures[i]);
+	}
+	return out.length ? out : textures;
+}
+
+/**
  * Bind resolved particle TEXTURES into a V3 config's `behaviors`, returning a NEW config the
  * library's `Emitter` can render. We add (or replace) exactly the art behavior, leaving every
  * other behavior byte-identical so the authored `EmitterConfigV3` stays the verbatim contract.
  *
  * - 0 textures ⇒ strip any art behavior (an unbound layer renders nothing, by design).
- * - 1 texture, or >1 non-animated ⇒ `textureRandom` (a static particle, random of the set).
+ * - 1 texture, or >1 non-animated ⇒ `textureRandom` (a static particle, random of the set —
+ *   WEIGHTED by `weights` when given, via a repeated-texture multiset).
  * - >1 texture + `animated` ⇒ `animatedSingle` flipbook (`framerate: -1` = match particle
- *   life, the same `matchLife` default `upgradeConfig` would produce; `loop` true).
+ *   life, the same `matchLife` default `upgradeConfig` would produce; `loop` true). `weights`
+ *   are ignored here (a flipbook particle plays every frame).
  *
  * `textures` are real PIXI `Texture` objects (typed opaquely here so this module stays free
  * of a PixiJS import and unit-coverable in `tools/fx-spike`). `bindArt` clones the
@@ -58,6 +86,7 @@ export function bindArt(
 	config: EmitterConfigV3,
 	textures: unknown[],
 	animated: boolean,
+	weights?: number[],
 ): EmitterConfigV3 {
 	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
 	const behaviors = behaviorsOf(next).filter((b) => !ART_BEHAVIOR_TYPES.has(b.type));
@@ -68,7 +97,7 @@ export function bindArt(
 						type: 'animatedSingle',
 						config: { anim: { framerate: -1, loop: true, textures } },
 					}
-				: { type: 'textureRandom', config: { textures } };
+				: { type: 'textureRandom', config: { textures: weightedTextures(textures, weights) } };
 		behaviors.push(art);
 	}
 	(next as { behaviors: BehaviorEntry[] }).behaviors = behaviors;

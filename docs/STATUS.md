@@ -97,6 +97,27 @@ submodule bumps).
   pins come from `deriveContainerEvents`, projecting the real Scene-Editor component configs into
   `ConfiguredComponentEvent[]`. No UI shipped in this pass.
 
+### 2026-07-08 — Invisible FX: particle art never rendered (Assets.load) + weighted per-image mix (SHIPPED)
+- **Bug — art shows placeholder dots, never the atlas image.** `FxStage` loaded the atlas page via
+  Pixi `Assets.load(pageUrl)`, whose resolver picks a loader by the URL's apparent extension — the
+  auth-gated `/api/editor/asset?key=…` streamer URL (query string, no clean extension) trips it, so
+  the emitter got no texture AND the faint atlas backdrop never drew (both go through the same load).
+  Region metadata (checkboxes) resolved fine, masking it. **Diagnosis:** the **Editor** loads the SAME
+  endpoint via an `<img>` and works — the discriminator. **Fix:** `FxStage.loadPageSource()` now
+  fetches the bytes itself (same-origin → cookie flows, HTTP error explicit) and decodes via
+  `createImageBitmap` → `ImageSource`, mirroring the editor. Per-load try/catch so a failure degrades
+  to placeholder instead of aborting the whole rebuild. (Confirmed the page key resolves in-prefix via
+  an offline R2 probe, ruling out the prefix gate.)
+- **Feature — weighted per-image mix.** Selecting >1 region now defaults to a random MIX (one image
+  per particle) instead of auto-forcing a flipbook; a **Mix — per-image share** slider set weights how
+  often each frame is picked. Schema: `EmitterArt.weights?: number[]` (parallel to `frames`, normalized
+  + validated). `bindArt` realises weights via a repeated-texture multiset (`weightedTextures`, the
+  library's `textureRandom` is uniform). Threaded through the shared `bindArt` seam + `FxStage` preview.
+  Round-trip harness covers weights normalize + expansion (all 12 fx harnesses GREEN, `launcher-api build` GREEN).
+- **Runtime-fidelity follow-up (tracked):** the runtime `<ParticleEmitter>` still binds a layer's WHOLE
+  sheet (ignores `art.frames` AND `weights`) — a pre-existing gap. Authoring + preview honor frames +
+  weights now; the runtime sprite path needs frame-filtering (then weights come free via `bindArt`).
+
 ### 2026-07-08 — Invisible FX: Save As (copy) + Delete (SHIPPED)
 - **Added:** **⧉ Save As…** (prompts for a name and writes a COPY under it via the untitled-sentinel
   id path, original untouched) and **🗑 Delete** (removes the open effect — both `.fx.json` and its

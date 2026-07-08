@@ -42,6 +42,14 @@ const normalizeArt = (raw: unknown): EmitterArt | undefined => {
 	const art: EmitterArt = { assetKey, frames };
 	const animated = bool(raw.animated);
 	if (animated !== undefined) art.animated = animated;
+	// Weights: parallel to `frames`, only meaningful for a >1-frame mix. Kept only when it's a clean
+	// array (same length, finite, ≥0, at least one positive) — otherwise dropped so the pick is uniform.
+	if (Array.isArray(raw.weights) && raw.weights.length === frames.length && frames.length > 1) {
+		const w = raw.weights.map((v) =>
+			typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : -1,
+		);
+		if (w.every((v) => v >= 0) && w.some((v) => v > 0)) art.weights = w;
+	}
 	return art;
 };
 
