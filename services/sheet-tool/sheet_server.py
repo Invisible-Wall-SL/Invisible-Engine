@@ -533,7 +533,14 @@ def api_export(payload: dict) -> dict:
     names = [r["name"] for r in regions]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
-        return {"error": f"Duplicate region names: {', '.join(dupes)}. Names must be unique."}
+        detail = "; ".join(
+            f"{n} <- " + ", ".join(
+                sorted(r.get("src") or "?" for r in regions if r["name"] == n))
+            for n in dupes)
+        return {"error": "Duplicate region names — each name must be unique within a "
+                f"sheet. Collisions ({detail}). This usually means two FX cells (e.g. "
+                "a stray _glow/_shine copy left by an atlas round-trip) resolved to the "
+                "same name: delete the extra cell, re-tick the FX on the base, and export."}
 
     # Each sheet keeps its OWN sprite copies under sheet_src/<sheet>/ — they are
     # not shared between sheets. A region whose file isn't in THIS sheet's folder

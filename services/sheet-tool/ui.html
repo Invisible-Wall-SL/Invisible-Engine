@@ -736,9 +736,26 @@ function fxModesOf(base){ return new Set(fxChildren(base).map(c=>c.fx_mode)); }
 function relinkFx(){
   const byName={},bySrc={}; regions.forEach(r=>{ byName[r.name]=r; bySrc[r.src]=r; });
   const stemOf=s=>String(s||'').replace(/\.[^.]+$/,'');
+  // Exactly ONE child per (base, mode): the first claimant wins; a second region
+  // that would bind to an already-taken slot is demoted to a plain region. Without
+  // this, an atlas↔sheet round-trip that left two `_glow` copies (e.g. a .png and
+  // a .webp sharing a stem) bound BOTH as the glow child of the same base — export
+  // then renamed both to `<base>_glow` and the server rejected the duplicate name.
+  // Demoting (rather than dropping) keeps the stray cell visible + deletable.
+  const claimed={}, slot=(baseSrc,mode)=>baseSrc+' '+mode;
+  const claim=(r,baseSrc,mode)=>{
+    const k=slot(baseSrc,mode);
+    if(claimed[k]){ r.fx_of=''; r.fx_mode=''; return false; }
+    claimed[k]=r; r.fx_of=baseSrc; r.fx_mode=mode; return true;
+  };
+  // Pass 1: honour already-valid links first (authoritative — e.g. a restored
+  // session), so name-derivation can't steal a slot a live link already owns.
   regions.forEach(r=>{
-    // Keep an already-valid link (authoritative — e.g. a restored session).
-    if(r.fx_of && bySrc[r.fx_of] && bySrc[r.fx_of]!==r) return;
+    if(r.fx_of && r.fx_mode && bySrc[r.fx_of] && bySrc[r.fx_of]!==r) claim(r,r.fx_of,r.fx_mode);
+  });
+  // Pass 2: derive links from names/src for everything not already slaved.
+  regions.forEach(r=>{
+    if(r.fx_of && claimed[slot(r.fx_of,r.fx_mode)]===r) return;   // kept from pass 1
     r.fx_of=''; r.fx_mode='';
     for(const mode of FX_MODES){
       const suf=FX_SUFFIX[mode];
@@ -747,7 +764,7 @@ function relinkFx(){
         // Only adopt as an FX child when the SRC file ALSO follows the copy
         // convention (`<baseStem>_<mode>`) — so a hand-named/imported sprite
         // that merely ends in `_glow` isn't hijacked into a slaved child.
-        if(b&&b!==r && stemOf(r.src)===stemOf(b.src)+suf){ r.fx_of=b.src; r.fx_mode=mode; break; }
+        if(b&&b!==r && stemOf(r.src)===stemOf(b.src)+suf && claim(r,b.src,mode)) break;
       }
     }
   });
@@ -761,7 +778,16 @@ function slaveFxGeom(cr,base){ cr.w=base.w; cr.h=base.h; cr.ow=base.ow; cr.oh=ba
 async function syncFxChildren(base, want){
   const j=await jpost('/api/fx-sync',{sheet:sheetName,base_src:base.src,modes:[...want]});
   if(j.error){ const mm=$('uploadmsg'); mm.className='err'; mm.textContent=j.error; return; }
-  regions=regions.filter(r=>!(r.fx_of===base.src && !want.has(r.fx_mode)));
+  // Drop children for de-selected modes, AND collapse any duplicate cells left
+  // bound to the same (base, mode) slot — keep the first, discard the rest (their
+  // server copies are the identical `<base>_<mode>` file). Guards against a second
+  // cell surviving to be renamed into a duplicate at export.
+  const keptMode={};
+  regions=regions.filter(r=>{
+    if(r.fx_of!==base.src) return true;
+    if(!want.has(r.fx_mode) || keptMode[r.fx_mode]) return false;
+    keptMode[r.fx_mode]=true; return true;
+  });
   (j.children||[]).forEach(c=>{
     let cr=regions.find(r=>r.fx_of===base.src && r.fx_mode===c.mode);
     if(!cr){ cr={src:c.file,name:base.name+FX_SUFFIX[c.mode],x:0,y:0,
