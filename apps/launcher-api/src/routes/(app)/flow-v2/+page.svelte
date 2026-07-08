@@ -168,17 +168,41 @@
 	}
 
 	function addComment(): void {
-		const n = (doc.comments ?? []).length;
-		// Place near the graph centroid, staggered so successive adds don't stack exactly.
-		const base = placementPos();
-		const c: FlowComment = {
-			id: `comment_${Date.now().toString(36)}_${n}`,
-			label: '',
-			x: base.x - 40,
-			y: base.y - 60,
-			width: 360,
-			height: 220,
-		};
+		const id = `comment_${Date.now().toString(36)}_${(doc.comments ?? []).length}`;
+		const PAD = 40;
+		const HEAD = 46; // extra top room for the box's header bar
+		// If nodes are selected, WRAP the selection: size the box to their bounding box + padding and
+		// leave the nodes exactly where they are (the padded perimeter is empty ⇒ grabbable). Otherwise
+		// drop a default box in OPEN SPACE above the graph, so a fresh box isn't buried under the nodes.
+		const sel = nodes.filter((nd) => nd.selected && nd.type !== 'comment');
+		let c: FlowComment;
+		if (sel.length) {
+			let minX = Infinity,
+				minY = Infinity,
+				maxX = -Infinity,
+				maxY = -Infinity;
+			for (const nd of sel) {
+				const w = nd.measured?.width ?? nd.width ?? 200;
+				const h = nd.measured?.height ?? nd.height ?? 120;
+				minX = Math.min(minX, nd.position.x);
+				minY = Math.min(minY, nd.position.y);
+				maxX = Math.max(maxX, nd.position.x + w);
+				maxY = Math.max(maxY, nd.position.y + h);
+			}
+			c = {
+				id,
+				label: '',
+				x: Math.round(minX - PAD),
+				y: Math.round(minY - PAD - HEAD),
+				width: Math.round(maxX - minX + PAD * 2),
+				height: Math.round(maxY - minY + PAD * 2 + HEAD),
+			};
+		} else {
+			const ns = activeGraph.nodes;
+			const x = ns.length ? Math.min(...ns.map((nd) => nd.pos.x)) : 200;
+			const y = (ns.length ? Math.min(...ns.map((nd) => nd.pos.y)) : 160) - 300;
+			c = { id, label: '', x: Math.round(x), y: Math.round(y), width: 360, height: 220 };
+		}
 		doc = { ...doc, comments: [...(doc.comments ?? []), c] };
 		syncCanvas();
 		markDirty();
@@ -264,8 +288,15 @@
 						position: { x: c.x, y: c.y },
 						width: c.width,
 						height: c.height,
-						zIndex: 0,
+						// Force the wrapper box size explicitly — the node content is `height:100%`, which
+						// would otherwise measure to just the header and collapse the grabbable body.
+						style: `width:${c.width}px;height:${c.height}px`,
+						draggable: true,
+						selectable: true,
 						deletable: true,
+						// Behind the graph nodes (z 0 vs 1) when idle; selecting elevates it (xyflow default)
+						// so its resize handles are reachable — the translucent fill keeps nodes visible.
+						zIndex: 0,
 						data: {
 							comment: c,
 							onchange: (patch: Partial<FlowComment>) => updateComment(c.id, patch),
