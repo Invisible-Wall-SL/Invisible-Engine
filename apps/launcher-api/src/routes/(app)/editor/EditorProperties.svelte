@@ -68,6 +68,9 @@
 		onSlotRequiredChange?: (slotId: string, required: boolean) => void;
 		/** The active scene's template slots — offered as the slot dropdown. */
 		sceneSlots?: { slotId: string; name: string; kind: string }[];
+		/** The active scene's placed SPINE nodes (id + label) — offered as the `effect` node's
+		 * "attach to rig" dropdown (per-rig bone hosting: `EffectNode.hostSpineId`). */
+		sceneSpineNodes?: { id: string; label: string }[];
 		/** Project display name — the HUD game-name default (shown as the placeholder). */
 		projectGameName?: string | null;
 		/** The selected node is a full-bleed background COVER node (§10.3 step 4) — a
@@ -168,6 +171,7 @@
 		slotMeta = {},
 		onSlotRequiredChange,
 		sceneSlots = [],
+		sceneSpineNodes = [],
 		projectGameName = null,
 		isBackgroundCover = false,
 		componentMode = false,
@@ -3465,9 +3469,33 @@
 					</select>
 				</label>
 			</div>
+			<div class="row">
+				<label class="field wide">
+					<span>attach to rig</span>
+					<select
+						value={node.hostSpineId ?? ''}
+						onchange={(e) => {
+							const v = e.currentTarget.value;
+							if (v) node.hostSpineId = v;
+							else delete node.hostSpineId;
+							markDirty();
+						}}
+					>
+						<option value="">— free (scene placement) —</option>
+						{#if node.hostSpineId && !sceneSpineNodes.some((s) => s.id === node.hostSpineId)}
+							<option value={node.hostSpineId}>{node.hostSpineId} (missing)</option>
+						{/if}
+						{#each sceneSpineNodes as s (s.id)}
+							<option value={s.id}>{s.label}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
 			<p class="muted small">
-				Bone-attached effects are timed on their rig in the Rigger; scene placement is for free
-				(scene) effects.
+				Leave <strong>free</strong> for scene placement (the effect plays at this node's position).
+				Or attach it to a placed <strong>Spine rig</strong> in this scene: the effect then rides
+				that rig — a <em>bone</em>-placed layer (set in Invisible FX) follows the rig's bone, and the
+				rig's timeline events (authored in the Rigger) fire the effect on the beat.
 			</p>
 		</section>
 	{/if}

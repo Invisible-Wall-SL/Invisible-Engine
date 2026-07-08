@@ -1,9 +1,16 @@
 <script lang="ts" module>
 	import type { Snippet } from 'svelte';
 
-	import type { LayoutNode, Scene, TextStyle } from './types';
+	import type { EffectNode, LayoutNode, Scene, TextStyle } from './types';
 
-	export type Props = { node: LayoutNode; space?: Scene['space'] };
+	export type Props = {
+		node: LayoutNode;
+		space?: Scene['space'];
+		/** Per-rig bone hosting: `effect` nodes whose `hostSpineId` names THIS (spine) node — rendered
+		 * INSIDE its `<SpineProvider>` so their bone layers ride this rig's bone. Paired by `LayoutScene`;
+		 * only meaningful when this node is a spine. */
+		attachedEffects?: EffectNode[];
+	};
 </script>
 
 <script lang="ts">
@@ -40,7 +47,7 @@
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 
-	const { node, space }: Props = $props();
+	const { node, space, attachedEffects }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
 
@@ -564,6 +571,19 @@
 					thenLoop={effLoop ?? true}
 				/>
 			{/if}
+			<!--
+				Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
+				`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<SpineProvider>` — no extra
+				transform, so a bone layer resolves this rig's bone (`SpineBoneAttach` → `getContextSpine`)
+				and the rig's timeline events (rebroadcast) fire it. The effect rides the rig; its own node
+				transform is intentionally not applied here.
+			-->
+			{#each attachedEffects ?? [] as fx (fx.id)}
+				{@const fxDoc = resolveEffect(fx.effectId)}
+				{#if fxDoc}
+					<EffectPlayer doc={fxDoc} />
+				{/if}
+			{/each}
 		</SpineProvider>
 	{:else if node.kind === 'text'}
 		{#if numericValue !== undefined}

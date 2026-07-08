@@ -95,10 +95,13 @@ Open the **Library** tab. It is grouped into:
   rigs live), following pan/zoom — toggle it with the **▶/❚❚ FX** button in the
   toolbar. A ✨ placeholder chip still marks nodes that aren't rendering live yet
   (still loading, or a bone-attached effect). Change which effect a placed node
-  references from the Properties panel. Scene placement is for **free (scene)**
-  effects; bone-attached effects are timed on their rig in the Rigger. The
-  effect's particle atlas ships automatically (the export bakes it in) — no need
-  to place the atlas separately.
+  references from the Properties panel. There you can also **attach the effect to
+  a rig**: pick a placed Spine node from the "attach to rig" dropdown and the
+  effect rides that rig — a *bone*-placed layer (set in Invisible FX) follows the
+  rig's bone, and the rig's timeline events (authored in the Rigger) fire the
+  effect on the beat. Left as **free**, the effect just plays at its placed
+  position. The effect's particle atlas ships automatically (the export bakes it
+  in) — no need to place the atlas separately.
 
 **Drag any library item onto the canvas** to spawn a node in the active screen.
 The editor renders the real texture (and spine bundles preview as a live

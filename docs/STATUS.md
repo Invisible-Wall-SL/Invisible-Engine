@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX: per-rig bone hosting (attach a placed effect to a specific rig)
+- **Goal:** the last piece of the Rigger arc — attach a scene-placed effect to a SPECIFIC placed spine
+  rig so a `bone` layer rides THAT rig's bone and the rig's timeline events (Phase 3b rebroadcast) time
+  it. (Until now bone effects rode a generic foreground host rig; scene-placed effects were free-only.)
+- **Chosen model = REFERENCE, not nesting.** `EffectNode` gains an optional `hostSpineId` (the id of a
+  placed spine node in the same scene). Rejected the nesting model (spine node gains `children`) because
+  it would make spine act like a container across many editor + engine touch points (outline, tree ops,
+  normalize, the placed-effect walks); a reference confines the change to the scene renderer + a dropdown.
+- **Engine render (`engine-layout`):** `LayoutScene` pairs each top-level hosted effect to its host spine
+  and SUPPRESSES it at top level; `LayoutNodeView` gained an `attachedEffects` prop and renders each
+  attached effect's `<EffectPlayer>` DIRECTLY inside that spine's `<SpineProvider>` (no extra transform)
+  — so a bone layer resolves the rig's bone (`SpineBoneAttach`→`getContextSpine`), free layers sit at rig
+  origin, and the rig's rebroadcast timeline events fire it. Dangling `hostSpineId` ⇒ normal top-level
+  render (fail-safe). The effect RIDES the rig (its node transform ignored at runtime). No double-mount
+  (`placedEffectIds` still dedups it from `Effects.svelte`).
+- **Editor:** an "attach to rig" `<select>` in the effect Properties (`EditorProperties.svelte`) listing
+  the active scene's top-level spine nodes (`+page.svelte` `activeSceneSpineNodes`), writing `hostSpineId`.
+- **Verified:** `engine-layout`, `apps/lines`, `launcher-api` all build/type-check clean. **Owner
+  live-verify:** place a rig + an `on:event`/bone effect, attach, play the rig's animation → the effect
+  rides the bone + fires on the event key. (The editor 2D live-preview still shows free layers only.)
+
 ### 2026-07-08 — Invisible FX: LIVE particle preview in the Scene Editor
 - **Goal (plan `ticklish-conjuring-lamport`):** a placed `effect` node only drew a static ✨ chip
   (the editor's main canvas is 2D). Owner wanted to SEE the particles compose in the scene, like the

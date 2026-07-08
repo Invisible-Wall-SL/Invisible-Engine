@@ -245,8 +245,14 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     it (the "time an effect on the timeline" seam). Enabled on placed spine nodes (`LayoutNodeView`) +
     the FX host rig (`Effects.svelte`); off elsewhere (opt-in, no spam); listener removed on destroy.
     Bone-attach was already done (`placement.space:'bone'` + `SpineBoneAttach`). Companion: the Rigger
-    event-key authoring UI. Follow-up: hosting a free-placed effect inside a SPECIFIC placed rig's
-    `<SpineProvider>` (per-rig bone attach) — today bone effects ride the generic foreground host rig.
+    event-key authoring UI.
+  - **Per-rig bone hosting LANDED (2026-07-08).** Closed the follow-up above. `EffectNode.hostSpineId`
+    (the id of a placed spine node in the same scene) attaches an effect to a SPECIFIC rig: `LayoutScene`
+    pairs the hosted effect to its host spine + suppresses it at top level, and `LayoutNodeView` renders
+    its `<EffectPlayer>` DIRECTLY inside that rig's `<SpineProvider>` (`attachedEffects` prop) — so a bone
+    layer rides that rig's bone and the rig's rebroadcast timeline events fire it. Editor: an "attach to
+    rig" dropdown in the effect Properties. Reference model (not nesting) to keep spine a leaf node.
+    Dangling id ⇒ normal top-level render. The effect rides the rig (its node transform ignored).
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

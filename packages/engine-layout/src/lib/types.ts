@@ -511,6 +511,16 @@ export interface EffectNode extends BaseNode {
 	kind: 'effect';
 	/** The authored effect's id (file stem of its `.fx.json`), resolved via `registerEffects`. */
 	effectId: string;
+	/**
+	 * Optional — the `id` of a placed SPINE node in the SAME scene this effect ATTACHES to. When set
+	 * (and the target spine exists), the effect is mounted INSIDE that rig's `<SpineProvider>` instead
+	 * of at its own scene position, so a `placement.space:'bone'` layer rides that specific rig's bone
+	 * and the rig's animation-timeline events (rebroadcast — `BaseSpineProvider.rebroadcastEvents`) fire
+	 * the effect on the beat. The effect then RIDES the rig (its own node transform is ignored at
+	 * runtime; the rig drives position). Absent / dangling ⇒ a normal scene-placed effect at its
+	 * transform. `LayoutScene` does the pairing; only top-level scene nodes participate.
+	 */
+	hostSpineId?: string;
 }
 
 export type LayoutNode =

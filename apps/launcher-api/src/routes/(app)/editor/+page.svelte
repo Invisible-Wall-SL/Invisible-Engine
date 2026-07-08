@@ -677,6 +677,13 @@
 	const activeSceneSlots = $derived(
 		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
 	);
+	/** The active scene's placed top-level SPINE nodes — the `effect` node's "attach to rig" targets
+	 * (per-rig bone hosting; `LayoutScene` pairs top-level scene nodes, so only these are valid). */
+	const activeSceneSpineNodes = $derived(
+		(activeScene?.nodes ?? [])
+			.filter((n): n is Extract<LayoutNode, { kind: 'spine' }> => n.kind === 'spine')
+			.map((n) => ({ id: n.id, label: n.label || n.assetKey || n.id })),
+	);
 	/** The fixed window-reference the composite renders EVERY scene against (§10.2):
 	 * one viewport per `layoutType` (the `STANDARD_MAIN_SIZES_MAP` box — its aspect
 	 * matches the per-layoutType viewport that drives `layoutType` selection, and it
@@ -2581,6 +2588,7 @@
 				{templateMode}
 				{slotMeta}
 				sceneSlots={activeSceneSlots}
+				sceneSpineNodes={activeSceneSpineNodes}
 				projectGameName={data.gameName}
 				isBackgroundCover={isBackgroundCoverSelected}
 				{spineMeta}
