@@ -460,13 +460,11 @@ async function main() {
 
 	// Dangling-assetKey guard (§8 — the particle analogue of the geometry-less-manifest
 	// gotcha): each effect layer references its particle art by `art.assetKey`, an atlas
-	// MANIFEST key the editor-art export ships as a sheet (`editorArt.sheets[].key`). If an
-	// effect references an atlas that ISN'T in the shipped set, that atlas never reaches the
-	// game's `loadedAssets` and the effect renders invisible (textureless particles). The
-	// effect art atlas is shipped only because the layout doc ALSO places that atlas — FX
-	// never re-packs. So warn loudly (non-fatal: an FX-authored project may legitimately add
-	// the atlas to its layout later) so the author wires the atlas into the layout before
-	// shipping. Empty/no effects ⇒ no check.
+	// MANIFEST key the editor-art export ships as a sheet (`editorArt.sheets[].key`). The
+	// editor-art export now AUTO-SHIPS every effect atlas (`exportEditorArt` walks the project's
+	// effects), so this should be empty in the normal case — if it STILL fires, the atlas failed
+	// to export (e.g. its manifest has no packed page or no regions), and the effect will render
+	// INVISIBLE (textureless particles). Non-fatal. Empty/no effects ⇒ no check.
 	if (effectAssetKeys.length > 0) {
 		const shipped = new Set(editorArt.sheets.map((s) => s.key));
 		for (const k of editorArt.images) shipped.add(k.key);
@@ -474,9 +472,9 @@ async function main() {
 		for (const k of dangling) {
 			console.warn(
 				`⚠ bake-doc: FX effect references art.assetKey "${k}" which is NOT among the ` +
-					`shipped atlases (editor-art sheets). The atlas only ships if the layout ALSO ` +
-					`places it — this effect will render INVISIBLE (textureless particles). Place the ` +
-					'atlas in the Scene Editor (or remove the effect) before shipping.',
+					`shipped atlases (editor-art sheets) even though effect atlases auto-ship — its ` +
+					`manifest likely has no packed page or no regions, so the effect will render ` +
+					'INVISIBLE (textureless particles). Re-check that atlas in the Atlas/Sheet Maker.',
 			);
 		}
 	}

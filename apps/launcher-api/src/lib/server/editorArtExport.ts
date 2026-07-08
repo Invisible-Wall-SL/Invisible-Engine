@@ -29,6 +29,7 @@ import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
+import { listEffects, loadEffect } from './fxStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
@@ -283,6 +284,25 @@ export async function exportEditorArt(
 	const doc = (await loadDoc(clientKey, projectKey)) as LayoutDoc;
 	const defs = await resolveReferencedDefs(doc, projectKey);
 	const refs = collectArtRefs(doc, defs);
+
+	// Also ship the atlases the project's Invisible FX EFFECTS reference. An EffectDoc's particle
+	// art is an atlas the game must load, but effects ship independently of the layout (every effect
+	// ships; a placed `effect` node AND `Effects.svelte` both play them), so those atlases would
+	// otherwise NOT be in `refs.manifestKeys` unless the layout ALSO placed them as a sprite — the
+	// old "place the effect AND its atlas" trap. Add each effect layer's manifest `art.assetKey` so a
+	// placed/mounted effect's particles have textures in-game with no extra step. Best-effort: a
+	// listing/parse failure must never break the editor-art export.
+	try {
+		for (const row of await listEffects(clientKey, projectKey)) {
+			const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+			for (const layer of effectDoc.layers) {
+				const assetKey = layer.art?.assetKey;
+				if (assetKey && isManifestAssetKey(assetKey)) refs.manifestKeys.add(assetKey);
+			}
+		}
+	} catch {
+		// Effects are additive art — never let them break the sprite/spine export.
+	}
 
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const artPrefix = `${deployPrefix}editor-art/`;

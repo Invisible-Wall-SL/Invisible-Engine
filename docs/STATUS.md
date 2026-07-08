@@ -24,6 +24,19 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX in-game: effect atlases AUTO-SHIP (removes the "place the atlas too" trap)
+- **Follow-up from Phase 1's known gap:** a placed/mounted effect rendered INVISIBLE in-game unless
+  the author ALSO placed its particle atlas as a sprite (its `art.assetKey` only shipped if the layout
+  referenced it). Now `editorArtExport.exportEditorArt` walks the project's effects (`listEffects` +
+  `loadEffect`) and adds every layer's manifest `art.assetKey` to the shipped editor-art set — so a
+  placed effect's particles have textures with no extra step. Best-effort (never breaks the sprite/
+  spine export). The bake dangling-`assetKey` guard message updated (auto-ship means it now only fires
+  for a genuinely unusable atlas — no page/regions). `launcher-api` build + `node --check` clean.
+- **Note on the reported symptoms:** the editor "can't see the ✨ chip" + `DataCloneError` on undo +
+  the 404 on a `_app/immutable/nodes/*.js` chunk are a STALE cached build (the undo bug was already
+  fixed on `main` in `d66fbd9`); a hard reload after the deploy settles clears them. Re-bake + pull
+  after placing an effect for it to reach the game.
+
 ### 2026-07-08 — Invisible FX in-game, Phase 3a: Rigger event-key authoring UI (completes Phase 3)
 - **Companion to 3b:** the Rigger (`static/rigger/view.html`, vanilla-JS) already stored + drew
   animation event keys (purple ⚡; retime/duplicate/delete wired in Phase 5.4) but had no way to edit

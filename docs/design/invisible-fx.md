@@ -224,7 +224,10 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     **v1: scene-placed = FREE layers** (a bone layer has no host `<SpineProvider>` in a scene → falls
     back to origin+offset; bone effects stay on the host-rig path, timed in the Rigger = Phase 3).
     **Effect art ships only if its atlas is ALSO placed** (existing dangling-`assetKey` guard) —
-    auto-shipping a placed effect's atlas is a tracked follow-up.
+    auto-shipping a placed effect's atlas is a tracked follow-up. **[DONE 2026-07-08]**
+    `exportEditorArt` now walks the project's effects and auto-ships every layer's manifest
+    `art.assetKey`, so a placed/mounted effect's particles have textures with no extra step (the
+    dangling-`assetKey` guard now only fires for a genuinely unusable atlas).
   - **Flow activation — shared cue-name picker (2026-07-08, "in-game" Phase 2).** The runtime join
     already works + is harness-verified (`trigger.ts`): a Flow Broadcast (v1) / `fireCue` (v2) →
     `eventEmitter.broadcast({type: name})` fires an FX `on:'event'` layer whose `trigger.eventType ===
