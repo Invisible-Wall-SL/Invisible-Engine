@@ -234,6 +234,16 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     `ref`s, via `loadFlowV2Doc` in the FX loader) — the v2 template vocabulary isn't project-loaded
     yet (owner's in-progress flow-v2 work), so sourcing from the real FlowDoc is the non-blocked path.
     A first-class `playEffect` Flow node stays deferred.
+  - **Rig-timeline → effect seam LANDED (2026-07-08, "in-game" Phase 3b).** `BaseSpineProvider`
+    (→ `SpineProvider`) gains opt-in `rebroadcastEvents`: a Spine `AnimationState` listener broadcasts
+    each fired animation event onto the `utils-event-emitter` bus as `{type: event.name, int, float,
+    string}` — the SAME bus an FX `on:'event'` layer subscribes to. So a Rigger event key named `X` on
+    an animation fires any effect whose `trigger.eventType === X`, exactly when the animation reaches
+    it (the "time an effect on the timeline" seam). Enabled on placed spine nodes (`LayoutNodeView`) +
+    the FX host rig (`Effects.svelte`); off elsewhere (opt-in, no spam); listener removed on destroy.
+    Bone-attach was already done (`placement.space:'bone'` + `SpineBoneAttach`). Companion: the Rigger
+    event-key authoring UI. Follow-up: hosting a free-placed effect inside a SPECIFIC placed rig's
+    `<SpineProvider>` (per-rig bone attach) — today bone effects ride the generic foreground host rig.
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

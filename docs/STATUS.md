@@ -24,6 +24,27 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX in-game, Phase 3b: rig timeline events → event bus (runtime seam)
+- **Goal (plan `ticklish-conjuring-lamport`):** time an effect on a rig's animation timeline. A Spine
+  animation carries EVENTS (`animations[a].events[{time,name,…}]`); an effect should fire when the
+  animation reaches an event key. (Bone-attach was already done via `placement.space:'bone'`.)
+- **Engine seam:** `BaseSpineProvider` (→ `SpineProvider`) gains an opt-in `rebroadcastEvents` prop.
+  When set it attaches a Spine `AnimationState` listener that broadcasts each fired event onto the
+  shared `utils-event-emitter` bus as `{ type: event.name, int, float, string }` — the SAME bus an FX
+  `on:'event'` layer subscribes to (`trigger.eventType`). So an event key named `X` fires any effect
+  whose trigger is `X`, exactly on the beat. Listener removed on destroy; no-op when off / no bus.
+- **Enabled on** placed spine nodes (`LayoutNodeView` — a Rigger-authored rig placed in a scene fires
+  its timeline events) and the FX host rig (`apps/lines/components/Effects.svelte`). Off everywhere
+  else (opt-in, no bus spam). Authored event keys are sparse + a no-subscriber broadcast is ~free.
+- **Verified:** `pixi-svelte`/`engine-layout`/`apps/lines` build + type-check clean; the two proven
+  halves already exist (`rigger-spike/eventanim.mjs` = spine events fire; `fx-spike/trigger.ts` = bus
+  → effect). Owner live-verify the spine-event→bus link + the beat timing.
+- **Companion (3a, next commit):** the Rigger **event-key authoring UI** (name/int/float/string/time
+  + create/delete) so authors place the event keys — currently authorable only via `.irig`/script.
+- **Known follow-up:** attaching a free-placed effect to a SPECIFIC placed rig's bone (mounting the
+  effect INSIDE that rig's `<SpineProvider>`) — today bone effects ride the generic foreground host
+  rig; a placed rig's timeline can TIME any effect, but per-rig bone hosting is a separate wiring step.
+
 ### 2026-07-08 — Invisible FX in-game, Phase 2: Flow activation (shared cue-name picker)
 - **Goal (plan `ticklish-conjuring-lamport`):** fire a placed/mounted effect from Flow. Decision was
   event-name wiring + a shared picker (no new Flow node kind).

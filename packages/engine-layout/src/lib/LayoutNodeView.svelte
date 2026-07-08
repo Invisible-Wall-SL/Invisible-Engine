@@ -533,6 +533,7 @@
 			fit={bgSpineBox ? bgFit : undefined}
 			skin={effSkin}
 			visible={spineVisible}
+			rebroadcastEvents
 		>
 			<!--
 				A button-STATE animation (hover/press/…) wins over a signal cue, which wins

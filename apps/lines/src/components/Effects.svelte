@@ -57,7 +57,7 @@
 {/each}
 
 {#if boneEffects.length}
-	<SpineProvider key="foregroundAnimation" {...hostRigProps}>
+	<SpineProvider key="foregroundAnimation" {...hostRigProps} rebroadcastEvents>
 		{#each boneEffects as doc (doc.id)}
 			<EffectPlayer {doc} />
 		{/each}
