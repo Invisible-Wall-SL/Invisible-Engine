@@ -8,6 +8,7 @@
 		SvelteFlow,
 		Background,
 		Controls,
+		SelectionMode,
 		useSvelteFlow,
 		type Connection,
 		type Edge,
@@ -92,6 +93,10 @@
 		colorMode="dark"
 		fitView
 		deleteKeyCode={['Delete', 'Backspace']}
+		selectionOnDrag
+		selectionMode={SelectionMode.Partial}
+		panOnDrag={[1, 2]}
+		multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
 		{isValidConnection}
 		onconnect={onConnect}
 		ondelete={onGraphDelete}

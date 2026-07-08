@@ -492,10 +492,22 @@
 		applyGraphEdit(deleteFromGraphIn(activeGraph, nodeIds, edgeIds));
 	}
 
-	// Move (drag-stop only — kept cheap, not per-frame): write the new position back.
-	function onNodeDragStop({ targetNode }: { targetNode: Node | null }): void {
-		if (!targetNode) return;
-		applyGraphEdit(moveNodeIn(activeGraph, targetNode.id, targetNode.position));
+	// Move (drag-stop only — kept cheap, not per-frame): write the new position(s) back. A marquee /
+	// group drag moves EVERY selected node at once; xyflow updates them all in the bound `nodes`, so we
+	// persist every graph node whose position changed — not just the grabbed one, or the rest snap back
+	// on the next canvas sync. (Canvas-only nodes like comment boxes aren't in the graph, so they're
+	// skipped here and persist through their own path.)
+	function onNodeDragStop(): void {
+		let g = activeGraph;
+		let changed = false;
+		for (const fn of nodes) {
+			const dn = g.nodes.find((n) => n.id === fn.id);
+			if (dn && (dn.pos.x !== fn.position.x || dn.pos.y !== fn.position.y)) {
+				g = moveNodeIn(g, fn.id, fn.position);
+				changed = true;
+			}
+		}
+		if (changed) applyGraphEdit(g);
 	}
 
 	// Add a node at an explicit doc-space position — the PRIMARY path: the palette entry is
