@@ -278,26 +278,28 @@
 			zIndex: 1,
 			data: { node: n, ctx, title: nodeTitle(n) },
 		}));
-		// Comment/group boxes render BEHIND the graph (zIndex 0, listed first). Flow view only —
-		// function bodies carry no comments. `width`/`height` come from the stored box; NodeResizer
-		// mutates them and persists on resize-end via `updateComment`.
+		// Comment/group boxes. Flow view only — function bodies carry no comments. Listed FIRST so at
+		// the SAME zIndex as the graph nodes they paint BEHIND them (DOM order) while still sitting
+		// ABOVE the selection pane (which is also z 1) so the box is clickable. NodeResizer mutates the
+		// size; `updateComment` persists it on resize-end.
 		const commentNodes: Node[] =
 			view.kind === 'flow'
 				? (doc.comments ?? []).map((c) => ({
 						id: c.id,
 						type: 'comment',
 						position: { x: c.x, y: c.y },
-						width: c.width,
-						height: c.height,
-						// Force the wrapper box size explicitly — the node content is `height:100%`, which
-						// would otherwise measure to just the header and collapse the grabbable body.
+						// Size via `style` ONLY. Setting BOTH `width`/`height` AND `style` fights xyflow's
+						// controlled-dimensions logic and spins an infinite measure loop that FREEZES the whole
+						// canvas (nothing grabbable) — the bug behind "can't select/drag the box". Verified in a
+						// live probe: style-only is fully selectable / draggable / resizable.
 						style: `width:${c.width}px;height:${c.height}px`,
 						draggable: true,
 						selectable: true,
 						deletable: true,
-						// Behind the graph nodes (z 0 vs 1) when idle; selecting elevates it (xyflow default)
-						// so its resize handles are reachable — the translucent fill keeps nodes visible.
-						zIndex: 0,
+						// z 1 (like the graph nodes) keeps the box above the z-1 selection pane so clicks land
+						// on it; first-in-array keeps it painted behind the nodes. Selecting elevates it (xyflow
+						// default); the translucent fill keeps the nodes visible through it.
+						zIndex: 1,
 						data: {
 							comment: c,
 							onchange: (patch: Partial<FlowComment>) => updateComment(c.id, patch),
