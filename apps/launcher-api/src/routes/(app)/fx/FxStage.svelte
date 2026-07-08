@@ -33,15 +33,8 @@
 		type LayerHostLike,
 		type SpineParticleBehaviorConfig,
 	} from 'pixi-svelte';
-	import {
-		Application,
-		Container,
-		ImageSource,
-		Rectangle,
-		Sprite,
-		Texture,
-		type TextureSource,
-	} from 'pixi.js';
+	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
+	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
 	import {
 		emitterOwnerLocal,
@@ -319,49 +312,8 @@
 		return placeholder;
 	}
 
-	/**
-	 * Load an atlas page image into a Pixi `TextureSource`, robustly. We fetch the bytes ourselves
-	 * (same-origin, so the session cookie flows and an HTTP error is explicit) and decode via
-	 * `createImageBitmap`, rather than `Assets.load(url)`: Pixi's asset resolver picks a loader by the
-	 * URL's apparent extension, which the auth-gated `/api/editor/asset?key=…` streamer URL (a query
-	 * string, no clean extension) trips over — leaving the emitter textureless (the placeholder-dots
-	 * bug). This mirrors the Editor canvas, which loads the SAME endpoint via an `<img>` for exactly
-	 * this reason. Cached by URL so a page is decoded once.
-	 */
-	async function loadPageSource(url: string): Promise<TextureSource> {
-		const cached = sourceCache.get(url);
-		if (cached) return cached;
-		const res = await fetch(url);
-		if (!res.ok) throw new Error(`asset HTTP ${res.status}`);
-		const blob = await res.blob();
-		const bitmap = await createImageBitmap(blob);
-		const source = new ImageSource({ resource: bitmap });
-		sourceCache.set(url, source);
-		return source;
-	}
-
-	/** Slice an atlas page into the per-frame textures named by a layer's `art.frames`. */
-	async function framesToTextures(layer: EmitterLayer): Promise<Texture[]> {
-		const { assetKey, frames } = layer.art;
-		if (!assetKey || frames.length === 0) return [];
-		const art = await resolveArt(assetKey);
-		if (!art) return [];
-		let source: TextureSource;
-		try {
-			source = await loadPageSource(art.pageUrl);
-		} catch (err) {
-			console.warn('FxStage: page image load failed; showing placeholder', art.pageUrl, err);
-			return [];
-		}
-		const byName = new Map(art.regions.map((r) => [r.name, r]));
-		const out: Texture[] = [];
-		for (const name of frames) {
-			const r = byName.get(name);
-			if (!r) continue;
-			out.push(new Texture({ source, frame: new Rectangle(r.x, r.y, r.w, r.h) }));
-		}
-		return out;
-	}
+	// `loadPageSource` + `framesToTextures` (atlas-page load + per-frame slice) now live in the shared
+	// `$lib/fx/effectEmitter.client` so the Scene Editor's live overlay resolves art identically.
 
 	/**
 	 * (Re)build every live emitter from the current `layers`. Guarded by a generation token:
@@ -414,7 +366,7 @@
 				continue;
 			}
 
-			const real = await framesToTextures(layer);
+			const real = await framesToTextures(layer, resolveArt, sourceCache);
 			if (gen !== rebuildGen) return; // a newer rebuild superseded us
 			// Preview aid: with no art bound, spawn soft placeholder DOTS so the emitter is
 			// visible while authoring (the saved doc keeps NO art; the runtime stays empty for
@@ -543,7 +495,7 @@
 		if (!art) return;
 		let source: TextureSource;
 		try {
-			source = await loadPageSource(art.pageUrl);
+			source = await loadPageSource(art.pageUrl, sourceCache);
 		} catch (err) {
 			console.warn('FxStage: reference page image load failed', art.pageUrl, err);
 			return;
