@@ -32,6 +32,7 @@
 		sequence: '#64748b',
 		parallel: '#64748b',
 		compute: '#94a3b8', // pure value op — slate.
+		group: '#fb923c', // inline container fold — warm orange.
 		functionEntry: '#22d3ee', // function body start — cyan.
 		functionResult: '#22d3ee', // function body end — cyan.
 	};
@@ -78,6 +79,8 @@
 			case 'sequence':
 			case 'parallel':
 				return `${n.kind} · ${n.count}`;
+			case 'group':
+				return `${inputs.length} in · ${outputs.length} out`;
 			case 'functionEntry':
 				return 'inputs →';
 			case 'functionResult':

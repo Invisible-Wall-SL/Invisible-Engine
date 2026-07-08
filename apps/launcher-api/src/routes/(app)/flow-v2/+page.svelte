@@ -3,6 +3,8 @@
 	import { onMount } from 'svelte';
 	import {
 		collapseToFunction,
+		collapseToGroup,
+		expandGroup,
 		derivePins,
 		templateVocabulary,
 		validateFlowDoc,
@@ -256,6 +258,8 @@
 				return 'Result';
 			case 'gameSignals':
 				return 'Game Signals';
+			case 'group':
+				return n.label;
 			default:
 				return n.kind;
 		}
@@ -783,6 +787,60 @@
 		collapseError = null;
 	}
 
+	// --- Collapse to Group (Part 2) ---------------------------------------------
+	// A group is an INLINE, non-reusable fold (§5.2): unlike a function it never touches the shared
+	// library, so no name-prompt is needed — auto-name `Group N` (the lighter option) and collapse in
+	// one click. Same selection source as collapse-to-function; flow-view only.
+	const groupCount = $derived(doc.graph.nodes.filter((n) => n.kind === 'group').length);
+	// Exactly-one-group selection enables "Expand group" (the un-collapse).
+	const selectedGroupId = $derived(
+		selectedIds.length === 1 &&
+			doc.graph.nodes.find((n) => n.id === selectedIds[0])?.kind === 'group'
+			? selectedIds[0]
+			: null,
+	);
+	// A non-blocking error surfaced when a group collapse/expand is rejected.
+	let groupError = $state<string | null>(null);
+
+	// Fold the current selection into ONE group node. On error surface it and mutate NOTHING; on
+	// success adopt the new doc and select the freshly-minted group node (the one node absent from the
+	// pre-collapse graph). The library is untouched (groups aren't library functions).
+	function confirmCollapseToGroup(): void {
+		if (!canCollapse) return;
+		groupError = null;
+		const selection = [...selectedIds];
+		const label = `Group ${groupCount + 1}`;
+		const before = new Set(doc.graph.nodes.map((n) => n.id));
+
+		const result = collapseToGroup({ doc, selection, label }, ctx);
+		if ('error' in result) {
+			groupError = result.error;
+			return;
+		}
+
+		doc = result.doc;
+		const groupNode = result.doc.graph.nodes.find((n) => !before.has(n.id));
+		selectedNodeId = groupNode?.id ?? null;
+		syncCanvas();
+		markDirty();
+	}
+
+	// Un-collapse: re-inline the selected group's body and remove the group. Exact inverse of
+	// `collapseToGroup`; the library is untouched.
+	function expandSelectedGroup(): void {
+		if (!selectedGroupId) return;
+		groupError = null;
+		const result = expandGroup(doc, selectedGroupId);
+		if ('error' in result) {
+			groupError = result.error;
+			return;
+		}
+		doc = result.doc;
+		selectedNodeId = null;
+		syncCanvas();
+		markDirty();
+	}
+
 	// --- Library management (2c.3): rename + delete a function -------------------
 	// Rename the OPEN function. The `id` stays stable (call sites resolve by id), so only the
 	// display `name` changes; every functionCall's header re-reads it live via `nodeTitle`.
@@ -900,6 +958,30 @@
 			>
 				⤵ Collapse{canCollapse ? ` ${selectedIds.length} nodes` : ''}
 			</button>
+			<button
+				class="collapse-btn"
+				type="button"
+				disabled={!canCollapse}
+				onclick={confirmCollapseToGroup}
+				title={canCollapse
+					? 'Collapse the selected nodes into an inline group'
+					: 'Select 2 or more nodes (marquee-drag or shift-click) to group'}
+			>
+				▣ Group{canCollapse ? ` ${selectedIds.length} nodes` : ''}
+			</button>
+			{#if selectedGroupId}
+				<button
+					class="collapse-btn"
+					type="button"
+					onclick={expandSelectedGroup}
+					title="Un-collapse: inline this group's body back into the flow"
+				>
+					⤴ Expand group
+				</button>
+			{/if}
+			{#if groupError}
+				<span class="warn" title={groupError}>⚠ {groupError}</span>
+			{/if}
 		{/if}
 		<span class="spacer"></span>
 		{#if hasProject}

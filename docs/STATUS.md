@@ -44,8 +44,12 @@ submodule bumps).
   `runFlowEvent` records identically for collapsed/expanded/raw (transparency); a data crossing resolves
   through its boundary pin; pure + guard-checked. `v2collapse`/`v2runtime`/`v2containerfire`/
   `v2gamesignals` unregressed; `engine-flow-v2` typecheck exit 0. Docs: schema §5.2 + design §5.
-- **Next (Part 2):** `/flow-v2` UI — a "Collapse to Group" toolbar action next to Collapse-to-Function,
-  render the `group` node with its boundary pins, and double-click-to-expand.
+- **Part 2 UI (SHIPPED):** `/flow-v2` — a **"▣ Group"** toolbar action (next to Collapse-to-Function,
+  ≥2 selected) folds the selection into one `group` node (auto-named `Group N`, no prompt — inline,
+  not a library function); an **"⤴ Expand group"** action (shown when a lone `group` is selected)
+  un-collapses it. `FlowV2Node` renders the group (warm-orange, `"<n> in · <m> out"`); boundary pins
+  derive automatically. `launcher-api build` clean; `v2group` still PASS. Collapse/expand/render loop
+  complete in the editor.
 
 ### 2026-07-08 — Invisible FX: per-rig bone hosting (attach a placed effect to a specific rig)
 - **Goal:** the last piece of the Rigger arc — attach a scene-placed effect to a SPECIFIC placed spine
