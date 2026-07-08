@@ -21,6 +21,7 @@
 import type {
 	Accessor,
 	ComputeOp,
+	ContainerEventDecl,
 	DataSource,
 	FunctionDef,
 	FunctionLibraryDoc,
@@ -35,6 +36,13 @@ import type {
 export interface PinContext {
 	vocab: TemplateVocabulary;
 	library: FunctionLibraryDoc;
+	/**
+	 * §6.1 — per-scene container-scoped component events, keyed by `sceneId` → its aggregated decls
+	 * (`deriveContainerEvents`). Optional: when supplied, an `event` node whose `ref` is
+	 * `<sceneId>/<declId>` resolves against it (a container control's exec-out entry point) instead of
+	 * the global template vocabulary. Absent ⇒ container-scoped refs stay unresolved (parity-safe).
+	 */
+	containerEvents?: Record<string, ContainerEventDecl[]>;
 }
 
 const EXEC_IN: Pin = { id: 'exec', dir: 'in', kind: 'exec' };
@@ -154,6 +162,17 @@ const guardPins = (guard: Guard): Pin[] => {
 export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pin[] => {
 	switch (node.kind) {
 		case 'event': {
+			// §6.1: a `ref` with a `/` is container-scoped — `<sceneId>/<declId>` — and resolves against
+			// the scene's aggregated component events, not the global vocabulary. Unresolved ⇒ just the
+			// exec-out (parity-safe, like an unknown global event ref).
+			if (node.ref.includes('/')) {
+				const slash = node.ref.indexOf('/');
+				const sceneId = node.ref.slice(0, slash);
+				const declId = node.ref.slice(slash + 1);
+				const decl = ctx.containerEvents?.[sceneId]?.find((d) => d.id === declId);
+				const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name));
+				return [EXEC_OUT, ...outs]; // entry point: NO exec-in.
+			}
 			const decl = ctx.vocab.events.find((e) => e.name === node.ref);
 			const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name));
 			return [EXEC_OUT, ...outs]; // entry point: NO exec-in.

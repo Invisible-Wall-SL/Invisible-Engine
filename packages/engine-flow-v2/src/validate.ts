@@ -27,6 +27,7 @@
 import { derivePins, type PinContext } from './pins';
 import { assignable } from './types-check';
 import type {
+	ContainerEventDecl,
 	DataEdge,
 	DataSource,
 	ExecEdge,
@@ -132,8 +133,17 @@ const wiredDataIns = (nodeId: string, edges: DataEdge[]): Set<string> =>
 /** Resolve a node's `ref`, if it has one, against the vocab/library. */
 const refResolves = (node: Node, ctx: PinContext): boolean => {
 	switch (node.kind) {
-		case 'event':
+		case 'event': {
+			// §6.1: a container-scoped `<sceneId>/<declId>` resolves against the scene's aggregated
+			// component events (when the surface is supplied), not the global vocabulary.
+			if (node.ref.includes('/')) {
+				const slash = node.ref.indexOf('/');
+				const sceneId = node.ref.slice(0, slash);
+				const declId = node.ref.slice(slash + 1);
+				return !!ctx.containerEvents?.[sceneId]?.some((d) => d.id === declId);
+			}
 			return ctx.vocab.events.some((e) => e.name === node.ref);
+		}
 		case 'action':
 			return ctx.vocab.actions.some((a) => a.name === node.ref);
 		case 'fireCue':
@@ -153,8 +163,12 @@ export const validateFlowDoc = (
 	doc: FlowDoc,
 	vocab: TemplateVocabulary,
 	library: FunctionLibraryDoc,
+	// §6.1: the per-scene container-event surface (sceneId → aggregated component-event decls). When
+	// supplied, a container-scoped `<sceneId>/<declId>` event ref resolves against it instead of being
+	// flagged unknown. Optional so every existing caller still compiles.
+	containerEvents?: Record<string, ContainerEventDecl[]>,
 ): FlowIssue[] => {
-	const ctx: PinContext = { vocab, library };
+	const ctx: PinContext = { vocab, library, containerEvents };
 	const containerIds = new Set(doc.containers.map((c) => c.id));
 	return validateGraph(doc.graph, ctx, {
 		mode: 'flow',

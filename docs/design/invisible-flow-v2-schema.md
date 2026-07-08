@@ -246,7 +246,7 @@ interface ContainerEventDecl {
   id: string;            // 'spinButton.onSpin' — component-local, unique within the container
   componentId: string;   // the Scene-Editor component that declares it
   event: string;         // the configured action/intent name ('spin', 'increaseBet', 'soundToggle')
-  payload?: Pin[];       // data-outs, iff the component's config carries a payload (usually none)
+  payload?: ParamDecl[]; // data-outs, iff the component's config carries a payload (usually none)
 }
 ```
 
