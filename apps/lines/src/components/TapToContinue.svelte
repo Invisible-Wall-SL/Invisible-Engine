@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { CanvasSizeRectangle } from 'components-layout';
+	import { getFlowComplete } from 'engine-layout';
 
-	import { completeActiveScreen, emitFlowSignal } from '../game/flowInterpreterHolder';
 	import PressToContinue from './PressToContinue.svelte';
 
 	// The coded press surface behind the engine-layout `tapToContinue` toggle (the
@@ -30,11 +30,19 @@
 	const props: Props = $props();
 
 	const onTap = (): void => {
-		void completeActiveScreen();
+		// Route through the GAME-REGISTERED flow-complete hook (`getFlowComplete`), NOT the v1 holder
+		// directly: under a v2 flow it dispatches `complete:<screen>`, and it falls through to the v1
+		// interpreter otherwise. Calling the v1 holder directly is a no-op when v2 is the sole flow
+		// (the v1 interpreter isn't built) — that's why an enabled tap-to-continue stopped advancing.
+		const flow = getFlowComplete();
+		void flow?.completeActiveScreen();
 		const signal = props.signal?.trim();
-		if (signal) void emitFlowSignal(signal);
+		if (signal) flow?.emitSignal(signal);
 	};
 </script>
 
-<CanvasSizeRectangle backgroundColor={props.dimColor ?? 0x000000} backgroundAlpha={props.dimAlpha ?? 0} />
+<CanvasSizeRectangle
+	backgroundColor={props.dimColor ?? 0x000000}
+	backgroundAlpha={props.dimAlpha ?? 0}
+/>
 <PressToContinue onpress={onTap} hidePrompt={props.hidePrompt} />
