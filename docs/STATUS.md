@@ -24,6 +24,22 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Launcher: re-authored atlas rendered STALE in the editor + Symbols State Machine (asset cache) (SHIPPED)
+
+Symptom (owner): re-authored `S_Game_reel` in the Atlas Maker with new regions and DEPLOYED it;
+the Rigger and Spine Viewer showed the fresh art, but the Invisible Editor and Symbols State
+Machine kept rendering the old page (new regions blank, recoloured art stale). Root cause: the
+gated asset streamer `streamAsset` (`/api/editor/asset`, shared with the Font Maker's
+`/api/fonts/asset`) served page images with `max-age=300, must-revalidate`. The editor + state
+machine crop every region LIVE from the deployed page (`deploy/…`, preferred by
+`editorRegions.ts resolvePageKey`/`findDeployedPage`) at a STABLE url — so for up to 5 min after a
+deploy the browser reused the cached OLD page without revalidating. The Rigger/Spine Viewer were
+unaffected because a rebuilt rig COPIES the page into its own self-contained `spines/<name>/`
+bundle (`rigger/new`) at a different url. Fixed `428bc10`: `max-age=0, must-revalidate` so the
+browser always revalidates via the R2 ETag (cheap 304 unchanged, instant fresh 200 after deploy) —
+mirrors the Sheet Maker `_serve_sprite` fix for the identical stale-recolour bug. Immediate
+workaround for a stale session: hard-reload (Ctrl+Shift+R).
+
 ### 2026-07-08 — Sheet Maker: fix duplicate FX-child names + stale glow/shine from atlas round-trip (SHIPPED)
 
 Symptom (owner): after bouncing a sheet between the Atlas Maker and Sheet Maker, some regions
