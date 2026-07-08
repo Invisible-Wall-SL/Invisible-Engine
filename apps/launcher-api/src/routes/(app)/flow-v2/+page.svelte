@@ -217,6 +217,14 @@
 		markDirty();
 	}
 
+	// Map a container ref → its Scene Editor friendly NAME (e.g. `hud_kv04zk3j` → "HUD - Bottom BAR"),
+	// via the container's `sceneId`. Falls back to the raw id when the name is unknown (unsaved /
+	// standalone project). The raw id still shows small in the node body (`refLine` in FlowV2Node).
+	const containerLabel = (ref: string): string => {
+		const sceneId = doc.containers.find((c) => c.id === ref)?.sceneId ?? ref;
+		return data.sceneNames?.[sceneId] ?? data.sceneNames?.[ref] ?? ref;
+	};
+
 	// A human title for a node (its ref, else its kind) shown in the node header.
 	const nodeTitle = (n: V2Node): string => {
 		switch (n.kind) {
@@ -230,7 +238,7 @@
 			}
 			case 'showContainer':
 			case 'hideContainer':
-				return n.ref;
+				return containerLabel(n.ref);
 			case 'functionEntry':
 				return 'Entry';
 			case 'functionResult':

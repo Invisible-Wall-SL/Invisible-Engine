@@ -3,6 +3,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2Library } from '$lib/server/flowV2LibraryStorage';
+import { loadDoc } from '$lib/server/editorStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import type { PageServerLoad } from './$types';
 
@@ -41,5 +42,12 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	});
 	const doc = await loadFlowV2Doc(clientKey, projectKey);
 	const library = await loadFlowV2Library();
-	return { clientKey, projectKey, doc, library };
+	// The Scene Editor's friendly screen NAMES, keyed by scene id — so the container nodes
+	// (show/hideContainer) can label themselves "HUD - Bottom BAR" instead of the raw id
+	// (`hud_kv04zk3j`). Best-effort: an unsaved / standalone project just yields an empty map.
+	const layout = await loadDoc(clientKey, projectKey);
+	const sceneNames: Record<string, string> = Object.fromEntries(
+		(layout.scenes ?? []).map((s) => [s.id, s.name ?? s.id]),
+	);
+	return { clientKey, projectKey, doc, library, sceneNames };
 };
