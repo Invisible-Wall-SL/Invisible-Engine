@@ -143,6 +143,7 @@ export type ComputeOp =
 
 export type NodeKind =
 	| 'event'
+	| 'gameSignals'
 	| 'action'
 	| 'fireCue'
 	| 'delay'
@@ -170,6 +171,20 @@ export interface NodeBase {
 export interface EventNode extends NodeBase {
 	kind: 'event';
 	ref: string; // the template event name (resolves in `TemplateVocabulary.events`).
+}
+
+/**
+ * Game Signals (§6.2): the SINGLE node that surfaces the TEMPLATE's MECHANIC signals — every vocab
+ * event whose `category` is `'book'` or `'lifecycle'` (NOT `'intent'`; intents are the container
+ * button pins, §6.1). It has NO `ref` — it represents the template's own signal source, one per
+ * flow. Its pins are DERIVED from the vocabulary (anti-drift, never stored): one exec-OUT per
+ * non-intent event (id = the event name, label = `on<Event>`) plus one data-OUT per that event's
+ * payload field (id = `<eventName>.<field>`). NO exec-in — it is an exec START point (a source),
+ * so an author wires presentation off the game's own signals from ONE node instead of scattered
+ * per-event nodes.
+ */
+export interface GameSignalsNode extends NodeBase {
+	kind: 'gameSignals';
 }
 
 /** Action: call a template effect OR command (both typed template functions). */
@@ -259,6 +274,7 @@ export interface FunctionResultNode extends NodeBase {
 
 export type Node =
 	| EventNode
+	| GameSignalsNode
 	| ActionNode
 	| FireCueNode
 	| DelayNode
@@ -362,9 +378,21 @@ export interface ParamDecl {
 	type: TypeRef;
 }
 
+/**
+ * The MECHANIC family a vocab event belongs to — the grouping the vocab already documents
+ * informally (§6.2). `'book'` = an RGS `BookEvent` (`reveal`, `winInfo`, `freeSpinTrigger`, …);
+ * `'lifecycle'` = a boot/loading/settle SIGNAL (`load`, `tapToStart`, `idle`); `'intent'` = a
+ * button-press the player initiates (`spin`, `increase`, …). The `gameSignals` node surfaces
+ * `'book'` + `'lifecycle'` events (the template's own signals); intents surface instead as
+ * container button pins (§6.1). OPTIONAL, defaulting to `'book'` (an untagged event is treated as
+ * a book event → surfaced by `gameSignals`); a real template SHOULD tag all three families.
+ */
+export type EventCategory = 'book' | 'lifecycle' | 'intent';
+
 export interface EventDecl {
 	name: string; // 'reveal'.
 	payload: ParamDecl[]; // reveal → { reels: list<Reel> }.
+	category?: EventCategory; // the mechanic family; absent ⇒ 'book' (surfaced by `gameSignals`).
 }
 
 /** An action's palette category — a display tag only; both kinds are typed template functions. */

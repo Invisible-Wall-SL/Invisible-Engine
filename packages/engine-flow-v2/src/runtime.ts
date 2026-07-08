@@ -114,15 +114,34 @@ class FlowInterpreter {
 		for (const node of graph.nodes) this.nodesById.set(node.id, node);
 	}
 
-	/** Find the `event` node reacting to `eventName`, seed the trigger + context scope, and run. */
+	/**
+	 * Find the authored handler for `eventName`, seed the trigger + context scope, and run. Two
+	 * possible entries, in order: (1) a dedicated `event` node whose `ref === eventName` (walk its
+	 * `exec` out-pin); (2) failing that, the single `gameSignals` node — if the vocab has a NON-INTENT
+	 * event named `eventName`, walk FROM that node's exec-out pin named `eventName` (the show-node
+	 * pattern: continue from the pin's wired target, the source node is not re-run). No handler for
+	 * `eventName` in either → parity-safe no-op.
+	 */
 	async runEvent(
 		eventName: string,
 		payload: Record<string, unknown>,
 		context: Record<string, unknown>,
 	): Promise<void> {
 		const entry = this.doc.graph.nodes.find((n) => n.kind === 'event' && n.ref === eventName);
-		if (!entry) return; // no authored handler for this event → parity-safe no-op.
-		await this.execFrom(this.doc.graph, entry.id, 'exec', { trigger: payload, context });
+		if (entry) {
+			await this.execFrom(this.doc.graph, entry.id, 'exec', { trigger: payload, context });
+			return;
+		}
+
+		// Fall back to the `gameSignals` node's exec-out pin named `eventName` (book + lifecycle only —
+		// an intent event is never a gameSignals pin, so it stays a no-op here).
+		const signals = this.doc.graph.nodes.find((n) => n.kind === 'gameSignals');
+		if (!signals) return; // no authored handler → parity-safe no-op.
+		const surfaced = this.ctx.vocab.events.find(
+			(e) => e.name === eventName && e.category !== 'intent',
+		);
+		if (!surfaced) return; // not a surfaced signal → parity-safe no-op.
+		await this.runExecChain(this.doc.graph, signals.id, eventName, { trigger: payload, context });
 	}
 
 	/**
@@ -139,8 +158,7 @@ class FlowInterpreter {
 	): Promise<void> {
 		const declId = containerEventDeclId(componentId, event);
 		const edge = this.doc.graph.exec.find(
-			(e) =>
-				e.from.pin === declId && this.nodesById.get(e.from.node)?.kind === 'showContainer',
+			(e) => e.from.pin === declId && this.nodesById.get(e.from.node)?.kind === 'showContainer',
 		);
 		if (!edge) return; // no authored handler for this container-event pin → parity-safe no-op.
 		await this.execFrom(this.doc.graph, edge.to.node, edge.to.pin, {
@@ -207,6 +225,12 @@ class FlowInterpreter {
 			case 'functionEntry':
 				// Exec START points: their job is just to hand off to the exec-out.
 				return this.nextExec(graph, node.id, 'exec');
+
+			case 'gameSignals':
+				// An exec START point (a mechanic-signal SOURCE): `runEvent` walks FROM its per-event
+				// exec-out pin, never re-running it as a mid-chain node. An accidental visit is a
+				// safe no-op (it has no single canonical `exec` out-pin to continue from).
+				return undefined;
 
 			case 'action':
 				await this.ctx.env.effect(node.ref, this.resolvePayload(graph, node, scope));
@@ -360,6 +384,14 @@ class FlowInterpreter {
 			case 'event':
 				// An event data-out IS the payload field named by the pin id.
 				return scope.trigger[from.pin];
+			case 'gameSignals': {
+				// A gameSignals data-out pin is `<eventName>.<field>`; since only the firing event's exec
+				// chain runs, `scope.trigger` IS that event's payload — resolve the field after the FIRST
+				// `.` (a field name never contains a `.`; the event name might, so split once).
+				const dot = from.pin.indexOf('.');
+				if (dot === -1) return undefined;
+				return scope.trigger[from.pin.slice(dot + 1)];
+			}
 			case 'forEach':
 				if (from.pin === 'item') return scope.item;
 				if (from.pin === 'index') return scope.index;

@@ -87,7 +87,8 @@ data-out may fan out to many. Data-ins with no edge fall back to a literal/acces
 interface NodeBase { id: NodeId; kind: NodeKind; pos: { x: number; y: number }; }
 
 type NodeKind =
-  | 'event' | 'action' | 'fireCue' | 'delay' | 'branch' | 'forEach'
+  | 'event' | 'gameSignals'       // entry points: one template event / all mechanic signals (§6.2)
+  | 'action' | 'fireCue' | 'delay' | 'branch' | 'forEach'
   | 'showContainer' | 'hideContainer' | 'functionCall'
   | 'sequence' | 'parallel'      // exec fan-out helpers
   | 'compute';                   // pure typed value ops (see §4)
@@ -101,6 +102,13 @@ Per kind (pins listed as they're **derived**):
   **configured component events** are NOT `event` nodes — they surface as exec-out pins on the
   `showContainer` node itself (§6.1), so one container = one fused node carrying mount + all its
   buttons.
+- **gameSignals** — `{}` (NO `ref`) an entry point (**no** exec-in): the SINGLE node that surfaces the
+  template's **mechanic signals**. It derives, for every vocab event whose `category` is `'book'` or
+  `'lifecycle'` (NOT `'intent'` — those are the container button pins, §6.1): one **exec-out** (id =
+  the event name, label `on<Event>`) plus one **data-out** per that event's payload field (id =
+  `<eventName>.<field>`, typed by the field). One node = all the game's own signals, so presentation
+  is wired off them instead of scattered per-event nodes. Pins are DERIVED from the vocabulary (§6.2),
+  never stored.
 - **action** — `{ ref: string }` a template **effect or command** (both are template functions with
   typed params; `setSpecialSymbol`, `stopReel`, `settleSlot`). Pins: in `exec`, out `exec`; one
   data-in per the `ActionDecl` param. Category (state-effect vs mechanic-command) is a palette tag
@@ -267,6 +275,37 @@ re-derive from the surface on reload (no stored pins). There is **no separate co
 node** — the pin id `spinButton.onSpin` IS the pin on the fused node. Nothing is auto-dumped — an
 unconfigured component surfaces no pins.
 
+### 6.2 The Game Signals node (2026-07-08)
+
+Where §6.1 surfaces a *container's* buttons as pins, the **`gameSignals`** node surfaces the
+*template's* **mechanic signals** — one node whose pins are every vocab event the game itself emits.
+It is the exec/data-out mirror of the four-registry projection, but for the game's own book +
+lifecycle events rather than button intents: an author wires presentation off the game's signals from
+**one node** (`onFreeSpinTrigger`, `onWinInfo`, `onLoad`, …) instead of scattering a separate `event`
+node per signal.
+
+- **No `ref`.** A `gameSignals` node represents *the template's signal source*, so there is exactly
+  one per flow and it carries no reference. It is an entry point — **no exec-in** (a source).
+- **Which events surface.** Each `EventDecl` now carries a `category` (§7): `'book'` (an RGS
+  `BookEvent`), `'lifecycle'` (a boot/loading/settle signal), or `'intent'` (a player button-press).
+  `gameSignals` derives a pin set from the events whose category is **`'book'` OR `'lifecycle'`** —
+  the game's *own* signals. **Intents are excluded**: a player-initiated press surfaces instead as a
+  container button pin (§6.1), so the two node types partition the event vocabulary with no overlap.
+- **Derived pins** (anti-drift, never stored — same rule as §2/§6.1): for each surfaced event, one
+  **exec-out** (id = the event name, label = `on<Event>`) plus one **data-out** per that event's
+  payload field (id = `<eventName>.<field>`, label = the field name, typed by the field's `TypeRef`).
+  So `freeSpinTrigger` yields exec-out `freeSpinTrigger` (`onFreeSpinTrigger`) + data-outs
+  `freeSpinTrigger.totalFs` (int) and `freeSpinTrigger.positions` (list<Position>).
+- **Runtime firing** (`runtime.ts`). `runFlowEvent(doc, ctx, eventName, payload)` first looks for a
+  dedicated `event` node whose `ref === eventName`; failing that it falls back to the `gameSignals`
+  node — if the vocab has a **non-intent** event named `eventName`, it walks FROM that node's exec-out
+  pin named `eventName` (the same "walk from a specific pin without re-running the node" pattern as
+  `runContainerEvent`; the source node is never mid-chain-run). A data-out `<eventName>.<field>`
+  resolves to `scope.trigger[field]` — since only the firing event's exec chain runs, `scope.trigger`
+  IS that event's payload (the pin id is split on the FIRST `.`; the right side is the field). An
+  event with no matching `event` node AND no `gameSignals` pin (an intent, or an unknown/unsurfaced
+  event) is a **parity-safe no-op**.
+
 ## 7. Template vocabulary (the contract)
 
 Declared by each template; loaded by the editor; **the type checker's source of truth.**
@@ -276,7 +315,7 @@ interface TemplateVocabulary {
   templateId: string;
   structs: StructDecl[];        // Reel { index:int }, Slot { col:int; row:int }, Win {…}
   enums: EnumDecl[];            // SymbolName { … }
-  events: EventDecl[];          // name + payload pins (reveal → { reels: list<Reel> })
+  events: EventDecl[];          // name + payload pins + category (reveal → { reels: list<Reel> })
   actions: ActionDecl[];        // effects + commands: name + typed params, + category
   cues: CueDecl[];              // aggregated from components (decision #4): what each accepts
   collections: CollectionDecl[];// engine-readable iterables: reels: list<Reel>, slots: list<Slot>
@@ -286,6 +325,26 @@ interface TemplateVocabulary {
 **Cue scoping (decision #4)** is realized here: components in the Scene Editor **declare the cues they
 bind**; a container aggregates its components' cues; the template vocabulary lists the union, so the
 Fire-Cue palette is always scoped to cues something actually listens for — never blind.
+
+**Event category (2026-07-08).** `EventDecl` carries an OPTIONAL `category`:
+
+```ts
+type EventCategory = 'book' | 'lifecycle' | 'intent';
+interface EventDecl {
+  name: string;               // 'reveal'
+  payload: ParamDecl[];       // reveal → { reels: list<Reel> }
+  category?: EventCategory;    // the mechanic family; absent ⇒ 'book' (surfaced by gameSignals)
+}
+```
+
+This tags the three families the vocab already documents informally — `'book'` (RGS `BookEvent`s:
+`reveal`, `winInfo`, `freeSpinTrigger`, …), `'lifecycle'` (boot/loading/settle: `load`, `tapToStart`,
+`idle`), `'intent'` (player button-presses: `spin`, `increase`, …). It is the partition the
+`gameSignals` node (§6.2) filters on: book + lifecycle events surface as `gameSignals` pins; intents
+surface as container button pins (§6.1). `category` is **optional, defaulting to `'book'`** — an
+untagged event is treated as a book event (so it is surfaced by `gameSignals`), which keeps
+book-only test fixtures valid without a churn edit — but a real template SHOULD tag all three
+families explicitly (the reference `bookOf` vocab does).
 
 ## 8. Compiling onto the existing runtime
 
@@ -427,3 +486,24 @@ flowOwnsContainerEvent(doc, componentId, event): boolean   // pure static graph 
   v2containerfire`) — a `showContainer(base)` whose `spinButton.onSpin` wires `startSpin → fireCue
   boardShow`: firing records `effect startSpin, broadcast boardShow` and NO `show base`; an unwired
   press records nothing; the ownership predicate is true for the wired pin, false otherwise.
+
+### 10.5 Firing a game signal (the `gameSignals` node, §6.2)
+
+`runFlowEvent` gains a second dispatch path: after the `event`-node lookup fails, it falls back to the
+single `gameSignals` node. If the vocab has a **non-intent** event named `eventName`, it walks FROM
+that node's exec-out pin named `eventName` via `runExecChain` — the same "walk from a specific pin
+without re-running the node" pattern as `runFlowContainerEvent` (§10.4). A gameSignals data-out
+`<eventName>.<field>` resolves to `scope.trigger[field]` (only the firing event's chain runs, so
+`scope.trigger` is that event's payload; the pin id is split on the first `.`). The node is an exec
+START point — `runNode` treats an accidental visit as a safe no-op. An intent, or an
+unknown/unsurfaced event, is a parity-safe no-op.
+
+- **Verified headlessly:** `tools/flow-spike/flowV2GameSignals.ts` (`pnpm --filter flow-spike
+  v2gamesignals`) — `derivePins(gameSignals)` over the real `book-of` vocab surfaces `freeSpinTrigger`
+  / `reveal` / `load` (book + lifecycle) and NOT `spin` / `increase` (intents), with typed data-outs
+  `freeSpinTrigger.totalFs` (int) + `freeSpinTrigger.positions` (list<Position>) and no exec-in; and a
+  `gameSignals` node whose `freeSpinTrigger` exec-out → `showContainer(freespin)` → `action
+  setFreeSpinCounterTotal`, with `freeSpinTrigger.totalFs` wired to the action's `total`, records `show
+  freespin@10, effect setFreeSpinCounterTotal({total:10})` for `runFlowEvent('freeSpinTrigger',
+  {totalFs:10})` (payload resolved THROUGH the pin); an intent / unwired / unknown event records
+  nothing. NO launcher UI + NO apps/ wiring — that is Part 2.

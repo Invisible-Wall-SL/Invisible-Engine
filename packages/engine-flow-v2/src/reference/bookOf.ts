@@ -83,30 +83,31 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 	// event's data-out pin. The flow OWNS an event → drives it (its coded/v1 twin suppressed).
 	events: [
 		// --- lifecycle + UI signals (v1's `complete`/loading triggers → events the game dispatches) ---
-		{ name: 'load', payload: [] }, // assets loaded — enter the game (hide loading, show basegame).
-		{ name: 'tapToStart', payload: [] }, // the loading press-to-continue tap.
-		{ name: 'idle', payload: [] }, // round settled, ready for the next spin.
+		{ name: 'load', payload: [], category: 'lifecycle' }, // assets loaded — enter the game (hide loading, show basegame).
+		{ name: 'tapToStart', payload: [], category: 'lifecycle' }, // the loading press-to-continue tap.
+		{ name: 'idle', payload: [], category: 'lifecycle' }, // round settled, ready for the next spin.
 		// --- intents (v1's `action` button edges → events; the flow reacts + invokes the mechanic) ---
-		{ name: 'spin', payload: [] },
-		{ name: 'stop', payload: [] },
-		{ name: 'buyBonus', payload: [] },
+		{ name: 'spin', payload: [], category: 'intent' },
+		{ name: 'stop', payload: [], category: 'intent' },
+		{ name: 'buyBonus', payload: [], category: 'intent' },
 		// Standard HUD buttons every book-of game ships — the flow can react to any of them.
-		{ name: 'increase', payload: [] }, // bet up
-		{ name: 'decrease', payload: [] }, // bet down
-		{ name: 'turbo', payload: [] },
-		{ name: 'autoSpin', payload: [] },
-		{ name: 'settings', payload: [] },
-		{ name: 'soundToggle', payload: [] },
-		{ name: 'gameRules', payload: [] },
+		{ name: 'increase', payload: [], category: 'intent' }, // bet up
+		{ name: 'decrease', payload: [], category: 'intent' }, // bet down
+		{ name: 'turbo', payload: [], category: 'intent' },
+		{ name: 'autoSpin', payload: [], category: 'intent' },
+		{ name: 'settings', payload: [], category: 'intent' },
+		{ name: 'soundToggle', payload: [], category: 'intent' },
+		{ name: 'gameRules', payload: [], category: 'intent' },
 		// --- book events (the RGS `BookEvent` union) ---
-		{ name: 'reveal', payload: [{ name: 'gameType', type: GAME_TYPE }] },
-		{ name: 'setExpandingSymbol', payload: [{ name: 'symbol', type: SYMBOL }] },
+		{ name: 'reveal', payload: [{ name: 'gameType', type: GAME_TYPE }], category: 'book' },
+		{ name: 'setExpandingSymbol', payload: [{ name: 'symbol', type: SYMBOL }], category: 'book' },
 		{
 			name: 'expandBookColumns',
 			payload: [
 				{ name: 'symbol', type: SYMBOL },
 				{ name: 'reels', type: list(INT) },
 			],
+			category: 'book',
 		},
 		{
 			name: 'winInfo',
@@ -114,6 +115,7 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{ name: 'totalWin', type: FLOAT },
 				{ name: 'wins', type: list(WIN) },
 			],
+			category: 'book',
 		},
 		{
 			name: 'setWin',
@@ -121,15 +123,17 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{ name: 'amount', type: FLOAT },
 				{ name: 'winLevel', type: INT },
 			],
+			category: 'book',
 		},
-		{ name: 'setTotalWin', payload: [{ name: 'amount', type: FLOAT }] },
-		{ name: 'finalWin', payload: [{ name: 'amount', type: FLOAT }] },
+		{ name: 'setTotalWin', payload: [{ name: 'amount', type: FLOAT }], category: 'book' },
+		{ name: 'finalWin', payload: [{ name: 'amount', type: FLOAT }], category: 'book' },
 		{
 			name: 'freeSpinTrigger',
 			payload: [
 				{ name: 'totalFs', type: INT },
 				{ name: 'positions', type: list(POSITION) },
 			],
+			category: 'book',
 		},
 		{
 			name: 'updateFreeSpin',
@@ -137,6 +141,7 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{ name: 'amount', type: INT },
 				{ name: 'total', type: INT },
 			],
+			category: 'book',
 		},
 		{
 			name: 'freeSpinEnd',
@@ -144,6 +149,7 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{ name: 'amount', type: FLOAT },
 				{ name: 'winLevel', type: INT },
 			],
+			category: 'book',
 		},
 	],
 

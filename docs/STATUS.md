@@ -24,6 +24,36 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible Flow v2: Game Signals node (mechanic signals as one source node, Part 1 headless)
+- **What:** ONE new `gameSignals` node surfaces the TEMPLATE's mechanic events (book + lifecycle) as
+  exec-out + typed data-out pins, so an author wires presentation off the game's own signals from one
+  node instead of a scattered `event` node per signal. Intents are excluded (they surface as the
+  §6.1 container button pins) — the two node types partition the event vocabulary with no overlap.
+- **Engine (`packages/engine-flow-v2/`, headless-proven):**
+  - `types.ts` — `EventDecl` gains **optional** `category: 'book' | 'lifecycle' | 'intent'` (absent ⇒
+    `'book'`, so book-only fixtures stay valid without churn; real templates tag all three). New
+    `NodeKind` `'gameSignals'` + `GameSignalsNode` (no `ref`) in the `Node` union.
+  - `reference/bookOf.ts` — every event tagged its family (lifecycle: load/tapToStart/idle; intent:
+    spin/stop/buyBonus/increase/decrease/turbo/autoSpin/settings/soundToggle/gameRules; book: the rest).
+  - `pins.ts` — `derivePins` `gameSignals` case: for each vocab event whose category `!== 'intent'`,
+    one exec-out (id = event name, label `on<Event>`) + one data-out per payload field
+    (`<eventName>.<field>`, typed). No exec-in (source node).
+  - `runtime.ts` — `runEvent` falls back to the `gameSignals` node after the `event`-node lookup fails
+    (walks FROM its per-event exec-out pin via `runExecChain`, source not re-run); `resolveDataOut`
+    gameSignals case resolves `<eventName>.<field>` → `scope.trigger[field]` (split on first `.`);
+    `runNode` treats `gameSignals` as a safe START-point no-op.
+- **Spike:** `tools/flow-spike/flowV2GameSignals.ts` (`pnpm --filter flow-spike run v2gamesignals`) —
+  derivation asserts book+lifecycle surface / intents excluded / typed `freeSpinTrigger` data-outs;
+  runtime asserts `runFlowEvent('freeSpinTrigger', {totalFs:10})` records `show freespin@10` then
+  `effect setFreeSpinCounterTotal({total:10})` (payload resolved THROUGH the pin); intent/unwired/
+  unknown events are parity-safe no-ops. **`V2 GAME-SIGNALS HARNESS: PASSED`.**
+- **Verify:** `v2gamesignals` PASS; `v2containerfire`/`v2containerevents`/`v2vocab`/`v2runtime`
+  (+`v2schema`/`v2collapse`/`v2mount`) still PASS; `engine-flow-v2` typecheck exit 0.
+- **Docs:** `invisible-flow-v2-schema.md` §3(NodeKind+node)/§6.2(new)/§7(EventCategory)/§10.5(new);
+  `invisible-flow-v2.md` §3 bullet.
+- **Next (Part 2, NOT this task):** `/flow-v2` launcher UI palette entry + node render, and the
+  apps/ game-side dispatch wiring so real book/lifecycle events fire the node's pins.
+
 ### 2026-07-08 — Invisible Flow v2: container-event pins FIRE from a real button press (runtime, SHIPPED)
 - **What:** the fused `showContainer` exec-out pins (`onSpin`/…) now DO something live — pressing a
   button in-game runs the flow chain wired from its pin. Landed in two parts:

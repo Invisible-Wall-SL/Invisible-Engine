@@ -46,6 +46,13 @@ pins** (typed values). Mirrors Unreal Blueprints.
   `setExpandingSymbol`) — or **container-scoped**: a configured component's event, which appears as
   an exec-out pin *on that container's node* rather than as a free-floating node (see §4). This is
   how the same container stays a single node instead of being redrawn once per button.
+- **Game Signals node** (entry, §6.2 of the schema doc): ONE node that surfaces the template's
+  **mechanic signals** — every vocab event whose `category` is `book` or `lifecycle` (its RGS book
+  events + boot/loading/settle lifecycle signals, NOT the `intent` button-presses, which are the
+  container button pins above). It exposes one exec-out per signal (`onFreeSpinTrigger`, `onWinInfo`,
+  `onLoad`, …) + a typed data-out per that signal's payload field, so an author wires presentation off
+  the game's own signals from one node instead of a scattered `event` node per signal. Pins are derived
+  from the vocabulary, never stored.
 - **Effect** — call a template effect by name, wire its payload from data pins
   (`setSpecialSymbol(symbol ← event.symbol)`).
 - **Fire Cue** — fire a named cue; components in shown containers bound to that cue react.

@@ -67,7 +67,13 @@ const dataOut = (id: string, dataType: TypeRef, label?: string): Pin => ({
 	label,
 });
 
-const execOut = (id: string): Pin => ({ id, dir: 'out', kind: 'exec' });
+const execOut = (id: string, label?: string): Pin => ({ id, dir: 'out', kind: 'exec', label });
+
+const capitalize = (s: string): string =>
+	s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
+
+/** The `gameSignals` exec-out pin's LABEL — the `on<Event>` tail (mirrors `containerEventPinLabel`). */
+const signalPinLabel = (eventName: string): string => `on${capitalize(eventName)}`;
 
 // ---------------------------------------------------------------------------
 // Scope resolution — the element type a `forEach` iterates + accessor typing. These
@@ -169,6 +175,20 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 			const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name));
 			return [EXEC_OUT, ...outs]; // entry point: NO exec-in.
 		}
+		case 'gameSignals': {
+			// §6.2: the ONE mechanic-signal source node. Derives, for each vocab event whose category is
+			// NOT `intent` (book + lifecycle; intents are the container button pins, §6.1): one exec-out
+			// (id = event name, label = `on<Event>`) + one data-out per that event's payload field (id =
+			// `<eventName>.<field>`). NO exec-in — it is a source/entry node. Anti-drift: derived from the
+			// vocabulary, never stored. An untagged event defaults to `book` → surfaced.
+			const pins: Pin[] = [];
+			for (const e of ctx.vocab.events) {
+				if (e.category === 'intent') continue;
+				pins.push(execOut(e.name, signalPinLabel(e.name)));
+				for (const p of e.payload) pins.push(dataOut(`${e.name}.${p.name}`, p.type, p.name));
+			}
+			return pins;
+		}
 		case 'action': {
 			const decl = ctx.vocab.actions.find((a) => a.name === node.ref);
 			const ins = (decl?.params ?? []).map((p) => dataIn(p.name, p.type, p.name));
@@ -210,7 +230,9 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 			// is the (node-unique) pin id; its `label` (`onSpin`) is the pin caption. Absent surface ⇒
 			// just `[exec-in, exec-out]` (parity-safe).
 			const events = ctx.containerEvents?.[node.ref] ?? [];
-			const eventOuts = events.map((d) => ({ id: d.id, dir: 'out', kind: 'exec', label: d.label }) as Pin);
+			const eventOuts = events.map(
+				(d) => ({ id: d.id, dir: 'out', kind: 'exec', label: d.label }) as Pin,
+			);
 			return [EXEC_IN, EXEC_OUT, ...eventOuts];
 		}
 		case 'hideContainer':
