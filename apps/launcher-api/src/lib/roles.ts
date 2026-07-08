@@ -280,9 +280,9 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Invisible Flow',
 		barName: 'Flow',
 		description:
-			"Wire a game's presentation flow — screens as nodes, transitions between them, on the Scene Editor's screens.",
+			"Author a game's presentation flow as a node graph — events, actions, cues, delays and screens wired with exec + data pins — that drives the game at runtime.",
 		kind: 'online',
-		url: '/flow',
+		url: '/flow-v2',
 		icon: TOOL_ICONS.flow,
 	},
 	fx: {
