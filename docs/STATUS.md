@@ -24,6 +24,32 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible Flow v2: container-event pins FIRE from a real button press (runtime, SHIPPED)
+- **What:** the fused `showContainer` exec-out pins (`onSpin`/…) now DO something live — pressing a
+  button in-game runs the flow chain wired from its pin. Landed in two parts:
+- **Part 1 — engine runtime (`2b5adc1`, headless):** `engine-flow-v2` gained
+  `runFlowContainerEvent(doc, ctx, componentId, event, payload?, context?)` — enters at a
+  `showContainer` node's fused pin and walks the AUTHORED edge from it; the show node is NOT re-run
+  (no re-mount); unwired ⇒ parity-safe no-op. Plus the pure predicate
+  `flowOwnsContainerEvent(doc, componentId, event)`. Pin id/label format extracted to shared
+  `containerEventDeclId`/`containerEventPinLabel` (one source for deriver + runtime). Proven by
+  `tools/flow-spike/flowV2ContainerFire.ts` (`v2containerfire`: ordered chain fires, show not re-run,
+  unwired no-op, ownership true/false).
+- **Part 2 — game wiring (`dd8b158`):** new engine-layout `registerFlowPress` seam (Svelte-free,
+  mirrors `registerFlowValueSource`); `ComponentInstance.svelte` routes BOTH press sites (the
+  `providedParams.onpress` getter + the local hit-surface `onpress`) through one `firePress()` that
+  consults `getFlowPress()?.(node.id, action)` at CLICK time and falls back to the coded
+  `actionSource?.onpress?.()`. apps/lines decides ownership in one place (`resolveFlowV2Press` in the
+  holder): flow OWNS `(componentId, action)` ⇒ the press routes to the flow ALONE (its wired chain,
+  e.g. `startSpin` → the `invokeIntent` bridge, fires) and the coded press is SUPPRESSED (no
+  double-fire); un-owned / no v2 doc ⇒ coded press runs unchanged (byte-identical parity).
+  `LinesFlowV2` gained `ownsContainerEvent`/`dispatchContainerEvent`.
+- **Verified:** `lines build` (vite, 1987 modules) + `engine-layout build` clean; `v2containerfire` +
+  `v2containerevents` + `v2runtime` PASS; `engine-flow-v2` typecheck exit 0.
+- **Next / limits:** (a) live in-browser verify (wire `onSpin` in `/flow-v2`, press spin, confirm the
+  flow drives it once — no double); (b) the def-default `action` projection gap still open (a button
+  whose action is a def default, not on the instance's `params`, surfaces no pin yet).
+
 ### 2026-07-08 — Invisible Flow v2: container events FUSED as exec-out pins on the Show node — /flow-v2 UI wired (§6.1, SHIPPED)
 - **Owner choice:** of the two shapes, the owner picked **fuse into the Base game node** — the
   `SHOWCONTAINER` node grows one exec-out per configured component (`onSpin`/`onIncrease`/… ), so one
