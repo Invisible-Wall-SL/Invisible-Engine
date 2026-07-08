@@ -11,6 +11,8 @@
  * is byte-identical to current `main`. v2 is a DEV-gated opt-in for now (Phase 5 hard-cuts v1).
  */
 
+import type { FlowPressResolver } from 'engine-layout';
+
 import type { LinesFlowV2 } from './flowV2Runtime.svelte';
 
 declare global {
@@ -47,6 +49,25 @@ export const dispatchFlowV2Event = async (
 	if (!flowV2?.ownsEvent(name)) return false;
 	await flowV2.dispatch(name, payload);
 	return true;
+};
+
+/**
+ * Container-event PRESS resolver (§Part 2) — the ONE place ownership → dispatch is decided for a
+ * component press. Registered into engine-layout's `registerFlowPress`, so `<ComponentInstance>`
+ * consults it (at click time) before the coded `onpress`. When the flow OWNS `(componentId, action)`
+ * — an authored exec edge from that `showContainer` node's fused pin — this returns a press handler
+ * that routes to the flow ALONE (its wired chain, e.g. `startSpin` → the `invokeIntent` bridge, runs);
+ * the coded `onpress` is then SUPPRESSED (never also called) ⇒ no double-fire. When the flow does NOT
+ * own it (no wired edge, or no v2 doc ⇒ `getFlowV2()` is `undefined`), this returns `undefined` and
+ * the coded press runs unchanged (parity). Typed to satisfy engine-layout's `FlowPressResolver`.
+ */
+export const resolveFlowV2Press: FlowPressResolver = (
+	componentId: string,
+	action: string,
+): (() => void) | undefined => {
+	const h = getFlowV2();
+	if (!h?.ownsContainerEvent(componentId, action)) return undefined;
+	return () => void h.dispatchContainerEvent(componentId, action);
 };
 
 /**

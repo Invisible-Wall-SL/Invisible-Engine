@@ -48,6 +48,7 @@
 		registerComponentVisibility,
 		registerFlowComplete,
 		registerFlowValueSource,
+		registerFlowPress,
 		registerComponentSignals,
 		registerFontCatalog,
 		mergeBakedFontCatalog,
@@ -107,6 +108,7 @@
 		getFlowV2,
 		dispatchFlowV2Complete,
 		dispatchFlowV2Event,
+		resolveFlowV2Press,
 	} from '../game/flowV2InterpreterHolder';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
@@ -328,6 +330,12 @@
 	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
 	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
 	registerFlowValueSource(linesValueResolver);
+	// Flow press routing (§Part 2) — wire `<ComponentInstance>`'s press through the v2 flow's authored
+	// container-event ownership. When the flow OWNS a component's event (an authored exec edge from its
+	// fused pin) the press fires the flow's chain ALONE and the coded `onpress` is SUPPRESSED (no
+	// double-fire); un-owned / no v2 doc ⇒ `resolveFlowV2Press` returns undefined ⇒ the coded press runs
+	// unchanged (parity). Consulted at click time, so it tracks the live handle regardless of boot order.
+	registerFlowPress(resolveFlowV2Press);
 	// §9.4 — register the game's bitmap-font catalog so the engine layout text path
 	// renders `<BitmapText>` (pixi's BitmapFont blitter) for a text node whose
 	// `style.fontFamily` names one of these families, instead of a system-font

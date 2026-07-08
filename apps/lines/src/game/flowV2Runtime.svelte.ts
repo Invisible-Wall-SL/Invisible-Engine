@@ -30,6 +30,8 @@ import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
 	createContainerMountModel,
 	createFlowV2Env,
+	flowOwnsContainerEvent,
+	runFlowContainerEvent,
 	runFlowEvent,
 	templateVocabulary,
 	type ContainerMountModel,
@@ -139,6 +141,14 @@ export type LinesFlowV2 = {
 	resolveScene: (sceneId: string) => Scene | undefined;
 	/** The current z-ordered mounted containers (seed the Game.svelte rune mirror). */
 	ordered: () => MountedContainer[];
+	/** Does the flow OWN this container event — i.e. author an exec edge from a `showContainer`
+	 *  node's fused `<componentId>.on<action>` pin? An owned press routes to the flow ALONE (the
+	 *  coded `onpress` is suppressed, no doubling); an un-owned press falls through to the coded
+	 *  body (parity). The engine-layout press resolver calls this to decide suppression. */
+	ownsContainerEvent: (componentId: string, action: string) => boolean;
+	/** Run the authored chain for a container event — walks FROM the fused pin's wired target (does
+	 *  NOT re-run the show node). A no-op if un-authored. Invoked only when `ownsContainerEvent` holds. */
+	dispatchContainerEvent: (componentId: string, action: string) => Promise<void>;
 };
 
 /**
@@ -223,5 +233,9 @@ export const createLinesFlowV2 = (
 		mount,
 		resolveScene,
 		ordered: () => mount.ordered(),
+		ownsContainerEvent: (componentId, action) =>
+			flowOwnsContainerEvent(doc, componentId, action),
+		dispatchContainerEvent: (componentId, action) =>
+			runFlowContainerEvent(doc, ctx, componentId, action),
 	};
 };

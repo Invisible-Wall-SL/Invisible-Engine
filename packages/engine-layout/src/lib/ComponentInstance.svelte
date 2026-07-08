@@ -47,6 +47,7 @@
 	import { setComponentSpineRest } from './componentSpineRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getFlowValueSource } from './registerFlowValueSource';
+	import { getFlowPress } from './registerFlowPress';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getComponentSignal } from './registerComponentSignals';
@@ -500,7 +501,11 @@
 	if (actionSource) {
 		Object.defineProperty(providedParams, 'onpress', {
 			enumerable: true,
-			get: () => actionSource.onpress,
+			// Route through `firePress` so an authored flow container-event OWNS the press (and
+			// suppresses the coded `onpress`); `ButtonFrame` reads this lazily at click time, by
+			// which point `firePress` is initialized. No resolver/ownership ⇒ `firePress` calls
+			// `actionSource?.onpress?.()` ⇒ byte-identical to the old `get: () => actionSource.onpress`.
+			get: () => firePress,
 		});
 		if (actionSource.disabled) {
 			Object.defineProperty(providedParams, 'disabled', {
@@ -595,10 +600,22 @@
 	// each spine uses its def values (parity). Read by `<LayoutNodeView>`'s spine block.
 	setComponentSpineRest(allowed && def ? (node.spineRestOverrides ?? {}) : {});
 
+	// Flow press routing (Invisible Flow v2, §Part 2): consult the registered press resolver AT CALL
+	// TIME (so ownership reflects the LIVE v2 handle regardless of boot timing) — when the flow OWNS
+	// this container event (an authored exec edge from the fused `<node.id>.on<action>` pin) the press
+	// routes to the flow ALONE (its wired chain invokes the intent), and the coded `onpress` is
+	// SUPPRESSED so the two never double-fire. Nothing registered / not owned ⇒ `getFlowPress()` is
+	// undefined or returns undefined ⇒ the coded `actionSource?.onpress?.()` runs ⇒ byte-identical parity.
+	const firePress = () => {
+		const routed = action ? getFlowPress()?.(node.id, action) : undefined;
+		if (routed) routed();
+		else actionSource?.onpress?.();
+	};
+
 	const cursor = $derived(liveDisabled ? 'not-allowed' : 'pointer');
 	const onpress = () => {
 		if (liveDisabled) return;
-		actionSource?.onpress?.();
+		firePress();
 	};
 
 	// Hoist the tap-to-continue surface out of this instance's transform: hand the
