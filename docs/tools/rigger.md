@@ -98,6 +98,27 @@ A floating segmented toggle at the top of the stage switches the workflow:
 
 (Setup and Animate stay disabled until an editable rig is loaded.)
 
+### Timeline events (fire an effect on the beat)
+
+An animation can carry **events** on its timeline — the purple ⚡ keys on the
+top row of the dopesheet. An event is a **named cue** that, at runtime, crosses
+the game's event bus the moment the animation reaches it. Give a placed rig an
+event named the same as an **Invisible FX** effect's **Trigger → On event**
+name, and that effect fires exactly on that frame (and, if the effect is
+attached to one of the rig's bones, rides it).
+
+- **Add** an event at the playhead with the **＋** button on the events row — a
+  key appears and its editor opens.
+- **Click** an event key to open its editor: **Name** (the cue name — must match
+  the effect's Trigger event name), **Time**, and an optional **int / float /
+  string** payload (leave blank to omit). If several events share one beat, a
+  picker lets you choose which to edit.
+- **Drag** to retime, **Alt-drag** to duplicate, **double-click** to delete —
+  the same gestures as any other key.
+
+Authored events export in the `.irig` (Spine JSON) as
+`animations.<name>.events` and travel with the rig, so the game replays them.
+
 ### Edit the rig (Setup mode)
 
 - **Select** a bone, slot, mesh vertex by clicking it in the Inspector tree or

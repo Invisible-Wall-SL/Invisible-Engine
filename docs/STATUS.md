@@ -24,6 +24,20 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-08 — Invisible FX in-game, Phase 3a: Rigger event-key authoring UI (completes Phase 3)
+- **Companion to 3b:** the Rigger (`static/rigger/view.html`, vanilla-JS) already stored + drew
+  animation event keys (purple ⚡; retime/duplicate/delete wired in Phase 5.4) but had no way to edit
+  one. Added: **click an event key → an inspector popover** (mirrors `showDrawOrderEditor`) with
+  **Name** (the cue name — datalist of existing defs + the hint "must match the effect's Trigger event
+  name"), **Time**, and optional **int/float/string** payload (blank ⇒ omitted); **＋** adds a key at
+  the playhead and opens the editor; a picker disambiguates multiple events on one beat. Mutates
+  `rawDoc.animations[a].events[]` + defines `rawDoc.events[name]`, via the tool's own
+  `markDirty()/animsDirty/refreshAnimCounts()` dirty→redraw path; exports in the `.irig`.
+- **Phase 3 (and the whole "FX in-game" arc, Phases 0–3) is now feature-complete:** author (fix +
+  weighted mix) → place (Scene Editor) → activate (Flow) → attach + time (Rigger). Build clean; the
+  vanilla-JS parses. **Owner live-verify the full beat:** author an event key on a placed rig, an
+  `on:event` effect of the same name, and confirm it fires on that frame in a real game.
+
 ### 2026-07-08 — Invisible FX in-game, Phase 3b: rig timeline events → event bus (runtime seam)
 - **Goal (plan `ticklish-conjuring-lamport`):** time an effect on a rig's animation timeline. A Spine
   animation carries EVENTS (`animations[a].events[{time,name,…}]`); an effect should fire when the

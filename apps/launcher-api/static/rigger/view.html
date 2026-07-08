@@ -6627,9 +6627,112 @@ function retimeEventKey(oldTime, newTime){
 }
 function addEventAtPlayhead(){
   if (!rawDoc || !curAnim) return;
-  const existing = eventDefNames();
-  const name = (prompt("Event name (fires at " + animTime.toFixed(2) + "s)" + (existing.length ? "\nexisting: " + existing.join(", ") : ""), existing[0] || "event") || "").trim();
-  if (name) keyEvent(name, animTime);
+  // Create a blank event key at the playhead, then open its editor so the author names it.
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  a.events = a.events || [];
+  const time = roundN(animTime, 4), name = "event";
+  rawDoc.events = rawDoc.events || {}; if (!rawDoc.events[name]) rawDoc.events[name] = { int: 0, float: 0, string: "" };
+  const evtObj = { time, name };
+  a.events.push(evtObj); a.events.sort((x, y) => x.time - y.time);
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderTimeline();
+  showEventKeyEditor(evtObj);
+}
+// Delete one specific event object (by identity) — mirrors deleteEventKeyAt but keeps
+// other events that share the same time (an event key can be many events at one beat).
+function deleteEventObj(evtObj){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.events)) return;
+  const i = a.events.indexOf(evtObj); if (i < 0) return;
+  a.events.splice(i, 1); if (!a.events.length) delete a.events;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+// Edit one field of a single event object. name/time are always present; int/float/string
+// are optional payload — an empty input removes the field so the exported JSON stays clean.
+function setEventKeyField(evtObj, field, raw){
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.events) || a.events.indexOf(evtObj) < 0) return;
+  if (field === "name"){
+    const name = (raw || "").trim(); if (!name) return; // never let a key go nameless
+    rawDoc.events = rawDoc.events || {}; if (!rawDoc.events[name]) rawDoc.events[name] = { int: 0, float: 0, string: "" };
+    evtObj.name = name;
+  } else if (field === "time"){
+    const t = Math.max(0, roundN(parseFloat(raw) || 0, 4)); evtObj.time = t; a.events.sort((x, y) => x.time - y.time);
+  } else if (field === "int"){
+    if (raw === "" || raw == null) delete evtObj.int; else evtObj.int = Math.trunc(parseFloat(raw) || 0);
+  } else if (field === "float"){
+    if (raw === "" || raw == null) delete evtObj.float; else evtObj.float = roundN(parseFloat(raw) || 0, 6);
+  } else if (field === "string"){
+    if (raw === "" || raw == null) delete evtObj.string; else evtObj.string = String(raw);
+  }
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+// Event-key inspector popover — mirrors showDrawOrderEditor(): #curveMenu chrome, closeCurveMenu().
+// Editable Name (the load-bearing cue name), Time, and optional int/float/string payload.
+function showEventKeyEditor(evtObj){
+  if (!rawDoc || !curAnim) return;
+  const a = animOf(curAnim); if (!a || !Array.isArray(a.events) || a.events.indexOf(evtObj) < 0) return;
+  closeCurveMenu();
+  const m = document.createElement("div"); m.id = "curveMenu";
+  m.style.cssText = "position:fixed;right:18px;top:80px;z-index:90;width:250px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);";
+  const hd = document.createElement("div"); hd.textContent = "Event key"; hd.style.cssText = "padding:8px 10px;font-weight:600;font-size:12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;";
+  const tag = document.createElement("span"); tag.textContent = "⚡"; tag.style.cssText = "color:#c98bff;"; hd.insertBefore(tag, hd.firstChild); m.appendChild(hd);
+  const body = document.createElement("div"); body.style.cssText = "padding:8px 10px;display:flex;flex-direction:column;gap:8px;"; m.appendChild(body);
+  const fieldRow = (label, hint) => {
+    const wrap = document.createElement("label"); wrap.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; wrap.appendChild(lb);
+    if (hint){ const h = document.createElement("span"); h.textContent = hint; h.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;"; wrap.appendChild(h); }
+    return wrap;
+  };
+  // Name — the cue name that crosses the game event bus.
+  const nameWrap = fieldRow("Name", "fires an Invisible FX effect / crosses the game event bus — must match the effect's Trigger event name");
+  const nameIn = document.createElement("input"); nameIn.type = "text"; nameIn.value = evtObj.name || ""; nameIn.placeholder = "event";
+  nameIn.setAttribute("list", "evtNameList"); nameIn.style.cssText = "width:100%;box-sizing:border-box;font-size:12px;";
+  nameIn.onchange = () => { setEventKeyField(evtObj, "name", nameIn.value); nameIn.value = evtObj.name || ""; renderTimeline(); };
+  const dl = document.createElement("datalist"); dl.id = "evtNameList"; for (const n of eventDefNames()){ const o = document.createElement("option"); o.value = n; dl.appendChild(o); }
+  nameWrap.appendChild(nameIn); nameWrap.appendChild(dl); body.appendChild(nameWrap);
+  // Time (seconds).
+  const timeWrap = fieldRow("Time (s)");
+  const timeIn = document.createElement("input"); timeIn.type = "number"; timeIn.step = "0.01"; timeIn.min = "0"; timeIn.value = String(evtObj.time ?? 0);
+  timeIn.style.cssText = "width:100%;box-sizing:border-box;font-size:12px;";
+  timeIn.onchange = () => { setEventKeyField(evtObj, "time", timeIn.value); timeIn.value = String(evtObj.time ?? 0); renderTimeline(); };
+  timeWrap.appendChild(timeIn); body.appendChild(timeWrap);
+  // Optional payload — int / float / string. Empty ⇒ omit.
+  const payHint = document.createElement("div"); payHint.textContent = "Payload (optional — leave blank to omit)"; payHint.style.cssText = "font-size:10px;color:var(--dim);margin-top:2px;"; body.appendChild(payHint);
+  const payRow = document.createElement("div"); payRow.style.cssText = "display:flex;gap:6px;"; body.appendChild(payRow);
+  const smallField = (label, type, val, field, step) => {
+    const w = document.createElement("label"); w.style.cssText = "flex:1;display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);min-width:0;";
+    const lb = document.createElement("span"); lb.textContent = label; w.appendChild(lb);
+    const inp = document.createElement("input"); inp.type = type; if (step) inp.step = step; inp.value = val == null ? "" : String(val);
+    inp.style.cssText = "width:100%;box-sizing:border-box;font-size:12px;";
+    inp.onchange = () => { setEventKeyField(evtObj, field, inp.value); const nv = evtObj[field]; inp.value = nv == null ? "" : String(nv); };
+    w.appendChild(inp); return w;
+  };
+  payRow.appendChild(smallField("int", "number", evtObj.int, "int", "1"));
+  payRow.appendChild(smallField("float", "number", evtObj.float, "float", "0.01"));
+  const strWrap = fieldRow("string");
+  const strIn = document.createElement("input"); strIn.type = "text"; strIn.value = evtObj.string == null ? "" : String(evtObj.string);
+  strIn.style.cssText = "width:100%;box-sizing:border-box;font-size:12px;";
+  strIn.onchange = () => { setEventKeyField(evtObj, "string", strIn.value); strIn.value = evtObj.string == null ? "" : String(evtObj.string); };
+  strWrap.appendChild(strIn); body.appendChild(strWrap);
+  // Footer — delete + close.
+  const foot = document.createElement("div"); foot.style.cssText = "display:flex;gap:6px;padding:8px;border-top:1px solid var(--line);";
+  const del = document.createElement("button"); del.textContent = "🗑 Delete"; del.style.flex = "1"; del.title = "delete this event key";
+  del.onclick = () => { deleteEventObj(evtObj); closeCurveMenu(); renderTimeline(); };
+  const close = document.createElement("button"); close.textContent = "✕"; close.onclick = closeCurveMenu;
+  foot.appendChild(del); foot.appendChild(close); m.appendChild(foot);
+  document.body.appendChild(m);
+  nameIn.focus(); nameIn.select();
+}
+// When several events share one keyframe time, let the author pick which one to edit.
+function showEventKeyPicker(events){
+  closeCurveMenu();
+  const m = document.createElement("div"); m.id = "curveMenu";
+  m.style.cssText = "position:fixed;right:18px;top:80px;z-index:90;width:250px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);";
+  const hd = document.createElement("div"); hd.textContent = "⚡ Events @ " + (events[0].time ?? 0).toFixed(3) + "s"; hd.style.cssText = "padding:8px 10px;font-weight:600;font-size:12px;border-bottom:1px solid var(--line);"; m.appendChild(hd);
+  const list = document.createElement("div"); list.style.cssText = "padding:4px;display:flex;flex-direction:column;gap:2px;"; m.appendChild(list);
+  for (const ev of events){
+    const b = document.createElement("button"); b.textContent = ev.name || "(unnamed)"; b.style.cssText = "text-align:left;font-size:12px;padding:5px 9px;";
+    b.onclick = () => showEventKeyEditor(ev); list.appendChild(b);
+  }
+  document.body.appendChild(m);
 }
 
 // ---- draw-order channel (Phase 5.4): animate slot front/back order ----------
@@ -6924,7 +7027,7 @@ function renderTimeline(){
       dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
-      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete")
+      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete")
         : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete (✎ to edit)")
         : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete";
       dot.onmousedown = (e) => {
@@ -8378,6 +8481,10 @@ function wire(){
         dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime })); // select the new (or moved) keys
         const anchor = d.items.find((it) => it.anchor);
         if (anchor){ animTime = anchor.newTime; syncPlayhead(); }
+      } else if (d.items.length === 1 && !d.duplicate){
+        // A plain click (no drag) on an EVENT key opens its inspector for editing.
+        const it = d.items[0], tr = dopeTrackById[it.tid];
+        if (tr && tr.kind === "events"){ const evs = eventsAt(it.startTime); if (evs.length === 1) showEventKeyEditor(evs[0]); else if (evs.length > 1) showEventKeyPicker(evs); }
       }
       renderTimeline(); refreshAnimCounts();
       if (selBone != null) renderBoneDetail();
