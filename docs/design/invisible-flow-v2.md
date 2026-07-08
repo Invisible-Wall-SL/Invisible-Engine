@@ -41,7 +41,11 @@ pins** (typed values). Mirrors Unreal Blueprints.
 
 **Node kinds:**
 - **Event node** (entry): fires when the template emits it. Exec-out + data-out pins
-  (`setExpandingSymbol` node → `symbol` data pin).
+  (`setExpandingSymbol` node → `symbol` data pin). Event entry points are either **global** —
+  template-wide signals with no owning container (`load`, `idle`, book events like
+  `setExpandingSymbol`) — or **container-scoped**: a configured component's event, which appears as
+  an exec-out pin *on that container's node* rather than as a free-floating node (see §4). This is
+  how the same container stays a single node instead of being redrawn once per button.
 - **Effect** — call a template effect by name, wire its payload from data pins
   (`setSpecialSymbol(symbol ← event.symbol)`).
 - **Fire Cue** — fire a named cue; components in shown containers bound to that cue react.
@@ -64,6 +68,18 @@ pins** (typed values). Mirrors Unreal Blueprints.
   overlay falls out of z-order) and deletes the confusing part (handoff vs layer, transition edges),
   while giving full control over the exact stack.
 - Visibility is fully explicit and flow-owned (consistent with the "Flow owns visibility" rule).
+- **A container node surfaces its components' declared events as exec-OUT pins** — the mirror of the
+  cue-aggregation rule (§8.4). A container that mounts a spin button, a bet stepper, a sound toggle
+  and a settings button becomes **one** `Base game` node with pins `onSpin`, `onIncrease`,
+  `onDecrease`, `onSoundToggle`, `onSettings`; you wire each to the logic it triggers. Buttons don't
+  feed *into* the container — they fire *out* of it. This replaces the confusing v1/spike shape where
+  every button drew its own duplicate `Show Base game` node; the container is shown **once** (from
+  `load`/`idle`), and its interactive components hang off that single node.
+- **The pin set is authored, never auto-dumped.** A component exposes an event pin **only for the
+  functionality configured on it** in the Scene Editor — a button with a `spin` action → an `onSpin`
+  pin; a button with nothing wired, or a decorative sprite → no pin. The container node's pins are a
+  1:1 readout of what the game can actually do; the flow's job is purely to decide **when** each
+  declared thing fires. Nothing appears on the node that wasn't put on a component.
 
 ## 5. Reuse — Functions (the #3 ask, Unreal-style)
 
@@ -130,6 +146,12 @@ reused.
 6. **Migration — DECIDED: hard cut.** No side-by-side v1/v2; retire v1 authoring, rebuild the one
    existing flow on v2.
 7. **Storage — DECIDED: one FlowDoc per project + a separate shared function-library doc.**
+8. **Container event pins — DECIDED (2026-07-08):** a container node surfaces its components'
+   **configured** events as exec-out pins (mirror of cue aggregation); the pin set is authored via
+   component config, never auto-dumped, and a container appears as **one** node rather than a
+   duplicate per button. See §3 (global vs container-scoped events) and §4. Consequence: the base
+   game container carries all the game's interactive functionality as pins, and the flow decides
+   *when* each fires.
 
 ## 9. Phased build (strawman — not started)
 

@@ -95,8 +95,12 @@ type NodeKind =
 
 Per kind (pins listed as they're **derived**):
 
-- **event** — `{ ref: string }` the template event name. Entry point: **no** exec-in. Pins:
-  out `exec`; one data-out per the `EventDecl`'s payload (e.g. `reveal` → `reels: list<Reel>`).
+- **event** — `{ ref: string }` an entry point (**no** exec-in). Pins: out `exec`; one data-out per
+  the resolved declaration's payload. `ref` addresses **either** a **global** template event
+  (`reveal` → `reels: list<Reel>`, `load`, `idle`) resolved against `TemplateVocabulary.events`,
+  **or** a **container-scoped component event** (`basegame/spinButton.onSpin`) resolved against the
+  container's aggregated component events (§6.1). Container-scoped events are how a container appears
+  as **one** node carrying all its buttons instead of a duplicate node per button.
 - **action** — `{ ref: string }` a template **effect or command** (both are template functions with
   typed params; `setSpecialSymbol`, `stopReel`, `settleSlot`). Pins: in `exec`, out `exec`; one
   data-in per the `ActionDecl` param. Category (state-effect vs mechanic-command) is a palette tag
@@ -231,6 +235,29 @@ interface ContainerRef {
 containers coexist, ordered by `z`. "Base persists under an overlay" is just: the base container has a
 lower `z` and is never hidden. Visibility is entirely explicit + flow-owned.
 
+### 6.1 Container-scoped component events (decision #6)
+
+A container **surfaces its components' configured events as exec-out pins** — the exec-out mirror of
+cue aggregation (§7, decision #4). The rendered container node is a single node carrying one entry pin
+per configured control; wiring a button's functionality means wiring *out* of that pin.
+
+```ts
+interface ContainerEventDecl {
+  id: string;            // 'spinButton.onSpin' — component-local, unique within the container
+  componentId: string;   // the Scene-Editor component that declares it
+  event: string;         // the configured action/intent name ('spin', 'increaseBet', 'soundToggle')
+  payload?: Pin[];       // data-outs, iff the component's config carries a payload (usually none)
+}
+```
+
+The set is **derived from the scene, not stored on the node** (same anti-drift rule as §2 pins): a
+component contributes an entry **only for the functionality configured on it** in the Scene Editor — a
+button with a `spin` action → one `onSpin` entry; a button with nothing wired, or a decorative sprite
+→ nothing. So a container's exposed events are a 1:1 readout of what the game can actually do; the flow
+decides only **when** each fires. The editor aggregates them per container (alongside the scene's
+cues), and an `event` node's `ref` addresses one as `<sceneId>/<ContainerEventDecl.id>`. Nothing is
+auto-dumped — an unconfigured component surfaces no pins.
+
 ## 7. Template vocabulary (the contract)
 
 Declared by each template; loaded by the editor; **the type checker's source of truth.**
@@ -283,6 +310,11 @@ survive.
    fan-out need appears (linear exec chains cover the rest until then).
 5. **Collections:** available BOTH as event payload pins (`reveal → reels`) AND `$engine` global
    reads (`$engine.reels`) — whichever the author reaches for.
+6. **Container event pins (2026-07-08):** a container surfaces its components' **configured** events
+   as exec-out pins (§6.1), the exec mirror of cue aggregation. The set is derived from the scene —
+   authored via component config, never auto-dumped — so a container is one node carrying all its
+   buttons, and an `event` node's `ref` may address a container-scoped `<sceneId>/<id>` event as well
+   as a global template event.
 
 ## 10. Runtime — the dedicated v2 interpreter (Phase 4a, `runtime.ts`)
 
