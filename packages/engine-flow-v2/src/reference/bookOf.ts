@@ -90,6 +90,14 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'spin', payload: [] },
 		{ name: 'stop', payload: [] },
 		{ name: 'buyBonus', payload: [] },
+		// Standard HUD buttons every book-of game ships — the flow can react to any of them.
+		{ name: 'increase', payload: [] }, // bet up
+		{ name: 'decrease', payload: [] }, // bet down
+		{ name: 'turbo', payload: [] },
+		{ name: 'autoSpin', payload: [] },
+		{ name: 'settings', payload: [] },
+		{ name: 'soundToggle', payload: [] },
+		{ name: 'gameRules', payload: [] },
 		// --- book events (the RGS `BookEvent` union) ---
 		{ name: 'reveal', payload: [{ name: 'gameType', type: GAME_TYPE }] },
 		{ name: 'setExpandingSymbol', payload: [{ name: 'symbol', type: SYMBOL }] },

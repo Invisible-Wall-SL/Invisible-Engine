@@ -223,7 +223,14 @@ const validateGraph = (
 
 	// --- (a) every node `ref` resolves; container refs resolve against the doc's containers ---
 	for (const node of nodes) {
-		if (!refResolves(node, ctx)) {
+		// A screen-lifecycle `complete:<container>` event is valid when `<container>` is a real
+		// container — the game dispatches it when that screen finishes (§A2, `dispatchFlowV2Complete`).
+		// These are dynamic per-screen, so the template vocabulary can't enumerate them.
+		const eventCompleteOk =
+			node.kind === 'event' &&
+			node.ref.startsWith('complete:') &&
+			containerIds.has(node.ref.slice('complete:'.length));
+		if (!refResolves(node, ctx) && !eventCompleteOk) {
 			issues.push({
 				code: 'ref-unresolved',
 				// EVENTS are the OPEN input boundary: the game dispatches whatever name it likes (book
