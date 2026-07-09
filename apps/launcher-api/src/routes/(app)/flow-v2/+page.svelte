@@ -40,6 +40,7 @@
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
 	import PreviewPanelV2 from './PreviewPanelV2.svelte';
 	import NodeInspector from './NodeInspector.svelte';
+	import PinDropMenu, { type PinDropCandidate } from './PinDropMenu.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
 
@@ -557,6 +558,18 @@
 		return activeGraph.exec.some((e) => e.to.node === nodeId && e.to.pin === pin);
 	}
 
+	// The graph-agnostic compatibility of an out-pin → in-pin pairing: kind must match, and for
+	// data the source type must be `assignable` to the target type. The SINGLE source of truth for
+	// pin compatibility — `isValidConnection` layers the live-graph fan-in checks on top, and the
+	// drag-off-pin menu (§9.1) reuses it to filter candidate nodes.
+	function pinsCompatible(outPin: Pin, inPin: Pin): boolean {
+		if (outPin.kind !== inPin.kind) return false; // exec↔data mismatch.
+		if (outPin.kind === 'data' && outPin.dataType && inPin.dataType) {
+			return assignable(outPin.dataType, inPin.dataType);
+		}
+		return true;
+	}
+
 	// Strict connect-time gate (Unreal-style: an incompatible wire simply won't drop). Rejects
 	// exec↔data mismatch, wrong direction, non-assignable data types, and fan-in violations.
 	// `validateFlowDoc` stays the backstop for any doc loaded with pre-existing issues.
@@ -570,14 +583,10 @@
 		const out = pinByHandle(source, sourceHandle, 'out');
 		const inn = pinByHandle(target, targetHandle, 'in');
 		if (!out || !inn) return false; // wrong direction or unknown handle.
-		if (out.kind !== inn.kind) return false; // exec↔data mismatch.
+		if (!pinsCompatible(out, inn)) return false; // exec↔data mismatch / non-assignable types.
 
-		if (out.kind === 'exec') {
-			return !execInTaken(target, inn.id); // exec-in fan-in = 1.
-		}
-		// data: types must be assignable AND the target data-in must be free.
-		if (out.dataType && inn.dataType && !assignable(out.dataType, inn.dataType)) return false;
-		return !dataInTaken(target, inn.id);
+		// Fan-in = 1 on inputs (exec or data); outputs fan out freely.
+		return out.kind === 'exec' ? !execInTaken(target, inn.id) : !dataInTaken(target, inn.id);
 	}
 
 	// A new connection → push the matching edge class, then re-seed. Guarded again by the same
@@ -602,6 +611,180 @@
 						{ node: c.source, pin: sourceHandle },
 						{ node: c.target, pin: targetHandle },
 					);
+		applyGraphEdit(next);
+	}
+
+	// --- Drag-off-pin contextual node spawner (§9.1) ----------------------------
+	// Unreal-Blueprint's release-on-empty-canvas gesture: drag a wire off a pin, drop on empty
+	// canvas, and a filtered popup offers ONLY the node types that pin could legally connect to;
+	// picking one spawns it at the drop point already wired. `onConnectStart` records the dragged
+	// pin; `onConnectEnd` (fired by `FlowCanvasV2` with the flow-space drop position) opens the
+	// menu iff the drop landed on empty canvas. Reuses `pinsCompatible` (the connect-time rule) and
+	// the same catalog `AddNodePalette` projects, so there is no forked compatibility/catalog logic.
+
+	// The pin the user is dragging a wire off, or null when no drag is in flight.
+	let dragPin = $state<{ node: string; pin: string; dir: PinDir } | null>(null);
+
+	// The open drag-off menu (null when closed): the DRAGGED endpoint (stashed here because
+	// `onConnectEnd` clears `dragPin`), the flow-space position to place the spawned node, the
+	// screen-space position to anchor the popup DOM, and the pre-filtered compatible candidates.
+	let pinMenu = $state<{
+		dragged: { node: string; pin: string; dir: PinDir };
+		flowPos: { x: number; y: number };
+		screenX: number;
+		screenY: number;
+		candidates: PinDropCandidate[];
+	} | null>(null);
+
+	// The catalog the menu draws from — the SAME surface `AddNodePalette` shows, as {kind, ref?}
+	// descriptors. `showContainer`/`hideContainer` use the doc's containers; a function body offers
+	// no containers (they'd never resolve there — mirrors `paletteDoc`). Control kinds carry no ref.
+	function candidateSpecs(): { kind: NodeKind; ref?: string; section: string }[] {
+		const specs: { kind: NodeKind; ref?: string; section: string }[] = [];
+		for (const e of vocab.events) specs.push({ kind: 'event', ref: e.name, section: 'event' });
+		if (!activeGraph.nodes.some((n) => n.kind === 'gameSignals')) {
+			specs.push({ kind: 'gameSignals', section: 'source' });
+		}
+		for (const a of vocab.actions) specs.push({ kind: 'action', ref: a.name, section: 'action' });
+		for (const c of vocab.cues) specs.push({ kind: 'fireCue', ref: c.name, section: 'cue' });
+		for (const f of library.functions) {
+			specs.push({ kind: 'functionCall', ref: f.id, section: 'function' });
+		}
+		if (view.kind === 'flow') {
+			for (const c of doc.containers) {
+				specs.push({ kind: 'showContainer', ref: c.id, section: 'container' });
+				specs.push({ kind: 'hideContainer', ref: c.id, section: 'container' });
+			}
+		}
+		for (const kind of ['delay', 'branch', 'forEach', 'sequence', 'parallel', 'compute'] as const) {
+			specs.push({ kind, section: 'control' });
+		}
+		return specs;
+	}
+
+	// A display label for a catalog spec (mirrors the palette entry captions + `nodeTitle`).
+	function specLabel(spec: { kind: NodeKind; ref?: string }): string {
+		switch (spec.kind) {
+			case 'gameSignals':
+				return 'Game Signals';
+			case 'functionCall':
+				return library.functions.find((f) => f.id === spec.ref)?.name ?? spec.ref ?? 'function';
+			case 'showContainer':
+				return `show ${spec.ref}`;
+			case 'hideContainer':
+				return `hide ${spec.ref}`;
+			case 'event':
+			case 'action':
+			case 'fireCue':
+				return spec.ref ?? spec.kind;
+			default:
+				return spec.kind;
+		}
+	}
+
+	// Build the compatible-candidate list for a dragged pin. For each catalog spec, probe a node
+	// with `makeNode` + `derivePins(node, ctx)` (ctx carries `containerEvents`, so a `showContainer`
+	// probe exposes its event pins), and keep it iff it has an OPPOSITE-direction pin passing
+	// `pinsCompatible`. `pinType` is that matched pin's data type — it accents the menu entry.
+	function compatibleCandidates(dragged: Pin, dir: PinDir): PinDropCandidate[] {
+		const out: PinDropCandidate[] = [];
+		for (const spec of candidateSpecs()) {
+			const probe = makeNode(spec.kind, `__probe__${spec.kind}`, { x: 0, y: 0 }, spec.ref);
+			const pins = derivePins(probe, ctx);
+			// dragged=out → find a candidate IN pin; dragged=in → find a candidate OUT pin.
+			const match =
+				dir === 'out'
+					? pins.find((p) => p.dir === 'in' && pinsCompatible(dragged, p))
+					: pins.find((p) => p.dir === 'out' && pinsCompatible(p, dragged));
+			if (!match) continue;
+			out.push({
+				kind: spec.kind,
+				ref: spec.ref,
+				label: specLabel(spec),
+				pinType: match.dataType,
+				section: spec.section,
+			});
+		}
+		return out;
+	}
+
+	// Record the dragged pin at drag-start. `handleType` is xyflow's ('source' = out, 'target' =
+	// in); resolve the actual `Pin` (disambiguating exec-in/out, which share the id 'exec').
+	function onConnectStart(params: {
+		nodeId: string | null;
+		handleId: string | null;
+		handleType: 'source' | 'target' | null;
+	}): void {
+		const dir: PinDir = params.handleType === 'source' ? 'out' : 'in';
+		if (!params.nodeId) {
+			dragPin = null;
+			return;
+		}
+		const pin = pinByHandle(params.nodeId, params.handleId, dir);
+		dragPin = pin ? { node: params.nodeId, pin: pin.id, dir } : null;
+	}
+
+	// At drag-end: if the wire was dropped on EMPTY canvas (`droppedOnHandle` false) and a drag is
+	// stashed, open the menu at the drop point. Otherwise (dropped on a real handle → normal
+	// `onConnect` already ran, or no stash) just clear the stash.
+	function onConnectEnd(
+		droppedOnHandle: boolean,
+		flowPos: { x: number; y: number },
+		screenX: number,
+		screenY: number,
+	): void {
+		const stashed = dragPin;
+		dragPin = null;
+		if (droppedOnHandle || !stashed) return;
+		const dragged = pinByHandle(stashed.node, stashed.pin, stashed.dir);
+		if (!dragged) return;
+		pinMenu = {
+			dragged: stashed,
+			flowPos,
+			screenX,
+			screenY,
+			candidates: compatibleCandidates(dragged, stashed.dir),
+		};
+	}
+
+	function closePinMenu(): void {
+		pinMenu = null;
+	}
+
+	// Pick a candidate → spawn the node at the drop position, then auto-wire the dragged pin to the
+	// new node's matched pin via the SAME edge path `onConnect` uses. Orientation follows the
+	// dragged pin's `dir`: dragged-out → new-node-in, or new-node-out → dragged-in. The new node's
+	// pins are re-derived (the probe used a placeholder id) to find the pin to wire.
+	function pickPinCandidate(candidate: PinDropCandidate): void {
+		const menu = pinMenu;
+		pinMenu = null;
+		if (!menu) return;
+		const dragged = menu.dragged;
+		const draggedPin = pinByHandle(dragged.node, dragged.pin, dragged.dir);
+		if (!draggedPin) return;
+
+		const newId = addNodeAt(candidate.kind, candidate.ref, menu.flowPos);
+		const newNode = activeGraph.nodes.find((n) => n.id === newId);
+		if (!newNode) return;
+		const newPins = derivePins(newNode, ctx);
+		const target =
+			dragged.dir === 'out'
+				? newPins.find((p) => p.dir === 'in' && pinsCompatible(draggedPin, p))
+				: newPins.find((p) => p.dir === 'out' && pinsCompatible(p, draggedPin));
+		if (!target) return;
+
+		const from =
+			dragged.dir === 'out'
+				? { node: dragged.node, pin: dragged.pin }
+				: { node: newId, pin: target.id };
+		const to =
+			dragged.dir === 'out'
+				? { node: newId, pin: target.id }
+				: { node: dragged.node, pin: dragged.pin };
+		const next =
+			target.kind === 'exec'
+				? addExecEdgeIn(activeGraph, from, to)
+				: addDataEdgeIn(activeGraph, from, to);
 		applyGraphEdit(next);
 	}
 
@@ -687,10 +870,15 @@
 	// (only reachable inside the flow's own context, hence `FlowCanvasV2` + `SvelteFlowProvider`)
 	// and calls this with the resolved position. Reuses `graphOps` for the actual creation, over
 	// whichever graph is active.
-	function addNodeAt(kind: NodeKind, ref: string | undefined, pos: { x: number; y: number }): void {
+	function addNodeAt(
+		kind: NodeKind,
+		ref: string | undefined,
+		pos: { x: number; y: number },
+	): string {
 		const id = freshNodeIdIn(activeGraph, kind);
 		selectedNodeId = id;
 		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
+		return id;
 	}
 
 	// Place an added node in doc-space near the CENTROID of the existing graph, nudged by a
@@ -1079,6 +1267,8 @@
 					{fitSignal}
 					{isValidConnection}
 					{onConnect}
+					{onConnectStart}
+					{onConnectEnd}
 					{onGraphDelete}
 					{onNodeDragStop}
 					{onNodeClick}
@@ -1086,6 +1276,16 @@
 					ondropnode={addNodeAt}
 				/>
 			</SvelteFlowProvider>
+
+			{#if pinMenu}
+				<PinDropMenu
+					candidates={pinMenu.candidates}
+					screenX={pinMenu.screenX}
+					screenY={pinMenu.screenY}
+					onpick={pickPinCandidate}
+					onclose={closePinMenu}
+				/>
+			{/if}
 
 			{#if collapsing}
 				<div class="collapse-prompt" role="dialog" aria-label="Name the new function">

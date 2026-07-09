@@ -24,6 +24,28 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-09 — Invisible Flow v2: drag-off-pin contextual node spawner (⏳ live-verify)
+- **Goal:** Unreal-Blueprint's headline gesture — drag a wire off a pin, release on **empty canvas**,
+  get a filtered popup of ONLY node types that pin could legally connect to; pick one → it spawns at
+  the drop point already auto-wired. Removes the "add from palette then drag a second wire" two-step.
+- **`/flow-v2` (`+page.svelte`):** factored the connect-time kind+type check out of `isValidConnection`
+  into ONE pure `pinsCompatible(outPin, inPin)` (kind equality + `assignable` for data) — single source
+  of truth, `isValidConnection` now only adds the fan-in checks. New `onConnectStart` stashes the dragged
+  pin (`pinByHandle` disambiguates exec-in/out sharing id `exec`); `onConnectEnd` opens the menu iff the
+  drop's `toHandle == null`. `compatibleCandidates` probes the SAME catalog `AddNodePalette` shows
+  (`makeNode` + `derivePins(node, ctx)` with `containerEvents`, so `showContainer` candidates expose event
+  pins) keeping only nodes with an opposite-dir pin passing `pinsCompatible`. Pick → `addNodeAt` (now
+  returns the new id) + the SAME `addExecEdgeIn`/`addDataEdgeIn`→`applyGraphEdit` path `onConnect` uses.
+- **`FlowCanvasV2.svelte`:** forwards `onconnectstart`/`onconnectend` (xyflow 1.6.1), mapping the drop
+  pointer to flow-space via the already-held `screenToFlowPosition`; empty-drop = `connectionState.toHandle
+  == null`. New **`PinDropMenu.svelte`:** floating panel at the drop's screen xy, autofocused search
+  (reuses the `matches()`/query pattern), Enter = top match / Esc + click-away = close, styled like
+  `AddNodePalette` via `typeColor`/`typeLabel`.
+- **Editor-only** (no schema/runtime/registry change; `roles.ts` untouched). Existing palette drag-drop +
+  `onConnect` unregressed. `pnpm --filter launcher-api build` GREEN (the type-check). Owner live-verify:
+  drag off a pin onto empty canvas → filtered popup → pick → node spawns wired; releasing on a real handle
+  still wires normally. Design: `invisible-flow-v2.md` §9.1.
+
 ### 2026-07-09 — Invisible FX: trigger STOP event (Flow start/stop control)
 - **Goal:** drive an effect fully from Flow — one cue starts it, another stops it (for a continuous
   effect). Until now an `on:event` layer stopped only by `duration`/`emitterLifetime` (a burst).

@@ -13,6 +13,8 @@
 		type Connection,
 		type Edge,
 		type Node,
+		type OnConnectEnd,
+		type OnConnectStartParams,
 	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 	import type { NodeKind } from 'engine-flow-v2';
@@ -25,6 +27,8 @@
 		fitSignal = 0,
 		isValidConnection,
 		onConnect,
+		onConnectStart,
+		onConnectEnd,
 		onGraphDelete,
 		onNodeDragStop,
 		onNodeClick,
@@ -39,6 +43,16 @@
 		fitSignal?: number;
 		isValidConnection: (edge: Edge | Connection) => boolean;
 		onConnect: (c: Connection) => void;
+		// Drag-off-pin (§9.1): the page records the dragged pin at drag-start; at drag-end we tell it
+		// whether the wire landed on a real handle and where (flow-space + screen-space), so it can
+		// open the contextual node-spawner menu on an empty-canvas drop.
+		onConnectStart: (params: OnConnectStartParams) => void;
+		onConnectEnd: (
+			droppedOnHandle: boolean,
+			flowPos: { x: number; y: number },
+			screenX: number,
+			screenY: number,
+		) => void;
 		onGraphDelete: (detail: { nodes: Node[]; edges: Edge[] }) => void;
 		onNodeDragStop: (detail: { targetNode: Node | null }) => void;
 		onNodeClick: (detail: { node: Node }) => void;
@@ -48,6 +62,25 @@
 
 	// Only reachable from a child of <SvelteFlowProvider> — the reason this component exists.
 	const { screenToFlowPosition, fitView } = useSvelteFlow();
+
+	// The client (screen) xy of a connect-end pointer event — the same coord `screenToFlowPosition`
+	// consumes, and where the popup anchors. Touch events carry it on `changedTouches`.
+	function pointerXY(event: MouseEvent | TouchEvent): { x: number; y: number } {
+		if ('clientX' in event) return { x: event.clientX, y: event.clientY };
+		const t = event.changedTouches[0];
+		return t ? { x: t.clientX, y: t.clientY } : { x: 0, y: 0 };
+	}
+
+	// xyflow fires this when a dragged wire is released. `connectionState.toHandle` is non-null only
+	// when it landed on a real handle (normal `onConnect` already ran); a null `toHandle` is the
+	// empty-canvas drop that should open the node-spawner menu. Map the drop point to flow-space and
+	// hand both coord systems up to the page.
+	const handleConnectEnd: OnConnectEnd = (event, connectionState) => {
+		const droppedOnHandle = connectionState.toHandle != null;
+		const screen = pointerXY(event);
+		const flowPos = screenToFlowPosition(screen);
+		onConnectEnd(droppedOnHandle, flowPos, screen.x, screen.y);
+	};
 
 	// Re-fit when the parent bumps `fitSignal` (view switch). Skip the initial 0 (the SvelteFlow
 	// `fitView` prop already fits on first render); a rAF lets the new nodes lay out first.
@@ -99,6 +132,8 @@
 		multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
 		{isValidConnection}
 		onconnect={onConnect}
+		onconnectstart={(_event, params) => onConnectStart(params)}
+		onconnectend={handleConnectEnd}
 		ondelete={onGraphDelete}
 		onnodedragstop={onNodeDragStop}
 		onnodeclick={onNodeClick}

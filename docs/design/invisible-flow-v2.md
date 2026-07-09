@@ -186,3 +186,33 @@ reused.
 - **Phase 3** — Functions: define + call + inline-compile.
 - **Phase 4** — runtime interpreter v2 (compile graph → executor; show/hide + z-band mounter).
 - **Phase 5** — migrate the book-of flow; retire v1 authoring.
+
+### 9.1 Drag-off-pin contextual node spawner (2026-07-09)
+
+Unreal-Blueprint's headline authoring gesture: drag a wire off a pin, release on **empty
+canvas**, and get a **filtered popup** of only the node types that pin could legally connect to —
+pick one and it spawns at the drop point already wired. This removes the "add node from the palette,
+then manually drag a second wire" two-step for the common case.
+
+- **Interaction.** `onconnectstart` records the dragged pin `{ node, pin, dir }`. `onconnectend`
+  fires with a `FinalConnectionState`; if `toHandle == null` (released on empty canvas) and a drag
+  is stashed, open `PinDropMenu` at the drop point. Released on a real handle ⇒ nothing new happens
+  (today's `onConnect` runs unchanged). Esc / click-away closes the menu without spawning.
+- **Compatibility (single source of truth).** Factor the connect-time kind+type check out of
+  `isValidConnection` into one pure `pinsCompatible(outPin, inPin)` (kind equality + `assignable`
+  for data). `isValidConnection` keeps only the fan-in checks on top of it. The menu filters the
+  SAME catalog `AddNodePalette` shows (events, gameSignals, actions, cues, functions, show/hide
+  containers, control kinds): for each, build a probe node via `makeNode` + `derivePins(node, ctx)`
+  (ctx carries `containerEvents` so a `showContainer` candidate exposes its event pins) and keep it
+  iff it has an opposite-direction pin passing `pinsCompatible`, recording that pin's id for the
+  auto-wire. Entry-only nodes (`event`, `gameSignals`) have no exec-in, so they naturally drop out
+  when dragging off an exec-out — no special-case.
+- **Spawn + auto-wire.** Pick ⇒ `addNodeAt(kind, ref, flowPos)` (deterministic id via
+  `freshNodeIdIn`) then the SAME edge path `onConnect` uses (`addExecEdgeIn` / `addDataEdgeIn` →
+  `applyGraphEdit`), oriented dragged-out→new-in or new-out→dragged-in by `dir`.
+- **Steps.** (a) plan on record (this subsection); (b) `pinsCompatible` refactor in `+page.svelte`;
+  (c) `onConnectStart` / `onConnectEnd` + candidate enumeration + spawn/auto-wire in `+page.svelte`;
+  (d) forward `onconnectstart`/`onconnectend` in `FlowCanvasV2.svelte` mapping the drop xy via the
+  already-held `screenToFlowPosition`; (e) new `PinDropMenu.svelte` (search + keyboard, styled like
+  `AddNodePalette`). Editor-only; no schema, runtime, or registry change. Live-verify the popup +
+  auto-wire in the browser.
