@@ -56,6 +56,23 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		(layout.scenes ?? []).map((s) => [s.id, s.name ?? s.id]),
 	);
 
+	// CONTAINER SYNC — the flow can show/hide any SCENE, so every Scene-Editor screen is a container.
+	// The doc's `containers` were seeded once (the v1→v2 migration froze the then-current screens), so a
+	// screen AUTHORED LATER (e.g. "Background") would otherwise never appear in the flow. Merge in any
+	// scene missing from `containers` (id = sceneId; a placeholder z appended after the last — the
+	// runtime re-derives the real z from the Scene-Editor order, so this z is only a tiebreak). Returning
+	// the merged doc means the palette offers every screen immediately, and a Save persists the ones the
+	// author actually shows. New/standalone project (doc === null) still falls back to the client sample.
+	if (doc) {
+		const seen = new Set(doc.containers.map((c) => c.sceneId));
+		let z = doc.containers.reduce((m, c) => Math.max(m, c.z), 0);
+		for (const scene of layout.scenes ?? []) {
+			if (seen.has(scene.id)) continue;
+			z += 10;
+			doc.containers.push({ id: scene.id, sceneId: scene.id, z });
+		}
+	}
+
 	// §6.1 — the container-event surface, keyed by ContainerId. For each of the FlowDoc's
 	// `containers`, find its Scene-Editor scene by `sceneId`, project the scene's nodes down to the
 	// minimal `ConfiguredComponentEvent` shape (any node with a non-empty universal `action` binding
