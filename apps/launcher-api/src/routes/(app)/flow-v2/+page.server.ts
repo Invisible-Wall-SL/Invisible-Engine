@@ -68,6 +68,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		let z = doc.containers.reduce((m, c) => Math.max(m, c.z), 0);
 		for (const scene of layout.scenes ?? []) {
 			if (seen.has(scene.id)) continue;
+			// A `space:'background'` scene is a PERSISTENT full-bleed backdrop (§persistent-bg-scene) with
+			// its OWN engine render path (behind everything, always-on) — it is NOT a flow screen, so it
+			// must never surface as a show/hide container (that misleads the author into flow-wiring a
+			// backdrop that the engine already draws). Skip it.
+			if ((scene as { space?: string }).space === 'background') continue;
 			z += 10;
 			doc.containers.push({ id: scene.id, sceneId: scene.id, z });
 		}
