@@ -247,6 +247,23 @@ export const setNodeInput = (
 		return next as V2Node;
 	});
 
+/** Toggle a `showContainer` node's ROUND-BLOCK HOLD (`awaitComplete`): when on, the exec chain
+ *  blocks after mounting until this container completes (a tap on a `tapToContinue` overlay). Omit
+ *  the field when off so an un-held show stays byte-identical. */
+export const setShowContainerAwaitComplete = (
+	doc: FlowDoc,
+	nodeId: string,
+	awaitComplete: boolean,
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		if (n.kind !== 'showContainer') return n;
+		if (!awaitComplete) {
+			const { awaitComplete: _drop, ...rest } = n;
+			return rest as V2Node;
+		}
+		return { ...n, awaitComplete: true };
+	});
+
 /** Set a `forEach` node's iteration `mode` (sequence | parallel). */
 export const setForEachMode = (
 	doc: FlowDoc,

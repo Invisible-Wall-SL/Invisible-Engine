@@ -60,6 +60,11 @@ export interface FlowV2Env {
 	showContainer(containerId: string, z: number): void | Promise<void>;
 	/** A `hideContainer` node — unmount the referenced container. */
 	hideContainer(containerId: string): void | Promise<void>;
+	/** A `showContainer` node with `awaitComplete` — resolve once the container next COMPLETES (its
+	 *  `complete:<id>` fires and it is hidden). Blocks the exec chain so an authored overlay holds the
+	 *  round until the player taps. Optional: an env without it (a pure recorder) makes the hold a
+	 *  no-op (resolves immediately), so a headless harness never deadlocks. */
+	awaitContainerComplete?(containerId: string): Promise<void>;
 	/** An `$engine.<key>` accessor read — a template global (e.g. `reels`, `slots`). */
 	engineRead(key: string): unknown;
 }
@@ -265,6 +270,10 @@ class FlowInterpreter {
 
 			case 'showContainer': {
 				await this.ctx.env.showContainer(node.ref, this.zOf(node.ref));
+				// ROUND-BLOCK HOLD: when the show node opts in, block the chain until this container next
+				// completes (its `complete:<id>` → `hideContainer`, i.e. a tap on a `tapToContinue` overlay).
+				// A recorder env without the hook resolves immediately (headless never deadlocks).
+				if (node.awaitComplete) await this.ctx.env.awaitContainerComplete?.(node.ref);
 				return this.nextExec(graph, node.id, 'exec');
 			}
 

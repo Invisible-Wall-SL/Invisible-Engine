@@ -224,6 +224,12 @@ export interface ForEachNode extends NodeBase {
 export interface ShowContainerNode extends NodeBase {
 	kind: 'showContainer';
 	ref: ContainerId;
+	/** ROUND-BLOCK HOLD (overlay tap-to-continue): when true, after mounting the container the exec
+	 *  chain BLOCKS until this container next completes — its `complete:<id>` fires (a tap on an overlay
+	 *  whose `tapToContinue` is on) and it is hidden. The generic replacement for the coded free-spin
+	 *  gates: an authored overlay pauses the round until the player taps, then the chain (and the
+	 *  awaiting book pump) resumes. Absent/false ⇒ show-and-continue (no hold). */
+	awaitComplete?: boolean;
 }
 
 /** Hide Container: unmount the referenced container. */

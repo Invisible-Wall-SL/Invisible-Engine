@@ -27,6 +27,7 @@
 		setGroupLabel,
 		setNodeInput,
 		setNodeRef,
+		setShowContainerAwaitComplete,
 	} from './graphOps';
 	import { typeLabel } from './palette';
 	import type { FlowDoc } from 'engine-flow-v2';
@@ -110,6 +111,11 @@
 
 	function onRefChange(value: string): void {
 		onchange(setNodeRef(doc, node.id, value));
+	}
+
+	// --- showContainer round-block hold ----------------------------------------
+	function onAwaitCompleteChange(value: boolean): void {
+		onchange(setShowContainerAwaitComplete(doc, node.id, value));
 	}
 
 	// --- forEach ---------------------------------------------------------------
@@ -266,6 +272,21 @@
 					{/each}
 				</select>
 			</label>
+		{/if}
+
+		{#if node.kind === 'showContainer'}
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={node.awaitComplete === true}
+					onchange={(e) => onAwaitCompleteChange(e.currentTarget.checked)}
+				/>
+				<span class="flabel">Hold until this screen completes (tap)</span>
+			</label>
+			<p class="hint">
+				Pauses the round after mounting until the overlay's <strong>Tap to continue</strong> fires its
+				<code>complete</code> — the generic free-spin/intro/outro hold.
+			</p>
 		{/if}
 
 		{#if node.kind === 'group'}
@@ -651,6 +672,29 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #64748b;
+	}
+	.field.check {
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+	}
+	.field.check .flabel {
+		text-transform: none;
+		font-size: 11px;
+		color: #cbd5e1;
+		letter-spacing: 0;
+	}
+	.field.check input[type='checkbox'] {
+		flex: none;
+	}
+	.hint {
+		margin: 0;
+		font-size: 10px;
+		line-height: 1.5;
+		color: #94a3b8;
+	}
+	.hint code {
+		color: #93c5fd;
 	}
 	.pinname {
 		font-size: 11px;

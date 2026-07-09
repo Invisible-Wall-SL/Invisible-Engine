@@ -40,7 +40,8 @@
 		"v2lifecycle": "tsx flowV2Lifecycle.ts",
 		"v2translate": "tsx flowV2Translate.ts",
 		"v2translateremake": "tsx flowV2TranslateRemake.ts",
-		"v2choreo": "tsx flowV2Choreo.ts"
+		"v2choreo": "tsx flowV2Choreo.ts",
+		"v2hold": "tsx flowV2Hold.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

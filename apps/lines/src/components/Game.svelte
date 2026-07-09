@@ -1581,23 +1581,31 @@
 				single tap resumes the choreography AND dismisses the overlay. The intro choreography is
 				unchanged (FS-6 verbatim); only WHO holds the block + WHEN the screen mounts moves.
 			-->
+		<!-- Under a v2 flow that DRIVES screens, the coded free-spin gates + visuals step aside:
+				 the authored `freeSpinIntro`/`freeSpinOutro` containers own the visual, the overlay's
+				 `tapToContinue` owns the dim+prompt+tap, and a `showContainer{awaitComplete}` node owns
+				 the round-block hold (generic replacement for these gates). Mirrors the `specialBook`
+				 v2 gate below. `freeSpinOwnership` is a v1-doc read (inert under v2), so gate on
+				 `flowV2DrivesScreens` explicitly. -->
 		{#if freeSpinOwnership.ownsIntro}
 			<FreeSpinIntroFlowGate
 				ownsIntro={freeSpinOwnership.ownsIntro}
 				introScreenActive={isFreeSpinIntroActive}
 			/>
-		{:else}
+		{:else if !flowV2DrivesScreens}
 			<FreeSpinIntroGate
 				dimColor={fsIntroGate?.dimColor}
 				dimAlpha={fsIntroGate?.dimAlpha}
 				hidePrompt={fsIntroGate?.hidePrompt}
 			/>
 		{/if}
-		<FreeSpinOutroGate
-			dimColor={fsOutroGate?.dimColor}
-			dimAlpha={fsOutroGate?.dimAlpha}
-			hidePrompt={fsOutroGate?.hidePrompt}
-		/>
+		{#if !flowV2DrivesScreens}
+			<FreeSpinOutroGate
+				dimColor={fsOutroGate?.dimColor}
+				dimAlpha={fsOutroGate?.dimAlpha}
+				hidePrompt={fsOutroGate?.hidePrompt}
+			/>
+		{/if}
 		<!--
 				Phase 3 — the OPTIONAL book-reveal press-to-continue GATE, mounted alongside the
 				free-spin gates at the fixed TOP z-band so an author reordering overlays can never bury
@@ -1619,16 +1627,16 @@
 				them, FS-7 retires them). Atomic with the interpreter's per-event authoring flip (SAME
 				per-step ownership), so no double / empty window per step.
 			-->
-		{#if !freeSpinOwnership.ownsIntro}
+		{#if !freeSpinOwnership.ownsIntro && !flowV2DrivesScreens}
 			<LayoutScene scene={fsIntroScene} />
 			{#if fsIntroVisualScene && fsIntroVisualScene.nodes.length}
 				<LayoutScene scene={fsIntroVisualScene} />
 			{/if}
 		{/if}
-		{#if !freeSpinOwnership.ownsCounter && ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
+		{#if !freeSpinOwnership.ownsCounter && !flowV2DrivesScreens && ['desktop', 'landscape'].includes(context.stateLayoutDerived.layoutType())}
 			<LayoutScene scene={fsCounterScene} />
 		{/if}
-		{#if !freeSpinOwnership.ownsOutro}
+		{#if !freeSpinOwnership.ownsOutro && !flowV2DrivesScreens}
 			<LayoutScene scene={fsOutroScene} />
 			{#if fsOutroVisualScene && fsOutroVisualScene.nodes.length}
 				<LayoutScene scene={fsOutroVisualScene} />

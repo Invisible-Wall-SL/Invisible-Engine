@@ -24,6 +24,33 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-09 — Invisible Flow v2: generic overlay ROUND-BLOCK HOLD + v2 coded-free-spin suppression (⏳ live-verify)
+- **Why:** the v1→v2 cutover's last remake-specific gap. Migrating Book of Borut **remake** to a
+  whole-game v2 flow: its free-spin overlays are authored as flow CONTAINERS (`fs-intro`/`fs-counter`/
+  `fs-outro`/`specialBook` componentInstances), but (a) the coded `FreeSpin*Visual`/gate suppression keys
+  off the v1 doc (`freeSpinOwnership`, inert under v2) so the coded twin double-rendered, and (b) v2 had
+  no round-block "hold until tap" — the coded gates that provided it are v1-interpreter-coupled.
+- **Generic hold (`showContainer{awaitComplete}`):** a new optional flag on the `showContainer` node
+  (`engine-flow-v2` `types.ts`). When set, after mounting the container the interpreter BLOCKS the exec
+  chain until that container next completes — its `complete:<id>` fires and it is hidden (a tap on a
+  `tapToContinue` overlay). Wired through a new `FlowV2Env.awaitContainerComplete(id)` (`runtime.ts`)
+  resolved by the env's `hideContainer` (`env.ts`, a per-container resolver registry shared across runs).
+  Since the book pump `await`s `dispatch` (`game/utils.ts:43`), a blocked chain holds the round until the
+  tap — the generic replacement for the coded free-spin gates. A recorder env without the hook no-ops the
+  hold (headless never deadlocks). Harness `tools/flow-spike/flowV2Hold.ts` (`pnpm --filter flow-spike run
+  v2hold`, 10/10) + `/flow-v2` NodeInspector checkbox ("Hold until this screen completes (tap)") +
+  `graphOps` `setShowContainerAwaitComplete` (omits the field when off → byte-clean).
+- **v2-aware suppression (`Game.svelte`):** the coded free-spin gates + visual scenes now also gate on
+  `!flowV2DrivesScreens` (mirroring the existing `specialBook` v2 gate), so under a whole-game v2 flow the
+  authored containers + `tapToContinue` + the hold own the overlays and the coded twins step aside.
+- **Contract:** a v2 flow that drives screens must AUTHOR its overlays (author-it-or-lose-it, same as
+  `specialBook`) and NOT fire the coded awaited gate-broadcasts (`freeSpinIntroUpdate`/`freeSpinOutroCountUp`)
+  — the container hold replaces them. **Follow-ups:** the outro count-up + `updateFreeSpinCounter` data
+  binding on the authored overlays; teaching the translator to emit `awaitComplete` for a migrated overlay
+  screen (the reference/`v2translateremake` path still injects the coded gate-broadcasts).
+- **Verified:** `engine-flow-v2` typecheck + `launcher-api` build clean; v2 harness suite (`v2runtime`/
+  `v2mount`/`v2translate`/`v2containerfire`/`v2choreo`/**`v2hold`**) green. Live-verify on the remake pending.
+
 ### 2026-07-09 — Invisible Flow v2: drag-off-pin contextual node spawner (⏳ live-verify)
 - **Goal:** Unreal-Blueprint's headline gesture — drag a wire off a pin, release on **empty canvas**,
   get a filtered popup of ONLY node types that pin could legally connect to; pick one → it spawns at
