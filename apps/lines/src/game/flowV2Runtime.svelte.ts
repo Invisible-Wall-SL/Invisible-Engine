@@ -65,6 +65,11 @@ declare global {
 	 *  v2 drives a real game without a bake (mirrors v1's `__IE_FLOW_LINES__`). Unset ⇒ not loaded. */
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_V2_LINES__: boolean | undefined;
+	/** DEBUG: an ordered trace of every flow op (event / show / hide / HOLD / RELEASE / complete /
+	 *  cue / action), captured when logging is on (`?flowlog=1`). Read it in the console to see exactly
+	 *  what the flow did, in order — the answer to "why didn't my screen show". */
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_V2_TRACE__: string[] | undefined;
 }
 
 /**
@@ -91,6 +96,16 @@ const flowV2UrlOptIn = (): boolean => {
 	if (typeof globalThis === 'undefined' || !globalThis.location) return false;
 	const v = new URLSearchParams(globalThis.location.search).get('flowV2');
 	return v === 'lines' || v === '1';
+};
+
+/** True when the URL opts into flow TRACE LOGGING (`?flowlog=1`). Read at BOOT so it survives a reload
+ *  — the reproducible way to see what a shipped v2 flow actually does (a console global can't be set
+ *  before the game mounts). Logs every event/show/hide/hold/release/complete + captures the ordered
+ *  trace on `window.__IE_FLOW_V2_TRACE__`. Off ⇒ zero overhead (the raw mount/env are used directly). */
+const flowV2LogOptIn = (): boolean => {
+	if (typeof globalThis === 'undefined' || !globalThis.location) return false;
+	const v = new URLSearchParams(globalThis.location.search).get('flowlog');
+	return v === '1' || v === 'lines' || v === 'true';
 };
 
 /**
@@ -195,12 +210,26 @@ export const createLinesFlowV2 = (
 	const vocab = templateVocabulary(doc.templateId);
 	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.
 
-	// Boot confirmation — v2 is ACTIVE and will drive the events it authors (v2 looks identical to v1,
-	// so this + the per-event `[flow-v2] drove …` lines are how you verify it's really v2 running).
-	if (import.meta.env.DEV) {
+	const FLOW_LOG = flowV2LogOptIn();
+	// Boot confirmation — v2 is ACTIVE and will drive the events it authors. In DEV always; in a shipped
+	// build only with `?flowlog=1`, so live-debugging a published game is one URL param away.
+	if (import.meta.env.DEV || FLOW_LOG) {
 		const owned = doc.graph.nodes.filter((n) => n.kind === 'event').map((n) => n.ref);
-		console.info(`[flow-v2] ACTIVE — driving ${owned.length} events: ${owned.join(', ')}`);
+		const wiredSignals = doc.graph.nodes.some((n) => n.kind === 'gameSignals');
+		console.info(
+			`[flow-v2] ACTIVE — ${owned.length} event nodes: ${owned.join(', ') || '(none)'}` +
+				`${wiredSignals ? ' + gameSignals pins' : ''}. Trace: window.__IE_FLOW_V2_TRACE__`,
+		);
 	}
+
+	// DEBUG trace (`?flowlog=1`) — print every flow op IN ORDER + capture it on the global trace array,
+	// so "why didn't my screen show?" is answered by reading the log, not guessing. A no-op when off.
+	const trace = (op: string, ...rest: unknown[]): void => {
+		if (!FLOW_LOG) return;
+		const line = [op, ...rest].join(' ');
+		console.log(`%c[flow-v2] ${line}`, 'color:#8fd0b0');
+		(globalThis.__IE_FLOW_V2_TRACE__ ??= []).push(line);
+	};
 
 	// Cross-screen layering is owned by the EDITOR scene order (the screen list — "top row
 	// rendered first"), the SAME source of truth the coded/legacy HUD path reads via
@@ -214,7 +243,32 @@ export const createLinesFlowV2 = (
 		...container,
 		z: docLayerZIndex(editorDoc.scenes, container.sceneId) ?? container.z,
 	}));
-	const mount = createContainerMountModel(layeredContainers, onContainersChange);
+	const rawMount = createContainerMountModel(layeredContainers, onContainersChange);
+	// When tracing, wrap the mount so show/hide/HOLD/RELEASE/complete are visible + ordered in the log.
+	const mount: ContainerMountModel = FLOW_LOG
+		? {
+				show: (id) => {
+					trace('show', id);
+					rawMount.show(id);
+				},
+				hide: (id) => {
+					trace('hide', id);
+					rawMount.hide(id);
+				},
+				isShown: (id) => rawMount.isShown(id),
+				ordered: () => rawMount.ordered(),
+				awaitComplete: (id) => {
+					trace('HOLD', id, '⏸ awaiting complete (tap)');
+					return rawMount.awaitComplete(id).then(() => trace('RELEASE', id, '▶ chain resumes'));
+				},
+				complete: (id) => {
+					const released = rawMount.complete(id);
+					trace('complete', id, released ? '✓ released a hold' : '· (nothing held here)');
+					return released;
+				},
+				heldContainers: () => rawMount.heldContainers(),
+			}
+		: rawMount;
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
@@ -222,15 +276,29 @@ export const createLinesFlowV2 = (
 		// intent-command action (startSpin/…) routes to the `invokeIntent` bridge instead (Phase A).
 		effect: (name) => {
 			const intent = INTENT_COMMANDS[name];
-			if (intent) return invokeIntent ? () => invokeIntent(intent) : undefined;
-			return flowEffect(name);
+			if (intent)
+				return invokeIntent
+					? () => {
+							trace('action', name, `→ intent:${intent}`);
+							invokeIntent(intent);
+						}
+					: undefined;
+			const impl = flowEffect(name);
+			return impl
+				? (payload) => {
+						trace('action', name);
+						return impl(payload);
+					}
+				: undefined;
 		},
 		// A v2 `fireCue` → the existing emitter broadcast, AWAITED (`broadcastAsync`): the interpreter
 		// awaits it, so a cue whose subscriber returns a completion promise (e.g. the `specialBookReveal`
 		// shuffle→land→intro) BLOCKS the flow until it finishes — matching the coded handler's awaited
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
-		broadcast: (cue, payload) =>
-			eventEmitter.broadcastAsync({ type: cue, ...payload } as never).then(() => {}),
+		broadcast: (cue, payload) => {
+			trace('cue', cue);
+			return eventEmitter.broadcastAsync({ type: cue, ...payload } as never).then(() => {});
+		},
 		waitForTimeout,
 		// The LIVE turbo scalar — the same `stateBetDerived.timeScale()` the coded delays read, so a
 		// turbo toggle mid-round scales the v2 interpreter's delays identically.
@@ -256,13 +324,18 @@ export const createLinesFlowV2 = (
 		// un-owned so its coded handler still runs (parity). `dispatch` (`runFlowEvent`) then walks the
 		// gameSignals pin (Part 1), so a wired mechanic signal drives v2 with its coded twin suppressed.
 		ownsEvent: (eventType) => ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType),
-		dispatch: (eventName, payload, context) => runFlowEvent(doc, ctx, eventName, payload, context),
+		dispatch: (eventName, payload, context) => {
+			trace('event ▶', eventName);
+			return runFlowEvent(doc, ctx, eventName, payload, context);
+		},
 		mount,
 		resolveScene,
 		ordered: () => mount.ordered(),
 		ownsContainerEvent: (componentId, action) =>
 			flowOwnsContainerEvent(doc, componentId, action),
-		dispatchContainerEvent: (componentId, action) =>
-			runFlowContainerEvent(doc, ctx, componentId, action),
+		dispatchContainerEvent: (componentId, action) => {
+			trace('containerEvent ▶', `${componentId}.${action}`);
+			return runFlowContainerEvent(doc, ctx, componentId, action);
+		},
 	};
 };
