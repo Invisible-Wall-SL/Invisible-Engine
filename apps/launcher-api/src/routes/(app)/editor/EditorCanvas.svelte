@@ -32,6 +32,7 @@
 		pointInQuad,
 		type Vec2,
 		type NodeBox,
+		type NaturalSize,
 	} from './editorCanvas.helpers';
 	import {
 		clearRegionCache,
@@ -745,6 +746,11 @@
 	 * skips their placeholder chip so only the live emitters show. UNION across the per-scene effect
 	 * sublayers (each reports only its own scene's node ids). */
 	let liveEffectIds = $state<Set<string>>(new Set());
+	/** Measured particle SPREAD per effect NODE id (running-MAX rect in node-local / scene-world
+	 * units — `x`/`y` are the top-left offset from the node origin), reported by the live overlay so
+	 * the selection box + hit-test fit the real particles instead of the fixed placeholder. MERGED
+	 * across the per-scene effect sublayers. */
+	let effectBounds = $state<Map<string, { x: number; y: number; w: number; h: number }>>(new Map());
 
 	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
 	// canvas folds their reports together (union of ready keys/ids + merged natural
@@ -754,6 +760,10 @@
 	const spineMetaByScene = new Map<string, Map<string, SpineMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const effectReadyByScene = new Map<string, Set<string>>();
+	const effectBoundsByScene = new Map<
+		string,
+		Map<string, { x: number; y: number; w: number; h: number }>
+	>();
 	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
 
@@ -787,6 +797,15 @@
 		for (const set of effectReadyByScene.values()) for (const id of set) union.add(id);
 		liveEffectIds = union;
 	}
+	function mergeEffectBounds(
+		sceneId: string,
+		bounds: Map<string, { x: number; y: number; w: number; h: number }>,
+	): void {
+		effectBoundsByScene.set(sceneId, bounds);
+		const merged = new Map<string, { x: number; y: number; w: number; h: number }>();
+		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		effectBounds = merged;
+	}
 	function mergeSpineLoading(sceneId: string, c: { started: number; settled: number }): void {
 		spineLoadByScene.set(sceneId, c);
 		let started = 0;
@@ -818,6 +837,7 @@
 		spineMetaByScene.delete(id);
 		textReadyByScene.delete(id);
 		effectReadyByScene.delete(id);
+		effectBoundsByScene.delete(id);
 		spineLoadByScene.delete(id);
 		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
@@ -836,6 +856,9 @@
 		const effIds = new Set<string>();
 		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
 		liveEffectIds = effIds;
+		const effBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
+		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) effBounds.set(k, v);
+		effectBounds = effBounds;
 		let ss = 0;
 		let sd = 0;
 		for (const v of spineLoadByScene.values()) {
@@ -1144,7 +1167,21 @@
 	}
 
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
-	function naturalSize(node: LayoutNode): { w: number; h: number } | null {
+	function naturalSize(node: LayoutNode): NaturalSize | null {
+		// A placed effect's "natural size" is its live particle SPREAD, reported by the overlay
+		// (`EditorEffectLayer` → `effectBounds`) in node-local / scene-world units. The spread is
+		// OFFSET from the node origin (a burst fanning upward has particles above/left of it), so we
+		// map the rect's top-left offset `x`/`y` into the box anchor: `nodeBox`/`nodeCornersWorld`
+		// span the box local `-w*ax .. w*(1-ax)`, so a spread at local `x..x+w` needs `ax = -x/w`
+		// (the same `-minX/w` convention `componentInstanceContentBox` uses). Null until particles
+		// emit, so an idle effect keeps its fixed placeholder box.
+		if (node.kind === 'effect') {
+			const b = effectBounds.get(node.id);
+			if (b && b.w > 0 && b.h > 0) {
+				return { w: b.w, h: b.h, ax: -b.x / b.w, ay: -b.y / b.h };
+			}
+			return null;
+		}
 		// A componentInstance's "natural size" is the union of its expanded content (the
 		// same box `nodeBox` frames + `drawComponentInstance` draws), so a background-space
 		// instance cover-fits against its real drawn extent via `backgroundTransform`.
@@ -3134,6 +3171,10 @@
 						mergeEffectReady(s.id, ids);
 						schedule();
 					}}
+					onBoundsChange={(bounds) => {
+						mergeEffectBounds(s.id, bounds);
+						schedule();
+					}}
 				/>
 			{/if}
 		</div>
@@ -3233,6 +3274,10 @@
 				playing={playingEffects}
 				onReadyKeysChange={(ids) => {
 					mergeEffectReady(HUD_EFFECT_KEY, ids);
+					schedule();
+				}}
+				onBoundsChange={(bounds) => {
+					mergeEffectBounds(HUD_EFFECT_KEY, bounds);
 					schedule();
 				}}
 			/>

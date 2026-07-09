@@ -24,6 +24,20 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-09 — Invisible FX editor: selection box fits the particle spread
+- **Follow-up to the live preview:** a placed effect's selection box / hit-test was still the fixed
+  160×100 placeholder even though the particles spread well past it (often asymmetrically — a burst
+  fanning upward). Now it fits the spread, mirroring how spine nodes fit their box to natural size.
+- **`EditorEffectLayer`** accumulates each node's particle extent via `container.getLocalBounds()`
+  (before the container transform + world pan/zoom = scene-world units) into a running-MAX rect and
+  reports `onBoundsChange(Map<nodeId,{x,y,w,h}>)`, throttled (`BOUNDS_GROW_EPS` — only re-emits when a
+  box meaningfully grows, so it doesn't churn `$state` every frame; idle effects stay unreported).
+- **`EditorCanvas`/`editorCanvas.helpers`:** `effectBounds` (per-scene union, like `spineNaturalSizes`)
+  feeds the `naturalSize` callback, which for an effect returns `{ w, h, ax:-x/w, ay:-y/h }` (offset-
+  aware — same `-minX/w` convention as `componentInstanceContentBox`); `nodeBox`'s effect case honors
+  the returned `ax/ay`. `NaturalSize` gained optional `ax/ay`. Idle/degenerate ⇒ the 160×100 fallback.
+- `launcher-api` build clean. Owner live-verify the box hugs the particles (grows to enclose the burst).
+
 ### 2026-07-08 — Invisible Flow v2: Collapse to Group (inline subgraph node, Part 1 headless)
 - **What:** a second collapse — `collapseToGroup` folds a node selection into ONE inline `group` node,
   the counterpart to Collapse-to-Function. Difference that matters: it keeps **each boundary crossing

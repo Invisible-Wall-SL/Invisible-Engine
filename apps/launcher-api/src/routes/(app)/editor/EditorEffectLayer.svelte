@@ -70,6 +70,12 @@
 		/** Reports which effect NODE ids now render a live emitter, so the 2D canvas can drop their
 		 * placeholder chip. Loading / bone-only / empty nodes stay chipped. */
 		onReadyKeysChange?: (nodeIds: Set<string>) => void;
+		/** Reports each live effect's measured particle SPREAD in the node's LOCAL (scene-world)
+		 * space — a running-MAX rect `{ x, y, w, h }` where `x`/`y` are the top-left offset from the
+		 * node origin (particles above/left of the origin give negative `x`/`y`), so the 2D canvas
+		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
+		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
+		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
 	}
 
 	let {
@@ -86,6 +92,7 @@
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
 		onReadyKeysChange,
+		onBoundsChange,
 	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
@@ -115,6 +122,12 @@
 		/** True once at least one free layer resolved a visible emitter (art OR placeholder) — drives
 		 * the ready report so the 2D chip is only dropped when something actually renders. */
 		live: boolean;
+		/** Running-MAX particle spread in the node's LOCAL space (`container.getLocalBounds()`,
+		 * BEFORE the container's own transform + the world pan/zoom — i.e. scene-world units, exactly
+		 * what `nodeBox` wants). `null` until the first non-degenerate frame. Grows only (never
+		 * shrinks), so a burst that fans out then dies still keeps a stable enclosing box. Reset (a
+		 * fresh `LiveNode`) whenever the node's effectId/doc rebuilds. */
+		bounds: { x: number; y: number; w: number; h: number } | null;
 	}
 
 	/** Per-node live renders, keyed by node id (a doc may back several placed nodes). */
@@ -356,7 +369,12 @@
 				removed = true;
 			}
 		}
-		if (removed) publishReady();
+		if (removed) {
+			publishReady();
+			// A removed / rebuilt node must drop its reported box too, else a stale spread lingers on
+			// a node id that no longer renders (its accumulator was reset with the fresh LiveNode).
+			publishBounds();
+		}
 	}
 
 	/** Build one placed effect node: fetch its doc, then one `Emitter` per FREE layer (bone layers are
@@ -377,6 +395,7 @@
 			container,
 			emitters: [],
 			live: false,
+			bounds: null,
 		};
 		liveNodes.set(tg.nodeId, node);
 
@@ -432,6 +451,91 @@
 		}
 	}
 
+	// ---- particle-spread reporting (selection-box fit) --------------------------------------------
+
+	/** Min growth (px, node-local units) before a node's max-bounds counts as "meaningfully bigger"
+	 * and we re-emit. Keeps `onBoundsChange` from reassigning the parent's `$state` every frame as a
+	 * burst breathes by a fraction of a pixel. */
+	const BOUNDS_GROW_EPS = 4;
+	/** Sample the particle spread every N ticker frames (≈ 10 Hz at 60fps) — measuring + publishing
+	 * every frame would churn the parent's `$state` for a purely best-effort selection box. */
+	const BOUNDS_SAMPLE_EVERY = 6;
+	let boundsTick = 0;
+	/** The bounds set last handed to the parent, so `publishBounds` only re-emits on real change. */
+	let publishedBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
+
+	/** Accumulate each live node's particle spread into its running-MAX box (in node-LOCAL /
+	 * scene-world units via `container.getLocalBounds()` — before the container's own transform +
+	 * the world pan/zoom). Returns true when any node's box grew past {@link BOUNDS_GROW_EPS}, so the
+	 * ticker only publishes on meaningful growth (not every frame). Degenerate/empty bounds (no live
+	 * particles yet) are ignored so an idle effect keeps its placeholder box. */
+	function accumulateBounds(): boolean {
+		let grew = false;
+		for (const node of liveNodes.values()) {
+			if (node.emitters.length === 0) continue;
+			// getLocalBounds measures the container's children (the live particles) BEFORE the
+			// container's own position/scale/rotation — i.e. offsets from the node origin, which is
+			// exactly the local box space `nodeBox` frames.
+			const b = node.container.getLocalBounds();
+			if (!(b.width > 0) || !(b.height > 0)) continue;
+			const prev = node.bounds;
+			// Running MAX rect: union the new frame's extent with the accumulated one so a burst that
+			// fans out then dies keeps a stable enclosing box (best-effort framing for dynamic art).
+			const minX = prev ? Math.min(prev.x, b.x) : b.x;
+			const minY = prev ? Math.min(prev.y, b.y) : b.y;
+			const maxX = prev ? Math.max(prev.x + prev.w, b.x + b.width) : b.x + b.width;
+			const maxY = prev ? Math.max(prev.y + prev.h, b.y + b.height) : b.y + b.height;
+			const next = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+			node.bounds = next;
+			if (
+				!prev ||
+				Math.abs(next.x - prev.x) > BOUNDS_GROW_EPS ||
+				Math.abs(next.y - prev.y) > BOUNDS_GROW_EPS ||
+				Math.abs(next.w - prev.w) > BOUNDS_GROW_EPS ||
+				Math.abs(next.h - prev.h) > BOUNDS_GROW_EPS
+			) {
+				grew = true;
+			}
+		}
+		return grew;
+	}
+
+	/** Publish the per-node max-bounds to the 2D canvas, idempotent: only re-emit when the set of
+	 * nodes changed or a box grew past {@link BOUNDS_GROW_EPS} (values rounded so a sub-px jitter
+	 * doesn't churn the parent's `$state`). */
+	function publishBounds(): void {
+		const next = new Map<string, { x: number; y: number; w: number; h: number }>();
+		for (const [id, node] of liveNodes) {
+			if (!node.bounds) continue;
+			next.set(id, {
+				x: Math.round(node.bounds.x),
+				y: Math.round(node.bounds.y),
+				w: Math.round(node.bounds.w),
+				h: Math.round(node.bounds.h),
+			});
+		}
+		let changed = next.size !== publishedBounds.size;
+		if (!changed) {
+			for (const [id, b] of next) {
+				const p = publishedBounds.get(id);
+				if (
+					!p ||
+					Math.abs(b.x - p.x) > BOUNDS_GROW_EPS ||
+					Math.abs(b.y - p.y) > BOUNDS_GROW_EPS ||
+					Math.abs(b.w - p.w) > BOUNDS_GROW_EPS ||
+					Math.abs(b.h - p.h) > BOUNDS_GROW_EPS
+				) {
+					changed = true;
+					break;
+				}
+			}
+		}
+		if (changed) {
+			publishedBounds = next;
+			onBoundsChange?.(next);
+		}
+	}
+
 	// ---- pan / zoom + play/pause ------------------------------------------------------------------
 
 	/** Bake the editor pan/zoom onto the world container — the identical `world*zoom + pan` mapping the
@@ -480,6 +584,13 @@
 							emitter.emit = false;
 						}
 					}
+				}
+				// Measure the particle spread a few times a second (not every frame) and only publish
+				// when a box meaningfully grew — the selection-box fit is best-effort framing, so a
+				// coarse cadence is plenty and keeps the parent's `$state` from reassigning constantly.
+				if (++boundsTick >= BOUNDS_SAMPLE_EVERY) {
+					boundsTick = 0;
+					if (accumulateBounds()) publishBounds();
 				}
 			});
 			await requestRebuild();

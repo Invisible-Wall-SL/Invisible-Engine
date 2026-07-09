@@ -116,11 +116,28 @@ export interface NodeBox {
 	ay: number;
 }
 
+/**
+ * A node's measured natural size, optionally carrying its own local anchor. Sprites +
+ * spines report just `{ w, h }` (the node's transform anchor frames them). An `effect`
+ * reports `ax`/`ay` too, because its live particle spread is OFFSET from the node origin
+ * (an upward-fanning burst has particles above/left of the origin), so the selection box
+ * needs a per-node anchor — not the transform anchor — to enclose the particles. `ax`/`ay`
+ * follow the {@link nodeCornersWorld} convention: the box spans local `-w*ax .. w*(1-ax)`,
+ * so a spread occupying local `x .. x+w` maps to `ax = -x/w` (as `componentInstanceContentBox`
+ * does with `-minX/w`).
+ */
+export interface NaturalSize {
+	w: number;
+	h: number;
+	ax?: number;
+	ay?: number;
+}
+
 /** Resolve a sensible local-space box for any node kind. */
 export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
-	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
+	naturalSize: (node: LayoutNode) => NaturalSize | null,
 	componentMap?: Map<string, ComponentDef>,
 	layoutType?: LayoutType,
 ): NodeBox {
@@ -167,9 +184,18 @@ export function nodeBox(
 	if (node.kind === 'text') {
 		return { w: 160, h: 28, ax, ay };
 	}
-	// An effect draws a fixed placeholder chip (drawPlaceholder's 160×100) — frame the
-	// selection at that same box so it's hit-testable/movable like reelGrid.
+	// An effect's LIVE particle overlay (EditorEffectLayer) renders real particles that
+	// spread — often asymmetrically (a burst fanning upward) — well beyond the fixed
+	// placeholder chip. When the overlay has reported a measured spread (via `naturalSize`),
+	// frame the selection at that spread so the box + hit-test enclose the particles: `nat`
+	// carries its own `ax`/`ay` (the spread is offset from the node origin, so the box needs
+	// a per-node anchor, not the transform anchor). Otherwise fall back to the fixed
+	// placeholder box so a not-yet-emitting effect is still hit-testable/movable.
 	if (node.kind === 'effect') {
+		const nat = naturalSize(node);
+		if (nat && nat.w > 0 && nat.h > 0) {
+			return { w: nat.w, h: nat.h, ax: nat.ax ?? ax, ay: nat.ay ?? ay };
+		}
 		return { w: 160, h: 100, ax, ay };
 	}
 	// A rect frames at its own width/height (the fill box) — like a sprite, but the
@@ -210,7 +236,7 @@ export function nodeBox(
  */
 function componentInstanceContentBox(
 	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
-	naturalSize: (node: LayoutNode) => { w: number; h: number } | null,
+	naturalSize: (node: LayoutNode) => NaturalSize | null,
 	componentMap: Map<string, ComponentDef>,
 	layoutType: LayoutType,
 	depth: number,
