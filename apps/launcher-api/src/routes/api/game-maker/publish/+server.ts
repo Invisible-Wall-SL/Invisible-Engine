@@ -1,4 +1,4 @@
-import { error, json } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, projectExists } from '$lib/server/projects';
@@ -59,6 +59,12 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 			return json({ error: e.message }, { status: 409, headers: NO_STORE });
 		}
 		console.error('publishGame failed:', e);
-		throw error(502, 'Publish failed.');
+		// Surface the underlying reason to the UI. The route body is `{ error }` (the
+		// Game Maker page reads `out.error`), whereas SvelteKit's `error()` helper emits
+		// `{ message }` — so throwing it would leave the UI showing only "Publish failed
+		// (502)" with the real cause stranded in the server logs. Publishing is admin-only,
+		// so exposing the detail here is safe.
+		const detail = e instanceof Error ? e.message : String(e);
+		return json({ error: `Publish failed: ${detail}` }, { status: 502, headers: NO_STORE });
 	}
 };
