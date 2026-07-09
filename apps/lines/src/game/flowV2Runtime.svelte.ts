@@ -26,6 +26,7 @@
  */
 
 import type { LayoutDoc, Scene } from 'engine-layout';
+import { docLayerZIndex } from 'engine-layout';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
 	createContainerMountModel,
@@ -201,7 +202,19 @@ export const createLinesFlowV2 = (
 		console.info(`[flow-v2] ACTIVE — driving ${owned.length} events: ${owned.join(', ')}`);
 	}
 
-	const mount = createContainerMountModel(doc.containers, onContainersChange);
+	// Cross-screen layering is owned by the EDITOR scene order (the screen list — "top row
+	// rendered first"), the SAME source of truth the coded/legacy HUD path reads via
+	// `docLayerZIndex` (Game.svelte). A container's own `z` was baked at v1→v2 migration
+	// (`translate.ts`: `i * 10` over the v1 SCREEN order) and can DIVERGE from the current scene
+	// order — e.g. a `hudBar` placed above the `hud_*` readouts ends up UNDER them in-game though
+	// the editor shows it on top. Re-stamp each container's z from the scene order so flow-v2
+	// stacking matches the editor and a screen-list reorder re-layers the game. Fall back to the
+	// doc's own z when a container's scene isn't in the doc (parity).
+	const layeredContainers = doc.containers.map((container) => ({
+		...container,
+		z: docLayerZIndex(editorDoc.scenes, container.sceneId) ?? container.z,
+	}));
+	const mount = createContainerMountModel(layeredContainers, onContainersChange);
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
