@@ -269,3 +269,10 @@ export const setComputeOp = (doc: FlowDoc, nodeId: string, op: ComputeOp): FlowD
 /** Replace a `branch` node's `Guard` (its `all[]` / `any[]` comparison set). */
 export const setBranchGuard = (doc: FlowDoc, nodeId: string, guard: Guard): FlowDoc =>
 	replaceNode(doc, nodeId, (n) => (n.kind === 'branch' ? { ...n, guard } : n));
+
+/** Rename a `group` node (its display `label`; §5.2). Purely cosmetic — the group is a fold, so its
+ *  label has no runtime meaning. A blank/whitespace name falls back to the current label. */
+export const setGroupLabel = (doc: FlowDoc, nodeId: string, label: string): FlowDoc =>
+	replaceNode(doc, nodeId, (n) =>
+		n.kind === 'group' ? { ...n, label: label.trim() || n.label } : n,
+	);

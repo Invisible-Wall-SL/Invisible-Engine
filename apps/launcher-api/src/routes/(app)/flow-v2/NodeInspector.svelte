@@ -24,6 +24,7 @@
 		setComputeOp,
 		setCount,
 		setForEachMode,
+		setGroupLabel,
 		setNodeInput,
 		setNodeRef,
 	} from './graphOps';
@@ -125,6 +126,11 @@
 	// --- data-in source editing ------------------------------------------------
 	function onInputChange(pinId: string, src: DataSource | undefined): void {
 		onchange(setNodeInput(doc, node.id, pinId, src));
+	}
+
+	// --- group (§5.2) ----------------------------------------------------------
+	function onGroupLabelChange(label: string): void {
+		onchange(setGroupLabel(doc, node.id, label));
 	}
 
 	// --- compute ---------------------------------------------------------------
@@ -259,6 +265,18 @@
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
 				</select>
+			</label>
+		{/if}
+
+		{#if node.kind === 'group'}
+			<label class="field">
+				<span class="flabel">Name</span>
+				<input
+					type="text"
+					value={node.label}
+					placeholder="Group name"
+					onchange={(e) => onGroupLabelChange(e.currentTarget.value)}
+				/>
 			</label>
 		{/if}
 
