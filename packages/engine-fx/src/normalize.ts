@@ -88,6 +88,8 @@ const normalizeTrigger = (raw: unknown): EmitterTrigger | undefined => {
 	if (on === 'event' && eventType) trigger.eventType = eventType;
 	const duration = num(raw.duration);
 	if (duration !== undefined) trigger.duration = duration;
+	const stopEventType = str(raw.stopEventType);
+	if (on === 'event' && stopEventType) trigger.stopEventType = stopEventType;
 	return trigger;
 };
 

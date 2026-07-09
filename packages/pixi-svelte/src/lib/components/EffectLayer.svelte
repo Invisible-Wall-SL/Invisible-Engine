@@ -137,7 +137,8 @@
 
 		const eventType = trigger.eventType;
 		const duration = trigger.duration;
-		const unsubscribe = eventEmitter.subscribe({
+		const stopEventType = trigger.stopEventType;
+		const handlers: Record<string, () => void> = {
 			[eventType]: () => {
 				emitting = true;
 				clearStop();
@@ -148,7 +149,16 @@
 					}, duration);
 				}
 			},
-		});
+		};
+		// Optional SECOND cue that STOPS emission (a continuous effect Flow switches off). Cancels any
+		// pending duration-timer. Ignored when equal to the fire cue (`layerTrigger` already drops that).
+		if (stopEventType && stopEventType !== eventType) {
+			handlers[stopEventType] = () => {
+				clearStop();
+				emitting = false;
+			};
+		}
+		const unsubscribe = eventEmitter.subscribe(handlers);
 
 		return () => {
 			unsubscribe();

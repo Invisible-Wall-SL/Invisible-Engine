@@ -253,6 +253,12 @@ host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Bo
     layer rides that rig's bone and the rig's rebroadcast timeline events fire it. Editor: an "attach to
     rig" dropdown in the effect Properties. Reference model (not nesting) to keep spine a leaf node.
     Dangling id ⇒ normal top-level render. The effect rides the rig (its node transform ignored).
+  - **Trigger STOP event added (2026-07-09).** `EmitterTrigger.stopEventType?` — an optional SECOND cue
+    that STOPS emission, so Flow drives a continuous effect with a start cue + a stop cue (fire on
+    `eventType`, stop on `stopEventType`). `EffectLayer` subscribes both; the stop cue cancels any
+    duration timer; a stop cue equal to the fire cue is dropped (`layerTrigger`). Absent ⇒ the prior
+    burst behaviour (stop by `duration`/`emitterLifetime`) is byte-identical. FX tool: a "Stop event"
+    combobox. Covered by `trigger.ts` (start→stop-cue→stop, stop beats duration) + `roundTrip.ts`.
   - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
 particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
     the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind

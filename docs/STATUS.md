@@ -24,6 +24,20 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-09 — Invisible FX: trigger STOP event (Flow start/stop control)
+- **Goal:** drive an effect fully from Flow — one cue starts it, another stops it (for a continuous
+  effect). Until now an `on:event` layer stopped only by `duration`/`emitterLifetime` (a burst).
+- **`EmitterTrigger.stopEventType?`** (engine-fx): an optional SECOND cue that STOPS emission. `EffectLayer`
+  now subscribes both `eventType` (fire → emit, + optional duration timer) AND `stopEventType` (→ stop,
+  cancels the timer). `layerTrigger`/`LayerEmitPlan` carry it; a stop cue equal to the fire cue is dropped
+  (can't both start+stop). `normalizeTrigger` preserves it. FX tool: a **Stop event** combobox in event
+  mode (`setTriggerStopEvent`; the other trigger setters carry it through). Additive — absent ⇒ prior
+  burst behaviour byte-identical.
+- **Verified:** `tools/fx-spike/trigger.ts` extended (start→emit→stop-cue→stop, re-fire resumes, stop cue
+  beats duration, same-cue dropped); `roundTrip.ts` covers save→reload survival; all fx harnesses +
+  `pixi-svelte`/`launcher-api` build GREEN. Owner live-verify: two Flow `fireCue`s (start + stop) toggle
+  a continuous effect.
+
 ### 2026-07-09 — Invisible FX editor: selection box fits the particle spread
 - **Follow-up to the live preview:** a placed effect's selection box / hit-test was still the fixed
   160×100 placeholder even though the particles spread well past it (often asymmetrically — a burst

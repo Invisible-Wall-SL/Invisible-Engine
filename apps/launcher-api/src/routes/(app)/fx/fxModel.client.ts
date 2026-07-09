@@ -569,6 +569,7 @@ export function setTriggerMode(layer: EmitterLayer, on: 'always' | 'event'): Emi
 	const trigger: EmitterLayer['trigger'] = { on: 'event' };
 	if (prev?.eventType) trigger.eventType = prev.eventType;
 	if (prev?.duration !== undefined) trigger.duration = prev.duration;
+	if (prev?.stopEventType) trigger.stopEventType = prev.stopEventType;
 	return { ...layer, trigger };
 }
 
@@ -582,6 +583,7 @@ export function setTriggerEvent(layer: EmitterLayer, eventType: string): Emitter
 	const trigger: EmitterLayer['trigger'] = { on: 'event' };
 	if (clean) trigger.eventType = clean;
 	if (layer.trigger?.duration !== undefined) trigger.duration = layer.trigger.duration;
+	if (layer.trigger?.stopEventType) trigger.stopEventType = layer.trigger.stopEventType;
 	return { ...layer, trigger };
 }
 
@@ -594,6 +596,23 @@ export function setTriggerDuration(layer: EmitterLayer, duration: number): Emitt
 	const trigger: EmitterLayer['trigger'] = { on: 'event' };
 	if (layer.trigger?.eventType) trigger.eventType = layer.trigger.eventType;
 	if (Number.isFinite(duration)) trigger.duration = duration;
+	if (layer.trigger?.stopEventType) trigger.stopEventType = layer.trigger.stopEventType;
+	return { ...layer, trigger };
+}
+
+/**
+ * Set the SECOND cue that STOPS an `event`-triggered layer, immutably — fire on `eventType`, keep
+ * emitting, stop on this cue (for a continuous effect Flow switches off). Forces `on:'event'`; keeps
+ * the prior `eventType`/`duration`. An empty value CLEARS the stop cue (the layer then stops by
+ * `duration` / the config's `emitterLifetime` only). A value equal to the fire cue is dropped at
+ * runtime (`layerTrigger`) — a cue can't both start and stop.
+ */
+export function setTriggerStopEvent(layer: EmitterLayer, stopEvent: string): EmitterLayer {
+	const clean = stopEvent.trim();
+	const trigger: EmitterLayer['trigger'] = { on: 'event' };
+	if (layer.trigger?.eventType) trigger.eventType = layer.trigger.eventType;
+	if (layer.trigger?.duration !== undefined) trigger.duration = layer.trigger.duration;
+	if (clean) trigger.stopEventType = clean;
 	return { ...layer, trigger };
 }
 

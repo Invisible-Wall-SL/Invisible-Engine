@@ -126,7 +126,8 @@ function wireLayer(emitterLayer: EmitterLayer) {
 	if (trigger.mode === 'event' && trigger.eventType) {
 		const eventType = trigger.eventType;
 		const duration = trigger.duration;
-		unsubscribe = eventEmitter.subscribe({
+		const stopEventType = trigger.stopEventType;
+		const handlers: Record<string, () => void> = {
 			[eventType]: () => {
 				emitting = true;
 				pendingStopAt = undefined;
@@ -134,7 +135,14 @@ function wireLayer(emitterLayer: EmitterLayer) {
 					pendingStopAt = now + duration;
 				}
 			},
-		});
+		};
+		if (stopEventType && stopEventType !== eventType) {
+			handlers[stopEventType] = () => {
+				emitting = false;
+				pendingStopAt = undefined;
+			};
+		}
+		unsubscribe = eventEmitter.subscribe(handlers);
 	}
 
 	return {
@@ -187,6 +195,46 @@ assert(
 	evNoDur.emitting === true,
 	'with no duration it never auto-stops (config emitterLifetime governs the burst)',
 );
+
+// ---------------------------------------------------------------------------
+// Stop event (start/stop cues): fire on `eventType`, keep emitting, STOP on `stopEventType`.
+// ---------------------------------------------------------------------------
+console.log('fx trigger — stop event (start + stop cues)');
+
+const withStop = layerTrigger(
+	layer({ trigger: { on: 'event', eventType: 'introStart', stopEventType: 'introEnd' } }),
+);
+assert(
+	withStop.stopEventType === 'introEnd',
+	'an event trigger carries a distinct stopEventType (the stop cue)',
+);
+const sameCue = layerTrigger(layer({ trigger: { on: 'event', eventType: 'x', stopEventType: 'x' } }));
+assert(
+	sameCue.stopEventType === undefined,
+	'a stopEventType equal to the fire cue is dropped (a cue cannot both start + stop)',
+);
+
+const ss = wireLayer(
+	layer({ trigger: { on: 'event', eventType: 'introStart', stopEventType: 'introEnd' } }),
+);
+assert(ss.emitting === false, 'a start/stop layer is dormant before its start cue');
+ss.fire('introStart');
+assert(ss.emitting === true, 'the start cue begins emission');
+ss.tick(100000);
+assert(ss.emitting === true, 'with a stop cue (no duration) it keeps emitting until stopped');
+ss.fire('introEnd');
+assert(ss.emitting === false, 'the STOP cue ends emission');
+ss.fire('introStart');
+assert(ss.emitting === true, 're-firing the start cue resumes emission');
+
+// duration + stop cue: the stop cue ends the burst even before its duration would.
+const both = wireLayer(
+	layer({ trigger: { on: 'event', eventType: 'go', stopEventType: 'halt', duration: 500 } }),
+);
+both.fire('go');
+assert(both.emitting === true, 'the fire cue starts the burst');
+both.fire('halt');
+assert(both.emitting === false, 'the stop cue ends the burst before its duration elapses');
 
 // Unsubscribe stops re-firing (no leak).
 const ev2 = wireLayer(layer({ trigger: { on: 'event', eventType: 'bigWin', duration: 100 } }));

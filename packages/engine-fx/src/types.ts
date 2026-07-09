@@ -81,6 +81,13 @@ export interface EmitterTrigger {
 	eventType?: string;
 	/** Emit for N ms then stop. Omitted ⇒ the config's `emitterLifetime` governs. */
 	duration?: number;
+	/**
+	 * Optional SECOND cue (`on: 'event'` only) that STOPS emission — fire on `eventType`, keep
+	 * emitting, stop on `stopEventType`. For a continuous effect Flow switches on and off with two
+	 * cues. Omitted ⇒ emission stops by `duration` / the config's `emitterLifetime` instead (a burst).
+	 * A `stopEventType` equal to `eventType` is ignored (a cue can't both start and stop).
+	 */
+	stopEventType?: string;
 }
 
 /** One emitter layer of an effect (sparks, smoke, glow — stacked into one named effect). */

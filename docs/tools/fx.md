@@ -142,7 +142,7 @@ With a layer selected, the right **Inspector** edits it:
   rig's bones; **Offset X/Y** nudges the spawn point relative to the scene origin (Free)
   or the followed bone (Bone).
 - **Trigger** — *when* the layer fires. **Mode** is **Always (ambient)** (the layer
-  emits continuously, the default) or **On event**. In **On event** mode two more
+  emits continuously, the default) or **On event**. In **On event** mode more
   controls appear:
   - **Event** — the bus event/cue name the layer fires on. It's a **combobox**: pick a
     suggested name or type any custom cue. The suggestions are the project's real firing
@@ -153,9 +153,14 @@ With a layer selected, the right **Inspector** edits it:
     runtime event bus. Typing a custom cue is fine (e.g. a Flow v2 cue not yet in the
     exported vocabulary). An empty event means the layer is set to fire on an event but has
     none bound — it stays dormant (the fail-safe) until you enter one.
+  - **Stop event** — *optional* second cue that **stops** the layer: fire on **Event**,
+    keep emitting, then stop when a Flow Broadcast / `fireCue` of this name is emitted.
+    This is for a **continuous** effect that Flow switches on and off with two cues.
+    Leave it blank to stop by **Duration** / `emitterLifetime` instead (a burst). A stop
+    cue equal to the fire cue is ignored (a cue can't both start and stop).
   - **Duration (ms)** — how long the burst emits after the event arrives, then stops.
     Leave it **blank** to let the emitter's own lifetime (`emitterLifetime` in the
-    config) govern how long it runs instead.
+    config) — or the **Stop event** — govern how long it runs instead.
 
   This is what makes "fire effect X on game event Y" authorable end-to-end: the layer
   carries the event binding, and the runtime (after the effect is shipped — see Save)

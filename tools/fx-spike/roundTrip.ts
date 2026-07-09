@@ -103,7 +103,7 @@ const authored: EffectDoc = {
 			art: { assetKey: 'fx_coins', frames: ['coin_0', 'coin_1', 'coin_2'], animated: true },
 			placement: { space: 'free', offset: { x: 12, y: -4 } },
 			particleKind: 'sprite',
-			trigger: { on: 'event', eventType: 'winShow', duration: 800 },
+			trigger: { on: 'event', eventType: 'winShow', duration: 800, stopEventType: 'winHide' },
 		},
 		{
 			key: 'glow',

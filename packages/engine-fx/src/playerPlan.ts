@@ -27,6 +27,9 @@ export interface LayerEmitPlan {
 	eventType?: string;
 	/** Emit for N ms after the event fires, then stop. `undefined` ⇒ config lifetime governs. */
 	duration?: number;
+	/** Optional SECOND bus `type` that STOPS emission (`event` mode). `undefined` ⇒ stop by
+	 * `duration`/lifetime only. Ignored when equal to `eventType`. */
+	stopEventType?: string;
 }
 
 /** How a single layer mounts at runtime. */
@@ -77,11 +80,15 @@ export function layerTrigger(layer: EmitterLayer): LayerEmitPlan {
 	if (mode === 'always') {
 		return { mode, emit: true };
 	}
+	const eventType = layer.trigger?.eventType;
+	const stopEventType = layer.trigger?.stopEventType;
 	return {
 		mode,
 		emit: false,
-		eventType: layer.trigger?.eventType,
+		eventType,
 		duration: layer.trigger?.duration,
+		// A stop cue equal to the fire cue is meaningless (can't both start + stop) — drop it.
+		stopEventType: stopEventType && stopEventType !== eventType ? stopEventType : undefined,
 	};
 }
 

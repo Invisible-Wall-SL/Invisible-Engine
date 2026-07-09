@@ -44,6 +44,7 @@
 		setSpineParticleSkeleton,
 		setTriggerDuration,
 		setTriggerEvent,
+		setTriggerStopEvent,
 		setTriggerMode,
 		spawnKind,
 		spawnShape,
@@ -914,6 +915,24 @@
 							Fires when a Flow <strong>Broadcast</strong> / <strong>fireCue</strong> (or any game
 							event) of this exact name is emitted. Pick a known event, or type a custom cue name —
 							it must match the name used in Flow.
+						</p>
+						<label class="row">
+							<span>Stop event</span>
+							<input
+								list="fx-event-types"
+								placeholder="(optional) stop cue"
+								title="Optional SECOND cue that STOPS this layer — fire on Event, stop on this. Blank ⇒ stop by Duration / emitterLifetime instead."
+								value={selected.trigger?.stopEventType ?? ''}
+								onchange={(e) =>
+									updateSelected((l) =>
+										setTriggerStopEvent(l, (e.currentTarget as HTMLInputElement).value),
+									)}
+							/>
+						</label>
+						<p class="hint">
+							Optional — fire on <strong>Event</strong>, keep emitting, then <strong>stop</strong>
+							when a Flow Broadcast / fireCue of this name is emitted (for a continuous effect).
+							Blank ⇒ it stops by Duration / <code>emitterLifetime</code> instead.
 						</p>
 						<label class="row">
 							<span>Duration (ms)</span>
