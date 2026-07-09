@@ -28,13 +28,24 @@ export interface MountedContainer {
 export interface ContainerMountModel {
 	/** Mount the container `id` at its authored `z` (no-op if `id` is unknown or already shown). */
 	show(id: ContainerId): void;
-	/** Unmount the container `id` (no-op if it is not shown or is unknown). */
+	/** Unmount the container `id` (no-op if it is not shown or is unknown). Also releases any pending
+	 *  round-block hold on it (a container that leaves the screen can never complete). */
 	hide(id: ContainerId): void;
 	/** Is the container `id` currently mounted? */
 	isShown(id: ContainerId): boolean;
 	/** The mounted containers, ordered by `z` ASC (base first, overlays on top) — a fresh array
 	 *  each call, safe for a game to mirror into a rune. Ties keep the `containers` seed order. */
 	ordered(): MountedContainer[];
+	/** ROUND-BLOCK HOLD: register a hold on `id` (a `showContainer{awaitComplete}` node). The returned
+	 *  promise resolves when `complete(id)` fires — i.e. the player taps a `tapToContinue` overlay. So
+	 *  the exec chain (and the awaiting book pump) pause here until the tap, then continue LINEARLY. */
+	awaitComplete(id: ContainerId): Promise<void>;
+	/** Release the pending hold on `id` (the tap): resolves its `awaitComplete` so the held chain
+	 *  resumes. Returns true iff a hold was actually released (so a tap dispatcher can tell whether
+	 *  this container was the one holding the round). A no-op for an unheld container. */
+	complete(id: ContainerId): boolean;
+	/** The ids with a pending hold — so a tap dispatcher can pick the topmost HELD container. */
+	heldContainers(): ContainerId[];
 }
 
 /**
@@ -57,6 +68,15 @@ export const createContainerMountModel = (
 	containers.forEach((c, i) => seedOrder.set(c.id, i));
 
 	const shown = new Set<ContainerId>();
+	// containerId → resolvers waiting for its next `complete` (a tap). Cleared + fired on complete/hide.
+	const holds = new Map<ContainerId, Array<() => void>>();
+	const releaseHolds = (id: ContainerId): boolean => {
+		const pending = holds.get(id);
+		if (!pending) return false;
+		holds.delete(id);
+		for (const resolve of pending) resolve();
+		return true;
+	};
 
 	const ordered = (): MountedContainer[] =>
 		[...shown]
@@ -74,10 +94,19 @@ export const createContainerMountModel = (
 			notify();
 		},
 		hide: (id) => {
+			releaseHolds(id); // a hidden container can never complete → don't leak its hold.
 			if (!shown.delete(id)) return; // wasn't shown → no churn.
 			notify();
 		},
 		isShown: (id) => shown.has(id),
 		ordered,
+		awaitComplete: (id) =>
+			new Promise<void>((resolve) => {
+				const arr = holds.get(id) ?? [];
+				arr.push(resolve);
+				holds.set(id, arr);
+			}),
+		complete: (id) => releaseHolds(id),
+		heldContainers: () => [...holds.keys()],
 	};
 };

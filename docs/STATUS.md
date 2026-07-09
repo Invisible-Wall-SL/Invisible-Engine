@@ -32,14 +32,17 @@ submodule bumps).
   no round-block "hold until tap" — the coded gates that provided it are v1-interpreter-coupled.
 - **Generic hold (`showContainer{awaitComplete}`):** a new optional flag on the `showContainer` node
   (`engine-flow-v2` `types.ts`). When set, after mounting the container the interpreter BLOCKS the exec
-  chain until that container next completes — its `complete:<id>` fires and it is hidden (a tap on a
-  `tapToContinue` overlay). Wired through a new `FlowV2Env.awaitContainerComplete(id)` (`runtime.ts`)
-  resolved by the env's `hideContainer` (`env.ts`, a per-container resolver registry shared across runs).
-  Since the book pump `await`s `dispatch` (`game/utils.ts:43`), a blocked chain holds the round until the
-  tap — the generic replacement for the coded free-spin gates. A recorder env without the hook no-ops the
-  hold (headless never deadlocks). Harness `tools/flow-spike/flowV2Hold.ts` (`pnpm --filter flow-spike run
-  v2hold`, 10/10) + `/flow-v2` NodeInspector checkbox ("Hold until this screen completes (tap)") +
-  `graphOps` `setShowContainerAwaitComplete` (omits the field when off → byte-clean).
+  chain until that container is COMPLETED — a tap on its `tapToContinue` overlay (`mount.complete(id)`).
+  The tap RESUMES the same chain past the show node, so the round is authored LINEARLY (`show{hold} → hide
+  → next`) with NO separate `complete:<id>` event needed. Wired through `FlowV2Env.awaitContainerComplete`
+  (`runtime.ts`) delegating to the mount model's hold registry (`mount.ts` — `awaitComplete`/`complete`/
+  `heldContainers`; `hide` also releases so a hold never leaks). The tap dispatcher `dispatchFlowV2Complete`
+  (`flowV2InterpreterHolder.ts`) scans shown containers top-down and RELEASES the topmost held one
+  (linear), else dispatches an authored `complete:<id>` handoff event (the translator's shape). Since the
+  book pump `await`s `dispatch` (`game/utils.ts:43`), a blocked chain holds the round until the tap. A
+  recorder env without the hook no-ops the hold (headless never deadlocks). Harness
+  `tools/flow-spike/flowV2Hold.ts` (`v2hold`) + `/flow-v2` NodeInspector checkbox ("Hold until this screen
+  completes (tap)") + `graphOps` `setShowContainerAwaitComplete` (omits the field when off → byte-clean).
 - **v2-aware suppression (`Game.svelte`):** the coded free-spin gates + visual scenes now also gate on
   `!flowV2DrivesScreens` (mirroring the existing `specialBook` v2 gate), so under a whole-game v2 flow the
   authored containers + `tapToContinue` + the hold own the overlays and the coded twins step aside.

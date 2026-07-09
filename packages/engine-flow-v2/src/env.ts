@@ -47,38 +47,20 @@ export interface FlowV2EnvDeps {
  * injected mount model (the passed `z` is ignored — the model resolves it from the flow's declared
  * `containers`, one source of truth); everything else passes straight through to the game surface.
  *
- * ROUND-BLOCK HOLD: `awaitContainerComplete(id)` returns a promise that resolves the next time that
- * container is HIDDEN — which is what a `complete:<id>` edge does (its `hideContainer`, i.e. the
- * tap-to-continue dismissal). So a `showContainer{awaitComplete}` node blocks the exec chain (and
- * the awaiting book pump) until the player taps. The registry lives HERE, in the one env shared
- * across every `runFlowEvent` call, so the hold set on one run (the freeSpinTrigger chain) is
- * released by the hide on a LATER run (the complete dispatch).
+ * ROUND-BLOCK HOLD: `awaitContainerComplete(id)` delegates to the mount model's hold registry — it
+ * resolves when the container is COMPLETED (`mount.complete(id)`, driven by a tap on a `tapToContinue`
+ * overlay), so a `showContainer{awaitComplete}` node blocks the exec chain (and the awaiting book
+ * pump) until the tap, then the SAME chain continues LINEARLY (show → hide → next). The registry
+ * lives in the mount model — the one instance shared across every `runFlowEvent` call — so a hold set
+ * on the freeSpinTrigger run is released by the tap dispatched on a later run.
  */
-export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => {
-	// containerId → resolvers waiting for its next hide. Cleared + fired when that hide lands.
-	const holds = new Map<string, Array<() => void>>();
-	const releaseHolds = (containerId: string): void => {
-		const pending = holds.get(containerId);
-		if (!pending) return;
-		holds.delete(containerId);
-		for (const resolve of pending) resolve();
-	};
-	return {
-		effect: (name, payload) => deps.effect(name)?.(payload),
-		broadcast: (cue, payload) => deps.broadcast(cue, payload),
-		waitForTimeout: (ms) => deps.waitForTimeout(ms),
-		timeScale: () => deps.timeScale(),
-		showContainer: (containerId) => deps.mount.show(containerId),
-		hideContainer: (containerId) => {
-			releaseHolds(containerId); // a hide is the container completing → release any round-block.
-			deps.mount.hide(containerId);
-		},
-		awaitContainerComplete: (containerId) =>
-			new Promise<void>((resolve) => {
-				const arr = holds.get(containerId) ?? [];
-				arr.push(resolve);
-				holds.set(containerId, arr);
-			}),
-		engineRead: (key) => deps.engineRead(key),
-	};
-};
+export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
+	effect: (name, payload) => deps.effect(name)?.(payload),
+	broadcast: (cue, payload) => deps.broadcast(cue, payload),
+	waitForTimeout: (ms) => deps.waitForTimeout(ms),
+	timeScale: () => deps.timeScale(),
+	showContainer: (containerId) => deps.mount.show(containerId),
+	hideContainer: (containerId) => deps.mount.hide(containerId),
+	awaitContainerComplete: (containerId) => deps.mount.awaitComplete(containerId),
+	engineRead: (key) => deps.engineRead(key),
+});

@@ -72,21 +72,27 @@ export const resolveFlowV2Press: FlowPressResolver = (
 
 /**
  * The tap-to-continue / `completeOnLoaded` "the current screen finished" hook (Phase A). v2 has no
- * stateful active screen, so "complete" is scoped to a shown container's `complete:<id>` event.
+ * stateful active screen, so "complete" is scoped to a shown container. A tap resolves ONE of two
+ * authoring shapes, scanning the shown containers TOP-OF-STACK first (persistent HUDs sit above the
+ * game screens by z but own neither, so the completing source is the highest game screen underneath):
  *
- * Mirrors v1's `fireComplete` (engine-flow `presentation.ts`): scan the shown containers
- * TOP-OF-STACK first and dispatch the FIRST whose complete event the flow AUTHORS. This is NOT the
- * literal topmost container — persistent HUD layers commonly sit above the game screens by z yet own
- * no `complete` edge, so the completing source is the highest *game* screen underneath them (e.g. a
- * tap during `freeSpinIntro` completes the intro, not the HUD on top of it).
+ *   1. LINEAR HOLD — the container is held by a `showContainer{awaitComplete}` node. The tap RELEASES
+ *      that hold (`mount.complete`), so the SAME exec chain resumes past the show node (show → hide →
+ *      next), no separate event needed. This is the common overlay pattern.
+ *   2. HANDOFF — the flow authors a dedicated `complete:<id>` event (hide self + show the next screen).
+ *      The tap dispatches it. This is what the v1→v2 translator emits.
  *
- * Runs v2 ALONE when a shown screen's complete is owned (returns `true`); else `false` so the v1
- * `completeActiveScreen` path runs (parity). No v2 doc / nothing owned ⇒ `false`.
+ * Runs v2 ALONE when either resolves (returns `true`); else `false` so the v1 `completeActiveScreen`
+ * path runs (parity). No v2 doc / nothing held-or-authored ⇒ `false`.
  */
 export const dispatchFlowV2Complete = async (): Promise<boolean> => {
-	const shown = flowV2?.ordered() ?? []; // z-ascending
+	const h = flowV2;
+	if (!h) return false;
+	const shown = h.ordered(); // z-ascending
 	for (let i = shown.length - 1; i >= 0; i--) {
-		if (await dispatchFlowV2Event(`complete:${shown[i].id}`)) return true;
+		const id = shown[i].id;
+		if (h.mount.complete(id)) return true; // 1. a held container → the tap resumes its chain.
+		if (await dispatchFlowV2Event(`complete:${id}`)) return true; // 2. an authored complete handoff.
 	}
 	return false;
 };
