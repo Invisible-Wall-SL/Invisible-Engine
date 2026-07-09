@@ -1,5 +1,6 @@
 import { SESSION_COOKIE, validateSession } from '$lib/server/auth';
 import { runMigrations } from '$lib/server/db/migrate';
+import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
 import type { Handle, ServerInit } from '@sveltejs/kit';
 
 /** Runs once at server startup, before the first request — apply pending DB
@@ -11,5 +12,17 @@ export const init: ServerInit = async () => {
 export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = await validateSession(token);
-	return resolve(event);
+	const response = await resolve(event);
+	// The read-only deploy asset tree is fetched cross-origin by the game runtime
+	// (games.invisiblewall.org → app.invisiblewall.org). The handlers set CORS on the
+	// 200/preflight responses, but SvelteKit's error() responses (404/401) don't — so a
+	// missing/stale asset surfaces in the browser as a misleading "No
+	// Access-Control-Allow-Origin" CORS error that hides its real status. Set the CORS
+	// headers on every /api/deploy response so failures report honestly.
+	if (event.url.pathname.startsWith('/api/deploy')) {
+		for (const [key, value] of Object.entries(DEPLOY_CORS_HEADERS)) {
+			response.headers.set(key, value);
+		}
+	}
+	return response;
 };
