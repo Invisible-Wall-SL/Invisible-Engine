@@ -24,6 +24,23 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-09 — Flow-v2 container layering fix + deploy-endpoint CORS (Book of Borut remake HUD buttons)
+- **Symptom:** authored bet +/- buttons (on the `hudBar` "HUD — buttons" screen) were invisible in the
+  deployed remake though correct in the editor — hoverable (cursor changed) but no art, action dead.
+- **Root cause (real):** under **flow-v2**, `<FlowV2Mount>` stacks containers by each `ContainerRef.z`,
+  frozen at v1→v2 migration (`engine-flow-migrate/translate.ts`: `z = i * 10` over the v1 SCREEN order).
+  That order diverged from the current Scene Editor scene order, so the `hud_*` Balance/Bet readout screen
+  (higher migrated z) painted OVER `hudBar`, hiding the buttons and eating their clicks. The legacy/coded
+  HUD path layers by `docLayerZIndex(scenes,…)`; flow-v2 didn't.
+- **Fix (`6fe8fb3`):** `apps/lines/src/game/flowV2Runtime.svelte.ts` re-stamps each container's z from
+  `docLayerZIndex(editorDoc.scenes, sceneId)` before `createContainerMountModel`, so flow-v2 stacking
+  follows the editor screen list and a reorder re-layers the game. **Shipped to `_runtime/lines` + refreshed.**
+- **Also (`fd0501b`):** `apps/launcher-api/src/hooks.server.ts` now sets CORS headers on ALL `/api/deploy`
+  responses incl. `error()` (404/401) — a missing/stale editor-art asset was surfacing as a misleading
+  "No Access-Control-Allow-Origin" CORS error instead of its real 404, which derailed diagnosis.
+- **Red herrings burned first:** games host 502-flapping (cold start), a stale content-hash 404
+  (`S_Game_Reel.<old>.json`) that poisoned the editor-art `Promise.all`, and the CORS-masked-404 above.
+
 ### 2026-07-09 — Invisible Flow v2: generic overlay ROUND-BLOCK HOLD + v2 coded-free-spin suppression (⏳ live-verify)
 - **Why:** the v1→v2 cutover's last remake-specific gap. Migrating Book of Borut **remake** to a
   whole-game v2 flow: its free-spin overlays are authored as flow CONTAINERS (`fs-intro`/`fs-counter`/
