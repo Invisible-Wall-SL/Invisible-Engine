@@ -13,6 +13,7 @@
 		library,
 		doc,
 		onadd,
+		containerLabel,
 		onopen,
 		ondelete,
 		deleteError = null,
@@ -21,6 +22,9 @@
 		library: FunctionLibraryDoc;
 		doc: FlowDoc;
 		onadd: (kind: NodeKind, ref?: string) => void;
+		// Resolve a container ref → its Scene Editor friendly name (same resolver the canvas nodes
+		// use). Kept in the parent so the palette and the canvas never drift.
+		containerLabel: (ref: string) => string;
 		// Open a function's body for editing (2c.3). Optional — absent when the palette is shown
 		// inside a function body (no nested-open there).
 		onopen?: (functionId: string) => void;
@@ -161,7 +165,7 @@
 
 	<section>
 		<h4>Containers</h4>
-		{#each doc.containers.filter((c) => matches(c.id)) as c (c.id)}
+		{#each doc.containers.filter((c) => matches(containerLabel(c.id))) as c (c.id)}
 			<div class="pair">
 				<button
 					class="entry container"
@@ -170,7 +174,7 @@
 					onclick={() => onadd('showContainer', c.id)}
 					title="showContainer · {c.id}"
 				>
-					show {c.id}
+					show {containerLabel(c.id)}
 				</button>
 				<button
 					class="entry container"
@@ -179,7 +183,7 @@
 					onclick={() => onadd('hideContainer', c.id)}
 					title="hideContainer · {c.id}"
 				>
-					hide {c.id}
+					hide {containerLabel(c.id)}
 				</button>
 			</div>
 		{/each}
