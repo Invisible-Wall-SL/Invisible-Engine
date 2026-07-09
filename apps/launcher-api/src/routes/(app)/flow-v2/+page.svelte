@@ -32,6 +32,7 @@
 		freshNodeIdIn,
 		makeNode,
 		moveNodeIn,
+		setGroupLabel,
 	} from './graphOps';
 	import FlowV2Node from './FlowV2Node.svelte';
 	import CommentNode from './CommentNode.svelte';
@@ -302,7 +303,17 @@
 			selected: n.id === selectedNodeId,
 			deletable: !isSignatureNode(n),
 			zIndex: 1,
-			data: { node: n, ctx, title: nodeTitle(n) },
+			data: {
+				node: n,
+				ctx,
+				title: nodeTitle(n),
+				// Group nodes are renamable inline (double-click the header) — commit via the same
+				// `setGroupLabel` + `applyGraphEdit` path the inspector uses, so the canvas + save stay in sync.
+				onRename:
+					n.kind === 'group'
+						? (label: string) => applyGraphEdit(setGroupLabel(inspectorDoc, n.id, label).graph)
+						: undefined,
+			},
 		}));
 		// Comment/group boxes. Flow view only — function bodies carry no comments. Listed FIRST so at
 		// the SAME zIndex as the graph nodes they paint BEHIND them (DOM order) while still sitting
@@ -670,9 +681,9 @@
 			case 'functionCall':
 				return library.functions.find((f) => f.id === spec.ref)?.name ?? spec.ref ?? 'function';
 			case 'showContainer':
-				return `show ${spec.ref}`;
+				return `show ${containerLabel(spec.ref ?? '')}`;
 			case 'hideContainer':
-				return `hide ${spec.ref}`;
+				return `hide ${containerLabel(spec.ref ?? '')}`;
 			case 'event':
 			case 'action':
 			case 'fireCue':
@@ -1233,7 +1244,13 @@
 					(its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag nodes from the palette;
 					Delete removes internal nodes.
 				</p>
-				<AddNodePalette {vocab} {library} doc={paletteDoc} onadd={addNodeOfKind} />
+				<AddNodePalette
+					{vocab}
+					{library}
+					doc={paletteDoc}
+					onadd={addNodeOfKind}
+					{containerLabel}
+				/>
 			{:else}
 				<h3>Flow v2 · dev</h3>
 				<p class="hint">
@@ -1247,6 +1264,7 @@
 					{library}
 					doc={paletteDoc}
 					onadd={addNodeOfKind}
+					{containerLabel}
 					onopen={openFunction}
 					ondelete={deleteFunction}
 					{deleteError}

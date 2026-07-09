@@ -12,9 +12,32 @@
 		node: FlowNode;
 		ctx: PinContext;
 		title: string;
+		/** Group nodes only — commit an inline header rename (double-click the title). */
+		onRename?: (label: string) => void;
 	};
 	let { data, selected }: NodeProps = $props();
-	const d = data as Data;
+	// REACTIVE: `data` is a prop that xyflow replaces when the canvas re-seeds after an edit, so `d`
+	// MUST track it (a plain `const d = data` snapshots the first value → the header/pins go stale
+	// until a remount, i.e. "you have to refresh to see a rename").
+	const d = $derived(data as Data);
+
+	// Inline rename (group nodes): double-click the title → edit in place → Enter/blur commits.
+	let editing = $state(false);
+	let draft = $state('');
+	const startRename = (e: MouseEvent) => {
+		if (!d.onRename) return;
+		e.stopPropagation();
+		draft = d.title;
+		editing = true;
+	};
+	const commitRename = () => {
+		if (editing) d.onRename?.(draft);
+		editing = false;
+	};
+	const focusSelect = (el: HTMLInputElement) => {
+		el.focus();
+		el.select();
+	};
 
 	// Header hue per node kind — exec-carrying nodes read in kind-distinct colors so the
 	// graph's control shape is legible; pure `compute` and `event` stand apart.
@@ -94,7 +117,26 @@
 <div class="v2-node" class:selected style="--kind:{headerColor}">
 	<header style="background:{headerColor}22; border-bottom-color:{headerColor}55;">
 		<span class="kind" style="color:{headerColor}">{d.node.kind}</span>
-		<span class="title" title={d.title}>{d.title}</span>
+		{#if editing}
+			<input
+				class="title-edit nodrag"
+				value={draft}
+				oninput={(e) => (draft = e.currentTarget.value)}
+				onblur={commitRename}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') commitRename();
+					else if (e.key === 'Escape') editing = false;
+				}}
+				use:focusSelect
+			/>
+		{:else}
+			<span
+				class="title"
+				class:renamable={!!d.onRename}
+				title={d.onRename ? 'Double-click to rename' : d.title}
+				ondblclick={startRename}>{d.title}</span
+			>
+		{/if}
 	</header>
 	{#if refLine}<div class="ref" title={refLine}>{refLine}</div>{/if}
 
@@ -185,6 +227,23 @@
 		text-overflow: ellipsis;
 		font-weight: 600;
 		color: #e2e8f0;
+	}
+	.title.renamable {
+		cursor: text;
+	}
+	.title-edit {
+		flex: 1;
+		min-width: 0;
+		font-size: 12px;
+		font-weight: 600;
+		color: #e2e8f0;
+		background: #0b0e13;
+		border: 1px solid var(--kind, #2563eb);
+		border-radius: 4px;
+		padding: 1px 5px;
+	}
+	.title-edit:focus {
+		outline: none;
 	}
 	.ref {
 		padding: 4px 10px;
