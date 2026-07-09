@@ -57,6 +57,12 @@
 
 	// The accent bar for a candidate — its wired pin's type color (exec / untyped fall back slate).
 	const accent = (c: PinDropCandidate): string => (c.pinType ? typeColor(c.pinType) : '#94a3b8');
+
+	// Focus the search box the moment the menu opens so the user can type straight away. The
+	// `autofocus` attribute is unreliable for dynamically-mounted nodes; focus explicitly next frame.
+	function focusOnOpen(node: HTMLInputElement): void {
+		requestAnimationFrame(() => node.focus());
+	}
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -69,12 +75,11 @@
 	aria-label="Add a compatible node"
 	onkeydown={onKeydown}
 >
-	<!-- svelte-ignore a11y_autofocus -->
 	<input
 		class="search"
 		type="text"
 		placeholder="Filter compatible nodes…"
-		autofocus
+		use:focusOnOpen
 		bind:value={query}
 	/>
 	<div class="list">
