@@ -625,7 +625,7 @@ function loadRuntime(line){
 // When the playhead crosses an event.fx keyframe, fire that Invisible FX effect as a live
 // particle burst on the stage at the bound bone (or rig origin), riding the bone per-frame.
 // Uses the vendored window.RiggerFx (a transparent Pixi overlay in #stage). All coords CSS px.
-let fxReady = false, fxActive = [], fxPrevAnimTime = 0, fxLoadFailed = false, fxLoading = null;
+let fxReady = false, fxActive = [], fxPrevAnimTime = -1, fxLoadFailed = false, fxLoading = null;
 function ensureFxOverlay(){
   if (fxReady) return Promise.resolve();
   if (fxLoadFailed) return Promise.resolve();
@@ -678,11 +678,15 @@ function updateFxPreview(){
   try {
     const events = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
     const prev = fxPrevAnimTime, cur = animTime; fxPrevAnimTime = cur;
-    if (cur < prev - 1e-4){ window.RiggerFx.clear(); fxActive = []; } // loop / scrub-back
-    // fire on forward crossing of an fx-bound keyframe
+    // Interval (lo, cur] crossed this frame. On a loop-wrap / scrub-back, reset and drop `lo` below 0
+    // so events AT (or near) t=0 fire on the wrap — a plain `prev < e.time` can never cross t=0.
+    let lo = prev;
+    if (cur < prev - 1e-4){ window.RiggerFx.clear(); fxActive = []; lo = -1; } // loop / scrub-back
+    // fire when the playhead enters an fx keyframe: crossing (lo, cur], t=0 included.
     for (const e of events){
       if (!(e.fx && e.fx.effectId)) continue;
-      if (prev < e.time && cur >= e.time){
+      const t = e.time || 0;
+      if (lo < t && cur >= t){
         const w = fxBoneWorld(e.fx.bone); if (!w) continue;
         const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
         const h = window.RiggerFx.play(e.fx.effectId, p.x, p.y, s);
@@ -700,7 +704,7 @@ function updateFxPreview(){
 // Clear all live effects + reset crossing state (context switch: anim/rig/mode change).
 function fxClearPreview(){
   if (window.RiggerFx){ try { window.RiggerFx.clear(); } catch (e){} }
-  fxActive = []; fxPrevAnimTime = 0;
+  fxActive = []; fxPrevAnimTime = -1;
 }
 // Fire an immediate ONE-SHOT preview of an event's bound effect at its bone — instant feedback the
 // moment you pick/change it in the inspector, even while paused (authoring). Bounded in the overlay,
