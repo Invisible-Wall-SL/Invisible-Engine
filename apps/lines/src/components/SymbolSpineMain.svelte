@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack, type SpineTrackProps } from 'pixi-svelte';
+	import { RiggedEffect, SpineProvider, SpineTrack, type SpineTrackProps } from 'pixi-svelte';
+	import { resolveEffect, resolveRigFx } from 'engine-layout';
 	import { stateBetDerived } from 'state-shared';
 
 	import { getContext } from '../game/context';
@@ -37,6 +38,7 @@
 	width={geometry.cellWidthLocal * SYMBOL_SPINE_FILL}
 	height={geometry.cellHeightLocal * SYMBOL_SPINE_FILL}
 	fit="contain"
+	rebroadcastEvents
 >
 	<SpineTrack
 		loop={props.loop}
@@ -45,4 +47,18 @@
 		timeScale={stateBetDerived.timeScale()}
 		listener={props.listener}
 	/>
+	<!--
+		Rig-timeline direct FX binding on the SYMBOL path (mirrors the layout spine branch in
+		`engine-layout`'s LayoutNodeView): effects the Rigger bound DIRECTLY on this rig's animation
+		event keys (`event.fx`, baked into the `rigFx` manifest). `resolveRigFx` is folder-tolerant, so
+		the symbol's `assetKey` resolves whether it ships as the bare folder or the full R2 bundle
+		prefix. Empty for a symbol with no bindings (parity — nothing mounts, no bus effect).
+	-->
+	{@const rigBinds = resolveRigFx(props.symbolInfo.assetKey)}
+	{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? ''))}
+		{@const d = resolveEffect(b.effectId)}
+		{#if d}
+			<RiggedEffect doc={d} event={b.event} bone={b.bone} />
+		{/if}
+	{/each}
 </SpineProvider>

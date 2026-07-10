@@ -36,10 +36,29 @@ export function registerRigFx(map: Record<string, RigFxBinding[]>): void {
 	}
 }
 
+/** Reduce a rig key to its bundle FOLDER — the manifest key. `LayoutNodeView` passes the bare folder
+ * already, but a rig shipped through the Symbols State Machine may carry the FULL R2 bundle prefix
+ * (`<client>/<project>/spines/<folder>/`). Same precedent as `EffectLayer`'s `bundleFolderOf` for
+ * `skeletonParticle.skeletonKey` (see invisible-fx.md §9): strip a trailing slash + match
+ * `/spines/<folder>` → `<folder>`. A key with no `spines/` segment returns unchanged. */
+const bundleFolderOf = (key: string): string => {
+	const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
+	const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
+	return m ? m[1] : trimmed;
+};
+
 /** Resolve a placed rig's `assetKey` → its bindings, or `[]` when none are registered (an un-baked
- * project, or a rig with no bound events — the render branch then mounts nothing). Never throws. */
+ * project, or a rig with no bound events — the render branch then mounts nothing). Never throws.
+ *
+ * Folder-tolerant: tries the exact key first (LayoutNodeView passes the bare folder — exact hit),
+ * then retries with the key reduced to its bundle folder so a SYMBOL whose `assetKey` is the full
+ * R2 bundle prefix still resolves. Mirrors `EffectLayer`'s `bundleFolderOf` fallback for
+ * `skeletonParticle.skeletonKey`. */
 export function resolveRigFx(rigKey: string): RigFxBinding[] {
-	return registry.get(rigKey) ?? [];
+	const exact = registry.get(rigKey);
+	if (exact) return exact;
+	const folder = bundleFolderOf(rigKey);
+	return (folder !== rigKey ? registry.get(folder) : undefined) ?? [];
 }
 
 export function clearRigFx(): void {
