@@ -24,6 +24,13 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-10 — Invisible Flow v2: flatten re-namespaces colliding group-body node ids (fixes "press Spin → free-spin intro plays") (SHIPPED via `_runtime/lines`)
+- **Symptom:** in `bookofborutremake` (v2 flow, `?runtime=1`), pressing Spin immediately played the `freeSpinIntro` spine. `?flowlog=1` trace: `containerEvent ▶ n_1u3tijl5.spin → action startSpin → intent:spin → show freeSpinIntro → HOLD`.
+- **Root cause (engine):** `collapseToGroup` keeps a body's selected node ids verbatim (§5.2), but the editor's id minter doesn't reserve ids buried inside a group body — so a later main-graph node was minted with an id (`action-2`) a body node already used (`startSpin` inside the "button actions" group vs `setFreeSpinCounterTotal` in the main `freeSpinTrigger` chain). `expandGroup`/`flattenGroups` re-inserted the body verbatim → the id appeared TWICE → the runtime (indexes nodes + resolves edges BY ID) collapsed them, so grouped `startSpin` inherited `setFreeSpinCounterTotal`'s exec edge to `showContainer(freeSpinIntro)`.
+- **Fix:** `expandGroup` (`packages/engine-flow-v2/src/collapse.ts`) now renames only the COLLIDING body ids against the surviving main graph, rewriting the body's internal edges + the boundary `inner` refs. No-collision path is byte-identical (round-trip identity preserved). `v2group` harness gains a regression (no dup ids + no cross-wire after flatten). Shipped to online games via `publish-runtime-bundle.mjs` (`_runtime/lines`) + `/refresh`.
+- **Diagnostic note:** the flow/scenes/flow-v2 docs live in R2 (`<client>/<project>/editor/{scenes,flow-v2}.json`); pulling them + flattening offline is the fastest way to trace a runtime-game flow bug. Also confirmed the "edge caches index.html" trap live — the served game index lagged the R2 bundle until `/refresh` re-hydrated.
+- **Follow-up (not blocking):** the editor node-id minter (`/flow-v2` graphOps) should reserve ids inside group bodies so it never mints a collision in the first place; a `validateFlowDoc` duplicate-id check after flatten would catch it early.
+
 ### 2026-07-10 — Invisible FX: rig-timeline DIRECT binding (pick an effect on a Rigger keyframe) + docked event-key inspector
 - **What:** the Rigger's `⚡ Event key` inspector is now (a) DOCKED in the Properties panel (was an
   unmovable floating popup — `836066e`), and (b) can bind an **Invisible FX effect directly to an event
