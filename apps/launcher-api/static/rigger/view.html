@@ -632,17 +632,18 @@ function ensureFxOverlay(){
   if (fxLoading) return fxLoading;
   fxLoading = new Promise((resolve) => {
     const finish = () => {
-      if (!window.RiggerFx){ fxLoadFailed = true; return resolve(); }
+      if (!window.RiggerFx){ console.warn("[RiggerFx] bundle loaded but window.RiggerFx missing"); fxLoadFailed = true; return resolve(); }
       Promise.resolve(window.RiggerFx.init($("#stage")))
-        .then(() => { fxReady = true; })
-        .catch(() => { fxLoadFailed = true; })
+        .then(() => { fxReady = true; console.log("[RiggerFx] overlay ready"); })
+        .catch((e) => { fxLoadFailed = true; console.warn("[RiggerFx] init failed", e); })
         .then(() => resolve());
     };
     if (window.RiggerFx){ finish(); return; }
+    console.log("[RiggerFx] loading /rigger/vendor/rigger-fx.js …");
     const s = document.createElement("script");
     s.src = "/rigger/vendor/rigger-fx.js";
     s.onload = finish;
-    s.onerror = () => { fxLoadFailed = true; resolve(); }; // best-effort — don't retry-spam
+    s.onerror = () => { console.warn("[RiggerFx] failed to load the overlay bundle"); fxLoadFailed = true; resolve(); }; // best-effort — don't retry-spam
     document.head.appendChild(s);
   });
   return fxLoading;
@@ -669,7 +670,11 @@ function fxScaleAt(worldX, worldY){
 }
 // Per-frame update — call AFTER poseAtTime(curAnim, animTime), only in animate mode.
 function updateFxPreview(){
-  if (!(animMode && curAnim && fxReady && window.RiggerFx)) return;
+  if (!animMode || !curAnim) return;
+  // Lazy-load the overlay the moment we're animating — robust to any animate-mode entry path
+  // (state-restore, direct mode set) that didn't route through setMode. Idempotent + cheap.
+  if (!fxReady){ ensureFxOverlay(); return; }
+  if (!window.RiggerFx) return;
   try {
     const events = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
     const prev = fxPrevAnimTime, cur = animTime; fxPrevAnimTime = cur;
