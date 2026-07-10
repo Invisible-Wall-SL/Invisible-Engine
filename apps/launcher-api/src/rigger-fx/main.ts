@@ -190,7 +190,11 @@ async function init(hostEl: HTMLElement): Promise<void> {
 
 /** Build one sprite layer's live `Emitter` into an effect's container. A layer that resolves 0
  * textures is SKIPPED (real art only — no placeholder dots in the Rigger preview). */
-async function buildLayer(effect: LiveEffect, layer: EmitterLayer): Promise<void> {
+async function buildLayer(
+	effect: LiveEffect,
+	layer: EmitterLayer,
+	plan: ReturnType<typeof planLayer>,
+): Promise<void> {
 	const textures = await framesToTextures(layer, resolveArt, sourceCache);
 	if (effect.disposed || textures.length === 0) return;
 	// Weighted mix only when the resolved textures line up 1:1 with `frames` (a skipped region would
@@ -199,7 +203,13 @@ async function buildLayer(effect: LiveEffect, layer: EmitterLayer): Promise<void
 	// bindArt deep-clones the (texture-free) config, then attaches the live textures — the result must
 	// NOT be JSON-cloned again (that would destroy the Texture objects).
 	const config = bindArt(layer.config, textures, layer.art.animated ?? false, weights);
-	const emitter = new Emitter(effect.container, config);
+	// Honor the layer's placement OFFSET (authored in /fx). The game applies it via the layer's own
+	// offset `<Container>` / `<SpineBoneAttach offset>`; mirror that with a per-layer offset container
+	// nested in the zoom-scaled effect container, so the offset tracks stage scale like the rig space.
+	const layerContainer = new Container();
+	layerContainer.position.set(plan.offset?.x ?? 0, plan.offset?.y ?? 0);
+	effect.container.addChild(layerContainer);
+	const emitter = new Emitter(layerContainer, config);
 	// Force-emit ALL layers from mount, ignoring layer.trigger — the keyframe IS the trigger, and
 	// `emitterLifetime` bounds the burst (the same `forceEmit` contract the rig-bound runtime uses).
 	emitter.emit = true;
@@ -238,7 +248,7 @@ function play(effectId: string, x: number, y: number, scale: number): number {
 			const plan = planLayer(layer);
 			// Skip non-rendering layers + Tier-C spine-particle layers (no pooled Spine host here).
 			if (!plan.render || plan.particleKind === 'spine') continue;
-			await buildLayer(effect, layer);
+			await buildLayer(effect, layer, plan);
 			if (effect.disposed) return;
 		}
 	})();
