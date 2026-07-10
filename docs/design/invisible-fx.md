@@ -92,6 +92,58 @@ The docked **⚡ Event key** panel gains, above the payload:
    bumps its `engine` submodule. Deferred: stop-event, continuous effects, spine-particle bound ship,
    `docs/tools/rigger.md` refresh (docs-keeper).
 
+**LANDED (2026-07-09):** phases 1–3 + `forceEmit` (a rig-bound effect force-plays every layer on the
+beat regardless of its authored trigger — the keyframe IS the trigger; `RiggedEffect`→`EffectPlayer`
+→`EffectLayer forceEmit`). Runtime published to `_runtime/lines`. Owner-verify + Borut bump pending.
+
+### Rigger LIVE FX preview — faithful overlay (2026-07-10, building)
+
+**Owner direction:** show the bound effect PLAYING in the Rigger stage (not just in-game), on the beat,
+riding the bound bone — so the Rigger is a true FX-authoring surface.
+
+**The catch:** the Rigger stage is **raw `spine-webgl` on a hand-rolled WebGL context** (`view.html`
+`#cv` / `gl = cv.getContext('webgl')`), NOT Pixi. The engine's whole particle stack is Pixi-based, so
+it can't render into that context. Solution = a **transparent Pixi overlay canvas** on top of `#cv`,
+running the REAL engine emitter, projected onto bones via the stage camera.
+
+**Faithful, because it reuses the engine reduction verbatim.** The load-bearing logic is already plain
+TS / Pixi-only (no Svelte): `engine-fx` `normalizeEffectDoc`/`planLayer`/**`bindArt`** (injects the
+layer's textures into the particle-emitter V3 config's `behaviors`) + the shared art helper
+`apps/launcher-api/src/lib/fx/effectEmitter.client.ts` (`loadPageSource` = fetch→`createImageBitmap`→
+`ImageSource`, the query-string-URL gotcha fix; `framesToTextures` = page→per-frame `Texture[]`). Only
+the Svelte *shells* (`EffectPlayer`/`EffectLayer`/`ParticleEmitter`/`EditorEffectLayer`) are
+reimplemented as plain functions. `EditorEffectLayer.svelte` (the Scene-Editor overlay) is the direct
+template — self-owned transparent `Application`, per-effect container, per-frame ticker with a
+`try/catch` per `emitter.update`, `app.destroy(true)` to free the GL context.
+
+**Vendored bundle.** Build a standalone IIFE `rigger-fx.js` (pixi.js + `@barvynkoa/particle-emitter` +
+the reused `engine-fx`/art-helper code) → committed at `apps/launcher-api/static/rigger/vendor/`,
+loaded by the Rigger with the SAME `<script>` pattern it already uses for `spine-webgl-*.js`. Exposes
+`window.RiggerFx`: `init(hostEl)` (transparent `Application` in `#stage`, a `world` Container, a ticker),
+`playEffect(doc, {x,y}, scale)` (per layer: `framesToTextures`→`bindArt`→`new Emitter(container, config)`,
+force-emit like `forceEmit`; sprite tiers only — skip `particleKind:'spine'`), `followPoint(handle, x, y,
+scale)` (per frame), `clear()`, `destroy()`.
+
+**Rigger integration (`view.html`).** In the `frame()` loop, right after `poseAtTime(curAnim, animTime)`:
+- **Fire on crossing:** track `animTime` across frames; when it crosses an `event.fx` keyframe (play or
+  scrub), `RiggerFx.playEffect(doc, screenPos, scale)`. Effect `doc`s fetched+cached by id (like the
+  effects list) from `GET /api/editor/effect?id=`.
+- **Bone-follow + align:** each frame, for an active bound effect, project the bound bone (or rig origin)
+  world pos → screen px via `renderer.camera.worldToScreen(v, cv.width, cv.height)` (the SAME call the
+  bone dots use), and set the effect's screen position; scale the effect container by the world→screen
+  factor (empirically = screen distance between two world points 1 unit apart) so particle size tracks
+  zoom. Advance `RiggerFx.update(dt)`.
+- Clear active previews on loop-restart / scrub-back so a one-shot re-fires cleanly.
+
+**Endpoint scope.** The Rigger's art + doc fetches (`/api/editor/effect`, `/api/editor/regions`,
+`/api/editor/asset`) gate on `editor`/`fx`; add the `rigger` alt-tool so a rigger-only role previews
+(same fix already applied to `/api/editor/effects`).
+
+**Scope:** sprite-particle effects (Tiers A/B) — a `particleKind:'spine'` layer is skipped in the preview
+(matches the v1 ship scope). It's an approximation of the game only in camera framing; the emitter
+config + art are identical, so the LOOK is faithful. **Owner live-verify** the pixels (WebGL + the
+overlay alignment on a zoomed/panned stage).
+
 ## 0. Status
 
 **Phases 1 + 2 + 4 COMPLETE (headless) — the full author→ship→FIRE loop is wired.** Phase 4

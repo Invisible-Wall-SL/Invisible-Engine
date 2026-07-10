@@ -24,6 +24,29 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-10 — Invisible FX: LIVE preview in the Rigger (faithful particle overlay)
+- **What:** the Rigger now PLAYS a rig-bound effect on the stage — when the playhead crosses an
+  `event.fx` keyframe in animate mode, the effect bursts at the bound bone (or rig origin) and rides it,
+  scaled to the stage zoom. Closes "I can't see the FX in the Rigger" — no longer in-game-only.
+- **The catch:** the Rigger stage is raw `spine-webgl` on a hand-rolled WebGL context, NOT Pixi. Solution
+  = a transparent **Pixi overlay canvas** on top of `#cv` running the REAL engine emitter.
+- **Vendored bundle:** `apps/launcher-api/static/rigger/vendor/rigger-fx.js` (508 KB IIFE, `window.RiggerFx`)
+  — built from `apps/launcher-api/src/rigger-fx/main.ts` via `vite.rigger-fx.config.ts`
+  (`build:rigger-fx` script), committed like `spine-webgl-*.js`. Reuses the engine reduction VERBATIM
+  (`engine-fx` `normalizeEffectDoc`/`planLayer`/`bindArt` + the shared `effectEmitter.client.ts`
+  `framesToTextures`/`loadPageSource`); only the Svelte shells are reimplemented as plain functions.
+  API: `init/play/follow/stop/clear/resize/destroy`. Force-emits every layer (the keyframe IS the
+  trigger); sprite-particle only (Tier-C spine skipped).
+- **Rigger integration (`view.html`):** lazy-loads the bundle on entering animate mode; in `frame()`
+  after `poseAtTime`, projects the bound bone → screen via `renderer.camera.worldToScreen` (the EXACT
+  `#bonemark` transform) to fire on forward crossing + `follow` each frame; clears on loop/scrub-back/
+  anim-switch/rig-load/leaving-animate. Best-effort + fully try/guarded — never breaks the Rigger.
+- **Endpoints:** `/api/editor/{effect,regions,asset}` now accept the `rigger` alt-tool (the preview
+  fetches the doc + atlas), mirroring the earlier `/api/editor/effects` fix.
+- **Ships via the normal Railway launcher deploy** (static files + endpoints) — NO `_runtime/lines`
+  republish needed. Owner live-verify: the pixels + overlay alignment on a zoomed/panned stage.
+  Deferred: spine-particle preview, dead-handle cleanup between loops. Design in `docs/design/invisible-fx.md`.
+
 ### 2026-07-10 — Invisible Flow v2: flatten re-namespaces colliding group-body node ids (fixes "press Spin → free-spin intro plays") (SHIPPED via `_runtime/lines`)
 - **Symptom:** in `bookofborutremake` (v2 flow, `?runtime=1`), pressing Spin immediately played the `freeSpinIntro` spine. `?flowlog=1` trace: `containerEvent ▶ n_1u3tijl5.spin → action startSpin → intent:spin → show freeSpinIntro → HOLD`.
 - **Root cause (engine):** `collapseToGroup` keeps a body's selected node ids verbatim (§5.2), but the editor's id minter doesn't reserve ids buried inside a group body — so a later main-graph node was minted with an id (`action-2`) a body node already used (`startSpin` inside the "button actions" group vs `setFreeSpinCounterTotal` in the main `freeSpinTrigger` chain). `expandGroup`/`flattenGroups` re-inserted the body verbatim → the id appeared TWICE → the runtime (indexes nodes + resolves edges BY ID) collapsed them, so grouped `startSpin` inherited `setFreeSpinCounterTotal`'s exec edge to `showContainer(freeSpinIntro)`.

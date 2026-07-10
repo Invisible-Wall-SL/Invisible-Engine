@@ -6,14 +6,14 @@ import type { RequestHandler } from './$types';
 /**
  * Fetch ONE authored Invisible FX effect's `EffectDoc` (by id) so the Scene Editor's live particle
  * overlay can play it. Sibling of `/api/editor/effects` (which only LISTS id+name); gated the same
- * (`editor` OR the `fx` alt-tool), scope bound to the session's active project. Reuses
- * `fxStorage.loadEffect` (the same read the `/fx` tool uses).
+ * (`editor` OR the `fx`/`rigger` alt-tools — the Rigger's live FX preview reads it too), scope bound
+ * to the session's active project. Reuses `fxStorage.loadEffect` (the same read the `/fx` tool uses).
  */
 export const GET: RequestHandler = async ({ locals, cookies, url }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
-		altTools: ['fx'],
-		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
+		altTools: ['fx', 'rigger'],
+		forbiddenMessage: 'Your role does not have access to the project effects.',
 	});
 
 	const id = url.searchParams.get('id')?.trim();

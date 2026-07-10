@@ -621,6 +621,83 @@ function loadRuntime(line){
   });
 }
 
+// ---- live FX preview overlay (best-effort — NEVER fatal to the Rigger) ----
+// When the playhead crosses an event.fx keyframe, fire that Invisible FX effect as a live
+// particle burst on the stage at the bound bone (or rig origin), riding the bone per-frame.
+// Uses the vendored window.RiggerFx (a transparent Pixi overlay in #stage). All coords CSS px.
+let fxReady = false, fxActive = [], fxPrevAnimTime = 0, fxLoadFailed = false, fxLoading = null;
+function ensureFxOverlay(){
+  if (fxReady) return Promise.resolve();
+  if (fxLoadFailed) return Promise.resolve();
+  if (fxLoading) return fxLoading;
+  fxLoading = new Promise((resolve) => {
+    const finish = () => {
+      if (!window.RiggerFx){ fxLoadFailed = true; return resolve(); }
+      Promise.resolve(window.RiggerFx.init($("#stage")))
+        .then(() => { fxReady = true; })
+        .catch(() => { fxLoadFailed = true; })
+        .then(() => resolve());
+    };
+    if (window.RiggerFx){ finish(); return; }
+    const s = document.createElement("script");
+    s.src = "/rigger/vendor/rigger-fx.js";
+    s.onload = finish;
+    s.onerror = () => { fxLoadFailed = true; resolve(); }; // best-effort — don't retry-spam
+    document.head.appendChild(s);
+  });
+  return fxLoading;
+}
+// World→screen projection — EXACTLY what #bonemark uses (updateBoneMarker).
+function fxProject(worldX, worldY){
+  const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
+  const v = new SPINE.Vector3(worldX, worldY, 0);
+  renderer.camera.worldToScreen(v, cv.width, cv.height); // -> device px, y-up
+  return { x: v.x / dpr, y: cv.clientHeight - v.y / dpr };
+}
+// Bone world origin by name (or rig origin = root bone when falsy). Guards nulls → null.
+function fxBoneWorld(boneName){
+  if (!skeleton) return null;
+  const b = boneName ? skeleton.findBone(boneName) : skeleton.bones[0];
+  if (!b) return null;
+  return { worldX: b.worldX, worldY: b.worldY };
+}
+// px per world unit at (worldX,worldY) — so particle size tracks stage zoom.
+function fxScaleAt(worldX, worldY){
+  const a = fxProject(worldX, worldY), c = fxProject(worldX + 100, worldY);
+  const dx = c.x - a.x, dy = c.y - a.y;
+  return Math.hypot(dx, dy) / 100;
+}
+// Per-frame update — call AFTER poseAtTime(curAnim, animTime), only in animate mode.
+function updateFxPreview(){
+  if (!(animMode && curAnim && fxReady && window.RiggerFx)) return;
+  try {
+    const events = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
+    const prev = fxPrevAnimTime, cur = animTime; fxPrevAnimTime = cur;
+    if (cur < prev - 1e-4){ window.RiggerFx.clear(); fxActive = []; } // loop / scrub-back
+    // fire on forward crossing of an fx-bound keyframe
+    for (const e of events){
+      if (!(e.fx && e.fx.effectId)) continue;
+      if (prev < e.time && cur >= e.time){
+        const w = fxBoneWorld(e.fx.bone); if (!w) continue;
+        const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
+        const h = window.RiggerFx.play(e.fx.effectId, p.x, p.y, s);
+        fxActive.push({ handle: h, bone: e.fx.bone });
+      }
+    }
+    // ride the bone: reposition every active effect each frame
+    for (const fx of fxActive){
+      const w = fxBoneWorld(fx.bone); if (!w) continue;
+      const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
+      window.RiggerFx.follow(fx.handle, p.x, p.y, s);
+    }
+  } catch (e){ /* projection hiccup — never break the render loop */ }
+}
+// Clear all live effects + reset crossing state (context switch: anim/rig/mode change).
+function fxClearPreview(){
+  if (window.RiggerFx){ try { window.RiggerFx.clear(); } catch (e){} }
+  fxActive = []; fxPrevAnimTime = 0;
+}
+
 function showErr(msg){ const e = $("#err"); e.textContent = msg; e.style.display = "block"; }
 function clearErr(){ $("#err").style.display = "none"; }
 
@@ -646,7 +723,10 @@ function initGL(){
 function resizeCanvas(){
   const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
   const w = Math.floor(cv.clientWidth * dpr), h = Math.floor(cv.clientHeight * dpr);
-  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  if (cv.width !== w || cv.height !== h){
+    cv.width = w; cv.height = h;
+    if (window.RiggerFx && fxReady) window.RiggerFx.resize(); // keep the FX overlay in sync
+  }
 }
 
 function updateWorld(){
@@ -828,6 +908,7 @@ function buildSkeleton(entry){
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   dirty = false;
+  fxClearPreview();        // new rig — drop any live FX preview from the old one
   curAnim = null; animTime = 0;
   selBone = null;          // reset selection BEFORE setMode (its tail restores selBone)
   selSlot = null;
@@ -5635,6 +5716,8 @@ function setMode(m){
   mode = m;
   editMode = (m === "setup");
   animMode = (m === "animate");
+  if (animMode) ensureFxOverlay(); // fire-and-forget: lazy-load the live FX preview overlay
+  else fxClearPreview(); // leaving animate — stop any live effects
   if (!animMode){ selEvent = null; renderEventDetail(); } // event keys are an animate-mode concept
   if (!editMode) meshIsolate = false; // isolated-mesh editing is a setup-mode tool only
   document.querySelectorAll('#modeSeg button').forEach((b) => {
@@ -5835,6 +5918,7 @@ const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) /
 
 function setCurAnim(name){
   curAnim = name && animHasName(name) ? name : null;
+  fxClearPreview(); // switching animation — drop any live FX preview
   animTime = 0; tlPxPerSec = null; graphSel = []; dopeSel = []; // re-fit the timeline + clear selections
   selEvent = null; renderEventDetail(); // events are per-animation — drop any docked event key
   $("#anim").value = curAnim || "";
@@ -7861,6 +7945,7 @@ function frame(now){
           else animTime = 0;
         }
         poseAtTime(curAnim, animTime);
+        updateFxPreview(); // skeleton posed + bone world coords current → live FX burst hook
         if (posingBone){ // in-progress bone drag overrides the posed value so it tracks the cursor
           const b = posingBone.bone;
           b.rotation = posingBone.rotation; b.x = posingBone.x; b.y = posingBone.y;

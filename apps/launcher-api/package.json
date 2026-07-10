@@ -12,6 +12,7 @@
 		"dev": "vite dev --host --port 3010",
 		"prebuild": "node scripts/copy-tool-docs.mjs",
 		"build": "vite build",
+		"build:rigger-fx": "vite build --config vite.rigger-fx.config.ts",
 		"preview": "vite preview",
 		"start": "node build/index.js",
 		"db:generate": "drizzle-kit generate",

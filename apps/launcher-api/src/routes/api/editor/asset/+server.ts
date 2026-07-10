@@ -17,8 +17,8 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url, locals, cookies, request }) => {
 	const { prefixes } = await gate(locals, cookies, {
 		tool: 'editor',
-		altTools: ['fx'],
-		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
+		altTools: ['fx', 'rigger'],
+		forbiddenMessage: 'Your role does not have access to the project assets.',
 		includeSharedSpines: true,
 		includeSharedFonts: true,
 	});
