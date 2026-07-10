@@ -431,6 +431,11 @@ async function main() {
 	let effects;
 	let effectAssetKeys = [];
 	let effectSkeletonKeys = [];
+	// Rig-timeline direct FX bindings (a rig's own animation events → effects, read from the rig
+	// `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same FX
+	// export trigger — it ships no new assets. Absent / no bound events ⇒ stays undefined ⇒ the game's
+	// `resolveRigFx()` returns [] and nothing new mounts (parity).
+	let rigFx;
 	const effectsUrl =
 		`${base}/api/editor/export-effects?project=${encodeURIComponent(project)}` +
 		`&k=${encodeURIComponent(token)}`;
@@ -451,6 +456,11 @@ async function main() {
 			effectSkeletonKeys = Array.isArray(fx?.referencedSkeletonKeys)
 				? fx.referencedSkeletonKeys
 				: [];
+			// Only embed when at least one rig has a bound event, keeping the bundle byte-identical
+			// for every game with no rig-FX bindings (parity).
+			if (fx?.rigFx && typeof fx.rigFx === 'object' && Object.keys(fx.rigFx).length > 0) {
+				rigFx = fx.rigFx;
+			}
 		} catch (err) {
 			if (err instanceof BakeBail) throw err;
 			bail(
@@ -563,6 +573,10 @@ async function main() {
 		// authored ≥1 effect, keeping the bundle byte-identical for every game with no
 		// FX work — `bakedEffects()` returns [] when absent (parity, §8).
 		...(effects ? { effects } : {}),
+		// Rig-timeline direct FX bindings (a rig's own animation events → effects). Omitted unless a
+		// rig has ≥1 bound event — `bakedRigFx()` returns {} when absent, so `resolveRigFx()` yields
+		// [] and nothing new mounts (parity).
+		...(rigFx ? { rigFx } : {}),
 	};
 
 	const sceneCount = doc.scenes.length;

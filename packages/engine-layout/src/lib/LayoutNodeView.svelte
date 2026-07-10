@@ -18,6 +18,7 @@
 		Container,
 		EffectPlayer,
 		Rectangle,
+		RiggedEffect,
 		Sprite,
 		SpineProvider,
 		SpineTrack,
@@ -38,6 +39,7 @@
 	import { componentDesignSize } from './componentDesignSize';
 	import { resolveComponent } from './registerComponents';
 	import { resolveEffect } from './registerEffects';
+	import { resolveRigFx } from './registerRigFx';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { getComponentStateAnims } from './componentStateAnimContext';
@@ -582,6 +584,19 @@
 				{@const fxDoc = resolveEffect(fx.effectId)}
 				{#if fxDoc}
 					<EffectPlayer doc={fxDoc} />
+				{/if}
+			{/each}
+			<!--
+				Rig-timeline direct FX binding: effects the Rigger bound DIRECTLY on this rig's
+				animation event keys (`event.fx`, baked into the `rigFx` manifest, keyed by this rig's
+				assetKey). Each plays a chosen effect on the beat of the rig's OWN event — no Scene-Editor
+				placement, no cue-string matching. Empty for a rig with no bindings (parity — nothing mounts).
+			-->
+			{@const rigBinds = resolveRigFx(node.assetKey)}
+			{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? ''))}
+				{@const d = resolveEffect(b.effectId)}
+				{#if d}
+					<RiggedEffect doc={d} event={b.event} bone={b.bone} />
 				{/if}
 			{/each}
 		</SpineProvider>

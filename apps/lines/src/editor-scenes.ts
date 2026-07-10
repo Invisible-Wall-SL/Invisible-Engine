@@ -1,11 +1,18 @@
 import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
-import type { ComponentDef, FontCatalog, LayoutDoc, LayoutNode } from 'engine-layout';
+import type {
+	ComponentDef,
+	FontCatalog,
+	LayoutDoc,
+	LayoutNode,
+	RigFxBinding,
+} from 'engine-layout';
 import {
 	editorArtNamespace,
 	registerComponentDefaults,
 	registerComponents,
+	registerRigFx,
 	registerTextResolver,
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
@@ -71,6 +78,13 @@ type BakedBundle = {
 	 * this is populated for a freshly-baked project; absent/empty only for a game with no effects
 	 * (parity — the checked-in placeholder bundle has none). */
 	effects?: EffectDoc[];
+	/** Rig-timeline direct FX bindings (`invisible-fx.md` "rig-timeline direct FX binding"). A rig's
+	 * OWN animation events → effects, read from the rig `.irig`/`.json` at bake (spine-pixi discards
+	 * the custom `event.fx` field, so it can't travel the event stream). Keyed by the rig's runtime
+	 * assetKey (its bundle folder — the value `LayoutNodeView` passes to `<SpineProvider key=…>`); the
+	 * game registers it via `registerRigFx(bakedRigFx())`, and each `<RiggedEffect>` plays its effect
+	 * on the beat of the rig's event. Absent/empty ⇒ `resolveRigFx()` returns [] (parity). */
+	rigFx?: Record<string, RigFxBinding[]>;
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
 	 * of any sprite sheets / images / spine bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
@@ -303,6 +317,20 @@ export function bakedEffects(): EffectDoc[] {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return [];
 	return source.effects ?? [];
+}
+
+/**
+ * The rig-timeline direct FX bindings baked for this project (`invisible-fx.md` "rig-timeline direct
+ * FX binding"): a rig's OWN animation events → effects, keyed by the rig's runtime assetKey (its
+ * bundle folder — the value `LayoutNodeView` passes to `<SpineProvider key=…>`). Registered at boot
+ * via `registerRigFx(bakedRigFx())`; `LayoutNodeView` resolves `resolveRigFx(node.assetKey)` to mount
+ * a `<RiggedEffect>` per binding. Mirrors `bakedEffects`'s runtime→baked→empty resolution. Empty when
+ * un-baked / no rig has a bound event (dev parity — the checked-in placeholder has none).
+ */
+export function bakedRigFx(): Record<string, RigFxBinding[]> {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return {};
+	return source.rigFx ?? {};
 }
 
 /**

@@ -30,6 +30,7 @@ export * from './hudText';
 export * from './registerBoundComponents';
 export * from './registerComponents';
 export * from './registerEffects';
+export * from './registerRigFx';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerComponentVisibility';

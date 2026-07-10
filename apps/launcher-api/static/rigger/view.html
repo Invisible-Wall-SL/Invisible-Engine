@@ -103,6 +103,7 @@
   #timeline .tl-key.slot { background:#e0a64a; } /* slot (attachment/colour) key */
   #timeline .tl-key.slot.sel { background:#ffd24a; }
   #timeline .tl-key.evt { background:#c98bff; } /* event key */
+  #timeline .tl-key.evt.fx { box-shadow:0 0 0 2px #ffd76a inset; } /* warm ring = a bound FX effect */
   #timeline .tl-key.draw { background:#5cc8ff; } /* draw-order key */
   #timeline .tl-key.msel { background:#fff; box-shadow:0 0 0 2px var(--accent),0 0 0 3px #0c0f14; z-index:2; } /* multi-selected */
   #timeline .tl-key.ghost { opacity:.5; box-shadow:0 0 0 1px var(--accent); pointer-events:none; z-index:3; } /* Alt-drag duplicate preview */
@@ -477,6 +478,18 @@ let showAttachments = true; // when false, the skin's images/meshes are hidden (
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
 let selEvent = null; // selected animation event object (docked event-key inspector), or null
+let projectEffects = null; // project's Invisible FX effects (lazy — null = not yet loaded), [{id,name}]
+// Fetch the project's effects once (the same session-scoped list /fx + the Scene-Editor palette use),
+// so an event key can bind an effect directly. Non-blocking: renderEventDetail draws "loading…" first.
+async function loadProjectEffects(){
+  if (projectEffects !== null) return;
+  try {
+    const r = await fetch("/api/editor/effects");
+    const data = r.ok ? await r.json() : null;
+    projectEffects = (data && Array.isArray(data.effects)) ? data.effects : [];
+  } catch { projectEffects = []; }
+  if (selEvent) renderEventDetail();
+}
 let selIk = null; // selected IK constraint NAME (constraints panel editor + ik dopesheet track)
 let selTc = null; // selected transform constraint NAME (constraints panel editor + transform dopesheet track)
 let selPath = null; // selected path constraint NAME (constraints panel editor + path dopesheet track)
@@ -6634,6 +6647,7 @@ function retimeEventKey(oldTime, newTime){
 }
 function addEventAtPlayhead(){
   if (!rawDoc || !curAnim) return;
+  loadProjectEffects();
   // Create a blank event key at the playhead, then open its editor so the author names it.
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   a.events = a.events || [];
@@ -6669,6 +6683,17 @@ function setEventKeyField(evtObj, field, raw){
     if (raw === "" || raw == null) delete evtObj.float; else evtObj.float = roundN(parseFloat(raw) || 0, 6);
   } else if (field === "string"){
     if (raw === "" || raw == null) delete evtObj.string; else evtObj.string = String(raw);
+  } else if (field === "fx.effectId"){
+    // Bind an Invisible FX effect directly to this beat. Clearing drops the whole fx binding.
+    if (raw === "" || raw == null){ delete evtObj.fx; }
+    else {
+      evtObj.fx = evtObj.fx || {}; evtObj.fx.effectId = raw;
+      if (evtObj.fx.bone == null && selBone != null) evtObj.fx.bone = skeletonData.bones[selBone].name;
+    }
+  } else if (field === "fx.bone"){
+    // Host bone for the bound effect (absent = rig origin). Only meaningful with an effect bound.
+    if (!evtObj.fx) return;
+    if (raw === "" || raw == null) delete evtObj.fx.bone; else evtObj.fx.bone = raw;
   }
   markDirty(); animsDirty = true; refreshAnimCounts();
 }
@@ -6682,6 +6707,7 @@ function renderEventDetail(){
   const a = animOf(curAnim);
   if (!selEvent || !a || !Array.isArray(a.events) || a.events.indexOf(selEvent) < 0){ selEvent = null; det.style.display = "none"; return; }
   det.style.display = "block";
+  loadProjectEffects(); // lazy — refreshes this panel once the effects list resolves
 
   const title = document.createElement("div");
   title.textContent = "⚡ Event key @ " + roundN(selEvent.time ?? 0, 3) + "s";
@@ -6722,6 +6748,31 @@ function renderEventDetail(){
   timeIn.style.cssText = inputCss;
   timeIn.onchange = () => { setEventKeyField(selEvent, "time", timeIn.value); timeIn.value = String(selEvent.time ?? 0); renderTimeline(); renderEventDetail(); };
   timeWrap.appendChild(timeIn); det.appendChild(timeWrap);
+
+  // Fires an effect — bind an Invisible FX effect (+ optional host bone) directly to this beat.
+  const selectCss = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;box-sizing:border-box;width:100%;";
+  const fxWrap = fieldRow("Play effect");
+  const fxSel = document.createElement("select"); fxSel.style.cssText = selectCss;
+  if (projectEffects === null){
+    const o = document.createElement("option"); o.value = ""; o.textContent = "loading effects…"; o.disabled = true; fxSel.appendChild(o); fxSel.disabled = true;
+  } else {
+    const oNone = document.createElement("option"); oNone.value = ""; oNone.textContent = "— none (cue only) —"; fxSel.appendChild(oNone);
+    for (const fx of projectEffects){ const o = document.createElement("option"); o.value = fx.id; o.textContent = fx.name; fxSel.appendChild(o); }
+  }
+  fxSel.value = selEvent.fx?.effectId ?? "";
+  fxSel.onchange = () => { setEventKeyField(selEvent, "fx.effectId", fxSel.value); renderEventDetail(); renderTimeline(); };
+  fxWrap.appendChild(fxSel); det.appendChild(fxWrap);
+  const fxHint = document.createElement("div"); fxHint.textContent = "Plays on the rig at this beat — no Scene-Editor placement needed. (Sprite-particle effects only for now.)"; fxHint.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 2px;"; det.appendChild(fxHint);
+
+  if (selEvent.fx?.effectId){
+    const boneWrap = fieldRow("On bone");
+    const boneSel = document.createElement("select"); boneSel.style.cssText = selectCss;
+    const oOrigin = document.createElement("option"); oOrigin.value = ""; oOrigin.textContent = "— rig origin —"; boneSel.appendChild(oOrigin);
+    for (const b of skeletonData.bones){ const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; boneSel.appendChild(o); }
+    boneSel.value = selEvent.fx?.bone ?? "";
+    boneSel.onchange = () => { setEventKeyField(selEvent, "fx.bone", boneSel.value); renderEventDetail(); };
+    boneWrap.appendChild(boneSel); det.appendChild(boneWrap);
+  }
 
   // Optional payload — int / float / string. Empty ⇒ omit.
   const payHint = document.createElement("div"); payHint.textContent = "Payload (optional — leave blank to omit)"; payHint.style.cssText = "font-size:10px;color:var(--dim);margin-top:5px;"; det.appendChild(payHint);
@@ -7038,10 +7089,11 @@ function renderTimeline(){
     trackKeyTimes(tr).forEach((kt) => {
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
+      const hasFx = isEvents && eventsAt(kt).some((e) => e.fx && e.fx.effectId);
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (hasFx ? " fx" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
-      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete")
+      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete" + (hasFx ? " · plays FX" : ""))
         : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete (✎ to edit)")
         : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete";
       dot.onmousedown = (e) => {
@@ -8500,7 +8552,7 @@ function wire(){
         const it = d.items[0], tr = dopeTrackById[it.tid];
         if (tr && tr.kind === "events"){
           const evs = eventsAt(it.startTime);
-          if (evs.length){ selBone = null; selSlot = null; renderBoneDetail(); renderSlotDetail(); selEvent = evs[0]; renderEventDetail(); }
+          if (evs.length){ loadProjectEffects(); selBone = null; selSlot = null; renderBoneDetail(); renderSlotDetail(); selEvent = evs[0]; renderEventDetail(); }
         }
       }
       renderTimeline(); refreshAnimCounts();

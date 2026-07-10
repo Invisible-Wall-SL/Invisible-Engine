@@ -44,6 +44,7 @@
 		registerBoundComponents,
 		registerComponents,
 		registerEffects,
+		registerRigFx,
 		registerComponentValues,
 		registerComponentActions,
 		registerComponentVisibility,
@@ -123,6 +124,7 @@
 		bakedFontCatalog,
 		bakedFontSrcBase,
 		bakedEffects,
+		bakedRigFx,
 		bakedSymbolAssets,
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
@@ -385,6 +387,10 @@
 	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
 	registerEffects(bakedEffects());
+	// Register the rig-timeline direct FX bindings so a placed rig plays its bound effects on the
+	// beat of its own animation events (`registerRigFx`/`resolveRigFx`; `LayoutNodeView` mounts a
+	// `<RiggedEffect>` per binding). No-op when un-baked / no rig has a bound event (parity).
+	registerRigFx(bakedRigFx());
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(messagesMap);

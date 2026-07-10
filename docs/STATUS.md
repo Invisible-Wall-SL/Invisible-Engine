@@ -24,6 +24,34 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-10 — Invisible FX: rig-timeline DIRECT binding (pick an effect on a Rigger keyframe) + docked event-key inspector
+- **What:** the Rigger's `⚡ Event key` inspector is now (a) DOCKED in the Properties panel (was an
+  unmovable floating popup — `836066e`), and (b) can bind an **Invisible FX effect directly to an event
+  keyframe** — a `Play effect` dropdown (the project's effects) + an `On bone` dropdown. The bound effect
+  plays on the rig at that beat **in-game**, with NO Scene-Editor placement and NO cue-string matching
+  (the previous 3-tool dance). The cue-broadcast path still works as the secondary/advanced mode.
+- **Design:** `docs/design/invisible-fx.md` §"Direction (2026-07-09): rig-timeline direct FX binding".
+- **Data + travel:** the binding is stored on the rig event (`event.fx = { effectId, bone? }`) and ships
+  verbatim in the `.irig`. spine-pixi discards custom event fields at parse, so the runtime can't read it
+  off the event stream — instead the **bake** reads each rig's source JSON and emits a `rigFx` manifest
+  (rig bundle `folder` → bindings), embedded beside `effects` and registered at boot via
+  `registerRigFx(bakedRigFx())`. Every authored effect already ships, so no new asset travels.
+- **Runtime:** `packages/pixi-svelte/.../RiggedEffect.svelte` mounts inside the placed rig's
+  `<SpineProvider>` (via `LayoutNodeView`, keyed by `resolveRigFx(node.assetKey)`); it subscribes the
+  rig's OWN rebroadcast event and, on each beat, re-mounts an `<EffectPlayer>` (bone-wrapped via
+  `<SpineBoneAttach>` when a bone is bound) — a one-shot burst from t=0. Reuses `EffectPlayer`/
+  `EffectLayer`/`SpineBoneAttach`/`rebroadcastEvents` unchanged; `BaseSpineProvider` stays generic.
+- **Key reconciliation (the seam that bit spine-particle `skeletonKey`):** manifest key = the rig bundle
+  `folder`, which equals `bundleFromAssetKey(node.assetKey)` — the exact string `resolveSpineKeysForGame`
+  rewrites a placed spine node's `assetKey` to. Proven on both sides.
+- **Also:** `/api/editor/effects` now accepts the `rigger` alt-tool (was `editor`/`fx` only) so a
+  rigger-only role can populate the dropdown.
+- **v1 scope / deferred:** sprite-particle effects only (a spine-particle effect bound ONLY via a rig
+  still needs its skeleton auto-shipped — follow-up); one-shot per beat (a `stopEvent`/continuous variant
+  is deferred); `docs/tools/rigger.md` wants a docs-keeper refresh. **NEEDS OWNER LIVE-VERIFY** on a
+  published game (the particles actually firing on the beat + bone-follow); then Book of Borut bumps its
+  `engine` submodule. All four packages (`pixi-svelte`/`engine-layout`/`lines`/`launcher-api`) build clean.
+
 ### 2026-07-09 — Flow-v2 container layering fix + deploy-endpoint CORS (Book of Borut remake HUD buttons)
 - **Symptom:** authored bet +/- buttons (on the `hudBar` "HUD — buttons" screen) were invisible in the
   deployed remake though correct in the editor — hoverable (cursor changed) but no art, action dead.

@@ -26,6 +26,7 @@ import Particles, { type Props as ParticlesProps } from './Particles.svelte';
 import BitmapText, { type Props as BitmapTextProps } from './BitmapText.svelte';
 import ParticleEmitter, { type Props as ParticleEmitterProps } from './ParticleEmitter.svelte';
 import EffectPlayer, { type Props as EffectPlayerProps } from './EffectPlayer.svelte';
+import RiggedEffect, { type Props as RiggedEffectProps } from './RiggedEffect.svelte';
 
 export {
 	App,
@@ -50,6 +51,7 @@ export {
 	BitmapText,
 	ParticleEmitter,
 	EffectPlayer,
+	RiggedEffect,
 };
 
 export type {
@@ -74,4 +76,5 @@ export type {
 	BitmapTextProps,
 	ParticleEmitterProps,
 	EffectPlayerProps,
+	RiggedEffectProps,
 };

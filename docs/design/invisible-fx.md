@@ -11,6 +11,87 @@
 > `invisible-rigger.md` (the sibling tool whose `/spine`-forked WebGL stage + R2 plumbing
 > this reuses).
 
+## Direction (2026-07-09): rig-timeline **direct FX binding** — "pick the effect on the keyframe"
+
+**Owner direction.** Today, firing an FX from a rig animation is a 3-tool dance: author the effect
+in `/fx` (with a `trigger.on:'event'` layer whose `eventType` = some cue), **place** it in the
+Scene Editor (an `EffectNode`, optionally `hostSpineId`-attached to the rig), then add a Rigger
+event key **named the same cue**. The Rigger key alone renders nothing — it just broadcasts a name.
+The owner (rightly) wants the natural model: **on a Rigger event keyframe, pick the effect directly
+(a dropdown of the project's effects) + optionally a host bone; it rides the rig and plays in-game —
+no Scene-Editor placement, no cue-string matching.** The cue-broadcast path stays as a secondary
+(advanced) mode — Flow still needs it, and "one animation → different effects per placement" is
+occasionally useful.
+
+### Why it's a real (but small) engine path, not just a dropdown
+Two findings from the code map (2026-07-09) frame the design:
+1. **A binding stored on the rig ships verbatim.** `POST /api/rigger/save` writes the whole `rawDoc`
+   to `<client>/<project>/spines/<bundle>/<stem>.irig`; deploy copies it byte-faithful (renamed
+   `.irig`→`.json` for PIXI.Assets). So **custom fields on the rig survive to the runtime.**
+2. **…but spine-pixi discards non-standard event fields at parse time.** `BaseSpineProvider`'s
+   `rebroadcastEvents` listener only sees `event.data.name` + `int/float/string` — a custom
+   `evtObj.effectId` is in the file but NOT in the parsed `AnimationState` event. So the binding
+   **cannot be read through the event stream**; it must be read from the rig data directly →
+   **bake a small rig→bindings manifest** (exactly like `bakedEffects()` / `registerEffects()`).
+
+Everything else already exists and is reused unchanged: `resolveEffect(id)` (the effects registry —
+**every authored effect already ships**, doc + sprite atlas, regardless of scene placement),
+`attachedEffects` (mounts an `<EffectPlayer>` INSIDE a rig's `<SpineProvider>`), `SpineBoneAttach`
+(rides a bone), and `rebroadcastEvents` (already enabled on every placed rig).
+
+### Data model
+A first-class binding on the rig, authored per event key, source of truth = the event object:
+- On an event object: `evtObj.fx = { effectId: string, bone?: string }` (omit ⇒ plain cue event,
+  today's behaviour). `bone` defaults to the event author's selected bone (or none = rig origin).
+- The binding is keyed at runtime by the **event NAME** (what the rebroadcast bus carries): "spine
+  event named `N` on this rig → play effect `effectId` on `bone`". De-dup by `(name, effectId, bone)`
+  across animations at bake.
+
+### Travel (rule 8 — export→bake→pull→register)
+- **export:** the rig `.irig` already ships (verbatim, carrying `evtObj.fx`). The **bake** walks each
+  shipped rig `.json`, collects every `animations[].events[]` with an `fx` binding into a manifest
+  `rigFx[<rigAssetKey>] = [{ event, effectId, bone? }]`, embedded in the bundle beside `effects`.
+- **register:** boot calls `registerRigFx(rigFx)`; runtime `resolveRigFx(rigAssetKey)` (mirrors
+  `registerEffects`/`resolveEffect`).
+- **effects themselves:** no change — sprite-particle effects ship doc+atlas for every authored
+  effect. **Caveat (deferred):** a Tier-C *spine-particle* effect bound ONLY via a rig still needs
+  its skeleton shipped (today skeletons auto-ship only when placed) — v1 supports sprite-particle
+  bound effects; spine-particle needs a follow-up auto-ship path (note it in the UI).
+
+### Runtime
+`LayoutNodeView` spine branch, inside the existing `<SpineProvider …>`: for each
+`resolveRigFx(node.assetKey)` entry, render a small new **`RiggedEffect`** that plays a bound effect
+on the beat:
+- `RiggedEffect.svelte` (pixi-svelte) — props `{ doc, event, bone? }`. Subscribes the event bus for
+  `{type: event}` (the rig's own rebroadcast); on each fire it bumps a `runId` `$state` and renders
+  `{#key runId}` an `<EffectPlayer doc={doc}>`, bone-wrapped in `<SpineBoneAttach boneName={bone}>`
+  when `bone` is set (else a plain offset container = rig origin). Re-mount-on-fire = a clean one-shot
+  from t=0 each beat. Reuses `EffectPlayer`/`EffectLayer`/`SpineBoneAttach` **unchanged**;
+  `BaseSpineProvider` stays generic (no FX logic leaks in).
+- v1 semantics: **one-shot burst per beat.** Bound effects should be finite (own `emitterLifetime`);
+  a continuous effect would run until unmount. A `stopEvent` binding (reusing `EmitterTrigger.
+  stopEventType`) is a deferred follow-up.
+
+### Authoring (Rigger, `view.html`)
+The docked **⚡ Event key** panel gains, above the payload:
+- **Play effect** — a `<select>` of the project's effects (fetch `GET /api/editor/effects` once on
+  first open; session-scoped, same list `/fx` + the Scene-Editor palette use). `— none (cue only) —`
+  = today's plain broadcast. Picking one sets `evtObj.fx.effectId`.
+- **On bone** — a `<select>` of `skeletonData.bones[].name` (default = the selected bone, or
+  `— rig origin —`). Sets `evtObj.fx.bone`.
+- The dope-sheet ⚡ key gets an FX affordance (e.g. a ✨ tint / title suffix) when bound.
+- `setEventKeyField` gains `fx.effectId` / `fx.bone` cases (empty ⇒ delete the field / the whole `fx`
+  when both empty, keeping export clean). A spine-particle effect selection shows a "needs a follow-up
+  to ship" hint (deferred caveat above).
+
+### Phasing
+1. **Rigger authoring + storage** (`view.html`) — dropdowns + `evtObj.fx`; ships verbatim, no runtime
+   effect yet (safe, reversible). 2. **Bake manifest + register** (`bake-editor-doc.mjs` /
+   `effectExport`-style server + `editor-scenes.ts` `registerRigFx`/`resolveRigFx`). 3. **Runtime
+   `RiggedEffect` + `LayoutNodeView` wiring.** 4. Owner live-verify on a published game; then Borut
+   bumps its `engine` submodule. Deferred: stop-event, continuous effects, spine-particle bound ship,
+   `docs/tools/rigger.md` refresh (docs-keeper).
+
 ## 0. Status
 
 **Phases 1 + 2 + 4 COMPLETE (headless) — the full author→ship→FIRE loop is wired.** Phase 4
