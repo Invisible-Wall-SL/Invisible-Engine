@@ -433,6 +433,16 @@ const main = async () => {
 				!fsLog.some((l) => l.startsWith('effect startSpin')),
 			fsLog.join('|'),
 		);
+
+		// the validator flags the raw collision (an authoring smell the id minter should prevent).
+		const dupIssues = validateFlowDoc(collided, BOOK_OF_VOCAB, LIBRARY).filter(
+			(i) => i.code === 'duplicate-id',
+		);
+		assert(
+			'validateFlowDoc reports a `duplicate-id` warning for the colliding id',
+			dupIssues.length >= 1 && dupIssues.every((i) => i.severity === 'warning'),
+			dupIssues.map((i) => i.message).join(' | '),
+		);
 	}
 
 	console.log(`\n${failed ? 'V2 GROUP HARNESS: FAILED' : 'V2 GROUP HARNESS: PASSED'}`);

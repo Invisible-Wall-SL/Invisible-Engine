@@ -19,6 +19,11 @@
  *                            (§5: those two kinds live ONLY inside a `FunctionDef.body`).
  *  - `fn-body-entry`       — a `FunctionDef.body` lacks exactly one `functionEntry` referencing it.
  *  - `fn-body-result`      — a `FunctionDef.body` lacks exactly one `functionResult` referencing it.
+ *  - `duplicate-id`        — a node id is used more than once across the graph + its group bodies. A
+ *                            group body keeps its ids and `flattenGroups` inlines them, so a collision
+ *                            would make two nodes share an id after flatten (the runtime indexes BY id,
+ *                            so they collapse and edges cross-wire). Flatten now re-namespaces it safely,
+ *                            but the collision is a data smell the id minter should never produce.
  *
  * The checks mirror the schema's rules; a flagged doc is still structurally a FlowDoc — the
  * issues are an authoring aid + the connect-time gate, not a runtime crash.
@@ -59,7 +64,8 @@ export type FlowIssueCode =
 	| 'fn-requires'
 	| 'entry-outside-body'
 	| 'fn-body-entry'
-	| 'fn-body-result';
+	| 'fn-body-result'
+	| 'duplicate-id';
 
 export type FlowIssueSeverity = 'error' | 'warning';
 
@@ -147,6 +153,40 @@ const refResolves = (node: Node, ctx: PinContext): boolean => {
 	}
 };
 
+/** Count every node id in a graph INCLUDING those nested inside group bodies (recursively). */
+const collectIdCounts = (
+	graph: FlowDoc['graph'],
+	counts: Map<string, number> = new Map(),
+): Map<string, number> => {
+	for (const n of graph.nodes) {
+		counts.set(n.id, (counts.get(n.id) ?? 0) + 1);
+		if (n.kind === 'group') collectIdCounts(n.body, counts);
+	}
+	return counts;
+};
+
+/**
+ * `duplicate-id` check on the RAW (pre-flatten) graph: any node id used more than once across the
+ * graph + its group bodies. `flattenGroups` inlines a group's body (which keeps its ids), so a
+ * collision makes two nodes share an id after flatten — and the runtime indexes/resolves edges BY id,
+ * so they collapse and edges cross-wire. Flatten now re-namespaces the collision so it is no longer a
+ * runtime break, hence a WARNING; but it is a data smell (a fixed id minter never produces one).
+ */
+const duplicateIdIssues = (graph: FlowDoc['graph']): FlowIssue[] => {
+	const issues: FlowIssue[] = [];
+	for (const [id, count] of collectIdCounts(graph)) {
+		if (count > 1) {
+			issues.push({
+				code: 'duplicate-id',
+				severity: 'warning',
+				message: `node id '${id}' is used ${count} times (across the graph + its group bodies); flatten re-namespaces the collision, but the id minter should keep ids unique`,
+				at: { on: 'node', node: id },
+			});
+		}
+	}
+	return issues;
+};
+
 // ---------------------------------------------------------------------------
 // The validator.
 // ---------------------------------------------------------------------------
@@ -163,13 +203,18 @@ export const validateFlowDoc = (
 ): FlowIssue[] => {
 	const ctx: PinContext = { vocab, library, containerEvents };
 	const containerIds = new Set(doc.containers.map((c) => c.id));
-	// §5.2: validate the FLATTENED graph so exec/data rules apply to the real semantics — a `group` is
-	// a pure fold, so its boundary pins would otherwise look like unfilled/dangling endpoints.
-	return validateGraph(flattenGroups(doc.graph), ctx, {
-		mode: 'flow',
-		containerIds,
-		templateId: doc.templateId,
-	});
+	// The `duplicate-id` scan runs on the RAW graph (before flatten collapses group bodies in) — that
+	// is where a body-vs-main id collision is visible. §5.2: the structural checks then run on the
+	// FLATTENED graph so exec/data rules apply to the real semantics — a `group` is a pure fold, so its
+	// boundary pins would otherwise look like unfilled/dangling endpoints.
+	return [
+		...duplicateIdIssues(doc.graph),
+		...validateGraph(flattenGroups(doc.graph), ctx, {
+			mode: 'flow',
+			containerIds,
+			templateId: doc.templateId,
+		}),
+	];
 };
 
 /**
@@ -184,13 +229,17 @@ export const validateFunctionDef = (
 	library: FunctionLibraryDoc,
 ): FlowIssue[] => {
 	const ctx: PinContext = { vocab, library };
-	// §5.2: a function body may itself contain groups — flatten before the structural checks.
+	// §5.2: a function body may itself contain groups — flatten before the structural checks, but scan
+	// the RAW body for duplicate ids first (a body's own group bodies can collide with it).
 	const body = flattenGroups(fn.body);
-	const issues = validateGraph(body, ctx, {
-		mode: 'body',
-		containerIds: new Set<string>(),
-		templateId: fn.id,
-	});
+	const issues = [
+		...duplicateIdIssues(fn.body),
+		...validateGraph(body, ctx, {
+			mode: 'body',
+			containerIds: new Set<string>(),
+			templateId: fn.id,
+		}),
+	];
 
 	const entries = body.nodes.filter((n) => n.kind === 'functionEntry' && n.ref === fn.id);
 	const results = body.nodes.filter((n) => n.kind === 'functionResult' && n.ref === fn.id);

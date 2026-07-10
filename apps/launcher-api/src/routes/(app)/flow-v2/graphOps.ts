@@ -29,9 +29,23 @@ import type {
 // graph" abstraction) — the caller writes the result back to whichever target is active.
 // ---------------------------------------------------------------------------
 
-/** A fresh, collision-free node id keyed by kind (`event-1`, `delay-3`, …), scoped to a graph. */
+/** Every node id in a graph INCLUDING those nested inside group bodies (recursively). A group's body
+ *  KEEPS its selected node ids, and `flattenGroups` inlines them into this graph at runtime — so a
+ *  freshly-minted id must avoid a body id too, else the flattened graph carries a DUPLICATE id (which
+ *  the runtime's by-id index collapses, cross-wiring edges — the "press Spin shows the free-spin
+ *  intro" bug). The top-level minter never saw body ids before, so it could re-mint `action-2`. */
+const collectNodeIdsDeep = (graph: Graph, into: Set<string> = new Set<string>()): Set<string> => {
+	for (const n of graph.nodes) {
+		into.add(n.id);
+		if (n.kind === 'group') collectNodeIdsDeep(n.body, into);
+	}
+	return into;
+};
+
+/** A fresh, collision-free node id keyed by kind (`event-1`, `delay-3`, …), scoped to a graph —
+ *  unique against the whole graph AND every group body inlined into it at flatten (see above). */
 export const freshNodeIdIn = (graph: Graph, kind: NodeKind): string => {
-	const used = new Set(graph.nodes.map((n) => n.id));
+	const used = collectNodeIdsDeep(graph);
 	let i = 1;
 	let id = `${kind}-${i}`;
 	while (used.has(id)) {
