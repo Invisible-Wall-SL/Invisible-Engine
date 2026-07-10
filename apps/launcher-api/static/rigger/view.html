@@ -676,14 +676,6 @@ function updateFxPreview(){
   if (!fxReady){ ensureFxOverlay(); return; }
   if (!window.RiggerFx) return;
   try {
-    // The preview tracks playback: when the timeline isn't advancing (paused / stopped / done),
-    // stop the effects — the overlay's own ticker is real-time, so an effect would otherwise keep
-    // emitting after you pause. It re-fires on the next forward crossing when you play again.
-    if (!playing){
-      if (fxActive.length){ window.RiggerFx.clear(); fxActive = []; }
-      fxPrevAnimTime = animTime;
-      return;
-    }
     const events = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
     const prev = fxPrevAnimTime, cur = animTime; fxPrevAnimTime = cur;
     if (cur < prev - 1e-4){ window.RiggerFx.clear(); fxActive = []; } // loop / scrub-back
@@ -709,6 +701,22 @@ function updateFxPreview(){
 function fxClearPreview(){
   if (window.RiggerFx){ try { window.RiggerFx.clear(); } catch (e){} }
   fxActive = []; fxPrevAnimTime = 0;
+}
+// Fire an immediate ONE-SHOT preview of an event's bound effect at its bone — instant feedback the
+// moment you pick/change it in the inspector, even while paused (authoring). Bounded in the overlay,
+// so it plays once and fades (no forever-loop). Lazy-loads the overlay if needed.
+function fxFirePreview(evtObj){
+  if (!animMode || !evtObj || !evtObj.fx || !evtObj.fx.effectId) return;
+  ensureFxOverlay().then(() => {
+    if (!fxReady || !window.RiggerFx) return;
+    try {
+      const w = fxBoneWorld(evtObj.fx.bone); if (!w) return;
+      const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
+      window.RiggerFx.clear(); fxActive = []; // preview only the latest pick
+      const h = window.RiggerFx.play(evtObj.fx.effectId, p.x, p.y, s);
+      fxActive.push({ handle: h, bone: evtObj.fx.bone });
+    } catch (e){}
+  });
 }
 
 function showErr(msg){ const e = $("#err"); e.textContent = msg; e.style.display = "block"; }
@@ -6857,7 +6865,7 @@ function renderEventDetail(){
     for (const fx of projectEffects){ const o = document.createElement("option"); o.value = fx.id; o.textContent = fx.name; fxSel.appendChild(o); }
   }
   fxSel.value = selEvent.fx?.effectId ?? "";
-  fxSel.onchange = () => { setEventKeyField(selEvent, "fx.effectId", fxSel.value); renderEventDetail(); renderTimeline(); };
+  fxSel.onchange = () => { setEventKeyField(selEvent, "fx.effectId", fxSel.value); renderEventDetail(); renderTimeline(); fxFirePreview(selEvent); };
   fxWrap.appendChild(fxSel); det.appendChild(fxWrap);
   const fxHint = document.createElement("div"); fxHint.textContent = "Plays on the rig at this beat — no Scene-Editor placement needed. (Sprite-particle effects only for now.)"; fxHint.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 2px;"; det.appendChild(fxHint);
 
@@ -6867,7 +6875,7 @@ function renderEventDetail(){
     const oOrigin = document.createElement("option"); oOrigin.value = ""; oOrigin.textContent = "— rig origin —"; boneSel.appendChild(oOrigin);
     for (const b of skeletonData.bones){ const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; boneSel.appendChild(o); }
     boneSel.value = selEvent.fx?.bone ?? "";
-    boneSel.onchange = () => { setEventKeyField(selEvent, "fx.bone", boneSel.value); renderEventDetail(); };
+    boneSel.onchange = () => { setEventKeyField(selEvent, "fx.bone", boneSel.value); renderEventDetail(); fxFirePreview(selEvent); };
     boneWrap.appendChild(boneSel); det.appendChild(boneWrap);
   }
 

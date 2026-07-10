@@ -55,10 +55,18 @@ export interface RiggerFxApi {
 interface LiveEffect {
 	container: Container;
 	emitters: Emitter[];
+	/** Pending emit-stop timers (the bounded-burst caps) — cleared on dispose. */
+	timers: ReturnType<typeof setTimeout>[];
 	/** True once torn down — a late texture resolve then skips wiring an emitter into a dead effect
 	 * (the ready-guard, mirroring `EditorEffectLayer`'s generation check). */
 	disposed: boolean;
 }
+
+/** Preview burst cap (ms). A finite `emitterLifetime` self-stops earlier; this only bounds an
+ * INFINITE (continuous) effect so it doesn't emit forever in the editor — the effect would otherwise
+ * "keep looping" whether or not the animation is playing. Particles still live out their own lifetime
+ * after emission stops. */
+const PREVIEW_HOLD_MS = 1500;
 
 // --- module state (one overlay per page) -------------------------------------------------------
 
@@ -195,6 +203,17 @@ async function buildLayer(effect: LiveEffect, layer: EmitterLayer): Promise<void
 	// Force-emit ALL layers from mount, ignoring layer.trigger — the keyframe IS the trigger, and
 	// `emitterLifetime` bounds the burst (the same `forceEmit` contract the rig-bound runtime uses).
 	emitter.emit = true;
+	// Bounded preview: stop emitting after the hold cap so an INFINITE-lifetime effect doesn't run
+	// forever in the editor. A finite emitter has already self-stopped by then (this is a no-op).
+	effect.timers.push(
+		setTimeout(() => {
+			try {
+				emitter.emit = false;
+			} catch {
+				/* emitter already torn down */
+			}
+		}, PREVIEW_HOLD_MS),
+	);
 	effect.emitters.push(emitter);
 }
 
@@ -206,7 +225,7 @@ function play(effectId: string, x: number, y: number, scale: number): number {
 	const container = new Container();
 	container.position.set(x, y);
 	container.scale.set(scale);
-	const effect: LiveEffect = { container, emitters: [], disposed: false };
+	const effect: LiveEffect = { container, emitters: [], timers: [], disposed: false };
 	effects.set(handle, effect);
 
 	void (async () => {
@@ -238,6 +257,8 @@ function follow(handle: number, x: number, y: number, scale: number): void {
 /** Dispose one effect's emitters + its container. */
 function disposeEffect(effect: LiveEffect): void {
 	effect.disposed = true;
+	for (const t of effect.timers) clearTimeout(t);
+	effect.timers = [];
 	for (const emitter of effect.emitters) {
 		try {
 			emitter.emit = false;
