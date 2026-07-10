@@ -676,6 +676,14 @@ function updateFxPreview(){
   if (!fxReady){ ensureFxOverlay(); return; }
   if (!window.RiggerFx) return;
   try {
+    // The preview tracks playback: when the timeline isn't advancing (paused / stopped / done),
+    // stop the effects — the overlay's own ticker is real-time, so an effect would otherwise keep
+    // emitting after you pause. It re-fires on the next forward crossing when you play again.
+    if (!playing){
+      if (fxActive.length){ window.RiggerFx.clear(); fxActive = []; }
+      fxPrevAnimTime = animTime;
+      return;
+    }
     const events = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
     const prev = fxPrevAnimTime, cur = animTime; fxPrevAnimTime = cur;
     if (cur < prev - 1e-4){ window.RiggerFx.clear(); fxActive = []; } // loop / scrub-back
