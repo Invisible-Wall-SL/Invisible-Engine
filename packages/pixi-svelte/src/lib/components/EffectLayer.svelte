@@ -6,6 +6,13 @@
 		layer: EmitterLayer;
 		/** Emit-speed forwarded to the layer's `<ParticleEmitter>`. */
 		emitSpeed?: number;
+		/**
+		 * Force this layer to emit from mount, ignoring its authored trigger gating (as if `always`).
+		 * Used by the rig-timeline DIRECT binding (`<RiggedEffect>`): the keyframe IS the trigger, so
+		 * the whole effect plays on the beat regardless of how each layer was authored — an
+		 * `event`-mode layer would otherwise sit dormant waiting for its own cue that never comes.
+		 */
+		forceEmit?: boolean;
 	};
 </script>
 
@@ -108,8 +115,9 @@
 	);
 
 	// Live emit flag: ambient layers start emitting; event layers start dormant and the
-	// subscription below flips this on when their `eventType` fires.
-	let emitting = $state(plan.trigger.emit);
+	// subscription below flips this on when their `eventType` fires. `forceEmit` (rig-timeline
+	// direct binding) starts emitting immediately regardless of the authored trigger.
+	let emitting = $state(props.forceEmit || plan.trigger.emit);
 
 	let stopTimer: ReturnType<typeof setTimeout> | undefined;
 	const clearStop = (): void => {
@@ -125,6 +133,14 @@
 	// `event` layer with no `eventType` (or no bus in context) never fires — it stays dormant,
 	// the fail-safe analogue of a bone layer with no bone.
 	$effect(() => {
+		// Rig-timeline direct binding: the keyframe already gated the whole effect, so every layer
+		// emits from mount and ignores its own trigger (no bus subscription). The config's
+		// `emitterLifetime` still bounds a burst.
+		if (props.forceEmit) {
+			emitting = true;
+			return;
+		}
+
 		const trigger = plan.trigger;
 		if (trigger.mode !== 'event' || !trigger.eventType) {
 			emitting = trigger.emit;

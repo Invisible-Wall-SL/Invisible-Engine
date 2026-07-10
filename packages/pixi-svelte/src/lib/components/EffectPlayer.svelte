@@ -9,6 +9,12 @@
 		 * `emitter.update`). Defaults to the component's own default.
 		 */
 		emitSpeed?: number;
+		/**
+		 * Force every layer to emit from mount, ignoring its authored trigger (rig-timeline DIRECT
+		 * binding — `<RiggedEffect>` gates the whole effect on the beat, so it plays regardless of
+		 * how each layer was authored). See `<EffectLayer>`'s `forceEmit`.
+		 */
+		forceEmit?: boolean;
 	};
 </script>
 
@@ -38,5 +44,5 @@
 </script>
 
 {#each props.doc.layers as layer (layer.key)}
-	<EffectLayer {layer} emitSpeed={props.emitSpeed} />
+	<EffectLayer {layer} emitSpeed={props.emitSpeed} forceEmit={props.forceEmit} />
 {/each}

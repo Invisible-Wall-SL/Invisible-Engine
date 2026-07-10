@@ -6735,7 +6735,7 @@ function renderEventDetail(){
   const inputCss = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;box-sizing:border-box;width:100%;";
 
   // Name — the cue name that crosses the game event bus.
-  const nameWrap = fieldRow("Name", "fires an Invisible FX effect / crosses the game event bus — must match the effect's Trigger event name");
+  const nameWrap = fieldRow("Name", "the event's cue name (crosses the game event bus). To play an effect, use Play effect below — no name-matching needed. (Name only needs to match an effect's Trigger event name for the advanced cue-only path, when no effect is bound here.)");
   const nameIn = document.createElement("input"); nameIn.type = "text"; nameIn.value = selEvent.name || ""; nameIn.placeholder = "event";
   nameIn.setAttribute("list", "evtNameList"); nameIn.style.cssText = inputCss;
   nameIn.onchange = () => { setEventKeyField(selEvent, "name", nameIn.value); nameIn.value = selEvent.name || ""; renderTimeline(); renderEventDetail(); };

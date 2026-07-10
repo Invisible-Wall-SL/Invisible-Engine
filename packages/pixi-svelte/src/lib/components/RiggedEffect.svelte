@@ -24,8 +24,11 @@
 	 * SAME bus `<EffectLayer>` subscribes for a Flow cue; here we subscribe the rig's own event name.
 	 *
 	 * Firing model (v1): one-shot per beat. Each fire bumps `runId`, and the effect is re-mounted under
-	 * `{#key runId}` — a clean burst from t=0 every beat. Nothing renders before the first fire (the
-	 * effect is dormant until then). No-op when there is no event-emitter context (never crashes).
+	 * `{#key runId}` — a clean burst from t=0 every beat. The `<EffectPlayer forceEmit>` makes every
+	 * layer emit on mount regardless of its authored trigger (the keyframe IS the trigger), so a bound
+	 * effect plays no matter how it was authored — an `event`-mode layer would otherwise sit dormant
+	 * waiting for a cue that never comes. Nothing renders before the first fire (the effect is dormant
+	 * until then). No-op when there is no event-emitter context (never crashes).
 	 */
 	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
 
@@ -60,11 +63,11 @@
 	{#key runId}
 		{#if props.bone}
 			<SpineBoneAttach boneName={props.bone}>
-				<EffectPlayer doc={props.doc} />
+				<EffectPlayer doc={props.doc} forceEmit />
 			</SpineBoneAttach>
 		{:else}
 			<Container>
-				<EffectPlayer doc={props.doc} />
+				<EffectPlayer doc={props.doc} forceEmit />
 			</Container>
 		{/if}
 	{/key}
