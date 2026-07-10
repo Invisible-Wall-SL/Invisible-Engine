@@ -30,6 +30,7 @@ import {
 	collapseToGroup,
 	derivePins,
 	expandGroup,
+	flattenGroups,
 	runFlowEvent,
 	validateFlowDoc,
 	type FlowDoc,
@@ -348,6 +349,90 @@ const main = async () => {
 
 		const missing = collapseToGroup({ doc: sourceDoc(), selection: ['nope'], label: 'M' }, ctx);
 		assert('a selection id not in the graph returns {error}', 'error' in missing);
+	}
+
+	// --- 6. flatten is COLLISION-SAFE: a body node id that also exists in the main graph must NOT
+	// cross-wire (the "press Spin → shows the free-spin intro" bug). A group body keeps its ids, but the
+	// editor's id minter doesn't reserve ids buried in a body, so a later main node can reuse one. Flatten
+	// must re-namespace the colliding body id — else the two nodes collapse by id and the grouped node
+	// inherits the main node's outgoing exec edge. ---
+	console.log('\n6. flattenGroups re-namespaces a body id that collides with a main-graph node:');
+	{
+		// Group "Button actions" whose body node is id `shared` = startSpin.
+		const base: FlowDoc = {
+			version: 2,
+			templateId: 'bookOf',
+			graph: {
+				nodes: [
+					{ id: 'onSpin', kind: 'event', pos: { x: 0, y: 0 }, ref: 'spin' },
+					{ id: 'shared', kind: 'action', pos: { x: 300, y: 0 }, ref: 'startSpin' },
+				],
+				exec: [{ from: { node: 'onSpin', pin: 'exec' }, to: { node: 'shared', pin: 'exec' } }],
+				data: [],
+			},
+			containers: [{ id: 'freespin', sceneId: 'freegame', z: 10 }],
+		};
+		const gOut = collapseToGroup({ doc: base, selection: ['shared'], label: 'Button actions' }, ctx);
+		if ('error' in gOut) {
+			console.error(`  FAIL  collapseToGroup returned an error: ${gOut.error}`);
+			console.log('\nV2 GROUP HARNESS: FAILED');
+			process.exit(1);
+		}
+		// Now inject a SECOND, unrelated main-graph node that REUSES the id `shared`
+		// (= setFreeSpinCounterTotal) whose exec-out shows the free-spin intro — the collision.
+		const collided: FlowDoc = {
+			...gOut.doc,
+			graph: {
+				nodes: [
+					...gOut.doc.graph.nodes,
+					{ id: 'onFs', kind: 'event', pos: { x: 0, y: 400 }, ref: 'freeSpinTrigger' },
+					{ id: 'shared', kind: 'action', pos: { x: 300, y: 400 }, ref: 'setFreeSpinCounterTotal' },
+					{ id: 'introShow', kind: 'showContainer', pos: { x: 600, y: 400 }, ref: 'freegame' },
+				],
+				exec: [
+					...gOut.doc.graph.exec,
+					{ from: { node: 'onFs', pin: 'exec' }, to: { node: 'shared', pin: 'exec' } },
+					{ from: { node: 'shared', pin: 'exec' }, to: { node: 'introShow', pin: 'exec' } },
+				],
+				data: gOut.doc.graph.data,
+			},
+		};
+
+		const flat = flattenGroups(collided.graph);
+		const ids = flat.nodes.map((n) => n.id);
+		assert(
+			'the flattened graph has NO duplicate node ids',
+			new Set(ids).size === ids.length,
+			`dups: ${ids.filter((id, i) => ids.indexOf(id) !== i).join(',')}`,
+		);
+
+		// press Spin: must record ONLY startSpin — it must NOT inherit `shared`'s show-intro edge.
+		const spinLog = await (async () => {
+			const { env, log } = makeRecordingEnv();
+			const rc: RunContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY, env };
+			await runFlowEvent(collided, rc, 'spin', {});
+			return log;
+		})();
+		assert(
+			'runFlowEvent(spin) records ONLY startSpin (no cross-wired show)',
+			spinLog.length === 1 && spinLog[0].startsWith('effect startSpin'),
+			spinLog.join('|'),
+		);
+
+		// freeSpinTrigger: must run setFreeSpinCounterTotal → show, and must NOT run startSpin.
+		const fsLog = await (async () => {
+			const { env, log } = makeRecordingEnv();
+			const rc: RunContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY, env };
+			await runFlowEvent(collided, rc, 'freeSpinTrigger', { totalFs: 7, positions: [] });
+			return log;
+		})();
+		assert(
+			'runFlowEvent(freeSpinTrigger) runs setFreeSpinCounterTotal then show — not startSpin',
+			fsLog.some((l) => l.startsWith('effect setFreeSpinCounterTotal')) &&
+				fsLog.some((l) => l.startsWith('show ')) &&
+				!fsLog.some((l) => l.startsWith('effect startSpin')),
+			fsLog.join('|'),
+		);
 	}
 
 	console.log(`\n${failed ? 'V2 GROUP HARNESS: FAILED' : 'V2 GROUP HARNESS: PASSED'}`);

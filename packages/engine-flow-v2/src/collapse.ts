@@ -496,15 +496,51 @@ export const expandGroup = (doc: FlowDoc, groupNodeId: string): { doc: FlowDoc }
 	if (!group) return { error: `group id '${groupNodeId}' is not a node in the graph` };
 	if (group.kind !== 'group') return { error: `node '${groupNodeId}' is not a group node` };
 
-	const pinById = new Map<string, GroupPin>(group.boundary.map((p) => [p.id, p]));
+	// A group body keeps its selected nodes' ORIGINAL ids (§5.2). But the editor's id minter does not
+	// reserve ids buried inside a body, so a later main-graph node can be minted with an id a body node
+	// already uses. Re-inserting the body verbatim would then put that id in the graph TWICE — and since
+	// the runtime indexes nodes + resolves edges BY ID, the two collapse into one and edges cross-wire (a
+	// grouped `startSpin` inheriting a main-graph node's outgoing exec edge — the "spin shows the free-spin
+	// intro" bug). Guarantee uniqueness: rename only the COLLIDING body ids against the surviving main
+	// graph, and rewrite the body's internal edges + the boundary `inner` refs to match. No collision ⇒
+	// the rename map is empty and this is byte-identical to keeping ids (round-trip identity preserved).
+	const survivingIds = new Set<string>(
+		graph.nodes.filter((n) => n.id !== groupNodeId).map((n) => n.id),
+	);
+	const bodyIds = new Set<string>(group.body.nodes.map((n) => n.id));
+	const minted = new Set<string>(survivingIds);
+	const rename = new Map<string, string>();
+	for (const n of group.body.nodes) {
+		if (!survivingIds.has(n.id)) continue; // unique already — keep the id.
+		let i = 0;
+		let cand = `${n.id}__g${++i}`;
+		while (minted.has(cand) || bodyIds.has(cand)) cand = `${n.id}__g${++i}`;
+		rename.set(n.id, cand);
+		minted.add(cand);
+	}
+	const rid = (id: string): string => rename.get(id) ?? id;
+	const rpath = <P extends PinPath>(p: P): P => ({ ...p, node: rid(p.node) });
 
-	// Nodes: everything except the group node, plus the body's nodes.
+	const pinById = new Map<string, GroupPin>(
+		group.boundary.map((p) => [p.id, { ...p, inner: rpath(p.inner) }]),
+	);
+
+	// Nodes: everything except the group node, plus the body's nodes (colliding ids re-namespaced).
 	const nodes: Node[] = graph.nodes.filter((n) => n.id !== groupNodeId).map(clone);
-	for (const n of group.body.nodes) nodes.push(clone(n));
+	for (const n of group.body.nodes) nodes.push({ ...clone(n), id: rid(n.id) });
 
-	// Edges: the body's internal edges, plus every main-graph edge re-routed away from the group node.
-	const exec: ExecEdge[] = group.body.exec.map(clone);
-	const data: DataEdge[] = group.body.data.map(clone);
+	// Edges: the body's internal edges (re-namespaced), plus every main-graph edge re-routed away from
+	// the group node.
+	const exec: ExecEdge[] = group.body.exec.map((e) => ({
+		...clone(e),
+		from: rpath(e.from),
+		to: rpath(e.to),
+	}));
+	const data: DataEdge[] = group.body.data.map((e) => ({
+		...clone(e),
+		from: rpath(e.from),
+		to: rpath(e.to),
+	}));
 
 	const reroute = <E extends { from: PinPath; to: PinPath }>(e: E): E | undefined => {
 		const fromGroup = e.from.node === groupNodeId;
