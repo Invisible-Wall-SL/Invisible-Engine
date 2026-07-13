@@ -226,7 +226,7 @@ mere save.
   (SSR off; auth + `fx`-scope gate; streams the project's atlas list via the shared
   `loadRegionSet`, the saved-effect index, the optionally-opened EffectDoc + its sidecar
   on `?effect=<id>`, and the project's emitter **vocabulary** `eventTypes` — resolved by
-  the LayoutDoc `gameType` via `resolveFlowVocabulary`, the same source `/flow` uses, so
+  the LayoutDoc `gameType` via `resolveEmitterVocabulary`, the same source `/flow` uses, so
   the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
   is the authoring shell (sub-bar, Layers panel, Inspector with Layer / Art / Placement /
   Trigger / Emitter / Alpha / Scale / Speed sections, and the Backdrop bar above the
