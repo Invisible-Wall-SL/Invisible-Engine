@@ -150,6 +150,13 @@ const SPIN_OPTIONS_SHARED = {
 	reelSpinSpeedBeforeBounce: 4,
 	reelPaddingMultiplierNormal: 1.2,
 	reelPaddingMultiplierAnticipated: 10,
+	// Free-spin sequential-stop padding knob (higher = longer gap between reel stops). Only
+	// applies when the sequential-stop flag selects the `sequential` spinType, so the base game
+	// is unaffected.
+	reelPaddingMultiplierSequential: 4,
+	// Sequential-cascade spin speed (higher = faster reels, which also shortens the gap between
+	// stops for a given `reelPaddingMultiplierSequential`). Matches `reelSpinSpeed` by default.
+	reelSpinSpeedSequential: 3,
 	reelSpinDelay: 145,
 };
 

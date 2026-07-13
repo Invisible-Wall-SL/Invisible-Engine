@@ -22,9 +22,11 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 	async function spin<RevealEvent extends BaseRevealEvent>({
 		revealEvent,
 		paddingBoard,
+		forceSequentialStop,
 	}: {
 		revealEvent: RevealEvent;
 		paddingBoard?: TRawSymbol[][];
+		forceSequentialStop?: boolean;
 	}) {
 		if (stateSlots.isPreSpinning) {
 			await Promise.all(
@@ -52,9 +54,15 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 		};
 
 		board.reduce((previousPaddingSize, reel, reelIndex) => {
-			const noStop = globalHasAnticipation && reelIndex >= firstAnticipatedReelIndex;
 			const isAnticipated = (revealEvent.anticipation?.[reelIndex] || 0) > 0;
-			const spinType = getSpinType({ noStop, isAnticipated });
+			// Sequential-stop forces every NON-anticipated reel to stop consecutively via the
+			// timing-only `sequential` spinType; a genuinely book-anticipated reel keeps its
+			// existing `anticipated` behaviour (anticipation wins). Falsy ⇒ untouched.
+			const useSequential = Boolean(forceSequentialStop) && !isAnticipated;
+			const noStop = useSequential
+				? true
+				: globalHasAnticipation && reelIndex >= firstAnticipatedReelIndex;
+			const spinType = useSequential ? 'sequential' : getSpinType({ noStop, isAnticipated });
 			const symbols = revealEvent.board[reelIndex] as TRawSymbol[];
 			const paddingReel = paddingBoard?.[reelIndex];
 			const paddingPosition = revealEvent?.paddingPositions?.[reelIndex];

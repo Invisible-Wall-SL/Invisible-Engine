@@ -95,6 +95,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const basePaddingSize = () => reelLength * reelState.spinOptions().reelPaddingMultiplierNormal;
 	const anticipatedPaddingSize = () =>
 		reelLength * reelState.spinOptions().reelPaddingMultiplierAnticipated;
+	const sequentialPaddingSize = () =>
+		reelLength * reelState.spinOptions().reelPaddingMultiplierSequential;
 
 	// internal states
 	let isPreSpinning = false;
@@ -310,10 +312,27 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			},
 		});
 
+	const sequentialSpin = () =>
+		generalSpinWith({
+			slideDown: async () => {
+				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
+
+				await slideY({
+					reelY: homeY() * basePaddingSize(),
+					speed: reelState.spinOptions().reelSpinSpeedSequential,
+				});
+				await slideY({
+					reelY: homeY() + bounceSize,
+					speed: reelState.spinOptions().reelSpinSpeedBeforeBounce,
+				});
+			},
+		});
+
 	const SPIN_MAP = {
 		fast: fastSpin,
 		normal: normalSpin,
 		anticipated: anticipatedSpin,
+		sequential: sequentialSpin,
 	};
 
 	const prepareToSpin = (prepareToSpinOptions: {
@@ -338,6 +357,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			fast: prepareToSpinOptions.previousPaddingSize + 0,
 			normal: prepareToSpinOptions.previousPaddingSize + basePaddingSize(),
 			anticipated: prepareToSpinOptions.previousPaddingSize + anticipatedPaddingSize(),
+			sequential: prepareToSpinOptions.previousPaddingSize + sequentialPaddingSize(),
 		};
 
 		paddingSize = GET_PADDING_SIZE_MAP[prepareToSpinOptions.spinType];

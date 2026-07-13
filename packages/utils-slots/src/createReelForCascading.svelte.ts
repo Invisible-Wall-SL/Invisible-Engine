@@ -199,6 +199,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		fast: fastSpin,
 		normal: normalSpin,
 		anticipated: anticipatedSpin,
+		sequential: normalSpin,
 	};
 
 	const prepareToSpin = (prepareToSpinOptions: {
@@ -219,6 +220,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			fast: 0,
 			normal: prepareToSpinOptions.previousPaddingSize + basePaddingSize(),
 			anticipated: prepareToSpinOptions.previousPaddingSize + anticipatedPaddingSize(),
+			sequential: prepareToSpinOptions.previousPaddingSize + basePaddingSize(),
 		};
 
 		paddingSize = GET_PADDING_SIZE_MAP[prepareToSpinOptions.spinType];

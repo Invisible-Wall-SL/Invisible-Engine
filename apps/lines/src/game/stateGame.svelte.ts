@@ -170,7 +170,21 @@ const board = _.range(BOARD_DIMENSIONS.x).map((reelIndex) => {
 			boardOverride.node ?? undefined,
 			isFast ? 'fast' : 'normal',
 		);
-		return override ? { ...base, ...override } : base;
+		const merged = override ? { ...base, ...override } : base;
+		// Flow-authored sequential-stop knobs (from the `enableSequentialReelStop` effect
+		// payload) win for the two sequential fields. Null ⇒ fall back to the coded constant,
+		// so a spin with no authored override is byte-identical to the constants.
+		if (stateGame.sequentialGapOverride == null && stateGame.sequentialSpeedOverride == null)
+			return merged;
+		return {
+			...merged,
+			...(stateGame.sequentialGapOverride != null && {
+				reelPaddingMultiplierSequential: stateGame.sequentialGapOverride,
+			}),
+			...(stateGame.sequentialSpeedOverride != null && {
+				reelSpinSpeedSequential: stateGame.sequentialSpeedOverride,
+			}),
+		};
 	};
 
 	return reel;
@@ -195,6 +209,11 @@ export const stateGame = $state({
 	multiplierBoard: [] as (MultiplierSymbol | undefined)[][],
 	scatterCounter: 0,
 	specialSymbol: null as SymbolName | null,
+	sequentialReelStop: false,
+	// Optional Flow-authored overrides for the sequential-stop knobs (null ⇒ use the coded
+	// SPIN_OPTIONS constants). Set by `enableSequentialReelStop`'s payload, cleared on disable.
+	sequentialGapOverride: null as number | null,
+	sequentialSpeedOverride: null as number | null,
 });
 
 const boardLayout = () => {

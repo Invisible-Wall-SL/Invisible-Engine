@@ -26,6 +26,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
 			paddingBoard: PADDING_REELS[bookEvent.gameType],
+			forceSequentialStop: stateGame.sequentialReelStop,
 		});
 		eventEmitter.broadcast({ type: 'soundScatterCounterClear' });
 	},

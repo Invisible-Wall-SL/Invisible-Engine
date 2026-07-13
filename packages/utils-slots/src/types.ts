@@ -3,7 +3,7 @@ import type { FirstArgOf } from 'utils-shared/types';
 import type { createReelForSpinning } from './createReelForSpinning.svelte';
 import type { createReelForCascading } from './createReelForCascading.svelte';
 
-export type SpinType = 'normal' | 'fast' | 'anticipated';
+export type SpinType = 'normal' | 'fast' | 'anticipated' | 'sequential';
 
 export type SpinningReelSpinOptions = {
 	// speed (pixel / ms)
@@ -16,6 +16,8 @@ export type SpinningReelSpinOptions = {
 	// extra padding
 	reelPaddingMultiplierNormal: number;
 	reelPaddingMultiplierAnticipated: number;
+	reelPaddingMultiplierSequential: number;
+	reelSpinSpeedSequential: number;
 	reelSpinDelay: number;
 };
 

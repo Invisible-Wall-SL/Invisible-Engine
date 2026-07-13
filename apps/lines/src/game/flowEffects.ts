@@ -100,7 +100,28 @@ const effects: Record<string, FlowEffect> = {
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
 			paddingBoard: PADDING_REELS[bookEvent.gameType],
+			forceSequentialStop: stateGame.sequentialReelStop,
 		});
+	},
+
+	/**
+	 * Enable free-spin sequential reel stop — each reel stops consecutively (`sequentialReelStop`).
+	 * Optional `gap` (`reelPaddingMultiplierSequential`, higher = longer beat between stops) and
+	 * `speed` (`reelSpinSpeedSequential`, higher = faster reels) payload override the coded
+	 * SPIN_OPTIONS constants so the feel is tunable per-game from the Flow node. Omit either to
+	 * keep its constant.
+	 */
+	enableSequentialReelStop: (payload) => {
+		stateGame.sequentialReelStop = true;
+		stateGame.sequentialGapOverride = (payload.gap as number | undefined) ?? null;
+		stateGame.sequentialSpeedOverride = (payload.speed as number | undefined) ?? null;
+	},
+
+	/** Disable free-spin sequential reel stop + clear the knob overrides (`sequentialReelStop`). */
+	disableSequentialReelStop: () => {
+		stateGame.sequentialReelStop = false;
+		stateGame.sequentialGapOverride = null;
+		stateGame.sequentialSpeedOverride = null;
 	},
 
 	/** Set the win-meter amount (`setTotalWin`). */
