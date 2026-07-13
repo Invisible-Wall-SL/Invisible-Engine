@@ -225,13 +225,35 @@
 				const decl = vocab.enums.find((e) => e.name === t.name);
 				return { kind: 'literal', type: t, value: decl?.values[0] ?? '' };
 			}
-			case 'struct':
 			case 'list':
-				// Structs/lists cannot be literals — they must be wired. Default to a wire.
+				// A list of a SCALAR element (float/int/ms/bool/string/enum) is authorable as a
+				// literal (comma-separated in the editor below), seeded EMPTY. A list of structs
+				// (or nested lists) still has no literal form → wire.
+				if (t.of.t === 'struct' || t.of.t === 'list') return { kind: 'wire' };
+				return { kind: 'literal', type: t, value: [] };
+			case 'struct':
+				// Structs cannot be literals — they must be wired.
 				return { kind: 'wire' };
 			default:
 				return { kind: 'literal', type: t, value: 0 };
 		}
+	}
+
+	// A scalar-list literal is authored as a comma/space-separated string. `[]` (empty) is a valid
+	// value — the consuming effect treats it as "no per-item override" (falls back to its defaults).
+	function formatListLiteral(value: unknown): string {
+		return Array.isArray(value) ? value.join(', ') : '';
+	}
+	function parseListLiteral(text: string, elem: TypeRef): unknown[] {
+		const tokens = text
+			.split(/[\s,]+/)
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0);
+		if (elem.t === 'float') return tokens.map(Number).filter(Number.isFinite);
+		if (elem.t === 'int' || elem.t === 'ms')
+			return tokens.map((s) => Math.trunc(Number(s))).filter(Number.isFinite);
+		if (elem.t === 'bool') return tokens.map((s) => s === 'true');
+		return tokens; // string / enum — keep as-is
 	}
 </script>
 
@@ -501,6 +523,15 @@
 						<option value={v}>{v}</option>
 					{/each}
 				</select>
+			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list'}
+				<input
+					type="text"
+					class="listlit"
+					placeholder="e.g. 2, 3, 4, 5, 6 — one per reel"
+					value={formatListLiteral(src.value)}
+					onchange={(e) =>
+						commit({ kind: 'literal', type: lt, value: parseListLiteral(e.currentTarget.value, lt.of) })}
+				/>
 			{:else if lt.t === 'struct' || lt.t === 'list'}
 				<span class="note">{typeLabel(lt)} must be wired</span>
 			{:else}
