@@ -21,7 +21,7 @@
 	import type { EffectDoc } from 'engine-fx';
 
 	import { getContext } from '../game/context';
-	import { bakedEffects, placedEffectIds, rigFxEffectIds } from '../editor-scenes';
+	import { bakedEffects, bakedRigFx, placedEffectIds, rigFxEffectIds } from '../editor-scenes';
 
 	const context = getContext();
 
@@ -45,6 +45,35 @@
 		(doc) => !placesOnBone(doc) && !placed.has(doc.id) && !rigBound.has(doc.id),
 	);
 	const boneEffects = effects.filter((doc) => placesOnBone(doc) && !rigBound.has(doc.id));
+
+	// Diagnostic: `?fxdebug=1` in the game URL dumps how EVERY baked effect is routed, so a stray
+	// burst can be traced to its exact mount + reason. `ambient-free@origin` is the (0,0) bucket —
+	// an effect that is neither placed as a scene node NOR bound to a rig, so it emits at the scene
+	// origin. Inert without the flag (no console noise on a normal boot); safe in the shipped bundle.
+	if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('fxdebug')) {
+		const rigFx = bakedRigFx();
+		const bucketOf = (doc: EffectDoc): string =>
+			placed.has(doc.id)
+				? 'placed-node (LayoutNodeView @ node pos)'
+				: rigBound.has(doc.id)
+					? 'rig-bound (RiggedEffect @ host rig/bone)'
+					: placesOnBone(doc)
+						? 'ambient-bone (foreground host rig)'
+						: 'ambient-free@origin (0,0) ⚠';
+		console.log(
+			'[fxdebug] baked effects:',
+			effects.map((d) => ({ id: d.id, layers: d.layers.length, mount: bucketOf(d) })),
+		);
+		console.log('[fxdebug] rigFx manifest (rigKey → bound effectIds):',
+			Object.fromEntries(Object.entries(rigFx).map(([k, b]) => [k, b.map((x) => x.effectId)])),
+		);
+		console.log('[fxdebug] placedEffectIds:', [...placed], '| rigFxEffectIds:', [...rigBound]);
+		console.log(
+			'[fxdebug] mounting at ORIGIN (0,0):',
+			freeEffects.map((d) => d.id),
+			'— if a stray burst is here, this id is neither placed nor rig-bound.',
+		);
+	}
 
 	// The host rig for bone-placed effects — the always-present foreground spine. Sized to the
 	// canvas like `Background` so the bone transforms land in the same frame the game draws.
