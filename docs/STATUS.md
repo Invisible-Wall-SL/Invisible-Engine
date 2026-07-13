@@ -24,6 +24,30 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Rig FX render fixes: cross-talk firing + effect ignored the rig transform (`RiggedEffect`)
+- **Symptoms (owner report):** the `gunshots` bullethole VFX fired on rigs it shouldn't, and the
+  `f_square_star` (`R_VFX`) effect didn't show at all. The earlier "mounted correctly" note above meant
+  the routing BUCKET was right (rigFx binding recognised) — NOT that the pixels were correct.
+- **Root cause 1 — cross-talk.** `RiggedEffect` fired off the SHARED `utils-event-emitter` bus, which
+  `BaseSpineProvider.rebroadcastEvents` broadcasts keyed only by the bare event NAME (no rig identity),
+  and the bus fans out to ONE global subscriber set. So a bullethole bound to `gunshots` on the gun rig
+  also fired whenever the boot/bottle/bull rigs (all bound to `gunshots`) — or another board cell of the
+  same symbol — fired an event of that name. **Fix:** `RiggedEffect` now listens DIRECTLY to its host
+  skeleton's own `AnimationState` (`getContextSpine().state`), scoping each fire to THIS rig instance.
+- **Root cause 2 — no rig-transform inheritance + mask clip.** `SpineProvider` scales/places the SPINE
+  object (contain-fit into the cell) but leaves its child parent context on the OUTER container, so the
+  effect subtree mounted as a SIBLING of the spine — rendered at the board origin at authored scale
+  (oversized/off-symbol), then clipped by `BoardMask`. A tight burst (bullethole) survived; a radiating
+  star (`f_square_star`) spawned outside the window and vanished. **Fix:** `RiggedEffect` mounts its
+  subtree under `fxParent`, a container parented DIRECTLY on the host spine, so it inherits the rig's
+  fit-scale/position/pivot AND rides the symbol's live layer (the UNMASKED "animate" layer during a win).
+  This also makes `<SpineBoneAttach>`'s bone-follow correct (its skeleton→local map assumes parent==spine).
+- **Scope:** localized to `packages/pixi-svelte/.../RiggedEffect.svelte` — no change to the 97 other
+  `SpineProvider` sites (a global re-parent would break `SpineSlot` etc.). Fixes BOTH the symbol path
+  (`SymbolSpineMain`) and the layout path (`LayoutNodeView`). svelte-check clean (only pre-existing errors).
+- **Ships to online games via `_runtime/lines` republish** (engine code change; no data/bake change).
+  Owner to live-verify pixels first (can't be verified headlessly — needs the authed project + R2 rigs).
+
 ### 2026-07-13 — FX reachability guardrail: orphan effects no longer auto-emit at the origin
 - **Why:** the runtime-bundle FX fix (below) surfaced that `Effects.svelte` auto-mounted EVERY unplaced
   free effect at the scene origin (0,0), including `always`-emitting scratch/test effects with no
@@ -194,6 +218,7 @@ submodule bumps).
 - **Fix:** `expandGroup` (`packages/engine-flow-v2/src/collapse.ts`) now renames only the COLLIDING body ids against the surviving main graph, rewriting the body's internal edges + the boundary `inner` refs. No-collision path is byte-identical (round-trip identity preserved). `v2group` harness gains a regression (no dup ids + no cross-wire after flatten). Shipped to online games via `publish-runtime-bundle.mjs` (`_runtime/lines`) + `/refresh`.
 - **Diagnostic note:** the flow/scenes/flow-v2 docs live in R2 (`<client>/<project>/editor/{scenes,flow-v2}.json`); pulling them + flattening offline is the fastest way to trace a runtime-game flow bug. Also confirmed the "edge caches index.html" trap live — the served game index lagged the R2 bundle until `/refresh` re-hydrated.
 - **Follow-up (SHIPPED, launcher auto-deploy — 5c5fa52):** `freshNodeIdIn` (`/flow-v2` graphOps) now reserves ids nested in group bodies so it never mints a collision; `validateFlowDoc` gains a `duplicate-id` warning (scans the raw graph + group bodies), surfaced in the editor issue list. Docs authored before this (e.g. `bookofborutremake`) still carry the raw collision — the runtime flatten fix makes them correct and the editor now flags it; re-mint the colliding group-body ids to clear the warning.
+- **Follow-up 2 (one-click clear, launcher auto-deploy):** the `duplicate-id` warnings are *correct* but confusing — the offending node is buried inside a **collapsed group body**, so a user sees no duplicate on-canvas and the game runs fine (flatten re-namespaces). Added `dedupeGroupBodyIds(graph)` (`packages/engine-flow-v2/src/collapse.ts`, pure, exported): re-mints ONLY the colliding body ids (top-level ids win, matching flatten precedence), rewriting each body's internal edges + the group's boundary `inner` refs; recurses nested groups; no-collision path is a no-op. Node ids are synthetic (the `ref` holds the real target) so the rename is behaviour-preserving. `/flow-v2` `ValidationPanelV2` now shows a **"Re-mint & clear"** banner when `duplicate-id` count > 0 (calls `fixDuplicateIds` → `applyGraphEdit`, works in flow OR function view), and clicking a `duplicate-id` row now focuses the **containing group** (the buried node isn't a top-level canvas node). `v2group` harness §7 regressions (renames exactly the collision, warning clears, spin behaviour holds, idempotent). Editor-only — no `_runtime/lines` republish; the user just re-saves the repaired doc.
 
 ### 2026-07-10 — Invisible FX: rig-timeline DIRECT binding (pick an effect on a Rigger keyframe) + docked event-key inspector
 - **What:** the Rigger's `⚡ Event key` inspector is now (a) DOCKED in the Properties panel (was an

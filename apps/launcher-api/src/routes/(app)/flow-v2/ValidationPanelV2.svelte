@@ -9,9 +9,15 @@
 	let {
 		issues,
 		onfocus,
+		duplicateCount = 0,
+		onfixduplicates,
 	}: {
 		issues: FlowIssue[];
 		onfocus: (nodeId: string) => void;
+		// Count of `duplicate-id` warnings + a one-click repair. When both are present the panel shows a
+		// "Fix" banner (the duplicate lives in a collapsed group body, so clicking a row can't reach it).
+		duplicateCount?: number;
+		onfixduplicates?: () => void;
 	} = $props();
 
 	const ICON: Record<string, string> = {
@@ -25,6 +31,7 @@
 		'literal-type': '≠',
 		'accessor-unresolved': '✗',
 		'fn-requires': '⚠',
+		'duplicate-id': '⧉',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.
@@ -42,6 +49,15 @@
 
 <div class="validation">
 	<h3>Validation</h3>
+	{#if duplicateCount > 0 && onfixduplicates}
+		<div class="fixbar">
+			<span class="fixmsg">
+				{duplicateCount} duplicate node id{duplicateCount === 1 ? '' : 's'} — hidden inside a collapsed
+				group. Harmless at runtime (the flatten re-namespaces them), but worth clearing.
+			</span>
+			<button class="fixbtn" onclick={() => onfixduplicates?.()}>Re-mint & clear</button>
+		</div>
+	{/if}
 	{#if issues.length === 0}
 		<p class="ok">✓ No issues.</p>
 	{:else}
@@ -63,7 +79,11 @@
 							</span>
 						</button>
 					{:else}
-						<div class="issue static" class:error={issue.severity === 'error'} title={issue.message}>
+						<div
+							class="issue static"
+							class:error={issue.severity === 'error'}
+							title={issue.message}
+						>
 							<span class="icon">{ICON[issue.code] ?? '⚠'}</span>
 							<span class="body">
 								<span class="code">{issue.code}</span>
@@ -94,6 +114,36 @@
 		color: #86efac;
 		font-size: 12px;
 		margin: 0;
+	}
+	.fixbar {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 8px;
+		margin-bottom: 8px;
+		border: 1px solid #4a3a1c;
+		border-radius: 6px;
+		background: #1a160e;
+	}
+	.fixmsg {
+		font-size: 11px;
+		line-height: 1.4;
+		color: #fdba74;
+	}
+	.fixbtn {
+		align-self: flex-start;
+		padding: 4px 10px;
+		border-radius: 6px;
+		border: 1px solid #f59e0b;
+		background: #f59e0b1a;
+		color: #fbbf24;
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.fixbtn:hover {
+		background: #f59e0b33;
+		border-color: #fbbf24;
 	}
 	ul {
 		list-style: none;

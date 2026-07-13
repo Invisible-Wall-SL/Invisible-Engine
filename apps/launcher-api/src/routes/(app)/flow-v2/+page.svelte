@@ -4,6 +4,7 @@
 	import {
 		collapseToFunction,
 		collapseToGroup,
+		dedupeGroupBodyIds,
 		expandGroup,
 		derivePins,
 		templateVocabulary,
@@ -534,10 +535,23 @@
 		syncCanvas();
 	}
 
-	// Issue click → select + re-seed so the node highlights (best-effort focus).
+	// Issue click → select + re-seed so the node highlights (best-effort focus). If the id isn't a
+	// TOP-LEVEL canvas node it's buried in a collapsed group body (the `duplicate-id` case): fall back
+	// to selecting the containing group so the click still surfaces where the offending node lives.
 	function focusNode(nodeId: string): void {
-		selectedNodeId = nodeId;
+		const onCanvas = activeGraph.nodes.some((n) => n.id === nodeId);
+		selectedNodeId = onCanvas ? nodeId : (groupContaining(nodeId) ?? nodeId);
 		nodes = buildNodes();
+	}
+
+	// The id of the top-level group whose body (recursively) holds `nodeId`, or null if not nested.
+	function groupContaining(nodeId: string): string | null {
+		const inGraph = (g: Graph): boolean =>
+			g.nodes.some((n) => n.id === nodeId || (n.kind === 'group' && inGraph(n.body)));
+		for (const n of activeGraph.nodes) {
+			if (n.kind === 'group' && inGraph(n.body)) return n.id;
+		}
+		return null;
 	}
 
 	// --- Editing (Phase 2b.1) ---------------------------------------------------
@@ -1040,6 +1054,20 @@
 		markDirty();
 	}
 
+	// How many `duplicate-id` warnings the active graph carries (a colliding group-body id — see
+	// `dedupeGroupBodyIds`). Drives the one-click "Fix duplicate ids" repair in the validation panel.
+	const duplicateIdCount = $derived(issues.filter((iss) => iss.code === 'duplicate-id').length);
+
+	// One-shot repair: re-mint every colliding group-body id so the raw doc carries no duplicate. The
+	// runtime already re-namespaces the collision at flatten, so this only clears the editor warning
+	// (behaviour is unchanged). Routes through `applyGraphEdit` so it works in flow OR function view.
+	function fixDuplicateIds(): void {
+		const { graph: next, renamed } = dedupeGroupBodyIds(activeGraph);
+		if (renamed === 0) return;
+		selectedNodeId = null;
+		applyGraphEdit(next);
+	}
+
 	// --- Library management (2c.3): rename + delete a function -------------------
 	// Rename the OPEN function. The `id` stays stable (call sites resolve by id), so only the
 	// display `name` changes; every functionCall's header re-reads it live via `nodeTitle`.
@@ -1244,13 +1272,7 @@
 					(its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag nodes from the palette;
 					Delete removes internal nodes.
 				</p>
-				<AddNodePalette
-					{vocab}
-					{library}
-					doc={paletteDoc}
-					onadd={addNodeOfKind}
-					{containerLabel}
-				/>
+				<AddNodePalette {vocab} {library} doc={paletteDoc} onadd={addNodeOfKind} {containerLabel} />
 			{:else}
 				<h3>Flow v2 · dev</h3>
 				<p class="hint">
@@ -1270,7 +1292,12 @@
 					{deleteError}
 				/>
 			{/if}
-			<ValidationPanelV2 {issues} onfocus={focusNode} />
+			<ValidationPanelV2
+				{issues}
+				onfocus={focusNode}
+				duplicateCount={duplicateIdCount}
+				onfixduplicates={fixDuplicateIds}
+			/>
 			{#if view.kind === 'flow'}
 				<PreviewPanelV2 {doc} {library} {vocab} />
 			{/if}
