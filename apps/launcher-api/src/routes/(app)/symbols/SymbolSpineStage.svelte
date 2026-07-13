@@ -17,6 +17,7 @@
 		getSpinePhysics,
 		type SpineSceneRenderer,
 	} from '../editor/spineRuntime.client';
+	import { createFxOverlay, type FxOverlayApi } from '$lib/fx/fxOverlay.client';
 
 	interface Props {
 		/** The scroll container whose `[data-spine-key]` cells this draws over. */
@@ -39,15 +40,160 @@
 		bw: number;
 		bh: number;
 	}
+	/** One timed rig→FX binding on the playing animation's timeline (from `/api/editor/rig-fx`). */
+	interface TimedFx {
+		time: number;
+		effectId: string;
+		bone?: string;
+	}
 	type Entry =
 		| { state: 'loading' | 'error' }
-		| { state: 'ready'; instance: SpineInstance; anim: string | null; bounds: Bounds };
+		| {
+				state: 'ready';
+				instance: SpineInstance;
+				anim: string | null;
+				bounds: Bounds;
+				/** The bundle key this instance loaded from — the `fxTimelines` lookup key. */
+				resolveKey: string;
+				/** Playing animation's duration (s) — the fallback wrap period for the fx playhead. */
+				fxDur: number;
+				/** Wrapped playhead (s) at the END of the previous frame; `-1` before the first frame so
+				 * a keyframe AT t=0 fires on frame 1. Owns the per-instance FX crossing state. */
+				fxPrev: number;
+				/** Keyframes crossed THIS frame (computed once per instance, fired per visible cell). */
+				fxCrossed: TimedFx[];
+				/** True when the playhead wrapped/scrubbed back this frame → visible cells clear their
+				 * live effects so a looping animation doesn't pile up a burst every loop. */
+				fxLooped: boolean;
+		  };
 	// Keyed by `${resolveKey}\n${animation}` — one skeleton per (bundle, animation) so
 	// cells that share a bundle but play DIFFERENT anims (e.g. the M low-multiplier) each
 	// animate independently; cells sharing the SAME (bundle, anim) reuse one instance.
 	const instances = new Map<string, Entry>();
 
 	const specKey = (resolveKey: string, anim: string): string => `${resolveKey}\n${anim}`;
+
+	// ── Live FX overlay (mirrors the Rigger's `view.html` fx preview) ──────────────────────────
+	// A transparent Pixi overlay (the SHARED `createFxOverlay` core, reused verbatim from the Rigger)
+	// draws each fx-bound symbol's particle burst ON the beat of its animation, riding the bound bone.
+	// Everything here is INERT until a bound keyframe actually crosses on a VISIBLE cell: no Pixi
+	// Application is created for a board with no bound symbols, so a plain spine grid pays nothing.
+	let fxHost: HTMLElement | null = $state(null);
+	let fxOverlay: FxOverlayApi | null = null;
+	let fxInitStarted = false;
+	/** Per-bundle fx timeline: `Record<anim, TimedFx[]>` or `null` (no bindings / a `.skel` / failed).
+	 * Keyed by `resolveKey`; fetched once per bundle from `/api/editor/rig-fx`. */
+	const fxTimelines = new Map<string, Record<string, TimedFx[]> | null>();
+	const fxPending = new Set<string>();
+	/** Per-CELL live effect handles. The crossing is per-INSTANCE (shared playhead), but a bundle can
+	 * be drawn into many cells, so each visible cell owns its own handles + rides the bone itself.
+	 * A `WeakMap` on the cell element → the entry is GC'd when the grid re-renders the cell away. */
+	let cellFx = new WeakMap<HTMLElement, { active: { handle: number; bone?: string }[] }>();
+	/** Shared empty crossing list for the (common) frames with no crossings — never mutated. */
+	const EMPTY_FX: TimedFx[] = [];
+
+	/** Fetch (once) a bundle's fx timeline. Cached even when empty so we don't re-hit the endpoint. */
+	function ensureFxTimeline(resolveKey: string): void {
+		if (fxTimelines.has(resolveKey) || fxPending.has(resolveKey)) return;
+		fxPending.add(resolveKey);
+		void (async () => {
+			try {
+				const bust = reloadToken ? `&v=${reloadToken}` : '';
+				const res = await fetch(`/api/editor/rig-fx?key=${encodeURIComponent(resolveKey)}${bust}`);
+				if (!res.ok) {
+					fxTimelines.set(resolveKey, null);
+					return;
+				}
+				const body = (await res.json()) as { animations?: Record<string, TimedFx[]> };
+				const anims = body.animations;
+				fxTimelines.set(resolveKey, anims && Object.keys(anims).length ? anims : null);
+			} catch {
+				fxTimelines.set(resolveKey, null);
+			} finally {
+				fxPending.delete(resolveKey);
+			}
+		})();
+	}
+
+	/** Lazily create + init the overlay the FIRST time a bound keyframe fires. Returns `null` until the
+	 * host div is mounted (never before onMount). */
+	function ensureOverlay(): FxOverlayApi | null {
+		if (!fxHost) return null;
+		if (!fxOverlay) fxOverlay = createFxOverlay();
+		if (!fxInitStarted) {
+			fxInitStarted = true;
+			void fxOverlay.init(fxHost);
+		}
+		return fxOverlay;
+	}
+
+	/** Wrapped playhead (s) of a ready instance's track 0 — READ from the live entry (not accumulated)
+	 * so the FX crossing stays in lockstep with the pose `apply` just produced. */
+	function fxAnimTime(entry: Extract<Entry, { state: 'ready' }>): number {
+		const te = entry.instance.animationState.getCurrent(0);
+		if (!te) return 0;
+		const dur = te.animation?.duration || entry.fxDur;
+		return dur > 0 ? te.trackTime % dur : te.trackTime;
+	}
+
+	/** Project a posed bone's world origin into THIS cell's on-screen CSS point (relative to the
+	 * canvas / fx host, both `inset:0`). `drawCell` placed the skeleton in a CSS-px world with X
+	 * mirrored about the viewport centre (`skel.scaleX < 0`, `skel.x = cw - preX`) and Y running
+	 * downward (`scaleY < 0` flips the y-up rig), so UNDOING that mirror gives the screen point:
+	 * `screenX = cw - worldX`, `screenY = worldY` (mirrors `view.html`'s `fxBoneWorld` + projection).
+	 * `bone` absent ⇒ the rig origin (root bone `bones[0]`). Must be read RIGHT AFTER this cell's
+	 * `drawCell` — the skeleton is shared, so the next cell repositions it. */
+	function fxBoneScreen(
+		instance: SpineInstance,
+		bone: string | undefined,
+		cw: number,
+	): { x: number; y: number } | null {
+		const skel = instance.skeleton;
+		const b = bone ? skel.findBone(bone) : skel.bones[0];
+		if (!b) return null;
+		return { x: cw - b.worldX, y: b.worldY };
+	}
+
+	/** Drive one cell's live FX for this frame: clear on loop, fire newly-crossed keyframes at the
+	 * bound bone (projected into this cell's rect), then ride the bone for every active effect. Called
+	 * immediately after the cell's `drawCell`, so the shared skeleton is posed for THIS cell. */
+	function updateCellFx(
+		el: HTMLElement,
+		entry: Extract<Entry, { state: 'ready' }>,
+		s: number,
+		cw: number,
+	): void {
+		let cf = cellFx.get(el);
+		// Loop / scrub-back: drop this cell's live effects so a looping symbol doesn't accumulate a
+		// fresh burst every loop (mirrors `view.html`'s `RiggerFx.clear()` on wrap).
+		if (entry.fxLooped && cf && cf.active.length) {
+			for (const fx of cf.active) fxOverlay?.stop(fx.handle);
+			cf.active = [];
+		}
+		// Fire newly-crossed keyframes. The overlay (and its Pixi context) is created only HERE, on the
+		// first real fire — a board with no bound symbols never reaches this.
+		if (entry.fxCrossed.length) {
+			const overlay = ensureOverlay();
+			if (overlay) {
+				for (const b of entry.fxCrossed) {
+					const p = fxBoneScreen(entry.instance, b.bone, cw);
+					if (!p) continue;
+					if (!cf) {
+						cf = { active: [] };
+						cellFx.set(el, cf);
+					}
+					cf.active.push({ handle: overlay.play(b.effectId, p.x, p.y, s), bone: b.bone });
+				}
+			}
+		}
+		// Ride the bone: reposition every active effect for this cell each frame.
+		if (cf && cf.active.length && fxOverlay) {
+			for (const fx of cf.active) {
+				const p = fxBoneScreen(entry.instance, fx.bone, cw);
+				if (p) fxOverlay.follow(fx.handle, p.x, p.y, s);
+			}
+		}
+	}
 
 	function ensureGl(): boolean {
 		if (gl && renderer) return true;
@@ -107,11 +253,19 @@
 					/* unknown animation — leave default */
 				}
 			}
+			const fxDur = play
+				? (instance.data.animations.find((a) => a.name === play)?.duration ?? 0)
+				: 0;
 			instances.set(key, {
 				state: 'ready',
 				instance,
 				anim: play,
 				bounds: measureBounds(instance),
+				resolveKey,
+				fxDur,
+				fxPrev: -1,
+				fxCrossed: EMPTY_FX,
+				fxLooped: false,
 			});
 		} catch {
 			instances.set(key, { state: 'error' });
@@ -122,7 +276,9 @@
 
 	/** Place + draw one ready instance into a cell rect (CSS px, relative to the canvas).
 	 *  Same fit + camera-mirror compensation as `SymbolSpinePreview`, generalised to an
-	 *  arbitrary cell offset on a full-grid canvas of width `cw`. */
+	 *  arbitrary cell offset on a full-grid canvas of width `cw`. Returns the fit scale `s`
+	 *  (CSS px per skeleton-local unit) so the FX overlay can size the effect to this cell —
+	 *  the analog of `view.html`'s `fxScaleAt` (screen px per rig-world unit at the bone). */
 	function drawCell(
 		entry: Extract<Entry, { state: 'ready' }>,
 		x: number,
@@ -130,8 +286,8 @@
 		w: number,
 		h: number,
 		cw: number,
-	): void {
-		if (!gl || !renderer) return;
+	): number {
+		if (!gl || !renderer) return 0;
 		const { offX, offY, bw, bh } = entry.bounds;
 		const skel = entry.instance.skeleton;
 		const s = Math.min(w / bw, h / bh) * PAD;
@@ -150,6 +306,7 @@
 		renderer.begin();
 		renderer.drawSkeleton(skel, entry.instance.premultipliedAlpha);
 		renderer.end();
+		return s;
 	}
 
 	function frame(now: number): void {
@@ -170,12 +327,13 @@
 		lastTime = now;
 
 		const cells = container.querySelectorAll<HTMLElement>('[data-spine-key]');
-		// Kick off any not-yet-loaded (bundle, anim).
+		// Kick off any not-yet-loaded (bundle, anim) + fetch each bundle's fx bindings once.
 		for (const el of cells) {
 			const rk = el.dataset.spineKey;
 			if (!rk) continue;
 			const key = specKey(rk, el.dataset.spineAnim ?? '');
 			if (!instances.has(key)) void ensureInstance(key, rk, el.dataset.spineAnim ?? '');
+			ensureFxTimeline(rk);
 		}
 
 		if (!gl) return;
@@ -183,11 +341,31 @@
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		if (!renderer) return;
 
-		// Advance each ready animation ONCE per frame (then it may be drawn into many cells).
+		// Advance each ready animation ONCE per frame (then it may be drawn into many cells), and
+		// compute its FX crossing ONCE (fired per-cell below). The crossing is per-instance because the
+		// playhead is shared across every cell that reuses this (bundle, anim) instance.
 		for (const entry of instances.values()) {
-			if (entry.state === 'ready' && entry.anim) {
-				entry.instance.animationState.update(delta);
-				entry.instance.animationState.apply(entry.instance.skeleton);
+			if (entry.state !== 'ready' || !entry.anim) continue;
+			entry.instance.animationState.update(delta);
+			entry.instance.animationState.apply(entry.instance.skeleton);
+			// Only bundles with authored fx bindings for the playing anim do any crossing work.
+			const tl = fxTimelines.get(entry.resolveKey)?.[entry.anim];
+			entry.fxLooped = false;
+			if (tl && tl.length) {
+				const cur = fxAnimTime(entry);
+				// Interval (lo, cur] crossed this frame. On a loop-wrap / scrub-back drop `lo` below 0 so
+				// a keyframe AT (or near) t=0 fires on the wrap — a plain `prev < time` can't cross t=0.
+				let lo = entry.fxPrev;
+				if (cur < entry.fxPrev - 1e-4) {
+					entry.fxLooped = true;
+					lo = -1;
+				}
+				const crossed: TimedFx[] = [];
+				for (const b of tl) if (lo < b.time && cur >= b.time) crossed.push(b);
+				entry.fxCrossed = crossed;
+				entry.fxPrev = cur;
+			} else {
+				entry.fxCrossed = EMPTY_FX;
 			}
 		}
 
@@ -217,7 +395,10 @@
 			const x = r.left - base.left;
 			const y = r.top - base.top;
 			if (x + r.width < 0 || y + r.height < 0 || x > cw || y > ch) continue; // cull off-screen
-			drawCell(entry, x, y, r.width, r.height, cw);
+			const s = drawCell(entry, x, y, r.width, r.height, cw);
+			// FX (fire on the beat + ride the bone) reads the skeleton posed by `drawCell` for THIS
+			// cell — so it MUST run right after, before the shared skeleton is reposed for the next cell.
+			updateCellFx(el, entry, s, cw);
 		}
 	}
 
@@ -235,6 +416,13 @@
 				if (entry.state === 'ready') disposeSpineInstance(entry.instance);
 			}
 			instances.clear();
+			// Drop the FX caches + live effects too: a re-exported rig may change its bindings, and the
+			// stale cell handles reference a skeleton about to be disposed. The overlay itself is kept
+			// (its Pixi context is reusable) — only its live effects are cleared.
+			fxTimelines.clear();
+			fxPending.clear();
+			cellFx = new WeakMap();
+			fxOverlay?.clear();
 		});
 	});
 
@@ -246,6 +434,14 @@
 				if (entry.state === 'ready') disposeSpineInstance(entry.instance);
 			}
 			instances.clear();
+			// Force-free the overlay's Pixi/WebGL context — the browser caps live contexts (~8–16), so a
+			// stage that mounts/unmounts (panel toggles, navigation) must release it (RiggerFx discipline).
+			try {
+				fxOverlay?.destroy();
+			} catch {
+				/* overlay already torn down */
+			}
+			fxOverlay = null;
 			try {
 				renderer?.dispose();
 			} catch {
@@ -259,9 +455,20 @@
 </script>
 
 <canvas bind:this={canvas} class="stage"></canvas>
+<!-- The FX overlay's transparent Pixi canvas mounts INTO this host, above the spine canvas (later in
+     DOM ⇒ on top), so particle bursts render over their symbol. Stays empty until a bound effect fires. -->
+<div bind:this={fxHost} class="fx-layer"></div>
 
 <style>
 	.stage {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		display: block;
+		pointer-events: none;
+	}
+	.fx-layer {
 		position: absolute;
 		inset: 0;
 		width: 100%;

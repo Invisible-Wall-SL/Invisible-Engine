@@ -24,6 +24,26 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Invisible Symbols SM: live rig-timeline FX preview (parity with the Rigger)
+- **What:** the Symbols State-Machine stage (`apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte`)
+  now fires an fx-bound symbol's particle effect ON the beat of its animation, riding the bound bone —
+  matching the Rigger's live FX overlay. Previously it drew the spine ANIMATION only (no particle wiring).
+- **Reuse (not duplication):** the Rigger's overlay core was extracted from `src/rigger-fx/main.ts` into a
+  shared factory `src/lib/fx/fxOverlay.client.ts` (`createFxOverlay()`); `main.ts` is now a thin IIFE that
+  wraps one instance as `window.RiggerFx` (rebuild the vendored bundle with `pnpm --filter launcher-api
+  build:rigger-fx`). `SymbolSpineStage` imports the same factory and creates its own instance.
+- **Binding source:** new server endpoint `/api/editor/rig-fx?key=…` returns the rig's `animations[*].events[]`
+  `fx = {effectId, bone?}` grouped by anim, WITH each keyframe `time` (the name-keyed `rigFx` manifest drops
+  the time). Reuses `resolveEditorSpine` + a new `fxTimelineFromSkeleton` in `rigFxExport.ts`. Chosen over
+  client-side parsing so the client doesn't re-download+re-parse a multi-MB skeleton per bundle.
+- **Mechanism:** per-instance playhead crossing (mirrors `view.html`), fired per VISIBLE cell at the bone
+  projected into that cell's rect (`screenX = cw - bone.worldX`, `screenY = bone.worldY` — undoes the stage's
+  X-mirror), `follow()` each frame, clear on loop, bounded burst via the overlay's `PREVIEW_HOLD`. Zero cost
+  (no Pixi Application created) when the board has no bound symbols. Extends `spineRuntime.client.ts` typings
+  (`findBone`/`bones`/`getCurrent`). Scope: sprite layers (Tier A/B), same as the Rigger overlay.
+- **Scope call to confirm:** fires on EVERY visible bound cell (not just a focused/hovered one) — per the task
+  spec ("each VISIBLE grid cell with ≥1 fx-bound event"). `launcher-api` build clean. **Pending owner live-verify.**
+
 ### 2026-07-13 — Live runtime bundle now ships FX (effects + rigFx) — parity with the offline bake
 - **Bug:** `?runtime=1` games (Book of Borut runs `runtime:lines`) got **no FX data at all** —
   `buildRuntimeBundle` (`apps/launcher-api/src/lib/server/runtimeBundle.ts`, served by

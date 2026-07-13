@@ -28,16 +28,36 @@ export interface SpineCamera {
 	update(): void;
 }
 
+/** A posed bone — its world origin AFTER `skeleton.updateWorldTransform`. Only the world
+ * translation is surfaced (the Symbols-SM live FX overlay projects it to screen to ride the
+ * bound bone, mirroring the Rigger's `fxBoneWorld`). */
+export interface SpineBone {
+	worldX: number;
+	worldY: number;
+}
+
 export interface SpineSkeleton {
 	x: number;
 	y: number;
 	scaleX: number;
 	scaleY: number;
+	/** Setup-order bones; `bones[0]` is the root (== the rig origin when an fx binding has no bone). */
+	bones: SpineBone[];
 	setToSetupPose(): void;
 	setSkinByName(name: string): void;
 	setSlotsToSetupPose(): void;
 	updateWorldTransform(physics?: unknown): void;
 	getBounds(offset: SpineVector2, size: SpineVector2, temp: number[]): void;
+	/** Bone by name, or `null` when the rig has none by that name (a stale fx binding). */
+	findBone(name: string): SpineBone | null;
+}
+
+/** The live track's playhead — read (not accumulated) so the FX crossing stays in lockstep with the
+ * pose `animationState.apply` produced this frame. `trackTime` grows unbounded for a looping entry;
+ * the wrapped time is `trackTime % animation.duration`. */
+export interface SpineTrackEntry {
+	trackTime: number;
+	animation: { duration: number } | null;
 }
 
 export interface SpineAnimationState {
@@ -46,6 +66,8 @@ export interface SpineAnimationState {
 	setEmptyAnimation(track: number, mixDuration: number): unknown;
 	update(delta: number): void;
 	apply(skeleton: SpineSkeleton): boolean;
+	/** The current entry on `track` (its playhead + animation), or `null` when the track is empty. */
+	getCurrent(track: number): SpineTrackEntry | null;
 }
 
 export interface SpineAnimationMeta {
