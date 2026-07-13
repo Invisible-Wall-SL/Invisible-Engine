@@ -6,6 +6,7 @@
 	// canvas `drop` handler. CLICKING still works as a fallback (centroid placement). Both carry
 	// the node KIND and (where relevant) the REFERENCE it should carry. Ref/field editing is 2b.2.
 	import type { FlowDoc, FunctionLibraryDoc, NodeKind, TemplateVocabulary } from 'engine-flow-v2';
+	import { browser } from '$app/environment';
 	import { DROP_MIME, type DropPayload } from './dnd';
 
 	let {
@@ -48,6 +49,28 @@
 	const matches = (label: string): boolean =>
 		!query.trim() || label.toLowerCase().includes(query.trim().toLowerCase());
 
+	// Collapsible sections — click a header to fold its body away and save space. The collapsed set
+	// is keyed by section id and persisted to localStorage so it survives reloads. An active filter
+	// query force-opens every section (so a search never hides its own matches behind a fold).
+	const COLLAPSE_KEY = 'flow-v2:palette-collapsed';
+	function loadCollapsed(): Record<string, boolean> {
+		if (!browser) return {};
+		try {
+			const raw = localStorage.getItem(COLLAPSE_KEY);
+			return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+		} catch {
+			return {};
+		}
+	}
+	let collapsed = $state<Record<string, boolean>>(loadCollapsed());
+	$effect(() => {
+		if (browser) localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed));
+	});
+	const isOpen = (key: string): boolean => !!query.trim() || !collapsed[key];
+	function toggle(key: string): void {
+		collapsed = { ...collapsed, [key]: !collapsed[key] };
+	}
+
 	// The `gameSignals` node is a SINGLE-SOURCE node — it surfaces every mechanic signal from ONE
 	// node, so two would duplicate every pin. Hide the palette entry once one exists in the active
 	// graph (`doc.graph` here; a function body never carries a gameSignals source).
@@ -67,141 +90,173 @@
 	<p class="dnd-hint">Drag onto the canvas to drop at the cursor · click to add</p>
 	<input class="search" type="text" placeholder="Filter…" bind:value={query} />
 
+	{#snippet head(key: string, label: string, count: number)}
+		<button
+			class="section-head"
+			type="button"
+			onclick={() => toggle(key)}
+			aria-expanded={isOpen(key)}
+			title={isOpen(key) ? 'Collapse section' : 'Expand section'}
+		>
+			<span class="chevron" class:open={isOpen(key)}>▸</span>
+			<span class="section-title">{label}</span>
+			<span class="section-count">{count}</span>
+		</button>
+	{/snippet}
+
 	<section>
-		<h4>Events</h4>
-		{#each vocab.events.filter((e) => matches(e.name)) as e (e.name)}
-			<button
-				class="entry event"
-				draggable={true}
-				ondragstart={(ev) => onDragStart(ev, 'event', e.name)}
-				onclick={() => onadd('event', e.name)}
-				title="event · {e.name}"
-			>
-				{e.name}
-			</button>
-		{/each}
+		{@render head('events', 'Events', vocab.events.filter((e) => matches(e.name)).length)}
+		{#if isOpen('events')}
+			{#each vocab.events.filter((e) => matches(e.name)) as e (e.name)}
+				<button
+					class="entry event"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, 'event', e.name)}
+					onclick={() => onadd('event', e.name)}
+					title="event · {e.name}"
+				>
+					{e.name}
+				</button>
+			{/each}
+		{/if}
 	</section>
 
 	{#if !hasGameSignals && matches('Game Signals')}
 		<section>
-			<h4>Sources</h4>
-			<button
-				class="entry signals"
-				draggable={true}
-				ondragstart={(ev) => onDragStart(ev, 'gameSignals')}
-				onclick={() => onadd('gameSignals')}
-				title="gameSignals · the single mechanic-signal source (one exec-out per book+lifecycle event)"
-			>
-				Game Signals
-			</button>
+			{@render head('sources', 'Sources', 1)}
+			{#if isOpen('sources')}
+				<button
+					class="entry signals"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, 'gameSignals')}
+					onclick={() => onadd('gameSignals')}
+					title="gameSignals · the single mechanic-signal source (one exec-out per book+lifecycle event)"
+				>
+					Game Signals
+				</button>
+			{/if}
 		</section>
 	{/if}
 
 	<section>
-		<h4>Actions</h4>
-		{#each vocab.actions.filter((a) => matches(a.name)) as a (a.name)}
-			<button
-				class="entry action"
-				draggable={true}
-				ondragstart={(ev) => onDragStart(ev, 'action', a.name)}
-				onclick={() => onadd('action', a.name)}
-				title="action · {a.category}"
-			>
-				{a.name}<span class="cat">{a.category}</span>
-			</button>
-		{/each}
-	</section>
-
-	<section>
-		<h4>Cues</h4>
-		{#each vocab.cues.filter((c) => matches(c.name)) as c (c.name)}
-			<button
-				class="entry cue"
-				draggable={true}
-				ondragstart={(ev) => onDragStart(ev, 'fireCue', c.name)}
-				onclick={() => onadd('fireCue', c.name)}
-				title="fireCue · {c.name}"
-			>
-				{c.name}
-			</button>
-		{/each}
-	</section>
-
-	<section>
-		<h4>Functions</h4>
-		{#if deleteError}
-			<p class="fn-error">Can't delete — {deleteError}.</p>
+		{@render head('actions', 'Actions', vocab.actions.filter((a) => matches(a.name)).length)}
+		{#if isOpen('actions')}
+			{#each vocab.actions.filter((a) => matches(a.name)) as a (a.name)}
+				<button
+					class="entry action"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, 'action', a.name)}
+					onclick={() => onadd('action', a.name)}
+					title="action · {a.category}"
+				>
+					{a.name}<span class="cat">{a.category}</span>
+				</button>
+			{/each}
 		{/if}
-		{#each library.functions.filter((f) => matches(f.name)) as f (f.id)}
-			<div class="fn-row">
-				<button
-					class="entry fn"
-					draggable={true}
-					ondragstart={(ev) => onDragStart(ev, 'functionCall', f.id)}
-					onclick={() => onadd('functionCall', f.id)}
-					title="functionCall · {f.id} — drag/click to add a call; use ✎ to edit its body"
-				>
-					{f.name}
-				</button>
-				{#if onopen}
-					<button
-						class="fn-op"
-						type="button"
-						onclick={() => onopen?.(f.id)}
-						title="Edit this function's body">✎</button
-					>
-				{/if}
-				{#if ondelete}
-					<button
-						class="fn-op rm"
-						type="button"
-						onclick={() => ondelete?.(f.id)}
-						title="Delete this function (blocked if in use)">✕</button
-					>
-				{/if}
-			</div>
-		{/each}
 	</section>
 
 	<section>
-		<h4>Containers</h4>
-		{#each doc.containers.filter((c) => matches(containerLabel(c.id))) as c (c.id)}
-			<div class="pair">
+		{@render head('cues', 'Cues', vocab.cues.filter((c) => matches(c.name)).length)}
+		{#if isOpen('cues')}
+			{#each vocab.cues.filter((c) => matches(c.name)) as c (c.name)}
 				<button
-					class="entry container"
+					class="entry cue"
 					draggable={true}
-					ondragstart={(ev) => onDragStart(ev, 'showContainer', c.id)}
-					onclick={() => onadd('showContainer', c.id)}
-					title="showContainer · {c.id}"
+					ondragstart={(ev) => onDragStart(ev, 'fireCue', c.name)}
+					onclick={() => onadd('fireCue', c.name)}
+					title="fireCue · {c.name}"
 				>
-					show {containerLabel(c.id)}
+					{c.name}
 				</button>
-				<button
-					class="entry container"
-					draggable={true}
-					ondragstart={(ev) => onDragStart(ev, 'hideContainer', c.id)}
-					onclick={() => onadd('hideContainer', c.id)}
-					title="hideContainer · {c.id}"
-				>
-					hide {containerLabel(c.id)}
-				</button>
-			</div>
-		{/each}
+			{/each}
+		{/if}
 	</section>
 
 	<section>
-		<h4>Control</h4>
-		{#each CONTROL.filter((c) => matches(c.label)) as c (c.kind)}
-			<button
-				class="entry control"
-				draggable={true}
-				ondragstart={(ev) => onDragStart(ev, c.kind)}
-				onclick={() => onadd(c.kind)}
-				title={c.kind}
-			>
-				{c.label}
-			</button>
-		{/each}
+		{@render head('functions', 'Functions', library.functions.filter((f) => matches(f.name)).length)}
+		{#if isOpen('functions')}
+			{#if deleteError}
+				<p class="fn-error">Can't delete — {deleteError}.</p>
+			{/if}
+			{#each library.functions.filter((f) => matches(f.name)) as f (f.id)}
+				<div class="fn-row">
+					<button
+						class="entry fn"
+						draggable={true}
+						ondragstart={(ev) => onDragStart(ev, 'functionCall', f.id)}
+						onclick={() => onadd('functionCall', f.id)}
+						title="functionCall · {f.id} — drag/click to add a call; use ✎ to edit its body"
+					>
+						{f.name}
+					</button>
+					{#if onopen}
+						<button
+							class="fn-op"
+							type="button"
+							onclick={() => onopen?.(f.id)}
+							title="Edit this function's body">✎</button
+						>
+					{/if}
+					{#if ondelete}
+						<button
+							class="fn-op rm"
+							type="button"
+							onclick={() => ondelete?.(f.id)}
+							title="Delete this function (blocked if in use)">✕</button
+						>
+					{/if}
+				</div>
+			{/each}
+		{/if}
+	</section>
+
+	<section>
+		{@render head(
+			'containers',
+			'Containers',
+			doc.containers.filter((c) => matches(containerLabel(c.id))).length
+		)}
+		{#if isOpen('containers')}
+			{#each doc.containers.filter((c) => matches(containerLabel(c.id))) as c (c.id)}
+				<div class="pair">
+					<button
+						class="entry container"
+						draggable={true}
+						ondragstart={(ev) => onDragStart(ev, 'showContainer', c.id)}
+						onclick={() => onadd('showContainer', c.id)}
+						title="showContainer · {c.id}"
+					>
+						show {containerLabel(c.id)}
+					</button>
+					<button
+						class="entry container"
+						draggable={true}
+						ondragstart={(ev) => onDragStart(ev, 'hideContainer', c.id)}
+						onclick={() => onadd('hideContainer', c.id)}
+						title="hideContainer · {c.id}"
+					>
+						hide {containerLabel(c.id)}
+					</button>
+				</div>
+			{/each}
+		{/if}
+	</section>
+
+	<section>
+		{@render head('control', 'Control', CONTROL.filter((c) => matches(c.label)).length)}
+		{#if isOpen('control')}
+			{#each CONTROL.filter((c) => matches(c.label)) as c (c.kind)}
+				<button
+					class="entry control"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, c.kind)}
+					onclick={() => onadd(c.kind)}
+					title={c.kind}
+				>
+					{c.label}
+				</button>
+			{/each}
+		{/if}
 	</section>
 </div>
 
@@ -243,12 +298,41 @@
 		flex-direction: column;
 		gap: 3px;
 	}
-	h4 {
+	.section-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
 		margin: 4px 0 2px;
+		padding: 2px 2px;
+		background: none;
+		border: none;
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #64748b;
+		cursor: pointer;
+	}
+	.section-head:hover {
+		color: #94a3b8;
+	}
+	.chevron {
+		display: inline-block;
+		font-size: 9px;
+		line-height: 1;
+		transition: transform 0.12s ease;
+	}
+	.chevron.open {
+		transform: rotate(90deg);
+	}
+	.section-title {
+		flex: 1;
+		text-align: left;
+	}
+	.section-count {
+		font-size: 9px;
+		color: #475569;
+		font-variant-numeric: tabular-nums;
 	}
 	.entry {
 		display: flex;
