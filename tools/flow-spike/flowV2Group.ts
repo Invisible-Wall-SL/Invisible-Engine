@@ -28,6 +28,7 @@
 import {
 	BOOK_OF_VOCAB,
 	collapseToGroup,
+	dedupeGroupBodyIds,
 	derivePins,
 	expandGroup,
 	flattenGroups,
@@ -97,9 +98,7 @@ const dataSourceDoc = (): FlowDoc => ({
 			},
 		],
 		exec: [{ from: { node: 'onFs', pin: 'exec' }, to: { node: 'setTotal', pin: 'exec' } }],
-		data: [
-			{ from: { node: 'onFs', pin: 'totalFs' }, to: { node: 'setTotal', pin: 'total' } },
-		],
+		data: [{ from: { node: 'onFs', pin: 'totalFs' }, to: { node: 'setTotal', pin: 'total' } }],
 	},
 	containers: [{ id: 'freespin', sceneId: 'freegame', z: 10 }],
 });
@@ -161,7 +160,9 @@ const nodeSignature = (g: Graph): string =>
 		.join(',');
 
 /** The set of edges as sorted "from→to" strings, order-independent. */
-const edgeSignature = (edges: { from: { node: string; pin: string }; to: { node: string; pin: string } }[]): string =>
+const edgeSignature = (
+	edges: { from: { node: string; pin: string }; to: { node: string; pin: string } }[],
+): string =>
 	edges
 		.map((e) => `${e.from.node}.${e.from.pin}->${e.to.node}.${e.to.pin}`)
 		.sort()
@@ -230,9 +231,7 @@ const main = async () => {
 		'onIncrease.exec now feeds ANOTHER (distinct) group input pin',
 		(() => {
 			const a = collapsed.graph.exec.find((e) => e.from.node === 'onSpin' && e.to.node === gid);
-			const b = collapsed.graph.exec.find(
-				(e) => e.from.node === 'onIncrease' && e.to.node === gid,
-			);
+			const b = collapsed.graph.exec.find((e) => e.from.node === 'onIncrease' && e.to.node === gid);
 			return !!a && !!b && a.to.pin !== b.to.pin;
 		})(),
 	);
@@ -300,7 +299,10 @@ const main = async () => {
 	console.log('\n4. a group with a DATA crossing resolves the value through its boundary pin:');
 	{
 		const dataSrc = dataSourceDoc();
-		const dOut = collapseToGroup({ doc: dataSrc, selection: ['setTotal'], label: 'Set total' }, ctx);
+		const dOut = collapseToGroup(
+			{ doc: dataSrc, selection: ['setTotal'], label: 'Set total' },
+			ctx,
+		);
 		if ('error' in dOut) {
 			console.error(`  FAIL  collapseToGroup(data) returned an error: ${dOut.error}`);
 			console.log('\nV2 GROUP HARNESS: FAILED');
@@ -372,7 +374,10 @@ const main = async () => {
 			},
 			containers: [{ id: 'freespin', sceneId: 'freegame', z: 10 }],
 		};
-		const gOut = collapseToGroup({ doc: base, selection: ['shared'], label: 'Button actions' }, ctx);
+		const gOut = collapseToGroup(
+			{ doc: base, selection: ['shared'], label: 'Button actions' },
+			ctx,
+		);
 		if ('error' in gOut) {
 			console.error(`  FAIL  collapseToGroup returned an error: ${gOut.error}`);
 			console.log('\nV2 GROUP HARNESS: FAILED');
@@ -442,6 +447,53 @@ const main = async () => {
 			'validateFlowDoc reports a `duplicate-id` warning for the colliding id',
 			dupIssues.length >= 1 && dupIssues.every((i) => i.severity === 'warning'),
 			dupIssues.map((i) => i.message).join(' | '),
+		);
+
+		// --- 7. dedupeGroupBodyIds CLEARS the raw collision in the persisted doc (the editor's one-click
+		// repair), keeping runtime behaviour identical — top-level ids win, only the body id is re-minted. ---
+		console.log(
+			'\n7. dedupeGroupBodyIds re-mints the colliding body id (warning clears, behaviour holds):',
+		);
+		const { graph: fixedGraph, renamed } = dedupeGroupBodyIds(collided.graph);
+		assert('dedupe renames exactly the one colliding body id', renamed === 1, `renamed=${renamed}`);
+
+		const fixed: FlowDoc = { ...collided, graph: fixedGraph };
+		assert(
+			'the deduped RAW doc has NO `duplicate-id` warning',
+			validateFlowDoc(fixed, BOOK_OF_VOCAB, LIBRARY).every((i) => i.code !== 'duplicate-id'),
+		);
+		assert(
+			'the deduped raw graph has NO duplicate id across graph + group bodies',
+			(() => {
+				const all: string[] = [];
+				const walk = (g: Graph): void => {
+					for (const n of g.nodes) {
+						all.push(n.id);
+						if (n.kind === 'group') walk(n.body);
+					}
+				};
+				walk(fixedGraph);
+				return new Set(all).size === all.length;
+			})(),
+		);
+
+		// Behaviour parity: press Spin still records ONLY startSpin; freeSpinTrigger unchanged.
+		const spinAfter = await (async () => {
+			const { env, log } = makeRecordingEnv();
+			const rc: RunContext = { vocab: BOOK_OF_VOCAB, library: LIBRARY, env };
+			await runFlowEvent(fixed, rc, 'spin', {});
+			return log;
+		})();
+		assert(
+			'after dedupe, runFlowEvent(spin) still records ONLY startSpin',
+			spinAfter.length === 1 && spinAfter[0].startsWith('effect startSpin'),
+			spinAfter.join('|'),
+		);
+
+		// Idempotent: a second dedupe pass renames nothing.
+		assert(
+			'dedupeGroupBodyIds is idempotent (a clean doc renames nothing)',
+			dedupeGroupBodyIds(fixedGraph).renamed === 0,
 		);
 	}
 

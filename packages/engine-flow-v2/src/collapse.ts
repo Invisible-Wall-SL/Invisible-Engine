@@ -490,7 +490,10 @@ export const collapseToGroup = (
  * reconnect each external edge that touched a boundary pin to that pin's `inner` endpoint. Returns
  * `{ doc }` or `{ error }` (unknown id / not a group). Round-trips to graph-semantic identity.
  */
-export const expandGroup = (doc: FlowDoc, groupNodeId: string): { doc: FlowDoc } | { error: string } => {
+export const expandGroup = (
+	doc: FlowDoc,
+	groupNodeId: string,
+): { doc: FlowDoc } | { error: string } => {
 	const graph = doc.graph;
 	const group = graph.nodes.find((n) => n.id === groupNodeId);
 	if (!group) return { error: `group id '${groupNodeId}' is not a node in the graph` };
@@ -590,9 +593,85 @@ export const flattenGroups = (graph: Graph): Graph => {
 	return current;
 };
 
+/**
+ * Rename every group-body node id that COLLIDES with an id already claimed at an outer scope, so the
+ * raw doc carries no duplicate id — clearing the `duplicate-id` warning WITHOUT expanding the group.
+ *
+ * A body keeps its selected node ids verbatim (§5.2). Before `freshNodeIdIn` reserved body ids, the
+ * editor's minter could re-mint an id a body already used, so older docs (e.g. `bookofborutremake`)
+ * carry a main-vs-body collision. The runtime is unaffected — `flattenGroups`/`expandGroup` already
+ * re-namespaces the collision — but the persisted doc still trips the validator. This is the editor's
+ * one-shot repair: it renames ONLY the colliding BODY ids (top-level ids win, matching the runtime's
+ * flatten precedence), rewriting each body's internal edges + the group's boundary `inner` refs to
+ * match. A node id is synthetic (its `ref` holds the real vocab/function target), so the rename is
+ * behaviour-preserving. Recurses through nested groups. No collision ⇒ returned graph is unchanged.
+ */
+export const dedupeGroupBodyIds = (graph: Graph): { graph: Graph; renamed: number } => {
+	// `reserved` = every id that already exists ANYWHERE in the tree (a mint must avoid all of them,
+	// plus its own fresh mints). `claimed` = ids owned by an outer/earlier scope — a body id present
+	// here is the collision we rename. Seeding `claimed` with the top-level ids makes them authoritative.
+	const reserved = collectNodeIdsDeep(graph);
+	let renamed = 0;
+
+	const mint = (base: string): string => {
+		let i = 0;
+		let cand = `${base}__d${++i}`;
+		while (reserved.has(cand)) cand = `${base}__d${++i}`;
+		reserved.add(cand);
+		return cand;
+	};
+
+	const dedupeGroup = (group: GroupNode, claimed: Set<string>): GroupNode => {
+		const rename = new Map<string, string>();
+		for (const n of group.body.nodes) {
+			if (claimed.has(n.id)) {
+				const fresh = mint(n.id);
+				rename.set(n.id, fresh);
+				claimed.add(fresh);
+				renamed += 1;
+			} else {
+				claimed.add(n.id);
+			}
+		}
+		const rid = (id: string): string => rename.get(id) ?? id;
+		const rpath = <P extends PinPath>(p: P): P => ({ ...p, node: rid(p.node) });
+
+		const bodyNodes: Node[] = group.body.nodes.map((n) => {
+			const renamedNode = { ...clone(n), id: rid(n.id) };
+			return renamedNode.kind === 'group' ? dedupeGroup(renamedNode, claimed) : renamedNode;
+		});
+		const body: Graph = {
+			nodes: bodyNodes,
+			exec: group.body.exec.map((e) => ({ ...clone(e), from: rpath(e.from), to: rpath(e.to) })),
+			data: group.body.data.map((e) => ({ ...clone(e), from: rpath(e.from), to: rpath(e.to) })),
+		};
+		const boundary: GroupPin[] = group.boundary.map((p) => ({
+			...clone(p),
+			inner: rpath(p.inner),
+		}));
+		return { ...clone(group), body, boundary };
+	};
+
+	// Top-level ids are authoritative (they win over colliding body ids).
+	const claimed = new Set<string>(graph.nodes.map((n) => n.id));
+	const nodes: Node[] = graph.nodes.map((n) =>
+		n.kind === 'group' ? dedupeGroup(n, claimed) : clone(n),
+	);
+	return { graph: { nodes, exec: clone(graph.exec), data: clone(graph.data) }, renamed };
+};
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
+
+/** Every node id in a graph INCLUDING those nested inside group bodies (recursively). */
+const collectNodeIdsDeep = (graph: Graph, into: Set<string> = new Set<string>()): Set<string> => {
+	for (const n of graph.nodes) {
+		into.add(n.id);
+		if (n.kind === 'group') collectNodeIdsDeep(n.body, into);
+	}
+	return into;
+};
 
 /** A body/graph-unique node id built from `base` (suffixing until free). */
 const uniqueId = (base: string, taken: Set<string>, nodeById: Map<string, Node>): string => {
