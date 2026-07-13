@@ -76,6 +76,18 @@ export const animateSymbols = async ({ positions }: { positions: Position[] }) =
 
 const winLevelDataOf = (winLevel: number): WinLevelData => winLevelMap[winLevel as WinLevel];
 
+/**
+ * Coerce a sequential-stop knob payload into a PER-REEL override array (or null). A `list<float>`
+ * from the Flow node is used as-is (indexed by reel); a lone number is broadcast to every reel; a
+ * short array leaves later reels on the coded constant (the getter falls back per index). Anything
+ * else ⇒ null ⇒ every reel uses the constant.
+ */
+const toReelOverrides = (value: unknown): number[] | null => {
+	if (Array.isArray(value)) return value.length ? (value as number[]) : null;
+	if (typeof value === 'number') return Array(BOARD_DIMENSIONS.x).fill(value);
+	return null;
+};
+
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
 // apps/lines FlowDoc (`flowDoc.ts`). Bodies are the coded handler leaves, verbatim.
@@ -106,22 +118,23 @@ const effects: Record<string, FlowEffect> = {
 
 	/**
 	 * Enable free-spin sequential reel stop — each reel stops consecutively (`sequentialReelStop`).
-	 * Optional `gap` (`reelPaddingMultiplierSequential`, higher = longer beat between stops) and
-	 * `speed` (`reelSpinSpeedSequential`, higher = faster reels) payload override the coded
-	 * SPIN_OPTIONS constants so the feel is tunable per-game from the Flow node. Omit either to
-	 * keep its constant.
+	 * `gaps` (`reelPaddingMultiplierSequential`, higher = longer beat before that reel stops) and
+	 * `speeds` (`reelSpinSpeedSequential`, higher = faster that reel spins) are PER-REEL arrays
+	 * indexed by reel (entry 0 = leftmost reel); a missing/short entry falls back to the coded
+	 * SPIN_OPTIONS constant, so `speeds: [2, 3, 4, 5, 6]` gives an accelerating cascade. A lone
+	 * number is accepted too (broadcast to every reel). Omit both ⇒ the uniform coded constants.
 	 */
 	enableSequentialReelStop: (payload) => {
 		stateGame.sequentialReelStop = true;
-		stateGame.sequentialGapOverride = (payload.gap as number | undefined) ?? null;
-		stateGame.sequentialSpeedOverride = (payload.speed as number | undefined) ?? null;
+		stateGame.sequentialGapOverrides = toReelOverrides(payload.gaps ?? payload.gap);
+		stateGame.sequentialSpeedOverrides = toReelOverrides(payload.speeds ?? payload.speed);
 	},
 
-	/** Disable free-spin sequential reel stop + clear the knob overrides (`sequentialReelStop`). */
+	/** Disable free-spin sequential reel stop + clear the per-reel overrides (`sequentialReelStop`). */
 	disableSequentialReelStop: () => {
 		stateGame.sequentialReelStop = false;
-		stateGame.sequentialGapOverride = null;
-		stateGame.sequentialSpeedOverride = null;
+		stateGame.sequentialGapOverrides = null;
+		stateGame.sequentialSpeedOverrides = null;
 	},
 
 	/** Set the win-meter amount (`setTotalWin`). */

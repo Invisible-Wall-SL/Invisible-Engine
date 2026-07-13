@@ -171,19 +171,17 @@ const board = _.range(BOARD_DIMENSIONS.x).map((reelIndex) => {
 			isFast ? 'fast' : 'normal',
 		);
 		const merged = override ? { ...base, ...override } : base;
-		// Flow-authored sequential-stop knobs (from the `enableSequentialReelStop` effect
-		// payload) win for the two sequential fields. Null ⇒ fall back to the coded constant,
-		// so a spin with no authored override is byte-identical to the constants.
-		if (stateGame.sequentialGapOverride == null && stateGame.sequentialSpeedOverride == null)
-			return merged;
+		// Flow-authored PER-REEL sequential-stop knobs (from the `enableSequentialReelStop` effect
+		// payload) win for this reel's two sequential fields. The getter closes over `reelIndex`, so
+		// each reel reads its own array entry; a missing/undefined entry ⇒ fall back to the coded
+		// constant, so an un-authored spin is byte-identical to the constants.
+		const gapForReel = stateGame.sequentialGapOverrides?.[reelIndex];
+		const speedForReel = stateGame.sequentialSpeedOverrides?.[reelIndex];
+		if (gapForReel == null && speedForReel == null) return merged;
 		return {
 			...merged,
-			...(stateGame.sequentialGapOverride != null && {
-				reelPaddingMultiplierSequential: stateGame.sequentialGapOverride,
-			}),
-			...(stateGame.sequentialSpeedOverride != null && {
-				reelSpinSpeedSequential: stateGame.sequentialSpeedOverride,
-			}),
+			...(gapForReel != null && { reelPaddingMultiplierSequential: gapForReel }),
+			...(speedForReel != null && { reelSpinSpeedSequential: speedForReel }),
 		};
 	};
 
@@ -210,10 +208,11 @@ export const stateGame = $state({
 	scatterCounter: 0,
 	specialSymbol: null as SymbolName | null,
 	sequentialReelStop: false,
-	// Optional Flow-authored overrides for the sequential-stop knobs (null ⇒ use the coded
-	// SPIN_OPTIONS constants). Set by `enableSequentialReelStop`'s payload, cleared on disable.
-	sequentialGapOverride: null as number | null,
-	sequentialSpeedOverride: null as number | null,
+	// Optional Flow-authored PER-REEL overrides for the sequential-stop knobs, indexed by reelIndex
+	// (null, or a missing/short entry ⇒ that reel uses the coded SPIN_OPTIONS constant). Set from
+	// `enableSequentialReelStop`'s `gaps`/`speeds` payload, cleared on disable.
+	sequentialGapOverrides: null as number[] | null,
+	sequentialSpeedOverrides: null as number[] | null,
 });
 
 const boardLayout = () => {

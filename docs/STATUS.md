@@ -77,10 +77,15 @@ submodule bumps).
   beside `setFreeGameType` / `enterFreeSpinOutro`). Both spin paths pass the flag: the Flow `revealBoard`
   effect AND the coded `bookEventHandlerMap` reveal handler (parity). `createEnhanceBoardSpin.spin` gained a
   `forceSequentialStop?` arg.
-- **Two tunable knobs** (in `apps/lines/src/game/constants.ts` `SPIN_OPTIONS_SHARED`), overridable per-game
-  from the `enableSequentialReelStop` node payload `{ gap, speed }` (null ⇒ fall back to the constant):
-  `reelPaddingMultiplierSequential` (gap/delay between stops, default 4) and `reelSpinSpeedSequential`
-  (cascade spin speed, default 3 = unchanged). delay-between-stops ≈ per-reel extra travel (∝ gap) ÷ speed.
+- **Two tunable knobs** (in `apps/lines/src/game/constants.ts` `SPIN_OPTIONS_SHARED`): `reelPaddingMultiplier
+  Sequential` (gap/delay before a reel stops, default 4) and `reelSpinSpeedSequential` (cascade spin speed,
+  default 3 = unchanged). delay-between-stops ≈ per-reel extra travel (∝ gap) ÷ speed.
+- **PER-REEL authoring** (updated): the `enableSequentialReelStop` node takes `gaps`/`speeds` — `list<float>`
+  arrays indexed by reel (entry 0 = leftmost). Each reel reads its own entry (the `spinOptions` getter closes
+  over `reelIndex`); a missing/short entry falls back to the constant, so `speeds: [2,3,4,5,6]` = accelerating
+  cascade. A lone number is broadcast to every reel; both unset ⇒ the uniform constants. State =
+  `stateGame.sequentialGap/SpeedOverrides` (number[] arrays); coerced by `toReelOverrides` in `flowEffects.ts`.
+  v2 vocab `BOOK_OF_VOCAB` declares the two params as `{ t: 'list', of: FLOAT }`.
 - **Engine plumbing:** new `'sequential'` member of the shared `SpinType`; `SpinningReelSpinOptions` gained
   `reelSpinSpeedSequential`; both `createReelForSpinning` and `createReelForCascading` maps kept exhaustive
   (cascading aliases `normal`, never receives `sequential`).

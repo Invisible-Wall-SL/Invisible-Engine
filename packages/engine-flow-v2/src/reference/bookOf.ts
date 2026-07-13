@@ -164,15 +164,17 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			category: 'effect',
 		},
 		{ name: 'setFreeGameType', params: [], category: 'effect' },
-		// Free-spin sequential reel stop — reels settle consecutively. `gap`/`speed` are OPTIONAL
-		// tuning pins (leave unset ⇒ the coded SPIN_OPTIONS constants): `gap` =
-		// `reelPaddingMultiplierSequential` (higher = longer beat between stops), `speed` =
-		// `reelSpinSpeedSequential` (higher = faster reels).
+		// Free-spin sequential reel stop — reels settle consecutively. `gaps`/`speeds` are OPTIONAL
+		// PER-REEL arrays (entry 0 = leftmost reel; a missing/short entry ⇒ the coded SPIN_OPTIONS
+		// constant): `gaps[i]` = reel i's `reelPaddingMultiplierSequential` (higher = longer beat
+		// before that reel stops), `speeds[i]` = reel i's `reelSpinSpeedSequential` (higher = that
+		// reel spins faster). e.g. `speeds: [2, 3, 4, 5, 6]` = accelerating cascade. Leave both unset
+		// ⇒ the uniform coded constants.
 		{
 			name: 'enableSequentialReelStop',
 			params: [
-				{ name: 'gap', type: FLOAT },
-				{ name: 'speed', type: FLOAT },
+				{ name: 'gaps', type: { t: 'list', of: FLOAT } },
+				{ name: 'speeds', type: { t: 'list', of: FLOAT } },
 			],
 			category: 'effect',
 		},
