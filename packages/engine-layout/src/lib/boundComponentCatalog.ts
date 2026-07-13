@@ -157,6 +157,14 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		space: 'game',
 		placement: 'boardCentre',
 	},
+	// The chosen symbol merged onto a bone of an authored intro rig (the `freeSpinIntroSymbolReveal`
+	// def's bind). Placed `game`-space at board centre; previews the authored intro spine bundle so
+	// the rig is visible in the editor, while the ridden symbol art only appears once the game runs.
+	FreeSpinIntroSymbolReveal: {
+		space: 'game',
+		placement: 'boardCentre',
+		preview: { kind: 'spine', bundle: 'fsIntro' },
+	},
 };
 
 /** The default editor treatment for a coded component name, if known. */

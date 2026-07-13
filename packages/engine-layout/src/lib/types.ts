@@ -768,12 +768,12 @@ export interface ComponentParam {
 	 * to swap art per instance. The engine resolves it exactly like a `string` region
 	 * bind, so no runtime branch is needed; it's an editor input hint.
 	 *
-	 * `spine` / `spineAnimation` / `spineSlot` are likewise STRING values the editor
-	 * renders as DROPDOWNS instead of free-text: `spine` lists the project's spine
-	 * bundles; `spineAnimation` / `spineSlot` list the animations / slots of the bundle
-	 * selected by a sibling `spine`-kind param (named in {@link ComponentParam.spineParam}).
-	 * The engine resolves all three as plain strings — they're editor input hints, so
-	 * existing readers ignore the new kinds.
+	 * `spine` / `spineAnimation` / `spineSlot` / `spineBone` are likewise STRING values the
+	 * editor renders as DROPDOWNS instead of free-text: `spine` lists the project's spine
+	 * bundles; `spineAnimation` / `spineSlot` / `spineBone` list the animations / slots / bones
+	 * of the bundle selected by a sibling `spine`-kind param (named in
+	 * {@link ComponentParam.spineParam}). The engine resolves all of them as plain strings —
+	 * they're editor input hints, so existing readers ignore the new kinds.
 	 */
 	kind:
 		| 'number'
@@ -783,12 +783,13 @@ export interface ComponentParam {
 		| 'image'
 		| 'spine'
 		| 'spineAnimation'
-		| 'spineSlot';
+		| 'spineSlot'
+		| 'spineBone';
 	default?: unknown;
 	engineProvided?: boolean;
 	/**
-	 * For `spineAnimation` / `spineSlot` — the key of the sibling `spine`-kind param
-	 * whose selected bundle's animations / slots populate this dropdown.
+	 * For `spineAnimation` / `spineSlot` / `spineBone` — the key of the sibling `spine`-kind
+	 * param whose selected bundle's animations / slots / bones populate this dropdown.
 	 */
 	spineParam?: string;
 	/**

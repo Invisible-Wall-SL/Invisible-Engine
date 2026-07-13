@@ -360,6 +360,7 @@
 						animations: body.animations ?? [],
 						skins: body.skins ?? [],
 						slots: body.slots ?? [],
+						bones: body.bones ?? [],
 					});
 				} catch {
 					/* offline / transient — a later selection retries via a fresh key set */
@@ -1711,11 +1712,16 @@
 									<option value={cur}>{cur} (custom)</option>
 								{/if}
 							</select>
-						{:else if p.kind === 'spineAnimation' || p.kind === 'spineSlot'}
+						{:else if p.kind === 'spineAnimation' || p.kind === 'spineSlot' || p.kind === 'spineBone'}
 							{@const cur = (node.params?.[p.key] as string) ?? ''}
 							{@const bundle = effectiveSpineBundle(p)}
 							{@const meta = spineMetaFor(resolveSpineAssetKey(bundle))}
-							{@const opts = p.kind === 'spineSlot' ? meta?.slots : meta?.animations}
+							{@const opts =
+								p.kind === 'spineSlot'
+									? meta?.slots
+									: p.kind === 'spineBone'
+										? meta?.bones
+										: meta?.animations}
 							{#if opts && opts.length > 0}
 								<select
 									value={cur}

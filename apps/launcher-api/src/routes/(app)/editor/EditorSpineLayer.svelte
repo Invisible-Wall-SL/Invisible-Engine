@@ -145,6 +145,7 @@
 				animations: entry.instance.data.animations.map((a) => a.name),
 				skins: entry.instance.data.skins.map((s) => s.name),
 				slots: entry.instance.data.slots.map((s) => s.name),
+				bones: entry.instance.data.bones.map((b) => b.name),
 			});
 		}
 		if (next.size !== readyKeys.size || [...next].some((k) => !readyKeys.has(k))) {
