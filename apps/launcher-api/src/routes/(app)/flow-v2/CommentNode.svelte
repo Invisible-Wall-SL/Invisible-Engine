@@ -75,6 +75,9 @@
 		padding: 4px 6px;
 		border-radius: 8px 8px 0 0;
 		background: color-mix(in srgb, var(--accent) 22%, transparent);
+		/* The comment node is made click-through (FlowCanvasV2) so it doesn't block the edges it
+		   wraps; the header opts back in so it stays the box's drag/select handle. */
+		pointer-events: auto;
 	}
 	.swatch {
 		width: 13px;

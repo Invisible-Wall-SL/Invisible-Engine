@@ -163,4 +163,15 @@
 		stroke-width: 3.25 !important;
 		filter: drop-shadow(0 0 3px #60a5fabb);
 	}
+	/* A comment box visually WRAPS a region of the graph, but the node layer sits above the edge
+	   layer — so the box's rectangle would swallow every click meant for the edges (and nodes) routed
+	   under it (you couldn't select those wires). Make the whole comment node click-through; its
+	   header (the drag/select handle, re-enabled in CommentNode) and its resize controls opt back in,
+	   so the box stays selectable, draggable-by-header, and resizable while its body lets clicks pass. */
+	.canvas :global(.svelte-flow__node-comment) {
+		pointer-events: none;
+	}
+	.canvas :global(.svelte-flow__node-comment .svelte-flow__resize-control) {
+		pointer-events: auto;
+	}
 </style>
