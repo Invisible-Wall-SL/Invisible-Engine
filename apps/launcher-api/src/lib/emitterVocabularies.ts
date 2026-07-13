@@ -15,7 +15,7 @@
 import { DEFAULT_EMITTER_VOCABULARY, type EmitterVocabulary } from 'engine-flow';
 
 /** Exported vocabularies keyed by LayoutDoc `gameType`. */
-export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
+export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 	lines: {
 		source: 'lines',
 		events: [
@@ -835,5 +835,5 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 };
 
 /** Resolve the authoring vocabulary for a project's `gameType`; unknown ⇒ the coded default. */
-export const resolveFlowVocabulary = (gameType: string | undefined): EmitterVocabulary =>
-	(gameType ? FLOW_VOCABULARIES[gameType] : undefined) ?? DEFAULT_EMITTER_VOCABULARY;
+export const resolveEmitterVocabulary = (gameType: string | undefined): EmitterVocabulary =>
+	(gameType ? EMITTER_VOCABULARIES[gameType] : undefined) ?? DEFAULT_EMITTER_VOCABULARY;

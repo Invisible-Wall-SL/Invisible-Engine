@@ -4,8 +4,8 @@
 # Generated flow-vocabulary fixtures — pin to LF so the codegen + Prettier (LF)
 # match the checked-out copy on every platform, keeping `gen:flow-vocab:check` green
 # (the regenerate-and-compare drift guard) instead of failing on EOL alone.
-apps/lines/src/game/flowVocabulary.ts text eol=lf
-apps/launcher-api/src/lib/flowVocabularies.ts text eol=lf
+apps/lines/src/game/emitterVocabulary.ts text eol=lf
+apps/launcher-api/src/lib/emitterVocabularies.ts text eol=lf
 
 # Binary assets — never line-ending normalize (prevents corruption)
 *.pdf binary

@@ -11,7 +11,7 @@
  *
  * Checks:
  *  1. The codegen is IN SYNC with source — `gen-flow-vocabulary.mjs --check` exits 0, i.e. the
- *     committed `apps/lines/src/game/flowVocabulary.ts` + the launcher registry equal what the
+ *     committed `apps/lines/src/game/emitterVocabulary.ts` + the launcher registry equal what the
  *     parser re-derives from `typesEmitterEvent.ts` + `flowEffects.ts` (so the fixture cannot
  *     silently drift from the union/effect map the way the hand-written default could).
  *  2. COVERAGE — every Broadcast `event` and every `effect` name the REAL `LINES_FLOW_DOC`
@@ -20,7 +20,7 @@
  *  3. SUPERSET-of-default — the exported vocabulary covers every event the bundled
  *     `DEFAULT_EMITTER_VOCABULARY` lists (it is the real union, never a regression), and adds
  *     at least one the hand-transcribed default missed (proving codegen catches drift).
- *  4. RESOLVER fallback — `resolveFlowVocabulary` returns the lines vocab for `lines`/`bookOf`
+ *  4. RESOLVER fallback — `resolveEmitterVocabulary` returns the lines vocab for `lines`/`bookOf`
  *     and the parity-safe `DEFAULT_EMITTER_VOCABULARY` for an unknown/absent gameType (§7).
  */
 
@@ -37,7 +37,7 @@ import {
 } from 'engine-flow';
 
 import { LINES_FLOW_DOC } from '../../apps/lines/src/game/flowDoc';
-import { LINES_EMITTER_VOCABULARY } from '../../apps/lines/src/game/flowVocabulary';
+import { LINES_EMITTER_VOCABULARY } from '../../apps/lines/src/game/emitterVocabulary';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -66,7 +66,7 @@ try {
 } catch {
 	checkOk = false;
 }
-assert(checkOk, 'committed flowVocabulary.ts + launcher registry are up to date with source');
+assert(checkOk, 'committed emitterVocabulary.ts + launcher registry are up to date with source');
 
 // ---------------------------------------------------------------------------
 // 2. Coverage — the exported vocab offers everything the real FlowDoc authors.
@@ -152,20 +152,20 @@ assert(
 //    node_modules, so it is asserted by source (the resolver is a literal `record[k] ?? default`).
 // ---------------------------------------------------------------------------
 
-console.log('\n[4] launcher registry (apps/launcher-api/src/lib/flowVocabularies.ts)');
+console.log('\n[4] launcher registry (apps/launcher-api/src/lib/emitterVocabularies.ts)');
 const registrySrc = readFileSync(
-	resolve(ROOT, 'apps/launcher-api/src/lib/flowVocabularies.ts'),
+	resolve(ROOT, 'apps/launcher-api/src/lib/emitterVocabularies.ts'),
 	'utf8',
 );
 assert(
-	/FLOW_VOCABULARIES:\s*Record<string,\s*EmitterVocabulary>/.test(registrySrc),
+	/EMITTER_VOCABULARIES:\s*Record<string,\s*EmitterVocabulary>/.test(registrySrc),
 	'typed registry',
 );
 assert(/^\s*'?lines'?:\s*\{/m.test(registrySrc), 'maps gameType "lines"');
 assert(/^\s*'?bookOf'?:\s*\{/m.test(registrySrc), 'maps gameType "bookOf" (Book of Borut)');
 assert(
 	/\?\?\s*DEFAULT_EMITTER_VOCABULARY/.test(registrySrc),
-	'resolveFlowVocabulary falls back to DEFAULT_EMITTER_VOCABULARY (parity-safe, §7)',
+	'resolveEmitterVocabulary falls back to DEFAULT_EMITTER_VOCABULARY (parity-safe, §7)',
 );
 
 console.log('');

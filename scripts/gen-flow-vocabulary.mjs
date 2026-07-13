@@ -59,7 +59,7 @@ const GAMES = [
 		// The game's book-event union (`typesBookEvent.ts`) — the FS-2 trigger vocabulary (design doc
 		// §14). Its member `type` discriminants become `bookEvent` trigger input pins in `/flow`.
 		bookEvents: 'apps/lines/src/game/typesBookEvent.ts',
-		out: 'apps/lines/src/game/flowVocabulary.ts',
+		out: 'apps/lines/src/game/emitterVocabulary.ts',
 		exportName: 'LINES_EMITTER_VOCABULARY',
 		label: 'lines',
 		// LayoutDoc `gameType` values this vocabulary serves (the editor selects by it). The
@@ -82,7 +82,7 @@ const GAMES = [
 ];
 
 /** The launcher registry module the codegen also emits (so `/flow` selects by `gameType`). */
-const REGISTRY_OUT = 'apps/launcher-api/src/lib/flowVocabularies.ts';
+const REGISTRY_OUT = 'apps/launcher-api/src/lib/emitterVocabularies.ts';
 
 const read = (rel) => readFileSync(resolve(ROOT, rel), 'utf8');
 
@@ -374,13 +374,13 @@ const renderRegistry = (entries) => {
 import { DEFAULT_EMITTER_VOCABULARY, type EmitterVocabulary } from 'engine-flow';
 
 /** Exported vocabularies keyed by LayoutDoc \`gameType\`. */
-export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
+export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 ${lines.join('\n')}
 };
 
 /** Resolve the authoring vocabulary for a project's \`gameType\`; unknown ⇒ the coded default. */
-export const resolveFlowVocabulary = (gameType: string | undefined): EmitterVocabulary =>
-	(gameType ? FLOW_VOCABULARIES[gameType] : undefined) ?? DEFAULT_EMITTER_VOCABULARY;
+export const resolveEmitterVocabulary = (gameType: string | undefined): EmitterVocabulary =>
+	(gameType ? EMITTER_VOCABULARIES[gameType] : undefined) ?? DEFAULT_EMITTER_VOCABULARY;
 `;
 };
 
