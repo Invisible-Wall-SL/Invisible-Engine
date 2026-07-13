@@ -550,6 +550,52 @@ async function main() {
 		}
 	}
 
+	// Ship only REACHABLE effects — an orphan/scratch effect that nothing mounts must not reach the
+	// game. Keep in sync with apps/launcher-api/src/lib/server/effectReachability.ts
+	// (`pruneUnreachableEffects`, the runtime-bundle path) and the render-time guardrail in
+	// apps/lines/src/components/Effects.svelte (`isEventReachable`). An effect is REACHABLE iff it is
+	// PLACED (a kind:'effect' node's effectId in the scenes, incl. nested in containers + component
+	// instances — every referenced ComponentDef is walked, since componentDefs is the transitively-
+	// referenced closure), RIG-BOUND (referenced by a rigFx binding), or EVENT-TRIGGERED (a layer with
+	// trigger.on==='event' && trigger.eventType). The editor still reads ALL effects from R2; only this
+	// embedded bundle list is pruned. Conservative: when uncertain, KEEP.
+	if (effects) {
+		const collectEffectNodeIds = (nodes, ids) => {
+			if (!Array.isArray(nodes)) return;
+			for (const n of nodes) {
+				if (n.kind === 'effect' && typeof n.effectId === 'string' && n.effectId) ids.add(n.effectId);
+				else if (n.kind === 'container') collectEffectNodeIds(n.children, ids);
+			}
+		};
+		const placed = new Set();
+		for (const sc of Array.isArray(doc.scenes) ? doc.scenes : []) collectEffectNodeIds(sc.nodes, placed);
+		const defs = [
+			...Object.values(data.componentDefs ?? {}),
+			...(Array.isArray(data.componentVersions) ? data.componentVersions : []),
+		];
+		for (const def of defs) collectEffectNodeIds(def?.root?.children, placed);
+		const rigBound = new Set();
+		for (const binds of Object.values(rigFx ?? {})) {
+			for (const b of binds) if (b?.effectId) rigBound.add(b.effectId);
+		}
+		const isEventReachable = (d) =>
+			Array.isArray(d.layers) &&
+			d.layers.some((l) => l.trigger?.on === 'event' && !!l.trigger?.eventType);
+		const prunedIds = [];
+		effects = effects.filter((d) => {
+			const keep = placed.has(d.id) || rigBound.has(d.id) || isEventReachable(d);
+			if (!keep) prunedIds.push(d.id);
+			return keep;
+		});
+		if (prunedIds.length) {
+			console.info(
+				`[bake] pruned ${prunedIds.length} unreachable effect(s): [${prunedIds.join(', ')}]`,
+			);
+		}
+		// All effects pruned ⇒ omit the key entirely so the bundle stays byte-identical to a no-FX game.
+		if (effects.length === 0) effects = undefined;
+	}
+
 	const bundle = {
 		doc,
 		componentDefaults: data.componentDefaults ?? {},

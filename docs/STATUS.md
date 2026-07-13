@@ -36,6 +36,17 @@ submodule bumps).
   `freeEffects`). An intentional scene-wide ambient effect must be PLACED as a node (which also gives it
   a real position). `?fxdebug=1` labels each effect's routing + lists skipped orphans.
 - Ships via `_runtime/lines` republish. Authors should still delete/place the existing orphan effects.
+- **Follow-up — orphans no longer SHIP either (not just don't render):** the bundle used to embed EVERY
+  saved effect regardless of reachability, so orphans travelled to the game as dead payload. Now both
+  bundle-assembly paths prune unreachable effects before embedding — `buildRuntimeBundle`
+  (`?runtime=1`) via the shared `$lib/server/effectReachability.ts#pruneUnreachableEffects`, and the
+  offline `scripts/bake-editor-doc.mjs` via a mirrored inline predicate (a `.mjs` can't import TS —
+  "keep in sync" comment on both). SAME reachability contract as the render guardrail
+  (placed / rig-bound / event-triggered), conservative (KEEP when uncertain; component-nested placed
+  effects walked via the referenced-def closure). The editor still reads ALL effects from R2 (FX tool
+  unchanged). Server-side — ships via Railway deploy, no runtime-bundle republish. Both paths log the
+  pruned ids. Three places now share the contract: `effectReachability.ts`, `bake-editor-doc.mjs`,
+  `apps/lines/Effects.svelte`.
 
 ### 2026-07-13 — Invisible Flow v1 editor teardown (the `/flow` route is retired; v2 is the only editor)
 - **What:** removed the orphaned v1 Flow EDITOR. The "Flow" tool already pointed to `/flow-v2`; the v1

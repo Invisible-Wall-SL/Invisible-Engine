@@ -41,6 +41,7 @@ import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
 import { loadDoc as loadEditorDoc } from './editorStorage';
+import { pruneUnreachableEffects } from './effectReachability';
 import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
 import { exportEditorFonts } from './fontExport';
@@ -240,7 +241,23 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		exportEffects(clientKey, projectKey),
 		exportRigFx(clientKey, projectKey),
 	]);
-	const { effects } = effectIndex;
+	// Ship only REACHABLE effects (placed / rig-bound / event-triggered) — an orphan/scratch effect
+	// that nothing mounts must not reach the game (it would otherwise ride the bundle dead weight).
+	// The editor still reads ALL effects straight from R2, so authors keep managing orphans in the FX
+	// tool; only this embedded list is pruned. Matches `components/Effects.svelte`'s render-time
+	// `isEventReachable` guardrail, and must stay in sync with `scripts/bake-editor-doc.mjs` (both paths).
+	const { effects: reachableEffects, prunedIds } = pruneUnreachableEffects(
+		effectIndex.effects,
+		doc.scenes,
+		[...Object.values(componentDefs), ...componentVersions],
+		rigFx,
+	);
+	if (prunedIds.length) {
+		console.info(
+			`[runtime] pruned ${prunedIds.length} unreachable effect(s): [${prunedIds.join(', ')}]`,
+		);
+	}
+	const effects = reachableEffects;
 
 	return {
 		doc,
