@@ -37,6 +37,24 @@ submodule bumps).
   a real position). `?fxdebug=1` labels each effect's routing + lists skipped orphans.
 - Ships via `_runtime/lines` republish. Authors should still delete/place the existing orphan effects.
 
+### 2026-07-13 — Invisible Flow v1 editor teardown (the `/flow` route is retired; v2 is the only editor)
+- **What:** removed the orphaned v1 Flow EDITOR. The "Flow" tool already pointed to `/flow-v2`; the v1
+  `/flow` route was still present and reachable by direct URL. Deleted: the whole
+  `apps/launcher-api/src/routes/(app)/flow/` route dir (ChoreographyEditor + nodes/inspectors + client
+  models), its exclusive save endpoint `src/routes/api/flow/save/`, and the two now-orphaned v1-editor-only
+  helpers `src/lib/server/flowStorage.ts` (R2 load/save of the v1 `editor/flow.json`) and
+  `src/lib/flowOverlaySteps.ts`.
+- **Deliberately KEPT (shared foundation, NOT "the v1 editor"):** `engine-flow` (the v1 flow doc
+  format/normalizer + `FlowEffect` type — still imported by the game-side runtime AND the effects map),
+  `flowExport.ts`/`exportEditorFlow` + `/api/editor/export-flow` (the deploy → runtime-bundle bake path
+  bakes v1 flow docs), `flowVocabularies.ts`/`resolveFlowVocabulary` (the `/fx` tool derives its emitter
+  vocabulary from it), and the whole `apps/lines/src/game/flow*` runtime interpreter. "Remove ALL v1
+  references" is NOT possible without a large refactor because v2 storage/export, the FX tool, and the
+  live runtime are layered on these shared `flow*` primitives — a follow-up could rename them to shed the
+  "v1" connotation, but they are load-bearing.
+- **Verify:** `launcher-api` build clean; the build output no longer emits a `(app)/flow` page (only
+  `flow-v2`). No external module imported the deleted route/helpers (checked by import-specifier grep).
+
 ### 2026-07-13 — Free-spin sequential reel stop (Flow-toggleable, tunable gap/speed) — SHIPPED to `_runtime/lines` + Borut engine bump
 - **What:** a timing-only "sequential reel stop" spin mode — during the reveal spin each reel settles
   consecutively (one after another) instead of the base-game overlapping stop. Reuses the anticipation
