@@ -1332,27 +1332,6 @@
 		return false;
 	}
 
-	/** Does a scene carry a bone-riding component (a `bind` whose coded component declares
-	 * `ridesBone` — the free-spin symbol reveal) ANYWHERE in its tree? Gates the rider overlay's
-	 * rAF so it only runs when a stand-in symbol could be published. */
-	function sceneHasBoneRider(s: Scene): boolean {
-		return nodesHaveBoneRider(s.nodes, 0, []);
-	}
-	function nodesHaveBoneRider(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
-		for (const n of nodes) {
-			if (n.bind && boundComponentRidesBone(n.bind.component)) return true;
-			if (n.kind === 'container' && nodesHaveBoneRider(n.children, depth, stack)) return true;
-			if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
-				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				if (nodesHaveBoneRider(def.root.children, depth + 1, [...stack, def.id])) return true;
-			}
-		}
-		return false;
-	}
-	/** Any non-hidden game scene hosting a bone-riding component → run the rider rAF. */
-	const hasBoneRiders = $derived(visibleGameScenes().some(sceneHasBoneRider));
-
 	/** Does a scene carry a text render target (a `kind:'text'` node, or a coded HUD
 	 * text bind anchor) ANYWHERE in its tree — including nested in containers / component
 	 * instances, which the overlay now also owns? Only such scenes mount the pixi text
@@ -2322,10 +2301,11 @@
 
 	// ---------- bone-ridden stand-in symbol overlay draw ----------
 
-	/** rAF loop (run only while `hasBoneRiders`): read the spine layers' published rider
+	/** rAF loop (runs continuously — cheap when idle): read the spine layers' published rider
 	 * transforms + draw each stand-in symbol on `riderCanvas`, in the SAME world→screen mapping
 	 * as everything else (`setTransform(dpr) · pan · zoom`). Self-sizes the canvas so it overlays
-	 * the base 1:1. Cheap when the map is empty (a clear + early out). */
+	 * the base 1:1. When the map is empty it clears + early-outs, so it must NOT be gated on a
+	 * scene scan (a stale `$derived` gate once left the whole overlay dormant). */
 	function drawRiders(): void {
 		riderRaf = requestAnimationFrame(drawRiders);
 		const c = riderCanvas;
@@ -2349,15 +2329,6 @@
 		for (const [, r] of boneRiders) drawRiderSymbol(ctx, r, base);
 	}
 
-	/** Clear the rider overlay (on stop / when no riders remain). */
-	function clearRiderCanvas(): void {
-		const c = riderCanvas;
-		if (!c) return;
-		const ctx = c.getContext('2d');
-		if (!ctx) return;
-		ctx.setTransform(1, 0, 0, 1, 0, 0);
-		ctx.clearRect(0, 0, c.width, c.height);
-	}
 
 	/** Draw one stand-in symbol at its published world transform: the real preview atlas region
 	 * when set + resolvable, else a labelled symbol-sized box. `base` is the symbol size in world
@@ -2408,17 +2379,12 @@
 		return true;
 	}
 
-	// Run the rider overlay's rAF only while a bone-riding component is present; stop + clear
-	// otherwise so the overlay never spins idle or strands a stale symbol.
+	// Start the rider overlay's rAF once, unconditionally. It's cheap when no rider is published
+	// (clear + early-out), and gating it on a scene scan proved fragile — a stale `$derived`
+	// left the loop un-started so the stand-in never drew even though the spine layers were
+	// publishing bone transforms. The loop is torn down with the rest on unmount (onMount return).
 	$effect(() => {
-		if (hasBoneRiders) {
-			if (!riderRaf) riderRaf = requestAnimationFrame(drawRiders);
-		} else if (riderRaf) {
-			cancelAnimationFrame(riderRaf);
-			riderRaf = 0;
-			boneRiders.clear();
-			clearRiderCanvas();
-		}
+		if (!riderRaf) riderRaf = requestAnimationFrame(drawRiders);
 	});
 
 	function drawSelectionOverlay(ctx: CanvasRenderingContext2D): void {
