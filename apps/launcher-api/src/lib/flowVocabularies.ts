@@ -50,6 +50,17 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'reelStop',
+				group: 'Board',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'boardFrameGlowShow',
 				group: 'Board frame',
 			},
@@ -289,6 +300,14 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'enableSequentialReelStop',
+				group: 'Effect',
+			},
+			{
+				name: 'disableSequentialReelStop',
+				group: 'Effect',
+			},
+			{
 				name: 'setWinBookEventAmount',
 				group: 'Effect',
 			},
@@ -362,6 +381,10 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'winHide',
+				group: 'Effect',
+			},
+			{
+				name: 'stopReel',
 				group: 'Effect',
 			},
 		],
@@ -435,6 +458,17 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'reelStop',
+				group: 'Board',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'boardFrameGlowShow',
 				group: 'Board frame',
 			},
@@ -674,6 +708,14 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'enableSequentialReelStop',
+				group: 'Effect',
+			},
+			{
+				name: 'disableSequentialReelStop',
+				group: 'Effect',
+			},
+			{
 				name: 'setWinBookEventAmount',
 				group: 'Effect',
 			},
@@ -747,6 +789,10 @@ export const FLOW_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'winHide',
+				group: 'Effect',
+			},
+			{
+				name: 'stopReel',
 				group: 'Effect',
 			},
 		],

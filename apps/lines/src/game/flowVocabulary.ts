@@ -46,6 +46,17 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'reelStop',
+			group: 'Board',
+			fields: [
+				{
+					key: 'index',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'boardFrameGlowShow',
 			group: 'Board frame',
 		},
@@ -285,6 +296,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'enableSequentialReelStop',
+			group: 'Effect',
+		},
+		{
+			name: 'disableSequentialReelStop',
+			group: 'Effect',
+		},
+		{
 			name: 'setWinBookEventAmount',
 			group: 'Effect',
 		},
@@ -358,6 +377,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			name: 'winHide',
+			group: 'Effect',
+		},
+		{
+			name: 'stopReel',
 			group: 'Effect',
 		},
 	],
