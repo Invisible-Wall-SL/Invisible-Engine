@@ -24,6 +24,19 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — FX reachability guardrail: orphan effects no longer auto-emit at the origin
+- **Why:** the runtime-bundle FX fix (below) surfaced that `Effects.svelte` auto-mounted EVERY unplaced
+  free effect at the scene origin (0,0), including `always`-emitting scratch/test effects with no
+  position and no cue. A real project (`bookofborutremake`) had 4 such orphans (`untitled_effect`,
+  `testeffect`, `f_spinning_copy`, `f_different`) spraying particles in the top-left corner — while the
+  intended rig FX (`f_square_star`→`R_VFX`, `gunshots`→gun/boot/bottle/bull rigs) mounted correctly.
+- **Change:** an effect now renders in-game only when it is REACHABLE — placed as a scene node, bound to
+  a rig (`rigFx`), or event-triggered (`trigger.on:'event'` + `eventType`, the Flow Broadcast pattern).
+  A free effect that is none of these is an orphan and is skipped (`isEventReachable` guard on
+  `freeEffects`). An intentional scene-wide ambient effect must be PLACED as a node (which also gives it
+  a real position). `?fxdebug=1` labels each effect's routing + lists skipped orphans.
+- Ships via `_runtime/lines` republish. Authors should still delete/place the existing orphan effects.
+
 ### 2026-07-13 — Free-spin sequential reel stop (Flow-toggleable, tunable gap/speed) — SHIPPED to `_runtime/lines` + Borut engine bump
 - **What:** a timing-only "sequential reel stop" spin mode — during the reveal spin each reel settles
   consecutively (one after another) instead of the base-game overlapping stop. Reuses the anticipation

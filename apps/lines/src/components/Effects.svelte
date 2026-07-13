@@ -41,15 +41,30 @@
 	const placesOnBone = (doc: EffectDoc): boolean =>
 		doc.layers.some((layer) => layer.placement.space === 'bone' && !!layer.placement.bone);
 
+	/**
+	 * Reachable-by-event: at least one layer is `trigger.on: 'event'` with an `eventType` (the Flow
+	 * Broadcast pattern — dormant until that game event fires; see `engine-fx` `planLayer`). Such a
+	 * free effect legitimately auto-mounts at scene level and waits for its cue.
+	 *
+	 * The GUARDRAIL: a free effect that is NOT placed, NOT rig-bound, and NOT event-reachable is an
+	 * ORPHAN — an `always`-emitting effect with no position and no cue (a scratch/test effect left in
+	 * the project). Auto-mounting it sprays particles at the scene origin (0,0) forever — surprising
+	 * and never intended. So we DON'T mount it: an effect renders only when it's reachable (placed /
+	 * rig-bound / event-triggered). An intentional scene-wide ambient effect must be PLACED as a node
+	 * (which also gives it a real position) — the origin auto-mount is not a supported placement.
+	 */
+	const isEventReachable = (doc: EffectDoc): boolean =>
+		doc.layers.some((layer) => layer.trigger?.on === 'event' && !!layer.trigger?.eventType);
+
 	const freeEffects = effects.filter(
-		(doc) => !placesOnBone(doc) && !placed.has(doc.id) && !rigBound.has(doc.id),
+		(doc) =>
+			!placesOnBone(doc) && !placed.has(doc.id) && !rigBound.has(doc.id) && isEventReachable(doc),
 	);
 	const boneEffects = effects.filter((doc) => placesOnBone(doc) && !rigBound.has(doc.id));
 
 	// Diagnostic: `?fxdebug=1` in the game URL dumps how EVERY baked effect is routed, so a stray
-	// burst can be traced to its exact mount + reason. `ambient-free@origin` is the (0,0) bucket —
-	// an effect that is neither placed as a scene node NOR bound to a rig, so it emits at the scene
-	// origin. Inert without the flag (no console noise on a normal boot); safe in the shipped bundle.
+	// burst can be traced to its exact mount + reason. Inert without the flag (no console noise on a
+	// normal boot); safe in the shipped bundle.
 	if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('fxdebug')) {
 		const rigFx = bakedRigFx();
 		const bucketOf = (doc: EffectDoc): string =>
@@ -59,7 +74,9 @@
 					? 'rig-bound (RiggedEffect @ host rig/bone)'
 					: placesOnBone(doc)
 						? 'ambient-bone (foreground host rig)'
-						: 'ambient-free@origin (0,0) ⚠';
+						: isEventReachable(doc)
+							? 'event-free (waits for its Broadcast cue)'
+							: 'ORPHAN — skipped (not placed / rig-bound / event-triggered)';
 		console.log(
 			'[fxdebug] baked effects:',
 			effects.map((d) => ({ id: d.id, layers: d.layers.length, mount: bucketOf(d) })),
@@ -69,9 +86,10 @@
 		);
 		console.log('[fxdebug] placedEffectIds:', [...placed], '| rigFxEffectIds:', [...rigBound]);
 		console.log(
-			'[fxdebug] mounting at ORIGIN (0,0):',
-			freeEffects.map((d) => d.id),
-			'— if a stray burst is here, this id is neither placed nor rig-bound.',
+			'[fxdebug] ORPHANS skipped (were the 0,0 bursts — delete or place/bind these):',
+			effects
+				.filter((d) => !placed.has(d.id) && !rigBound.has(d.id) && !placesOnBone(d) && !isEventReachable(d))
+				.map((d) => d.id),
 		);
 	}
 
