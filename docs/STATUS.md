@@ -24,6 +24,32 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Free-spin sequential reel stop (Flow-toggleable, tunable gap/speed) — SHIPPED to `_runtime/lines` + Borut engine bump
+- **What:** a timing-only "sequential reel stop" spin mode — during the reveal spin each reel settles
+  consecutively (one after another) instead of the base-game overlapping stop. Reuses the anticipation
+  padding-accumulation mechanism but as a DISTINCT `sequential` spinType, so no anticipation glow/SFX fire
+  (those stay gated on the real `revealEvent.anticipation` array). A genuinely book-anticipated reel keeps
+  its `anticipated` behaviour (anticipation wins). Off by default → byte-parity when unused.
+- **Toggle:** `stateGame.sequentialReelStop` (apps/lines), raised/cleared from Flow via two new game-side
+  effects `enableSequentialReelStop` / `disableSequentialReelStop` (author them on the free-spin intro/outro,
+  beside `setFreeGameType` / `enterFreeSpinOutro`). Both spin paths pass the flag: the Flow `revealBoard`
+  effect AND the coded `bookEventHandlerMap` reveal handler (parity). `createEnhanceBoardSpin.spin` gained a
+  `forceSequentialStop?` arg.
+- **Two tunable knobs** (in `apps/lines/src/game/constants.ts` `SPIN_OPTIONS_SHARED`), overridable per-game
+  from the `enableSequentialReelStop` node payload `{ gap, speed }` (null ⇒ fall back to the constant):
+  `reelPaddingMultiplierSequential` (gap/delay between stops, default 4) and `reelSpinSpeedSequential`
+  (cascade spin speed, default 3 = unchanged). delay-between-stops ≈ per-reel extra travel (∝ gap) ÷ speed.
+- **Engine plumbing:** new `'sequential'` member of the shared `SpinType`; `SpinningReelSpinOptions` gained
+  `reelSpinSpeedSequential`; both `createReelForSpinning` and `createReelForCascading` maps kept exhaustive
+  (cascading aliases `normal`, never receives `sequential`).
+- **Shipped:** commit `6004374` on `main`; runtime bundle rebuilt with `PUBLIC_RGS_TRANSPORT=play4fun` and
+  uploaded to R2 `test_server/_runtime/lines/` + `POST games.invisiblewall.org/refresh` (covers the online
+  `bookofborutremake`); Book-of-Borut `engine` submodule bumped to `6004374` (commit `9080ba7`).
+- **⏳ Remaining:** (1) the standalone `bookofborut` (own-bundle) keeps its OWN `src/game/*` copies — the
+  game-side wiring (flag/effects/constants/revealBoard-pass) must be MIRRORED into them (submodule delivers
+  only the `utils-slots` engine code). (2) Author the enable/disable effect nodes into the target game's
+  FlowDoc online — until then the mode is inert (feature is capability-only without the flow authoring).
+
 ### 2026-07-13 — Invisible Symbols SM: live rig-timeline FX preview (parity with the Rigger)
 - **What:** the Symbols State-Machine stage (`apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte`)
   now fires an fx-bound symbol's particle effect ON the beat of its animation, riding the bound bone —
