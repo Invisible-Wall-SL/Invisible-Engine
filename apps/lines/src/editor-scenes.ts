@@ -355,6 +355,22 @@ export function placedEffectIds(): Set<string> {
 }
 
 /**
+ * The effect ids referenced by a rig-timeline FX binding ({@link bakedRigFx}). `components/Effects.svelte`
+ * skips these when auto-mounting free effects: a rig-bound effect is already mounted by `<RiggedEffect>`
+ * on its HOST rig (a placed layout spine via `LayoutNodeView`, or a symbol spine via `SymbolSpineMain`),
+ * firing on that rig's own event at the bone. Without this exclusion such an effect ALSO auto-mounts as a
+ * scene-level ambient `<EffectPlayer>` at the stage origin (0,0) — a phantom burst in the top-left corner.
+ * Mirrors {@link placedEffectIds}. Empty when un-baked / no rig has a bound event (parity).
+ */
+export function rigFxEffectIds(): Set<string> {
+	const ids = new Set<string>();
+	for (const binds of Object.values(bakedRigFx())) {
+		for (const b of binds) if (b.effectId) ids.add(b.effectId);
+	}
+	return ids;
+}
+
+/**
  * The baked symbol→state binding overrides (Invisible Symbols State Machine). Merged over
  * the coded `SYMBOL_INFO_MAP` in `game/symbolMap.ts`. Undefined when un-baked → the game
  * keeps the coded map byte-for-byte (dev parity).

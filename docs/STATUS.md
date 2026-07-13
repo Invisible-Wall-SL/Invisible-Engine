@@ -44,6 +44,17 @@ submodule bumps).
 - **Scope call to confirm:** fires on EVERY visible bound cell (not just a focused/hovered one) — per the task
   spec ("each VISIBLE grid cell with ≥1 fx-bound event"). `launcher-api` build clean. **Pending owner live-verify.**
 
+### 2026-07-13 — Fix phantom FX burst at screen origin (rig-bound effect double-mount)
+- **Bug (surfaced by the runtime-bundle FX fix below):** once `bakedEffects()` returned the project's
+  effects, `apps/lines/src/components/Effects.svelte` auto-mounted a scene-level ambient `<EffectPlayer>`
+  at the stage ORIGIN (0,0) for every effect that referenced ONLY a rigFx binding (its doc layers are
+  `free`, so it passed both existing filters). The effect was already mounted correctly by `<RiggedEffect>`
+  on its host rig — so it double-mounted, and the stray copy emitted a continuous particle burst in the
+  top-left corner of the live game.
+- **Fix:** added `rigFxEffectIds()` (union of `effectId` across `bakedRigFx()` bindings) in
+  `editor-scenes.ts` and excluded it from BOTH `freeEffects` and `boneEffects` in `Effects.svelte`,
+  mirroring the existing `placedEffectIds()` exclusion. Ships via `_runtime/lines` republish.
+
 ### 2026-07-13 — Live runtime bundle now ships FX (effects + rigFx) — parity with the offline bake
 - **Bug:** `?runtime=1` games (Book of Borut runs `runtime:lines`) got **no FX data at all** —
   `buildRuntimeBundle` (`apps/launcher-api/src/lib/server/runtimeBundle.ts`, served by

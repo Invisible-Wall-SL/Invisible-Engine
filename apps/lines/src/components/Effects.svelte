@@ -21,7 +21,7 @@
 	import type { EffectDoc } from 'engine-fx';
 
 	import { getContext } from '../game/context';
-	import { bakedEffects, placedEffectIds } from '../editor-scenes';
+	import { bakedEffects, placedEffectIds, rigFxEffectIds } from '../editor-scenes';
 
 	const context = getContext();
 
@@ -30,13 +30,21 @@
 	// so we skip them here to avoid a double-mount. Bone effects (not scene-placeable in v1) + any
 	// unplaced free effect still auto-mount below.
 	const placed = placedEffectIds();
+	// Effects bound to a rig's timeline are mounted by `<RiggedEffect>` on their HOST rig (a layout
+	// spine via `LayoutNodeView`, or a SYMBOL spine via `SymbolSpineMain`), firing on the rig's own
+	// event at the bone. Skip them here too — otherwise a rig-bound effect whose doc layers are `free`
+	// would ALSO auto-mount as a scene-level ambient emitter at the stage origin (0,0), a phantom
+	// burst in the top-left corner (surfaced once the runtime bundle began shipping `rigFx`).
+	const rigBound = rigFxEffectIds();
 
 	/** Whether any of the effect's layers is pinned to a bone (⇒ needs a host `<SpineProvider>`). */
 	const placesOnBone = (doc: EffectDoc): boolean =>
 		doc.layers.some((layer) => layer.placement.space === 'bone' && !!layer.placement.bone);
 
-	const freeEffects = effects.filter((doc) => !placesOnBone(doc) && !placed.has(doc.id));
-	const boneEffects = effects.filter((doc) => placesOnBone(doc));
+	const freeEffects = effects.filter(
+		(doc) => !placesOnBone(doc) && !placed.has(doc.id) && !rigBound.has(doc.id),
+	);
+	const boneEffects = effects.filter((doc) => placesOnBone(doc) && !rigBound.has(doc.id));
 
 	// The host rig for bone-placed effects — the always-present foreground spine. Sized to the
 	// canvas like `Background` so the bone transforms land in the same frame the game draws.
