@@ -24,6 +24,23 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Live runtime bundle now ships FX (effects + rigFx) — parity with the offline bake
+- **Bug:** `?runtime=1` games (Book of Borut runs `runtime:lines`) got **no FX data at all** —
+  `buildRuntimeBundle` (`apps/launcher-api/src/lib/server/runtimeBundle.ts`, served by
+  `/api/editor/runtime`) omitted `effects` and `rigFx`, while the offline bake
+  (`scripts/bake-editor-doc.mjs`) embedded both. So `bakedEffects()→[]`, `bakedRigFx()→{}`,
+  `registerRigFx({})` registered nothing ⇒ `resolveRigFx()` returned `[]` ⇒ **no `<RiggedEffect>`
+  ever mounted** — killing all rig FX (layout + symbol) and placed effects in runtime mode. This is
+  why Invisible FX stayed "⏳ live-verify" and why symbol-rig FX was invisible in the live game.
+- **Fix:** `buildRuntimeBundle` now calls `exportEffects` + `exportRigFx` (the same exporters the
+  bake uses) and spreads `effects`/`rigFx` when non-empty (omit-when-empty = byte-identical parity).
+  `RuntimeBundle` interface gained `effects?`/`rigFx?`. `placedEffectIds()` needs no field (derives
+  from `doc.scenes`). Ships via a normal launcher-api deploy (Railway) — the DATA. The game CODE that
+  consumes it (Jul-10 `SymbolSpineMain` `RiggedEffect` branch, commit `449896a`) ships via
+  `publish-runtime-bundle.mjs` (`_runtime/lines`) + `POST games.invisiblewall.org/refresh`.
+- **Rule reinforced:** a new baked-data class must be wired into BOTH the offline bake AND
+  `buildRuntimeBundle`, or runtime-mode games silently get the empty fallback.
+
 ### 2026-07-13 — Free-spin symbol reveal (chosen book symbol merged onto an intro-rig bone)
 - **What:** a reusable Book-of reveal — the intro Spine rig's "flip through symbols" animation
   now lands on the ACTUAL chosen book symbol (`stateGame.specialSymbol`), ridden on a named

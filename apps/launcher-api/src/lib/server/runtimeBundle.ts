@@ -27,6 +27,7 @@
  */
 import { type FlowDoc, isAuthoredFlow } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
+import type { EffectDoc } from 'engine-fx';
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
@@ -34,6 +35,7 @@ import {
 	type ComponentDef,
 	type FontCatalog,
 	type LayoutDoc,
+	type RigFxBinding,
 } from 'engine-layout';
 import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
@@ -42,9 +44,11 @@ import { loadDoc as loadEditorDoc } from './editorStorage';
 import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
 import { exportEditorFonts } from './fontExport';
+import { exportEffects } from './effectExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectName } from './projects';
+import { exportRigFx } from './rigFxExport';
 import { bundleFromAssetKey } from './spine';
 import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
 
@@ -72,6 +76,14 @@ export interface RuntimeBundle {
 	 * authored a non-empty v2 flow — absent ⇒ v2 inert, v1/coded owns (parity). */
 	flowV2?: FlowDocV2;
 	flowV2Library?: FlowV2LibraryDoc;
+	/** The authored Invisible FX effects (`invisible-fx.md` §8). Omitted unless the project
+	 * authored ≥1 effect — absent ⇒ `bakedEffects()` returns [] (parity). Mirrors the offline
+	 * bake (`scripts/bake-editor-doc.mjs`). */
+	effects?: EffectDoc[];
+	/** Rig-timeline direct FX bindings: a rig's own animation events → effects, keyed by the rig's
+	 * runtime assetKey. Omitted unless a rig has ≥1 bound event — absent ⇒ `bakedRigFx()` returns {}
+	 * (parity). Mirrors the offline bake (`scripts/bake-editor-doc.mjs`). */
+	rigFx?: Record<string, RigFxBinding[]>;
 }
 
 /**
@@ -215,11 +227,20 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then
 	//    embed the returned indices (paths are deploy-relative; the endpoint prefixes
 	//    them with assetBase). Localization is read straight from R2 (no export step).
-	const [{ editorArt, fonts, symbols, flow, flowV2, flowV2Library }, localization] =
-		await Promise.all([
-			ensureDeployExports(projectKey, clientKey),
-			loadLocalizationMessages(clientKey, projectKey),
-		]);
+	//    FX (effects + rigFx) run alongside — the live twin of the offline bake in
+	//    `scripts/bake-editor-doc.mjs`, which POSTs /api/editor/export-effects to embed both.
+	const [
+		{ editorArt, fonts, symbols, flow, flowV2, flowV2Library },
+		localization,
+		effectIndex,
+		rigFx,
+	] = await Promise.all([
+		ensureDeployExports(projectKey, clientKey),
+		loadLocalizationMessages(clientKey, projectKey),
+		exportEffects(clientKey, projectKey),
+		exportRigFx(clientKey, projectKey),
+	]);
+	const { effects } = effectIndex;
 
 	return {
 		doc,
@@ -236,6 +257,10 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		// Invisible Flow v2 — omit when un-authored so v2 stays inert and v1/coded owns (parity).
 		...(flowV2 ? { flowV2 } : {}),
 		...(flowV2 && flowV2Library ? { flowV2Library } : {}),
+		// Invisible FX — omit when empty so a no-FX project stays byte-identical, exactly as the
+		// offline bake does (`bake-editor-doc.mjs` ~575/579): absent ⇒ bakedEffects()/bakedRigFx() [].
+		...(effects.length ? { effects } : {}),
+		...(Object.keys(rigFx).length ? { rigFx } : {}),
 	};
 }
 
