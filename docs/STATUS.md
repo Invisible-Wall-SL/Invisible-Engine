@@ -24,6 +24,30 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Rig FX render fixes: cross-talk firing + effect ignored the rig transform (`RiggedEffect`)
+- **Symptoms (owner report):** the `gunshots` bullethole VFX fired on rigs it shouldn't, and the
+  `f_square_star` (`R_VFX`) effect didn't show at all. The earlier "mounted correctly" note above meant
+  the routing BUCKET was right (rigFx binding recognised) — NOT that the pixels were correct.
+- **Root cause 1 — cross-talk.** `RiggedEffect` fired off the SHARED `utils-event-emitter` bus, which
+  `BaseSpineProvider.rebroadcastEvents` broadcasts keyed only by the bare event NAME (no rig identity),
+  and the bus fans out to ONE global subscriber set. So a bullethole bound to `gunshots` on the gun rig
+  also fired whenever the boot/bottle/bull rigs (all bound to `gunshots`) — or another board cell of the
+  same symbol — fired an event of that name. **Fix:** `RiggedEffect` now listens DIRECTLY to its host
+  skeleton's own `AnimationState` (`getContextSpine().state`), scoping each fire to THIS rig instance.
+- **Root cause 2 — no rig-transform inheritance + mask clip.** `SpineProvider` scales/places the SPINE
+  object (contain-fit into the cell) but leaves its child parent context on the OUTER container, so the
+  effect subtree mounted as a SIBLING of the spine — rendered at the board origin at authored scale
+  (oversized/off-symbol), then clipped by `BoardMask`. A tight burst (bullethole) survived; a radiating
+  star (`f_square_star`) spawned outside the window and vanished. **Fix:** `RiggedEffect` mounts its
+  subtree under `fxParent`, a container parented DIRECTLY on the host spine, so it inherits the rig's
+  fit-scale/position/pivot AND rides the symbol's live layer (the UNMASKED "animate" layer during a win).
+  This also makes `<SpineBoneAttach>`'s bone-follow correct (its skeleton→local map assumes parent==spine).
+- **Scope:** localized to `packages/pixi-svelte/.../RiggedEffect.svelte` — no change to the 97 other
+  `SpineProvider` sites (a global re-parent would break `SpineSlot` etc.). Fixes BOTH the symbol path
+  (`SymbolSpineMain`) and the layout path (`LayoutNodeView`). svelte-check clean (only pre-existing errors).
+- **Ships to online games via `_runtime/lines` republish** (engine code change; no data/bake change).
+  Owner to live-verify pixels first (can't be verified headlessly — needs the authed project + R2 rigs).
+
 ### 2026-07-13 — FX reachability guardrail: orphan effects no longer auto-emit at the origin
 - **Why:** the runtime-bundle FX fix (below) surfaced that `Effects.svelte` auto-mounted EVERY unplaced
   free effect at the scene origin (0,0), including `always`-emitting scratch/test effects with no
