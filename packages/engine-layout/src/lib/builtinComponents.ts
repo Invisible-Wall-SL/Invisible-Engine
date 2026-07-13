@@ -1058,6 +1058,10 @@ export const FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF: ComponentDef = {
 		// loop the idle spine, `static` for the resting frame). The RIG animation provides the
 		// motion; the symbol provides the identity.
 		{ key: 'symbolState', kind: 'string', default: 'bookIdle', label: 'symbol state' },
+		// EDITOR-PREVIEW ONLY: point the Scene Editor's bone-ridden stand-in at a real symbol
+		// atlas region so the author sees the actual art track the bone (instead of a labelled
+		// box). The game ignores this — at runtime the ridden symbol is the chosen book symbol.
+		{ key: 'previewImage', kind: 'image', default: '', label: 'preview symbol (editor only)' },
 	],
 };
 

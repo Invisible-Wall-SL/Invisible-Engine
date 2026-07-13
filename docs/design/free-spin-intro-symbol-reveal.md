@@ -78,13 +78,55 @@ setExpandingSymbol (book event)
    `spine.ts`, published from the live skeleton in `EditorSpineLayer.svelte`, and surfaced as
    a dropdown in `EditorProperties.svelte` (the `spineBone` arm reads `meta.bones`).
 
+## Editor preview — the stand-in symbol rides the bone (Scene Editor)
+
+The runtime rides the chosen symbol on the bone; the Scene Editor mirrors that live so an author
+can pick a bone + tune offset/follow/scale and SEE a stand-in symbol track the bone WITHOUT running
+the game. This is preview-only — the runtime is untouched, and a scene without this component (or an
+instance with no `symbolBone`) renders byte-identically to before.
+
+**Data-driven opt-in.** `boundComponentCatalog.ts` gains a `ridesBone` binding on
+`FreeSpinIntroSymbolReveal` (a new `BoneRiderBinding`): it names the ENCLOSING instance's param keys
+the editor reads (`introSpine`, `symbolBone`, `introAnimation`, `offsetX/Y`, `followRotation`,
+`followScale`, `symbolScale`, and the editor-only `previewImage`). Any future bone-riding component
+declares its own binding here — the editor never hardcodes a component id. Helper:
+`boundComponentRidesBone(name)`.
+
+**Where the bone transform is read + how it flows to the 2D canvas.**
+`EditorSpineLayer.svelte` owns the skeleton↔screen mapping (it bakes the editor pan/zoom + an
+X-mirror into each skeleton), so re-deriving a bone's screen position in the 2D canvas would get the
+mirror wrong. Instead the spine layer resolves the bone where that mapping lives:
+
+1. When collecting a placed reveal instance, `riderSpineTarget()` emits the rig as a spine target
+   (resolving the bundle from the `introSpine` param, else the catalog default) that auto-plays the
+   `introAnimation` **looped** so the bone keeps moving, and carries a `BoneRiderSpec`.
+2. In the render loop, right before the pan/zoom bake, it captures the rig's WORLD transform
+   (`riderSk0`, y-flip included). After the rig is posed + drawn it reads the bone in RAW skeleton
+   space (identity skeleton placement, so the read is independent of the mirror bake) and maps it
+   into world coords: `x = sk0.x + bone.worldX·sk0.scaleX + offsetX·|sk0.scaleX|`, `y` likewise;
+   `rotation = -bone.getWorldRotationX()·DEG_TO_RAD` (when `followRotation`); `scaleX/Y =
+   symbolScale · bone.getWorldScaleX()/Y()` (bone scale only when `followScale`) — the SAME math as
+   the runtime `<SpineBoneAttach>`. `SpineBone` was extended with `getWorldRotationX/ScaleX/ScaleY`.
+3. It publishes `{ x, y, rotation, scaleX, scaleY, region }` (editor WORLD coords) into a SHARED,
+   non-reactive `Map<hostNodeId, BoneRiderTransform>` — no per-frame `$state` churn. An empty/
+   unresolved bone publishes nothing (parity).
+
+`EditorCanvas.svelte` passes that one Map to every per-scene spine layer and runs its OWN rAF
+(`drawRiders`, active only while a bone-riding component is present) that reads the Map and draws
+each stand-in symbol on a dedicated `.rider-layer` canvas (z-index 999 — above the scene groups so
+the symbol rides ON TOP of its rig, below the HUD), in the same `setTransform(dpr)·pan·zoom` world
+mapping as everything else. The stand-in is a symbol-sized labelled box (base = 150 main-px ×
+`mainScale`, scaled by the published factors), OR the real atlas region when the optional
+`previewImage` param is set + resolvable.
+
 ## How an author uses it (no code)
 
 1. In the Scene Editor, open the `specialBook` scene and drop a **Free-spin symbol reveal**
    instance; position it.
 2. Set `introSpine` to the intro rig bundle, pick the intro/idle animations, and pick the
-   `symbolBone` from the dropdown (populated from that rig's bones). Tune offset / follow /
-   scale.
+   `symbolBone` from the dropdown (populated from that rig's bones). A stand-in symbol appears on
+   the bone and rides the played intro animation LIVE — tune offset / follow / scale and watch it
+   track. Optionally set `previewImage` to a real symbol atlas region to preview actual art.
 3. In Flow, wire the `setExpandingSymbol` edge to the `specialBook` screen. Ownership flips →
    the coded shuffle is suppressed and this reveal plays, blocking the round until the rig's
    intro animation completes.

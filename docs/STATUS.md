@@ -24,6 +24,21 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Scene Editor: bone-ridden stand-in symbol preview (free-spin symbol reveal)
+- **What:** when an author places a **Free-spin symbol reveal** (`freeSpinIntroSymbolReveal`) instance
+  and picks a `symbolBone`, the Scene Editor now renders a stand-in symbol that MOUNTS on that bone and
+  RIDES the played intro animation live — so bone/offset/follow/scale are tunable WYSIWYG without
+  running the game. Mirrors the runtime `<SpineBoneAttach>` math (position via the bone's world
+  transform, `rotation = -getWorldRotationX()`, scale from `getWorldScaleX/Y()`).
+- **How:** data-driven `ridesBone` binding on the catalog (`boundComponentCatalog.ts`) names the
+  instance param keys; `EditorSpineLayer` (which owns the skeleton↔screen mapping) reads the bone in
+  raw skeleton space + publishes a WORLD transform into a shared non-reactive `Map` (no per-frame
+  `$state` churn); `EditorCanvas` draws each stand-in on a new `.rider-layer` (z 999) via its own rAF.
+  `SpineBone` extended with `getWorldRotationX/ScaleX/ScaleY`. Optional editor-only `previewImage`
+  param draws a real atlas region instead of the labelled box. Additive — a scene without the
+  component (or an instance with no bone) is byte-identical. Build clean (`engine-layout` +
+  `launcher-api`). See `docs/design/free-spin-intro-symbol-reveal.md` §"Editor preview".
+
 ### 2026-07-13 — Rig FX render fixes: cross-talk firing + effect ignored the rig transform (`RiggedEffect`)
 - **Symptoms (owner report):** the `gunshots` bullethole VFX fired on rigs it shouldn't, and the
   `f_square_star` (`R_VFX`) effect didn't show at all. The earlier "mounted correctly" note above meant

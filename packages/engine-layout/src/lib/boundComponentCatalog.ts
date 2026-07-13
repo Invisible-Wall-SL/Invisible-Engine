@@ -25,6 +25,37 @@ import type { LayoutNode, LayoutType, Scene } from './types';
  * atlas region `Frame_FSCounter.png`.
  */
 
+/**
+ * EDITOR-PREVIEW ONLY: declares that a coded component RIDES a stand-in symbol on a bone of an
+ * authored rig, so the Scene Editor can render that symbol tracking the live bone WITHOUT running
+ * the game (the runtime already does this via `<SpineBoneAttach>`). Keyed off `bind.component`,
+ * this names the ENCLOSING component-instance param keys the editor reads to build the rider — it
+ * stays data-driven (any future bone-riding component declares its own binding here) rather than
+ * hardcoding a component id in the editor. All values are plain strings/numbers/booleans resolved
+ * from the instance's params; an empty `boneParam` value ⇒ no rider (parity). Never written to the
+ * layout doc — purely an editor affordance, mirroring {@link BoundComponentPreview}.
+ */
+export interface BoneRiderBinding {
+	/** Instance param naming the rig SPINE bundle the bone lives on (e.g. `introSpine`). */
+	spineParam: string;
+	/** Instance param naming the BONE to follow (e.g. `symbolBone`). Empty value ⇒ no rider. */
+	boneParam: string;
+	/** Instance param for the animation to auto-play so the bone MOVES (e.g. `introAnimation`). */
+	animationParam?: string;
+	/** Instance param for the pixel offset added in the rig's local space (default 0). */
+	offsetXParam?: string;
+	offsetYParam?: string;
+	/** Instance param toggling whether the symbol also takes the bone's world rotation (default true). */
+	followRotationParam?: string;
+	/** Instance param toggling whether the symbol also takes the bone's world scale (default true). */
+	followScaleParam?: string;
+	/** Instance param for the extra symbol scale multiplier (default 1). */
+	scaleParam?: string;
+	/** Optional instance param (kind `image`) pointing the stand-in at a real symbol atlas region;
+	 * when set + resolvable the editor draws that frame instead of the labelled placeholder box. */
+	imageParam?: string;
+}
+
 export interface BoundComponentPreview {
 	kind: 'spine' | 'sprite';
 	/** Convention spine-bundle name (kind `spine`), resolved against project spines. */
@@ -56,6 +87,8 @@ export interface BoundComponentDefault {
 	space?: Scene['space'];
 	/** Editor-only preview art (see {@link BoundComponentPreview}). */
 	preview?: BoundComponentPreview;
+	/** Editor-only bone-ridden stand-in symbol (see {@link BoneRiderBinding}). */
+	ridesBone?: BoneRiderBinding;
 	/** Where the editor places the preview (see {@link OverlayPlacement}). */
 	placement?: OverlayPlacement;
 	/** Default render order when the component is dropped as an anchor. */
@@ -164,12 +197,35 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		space: 'game',
 		placement: 'boardCentre',
 		preview: { kind: 'spine', bundle: 'fsIntro' },
+		// The rig previews from the instance's `introSpine` param; the editor also mounts a
+		// stand-in symbol on `symbolBone` that rides the played `introAnimation`, honouring the
+		// offset / follow / scale knobs — mirroring the runtime `FreeSpinIntroSymbolReveal.svelte`.
+		ridesBone: {
+			spineParam: 'introSpine',
+			boneParam: 'symbolBone',
+			animationParam: 'introAnimation',
+			offsetXParam: 'offsetX',
+			offsetYParam: 'offsetY',
+			followRotationParam: 'followRotation',
+			followScaleParam: 'followScale',
+			scaleParam: 'symbolScale',
+			imageParam: 'previewImage',
+		},
 	},
 };
 
 /** The default editor treatment for a coded component name, if known. */
 export function boundComponentDefault(name: string): BoundComponentDefault | undefined {
 	return BOUND_COMPONENT_DEFAULTS[name];
+}
+
+/**
+ * The bone-rider binding a coded component declares (see {@link BoneRiderBinding}), or
+ * `undefined` for a component that doesn't ride a bone. Keyed off the `bind.component` name so
+ * the editor stays data-driven — it never hardcodes `freeSpinIntroSymbolReveal`.
+ */
+export function boundComponentRidesBone(name: string): BoneRiderBinding | undefined {
+	return BOUND_COMPONENT_DEFAULTS[name]?.ridesBone;
 }
 
 /**

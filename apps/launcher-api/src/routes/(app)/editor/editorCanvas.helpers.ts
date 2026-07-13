@@ -1,6 +1,7 @@
 import {
 	MAX_COMPONENT_DEPTH,
 	resolveTransform,
+	type BoneRiderBinding,
 	type ComponentDef,
 	type LayoutNode,
 	type LayoutType,
@@ -339,6 +340,85 @@ export function pointInQuad(p: Vec2, quad: [Vec2, Vec2, Vec2, Vec2]): boolean {
 		else if (sign !== s) return false;
 	}
 	return true;
+}
+
+// ---------- bone-ridden stand-in symbol (Scene Editor preview) ----------
+
+/**
+ * A stand-in symbol transform PUBLISHED by {@link '../editor/EditorSpineLayer.svelte'} for a
+ * bone-riding component instance, in editor WORLD coords (pre pan/zoom — the SAME space the 2D
+ * canvas's `ctx` draws in, so the box maps to screen via `world*zoom + pan` with no mirror). The
+ * spine layer owns the skeleton↔screen mapping (it bakes the X-mirror + pan/zoom into the
+ * skeleton), so it resolves the bone here where that mapping lives and hands the 2D canvas a plain
+ * world transform. `scaleX`/`scaleY` are the DIMENSIONLESS symbol scale factors (`symbolScale` ×
+ * the bone's world scale when `followScale`), which the 2D canvas multiplies by its symbol base
+ * size. `region` is an optional resolved atlas-frame ref (`<assetKey>::<region>`) to draw instead
+ * of the placeholder box. Keyed by the host component-instance node id. Held in a plain (non-$state)
+ * Map + read by the 2D canvas's own RAF, so the per-frame follow never churns Svelte reactivity.
+ */
+export interface BoneRiderTransform {
+	x: number;
+	y: number;
+	rotation: number;
+	scaleX: number;
+	scaleY: number;
+	region?: string;
+}
+
+/** The instance-param values a {@link BoneRiderBinding} resolves to (defaults match the runtime
+ * `FreeSpinIntroSymbolReveal.svelte`: follow on, offset 0, scale 1). `boneName` empty ⇒ no rider. */
+export interface ResolvedBoneRider {
+	boneName: string;
+	offsetX: number;
+	offsetY: number;
+	followRotation: boolean;
+	followScale: boolean;
+	symbolScale: number;
+	animation?: string;
+	region?: string;
+}
+
+/** Resolve a bone-rider binding against a component instance's effective params (from
+ * `resolveComponentParams`). Pure — reads only the param keys the binding names. */
+export function resolveBoneRider(
+	binding: BoneRiderBinding,
+	params: Record<string, unknown>,
+): ResolvedBoneRider {
+	const str = (k?: string): string | undefined => {
+		const v = k ? params[k] : undefined;
+		return typeof v === 'string' && v.length > 0 ? v : undefined;
+	};
+	const num = (k: string | undefined, d: number): number => {
+		const v = k ? params[k] : undefined;
+		return typeof v === 'number' && Number.isFinite(v) ? v : d;
+	};
+	const bool = (k: string | undefined, d: boolean): boolean => {
+		const v = k ? params[k] : undefined;
+		return typeof v === 'boolean' ? v : d;
+	};
+	return {
+		boneName: str(binding.boneParam) ?? '',
+		offsetX: num(binding.offsetXParam, 0),
+		offsetY: num(binding.offsetYParam, 0),
+		followRotation: bool(binding.followRotationParam, true),
+		followScale: bool(binding.followScaleParam, true),
+		symbolScale: num(binding.scaleParam, 1),
+		animation: str(binding.animationParam),
+		region: str(binding.imageParam),
+	};
+}
+
+/** The rig spine-bundle `assetKey` a bone-rider previews on — resolved from the instance's
+ * `spineParam` value against the project's spines (its `name` → bundle `key`). Empty when the
+ * param is unset or names no project spine; the caller then falls back to the catalog default. */
+export function resolveBoneRiderRigKey(
+	binding: BoneRiderBinding,
+	params: Record<string, unknown>,
+	spines: { name: string; key: string }[],
+): string {
+	const name = params[binding.spineParam];
+	if (typeof name !== 'string' || !name) return '';
+	return spines.find((s) => s.name === name)?.key ?? '';
 }
 
 /** Axis-aligned screen-space bounding box of 4 world points, expanded by pad. */

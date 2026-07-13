@@ -28,12 +28,22 @@ export interface SpineCamera {
 	update(): void;
 }
 
-/** A posed bone — its world origin AFTER `skeleton.updateWorldTransform`. Only the world
- * translation is surfaced (the Symbols-SM live FX overlay projects it to screen to ride the
- * bound bone, mirroring the Rigger's `fxBoneWorld`). */
+/** A posed bone — its world transform AFTER `skeleton.updateWorldTransform`. `worldX`/`worldY`
+ * are the world origin (the Symbols-SM live FX overlay projects it to screen to ride the bound
+ * bone, mirroring the Rigger's `fxBoneWorld`). The rotation/scale accessors mirror the underlying
+ * spine-webgl `Bone` — the Scene Editor's bone-ridden symbol preview reads them to honour a
+ * component's `followRotation` / `followScale` (the SAME values the runtime `<SpineBoneAttach>`
+ * uses: `-getWorldRotationX()*DEG_TO_RAD` for rotation, `getWorldScaleX()/getWorldScaleY()` for
+ * scale). Read only once a rider is present, so non-rider previews touch none of them. */
 export interface SpineBone {
 	worldX: number;
 	worldY: number;
+	/** World rotation about X in DEGREES (skeleton space, CCW) — negate + `DEG_TO_RAD` for Pixi. */
+	getWorldRotationX(): number;
+	/** Accumulated world scale along the bone's local X (the bone chain scale). */
+	getWorldScaleX(): number;
+	/** Accumulated world scale along the bone's local Y (the bone chain scale). */
+	getWorldScaleY(): number;
 }
 
 export interface SpineSkeleton {

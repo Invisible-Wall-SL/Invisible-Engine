@@ -4,9 +4,11 @@
 		backgroundCoverStretch,
 		backgroundFit,
 		boundComponentOverlayDim,
+		boundComponentRidesBone,
 		computeOverlayPlacement,
 		coverTransform,
 		resolveAnchorPreviewArt,
+		resolveComponentParams,
 		resolveTransform,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
@@ -17,7 +19,13 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
-	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import {
+		childLocalTransform,
+		composeWorldMatrix,
+		resolveBoneRider,
+		resolveBoneRiderRigKey,
+		type BoneRiderTransform,
+	} from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
 	import {
 		disposeSpineInstance,
@@ -95,6 +103,13 @@
 		 * so a nested spine's world transform composes from its ancestor chain identically to
 		 * the 2D canvas + text overlay + game runtime. */
 		worldTransformOf: (node: LayoutNode, scene: Scene) => ResolvedTransform;
+		/** SHARED, non-reactive sink for bone-ridden stand-in symbol transforms (Scene Editor
+		 * preview). Keyed by the host component-instance node id, in editor WORLD coords. This
+		 * layer OWNS the skeleton↔screen mapping, so it resolves each rider's bone here (where the
+		 * X-mirror + pan/zoom bake lives) and writes a plain world transform the 2D canvas's own
+		 * RAF reads + draws — no per-frame $state churn. The SAME Map is passed to every per-scene
+		 * layer; each only writes/deletes ITS scene's node ids. Absent ⇒ no rider preview. */
+		boneRiders?: Map<string, BoneRiderTransform>;
 	}
 
 	let {
@@ -118,6 +133,7 @@
 		activeSceneId = null,
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
+		boneRiders,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -332,7 +348,30 @@
 		 * {@link composeWorldMatrix}, so the renderer places it directly and skips the
 		 * top-level space/placement mapping (the chain's top link already applied it). */
 		world?: { x: number; y: number; scaleX: number; scaleY: number };
+		/** This rig HOSTS a bone-ridden stand-in symbol (Scene Editor preview): after posing the
+		 * skeleton the layer reads `boneName` + publishes a world transform to `boneRiders` so the
+		 * 2D canvas draws the symbol tracking the bone. Present only for a bone-riding component. */
+		rider?: BoneRiderSpec;
 	}
+
+	/** The resolved bone-rider inputs carried on a rig render target (see {@link SpineRenderTarget.rider}). */
+	interface BoneRiderSpec {
+		/** Host component-instance node id — the key the transform is published under. */
+		hostNodeId: string;
+		boneName: string;
+		offsetX: number;
+		offsetY: number;
+		followRotation: boolean;
+		followScale: boolean;
+		symbolScale: number;
+		/** Resolved atlas-frame ref (`<assetKey>::<region>`) for a real preview symbol, else undefined. */
+		region?: string;
+	}
+
+	const RIDER_DEG_TO_RAD = Math.PI / 180;
+	/** Node ids this layer published a rider transform for last frame — so it can DELETE stale
+	 * ones from the shared `boneRiders` map (a removed/hidden reveal, or a cleared bone). */
+	let myRiderKeys = new Set<string>();
 
 	/** The `enter`-cue animation authored on a spine node (the engine plays it when the
 	 * component / screen appears). Drives the preview's auto-play so sizing is WYSIWYG. */
@@ -401,10 +440,13 @@
 				// a placed component's spine only ever shows its 2D placeholder box. Each
 				// nested spine's world transform is composed from its ancestor chain.
 				if (n.kind === 'container') {
-					collectNestedSpines(n.children, sc, out, [n], 0, []);
+					collectNestedSpines(n.children, sc, out, [n], 0, [], undefined);
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
-					if (def) collectNestedSpines(def.root.children, sc, out, [n], 1, [def.id]);
+					if (def) {
+						const params = resolveComponentParams(def, n.params, undefined);
+						collectNestedSpines(def.root.children, sc, out, [n], 1, [def.id], params);
+					}
 				}
 			}
 		}
@@ -425,20 +467,91 @@
 		chain: LayoutNode[],
 		depth: number,
 		stack: string[],
+		/** Resolved params of the ENCLOSING component instance (root of `chain`), threaded so a
+		 * bone-riding `bind` child can read its rig/bone/offset/follow/scale knobs from them —
+		 * mirroring how the 2D canvas threads `instanceParams` through `drawNode`. Undefined for a
+		 * plain container subtree (no enclosing instance ⇒ no rider). */
+		instanceParams: Record<string, unknown> | undefined,
 	): void {
 		for (const n of nodes) {
 			if (!resolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
+			// A `bind` child whose coded component RIDES a bone (data-driven via the catalog):
+			// render its rig from the instance's spine param + attach a rider spec, instead of
+			// treating it as a plain (spine-less) container. Scoped to components that OPT IN via
+			// `ridesBone`, so every other nested bind is byte-identical to before (parity).
+			const rider = n.bind ? boundComponentRidesBone(n.bind.component) : undefined;
+			if (rider && instanceParams) {
+				const target = riderSpineTarget(n, sc, nextChain, rider, instanceParams);
+				if (target) out.push(target);
+				continue;
+			}
 			if (n.kind === 'spine') {
 				out.push(nestedSpineTarget(n, sc, nextChain));
 			} else if (n.kind === 'container') {
-				collectNestedSpines(n.children, sc, out, nextChain, depth, stack);
+				collectNestedSpines(n.children, sc, out, nextChain, depth, stack, instanceParams);
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				collectNestedSpines(def.root.children, sc, out, nextChain, depth + 1, [...stack, def.id]);
+				const params = resolveComponentParams(def, n.params, undefined);
+				collectNestedSpines(def.root.children, sc, out, nextChain, depth + 1, [...stack, def.id], params);
 			}
 		}
+	}
+
+	/**
+	 * Build a rig render target for a bone-riding `bind` child: its world transform composed from
+	 * the ancestor `chain` (like {@link nestedSpineTarget}), the rig spine resolved from the
+	 * enclosing instance's spine param (else the catalog default), auto-playing the intro
+	 * animation (looped) so the bone MOVES, and a {@link BoneRiderSpec} so `frame()` reads the
+	 * bone + publishes the stand-in symbol's world transform. Returns null when no rig spine
+	 * resolves (draws nothing — parity with a component whose rig isn't in the project).
+	 */
+	function riderSpineTarget(
+		node: LayoutNode,
+		sc: Scene,
+		chain: LayoutNode[],
+		binding: NonNullable<ReturnType<typeof boundComponentRidesBone>>,
+		instanceParams: Record<string, unknown>,
+	): SpineRenderTarget | null {
+		const resolved = resolveBoneRider(binding, instanceParams);
+		// Prefer the rig the author picked via the spine param; fall back to the catalog preview
+		// bundle (the SAME one the 2D canvas draws) so the two agree when the param is unset.
+		const assetKey =
+			resolveBoneRiderRigKey(binding, instanceParams, assets.spines) ||
+			resolveAnchorPreviewArt(node, assets)?.assetKey ||
+			'';
+		if (!assetKey) return null;
+		const [a, b, c, d, tx, ty] = composeWorldMatrix(
+			chain,
+			(top) => worldTransformOf(top, sc),
+			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+		);
+		const sx = Math.hypot(a, b) || 1;
+		const sy = Math.hypot(c, d) || 1;
+		const det = a * d - b * c;
+		const hostNodeId = chain[0]?.id ?? node.id;
+		return {
+			nodeId: node.id,
+			assetKey,
+			// Auto-play the intro animation, LOOPED, so the bone keeps moving and the author sees
+			// the symbol ride it (no one-shot → idle hand-off: repeat the reveal for authoring).
+			enterAnimation: resolved.animation,
+			enterLoop: true,
+			transform: resolveTransform(node, layoutType),
+			space: sc.space,
+			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+			rider: {
+				hostNodeId,
+				boneName: resolved.boneName,
+				offsetX: resolved.offsetX,
+				offsetY: resolved.offsetY,
+				followRotation: resolved.followRotation,
+				followScale: resolved.followScale,
+				symbolScale: resolved.symbolScale,
+				region: resolved.region,
+			},
+		};
 	}
 
 	/** Build a render target for a nested spine: its world transform composed from the
@@ -659,6 +772,10 @@
 		cam.update();
 		gl.viewport(0, 0, canvas.width, canvas.height);
 
+		// Bone-ridden stand-in symbols published THIS frame — reconciled against `myRiderKeys`
+		// after the loop so a removed/hidden reveal (or a cleared bone) drops from the shared map.
+		const nextRiderKeys = new Set<string>();
+
 		for (const target of targets) {
 			const entry = entries.get(target.assetKey);
 			if (!entry || entry.state !== 'ready') continue;
@@ -756,6 +873,17 @@
 					inst.skeleton.scaleY *= fy;
 				}
 			}
+			// Capture the rig's WORLD transform (pre pan/zoom, incl. the y-flip via scaleY<0 +
+			// any fit-to-box) BEFORE the bake below overwrites it — a bone-riding target reads it
+			// after the draw to map the posed bone into world coords (see the rider block below).
+			const riderSk0 = target.rider
+				? {
+						x: inst.skeleton.x,
+						y: inst.skeleton.y,
+						scaleX: inst.skeleton.scaleX,
+						scaleY: inst.skeleton.scaleY,
+					}
+				: null;
 			// Bake the editor pan/zoom into the skeleton so it maps EXACTLY like the 2D
 			// canvas. The vendored OrthoCamera is set up with up=(0,-1,0) to cancel
 			// WebGL's bottom-left y-origin (so Y maps straight) — but that same up vector
@@ -778,7 +906,67 @@
 			renderer.begin();
 			renderer.drawSkeleton(inst.skeleton, inst.premultipliedAlpha);
 			renderer.end();
+
+			// Bone-ridden stand-in symbol (Scene Editor preview): now that the rig is posed +
+			// drawn, read the followed bone and publish the stand-in symbol's WORLD transform so
+			// the 2D canvas draws it tracking the bone — mirroring the runtime `<SpineBoneAttach>`
+			// (`getBonePosition` → pixi world; rotation `-getWorldRotationX()*DEG_TO_RAD`; scale
+			// `getWorldScaleX()/Y()`). We read the bone in RAW skeleton space (identity skeleton
+			// placement, so the read is independent of the pan/zoom/mirror bake), then apply the
+			// captured rig world transform `riderSk0` to land it in the SAME world space the 2D
+			// canvas draws in. An unresolved/empty bone publishes nothing (parity — no rider).
+			if (target.rider && riderSk0 && boneRiders) {
+				const spec = target.rider;
+				if (spec.boneName) {
+					const bx = inst.skeleton.x;
+					const by = inst.skeleton.y;
+					const bsx = inst.skeleton.scaleX;
+					const bsy = inst.skeleton.scaleY;
+					inst.skeleton.x = 0;
+					inst.skeleton.y = 0;
+					inst.skeleton.scaleX = 1;
+					inst.skeleton.scaleY = 1;
+					inst.skeleton.updateWorldTransform(getSpinePhysics());
+					const bone = inst.skeleton.findBone(spec.boneName);
+					if (bone) {
+						const absRigX = Math.abs(riderSk0.scaleX);
+						const absRigY = Math.abs(riderSk0.scaleY);
+						// Bone origin in world: the rig placement (riderSk0, y-flip in scaleY<0)
+						// applied to the raw skeleton-space bone position. Offset is added in the
+						// rig's local space (screen-positive), unrotated — like the runtime, which
+						// adds it to the container's parent-space position, not to the bone frame.
+						const wx = riderSk0.x + bone.worldX * riderSk0.scaleX + spec.offsetX * absRigX;
+						const wy = riderSk0.y + bone.worldY * riderSk0.scaleY + spec.offsetY * absRigY;
+						const rotation = spec.followRotation
+							? -bone.getWorldRotationX() * RIDER_DEG_TO_RAD
+							: 0;
+						const scaleX = spec.symbolScale * (spec.followScale ? bone.getWorldScaleX() : 1);
+						const scaleY = spec.symbolScale * (spec.followScale ? bone.getWorldScaleY() : 1);
+						boneRiders.set(spec.hostNodeId, {
+							x: wx,
+							y: wy,
+							rotation,
+							scaleX,
+							scaleY,
+							region: spec.region,
+						});
+						nextRiderKeys.add(spec.hostNodeId);
+					}
+					// Restore the baked placement (the next same-instance target re-poses anyway).
+					inst.skeleton.x = bx;
+					inst.skeleton.y = by;
+					inst.skeleton.scaleX = bsx;
+					inst.skeleton.scaleY = bsy;
+				}
+			}
 		}
+
+		// Reconcile the shared rider map: drop entries THIS layer published before but no longer
+		// does (reveal removed/hidden, bone cleared, or rig not ready), leaving other layers' keys.
+		if (boneRiders) {
+			for (const key of myRiderKeys) if (!nextRiderKeys.has(key)) boneRiders.delete(key);
+		}
+		myRiderKeys = nextRiderKeys;
 	}
 
 	/**
@@ -919,6 +1107,10 @@
 		raf = requestAnimationFrame(frame);
 		return () => {
 			if (raf) cancelAnimationFrame(raf);
+			// Drop this layer's published rider transforms so a removed scene group doesn't
+			// strand a stale stand-in symbol in the shared map.
+			if (boneRiders) for (const key of myRiderKeys) boneRiders.delete(key);
+			myRiderKeys = new Set<string>();
 			for (const entry of entries.values()) {
 				if (entry.state === 'ready') disposeSpineInstance(entry.instance);
 			}

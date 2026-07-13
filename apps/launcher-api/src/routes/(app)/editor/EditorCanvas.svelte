@@ -4,6 +4,7 @@
 		backgroundCoverStretch,
 		backgroundFit,
 		boundComponentDefault,
+		boundComponentRidesBone,
 		computeOverlayPlacement,
 		coverTransform,
 		isHudScene,
@@ -30,6 +31,8 @@
 		nodeCornersWorld,
 		topMidWorld,
 		pointInQuad,
+		resolveBoneRiderRigKey,
+		type BoneRiderTransform,
 		type Vec2,
 		type NodeBox,
 		type NaturalSize,
@@ -686,6 +689,20 @@
 	let hudCanvas: HTMLCanvasElement | null = $state(null);
 	let wrap: HTMLDivElement | null = $state(null);
 
+	// ---------- bone-ridden stand-in symbol overlay (Scene Editor preview) ----------
+	// SHARED, non-reactive sink the per-scene spine layers write each frame (they OWN the
+	// skeleton↔screen mapping, so they resolve each reveal's followed bone and hand us a plain
+	// WORLD transform, keyed by host component-instance node id). This canvas's OWN rAF
+	// (`drawRiders`) reads it + draws the stand-in symbols on `riderCanvas`, sitting just above
+	// the scene groups so a symbol rides ON TOP of its rig. Using a plain Map + a dedicated rAF
+	// keeps the per-frame follow off Svelte's reactive graph (no $state churn).
+	const boneRiders = new Map<string, BoneRiderTransform>();
+	let riderCanvas: HTMLCanvasElement | null = $state(null);
+	let riderRaf = 0;
+	/** Nominal symbol size in MAIN px — the stand-in box base, mapped to world via `mainScale`
+	 * (a book symbol is ~one board cell; 150 reads right for the common 5×3 board). */
+	const SYMBOL_PREVIEW_MAIN = 150;
+
 	let panX = $state(0);
 	let panY = $state(0);
 	let zoom = $state(0.5);
@@ -1315,6 +1332,27 @@
 		return false;
 	}
 
+	/** Does a scene carry a bone-riding component (a `bind` whose coded component declares
+	 * `ridesBone` — the free-spin symbol reveal) ANYWHERE in its tree? Gates the rider overlay's
+	 * rAF so it only runs when a stand-in symbol could be published. */
+	function sceneHasBoneRider(s: Scene): boolean {
+		return nodesHaveBoneRider(s.nodes, 0, []);
+	}
+	function nodesHaveBoneRider(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
+		for (const n of nodes) {
+			if (n.bind && boundComponentRidesBone(n.bind.component)) return true;
+			if (n.kind === 'container' && nodesHaveBoneRider(n.children, depth, stack)) return true;
+			if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				if (nodesHaveBoneRider(def.root.children, depth + 1, [...stack, def.id])) return true;
+			}
+		}
+		return false;
+	}
+	/** Any non-hidden game scene hosting a bone-riding component → run the rider rAF. */
+	const hasBoneRiders = $derived(visibleGameScenes().some(sceneHasBoneRider));
+
 	/** Does a scene carry a text render target (a `kind:'text'` node, or a coded HUD
 	 * text bind anchor) ANYWHERE in its tree — including nested in containers / component
 	 * instances, which the overlay now also owns? Only such scenes mount the pixi text
@@ -1681,7 +1719,16 @@
 			// a plain placeholder.
 			const art = anchorArt(node);
 			if (art?.kind === 'spine') {
-				if (!readySpineKeys.has(art.assetKey)) {
+				// A bone-riding bind (the Scene Editor reveal preview) renders its rig from the
+				// ENCLOSING instance's spine param, not the catalog default — so check THAT key
+				// for readiness, else the placeholder would linger over the real rig (or double it
+				// when the author picks a non-default bundle). Non-riding binds are unchanged.
+				let rigKey = art.assetKey;
+				const rides = node.bind ? boundComponentRidesBone(node.bind.component) : undefined;
+				if (rides && instanceParams) {
+					rigKey = resolveBoneRiderRigKey(rides, instanceParams, assets.spines) || art.assetKey;
+				}
+				if (!readySpineKeys.has(rigKey)) {
 					drawPlaceholder(
 						ctx,
 						t.anchor?.x ?? 0.5,
@@ -2272,6 +2319,107 @@
 		ctx.font = '14px sans-serif';
 		ctx.fillText(label, -w * ax + 8, -h * ay + 20);
 	}
+
+	// ---------- bone-ridden stand-in symbol overlay draw ----------
+
+	/** rAF loop (run only while `hasBoneRiders`): read the spine layers' published rider
+	 * transforms + draw each stand-in symbol on `riderCanvas`, in the SAME world→screen mapping
+	 * as everything else (`setTransform(dpr) · pan · zoom`). Self-sizes the canvas so it overlays
+	 * the base 1:1. Cheap when the map is empty (a clear + early out). */
+	function drawRiders(): void {
+		riderRaf = requestAnimationFrame(drawRiders);
+		const c = riderCanvas;
+		if (!c) return;
+		const ctx = c.getContext('2d');
+		if (!ctx) return;
+		const dpr = window.devicePixelRatio || 1;
+		const w = Math.floor((wrap?.clientWidth ?? 0) * dpr);
+		const h = Math.floor((wrap?.clientHeight ?? 0) * dpr);
+		if (c.width !== w || c.height !== h) {
+			c.width = w;
+			c.height = h;
+		}
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, c.width, c.height);
+		if (boneRiders.size === 0) return;
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		ctx.translate(panX, panY);
+		ctx.scale(zoom, zoom);
+		const base = SYMBOL_PREVIEW_MAIN * mainScale();
+		for (const [, r] of boneRiders) drawRiderSymbol(ctx, r, base);
+	}
+
+	/** Clear the rider overlay (on stop / when no riders remain). */
+	function clearRiderCanvas(): void {
+		const c = riderCanvas;
+		if (!c) return;
+		const ctx = c.getContext('2d');
+		if (!ctx) return;
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, c.width, c.height);
+	}
+
+	/** Draw one stand-in symbol at its published world transform: the real preview atlas region
+	 * when set + resolvable, else a labelled symbol-sized box. `base` is the symbol size in world
+	 * px; the published `scaleX`/`scaleY` (symbolScale × the bone's world scale) size the box. */
+	function drawRiderSymbol(ctx: CanvasRenderingContext2D, r: BoneRiderTransform, base: number): void {
+		ctx.save();
+		ctx.translate(r.x, r.y);
+		if (r.rotation) ctx.rotate(r.rotation);
+		const w = Math.max(4, base * Math.abs(r.scaleX));
+		const h = Math.max(4, base * Math.abs(r.scaleY));
+		let drew = false;
+		if (r.region) drew = drawRiderRegion(ctx, r.region, w, h);
+		if (!drew) {
+			ctx.fillStyle = 'rgba(90,74,58,0.82)';
+			ctx.fillRect(-w / 2, -h / 2, w, h);
+			ctx.lineWidth = 2 / zoom;
+			ctx.strokeStyle = '#e0b070';
+			ctx.strokeRect(-w / 2, -h / 2, w, h);
+			ctx.fillStyle = '#f4e6cf';
+			ctx.font = '13px sans-serif';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('symbol', 0, 0);
+			ctx.textAlign = 'left';
+			ctx.textBaseline = 'alphabetic';
+		}
+		ctx.restore();
+	}
+
+	/** Draw the `previewImage` atlas region centred in a `w×h` box (already translated/rotated by
+	 * the caller). Returns false (→ labelled box) when the ref is unset or not yet resolvable. */
+	function drawRiderRegion(ctx: CanvasRenderingContext2D, ref: string, w: number, h: number): boolean {
+		const scoped = parseScopedFrameRef(ref);
+		const region = scoped.region;
+		if (!region) return false;
+		const assetKey = scoped.assetKey ?? '';
+		const found = findRegion(assetKey, region);
+		if (!found || !found.set.pageKey) return false;
+		const t: ResolvedTransform = {
+			x: 0,
+			y: 0,
+			anchor: { x: 0.5, y: 0.5 },
+			width: w,
+			height: h,
+			visible: true,
+		};
+		drawArtRegionSprite(ctx, assetKey, region, t, 'symbol');
+		return true;
+	}
+
+	// Run the rider overlay's rAF only while a bone-riding component is present; stop + clear
+	// otherwise so the overlay never spins idle or strands a stale symbol.
+	$effect(() => {
+		if (hasBoneRiders) {
+			if (!riderRaf) riderRaf = requestAnimationFrame(drawRiders);
+		} else if (riderRaf) {
+			cancelAnimationFrame(riderRaf);
+			riderRaf = 0;
+			boneRiders.clear();
+			clearRiderCanvas();
+		}
+	});
 
 	function drawSelectionOverlay(ctx: CanvasRenderingContext2D): void {
 		if (selectedIds.length === 0) return;
@@ -3045,6 +3193,8 @@
 
 		return () => {
 			ro.disconnect();
+			if (riderRaf) cancelAnimationFrame(riderRaf);
+			riderRaf = 0;
 			window.removeEventListener('mousemove', onWindowMouseMove);
 			window.removeEventListener('mouseup', onWindowMouseUp);
 			window.removeEventListener('keydown', onKeyDown);
@@ -3111,6 +3261,7 @@
 					sceneFilter={sceneFilterFor(s.id)}
 					activeSceneId={scene.id}
 					playing={playingSpines}
+					{boneRiders}
 					onReadyKeysChange={(keys) => {
 						mergeSpineReady(s.id, keys);
 						schedule();
@@ -3179,6 +3330,11 @@
 			{/if}
 		</div>
 	{/each}
+
+	<!-- Bone-ridden stand-in symbol overlay (Scene Editor preview): sits ABOVE the scene groups
+	     (their spine layers included) so a reveal's symbol rides ON TOP of its rig, and BELOW the
+	     HUD layers. Driven by `drawRiders`' own rAF reading the shared `boneRiders` map. -->
+	<canvas bind:this={riderCanvas} class="rider-layer"></canvas>
 
 	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
 	<!-- HUD spine overlay: like the HUD text overlay below, the HUD scenes draw on the
@@ -3392,6 +3548,14 @@
 		display: block;
 		width: 100%;
 		height: 100%;
+	}
+	.rider-layer {
+		/* Bone-ridden stand-in symbol overlay — above the scene groups (z-index 1..N) so a
+		   reveal's symbol draws over its rig, below the HUD (z-index 1000). Input passes through. */
+		position: absolute;
+		inset: 0;
+		z-index: 999;
+		pointer-events: none;
 	}
 	.hud-layer {
 		/* Top-most 2D layer: overlays the base canvas + the per-scene groups so the HUD
