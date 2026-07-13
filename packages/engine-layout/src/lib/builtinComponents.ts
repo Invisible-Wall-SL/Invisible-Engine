@@ -990,6 +990,77 @@ export const EXPANDING_SYMBOL_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * The chosen book EXPANDING SYMBOL merged into an authored intro Spine RIG (book-reveal
+ * authoring) — the reusable "the animation flips through symbols and lands on YOUR symbol"
+ * node every book-of game can drop in. Unlike {@link EXPANDING_SYMBOL_DEF} (which just shows the
+ * landed art) this plays an author-picked intro rig animation and RIDES the chosen
+ * `stateGame.specialSymbol` on a named BONE of that rig via `<SpineBoneAttach>`, so the symbol
+ * banks/scales with the animation. Driven by the SAME `specialBookReveal` cue as the coded
+ * shuffle (fired at `setExpandingSymbol` time, when the symbol is known) and returns its
+ * completion promise, so the round blocks until the rig's intro animation finishes. Placing an
+ * instance in the `specialBook` scene flips book-reveal ownership (it is authored content, not the
+ * `SpecialBook` bind anchor) ⇒ the coded shuffle is suppressed and this reveal replaces it. A
+ * `bind` child renders the coded part at the instance node's (`game`-space) position.
+ */
+export const FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF: ComponentDef = {
+	id: 'freeSpinIntroSymbolReveal',
+	name: 'Free-spin symbol reveal',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'freeSpinIntroSymbolReveal-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'freeSpinIntroSymbolReveal-anim',
+				label: 'Symbol reveal',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'FreeSpinIntroSymbolReveal' },
+				children: [],
+			},
+		],
+	},
+	params: [
+		{ key: 'introSpine', kind: 'spine', default: 'fsIntro', label: 'reveal spine bundle' },
+		{
+			key: 'introAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'introSpine',
+			default: 'intro',
+			label: 'reveal animation',
+		},
+		{
+			key: 'idleAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'introSpine',
+			default: 'idle',
+			label: 'idle animation',
+		},
+		{
+			key: 'symbolBone',
+			kind: 'spineBone',
+			spineParam: 'introSpine',
+			default: '',
+			label: 'symbol bone',
+		},
+		{ key: 'offsetX', kind: 'number', default: 0, label: 'symbol offset X' },
+		{ key: 'offsetY', kind: 'number', default: 0, label: 'symbol offset Y' },
+		{ key: 'followRotation', kind: 'boolean', default: true, label: 'symbol follows bone rotation' },
+		{ key: 'followScale', kind: 'boolean', default: true, label: 'symbol follows bone scale' },
+		{ key: 'symbolScale', kind: 'number', default: 1, label: 'symbol scale' },
+		// The symbol STATE the `<Symbol>` state machine renders on the bone (e.g. `bookIdle` to
+		// loop the idle spine, `static` for the resting frame). The RIG animation provides the
+		// motion; the symbol provides the identity.
+		{ key: 'symbolState', kind: 'string', default: 'bookIdle', label: 'symbol state' },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -1004,4 +1075,5 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	TAP_TO_CONTINUE_DEF,
 	LOADING_BAR_DEF,
 	EXPANDING_SYMBOL_DEF,
+	FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 ];

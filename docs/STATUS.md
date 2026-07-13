@@ -24,6 +24,26 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-13 — Free-spin symbol reveal (chosen book symbol merged onto an intro-rig bone)
+- **What:** a reusable Book-of reveal — the intro Spine rig's "flip through symbols" animation
+  now lands on the ACTUAL chosen book symbol (`stateGame.specialSymbol`), ridden on a named
+  **bone** of the rig so it banks/scales with the animation. Fully editor-authored (no per-game code).
+- **How (reuse, not new plumbing):** binds to the EXISTING awaited `specialBookReveal` cue (fired at
+  `setExpandingSymbol` time, when the symbol is known) and participates in the existing `bookOwnership`
+  gate — placing the component in the `specialBook` scene flips ownership ⇒ the coded `SpecialBook`
+  shuffle is suppressed and this replaces it. No engine-flow-v2 vocab/choreography change.
+- **Pieces (branch `feat/free-spin-intro-symbol-reveal`):**
+  - `pixi-svelte/SpineBoneAttach.svelte` — opt-in `followRotation`/`followScale` (position path unchanged).
+  - `engine-layout` — new `FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF` builtin + new `ComponentParam` kind
+    `spineBone`; `boundComponentCatalog` preview entry.
+  - `apps/lines/FreeSpinIntroSymbolReveal.svelte` — coded bind part (rig + symbol-on-bone + completion
+    promise); registered in `Game.svelte`.
+  - `launcher-api` editor — bone picker: `bones` plumbed through `EditorSpineMeta`/`SpineMeta`/`/spine/meta`
+    + a `spineBone` dropdown arm in `EditorProperties`.
+- **Verified:** `lines` + `launcher-api` build clean. **Pending:** author a `specialBook` scene with a real
+  intro rig + bone and live-verify; then publish runtime bundle + bump Book of Borut's engine submodule.
+- **Design doc:** `docs/design/free-spin-intro-symbol-reveal.md`.
+
 ### 2026-07-10 — Invisible FX: LIVE preview in the Rigger (faithful particle overlay)
 - **What:** the Rigger now PLAYS a rig-bound effect on the stage — when the playhead crosses an
   `event.fx` keyframe in animate mode, the effect bursts at the bound bone (or rig origin) and rides it,

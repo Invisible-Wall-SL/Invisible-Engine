@@ -466,13 +466,14 @@ export async function resolveEditorSpine(
 	};
 }
 
-/** Animation / skin / slot NAME lists the editor's spine panels turn into dropdowns.
+/** Animation / skin / slot / bone NAME lists the editor's spine panels turn into dropdowns.
  * The SAME shape the canvas publishes per loaded bundle (`SpineMeta`) — but sourced
  * from the skeleton manifest, not a live render. */
 export interface EditorSpineMeta {
 	animations: string[];
 	skins: string[];
 	slots: string[];
+	bones: string[];
 }
 
 /**
@@ -492,7 +493,7 @@ export async function resolveEditorSpineMeta(
 ): Promise<EditorSpineMeta | null> {
 	const descriptor = await resolveEditorSpine(clientKey, projectKey, assetKey, true);
 	if (!descriptor) return null;
-	const empty: EditorSpineMeta = { animations: [], skins: [], slots: [] };
+	const empty: EditorSpineMeta = { animations: [], skins: [], slots: [], bones: [] };
 	if (descriptor.format !== 'json') return empty;
 	const text = await getObjectText(descriptor.skeletonKey);
 	if (!text) return empty;
@@ -501,21 +502,25 @@ export async function resolveEditorSpineMeta(
 			animations?: Record<string, unknown>;
 			skins?: Array<{ name?: unknown }> | Record<string, unknown>;
 			slots?: Array<{ name?: unknown }>;
+			bones?: Array<{ name?: unknown }>;
 		};
 		// Spine 4.x writes `skins` as an array of `{ name }` (older exports as an object
-		// keyed by skin name); `slots` is always an array of `{ name }`.
+		// keyed by skin name); `slots` / `bones` are always arrays of `{ name }`.
 		const named = (
 			v: Array<{ name?: unknown }> | Record<string, unknown> | undefined,
 		): string[] =>
 			Array.isArray(v)
 				? v.map((e) => e?.name).filter((n): n is string => typeof n === 'string')
 				: Object.keys(v ?? {});
+		const namedArray = (v: Array<{ name?: unknown }> | undefined): string[] =>
+			Array.isArray(v)
+				? v.map((e) => e?.name).filter((n): n is string => typeof n === 'string')
+				: [];
 		return {
 			animations: Object.keys(data.animations ?? {}),
 			skins: named(data.skins),
-			slots: Array.isArray(data.slots)
-				? data.slots.map((s) => s?.name).filter((n): n is string => typeof n === 'string')
-				: [],
+			slots: namedArray(data.slots),
+			bones: namedArray(data.bones),
 		};
 	} catch {
 		return empty;

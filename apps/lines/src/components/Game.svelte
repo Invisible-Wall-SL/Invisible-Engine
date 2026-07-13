@@ -66,6 +66,7 @@
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		EXPANDING_SYMBOL_DEF,
+		FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 		TAP_TO_CONTINUE_DEF,
 		LOADING_BAR_DEF,
 		findReelGridNode,
@@ -154,6 +155,7 @@
 	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
+	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import BookRevealGate from './BookRevealGate.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import TapToContinue from './TapToContinue.svelte';
@@ -239,6 +241,11 @@
 		// def's bind) — renders `stateGame.specialSymbol` via `<Symbol>` WITHOUT the shuffle, so an
 		// author owns the reveal via their own spine + choreography (pure-hooks book reveal).
 		ExpandingSymbol,
+		// The chosen symbol MERGED onto a bone of an authored intro rig (the
+		// `freeSpinIntroSymbolReveal` def's bind) — plays the rig's intro animation and rides the
+		// chosen `stateGame.specialSymbol` on a named bone, driven by the same awaited
+		// `specialBookReveal` cue. The reusable "flip through → land on YOUR symbol" reveal node.
+		FreeSpinIntroSymbolReveal,
 		// The ONE coded part of the `loadingIntro` splash def — the masked progress
 		// fill the static node model can't express (the logo + percentage around it are
 		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its
@@ -298,6 +305,11 @@
 		// symbol's art), positioned by the editor node. Placeable so an author renders the landed
 		// symbol inside their own reveal; the coded `SpecialBook` shuffle stays as the fallback.
 		[EXPANDING_SYMBOL_DEF.id]: EXPANDING_SYMBOL_DEF,
+		// Book-reveal authoring — makes `getComponent('freeSpinIntroSymbolReveal')` resolve so a
+		// `freeSpinIntroSymbolReveal` instance expands into its bound `FreeSpinIntroSymbolReveal`
+		// part: the author-picked intro rig with the chosen symbol ridden on a bone. Placing it in
+		// the `specialBook` scene flips book-reveal ownership ⇒ the coded shuffle is suppressed.
+		[FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF.id]: FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 		// Invisible Flow §6.2 — the droppable full-screen tap-to-continue overlay. A
 		// minimal empty-root `overlay` def: an author can drop it on ANY Flow screen from
 		// the palette to get a full-screen tap-to-continue. Its behaviour + per-instance
