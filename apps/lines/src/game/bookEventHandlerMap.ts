@@ -8,6 +8,7 @@ import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
+import { getFlowV2 } from './flowV2InterpreterHolder';
 import { playBookEvent } from './utils';
 import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
@@ -117,28 +118,53 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		}
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
-		// animate scatters
-		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
-		await animateSymbols({ positions: bookEvent.positions });
-		// show free spin intro
-		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_superfreespin' });
-		await eventEmitter.broadcastAsync({ type: 'uiHide' });
-		await eventEmitter.broadcastAsync({ type: 'transition' });
+		// Flow-is-sole-authority (owner direction 2026-07-14). When a v2 flow DRIVES the game's
+		// screens (`ownsEvent('load')` — the SAME signal Game.svelte reads as `flowV2DrivesScreens`)
+		// the flow owns ALL presentation. A free-spin intro is then EITHER authored — v2 owns
+		// `freeSpinTrigger`, so this coded handler never runs (`game/utils.ts`) — OR deliberately
+		// removed from the flow, in which case this coded handler runs but must NOT paint the coded
+		// intro: under a screen-driving v2 flow the coded intro gate + visual are BOTH suppressed
+		// (`flowV2DrivesScreens` in Game.svelte), so the intro half-executes (transition wipe +
+		// jingles + a `freeSpinIntroUpdate` round-block with no gate) and reads as broken. So when the
+		// flow drives screens we run STATE-ONLY — enter free-game (`gameType`), arm the counter, and
+		// the free-game ambiance that PERSISTS through the feature (board glow, music, drawer) — and
+		// skip every momentary intro-celebration broadcast. A non-v2 / book-events-only flow leaves
+		// `presentIntro` true ⇒ every block below runs in its original order, byte-identical to
+		// before (parity §7).
+		const presentIntro = !(getFlowV2()?.ownsEvent('load') ?? false);
+
+		if (presentIntro) {
+			// animate scatters
+			eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
+			await animateSymbols({ positions: bookEvent.positions });
+			// show free spin intro
+			eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_superfreespin' });
+			await eventEmitter.broadcastAsync({ type: 'uiHide' });
+			await eventEmitter.broadcastAsync({ type: 'transition' });
+		}
 		// Set the awarded-count BEFORE the intro shows, so a `freeSpinsWon`-bound readout in
 		// an authored intro screen has the total while the intro is on screen (the counter
 		// total is otherwise set further down, after the intro hides).
 		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
-		eventEmitter.broadcast({ type: 'freeSpinIntroShow' });
-		stateUi.freeSpinIntroShow = true;
-		eventEmitter.broadcast({ type: 'soundOnce', name: 'jng_intro_fs' });
+		if (presentIntro) {
+			eventEmitter.broadcast({ type: 'freeSpinIntroShow' });
+			stateUi.freeSpinIntroShow = true;
+			eventEmitter.broadcast({ type: 'soundOnce', name: 'jng_intro_fs' });
+		}
+		// Free-game background music plays THROUGH the whole feature (not part of the momentary
+		// intro), so it switches whether or not the coded intro celebration runs.
 		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
-		await eventEmitter.broadcastAsync({
-			type: 'freeSpinIntroUpdate',
-			totalFreeSpins: bookEvent.totalFs,
-		});
+		if (presentIntro) {
+			await eventEmitter.broadcastAsync({
+				type: 'freeSpinIntroUpdate',
+				totalFreeSpins: bookEvent.totalFs,
+			});
+		}
 		stateGame.gameType = 'freegame';
-		eventEmitter.broadcast({ type: 'freeSpinIntroHide' });
-		stateUi.freeSpinIntroShow = false;
+		if (presentIntro) {
+			eventEmitter.broadcast({ type: 'freeSpinIntroHide' });
+			stateUi.freeSpinIntroShow = false;
+		}
 		eventEmitter.broadcast({ type: 'boardFrameGlowShow' });
 		eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
 		stateUi.freeSpinCounterShow = true;
@@ -148,7 +174,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			total: bookEvent.totalFs,
 		});
 		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
-		await eventEmitter.broadcastAsync({ type: 'uiShow' });
+		if (presentIntro) {
+			await eventEmitter.broadcastAsync({ type: 'uiShow' });
+		}
 		await eventEmitter.broadcastAsync({ type: 'drawerButtonShow' });
 		eventEmitter.broadcast({ type: 'drawerFold' });
 	},
