@@ -43,8 +43,11 @@ submodule bumps).
   matches the Rigger preview at any game scale. Corrected the file's misleading doc comment (it claimed
   `skeletonToPixiWorldCoordinates` yields the spine's child space — it yields WORLD). pixi-svelte build
   GREEN; svelte-check clean on the file (3 pre-existing baseline errors elsewhere).
-- **Ships to online games** via `publish-runtime-bundle` (runtime `lines` bundle) + a Book of Borut
-  `engine` submodule bump. ⏳ owner visual-verify on a rig-bound symbol FX.
+- **PUBLISHED to the online runtime** (2026-07-14): `publish-runtime-bundle lines` → R2
+  `test_server/_runtime/lines/` + `POST games.invisiblewall.org/refresh`. Verified the live served
+  bundle (`bundle.exiE_EZd.js`) contains the fixed `follow()` — shipment AND reachability confirmed.
+  ⏳ owner visual-verify the pixels on a rig-bound symbol FX. (Standalone Book of Borut, which has its
+  OWN bundle, still needs an `engine` submodule bump to pick this up.)
 
 ### 2026-07-14 — Flow: generic `showMessage` effect (Info Bar / transient toast producer)
 - **What:** a new generic, reusable Flow effect `showMessage` that populates `state-shared`'s
