@@ -77,6 +77,19 @@ tapToContinue.ts`, `ComponentInstance.svelte`, `scripts/test-tap-to-continue.mjs
   atlas now busts every URL-keyed cache (browser/CDN/PIXI) AUTOMATICALLY on the next region-set fetch
   — no button. FX also drops its cached art on atlas re-select. Rigger already busts with `Date.now()`
   + resolves its page server-side, so it was already covered. Build GREEN.
+- **ACTUAL root cause (found by inspecting R2 directly, `fef01ab`):** the two fixes above did NOT
+  make the blank region appear — the owner still saw an empty image. Stopped patching and inspected
+  the real bytes (`invisible_wall/bookofborutremake`, `S_Game_Reel`, `T_VFX_Drop`): the region rect
+  was correct AND the real page `deploy/sprites/S_Game_Reel.webp` (4096×2048) HAD the art (58% opaque
+  at the rect). But `pickDeployedPage` only excluded `deploy/editor-art/`, not `deploy/editor-symbols/`
+  — and 7 `deploy/editor-symbols/R_*/S_Game_Reel.webp` per-symbol byproducts (different dims, empty
+  outside their symbol frame, NEWER than the re-pack) out-sorted the real page and sliced blank. Fix:
+  exclude the whole `deploy/editor-<kind>/` derived-bake family (`^editor-[^/]+/`). Verified against R2
+  that the resolver now picks `deploy/sprites/S_Game_Reel.webp`. LESSON: when a resolver bug survives
+  two plausible code fixes, inspect the live data (R2) before writing a third — `apps/launcher-api/`
+  Node script, parse `.env`, `@aws-sdk/client-s3` + `sharp`, sample the region's alpha on each candidate
+  page. NB: this is EDITOR-side only; the running game reads baked/pulled assets + the shared runtime
+  bundle, so it is unaffected until an effect ships export→bake→pull→register + a runtime republish.
 
 ### 2026-07-14 — Free-spin intro: flow is sole authority (no coded intro fallback under v2)
 
