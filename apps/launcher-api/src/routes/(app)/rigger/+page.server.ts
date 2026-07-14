@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { BUILD_ID } from '$lib/server/buildId';
 import { toolBarParams } from '$lib/server/toolBar';
 import type { PageServerLoad } from './$types';
 
@@ -14,5 +15,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	// tool bar is fed the role-gated tool list (`home` + `tools`); the app is
 	// same-origin, so every switcher link is a launcher URL.
 	const params = toolBarParams(tools, 'rigger');
+	// Cache-bust the stable-name static app (view.html + vendored rigger-fx.js): a new deploy
+	// changes BUILD_ID, so the browser fetches the fresh files instead of serving stale ones.
+	params.set('v', BUILD_ID);
 	throw redirect(303, `/rigger/view.html?${params.toString()}`);
 };

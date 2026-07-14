@@ -614,7 +614,8 @@ function loadRuntime(line){
   return new Promise((resolve, reject) => {
     if (loadedLine === line && window.spine){ SPINE = window.spine; return resolve(); }
     const s = document.createElement("script");
-    s.src = "/spine/vendor/spine-webgl-" + line + ".js";
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/spine/vendor/spine-webgl-" + line + ".js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
     s.onload = () => { SPINE = window.spine; loadedLine = line; resolve(); };
     s.onerror = () => reject(new Error("Failed to load runtime " + line));
     document.head.appendChild(s);
@@ -641,7 +642,10 @@ function ensureFxOverlay(){
     if (window.RiggerFx){ finish(); return; }
     console.log("[RiggerFx] loading /rigger/vendor/rigger-fx.js …");
     const s = document.createElement("script");
-    s.src = "/rigger/vendor/rigger-fx.js";
+    // Cache-bust the stable-name vendored bundle with the deploy version `?v=` the /rigger route
+    // passed in (see buildId.ts) — else the browser serves a stale rigger-fx.js after a redeploy.
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/vendor/rigger-fx.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
     s.onload = finish;
     s.onerror = () => { console.warn("[RiggerFx] failed to load the overlay bundle"); fxLoadFailed = true; resolve(); }; // best-effort — don't retry-spam
     document.head.appendChild(s);
