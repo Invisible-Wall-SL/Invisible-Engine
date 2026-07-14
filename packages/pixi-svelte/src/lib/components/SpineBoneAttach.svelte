@@ -24,11 +24,17 @@
 	 * `SpineProvider` (NOT an authoring backdrop), so the effect follows the live bone.
 	 *
 	 * `<SpineBone>` only WRITES a bone's transform; following a bone is the inverse — read its
-	 * live transform and position our container there. Because this container is parented under
-	 * the Spine (via the parent context), the bone resolves into the SAME local frame our
-	 * position lives in: `getBonePosition` (skeleton space) → `skeletonToPixiWorldCoordinates`
-	 * maps it into the Spine's child space. No pan/zoom inverse is needed here (unlike the `/fx`
-	 * authoring stage, whose emitter container also carries the stage camera transform).
+	 * live transform and position our container there. The load-bearing coordinate hop:
+	 * `getBonePosition` is in SKELETON space; `skeletonToPixiWorldCoordinates` lifts it to Pixi
+	 * WORLD coords (it literally does `spine.worldTransform.apply(point)`). But our `container.position`
+	 * lives in our PARENT's frame, and that parent already carries the rig's world transform (the
+	 * cell translate + contain-fit scale in a MainContainer-scaled game — whether the parent is
+	 * `RiggedEffect`'s spine-child `fxParent` or the `SpineProvider`'s outer container). So we must
+	 * map the world point back into the parent's local frame (`parent.worldTransform.applyInverse`)
+	 * before assigning it — otherwise the rig transform is applied TWICE (once here, once again at
+	 * render because we're a descendant of the rig) and the FX drifts off the bone by exactly that
+	 * transform. This mirrors the `/fx` authoring stage, which inverts its own container's world
+	 * matrix for the same reason (`emitterOwnerLocal`).
 	 */
 	import { onMount } from 'svelte';
 	import {
@@ -67,10 +73,17 @@
 		const offset = props.offset ?? { x: 0, y: 0 };
 		const pos = spine?.getBonePosition(props.boneName, bonePoint);
 		if (pos) {
-			// Mutates `pos` (== bonePoint) from skeleton space into the Spine's local space —
-			// the frame this container's position lives in.
+			// `pos` (== bonePoint) is in skeleton space. Lift it to Pixi WORLD coords (offset applied
+			// in the same world frame, matching the authoring stage), then map it back into THIS
+			// container's parent frame — where `container.position` lives. Skipping the inverse would
+			// double-apply the rig's world transform (this container is a descendant of the rig), which
+			// is the offset the FX shows in a MainContainer-scaled game.
 			spine.skeletonToPixiWorldCoordinates(pos);
-			container.position.set(pos.x + offset.x, pos.y + offset.y);
+			pos.x += offset.x;
+			pos.y += offset.y;
+			const parent = container.parent;
+			if (parent) parent.worldTransform.applyInverse(pos, pos);
+			container.position.set(pos.x, pos.y);
 		} else {
 			// Unresolved bone → spawn at the spine origin + offset (never silently vanish).
 			container.position.set(offset.x, offset.y);

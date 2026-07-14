@@ -24,6 +24,28 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Invisible FX: `SpineBoneAttach` bone-follow drifted off the bone in a scaled game
+- **What:** owner reported the runtime rig FX (the symbol "state machine" path) not matching the
+  `/fx` Rigger preview — the effect renders at an **offset** on a real, cell-placed, MainContainer-
+  scaled symbol. This is the risk the FX notes flagged: *"SpineBoneAttach positions in WORLD coords
+  assuming its parent is at the rig origin."* It materialized.
+- **Root cause (`packages/pixi-svelte/src/lib/components/SpineBoneAttach.svelte`):** `follow()` set
+  `container.position` DIRECTLY to `spine.skeletonToPixiWorldCoordinates(bonePos)` — which is Pixi
+  **WORLD** coords (`worldTransform.apply`), NOT the container's parent-local frame. But the container
+  is a **descendant of the rig** (`RiggedEffect`'s `spine.addChild(fxParent)`, or the `SpineProvider`'s
+  outer container), so the rig's world transform (cell translate + contain-fit scale) got applied
+  **twice** — once explicitly, once at render — = the offset (+ a scale mismatch). Looked fine only
+  when the spine was at the world origin at scale 1 (why it passed headless). The `/fx` authoring stage
+  was always correct: it inverts its own container's world matrix (`emitterOwnerLocal`).
+- **Fix:** after lifting the bone to world coords (offset applied in the same world frame, matching the
+  authoring stage), map the point back into the container's parent frame via
+  `container.parent.worldTransform.applyInverse(pos, pos)` before assigning `position`. Now the runtime
+  matches the Rigger preview at any game scale. Corrected the file's misleading doc comment (it claimed
+  `skeletonToPixiWorldCoordinates` yields the spine's child space — it yields WORLD). pixi-svelte build
+  GREEN; svelte-check clean on the file (3 pre-existing baseline errors elsewhere).
+- **Ships to online games** via `publish-runtime-bundle` (runtime `lines` bundle) + a Book of Borut
+  `engine` submodule bump. ⏳ owner visual-verify on a rig-bound symbol FX.
+
 ### 2026-07-14 — Flow: generic `showMessage` effect (Info Bar / transient toast producer)
 - **What:** a new generic, reusable Flow effect `showMessage` that populates `state-shared`'s
   `stateMessage.current` — the feed the Info Bar componentInstance reads (its `message` value +
