@@ -24,6 +24,24 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Invisible FX: rig FX now rides the bone's full transform (rotation + scale)
+- **What:** follow-up to the centring fix below — owner reported the FX was centred but still the
+  wrong SIZE and not following the bone's ROTATION. Root cause: bone-attached FX only tracked the
+  bone's POSITION. `SpineBoneAttach` has `followRotation`/`followScale` props, but they default off
+  and neither runtime consumer passed them, so a rotated/scaled bone rendered the FX axis-aligned at
+  the wrong scale. The `/fx` preview likewise only welded the spawn point (position), so authoring
+  and runtime were consistent-but-incomplete.
+- **How:** (a) pass `followRotation followScale` on both runtime consumers — `RiggedEffect` (symbol
+  path) and `EffectLayer` (layout path); the component's follow block already reads the bone's world
+  rotation/scale (rotation negated for skeleton CCW→Pixi CW, scale composes with the inherited
+  fit-scale). (b) `FxStage.followBones` (the `/fx` preview) now RIDES the emitter container on the
+  bone — position + rotation + scale, spawn owner at the container origin — so existing particles
+  ride the bone too, not just new spawns; free layers keep the identity-container + offset-owner
+  path. Position math unchanged (same world→local mapping), so the confirmed centring is preserved.
+- **PUBLISHED to the online runtime** (`bundle.Dsd5XmbX.js`) + launcher `/fx` auto-deploys on push.
+  Verified live: `followRotation:!0`/`followScale:!0` both present ×2 in the served bundle. ⏳ owner
+  visual-verify the size/rotation on a rig-bound symbol FX.
+
 ### 2026-07-14 — Invisible FX: `SpineBoneAttach` bone-follow drifted off the bone in a scaled game
 - **What:** owner reported the runtime rig FX (the symbol "state machine" path) not matching the
   `/fx` Rigger preview — the effect renders at an **offset** on a real, cell-placed, MainContainer-
