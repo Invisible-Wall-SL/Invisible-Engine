@@ -62,12 +62,14 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
 		wins: [
 			{
 				symbol: 'H3',
+				kind: 3,
+				win: 100,
 				positions: [
 					{ reel: 0, row: 1 },
 					{ reel: 1, row: 2 },
 				],
 			},
-			{ symbol: 'H1', positions: [{ reel: 2, row: 0 }] },
+			{ symbol: 'H1', kind: 2, win: 50, positions: [{ reel: 2, row: 0 }] },
 		],
 	},
 	setTotalWin: { type: 'setTotalWin', amount: 1234 },
@@ -255,6 +257,14 @@ const makeRig = (turbo: boolean) => {
 			log.push('stateUi.winShow = false');
 			log.push('stateUi.bigWinShow = false');
 		},
+		// The generic transient-message effect. The assembled text + `showMessage()` state write are
+		// game-side (currency formatting + "N of a kind"); the parity unit here is the declared effect
+		// boundary + its resolved payload, exactly like every other effect above.
+		showMessage: (p) => {
+			log.push(
+				`effect showMessage${stableArgs({ amount: p.amount, kind: p.kind, messageKind: p.messageKind })}`,
+			);
+		},
 	};
 
 	const runtime: FlowRuntime = {
@@ -293,9 +303,22 @@ const coded: Record<string, Coded> = {
 	},
 	winInfo: async (rig, e) => {
 		rig.recording.broadcast({ type: 'soundOnce', name: 'sfx_winlevel_small' });
-		await sequence(e.wins as { positions: Position[] }[], async (win) => {
-			await animateSymbols(rig, win.positions);
-		});
+		await sequence(
+			e.wins as { positions: Position[]; win: number; kind: number }[],
+			async (win) => {
+				await animateSymbols(rig, win.positions);
+				// The authored winInfo INTENTIONALLY adds a transient "Win $X — N of a kind" toast the
+				// frozen `bookEventHandlerMap.winInfo` does NOT — a generic Flow-effect enhancement.
+				// Modelled on BOTH sides here so the parity unit stays honest AND exercises the item
+				// bindings ($item.win / $item.kind). True fall-through parity — no FlowDoc ⇒ no toast ⇒
+				// byte-identical to `main` — is unaffected: the coded handler itself is untouched.
+				await rig.effects.showMessage?.({
+					amount: win.win,
+					kind: win.kind,
+					messageKind: 'win',
+				});
+			},
+		);
 	},
 	setTotalWin: async (rig, e) => {
 		await rig.effects.setWinBookEventAmount({ amount: e.amount });

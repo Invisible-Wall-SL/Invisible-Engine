@@ -226,6 +226,20 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			category: 'effect',
 		},
 		{ name: 'winHide', params: [], category: 'effect' },
+		// Generic transient-message ("toast") effect — populates `stateMessage.current`, the feed the
+		// Info Bar's `message` value + `messageShow` gate read. The TEXT is assembled game-side from the
+		// structured params (the accessor model can't template a string): `amount` (a book-event amount)
+		// formats through the win-meter's currency formatter, `kind` appends "N of a kind", `messageKind`
+		// selects the toast style. Any flow can invoke it; `winInfo` fires it per win.
+		{
+			name: 'showMessage',
+			params: [
+				{ name: 'amount', type: FLOAT },
+				{ name: 'kind', type: INT },
+				{ name: 'messageKind', type: { t: 'string' } },
+			],
+			category: 'effect',
+		},
 		// --- mechanic commands ---
 		// `revealBoard` is the board SPIN — it consumes the WHOLE reveal event + the surrounding
 		// book-event list (the bonus-game check), so it takes no clean typed params: the flow feeds it

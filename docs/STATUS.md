@@ -24,6 +24,35 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Flow: generic `showMessage` effect (Info Bar / transient toast producer)
+- **What:** a new generic, reusable Flow effect `showMessage` that populates `state-shared`'s
+  `stateMessage.current` — the feed the Info Bar componentInstance reads (its `message` value +
+  `messageShow` gate in `Game.svelte`). Previously NO runtime code ever called `showMessage()`, so
+  `stateMessage.current` was permanently `null` → the Info Bar was always gated invisible + empty.
+  The `winInfo` choreography now fires it per win, so a "Message Bar" screen shows "Win $1.00 —
+  2 of a kind" (auto-clearing). Authored in the FlowDoc, NOT hardcoded in `bookEventHandlerMap`.
+- **How:** effect handler in `apps/lines/src/game/flowEffects.ts` (`showMessage`) — the bounded
+  accessor model can't template a string, so the payload is STRUCTURED (`amount`, `kind`,
+  `messageKind`, optional `durationMs`) and the TEXT is assembled in the handler: `amount` (a
+  book-event amount) formats through the SAME formatter the win-meter uses
+  (`bookEventAmountToCurrencyString`), `kind` appends "N of a kind". Authored into BOTH reference
+  docs — v1 `flowDoc.ts` (`winInfoChoreography` forEach body) and v2
+  `engine-flow-v2/reference/bookOfChoreo.ts` (`winInfo` forEach body, `$item.win`/`$item.kind`).
+  Declared in the v2 template vocab `BOOK_OF_VOCAB` (`bookOf.ts`) so the /flow-v2 palette offers +
+  validates it. v1 palette fixtures regenerated (`node scripts/gen-flow-vocabulary.mjs` →
+  `emitterVocabulary.ts` + launcher `emitterVocabularies.ts`).
+- **Parity:** fall-through UNAFFECTED — the coded `bookEventHandlerMap.winInfo` is untouched, so a
+  game with no FlowDoc shows no toast (byte-identical to `main`). Verified headlessly: Phase-0/5
+  parity + v2choreo/v2vocab/translate spikes all PASS (phase5 now exercises the effect on both
+  sides — winInfo parity 7 ordered ops identical, turbo on/off). `engine-flow-v2` typecheck +
+  `apps/lines` svelte-check clean (0 errors).
+- **To SHIP to bookofborutremake (runtime:lines bundle):** the live game runs a BAKED flow-v2 doc,
+  so the coded reference `winInfo` is NOT the live path. The owner must (a) in `/flow-v2` add a
+  `showMessage` action node inside the `winInfo` forEach body wired `amount←$item.win`,
+  `kind←$item.kind`, `messageKind←"win"`, then export/bake/publish that flow doc; AND (b) ship the
+  runtime bundle (`node scripts/publish-runtime-bundle.mjs` + a `/refresh`) so the new effect impl +
+  formatter travel in the bundle. NOT a submodule bump.
+
 ### 2026-07-13 — Scene Editor: bone-ridden stand-in symbol preview (free-spin symbol reveal)
 - **What:** when an author places a **Free-spin symbol reveal** (`freeSpinIntroSymbolReveal`) instance
   and picks a `symbolBone`, the Scene Editor now renders a stand-in symbol that MOUNTS on that bone and

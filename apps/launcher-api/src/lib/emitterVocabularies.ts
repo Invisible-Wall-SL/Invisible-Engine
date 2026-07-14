@@ -384,6 +384,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'showMessage',
+				group: 'Effect',
+			},
+			{
 				name: 'stopReel',
 				group: 'Effect',
 			},
@@ -789,6 +793,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'winHide',
+				group: 'Effect',
+			},
+			{
+				name: 'showMessage',
 				group: 'Effect',
 			},
 			{

@@ -160,7 +160,9 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 		{ k: 'cue', ref: 'soundScatterCounterClear' },
 	],
 
-	// `winInfo` — a win-level sfx, then a serial forEach over `$trigger.wins`, each animating its cells.
+	// `winInfo` — a win-level sfx, then a serial forEach over `$trigger.wins`, each animating its
+	// cells and showing a transient "Win $X — N of a kind" toast for that win (the generic
+	// `showMessage` effect; text assembled game-side from the win's `win`/`kind`).
 	winInfo: [
 		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('sfx_winlevel_small') } },
 		{
@@ -174,6 +176,11 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 					ref: 'boardWithAnimateSymbols',
 					wait: true,
 					inputs: { symbolPositions: itemA('positions') },
+				},
+				{
+					k: 'action',
+					ref: 'showMessage',
+					inputs: { amount: itemA('win'), kind: itemA('kind'), messageKind: str('win') },
 				},
 			],
 		},

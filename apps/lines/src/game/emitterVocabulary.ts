@@ -380,6 +380,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'showMessage',
+			group: 'Effect',
+		},
+		{
 			name: 'stopReel',
 			group: 'Effect',
 		},

@@ -23,8 +23,14 @@
  */
 
 import { recordBookEvent, checkIsMultipleRevealEvents } from 'utils-book';
-import { stateBet, stateUi } from 'state-shared';
+import {
+	stateBet,
+	stateUi,
+	showMessage as showGameMessage,
+	type GameMessageKind,
+} from 'state-shared';
 import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
+import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
 
@@ -271,6 +277,35 @@ const effects: Record<string, FlowEffect> = {
 	winHide: () => {
 		stateUi.winShow = false;
 		stateUi.bigWinShow = false;
+	},
+
+	/**
+	 * Generic transient-message ("toast") effect. Fires `state-shared` `showMessage`, which
+	 * populates `stateMessage.current` — the feed the Info Bar's `message` value + `messageShow`
+	 * gate read (Game.svelte). Any FlowDoc can invoke it; it is NOT winInfo-specific.
+	 *
+	 * The bounded accessor model can't template a string (§11.4), so the TEXT is assembled HERE
+	 * from the structured payload: an `amount` (a book-event amount, e.g. a `winInfo` win's `win`)
+	 * formats through the SAME currency formatter the win-meter uses (`bookEventAmountToCurrencyString`,
+	 * so it matches the game's formatting), and a `kind` appends the "N of a kind" tail. So a
+	 * `winInfo` win renders "Win $1.00 — 2 of a kind"; with only `amount` it shows "Win $1.00".
+	 * Auto-clears via the state timer (`messageKind` selects the toast style, default `info`;
+	 * `durationMs` overrides the default hold).
+	 */
+	showMessage: (payload) => {
+		const parts: string[] = [];
+		if (typeof payload.amount === 'number') {
+			parts.push(`Win ${bookEventAmountToCurrencyString(payload.amount)}`);
+		}
+		if (typeof payload.kind === 'number') {
+			parts.push(`${payload.kind} of a kind`);
+		}
+		const text = parts.join(' — ');
+		if (!text) return;
+		showGameMessage(text, {
+			kind: (payload.messageKind as GameMessageKind) ?? 'info',
+			durationMs: payload.durationMs as number | undefined,
+		});
 	},
 
 	/**
