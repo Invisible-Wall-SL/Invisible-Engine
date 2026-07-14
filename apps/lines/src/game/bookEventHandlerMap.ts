@@ -4,15 +4,17 @@ import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap 
 import { stateBet, stateUi } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
 import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
+import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { playBookEvent } from './utils';
 import { winLevelMap, type WinLevel } from './winLevelMap';
-import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import { winLevelSoundsPlay, winLevelSoundsStop, animateSymbols } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
+import { bakedWinLineEnabled } from '../editor-scenes';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
@@ -33,7 +35,42 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	winInfo: async (bookEvent: BookEventOfType<'winInfo'>) => {
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_winlevel_small' });
 		await sequence(bookEvent.wins, async (win) => {
-			await animateSymbols({ positions: win.positions });
+			// The server reports the FULL payline path in `win.positions`, but only the
+			// leftmost `kind` symbols form the paying combination — a left-to-right line
+			// win always starts on reel 1 and stops at the first non-matching reel. Trace
+			// just those, so non-winning tail symbols (and the scatter the line happens to
+			// cross) don't light. Scatter wins already have positions.length === kind, so
+			// sorting by reel + slicing is a harmless no-op for them.
+			const winningPositions = [...win.positions]
+				.sort((a, b) => a.reel - b.reel)
+				.slice(0, win.kind);
+
+			// Trace the win line through ONLY the paying symbols and stamp the pay amount
+			// below its end. Scatter ('S') pays "anywhere" — not a line — so it's skipped,
+			// keeping its symbol glow. The whole overlay is gated by the Symbol-State-Machine
+			// toggle (defaults on, so an un-baked game keeps drawing it).
+			const showWinLine = win.symbol !== 'S' && bakedWinLineEnabled();
+			if (showWinLine) {
+				// Board-local centres: getSymbolX(reel) + the live symbol centre Y. Mounted
+				// inside WinLine's <BoardContainer> so these align with the rendered reels.
+				const points = winningPositions.map((position) => ({
+					x: getSymbolX(position.reel),
+					y: stateGame.board[position.reel].reelState.symbols[position.row].symbolY(),
+				}));
+				// Awaited: when the line is configured to animate, WinLine.svelte resolves this
+				// only after the line has drawn first→last and the amount is revealed, so the
+				// symbol glow follows. Non-animated draws resolve immediately, keeping the
+				// original timing (line + amount instant, symbols animate alongside).
+				await eventEmitter.broadcastAsync({
+					type: 'winLineShow',
+					points,
+					amount: bookEventAmountToCurrencyString(win.win),
+				});
+			}
+
+			await animateSymbols({ positions: winningPositions });
+
+			if (showWinLine) eventEmitter.broadcast({ type: 'winLineHide' });
 		});
 	},
 	setTotalWin: async (bookEvent: BookEventOfType<'setTotalWin'>) => {

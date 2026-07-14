@@ -144,6 +144,7 @@
 	import Background from './Background.svelte';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
+	import WinLine from './WinLine.svelte';
 	import Anticipations from './Anticipations.svelte';
 	import Win from './Win.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
@@ -1433,6 +1434,7 @@
 		<MainContainer>
 			<BoardFrame />
 			<Board />
+			<WinLine />
 			<Anticipations />
 		</MainContainer>
 

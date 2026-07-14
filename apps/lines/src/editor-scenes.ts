@@ -395,6 +395,57 @@ export function bakedHighlight(): { assetKey: string; animationName: string } | 
 }
 
 /**
+ * Whether the win-line overlay is drawn — the Invisible Symbols State Machine's global toggle.
+ * Defaults to `true` (un-baked or unauthored keeps showing it); the author can turn it off.
+ */
+export function bakedWinLineEnabled(): boolean {
+	return bakedWinLineConfig().enabled;
+}
+
+/** The win-line overlay style, fully RESOLVED — every field the baked doc omits is filled
+ * with the coded default (which mirror the literals `WinLine.svelte` uses), so an
+ * un-baked/unauthored project renders byte-identical. `width`/`size` are multiples of
+ * `SYMBOL_SIZE`; colours are CSS hex strings; `speed` scales the animated draw duration.
+ * The Invisible Symbols State Machine authors the overrides. */
+export type ResolvedWinLine = {
+	enabled: boolean;
+	line: {
+		color: string;
+		width: number;
+		glow: boolean;
+		glowColor: string;
+		animated: boolean;
+		speed: number;
+	};
+	text: { font: string; size: number; color: string };
+};
+
+export function bakedWinLineConfig(): ResolvedWinLine {
+	const w = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.winLine
+		: hasBakedDoc()
+			? bakedBundle.symbols?.winLine
+			: undefined;
+	const color = w?.line?.color ?? '#ffcc00';
+	return {
+		enabled: w?.enabled ?? true,
+		line: {
+			color,
+			width: w?.line?.width ?? 0.03,
+			glow: w?.line?.glow ?? false,
+			glowColor: w?.line?.glowColor ?? color,
+			animated: w?.line?.animated ?? false,
+			speed: w?.line?.speed ?? 1,
+		},
+		text: {
+			font: w?.text?.font ?? 'gold',
+			size: w?.text?.size ?? 0.5,
+			color: w?.text?.color ?? '#ffffff',
+		},
+	};
+}
+
+/**
  * The baked Invisible Flow document (the presentation graph). When present, the
  * game's `flowRuntime` builds the engine-flow interpreter from it so authored screens
  * mount + authored choreography runs in place of the coded path; the per-event
