@@ -188,7 +188,7 @@
 
 {#if plan.render}
 	{#if plan.mount === 'bone' && plan.bone}
-		<SpineBoneAttach boneName={plan.bone} offset={plan.offset}>
+		<SpineBoneAttach boneName={plan.bone} offset={plan.offset} followRotation followScale>
 			<ParticleEmitter
 				key={props.layer.art.assetKey}
 				config={props.layer.config}

@@ -90,7 +90,7 @@
 {#if runId > 0}
 	{#key runId}
 		{#if props.bone}
-			<SpineBoneAttach boneName={props.bone}>
+			<SpineBoneAttach boneName={props.bone} followRotation followScale>
 				<EffectPlayer doc={props.doc} forceEmit />
 			</SpineBoneAttach>
 		{:else}

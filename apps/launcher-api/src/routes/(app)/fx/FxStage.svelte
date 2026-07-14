@@ -40,6 +40,7 @@
 		emitterOwnerLocal,
 		layerFollowsBone,
 		spineParticleReady,
+		worldToContainerLocal,
 		type Affine,
 	} from './fxModel.client';
 	import {
@@ -122,6 +123,7 @@
 	let spineGen = 0;
 	/** Reused point for the per-frame bone-follow (avoid per-frame allocation). */
 	const bonePoint = { x: 0, y: 0 };
+	const DEG_TO_RAD = Math.PI / 180;
 	/** Per-key live emitter + the container it draws into + whether it has bound art (a sprite
 	 * layer with textures OR a spine-particle layer with a bound pool — either spawns visibly). */
 	const live = new Map<string, { emitter: Emitter; container: Container; hasArt: boolean }>();
@@ -216,9 +218,16 @@
 	 */
 	function followBones(): void {
 		const spine = loadedSpine?.spine;
+		const wt = world?.worldTransform;
+		const worldAffine: Affine = wt
+			? { a: wt.a, b: wt.b, c: wt.c, d: wt.d, tx: wt.tx, ty: wt.ty }
+			: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
 		for (const layer of layers) {
 			const entry = live.get(layer.key);
 			if (!entry) continue;
+			const offset = layer.placement.offset ?? { x: 0, y: 0 };
+
+			let bone: SPINE.Bone | null = null;
 			let boneWorld: { x: number; y: number } | null = null;
 			if (spine && layerFollowsBone(layer)) {
 				const pos = spine.getBonePosition(layer.placement.bone!, bonePoint);
@@ -226,12 +235,38 @@
 					// Mutates `pos` (== bonePoint) from skeleton space into Pixi WORLD coords.
 					spine.skeletonToPixiWorldCoordinates(pos);
 					boneWorld = { x: pos.x, y: pos.y };
+					bone = spine.skeleton.findBone(layer.placement.bone!);
 				}
 			}
-			const cw = entry.container.worldTransform;
-			const affine: Affine = { a: cw.a, b: cw.b, c: cw.c, d: cw.d, tx: cw.tx, ty: cw.ty };
-			const owner = emitterOwnerLocal(layer, boneWorld, affine);
-			entry.emitter.updateOwnerPos(owner.x, owner.y);
+
+			if (boneWorld) {
+				// Fully RIDE the bone (position + rotation + scale), matching the runtime
+				// `<SpineBoneAttach followRotation followScale>`: place the emitter CONTAINER on the
+				// bone (world → the pan/zoom `world`'s local frame), orient + scale it by the bone's
+				// world transform, and spawn from the container origin — so EXISTING particles ride
+				// the bone too, not just new spawns. Offset is applied in world coords then mapped
+				// (parity with the runtime). The backdrop spine is unscaled/unrotated under `world`,
+				// so the bone's world rotation/scale map straight onto the container; skeleton space
+				// is CCW / y-up vs Pixi y-down, so rotation is negated (same inversion `<SpineBone>`).
+				const p = worldToContainerLocal(worldAffine, {
+					x: boneWorld.x + offset.x,
+					y: boneWorld.y + offset.y,
+				});
+				entry.container.position.set(p.x, p.y);
+				if (bone) {
+					entry.container.rotation = -bone.getWorldRotationX() * DEG_TO_RAD;
+					entry.container.scale.set(bone.getWorldScaleX(), bone.getWorldScaleY());
+				}
+				entry.emitter.updateOwnerPos(0, 0);
+			} else {
+				// Free layer (or an unresolved bone): identity container, spawn at the authored offset
+				// in container-local (the container origin already IS the scene centre).
+				entry.container.position.set(0, 0);
+				entry.container.rotation = 0;
+				entry.container.scale.set(1, 1);
+				const owner = emitterOwnerLocal(layer, null, worldAffine);
+				entry.emitter.updateOwnerPos(owner.x, owner.y);
+			}
 		}
 	}
 
