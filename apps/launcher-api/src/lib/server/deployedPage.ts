@@ -9,9 +9,15 @@ const SAME_BATCH_MS = 10_000;
  * editor shows exactly what the game loads. Shared by the region-sprite resolver
  * (`editorRegions.ts`) and the spine page resolver (`spine.ts`).
  *
- * - Keys under `deploy/editor-art/` are EXCLUDED: that's the editor's OWN bake
- *   output (editorArtExport.ts) — reading it back as a display source is
- *   circular and can serve a stale page.
+ * - The `deploy/editor-<kind>/` family is EXCLUDED (`editor-art`, `editor-symbols`,
+ *   …): those are the editor's OWN per-component / per-symbol bake outputs, NOT
+ *   the atlas's packed page. Reading one back as a display source is circular AND
+ *   wrong — a per-symbol export merely SHARES the atlas stem while being packed to
+ *   different dimensions (or fully transparent outside that symbol's frame), so it
+ *   shadows the real page and makes unrelated regions resolve EMPTY. (This is the
+ *   bug where a freshly-packed region rendered blank: 7 `editor-symbols` byproducts
+ *   named `S_Game_Reel.webp`, newer than the real `deploy/sprites/S_Game_Reel` page,
+ *   out-sorted it and were empty at the region's rect.)
  * - The latest deploy wins (a re-pack changes geometry, so only the newest page
  *   matches the manifest's rects). A deploy batch writes .webp + .png within
  *   seconds of each other — within the newest batch, prefer .webp (the deploy's
@@ -27,9 +33,10 @@ export function pickDeployedPage(
 	deployPrefix: string,
 ): string | null {
 	if (stems.size === 0) return null;
-	const editorArtPrefix = `${deployPrefix}editor-art/`;
 	const matches = objs.filter((o) => {
-		if (o.key.startsWith(editorArtPrefix)) return false;
+		// Skip the whole `deploy/editor-*/` derived-bake family (see doc comment).
+		const rel = o.key.startsWith(deployPrefix) ? o.key.slice(deployPrefix.length) : o.key;
+		if (/^editor-[^/]+\//.test(rel)) return false;
 		const b = o.key.split('/').pop() ?? o.key;
 		const dot = b.lastIndexOf('.');
 		if (dot === -1) return false;
