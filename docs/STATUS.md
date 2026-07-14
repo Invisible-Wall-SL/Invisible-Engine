@@ -67,6 +67,16 @@ tapToContinue.ts`, `ComponentInstance.svelte`, `scripts/test-tap-to-continue.mjs
   `source_image_path` (same coordinate space as the live rects). When the deploy is in sync it still
   wins (editor keeps showing what ships). One shared resolver → fixes FX, Rigger, and Symbols SM.
 - **Shipped + verified:** `pnpm --filter launcher-api build` GREEN; launcher auto-deploys on push.
+- **Follow-up (same day) — content-versioned asset URLs for ALL tools:** the editor + Symbols only
+  busted the page-image cache on a MANUAL "Reload art" (a client counter); FX + the effect overlay
+  never busted at all. Now `/api/editor/regions` returns a content `pageVersion` (region rects + page
+  ETag via `sheetVersion`), and every consumer stamps it into `/api/editor/asset?key=…&v=…`:
+  `regionAssetUrl(pageKey, version)` (shared helper), FX + `EditorEffectLayer` `resolveArt`,
+  `RegionThumb` (editor Library + Symbols — now keyed by the versioned URL), and `EditorCanvas`
+  (`pageVersionByKey` map, falling back to the manual counter for non-page images). A re-authored
+  atlas now busts every URL-keyed cache (browser/CDN/PIXI) AUTOMATICALLY on the next region-set fetch
+  — no button. FX also drops its cached art on atlas re-select. Rigger already busts with `Date.now()`
+  + resolves its page server-side, so it was already covered. Build GREEN.
 
 ### 2026-07-14 — Free-spin intro: flow is sole authority (no coded intro fallback under v2)
 

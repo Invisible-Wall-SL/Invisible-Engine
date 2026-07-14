@@ -27,12 +27,12 @@
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 
-	function loadPage(key: string): HTMLImageElement {
-		const hit = pageImages.get(key);
+	function loadPage(url: string): HTMLImageElement {
+		const hit = pageImages.get(url);
 		if (hit) return hit;
 		const img = new Image();
-		img.src = `${regionAssetUrl(key)}&v=${pageVersion}`;
-		pageImages.set(key, img);
+		img.src = url;
+		pageImages.set(url, img);
 		return img;
 	}
 
@@ -40,7 +40,9 @@
 		if (!canvas || !set.pageKey) return;
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
-		const img = loadPage(set.pageKey);
+		// Content-versioned URL: a re-authored atlas changes `pageVersion` → a fresh
+		// decode automatically, without the "Reload art" counter having to fire.
+		const img = loadPage(regionAssetUrl(set.pageKey, set.pageVersion));
 		const draw = (): void => {
 			if (!canvas || img.naturalWidth === 0) return;
 			const c = canvas.getContext('2d');
@@ -73,6 +75,7 @@
 
 	$effect(() => {
 		void set.pageKey;
+		void set.pageVersion; // content change (re-authored atlas) → fresh decode + repaint
 		void region.name;
 		void size; // resizing the canvas clears it → repaint at the new size
 		void pageVersion; // "Reload art" bump → re-fetch the page + repaint

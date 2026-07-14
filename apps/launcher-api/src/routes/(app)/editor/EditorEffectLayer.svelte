@@ -149,13 +149,15 @@
 			if (!res.ok) return null;
 			const set = (await res.json()) as {
 				pageKey: string;
+				pageVersion?: string;
 				pageWidth: number;
 				pageHeight: number;
 				regions: { name: string; x: number; y: number; w: number; h: number; rotated?: boolean }[];
 			};
 			if (!set.pageKey) return null;
+			const v = set.pageVersion ? `&v=${encodeURIComponent(set.pageVersion)}` : '';
 			return {
-				pageUrl: `/api/editor/asset?key=${encodeURIComponent(set.pageKey)}`,
+				pageUrl: `/api/editor/asset?key=${encodeURIComponent(set.pageKey)}${v}`,
 				pageWidth: set.pageWidth,
 				pageHeight: set.pageHeight,
 				regions: set.regions,

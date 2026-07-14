@@ -23,6 +23,9 @@ export interface RegionSet {
 	/** Resolved manifest key — the value a node stores as `assetKey`. */
 	assetKey: string;
 	pageKey: string;
+	/** Content-version token for the page — stamp into the asset URL to bust caches
+	 * when the atlas is re-authored (see `regionAssetUrl`). Empty when there's no page. */
+	pageVersion: string;
 	pageWidth: number;
 	pageHeight: number;
 	regions: EditorRegion[];
@@ -60,7 +63,14 @@ export function fetchRegions(sheetKey: string): Promise<RegionSet> {
 	const p = (async (): Promise<RegionSet> => {
 		const res = await fetch(`/api/editor/regions?sheet=${encodeURIComponent(sheetKey)}`);
 		if (!res.ok) {
-			return { assetKey: sheetKey, pageKey: '', pageWidth: 0, pageHeight: 0, regions: [] };
+			return {
+				assetKey: sheetKey,
+				pageKey: '',
+				pageVersion: '',
+				pageWidth: 0,
+				pageHeight: 0,
+				regions: [],
+			};
 		}
 		return (await res.json()) as RegionSet;
 	})();
@@ -68,8 +78,14 @@ export function fetchRegions(sheetKey: string): Promise<RegionSet> {
 	return p;
 }
 
-export function regionAssetUrl(pageKey: string): string {
-	return `/api/editor/asset?key=${encodeURIComponent(pageKey)}`;
+/**
+ * Build the gated page-image URL for a region set's page. Pass the set's
+ * `pageVersion` to stamp a content-version `&v=` so a re-authored atlas busts every
+ * URL-keyed cache (browser/CDN/PIXI) automatically — no manual "Reload art".
+ */
+export function regionAssetUrl(pageKey: string, version?: string): string {
+	const base = `/api/editor/asset?key=${encodeURIComponent(pageKey)}`;
+	return version ? `${base}&v=${encodeURIComponent(version)}` : base;
 }
 
 /** Native (untrimmed) size to spawn a region at — prefers the original art size. */

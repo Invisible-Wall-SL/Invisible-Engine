@@ -985,6 +985,11 @@
 	let spineReload = $state(0);
 	let fontReload = $state(0);
 
+	// Content-version per resolved page key (filled as region sets resolve). Lets a page
+	// image bust its cache the instant the atlas changes — the manual `assetVersion`
+	// counter is only the fallback for keys with no known content version (e.g. a raw
+	// full-image node, not an atlas page).
+	const pageVersionByKey = new Map<string, string>();
 	const images = new Map<string, HTMLImageElement | null>();
 	function ensureImage(key: string): HTMLImageElement | null {
 		if (images.has(key)) return images.get(key) ?? null;
@@ -1001,7 +1006,8 @@
 			imgSettled++;
 			console.warn('[editor] image load failed', key);
 		};
-		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}&v=${assetVersion}`;
+		const v = pageVersionByKey.get(key) ?? String(assetVersion);
+		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}&v=${encodeURIComponent(v)}`;
 		return null;
 	}
 
@@ -1011,6 +1017,7 @@
 	 * the spine layer re-loads via the forwarded `spineReload` token. */
 	function refreshAssets(): void {
 		images.clear();
+		pageVersionByKey.clear();
 		regionSets.clear();
 		failedRegionKeys.clear();
 		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
@@ -1043,6 +1050,7 @@
 			.then((set) => {
 				regionSets.set(assetKey, set);
 				regSettled++;
+				if (set.pageKey && set.pageVersion) pageVersionByKey.set(set.pageKey, set.pageVersion);
 				if (set.pageKey) ensureImage(set.pageKey);
 				draw(); // force a redraw once regions resolve (don't rely on raf dedup)
 			})
@@ -1075,6 +1083,7 @@
 			regionSets.set(p.key, {
 				assetKey: p.key,
 				pageKey: p.pageKey,
+				pageVersion: '', // synthetic set from a drag payload; the real fetch fills the version
 				pageWidth: 0,
 				pageHeight: 0,
 				regions: [region],

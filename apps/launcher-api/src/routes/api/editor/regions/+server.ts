@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { sheetVersion } from '$lib/server/assetVersion';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { assertAllowed, gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -30,9 +31,16 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	// client falls back to per-region placeholders instead of a broken <img>.
 	const pageKey = set.pageKey && prefixes.some((p) => set.pageKey.startsWith(p)) ? set.pageKey : '';
 
+	// Content-version token for the resolved page (region rects + page ETag). Clients
+	// stamp it into the `/api/editor/asset?key=…&v=…` URL so a re-authored atlas busts
+	// every URL-keyed cache (browser/CDN/PIXI) AUTOMATICALLY — no manual "Reload art".
+	// Empty when there's no page (nothing to version).
+	const pageVersion = pageKey ? ((await sheetVersion({ ...set, pageKey })) ?? '') : '';
+
 	return json({
 		assetKey: set.assetKey,
 		pageKey,
+		pageVersion,
 		pageWidth: set.pageWidth,
 		pageHeight: set.pageHeight,
 		regions: set.regions,
