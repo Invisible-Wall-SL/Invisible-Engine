@@ -24,6 +24,24 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Editor regions: a re-packed atlas showed a NEW region as an EMPTY image
+- **What:** owner reported that in `/fx` (and the same applies to Rigger + Symbols SM) a freshly
+  added atlas region appeared by NAME in the picker but rendered BLANK when selected — "reading the
+  new region but an old atlas."
+- **Root cause (NOT a browser/HTTP cache):** `loadRegionSet`
+  (`apps/launcher-api/src/lib/server/editorRegions.ts`) resolves region RECTS from the LIVE manifest
+  (`manifests/*.json`, rewritten instantly by Atlas Maker) but resolved the PAGE IMAGE via
+  `findDeployedPage()`, which PREFERS the copy under `deploy/`. `deploy/` only updates on an explicit
+  deploy, so a re-pack without a re-deploy paired fresh rects with the previous page → the new
+  region's coordinates cropped empty pixels. The `findDeployedPage` doc comment already warned about
+  this drift.
+- **Fix (`main`):** stale-deploy guard. `findDeployedPage` now takes the manifest's mtime
+  (`loadRegionSet` HEADs the manifest alongside the text read); if the newest matching deployed page
+  is OLDER than the manifest, it returns null and `resolvePageKey` falls back to the manifest's own
+  `source_image_path` (same coordinate space as the live rects). When the deploy is in sync it still
+  wins (editor keeps showing what ships). One shared resolver → fixes FX, Rigger, and Symbols SM.
+- **Shipped + verified:** `pnpm --filter launcher-api build` GREEN; launcher auto-deploys on push.
+
 ### 2026-07-14 — Free-spin intro: flow is sole authority (no coded intro fallback under v2)
 
 - **What:** owner removed the free-spin intro from the (v2) flow; the CODED intro then played and

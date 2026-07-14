@@ -15,7 +15,14 @@
  */
 import { pickDeployedPage } from './deployedPage';
 import { SUB } from './projectPaths';
-import { getObjectText, listAllObjects, listObjects, objectExists, type ListedObject } from './r2';
+import {
+	getObjectText,
+	headObject,
+	listAllObjects,
+	listObjects,
+	objectExists,
+	type ListedObject,
+} from './r2';
 
 export interface EditorRegion {
 	name: string;
@@ -126,15 +133,23 @@ async function resolveManifestKey(sheet: string): Promise<string | null> {
  * sheet → the caller falls back to the source page.
  *
  * Note: this swaps only the PAGE, keeping the manifest's region rects — correct
- * when the deploy kept the same geometry (the Atlas Maker "don't override the
- * .json" / spine path). A re-pack that changed geometry must also update the
- * manifest's regions for the editor to stay aligned.
+ * ONLY when the deployed page shares the manifest's current packing. The region
+ * rects come from the LIVE manifest (Atlas Maker rewrites it the instant you add
+ * or re-pack a region), while `deploy/` only updates on an explicit deploy — so a
+ * re-pack without a re-deploy leaves the deployed page a packing behind. Pairing
+ * fresh rects with that stale page crops empty/wrong pixels (the "new region shows
+ * up but the image is blank" bug). Guard against it: if the manifest was written
+ * AFTER the newest matching deployed page, treat the deploy as stale and return
+ * null so the caller falls back to the manifest's own source page (which IS in the
+ * manifest's current coordinate space). `manifestModified` is the manifest object's
+ * mtime (epoch ms; 0 = unknown → no guard, legacy behaviour).
  */
 async function findDeployedPage(
 	man: RawManifest,
 	manifestKey: string,
 	client: string,
 	project: string,
+	manifestModified: number,
 ): Promise<string | null> {
 	const stems = new Set<string>();
 	const addStem = (s: string | undefined): void => {
@@ -156,7 +171,19 @@ async function findDeployedPage(
 	} catch {
 		return null;
 	}
-	return pickDeployedPage(objs, stems, deployPrefix);
+	const picked = pickDeployedPage(objs, stems, deployPrefix);
+	if (!picked) return null;
+
+	// Stale-deploy guard: if the manifest (source of the region rects) is newer than
+	// the deployed page, the page predates the current packing — fall back to the
+	// source page so rects + pixels stay in the same coordinate space.
+	if (manifestModified > 0) {
+		const pickedObj = objs.find((o) => o.key === picked);
+		if (pickedObj && pickedObj.lastModified > 0 && pickedObj.lastModified < manifestModified) {
+			return null;
+		}
+	}
+	return picked;
 }
 
 async function resolvePageKey(
@@ -164,9 +191,12 @@ async function resolvePageKey(
 	manifestKey: string,
 	client: string,
 	project: string,
+	manifestModified: number,
 ): Promise<string | null> {
-	// Prefer the deployed page so the editor reflects the latest deploy.
-	const deployed = await findDeployedPage(man, manifestKey, client, project);
+	// Prefer the deployed page so the editor reflects the latest deploy — unless the
+	// deploy is older than the manifest (a re-pack that hasn't shipped yet), in which
+	// case `findDeployedPage` returns null and we fall through to the source page.
+	const deployed = await findDeployedPage(man, manifestKey, client, project, manifestModified);
 	if (deployed) return deployed;
 
 	const direct = str(man.atlas?.source_image_path);
@@ -339,8 +369,11 @@ export async function loadRegionSet(
 	const manifestKey = await resolveManifestKey(sheet);
 	if (!manifestKey) return empty;
 
-	const text = await getObjectText(manifestKey);
+	// Fetch the manifest bytes + its mtime together: the mtime lets `resolvePageKey`
+	// reject a deployed page that predates this (re-packed) manifest.
+	const [text, head] = await Promise.all([getObjectText(manifestKey), headObject(manifestKey)]);
 	if (!text) return { ...empty, assetKey: manifestKey };
+	const manifestModified = head?.lastModified ?? 0;
 
 	let parsed: unknown;
 	try {
@@ -354,7 +387,7 @@ export async function loadRegionSet(
 
 	const regions = parseRegions(man.regions);
 	await backfillMissingGeometry(man, regions);
-	const pageKey = await resolvePageKey(man, manifestKey, client, project);
+	const pageKey = await resolvePageKey(man, manifestKey, client, project, manifestModified);
 	const pageWidth = num(man.atlas?.width) ?? num(man.width) ?? 0;
 	const pageHeight = num(man.atlas?.height) ?? num(man.height) ?? 0;
 
