@@ -77,6 +77,23 @@ submodule bumps).
   by forcing a line win. Docs: `docs/design/invisible-symbols-state-machine.md` (renderer note
   updated from "per-game / apps/lines has none" → "shared engine").
 
+### 2026-07-14 — Cache/refresh: version-bust the launcher's stable-name static tool assets
+- **What:** recurring "I don't see the change on the other computer" for the tools. Diagnosed the
+  whole cache model with live headers: the GAME (`games.invisiblewall.org`, CF-proxied) is already
+  CORRECT — `index` = `no-store`/`CF DYNAMIC` (never edge-cached), bundles = content-hashed/`immutable`
+  — so it can't serve a stale bundle and needs no purge. `app.invisiblewall.org` is **DNS-only (grey
+  cloud), NOT CF-cached**. SvelteKit routes/`_app` are content-hashed. The ONE gap: the Rigger + Spine
+  tools are static apps with **stable filenames** (`view.html` + vendored `rigger-fx.js` /
+  `spine-webgl-*.js`) served by adapter-node with **no `Cache-Control`** → browser heuristic caching
+  serves the old file after a redeploy.
+- **How:** new `src/lib/server/buildId.ts` `BUILD_ID` (`RAILWAY_GIT_COMMIT_SHA`, timestamp fallback);
+  the `/rigger` + `/spine` routes append `?v=BUILD_ID` to their `view.html` redirect, and each
+  `view.html` propagates it onto its `<script src>` loads. A deploy changes the version → fresh fetch.
+- **No CF purge was possible OR needed:** `CF_API_TOKEN`/`CF_ZONE_ID` live only on the launcher Railway
+  service (not locally / no Railway CLI here); and with the above, no surface serves stale in normal
+  operation. (The only residual CF risk is 404-poisoning during a runtime publish — transient, handled
+  with `?cb=` during verification, see [[reference_runtime_release]].) Launcher auto-deploys on push.
+
 ### 2026-07-14 — Invisible FX: Symbols state-machine + Rigger overlay match the game (full bone transform)
 
 - **What:** owner reported the `/symbols` "state machine" and the actual game showed DIFFERENT FX.
