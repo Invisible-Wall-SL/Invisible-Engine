@@ -24,6 +24,26 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Invisible FX: Symbols state-machine + Rigger overlay match the game (full bone transform)
+- **What:** owner reported the `/symbols` "state machine" and the actual game showed DIFFERENT FX.
+  Root cause is structural: the `/symbols` stage AND the Rigger draw rig FX with a SEPARATE Pixi
+  overlay (`$lib/fx/fxOverlay.client.ts`, raw-WebGL stages can't host the engine's Pixi spine stack),
+  NOT the engine's `SpineBoneAttach`. That overlay only welded the bone POSITION + a uniform cell-fit
+  scale, so once the game started following the bone's rotation + per-axis scale (entry above), the
+  tools diverged. Owner's call: upgrade the tools to match the game.
+- **How:** `fxOverlay` `play`/`follow` now take an `FxTransform` (the bone's on-screen origin + the
+  2×2 screen images of its local axes) and apply it via `container.setFromMatrix` — position + rotation
+  + per-axis scale in one. Each host computes it from the posed bone's world matrix: `SymbolSpineStage`
+  analytically through its mirror projection (`(cw-worldX, worldY)`; axes `(-a,c)`/`(-b,d)`; the fit
+  scale is already baked into `skel.scaleX/Y`), the Rigger `view.html` via a numerical basis through
+  its camera projection (general zoom/pan). Rebuilt the vendored `static/rigger/vendor/rigger-fx.js`
+  (`build:rigger-fx`). Position is UNCHANGED (same origin), so an unrotated/unscaled bone is
+  byte-identical to before; rotated/scaled bones now match the game.
+- **Ships via launcher auto-deploy** (both are launcher pages — NO runtime republish; the game engine
+  already had the full-transform fix). ⏳ owner visual-verify that `/symbols`, `/rigger`, and the game
+  now agree. NOTE: there are still THREE FX renderers (engine `SpineBoneAttach`, the `/fx` `FxStage`
+  emitter, and this `fxOverlay`) kept in sync by hand — a future consolidation candidate.
+
 ### 2026-07-14 — Invisible FX: rig FX now rides the bone's full transform (rotation + scale)
 - **What:** follow-up to the centring fix below — owner reported the FX was centred but still the
   wrong SIZE and not following the bone's ROTATION. Root cause: bone-attached FX only tracked the
