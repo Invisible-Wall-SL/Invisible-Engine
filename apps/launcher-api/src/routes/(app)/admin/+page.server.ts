@@ -10,6 +10,8 @@ import {
 	roleHasCapability,
 } from '$lib/roles';
 import { hashPassword } from '$lib/server/auth';
+import { BUILD_ID } from '$lib/server/buildId';
+import { purgeEverything } from '$lib/server/cfPurge';
 import { getDb } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
 import {
@@ -155,6 +157,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		gameKinds,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
+		// The running deploy id (git SHA / timestamp) so an admin can confirm WHICH build is live —
+		// the reference point for "am I on the latest?" when a change doesn't seem to show.
+		buildId: BUILD_ID,
+		// Whether the Cloudflare purge lever is usable (token + zone configured on this service).
+		cfConfigured: !!(ENV.CF_API_TOKEN && ENV.CF_ZONE_ID),
 		deployToken: {
 			configured: !!deployToken,
 			// A short masked preview so an admin can sanity-check WHICH token is live
@@ -706,5 +713,27 @@ export const actions: Actions = {
 		const token = generateDeployToken();
 		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
 		return { action: 'rotateDeployToken', ok: 'Deploy token rotated.', deployToken: token };
+	},
+
+	/**
+	 * Purge the ENTIRE Cloudflare edge cache for the zone (admin-only) — a manual lever for a
+	 * CF-proxied host (`games.invisiblewall.org`) suspected of serving stale files. Safe: game assets
+	 * are `no-store` or content-hashed, so a purge only forces a re-fetch. NOTE: `app.invisiblewall.org`
+	 * is DNS-only (not CF-cached), so this does NOT affect the launcher/tool pages — those refresh via
+	 * their own content-hashing / the `?v=` build bust.
+	 */
+	purgeCache: async ({ locals }) => {
+		await requireAdmin(locals);
+		const result = await purgeEverything();
+		if (result.skipped) {
+			return fail(400, {
+				action: 'purgeCache',
+				error: `Cloudflare purge not configured on this service (${result.skipped}).`,
+			});
+		}
+		if (!result.ok) {
+			return fail(502, { action: 'purgeCache', error: result.error ?? 'Purge failed.' });
+		}
+		return { action: 'purgeCache', ok: 'Cloudflare edge cache purged for the whole zone.' };
 	},
 };

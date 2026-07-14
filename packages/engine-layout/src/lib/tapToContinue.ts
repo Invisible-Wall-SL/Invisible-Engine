@@ -33,9 +33,12 @@ export const TAP_DIM_COLOR_PARAM = 'tapDimColor';
  * a dim by setting alpha > 0. */
 export const TAP_DIM_ALPHA_PARAM = 'tapDimAlpha';
 
-/** Param key: hide the default press-to-continue prompt graphic WITHOUT disabling the
- * full-screen tap / Space (`boolean`, default false — prompt shown). */
-export const TAP_HIDE_PROMPT_PARAM = 'tapHidePrompt';
+/** Param key: SHOW the engine's default press-to-continue prompt graphic over the tap
+ * surface (`boolean`, default false — prompt HIDDEN). Flipped 2026-07-14 (owner decision):
+ * a flow-authored overlay draws its OWN continue prompt, so the engine's `MM_pressanywhere`
+ * sprite is opt-IN now — an author turns this on only when they want the built-in graphic.
+ * The full-screen tap / Space still works regardless (the prompt is purely cosmetic). */
+export const TAP_SHOW_PROMPT_PARAM = 'tapShowPrompt';
 
 /**
  * The `registerBoundComponents` name the engine mounts for the tap press surface.
@@ -59,7 +62,7 @@ export const TAP_TO_CONTINUE_PARAMS: ComponentParam[] = [
 	{ key: TAP_SIGNAL_PARAM, kind: 'string', label: 'Tap signal' },
 	{ key: TAP_DIM_COLOR_PARAM, kind: 'color', label: 'Dim colour' },
 	{ key: TAP_DIM_ALPHA_PARAM, kind: 'number', label: 'Dim opacity (0–1)' },
-	{ key: TAP_HIDE_PROMPT_PARAM, kind: 'boolean', label: 'Hide prompt' },
+	{ key: TAP_SHOW_PROMPT_PARAM, kind: 'boolean', default: false, label: 'Show engine prompt' },
 ];
 
 /** Read whether an instance's resolved params switched the tap surface on. */
@@ -89,7 +92,8 @@ export function tapDimAlphaOf(params: Record<string, unknown>): number {
 	return typeof value === 'number' ? value : 0;
 }
 
-/** Read whether the tap surface should hide its default prompt graphic (default false). */
-export function tapHidePromptOf(params: Record<string, unknown>): boolean {
-	return params[TAP_HIDE_PROMPT_PARAM] === true;
+/** Read whether the tap surface should SHOW the engine's default prompt graphic. Default
+ * false ⇒ the prompt is HIDDEN unless the author explicitly opts in (flipped 2026-07-14). */
+export function tapShowPromptOf(params: Record<string, unknown>): boolean {
+	return params[TAP_SHOW_PROMPT_PARAM] === true;
 }

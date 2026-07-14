@@ -78,3 +78,34 @@ export async function purgeGameCache(key: string): Promise<PurgeResult> {
 
 	return firstError ? { ok: false, purged, error: firstError } : { ok: true, purged };
 }
+
+/**
+ * Purge the ENTIRE Cloudflare edge cache for the zone (`purge_everything`) — the blunt lever behind
+ * the admin "Purge edge cache" button, for when a CF-proxied host (e.g. `games.invisiblewall.org`)
+ * is suspected of serving stale files. SAFE: every game asset is either `no-store` (the index) or
+ * content-hashed (`_app/immutable`), so a full purge only forces the next request to re-fetch from
+ * origin — it can't serve wrong content. Unlike `purgeGameCache`, this also covers the SHARED
+ * `_runtime/lines` bundle (served under each game's path), which a per-game purge misses.
+ *
+ * No-op (and `ok: true`, `skipped`) when `CF_API_TOKEN` / `CF_ZONE_ID` aren't configured. Never throws.
+ */
+export async function purgeEverything(): Promise<PurgeResult> {
+	const token = ENV.CF_API_TOKEN;
+	const zoneId = ENV.CF_ZONE_ID;
+	if (!token || !zoneId) {
+		return { ok: true, purged: 0, skipped: 'CF not configured' };
+	}
+	const endpoint = `https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`;
+	try {
+		const res = await fetch(endpoint, {
+			method: 'POST',
+			headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+			body: JSON.stringify({ purge_everything: true }),
+		});
+		const data = (await res.json().catch(() => ({}))) as CfPurgeResponse;
+		if (res.ok && data.success) return { ok: true, purged: 0 };
+		return { ok: false, purged: 0, error: data.errors?.[0]?.message ?? `HTTP ${res.status}` };
+	} catch (e) {
+		return { ok: false, purged: 0, error: e instanceof Error ? e.message : String(e) };
+	}
+}

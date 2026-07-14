@@ -24,7 +24,33 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Tap-to-continue: the engine "press anywhere" prompt is now opt-IN
+
+- **What:** owner's flow-authored `loading` screen showed THREE "tap to continue" prompts. Diagnosed
+  against the live `bookofborutremake` editor doc: the `loading` scene has an overlay instance
+  (`c_nlm52rsj` "Tap To continue") with the shared **tapToContinue** toggle ON + its own `text` node
+  (proxima-nova), plus a logo-spine component with the prompt baked into the spine art. Two of the
+  three were the owner's own content; the third was the ENGINE's default `MM_pressanywhere` sprite
+  that the `tapToContinue` capability drew by default.
+- **Fix (generic engine, `main`):** flipped the capability's prompt default. The instance param
+  `tapHidePrompt` (default false ⇒ prompt SHOWN) is replaced by `tapShowPrompt` (default false ⇒
+  prompt HIDDEN); `ComponentInstance.svelte` mounts the coded surface with
+  `hidePrompt = !tapShowPromptOf(params)`. So a flow-authored overlay that turns tap-to-continue on no
+  longer stacks the built-in "press anywhere" graphic — the author opts in only when they want it. The
+  full-screen tap / Space is unchanged (the prompt is purely cosmetic). Editor label: "Hide prompt" →
+  "Show engine prompt" (surfaced automatically via `TAP_TO_CONTINUE_PARAMS`). Engine-owned free-spin
+  gates (`FreeSpinIntroGate`/`FreeSpinOutroGate`/`BookRevealGate`) are untouched — they take
+  `hidePrompt` off `Scene.gate` (still default-shown). Files: `packages/engine-layout/src/lib/
+tapToContinue.ts`, `ComponentInstance.svelte`, `scripts/test-tap-to-continue.mjs` (also fixed a
+  stale `keys.length === 2` → 5). Test GREEN.
+- **Migration note:** any existing instance that had `tapHidePrompt: true` (hidden) stays hidden under
+  the new default; the owner's `c_nlm52rsj` instance (no prompt param set) flips from shown → hidden
+  automatically — no editor edit needed.
+- **Shipped:** engine-layout dist rebuilt → `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build`
+  → `publish-runtime-bundle.mjs lines` → POST `/refresh`. (See build/publish log in-session.)
+
 ### 2026-07-14 — Editor regions: a re-packed atlas showed a NEW region as an EMPTY image
+
 - **What:** owner reported that in `/fx` (and the same applies to Rigger + Symbols SM) a freshly
   added atlas region appeared by NAME in the picker but rendered BLANK when selected — "reading the
   new region but an old atlas."
@@ -96,6 +122,7 @@ submodule bumps).
   updated from "per-game / apps/lines has none" → "shared engine").
 
 ### 2026-07-14 — Cache/refresh: version-bust the launcher's stable-name static tool assets
+
 - **What:** recurring "I don't see the change on the other computer" for the tools. Diagnosed the
   whole cache model with live headers: the GAME (`games.invisiblewall.org`, CF-proxied) is already
   CORRECT — `index` = `no-store`/`CF DYNAMIC` (never edge-cached), bundles = content-hashed/`immutable`

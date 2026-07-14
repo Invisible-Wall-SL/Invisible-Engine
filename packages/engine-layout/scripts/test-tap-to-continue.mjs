@@ -19,6 +19,7 @@ const bundled = await esbuild.build({
 		contents: `export {
 			TAP_TO_CONTINUE_PARAM,
 			TAP_SIGNAL_PARAM,
+			TAP_SHOW_PROMPT_PARAM,
 			TAP_TO_CONTINUE_COMPONENT,
 			TAP_TO_CONTINUE_PARAMS,
 			isTapToContinueEnabled,
@@ -82,13 +83,20 @@ assert(mod.tapSignalOf({ [mod.TAP_SIGNAL_PARAM]: 42 }) === '', 'signal is empty 
 // --- the bound-component name is stable (the registerBoundComponents key) ---
 assert(mod.TAP_TO_CONTINUE_COMPONENT === 'TapToContinue', 'bound-component name is TapToContinue');
 
-// --- the editor param catalog is the two shared instance params ---
+// --- the editor param catalog exposes the shared instance params (toggle + signal +
+// dim colour/opacity + the opt-in engine-prompt show flag) ---
 const keys = mod.TAP_TO_CONTINUE_PARAMS.map((p) => p.key);
 assert(
-	keys.length === 2 &&
+	keys.length === 5 &&
 		keys.includes(mod.TAP_TO_CONTINUE_PARAM) &&
-		keys.includes(mod.TAP_SIGNAL_PARAM),
-	'catalog exposes the tapToContinue + tapSignal params',
+		keys.includes(mod.TAP_SIGNAL_PARAM) &&
+		keys.includes(mod.TAP_SHOW_PROMPT_PARAM),
+	'catalog exposes the tapToContinue + tapSignal + tapShowPrompt params',
+);
+const showPrompt = mod.TAP_TO_CONTINUE_PARAMS.find((p) => p.key === mod.TAP_SHOW_PROMPT_PARAM);
+assert(
+	showPrompt?.kind === 'boolean' && showPrompt.default === false,
+	'engine-prompt param is boolean, default false (prompt hidden ⇒ opt-in)',
 );
 const toggle = mod.TAP_TO_CONTINUE_PARAMS.find((p) => p.key === mod.TAP_TO_CONTINUE_PARAM);
 assert(toggle?.kind === 'boolean' && toggle.default === false, 'toggle is boolean, default false');

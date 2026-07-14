@@ -59,7 +59,7 @@
 		tapSignalOf,
 		tapDimColorOf,
 		tapDimAlphaOf,
-		tapHidePromptOf,
+		tapShowPromptOf,
 		TAP_TO_CONTINUE_COMPONENT,
 	} from './tapToContinue';
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
@@ -160,7 +160,11 @@
 	// into a dim by setting opacity > 0. Read off the same static params as `tapSignal`.
 	const tapDimColor = tapEnabled ? tapDimColorOf(staticParams) : 0x000000;
 	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
-	const tapHidePrompt = tapEnabled ? tapHidePromptOf(staticParams) : false;
+	// The coded press surface takes `hidePrompt`; the instance param is now the INVERSE
+	// opt-in `tapShowPrompt` (default off ⇒ prompt hidden). So hide unless the author
+	// explicitly turned the engine prompt on. Flow-authored overlays draw their own prompt,
+	// so a freshly-enabled tap surface no longer stacks the built-in `MM_pressanywhere`.
+	const tapHidePrompt = tapEnabled ? !tapShowPromptOf(staticParams) : false;
 
 	// Complete-on-loaded (flow-driven-game §1): the FEED-TRIGGERED sibling of
 	// tap-to-continue. A SHARED per-instance toggle any `overlay`-category instance can

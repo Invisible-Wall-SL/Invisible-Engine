@@ -973,6 +973,38 @@
 					<button type="submit">Save</button>
 				</form>
 			</div>
+
+			<div class="card">
+				<h3>Edge cache &amp; build</h3>
+				<p class="muted hint">
+					Force Cloudflare to drop its cached copies for the
+					<span class="mono">invisiblewall.org</span> zone — a manual lever for when the
+					<strong>game</strong> host (<span class="mono">games.invisiblewall.org</span>) is
+					suspected of serving a stale file. Safe: game assets are
+					<span class="mono">no-store</span> or content-hashed, so a purge only forces a re-fetch.
+					Note: <span class="mono">app.invisiblewall.org</span> (this launcher + the tool pages) is
+					DNS-only, <strong>not</strong> behind Cloudflare — those refresh via content-hashing and
+					the per-deploy <span class="mono">?v=</span> bust, so this button does not affect them.
+				</p>
+
+				<div class="token-status">
+					<span class="muted">Running build</span>
+					<span class="mono token-masked">{data.buildId}</span>
+					{#if data.cfConfigured}
+						<span class="pill on">CF purge ready</span>
+					{:else}
+						<span class="pill off">CF not configured</span>
+					{/if}
+				</div>
+
+				<div class="token-actions">
+					<form method="POST" action="?/purgeCache" use:enhance>
+						<button type="submit" disabled={!data.cfConfigured}
+							>Purge edge cache (whole zone)</button
+						>
+					</form>
+				</div>
+			</div>
 		</section>
 	</div>
 </div>
