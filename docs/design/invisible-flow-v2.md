@@ -1,8 +1,8 @@
 # Invisible Flow v2 — a Blueprint-style presentation graph
 
 > **Status: DRAFT / strawman for discussion (2026-07-07).** Not yet built. Supersedes the
-> authoring model in `invisible-flow.md` (v1) if adopted. The v1 *runtime primitives* mostly
-> survive; the *authoring model* is redrawn. Written after the owner decided to rebuild Flow around
+> authoring model in `invisible-flow.md` (v1) if adopted. The v1 _runtime primitives_ mostly
+> survive; the _authoring model_ is redrawn. Written after the owner decided to rebuild Flow around
 > an Unreal-style reusable node graph, before any code.
 
 ## 1. Why v2
@@ -15,7 +15,7 @@ v1 fused two different paradigms on top of each other and scattered a third:
   none of it visible on the main canvas, some of it behind a modal.
 
 Consequences the owner hit directly: one feature ("book reveal") lived in the macro edge, a hidden
-event-response modal, **and** the scene; you had to hand-author game *state* inside a presentation
+event-response modal, **and** the scene; you had to hand-author game _state_ inside a presentation
 timeline; connections were implicit name-matches; and it was low-level to repeat.
 
 **v2 goal:** one graph, Unreal-style. Logic is nodes with pins. Reusable **functions**. Screens
@@ -40,11 +40,12 @@ One canvas, one graph. Nodes have **exec pins** (white — control: "do this, th
 pins** (typed values). Mirrors Unreal Blueprints.
 
 **Node kinds:**
+
 - **Event node** (entry): fires when the template emits it. Exec-out + data-out pins
   (`setExpandingSymbol` node → `symbol` data pin). Event entry points are either **global** —
   template-wide signals with no owning container (`load`, `idle`, book events like
   `setExpandingSymbol`) — or **container-scoped**: a configured component's event, which appears as
-  an exec-out pin *on that container's node* rather than as a free-floating node (see §4). This is
+  an exec-out pin _on that container's node_ rather than as a free-floating node (see §4). This is
   how the same container stays a single node instead of being redrawn once per button.
 - **Game Signals node** (entry, §6.2 of the schema doc): ONE node that surfaces the template's
   **mechanic signals** — every vocab event whose `category` is `book` or `lifecycle` (its RGS book
@@ -79,7 +80,7 @@ pins** (typed values). Mirrors Unreal Blueprints.
   cue-aggregation rule (§8.4). A container that mounts a spin button, a bet stepper, a sound toggle
   and a settings button becomes **one** `Base game` node with pins `onSpin`, `onIncrease`,
   `onDecrease`, `onSoundToggle`, `onSettings`; you wire each to the logic it triggers. Buttons don't
-  feed *into* the container — they fire *out* of it. This replaces the confusing v1/spike shape where
+  feed _into_ the container — they fire _out_ of it. This replaces the confusing v1/spike shape where
   every button drew its own duplicate `Show Base game` node; the container is shown **once** (from
   `load`/`idle`), and its interactive components hang off that single node.
 - **The pin set is authored, never auto-dumped.** A component exposes an event pin **only for the
@@ -107,8 +108,8 @@ pins** (typed values). Mirrors Unreal Blueprints.
 - **Versioning (design detail, settle in build):** shared edits propagate to call sites — needs a
   policy (auto-propagate vs. pin-a-version), decided during the Functions phase.
 - **Collapse to Group (2026-07-08) — the sibling of Collapse-to-Function.** Where a function is
-  *reuse of one behaviour* (merged exec entry, shared library), a **group** is a *visual folding of
-  many distinct nodes into one node* — inline, non-reusable, and keeping **each boundary crossing as
+  _reuse of one behaviour_ (merged exec entry, shared library), a **group** is a _visual folding of
+  many distinct nodes into one node_ — inline, non-reusable, and keeping **each boundary crossing as
   its own labelled pin** (so N triggers → N distinct entry pins, no exec-in fan-in). It is a pure
   folding: collapse/expand are inverse transforms and the runtime flattens groups away before
   interpreting, so it adds no execution semantics and gives "expand / un-collapse" for free. Schema
@@ -138,7 +139,7 @@ reused.
 - **Reworked:** the FlowDoc **schema** (→ node graph + functions + containers), the `/flow`
   **canvas** (one unified Blueprint UI; the event-response modal goes away — it's inline), and the
   interpreter's **screen/active-set/transition** layer (→ show/hide + z-band).
-- **Rebuilt:** the *one* existing flow (book-of reveal + free-spin lifecycle). Preproduction, one
+- **Rebuilt:** the _one_ existing flow (book-of reveal + free-spin lifecycle). Preproduction, one
   flow — cheapest it will ever be to change.
 
 ## 8. Decisions (resolved 2026-07-07) + the one still open
@@ -164,15 +165,25 @@ reused.
    **configured** component events surface as exec-out pins **on the `showContainer` node itself**
    (mirror of cue aggregation), keyed by `ContainerId`. The pin set is authored via component config
    (`deriveContainerEvents`), never auto-dumped, and a container appears as **one fused node** (mount
-   + all its buttons) rather than a duplicate per button. There is **no separate container-scoped
-   event node** — the earlier `event`-node path (ref = `<sceneId>/<declId>`) is superseded and
-   removed, so there is exactly one mechanism. See §3 (global vs container-scoped events) and §4.
-   Consequence: the base game container carries all the game's interactive functionality as pins on
-   one node, and the flow decides *when* each fires. Authoring (render + wire + save + validate) is
-   implemented; runtime FIRING of these pins now exists too (2026-07-08, engine only): a container
-   component event fires via `runFlowContainerEvent` (entry from the `showContainer` exec-out pin — the
-   show node is NOT re-run), with `flowOwnsContainerEvent` the game uses to suppress the coded press.
-   See schema §10.4. Game wiring (the game calling these) is the remaining follow-up.
+   - all its buttons) rather than a duplicate per button. There is **no separate container-scoped
+     event node** — the earlier `event`-node path (ref = `<sceneId>/<declId>`) is superseded and
+     removed, so there is exactly one mechanism. See §3 (global vs container-scoped events) and §4.
+     Consequence: the base game container carries all the game's interactive functionality as pins on
+     one node, and the flow decides _when_ each fires. Authoring (render + wire + save + validate) is
+     implemented; runtime FIRING of these pins now exists too (2026-07-08, engine only): a container
+     component event fires via `runFlowContainerEvent` (entry from the `showContainer` exec-out pin — the
+     show node is NOT re-run), with `flowOwnsContainerEvent` the game uses to suppress the coded press.
+     See schema §10.4. Game wiring (the game calling these) is the remaining follow-up.
+9. **Flow is the sole presentation authority when it drives screens — DECIDED (2026-07-14).** When a
+   v2 flow authors the `load` entry it DRIVES the screens (`flowV2DrivesScreens` in Game.svelte). In
+   that mode the coded per-overlay book handlers must NOT paint a coded overlay for an event the flow
+   did not author — otherwise removing an overlay from the flow lets the coded fallback half-execute
+   with the gate + visual suppressed (a "very broken" intro). So a coded overlay handler, when the
+   flow drives screens, runs **state-only**: the load-bearing transitions the feature needs (enter
+   free-game, arm the counter, persistent ambiance) but NONE of the momentary celebration broadcasts.
+   Landed for `freeSpinTrigger` (`bookEventHandlerMap.ts`, guard `!getFlowV2()?.ownsEvent('load')`);
+   `freeSpinEnd`/win overlays are the same-shaped follow-up. A non-screen-driving flow (or no v2 doc)
+   keeps the coded presentation verbatim (parity).
 
 ## 9. Phased build (strawman — not started)
 

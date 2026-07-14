@@ -24,9 +24,36 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Free-spin intro: flow is sole authority (no coded intro fallback under v2)
+
+- **What:** owner removed the free-spin intro from the (v2) flow; the CODED intro then played and
+  was "very broken". Root cause: `game/utils.ts` routes `freeSpinTrigger` to the coded
+  `bookEventHandlerMap` whenever the v2 flow does NOT own the event (`!ownsEvent('freeSpinTrigger')`).
+  Under a screen-driving v2 flow the coded intro gate + visual are BOTH suppressed
+  (`flowV2DrivesScreens`), so the coded `freeSpinTrigger` half-executed its intro (transition wipe +
+  jingles + a `freeSpinIntroUpdate` round-block with no gate) with nothing rendering it.
+- **Fix (generic engine, `main`):** `apps/lines/src/game/bookEventHandlerMap.ts` `freeSpinTrigger`
+  now reads `presentIntro = !getFlowV2()?.ownsEvent('load')` — the SAME signal Game.svelte reads as
+  `flowV2DrivesScreens`. When a v2 flow drives the screens it is the sole presentation authority, so
+  the handler runs STATE-ONLY: enter free-game (`gameType`), arm the counter, and the free-game
+  ambiance that persists through the feature (board glow, `bgm_freespin`, drawer) — and SKIPS every
+  momentary intro-celebration broadcast (scatter anim, `sfx_superfreespin`/`jng_intro_fs`, `uiHide`,
+  `transition`, `freeSpinIntroShow/Update/Hide`, `uiShow`). A non-v2 / book-events-only flow leaves
+  `presentIntro` true ⇒ every block runs in original order, byte-identical to before (parity). So
+  removing the intro from the flow now = it is simply gone; the coded fallback never fills the gap.
+- **Scope note:** intro-only for now. The outro (`freeSpinEnd`) has the same shape and would need the
+  same guard if an owner removes it from the flow too — deliberately untouched (its state split is
+  delicate; not requested).
+- **Shipped + verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build` GREEN
+  (`bundle.wD3jTbwT.js`) → `publish-runtime-bundle.mjs lines` (164 files → R2 `_runtime/lines/`) →
+  POST `/refresh` `202`. Served `bookofborutremake?runtime=1` index points at the new hash; game-scoped
+  `…/_app/immutable/bundle.wD3jTbwT.js` = `200` (reachable, cache-busted per the CF-404 caution). In-game
+  behaviour (trigger free spins with the intro removed from the flow) not auto-verified — owner to confirm.
+
 ### 2026-07-14 — Win line: renderer ported into the SHARED engine (works on `runtime:lines`)
+
 - **What:** owner authored the `/symbols` win-line style (traced payline + stamped win amount)
-  but it didn't show in the **Book of Borut *remake*** — which runs the shared `runtime:lines`
+  but it didn't show in the **Book of Borut _remake_** — which runs the shared `runtime:lines`
   bundle. Root cause: the win-line renderer only ever existed in the **standalone** Book of
   Borut repo; `apps/lines` (the source of `runtime:lines`) carried the `winLine` contract TYPE
   but had **no renderer** (symbol-glow win model). The config baked/shipped fine — nothing drew
@@ -36,7 +63,7 @@ submodule bumps).
   (resolve the sparse `bundle.symbols.winLine` against coded defaults, `runtime`→`baked`
   precedence). New `apps/lines/src/components/WinLine.svelte` — Graphics polyline, optional
   layered-stroke glow (no filter dep), optional `svelte/motion` `Tween` animated draw
-  (first→last, *then* amount), bitmap win-amount text; mounted in `Game.svelte` between
+  (first→last, _then_ amount), bitmap win-amount text; mounted in `Game.svelte` between
   `<Board/>` and `<Anticipations/>`. `bookEventHandlerMap.ts` `winInfo` now traces the leftmost
   `kind` paying run (skips scatter `S`), gates on `bakedWinLineEnabled()`, and `await`s the
   animated draw before the symbol glow (non-animated resolves instantly = prior timing).
@@ -51,6 +78,7 @@ submodule bumps).
   updated from "per-game / apps/lines has none" → "shared engine").
 
 ### 2026-07-14 — Invisible FX: Symbols state-machine + Rigger overlay match the game (full bone transform)
+
 - **What:** owner reported the `/symbols` "state machine" and the actual game showed DIFFERENT FX.
   Root cause is structural: the `/symbols` stage AND the Rigger draw rig FX with a SEPARATE Pixi
   overlay (`$lib/fx/fxOverlay.client.ts`, raw-WebGL stages can't host the engine's Pixi spine stack),
@@ -59,18 +87,19 @@ submodule bumps).
   tools diverged. Owner's call: upgrade the tools to match the game.
 - **How:** `fxOverlay` `play`/`follow` now take an `FxTransform` (the bone's on-screen origin + the
   2×2 screen images of its local axes) and apply it via `container.setFromMatrix` — position + rotation
-  + per-axis scale in one. Each host computes it from the posed bone's world matrix: `SymbolSpineStage`
-  analytically through its mirror projection (`(cw-worldX, worldY)`; axes `(-a,c)`/`(-b,d)`; the fit
-  scale is already baked into `skel.scaleX/Y`), the Rigger `view.html` via a numerical basis through
-  its camera projection (general zoom/pan). Rebuilt the vendored `static/rigger/vendor/rigger-fx.js`
-  (`build:rigger-fx`). Position is UNCHANGED (same origin), so an unrotated/unscaled bone is
-  byte-identical to before; rotated/scaled bones now match the game.
+  - per-axis scale in one. Each host computes it from the posed bone's world matrix: `SymbolSpineStage`
+    analytically through its mirror projection (`(cw-worldX, worldY)`; axes `(-a,c)`/`(-b,d)`; the fit
+    scale is already baked into `skel.scaleX/Y`), the Rigger `view.html` via a numerical basis through
+    its camera projection (general zoom/pan). Rebuilt the vendored `static/rigger/vendor/rigger-fx.js`
+    (`build:rigger-fx`). Position is UNCHANGED (same origin), so an unrotated/unscaled bone is
+    byte-identical to before; rotated/scaled bones now match the game.
 - **Ships via launcher auto-deploy** (both are launcher pages — NO runtime republish; the game engine
   already had the full-transform fix). ⏳ owner visual-verify that `/symbols`, `/rigger`, and the game
   now agree. NOTE: there are still THREE FX renderers (engine `SpineBoneAttach`, the `/fx` `FxStage`
   emitter, and this `fxOverlay`) kept in sync by hand — a future consolidation candidate.
 
 ### 2026-07-14 — Invisible FX: rig FX now rides the bone's full transform (rotation + scale)
+
 - **What:** follow-up to the centring fix below — owner reported the FX was centred but still the
   wrong SIZE and not following the bone's ROTATION. Root cause: bone-attached FX only tracked the
   bone's POSITION. `SpineBoneAttach` has `followRotation`/`followScale` props, but they default off
@@ -89,10 +118,11 @@ submodule bumps).
   visual-verify the size/rotation on a rig-bound symbol FX.
 
 ### 2026-07-14 — Invisible FX: `SpineBoneAttach` bone-follow drifted off the bone in a scaled game
+
 - **What:** owner reported the runtime rig FX (the symbol "state machine" path) not matching the
   `/fx` Rigger preview — the effect renders at an **offset** on a real, cell-placed, MainContainer-
-  scaled symbol. This is the risk the FX notes flagged: *"SpineBoneAttach positions in WORLD coords
-  assuming its parent is at the rig origin."* It materialized.
+  scaled symbol. This is the risk the FX notes flagged: _"SpineBoneAttach positions in WORLD coords
+  assuming its parent is at the rig origin."_ It materialized.
 - **Root cause (`packages/pixi-svelte/src/lib/components/SpineBoneAttach.svelte`):** `follow()` set
   `container.position` DIRECTLY to `spine.skeletonToPixiWorldCoordinates(bonePos)` — which is Pixi
   **WORLD** coords (`worldTransform.apply`), NOT the container's parent-local frame. But the container
@@ -114,6 +144,7 @@ submodule bumps).
   OWN bundle, still needs an `engine` submodule bump to pick this up.)
 
 ### 2026-07-14 — Flow: generic `showMessage` effect (Info Bar / transient toast producer)
+
 - **What:** a new generic, reusable Flow effect `showMessage` that populates `state-shared`'s
   `stateMessage.current` — the feed the Info Bar componentInstance reads (its `message` value +
   `messageShow` gate in `Game.svelte`). Previously NO runtime code ever called `showMessage()`, so
@@ -143,6 +174,7 @@ submodule bumps).
   formatter travel in the bundle. NOT a submodule bump.
 
 ### 2026-07-13 — Scene Editor: bone-ridden stand-in symbol preview (free-spin symbol reveal)
+
 - **What:** when an author places a **Free-spin symbol reveal** (`freeSpinIntroSymbolReveal`) instance
   and picks a `symbolBone`, the Scene Editor now renders a stand-in symbol that MOUNTS on that bone and
   RIDES the played intro animation live — so bone/offset/follow/scale are tunable WYSIWYG without
@@ -158,6 +190,7 @@ submodule bumps).
   `launcher-api`). See `docs/design/free-spin-intro-symbol-reveal.md` §"Editor preview".
 
 ### 2026-07-13 — Rig FX render fixes: cross-talk firing + effect ignored the rig transform (`RiggedEffect`)
+
 - **Symptoms (owner report):** the `gunshots` bullethole VFX fired on rigs it shouldn't, and the
   `f_square_star` (`R_VFX`) effect didn't show at all. The earlier "mounted correctly" note above meant
   the routing BUCKET was right (rigFx binding recognised) — NOT that the pixels were correct.
@@ -182,6 +215,7 @@ submodule bumps).
   Owner to live-verify pixels first (can't be verified headlessly — needs the authed project + R2 rigs).
 
 ### 2026-07-13 — FX reachability guardrail: orphan effects no longer auto-emit at the origin
+
 - **Why:** the runtime-bundle FX fix (below) surfaced that `Effects.svelte` auto-mounted EVERY unplaced
   free effect at the scene origin (0,0), including `always`-emitting scratch/test effects with no
   position and no cue. A real project (`bookofborutremake`) had 4 such orphans (`untitled_effect`,
@@ -206,6 +240,7 @@ submodule bumps).
   `apps/lines/Effects.svelte`.
 
 ### 2026-07-13 — Invisible Flow v1 editor teardown (the `/flow` route is retired; v2 is the only editor)
+
 - **What:** removed the orphaned v1 Flow EDITOR. The "Flow" tool already pointed to `/flow-v2`; the v1
   `/flow` route was still present and reachable by direct URL. Deleted: the whole
   `apps/launcher-api/src/routes/(app)/flow/` route dir (ChoreographyEditor + nodes/inspectors + client
@@ -224,6 +259,7 @@ submodule bumps).
   `flow-v2`). No external module imported the deleted route/helpers (checked by import-specifier grep).
 
 ### 2026-07-13 — Free-spin sequential reel stop (Flow-toggleable, tunable gap/speed) — SHIPPED to `_runtime/lines` + Borut engine bump
+
 - **What:** a timing-only "sequential reel stop" spin mode — during the reveal spin each reel settles
   consecutively (one after another) instead of the base-game overlapping stop. Reuses the anticipation
   padding-accumulation mechanism but as a DISTINCT `sequential` spinType, so no anticipation glow/SFX fire
@@ -235,7 +271,7 @@ submodule bumps).
   effect AND the coded `bookEventHandlerMap` reveal handler (parity). `createEnhanceBoardSpin.spin` gained a
   `forceSequentialStop?` arg.
 - **Two tunable knobs** (in `apps/lines/src/game/constants.ts` `SPIN_OPTIONS_SHARED`): `reelPaddingMultiplier
-  Sequential` (gap/delay before a reel stops, default 4) and `reelSpinSpeedSequential` (cascade spin speed,
+Sequential` (gap/delay before a reel stops, default 4) and `reelSpinSpeedSequential` (cascade spin speed,
   default 3 = unchanged). delay-between-stops ≈ per-reel extra travel (∝ gap) ÷ speed.
 - **PER-REEL authoring** (updated): the `enableSequentialReelStop` node takes `gaps`/`speeds` — `list<float>`
   arrays indexed by reel (entry 0 = leftmost). Each reel reads its own entry (the `spinOptions` getter closes
@@ -255,13 +291,14 @@ submodule bumps).
   FlowDoc online — until then the mode is inert (feature is capability-only without the flow authoring).
 
 ### 2026-07-13 — Invisible Symbols SM: live rig-timeline FX preview (parity with the Rigger)
+
 - **What:** the Symbols State-Machine stage (`apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte`)
   now fires an fx-bound symbol's particle effect ON the beat of its animation, riding the bound bone —
   matching the Rigger's live FX overlay. Previously it drew the spine ANIMATION only (no particle wiring).
 - **Reuse (not duplication):** the Rigger's overlay core was extracted from `src/rigger-fx/main.ts` into a
   shared factory `src/lib/fx/fxOverlay.client.ts` (`createFxOverlay()`); `main.ts` is now a thin IIFE that
   wraps one instance as `window.RiggerFx` (rebuild the vendored bundle with `pnpm --filter launcher-api
-  build:rigger-fx`). `SymbolSpineStage` imports the same factory and creates its own instance.
+build:rigger-fx`). `SymbolSpineStage` imports the same factory and creates its own instance.
 - **Binding source:** new server endpoint `/api/editor/rig-fx?key=…` returns the rig's `animations[*].events[]`
   `fx = {effectId, bone?}` grouped by anim, WITH each keyframe `time` (the name-keyed `rigFx` manifest drops
   the time). Reuses `resolveEditorSpine` + a new `fxTimelineFromSkeleton` in `rigFxExport.ts`. Chosen over
@@ -275,6 +312,7 @@ submodule bumps).
   spec ("each VISIBLE grid cell with ≥1 fx-bound event"). `launcher-api` build clean. **Pending owner live-verify.**
 
 ### 2026-07-13 — Fix phantom FX burst at screen origin (rig-bound effect double-mount)
+
 - **Bug (surfaced by the runtime-bundle FX fix below):** once `bakedEffects()` returned the project's
   effects, `apps/lines/src/components/Effects.svelte` auto-mounted a scene-level ambient `<EffectPlayer>`
   at the stage ORIGIN (0,0) for every effect that referenced ONLY a rigFx binding (its doc layers are
@@ -286,6 +324,7 @@ submodule bumps).
   mirroring the existing `placedEffectIds()` exclusion. Ships via `_runtime/lines` republish.
 
 ### 2026-07-13 — Live runtime bundle now ships FX (effects + rigFx) — parity with the offline bake
+
 - **Bug:** `?runtime=1` games (Book of Borut runs `runtime:lines`) got **no FX data at all** —
   `buildRuntimeBundle` (`apps/launcher-api/src/lib/server/runtimeBundle.ts`, served by
   `/api/editor/runtime`) omitted `effects` and `rigFx`, while the offline bake
@@ -303,6 +342,7 @@ submodule bumps).
   `buildRuntimeBundle`, or runtime-mode games silently get the empty fallback.
 
 ### 2026-07-13 — Free-spin symbol reveal (chosen book symbol merged onto an intro-rig bone)
+
 - **What:** a reusable Book-of reveal — the intro Spine rig's "flip through symbols" animation
   now lands on the ACTUAL chosen book symbol (`stateGame.specialSymbol`), ridden on a named
   **bone** of the rig so it banks/scales with the animation. Fully editor-authored (no per-game code).
@@ -317,12 +357,13 @@ submodule bumps).
   - `apps/lines/FreeSpinIntroSymbolReveal.svelte` — coded bind part (rig + symbol-on-bone + completion
     promise); registered in `Game.svelte`.
   - `launcher-api` editor — bone picker: `bones` plumbed through `EditorSpineMeta`/`SpineMeta`/`/spine/meta`
-    + a `spineBone` dropdown arm in `EditorProperties`.
+    - a `spineBone` dropdown arm in `EditorProperties`.
 - **Verified:** `lines` + `launcher-api` build clean. **Pending:** author a `specialBook` scene with a real
   intro rig + bone and live-verify; then publish runtime bundle + bump Book of Borut's engine submodule.
 - **Design doc:** `docs/design/free-spin-intro-symbol-reveal.md`.
 
 ### 2026-07-10 — Invisible FX: LIVE preview in the Rigger (faithful particle overlay)
+
 - **What:** the Rigger now PLAYS a rig-bound effect on the stage — when the playhead crosses an
   `event.fx` keyframe in animate mode, the effect bursts at the bound bone (or rig origin) and rides it,
   scaled to the stage zoom. Closes "I can't see the FX in the Rigger" — no longer in-game-only.
@@ -346,14 +387,16 @@ submodule bumps).
   Deferred: spine-particle preview, dead-handle cleanup between loops. Design in `docs/design/invisible-fx.md`.
 
 ### 2026-07-10 — Invisible Flow v2: flatten re-namespaces colliding group-body node ids (fixes "press Spin → free-spin intro plays") (SHIPPED via `_runtime/lines`)
+
 - **Symptom:** in `bookofborutremake` (v2 flow, `?runtime=1`), pressing Spin immediately played the `freeSpinIntro` spine. `?flowlog=1` trace: `containerEvent ▶ n_1u3tijl5.spin → action startSpin → intent:spin → show freeSpinIntro → HOLD`.
 - **Root cause (engine):** `collapseToGroup` keeps a body's selected node ids verbatim (§5.2), but the editor's id minter doesn't reserve ids buried inside a group body — so a later main-graph node was minted with an id (`action-2`) a body node already used (`startSpin` inside the "button actions" group vs `setFreeSpinCounterTotal` in the main `freeSpinTrigger` chain). `expandGroup`/`flattenGroups` re-inserted the body verbatim → the id appeared TWICE → the runtime (indexes nodes + resolves edges BY ID) collapsed them, so grouped `startSpin` inherited `setFreeSpinCounterTotal`'s exec edge to `showContainer(freeSpinIntro)`.
 - **Fix:** `expandGroup` (`packages/engine-flow-v2/src/collapse.ts`) now renames only the COLLIDING body ids against the surviving main graph, rewriting the body's internal edges + the boundary `inner` refs. No-collision path is byte-identical (round-trip identity preserved). `v2group` harness gains a regression (no dup ids + no cross-wire after flatten). Shipped to online games via `publish-runtime-bundle.mjs` (`_runtime/lines`) + `/refresh`.
 - **Diagnostic note:** the flow/scenes/flow-v2 docs live in R2 (`<client>/<project>/editor/{scenes,flow-v2}.json`); pulling them + flattening offline is the fastest way to trace a runtime-game flow bug. Also confirmed the "edge caches index.html" trap live — the served game index lagged the R2 bundle until `/refresh` re-hydrated.
 - **Follow-up (SHIPPED, launcher auto-deploy — 5c5fa52):** `freshNodeIdIn` (`/flow-v2` graphOps) now reserves ids nested in group bodies so it never mints a collision; `validateFlowDoc` gains a `duplicate-id` warning (scans the raw graph + group bodies), surfaced in the editor issue list. Docs authored before this (e.g. `bookofborutremake`) still carry the raw collision — the runtime flatten fix makes them correct and the editor now flags it; re-mint the colliding group-body ids to clear the warning.
-- **Follow-up 2 (one-click clear, launcher auto-deploy):** the `duplicate-id` warnings are *correct* but confusing — the offending node is buried inside a **collapsed group body**, so a user sees no duplicate on-canvas and the game runs fine (flatten re-namespaces). Added `dedupeGroupBodyIds(graph)` (`packages/engine-flow-v2/src/collapse.ts`, pure, exported): re-mints ONLY the colliding body ids (top-level ids win, matching flatten precedence), rewriting each body's internal edges + the group's boundary `inner` refs; recurses nested groups; no-collision path is a no-op. Node ids are synthetic (the `ref` holds the real target) so the rename is behaviour-preserving. `/flow-v2` `ValidationPanelV2` now shows a **"Re-mint & clear"** banner when `duplicate-id` count > 0 (calls `fixDuplicateIds` → `applyGraphEdit`, works in flow OR function view), and clicking a `duplicate-id` row now focuses the **containing group** (the buried node isn't a top-level canvas node). `v2group` harness §7 regressions (renames exactly the collision, warning clears, spin behaviour holds, idempotent). Editor-only — no `_runtime/lines` republish; the user just re-saves the repaired doc.
+- **Follow-up 2 (one-click clear, launcher auto-deploy):** the `duplicate-id` warnings are _correct_ but confusing — the offending node is buried inside a **collapsed group body**, so a user sees no duplicate on-canvas and the game runs fine (flatten re-namespaces). Added `dedupeGroupBodyIds(graph)` (`packages/engine-flow-v2/src/collapse.ts`, pure, exported): re-mints ONLY the colliding body ids (top-level ids win, matching flatten precedence), rewriting each body's internal edges + the group's boundary `inner` refs; recurses nested groups; no-collision path is a no-op. Node ids are synthetic (the `ref` holds the real target) so the rename is behaviour-preserving. `/flow-v2` `ValidationPanelV2` now shows a **"Re-mint & clear"** banner when `duplicate-id` count > 0 (calls `fixDuplicateIds` → `applyGraphEdit`, works in flow OR function view), and clicking a `duplicate-id` row now focuses the **containing group** (the buried node isn't a top-level canvas node). `v2group` harness §7 regressions (renames exactly the collision, warning clears, spin behaviour holds, idempotent). Editor-only — no `_runtime/lines` republish; the user just re-saves the repaired doc.
 
 ### 2026-07-10 — Invisible FX: rig-timeline DIRECT binding (pick an effect on a Rigger keyframe) + docked event-key inspector
+
 - **What:** the Rigger's `⚡ Event key` inspector is now (a) DOCKED in the Properties panel (was an
   unmovable floating popup — `836066e`), and (b) can bind an **Invisible FX effect directly to an event
   keyframe** — a `Play effect` dropdown (the project's effects) + an `On bone` dropdown. The bound effect
@@ -382,6 +425,7 @@ submodule bumps).
   `engine` submodule. All four packages (`pixi-svelte`/`engine-layout`/`lines`/`launcher-api`) build clean.
 
 ### 2026-07-09 — Flow-v2 container layering fix + deploy-endpoint CORS (Book of Borut remake HUD buttons)
+
 - **Symptom:** authored bet +/- buttons (on the `hudBar` "HUD — buttons" screen) were invisible in the
   deployed remake though correct in the editor — hoverable (cursor changed) but no art, action dead.
 - **Root cause (real):** under **flow-v2**, `<FlowV2Mount>` stacks containers by each `ContainerRef.z`,
@@ -399,6 +443,7 @@ submodule bumps).
   (`S_Game_Reel.<old>.json`) that poisoned the editor-art `Promise.all`, and the CORS-masked-404 above.
 
 ### 2026-07-09 — Invisible Flow v2: generic overlay ROUND-BLOCK HOLD + v2 coded-free-spin suppression (⏳ live-verify)
+
 - **Why:** the v1→v2 cutover's last remake-specific gap. Migrating Book of Borut **remake** to a
   whole-game v2 flow: its free-spin overlays are authored as flow CONTAINERS (`fs-intro`/`fs-counter`/
   `fs-outro`/`specialBook` componentInstances), but (a) the coded `FreeSpin*Visual`/gate suppression keys
@@ -408,7 +453,7 @@ submodule bumps).
   (`engine-flow-v2` `types.ts`). When set, after mounting the container the interpreter BLOCKS the exec
   chain until that container is COMPLETED — a tap on its `tapToContinue` overlay (`mount.complete(id)`).
   The tap RESUMES the same chain past the show node, so the round is authored LINEARLY (`show{hold} → hide
-  → next`) with NO separate `complete:<id>` event needed. Wired through `FlowV2Env.awaitContainerComplete`
+→ next`) with NO separate `complete:<id>` event needed. Wired through `FlowV2Env.awaitContainerComplete`
   (`runtime.ts`) delegating to the mount model's hold registry (`mount.ts` — `awaitComplete`/`complete`/
   `heldContainers`; `hide` also releases so a hold never leaks). The tap dispatcher `dispatchFlowV2Complete`
   (`flowV2InterpreterHolder.ts`) scans shown containers top-down and RELEASES the topmost held one
@@ -429,6 +474,7 @@ submodule bumps).
   `v2mount`/`v2translate`/`v2containerfire`/`v2choreo`/**`v2hold`**) green. Live-verify on the remake pending.
 
 ### 2026-07-09 — Invisible Flow v2: drag-off-pin contextual node spawner (⏳ live-verify)
+
 - **Goal:** Unreal-Blueprint's headline gesture — drag a wire off a pin, release on **empty canvas**,
   get a filtered popup of ONLY node types that pin could legally connect to; pick one → it spawns at
   the drop point already auto-wired. Removes the "add from palette then drag a second wire" two-step.
@@ -442,7 +488,7 @@ submodule bumps).
   returns the new id) + the SAME `addExecEdgeIn`/`addDataEdgeIn`→`applyGraphEdit` path `onConnect` uses.
 - **`FlowCanvasV2.svelte`:** forwards `onconnectstart`/`onconnectend` (xyflow 1.6.1), mapping the drop
   pointer to flow-space via the already-held `screenToFlowPosition`; empty-drop = `connectionState.toHandle
-  == null`. New **`PinDropMenu.svelte`:** floating panel at the drop's screen xy, autofocused search
+== null`. New **`PinDropMenu.svelte`:** floating panel at the drop's screen xy, autofocused search
   (reuses the `matches()`/query pattern), Enter = top match / Esc + click-away = close, styled like
   `AddNodePalette` via `typeColor`/`typeLabel`.
 - **Editor-only** (no schema/runtime/registry change; `roles.ts` untouched). Existing palette drag-drop +
@@ -451,6 +497,7 @@ submodule bumps).
   still wires normally. Design: `invisible-flow-v2.md` §9.1.
 
 ### 2026-07-09 — Invisible FX: trigger STOP event (Flow start/stop control)
+
 - **Goal:** drive an effect fully from Flow — one cue starts it, another stops it (for a continuous
   effect). Until now an `on:event` layer stopped only by `duration`/`emitterLifetime` (a burst).
 - **`EmitterTrigger.stopEventType?`** (engine-fx): an optional SECOND cue that STOPS emission. `EffectLayer`
@@ -465,6 +512,7 @@ submodule bumps).
   a continuous effect.
 
 ### 2026-07-09 — Invisible FX editor: selection box fits the particle spread
+
 - **Follow-up to the live preview:** a placed effect's selection box / hit-test was still the fixed
   160×100 placeholder even though the particles spread well past it (often asymmetrically — a burst
   fanning upward). Now it fits the spread, mirroring how spine nodes fit their box to natural size.
@@ -479,6 +527,7 @@ submodule bumps).
 - `launcher-api` build clean. Owner live-verify the box hugs the particles (grows to enclose the burst).
 
 ### 2026-07-08 — Invisible Flow v2: Collapse to Group (inline subgraph node, Part 1 headless)
+
 - **What:** a second collapse — `collapseToGroup` folds a node selection into ONE inline `group` node,
   the counterpart to Collapse-to-Function. Difference that matters: it keeps **each boundary crossing
   as its own labelled pin** (N triggers → N distinct entry pins → NO exec-in fan-in), the body lives ON
@@ -506,6 +555,7 @@ submodule bumps).
   complete in the editor.
 
 ### 2026-07-08 — Invisible FX: per-rig bone hosting (attach a placed effect to a specific rig)
+
 - **Goal:** the last piece of the Rigger arc — attach a scene-placed effect to a SPECIFIC placed spine
   rig so a `bone` layer rides THAT rig's bone and the rig's timeline events (Phase 3b rebroadcast) time
   it. (Until now bone effects rode a generic foreground host rig; scene-placed effects were free-only.)
@@ -527,6 +577,7 @@ submodule bumps).
   rides the bone + fires on the event key. (The editor 2D live-preview still shows free layers only.)
 
 ### 2026-07-08 — Invisible FX: LIVE particle preview in the Scene Editor
+
 - **Goal (plan `ticklish-conjuring-lamport`):** a placed `effect` node only drew a static ✨ chip
   (the editor's main canvas is 2D). Owner wanted to SEE the particles compose in the scene, like the
   editor already renders placed spine rigs live.
@@ -548,6 +599,7 @@ submodule bumps).
   (authed WebGL): particles land on the chip, follow pan/zoom, and nested-in-component parity.
 
 ### 2026-07-08 — Invisible FX in-game: effect atlases AUTO-SHIP (removes the "place the atlas too" trap)
+
 - **Follow-up from Phase 1's known gap:** a placed/mounted effect rendered INVISIBLE in-game unless
   the author ALSO placed its particle atlas as a sprite (its `art.assetKey` only shipped if the layout
   referenced it). Now `editorArtExport.exportEditorArt` walks the project's effects (`listEffects` +
@@ -561,6 +613,7 @@ submodule bumps).
   after placing an effect for it to reach the game.
 
 ### 2026-07-08 — Invisible FX in-game, Phase 3a: Rigger event-key authoring UI (completes Phase 3)
+
 - **Companion to 3b:** the Rigger (`static/rigger/view.html`, vanilla-JS) already stored + drew
   animation event keys (purple ⚡; retime/duplicate/delete wired in Phase 5.4) but had no way to edit
   one. Added: **click an event key → an inspector popover** (mirrors `showDrawOrderEditor`) with
@@ -575,6 +628,7 @@ submodule bumps).
   `on:event` effect of the same name, and confirm it fires on that frame in a real game.
 
 ### 2026-07-08 — Invisible FX in-game, Phase 3b: rig timeline events → event bus (runtime seam)
+
 - **Goal (plan `ticklish-conjuring-lamport`):** time an effect on a rig's animation timeline. A Spine
   animation carries EVENTS (`animations[a].events[{time,name,…}]`); an effect should fire when the
   animation reaches an event key. (Bone-attach was already done via `placement.space:'bone'`.)
@@ -590,12 +644,13 @@ submodule bumps).
   halves already exist (`rigger-spike/eventanim.mjs` = spine events fire; `fx-spike/trigger.ts` = bus
   → effect). Owner live-verify the spine-event→bus link + the beat timing.
 - **Companion (3a, next commit):** the Rigger **event-key authoring UI** (name/int/float/string/time
-  + create/delete) so authors place the event keys — currently authorable only via `.irig`/script.
+  - create/delete) so authors place the event keys — currently authorable only via `.irig`/script.
 - **Known follow-up:** attaching a free-placed effect to a SPECIFIC placed rig's bone (mounting the
   effect INSIDE that rig's `<SpineProvider>`) — today bone effects ride the generic foreground host
   rig; a placed rig's timeline can TIME any effect, but per-rig bone hosting is a separate wiring step.
 
 ### 2026-07-08 — Invisible FX in-game, Phase 2: Flow activation (shared cue-name picker)
+
 - **Goal (plan `ticklish-conjuring-lamport`):** fire a placed/mounted effect from Flow. Decision was
   event-name wiring + a shared picker (no new Flow node kind).
 - **The runtime join already works AND is harness-verified** (`tools/fx-spike/trigger.ts`): a
@@ -616,6 +671,7 @@ submodule bumps).
   **Owner live-verify:** author a `fireCue`/Broadcast + an `on:event` effect of the same name; fire it.
 
 ### 2026-07-08 — Invisible FX in-game, Phase 1: place effects in the Scene Editor (`effect` node)
+
 - **Goal (plan `ticklish-conjuring-lamport`, tool-by-tool after Phase 0):** place an authored FX
   effect in a scene like an image/spine. New `effect` LayoutNode kind, end-to-end.
 - **Engine (`packages/engine-layout`):** `EffectNode { kind:'effect'; effectId }` on the `LayoutNode`
@@ -641,6 +697,7 @@ submodule bumps).
   the placed transform.
 
 ### 2026-07-08 — Invisible FX in-game, Phase 0: runtime honors art.frames + art.weights (foundation)
+
 - **Goal (plan `ticklish-conjuring-lamport`):** author FX into a shipped game across Scene Editor /
   Flow / Rigger. The ship chain (export→deploy→bake→pull→`bakedEffects()`→`Effects.svelte` mount) is
   ALREADY wired; the blocker was the runtime never rendering the authored art correctly.
@@ -662,6 +719,7 @@ submodule bumps).
   (inspect `loadedAssets` keys) — the WebGL pixels can't be verified headlessly.
 
 ### 2026-07-08 — Invisible Flow v2: intent-command actions for every standard HUD button (SHIPPED)
+
 - **Why:** with the fused HUD button pins (onIncrease/onDecrease/onTurbo/onGameRules/onSettings/
   onSoundToggle/onAutoSpin), the palette only offered `startSpin` — the other buttons had no flow
   action to wire to. (Behaviors already existed in the game; they just weren't reachable through the
@@ -673,7 +731,7 @@ submodule bumps).
   routing to extracted `do*` helpers (`doOpenGameRules`/`doOpenSettings`/`doToggleSound`/`doAutoSpin`)
   that the button onpress bodies now also call (DRY, byte-identical coded press). `assertVocabBacked`
   clean (every action backed via INTENT_COMMANDS). `lines build` + `engine-flow-v2` typecheck + v2vocab/
-  v2* spikes green.
+  v2\* spikes green.
 - **Model reminder:** a pin is flow-owned ONLY when wired; unwired HUD buttons keep their coded
   behavior (parity). Wire `onIncrease → increaseBet` to route the press through the flow.
 - **Press-sound fix (FIXED 2026-07-08):** a flow-OWNED button press skips its `onpress` (where the
@@ -687,6 +745,7 @@ submodule bumps).
   register). Revisit when sound authoring is needed.
 
 ### 2026-07-08 — Invisible Flow v2: Game Signals node — /flow-v2 palette + game ownership (Part 2, SHIPPED)
+
 - **UI (`/flow-v2`):** a new "Sources" section in the add-node palette drops a `gameSignals` node
   (ref-less, mirrors the `delay`/`branch` factory path via `graphOps.makeNode`); the entry hides once
   one exists (single-source node). `FlowV2Node` gained a teal `KIND_COLOR` + a `"<n> mechanic signals"`
@@ -704,6 +763,7 @@ submodule bumps).
   Borut remake, confirm each fires once through v2, no double); the def-default `action` projection gap.
 
 ### 2026-07-08 — Invisible Flow v2: Game Signals node (mechanic signals as one source node, Part 1 headless)
+
 - **What:** ONE new `gameSignals` node surfaces the TEMPLATE's mechanic events (book + lifecycle) as
   exec-out + typed data-out pins, so an author wires presentation off the game's own signals from one
   node instead of a scattered `event` node per signal. Intents are excluded (they surface as the
@@ -734,6 +794,7 @@ submodule bumps).
   apps/ game-side dispatch wiring so real book/lifecycle events fire the node's pins.
 
 ### 2026-07-08 — Invisible Flow v2: container-event pins FIRE from a real button press (runtime, SHIPPED)
+
 - **What:** the fused `showContainer` exec-out pins (`onSpin`/…) now DO something live — pressing a
   button in-game runs the flow chain wired from its pin. Landed in two parts:
 - **Part 1 — engine runtime (`2b5adc1`, headless):** `engine-flow-v2` gained
@@ -760,6 +821,7 @@ submodule bumps).
   whose action is a def default, not on the instance's `params`, surfaces no pin yet).
 
 ### 2026-07-08 — Invisible Flow v2: container events FUSED as exec-out pins on the Show node — /flow-v2 UI wired (§6.1, SHIPPED)
+
 - **Owner choice:** of the two shapes, the owner picked **fuse into the Base game node** — the
   `SHOWCONTAINER` node grows one exec-out per configured component (`onSpin`/`onIncrease`/… ), so one
   node = the mount AND all its buttons (not a separate events node, not per-button nodes).
@@ -786,10 +848,11 @@ submodule bumps).
   component's event so the fused exec-out pins actually fire.
 
 ### 2026-07-08 — Invisible Flow v2: container surfaces its components' configured events as exec-out pins (§6.1, spike-proven)
+
 - **Design decision (why):** the owner found the graph confusing when the same container node (e.g.
   "Base game") was redrawn once per button, each button wired to its own duplicate `Show Base game`.
   The intent: **one** Base game node that carries all the game's functionality, so the flow only
-  decides *when* each thing fires. Resolved (`d6ff29a`): a container SURFACES its components' events
+  decides _when_ each thing fires. Resolved (`d6ff29a`): a container SURFACES its components' events
   as **exec-OUT** pins (the exec mirror of cue aggregation), authored from Scene-Editor component
   config — **never auto-dumped**. Design in `docs/design/invisible-flow-v2.md` §3/§4/§8 +
   `invisible-flow-v2-schema.md` §3(event)/§6.1/§9(#6).
@@ -807,6 +870,7 @@ submodule bumps).
   `ConfiguredComponentEvent[]`. No UI shipped in this pass.
 
 ### 2026-07-08 — Invisible FX: particle art never rendered (Assets.load) + weighted per-image mix (SHIPPED)
+
 - **Bug — art shows placeholder dots, never the atlas image.** `FxStage` loaded the atlas page via
   Pixi `Assets.load(pageUrl)`, whose resolver picks a loader by the URL's apparent extension — the
   auth-gated `/api/editor/asset?key=…` streamer URL (query string, no clean extension) trips it, so
@@ -820,14 +884,15 @@ submodule bumps).
 - **Feature — weighted per-image mix.** Selecting >1 region now defaults to a random MIX (one image
   per particle) instead of auto-forcing a flipbook; a **Mix — per-image share** slider set weights how
   often each frame is picked. Schema: `EmitterArt.weights?: number[]` (parallel to `frames`, normalized
-  + validated). `bindArt` realises weights via a repeated-texture multiset (`weightedTextures`, the
-  library's `textureRandom` is uniform). Threaded through the shared `bindArt` seam + `FxStage` preview.
-  Round-trip harness covers weights normalize + expansion (all 12 fx harnesses GREEN, `launcher-api build` GREEN).
+  - validated). `bindArt` realises weights via a repeated-texture multiset (`weightedTextures`, the
+    library's `textureRandom` is uniform). Threaded through the shared `bindArt` seam + `FxStage` preview.
+    Round-trip harness covers weights normalize + expansion (all 12 fx harnesses GREEN, `launcher-api build` GREEN).
 - **Runtime-fidelity follow-up (tracked):** the runtime `<ParticleEmitter>` still binds a layer's WHOLE
   sheet (ignores `art.frames` AND `weights`) — a pre-existing gap. Authoring + preview honor frames +
   weights now; the runtime sprite path needs frame-filtering (then weights come free via `bindArt`).
 
 ### 2026-07-08 — Invisible FX: Save As (copy) + Delete (SHIPPED)
+
 - **Added:** **⧉ Save As…** (prompts for a name and writes a COPY under it via the untitled-sentinel
   id path, original untouched) and **🗑 Delete** (removes the open effect — both `.fx.json` and its
   `.fx.meta.json` sidecar — after a confirm, then resets the editor + drops it from the picker).
@@ -836,6 +901,7 @@ submodule bumps).
   GREEN. Tool doc `docs/tools/fx.md` updated (sub-bar controls + Save keying).
 
 ### 2026-07-08 — Invisible FX: distinct effects save to distinct files + picker reflects saves (SHIPPED)
+
 - **Symptom:** every save overwrote the SAME effect ("I can't save different FX"), and a just-saved
   effect never appeared in the "Open effect…" dropdown until a full reload.
 - **Cause:** the R2 file stem is the doc's `id`, but `emptyEffectDoc()` seeds `id:'untitled-effect'`
@@ -849,6 +915,7 @@ submodule bumps).
   save shows up immediately and stays selected. `launcher-api build` GREEN.
 
 ### 2026-07-08 — Invisible FX: save no longer drops an unbound-art layer (fixes "save → reopen is empty") (SHIPPED)
+
 - **Symptom:** author an FX with a layer, tune the emitter, Save → reopen the effect and it's EMPTY.
 - **Cause:** `normalizeEffectDoc` (`packages/engine-fx/src/normalize.ts`), which the `/api/fx/save`
   endpoint runs as its canonicalizer, DROPPED any SPRITE layer with an empty `art.assetKey`. But the
@@ -887,15 +954,16 @@ round-trip could leave TWO regions bound as the same `(base, mode)` slot (e.g. a
 `.webp` copy sharing a stem); at export both were renamed to `<base>_glow` → server duplicate-name
 rejection. The stale image is the same root cause — FX cells are frozen base copies, only refreshed
 when the FX is re-synced. Fixed in `services/sheet-tool` (commit `d13a7c7`, Railway auto-deploy):
+
 - `ui.html relinkFx()` — enforce exactly one child per `(base, mode)` via a two-pass claim map
   (honour live links first, then derive from names/src); a second claimant is DEMOTED to a plain
   region (kept + deletable), not dropped.
 - `ui.html syncFxChildren()` — collapse duplicate live children for the same mode.
 - `sheet_server.py api_export()` — duplicate-names error now names the offending `src` files and
   points at the stray-FX-cell cause.
-Verified the real `relinkFx` against `.png`/`.webp` round-trip + restored-session + hand-named
-cases (all pass); `code-reviewer` cleared it (no blocking findings). User recovery for an
-already-broken sheet: delete the base's `_glow`/`_shine` cells, re-tick the FX, export.
+  Verified the real `relinkFx` against `.png`/`.webp` round-trip + restored-session + hand-named
+  cases (all pass); `code-reviewer` cleared it (no blocking findings). User recovery for an
+  already-broken sheet: delete the base's `_glow`/`_shine` cells, re-tick the FX, export.
 
 ### 2026-07-08 — Invisible Flow v2: the CUTOVER track (Phase A parity + Phase B translator + game-side dispatch)
 
@@ -975,8 +1043,8 @@ to `main` (feature branch `flow-v2-ship-ready`; commits `b09aa1e`, `1b34552`):
   dev hatches on top; `editor-scenes.ts` `BakedBundle` gains `flowV2`/`flowV2Library` slots +
   `bakedFlowV2Doc()`/`bakedFlowV2Library()` (mirroring `bakedFlowDoc`). Un-baked ⇒ v2 inert (parity).
 - **Launcher-side bake export**: `flowV2Export.ts` (mirrors `flowExport`) writes `deploy/flow-v2.json`
-  + `-library.json`; `runtimeBundle` embeds the `flowV2`/`flowV2Library` slots. Completes the chain
-  **/flow-v2 author → R2 → bake → bundle slot → game `bakedFlowV2Doc()`**. Fully additive — v1 untouched.
+  - `-library.json`; `runtimeBundle` embeds the `flowV2`/`flowV2Library` slots. Completes the chain
+    **/flow-v2 author → R2 → bake → bundle slot → game `bakedFlowV2Doc()`**. Fully additive — v1 untouched.
 - **Verified live**: `__IE_FLOW_V2_LINES__` → the reveal mounts the real `specialBook` subtree onto the
   live Pixi stage (110→122 nodes) for the 900ms hold, then unmounts (→110); no console errors. All six
   v2 harnesses PASS; `lines` + `launcher-api` builds pass.
@@ -1135,9 +1203,9 @@ The editor's deterministic preview — the last deferred Phase-2 item.
   Run → the timeline renders with a 1×/2× speed dial + total steps/duration; reproducible; snapshots the
   reactive doc/library before the pure walk; clears on any doc/library/event/speed change.
 - **Harness** `flowV2Preview.ts` (`pnpm v2preview`): the book-of reveal yields the exact stagger timeline
-  + virtual `at` stamps; speed halves delays; un-authored event = empty; branch picks then/else. All six
-  v2 harnesses (schema/collapse/runtime/mount/vocab/preview) PASS; `launcher-api` build passes. ⏳ owner
-  live-look on the auth-gated dev route.
+  - virtual `at` stamps; speed halves delays; un-authored event = empty; branch picks then/else. All six
+    v2 harnesses (schema/collapse/runtime/mount/vocab/preview) PASS; `launcher-api` build passes. ⏳ owner
+    live-look on the auth-gated dev route.
 
 **Remaining:** editor real per-project vocab loading, then Phase 5 (migrate the one book-of flow +
 hard-cut v1).
@@ -1173,6 +1241,7 @@ surface was simply unbuilt. Owner chose **full node-level authoring**.
 
 **Shipped** (editor-only, `apps/launcher-api/src/routes/(app)/flow/`; branch
 `editor/book-event-choreo-authoring`):
+
 - `ChoreoNodeInspector.svelte` — `'effect'` added to `ADD_KINDS`; `setPayloadField` generalized to
   effects; free-form key→accessor payload editor for effects (same `parseFlowAccessor`/
   `flowAccessorText`/`FLOW_ACCESSOR_HINT` grammar as broadcasts, e.g. `symbol = $trigger.symbol`).
@@ -1201,6 +1270,7 @@ author their own reveal like free spins (decision: **pure hooks**, author builds
 **author-decides pacing** in choreography). See `feedback_no_hardcoding_generic`.
 
 **Shipped — Phases 1–2 + editor diagnostic** (branch `editor/book-reveal-authorable`):
+
 - **Signals** `specialBookReveal` / `specialBookHide` in `ENGINE_SIGNAL_CATALOG`
   (`componentCatalog.ts`) + wired in `Game.svelte` `registerComponentSignals` via `eventSignal`.
   Payload-less (like `freeSpinStart/End`) — the symbol comes from the value source below.
@@ -1235,6 +1305,7 @@ runs `runtime:lines`, so no submodule bump.
 "duplicate slot → replace image (keep mesh/animation)" for every FX layer found in the manifest.
 
 **Shipped** (`apps/launcher-api/static/rigger/view.html`, static client — not in the Svelte build):
+
 - Refactored `duplicateSlot` into a reusable `duplicateSlotCore(slotName, newName, position)` (clone
   slot + attachments in every skin + slot/deform/attachment animation timelines; `position` =
   before/after in draw order). The prompt wrapper is unchanged behaviourally.
@@ -1354,6 +1425,7 @@ base right away."
 **Root cause (three gaps, all in the atlas-tool).** `mode` survives ingest fine
 (`merge_atlas_regions` is a passthrough, not a whitelist — it only strips `_GEOM_KEYS`). The
 real gaps:
+
 1. **Activation seed bound FX cells verbatim.** On manifest activation, `_seed_refs_into_outputs`
    (`ui_server.py`) bound EVERY empty region's `shape_ref` as its atlas tile — including FX cells,
    whose `shape_ref` is a raw copy of the base. So the FX slot shipped the un-FX'd base pixels and
@@ -1366,10 +1438,11 @@ real gaps:
    fell into `gen_regions` and was sent to ComfyUI.
 
 **Fix (generic, no magic ids — keyed on `shine.fx_layer_info` + `mode in FX_PRESETS`).**
+
 - `ui_server.py` `_seed_refs_into_outputs`: skip canonical FX layers (base present + known mode) —
   don't bind their raw ref; leave them for the rebuild.
 - `ui_server.py` `_saveconfig` activation block: after the seed, call `rebuild_fx_layers(nm,
-  base_names=None)` so a freshly-activated sheet manifest arrives with its FX tiles already
+base_names=None)` so a freshly-activated sheet manifest arrives with its FX tiles already
   DERIVED from their bases.
 - `ui_server.py` `rebuild_fx_layers`: in the render case, rebuild an FX layer when EITHER its base
   OR the FX layer itself is in `base_names` (so "select the FX cell → Process" works).
@@ -1392,6 +1465,7 @@ Sheet Maker: while authoring a sprite, tick which FX it should carry and have sa
 cells created automatically, with a UI to see/elect them.
 
 **Shipped (not yet deployed to the Railway sheet-tool service).**
+
 - `services/atlas-tool/shine.py`: extended `FX_SUFFIX_MODE` with `_colour` → `colour` so the
   full `shine.py` FX set (shine/glow/shadow/blur/zoom/colour) is naming-convention-backed
   (`fx_source` classifies via `fx_layer_info`, so this one entry teaches every consumer).
@@ -1421,6 +1495,7 @@ AND instances) is owned by Invisible Flow. The owner flagged this as a **standin
 to memory `feedback_flow_owns_visibility`), not a one-off.
 
 **Change.**
+
 - `packages/engine-layout/src/lib/engineBindings.ts`: dropped the `visibleSource` entry from
   `ENGINE_BINDING_PARAMS` (now just `action`) + the now-unused `VISIBILITY_SOURCE_KEYS` import;
   reworded the module doc. Kept `VISIBLE_SOURCE_PARAM` + `visibleSourceBindingOf` as runtime
@@ -1432,7 +1507,7 @@ to memory `feedback_flow_owns_visibility`), not a one-off.
 **Defang, not gut (per `feedback_engine_extensibility`).** The RUNTIME still honors a baked
 `visibleSource` instance param — `ComponentInstance.svelte` reads the raw string and wraps the
 subtree in a gated `<Container visible={liveVisible}>` — so existing docs (e.g. Borut) keep working;
-only the *authoring* is gone. `pnpm --filter {engine-layout,launcher-api} build` clean.
+only the _authoring_ is gone. `pnpm --filter {engine-layout,launcher-api} build` clean.
 
 **Still-open remnant.** Builtin component DEFS (`freeSpinCounter` in `builtinComponents.ts`) still
 DECLARE their own `visibleSource` param (surfaced via the normal params UI, using
@@ -1451,6 +1526,7 @@ Scene Editor authoring entirely**, freeing up the screen-properties space.
 
 **Change (two commits).** First cut (`1bb265f`) replaced the dropdown with an always-shown note;
 this follow-up removes the note too and strips every trace so nothing is left commented-out/unused:
+
 - `+page.svelte`: deleted the `.flow-owned` note block, the `flowScreenIds` / `activeSceneFlowDriven`
   `$derived`s, and (from the first cut) the `visibleSource` `<select>`, the blocking-gate style
   block, the helpers `setSceneVisibleSource` / `setSceneGate` / `hexToInt` / `intToHex`, the
@@ -1565,8 +1641,9 @@ the base and dismiss themselves on their own Complete pin, so **no edge ever dea
 (2) owner authors the four backing Scenes online, this pass ships the FlowDoc wiring + a headless spike.
 
 **Change (additive; coded free-spin gates untouched — FS-6 deferred).**
+
 - `apps/lines/src/game/flowDoc.ts` — new `LINES_FLOW_FREESPIN_DOC`: `basegame --freeSpinTrigger/
-  updateFreeSpin/retrigger/freeSpinEnd (bookEvent LAYER)--> intro/counter/retrigger/outro`, each with a
+updateFreeSpin/retrigger/freeSpinEnd (bookEvent LAYER)--> intro/counter/retrigger/outro`, each with a
   `--complete--> basegame` self-dismiss. `basegame` has NO outgoing complete edge ⇒ persistent.
 - `apps/lines/src/game/flowRuntime.svelte.ts` — `__IE_FLOW_FREESPIN__` dev hook (unset on a normal boot
   ⇒ inert ⇒ byte-identical to `main`, §7).
@@ -1592,11 +1669,11 @@ owed: author the four Scenes online + live-verify the WebGL overlays; then the s
 suppressed for any screen the flow owns (`Game.svelte`, the `authoredScreenIds().has(scene.id)` guard) —
 so the editor knob was stale double-information for those screens. **The mechanism is deliberately kept**
 (no shipped game runs a FlowDoc yet; every live game still gates free-spin intro/outro through
-`visibleSource`) — only the *editor control* is hidden per-screen once the flow takes over.
+`visibleSource`) — only the _editor control_ is hidden per-screen once the flow takes over.
 
 **Change (editor-only, no engine/runtime change).** `editor/+page.server.ts` now also `loadFlowDoc`s
 and returns `flowScreenIds = flow.screens.map(s => s.id)` — the SAME set the runtime treats as flow-
-owned (a *placed* flow screen, not an un-placed palette scene). `editor/+page.svelte` derives
+owned (a _placed_ flow screen, not an un-placed palette scene). `editor/+page.svelte` derives
 `activeSceneFlowDriven` and, when true, replaces the "Shows during" select (and its blocking gate-style
 sub-controls) with an explanatory note pointing the author to the flow. `role` (the boot anchor) is
 untouched — the flow depends on it. Verified: `pnpm --filter launcher-api build` green.
@@ -1633,6 +1710,7 @@ cell corner (editor) AND translated the live board ~69px/65px (game) → editor 
 
 **Fix.** Three orthogonal, honestly-named knobs on `ReelGridNode` (all default to identity ⇒ Borut's
 `reelPadding: 0.53` + `rowPadding: 0.5` stay **byte-parity**):
+
 - **Reel/row LEAD** (`reelPadding`/`rowPadding`, cell-size fractions, 0.5 = symmetric) — seats the whole
   reel cluster (the honest `getSymbolX`/`getSymbolLead` lead term). No longer a board offset or a seat.
 - **Seat ALIGNMENT** (`symbolAlignX`/`symbolAlignY`, 0..1, 0.5 = centred) — art WITHIN its own cell.
@@ -1691,7 +1769,7 @@ bump) and hold the §7 inert-flow fall-through (no flow ⇒ byte-identical to `m
   `{#each authoredHud}` block rendered `hud_*` scenes UNCONDITIONALLY — the flow active-set (and thus
   the `loading→HUD` handoff) never reached them, so they painted over the loading takeover. Now each
   scene renders only when `!flow || !flow.mounter.authoredScreenIds().has(scene.id) ||
-  activeScreenIds.includes(scene.id)` — same gate shape as the base-game reels + coded `<UI>`. A
+activeScreenIds.includes(scene.id)` — same gate shape as the base-game reels + coded `<UI>`. A
   `hud_*` scene the flow does NOT author still renders unconditionally (parity).
 - **B. Flow-action routing generalized beyond `spin`** (`Game.svelte`, §8.5). Previously ONLY the
   `spin` action consulted the flow (`hasFlowAction`/`emitFlowAction`); `increase`/`decrease`/`turbo`/
@@ -1728,13 +1806,14 @@ shrink reels via the node's UNIFORM scale where possible (non-uniform now works 
 
 Closes gap #3 of `docs/design/live-assets.md` (see that doc's dated section). Symptom: re-pack an
 atlas and the running game keeps loading the old frame set (`Sprite: key "T_Icon_Hat.png" is not
-found in the loadedAssets`); re-saving the Symbols State Machine only *appeared* to fix it (a red
+found in the loadedAssets`); re-saving the Symbols State Machine only _appeared_ to fix it (a red
 herring — `PUT /api/editor/symbols` has no side-effect; the heal was the fresh page load). Root
 cause: the editor-art / symbol exporters wrote each sheet to a **stable** deploy URL
 (`<stem>/<stem>.json` + page), so re-packing overwrote the same URL and a browser/Cloudflare cache
 served stale (`deployServe.ts` = `max-age=60`, edge can stretch).
 
 **Two fixes:**
+
 - **Content-versioned filenames** — new `apps/launcher-api/src/lib/server/assetVersion.ts`
   (`sheetVersion`) stamps a content hash into every exported sheet's names
   (`<stem>.<hash>.json` / `<stem>.<hash>.<ext>`), hashing region geometry + the source page's R2
@@ -1758,11 +1837,12 @@ other half of the §8 action→intent work. An engine-owned value SOURCE (`balan
 **producer OUTPUT pin** on the Base-game host (rides the SAME resolved intent host, §11.3a); a HUD
 display's `value:<source>` INPUT wires into it, so "the game changes bet/balance/win → the HUD reflects
 it" is **visible + routable**. A value edge resolves to a **reactive subscription override, never a copy**
-(§11.2 rule 1): the store stays the engine-owned `ValueSource`, the edge only redirects *which* registered
+(§11.2 rule 1): the store stays the engine-owned `ValueSource`, the edge only redirects _which_ registered
 feed a display subscribes to. **Auto-bind by name, override by edge** — an unwired display reads its own
 `source` exactly as today (byte-parity §11.6), tagged `auto` in the editor.
 
 Shipped in two PRs (#84 = engine-flow schema/derivation/interpreter; #85 = runtime wiring + `/flow` editor):
+
 - **engine-flow:** `FlowTrigger` `value` variant + `producer` pin role (`types.ts`); `normalizeTrigger`
   case (drops partials); `deriveScreenPins` producer projection from `ENGINE_PARAM_CATALOG` (`pins.ts`);
   `valueBindings()` pure graph query + `resolveValueSource()` override-or-source (`presentation.ts`/
@@ -1869,9 +1949,9 @@ runtime reads `edge.transition`. Shared `apps/lines` runtime (ships to Book of B
 fall-through: an edge WITHOUT a transition = today's hard cut (byte-identical to current `main`).
 
 - **Schema** (`packages/engine-flow/src/types.ts`): `FlowTransitionEffect = { kind:'fade'; ms; easing? }`
-  + `FlowTransition.transition?`. Threaded through `normalize.ts` (clamp `ms` ≥ 0, default easing
-  `linear`, drop unknown kinds). `diff.ts` unchanged (per-edge fields don't change WHICH screens are
-  authored — parity).
+  - `FlowTransition.transition?`. Threaded through `normalize.ts` (clamp `ms` ≥ 0, default easing
+    `linear`, drop unknown kinds). `diff.ts` unchanged (per-edge fields don't change WHICH screens are
+    authored — parity).
 - **Interpreter↔host fade contract** (the hard part — avoiding the mount-then-fade FLASH). The
   interpreter is FRAMEWORK-FREE, so it SURFACES the entrance transition per activation instead of
   tweening: `presentation.ts` `onActiveScreensChange(screenIds, entrances)` now carries an
@@ -1922,6 +2002,7 @@ bottom-aligned, wrong z-band, and with NO suppression of the coded `<UI>`. So th
 drawing on top while the authored bar mounted mis-placed/hidden.
 
 **Fix (owner-chosen FULL-REPLACE contract; parity-safe, no flag):**
+
 - **New engine-layout contract** (`packages/engine-layout/src/lib/genericMountScenes.ts`, mirroring
   `backgroundScenes`/`hasAuthoredBackground`): `authoredHudScenes(scenes)` selects `hud_`-prefixed,
   non-background, content-bearing scenes in doc order; `hasAuthoredHud(scenes)` is true when ≥1 exists.
@@ -1949,6 +2030,7 @@ Files: `packages/engine-layout/src/lib/genericMountScenes.ts`, `apps/lines/src/c
 `apps/launcher-api/src/routes/(app)/editor/+page.svelte`, `docs/STATUS.md`.
 
 **Follow-up SAME DAY — §16 Phase B + C SHIPPED (apps/lines' OWN default HUD is now parametric).**
+
 - **B (feature-gate parity):** new visibility keys `turboFeature`/`autoplayFeature`
   (`componentCatalog.ts` `VISIBILITY_SOURCE_KEYS` + labels), registered from
   `stateUi.config.features.turbo/.autoplay` in `Game.svelte`, and threaded as a per-button
@@ -1957,16 +2039,16 @@ Files: `packages/engine-layout/src/lib/genericMountScenes.ts`, `apps/lines/src/c
   `{#if config.features.*}` wraps so a flipped turbo/auto-spin hides under a feature-off config.
 - **C (flip):** `apps/lines/src/game/editorFlags.ts` `HUD_BUTTON_INSTANCES = false → true`. apps/lines'
   fallback HUD now emits the 7-button `componentInstance(button)` cluster (spin/stop machine + disabled
-  + active + spinning + label + feature-gates lifted from `ButtonBetProvider`/`ButtonBet`/`UIDefault`).
-  Blast radius CONFINED to apps/lines: the launcher editor + every other game call `defaultLayout('lines')`
-  with no `buttons` option ⇒ coded `bind` buttons unchanged; online authored games (`bookofborutremake`,
-  Borut) use their OWN docs. **Verified:** `engine-layout` + play4fun `lines` builds GREEN; flag-consumer
-  audit confirms apps/lines-only. **SHIPPED:** rebuilt engine dist → lines build → `publish-runtime-bundle`
-  (164 files) → `/refresh` 202. **OWNER interactive-verify (WebGL, online — headless can't click):** press +
-  Space (single-fire, disabled mid-roll, enabled only to cancel autoplay), active border on turbo/auto-spin,
-  bet↔stop caption flip, spinning-icon rotation, turbo/auto-spin hide under a feature-off config, and a
-  `scaleX:-1` authored on the auto-spin instance flips. Files (B+C): `packages/engine-layout/src/lib/
-  {componentCatalog.ts,referenceLayouts/hud.ts}`, `apps/lines/src/{game/editorFlags.ts,components/Game.svelte}`.
+  - active + spinning + label + feature-gates lifted from `ButtonBetProvider`/`ButtonBet`/`UIDefault`).
+    Blast radius CONFINED to apps/lines: the launcher editor + every other game call `defaultLayout('lines')`
+    with no `buttons` option ⇒ coded `bind` buttons unchanged; online authored games (`bookofborutremake`,
+    Borut) use their OWN docs. **Verified:** `engine-layout` + play4fun `lines` builds GREEN; flag-consumer
+    audit confirms apps/lines-only. **SHIPPED:** rebuilt engine dist → lines build → `publish-runtime-bundle`
+    (164 files) → `/refresh` 202. **OWNER interactive-verify (WebGL, online — headless can't click):** press +
+    Space (single-fire, disabled mid-roll, enabled only to cancel autoplay), active border on turbo/auto-spin,
+    bet↔stop caption flip, spinning-icon rotation, turbo/auto-spin hide under a feature-off config, and a
+    `scaleX:-1` authored on the auto-spin instance flips. Files (B+C): `packages/engine-layout/src/lib/
+{componentCatalog.ts,referenceLayouts/hud.ts}`, `apps/lines/src/{game/editorFlags.ts,components/Game.svelte}`.
 
 **Follow-up SAME DAY — submenu buttons promoted to first-class actions (owner-requested).**
 The `menu` action only opens the settings/paytable POPUP overlay (`stateUi.menuOpen = true`); the four
@@ -2015,7 +2097,7 @@ fall-through invariant, and are **NOT committed** (owner reviews + ships).
   guard-holding complete-edge target activates (one `notify`, ordered enters). Guarded branching
   preserved; only `complete` fans out (bookEvent/signal/condition keep first-match layer semantics).
 - **C. Cross-screen z-order = editor screen-list order** (`packages/engine-layout/src/lib/
-  layerOrder.ts` NEW, `Game.svelte`, `referenceLayouts/lines.ts`). `docLayerZIndex` maps a
+layerOrder.ts` NEW, `Game.svelte`, `referenceLayouts/lines.ts`). `docLayerZIndex` maps a
   layerable scene's `scenes[]` index into a band (100+index) above the base game and below an
   engine-owned TOP band (10000: free-spin gates + single `waitForResolve` + counter + info
   overlay). HUD / basegameOverlays / specialBook / takeover / extras now paint at their editor
@@ -2189,13 +2271,13 @@ with the reference-layout re-positioning, before shipping.
 - **Engine & games** — symbol sizing (sprites plain contain-fit; SPINE symbols shrink via
   `SYMBOL_SPINE_FILL=0.5`, `apps/lines/src/game/constants.ts:21`; ⏳ live size judgement);
   persistent `space:'background'` scene behind the game (`engine-layout/backgroundScenes.ts`
-  + `Game.svelte`, merged PR #65); bitmap-font layout text ships in-game
-  (`LayoutNodeView.svelte:215` BitmapText branch + `registerFontCatalog` — fonts Phase 3
-  done); component value/defaults system + HUD readouts (B1–B3); per-sheet editor-art
-  namespacing; **generic doc-driven scene mounting** (§20.1 — an author's new Scene Editor
-  screen ships without hardcoding it in `Game.svelte`; `engine-layout/genericMountScenes.ts`
-  + parity-gated `{#each}`, merged PR #67). ⏳ z-order of author extra-scenes (currently
-  above the HUD) is a live-verify tuning call.
+  - `Game.svelte`, merged PR #65); bitmap-font layout text ships in-game
+    (`LayoutNodeView.svelte:215` BitmapText branch + `registerFontCatalog` — fonts Phase 3
+    done); component value/defaults system + HUD readouts (B1–B3); per-sheet editor-art
+    namespacing; **generic doc-driven scene mounting** (§20.1 — an author's new Scene Editor
+    screen ships without hardcoding it in `Game.svelte`; `engine-layout/genericMountScenes.ts`
+  - parity-gated `{#each}`, merged PR #67). ⏳ z-order of author extra-scenes (currently
+    above the HUD) is a live-verify tuning call.
 - **Invisible FX** — all three tiers + trigger on `main` (sprite particles, spine-attach,
   spine-as-particle, event-bus trigger + `/fx` event/spawn-shape picker). ⏳ Tier-C
   GPU/perf ceiling in-game; Borut submodule bump (owner).
@@ -2227,7 +2309,7 @@ with the reference-layout re-positioning, before shipping.
 
 1. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is **no**
    export→deploy→bake→pull→register wiring, so a Rigger rig doesn't actually reach a game.
-   *(Recommended next.)*
+   _(Recommended next.)_
 2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the
    largest missing animation channel).
 3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have
@@ -2250,6 +2332,7 @@ with the reference-layout re-positioning, before shipping.
 > Decision: button→flow advance uses the existing tap-to-continue screen for now; the real
 > per-button `action` trigger is deferred (its Phase 8). Also folds in the missing
 > `docs/tools/editor.md` (rule 9).
+>
 > - **Phase 1 (loading → tap → basegame) — DONE headlessly + build-shipped 2026-06-30**
 >   (branch `flow/driven-game`). The loading splash is now a Flow screen the interpreter can
 >   own (`apps/lines` Game.svelte/flowRuntime/flowDoc); a tap fires its `complete` edge to
@@ -2551,7 +2634,7 @@ plus the owner/external blockers. Pick the next build from there.
 
 - **Invisible Editor — a placed component's OWN spine never rendered in the built game (key mismatch): ✅ LANDED code-only (2026-06-29, owner-reported).** Owner report: the spin-button spine (`R_SpinButton`, a `spine` child of the `Button_Square` component instance in `invisible_wall/bookofborutremake`) showed neither in-game nor in the editor (editor = the known "spines preview as marker boxes — judge in-game" limitation). Root cause (in-game): spine `assetKey`s are stored as the full R2 bundle PREFIX (`<client>/<project>/spines/<bundle>/`) because the editor resolves spines straight from R2 by that key, but a running game registers each spine under its BARE bundle name (`R_SpinButton`). The bake rewrites prefix→bundle-name via `resolveSpineKeysForGame`, but that walk only covered `doc.scenes[].nodes` — it NEVER touched the referenced **component defs** (resolved separately by `resolveReferencedDefs`). So a placed component shipped its spine node with the full prefix, `LayoutNodeView` handed `<SpineProvider key={node.assetKey}>` that prefix, the registered key was the bare name → lookup miss → the spine silently never loaded. (Verified the asset itself was fine: `R_SpinButton` is in `skeletons.json`, parses as Spine 4.2 `Idle/Stop/Spin`, slots reference real atlas regions, AND it's correctly catalogued as a spine in `deploy/editor-art/index.json` under key `R_SpinButton`.) **Fix:** factored the per-node rewrite into `rewriteSpineKeys()` + added `resolveSpineKeysForComponentDefs()` that walks every referenced def's `root` (and the pinned `versions`), applied right after `resolveReferencedDefs` in BOTH copies that must stay identical — `lib/server/runtimeBundle.ts` (publish bake) and `routes/api/editor/doc/+server.ts` (live boot fetch). Now a baked component def's spine node `assetKey` becomes `R_SpinButton`, matching registration → the spine loads. `pnpm --filter launcher-api build` GREEN. **Owner step:** redeploy the launcher, then reload/republish `bookofborutremake` — the spin-button spine should render in-game. Files: `apps/launcher-api/src/lib/server/runtimeBundle.ts`, `apps/launcher-api/src/routes/api/editor/doc/+server.ts`.
 
-- **Invisible Editor — HUD component spines now render live in the editor canvas (were 2D placeholders only): ✅ LANDED code-only (2026-06-29, owner-reported).** Owner wants the Scene Editor to reflect 100% what ships, but a spine nested in a HUD component (the spin button's `R_SpinButton`) only ever showed its 2D placeholder box in the editor. Root cause: the per-game-scene composite `{#each visibleGameScenes()}` mounts an `EditorSpineLayer` per scene, but HUD scenes (`hudBar`/`hudCorners`) are deliberately EXCLUDED — they draw on the separate top-most `hudCanvas` via `drawHud`, which only had a HUD *text* overlay (`EditorTextLayer`), no spine layer. So the live spine WebGL layer was never composited over the HUD → only `drawNode`'s 2D placeholder showed. **Fix (`EditorCanvas.svelte`):** added a HUD spine overlay mirroring the existing `hud-text-layer` — `hudSpineScenes()` (non-hidden HUD scenes with a spine anywhere in their tree, incl. nested in a placed component), a memoized `hudSpineSceneFilter()`, and an `<EditorSpineLayer>` filtered to the HUD scenes with the SAME `worldTransformOf={nodeTransform}` the HUD text overlay (and the in-game runtime) use, reporting into the merge buffers under a synthetic `HUD_SPINE_KEY`. CSS `.hud-spine-layer` at z-index 1001 (above the HUD 2D `hudCanvas`=1000, below HUD readout text via DOM order). Once the layer reports the bundle ready, `drawHud`/`drawNode` drop the placeholder automatically (shared `readySpineKeys`), and its meta also feeds the Properties dropdowns. `pnpm --filter launcher-api build` GREEN. **Verified:** mirrors the proven HUD text overlay + the shared transform path the runtime uses; live render unverified (auth-gated editor) — owner to confirm after deploy. File: `apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte`.
+- **Invisible Editor — HUD component spines now render live in the editor canvas (were 2D placeholders only): ✅ LANDED code-only (2026-06-29, owner-reported).** Owner wants the Scene Editor to reflect 100% what ships, but a spine nested in a HUD component (the spin button's `R_SpinButton`) only ever showed its 2D placeholder box in the editor. Root cause: the per-game-scene composite `{#each visibleGameScenes()}` mounts an `EditorSpineLayer` per scene, but HUD scenes (`hudBar`/`hudCorners`) are deliberately EXCLUDED — they draw on the separate top-most `hudCanvas` via `drawHud`, which only had a HUD _text_ overlay (`EditorTextLayer`), no spine layer. So the live spine WebGL layer was never composited over the HUD → only `drawNode`'s 2D placeholder showed. **Fix (`EditorCanvas.svelte`):** added a HUD spine overlay mirroring the existing `hud-text-layer` — `hudSpineScenes()` (non-hidden HUD scenes with a spine anywhere in their tree, incl. nested in a placed component), a memoized `hudSpineSceneFilter()`, and an `<EditorSpineLayer>` filtered to the HUD scenes with the SAME `worldTransformOf={nodeTransform}` the HUD text overlay (and the in-game runtime) use, reporting into the merge buffers under a synthetic `HUD_SPINE_KEY`. CSS `.hud-spine-layer` at z-index 1001 (above the HUD 2D `hudCanvas`=1000, below HUD readout text via DOM order). Once the layer reports the bundle ready, `drawHud`/`drawNode` drop the placeholder automatically (shared `readySpineKeys`), and its meta also feeds the Properties dropdowns. `pnpm --filter launcher-api build` GREEN. **Verified:** mirrors the proven HUD text overlay + the shared transform path the runtime uses; live render unverified (auth-gated editor) — owner to confirm after deploy. File: `apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte`.
 
 - **Invisible Editor — spine preview was half the in-game size (editor↔game parity): ✅ LANDED code-only (2026-06-29, owner-reported).** Owner: the spin-button spine rendered ~2× bigger in the running game than in the Scene Editor (only the spine; other HUD elements matched). Root cause: the deploy pipeline bakes every editor-rendered spine at **`scale: 2`** (`exportSpineBundle` default — the symbols/editor convention; written into the deploy index's `spines[].scale`), and the running game applies it on load via `parser.scale` (`packages/pixi-svelte/src/lib/assetLoad.ts` sets `SkeletonJson/SkeletonBinary.scale` before `readSkeletonData`, scaling the skeleton geometry + `data.width/height` ×2). The editor's own loader (`editorSpine.client.ts#buildSkeleton`) never set `reader.scale`, so it loaded at 1×. A spine sized by its NATURAL size (no authored width/height — e.g. a placed button) therefore previewed at 1/2 the in-game size; width-fitted + cover/placement spines normalise the load scale away (the fit divides by the scaled natural size), which is why ONLY the natural-sized button looked off. **Fix:** new shared constant `EDITOR_SPINE_LOAD_SCALE = 2` (`apps/launcher-api/src/lib/spineScale.ts`) — single source for both the export default (`spine.ts#exportSpineBundle`, + the `editorArtExport`/`symbolExport` call sites) AND the editor preview (`buildSkeleton` now sets `reader.scale = EDITOR_SPINE_LOAD_SCALE` for both JSON and binary; `spineRuntime.client.ts` reader types gained the settable `scale`). Editor preview is now WYSIWYG with the game; no shipped-game change (export value unchanged), width-fitted/cover previews unchanged. `pnpm --filter launcher-api build` GREEN. **Verified:** confirmed the runtime load path (`assetLoad.ts parser.scale`) + the deploy index entry (`R_SpinButton scale:2`) + that the button spine has no authored width/height (so the 2× shows directly); live confirm owner-pending. Files: `apps/launcher-api/src/lib/spineScale.ts`, `.../editor/editorSpine.client.ts`, `.../editor/spineRuntime.client.ts`, `.../server/spine.ts`, `.../server/editorArtExport.ts`, `.../server/symbolExport.ts`. **Follow-up (same day, owner-prompted "why scale by 2 at all?"): set `EDITOR_SPINE_LOAD_SCALE = 2 → 1`.** The 2× was a copied "symbols convention" but symbol spines are width-FITTED, so a load scale normalises away for them — the 2× did nothing for symbols (their size is the separate `SYMBOL_SPINE_FILL = 0.5` CONTAIN ratio in `apps/lines/.../SymbolSpineMain.svelte`, unrelated) and silently DOUBLED every natural-sized spine. At `1` spines render atlas-true; size is governed only by node `width`/`height` + placement `scale` (+ the symbol fill). Now a SINGLE universal knob (editor + export). Symbols unchanged (width-fitted); already-deployed games keep their baked `scale:2` until republished, so they must republish (and re-tune any natural-sized spine) to pick up `1`. **CORRECTION (same day, owner-reported "symbols now smaller"): the "width-fit normalises the load scale away" claim above was WRONG.** Verified in the vendored Spine reader (`spine-webgl-4.2.js`): `skeletonData.width = skeletonMap.width` with NO `* scale` — the load scale scales the skeleton GEOMETRY but NOT `data.width`, so a width-fitted spine renders at `scale × width`, not normalised. So `SYMBOL_SPINE_FILL = 0.5` was a tuned PAIR with the 2× (`2 × 0.5 = 1` cell); dropping the scale to 1 halved every symbol. Fix: SPLIT the constant — `EDITOR_SPINE_LOAD_SCALE = 1` (components/placed spines + editor preview, button correct) and new `SYMBOL_SPINE_LOAD_SCALE = 2` (symbols only, kept paired with the `0.5` fill so symbols are unchanged). `symbolExport` uses the symbol scale; `editorArtExport` + `buildSkeleton` use the editor scale. Republish restores symbols (scale 2) AND keeps the button fix (scale 1). Full cleanup to `1`+`fill 1` deferred (needs a coordinated runtime + per-game republish). File: `apps/launcher-api/src/lib/spineScale.ts` (+ `symbolExport.ts`). **FULL CLEANUP (owner-requested, same day): collapsed to ONE honest knob.** `spineScale.ts` now exports a single `SPINE_LOAD_SCALE = 1` (used by `editorArtExport` + `symbolExport` + `exportSpineBundle` default + the editor `buildSkeleton`); `SYMBOL_SPINE_LOAD_SCALE` removed. The symbol-size pairing moved fully into the runtime: `apps/lines/src/game/constants.ts#SYMBOL_SPINE_FILL = 0.5 → 1` (since `2 × 0.5` = `1 × 1` = full cell), comment + `SymbolSpineMain.svelte` comment rewritten — spine-symbol size is now `SYMBOL_SIZE × SYMBOL_SPINE_FILL` alone, no hidden load-scale multiplier. **MIGRATION (symbol size = `index.scale × SYMBOL_SPINE_FILL`, and `index.scale` is baked at publish):** (1) launcher auto-deploys (exports now write `scale:1`); (2) the `_runtime/lines` bundle was rebuilt (`PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build`) + republished via `publish-runtime-bundle.mjs` so online games get `SYMBOL_SPINE_FILL = 1`; (3) owner must REPUBLISH `bookofborutremake` so its symbol index rewrites `2 → 1` (only online game with spine symbols — `lines_flowtest`/`test1` have none). **Shipped Book of Borut (`borut/bookofborut`, 10 spine symbols @2) is INSULATED — own engine submodule, NOT bumped — so it keeps the old `2 × 0.5` pair and renders correctly; do NOT bump its submodule without ALSO republishing its symbols at `scale:1` in the same step (else 2× symbols).** `pnpm --filter launcher-api build` + `pnpm --filter lines build` GREEN. Files: `apps/launcher-api/src/lib/spineScale.ts`, `.../server/{editorArtExport,symbolExport,spine}.ts`, `.../editor/editorSpine.client.ts`, `apps/lines/src/game/constants.ts`, `apps/lines/src/components/SymbolSpineMain.svelte`. **REVERTED the full cleanup (same day) — it endangered the LIVE Book of Borut.** Discovery while prepping Borut's migration: Book of Borut (`Projects/borut/bookofborut`) has its OWN `SymbolSpineMain.svelte` + `game/constants.ts` (NOT `apps/lines`), on an OLDER sizing model (`height = SYMBOL_SIZE × sizeRatios.height`, `sizeRatios = {1,1}`) tuned to the baked `scale: 2`. The universal `scale:1` export (launcher, already deployed) would have HALVED Borut's symbols on its NEXT game-bundle republish (real-money game) — a silent landmine; a submodule bump does NOT fix it (the sizing lives in Borut's own code + the launcher export, not the engine packages). So reverted to the SAFE surgical split: `EDITOR_SPINE_LOAD_SCALE = 1` (components/placed spines + editor preview — the button fix) + `SYMBOL_SPINE_LOAD_SCALE = 2` (symbols, paired with `SYMBOL_SPINE_FILL = 0.5`); `apps/lines` fill back to `0.5`; `_runtime/lines` rebuilt + republished at fill `0.5` + test server `/refresh`'d (recovered after the swap-OOM blip). Net safe state: button at scale 1 everywhere; symbols stay at the `2 × 0.5` pair for ALL games (online + Borut), unchanged. The "2× symbol convention" stays a documented wart. **DEFERRED — proper full cleanup is a deliberate per-game project:** migrate Book of Borut to the current symbol model (drop `sizeRatios`, adopt contain-fit) + retune + republish symbols at `scale:1` + bump submodule, all verified together — NOT a quick bump. Owner step: republish `bookofborutremake` → symbols back to `scale:2` (full cell) + button at scale 1.
 
