@@ -17,7 +17,7 @@
 		getSpinePhysics,
 		type SpineSceneRenderer,
 	} from '../editor/spineRuntime.client';
-	import { createFxOverlay, type FxOverlayApi } from '$lib/fx/fxOverlay.client';
+	import { createFxOverlay, type FxOverlayApi, type FxTransform } from '$lib/fx/fxOverlay.client';
 
 	interface Props {
 		/** The scroll container whose `[data-spine-key]` cells this draws over. */
@@ -136,22 +136,25 @@
 		return dur > 0 ? te.trackTime % dur : te.trackTime;
 	}
 
-	/** Project a posed bone's world origin into THIS cell's on-screen CSS point (relative to the
-	 * canvas / fx host, both `inset:0`). `drawCell` placed the skeleton in a CSS-px world with X
-	 * mirrored about the viewport centre (`skel.scaleX < 0`, `skel.x = cw - preX`) and Y running
-	 * downward (`scaleY < 0` flips the y-up rig), so UNDOING that mirror gives the screen point:
-	 * `screenX = cw - worldX`, `screenY = worldY` (mirrors `view.html`'s `fxBoneWorld` + projection).
-	 * `bone` absent ⇒ the rig origin (root bone `bones[0]`). Must be read RIGHT AFTER this cell's
-	 * `drawCell` — the skeleton is shared, so the next cell repositions it. */
-	function fxBoneScreen(
+	/** Project a posed bone into THIS cell's on-screen affine transform (CSS px, relative to the
+	 * canvas / fx host, both `inset:0`), so the effect rides the bone's position + ROTATION + per-axis
+	 * SCALE — not just its origin. `drawCell` placed the skeleton in a CSS-px world with X mirrored
+	 * about the viewport centre (`skel.scaleX < 0`, `skel.x = cw - preX`) and Y running downward
+	 * (`scaleY < 0` flips the y-up rig); undoing that mirror is the linear map `[[-1,0],[0,1]]` plus
+	 * the `cw` translate, so the origin is `(cw - worldX, worldY)` and the bone's world axes
+	 * `(b.a,b.c)` / `(b.b,b.d)` — which already carry the cell-fit scale (`skel.scaleX/Y = ±s`) and the
+	 * bone's own rotation/scale — map to screen as `(-b.a,b.c)` / `(-b.b,b.d)`. `bone` absent ⇒ the rig
+	 * origin (root bone `bones[0]`). Must be read RIGHT AFTER this cell's `drawCell` — the skeleton is
+	 * shared, so the next cell repositions it. */
+	function fxBoneTransform(
 		instance: SpineInstance,
 		bone: string | undefined,
 		cw: number,
-	): { x: number; y: number } | null {
+	): FxTransform | null {
 		const skel = instance.skeleton;
 		const b = bone ? skel.findBone(bone) : skel.bones[0];
 		if (!b) return null;
-		return { x: cw - b.worldX, y: b.worldY };
+		return { x: cw - b.worldX, y: b.worldY, a: -b.a, b: b.c, c: -b.b, d: b.d };
 	}
 
 	/** Drive one cell's live FX for this frame: clear on loop, fire newly-crossed keyframes at the
@@ -160,7 +163,6 @@
 	function updateCellFx(
 		el: HTMLElement,
 		entry: Extract<Entry, { state: 'ready' }>,
-		s: number,
 		cw: number,
 	): void {
 		let cf = cellFx.get(el);
@@ -176,21 +178,21 @@
 			const overlay = ensureOverlay();
 			if (overlay) {
 				for (const b of entry.fxCrossed) {
-					const p = fxBoneScreen(entry.instance, b.bone, cw);
-					if (!p) continue;
+					const t = fxBoneTransform(entry.instance, b.bone, cw);
+					if (!t) continue;
 					if (!cf) {
 						cf = { active: [] };
 						cellFx.set(el, cf);
 					}
-					cf.active.push({ handle: overlay.play(b.effectId, p.x, p.y, s), bone: b.bone });
+					cf.active.push({ handle: overlay.play(b.effectId, t), bone: b.bone });
 				}
 			}
 		}
 		// Ride the bone: reposition every active effect for this cell each frame.
 		if (cf && cf.active.length && fxOverlay) {
 			for (const fx of cf.active) {
-				const p = fxBoneScreen(entry.instance, fx.bone, cw);
-				if (p) fxOverlay.follow(fx.handle, p.x, p.y, s);
+				const t = fxBoneTransform(entry.instance, fx.bone, cw);
+				if (t) fxOverlay.follow(fx.handle, t);
 			}
 		}
 	}
@@ -276,9 +278,9 @@
 
 	/** Place + draw one ready instance into a cell rect (CSS px, relative to the canvas).
 	 *  Same fit + camera-mirror compensation as `SymbolSpinePreview`, generalised to an
-	 *  arbitrary cell offset on a full-grid canvas of width `cw`. Returns the fit scale `s`
-	 *  (CSS px per skeleton-local unit) so the FX overlay can size the effect to this cell —
-	 *  the analog of `view.html`'s `fxScaleAt` (screen px per rig-world unit at the bone). */
+	 *  arbitrary cell offset on a full-grid canvas of width `cw`. The fit scale `s` it computes
+	 *  is baked into `skel.scaleX/Y`, so the FX overlay recovers it (plus the bone's own
+	 *  rotation/scale) straight off the posed bone's world matrix in `fxBoneTransform`. */
 	function drawCell(
 		entry: Extract<Entry, { state: 'ready' }>,
 		x: number,
@@ -286,8 +288,8 @@
 		w: number,
 		h: number,
 		cw: number,
-	): number {
-		if (!gl || !renderer) return 0;
+	): void {
+		if (!gl || !renderer) return;
 		const { offX, offY, bw, bh } = entry.bounds;
 		const skel = entry.instance.skeleton;
 		const s = Math.min(w / bw, h / bh) * PAD;
@@ -306,7 +308,6 @@
 		renderer.begin();
 		renderer.drawSkeleton(skel, entry.instance.premultipliedAlpha);
 		renderer.end();
-		return s;
 	}
 
 	function frame(now: number): void {
@@ -395,10 +396,10 @@
 			const x = r.left - base.left;
 			const y = r.top - base.top;
 			if (x + r.width < 0 || y + r.height < 0 || x > cw || y > ch) continue; // cull off-screen
-			const s = drawCell(entry, x, y, r.width, r.height, cw);
+			drawCell(entry, x, y, r.width, r.height, cw);
 			// FX (fire on the beat + ride the bone) reads the skeleton posed by `drawCell` for THIS
 			// cell — so it MUST run right after, before the shared skeleton is reposed for the next cell.
-			updateCellFx(el, entry, s, cw);
+			updateCellFx(el, entry, cw);
 		}
 	}
 

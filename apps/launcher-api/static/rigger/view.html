@@ -655,18 +655,20 @@ function fxProject(worldX, worldY){
   renderer.camera.worldToScreen(v, cv.width, cv.height); // -> device px, y-up
   return { x: v.x / dpr, y: cv.clientHeight - v.y / dpr };
 }
-// Bone world origin by name (or rig origin = root bone when falsy). Guards nulls → null.
-function fxBoneWorld(boneName){
+// Bone → on-screen affine transform (CSS px): origin + the projected images of its local +X/+Y axes,
+// so an effect rides the bone's position + ROTATION + per-axis SCALE (not just its origin), matching
+// the game's <SpineBoneAttach followRotation followScale>. Numerical basis (the camera projection is a
+// general zoom/pan/flip): map the bone's world axes (b.a,b.c)/(b.b,b.d) through fxProject and diff.
+// `boneName` falsy ⇒ rig origin (root bone). Guards nulls → null.
+function fxBoneTransform(boneName){
   if (!skeleton) return null;
   const b = boneName ? skeleton.findBone(boneName) : skeleton.bones[0];
   if (!b) return null;
-  return { worldX: b.worldX, worldY: b.worldY };
-}
-// px per world unit at (worldX,worldY) — so particle size tracks stage zoom.
-function fxScaleAt(worldX, worldY){
-  const a = fxProject(worldX, worldY), c = fxProject(worldX + 100, worldY);
-  const dx = c.x - a.x, dy = c.y - a.y;
-  return Math.hypot(dx, dy) / 100;
+  const L = 100;
+  const O = fxProject(b.worldX, b.worldY);
+  const PX = fxProject(b.worldX + b.a * L, b.worldY + b.c * L);
+  const PY = fxProject(b.worldX + b.b * L, b.worldY + b.d * L);
+  return { x: O.x, y: O.y, a: (PX.x - O.x) / L, b: (PX.y - O.y) / L, c: (PY.x - O.x) / L, d: (PY.y - O.y) / L };
 }
 // Per-frame update — call AFTER poseAtTime(curAnim, animTime), only in animate mode.
 function updateFxPreview(){
@@ -687,17 +689,15 @@ function updateFxPreview(){
       if (!(e.fx && e.fx.effectId)) continue;
       const t = e.time || 0;
       if (lo < t && cur >= t){
-        const w = fxBoneWorld(e.fx.bone); if (!w) continue;
-        const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
-        const h = window.RiggerFx.play(e.fx.effectId, p.x, p.y, s);
+        const tf = fxBoneTransform(e.fx.bone); if (!tf) continue;
+        const h = window.RiggerFx.play(e.fx.effectId, tf);
         fxActive.push({ handle: h, bone: e.fx.bone });
       }
     }
     // ride the bone: reposition every active effect each frame
     for (const fx of fxActive){
-      const w = fxBoneWorld(fx.bone); if (!w) continue;
-      const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
-      window.RiggerFx.follow(fx.handle, p.x, p.y, s);
+      const tf = fxBoneTransform(fx.bone); if (!tf) continue;
+      window.RiggerFx.follow(fx.handle, tf);
     }
   } catch (e){ /* projection hiccup — never break the render loop */ }
 }
@@ -714,10 +714,9 @@ function fxFirePreview(evtObj){
   ensureFxOverlay().then(() => {
     if (!fxReady || !window.RiggerFx) return;
     try {
-      const w = fxBoneWorld(evtObj.fx.bone); if (!w) return;
-      const p = fxProject(w.worldX, w.worldY), s = fxScaleAt(w.worldX, w.worldY);
+      const tf = fxBoneTransform(evtObj.fx.bone); if (!tf) return;
       window.RiggerFx.clear(); fxActive = []; // preview only the latest pick
-      const h = window.RiggerFx.play(evtObj.fx.effectId, p.x, p.y, s);
+      const h = window.RiggerFx.play(evtObj.fx.effectId, tf);
       fxActive.push({ handle: h, bone: evtObj.fx.bone });
     } catch (e){}
   });

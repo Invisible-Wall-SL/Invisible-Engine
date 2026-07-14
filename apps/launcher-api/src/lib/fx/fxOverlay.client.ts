@@ -33,8 +33,25 @@ import {
 	type EffectDoc,
 	type EmitterLayer,
 } from 'engine-fx';
-import { Application, Container, type TextureSource } from 'pixi.js';
+import { Application, Container, Matrix, type TextureSource } from 'pixi.js';
 import { framesToTextures, type ResolvedArt } from './effectEmitter.client';
+
+/**
+ * A bone's on-screen affine transform (all in CSS px in host space): `(x,y)` is the bone origin,
+ * and `(a,b)` / `(c,d)` are the on-screen images of the bone's local +X / +Y axes — i.e. a Pixi
+ * `Matrix` linear part. Carrying the full 2×2 (not just a uniform scale) lets an effect ride the
+ * bone's position + ROTATION + per-axis SCALE, matching the game's
+ * `<SpineBoneAttach followRotation followScale>`. Each host computes it by mapping the bone's world
+ * matrix through its own stage projection (so it's correct under any zoom/pan/mirror).
+ */
+export interface FxTransform {
+	x: number;
+	y: number;
+	a: number;
+	b: number;
+	c: number;
+	d: number;
+}
 
 /** The imperative surface each host drives (the Rigger assigns an instance to `window.RiggerFx`). */
 export interface FxOverlayApi {
@@ -42,10 +59,10 @@ export interface FxOverlayApi {
 	init(hostEl: HTMLElement): Promise<void>;
 	/** Re-fit the renderer to the host (call on host resize). */
 	resize(): void;
-	/** Play an effect by id at `(x,y)` (CSS px in host space) + uniform `scale`. Returns a handle. */
-	play(effectId: string, x: number, y: number, scale: number): number;
-	/** Update an active effect's position + uniform scale (call every frame to ride the bone). */
-	follow(handle: number, x: number, y: number, scale: number): void;
+	/** Play an effect by id, riding the bone's on-screen transform `t`. Returns a handle. */
+	play(effectId: string, t: FxTransform): number;
+	/** Update an active effect's transform (call every frame to ride the bone). */
+	follow(handle: number, t: FxTransform): void;
 	/** Dispose one effect's emitters + its container. */
 	stop(handle: number): void;
 	/** Stop every active effect. */
@@ -236,12 +253,11 @@ export function createFxOverlay(): FxOverlayApi {
 
 	/** Play an effect. Returns a numeric handle synchronously; textures resolve asynchronously and the
 	 * emitters activate when they land (a ready-guard against the effect being stopped meanwhile). */
-	function play(effectId: string, x: number, y: number, scale: number): number {
+	function play(effectId: string, t: FxTransform): number {
 		const handle = nextHandle++;
 		// If init hasn't resolved yet, the container is added lazily once `world` exists (below).
 		const container = new Container();
-		container.position.set(x, y);
-		container.scale.set(scale);
+		container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
 		const effect: LiveEffect = { container, emitters: [], timers: [], disposed: false };
 		effects.set(handle, effect);
 
@@ -263,12 +279,11 @@ export function createFxOverlay(): FxOverlayApi {
 		return handle;
 	}
 
-	/** Update an effect's container position + uniform scale so it rides the bone. */
-	function follow(handle: number, x: number, y: number, scale: number): void {
+	/** Update an effect's container transform so it rides the bone (position + rotation + scale). */
+	function follow(handle: number, t: FxTransform): void {
 		const effect = effects.get(handle);
 		if (!effect) return;
-		effect.container.position.set(x, y);
-		effect.container.scale.set(scale);
+		effect.container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
 	}
 
 	/** Dispose one effect's emitters + its container. */
