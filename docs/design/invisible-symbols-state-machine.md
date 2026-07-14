@@ -134,14 +134,17 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
   win-line style" clears `line`/`text`; turning the toggle back on clears `enabled`.
 - **Export/bake.** `symbolExport.ts` passes `winLine` straight through verbatim (no asset);
   `bake-editor-doc.mjs` embeds it at `bundle.symbols.winLine`, OMITTING it when absent.
-- **Renderer (per-game).** Book of Borut's `WinLine.svelte` reads the resolved config via
-  `editor-scenes.ts#bakedWinLineConfig()` (coded defaults applied) — line colour/thickness,
-  an optional layered-stroke glow, an optional `svelte/motion` `Tween` draw (first→last,
-  *then* the amount), and the bitmap win-amount text (`style.fill` tint). The win-line
-  draw is awaited via `broadcastAsync` so an animated line completes before the symbol
-  glow; non-animated resolves instantly, preserving the original timing. `apps/lines` has
-  no win-line renderer (symbol-glow win model) — it carries the contract TYPE only, so an
-  untouched project is byte-identical to before and the overlay stays on.
+- **Renderer (shared engine).** `apps/lines/src/components/WinLine.svelte` reads the resolved
+  config via `editor-scenes.ts#bakedWinLineConfig()` (coded defaults applied) — line
+  colour/thickness, an optional layered-stroke glow, an optional `svelte/motion` `Tween` draw
+  (first→last, *then* the amount), and the bitmap win-amount text (`style.fill` tint). The
+  `winInfo` book-event handler traces the leftmost `kind` paying run (skipping scatter),
+  gates on `bakedWinLineEnabled()`, and awaits the draw via `broadcastAsync` so an animated
+  line completes before the symbol glow; non-animated resolves instantly, preserving the
+  original timing. Because it lives in the shared engine, **every game on the `runtime:lines`
+  bundle draws it** (default-on: `enabled ?? true`), so a project that authors win-line style
+  online sees it in game with no per-game code. Ported from the standalone Book of Borut build
+  2026-07-14.
 
 ## "Spine export" demystified
 

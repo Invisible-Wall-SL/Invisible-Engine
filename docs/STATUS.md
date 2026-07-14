@@ -24,6 +24,32 @@ has now live-verified all of it in the browser (2026-06-29)** — so the previou
 list below plus the owner/external blockers (gpt_image node, FLUX ControlNets, shipped-game
 submodule bumps).
 
+### 2026-07-14 — Win line: renderer ported into the SHARED engine (works on `runtime:lines`)
+- **What:** owner authored the `/symbols` win-line style (traced payline + stamped win amount)
+  but it didn't show in the **Book of Borut *remake*** — which runs the shared `runtime:lines`
+  bundle. Root cause: the win-line renderer only ever existed in the **standalone** Book of
+  Borut repo; `apps/lines` (the source of `runtime:lines`) carried the `winLine` contract TYPE
+  but had **no renderer** (symbol-glow win model). The config baked/shipped fine — nothing drew
+  it. This is NOT a Flow feature; adding a Flow node was never the fix.
+- **Fix (generic engine, `main`, `806d6cf`):** ported the standalone renderer into the shared
+  engine. `apps/lines/src/editor-scenes.ts` → `bakedWinLineConfig()`/`bakedWinLineEnabled()`
+  (resolve the sparse `bundle.symbols.winLine` against coded defaults, `runtime`→`baked`
+  precedence). New `apps/lines/src/components/WinLine.svelte` — Graphics polyline, optional
+  layered-stroke glow (no filter dep), optional `svelte/motion` `Tween` animated draw
+  (first→last, *then* amount), bitmap win-amount text; mounted in `Game.svelte` between
+  `<Board/>` and `<Anticipations/>`. `bookEventHandlerMap.ts` `winInfo` now traces the leftmost
+  `kind` paying run (skips scatter `S`), gates on `bakedWinLineEnabled()`, and `await`s the
+  animated draw before the symbol glow (non-animated resolves instantly = prior timing).
+  `EmitterEventWinLine` added to the game emitter union. Default-ON (`enabled ?? true`), so
+  **every** `runtime:lines` game now draws it unless turned off in `/symbols`.
+- **Shipped + verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build` GREEN →
+  `publish-runtime-bundle.mjs lines` (164 files → R2 `_runtime/lines/`) → POST `/refresh`.
+  Clean fetch of the served `bookofborutremake` bundle (`bundle.CXN3ZFxu.js`) contains
+  `winLineShow`/`winLine` — reachable, not just deployed. In-game visual (line drawing on a
+  real win) not auto-verified per `reference_pixi_engine_verification` — owner to confirm live
+  by forcing a line win. Docs: `docs/design/invisible-symbols-state-machine.md` (renderer note
+  updated from "per-game / apps/lines has none" → "shared engine").
+
 ### 2026-07-14 — Invisible FX: Symbols state-machine + Rigger overlay match the game (full bone transform)
 - **What:** owner reported the `/symbols` "state machine" and the actual game showed DIFFERENT FX.
   Root cause is structural: the `/symbols` stage AND the Rigger draw rig FX with a SEPARATE Pixi

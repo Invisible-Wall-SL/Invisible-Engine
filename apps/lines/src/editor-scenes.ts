@@ -115,9 +115,10 @@ type BakedBundle = {
 		highlight?: { assetKey: string; animationName: string };
 		/** Global win-line overlay config (Invisible Symbols State Machine output): on/off
 		 * plus line + win-amount-text style. Pure config, no asset (the chosen `text.font`
-		 * travels via the font pipeline). Sparse — every field falls through to the game's
-		 * coded defaults. `apps/lines` has no win-line renderer (it uses a symbol-glow win
-		 * model), so this type documents the shared contract; Book of Borut consumes it. */
+		 * travels via the font pipeline). Sparse — every field falls through to the coded
+		 * defaults resolved in `bakedWinLineConfig()`. The shared-engine renderer is
+		 * `components/WinLine.svelte` (driven by the `winInfo` handler), so every game on
+		 * the `runtime:lines` bundle draws it. */
 		winLine?: {
 			enabled?: boolean;
 			line?: {
