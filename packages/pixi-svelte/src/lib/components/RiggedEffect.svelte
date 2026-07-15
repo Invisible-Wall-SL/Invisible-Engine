@@ -110,6 +110,14 @@
 	// Stays 0 (and mounts nothing) until the first fire, so no particles appear before the beat.
 	let runId = $state(0);
 
+	// A CONTINUOUS effect (any layer with an infinite `emitterLifetime` < 0) is meant to run forever
+	// once started — e.g. an always-on frame fired from an IDLE-loop event. Re-mounting it on every
+	// beat (`{#key runId}` destroys + recreates the whole particle system) resets it to empty each
+	// loop, so it never accumulates to its steady-state density (it looks sparse / flickers). For
+	// those we fire ONCE and let it run. A ONE-SHOT effect (all finite `emitterLifetime` — a win
+	// burst) keeps re-firing per beat, byte-identical to before.
+	const isContinuous = props.doc.layers.some((l) => ((l.config?.emitterLifetime ?? -1) as number) < 0);
+
 	$effect(() => {
 		const event = props.event;
 		const state = spine?.state;
@@ -120,7 +128,14 @@
 		// would cross-trigger this effect.
 		const listener: SPINE_PIXI.AnimationStateListener = {
 			event: (_entry, ev) => {
-				if (ev?.data?.name === event) runId += 1;
+				if (ev?.data?.name !== event) return;
+				// Continuous: mount once (first beat), then leave it running — no reset on later beats.
+				// One-shot: re-mount from t=0 on every beat.
+				if (isContinuous) {
+					if (runId === 0) runId = 1;
+				} else {
+					runId += 1;
+				}
 			},
 		};
 		state.addListener(listener);
