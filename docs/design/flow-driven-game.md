@@ -1,5 +1,10 @@
 # Flow-driven game — making components fully drivable from Invisible Flow
 
+> **Not a separate tool.** This is an *initiative / build-program* that sits ON TOP of
+> **Invisible Flow** (the `/flow-v2` editor + runtime interpreter). It's the plan for *using*
+> Flow to drive a whole game; its current state is tracked in
+> [docs/status/flow.md](../status/flow.md), not a status file of its own.
+>
 > Build plan to close the gap between what the component/flow model *can* express and the
 > owner's vision: **every component placeable on every screen, exposing its engine
 > signals + component params, with the Flow graph driving the whole game** —

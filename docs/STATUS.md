@@ -34,9 +34,17 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Game Maker** | [status/game-maker](status/game-maker.md) | [design/invisible-game-maker](design/invisible-game-maker.md) | [tools/game-maker](tools/game-maker.md) | `invisible-game-maker` |
 | **Localization** | [status/localization](status/localization.md) | — | [tools/localization](tools/localization.md) | `invisible-localization` |
 | **FTP Browser** | [status/ftp-browser](status/ftp-browser.md) | — | [tools/ftp-browser](tools/ftp-browser.md) | `invisible-ftp-browser` |
+| **Spine Viewer** | [status/spine-viewer](status/spine-viewer.md) | — | [tools/spine-viewer](tools/spine-viewer.md) | `launcher-studio` |
 | **Launcher / platform** | [status/launcher](status/launcher.md) | [design/unified-project-repo](design/unified-project-repo.md) | [tools/launcher](tools/launcher.md) | `launcher-studio` |
 | **Engine & games** (runtime) | [status/engine](status/engine.md) | [design/flow-driven-game](design/flow-driven-game.md) | — | `engine-pixi-svelte` |
 | **Infra** (Railway/CF/R2) | [status/infra](status/infra.md) | — | [INFRA.md](INFRA.md) | `infra-railway` |
+
+**Not tracked here (by design):** third-party tools — **ComfyUI**, **Spine Editor**, **Storybook** —
+keep their own upstream docs (we only ship a `docs/tools/` guide for how we host/launch them). The
+**desktop Invisible Launcher** (publish-only) is covered inside [status/launcher](status/launcher.md).
+**Invisible Blueprints** is a *planned, unbuilt* tool — [design doc](design/invisible-blueprints.md)
+only; it gets a status file + agent when it ships. **Flow-driven game** is an initiative on top of
+Invisible Flow, tracked in [status/flow](status/flow.md) — see [its design doc](design/flow-driven-game.md).
 
 Other design docs (initiatives / cross-cutting plans): [invisible-blueprints](design/invisible-blueprints.md),
 [live-assets](design/live-assets.md), [games-deploy](design/games-deploy.md),
