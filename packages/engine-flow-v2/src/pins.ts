@@ -59,15 +59,22 @@ const dataIn = (id: string, dataType: TypeRef, label?: string): Pin => ({
 	label,
 });
 
-const dataOut = (id: string, dataType: TypeRef, label?: string): Pin => ({
+const dataOut = (id: string, dataType: TypeRef, label?: string, doc?: string): Pin => ({
 	id,
 	dir: 'out',
 	kind: 'data',
 	dataType,
 	label,
+	doc,
 });
 
-const execOut = (id: string, label?: string): Pin => ({ id, dir: 'out', kind: 'exec', label });
+const execOut = (id: string, label?: string, doc?: string): Pin => ({
+	id,
+	dir: 'out',
+	kind: 'exec',
+	label,
+	doc,
+});
 
 const capitalize = (s: string): string =>
 	s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
@@ -172,8 +179,10 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 	switch (node.kind) {
 		case 'event': {
 			const decl = ctx.vocab.events.find((e) => e.name === node.ref);
-			const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name));
-			return [EXEC_OUT, ...outs]; // entry point: NO exec-in.
+			const outs = (decl?.payload ?? []).map((p) => dataOut(p.name, p.type, p.name, p.description));
+			// The entry exec-out carries the event's own help (what it is / when it fires).
+			const start: Pin = { ...EXEC_OUT, doc: decl?.description };
+			return [start, ...outs]; // entry point: NO exec-in.
 		}
 		case 'gameSignals': {
 			// §6.2: the ONE mechanic-signal source node. Derives, for each vocab event whose category is
@@ -184,8 +193,9 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 			const pins: Pin[] = [];
 			for (const e of ctx.vocab.events) {
 				if (e.category === 'intent') continue;
-				pins.push(execOut(e.name, signalPinLabel(e.name)));
-				for (const p of e.payload) pins.push(dataOut(`${e.name}.${p.name}`, p.type, p.name));
+				pins.push(execOut(e.name, signalPinLabel(e.name), e.description));
+				for (const p of e.payload)
+					pins.push(dataOut(`${e.name}.${p.name}`, p.type, p.name, p.description));
 			}
 			return pins;
 		}

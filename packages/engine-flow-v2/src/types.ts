@@ -57,6 +57,10 @@ export interface Pin {
 	kind: PinKind;
 	dataType?: TypeRef; // required iff kind === 'data'.
 	label?: string;
+	/** Optional human help — what this pin is / what it carries / how to wire it. Surfaced as the
+	 *  editor tooltip; derived from the vocabulary's `description` (an event/param's doc), never
+	 *  authored on the node. Absent ⇒ no rich tooltip (the pin just shows its label). */
+	doc?: string;
 }
 
 /** A reference to a specific pin on a specific node. */
@@ -417,6 +421,9 @@ export interface EnumDecl {
 export interface ParamDecl {
 	name: string;
 	type: TypeRef;
+	/** Optional human help for this data field — what value it carries. Surfaced as the pin's
+	 *  editor tooltip (via the derived `Pin.doc`). */
+	description?: string;
 }
 
 /**
@@ -434,6 +441,9 @@ export interface EventDecl {
 	name: string; // 'reveal'.
 	payload: ParamDecl[]; // reveal → { reels: list<Reel> }.
 	category?: EventCategory; // the mechanic family; absent ⇒ 'book' (surfaced by `gameSignals`).
+	/** Optional human help for this signal — what it is, when it fires, how to wire it. Surfaced
+	 *  as the `gameSignals` exec-out pin's editor tooltip (via the derived `Pin.doc`). */
+	description?: string;
 }
 
 /** An action's palette category — a display tag only; both kinds are typed template functions. */

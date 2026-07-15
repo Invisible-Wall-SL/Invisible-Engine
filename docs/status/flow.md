@@ -32,6 +32,7 @@
 - **Ship a real game on a FlowDoc** — owner-owned online authoring + republish / Book of Borut `engine` submodule bump.
 
 ## Recent changes
+- 2026-07-15 — Node pins carry authored help. Optional `description` on `EventDecl`/`ParamDecl` (vocab) → derived onto `Pin.doc` → a theme-styled hover card in `FlowV2Node.svelte` (replaces the plain `title`). Authored for all 13 book-of Game Signals + their payload fields in `BOOK_OF_VOCAB`; the same `doc` also surfaces on standalone `event` nodes. Purely additive/optional — pins without a `description` keep the plain label tooltip.
 - 2026-07-14 — Generic `showMessage` Flow effect (Info Bar / toast producer), authored into both reference docs ([detail in history](../history.md)).
 - 2026-07-13 — v1 Flow editor teardown: `/flow` route retired, v2 is the only editor ([detail in history](../history.md)).
 - 2026-07-10 — flow-v2 flatten re-namespaces colliding group-body node ids (fixes press-Spin → free-spin-intro); shipped via `_runtime/lines` ([detail in history](../history.md)).

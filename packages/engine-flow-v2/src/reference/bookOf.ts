@@ -83,9 +83,27 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 	// event's data-out pin. The flow OWNS an event → drives it (its coded/v1 twin suppressed).
 	events: [
 		// --- lifecycle + UI signals (v1's `complete`/loading triggers → events the game dispatches) ---
-		{ name: 'load', payload: [], category: 'lifecycle' }, // assets loaded — enter the game (hide loading, show basegame).
-		{ name: 'tapToStart', payload: [], category: 'lifecycle' }, // the loading press-to-continue tap.
-		{ name: 'idle', payload: [], category: 'lifecycle' }, // round settled, ready for the next spin.
+		{
+			name: 'load',
+			payload: [],
+			category: 'lifecycle',
+			description:
+				'Fires once, when all assets have finished loading. The entry point of the whole flow — wire it to leave the loading screen and reveal the game (e.g. Hide "Loading" → Show "Base game").',
+		},
+		{
+			name: 'tapToStart',
+			payload: [],
+			category: 'lifecycle',
+			description:
+				'The player pressed the loading "tap to continue" prompt. Fires after Load, once the player first interacts. Use it to dismiss the splash and start play (often also the moment to unlock audio).',
+		},
+		{
+			name: 'idle',
+			payload: [],
+			category: 'lifecycle',
+			description:
+				'The round has fully settled and the game is ready for the next spin. Fires at the end of every round. Use it to re-arm the idle state — show the spin button, stop win loops, reset per-round presentation.',
+		},
 		// --- intents (v1's `action` button edges → events; the flow reacts + invokes the mechanic) ---
 		{ name: 'spin', payload: [], category: 'intent' },
 		{ name: 'stop', payload: [], category: 'intent' },
@@ -99,57 +117,149 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'soundToggle', payload: [], category: 'intent' },
 		{ name: 'gameRules', payload: [], category: 'intent' },
 		// --- book events (the RGS `BookEvent` union) ---
-		{ name: 'reveal', payload: [{ name: 'gameType', type: GAME_TYPE }], category: 'book' },
-		{ name: 'setExpandingSymbol', payload: [{ name: 'symbol', type: SYMBOL }], category: 'book' },
+		{
+			name: 'reveal',
+			payload: [
+				{
+					name: 'gameType',
+					type: GAME_TYPE,
+					description:
+						'Which mode this spin belongs to — `basegame` or `freegame`. Branch on it to swap background, music, or win presentation between the two.',
+				},
+			],
+			category: 'book',
+			description:
+				'The spin result has arrived — the board is about to show its final symbols. The heart of a round: wire it to spin/stop the reels. `gameType` lets you branch base-game vs free-game presentation.',
+		},
+		{
+			name: 'setExpandingSymbol',
+			payload: [
+				{
+					name: 'symbol',
+					type: SYMBOL,
+					description:
+						'The chosen expanding symbol (e.g. `H1`). Feed it to the reveal splash and the set-special-symbol effect.',
+				},
+			],
+			category: 'book',
+			description:
+				'The Book-of special (expanding) symbol has been picked for this free-spin session. Use it to reveal the "special symbol" splash before free spins begin.',
+		},
 		{
 			name: 'expandBookColumns',
 			payload: [
-				{ name: 'symbol', type: SYMBOL },
-				{ name: 'reels', type: list(INT) },
+				{
+					name: 'symbol',
+					type: SYMBOL,
+					description: 'The symbol that expands to fill whole columns.',
+				},
+				{
+					name: 'reels',
+					type: list(INT),
+					description: 'The reel indexes (0 = leftmost) that expand on this step.',
+				},
 			],
 			category: 'book',
+			description:
+				'The chosen special symbol expands to fill whole reels. Use it to play the column-expand animation on the listed reels before scoring the free spin.',
 		},
 		{
 			name: 'winInfo',
 			payload: [
-				{ name: 'totalWin', type: FLOAT },
-				{ name: 'wins', type: list(WIN) },
+				{
+					name: 'totalWin',
+					type: FLOAT,
+					description: "The round's total win amount, in game currency.",
+				},
+				{
+					name: 'wins',
+					type: list(WIN),
+					description:
+						'Every winning combination this round (each with symbol, kind, amount, positions). Loop it with ForEach to highlight each win line.',
+				},
 			],
 			category: 'book',
+			description:
+				'The win breakdown for the round. Use it to drive win-line highlights, per-win toasts, and the win meter — loop `wins` to present each line, read `totalWin` for the round total.',
 		},
 		{
 			name: 'setWin',
 			payload: [
-				{ name: 'amount', type: FLOAT },
-				{ name: 'winLevel', type: INT },
+				{ name: 'amount', type: FLOAT, description: 'The win amount to display on the meter.' },
+				{
+					name: 'winLevel',
+					type: INT,
+					description:
+						'The celebration tier (higher = bigger win). Selects the win animation and sound.',
+				},
 			],
 			category: 'book',
+			description:
+				'Set the current win readout to a specific amount at a given celebration tier. Use it to update the win meter and trigger the matching big/mega-win presentation.',
 		},
-		{ name: 'setTotalWin', payload: [{ name: 'amount', type: FLOAT }], category: 'book' },
-		{ name: 'finalWin', payload: [{ name: 'amount', type: FLOAT }], category: 'book' },
+		{
+			name: 'setTotalWin',
+			payload: [
+				{
+					name: 'amount',
+					type: FLOAT,
+					description: 'The accumulated total-win amount to display.',
+				},
+			],
+			category: 'book',
+			description:
+				'Set the running total-win readout (accumulated across the round / free-spin session). Use it to update the total-win meter.',
+		},
+		{
+			name: 'finalWin',
+			payload: [
+				{
+					name: 'amount',
+					type: FLOAT,
+					description: 'The final, settled win amount for the round.',
+				},
+			],
+			category: 'book',
+			description:
+				"The round's final settled win, emitted as the round closes. Use it for the closing count-up / total presentation before the game returns to idle.",
+		},
 		{
 			name: 'freeSpinTrigger',
 			payload: [
-				{ name: 'totalFs', type: INT },
-				{ name: 'positions', type: list(POSITION) },
+				{ name: 'totalFs', type: INT, description: 'How many free spins were awarded.' },
+				{
+					name: 'positions',
+					type: list(POSITION),
+					description: 'The board positions of the triggering scatters — highlight these.',
+				},
 			],
 			category: 'book',
+			description:
+				'Free spins have been won. Use it to play the trigger celebration and enter the free-spin intro. `totalFs` is the count awarded; `positions` are the scatters that triggered it.',
 		},
 		{
 			name: 'updateFreeSpin',
 			payload: [
-				{ name: 'amount', type: INT },
-				{ name: 'total', type: INT },
+				{
+					name: 'amount',
+					type: INT,
+					description: 'The current free-spin index (spins played or remaining, per your counter).',
+				},
+				{ name: 'total', type: INT, description: 'The total free spins in this session.' },
 			],
 			category: 'book',
+			description:
+				'The free-spin counter advanced. Use it to update the "X of Y" free-spin counter each spin.',
 		},
 		{
 			name: 'freeSpinEnd',
 			payload: [
-				{ name: 'amount', type: FLOAT },
-				{ name: 'winLevel', type: INT },
+				{ name: 'amount', type: FLOAT, description: "The free-spin session's total win." },
+				{ name: 'winLevel', type: INT, description: 'The celebration tier for the outro.' },
 			],
 			category: 'book',
+			description:
+				'The free-spin session has finished. Use it to play the free-spin outro / total-win count-up, then hand back to the base game.',
 		},
 	],
 

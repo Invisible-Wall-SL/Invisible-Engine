@@ -143,7 +143,11 @@
 	<div class="pins">
 		<ul class="col in">
 			{#each inputs as pin (pin.id + ':in')}
-				<li class:exec={pin.kind === 'exec'} title={pinLabel(pin)}>
+				<li
+					class:exec={pin.kind === 'exec'}
+					class:has-tip={!!pin.doc}
+					title={pin.doc ? undefined : pinLabel(pin)}
+				>
 					<Handle
 						type="target"
 						position={Position.Left}
@@ -161,12 +165,17 @@
 								>{typeLabel(pin.dataType)}</span
 							>{/if}
 					{/if}
+					{@render pinTip(pin, 'in')}
 				</li>
 			{/each}
 		</ul>
 		<ul class="col out">
 			{#each outputs as pin (pin.id + ':out')}
-				<li class:exec={pin.kind === 'exec'} title={pinLabel(pin)}>
+				<li
+					class:exec={pin.kind === 'exec'}
+					class:has-tip={!!pin.doc}
+					title={pin.doc ? undefined : pinLabel(pin)}
+				>
 					{#if pin.kind === 'exec'}
 						<span class="plabel">{pinLabel(pin)}</span>
 						<span class="glyph" style="color:{pinColor(pin)}">▷</span>
@@ -184,11 +193,31 @@
 						class={pin.kind === 'exec' ? 'v2-h exec' : 'v2-h data'}
 						style="background:{pinColor(pin)}"
 					/>
+					{@render pinTip(pin, 'out')}
 				</li>
 			{/each}
 		</ul>
 	</div>
 </div>
+
+<!-- Per-pin help tooltip (a hover card, theme-styled) — only rendered for pins that carry a `doc`
+	 (the game-signal / event pins whose vocabulary declares a description). `side` places it clear of
+	 the node: input pins open leftward, output pins rightward. -->
+{#snippet pinTip(pin: Pin, side: 'in' | 'out')}
+	{#if pin.doc}
+		<div class="tip tip-{side}" role="tooltip">
+			<div class="tip-head">
+				<span class="tip-name">{pinLabel(pin)}</span>
+				{#if pin.kind === 'exec'}
+					<span class="tip-kind">signal</span>
+				{:else if pin.dataType}
+					<span class="tip-type" style="color:{pinColor(pin)}">{typeLabel(pin.dataType)}</span>
+				{/if}
+			</div>
+			<p class="tip-doc">{pin.doc}</p>
+		</div>
+	{/if}
+{/snippet}
 
 <style>
 	.v2-node {
@@ -198,7 +227,13 @@
 		border-radius: 8px;
 		color: #e2e8f0;
 		font-size: 12px;
-		overflow: hidden;
+		/* `visible` so a pin's hover tooltip can extend past the node edge; the header keeps its own
+		   rounded top corners so the tint doesn't poke out of the border. */
+		overflow: visible;
+	}
+	/* Raise the hovered node above its neighbours so its tooltip is never covered by another node. */
+	.v2-node:hover {
+		z-index: 20;
 	}
 	.v2-node.selected {
 		border-color: #2563eb;
@@ -212,6 +247,7 @@
 		gap: 8px;
 		padding: 7px 10px;
 		border-bottom: 1px solid #2a323d;
+		border-radius: 7px 7px 0 0;
 	}
 	.kind {
 		font-size: 10px;
@@ -318,5 +354,74 @@
 		border-radius: 50%;
 		width: 8px;
 		height: 8px;
+	}
+
+	/* --- Per-pin help tooltip (hover card) ------------------------------------------------ */
+	.col li.has-tip {
+		cursor: help;
+	}
+	.tip {
+		position: absolute;
+		top: 50%;
+		z-index: 50;
+		width: 232px;
+		padding: 8px 10px;
+		background: #0b0e13;
+		border: 1px solid #2a323d;
+		border-left: 2px solid var(--kind, #2dd4bf);
+		border-radius: 6px;
+		box-shadow: 0 8px 22px #000000aa;
+		color: #cbd5e1;
+		text-align: left;
+		white-space: normal;
+		pointer-events: none;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(-50%) scale(0.97);
+		transform-origin: center left;
+		transition:
+			opacity 0.1s ease,
+			transform 0.1s ease;
+	}
+	.tip-in {
+		right: 100%;
+		margin-right: 14px;
+		transform-origin: center right;
+	}
+	.tip-out {
+		left: 100%;
+		margin-left: 14px;
+	}
+	.col li.has-tip:hover .tip {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(-50%) scale(1);
+	}
+	.tip-head {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
+	.tip-name {
+		font-weight: 700;
+		font-size: 12px;
+		color: #f1f5f9;
+	}
+	.tip-type {
+		font-size: 10px;
+		font-weight: 600;
+	}
+	.tip-kind {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #64748b;
+	}
+	.tip-doc {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.45;
+		color: #b8c2cf;
 	}
 </style>
