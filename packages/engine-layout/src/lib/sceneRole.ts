@@ -13,7 +13,16 @@ import type { Scene } from './types';
 export type SceneRole = NonNullable<Scene['role']>;
 
 export function sceneByRole(scenes: readonly Scene[], role: SceneRole): Scene | undefined {
-	return scenes.find((scene) => scene.role === role) ?? scenes.find((scene) => scene.id === role);
+	// Prefer the CANONICAL scene whose id AND role both equal the role name. This disambiguates a
+	// doc that erroneously tags SEVERAL scenes with the same role (a bulk-tag/migration artifact):
+	// the scene whose id IS the role is the real one, so the reel's board gate no longer locks onto
+	// the wrong first-tagged scene. Then fall back to any role-tagged scene (well-formed single-tag
+	// docs — byte-identical to before), then the legacy id-only match (un-migrated docs).
+	return (
+		scenes.find((scene) => scene.id === role && scene.role === role) ??
+		scenes.find((scene) => scene.role === role) ??
+		scenes.find((scene) => scene.id === role)
+	);
 }
 
 /** The loading splash scene id — role-resolved, falling back to the legacy `loading` id. */
