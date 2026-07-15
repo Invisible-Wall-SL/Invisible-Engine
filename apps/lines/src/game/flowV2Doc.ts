@@ -21,6 +21,7 @@
 import {
 	buildChoreo,
 	makeChoreoUid,
+	str,
 	BOOK_OF_CHOREO,
 	type DataEdge,
 	type ExecEdge,
@@ -48,6 +49,28 @@ Object.entries(BOOK_OF_CHOREO).forEach(([event, steps], row) => {
 	if (body.entry)
 		exec.push({ from: { node: eventId, pin: 'exec' }, to: { node: body.entry, pin: 'exec' } });
 });
+
+// Game Signals — the ONE mechanic-signal source node. Its `onTapToStart` exec-out (the `tapToStart`
+// lifecycle pin) fires when the player first taps the loading "tap to continue" prompt: the flow holder
+// dispatches `tapToStart` once, on the first screen COMPLETE after `load` (`flowV2InterpreterHolder`).
+// Wire it to START the background music, so — under a v2 flow that drives the loading screen — `bgm_main`
+// begins on that first interaction, NOT at boot (`Sound.svelte` suppresses its boot autoplay when the
+// flow drives screens). This is the flow-authored home for the vocabulary's "unlock audio on tap" note.
+const signalsId = 'game_signals';
+nodes.push({ id: signalsId, kind: 'gameSignals', pos: { x: 0, y: -160 } });
+const tapToStartMusic = buildChoreo(
+	[{ k: 'cue', ref: 'soundMusic', inputs: { name: str('bgm_main') } }],
+	uid,
+);
+tapToStartMusic.nodes.forEach((n, i) => (n.pos = { x: (i + 1) * 220, y: -160 }));
+nodes.push(...tapToStartMusic.nodes);
+exec.push(...tapToStartMusic.exec);
+data.push(...tapToStartMusic.data);
+if (tapToStartMusic.entry)
+	exec.push({
+		from: { node: signalsId, pin: 'tapToStart' },
+		to: { node: tapToStartMusic.entry, pin: 'exec' },
+	});
 
 /** The committed reference v2 book-of flow — every presentation event, built from the template's
  *  canonical `BOOK_OF_CHOREO`. Validates 0 issues vs `BOOK_OF_VOCAB`. */

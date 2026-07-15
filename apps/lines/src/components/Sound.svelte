@@ -19,6 +19,7 @@
 	import { stateBet } from 'state-shared';
 
 	import { getContext } from '../game/context';
+	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
 
 	const context = getContext();
 
@@ -51,7 +52,12 @@
 		if (stateBet.activeBetModeKey === 'SUPERSPIN') {
 			// check if SUPERSPIN, when resume bet and the bet is a super spin.
 			sound.players.music.play({ name: 'bgm_freespin' });
-		} else {
+		} else if (!flowV2DrivesScreens()) {
+			// Under a v2 flow that DRIVES the loading→game screens, the music start is FLOW-AUTHORED
+			// (the Game Signals `onTapToStart` pin → `soundMusic(bgm_main)`), so it must NOT auto-play at
+			// boot — auto-playing here is what let `bgm_main` sound before the tap-to-start. When no v2
+			// flow drives screens (coded/v1 games, or a book-events-only v2 flow) this is byte-identical
+			// to the previous unconditional boot autoplay (parity).
 			sound.players.music.play({ name: 'bgm_main' });
 
 			//How to control volume per soundfile(use fade)

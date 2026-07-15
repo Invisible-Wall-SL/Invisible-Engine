@@ -27,6 +27,7 @@ import BitmapText, { type Props as BitmapTextProps } from './BitmapText.svelte';
 import ParticleEmitter, { type Props as ParticleEmitterProps } from './ParticleEmitter.svelte';
 import EffectPlayer, { type Props as EffectPlayerProps } from './EffectPlayer.svelte';
 import RiggedEffect, { type Props as RiggedEffectProps } from './RiggedEffect.svelte';
+import FxPortalProvider, { type Props as FxPortalProviderProps } from './FxPortalProvider.svelte';
 
 export {
 	App,
@@ -52,6 +53,7 @@ export {
 	ParticleEmitter,
 	EffectPlayer,
 	RiggedEffect,
+	FxPortalProvider,
 };
 
 export type {
@@ -77,4 +79,5 @@ export type {
 	ParticleEmitterProps,
 	EffectPlayerProps,
 	RiggedEffectProps,
+	FxPortalProviderProps,
 };

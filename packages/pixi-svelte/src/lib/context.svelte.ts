@@ -55,6 +55,23 @@ export function getContextSpine() {
 	return getContext(SPINE_NS) as SPINE_PIXI.Spine;
 }
 
+// FX portal context
+//
+// Optional escape hatch for a rig-timeline effect (`<RiggedEffect>`): a container OUTSIDE any
+// clipping ancestor (e.g. a reel-window board mask) that the effect subtree renders into instead
+// of parenting on the host spine. When present, `<RiggedEffect>` mounts its `fxParent` here and
+// per-frame mirrors the host spine's WORLD transform onto it, so the effect is transform-identical
+// to the spine-parented default but is no longer clipped by the mask (an always-on idle-bound FX
+// then shows its full frame). Absent ⇒ the effect stays parented on the host spine (unchanged),
+// so every non-portalled usage (layout spines, the win/animate layer) is byte-identical.
+const FX_PORTAL_NS = '@@pixi_fx_portal';
+export function setContextFxPortal(value: PIXI.Container) {
+	setContext(FX_PORTAL_NS, value);
+}
+export function getContextFxPortal() {
+	return getContext(FX_PORTAL_NS) as PIXI.Container | undefined;
+}
+
 // Spine event context
 const SPINE_EVENT_EMITTER_NS = '@@pixi_spine_event_emitter';
 export function setContextSpineEventEmitter(value: PIXI.EventEmitter) {

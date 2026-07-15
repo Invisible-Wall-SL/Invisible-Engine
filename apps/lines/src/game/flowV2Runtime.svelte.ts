@@ -126,6 +126,22 @@ export const loadFlowV2Doc = (): FlowDocV2 | undefined => {
 	return bakedFlowV2Doc();
 };
 
+/**
+ * Does the authored v2 flow DRIVE THE SCREENS — i.e. author the `load` lifecycle entry (an `event`
+ * node or a wired `gameSignals` pin for `load`)? This is the CANONICAL, doc-level predicate behind
+ * Game.svelte's `flowV2DrivesScreens` (which reads it off the built handle as `ownsEvent('load')`).
+ * It resolves SYNCHRONOUSLY from `loadFlowV2Doc()` — no async editor doc — so a BOOT-TIME consumer
+ * that runs before the handle exists (Sound.svelte's `onMount`, which decides whether to auto-play
+ * the boot music) can gate on the SAME source of truth. Un-authored / un-baked / book-events-only doc
+ * ⇒ `false` (parity: the coded/v1 screen + boot-music path owns).
+ */
+export const flowV2DrivesScreens = (): boolean => {
+	const doc = loadFlowV2Doc();
+	if (!doc) return false;
+	const authorsLoadEvent = doc.graph.nodes.some((n) => n.kind === 'event' && n.ref === 'load');
+	return authorsLoadEvent || flowOwnsSignal(doc, 'load');
+};
+
 /** Source the v2 function library, matching `loadFlowV2Doc`'s precedence: the injected
  *  `__IE_FLOW_V2_LIB__`, the committed library when the reference doc is loaded (global or `?flowV2`),
  *  else the baked library, else an empty library (a doc with no `functionCall` never needs it). */
@@ -331,8 +347,7 @@ export const createLinesFlowV2 = (
 		mount,
 		resolveScene,
 		ordered: () => mount.ordered(),
-		ownsContainerEvent: (componentId, action) =>
-			flowOwnsContainerEvent(doc, componentId, action),
+		ownsContainerEvent: (componentId, action) => flowOwnsContainerEvent(doc, componentId, action),
 		dispatchContainerEvent: (componentId, action) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);
 			return runFlowContainerEvent(doc, ctx, componentId, action);
