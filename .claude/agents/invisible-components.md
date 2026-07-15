@@ -42,9 +42,10 @@ via `registerComponents`. Today there are **9** built-ins:
   to them. Declare ≠ implement.
 - **A `category`** (`ui` / `overlay` / `scenery`) groups it in the library.
 - **`version` is a positive integer; instances pin a version.** Bump it on a
-  breaking change. v1 is a single-version store (`registerComponents.getComponent`
-  warns on mismatch but returns the registered def); true multi-version resolution is
-  a TODO — don't assume it exists.
+  breaking change. The **v2 multi-version store shipped (2026-06-24)** — storage +
+  resolution + bake resolve the EXACT def an instance pinned
+  (`loadComponent(id, projectKey?, version?)` → `<id>.v<N>.json`; no version ⇒ latest).
+  See design §8.9 / [status/component-editor](../../docs/status/component-editor.md).
 
 ## Two authoring paths — know which a component uses
 Mirror the existing built-ins; don't invent a third pattern without reason:
@@ -68,8 +69,9 @@ built-in code (BUILTIN_COMPONENTS, scope:'shared')
   ◁ project R2 (editor/<projectKey>/components/<id>.json)
 ```
 A project component shadows a shared one of the same id; a shared R2 doc shadows a
-built-in. The Component Editor currently **only saves project-scoped** — promoting an
-authored component to the shared library is not exposed in the UI (a known gap). Core
+built-in. The Component Editor saves project-scoped by default and can **promote to the
+shared library** (a `scope:'shared'` write to `_shared/editor-components/`), gated by the
+`componentPublish` capability (`canPublishShared`, mirroring the Font Maker). Core
 components belong in code (`builtinComponents.ts`), not authored through the UI.
 
 ## Where the pieces live

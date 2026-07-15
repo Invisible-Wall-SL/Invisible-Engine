@@ -1,0 +1,34 @@
+# Invisible Component Editor — status
+
+> Design: [docs/design/invisible-editor.md](../design/invisible-editor.md) (§8) · Guide: [docs/tools/component-editor.md](../tools/component-editor.md) · Agent: `.claude/agents/invisible-components.md` (component-focused; not a registered spawnable agent)
+>
+> Companion tool: [Scene Editor status](./editor.md) — that tool **places** component instances; this tool **authors** the `ComponentDef`s (and reuses the Scene Editor's canvas/outline/properties machinery).
+
+**One-line state:** Built — component authoring (instances/params/signals/per-project defaults) + pin-by-default versioning with a true multi-version store and version browser are on `main` at `/components`, registered + documented; ⏳ the **behaviour/timeline** layer is unbuilt (this is the *declare* half only), and editor render paths are largely not browser-verified.
+
+## Current state
+Standalone authoring tool for **components** (prefabs) at `/components` — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` tool entry only controls the home-grid card). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component.
+
+Shipped capabilities on `main`:
+- **Author a component** — create Blank (`UI`/`Overlay`/`Scenery`) or a pre-wired **Button** (pre-declares the `action` param); build the `root` element tree on the shared editor canvas (Text/Rect/atlas/spine/sheet regions), outline + properties reused from the Scene Editor. Deep-linked from the Scene Editor's "Open Component Editor" / "Edit as component".
+- **Declare the engine contract** (the "Component variables" block) — **Engine params** (curated catalog: bet/win/balance/…), **Your params** (custom author inputs: string/image/number/color/boolean, with per-param defaults, bound to a node's image/tint/text/font/size/colour), and **Engine signals** (named moments; declare-only). Text nodes have an **Expose as params** shortcut.
+- **Per-instance engine bindings** (Flow-driven-game Phase 6, 2026-06-30) — any placed instance can be made clickable (`action`) or lifecycle-gated (`visibleSource`) without the def declaring the param (shared `engineBindings.ts` + an "Engine bindings" tray in `EditorProperties`); UI for `visibleFor` / `screenAnchor` / custom-param `options`; and **per-instance signal rebinding** (`cueSignalOverrides` — override which engine signal drives a spine cue, e.g. `win` vs `bigWin`).
+- **Button-state-driven spine animations** (2026-06-25) — `SpineNode.stateAnimations` (hover/pressed/selected/disabled/spinning cascade), authored via "Plays on button state"; blank-default spine = a state-only overlay over a resting button image.
+- **Versioning** — pin-by-default with a **true multi-version store** (v2): a changed save bumps `version` AND retains every historical `<id>.v<N>.json` snapshot, so an instance resolves the EXACT def it pinned (editor preview, bake, and shipped game); a missing pin renders latest + a `versionMismatch` warning, never a silent upgrade. Outdated instances are **flagged** in the Scene Editor and updated per instance (never bulk). A **version browser** (top-bar `Version` dropdown + **Inspect** read-only + **Back to latest**) browses retained snapshots non-destructively.
+- **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
+
+## Open items / next
+1. **Behaviour / timeline layer (§8.5–8.7) — the next large phase, unbuilt.** Signal-triggered tweens, spine playback, particle bursts, and a single count-up data binding are designed (`BehaviorTrack`/`TweenStep`) but not authorable here yet; the `Component variables` block is purely the *declare* half. No per-signal track UI exists. v1 behaviour ceiling is intentionally low; anything needing branching/RGS math/stateful logic stays a coded `mount`.
+2. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind the parity gate (B1–B3 done).
+3. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
+4. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
+
+## Blocked (owner / external)
+- **Engine submodule bump required for shipped games** — component/engine changes reach Book of Borut only after its `engine` submodule is bumped + the game rebuilt (owner-owned).
+- **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
+
+## Recent changes
+- 2026-07-14 — Tap-to-continue engine "press anywhere" prompt is now opt-IN per instance (`tapShowPrompt`, default hidden), via `ComponentInstance.svelte` + `tapToContinue.ts` ([detail in history](../history.md)).
+- 2026-06-30 — Flow-driven-game Phase 6: universal `action`/`visibleSource` tray, `visibleFor`/`screenAnchor`/custom-`options` UI, and per-instance spine-cue signal rebinding (`cueSignalOverrides`) ([detail in history](../history.md)).
+- 2026-06-25 — Button-state-driven spine animations (`SpineNode.stateAnimations`) + blank-default state-overlay pattern ([detail in history](../history.md)).
+- 2026-06-24 — Multi-version store + version browser (Inspect / Back to latest); Promote-to-shared button gated on `componentPublish` ([detail in history](../history.md)).

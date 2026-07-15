@@ -134,9 +134,10 @@ exports) so it survives container restarts; writes mirror to R2.
 
 ## Known limitations / TODOs
 
-- The launcher `/sheet` route exists; the **Railway service still needs to be
-  created** from `services/sheet-tool/` and `SHEET_TOOL_URL` set on the launcher.
-  Until then `/sheet` shows a "not configured" page.
-- Not yet run live against R2 / smoke-tested in the browser.
+- The `sheet-tool` Railway service is **deployed and auto-deploys from `main`**; `/sheet`
+  routes to it. (If `SHEET_TOOL_URL` is unset on the launcher, `/sheet` falls back to a
+  "not configured" page.)
+- Some flows still owe a live browser smoke-test against R2 — see
+  [status/sheet-maker](../status/sheet-maker.md).
 - The handoff to the Atlas Maker requires an Atlas Maker **restart** to pick up
   a newly authored manifest, because that tool hydrates from R2 only at boot.

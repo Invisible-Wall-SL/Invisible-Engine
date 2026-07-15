@@ -144,9 +144,10 @@ the overlay stays on with its default gold line. On export/bake the config is pa
 straight through to `bundle.symbols.winLine` (omitted when untouched) — there is no asset
 work; the chosen text font travels via the normal font pipeline.
 
-The renderer is per-game: Book of Borut's `WinLine.svelte` consumes this config (via
-`bakedWinLineConfig()`). The engine reference `apps/lines` uses a symbol-glow win model and
-has no win line, so the config has no effect there.
+The win-line renderer lives in the **shared engine** (ported 2026-07-14), so every
+`runtime:lines` game — including the `apps/lines` reference — draws it from this config via
+`bakedWinLineConfig()`. (Historically the renderer was per-game in Book of Borut only; that
+is no longer the case.)
 
 ### Saving is not the last step — shipping a rebind
 

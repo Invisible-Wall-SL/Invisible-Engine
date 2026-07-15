@@ -1,0 +1,39 @@
+# Engine & games — status
+
+> Design: [flow-driven-game](../design/flow-driven-game.md) · [live-assets](../design/live-assets.md) · [games-deploy](../design/games-deploy.md) · Agent: `.claude/agents/engine-pixi-svelte.md`
+
+**One-line state:** Shipped — the shared runtime (`runtime:lines`, built from `apps/lines` + `packages/*`) carries every scoped feature on `main`; the `apps/{lines,cluster,ways,scatter,number-picker,price}` are dev/reference games, and only `lines`/`bookOf` have rich reference scene sets.
+
+## Current state
+What runs on `main` today (this is the ENGINE side — the runtime + reference games, not a launcher tool). Online games run the SHARED `_runtime/lines` bundle; `apps/lines` is its source.
+
+- **Symbol sizing** — sprites are plain `contain`-fit to the cell by their native art aspect; SPINE symbols contain-fit the rig's setup-pose bounds to `SYMBOL_SIZE × SYMBOL_SPINE_FILL` (spine-only shrink constant, `apps/lines/src/game/constants.ts`, started 0.5). The old `sizeRatios` param + the Scene Editor "Symbol size (× cell)" control were removed from the render equation (size comes from the ART, not a number; oversize spines are fixed by tightening the rig bounds in the Rigger). Cross-origin alpha-trim of sprite textures was tried and reverted (tainted `getImageData` — don't retry).
+- **Persistent background scene** — a `space:'background'` scene renders behind the game for the whole session (`engine-layout/backgroundScenes.ts`), cover-fit as one group so multi-part backgrounds keep their real size + animate (`ComponentInstance` cover path).
+- **Bitmap-font layout text** — `LayoutNodeView` renders `<BitmapText>` for authored bitmap fonts via `registerFontCatalog`; coded HUD/label text honors authored bitmap fonts through the shared `engine-layout/CatalogText` component (one source, canvas `<Text>` + `<BitmapText>` can't drift).
+- **Component value/defaults + HUD readouts (B1–B3)** — the component value/defaults system + Balance/Win/Bet readouts are wired behind the parity gate; B4 (converting the live readouts to component instances) is still open.
+- **Per-sheet editor-art namespacing** — editor-art regions are scoped `<assetKey>::<region>` so a new sheet no longer shadows an older same-named region.
+- **Generic doc-driven scene mounting (Editor §20.1)** — an author's new Scene Editor screen (custom id, non-background space) ships in the game without being hardcoded in `Game.svelte`: `engine-layout/genericMountScenes.ts` `extraMountScenes(scenes, reservedIds)` renders them in doc order behind a parity-gated `{#each}` (empty reserved-set ⇒ byte-identical). FlowDoc-authored screens are folded into the reserved set to avoid double-mount.
+- **Win-line renderer in the SHARED engine** — ported from the standalone Book of Borut into `apps/lines` (`806d6cf`): `WinLine.svelte` (Graphics polyline, optional layered-stroke glow, optional `svelte/motion` animated draw, bitmap win-amount text), resolved from the sparse `bundle.symbols.winLine` (`bakedWinLineConfig()`/`bakedWinLineEnabled()`, runtime→baked precedence). Default-ON, so every `runtime:lines` game draws it unless disabled in `/symbols`.
+- **Free-spin sequential reel stop** — a timing-only `sequential` spin mode (reels settle consecutively in free spins, no anticipation glow/SFX). Off by default (byte-parity when unused); Flow-toggleable via `enableSequentialReelStop`/`disableSequentialReelStop` effects with per-reel `gaps`/`speeds` (`list<float>`). Engine plumbing added a `'sequential'` `SpinType` member across `utils-slots`.
+- **Three-knob reel grid** — the conflated `reelPadding` was split into three orthogonal `ReelGridNode` knobs, all default-to-identity (byte-parity): reel/row **LEAD** (`reelPadding`/`rowPadding`, seats the cluster), seat **ALIGNMENT** (`symbolAlignX/Y`, art within its cell), board **NUDGE** (`boardNudgeX/Y`, px offset). Editor `drawReelGrid` mirrors the game math exactly (editor↔game < 1e-12 px).
+- **Live-asset pipeline** — a game asset only ships when it travels the full chain **export → `deploy/` → bake (embed index in bundle) → pull (mirror into `static/assets/`) → runtime register** (CLAUDE.md rule 8; `docs/design/live-assets.md`). Exported sheets are content-versioned (`sheetVersion` hashes region geometry + source-page ETag) so a re-packed atlas busts the cache automatically; exporters emit a `missing[]` dangling-binding guard. "Shows in the editor" ≠ "ships" — the editor reads R2 directly.
+- **How the runtime ships** — an engine/runtime change reaches online games ONLY via a runtime-bundle publish, NOT a `main` merge: rebuild the `engine-layout` **dist** first (stale-dist trap), then `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build`, then `node apps/launcher-api/scripts/publish-runtime-bundle.mjs lines apps/lines/build`, then `POST https://games.invisiblewall.org/refresh`. Shipped standalone games (e.g. Book of Borut) instead bump their `engine` git submodule to a `main` commit (owner-owned). Standalone Borut keeps its OWN `src/game/*` copies, so game-side wiring (flags/effects/constants) must be MIRRORED there — the submodule only delivers `packages/*` engine code.
+
+⏳ Live-verify caveats still open: `SYMBOL_SPINE_FILL`'s live size judgement (0.5 tunable); the z-order of author extra-scenes (currently above the HUD) is a live tuning call; the win-line line-draw and sequential-stop timing were shipped + reachability-verified but not auto-verified in a live spin (owner confirms by forcing the win / triggering free spins).
+
+## Open items / next
+1. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines`/`bookOf` have rich reference scene sets; the other game kinds scaffold from a bare skeleton.
+2. **B4 — HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind the parity gate (B1–B3 done).
+3. **Three-knob reel grid + Borut mirror tail** — the reel-grid split (2026-07-03) was NOT yet published to `_runtime/lines` at the time of writing and not mirrored to Borut's engine submodule; verify it rode a later runtime publish.
+4. **Author the sequential-reel-stop / flow effect nodes** into a target game's FlowDoc online — the mode is capability-only until authored; mirror the game-side wiring into standalone `bookofborut`.
+
+## Blocked (owner / external)
+- **Shipped-game submodule bumps** — Book of Borut (and other shipped games) bump their engine submodule + republish on the owner's cadence; per-game-engine branches are owner-merged.
+- **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, spine symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
+
+## Recent changes
+- 2026-07-14 — Tap-to-continue "press anywhere" prompt flipped to opt-IN (`tapShowPrompt`, default hidden) so a flow-authored overlay no longer stacks the built-in graphic ([detail in history](../history.md)).
+- 2026-07-14 — Free-spin intro: a screen-driving v2 flow is the sole presentation authority; the coded intro no longer half-fires when the flow drops the intro ([detail in history](../history.md)).
+- 2026-07-14 — Win-line renderer ported into the shared engine (`806d6cf`) — every `runtime:lines` game now draws the authored payline + win amount ([detail in history](../history.md)).
+- 2026-07-13 — Free-spin sequential reel stop shipped to `_runtime/lines` + Borut engine bump (`6004374`) ([detail in history](../history.md)).
+- 2026-07-03 — Three-knob reel grid; shared `CatalogText` gives coded HUD text authored bitmap fonts ([detail in history](../history.md)).

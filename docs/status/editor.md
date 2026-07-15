@@ -1,0 +1,41 @@
+# Invisible Scene Editor — status
+
+> Design: [docs/design/invisible-editor.md](../design/invisible-editor.md) · Guide: [docs/tools/invisible-editor.md](../tools/invisible-editor.md) · Agent: `.claude/agents/invisible-components.md` (component-focused; not a registered spawnable agent)
+>
+> Companion tool: [Component Editor status](./component-editor.md) — this editor **places** component instances; that tool **authors** the `ComponentDef`s.
+
+**One-line state:** Built — the full 10-step build plan + Templates/Import (§7) are on `main`, registered (`editor` tool) and documented; ⏳ **many editor render paths are code-only / not browser-verified**, and new/reordered non-`background` screens still don't drive the shipped game generically for the reference games.
+
+## Current state
+Launcher-native, full-page WebGL/canvas layout editor at `/editor` (auth + `editor`-tool gated; SSR off, `load` runs server-side). Project-centric: loads the active project's `scenes.json`, asset library (atlases/spines/sheets/effects), components, and its game-type template. Layout is written to R2 at `editor/<client>/<project>/scenes.json` on a debounced autosave; the engine fetches it at boot (`GET /api/editor/doc`, `EDITOR_DOC_SECRET`-gated) and renders it via `<LayoutScene>`, falling back to the checked-in `editor-scenes.ts` fixture.
+
+Shipped capabilities on `main`:
+- **Screens** — game + HUD screen lists (reorder within group, rename, hide, duplicate, delete); per-screen coordinate **space** (`game` / `standard` / `canvas` / `background` cover-fit); scaffold from a **game kind** (§21), **import composed reference** (§7.2), add-missing-screens, "Save as new game kind".
+- **Canvas** — real-texture rendering (spine previews as a live skeleton; FX render **live particles** as an overlay following pan/zoom), zoom/pan/Fit, multi-select, transform handles (move/scale/rotate), snap-to-node guides, undo/redo, copy/cut/paste/duplicate.
+- **Library placement** — Text / Rect / Reel elements, atlas pages + manifest regions, spines (+ `_shared/`, upload), sheet regions, and **Invisible FX** effects (place free or attach-to-rig; particle atlas ships automatically).
+- **Per-region drag/thumbnail/overlay** (§B18) — each sheet/atlas-manifest row expands to individually-draggable region thumbnails (`RegionThumb.svelte`); selected node gets a floating item toolbar (`EditorItemOverlay.svelte`) with delete/lock/anchor/z-order.
+- **Properties** — transform/tint/text/spine anim/background cover-fit + slot fill; node actions (Convert to reel grid / parametric button / Edit as component). Reel-grid **symbol size (× cell)** (`reelGrid.symbolSizeRatios`) is authored here and bakes on the normal scene bake.
+- **Device layouts** — `desktop · tablet · landscape · portrait` per-layoutType overrides; per-layoutType **Canvas Size** (the MAIN box), seeded from the game type's reference with a "Match game box" warning/fix.
+- **Flow owns visibility** (standing rule, 2026-07-03) — the per-screen and per-instance "Shows during" gates were removed; a screen/instance's visibility now comes from Invisible Flow, not a Scene-Editor field.
+- **Generic doc-driven scene mounting** (§20.1, PR #67) — an author's new Scene Editor screen ships without hardcoding it in `Game.svelte` (`engine-layout/genericMountScenes.ts` + Flow Phase 4 `activeScreenTakeover`), parity-gated.
+- **Templates** — a template-authoring mode (tag nodes with `slotId`, choose game type, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save (§7).
+- **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`, per-sheet namespaced) travel the export→deploy→bake→pull→register chain.
+
+## Open items / next
+1. **New / reordered non-`background` screens don't yet drive the shipped reference games.** They mount scenes by hardcoded id in fixed code order, so a brand-new empty/HUD screen or a reorder changes the **editor preview** but not the built game (only `background`-space scenes mount generically today; Flow Phase 4 covers exclusive-screen takeover). Wiring the runtime to render doc scenes generically by doc order is the next engine step.
+2. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich reference scene sets; other kinds scaffold from a bare skeleton.
+3. **HUD parity gaps** — the corner logo/game-name containers still ignore `scale` in-game (rotation now ships), so scaling those two corner texts in the editor won't ship yet.
+4. **Animated / book-event content stays coded** — symbols, win-line draws, count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no in-editor book-event playback (verify animated behaviour in the live game).
+
+## Blocked (owner / external)
+- **`EDITOR_DOC_SECRET`** must be set on the launcher for the live-doc fetch to serve; unset ⇒ endpoint refuses and games fall back to `editor-scenes.ts`.
+- **Engine submodule bump required for shipped games** — Book of Borut and other shipped games vendor the engine as a submodule, so editor/engine parity fixes only reach them after the submodule is bumped and the game rebuilt (owner-owned).
+- **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and several render paths build clean and type-check, but the auth-gated canvas makes automated interaction testing hard; owner confirms live.
+
+## Recent changes
+- 2026-07-14 — Editor regions: mtime guard so a re-packed atlas's NEW region no longer shows as an EMPTY image (manifest newer than deployed page ⇒ fall back to source page) ([detail in history](../history.md)).
+- 2026-07-13 — Bone-ridden stand-in symbol preview for the free-spin symbol reveal ([detail in history](../history.md)).
+- 2026-07-08 — Invisible FX: LIVE particle preview on the Scene Editor canvas + place effects as an `effect` node ([detail in history](../history.md)).
+- 2026-07-03 — Removed the per-screen and per-instance "Shows during" gates entirely (Flow owns visibility, standing rule) ([detail in history](../history.md)).
+- 2026-07-03 — Reel grid: split the conflated `reelPadding` into three honest, independent knobs (engine + editor) ([detail in history](../history.md)).
+- 2026-07-01 — Background `componentInstance` cover-fit shipped to `_runtime/lines` ([detail in history](../history.md)).
