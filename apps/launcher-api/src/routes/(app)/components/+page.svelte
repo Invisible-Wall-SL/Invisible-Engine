@@ -53,6 +53,11 @@
 	let components = $state<ComponentDef[]>(structuredClone(data.components));
 	/** The component currently open for editing, or null (sidebar-only home state). */
 	let componentDraft = $state<ComponentDef | null>(null);
+	/** Bumped on every properties-panel edit to force the shared `EditorCanvas` to
+	 * repaint. The canvas redraw effects track a field whitelist + this nonce, never a
+	 * deep node mutation — so without it a transform/anchor/param edit here would mutate
+	 * the draft but never redraw (the Scene Editor bumps its own nonce the same way). */
+	let editNonce = $state(0);
 	/** Save state for the component POST (header pill). */
 	let saveBusy = $state(false);
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
@@ -1099,6 +1104,7 @@
 					onDelete={onDeleteNode}
 					projectGameName={null}
 					componentParams={resolvedParams}
+					redrawNonce={editNonce}
 					onSpineMeta={(meta) => (spineMeta = meta)}
 				/>
 			{:else}
@@ -1123,6 +1129,7 @@
 						node={selectedNode}
 						layoutType={currentLayoutType}
 						componentMode={true}
+						onDirty={() => (editNonce += 1)}
 						{spineMeta}
 						spines={data.assets.spines}
 						{pickSheets}
@@ -1147,6 +1154,7 @@
 							if (value === undefined) delete params[key];
 							else params[key] = value;
 							selectedNode.params = Object.keys(params).length ? params : undefined;
+							editNonce += 1;
 						}}
 					/>
 				{/if}

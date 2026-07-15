@@ -2298,16 +2298,22 @@
 		} else {
 			// Decomposed readout caption/value (the coded HudCaption/HudValue parts).
 			// Match the GAME render so the editor preview is WYSIWYG: the coded parts are
-			// `<Text anchor={{x:0.5,y:0}}>` in the resolved `fontFamily` (proxima-nova by
-			// default) at the resolved `fontSize` (UiLabel base 45), normal weight — i.e.
-			// horizontally centred, TOP-anchored at the node origin. The old hardcoded
-			// `600 30px sans-serif`, vertically centred, was the editor↔game mismatch.
-			ctx.textBaseline = 'top';
+			// `<CatalogText anchor={transform.anchor}>` in the resolved `fontFamily`
+			// (proxima-nova by default) at the resolved `fontSize` (UiLabel base 45), normal
+			// weight. HONOUR THE NODE ANCHOR: pixi's Text anchor.x 0=left / 0.5=centre / 1=right
+			// (anchor.y offsets the baseline the same way) — so re-anchoring the Caption/Value
+			// node to left-align its text previews EXACTLY as it renders in-game. We draw
+			// left-aligned + shift by the measured size × anchor, which is correct for any
+			// fractional anchor (not just 0/0.5/1). The old hardcoded `textAlign:'center'` at
+			// the origin ignored the anchor entirely — the editor↔game mismatch.
 			const size = typeof style.fontSize === 'number' ? Math.max(8, style.fontSize) : 45;
 			const family = style.fontFamily ?? 'proxima-nova';
 			ctx.font = `${size}px ${family}, sans-serif`;
 			ctx.fillStyle = fill ?? '#ffffff';
-			ctx.fillText(label, 0, 0);
+			ctx.textAlign = 'left';
+			ctx.textBaseline = 'top';
+			const textWidth = ctx.measureText(label).width;
+			ctx.fillText(label, -textWidth * ax, -size * ay);
 		}
 		ctx.restore();
 	}
