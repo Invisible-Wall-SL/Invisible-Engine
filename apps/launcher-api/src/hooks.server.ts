@@ -19,7 +19,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// missing/stale asset surfaces in the browser as a misleading "No
 	// Access-Control-Allow-Origin" CORS error that hides its real status. Set the CORS
 	// headers on every /api/deploy response so failures report honestly.
-	if (event.url.pathname.startsWith('/api/deploy')) {
+	// Same treatment for the generic-runtime boot endpoint: it sets CORS on its 200,
+	// but a `throw error()` (401 bad token / 502 / 503) response does NOT — so a game
+	// booted with a wrong token sees an opaque "Failed to fetch" (CORS) instead of the
+	// real 401, then silently falls back to stale baked assets. Setting CORS on EVERY
+	// response makes the failure legible in the console (the boot logs the real status).
+	if (
+		event.url.pathname.startsWith('/api/deploy') ||
+		event.url.pathname === '/api/editor/runtime'
+	) {
 		for (const [key, value] of Object.entries(DEPLOY_CORS_HEADERS)) {
 			response.headers.set(key, value);
 		}

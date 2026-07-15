@@ -638,8 +638,14 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 			`&k=${encodeURIComponent(token)}`;
 		const res = await fetch(url);
 		if (!res.ok) {
-			console.warn(
-				`[runtime] bundle fetch ${res.status} ${res.statusText} (${url}) — falling back`,
+			console.error(
+				`[runtime] LIVE DATA FETCH FAILED — ${res.status} ${res.statusText}. The game is now ` +
+					`showing STALE BAKED assets, NOT your live authoring.` +
+					(res.status === 401
+						? ` A 401 almost always means the ?k= read token in the game URL is wrong/expired ` +
+							`(watch for l/I/O/0 look-alikes) — reopen the game from the launcher for a fresh URL.`
+						: '') +
+					` (${url})`,
 			);
 			return false;
 		}
@@ -660,8 +666,10 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 		);
 		return true;
 	} catch (err) {
-		console.warn(
-			`[runtime] bundle fetch threw: ${err instanceof Error ? err.message : String(err)} — falling back`,
+		console.error(
+			`[runtime] LIVE DATA FETCH THREW: ${err instanceof Error ? err.message : String(err)}. The ` +
+				`game is showing STALE BAKED assets, NOT your live authoring. A "Failed to fetch" here is ` +
+				`often a CORS-masked 401 from a wrong ?k= token — reopen the game from the launcher.`,
 		);
 		return false;
 	}

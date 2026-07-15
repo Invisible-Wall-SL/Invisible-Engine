@@ -195,12 +195,18 @@ export async function setLauncherProfile(key: string, profile: unknown): Promise
 }
 
 /**
- * A PATH-SAFE 32-char random token (`[A-Za-z0-9]`) from CSPRNG bytes. Used for the
- * per-project read token, which must survive as a single leading PATH segment in
- * `/api/deploy/f/<token>/...` — so no `+`/`/`/`=` (rules out raw base64).
+ * A PATH-SAFE 32-char random token from CSPRNG bytes. Used for the per-project read
+ * token, which must survive as a single leading PATH segment in `/api/deploy/f/<token>/...`
+ * — so no `+`/`/`/`=` (rules out raw base64).
+ *
+ * The alphabet deliberately EXCLUDES visually-ambiguous glyphs (`0/O`, `1/l/I`) because this
+ * token ends up in a game URL humans copy/paste/read — and a lowercase-`l` mistaken for a
+ * capital-`I` silently 401s the live-fetch, dropping the game back to stale baked assets with
+ * no visible error. A homoglyph-free alphabet makes that class of corruption impossible.
  */
 function mintReadToken(): string {
-	const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	// A–Z minus I,O · a–z minus l · 2–9 (no 0/1) — 57 unambiguous, path-safe chars.
+	const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 	const bytes = randomBytes(32);
 	let out = '';
 	for (let i = 0; i < 32; i++) out += ALPHABET[bytes[i] % ALPHABET.length];
