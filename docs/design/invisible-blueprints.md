@@ -1,4 +1,7 @@
-# Invisible Blueprints — Design (v1, planned)
+# Invisible Blueprints — Design (v1)
+
+> An **Atlas Maker feature**, not a standalone tool (no launcher-registry entry). Current
+> state lives in [docs/status/atlas-maker.md](../status/atlas-maker.md).
 
 Shareable ComfyUI workflows ("blueprints") for the pipeline. A blueprint is a saved
 generation network: the ComfyUI graph + a small binding descriptor + a list of the

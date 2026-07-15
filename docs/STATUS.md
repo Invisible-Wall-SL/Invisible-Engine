@@ -42,16 +42,20 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 **Not tracked here (by design):** third-party tools — **ComfyUI**, **Spine Editor**, **Storybook** —
 keep their own upstream docs (we only ship a `docs/tools/` guide for how we host/launch them). The
 **desktop Invisible Launcher** (publish-only) is covered inside [status/launcher](status/launcher.md).
-**Invisible Blueprints** is a *planned, unbuilt* tool — [design doc](design/invisible-blueprints.md)
-only; it gets a status file + agent when it ships. **Flow-driven game** is an initiative on top of
-Invisible Flow, tracked in [status/flow](status/flow.md) — see [its design doc](design/flow-driven-game.md).
+**Invisible Blueprints** is an **Atlas Maker feature**, not a separate tool (no registry entry) —
+shareable ComfyUI workflows the Atlas Maker picks from; code-complete, owner live-verify owed.
+Tracked in [status/atlas-maker](status/atlas-maker.md). **Flow-driven game** is an initiative on top
+of Invisible Flow, tracked in [status/flow](status/flow.md) — see [its design doc](design/flow-driven-game.md).
 
-Other design docs (initiatives / cross-cutting plans): [invisible-blueprints](design/invisible-blueprints.md),
-[live-assets](design/live-assets.md), [games-deploy](design/games-deploy.md),
-[r2-client-isolation-and-scaffold](design/r2-client-isolation-and-scaffold.md),
-[project-explicit-tool-scoping](design/project-explicit-tool-scoping.md),
-[unified-tool-bar](design/unified-tool-bar.md),
-[invisible-debug-framework](design/invisible-debug-framework.md).
+Cross-cutting design docs (not tools — platform/pipeline plans):
+- [invisible-blueprints](design/invisible-blueprints.md) — shareable ComfyUI workflows for the Atlas Maker (feature, not a tool).
+- [unified-project-repo](design/unified-project-repo.md) — **the live R2 folder layout**: one `<client>/<project>/` tree (by asset type) shared by all tools.
+- [r2-client-isolation-and-scaffold](design/r2-client-isolation-and-scaffold.md) — the earlier per-tool R2 layout the unified repo superseded + project scaffolding.
+- [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
+- [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
+- [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
+- [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
+- [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
 
 ## Cross-cutting roadmap — genuinely UNBUILT, prioritized
 

@@ -11,7 +11,7 @@ Works today on `main` / live:
 - Per-region card: prompt edit, seed lock/unlock, style/shape ref pick — **rembg (background-removal) toggle**, refs uploaded locally or **picked from R2** via `/fsbrowse`, one-click "lock the seed that made this".
 - **Self-contained manifests** — Windows path/trailing-dot normalisation done in R2; `.atlas` + source-page upload (B10) repoints the manifest to staging-relative paths.
 - **FLUX builder complete** — txt2img proven live (2026-05-30, ~105s on the 8GB 4070).
-- **Blueprints loop** — committed + publish-gated (`ATLAS_BLUEPRINT_SECRET`); Settings panel has the resolved-workflow (`/blueprintresolved`) export for debugging.
+- **Blueprints** (an Atlas Maker feature, NOT a separate tool — [design](../design/invisible-blueprints.md)) — shareable ComfyUI workflows in a global `_shared/blueprints/` R2 library; pick one in the Atlas Maker to "generate with this network". **Code-complete (all 8 phases), owner live-verify owed.** Committed + publish-gated (`ATLAS_BLUEPRINT_SECRET`); Settings has the resolved-workflow (`/blueprintresolved`) export for debugging.
 - **Sheet-derived FX cells auto-derive** on load/Process from their base region (not AI-generated), keyed on `shine.fx_layer_info` + `mode in FX_PRESETS` — no wasted ComfyUI credits.
 
 ## Open items / next
@@ -19,6 +19,7 @@ Works today on `main` / live:
 2. **FLUX ref/ControlNet path unproven** — only SDXL ControlNets are installed locally; FLUX base + Redux work, shape_ref/ControlNet does not.
 3. **Per-user session isolation — planned, unbuilt** (design `atlas-per-user-session.md`): the active-manifest resolver is process-global, so two users on one project clobber each other's open selection + see each other's render progress. Phases 1–3 (thread `user` id → per-user overlay → per-user render state).
 4. **Access gate** — `ATLAS_TOOL_SECRET` unset → tool is open on its Railway URL; verify the launcher `?k=` flow when set.
+5. **Blueprints: owner live-verify + model auto-download** — the 8 phases are code-complete but unverified live; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7).
 
 ## Blocked (owner / external)
 - **gpt_image generation** — needs the `Images to RGB` ComfyUI node **and** `COMFY_ORG_API_KEY` (+ comfy.org credits) installed locally. Code is ready; the default transparent path already skips the redundant RMBG cutout.
