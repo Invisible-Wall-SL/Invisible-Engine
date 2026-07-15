@@ -36,10 +36,17 @@ export const itemA = (member: string): DataSource => ({
 	kind: 'accessor',
 	path: { on: 'item', member },
 });
-/** A string literal (`str('sfx_…')`). */
+/** A string literal (`str('win')`). */
 export const str = (value: string): DataSource => ({
 	kind: 'literal',
 	type: { t: 'string' },
+	value,
+});
+/** A template-enum literal (`enumLit('MusicName', 'bgm_main')`) — e.g. a sound-cue `name` whose pin is
+ *  a codegen'd sound enum. `value` must be a member of the named vocab enum. */
+export const enumLit = (name: string, value: string): DataSource => ({
+	kind: 'literal',
+	type: { t: 'enum', name },
 	value,
 });
 
@@ -164,7 +171,11 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 	// cells and showing a transient "Win $X — N of a kind" toast for that win (the generic
 	// `showMessage` effect; text assembled game-side from the win's `win`/`kind`).
 	winInfo: [
-		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('sfx_winlevel_small') } },
+		{
+			k: 'cue',
+			ref: 'soundOnce',
+			inputs: { name: enumLit('SoundEffectName', 'sfx_winlevel_small') },
+		},
 		{
 			k: 'forEach',
 			list: trig('wins'),
@@ -197,7 +208,11 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 
 	// `expandBookColumns` — the scatter sfx, then the awaited per-cell column morph.
 	expandBookColumns: [
-		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('sfx_scatter_win_v2') } },
+		{
+			k: 'cue',
+			ref: 'soundOnce',
+			inputs: { name: enumLit('SoundEffectName', 'sfx_scatter_win_v2') },
+		},
 		{
 			k: 'action',
 			ref: 'expandBookColumns',
@@ -207,7 +222,11 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 
 	// `freeSpinTrigger` — scatter animation, the intro show + count set, then the counter show.
 	freeSpinTrigger: [
-		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('sfx_scatter_win_v2') } },
+		{
+			k: 'cue',
+			ref: 'soundOnce',
+			inputs: { name: enumLit('SoundEffectName', 'sfx_scatter_win_v2') },
+		},
 		{ k: 'cue', ref: 'boardShow' },
 		{
 			k: 'cue',
@@ -215,14 +234,18 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 			wait: true,
 			inputs: { symbolPositions: trig('positions') },
 		},
-		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('sfx_superfreespin') } },
+		{
+			k: 'cue',
+			ref: 'soundOnce',
+			inputs: { name: enumLit('SoundEffectName', 'sfx_superfreespin') },
+		},
 		{ k: 'cue', ref: 'uiHide', wait: true },
 		{ k: 'cue', ref: 'transition', wait: true },
 		{ k: 'action', ref: 'setFreeSpinCounterTotal', inputs: { total: trig('totalFs') } },
 		{ k: 'cue', ref: 'freeSpinIntroShow' },
 		{ k: 'action', ref: 'freeSpinIntroShow' },
-		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('jng_intro_fs') } },
-		{ k: 'cue', ref: 'soundMusic', inputs: { name: str('bgm_freespin') } },
+		{ k: 'cue', ref: 'soundOnce', inputs: { name: enumLit('SoundEffectName', 'jng_intro_fs') } },
+		{ k: 'cue', ref: 'soundMusic', inputs: { name: enumLit('MusicName', 'bgm_freespin') } },
 		{
 			k: 'cue',
 			ref: 'freeSpinIntroUpdate',
@@ -264,7 +287,11 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 		{ k: 'action', ref: 'enterFreeSpinOutro' },
 		{ k: 'cue', ref: 'boardFrameGlowHide' },
 		{ k: 'cue', ref: 'freeSpinOutroShow' },
-		{ k: 'cue', ref: 'soundOnce', inputs: { name: str('sfx_youwon_panel') } },
+		{
+			k: 'cue',
+			ref: 'soundOnce',
+			inputs: { name: enumLit('SoundEffectName', 'sfx_youwon_panel') },
+		},
 		{ k: 'action', ref: 'winLevelSoundsPlay', inputs: { winLevel: trig('winLevel') } },
 		{
 			k: 'action',

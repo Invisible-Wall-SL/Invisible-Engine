@@ -26,6 +26,7 @@
  */
 
 import type { TemplateVocabulary, TypeRef } from '../types';
+import { MUSIC_NAMES, SOUND_EFFECT_NAMES, SOUND_NAMES } from './soundEnums.generated';
 
 // ---------------------------------------------------------------------------
 // Reusable TypeRefs.
@@ -35,6 +36,12 @@ const INT: TypeRef = { t: 'int' };
 const FLOAT: TypeRef = { t: 'float' };
 const SYMBOL: TypeRef = { t: 'enum', name: 'SymbolName' };
 const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
+// Sound-cue name enums — a dropdown of the game's REAL sound names in the inspector (vs a free-text
+// literal). Their members are codegen'd from `apps/lines/src/game/sound.ts` into `soundEnums.generated`
+// (`node scripts/gen-flow-v2-sound-enums.mjs`), so adding a sound updates the dropdown automatically.
+const MUSIC: TypeRef = { t: 'enum', name: 'MusicName' };
+const SOUND_EFFECT: TypeRef = { t: 'enum', name: 'SoundEffectName' };
+const SOUND: TypeRef = { t: 'enum', name: 'SoundName' };
 const REEL: TypeRef = { t: 'struct', name: 'Reel' };
 const POSITION: TypeRef = { t: 'struct', name: 'Position' };
 const WIN: TypeRef = { t: 'struct', name: 'Win' };
@@ -75,6 +82,10 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			values: ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'L5', 'S', 'W'],
 		},
 		{ name: 'GameType', values: ['basegame', 'freegame'] },
+		// Sound-name enums — codegen'd from `sound.ts` (see the `MUSIC`/`SOUND` TypeRefs above).
+		{ name: 'MusicName', values: MUSIC_NAMES },
+		{ name: 'SoundEffectName', values: SOUND_EFFECT_NAMES },
+		{ name: 'SoundName', values: SOUND_NAMES },
 	],
 
 	// Events — the game dispatches any of these into the flow via `runFlowEvent(name, payload)`. Three
@@ -413,11 +424,12 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'freeSpinCounterHide', payload: [] },
 		{ name: 'freeSpinOutroShow', payload: [] },
 		{ name: 'freeSpinOutroHide', payload: [] },
-		// Sound.
-		{ name: 'soundMusic', payload: [{ name: 'name', type: { t: 'string' } }] },
-		{ name: 'soundOnce', payload: [{ name: 'name', type: { t: 'string' } }] },
-		{ name: 'soundLoop', payload: [{ name: 'name', type: { t: 'string' } }] },
-		{ name: 'soundStop', payload: [{ name: 'name', type: { t: 'string' } }] },
+		// Sound — the `name` inputs are typed as codegen'd enums so the inspector offers a DROPDOWN of
+		// the game's real sound names (`MusicName`/`SoundEffectName`/`SoundName`, from `sound.ts`).
+		{ name: 'soundMusic', payload: [{ name: 'name', type: MUSIC }] },
+		{ name: 'soundOnce', payload: [{ name: 'name', type: SOUND_EFFECT }] },
+		{ name: 'soundLoop', payload: [{ name: 'name', type: SOUND_EFFECT }] },
+		{ name: 'soundStop', payload: [{ name: 'name', type: SOUND }] },
 		{ name: 'soundScatterCounterIncrease', payload: [] },
 		{ name: 'soundScatterCounterClear', payload: [] },
 		// UI / drawer / transition.

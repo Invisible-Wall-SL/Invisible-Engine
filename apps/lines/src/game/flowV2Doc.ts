@@ -20,8 +20,8 @@
 
 import {
 	buildChoreo,
+	enumLit,
 	makeChoreoUid,
-	str,
 	BOOK_OF_CHOREO,
 	type DataEdge,
 	type ExecEdge,
@@ -59,7 +59,7 @@ Object.entries(BOOK_OF_CHOREO).forEach(([event, steps], row) => {
 const signalsId = 'game_signals';
 nodes.push({ id: signalsId, kind: 'gameSignals', pos: { x: 0, y: -160 } });
 const tapToStartMusic = buildChoreo(
-	[{ k: 'cue', ref: 'soundMusic', inputs: { name: str('bgm_main') } }],
+	[{ k: 'cue', ref: 'soundMusic', inputs: { name: enumLit('MusicName', 'bgm_main') } }],
 	uid,
 );
 tapToStartMusic.nodes.forEach((n, i) => (n.pos = { x: (i + 1) * 220, y: -160 }));

@@ -22,10 +22,10 @@
 import {
 	buildChoreo,
 	createContainerMountModel,
+	enumLit,
 	flowOwnsSignal,
 	makeChoreoUid,
 	runFlowEvent,
-	str,
 	BOOK_OF_VOCAB,
 	type ContainerMountModel,
 	type DataEdge,
@@ -59,7 +59,7 @@ const uid = makeChoreoUid();
 const signalsId = 'game_signals';
 nodes.push({ id: signalsId, kind: 'gameSignals', pos: { x: 0, y: 0 } });
 const music = buildChoreo(
-	[{ k: 'cue', ref: 'soundMusic', inputs: { name: str('bgm_main') } }],
+	[{ k: 'cue', ref: 'soundMusic', inputs: { name: enumLit('MusicName', 'bgm_main') } }],
 	uid,
 );
 nodes.push(...music.nodes);
