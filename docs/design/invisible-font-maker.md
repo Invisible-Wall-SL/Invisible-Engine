@@ -5,6 +5,8 @@
 > Owner direction 2026-06-12. Related: `invisible-editor.md` §9 (the font *consume*
 > side — already built).
 
+> Build status: see [docs/status/font-maker.md](../status/font-maker.md); detailed done-log in [docs/history.md](../history.md).
+
 ## 1. Why this tool exists (the gap)
 
 The whole **consume** side of fonts already ships:
@@ -87,7 +89,7 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
    depend on the `editor` grant; live PIXI `<BitmapText>` / `<Text>` preview.
    Factor `resolveEditorFonts` to take an `assetUrl` builder so both the editor
    and this tool reuse one resolver.
-2. **Phase 2 — Import + Save. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+2. **Phase 2 — Import + Save.**
    Upload a BMFont (`.xml`/`.fnt`/`.json` + page image[s]) → client parses + live-previews
    → save. Uploads use **presigned PUT** (BMFont page PNGs exceed adapter-node's 512 KB
    `BODY_SIZE_LIMIT`): `POST /api/fonts/upload-urls` mints `presignPut` URLs for the
@@ -99,8 +101,8 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
    `FontImport.svelte` + `fonts.client.ts` `parseDescriptorClient`/`loadLocalBitmapFont`
    (builds a `BitmapFont` from object-URL pages for the pre-save preview — a blob
    descriptor can't go through pixi's `loadBitmapFont` because it mangles relative page
-   refs). Per-project writes only (shared = Phase 4). `pnpm --filter launcher-api build` GREEN.
-3. **Phase 3 — Generate. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+   refs). Per-project writes only (shared = Phase 4).
+3. **Phase 3 — Generate.**
    `FontGenerate.svelte` + `fontBake.client.ts`: upload a TTF/OTF (`opentype.js`),
    pick a charset (`charsets.client.ts`: digits/currency/alphanumeric/ASCII/custom) +
    size + page width + **effects** (solid/gradient fill, outline, drop-shadow, each
@@ -114,16 +116,15 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
    (`Path.getBoundingBox()`) + effect-bleed `pad`, `xoffset/yoffset` relative to pen/
    line-top, `xadvance=round(advanceWidth*scale)`. Deps: `opentype.js` + `@types`.
    Deferred to Phase 4: kerning (`<kernings>`), multi-page atlases, shared-library save.
-   `pnpm --filter launcher-api build` GREEN.
 4. **Phase 4 — polish** (incremental).
-   - **Round 1 ✅ LANDED 2026-06-12 (code-only): Generate baker — kerning + multi-page.**
+   - **Generate baker — kerning + multi-page.**
      `fontBake.client.ts`: emits a `<kernings>` block from `font.getKerningValue` (toggle,
      default on; capped at 256 chars); multi-page shelf packer (new **page max height**
      control, default 2048) producing one PNG per page (`<base>.png` single, `<base>_i.png`
      multi), `<common pages="N">` + per-`<char page>`; `BakeResult.pages: {file,blob,canvas}[]`.
      Preview + `saveBitmapFont` already multi-page-capable (no server change; `loadLocalBitmapFont`
-     iterates `<page>`s). `pnpm --filter launcher-api build` GREEN.
-   - **Round 2 ✅ LANDED 2026-06-12 (code-only): delete + web-font import + shared target.**
+     iterates `<page>`s).
+   - **Delete + web-font import + shared target.**
      (a) **Delete** — `POST /api/fonts/delete` removes the entry + its R2 files; View cards
      get a confirm-Delete button (hidden for shared fonts unless the user can publish);
      `/api/fonts/catalog` now returns `source: 'project'|'shared'`. (b) **Web-font import** —
@@ -135,7 +136,7 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
      routed through one `resolveFontTarget` helper (`lib/server/fonts.ts`) that enforces the
      capability for shared — **the real write gate**, since `includeSharedFonts` only widens
      the `assertAllowed` READ allow-list; the Save-target selector shows only to publishers
-     (`+page.server.ts` `canPublishShared`). `pnpm --filter launcher-api build` GREEN.
+     (`+page.server.ts` `canPublishShared`).
      **Deferred: rename** (means moving R2 objects — its own task).
 
 ## 6. Touch-points (Phase 0–2)

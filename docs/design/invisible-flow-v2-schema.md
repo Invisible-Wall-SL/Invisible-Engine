@@ -513,15 +513,7 @@ generic scene mounter behind the env.
 
 ### 10.3 Verified headlessly
 
-`tools/flow-spike/flowV2Runtime.ts` (`pnpm --filter flow-spike v2runtime`) runs `runFlowEvent` against
-a MOCK recording `FlowV2Env` over the book-of fixture: `event reveal(reels) → functionCall
-StaggerStop(reels, step=120) → fireCue specialBookReveal`, where `StaggerStop`'s body is
-`forEach reels → compute($index × step) → delay(that ms) → stopReel($item.index)`. With
-`reels=[{0},{1},{2}]`, `step=120` the recorded order is asserted to be
-`delay 0, stopReel(0), delay 120, stopReel(1), delay 240, stopReel(2), broadcast specialBookReveal`
-(function recursion + forEach + compute-driven dynamic delays + trailing cue). Extra asserts cover a
-`branch` (guard picks `then`/`else`, driving `show`/`hideContainer` at the container's `z`) and a
-`parallel` forEach (all iterations fire). **NO game integration yet** — that is Phase 4b.
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ### 10.4 Firing a container-event pin (`runFlowContainerEvent`)
 

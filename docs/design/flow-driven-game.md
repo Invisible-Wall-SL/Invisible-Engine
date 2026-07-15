@@ -19,22 +19,12 @@
 > replaces* `basegame` — they LAYER over the persisting base (a `bookEvent`/`condition` edge adds
 > its target on top; a `complete` edge removes its source). The §4 "takeover" mount is now the
 > TOPMOST overlay over the still-mounted base, and the reel board gates on the base-game screen
-> being active (hidden during `loading`, revealed on its `complete`). See `invisible-flow.md`
-> "Progress — pin-driven active-SET model (2026-07-01)" for the engine-core change. Where the
-> text below says "exclusive screen"/"swap", read "layered overlay over the persisting base".
+> being active (hidden during `loading`, revealed on its `complete`). For the engine-core change
+> (the pin-driven active-SET model) see [docs/status/flow.md](../status/flow.md) + the archived
+> log in [docs/history.md](../history.md). Where the text below says "exclusive screen"/"swap",
+> read "layered overlay over the persisting base".
 
-**Phases 1–4 BUILT (headless-green + build-shipped, 2026-06-30) — Phase 5+ remain.**
-This doc decomposes the gap analysis from the 2026-06-30 review into phases that mirror the
-Flow tool's own phase/parity-harness discipline. The review found the data model ~80%
-complete; the gaps are concentrated, not diffuse. See the progress notes in §1
-(loading→tap→basegame), §2 (win → bigWin/freeSpinIntro branch), §3 (engine-state `condition`
-guards), and §4 (the generic exclusive-screen takeover mount). All ride dev-hook fixtures
-behind a parity-inert default boot. **The runtime engine story is now complete** — every
-trigger kind (bookEvent / complete-tap / condition) is live and any authored screen mounts.
-The remaining work is Phase 5 (author real backing scenes + bake + ship a game — the owner's
-live/editor checkpoint) and the larger Phases 6–7 (universal per-instance exposure; behaviour
-layer). **Phase 6 slice 1 is also done** — the universal `action`/`visibleSource` bindings tray
-(any instance clickable / lifecycle-gated regardless of def); see the §6 progress note.
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ### What already works (the foundation — do not rebuild)
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
@@ -103,104 +93,7 @@ choreography in order.
 
 **Deferred (owner):** real per-button `action` trigger — see Phase 8.
 
-### Progress — Phase 1 DONE headlessly + build-shipped (2026-06-30)
-
-Branch `flow/driven-game`. Engine-side only (`apps/lines` + `engine-flow` API already had the
-mounter/`completeActiveScreen`/`onActiveScreenChange` surface from prior Flow phases — no
-`engine-flow` change needed). No game submodule bump (that's Phase 5).
-
-**What landed:**
-- `apps/lines/src/components/Game.svelte` — the live seam. An `activeScreenId` `$state` rune
-  (pushed via the interpreter's `onActiveScreenChange` + seeded at boot) replaces the
-  non-reactive `flow.activeScreenId` read so the loading→basegame swap actually re-mounts.
-  `flowOwnsLoading = flow?.mounter.has('loading')` gates the new path: when the FlowDoc
-  authors `loading`, the splash shows while `activeScreenId === 'loading'` and dismisses via
-  `flow.completeActiveScreen()` (the tap's `complete` edge → `basegame`); otherwise the coded
-  `showLoadingScreen`/`onloaded` flag-flip runs **byte-identical** to `main`. `splashAuthoredScene`
-  prefers the interpreter-resolved `loading` scene when owned (shared `stripLoadingAnchor`
-  filter), else the coded `authoredLoadingScene`.
-- `apps/lines/src/game/flowRuntime.svelte.ts` — `createLinesFlow` gained an optional
-  `onActiveScreenChange` passthrough; a new `window.__IE_FLOW_LOADING__` dev hook (checked
-  before `__IE_FLOW_LINES__`) sources the fixture. Default boot unchanged ⇒ inert.
-- `apps/lines/src/game/flowDoc.ts` — `LINES_FLOW_LOADING_DOC` fixture (`loading` initial +
-  `exit` beat → `complete` edge → `basegame` + `enter` beat, reusing `LINES_FLOW_DOC.events`),
-  kept **separate** from `LINES_FLOW_DOC` so the default doc stays parity-inert.
-- `tools/flow-spike/phase1Loading.ts` (+ `phase1` script) — the parity harness.
-
-**Verified:** `pnpm --filter flow-spike run phase1` = 14/14 GREEN (no-doc + basegame-only-doc ⇒
-`loading` NOT interpreter-owned, coded fall-through; loading-doc ⇒ starts on `loading`, tap
-fires `complete` → swap to `basegame` running loading `exit` then basegame `enter` in order).
-All existing harnesses GREEN (`parity`/`pins`/`roundtrip`/`phase4`/`phase5`/`phase6`/`phase7`/
-`tap`/`vocab`). `engine-flow` tsc exit 0; `engine-layout` + `lines` builds exit 0; the
-`__IE_FLOW_LOADING__`/`flowLoadingExit` literals confirmed in the minified client bundle
-(shipment, not just compile).
-
-**Parity invariant held by construction:** `flowOwnsLoading` is `false` whenever no FlowDoc
-authors a `loading` screen — every normal boot, AND the full `LINES_FLOW_DOC` (basegame-only)
-— so the coded loading path is untouched.
-
-**Deferred to Phase 4 (as scoped):** the swap is a focused loading↔basegame version — the
-above/below-reel z-order split stays `basegame`-specific; the fully-generic any-screen
-exclusive swap is Phase 4.
-
-### Update — coded loading path REMOVED, loading is now fully generic (2026-07-01)
-
-The parity-gated dual path above is retired for `apps/lines`/bookof (preproduction — a coded
-splash breakage is acceptable, boot must still work generically). **The coded
-`<LoadingScreen>` is gone**; loading now mounts ONLY through the flow/scene interpreter:
-
-- `apps/lines/src/components/Game.svelte` — deleted the `LoadingScreen` import, the
-  `flowOwnsLoading`/`showLoading`/`flowLoadingMount`/`dismissLoading`/`splashAuthoredScene`/
-  `stripLoadingAnchor`/`loadingTransform`/`loadingPos` deriveds, the `onMount`
-  `showLoadingScreen = true`, and the whole `{#if showLoading} … <LoadingScreen> … {/if}`
-  arm — the game body is now unconditional. The `loading` scene mounts through the GENERIC
-  active-screen takeover (the `activeScreenId === loadingScreenId` exclusion was removed);
-  `loading` stays in the reserved-scene set so it doesn't also mount as an overlay. `apps/lines/src/components/LoadingScreen.svelte` was DELETED (`TransitionAnimation` kept —
-  `Transition.svelte` uses it; `PressToContinue` kept — `TapToContinue`/gates use it).
-- `apps/lines/src/game/flowRuntime.svelte.ts` — `createLinesFlow` now SYNTHESIZES a default
-  `loading → basegame` FlowDoc (`withDefaultLoadingLeg`) when no authored/baked doc includes
-  the role-resolved loading screen, so an un-authored game STILL boots generically (interpreter
-  always exists, starts on `loading`, advances on the loading bar's `completeOnLoaded` / a tap).
-  An authored doc that already includes loading WINS; an authored doc that omits it gets the
-  loading leg PREPENDED (its screens/transitions/events preserved). Synthetic `events: []` ⇒
-  book events still fall through to `bookEventHandlerMap`.
-- `packages/engine-layout/src/lib/referenceLayouts/{lines,bookof,engineSkeleton}.ts` — the
-  `loading` scene's inert `bind: { component: 'LoadingScreen' }` anchor is replaced with a real
-  `loadingBar` `componentInstance` (`LOADING_BAR_DEF.defaultInstanceParams` seeds
-  `completeOnLoaded: true`). `packages/engine-layout/scenes/bookof.json` regenerated (no more
-  `loading-screen`/`LoadingScreen`).
-- `tools/flow-spike/phase1Loading.ts` — section A relaxed: it now exercises the engine-flow
-  inert-interpreter primitive, noting the coded fall-through it once backed is gone (the game
-  synthesizes a default doc). `phase1` harness GREEN; `engine-layout` + `lines` builds exit 0.
-
-Other games (cluster/scatter/price/ways) + their `LoadingScreen.svelte` are UNTOUCHED; the
-shared `stateLayout.showLoadingScreen` field stays in state-shared/utils-layout for them.
-
-**Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
-`window.__IE_FLOW_LOADING__ = true` before boot, confirm the splash shows then a tap swaps to
-`basegame` (verify via the `app.stage` read / dynamic-import override, not `preview_screenshot`
-— it times out on WebGPU). Default boot (no hook) must render byte-identical.
-
-### Follow-up — screen identity by ROLE, not magic id (2026-07-01, branch `feat/flow-screen-identity`)
-
-The original Phase-1/4 code keyed the loading splash and the persistent base scene on the literal
-scene ids `'loading'`/`'basegame'` (`Game.svelte` `scenes.find(id==='loading')`,
-`mounter.has('loading')`, the takeover exclusion, `RESERVED_SCENE_IDS`). That coupled behaviour to a
-magic name — a template- or hand-authored loading scene with a different id (e.g. "Loading / logo")
-was not recognized, so the coded splash still ran and the authored scene leaked in as an overlay
-(double background, missing logo). **Fix:** an additive `Scene.role` (`'loading' | 'basegame'`,
-`engine-layout/src/lib/types.ts`) is the id-independent identity, resolved by
-`sceneByRole`/`loadingSceneId`/`basegameSceneId` (`engine-layout/src/lib/sceneRole.ts`) with a
-`role → legacy id` fallback. `Game.svelte` resolves loading/basegame + the takeover exclusion +
-`reservedSceneIds` through those helpers; a role-tagged custom-id scene is recognized as the splash
-AND reserved (no double-mount). The Scene Editor has a per-scene **role** dropdown; `missingScreens`
-matches by role-or-id; the lines/bookof reference layouts tag their loading/base scenes. A FlowDoc
-still "drives" the screen by authoring that same scene id (`mounter.has(loadingScreenId)`); the flow's
-`initial` node was deliberately NOT used as the loading id — the default lines flow's initial screen
-is `basegame`, so conflating `initial` with `loading` would misfire. **Parity (§7):** no role + a scene
-id'd `loading`/`basegame` ⇒ exactly today's selection (`?? id`), byte-identical. Harness:
-`tools/flow-spike/sceneRole.ts` (`scenerole`). Ships to a game via an `engine` submodule bump +
-tagging the game's loading scene's role.
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ---
 
@@ -225,71 +118,7 @@ The mechanism is already live (`bookEvent` trigger + `$trigger.*` guards,
 book event, the guard selects the right branch by `winLevel`, and the screen swap's
 choreography order matches the coded presentation. Default (no transitions) stays inert.
 
-### Progress — Phase 2 DONE headlessly + build-shipped (2026-06-30)
-
-Branch `flow/driven-game`. `apps/lines` only — `engine-flow` already had the `bookEvent` /
-`complete` triggers + `$trigger.*` guards from prior Flow phases (no engine change needed). No
-game submodule bump (that's Phase 5).
-
-**Per-presentation decisions (the §2 "exclusive screen node vs feed-driven overlay" split):**
-- **`winInfo` — feed-driven overlay (NO transition).** It fires on every paying spin and never
-  takes over the screen (it is the per-line readout / board symbol highlight), so promoting it
-  would swap the screen on every win. It also carries **no `winLevel`** in its payload
-  (`typesBookEvent.ts` — only `setWin`/`freeSpinEnd` do), so it could not be win-tier-branched
-  anyway. Its event choreography runs in place.
-- **`setWin` — split by win tier.** SMALL/MEDIUM wins (`winLevel < 6`, `type:'small'|'medium'`
-  in `winLevelMap.ts`) are an idle readout ⇒ stay a **feed-driven overlay** (no swap). BIG wins
-  (`winLevel >= 6`, `type:'big'` — BIG/SUPER/MEGA/EPIC/MAX) are a screen-takeover celebration ⇒
-  promoted to the **`bigWin` exclusive screen node**, selected by a `$trigger.winLevel in [6..10]`
-  guard that resolves **today** off the book-event payload (no engine reader — that is Phase 3).
-- **`freeSpinTrigger` — exclusive screen node.** The free-spin intro is a full-screen takeover
-  (`uiHide` → `transition` → `freeSpinIntroShow`) ⇒ promoted to the **`freeSpinIntro` exclusive
-  screen node**.
-
-**What landed:**
-- `apps/lines/src/game/flowDoc.ts` — a SEPARATE `LINES_FLOW_WIN_DOC` fixture (NOT folded into
-  `LINES_FLOW_DOC`, which keeps `transitions: []` so the default boot stays parity-inert, §7). It
-  authors the `bigWin` + `freeSpinIntro` screen nodes (each `enter` = the coded `setWin` /
-  `freeSpinTrigger` presentation **lifted verbatim**), a guarded `basegame→bigWin` `bookEvent`
-  edge + an unguarded `basegame→freeSpinIntro` edge, and `complete` (tap) return edges. The crux
-  is the **no-double-fire discipline** (§6.1 — dispatch + transition are orthogonal): both win
-  events stay **authored** in `events[]` — `setWin` as a `winLevel`-branch (big ⇒ no-op, the
-  screen presents; small ⇒ the overlay choreography) and `freeSpinTrigger` as an **authored
-  no-op** (NOT dropped — a dropped event falls THROUGH to the coded `bookEventHandlerMap`
-  handler, which together with the screen swap's `enter` would double-present).
-- `apps/lines/src/game/flowRuntime.svelte.ts` — a `window.__IE_FLOW_WIN__` dev hook (checked
-  after `__IE_FLOW_LOADING__`, before `__IE_FLOW_LINES__`) sources the fixture. Default boot
-  unchanged ⇒ inert.
-- `tools/flow-spike/phase2WinTransitions.ts` (+ `phase2` script) — the parity harness. It drives
-  the REAL `createFlowInterpreter` over the REAL imported `LINES_FLOW_WIN_DOC` and reuses the
-  Phase-5 recording rig (same effect surface) so the `bigWin`/`freeSpinIntro` enter op log is
-  compared position-for-position to the coded `setWin`/`freeSpinTrigger` presentation. It wires
-  **coded-handler spies** so the no-double-present invariant is proven (the coded handler must
-  NOT fire when the event is authored).
-
-**Verified:** `pnpm --filter flow-spike run phase2` = GREEN (turbo on/off): big-win swaps to
-`bigWin` with the lifted presentation and the coded handler does NOT fire; small-win stays on
-`basegame` with the overlay in place; `freeSpinTrigger` swaps to `freeSpinIntro` (coded handler
-does NOT fire); taps return each screen → `basegame`; the `winLevel` tier boundary (5⇒small,
-6⇒big, 10⇒big) selects correctly; default `LINES_FLOW_DOC` authors zero transitions; the win doc
-`normalizeFlowDoc` round-trips idempotently. ALL existing harnesses GREEN (`parity`/`phase1`/
-`phase4`/`phase5`/`phase6`/`phase7`/`pins`/`roundtrip`/`tap`/`vocab`). `engine-flow` tsc exit 0;
-`lines` build exit 0; the `__IE_FLOW_WIN__` / `freeSpinIntro` / `basegame→bigWin` literals
-confirmed in the minified client bundle (shipment, not just compile).
-
-**Parity invariant held by construction:** the win-branch behaviour rides ONLY the
-`LINES_FLOW_WIN_DOC` fixture (reached only via `__IE_FLOW_WIN__`); the default `LINES_FLOW_DOC`
-keeps `transitions: []` and only the `basegame` screen — every normal boot is byte-identical to
-current `main`.
-
-**Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
-`window.__IE_FLOW_WIN__ = true` before boot; on a big win the screen swaps to the `bigWin`
-takeover and a tap returns to `basegame`, and a free-spin trigger swaps to `freeSpinIntro` (verify
-via the `app.stage` read / dynamic-import override, not `preview_screenshot`). A small win must
-NOT swap. Default boot (no hook) renders byte-identical. NB: `bigWin`/`freeSpinIntro` have no
-authored backing Scene in the lines LayoutDoc yet, so the mounter falls through for the takeover
-*scene* — the swap + lifted presentation choreography are what Phase 2 proves; authoring the real
-takeover scenes is a Phase-4/5 editor step.
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ---
 
@@ -311,40 +140,7 @@ remaining), not only on the book-event payload — the `condition` trigger is cu
 injected reader crosses the threshold and `evaluate()` is pinged; stays put otherwise. With
 no reader injected (default), the path is inert (parity).
 
-### Progress — Phase 3 DONE headlessly + build-shipped (2026-06-30)
-
-Branch `flow/driven-game`. `apps/lines` + one new harness only — no `engine-flow` change needed
-(the interpreter/presentation already threaded `engine` to the guard scope; the gap was purely
-that no app injected a reader or called `evaluate()`).
-
-**What landed:**
-- `apps/lines/src/game/flowRuntime.svelte.ts` — `linesEngineReader`, a CLOSED `(key)→value`
-  getter over live state (NOT an expression VM, §11.4): `balance`/`win`/`totalWin`/`bet` (the
-  numeric value feeds), `gameType`, `isFreeGame`, `freeSpinsRemaining`/`freeSpinsTotal` — each
-  sourced from the SAME state singletons the component registries read, so a guard sees exactly
-  what a bound readout/gate sees. Injected via `engine: linesEngineReader` into
-  `createFlowInterpreter`. Unknown keys ⇒ `undefined` (the bounded line). New `__IE_FLOW_COND__`
-  dev hook → `LINES_FLOW_COND_DOC`.
-- `apps/lines/src/components/Game.svelte` — an `$effect` that touches the reader's live values and
-  calls `flow?.evaluate()` on any change, so a `condition` edge actually re-checks. Inert when
-  `flow` is undefined (no-op `flow?.evaluate()`).
-- `apps/lines/src/game/flowDoc.ts` — `LINES_FLOW_COND_DOC` with two `condition` edges guarded on
-  `$engine.freeSpinsRemaining` (`gte 1` enter free game / `lt 1` end). The other fixtures unchanged.
-- `tools/flow-spike/phase3Condition.ts` (+ `phase3` script).
-
-**Verified:** `phase3` 36/36 GREEN turbo on/off (condition fires only after the reader crosses AND
-`evaluate()` is pinged; NO reader ⇒ never fires — the pre-Phase-3 dead state; boundary correctness;
-`evaluate()` no-op without a matching edge; bookEvent/complete unaffected; author-order precedence).
-ALL existing harnesses GREEN; `engine-flow` tsc exit 0; `lines` build ships
-(`__IE_FLOW_COND__`/`freeSpinsRemaining`/`flowFreeGameEnter` in the minified bundle).
-
-**Parity (§7):** no FlowDoc ⇒ `flow` undefined ⇒ the `$effect` is a no-op + the reader is never
-reached ⇒ byte-identical to `main`. Injecting the reader is harmless for the Phase-1/2/4 fixtures
-(they author no `condition` edge ⇒ `evaluate()` finds nothing).
-
-**Note:** branching on the win-event *payload* (`$trigger.winLevel`) already worked in Phase 2
-without this; Phase 3 adds branching on LIVE engine *state* (the `condition` trigger), the
-genuinely-new capability.
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ---
 
@@ -372,45 +168,7 @@ layer gated by `visibleSource`, in doc order, no FlowDoc needed.
 z-order in a built bundle; a doc with only canonical screens is byte-identical to coded
 mounting.
 
-### Progress — Phase 4 DONE headlessly + build-shipped (2026-06-30)
-
-Branch `flow/driven-game`. `apps/lines` + one new harness only — no `engine-flow`/`engine-layout`
-change needed (the mounter `resolve`/`has`/`authoredScreenIds` surface already existed).
-
-**What landed:**
-- `apps/lines/src/components/Game.svelte` — a single GENERIC derived `activeScreenTakeover`
-  (`:565`): resolves `flow?.mounter.resolve(activeScreenId)` and returns the scene ONLY when the
-  decision is `authored` AND the active id is NEITHER `basegame` (the persistent base, reel-split
-  mount) NOR `loading` (the Phase-1 splash). Template (`:1024`, in the `{:else}` game branch, just
-  after the `extraScenes` overlay block and before the free-spin gates): `{#if
-  activeScreenTakeover}<LayoutScene scene={activeScreenTakeover} />`. So a swap to any authored
-  non-base/non-loading screen (`bigWin`/`freeSpinIntro`/future ids) mounts that scene as a
-  TRANSIENT top-layer takeover OVER the persisting board (a celebration overlays the reels, not
-  replaces them); it unmounts on the swap back. `<LayoutScene>` self-wraps by `space` + honours
-  `visibleSource`. NOT per-id casing — one generic gate.
-- `tools/flow-spike/phase4Mount.ts` (+ `phase4mount` script; the prior `phase4`/`phase4Runtime.ts`
-  left untouched) — proves takeover mount+unmount on swap, base/loading excluded (no regression),
-  fall-through for unbacked/non-authored/no-doc ids, and the reservation from `extraMountScenes`.
-
-**Verified:** `phase4mount` GREEN + every existing harness (`parity`/`pins`/`roundtrip`/`phase1`/
-`phase2`/`phase4`/`phase5`/`phase6`/`phase7`/`tap`/`vocab`) GREEN; `engine-flow` tsc exit 0;
-`engine-layout` + `lines` builds exit 0; the minified gate `==="basegame"||…==="loading"` (the
-distinctive `activeScreenTakeover` signature) confirmed in the client bundle (shipment).
-
-**Parity (§7):** no FlowDoc ⇒ `flow` undefined ⇒ `resolve` undefined ⇒ nothing mounts. An
-authored-but-unbacked id (apps/lines has no `bigWin`/`freeSpinIntro` backing scene yet) resolves
-`fallThrough` ⇒ nothing mounts. Default boot byte-identical to `main`. The mechanism stays inert
-until an author adds those scenes (Phase 5/editor).
-
-**Stale-signal cleanup (the §4 "correct the stale signals" item):** updated the Scene Editor's
-`addEmptyScreen`/`addHudScreen` comments (`editor/+page.svelte`) — author-created custom-id
-screens DO ship now (generic overlay mounting, PR #67; exclusive Flow takeover, this phase), no
-per-id code wiring needed; and refreshed the `gotcha_author_hud_screens_unmounted` memory note.
-
-**Deferred:** authoring real lines `bigWin`/`freeSpinIntro` backing scenes (Phase 5 / editor).
-**Owner-verify live:** `window.__IE_FLOW_WIN__ = true`, trigger a big win / free-spin → the
-takeover scene mounts over the persisting board, a tap returns to `basegame` (verify via the
-`app.stage` read, not `preview_screenshot`).
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ---
 
@@ -457,90 +215,7 @@ regardless of what its def declared.
 **Harness:** an instance with a tray-attached `source` binds the live feed without the def
 declaring it; a per-instance signal binding plays a different animation than the def default.
 
-### Progress — Phase 6 slice 1 DONE (the universal `action`/`visibleSource` tray, 2026-06-30)
-
-Branch `flow/driven-game`. The two GENUINELY-universal bindings (the runtime already gates/clicks
-the WHOLE instance from these param keys regardless of def): an instance can be made **clickable**
-(`action`) or **lifecycle-gated** (`visibleSource`) without its def declaring the param.
-
-> **Update 2026-07-03 — per-instance `visibleSource` authoring RETIRED.** Owner rule: Invisible Flow
-> owns visibility for everything (screens AND instances), so the per-instance "Shows during" control
-> was removed from the editor (`ENGINE_BINDING_PARAMS` now carries only `action`). The runtime STILL
-> honors a baked `visibleSource` instance param (`ComponentInstance.svelte` gate + `VISIBLE_SOURCE_PARAM`)
-> for back-compat — only the authoring is gone. See `feedback_flow_owns_visibility` (memory) and the
-> STATUS entry. The prose below describes the original two-binding tray as first shipped.
-
-**What landed:**
-- `packages/engine-layout/src/lib/engineBindings.ts` (NEW, mirrors `tapToContinue.ts`) —
-  `ENGINE_BINDING_PARAMS` (shared instance params: `action` opts `ENGINE_ACTION_CATALOG`,
-  `visibleSource` opts `VISIBILITY_SOURCE_KEYS`) + `actionBindingOf`/`visibleSourceBindingOf`
-  readers. NOT added to any `ComponentDef.params` — they live only on the placed instance's
-  `params`. Re-exported from `index.ts`.
-- **No merge change needed:** `resolveComponentParams` already ends with `mergeDefined(out,
-  instanceParams)` which iterates EVERY instance param key (not just def-declared) — the same
-  passthrough `tapToContinue` relies on — and `ComponentInstance.svelte` reads
-  `staticParams['action']`/`['visibleSource']` directly. Verified, not assumed.
-- `apps/launcher-api/.../editor/EditorProperties.svelte` — an **"Engine bindings"** tray for a
-  selected `componentInstance`: an Action dropdown + a "Shows during" dropdown (labels from
-  `VISIBILITY_SOURCE_LABELS`, blank = always). **Suppressed** for any param the instance's def
-  ALREADY declares (a `button` declares `action`, a `freeSpinCounter` declares `visibleSource`),
-  so the universal control never double-surfaces. Writes through the existing `onSetInstanceParam`
-  → `node.params` path.
-
-**Verified:** `engine-layout` + `launcher-api` builds GREEN (the launcher build is the typecheck);
-a Node fixture against the built `dist` (11/11) proves an undeclared `action`/`visibleSource` passes
-through on a def declaring neither, an untouched instance carries no binding keys (parity), and a
-def-declared param still wins. **Parity (§7):** an unset binding produces no key ⇒ the runtime reads
-`undefined` ⇒ no hit surface / no visibility wrapper ⇒ byte-identical to today.
-
-### Progress — Phase 6 slice 2 DONE (the UI-vs-schema gaps, 2026-06-30)
-
-Branch `flow/driven-game`. THREE editor controls for schema fields that already existed AND were
-runtime-honored — purely additive authoring UI, no runtime/resolve change.
-
-- **`visibleFor`** — a "shows on layouts" row (desktop/tablet/landscape/portrait checkboxes) in the
-  Transform section, for any node (`EditorProperties.svelte` `setVisibleFor`/`visibleForOn`). Writes
-  the BASE node; all-ticked ⇒ `undefined` (sparse). Runtime gate already at `resolveTransform.ts:10`.
-- **`screenAnchor`** — x/y inputs (0..1) + left/centre/right + top/centre/bottom presets, shown ONLY
-  for a `space:'canvas'` scene (`setScreenAnchor`/`screenAnchorValue`; new `sceneSpace` prop fed by
-  the page). Respects the per-layout override path; clears at `{0,0}` (sparse). Runtime applies it at
-  `LayoutNodeView.svelte:65`.
-- **Custom-param `options`** — a comma-separated "options" input in the Component Editor's "Your
-  params" (`components/+page.svelte` `setParamOptions`) for `kind:'string'` author params; sets/clears
-  `param.options`. `paramField` ALREADY dropdown-renders a param with `options` (confirmed, no change),
-  so a placed instance gets a dropdown automatically.
-
-**Verified:** `pnpm --filter launcher-api build` GREEN (the typecheck). **Parity:** every writer is
-sparse — an untouched node/param never gains the key, so it serializes byte-identical and the
-runtime stays inert. engine-layout untouched.
-
-### Progress — Phase 6 slice 3 DONE (per-instance signal rebinding, 2026-06-30)
-
-Branch `flow/driven-game`. Lets a placed `componentInstance` override WHICH engine signal drives a
-spine cue — so two placements of one component can react to different signals (`win` vs `bigWin`).
-Mirrors the existing per-instance spine-override precedent (`spineRestOverrides`/
-`stateAnimationOverrides`, keyed by spine node id) exactly.
-
-- **Type** — `ComponentInstanceNode.cueSignalOverrides?: Record<string, Record<string, string>>`
-  (`types.ts:349`): outer key = spine node id in the resolved def `root`, inner = cue's original
-  signal → replacement engine-signal key.
-- **Runtime** — `ComponentInstance.svelte:229`: in the `signalToTargets` walk, each cue's signal is
-  remapped through `node.cueSignalOverrides?.[n.id]?.[cue.signal] || cue.signal` BEFORE the
-  subscription, so it listens on the override signal. No context plumbing needed (the cue
-  subscription is built where the instance `node` is already in scope). Absent ⇒ def signal verbatim.
-- **Editor** — `EditorProperties.svelte`: a per-cue "Driven by signal" dropdown (options
-  `ENGINE_SIGNAL_CATALOG`, blank = inherit the def signal) in the existing "Spine (this placement)"
-  panel; sparse writer in `editor/+page.svelte` (prunes empty maps → `undefined`).
-- **Round-trip** — no normalize change needed: `editorStorage.ts` `normalizeNode` is pass-through
-  (`return input as unknown as LayoutNode`), the same mechanism `spineRestOverrides` already rides.
-
-**Verified:** `engine-layout` + `launcher-api` builds GREEN; a headless fixture (guarded against
-drift from the shipped line) proves the override remaps only the listed cue, an un-overridden
-instance keeps the def signal (parity), and the field survives the `normalizeNode` round-trip.
-**Parity (§7):** absent override ⇒ `|| cue.signal` yields the def signal ⇒ subscriptions byte-identical.
-
-**Remaining for Phase 6:** `value`/`signal` universal binding (needs a def node to consume them) and
-the `def.slots` / component-`space` UI gaps.
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ---
 
@@ -712,7 +387,7 @@ verified), then the rest follow the identical pattern (`Stop`, `BuyBonus`, `Chan
 
 ### 8.9 Touch list
 
-Shipped 2026-07-02 (Spin slice, engine `main`; flow-spike `phase8ActionIntent` 21/21; parity held).
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 | File | Change |
 |---|---|
@@ -765,10 +440,9 @@ making *value* dataflow explicit (engine signal → HUD display), the symmetric 
 > Owner direction 2026-07-02. The symmetric other half of Phase 8: Phase 8 made *action*
 > dataflow explicit (a button's `action` output pin wires into a base-game `intent` input);
 > Phase 9 makes *value* dataflow explicit (an engine-owned value SOURCE becomes an output pin
-> the HUD's display input pins wire into). **STATUS 2026-07-02 — steps 1–5 SHIPPED to `main`**
-> (PRs #84 engine-flow schema/derivation/interpreter; #85 runtime wiring + `/flow` editor). Remaining:
-> owner live click-verify in the deployed `/flow`, and **step 6 (§11.8) — ship a baked value edge in a
-> real game + Borut submodule bump**. The build plan below is preserved as-authored.
+> the HUD's display input pins wire into). The build plan below is preserved as-authored.
+>
+> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ### 11.1 Problem statement + the agreed model
 

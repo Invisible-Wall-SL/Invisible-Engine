@@ -7,6 +7,8 @@ already lives in R2 — and ship those bindings to the game through the standard
 Owner-named **Invisible Symbols State Machine** (2026-06-12). Standalone tool page, like
 Atlas / Spine / Font Maker.
 
+> Build status: see [docs/status/symbols.md](../status/symbols.md); detailed done-log in [docs/history.md](../history.md).
+
 ## The thing we are making data-driven
 
 Today every game hardcodes a `SYMBOL_INFO_MAP` — see
@@ -65,8 +67,7 @@ tool is once again only about *which asset maps to each symbol×state*.
 - **Back-compat only on the symbols side:** the per-cell `SymbolCell.sizeRatios` field stays
   **optional** purely for back-compat *reads* — the engine's size resolver still honours a
   baked per-cell override ahead of the reel value — but the Symbols State Machine no longer
-  **authors** size at any level (the size panel + per-cell size inputs were removed,
-  `f555e8d`/`a2f3cef`).
+  **authors** size at any level (the size panel + per-cell size inputs were removed).
 - **Resolution order (at render):** baked per-cell `sizeRatios` (legacy override) > reel
   `reelGrid.symbolSizeRatios` > coded `SYMBOL_INFO_MAP` size > `{ width: 1, height: 1 }`.
 - **Scope reality.** cluster / scatter / ways / price keep self-contained `SYMBOL_INFO_MAP`s
@@ -143,8 +144,7 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
   line completes before the symbol glow; non-animated resolves instantly, preserving the
   original timing. Because it lives in the shared engine, **every game on the `runtime:lines`
   bundle draws it** (default-on: `enabled ?? true`), so a project that authors win-line style
-  online sees it in game with no per-game code. Ported from the standalone Book of Borut build
-  2026-07-14.
+  online sees it in game with no per-game code.
 
 ## "Spine export" demystified
 
@@ -268,8 +268,8 @@ done when it travels **export → `deploy/` → bake → pull → register**.
   `highlight` (2026-06-17) and `winLine` (2026-06-17, styled 2026-06-18) — see their sections
   above. Each is sparse (absent = byte-identical to before), forwarded verbatim through
   `symbolExport.ts` → `bake-editor-doc.mjs` → `bundle.symbols.*`, and consumed by the per-game
-  engine accessor (`bakedWinLineConfig()`). The `apps/lines` render-side mirror has landed;
-  Book of Borut needs the same mirror as a follow-up (bump the engine submodule for the
+  engine accessor (`bakedWinLineConfig()`). Book of Borut needs the same mirror as a follow-up
+  (bump the engine submodule for the
   launcher/bake changes). (Symbol *size* was briefly a doc global here too —
   `defaultSizeRatios` — but it has since moved to `reelGrid.symbolSizeRatios` on the reel,
   edited in the Scene Editor; see "Symbol size lives on the reel" above.)

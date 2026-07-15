@@ -19,8 +19,13 @@ You work on the cloud-hosted Python asset pipeline.
 - `atlas-tool` reads R2 into staging **only at container start** → after changing R2 data (e.g. `seed_r2.py`), the service must be **restarted**.
 - No secrets in code (`comfy_org_api_key` etc.) — env only.
 
-## Remaining work (see docs/STATUS.md)
-Seed R2 + restart; `.atlas` geometry into R2 for compose/slice; verify FLUX + gpt_image pipelines (only SDXL is proven); optional port of the third tool (Invisible Sheet Maker).
+## Current state / open items
+Per-tool CURRENT state lives in `docs/status/atlas-maker.md`, `docs/status/sheet-maker.md`,
+`docs/status/font-maker.md` (and `docs/status/infra.md` for the tunnel/Access/R2 wiring). The
+still-open pipeline items (gpt_image blocked on the `Images to RGB` node + `COMFY_ORG_API_KEY`;
+the FLUX ref/ControlNet path unproven) are tracked there — read + update those, not this prompt.
 
 ## How to work
-Validate Python with `py -m py_compile services/<svc>/*.py`. Deploy = push to `main` (auto-deploy). Read `docs/INFRA.md` for URLs/envs. Keep `docs/STATUS.md` updated.
+Validate Python with `py -m py_compile services/<svc>/*.py`. Deploy = push to `main`
+(auto-deploy). Read `docs/INFRA.md` for URLs/envs. On finishing meaningful work, update the
+relevant `docs/status/<tool>.md` (not `docs/STATUS.md`, now a slim index).

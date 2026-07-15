@@ -3095,3 +3095,4492 @@ Full list (+ the 2026-05-29 session lessons) in `docs/history.md#key-lessons`. T
 
 ---
 
+
+
+---
+
+# Design-doc progress logs — archived 2026-07-15
+
+> These per-tool build/progress logs were moved verbatim out of `docs/design/*.md` when those
+> docs were slimmed to plan-only. Current state lives in `docs/status/<tool>.md`; the design
+> docs keep the plan. Kept here so no done-detail is lost.
+
+## Invisible FX — design-doc progress log (archived from docs/design/invisible-fx.md 2026-07-15)
+
+**LANDED (2026-07-09):** phases 1–3 + `forceEmit` (a rig-bound effect force-plays every layer on the
+beat regardless of its authored trigger — the keyframe IS the trigger; `RiggedEffect`→`EffectPlayer`
+→`EffectLayer forceEmit`). Runtime published to `_runtime/lines`. Owner-verify + Borut bump pending.
+
+## 0. Status
+
+**Phases 1 + 2 + 4 COMPLETE (headless) — the full author→ship→FIRE loop is wired.** Phase 4
+landed in 3 increments: inc 1 (engine runtime player `<EffectPlayer>`/`<SpineBoneAttach>`),
+inc 2 (export→bake→pull — an authored effect travels into a built game's bundle), inc 3 (the
+TRIGGER — a baked effect plays in-game and a `trigger.on:'event'` layer fires on a game/Flow
+event via `utils-event-emitter`). **Phase 0 / Tier C GATE PASSED (2026-06-25): the spike
+verdict is NATIVE pooled-`SpineParticle` is VIABLE** (see Progress — `tools/fx-spike/spineParticle.ts`,
+18/18 GREEN; perf ceiling is the one owner-verify-live caveat, flipbook-bake remains a per-effect
+fallback). **Tier C (Phase 3) is now COMPLETE (headless): increment 1 built the RUNTIME
+`SpineParticleBehavior` + `<EffectLayer>` wiring (a `particleKind:'spine'` layer RENDERS — pooled
+`Spine` particles, `tools/fx-spike/spineParticleBehavior.ts` 21/21 GREEN), and increment 2 (2026-06-25)
+built the `/fx` AUTHORING UI (a `particleKind` toggle + skeleton/animation/loop picker, reusing the
+Backdrop bar's skeleton list), the FxStage LIVE spine-particle preview (pooling real `Spine`
+instances), and the bake dangling-`skeletonKey` guard (the spine analogue of the atlas `art.assetKey`
+check). So a spine-particle effect is now authorable→previewable→shippable→fireable.** The **skeletonKey
+key-stability** seam is now CLOSED (2026-06-25 — `/fx` authors `spineParticle.skeletonKey` as the
+canonical bundle `folder`, the SAME key the runtime registers the spine under in `loadedAssets` +
+the bake dangling-key guard checks; the guard reconciles both ship namespaces to that folder, and the
+runtime resolution falls back across them — see Progress + §9). The ONLY remaining owner-verify-live
+items (NOT headless) are the WebGL pixels + the pool-size perf ceiling; once the owner confirms a
+published game renders a spine-particle effect, Book of Borut bumps its `engine` submodule. The
+`/fx` `trigger.eventType` PICKER is now BUILT (the inspector "Trigger" section authors
+always/event + the event type + duration, sourced from the project's emitter vocabulary —
+the same source `/flow` uses). **Current
+state:** a LIVE saveable/reopenable `/fx` page (atlas pick → live emitter → save → reopen);
+Tier B Spine attach (rig backdrop + pin a layer onto a bone); the full pipeline (export→bake→
+pull→register) + the event-bus trigger; `/fx` is a REGISTERED tool (`fx` scope). **Owner-verify
+pending** (WebGL + a published game): Tier A particles, Tier B bone-follow, and a game actually
+FIRING a baked effect on an event (esp. `<SpineBoneAttach>`'s coord frame + `Effects.svelte`'s
+host-rig assumptions). After this lands on `main` + owner-verify, \*\*Book of Borut bumps its
+`engine` submodule\*\* to ship the runtime. See Progress.
+
+### Progress
+
+- **Inspector authoring-UX polish: LIVE SLIDERS + SPAWN-SHAPE picker — ✅ DONE HEADLESSLY
+  (2026-06-25, branch `fx/phase1-emitter-core`, no game bump).** Owner-requested `/fx` inspector
+  polish (the tool is otherwise feature-complete). Two improvements, both PURE config edits through
+  the existing `patchConfig`/`updateSelected` seam (schema + `normalize` untouched — spawnShape is
+  already verbatim inside the config):
+
+  - **Live sliders (replace the value boxes).** The numeric Emitter (frequency / max particles /
+    lifetime min+max) and Alpha/Scale/Speed start+end fields are now a reusable **"slider + number
+    box"** combo (`{#snippet slider(label, value, min, max, step, apply)}` in `+page.svelte`). The
+    range input fires `oninput` on EVERY drag tick → re-records the doc → the preview re-tunes live
+    (FxStage's rebuild is already generation-guarded/coalesced, so dragging is safe); the paired
+    numeric box shows the live value AND lets you type an exact one (`onchange`, on commit). Both call
+    the SAME mutator. Per-field min/max/step: frequency 0.001–0.5 step 0.001; max particles 1–1000
+    step 1; lifetime 0–5s step 0.05; alpha 0–1 step 0.01; scale 0–4 step 0.05; speed 0–1000 step 1;
+    spawn radii 0–400 step 1; rect width/height 0–800 step 1. Placement offsets + trigger duration
+    stay text boxes (unbounded / blank-clears — a slider is worse there).
+  - **Spawn-shape picker.** Was: only a torus `radius`. Now a **Shape** dropdown — Point / Circle /
+    Ring / Rectangle — driving the verbatim `spawnShape` behavior (`@barvynkoa/particle-emitter`):
+    Point/Circle/Ring all map to the library `torus` (`point` = radius 0; `circle` = radius>0, no
+    inner; `ring` = innerRadius>0), Rectangle maps to the library `rect` authored CENTRED on the
+    emitter origin (`x`/`y` = `-w/2`/`-h/2`). Only the relevant params show (sliders, per above).
+    Switching shape REWRITES only the `spawnShape` entry's `type`+`data`; all other behaviors stay
+    byte-identical (the verbatim-config contract). A config with no `spawnShape` degrades gracefully —
+    the picker APPENDS one.
+  - **New PURE mutators/readout** (`fxModel.client.ts`, PixiJS-free so the harness covers them):
+    `setSpawnShape` (switch + carry shared params non-destructively), `setSpawnRing` (outer+inner),
+    `setSpawnRect` (centred w/h), and `spawnShape(config)` readout (recovers the authoring shape +
+    params from the library `{type,data}`). `setSpawnRadius` reused for the Circle radius. All
+    JSON-clone the config (like the existing mutators), edit ONLY the `spawnShape` behavior, never
+    mutate the source.
+  - **Verified headlessly** — `tools/fx-spike/modelHelpers.ts` (`pnpm --filter fx-spike run model`)
+    extended GREEN: each shape produces the right `spawnShape` `type`+`data`; switching shapes is
+    immutable + leaves all NON-spawnShape behaviors byte-identical; the readout round-trips
+    (point/circle/ring/rect); a `spawnShape`-less config reads `undefined` + the picker adds one; and
+    every shape config still feeds `upgradeConfig`/`bindArt` cleanly. ALL 11 fx harnesses GREEN.
+    **Build GREEN:** `pnpm --filter launcher-api build`; Prettier clean (package-local config).
+  - **NEEDS LIVE OWNER-VERIFY (NOT headless, authed `/fx` page):** the sliders re-tuning the preview
+    LIVE as you drag, and each spawn shape visibly changing the particle spawn PATTERN.
+  - **`docs/tools/fx.md`** wants a later `docs-keeper` refresh for the inspector section (live sliders
+    + the Spawn-shape picker). No tool registration / submodule bump.
+  - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,fxModel.client.ts}`,
+    `tools/fx-spike/modelHelpers.ts`, `docs/STATUS.md`.
+
+- **Tier C `skeletonKey` key-stability seam — ✅ CLOSED HEADLESSLY (2026-06-25, branch
+  `fx/phase1-emitter-core`, no game bump).** Per the increment-2 follow-up + §9 (the atlas "key
+  stability" rule, applied to spines). The one correctness gap blocking a spine-particle effect from
+  SHIPPING into a real game. **The two key namespaces (with the code that derives each):**
+
+  - **Authored (was wrong):** the `/fx` Skeleton picker wrote `spineParticle.skeletonKey =
+    `${entry.dir_b64}/${entry.skeleton_file}`` — a base64url-of-folder + filename ENTRY key (the
+    `/spine/skeletons` listing shape, `spineIndex.ts` `buildSkeletonsIndex` → `dir_b64 =
+    b64url(dir)`). Never a runtime lookup key.
+  - **Canonical (runtime + bake):** the engine registers a spine in `loadedAssets` under the key
+    `bakedEditorArtAssets()` / `bakedSymbolAssets()` set (`apps/lines/src/editor-scenes.ts`
+    `out[spine.key] = {type:'spine',…}`). That `spine.key` is the bundle **`folder`** for a
+    layout-placed spine — `editorArtExport.ts` rewrites it via `gameKey =
+    bundleFromAssetKey(client, project, assetKey)` (`spine.ts`: strips `<…>/spines/` → the folder) —
+    and the FULL R2 bundle prefix `<…>/spines/<folder>/` for a symbol-shipped spine
+    (`symbolExport.ts` keeps `entry.key = assetKey`). `<EffectLayer>` resolves
+    `loadedAssets[skeletonKey]` directly, and the bake guard checks `editorArt.spines[].key` ∪
+    `symbols.index.spines[].key`. The authored and canonical namespaces never matched ⇒ an authored
+    spine effect never resolved + the bake always flagged it dangling.
+  - **Fix (smallest correct — author the canonical key, no translation layer):** (1) the `/fx`
+    spine-particle picker now writes `skeletonKey = entry.folder` (the canonical bundle name),
+    deduped to one option per shippable bundle (`spineParticleSkeletons` — the runtime/editor-art
+    ship the FIRST skeleton of a folder, so a folder maps to one shippable skeleton); `resolveSkeleton`
+    matches by `folder`; the `/fx` preview still loads via `loadFxSpine` (unchanged). The Tier-B
+    Backdrop bar keeps `dir_b64/skeleton_file` (an authoring aid, never saved). (2) the bake guard
+    (`bake-editor-doc.mjs`) reduces every SHIPPED spine key to its bundle `folder` (`<…>/spines/<f>/`
+    → `<f>`; a bare editor-art folder key unchanged) before comparing — reconciling both ship
+    namespaces to the one authored namespace. (3) `<EffectLayer>` resolution is now resilient:
+    exact-key first (the editor-art/folder case), then a fallback matching any `loadedAssets` key
+    whose bundle folder equals the authored key (the symbol-spine full-prefix case) — so an authored
+    spine effect resolves regardless of which path shipped the skeleton, WITHOUT re-keying the
+    symbol/runtime registration.
+  - **Verified headlessly** — `tools/fx-spike/pipeline.ts` extended GREEN: an authored folder key
+    PASSES the guard against an editor-art spine (same folder) AND a symbol spine (full prefix →
+    same folder); a genuinely-absent skeleton is STILL flagged dangling; a different shipped bundle
+    does not falsely satisfy the key; the `bundleFolder` reducer unit-covered (both namespaces
+    collapse to the folder, a bare folder unchanged, a nested folder preserved). ALL 10 fx harnesses
+    GREEN; the Phase-0 spine-particle spike still GREEN. **Builds GREEN:** `engine-fx` typecheck,
+    `pnpm --filter {pixi-svelte,lines,launcher-api} build`, `node --check` on the bake script;
+    Prettier clean. **PARITY:** sprite-only docs byte-identical (the sprite path is untouched).
+  - **Borut:** the seam no longer blocks shipping — a spine effect whose skeleton genuinely ships now
+    resolves at runtime + passes the bake guard. The ONLY remaining gate is owner-verify-live (the
+    WebGL pixels + the pool-size perf ceiling in a published game); after that, bump the `engine`
+    submodule.
+  - Files: `apps/launcher-api/src/routes/(app)/fx/+page.svelte`,
+    `apps/launcher-api/scripts/bake-editor-doc.mjs`,
+    `packages/pixi-svelte/src/lib/components/EffectLayer.svelte`, `tools/fx-spike/pipeline.ts`,
+    `docs/STATUS.md`.
+
+- **Phase 3 (Tier C — spine-clips-AS-particles) — increment 2: the `/fx` authoring UI + live
+  preview + the bake `skeletonKey` guard — ✅ DONE HEADLESSLY (2026-06-25, branch
+  `fx/phase1-emitter-core`, no game bump).** Per §5 Tier C / §7 Phase 3 (Phase-0 build-plan steps
+  3–4). Makes a `particleKind:'spine'` layer AUTHORABLE, PREVIEWABLE, and SHIPPABLE — closing
+  Tier C (increment 1 built the runtime behavior; this is the tool + the pipeline guard).
+  **Landed:**
+
+  - **`/fx` authoring UI** (`apps/launcher-api/src/routes/(app)/fx/+page.svelte`) — a per-layer
+    **Particle** section (above Art): a **Kind** select (**Sprite (atlas art)** vs **Spine clip**);
+    when **Spine clip**, a **Skeleton** picker (REUSES the SAME `/spine/skeletons` list the Backdrop
+    bar already loads — no second skeleton-listing path), an **Animation** picker (the chosen
+    skeleton's clips, resolved on demand via `fxSpine.client.ts` `loadFxSpine`; degrades to a
+    free-text input while the skeleton loads), and a **Loop** toggle. The Sprite **Art** section is
+    GATED OUT for a spine layer. Switching kind is NON-DESTRUCTIVE (the atlas `art` AND a drafted
+    `spineParticle` both survive a toggle, mirroring the placement/trigger non-destructive pattern).
+    The page caches loaded skeletons (`resolveSkeleton`) and hands them to the stage.
+  - **Pure mutators** in `fxModel.client.ts` (`setParticleKind` / `setSpineParticleSkeleton` /
+    `setSpineParticleAnimation` / `setSpineParticleLoop` + the `spineParticleReady` gate) — edit
+    ONLY `particleKind`/`spineParticle`, NEVER the verbatim `config` (nor `art`/`placement`/
+    `trigger`); immutable + PixiJS-free so the harness covers them. `setParticleKind` to the same
+    kind is a no-op; the spine setters force `particleKind:'spine'` and keep sibling fields.
+  - **FxStage LIVE spine-particle preview** (`FxStage.svelte`) — for a `particleKind:'spine'` layer
+    the stage `registerSpineParticleBehavior()` + injects a pixi-v8 backing factory
+    (`createPixiSpineBackingFactory`, built from the skeleton the page resolves via the new
+    `resolveSkeleton` prop) into the V3 config's `behaviors` (mirroring `<ParticleEmitter>`'s
+    `bindSpineParticle` imperatively), INSTEAD of the `bindArt` sprite path. A spine emitter is
+    ALWAYS recreated (not re-`init`ed) on rebuild so its pool is rebuilt cleanly; the pool is
+    DISPOSED (`SpineParticleBehavior.dispose()`) on every teardown/rebuild/unmount (no leak —
+    FxStage's generation-guarded rebuild owns it). A half-authored/unloadable spine layer falls
+    through to the placeholder dots (never crashes). The sprite/placeholder/Tier-B paths stay
+    BYTE-IDENTICAL. The launcher now deps `pixi-svelte` (`workspace:*`), whose index now exports the
+    canonical Tier-C `spineParticleBehavior`/`spineBacking` (REUSE — the SAME pool `<EffectLayer>`
+    mounts, so the authoring preview and the game render identically).
+  - **Bake dangling-`skeletonKey` guard (§8 — the spine analogue of the atlas dangling-key guard)** —
+    `effectExport.ts` now returns `referencedSkeletonKeys` (the distinct `spineParticle.skeletonKey`
+    set of `particleKind:'spine'` layers); a spine layer adds NO atlas key (`assetKeysOf` now skips
+    spine layers) and a sprite layer adds NO skeleton key. `bake-editor-doc.mjs` checks each
+    referenced skeletonKey against the SHIPPED Spine bundles (`editorArt.spines[].key` ∪
+    `symbols.index.spines[].key` — the keys a skeleton registers in `loadedAssets` under) and WARNS
+    loudly for a dangling one (an unshipped skeleton ⇒ the spine particles have no skeleton ⇒
+    invisible). Non-fatal (the author may wire the spine into the layout/symbols before shipping).
+  - **Latent schema bug FIXED** — `normalizeEffectDoc` DROPPED any layer whose `art.assetKey` was
+    empty, which would have killed EVERY spine-particle layer (a spine layer's particle IS the
+    pooled `Spine`, not an atlas region — it legitimately carries empty art) at save→reopen / export.
+    A SPINE layer now keeps an empty `{ assetKey:'', frames:[] }` block.
+  - **Save-loses-the-layer bug FIXED (2026-07-08)** — the same drop ALSO killed a SPRITE layer
+    with unbound art: author a new effect, tune the emitter against the placeholder dots (the UI
+    explicitly invites this — "No art bound yet — tune the emitter"), Save, reopen → EMPTY. The
+    save-time canonicalizer was doing the ship-time gate's job. `normalizeEffectDoc` now keeps
+    EVERY layer (sprite too) with an empty `{ assetKey:'', frames:[] }` when art is unbound; empty
+    art is safe at runtime (`bindArt` with 0 textures renders nothing) and the dangling-`assetKey`
+    case is caught LOUDLY at bake (§8), the correct ship gate. Round-trip harness updated to assert
+    the unbound sprite layer survives.
+  - **Particle-art-never-rendered bug FIXED (2026-07-08)** — `FxStage` loaded the atlas page via Pixi
+    `Assets.load(pageUrl)`, whose resolver keys off the URL's apparent extension; the auth-gated
+    `/api/editor/asset?key=…` streamer URL (query string, no clean extension) tripped it, so the
+    emitter got NO texture (placeholder dots) AND the faint backdrop never drew. The Editor loads the
+    SAME endpoint via an `<img>` and works — the tell. `FxStage.loadPageSource()` now fetches the bytes
+    itself + decodes via `createImageBitmap` → `ImageSource` (mirrors the Editor), per-load try/catch.
+  - **Weighted per-image MIX added (2026-07-08)** — new `EmitterArt.weights?: number[]` (parallel to
+    `frames`; normalized/validated, dropped unless aligned + a >1-frame layer). A static multi-frame
+    layer now defaults to a random MIX (was: auto-forced flipbook); the inspector's "Mix — per-image
+    share" sliders set the weights. `bindArt(config, textures, animated, weights?)` realises them via a
+    repeated-texture multiset (`weightedTextures` — the library's `textureRandom` is uniform). Preview
+    honors it; **runtime `<ParticleEmitter>` still binds the whole sheet (ignores `frames` + `weights`)
+    — the frame-filtering gap is the tracked follow-up, after which weights ship for free via `bindArt`.**
+  - **Runtime frame + weight filtering LANDED (2026-07-08, "in-game" Phase 0).** Closed the gap above.
+    `EffectLayer.svelte` resolves a sprite layer's `art.frames` → the loaded per-frame `Texture`s
+    (editor-art scoped→bare key precedence `<assetKey>::<frame>` — the SAME resolution `LayoutNodeView`
+    uses; inlined to avoid a `pixi-svelte→engine-layout` dep) and passes `textures` + `weights` to
+    `<ParticleEmitter>`, which forwards `weights` into `bindArt`. No `frames` ⇒ whole-sheet fallback
+    (game-bundled spritesheet parity). This is why the sprite runtime never rendered: an FX atlas
+    ships via editor-art export under namespaced per-frame keys, so `loadedAssets[assetKey]` was
+    `undefined`. `bakedEffects()` was already un-gated (only its comments were stale — fixed). Harness
+    `playerReduce.ts` covers weights-through-`bindArt`; WebGL pixels need owner live-verify.
+  - **Scene-Editor placement LANDED (2026-07-08, "in-game" Phase 1).** New `EffectNode
+    { kind:'effect'; effectId }` on the `engine-layout` `LayoutNode` union — an effect is placed like
+    an image/spine. Resolution registry `registerEffects()`/`resolveEffect()` (mirrors
+    `registerComponents`; game registers `bakedEffects()` at boot); `LayoutNodeView` mounts
+    `<EffectPlayer>` for the resolved doc at the node transform. Launcher editor: `/api/editor/effects`
+    list + an Effects palette section + spawn + a labelled placeholder chip (no live emitter in the 2D
+    editor) + a Properties effect-picker; `'effect'` added to the `NODE_KINDS` whitelist. `apps/lines`
+    `Effects.svelte` skips placed ids (`placedEffectIds()`) so a placed effect never double-mounts.
+    **v1: scene-placed = FREE layers** (a bone layer has no host `<SpineProvider>` in a scene → falls
+    back to origin+offset; bone effects stay on the host-rig path, timed in the Rigger = Phase 3).
+    **Effect art ships only if its atlas is ALSO placed** (existing dangling-`assetKey` guard) —
+    auto-shipping a placed effect's atlas is a tracked follow-up. **[DONE 2026-07-08]**
+    `exportEditorArt` now walks the project's effects and auto-ships every layer's manifest
+    `art.assetKey`, so a placed/mounted effect's particles have textures with no extra step (the
+    dangling-`assetKey` guard now only fires for a genuinely unusable atlas).
+  - **Flow activation — shared cue-name picker (2026-07-08, "in-game" Phase 2).** The runtime join
+    already works + is harness-verified (`trigger.ts`): a Flow Broadcast (v1) / `fireCue` (v2) →
+    `eventEmitter.broadcast({type: name})` fires an FX `on:'event'` layer whose `trigger.eventType ===
+    name`. Closed the FX picker's dead-end: the Trigger→Event control is now a COMBOBOX (pick a
+    suggestion or type any custom cue). Suggestions union the game's exported emitter vocabulary (v1
+    Broadcast names) with the cues the project's saved Flow **v2** graph actually broadcasts (`fireCue`
+    `ref`s, via `loadFlowV2Doc` in the FX loader) — the v2 template vocabulary isn't project-loaded
+    yet (owner's in-progress flow-v2 work), so sourcing from the real FlowDoc is the non-blocked path.
+    A first-class `playEffect` Flow node stays deferred.
+  - **Rig-timeline → effect seam LANDED (2026-07-08, "in-game" Phase 3b).** `BaseSpineProvider`
+    (→ `SpineProvider`) gains opt-in `rebroadcastEvents`: a Spine `AnimationState` listener broadcasts
+    each fired animation event onto the `utils-event-emitter` bus as `{type: event.name, int, float,
+    string}` — the SAME bus an FX `on:'event'` layer subscribes to. So a Rigger event key named `X` on
+    an animation fires any effect whose `trigger.eventType === X`, exactly when the animation reaches
+    it (the "time an effect on the timeline" seam). Enabled on placed spine nodes (`LayoutNodeView`) +
+    the FX host rig (`Effects.svelte`); off elsewhere (opt-in, no spam); listener removed on destroy.
+    Bone-attach was already done (`placement.space:'bone'` + `SpineBoneAttach`). Companion: the Rigger
+    event-key authoring UI.
+  - **Per-rig bone hosting LANDED (2026-07-08).** Closed the follow-up above. `EffectNode.hostSpineId`
+    (the id of a placed spine node in the same scene) attaches an effect to a SPECIFIC rig: `LayoutScene`
+    pairs the hosted effect to its host spine + suppresses it at top level, and `LayoutNodeView` renders
+    its `<EffectPlayer>` DIRECTLY inside that rig's `<SpineProvider>` (`attachedEffects` prop) — so a bone
+    layer rides that rig's bone and the rig's rebroadcast timeline events fire it. Editor: an "attach to
+    rig" dropdown in the effect Properties. Reference model (not nesting) to keep spine a leaf node.
+    Dangling id ⇒ normal top-level render. The effect rides the rig (its node transform ignored).
+  - **Trigger STOP event added (2026-07-09).** `EmitterTrigger.stopEventType?` — an optional SECOND cue
+    that STOPS emission, so Flow drives a continuous effect with a start cue + a stop cue (fire on
+    `eventType`, stop on `stopEventType`). `EffectLayer` subscribes both; the stop cue cancels any
+    duration timer; a stop cue equal to the fire cue is dropped (`layerTrigger`). Absent ⇒ the prior
+    burst behaviour (stop by `duration`/`emitterLifetime`) is byte-identical. FX tool: a "Stop event"
+    combobox. Covered by `trigger.ts` (start→stop-cue→stop, stop beats duration) + `roundTrip.ts`.
+  - **Verified headlessly** — new `tools/fx-spike/particleKind.ts` (`pnpm --filter fx-spike run
+particle-kind`): the mutators are pure/immutable + touch only `particleKind`/`spineParticle`,
+    the sprite↔spine toggle is non-destructive, the `spineParticleReady` gate, and the kind
+    discipline through `normalizeEffectDoc` (a true spine layer KEEPS spineParticle; a sprite layer
+    DROPS a dormant one; idempotent fixed point). `tools/fx-spike/pipeline.ts` extended — the
+    `referencedSkeletonKeys` export (sprite/spine classes don't cross-contaminate, deduped) + the
+    dangling-`skeletonKey` guard (shipped-as-editor-spine / shipped-as-symbol-spine resolve,
+    unshipped flagged). ALL 10 fx harnesses GREEN; the Phase-0 spine-particle spike still GREEN.
+    **Builds GREEN:** `engine-fx` typecheck, `pnpm --filter {pixi-svelte,lines,launcher-api} build`
+    (the `(app)/fx` entry grew to ~50 kB pulling in the particle behavior); `node --check` on the
+    bake/pull `.mjs`; Prettier clean. **PARITY:** a sprite-only doc is byte-identical through
+    normalize/export/bake.
+  - **NEEDS LIVE OWNER-VERIFY (NOT headless):** (a) spine-clip particles actually RENDERING +
+    animating + recycling in the `/fx` preview once a Skeleton + Animation are picked; (b) the
+    pool-size CEILING that holds 60fps (the Phase-0 caveat — tens, not hundreds); (c) the
+    **skeletonKey key-stability** seam — in `/fx` the authored `spineParticle.skeletonKey` is a
+    `dir_b64/skeleton_file` entry key, but the runtime + the bake guard resolve against the R2
+    bundle-prefix `loadedAssets` key (`editorArt.spines[].key`); these must be reconciled (the §9
+    "atlas key stability" analogue) before a spine-particle effect SHIPS to a real game. Until then
+    the guard correctly flags such an effect dangling.
+  - **Borut note:** still NOT bumped — owner-verify the pixels + reconcile the skeletonKey seam
+    first. **`docs/tools/fx.md`** wants a later `docs-keeper` refresh for the Particle/Spine-clip
+    section (RULE 9 already satisfied — the tool is registered).
+  - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,FxStage.svelte,fxModel.client.ts,fxSpine.client.ts}`,
+    `apps/launcher-api/src/lib/server/effectExport.ts`, `apps/launcher-api/scripts/bake-editor-doc.mjs`,
+    `apps/launcher-api/package.json` (+`pixi-svelte`), `packages/pixi-svelte/src/lib/index.ts`,
+    `packages/engine-fx/src/normalize.ts`, `tools/fx-spike/{particleKind.ts,pipeline.ts,package.json}`,
+    `docs/STATUS.md`.
+
+- \*\*Phase 3 (Tier C — spine-clips-AS-particles) — increment 1: the RUNTIME `SpineParticleBehavior`
+
+  - `<EffectLayer>` wiring — ✅ DONE HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no
+    game bump).** Per §5 Tier C / §7 Phase 3 (Phase-0 verdict: NATIVE viable). Promotes the Phase-0
+    spike's proven pooled-`Spine`-particle mechanism into the real runtime so a `particleKind:'spine'`
+    layer RENDERS — each particle is a pooled `Spine` instance playing a clip. Scoped to the RUNTIME
+    only (the `/fx` authoring UI + the FxStage preview + the bake dangling-`skeletonKey` guard are
+    increment 2). **Landed:\*\*
+
+  * **`SpineParticleBehavior`** (`packages/pixi-svelte/src/lib/spineParticleBehavior.ts`) — a real
+    `@barvynkoa/particle-emitter` behavior (the `IEmitterBehavior`
+    `{ order, initParticles, updateParticle, recycleParticle }` shape), registered via
+    `Emitter.registerBehavior` through the idempotent `registerSpineParticleBehavior()`.
+    Parameterised from the EffectDoc's `spineParticle` (`{ skeletonKey, animation, loop }`): pool
+    sized from `config.maxParticles` + PRE-WARMED up-front; on spawn take a pooled backing,
+    `state.setAnimation(0, animation, loop)`, add its view to the layer container; per frame advance
+    the clip + weld the (textureless) particle's transform/alpha; on `recycleParticle` reset (clear
+    tracks + setup pose + hide) + return to the pool; `dispose()` destroys every backing (pool +
+    live) on unmount. NEVER a skeleton per-particle-per-frame (the spike's exact, proven shape).
+    **Home is `pixi-svelte`** (alongside `ParticleEmitter`/`EffectLayer`/`SpineBoneAttach`) — it
+    needs the pixi-v8 `Spine` class + the particle lib; `engine-fx` stays PURE (peer-deps only
+    pixi.js).
+  * **The pool is INJECTABLE** (`packages/pixi-svelte/src/lib/spineBacking.ts`) — the behavior pools
+    a renderer-agnostic `SpineBacking` (`view`/`activate`/`advance`/`reset`/`destroy`) built by an
+    injected `SpineBackingFactory`, so the headless harness injects an un-mangled `spine-core`
+    backing where the runtime injects the real pixi-v8 `Spine` (the bookkeeping is decoupled from
+    the renderer). `createPixiSpineBackingFactory(spineData)` builds the runtime factory from a
+    loaded `SkeletonData`; the pixi-v8 backing runs `autoUpdate=false` so the emitter's ticker owns
+    the clock, and a missing clip name degrades to a static pose (never throws).
+  * **`skeletonKey` resolves from `loadedAssets`** — `<EffectLayer>` resolves
+    `spineParticle.skeletonKey` against the game's `loadedAssets[key]` (a `LoadedSpine` =
+    `SPINE_PIXI.SkeletonData`, the SAME lookup `SpineProvider` does — the skeleton bundle must
+    travel the pipeline like an atlas does, §8) and binds the factory. A `spine` layer whose
+    skeleton isn't loaded yields no config ⇒ the emitter falls back to the (textureless) sprite path
+    and renders nothing, never crashing.
+  * **`<EffectLayer>`/`<ParticleEmitter>` branch on `particleKind`** — `<EffectLayer>` passes a
+    `spineParticle` config to `<ParticleEmitter>` (a new optional prop) for a `spine` layer;
+    `<ParticleEmitter>` then registers the behavior + injects it into the V3 config's `behaviors`
+    (via `bindSpineParticle`, mirroring `bindArt`'s clone-then-attach-live-objects order — the
+    particles stay textureless, their art IS the pooled spine view), SKIPPING the sprite
+    `bindArt`/`key` path entirely. **The sprite path (Tiers A/B) is BYTE-IDENTICAL for
+    `particleKind:'sprite'`** (`spineParticle` absent ⇒ the exact prior `bindConfig`/`bindArt`
+    flow). `<SpineBoneAttach>` placement still works for a spine-particle layer (the emitter can ride
+    a bone). `ParticleEmitter`'s `onDestroy` disposes the behavior's pool.
+  * **`planLayer` update** (`engine-fx` `playerPlan.ts`) — `isLayerRenderable` now returns true for a
+    `spine` layer (a layer with no `spineParticle.skeletonKey`/`animation` is still skipped — the
+    fail-safe analogue of a bone layer with no bone); `LayerPlan` carries `particleKind` + the
+    `spineParticle` config through. The pure seam stays testable.
+  * **Verified headlessly** by new `tools/fx-spike/spineParticleBehavior.ts` (`pnpm --filter fx-spike
+run spine-particle-behavior`): **21/21 GREEN** against the REAL production `SpineParticleBehavior`
+    class (importing it never drags in `spine-pixi-v8` — the `./spineBacking` import is TYPE-ONLY,
+    erased at runtime) driving the REAL `@barvynkoa` `Emitter` at `maxParticles:30` with an injected
+    `spine-core` backing — registration idempotent, pool pre-allocates 30 up-front, BOUNDED
+    allocation (still 30 after 1500 frames, none per-frame), the per-particle lifecycle drives the
+    genuine state machine (a live bone's clip advanced), live backings === live particles (no leak),
+    pool+live partition the fixed allocation, full drain returns all 30, `dispose()` destroys all 30 - clears. `playerReduce.ts` updated for spine now rendering (a spine layer renders + carries its
+    config; a config-less spine layer is skipped; sprite layers stay `particleKind:'sprite'`). ALL
+    prior fx harnesses (roundtrip/model/save/placement/player/pipeline/trigger/trigger-ui/
+    spine-particle) still PASS. **Builds GREEN:** `engine-fx` typecheck, `pnpm --filter
+{pixi-svelte,lines,launcher-api} build`; svelte-check on pixi-svelte flags only the 3
+    PRE-EXISTING errors (none in the new/edited files); Prettier clean. **PARITY:** a doc with no
+    spine layers reduces byte-identically (the sprite path is untouched).
+  * **NEEDS LIVE OWNER-VERIFY (WebGL pixels + perf — NOT headless):** actual spine-clip particles
+    RENDERING + animating + recycling in a real game (or the `/fx` preview), and the pool-size
+    CEILING that holds 60fps on target hardware (the Phase-0 caveat — expect tens, not hundreds; a
+    real `Spine` is far heavier than a `Sprite`). The flipbook-bake fallback stays available
+    per-effect.
+  * **Exact next increment (Tier C inc 2):** the `/fx` authoring UI — a `particleKind` toggle
+    (sprite↔spine) on the selected layer, a skeleton/animation/loop picker (reuse the Phase-2
+    `/spine/skeletons` + `fxSpine.client.ts` loader already in the page), and the FxStage live
+    preview pooling real `Spine` instances; PLUS the bake dangling-`skeletonKey` guard
+    (`spineParticle.skeletonKey` is a NEW referenced-asset class — the shipped spine set must contain
+    it, the spine analogue of the atlas `art.assetKey` check, §8). `normalizeEffectDoc` already gates
+    `spineParticle` to `particleKind:'spine'` (Phase-1 inc-1) — the schema is ready.
+  * Files: `packages/pixi-svelte/src/lib/{spineParticleBehavior.ts,spineBacking.ts}`,
+    `packages/pixi-svelte/src/lib/components/{ParticleEmitter.svelte,EffectLayer.svelte}`,
+    `packages/engine-fx/src/playerPlan.ts`,
+    `tools/fx-spike/{spineParticleBehavior.ts,playerReduce.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 1 — increment 1: `EffectDoc` schema + headless round-trip harness — ✅ DONE
+  HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no game bump, `/fx`
+  UNREGISTERED so RULE 9 is not yet triggered).** The first verifiable foundation of Tier
+  A. **Landed:** new **`packages/engine-fx`** workspace package (`workspace:*`, house
+  style, `tsc --noEmit` GREEN) — the shared home for the save contract, mirroring
+  `engine-flow`'s package shape (`main`/`types` → `index.ts`) so BOTH the launcher save
+  endpoint (it already deps `engine-flow` via `workspace:*` — `engine-fx` slots in the
+  same way) and the engine-side `bakedEffects()` player can import the SAME types.
+
+  - `src/types.ts` — `EffectDoc` / `EmitterLayer` / `EmitterArt` / `EmitterPlacement` /
+    `SpineParticleConfig` / `EmitterTrigger` EXACTLY per §4, with `EmitterConfigV3`
+    re-exported + nested **VERBATIM** from `@barvynkoa/particle-emitter` (never reshaped);
+    `EFFECT_DOC_VERSION = 1`. The schema reduces precisely to `ParticleEmitter.svelte`'s
+    contract (`config` + `key` = `art.assetKey` + `emit`/`emitSpeed`).
+  - `src/normalize.ts` — `normalizeEffectDoc` (the canonicalizer `/api/fx/save` + the
+    loader will run, mirroring `normalizeFlowDoc`): strips anything outside the schema so
+    **editor-only state can never leak in** (it goes in the `.fx.meta.json` sidecar, §4),
+    drops malformed layers, enforces particle-kind discipline (a `sprite` layer can't
+    carry `spineParticle`), and keeps `layer.config` **byte-identical** (the verbatim
+    contract); idempotent.
+  - **Verified headlessly** by `tools/fx-spike/roundTrip.ts`
+    (`pnpm --filter fx-spike run roundtrip`; new `tools/fx-spike` workspace added to
+    `pnpm-workspace.yaml`): **24/24 GREEN** — (A) SAVE↔RELOAD: a representative authored
+    `EffectDoc` (sparks + glow layers, free + bone placement, event + ambient triggers,
+    animated flipbook frames) is a byte-identical FIXED POINT through author → JSON →
+    `normalizeEffectDoc` → JSON → `normalizeEffectDoc`; normalize idempotent; editor-only
+    junk + malformed layers dropped; absent doc ⇒ empty effect; spine-field gating holds.
+    (B) CONFIG↔LIBRARY: the nested `EmitterConfigV3` feeds cleanly into the library's
+    `upgradeConfig(config, textures)` — the EXACT call `ParticleEmitter.svelte` makes —
+    proving the data contract OFFLINE ([[feedback_validate_data_contracts_offline]]).
+  - **NB on lint:** `pnpm --filter engine-fx run lint` errors identically to the sibling
+    `engine-flow` (no eslint flat-config wired for these leaf packages) — a pre-existing
+    workspace condition, not introduced here; `typecheck` + the harness are the gates.
+  - **Owner-verify live:** none yet (schema + harness only; no UI in this increment).
+  - **Next increment:** the `/fx` page shell — fork the `/spine` WebGL stage (render /
+    pan / zoom + play/pause) the way the Rigger did, reuse `loadRegionSet` +
+    `/api/rigger/atlases` to list a project's atlases/regions, and drive a LIVE `Emitter`
+    preview from an in-memory `EffectDoc` (still UNREGISTERED in `roles.ts` — registration
+    - `docs/tools/fx.md` land with the real saveable page, RULE 9).
+  - Files: `packages/engine-fx/{package.json,tsconfig.json,index.ts,src/types.ts,src/normalize.ts}`,
+    `tools/fx-spike/{package.json,roundTrip.ts}`, `pnpm-workspace.yaml`.
+
+- **Phase 1 — increment 2: `/fx` page shell + LIVE emitter preview (Tier A) — ✅ DONE
+  HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no game bump, `/fx` STILL
+  UNREGISTERED in `roles.ts` so RULE 9 is not yet triggered — registration +
+  `docs/tools/fx.md` land with the saveable page).** The first _visible_ surface of Tier A:
+  pick a project atlas, pick region(s), live-tune the core `EmitterConfigV3` in a WebGL
+  preview, all driven from an in-memory `EffectDoc` (no save endpoint yet — that's the next
+  increment). **Landed:**
+
+  - **`/fx` route** (`apps/launcher-api/src/routes/(app)/fx/`): `+page.server.ts` (SSR
+    OFF — the stage owns a `PIXI.Application`; auth + `editor`-scope gate, riding the
+    existing `editor` tool id rather than minting a new auth surface before the page is
+    saveable; loader REUSES `loadRegionSet` over the project's `manifests/*.json` — the
+    exact `/api/rigger/atlases` pattern — to stream the atlas + region list). `+page.svelte`
+    (layer list + atlas/region picker + minimal emitter inspector — frequency, max
+    particles, lifetime, spawn radius, alpha/scale/speed endpoints — `ToolTopBar` branding).
+    `FxStage.svelte` (the `/spine`-stage fork done Svelte-natively: own `Application` +
+    pan/zoom/play-pause + a live `Emitter` per layer rebuilt verbatim from the doc, with
+    the picked atlas page drawn faintly behind as a placement reference). `fxModel.client.ts`
+    (PURE editing model + config mutators — kept rune-free + PixiJS-free so the harness can
+    cover it). Art is read through the existing `editor`-gated `/api/editor/regions` +
+    `/api/editor/asset`; the stage slices per-frame textures from the packed page by the
+    picked region rects — so a picked region maps to `art.assetKey` + `art.frames` and
+    renders as a particle. The page reduces to the real `ParticleEmitter.svelte` contract
+    (`config` + `key`=`art.assetKey` + `emit`).
+  - **CAUGHT + FIXED — the silent-invisible-particle trap (the load-bearing review find):**
+    the prior shell relied on `upgradeConfig(config, textures)` to bind the art — but reading
+    the library source, **`upgradeConfig` is a NO-OP for a V3 config** (its `art` arg only
+    feeds the legacy V1/V2 flat-config upgrade; a V3 config returns unchanged). The default
+    config is V3 with no art behavior, so every emitter would have spawned **textureless,
+    invisible particles** — builds + ships + runs, renders nothing (exactly the trap class
+    [[feedback_validate_data_contracts_offline]] warns of). Fixed by a pure
+    **`bindArt(config, textures, animated)`** that injects the textures as the config's OWN
+    `textureRandom` (static) / `animatedSingle` (flipbook, `framerate:-1` match-life, loop)
+    behavior — leaving every other behavior byte-identical so the verbatim contract holds;
+    `bindArt`'s clone-then-attach order means its result is NOT re-JSON-cloned (that would
+    destroy the live `Texture` objects). This same injection is what the engine-side
+    `bakedEffects()` player will run at register time — kept pure + shared. Also hardened:
+    a rebuild **generation token** (fast inspector edits can't interleave two async
+    rebuilds into torn/duplicate emitters), and `emit` gated on `hasArt` (an unbound layer
+    never spawns).
+  - **Verified headlessly** by `tools/fx-spike/modelHelpers.ts`
+    (`pnpm --filter fx-spike run model`): **33/33 GREEN** — the default config has NO art
+    behavior (proving the bug existed), `bindArt` injects the correct behavior for 0 / 1 / > 1-static / >1-animated textures, carries the LIVE texture objects through (not > JSON-cloned away), is pure (no input mutation), replaces (never stacks) a prior art > behavior, and a bound config still passes `upgradeConfig` with its art intact; every > inspector mutator (`setCoreParam`/`setListEndpoint`/`setSpawnRadius`) is pure + > round-trips with its readout; the doc/layer factories produce a valid shape. The > increment-1 round-trip harness still **PASSES** (schema unchanged). `pnpm --filter
+launcher-api build` **GREEN** (the `(app)/fx` entry builds).
+  - **NEEDS LIVE OWNER-VERIFY (the WebGL pixels — not browser-verifiable here, authed):**
+    (1) picked atlas regions actually **render as particles** on the `/fx` canvas (the
+    texture-slice + `bindArt` path producing visible sprites); (2) the emitter **responds
+    live** to inspector edits (changing frequency / lifetime / alpha-scale-speed endpoints /
+    spawn radius visibly re-tunes the running emitter); (3) a >1-frame + Flipbook layer
+    animates its frames; (4) pan/zoom/play-pause + the faint atlas backdrop behave; (5) no
+    GPU/emitter leak across many edits (the gen-guarded rebuild + `init`/`destroy`
+    lifecycle). The headless harness covers the data/config contract; only a human can
+    confirm the pixels.
+  - **Next increment:** `POST /api/fx/save` (mirroring `/api/rigger/save`) + reopen —
+    write `<bundle>/<id>.fx.json` (+ `.fx.meta.json` sidecar for camera/selection), wire
+    the load path, THEN register `/fx` in `roles.ts` and ship `docs/tools/fx.md` +
+    the `docs/tools/README.md` row in the SAME change (RULE 9, via `docs-keeper`).
+  - Files: `apps/launcher-api/src/routes/(app)/fx/{+page.server.ts,+page.svelte,FxStage.svelte,fxModel.client.ts}`,
+    `tools/fx-spike/modelHelpers.ts` (+ `tools/fx-spike/package.json` `model` script),
+    `apps/launcher-api/package.json` (+`engine-fx`, +`@barvynkoa/particle-emitter@0.0.1`).
+
+- **Phase 1 — increment 3: save + reopen + tool registration — ✅ DONE HEADLESSLY
+  (2026-06-24, branch `fx/phase1-emitter-core`, no game bump). RULE 9 NOW TRIGGERED** —
+  `/fx` is a registered tool, so `docs/tools/fx.md` + the `docs/tools/README.md` row land
+  in the SAME commit (authored by `docs-keeper`). This closes Phase 1: the effect is now a
+  saveable, reopenable, R2-backed artifact (the deploy→bake→pull→register chain is Phase 4).
+  **Landed:**
+
+  - **`POST /api/fx/save`** (`apps/launcher-api/src/routes/api/fx/save/+server.ts`) — mirrors
+    `/api/rigger/save` + `/api/flow/save` EXACTLY: the shared `gate` (now on the `fx` tool)
+    resolves the SESSION-bound `(client, project)` and 403s without entitlement — no
+    hand-rolled auth/scope/R2. Body `{ doc, meta? }`.
+  - **`fxStorage.ts`** (`apps/launcher-api/src/lib/server/`) — the MULTI-DOC R2 load/save
+    (a project holds many named effects, unlike Flow's single `flow.json`). `saveEffect`
+    runs `normalizeEffectDoc` as the GATEKEEPER and writes TWO SEPARATE objects:
+    `<client>/<project>/<id>.fx.json` (the pure EffectDoc) + `<id>.fx.meta.json` (the
+    editor-only sidecar — camera + last-selected layer), enforcing §4's out-of-band
+    discipline. `listEffects` enumerates the `*.fx.json` files (sidecars excluded) for the
+    picker; `loadEffect` reads a doc + sidecar (absent ⇒ empty effect). Path helpers
+    (`fxDocKey`/`fxMetaKey`/`FX_DOC_SUFFIX`/`FX_META_SUFFIX`) added to `projectPaths.ts`;
+    the id slugs through the shared `r2Slug` (stable file-stem / `assetKey` rule, §9).
+  - **Reopen path** — `+page.server.ts` lists the saved effects + (on `?effect=<id>`) loads
+    one back into the in-memory `EffectDoc` + sidecar; `+page.svelte` seeds its `$state`
+    doc from `data.openedDoc` (or a fresh empty one), restores the selected layer from the
+    sidecar, and wires the New / Save / open-picker controls + the effect-name field. Save
+    POSTs `$state.snapshot(doc)` + a `{ selectedLayer }` sidecar; on success it adopts the
+    server-slugged id so a re-save round-trips to the same keys.
+  - **Registration** (`roles.ts`) — new `fx` TOOLS entry ("Invisible FX", barName "FX",
+    spark-burst icon), `ROLE_TOOLS` grants (admin via `Object.keys`, developer, artist —
+    the particle/effects authors), `TOOL_BAR_ORDER` placement (after `flow`),
+    `TOOL_DOC_SLUG.fx = 'fx'`. The page + save endpoint now gate on `fx` (not the borrowed
+    `editor` scope); `ToolTopBar current="fx"`.
+  - **The shared-read seam** — switching to the `fx` gate would have locked an `fx`-only
+    user out of the editor's `/api/editor/regions` + `/api/editor/asset` (which the stage
+    reads art through). Fixed by an `altTools` option on the shared `gate` (an OR over tool
+    ids that NEVER widens the R2 prefix allow-list, only the entitlement check); those two
+    READ endpoints now accept `editor` OR `fx`. Reuse, not a duplicate art surface.
+  - **Verified headlessly** by `tools/fx-spike/saveSplit.ts` (`pnpm --filter fx-spike run
+save`): **24/24 GREEN** — the EffectDoc↔sidecar PARTITION (editor-only camera /
+    selection / swatches that leak onto the save payload's `doc` never reach the `.fx.json`;
+    they only survive in the separate sidecar), the sidecar normalizer drops off-schema
+    keys, the R2-key derivation (`<client>/<project>/<slug>.fx.json` + sibling
+    `.fx.meta.json`), id round-trip stability (a reopened id re-derives the SAME keys), the
+    `listEffects` file-stem extraction (a `.fx.meta.json` / non-fx key is NOT an openable
+    effect), and the missing-id fallback. The increment-1 round-trip (24/24) + increment-2
+    model (33/33) harnesses still PASS. `pnpm --filter launcher-api build` **GREEN** (the
+    `(app)/fx` page + `api/fx/save` endpoint + `fxStorage` chunk all build).
+  - **NEEDS LIVE OWNER-VERIFY (authed page — not browser-verifiable here):** (1) Save writes
+    `<id>.fx.json` + `<id>.fx.meta.json` to R2 and the toast confirms; (2) the open-picker
+    lists saved effects and reopening one restores its layers + inspector + selected layer;
+    (3) the effect-name edit + New flow behave; (4) an `fx`-only (no `editor`) role can still
+    read atlas art through the `altTools`-widened endpoints; (5) the increment-2 WebGL pixels
+    still hold (particles render, live-tune, flipbook, pan/zoom). The harness covers the
+    save/split/key data contract; only a human can confirm the R2 writes + the pixels.
+  - **Next phase:** Phase 2 — Spine-attach (Tier B): load a Spine clip as the authoring
+    backdrop, play it, pin a layer to a bone via `SpineBone` (`placement.space:'bone'`),
+    offset, preview the FX riding the animation. Native (`SpineBone` exposes the live bone
+    transform) — no Phase-0 gate. (Phase 4 pipeline wiring — export→bake→pull→`bakedEffects()`
+    — is the chain that actually SHIPS an effect; "saves in `/fx`" ≠ "ships", §8.)
+  - Files: `apps/launcher-api/src/routes/api/fx/save/+server.ts`,
+    `apps/launcher-api/src/lib/server/fxStorage.ts`,
+    `apps/launcher-api/src/lib/server/projectPaths.ts` (+`fxDocKey`/`fxMetaKey`/suffixes),
+    `apps/launcher-api/src/lib/server/toolScope.ts` (+`altTools`),
+    `apps/launcher-api/src/routes/api/editor/{regions,asset}/+server.ts` (+`altTools:['fx']`),
+    `apps/launcher-api/src/routes/(app)/fx/{+page.server.ts,+page.svelte}`,
+    `apps/launcher-api/src/lib/roles.ts` (TOOLS/ROLE_TOOLS/TOOL_BAR_ORDER/TOOL_DOC_SLUG/icon),
+    `tools/fx-spike/{saveSplit.ts,package.json}` (+`save` script).
+
+- **Phase 2 — Spine attach (Tier B) — ✅ DONE HEADLESSLY (2026-06-24, branch
+  `fx/phase1-emitter-core`, no game bump).** Per §5 tier B + §7 Phase 2. Load a project
+  Spine rig as a playing backdrop and pin a layer's emitter onto one of its bones so the FX
+  rides the animation (flame on a torch tip, sparkle off a wand). Native — no Phase-0 gate.
+  **Landed:**
+
+  - **`fxSpine.client.ts`** (`apps/launcher-api/src/routes/(app)/fx/`) — loads a project
+    skeleton imperatively (FxStage owns a bare `PIXI.Application`, so it can't mount the
+    declarative `<SpineProvider>`/`<SpineBone>`): fetches the atlas + skeleton + page images
+    through the SAME `/spine/file` endpoint the Spine Viewer uses (assembling `SkeletonData`
+    by hand — the package's `Assets` atlas loader resolves page URLs relative to the atlas
+    path, which our `/spine/file?dir=…&name=…` URLs don't have), reads `.skel`/`.json`, and
+    returns a live `Spine` + its animation / skin / bone name lists. `playFxAnimation` guards
+    against an unknown clip name (a stale picker value would otherwise THROW and abort a
+    backdrop switch); `applyFxSkin` is best-effort.
+  - **`FxStage.svelte`** — loads/unloads the backdrop reactively (`syncSpine`, generation-
+    guarded + keyed so a fast switch can't mount two skeletons), plays the clip in step with
+    play/pause (`spine.autoUpdate=false`, advanced from the stage ticker), and for each
+    `bone`-placed layer welds the emitter's spawn (owner) position to the live bone transform
+    every frame. **The load-bearing coordinate hop** (what `<SpineBone>` hides): the bone
+    resolves to Pixi WORLD coords (`spine.getBonePosition` → `skeletonToPixiWorldCoordinates`),
+    but the emitter's `updateOwnerPos` is in its CONTAINER's local space (which carries the
+    stage pan/zoom) — inverting the emitter container's world matrix bridges the two, so the
+    FX rides the bone at any pan/zoom. Surfaces the loaded rig's clip/skin/bone lists to the
+    page via an `onSpineMeta` callback.
+  - **`fxModel.client.ts`** — pure placement mutators (`setPlacementSpace` (free↔bone, drops
+    the bone on →free, keeps it on ↔), `setPlacementBone`, `setPlacementOffset`),
+    `layerFollowsBone` (true only when `space:'bone'` AND a bone is set — a bone layer with no
+    bone yet still spawns at the scene origin so the preview never silently vanishes), and the
+    bone-follow math (`worldToContainerLocal` affine-inverse, `emitterOwnerLocal`) — all
+    PixiJS-free so the harness covers them.
+  - **`+page.svelte`** — a **Backdrop** bar above the stage (skeleton `<select>` from
+    `/spine/skeletons` fetched client-side + animation `<select>` + skin `<select>` when
+    > 1 skin), and a per-layer **Placement** inspector section (Free/Bone mode, a bone picker
+    > from the loaded rig's bones, offset X/Y). Picking a skeleton resets the clip/skin so the
+    > stage never replays a previous rig's clip mid-load; `onSpineMeta` defaults to the first
+    > clip. Placement edits the doc immutably like every other inspector control.
+  - **The shared-read seam (reuse, not a new surface)** — `requireSpineAccess`
+    (`apps/launcher-api/src/lib/server/spine.ts`) now also accepts the `fx` entitlement, so
+    `/spine/skeletons` + `/spine/file` serve the FX page too (same OR-the-entitlement /
+    never-widen-the-prefix pattern as Phase 3's `altTools`). `+page.server.ts` is UNCHANGED —
+    the skeleton list is a client-side fetch, like the atlas-region fetches.
+  - **Verified headlessly** by `tools/fx-spike/placement.ts` (`pnpm --filter fx-spike run
+placement`): **5/5 GREEN** — a free layer spawns at origin (+offset); a bone layer spawns
+    at bone-world + offset; the owner maps correctly through pan+zoom into container-local; an
+    unresolved bone falls back to origin+offset. The increment-1/2/3 harnesses (roundtrip /
+    model / saveSplit) still PASS. `pnpm --filter launcher-api build` **GREEN** (the `(app)/fx`
+    entry grew to ~16.7 kB with the backdrop picker + placement controls). Prettier clean.
+  - **NEEDS LIVE OWNER-VERIFY (authed WebGL page — not headless):** (1) a picked skeleton
+    loads + plays as a backdrop; the animation/skin dropdowns switch it; (2) a `bone`-placed
+    layer's particles RIDE the bone as the animation plays (and track at any pan/zoom);
+    (3) the offset nudges correctly; (4) switching/clearing the backdrop is leak-free; (5) the
+    Tier-A pixels still hold.
+  - **Phase 4 note (carry forward):** at runtime the FX backdrop is just an authoring aid —
+    the EffectDoc stores only the bone NAME + offset. For `bakedEffects()` to honour a
+    `bone` placement in a real game, the player must resolve that bone on the HOST game's
+    playing rig (not a backdrop) — i.e. wrap the emitter in the runtime `<SpineBone>` against
+    the game's `SpineProvider`. Decide the host-rig binding when Phase 4 wires the player.
+  - **Next phase:** Phase 4 (pipeline wiring) or Phase 3 (Tier C, Phase-0 gated). Files:
+    `apps/launcher-api/src/routes/(app)/fx/{fxSpine.client.ts,FxStage.svelte,fxModel.client.ts,+page.svelte}`,
+    `apps/launcher-api/src/lib/server/spine.ts`, `apps/launcher-api/package.json`
+    (+`@esotericsoftware/spine-pixi-v8@4.2.74`), `tools/fx-spike/{placement.ts,package.json}`,
+    `docs/tools/fx.md` (Tier-B refresh).
+
+- **Phase 4 (pipeline wiring) — increment 1: engine RUNTIME player (`<EffectPlayer>` +
+  `bakedEffects()`) — ✅ DONE HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, no
+  game bump — nothing ships until the rest of the chain lands).** Per §3 / §4.4 / §8. The
+  engine-side runtime that PLAYS an `EffectDoc`, scoped tightly to the runtime only (the
+  export endpoint, `deploy/effects/`, bake, pull, and the Flow trigger are LATER Phase-4
+  increments). **Landed:**
+
+  - **Shared `bindArt` promoted into `engine-fx`** (`packages/engine-fx/src/bindArt.ts` —
+    `bindArt` + `ART_BEHAVIOR_TYPES` / `behaviorsOf` / `BehaviorEntry`/`BehaviorConfig`):
+    THE canonical "EffectDoc V3 config → library-renderable config" seam, the ONE copy both
+    the `/fx` tool and the engine runtime share (DRY). The launcher-local copy is DELETED;
+    `fxModel.client.ts` re-imports + re-exports `bindArt`/`behaviorsOf` from `engine-fx`
+    (existing `/fx` import sites + the `modelHelpers` harness stay green against the shared
+    one); `FxStage.svelte` imports `bindArt` straight from `engine-fx`. The UI-only mutators
+    (`setCoreParam`/`setListEndpoint`/the placement setters/the bone-follow affine math)
+    stay in `fxModel.client.ts`.
+  - **V3 configs render art at runtime** — `ParticleEmitter.svelte` (THE runtime contract,
+    §3) gained a `bindConfig(config, textures, animated)`: a V1/V2 config (no `behaviors`)
+    binds through `upgradeConfig(config, art)` EXACTLY as before — byte-identical for the
+    lone fountain story (verified: that config takes the `upgradeConfig` branch and produces
+    an identical result) — while a V3 config (`'behaviors' in config`, the library's own
+    version test) binds via the shared `bindArt`, otherwise it spawns the textureless,
+    invisible particles the Phase-1 increment-2 review caught. New optional `animated?` prop
+    (V3 flipbook vs `textureRandom`), added to the `propsSyncEffect` ignore list.
+    `pixi-svelte` now deps `engine-fx` (`workspace:*`; no cycle — engine-fx only peer-deps
+    pixi.js, which pixi-svelte already has).
+  - **`<EffectPlayer doc={EffectDoc}>` + `<SpineBoneAttach>`** (new `packages/pixi-svelte`
+    components, exported from `components/index.ts`). `EffectPlayer` reduces a doc to
+    per-layer mounts via the shared PURE `planLayer`/`planEffect`
+    (`packages/engine-fx/src/playerPlan.ts`): each sprite layer mounts
+    `<ParticleEmitter key={art.assetKey} config={layer.config} animated emit>`, wrapped in
+    `<SpineBoneAttach boneName=…>` for a `bone`-placed layer (else a plain offset
+    `<Container>`); ambient (`trigger.on:'always'`, or no trigger) emits, an `event` trigger
+    stays DORMANT (the event-bus subscription is the seam — `layerEmits` — a later increment
+    flips), a `particleKind:'spine'` layer is SKIPPED (guarded TODO — Tier C / Phase 3).
+    `<SpineBoneAttach>` is the RUNTIME bone-follow that the Phase-2 note called for (the
+    EffectDoc stores only the bone NAME + offset; `<SpineBone>` only WRITES a bone): within
+    the HOST game's `<SpineProvider>` it parents a container under the Spine and positions it
+    at the live bone every tick (`getBonePosition`→`skeletonToPixiWorldCoordinates` into the
+    Spine's own child space — no pan/zoom inverse, unlike the `/fx` authoring stage),
+    honouring `placement.offset`; an unresolved bone falls back to origin+offset. So a `bone`
+    layer resolves on the GAME's playing rig (per the Phase-2 carry-forward), NOT a backdrop —
+    the consuming game mounts `<EffectPlayer>` inside the relevant `<SpineProvider>`.
+  - **`bakedEffects()` reader** (`apps/lines/src/editor-scenes.ts`, mirroring
+    `bakedEditorArtAssets()`): returns the bundle's `EffectDoc[]` (`BakedBundle.effects`),
+    runtime→baked→`[]` — EMPTY until the export→`deploy/effects/`→bake→pull half (a later
+    increment) populates it (parity: un-baked / dev returns `[]`). `apps/lines` now deps
+    `engine-fx`.
+  - **Verified headlessly** by `tools/fx-spike/playerReduce.ts` (`pnpm --filter fx-spike run
+player`): **24/24 GREEN** — the per-layer mount plan (free vs bone-wrapped, offset
+    carried, a `bone` layer with no bone name falls back to a free mount, ambient-emits /
+    event-dormant, spine-particle skipped), the whole-doc plan (one entry per layer in
+    document order, the spine-particle layer excluded from the rendered set, mixed bone+free),
+    AND the shared `bindArt` (the V3 `upgradeConfig` no-op PROVEN, static→`textureRandom`,
+    animated→`animatedSingle` flipbook `framerate:-1`+loop, live textures carried not
+    JSON-cloned, 0-tex→no art behavior, pure, a V1/V2 config still binds via `upgradeConfig`).
+    The increment-1/2/3 + Phase-2 harnesses (roundtrip/model/save/placement) ALL still PASS
+    against the moved `bindArt`. **Builds GREEN:** `engine-fx` typecheck,
+    `pnpm --filter pixi-svelte build` (svelte-package; svelte-check flags only 3 PRE-EXISTING
+    errors, none in the new/edited files), `pnpm --filter launcher-api build` (the `(app)/fx`
+    entry still 16.69 kB), `pnpm --filter lines build` (the `bakedEffects()` reader compiled
+    into `editor-scenes.js`).
+  - **NEEDS LIVE OWNER-VERIFY (WebGL pixels — NOT headless-verifiable):** a real game actually
+    PLAYING an `<EffectPlayer>` effect — free + bone-placed layers rendering particles, a
+    `bone` layer riding the host rig's animation, a flipbook animating. The harness covers the
+    pure mount/bind reduction; only a human can confirm the pixels.
+  - **Borut note:** when the full Phase-4 chain ships, Book of Borut would bump its `engine`
+    submodule to gain `<EffectPlayer>`/`bakedEffects()` — NOT this increment (nothing ships
+    until export→bake→pull→trigger land).
+  - **Exact next increment:** the `/fx` export endpoint → `<client>/<project>/deploy/effects/`
+    (mirroring `editorArtExport.ts`), THEN bake (embed the effect index in
+    `BakedBundle.effects`; `bake:doc` BEFORE `pull:assets`), THEN pull (mirror into
+    `static/assets/`), THEN the Flow trigger (subscribe a layer to `trigger.eventType` on
+    `utils-event-emitter` — flip the `layerEmits` seam). Verify the referenced `art.assetKey`
+    atlas is actually in the bundle at bake (a dangling key = an invisible effect, §8).
+  - Files: `packages/engine-fx/{index.ts,src/bindArt.ts,src/playerPlan.ts}`,
+    `packages/pixi-svelte/{package.json,src/lib/components/{ParticleEmitter,EffectPlayer,SpineBoneAttach}.svelte,src/lib/components/index.ts}`,
+    `apps/lines/{package.json,src/editor-scenes.ts}`,
+    `apps/launcher-api/src/routes/(app)/fx/{fxModel.client.ts,FxStage.svelte}`,
+    `tools/fx-spike/{playerReduce.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 4 (pipeline wiring) — increment 2: export → bake → pull (the asset-travel half) —
+  ✅ DONE HEADLESSLY (2026-06-24, branch `fx/phase1-emitter-core`, NO game bump — Borut bumps
+  when the trigger increment + a game mounting `<EffectPlayer>` land).** Per §8 (RULE 8). Makes
+  an authored effect actually TRAVEL into a built game's bundle so `bakedEffects()` returns real
+  effects — the DATA half of Phase 4 (the Flow trigger + a game mounting `<EffectPlayer>` are the
+  NEXT increment). Mirrors the Invisible Flow pipeline (Phase 6/7), the closest template.
+  **Landed (the 3 stages):**
+
+  - **Export** — `apps/launcher-api/src/lib/server/effectExport.ts` `exportEffects` (mirrors
+    `flowExport.ts`, but MULTI-DOC like `fxStorage`): loads every saved `<id>.fx.json`, re-runs
+    `normalizeEffectDoc` (THE gatekeeper — only the PURE doc travels, editor-only state can never
+    reach `deploy/`), writes each to `<client>/<project>/deploy/effects/<id>.json` + an
+    `index.json`, and prunes stale objects so the deploy mirror matches the source (un-authored ⇒
+    no effects, parity). Like a FlowDoc it ships NO binary assets of its own — the particle ART is
+    an atlas the editor-art export already ships, FX references it by `art.assetKey` (never
+    re-packs textures, §4/§8). It also returns `referencedAssetKeys` (the distinct `art.assetKey`
+    set) so the bake can run the dangling-key guard. New endpoint
+    `apps/launcher-api/src/routes/api/editor/export-effects/+server.ts` mirrors `export-flow`
+    (deploy-token gated; called by the bake, no launcher session).
+  - **Bake** — `scripts/bake-editor-doc.mjs` now POSTs `export-effects` alongside the
+    art/font/symbol/flow exports and embeds the returned `EffectDoc[]` into `bundle.effects`
+    ONLY when non-empty (parity — the bundle stays byte-identical for every game with no FX);
+    summary log gains `effects={N}`. `bake:doc` already runs BEFORE `pull:assets` (the known
+    trap), so the embed + the deploy write land before the mirror.
+  - **Pull** — `pull-project-assets.mjs` already mirrors the whole `deploy/` tree verbatim, so
+    `deploy/effects/` rides along with NO endpoint change (`/api/deploy` lists/serves it
+    generically); only its `GENERATED_SUBTREES` prune list gained `effects` so a deleted effect's
+    stale file is cleaned from `static/assets/`.
+  - **Dangling-`assetKey` guard (§8 — the invisible-effect trap; the particle analogue of
+    [[gotcha_manifest_region_no_geometry_dropped]]):** at bake each effect's `art.assetKey` is
+    checked against the SHIPPED atlases (`editorArt.sheets[].key` + `editorArt.images[].key`). A
+    referenced atlas NOT in the shipped set never reaches the game's `loadedAssets` ⇒ textureless
+    invisible particles — so the bake WARNS loudly (non-fatal: the atlas ships only because the
+    layout ALSO places it, since FX never re-packs, so an FX-authored project may legitimately
+    add the atlas to its layout before shipping; a warning beats a silent invisible effect).
+  - **Verified headlessly** by new `tools/fx-spike/pipeline.ts` (`pnpm --filter fx-spike run
+pipeline`): **22/22 GREEN** against the REAL `normalizeEffectDoc` — (1) EXPORT shape (each
+    doc PURE-normalized: doc-level `camera`/`selectedLayer` + layer-level junk STRIPPED, the
+    nested `EmitterConfigV3` VERBATIM, layers in order, the `{id,name,layers}` index row,
+    `referencedAssetKeys` deduped, un-authored ⇒ nothing); (2) BAKE embedding (non-empty ⇒
+    `bundle.effects`, empty ⇒ OMITTED for parity) + `bakedEffects()`'s `source.effects ?? []`
+    resolution returns the embedded docs byte-identically (and `[]` for an un-baked game); (3)
+    DANGLING detection (all-shipped ⇒ clean, a missing atlas flagged, a key shipped as a
+    standalone image also resolves — no false positive). The pure helpers MIRROR the production
+    logic so the harness pins it. The increment-1/2/3 + Phase-2 + Phase-4-inc-1 harnesses
+    (roundtrip/model/save/placement/player) ALL still PASS; `node --check` GREEN on both edited
+    `.mjs` scripts. **Builds GREEN:** `pnpm --filter launcher-api build` (the
+    `api/editor/export-effects` endpoint + `effectExport` chunk), `pnpm --filter lines build`
+    (the `bakedEffects()` reader), `engine-fx` typecheck. Prettier clean.
+  - **NEEDS LIVE OWNER-VERIFY (authed publish — not headless):** a real publish actually shipping
+    an effect into a game bundle — `export-effects` writes `deploy/effects/`, the bake embeds +
+    the dangling guard fires when an effect's atlas isn't placed in the layout, the pull mirrors
+    into `static/assets/`, and `bakedEffects()` returns the baked effect in the deployed game.
+    (The full HTTP bake against a live launcher + R2 is part of this owner-verify; the pure
+    embed/guard logic is proven headlessly.) Watch the build-env token trap (no deploy token in
+    the build env ⇒ stale/missing assets, [[project_component_art_to_game]]).
+  - **Borut note:** Book of Borut bumps its `engine` submodule to GAIN effects only once the
+    trigger increment + a game mounting `<EffectPlayer>` land — NOT this increment (the data
+    travels, but no game instantiates an `<EffectPlayer>` yet).
+  - **Exact next increment:** the Flow/event-bus TRIGGER — subscribe a layer to
+    `trigger.eventType` on `utils-event-emitter` (flip the `<EffectPlayer>` event-dormant
+    `layerEmits` seam so a Flow Broadcast fires the effect), bind to the game's
+    `EmitterVocabulary` — AND a game mounting `<EffectPlayer>` per `bakedEffects()` entry inside
+    the relevant `<SpineProvider>` (so a `bone` layer resolves on the host rig). At that point
+    Book of Borut bumps its `engine` submodule.
+  - Files: `apps/launcher-api/src/lib/server/effectExport.ts`,
+    `apps/launcher-api/src/routes/api/editor/export-effects/+server.ts`,
+    `apps/launcher-api/scripts/{bake-editor-doc.mjs,pull-project-assets.mjs}`,
+    `tools/fx-spike/{pipeline.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 4 (pipeline wiring) — increment 3: the TRIGGER — effects FIRE in a game — ✅ DONE
+  HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no game bump yet).** Closes the
+  Phase-4 author→ship→FIRE loop: a baked effect now PLAYS in the running game, and a
+  `trigger.on:'event'` layer fires on a game/Flow event. **Landed:**
+
+  - **Emit seam** (`engine-fx` `playerPlan.ts`): `layerTrigger(layer) → LayerEmitPlan`
+    (`mode 'always'|'event'`, mount-time `emit`, `eventType`, `duration`); `planLayer` carries
+    it; `layerEmits` kept as a back-compat wrapper. PURE — the single source of truth for emit
+    gating. An `event` layer with no `eventType` stays dormant (can never fire — the fail-safe
+    analogue of a bone layer with no bone).
+  - **`<EffectLayer>`** (new `pixi-svelte` component): splits the per-layer mount out of
+    `<EffectPlayer>` so each layer has its OWN reactive `emit` + trigger lifecycle. Ambient
+    (`always`) emits from mount; `event` subscribes `trigger.eventType` on the shared bus via
+    `getContextEventEmitter().eventEmitter.subscribe({ [type]: … })` — the REAL
+    `utils-event-emitter` API (the lifecycle-free `subscribe` built for `$effect` use, returns
+    an unsubscribe) — pulsing `emit` true on each matching event and back to false after
+    `trigger.duration` ms (re-fire RESETS the stop timer; no duration ⇒ the config's
+    `emitterLifetime` governs the burst). Unsubscribes + clears the timer on destroy. The bus
+    `type` is EXACTLY what a Flow Broadcast emits — the FX⇄Flow seam (§1/§4.4). `<EffectPlayer>`
+    now just maps each layer to `<EffectLayer>`; `pixi-svelte` deps `utils-event-emitter`.
+  - **`ParticleEmitter.svelte`**: `emit:false` now stops the emitter (so an event layer that
+    ran its `duration` ceases; existing particles fade via lifetime). Ambient layers keep
+    `emit:true` ⇒ the SAME `init` branch as before (byte-identical, no regression).
+  - **Game mount** (`apps/lines/src/components/Effects.svelte`, mounted in `Game.svelte`):
+    one `<EffectPlayer>` per `bakedEffects()` doc — all-`free` effects at scene level, any-`bone`
+    effect INSIDE a host `<SpineProvider key="foregroundAnimation">` so `<SpineBoneAttach>`
+    resolves the bone on the HOST game's rig (the Phase-2 carry-forward). Zero baked effects ⇒
+    nothing mounts ⇒ byte-identical (parity).
+  - **Verified headlessly** by `tools/fx-spike/trigger.ts` (`pnpm --filter fx-spike run
+trigger`): **18/18 GREEN** driving the REAL `createEventEmitter` bus — ambient emits + ignores
+    events; an event layer is dormant, a non-matching event doesn't start it, the matching event
+    starts it, it stops after `duration`, a re-fire restarts + a mid-burst re-fire RESETS the
+    timer, a duration-less layer never auto-stops, and after dispose the event no longer fires it;
+    plus the pure `layerTrigger`/`planLayer` classification. ALL prior fx harnesses PASS. Builds
+    GREEN: `engine-fx` typecheck, `pnpm --filter {pixi-svelte,lines,launcher-api} build`. Prettier
+    clean.
+  - **NEEDS LIVE OWNER-VERIFY** (WebGL + a published game): a real game FIRING a baked effect on
+    an event (free + bone-placed), the bone layer riding the `foregroundAnimation` rig, the
+    `duration` stop; confirm the host-rig key + `canvasSizes()` assumptions in `Effects.svelte`
+    fit the target game. **Borut:** now eligible — bump its `engine` submodule after this lands on
+    main + owner-verify.
+  - **Remaining FX work:** a `/fx` `trigger.eventType` PICKER (author "fire on event Y" in the
+    UI — the runtime binding works now; this is UI polish), and Tier C / Phase 3 (spine-as-
+    particle, Phase-0 gated). Files: `packages/engine-fx/src/playerPlan.ts`,
+    `packages/pixi-svelte/src/lib/components/{EffectLayer,EffectPlayer,ParticleEmitter}.svelte`
+    (+`package.json`), `apps/lines/src/components/{Effects,Game}.svelte`,
+    `tools/fx-spike/{trigger.ts,package.json}`, `docs/STATUS.md`.
+
+- **`/fx` trigger PICKER (author "fire on event Y" in the tool) — ✅ DONE HEADLESSLY
+  (2026-06-25, branch `fx/phase1-emitter-core`, no game bump).** The runtime trigger binding
+  already works (the inc-3 `<EffectLayer>` subscribes `trigger.eventType` on the event bus);
+  this exposes it in the `/fx` inspector so an author can SET it. Closes the "open: trigger
+  picker" item in §0. **Landed:**
+
+  - **Inspector "Trigger" section** (`apps/launcher-api/src/routes/(app)/fx/+page.svelte`, per
+    selected layer, between Placement and Emitter): a **Mode** select — **Always (ambient)** vs
+    **On event**; when On event, an **Event** picker + a **Duration (ms)** input (blank ⇒ the
+    config's `emitterLifetime` governs). Edits the doc IMMUTABLY through the new mutators, like
+    every other inspector control.
+  - **Event source = the project's emitter vocabulary, REUSED (the FX⇄Flow seam, §4.4).** The
+    `/fx` `+page.server.ts` loader now `loadDoc()`s the project LayoutDoc and runs
+    `resolveFlowVocabulary(layout.gameType)` — the SAME `$lib/flowVocabularies` source `/flow`
+    uses (Flow Phase 7, codegen'd from each game's `typesEmitterEvent.ts`) — and surfaces the
+    broadcastable event `type`s as `data.eventTypes`. A layer's `eventType` is therefore exactly
+    a `type` a Flow Broadcast can emit. **No-vocabulary fallback:** an unrecognized/absent game
+    falls back to `DEFAULT_EMITTER_VOCABULARY`; if even that yields no events, the Event control
+    degrades to a FREE-TEXT input (with a hint) so the picker never dead-ends.
+  - **Pure trigger mutators** in `fxModel.client.ts` (`setTriggerMode` / `setTriggerEvent` /
+    `setTriggerDuration` + the `triggerMode` readout): edit ONLY `layer.trigger`, never the
+    verbatim `config` (or `placement`). Switching to `always` DROPS `eventType`/`duration`
+    (mirroring `setPlacementSpace('free')` dropping the bone); an event↔event toggle KEEPS them;
+    a blank duration (NaN via the page's new `numOrBlank` helper) clears it ⇒ `emitterLifetime`
+    governs. PixiJS-free so the harness covers them.
+  - **normalize round-trip confirmed** — `normalizeEffectDoc` already round-trips `trigger`
+    cleanly (the Phase-1 harness asserts event+ambient triggers). Verified every shape the picker
+    can produce (ambient / event+type+duration / event+type-no-duration / event-no-type-dormant)
+    survives save→reopen byte-identically; no normalizer or mutator change was needed.
+  - **Verified headlessly** by `tools/fx-spike/triggerPicker.ts` (`pnpm --filter fx-spike run
+trigger-ui`): **31/31 GREEN** — the mutators are pure/immutable + touch only `trigger`, the
+    always↔event drop/keep gating holds, and an authored trigger (incl. a picker-BUILT one driven
+    through JSON→`normalizeEffectDoc`) is a normalize FIXED POINT + idempotent. ALL prior fx
+    harnesses (roundtrip/model/save/placement/player/pipeline/trigger) still PASS. `pnpm --filter
+launcher-api build` **GREEN** (the `(app)/fx` entry grew to 21.05 kB; the loader now links the
+    `flowVocabularies` chunk). Prettier clean.
+  - **NEEDS LIVE OWNER-VERIFY (authed page — not browser-verifiable here):** the dropdown
+    POPULATES from the project's vocabulary (and degrades to free-text when there's none), and an
+    authored trigger SURVIVES save→reopen in the live `/fx`.
+  - **Docs:** the `/fx` UI gained a Trigger section — `docs/tools/fx.md` wants a refresh (a later
+    `docs-keeper` pass; not written here, RULE 9 already satisfied since the tool is registered).
+    Did NOT register a new tool / touch `roles.ts` / bump any game submodule.
+  - **Remaining FX work:** Tier C / Phase 3 (spine-as-particle, Phase-0 gated). Files:
+    `apps/launcher-api/src/routes/(app)/fx/{+page.svelte,+page.server.ts,fxModel.client.ts}`,
+    `tools/fx-spike/{triggerPicker.ts,package.json}`, `docs/STATUS.md`.
+
+- **Phase 0 — Tier C SPINE-AS-PARTICLE spike (the make-or-break gate) — VERDICT: NATIVE
+  VIABLE — ✅ PROVEN HEADLESSLY (2026-06-25, branch `fx/phase1-emitter-core`, no game bump,
+  SPIKE ONLY — no Tier C tool/runtime built, not committed by the spike author).** Per §5
+  Tier C + §7 Phase 0 + §10. Settles the one open Tier-C question: can each particle be a
+  pooled `Spine` skeleton instance playing a clip (a burst of 30 spinning coins, each a real
+  skeleton), rendering + animating + recycling at a real particle count — or must Tier C ship
+  via the flipbook-bake fallback? **VERDICT: a NATIVE pooled-`SpineParticle` is mechanically
+  viable** (rendering pixels + real-clip perf at count remain owner-verify-live — see caveat).
+  - **The library code that decides it** (`@barvynkoa/particle-emitter@0.0.1`,
+    `lib/particle-emitter.es.js` / `lib/Particle.d.ts`): the particle class is HARD-CODED —
+    `class Particle extends Sprite` (L1675) and every spawn site allocates `new Particle(this)`
+    (L1943 `fillPool`, L2195 + L2332 spawn) with NO particle-class factory hook; the pool is
+    `Particle`-typed (`_poolFirst: Particle`, `recycle(particle: Particle)`). So **a particle
+    can never BE a `Spine`.** BUT the behavior system is fully pluggable: `Emitter.registerBehavior` - the `IEmitterBehavior` interface (`{ order, initParticles, updateParticle?,
+recycleParticle? }`, `lib/behaviors/Behaviors.d.ts`) — every art behavior is just a
+    registered behavior mutating the particle (`SingleTexture`/`Animated` set `particle.texture`,
+    `Color` sets `.tint`, `Scale` sets `.scale`, all `Sprite` props). Crucially `Particle extends
+Sprite extends Container`, and the `recycleParticle(particle, natural)` hook fires on every
+    death (L1955, before the particle returns to `_poolFirst`). So the native Tier-C mechanism is
+    **a custom `spineParticle` behavior that owns a POOL of `Spine` instances** (each `Spine
+extends ViewContainer`, a Container, confirmed `spine-pixi-v8` `dist/Spine.d.ts:155`): on
+    spawn take one from the pool, `state.setAnimation`, add its view to the layer container; each
+    frame advance its clip + track the (textureless) particle's transform; on `recycleParticle`
+    reset + return to the pool. Never a skeleton per-particle-per-frame.
+  - **The spike** (`tools/fx-spike/spineParticle.ts`, `pnpm --filter fx-spike run spine-particle`):
+    **18/18 GREEN.** Drives the REAL `@barvynkoa` `Emitter` (it runs in Node — Pixi
+    `Container`/`Sprite` construct without a renderer; confirmed) at `maxParticles:30` (the doc's
+    "burst of 30 coins") with a custom `spineParticle` behavior backed by a pool of REAL
+    `@esotericsoftware/spine-core` `Skeleton` + `AnimationState` instances (the UN-MANGLED core,
+    so the state machine + class names are genuine, per [[gotcha_minified_spine_constructor_name]]
+    — a synthetic `spin` clip rotates a bone 0→360° over a real 1s timeline). PROVES the three
+    Phase-0 asks: **(a) bounded allocation** — 30 skeletons pre-allocated up-front, then across
+    1500 frames (~24s, dozens of particle lifetimes) NOT ONE further skeleton is allocated (the
+    whole perf claim — counted via the `SpineBacking` ctor); **(b) the per-particle lifecycle
+    drives the skeleton** — spawn→`setAnimation`, `update(dt)` advances the clip (a live
+    skeleton's bone is asserted non-zero, i.e. the clip ran), death→reset+return-to-pool;
+    **(c) composes with the emitter lifecycle without leaking** — live skeletons === live
+    particles every step, pool + live partition the fixed 30 allocation, and on drain (emit off,
+    all particles die) ALL 30 return to the pool, both display trees empty, still zero extra
+    allocation. Prettier clean; the prior 8 fx harnesses (roundtrip/model/save/placement/player/
+    pipeline/trigger/trigger-ui) ALL still PASS.
+  - **PERF CAVEAT — owner-verify-live (the spike proves MECHANICS, not GPU/CPU cost):** the
+    headless spike proves the pool/lifecycle SHAPE is sound and allocation-free, but cannot
+    measure the real cost of N live skeletons each running `state.update`+`apply`+
+    `updateWorldTransform` AND a draw call per frame on the GPU. A real `Spine` is far heavier
+    than a `Sprite` particle (per-frame skeletal solve + mesh deform + its own draw call, no
+    batching across instances). So the **pool-size CEILING must be owner-verified live** at a
+    real count on the target hardware — expect tens, not hundreds (30 coins fine; a 500-particle
+    spark burst as skeletons is NOT the use case — that's still Tier A). Recommend the Tier-C
+    authoring UI cap `maxParticles` low for `particleKind:'spine'` and surface a perf hint. If a
+    live count proves too costly for a given effect, the **flipbook-bake fallback remains
+    available per-effect** (it ships _something_ regardless, §5) — bake that clip to a sprite
+    sheet, ride Tier A `animatedSingle`. Native and fallback are not mutually exclusive: native
+    for low-count hero bursts, flipbook for dense ones.
+  - **Recommended Tier-C build plan (native path won):** (1) a `SpineParticleBehavior` in
+    `engine-fx` (registered via `Emitter.registerBehavior`) implementing the pooled-`Spine`
+    mechanism above, parameterised by the EffectDoc's `spineParticle` ({ `skeletonKey`,
+    `animation`, `loop` }) — pool size derived from `config.maxParticles`, pre-warmed; the spine
+    views render in the emitter's layer container, tracking each particle's transform/alpha each
+    frame (the spike's exact shape). (2) Runtime: `<EffectLayer>` already SKIPS
+    `particleKind:'spine'` (the guarded TODO) — flip it to register the behavior + inject the
+    config, resolving `spineParticle.skeletonKey` against the game's `loadedAssets` `LoadedSpine`
+    (the skeleton must travel the pipeline like an atlas does — §8). (3) `/fx` tool: a
+    `particleKind` toggle + a `skeletonKey`/`animation`/`loop` picker (reuse the Phase-2
+    `/spine/skeletons` + `fxSpine.client.ts` loader already in the page); the live preview pools
+    real `Spine` instances. (4) Pipeline: `spineParticle.skeletonKey` is a NEW referenced-asset
+    class for the bake's dangling-key guard (the skeleton bundle must be in the shipped set, the
+    spine analogue of the atlas `art.assetKey` check). (5) `normalizeEffectDoc` ALREADY gates
+    `spineParticle` to `particleKind:'spine'` (Phase-1 inc-1) — the schema is ready.
+  - **Owner-verify-live (the pixels + perf — NOT headless):** a real game (or the `/fx` preview)
+    rendering N pooled `Spine` particles each playing a clip, recycling cleanly, at an acceptable
+    frame budget on target hardware — and the pool-size ceiling that holds 60fps. The spike
+    proves the allocation/lifecycle/leak math; only a live run proves the GPU/CPU cost.
+  - Files (spike only): `tools/fx-spike/spineParticle.ts`,
+    `tools/fx-spike/package.json` (+`spine-particle` script, +`@esotericsoftware/spine-core`, +`pixi.js` dev deps).
+
+
+# Invisible Flow — archived design-doc progress logs (2026-07-15)
+
+> Lossless extraction of the dated progress/verification narrative trimmed out of the Flow design docs so they read PLAN-ONLY. Current build state lives in `docs/status/flow.md`; the changelog in `docs/history.md`. Verbatim below.
+
+## Invisible Flow (invisible-flow.md) — design-doc progress log (archived 2026-07-15)
+
+**BUILT — Phases 0–8 + tap-to-continue are all merged to `main`** (PRs #63/#64; verified
+2026-06-29; this §0 was previously a stale "not built" plan header). `packages/engine-flow`
+(interpreter + schema + pin-derivation + normalize/validate/diff) and the full `/flow` route
+(macro graph, choreography editor, inspectors, validation + diff panels, undo/redo) are
+shipped; `/flow` is registered with a tool doc; the interpreter is wired into `apps/lines`
+with the default-inert fall-through invariant. **Genuinely outstanding:** owner live-verify
+of the authed `/flow` page + a running bundle, and **no shipped game runs an authored FlowDoc
+yet** (the bake pipeline exists, but Book of Borut has no authored/baked FlowDoc and its
+submodule isn't bumped). See `docs/STATUS.md` "Current state — reconciled" for the
+authoritative summary; the per-phase progress log below is append-only and lags.
+
+### Feature — droppable "Transition (fade)" entrance transition (2026-07-02)
+
+**What it is.** A droppable **"Transition (fade)"** the author drops onto a connection between two
+screens to give that edge's TARGET screen a FADE-IN (with easing) when it activates. Owner decision
+(locked): model it as EDGE-BACKED data (`FlowTransition.transition`), rendered as a chip ON the edge
+in `/flow` — NOT a new runtime graph node (screens-are-the-nodes stays invariant; the runtime reads
+`edge.transition`). Kind = FADE only for now: `transition?: { kind:'fade'; ms; easing?: 'linear' |
+'easeOut' | 'easeInOut' }`. Semantics: an edge WITH a `transition` mounts its target HIDDEN (alpha 0)
+and tweens alpha→1 over `ms` (scaled by `timeScale()` like `delayMs`/a `Delay`), with the chosen
+easing; an edge WITHOUT one = today's HARD CUT (byte-identical parity §7).
+
+**The interpreter↔host fade contract (the crux — no flash).** Mounting-then-fading would FLASH at
+full alpha for a frame because the host's `<LayoutScene>`/`<UI>` mounts the instant `notify()` lands.
+Fix: the interpreter (FRAMEWORK-FREE) SURFACES the entrance transition per activation instead of
+tweening. `presentation.ts` `PresentationHost.onActiveScreensChange(screenIds, entrances)` now carries
+`entrances: ScreenEntrance[] = { screenId, transition? }[]` — the screens NEWLY activated by this set
+change, each with the firing edge's `transition`. `activate()` returns whether it GENUINELY added the
+screen, so a re-activation (already-present target) or a transition-less edge surfaces `undefined` ⇒
+NO fade replay on a repeat trigger / a re-entrant handoff. Both `performTransition` and
+`performCompleteFanOut` collect entrances and pass them to `notify()`. A sibling
+`entranceTransition(id)` getter serves the boot-seeded initial screen (no notify fires for it). The
+HSM stays observe-don't-drive (the read is pure). The HOST owns the actual tween: a REUSABLE
+`engine-layout/svelte` `FlowFade.svelte` wraps content in a `<Container>` whose alpha STARTS at 0 and
+tweens to 1 via `svelte/motion` `Tween` (`svelte/easing` `linear`/`cubicOut`/`cubicInOut`, duration ÷
+`timeScale()`) — so the first painted frame is transparent (no flash); `FlowScreenMount.svelte` pairs
+it with `<LayoutScene>`. `Game.svelte` mirrors `entrances` into an `entranceById` rune (pruned when a
+screen leaves the set) and drives the THREE generic mount paths a fade target can hit — the takeover
+layer (loading/celebrations), the HUD `<UI>` gate (via `FlowFade`, since the HUD isn't a
+`<LayoutScene>`), and the base-game below-reel mount — falling back to the un-faded `<FlowMount>`/
+`<LayoutScene>` path when there's no entrance (parity). Serial `transitioning` gate,
+`changesActiveSet` no-op-layer skip, exit-then-enter order, and inert-flow fall-through are all
+preserved. (The brief's "GSAP is a dep" was inaccurate — GSAP is absent from the workspace; the
+codebase-native alpha tween is `svelte/motion` `Tween`, as `FadeContainer` uses.)
+
+**Editor.** A droppable "Transition (fade)" palette chip (HTML5 drag) drops onto an edge — hit-tested
+via `elementsFromPoint` against the xyflow edge SVG — attaching a default 300ms ease-out fade and a
+`◐ fade Nms` chip on the edge label; the handoff (solid) vs layer (dashed) edge visuals are intact.
+`EdgeInspector.svelte` exposes attach/remove + duration (ms) + easing (linear/easeOut/easeInOut) with
+a live explainer. `flowModel.client.ts` `editTransition` threads `transition` (`null` removes);
+`DEFAULT_FADE_TRANSITION` is seeded on drop.
+
+**Verified headlessly + build-shipped.** `pnpm --filter engine-flow typecheck` clean; new
+`tools/flow-spike/phase8Transition.ts` (`pnpm --filter flow-spike run transition`) 12/12 GREEN against
+the REAL `createPresentationMachine` + `normalizeFlowDoc` (fade edge surfaces the transition;
+transition-less surfaces none; repeat-layer + re-entrant-handoff replay NO fade; `complete` fan-out
+surfaces per-target; normalize clamps ms ≥ 0 / defaults easing / drops junk / idempotent). All prior
+flow-spike harnesses still PASS (phase4's observe-don't-drive allow-list gained the pure
+`entranceTransition` read). `apps/lines` prod build (`PUBLIC_RGS_TRANSPORT=play4fun`) + `launcher-api`
+build clean; Prettier clean. **Still owed:** owner live-verify the actual fade PIXELS in a running
+bundle (WebGL — the one thing headless can't prove), turbo on/off; then the ship chain
+(`publish-runtime-bundle` → Borut submodule bump) is the owner's step. NOT committed/pushed/published.
+
+### Progress — full-replace HUD adopts content-bearing `hudBar`/`hudCorners` (2026-07-03)
+
+Fixes authored buttons rendering NOWHERE: the owner put real buttons on the DEFAULT `hudBar` scene (a
+reserved coded-`<UI>` id, not `hud_*`). Once a `hud_*` screen flips full-replace on, the coded `<UI>`
+(the only `hudBar` mount) is suppressed but the `hud_` prefix filter refuses to adopt `hudBar` → orphan.
+`genericMountScenes.ts` gains `CODED_HUD_SCENE_IDS` + `fullReplaceHudScenes` (superset of
+`authoredHudScenes` that also adopts content-bearing `hudBar`/`hudCorners`); `Game.svelte` render list =
+`suppressCodedHud ? fullReplaceHudScenes(scenes) : []`. `suppressCodedHud` stays keyed on `hud_*` only
+(parity: a normal coded-HUD game with `hudBar` content must not trip full-replace). Verified play4fun
+`lines...` build GREEN; owner live-verifies the buttons appear on the bar. See `docs/STATUS.md`.
+
+### Progress — authored-`hud_*` active-set gate + intent routing generalized beyond `spin` (2026-07-03)
+
+**Context.** The 2026-07-02 pass (below) gated the CODED `<UI>` HUD (`hudBar`/`hudCorners`) on the
+active set, but the §16 full-replace path renders author-created `hud_*` screens through a SEPARATE
+`{#each authoredHud}` block that had NO gate — so on `bookofborutremake` the authored bottom bar +
+balance infos still showed during the loading splash, and the authored buttons (bar `spin`) did
+nothing. This pass closes both, holding §7 inert-flow parity, in the shared `apps/lines` runtime
+(reaches Borut via `publish-runtime-bundle` — no submodule bump).
+
+- **A. Gate `{#each authoredHud}` on the active set (`Game.svelte`).** Each `hud_*` scene now renders
+  only when `!flow || !flow.mounter.authoredScreenIds().has(scene.id) || activeScreenIds.includes(
+  scene.id)` — the same shape as the reel + coded-`<UI>` gates. A `hud_*` scene the flow does not
+  author renders unconditionally (byte-identical to today).
+- **B. Flow-action routing generalized (`Game.svelte`, §8.5).** Only `spin` consulted the flow; the
+  other HUD actions' `button → intent` edges were inert and `invokeIntent` was `spin`-only. Extracted
+  each coded press body to a shared helper, added `invokeHostIntent(intent)` (one dispatch table for
+  BOTH the registered `onpress` and the interpreter bridge) + `routeActionThroughFlow(pin, coded)` (the
+  shared flow-guard). All five HUD intents (`spin`/`increase`/`decrease`/`turbo`/`menu`) now route
+  through a wired edge, else run the coded body; `spin` byte-identical. Beyond-HUD intents
+  (`buyBonus`/`autoSpin`/…) remain unwired — one helper + one dispatch branch each to add.
+
+Also same day (separate concern): symbol art now tracks the reel cell (`boardGeometry().cellW/HLocal`
+feeding `SymbolSprite`/`SymbolSpineMain`) so a shrunk cell no longer clips — see `docs/STATUS.md`.
+**Verified:** `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN. NEEDS LIVE
+OWNER-VERIFY (WebGL): bottom bar/balance hidden on the splash + revealed on the tap; increase/decrease/
+turbo/menu buttons functional via their intent edges.
+
+### Progress — complete FAN-OUT + HUD active gate + doc-order z (2026-07-02)
+
+**Context.** The owner authored a real FlowDoc (`loading` initial, `basegame`, and a HUD screen
+"HUD — bottom bar") and hit three gaps that this pass closes; all three hold the §7 inert-flow
+fall-through invariant. Verified headlessly (flow-spike 14/14) + `apps/lines` prod build (play4fun).
+
+**A. HUD `<UI>` gated on the flow active-set (`apps/lines/src/components/Game.svelte`).** The HUD
+chrome mounted UNCONDITIONALLY, so it showed during the loading splash and the `loading→HUD` edge
+did nothing. Now a `hudBar`/`hudCorners` id that is an authored FlowDoc screen makes the HUD
+**flow-managed** (`isHudFlowManaged`, from `flow?.mounter.authoredScreenIds()`); the `<UI>` then
+renders only while the HUD is in the active set (`isHudActive`), mirroring the base-game reel gate.
+INERT-FLOW PARITY: no flow, or a flow that authors no HUD node ⇒ `<UI>` renders unconditionally
+exactly as today. The HUD is rendered by `<UI>` (positioned from the hud scenes), so it is skipped
+in `activeScreenTakeover` to avoid a double-mount when it is the topmost active screen.
+
+**B. `complete` pin FAN-OUT (`packages/engine-flow/src/presentation.ts`).** `fire()` used
+`outgoing().find(...)` — a single `onComplete()` fired only the FIRST matching complete edge, so the
+owner's `loading --complete--> basegame` + `loading --complete--> HUD` lit up only ONE target. A new
+`fireComplete()` + `performCompleteFanOut()` path collects EVERY guard-holding complete edge of the
+completing source (the first active screen, top-of-stack, that owns one), deactivates the source
+ONCE, activates each distinct target, `notify()`s the full new set ONCE, then runs each target's
+`enter` in author order. Guarded branching is preserved (mutually-exclusive guards ⇒ one target); an
+unguarded default is always a fan-out sibling. Only the `complete` trigger fans out —
+`bookEvent`/`signal`/`condition` keep strict first-match-wins layer semantics via the unchanged
+`fire()`. A re-entrant handoff back to an already-active base still re-runs its `enter` (parity with
+the old single-edge `performTransition`). Harness: `tools/flow-spike/phase4Runtime.ts` gained B4
+(one source, two unguarded complete edges → both targets active, source removed, one notify, ordered
+enters) + B5 (guarded branching). `phase7Authoring.ts` updated for the already-removed `dead-end`
+warning (terminal leaf = persistent, not a dead-end).
+
+**C. Cross-screen z-order from the editor's screen-list order (`packages/engine-layout/src/lib/
+layerOrder.ts` NEW + `Game.svelte` + `referenceLayouts/lines.ts`).** Only `extraScenes`/background
+mounted in doc order; the HUD, `basegameOverlays`, the flow takeover, and `specialBook` were pinned
+in fixed markup order, so reordering them in the editor had no effect. New `docLayerZIndex(scenes,
+id)` maps a layerable scene's index in `scenes[]` into a band (`LAYER_BAND_BASE=100 + docIndex`)
+ABOVE the base game and BELOW an engine-owned TOP band (`LAYER_BAND_TOP=10000`, where the
+full-screen free-spin gates + their single `waitForResolve` subscriber, the counter, and the info
+overlay now sit — so a reorder can never bury a round-blocking gate). Each layerable mount is wrapped
+in a `<Container zIndex={...}>`; PixiJS sorts children by zIndex. The reel board (`<MainContainer>`)
+is NOT layerable — it stays between the below/above-reel slices, unmoved. PARITY: `referenceLayouts/
+lines.ts` now lists `...hudScenes` right after `basegame` (before `basegameOverlays`), so the
+fallback doc's layerable order equals the old markup order (HUD → overlays → specialBook) and an
+un-reordered / flow-less boot assigns z that reproduces today's stacking byte-for-byte. **Scoped
+out (noted):** the free-spin intro/outro **visual** scenes + counter stay in the engine-owned TOP
+band, NOT the doc-ordered band — a full generic reorder of the engine-owned gate visuals was
+deferred as too risky in one pass; `specialBook` moved from above to below the free-spin gate band
+(mutually-exclusive game phases, no visual overlap). NEEDS LIVE OWNER-VERIFY (WebGL pixels): the HUD
+hidden during loading + appearing on the tap; both basegame + HUD lighting up on the tap; a scene
+reordered in the editor re-stacking in-game.
+
+### Progress — pin-driven active-SET model (engine core) DONE headlessly (2026-07-01)
+
+**What landed.** The presentation model moved from a SINGLE `activeScreenId` (an exclusive
+swap) to an ordered **active SET**, so a base-game screen persists while an overlay screen
+layers on top. This fixes the Book-of-Borut bug where the reels board mounted UNCONDITIONALLY
+in `Game.svelte` and was visible behind the loading splash. Pin semantics, generic (no magic
+ids):
+- a screen becomes active on its **Enter** pin (added to the set, on top);
+- a screen turns **itself off** when it fires its **Complete** pin (removed from the set);
+- a `complete` edge DEACTIVATES its source + ACTIVATES its target; a `bookEvent`/`signal`/
+  `condition` edge ACTIVATES its target **layered on top** and LEAVES the source active.
+- The base game never fires Complete (no `complete`-triggered outgoing edge), so it PERSISTS
+  under celebrations; an overlay removes itself on its own Complete — the "celebration over a
+  live board" behaviour now falls out of the set, not a special case.
+
+Files: `packages/engine-flow/src/presentation.ts` (ordered `activeScreenIds` set + `activate`/
+`deactivate`; `outgoing()` scans EVERY active screen top-first; `complete` edges deactivate the
+source, others layer; getters `activeScreenIds`/`isActive(id)` + kept `activeScreenId` = topmost);
+`packages/engine-flow/src/interpreter.ts` (exposes `activeScreenIds` + `isScreenActive`; renamed
+host callback `onActiveScreenChange`→`onActiveScreensChange`); `apps/lines/src/game/flowRuntime.svelte.ts`
+(callback rename + `withDefaultLoadingLeg` doc for the active-set loading→basegame leg);
+`apps/lines/src/components/Game.svelte` (active-set rune `activeScreenIds` + derived
+`isBasegameActive`; the reel board + basegame below/above-reel slices now gate on
+`{#if !flow || isBasegameActive}` — the **inert-flow fall-through** renders unconditionally as
+today when no FlowDoc drives the game; `basegameMount` resolves on `isBasegameActive`, not
+topmost, so an overlay never drops the base's authored slices).
+
+**How verified (headless + build).** A Node harness driving `createPresentationMachine` with a
+fake runtime asserts the full active set across boot (only `loading` active → reels hidden) →
+loading `complete` (loading removed, basegame added, exit-then-enter order) → `setWin` bookEvent
+(`bigWin` layers over persisting `basegame`) → `bigWin` complete (removes itself, basegame stays
+underneath in correct z-order), plus a multi-overlay stack/unwind proving the base never leaves —
+**22/22 assertions pass**. `pnpm --filter engine-flow typecheck` clean; `apps/lines` production
+build (`PUBLIC_RGS_TRANSPORT=play4fun`) clean.
+
+**Still owed (owner will sequence).** The ship chain (bake FlowDoc → register →
+`publish-runtime-bundle` → Borut submodule bump). Owner live-verify of the loading→basegame reveal
+in a running bundle (headless-only so far). The dev-only `LINES_FLOW_COND_DOC` fixture was updated
+for the active-set model: `basegame → freeGame` stays a `condition` LAYER (proving the condition
+trigger), and the return `freeGame → basegame` is now a `complete` HANDOFF (an overlay leaves only
+by its own Complete pin — a condition-return onto the still-active base would be a layer no-op).
+
+**Review follow-up (2026-07-01, same day).** Code review found a runtime bug: a LAYER edge
+(`bookEvent`/`condition`/`signal`) whose target is already active kept re-running the target's
+`enter` + `notify()` on every repeat trigger — and `Game.svelte` pings `evaluate()` on every
+observed engine-value change, so a live overlay replayed its entrance animation repeatedly. Fixed in
+`presentation.ts`: `fire()` now skips a transition that would NOT change the active set (a layer onto
+an already-active target — `changesActiveSet(edge)`), so it is a consumed no-op (no re-enter, no
+re-notify); a `complete` handoff always changes state (it deactivates its source) so it is never
+skipped, including a re-entrant handoff onto an already-active base. The interpreter active-set
+harness gained repeated-layer + re-entrant-handoff cases (now 41/41). The committed flow-spike
+regression harnesses (`phase1Loading`/`phase2WinTransitions`/`phase3Condition`/`phase4Runtime`/
+`tapToContinue`) were updated to the `onActiveScreensChange` array callback + the new layer/handoff
+semantics (bookEvent/condition/signal LAYER + keep the source; only `complete` runs source exit +
+deactivates) and all pass.
+
+### Progress — active-SET authoring UI (Phase A) DONE, build-verified (2026-07-01)
+
+**What landed.** The `/flow` editor now authors the active-SET model (no schema change — it rides
+the existing edge/pin/trigger representation). The **trigger IS the lever**: a `complete` edge is a
+HANDOFF (source hides), any other trigger is a LAYER (target activates over the persistent source).
+- **Trigger inference from the drawn pin** (`+page.svelte onConnect`): dragging FROM a screen's
+  Complete pin (`${screenId}::complete`) mints a `complete` (handoff) edge; from any other pin, a
+  `bookEvent` (layer) edge with a blank event. `addTransition` (`flowModel.client.ts`) now takes an
+  optional trigger.
+- **Legible canvas semantics** (`+page.svelte buildEdges` + `<style>`): handoff = solid slate,
+  layer = dashed amber (+ animated for book events); edge labels lead with `⇥`/`⧉`; a sub-bar
+  legend spells it out. The edge inspector (`EdgeInspector.svelte`) shows a live handoff/layer
+  explainer under the trigger selector.
+- **"persistent (base)" badge** (`FlowScreenNode.svelte` + `isPersistentScreen` in `validate.ts`):
+  a computed, read-only teal badge on any screen with no outgoing `complete` edge — the base-game
+  trait. Pure derivation over the transitions, no new field; the base is designated by the existing
+  `initial` toggle + having no complete edge out.
+- **`stuck-overlay` validation** (`validate.ts` + `ValidationPanel.svelte`): a layered screen
+  (incoming non-`complete` edge) with no outgoing `complete` edge would never remove itself —
+  warned (never blocks). The initial/base screen is exempt.
+- **DRY:** the two active-SET semantics helpers (`edgeSemantics`, `isPersistentScreen`) live once in
+  the shared `engine-flow/validate.ts` and are read by the page, node, and inspector; the existing
+  ValidationPanel / EdgeInspector / FlowScreenNode / undo-redo were extended, not duplicated.
+
+Files: `packages/engine-flow/src/validate.ts` (+`edgeSemantics`/`isPersistentScreen`/`stuck-overlay`
++`EdgeSemantics`), `apps/launcher-api/src/routes/(app)/flow/{+page.svelte,EdgeInspector.svelte,
+FlowScreenNode.svelte,ValidationPanel.svelte,flowModel.client.ts}`.
+
+**How verified.** A Node validator harness (esbuild-transpiled `validate.ts`) asserts
+`edgeSemantics` (complete⇒handoff, others⇒layer), `isPersistentScreen` (base persists, completing
+screens don't), and `stuck-overlay` (flags a layered overlay with no complete edge, exempts the
+base/initial) — **12/12 pass**. `pnpm --filter engine-flow typecheck` clean; `pnpm --filter
+launcher-api build` clean (the `/flow` route compiles; the only two `+page.svelte` warnings are
+pre-existing, on the untouched `clipboard`/`history` lines). Not live-verified in the browser
+(preview owed to the owner). `docs/tools/flow.md` refreshed (rule 9).
+
+**Still owed before authorable end-to-end.** Owner live-verify in `/flow` (draw a loading→base
+handoff + a base→overlay→base layer round-trip, confirm the badges/edge styles/validation read
+right). Then the ship chain (bake → register → publish-runtime-bundle → Borut submodule bump).
+
+### Progress — Phase 0 PASSED headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike`. No editor UI built; no game submodule bump.
+
+**What landed**
+- New `packages/engine-flow` workspace package (`workspace:*`, house style, `tsc
+  --noEmit` clean) — the interpreter's Phase-0 slice:
+  - `src/types.ts` — minimal **FlowDoc** (screen + transition stubs; per-screen
+    enter/while/exit choreography sub-graph of **Sequence / Parallel / Broadcast /
+    Delay / ForEach** nodes; `events[]` binds a choreography to a book-event type).
+  - `src/executor.ts` — **choreography executor** tree-walking the sub-graph onto the
+    EXISTING primitives: Sequence→serial `await`, Parallel→`Promise.all`, Broadcast→
+    `emitter.broadcast` (sync) / `broadcastAsync` (awaited or fire-and-forget),
+    Delay→`waitForTimeout(ms / timeScale())`, ForEach→serial `sequence()` or parallel
+    `Promise.all`. The three broadcast shapes are kept distinct — the timing crux
+    (§11.1).
+  - `src/accessor.ts` — bounded `$trigger.*`/`$item.*` path reads + literals (no
+    scripting VM, §11.4).
+  - `src/runtime.ts` — injected runtime surface (emitter + `timeScale` +
+    `waitForTimeout`); the interpreter NEVER imports the Svelte-rune state modules, so
+    the game wires it to the same primitives the coded path uses at boot.
+  - `src/mounter.ts` — **generic scene mounter** interface (contract only; the live
+    PixiJS/`LayoutScene` mount with MainContainer scaling + overlays is Phase 4).
+  - `src/dispatch.ts` — **dispatch-with-fall-through** (`createBookEventDispatcher`):
+    "FlowDoc has this event? run the interpreter; else call the coded handler." This
+    is the single boundary that holds the §7 parity invariant.
+
+**How it was verified headlessly**
+- `tools/flow-spike/winInfoParity.ts` (new `tools/flow-spike` workspace; run
+  `pnpm --filter flow-spike run parity`), mirroring the Rigger Phase-0 spikes. It drives
+  the **real** `createEventEmitter` (`utils-event-emitter`) + **real** `sequence()`
+  (`utils-shared`), and runs BOTH the `winInfo` body lifted verbatim from
+  `apps/lines/src/game/bookEventHandlerMap.ts` (lines 41–69) AND the interpreter running
+  a hand-authored FlowDoc for the same event, against ONE shared recording
+  emitter + ONE `boardWithAnimateSymbols` (awaited symbol-spine) subscriber.
+- Asserts the ordered op log (broadcasts + args, awaited completions, scaled delays) is
+  **identical turbo ON and OFF** (15 ops each); a synthetic executor-shape case covers
+  the fire-and-forget `broadcastAsync` + `delay ÷ timeScale()` (600→300 under turbo) +
+  parallel branches; **fall-through** proven (an un-authored `setTotalWin` still runs its
+  coded handler; `winInfo` is interpreter-driven). **PHASE 0 GATE: PASSED.**
+
+**Semantic-fidelity finding (§11.1 / §13 risk — surfaced, not papered over)**
+- The executor's recursive `await` per Sequence child flushes an already-queued
+  microtask one tick earlier than the flat coded handler. So a FIRE-AND-FORGET
+  `broadcastAsync` subscriber's completion can log on a different side of the
+  *synchronous* `delay` marker. This is **below the observability threshold**: with the
+  real `setTimeout`-based `waitForTimeout`, an un-awaited subscriber resolves on a
+  microtask well before any `setTimeout` callback, so nothing lands at a different
+  wall-clock time. The harness treats this honestly — the deterministic INITIATION
+  timeline is asserted position-for-position; a fire-and-forget completion is asserted
+  as a multiset (proves it ran AND was not awaited). **Carry into Phase 4/5:** when the
+  live mounter runs, keep fire-and-forget broadcasts un-awaited and verify against the
+  real bundle, not just the harness.
+
+**What's left**
+- The live **generic scene mounter** (MainContainer scaling + overlays, retiring §20.1)
+  — Phase 4, the next hard-reasoning item.
+- Macro transition trigger/guard vocabulary + dynamic-pin projection — Phase 1/2.
+- `/flow` editor UI — Phase 1+.
+- Bake/pipeline wiring (`flow?` in `BakedBundle`) — Phase 6.
+
+**Still needs owner-verify live:** nothing yet. The runtime swap into a real
+`apps/lines`/Borut boot is Phase 4; this slice proves async/timing fidelity in isolation.
+
+### Progress — Phase 1 DONE headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike` (continued). No game bump; `/flow` left
+UNREGISTERED (behind the curtain) for this read-only spike — RULE 9 fires in Phase 2.
+
+**Step 1 — Svelte Flow install spike (the §12 decision gate): xyflow WINS.**
+- Installed `@xyflow/svelte@1.6.1` into `apps/launcher-api`; a trivial 2-node/1-edge
+  graph builds + ships clean under Vite 6 / Turbo 2 / Svelte 5 (`pnpm --filter
+  launcher-api build` GREEN — the `SvelteFlow` component + its CSS land in the client
+  bundle). The ONLY friction is a peer-dep WARNING: xyflow wants `svelte@^5.25.0`, the
+  workspace pins `5.20.5` uniformly across every app+package. It is NOT a build/runtime
+  error — xyflow uses only stable Svelte-5 runes APIs present since 5.0, so 5.20.5 runs.
+  A workspace-wide bump to ≥5.25 (touches every game) would clear the warning; deferred
+  as not worth the blast radius for a warning. **Verdict: proceed with `@xyflow/svelte`**
+  (SSR-guarded — it is client-only — via `export const ssr = false`). Hand-built fallback
+  is NOT needed.
+
+**Step 2 — FlowDoc schema (`packages/engine-flow/src/types.ts`, the real "one doc").**
+- Promoted the Phase-0 stubs into the full model: screen-id nodes referencing LayoutDoc
+  scenes (`FlowScreen` + canvas `position`/`initial`); typed `FlowTransition` edges
+  (`from`/`to` + a `FlowTrigger` of `bookEvent`/`complete`/`condition` + optional
+  `FlowGuard` + `delayMs` + author `order`); a bounded `FlowGuard`/`FlowPredicate` over a
+  CLOSED comparator set (`eq|neq|gt|gte|lt|lte|in`) — explicitly not an expression
+  language (§11.4); a `FlowPin` model (4 dynamic roles `value`/`signal`/`action`/`gate`
+  + 3 structural `enter`/`complete`/`active`, stable composite ids); plus a new `engine`
+  accessor kind (`$engine.<key>`) and a `branch` choreography node. Kept sparse +
+  override-friendly (parity rule §7) and back-compatible: the Phase-0 `executor.ts` /
+  `dispatch.ts` still compile (`accessor.ts` gained `evaluateGuard`, the executor a
+  `branch` case). `pnpm --filter engine-flow run typecheck` GREEN.
+
+**Step 3 — pin-derivation (`packages/engine-flow/src/pins.ts`, the core reusable logic).**
+- `deriveScreenPins(scene, resolver)` projects a LayoutDoc screen into pins from the FOUR
+  existing `engine-layout` registries — value←instance `source` param, action←`action`,
+  gate←`visibleSource` + the scene-level `Scene.visibleSource`, signal←a spine cue's
+  `signal` in the resolved ComponentDef tree — plus the 3 fixed structural pins. Pin id =
+  the §12 composite `${instanceId}::${role}:${key}` (structural = `${screenId}::${role}`);
+  a missing ComponentDef ORPHANS its param-driven pins (flagged, never silently dropped,
+  §4). Pure + Svelte-free (reads the authored doc, no registry calls), so it runs
+  headlessly AND in the launcher loader. Reuses the registry param conventions — does NOT
+  invent a new vocabulary (§3).
+- **Verified headlessly:** `tools/flow-spike/pinDerivation.ts` (`pnpm --filter flow-spike
+  run pins`) — 21/21 assertions GREEN against a representative `apps/lines`-shaped fixture
+  (a base-game screen: win readout, spin button, gated free-spin counter, win-celebration
+  spine cue). Asserts each pin class is derived with the right role/direction, ids stay
+  stable under RENAME (label-only change) + REORDER, scene-gate + def-default-driven pins
+  appear, the orphan path flags (not drops), and id order is deterministic.
+
+**Step 4 — id-discipline check (§12): PASSED, not a blocker.**
+- Scene Editor (`apps/launcher-api/src/routes/(app)/editor/+page.svelte`) mints a FRESH
+  `n_…` id on every node ADD (lines 480, 523) and on paste/duplicate via `reassignNodeIds`
+  (line 150: `node.id = freshNodeId()`, also dropping `slotId`); no edit path reassigns
+  `id`. So "no id regeneration on edit, fresh id on duplicate/paste" HOLDS — pin identity
+  is safe to key off `BaseNode.id`.
+
+**Step 5 — `/flow` read-only page + typed model + command stack.**
+- New route `apps/launcher-api/src/routes/(app)/flow/`. `+page.server.ts` REUSES the
+  launcher's existing R2/scenes loading (`loadDoc` — the same LayoutDoc the Scene Editor
+  reads) + `listComponents` + `resolveToolScope` (no new shared surface; gated on the
+  `editor` entitlement; `ssr=false`). `+page.svelte` builds the read-only model and
+  renders screen nodes (custom `FlowScreenNode.svelte` — dynamic pins as typed Svelte Flow
+  handles, inputs left / outputs right, `active` as a status chip) + transition edges,
+  with an orphaned-pin warning band. A typed editable model + a generic snapshot-based
+  undo/redo command stack (`flowModel.client.ts` `createFlowHistory<T>`, burst-coalescing,
+  mirroring the Scene Editor's history §12) is stood up now though editing lands Phase 2.
+  `pnpm --filter launcher-api build` GREEN with the route.
+
+**Still needs owner-verify live:** the actual `/flow` VISUAL render (the Svelte Flow
+canvas drawing a real project's screens + derived-pin handles) needs the deployed launcher
+with auth + R2 — the headless build proves it compiles/ships, not the pixels.
+
+### Progress — Phase 2 DONE headlessly (2026-06-24)
+
+Branch `flow/phase0-interpreter-spike` (continued). No game bump. RULE 9 fired: the
+tool is now REGISTERED + documented in the same change.
+
+**Macro authoring (`/flow` is now an editor, not read-only).**
+- `flowModel.client.ts` promoted from a read-only model to the authoring model + a set of
+  PURE FlowDoc command helpers (each returns a NEW doc, never mutates, so the command
+  stack snapshots a clean before/after): `addScreen` (place a LayoutDoc scene; the first
+  placed becomes `initial`), `removeScreen` (drops the node AND every edge touching it,
+  promotes a new initial if needed), `moveScreen`, `setInitialScreen` (exactly one),
+  `addTransition`/`removeTransition`/`editTransition` (trigger/guard/delay/order), with
+  `freshTransitionId`. `buildFlowModel(doc, layout, components)` now treats the FlowDoc's
+  `screens[]` as the authoritative placed set and projects the UNPLACED LayoutDoc scenes
+  into a palette; each placed screen still derives its pins + orphan warnings live via
+  `deriveScreenPins` (Phase-1, unchanged) so orphan warnings track component edits.
+- `+page.svelte` rebuilt as the authoring surface: a left **Screens** palette (click to
+  place an unplaced scene), node drag → `moveScreen` on drag-stop, drag-to-connect →
+  `addTransition`, node-select inspector (mark Initial / Remove screen), edge-select
+  → `EdgeInspector.svelte` (a NEW component: trigger kind + bookEvent name + delay + order
+  + a single-predicate bounded guard authored as `$engine.*`/`$trigger.*`/literal +
+  comparator), Undo/Redo buttons + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, and a Save button.
+  Every mutation flows through the Phase-1 command stack (`createFlowHistory<FlowDoc>`),
+  so undo/redo round-trips. xyflow owns `nodes`/`edges` for live drag/selection; the
+  FlowDoc stays the single source of truth, rebuilt into the canvas arrays only on
+  structural changes (add/remove/undo/redo), not per drag frame.
+
+**Save→R2 + load (the pipeline-discipline gate for this phase).**
+- `normalizeFlowDoc` (NEW `packages/engine-flow/src/normalize.ts`, exported) is the single
+  serialize/deserialize contract — pure + dependency-free, so the SAME coercion runs in the
+  launcher save endpoint AND headlessly. It drops unknown fields, skips invalid
+  screens/transitions, and validates choreography by node `kind` (the executor stays the
+  source of truth for per-kind leaves, mirroring `editorStorage.normalizeNode`).
+- `POST /api/flow/save` (NEW) mirrors `/api/rigger/save` EXACTLY for auth + scope: the
+  shared `toolScope.gate({ tool: 'flow' })` resolves the SESSION-bound `(client, project)`
+  and 403s without entitlement — NO hand-rolled auth/scope/R2. `flowStorage.ts` (NEW,
+  mirroring `editorStorage.ts`) does the R2 read/write via `normalizeFlowDoc` +
+  `getObjectText`/`putObjectText` at `flowDocKey` = `<client>/<project>/editor/flow.json`
+  (sibling of `scenes.json`, NEW path in `projectPaths.ts`). `+page.server.ts` now gates on
+  the `flow` entitlement and loads the saved FlowDoc (`loadFlowDoc`; absent ⇒ empty doc ⇒
+  starts from the LayoutDoc screens with no transitions — parity-safe §7). Bake/deploy/pull
+  is NOT wired (that is Phase 6).
+
+**Tool registration (RULE 9 — same change).**
+- `roles.ts`: `TOOLS.flow` ("Invisible Flow", bar name "Flow", `/flow`, node-graph emblem
+  icon), `ROLE_TOOLS` (admin via `Object.keys`, + developer + artist), `TOOL_BAR_ORDER`
+  (after `editor`), `TOOL_DOC_SLUG.flow = 'flow'`. First-draft `docs/tools/flow.md` written
+  from the REAL Phase-2 route UI (palette / wiring / inspectors / undo-redo / save; flags
+  what is NOT built yet — choreography Phase 3, pipeline Phase 6) + a `docs/tools/README.md`
+  row; the prebuild `copy-tool-docs` mirrors `flow.md` so `/docs/flow` resolves.
+  **A `docs-keeper` audit pass is expected to finalize the doc.**
+
+**How it was verified headlessly**
+- `tools/flow-spike/roundTrip.ts` (NEW; `pnpm --filter flow-spike run roundtrip`) proves the
+  save→reload contract: a hand-authored FlowDoc (every transition shape bookEvent/complete/
+  condition + a guard + a delay + author order + a per-screen choreography sub-graph +
+  per-event choreography) survives author → `JSON.stringify` (what the page POSTs) →
+  `normalizeFlowDoc` (what the endpoint stores) → JSON round-trip (what R2 returns) →
+  `normalizeFlowDoc` (what the loader returns) IDENTICAL; plus idempotence, junk-field
+  rejection without corrupting valid data, and absent-doc ⇒ sparse fall-through. PASSED.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build`
+  GREEN (the flow page + `EdgeInspector` + `flowStorage` + `/api/flow/save` all compile +
+  ship); the existing `flow-spike` `parity` (Phase-0 gate) + `pins` (Phase-1) still GREEN.
+
+**Still needs owner-verify live:** the actual `/flow` authoring UX in the browser —
+placing/moving nodes, drag-to-connect, the edge/screen inspectors, undo/redo, and a
+real Save → reload — needs the deployed launcher with auth + R2. The headless checks
+prove the doc round-trips + the build ships, not the pixels/interactions.
+
+**What's left**
+- Phase 3 — micro choreography (double-click a node → author enter/while/exit).
+- Phase 4 — the live generic mounter; Phase 6 — bake/pipeline (`flow?` in `BakedBundle`).
+
+### Progress — Phase 3 DONE headlessly (2026-06-24)
+
+Branch `flow/phase3-choreography` (off the Phase-1/2 work). No game bump. Authoring +
+deterministic preview only — the runtime mounter swap (Phase 4) and bake (Phase 6) stay out.
+
+**A — the choreography sub-editor (double-click a node).**
+- `ChoreographyEditor.svelte` opens on double-clicking a macro screen node (xyflow 1.6 has
+  no node-double-click event, so the page detects two clicks <350ms apart; an explicit
+  "Edit choreography…" button in the screen inspector is the discoverable equivalent). It
+  hosts the screen's enter/while/exit timeline as a node graph over the SAME
+  `@xyflow/svelte` lib (§12), with phase tabs, a Sequence/Parallel root toggle, a per-node
+  inspector, the Speed dial + the deterministic preview.
+- The author node kinds are EXACTLY the executor's `ChoreographyNode` kinds — **Broadcast /
+  Sequence / Parallel / Delay / Branch / ForEach** — no new vocabulary (§9.A). Edits go
+  through a PURE, path-addressed command layer (`choreographyModel.client.ts`: a sub-graph
+  is addressed by a `ChoreoTarget` = screen+phase or event; a node by a `ChoreoPath` of
+  child indices / `then`/`otherwise`/`body` slots), each returning a NEW FlowDoc, routed
+  through the SAME `createFlowHistory` undo/redo stack as the macro graph and the existing
+  `POST /api/flow/save`. `flattenChoreography` projects the tree onto xyflow nodes+edges
+  (container→child links, branch/forEach slots labelled).
+
+**B — the Broadcast palette = the game's REAL emitter vocabulary (sourced honestly).**
+- A Broadcast node's event picker lists the game's actual emitter events, grouped by source
+  component. **Honest sourcing finding:** that vocabulary lives in each game's
+  `typesEmitterEvent.ts` as a COMPILE-TIME TypeScript discriminated union — it has no
+  runtime/serialized form, and the launcher loads a project from R2, not from game source.
+  So the catalog is **PASSED IN**, exactly the way the LayoutDoc + component defs already
+  are (it is NOT something the launcher can reflect from R2 today). A new serializable
+  `EmitterVocabulary` shape (`engine-flow/src/emitterVocabulary.ts`) defines that passed-in
+  catalog; a bundled `DEFAULT_EMITTER_VOCABULARY` is transcribed verbatim from the real
+  `apps/lines`/book-of emitter unions (Board/Win/Sound/FreeSpin*/Transition/SpecialBook +
+  the shared UI cues the handlers broadcast) — the game's ACTUAL vocabulary, not invented.
+  The authoring UI is agnostic to the source; Phase 6 can export the game's union as data
+  alongside the FlowDoc and feed the SAME shape instead of the default.
+
+**C — the Speed scalar.**
+- A per-preview Speed dial (1× / 2× turbo) feeds the executor's injected `timeScale()`. The
+  executor already divides every Delay by `timeScale()` (the coded `ms / timeScale()` call
+  sites), so the authored speed flows straight into the runtime scalar the executor reads —
+  no new plumbing, kept a bounded scalar (not a script). Proven: a 300ms delay becomes
+  150ms at 2× in the preview timeline.
+
+**D — live preview against a DETERMINISTIC feed (§11.6).**
+- `engine-flow/src/previewExecutor.ts` + `ChoreoPreview.svelte` run the authored
+  choreography through the REAL `runChoreography` against a recording runtime on a VIRTUAL
+  clock (delays advance the clock, no real time passes), fed by a FIXED book payload
+  (`FIXED_PREVIEW_TRIGGER`/`FIXED_PREVIEW_ENGINE`, mirroring the mock-RGS/test-server book
+  shape — never a random outcome), producing the ordered broadcast+delay timeline with the
+  speed scalar applied (the Phase-0 parity-harness shape). This is the DETERMINISTIC half of
+  preview: the emitter-call ORDER + TIMING, reproducible run-to-run, so a delay tweak shows
+  its millisecond shift immediately. **Scoped honestly:** a TRUE visual preview (the game
+  actually animating) needs the running game + its real emitter + Pixi mounter — that is the
+  live generic mounter (Phase 4) and is explicitly NOT done here; the UI flags it, it is not
+  faked.
+
+**How it was verified headlessly**
+- `pnpm --filter engine-flow run typecheck` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the flow page + `ChoreographyEditor`/`ChoreoNode`/`ChoreoNodeInspector`/`ChoreoPreview` +
+  `/api/flow/save` all compile + ship).
+- `tools/flow-spike/roundTrip.ts` (`pnpm --filter flow-spike run roundtrip`) extended to
+  author a non-trivial choreography exercising EVERY node kind (sequence/parallel/delay,
+  broadcast in all three shapes, branch+else, forEach over `$trigger.wins` with an `$item`
+  payload). It asserts the choreography round-trips canonical through save→reload, AND drives
+  it through the REAL executor via the deterministic preview: 2 wins ⇒ 2 forEach broadcasts,
+  the parallel branch fires both children, the branch takes the then-path at winLevel≥3, the
+  timeline is identical run-to-run (determinism), and the 300ms delay halves to 150ms under
+  2× (speed scalar). Phase-0 `parity` + Phase-1 `pins` spikes still GREEN.
+- **Incidental fix:** added the missing `flowDocKey` export to `projectPaths.ts` — Phase-2's
+  `flowStorage.ts` imported it but it was never added, so the launcher build was broken on
+  the inherited branch.
+
+**Still needs owner-verify live (deployed launcher + auth + R2):** the in-browser
+choreography authoring — double-clicking a node, add/edit/remove nodes, the Broadcast event
+picker, the dispatch-shape + payload + branch-guard + forEach editors, undo/redo, and a real
+Save → reload — plus the preview panel pixels. The headless checks prove compile/ship/
+round-trip/determinism, not the interactions or pixels.
+
+**What's left**
+- Phase 4 — the live generic mounter (mount authored screens + run choreography in a real
+  game, retiring §20.1) + the all-three transition triggers wired to runtime.
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`); export the game's emitter union as
+  data to replace `DEFAULT_EMITTER_VOCABULARY`.
+- RULE 9: `docs/tools/flow.md` needs a `docs-keeper` audit pass to document the new
+  choreography sub-editor (Phase 3 materially extends the tool UI).
+
+### Progress — Phase 4 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase4-runtime-mounter` (off the latest `main`). No game submodule bump —
+Phase 4 proves the runtime in the dev game `apps/lines` only. The interpreter stops being a
+headless library and runs inside a real game, replacing `Game.svelte`'s hard-coded mounting
+and wiring live transitions, WITHOUT regressing the game (the §7 invariant is held by
+construction + a fresh 27-assertion harness).
+
+**A — the generic scene mounter (retires §20.1).**
+- `mounter.ts` promoted from interface-only to the **decision layer** (`createSceneMounter`):
+  `resolve(screenId)` returns `{ kind: 'authored', scene }` ONLY when the FlowDoc carries
+  that screen AND a backing LayoutDoc `Scene` exists, else `{ kind: 'fallThrough' }` — the
+  single §7 boundary. **Key finding:** the live Pixi mount is NOT a new path — the engine's
+  existing `<LayoutScene>` ALREADY is a generic mounter (a `game`-space scene self-wraps in
+  `<MainContainer>`, `standard` in `<MainContainer standard>`, `canvas`/`background` mount
+  raw; it also applies the `Scene.visibleSource` gate). So the mounter owns only the
+  DECISION (which scene, authored vs coded); `<LayoutScene>` owns the MainContainer scaling +
+  overlays. A new `FlowMount.svelte` (in `engine-layout/svelte`) renders the resolved scene
+  via `<LayoutScene>` or the coded `{@render fallback()}` with **no wrapping container**, so
+  the fall-through is byte-identical. An authored-but-no-backing-scene screen falls through
+  (never a blank mount).
+
+**B — transitions, all three triggers (§6).**
+- `presentation.ts` (`createPresentationMachine`) — the **presentation HSM**, pure +
+  framework-free (imports no rune modules; the `$engine.*` reader + runtime are injected).
+  Fires edges on: (1) `bookEvent` (`onBookEvent` — matches the arriving book event `type`),
+  (2) `complete` (`onComplete` — the active screen's exit choreography signalled done, the
+  genuinely-new self-driving output §6.2), (3) `condition` (`evaluate()` — re-checks guard-
+  only edges when the game pings an observed value change). Each edge honours an optional
+  bounded `guard` + `delayMs ÷ timeScale()`; outgoing edges are tried in author `order`
+  (unguarded = default); a swap runs the old screen's `exit` then the new screen's `enter`
+  choreography; concurrent triggers are serialized. **Observe-don't-drive (§12):** the HSM
+  exposes ONLY `onBookEvent`/`onComplete`/`evaluate`/`start` + reads — no `send`/`transition`
+  into the platform FSM (the harness asserts this surface). XState stays the single source of
+  truth; Flow reacts.
+- `interpreter.ts` (`createFlowInterpreter`) — the single boot object tying HSM + mounter +
+  the Phase-0 book-event dispatcher together. INERT with no FlowDoc (active screen
+  `undefined`, every mount + event falls through). `dispatchBookEvent` runs the event's
+  presentation (authored choreography OR coded fall-through) AND lets the macro graph take a
+  `bookEvent` transition — the two are orthogonal (§6.1).
+
+**C — live wiring into `apps/lines` (PARITY-FIRST).**
+- `game/flowRuntime.svelte.ts` builds the interpreter wired to the game's REAL primitives —
+  the same `eventEmitter`, `stateBetDerived.timeScale`, `waitForTimeout` the coded path uses
+  (§8) — and resolves screen ids against the live editor doc's scenes (the real scenes,
+  untouched). `game/flowInterpreterHolder.ts` is the singleton the play path reads.
+  `game/utils.ts`'s `playBookEvent`/`playBookEvents` route through the interpreter WHEN ACTIVE
+  (the same serial `sequence()`) else defer to the coded `createPlayBookUtils` unchanged.
+  `Game.svelte` wraps the basegame mount in `<FlowMount>` and builds the interpreter once
+  `loadEditorScenes()` resolves, then `start()`s it.
+- **The §7 invariant by construction:** the FlowDoc source is ABSENT by default (a
+  `window.__IE_FLOW_DOC__` dev-override hook for Phase-4 live-verify; the baked `flow` slot is
+  Phase 6), so `createLinesFlow` returns `undefined` ⇒ holder null ⇒ `basegameMount` undefined
+  ⇒ `<FlowMount>` renders the original `<LayoutScene scene={basegameBelowReel} />` and the
+  book-event path is the coded one. `apps/lines` is byte-identical to current `main`.
+
+**How it was verified headlessly + build-shipped**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN. New `tools/flow-spike/phase4Runtime.ts`
+  (`pnpm --filter flow-spike run phase4`) — 27/27 assertions GREEN against the REAL engine-flow
+  HSM/mounter/interpreter: mounter authored-vs-fall-through (incl. authored-but-no-scene ⇒
+  fall-through; overlay `visibleSource` carried through to `<LayoutScene>`); all 3 triggers
+  drive transitions; author-order + guard precedence (a guarded `winLevel≥3` edge wins over a
+  later default; guard fails ⇒ the default fires); `delayMs` 600→300 under turbo; the HSM
+  drives no platform transition; the full interpreter is inert with no FlowDoc AND falls
+  through per-event with one authored. Phase-0 `parity` + Phase-1 `pins` + Phase-2/3
+  `roundtrip` spikes still GREEN.
+- **Build-shipped:** `pnpm --filter lines build` GREEN; the `__IE_FLOW_DOC__` hook + the
+  interpreter modules are confirmed present in the minified client bundle (shipment, not just
+  compile); `pnpm --filter engine-layout build` GREEN with `FlowMount`.
+
+**Semantic-fidelity risks found (surfaced, not papered over)**
+- The mounter is a DECISION layer over `<LayoutScene>`, NOT a re-implementation of the Pixi
+  mount — chosen specifically because `<LayoutScene>` already owns MainContainer scaling +
+  the gate; reproducing that in engine-flow would have risked the §11.3 regression. The one
+  consequence: an authored basegame screen replaces ONLY the basegame layers, not the board
+  MainContainer (the reel is engine-owned, not a flow screen) — correct, but means the
+  above-reel split is bypassed when an authored basegame is active (`{#if !basegameMount}`),
+  which is the intended "the authored scene owns its own stacking" semantics. Phase 5
+  per-screen parity must confirm an authored basegame reproduces the below/above-reel z-order.
+- `createBonusSnapshot` (a resume-only coded handler) calls `playBookEvent`, which re-routes
+  through the interpreter when active. With no FlowDoc (default) this is the coded path
+  (parity); when a FlowDoc is authored the replayed events get the same authored treatment —
+  the faithful behaviour, but Phase 5 should add a resume-path parity check.
+
+**Still needs owner-verify live (the remaining gate):** the running WebGPU bundle —
+`preview_screenshot` times out on it (project memory), so verify via the documented
+`app.stage` scene-graph read / dynamic-import override, NOT a screenshot: (1) the DEFAULT
+`apps/lines` boot renders byte-identical with the interpreter inert; (2) injecting
+`window.__IE_FLOW_DOC__` for `basegame` + a `winInfo` choreography makes the interpreter mount
+the authored scene and animate identically turbo on/off. The headless harness proves the
+decision logic + async/timing; the live render is the one thing headless can't prove (the
+structuredClone-class build≠runtime risk).
+
+**What's left**
+- Phase 5 — full migration: move the WHOLE `apps/lines` flow off coded mounting + handler map
+  to an authored FlowDoc, per-screen + per-event parity-checked.
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`; export the game's emitter union as data
+  to replace `DEFAULT_EMITTER_VOCABULARY` + the `__IE_FLOW_DOC__` dev hook).
+- RULE 9: Phase 4 is engine/runtime only — no `/flow` tool UI changed, so `docs/tools/flow.md`
+  needs no Phase-4 update (the Phase-3 choreography `docs-keeper` audit is still pending).
+
+### Progress — Phase 5 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase5-migration` (off the latest `main`). No game submodule bump — Phase 5 is
+`apps/lines`-only (owner mirrors to Borut after this lands). No XState/math/pipeline touched.
+The WHOLE `apps/lines` presentation flow is now authorable as a complete FlowDoc that, when
+loaded, runs the game ENTIRELY through the interpreter with per-event parity proven turbo
+on/off — while the default (no FlowDoc) boot stays byte-identical to current `main`.
+
+**The reconciliation that made full migration possible (the §13 / §11.5 crux).**
+- The choreography vocabulary is emitter-broadcast-only, but every coded `bookEventHandlerMap`
+  handler also does NON-emitter work the bounded vocabulary deliberately can't express: state
+  mutations (`stateGame.gameType = …`, `stateBet.winBookEventAmount = …`, the `stateUi.*`
+  flags), board ops (`enhancedBoard.spin(…)`, the Book-of column morph), the win-level sound
+  clusters (which read LIVE state, not the trigger payload), and the bonus record. Growing the
+  vocabulary to cover these would be the scripting-VM line §11.4 forbids.
+- **Resolution — one bounded primitive: the `effect` choreography node** (`engine-flow`). A
+  named, game-registered side effect — the EXACT `declare ≠ implement` analogue of
+  `registerComponentActions`. The FlowDoc *declares* `{ kind:'effect', name, payload }` (payload
+  = whitelisted accessors); the game *implements* a CLOSED map at boot, injected on
+  `FlowRuntime.effect`. Awaited like a Broadcast, so an effect mirroring an awaited coded
+  operation blocks the sequence identically; an un-registered effect is a no-op (parity-safe).
+  This is NOT a VM — a closed registry of named effects whose bodies live in game code, never
+  authored in the doc. Also added a `$context.*` accessor (the dispatch context `{ bookEvents }`
+  the coded handler's 2nd arg carries) so a reveal's multiple-reveal check + the resume snapshot
+  resolve without leaving the bounded model. Both new kinds round-trip through `normalizeFlowDoc`
+  (the bake-path contract) idempotently — verified.
+
+**A — the COMPLETE apps/lines FlowDoc (`apps/lines/src/game/flowDoc.ts`, committed fixture).**
+- `LINES_FLOW_DOC` authors the `basegame` screen node (`initial`) + a per-event choreography for
+  EVERY migratable book event: `reveal`, `winInfo`, `setTotalWin`, `setExpandingSymbol`,
+  `expandBookColumns`, `freeSpinTrigger`, `updateFreeSpin`, `freeSpinEnd`, `setWin` (9 events).
+  Each choreography is read straight off `bookEventHandlerMap.ts`: a sync `broadcast` ⇒ Broadcast
+  node; an awaited `broadcastAsync` ⇒ `{async:true,await:true}`; a fire-and-forget `broadcastAsync`
+  ⇒ `{async:true,await:false}`; `waitForTimeout(ms)` ⇒ Delay; serial `sequence(list,…)` ⇒ ForEach
+  `sequence`; every non-emitter leaf ⇒ an `effect` node.
+- **The effect bodies (`apps/lines/src/game/flowEffects.ts`) are lifted VERBATIM** from the coded
+  handler leaves — `bookEventHandlerMap.ts` now IMPORTS the three shared helpers (`winLevelSoundsPlay`,
+  `winLevelSoundsStop`, `animateSymbols`) from there, so the coded path and the effects share ONE
+  source of truth per leaf. An effect is therefore byte-identical to its coded counterpart by
+  CONSTRUCTION (reproduced, never re-derived). The coded handler map is otherwise unchanged.
+- `finalWin` (coded no-op) and `createBonusSnapshot` (resume-only) are DELIBERATELY left
+  UN-authored ⇒ they fall through to their coded handlers, keeping the §7 fall-through exercised
+  end-to-end during the migration. The free-spin intro/outro/counter/specialBook/win overlays are
+  feed-driven (`visibleSource`), NOT exclusive screen swaps, so per §5 they are NOT screen nodes —
+  they stay feed-driven exactly as coded. `apps/lines`' only exclusive screen is `basegame`.
+- A committed dev hook (`window.__IE_FLOW_LINES__`) sources `LINES_FLOW_DOC` for live-verify,
+  alongside the existing `window.__IE_FLOW_DOC__` ad-hoc hook. NEITHER is set on a normal boot ⇒
+  `loadFlowDoc()` returns `undefined` ⇒ the interpreter is inert ⇒ byte-identical to `main`.
+  (Phase 6 replaces the hook with the baked `flow` slot sourcing the SAME doc.)
+
+**B — the two Phase-4 follow-ups resolved.**
+- **B.1 Above-reel z-order.** Game.svelte now splits the AUTHORED basegame scene at its top-level
+  `reelGrid` index exactly as the coded path splits `basegameScene`: `<FlowMount>` mounts the
+  below-reel slice, the engine-owned board MainContainer mounts next, and the above-reel slice
+  renders AFTER it — UNCONDITIONALLY (the old `!basegameMount` gate is gone). So an authored
+  basegame reproduces the exact below-reel → board → above-reel stacking. No reelGrid in the
+  authored scene ⇒ single below-reel pass (parity with a nested-reelGrid coded boot).
+- **B.2 Resume path.** `createBonusSnapshot` stays coded (its `_.findLast` selection is exactly
+  the bounded-VM line we don't cross); the events it replays (`freeSpinTrigger`/`updateFreeSpin`/
+  `setTotalWin`) route through `playBookEvent` ⇒ the interpreter when active ⇒ get their AUTHORED
+  choreography. The harness proves the resume replay SEQUENCE's interpreter op log equals the
+  coded play of the same events in the same order (39 ops, turbo on/off) — the snapshot-then-resume
+  is parity-correct because each replayed event is parity-proven and the order is preserved.
+
+**C — per-event parity harness (the gate): `tools/flow-spike/phase5Migration.ts`.**
+- `pnpm --filter flow-spike run phase5` — for EACH of the 9 events it runs the coded handler body
+  (transcribed verbatim, driving a shared recording rig through the SAME effect leaves) AND the
+  interpreter over the REAL `LINES_FLOW_DOC`, asserting the ordered op log (broadcasts with the
+  3-way split + named effect invocations + resolved payloads + awaited completions + scaled
+  delays) is IDENTICAL turbo ON and OFF. **18/18 per-event checks GREEN** (op counts:
+  reveal 7, winInfo 5, setTotalWin 2, setExpandingSymbol 3, expandBookColumns 4, freeSpinTrigger 29,
+  updateFreeSpin 8, freeSpinEnd 27, setWin 15). Plus coverage (all migratable events authored;
+  finalWin + createBonusSnapshot deliberately fall through; basegame is the initial exclusive
+  screen) + the B.2 resume-replay parity (39 ops, turbo on/off). **NO DIVERGENCE FOUND.**
+- Subtleties caught + fixed during authoring (each would have visibly broken the game): the
+  `freeSpinTrigger` interleave of `setFreeGameType` vs the `freeSpinIntroHide` broadcast vs the
+  `freeSpinIntroShow=false` flag (split into separate effects to match the exact coded order); the
+  `updateFreeSpin` `current = amount + 1` arithmetic (an effect, not an accessor — the bounded
+  model has no arithmetic); and that `winLevelSoundsStop` branches on live `gameType`
+  (`bgm_freespin` in freegame/`freeSpinEnd` vs `bgm_main` in basegame/`setWin`) — the harness
+  models both branches per-event.
+
+**How it was verified headlessly + build-shipped**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN (the `effect` node + `context` accessor +
+  `FlowEffect`/`FlowRuntime.effect` additions). `pnpm --filter lines build` GREEN and the dev
+  server boots clean; the `__IE_FLOW_LINES__` hook + the effect names (`revealBoard`,
+  `winLevelSoundsPlay`, …) are confirmed present in the minified client bundle (shipment).
+  `pnpm --filter engine-layout build` GREEN. The FlowDoc survives `normalizeFlowDoc` round-trip
+  idempotently with all 9 events + every `effect` node preserved (bake-ready). The Phase-0
+  `parity`, Phase-1 `pins`, Phase-2/3 `roundtrip`, and Phase-4 `phase4` spikes all still GREEN.
+- **Default-inert invariant proven at the bundle level:** `loadFlowDoc` gates on the two globals
+  only; with neither set the FlowDoc is never sourced ⇒ `createLinesFlow` ⇒ `undefined` ⇒ holder
+  null ⇒ the coded mounting + coded `bookEventHandlerMap` run unchanged. `apps/lines` default boot
+  is byte-identical to current `main`.
+
+**Still needs owner-verify live (the one thing headless can't prove — the WebGPU bundle):**
+`preview_screenshot` times out on WebGPU (project memory), so verify via the documented
+`app.stage` scene-graph read / dynamic-import override, NOT a screenshot. Two checks:
+  1. **Default boot** (no globals) renders + animates byte-identical to `main` (the interpreter is
+     inert — confirmed at the bundle/build level here, needs a live eyeball for full confidence).
+  2. **Full FlowDoc** — set `window.__IE_FLOW_LINES__ = true` before boot (or inject it via a
+     dynamic-import override) and run a real spin INCLUDING free spins + a win + a resume: the
+     interpreter mounts the authored basegame (with the below/above-reel z-order intact) and
+     animates IDENTICALLY turbo on/off. The headless harness proves the mount decision + the
+     emitter/effect call sequence + timing; the live render is the structuredClone-class
+     build≠runtime risk only a real browser closes.
+
+**What's left**
+- Phase 6 — bake/pipeline (`flow?` in `BakedBundle`; the baked `flow` slot replaces the
+  `__IE_FLOW_LINES__`/`__IE_FLOW_DOC__` hooks; export the game's emitter union + the effect-name
+  catalog as data alongside the FlowDoc). When the engine `effect`-node work must reach Book of
+  Borut, bump its `engine` submodule (owner mirrors after this lands).
+- RULE 9: the Phase-3 choreography `docs-keeper` audit of `docs/tools/flow.md` is still pending;
+  the editor UI could later surface the `effect`/`context` node kinds (authored-as-data today).
+
+### Progress — Phase 6 DONE headlessly + build-shipped (2026-06-24)
+
+Branch `flow/phase6-pipeline` (off the latest `main`). No game submodule bump yet — the
+ship chain is proven in the launcher + `apps/lines`; bumping Borut's `engine` submodule is
+the owner's mirror step once this lands. This closes RULE 8 for the FlowDoc: the authored
+presentation graph now travels the SAME export→deploy→bake→register chain as the art / font /
+symbol docs, so a game ships its flow instead of running only its coded path.
+
+**A — the export step (the FlowDoc analogue of `editorArtExport.ts`).**
+- `apps/launcher-api/src/lib/server/flowExport.ts` (`exportEditorFlow`) reads the authored
+  `editor/flow.json`, re-normalizes it through `normalizeFlowDoc` (the SAME serialize contract
+  `/api/flow/save` + the headless round-trip use, so the deployed doc is canonical), and writes
+  `deploy/flow.json`. Unlike art/font/symbol exports the FlowDoc carries **no binary assets** —
+  it only references scenes the Scene Editor already exported — so there is **no `pull` step**,
+  just the embedded doc. An absent / invalid / EMPTY (no screens/transitions/events)
+  `editor/flow.json` exports nothing and **prunes** any stale `deploy/flow.json`, so an
+  un-authored project bakes no flow (parity). Idempotent.
+- `apps/launcher-api/src/routes/api/editor/export-flow/+server.ts` — the build-time trigger,
+  gated by the SAME shared `EDITOR_DOC_SECRET` (`?k=`) as `/api/editor/doc` (a build runner has
+  the token, no launcher session).
+
+**B — bake + the live-runtime bundle both embed the slot.**
+- `bake-editor-doc.mjs` POSTs `/api/editor/export-flow` right alongside the art/font/symbol
+  exports, then embeds the returned doc as `BakedBundle.flow` — but ONLY when it is non-empty
+  (the `authored` gate: ≥1 screen/transition/event). An empty/absent doc leaves `flow`
+  undefined so the bundle is **byte-identical** for every game with no flow work (§7). The
+  bake log line gains a `flow={N screens/N transitions/N events}` note.
+- `runtimeBundle.ts` (the `/api/editor/runtime-bundle` path the editor preview reads) runs
+  `exportEditorFlow` in the same `Promise.all` as the other exporters and forwards a non-empty
+  `flow` the same way, so the live editor runtime and the baked game resolve the identical slot.
+
+**C — the game registers the baked slot (parity-first).**
+- `apps/lines/src/editor-scenes.ts` adds `flow?: FlowDoc` to `BakedBundle` and a
+  `bakedFlowDoc()` reader mirroring `bakedSymbolMap`'s **runtime-bundle → baked → undefined**
+  precedence.
+- `apps/lines/src/game/flowRuntime.svelte.ts#loadFlowDoc()` now resolves, in order: the
+  `__IE_FLOW_DOC__` dev override → the `__IE_FLOW_LINES__` committed fixture → **`bakedFlowDoc()`
+  (the real ship source)**. UNDEFINED on an un-baked / un-authored boot (the checked-in
+  `baked-editor-bundle.json` placeholder has `doc:null` and no `flow` key) ⇒ the interpreter is
+  inert ⇒ the coded mounting + `bookEventHandlerMap` run, byte-identical to current `main`.
+
+**How it was verified headlessly + build-shipped**
+- `tools/flow-spike/phase6Pipeline.ts` (`pnpm --filter flow-spike run phase6`) — 12/12 GREEN
+  against the REAL `engine-flow` interpreter + the REAL `LINES_FLOW_DOC`, modelling the exact
+  ship chain: (1) the authored doc survives `normalizeFlowDoc` (export/bake contract)
+  idempotently with every screen/event intact; (2) baked PRESENT ⇒ `loadFlowDoc()` returns it ⇒
+  interpreter `isActive`; (3) baked ABSENT ⇒ undefined ⇒ interpreter INERT (coded path, §7);
+  (4) an authored-but-EMPTY doc is treated as absent by the `authored` gate (parity); (5) the
+  dev-hook escape hatches still win over the baked slot. Phase-0 `parity` / Phase-1 `pins` /
+  Phase-2-3 `roundtrip` / Phase-4 `phase4` / Phase-5 `phase5` spikes ALL still GREEN.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the export endpoint + `flowExport` + the bundle slot ship); `pnpm --filter lines build` GREEN
+  with `bakedFlowDoc()` + the baked-source `loadFlowDoc()` confirmed in the minified client
+  bundle (shipment, not just compile). The checked-in placeholder bundle has no `flow` key ⇒ the
+  dev boot stays inert.
+
+**Held for a Phase-6 follow-up (NOT blocking the ship gate):** exporting the game's **emitter
+union + effect-name catalog as data** to replace the hardcoded `DEFAULT_EMITTER_VOCABULARY` in
+the `/flow` choreography palette. This is an AUTHORING-fidelity improvement only — it changes
+which Broadcast events the picker offers, NOT the runtime (the executor broadcasts whatever the
+FlowDoc says). The default vocabulary is already transcribed verbatim from the lines/book-of
+emitter unions, and Borut IS a book-of game, so the default already covers it; the codegen step
+(read each game's compile-time `typesEmitterEvent.ts` → a serializable catalog → feed the editor)
+is deferred to Phase 7 authoring-UX. **Owner-verify live (the one thing headless can't prove):**
+bake a project that authored a flow (or point a build at one) and confirm the shipped game boots
+with the interpreter ACTIVE off the baked slot — verify via the `app.stage` read / dynamic-import
+override per the WebGPU `preview_screenshot` limitation, not a screenshot.
+
+**What's left**
+- Phase 7 — authoring UX (node/palette search, copy/paste subgraphs, validation) + the held
+  emitter-union/effect-name export above; surfacing `effect`/`context` node kinds in the editor.
+- The Phase-3 `docs-keeper` audit of `docs/tools/flow.md` (still pending from Phase 3).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
+  is authored + baked — the owner's step.
+
+### Progress — Phase 7 (Authoring UX) IN PROGRESS, headless-verified (2026-06-24)
+
+Branch `flow/phase7-authoring-ux` (off the latest `main`). EDITOR-ONLY — the runtime
+interpreter, the games, XState/math and the bake pipeline are untouched, so there is no
+game-parity risk; the FlowDoc still round-trips clean (the `roundtrip` spike stays green).
+The first Phase-7 item (readable edge labels) landed earlier; this slice adds the rest of
+§9 row 7 — validation, search, copy/paste, the authored-vs-coded diff, and pin tooltips.
+
+**1 — Validation surfacing (`engine-flow/src/validate.ts`, `validateFlowDoc`).**
+- A PURE pass over the macro graph (Svelte-free, dependency-free, runs headlessly + in the
+  launcher) flagging, as WARNINGS (never blocks authoring, §7): **unreachable** screens (no
+  transition path from `initial`), **dead-end** screens (a non-initial screen with no
+  outgoing edge; a single-screen flow like `apps/lines` basegame is terminal-by-design and
+  NOT flagged), **no-initial** / **multiple-initial**, and **orphaned-pins** (folded in from
+  the per-screen orphan summary the model already derives via `deriveScreenPins`, §4). Each
+  node-scoped issue carries a clickable `screenId`. Surfaced in a new
+  `ValidationPanel.svelte` (click an issue to select/focus the node), an inline amber node
+  border (`FlowScreenNode` `invalid` flag), and a `⚠ N issues` sub-bar badge.
+
+**2 — Node/palette search.** A **Filter screens** box on the palette (filters unplaced
+scenes by name/id) + a **Find on canvas** box (lists placed screens matching a query;
+click → select + focus the node). Pure `$derived` filters; the validation + diff panels are
+also click-to-focus through the same `focusScreen`.
+
+**3 — Copy/paste subgraphs (`flowModel.client.ts` `copyScreens`/`pasteScreens`).** Copy the
+selected screen(s) WITH choreography + the transitions wholly internal to the selection;
+paste mints **fresh** transition ids and remaps endpoints (§12 — a paste is a new node, no
+id recycling). Because a screen node id IS its backing scene id (and a scene is placed at
+most once), paste maps each copied screen onto a target scene: re-pastes the same scene when
+free (e.g. after a cut) else onto the next UNPLACED scene, carrying the choreography. Wired
+through the command stack (undoable) + Ctrl+C/Ctrl+V (suppressed in text fields).
+
+**4 — Flow-diff vs coded default (`engine-flow/src/diff.ts`, `diffFlowDoc`).** A PURE
+summary of which screens/events the FlowDoc AUTHORS (interpreter-driven) vs falls through to
+the CODED default (§7) — the same predicate the dispatch uses. Rendered by a new
+`FlowDiffPanel.svelte`: a compact summary line ("N of M screens authored · N of M events
+authored"), per-screen enter/while/exit phase indicators (click-to-focus), and per-event
+authored/coded tags against `DEFAULT_CODED_EVENTS` (the `apps/lines`/Book-of handler-map
+keys). It REPORTS the §7 boundary, never changes behaviour.
+
+**5 — Visual polish.** Pin labels now carry a `title` tooltip (role + full binding, with an
+orphaned note) so a truncated handle label is readable on hover; node title gets a `title`
+too; handle row spacing nudged; the `invalid` node marker added. Consistent with the dark
+theme (the edge-label chip palette).
+
+**How it was verified headlessly**
+- `tools/flow-spike/phase7Authoring.ts` (`pnpm --filter flow-spike run phase7`) — 30/30
+  GREEN against the REAL `engine-flow` helpers: validation across every issue class
+  (unreachable island, dead-end leaf, no/multiple-initial, single-screen-clean, orphan
+  fold-in with count), the authored-vs-coded diff (per-screen phases + per-event tags +
+  summary), and the copy/paste invariant (a pasted subgraph with fresh ids round-trips
+  canonical + idempotent through `normalizeFlowDoc`, all ids unique). `pnpm --filter
+  engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN (the page +
+  `ValidationPanel` + `FlowDiffPanel` ship). The Phase-0 `parity`, Phase-1 `pins`,
+  Phase-2/3 `roundtrip`, Phase-4 `phase4`, Phase-5 `phase5` and Phase-6 `phase6` spikes ALL
+  still GREEN (copy/paste yields round-trip-clean docs).
+
+**Still needs owner-verify live (the authed page can't be driven headlessly):** the in-
+browser Phase-7 interactions — palette/canvas search, Copy/Paste (incl. Ctrl+C/V), the
+validation panel + inline node markers, the diff panel, and the pin tooltips — on the
+deployed launcher with auth + R2. Headless proves the helpers + build/ship/round-trip, not
+the pixels/interactions.
+
+**What's left**
+- A `docs-keeper` audit of `docs/tools/flow.md` (the Phase-3 audit is still pending AND the
+  Phase-7 sections are a flagged first-draft; the choreography Broadcast/effect picker now
+  sources the game's EXPORTED vocabulary + offers an effect-name picker — see the emitter-vocab
+  item below — which the audit should document).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its
+  flow is authored + baked — the owner's step.
+
+### Progress — Phase 7 emitter-vocabulary export DONE headlessly (2026-06-24)
+
+Branch `flow/phase7-emitter-vocab` (off the latest `main`). EDITOR/CODEGEN-ONLY — no runtime,
+game, XState/math or pipeline code touched, and the new `flowVocabulary.ts` is imported by
+NOTHING in the game runtime (only the spike). This is an **authoring-fidelity** improvement:
+it changes which Broadcast events + effect names the `/flow` choreography palette OFFERS, never
+the runtime (the executor broadcasts/invokes whatever the FlowDoc declares regardless). **Zero
+game-parity risk; no submodule bump.** Resolves the held follow-up from Phase 3 (§B,
+~lines 263-275) / Phase 6 (~lines 599-609).
+
+**Mechanism chosen — build-time CODEGEN (not a pipeline export), and why.** The emitter union
+(`typesEmitterEvent.ts` + the per-component `EmitterEvent*` unions + the shared
+`EmitterEventUi`/`Modal`/`HotKey` unions a game composes) and the effect catalog
+(`flowEffects.ts` keys) are properties of the GAME SOURCE — identical across every project built
+on that game, NOT per-project authored data living in R2. Pushing a per-game constant through
+export→deploy→bake→R2-per-project (the option-b path the FlowDoc itself travels) would invent
+per-project storage for non-per-project data. So codegen is the honest fit: it parses each
+game's source into a committed, serializable `EmitterVocabulary` fixture (mirroring the existing
+committed game-source fixtures `flowDoc.ts`/`flowEffects.ts`) and surfaces it through the
+launcher exactly the way the LayoutDoc + component defs are passed in (design doc §3/§11).
+
+**What landed**
+- `scripts/gen-flow-vocabulary.mjs` (run `pnpm gen:flow-vocab`, check `pnpm gen:flow-vocab:check`)
+  — a deterministic parser of the simple `{ type: 'name'; field: Type }` union members + the
+  `flowEffects` map keys. Emits TWO committed files (Prettier-formatted in-script so write +
+  `--check` are idempotent): `apps/lines/src/game/flowVocabulary.ts` (`LINES_EMITTER_VOCABULARY`,
+  35 events incl. the shared UI cues + `soundFade` the hand-written default missed, 20 effects)
+  and `apps/launcher-api/src/lib/flowVocabularies.ts` (the launcher registry keyed by LayoutDoc
+  `gameType` + `resolveFlowVocabulary(gameType)`, which falls back to `DEFAULT_EMITTER_VOCABULARY`
+  for any unrecognized game — the §7 parity-safe default). `lines`+`bookOf` map to the lines
+  vocab (the shared lines/book-of union covers Book of Borut); everything else ⇒ default.
+- `engine-flow/src/emitterVocabulary.ts` gained `EmitterEffectDef` + `EmitterVocabulary.effects?`
+  + `findEmitterEffect`; `DEFAULT_EMITTER_VOCABULARY` is UNCHANGED (still the fallback).
+- The editor now PREFERS the exported vocabulary: `/flow` `+page.server.ts` resolves it from the
+  LayoutDoc `gameType` via `resolveFlowVocabulary` and passes it as `data.vocabulary`; `+page.svelte`
+  feeds that to `ChoreographyEditor` instead of the hardcoded `DEFAULT_EMITTER_VOCABULARY`.
+- **Effect-name catalog surfaced (the doc's "emitter union + effect-name catalog" pairing).**
+  `ChoreoNodeInspector` renders an effect-name picker (from `vocab.effects`) for an `effect`
+  node, with a "not a registered effect" warning; `editChoreoNode`/`ChoreoNodeEdit` gained the
+  `effect` `name` edit; `choreoNodeSummary` gained the previously-missing `effect` case so an
+  effect node labels on the canvas. (Adding `effect` as a NEW addable node kind stays deferred —
+  this surfaces the catalog for existing/authored effect nodes, not a full effect authoring UX.)
+
+**How it was verified headlessly**
+- `tools/flow-spike/vocabulary.ts` (`pnpm --filter flow-spike run vocab`) — 13/13 GREEN: (1) the
+  codegen is IN SYNC with source (`--check` exits 0, so the fixture cannot silently drift from the
+  union/effect map the way the hand-written default could); (2) every Broadcast event (26) + every
+  effect (20) the REAL `LINES_FLOW_DOC` authors is present in the exported vocab; (3) the exported
+  vocab is a SUPERSET of `DEFAULT_EMITTER_VOCABULARY` (real union, never a regression) and adds
+  events the hand-transcribed default missed (e.g. `soundFade`); (4) the launcher registry maps
+  `lines`/`bookOf` and `resolveFlowVocabulary` falls back to the default for unknown/absent
+  gameType.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN
+  (the page + registry + effect picker ship). The Phase-0 `parity`, Phase-1 `pins`, Phase-2/3
+  `roundtrip`, Phase-4 `phase4`, Phase-5 `phase5`, Phase-6 `phase6` and Phase-7 `phase7` spikes
+  ALL still GREEN. (`pnpm --filter lines build` fails in this worktree on the pre-existing
+  stale-engine-dist gotcha — `pixi-svelte` entry unresolved — unrelated to this change; the new
+  fixture compiles, proven by the spike's tsx import, and is imported by no game runtime module.)
+
+**Still needs owner-verify live (the authed page can't be driven headlessly):** in the deployed
+launcher, open a lines/book-of project's `/flow`, double-click a screen → the Broadcast picker
+lists the game's real events (incl. `soundFade`/UI cues) and an `effect` node offers the
+registered effect names. Headless proves the codegen fidelity + build/ship + resolver fallback,
+not the picker pixels.
+
+**What's left**
+- The `docs-keeper` audit of `docs/tools/flow.md` (Phase-3 + Phase-7 first-draft, now ALSO the
+  exported-vocabulary palette + effect-name picker).
+- Mirror the `engine-flow` runtime to Book of Borut (bump its `engine` submodule) when its flow
+  is authored + baked — the owner's step.
+
+### Progress — Phase-8 `$context` accessor slice salvaged onto #63 (2026-06-24)
+
+Branch `flow/phase8-context-salvage` (off the `#63` `main`). An abandoned parallel
+`flow/phase8-effect-context` branch had built the effect node + name picker + payload editors
+itself; `#63` (the emitter-vocabulary export above) SUPERSEDED that with build-time per-game
+vocabulary codegen, so the effect-catalog / effect-node / drift-guard parts of Phase 8 were
+DROPPED. The one non-redundant slice salvaged here is **`$context.*` accessor authoring** —
+the surrounding dispatch context (`{ bookEvents }`) an effect's payload can read — plus its
+preview + validation plumbing. EDITOR/ENGINE-AUTHORING ONLY — no runtime/game/XState/math or
+pipeline code touched; the model layer already carried `kind:'context'`. **Zero game-parity
+risk; no submodule bump.**
+
+**What landed**
+- `engine-flow/src/accessorText.ts` — shared pure `parseFlowAccessor` / `flowAccessorText`
+  (literal / `$trigger.` / `$item.` / `$context.` / `$engine.`) + `FLOW_ACCESSOR_HINT`,
+  exported from `index.ts`. This dedup is what lets `$context` land in BOTH inspectors
+  identically: `ChoreoNodeInspector` (Broadcast/Effect payload + ForEach list + Branch guard)
+  and `EdgeInspector` (transition guard) now call the shared helper instead of an inline copy.
+- `previewExecutor.ts` — `FIXED_PREVIEW_CONTEXT` (`{ bookEvents }`) + `PreviewOptions.context`,
+  wired into the `FlowScope`; `ChoreoPreview.svelte` passes it AND fixes the `effect` timeline
+  label (it rendered `undefined [undefined]` because it read `event`/`mode` on an effect entry;
+  now `name [effect]`).
+- `validate.ts` — the `unresolved-accessor` warning class (a `$engine.`/`$context.` accessor
+  whose key/root isn't known → non-blocking warn, §7) + `FlowValidateOptions`; `/flow`
+  `+page.svelte` passes `ENGINE_PARAM_CATALOG` keys + `contextRoots: ['bookEvents']`, and
+  `ValidationPanel.svelte` got the icon. The `unknown-effect` panel warning was deliberately
+  NOT brought over — `#63` already warns inline on an unregistered effect name.
+
+**How it was verified headlessly**
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN.
+- `tools/flow-spike/roundTrip.ts` GREEN, extended to author an `effect` node with a
+  `$context.bookEvents` payload accessor through the model layer and assert it round-trips,
+  runs through the REAL executor, and resolves against `FIXED_PREVIEW_CONTEXT` (the effect-catalog
+  drift assertions from the abandoned branch were NOT included). `parity`/`phase5`/`phase6`/
+  `phase7` still GREEN. (`vocab` reports a pre-existing `#63` line-ending drift on this Windows
+  worktree — the committed generated files are CRLF but the codegen + `.gitattributes` are LF, so
+  `gen:flow-vocab:check` flags them stale; regenerated content is byte-identical. Unrelated to
+  this salvage — no vocabulary source/generated file is in the changeset.)
+### Progress — tap-to-continue / signal-trigger addition DONE headlessly (2026-06-24)
+
+Branch `flow/tap-to-continue` (off the latest flow stack). The RUNTIME/INTERPRETER HALF of a
+"tap to continue" feature (owner decision: BOTH — a tap both completes the active screen AND
+emits a named signal). The component that captures the tap is the NEXT agent's job; this slice
+exposes the API it will call. No game submodule bump. No XState/math touched. Parity (§7) held:
+no existing FlowDoc uses `signal` triggers or the new hooks, so every current doc/game is
+byte-identical and the default/empty path is unchanged.
+
+**A — "advance/complete the active screen" runtime hook.**
+- `FlowInterpreter.completeActiveScreen()` (`engine-flow/src/interpreter.ts`) — runs the active
+  screen's `exit` choreography then fires its `complete`/`exited` structural pin, so any
+  `complete`-triggered edge from that screen advances the flow (the click analogue of the screen
+  self-signalling done, §6.2). A SAFE no-op when the interpreter is inert (no FlowDoc ⇒ no machine
+  ⇒ returns `false`). Maps to the HSM's existing `onComplete()` — the exit phase already runs inside
+  the transition swap (`performTransition`), so the requested semantic is satisfied by construction;
+  this is a clearly-named alias of the `complete()` boundary for the tap path.
+
+**B — new `signal` transition trigger.**
+- `FlowTrigger` gains `{ kind:'signal'; signal:string }` (`engine-flow/src/types.ts`). The HSM
+  (`presentation.ts`) gains `onSignal(name)` — fires the first active-screen outgoing edge whose
+  trigger is `{kind:'signal', signal:name}`, mirroring how a `bookEvent` trigger matches the
+  arriving event `type`; a non-matching name / un-listened signal is a no-op. The interpreter
+  surfaces `emitSignal(name)` (a no-op returning `false` when inert). `normalizeFlowDoc`
+  (`normalize.ts`) round-trips the new trigger and DROPS an invalid one (missing/empty `signal`)
+  without corrupting the doc (the bake/save contract). `diff.ts`/`validate.ts` need no change (they
+  don't switch on trigger kind).
+
+**C — game-side holder access (the next agent's call sites).**
+- `apps/lines/src/game/flowInterpreterHolder.ts` exports `completeActiveScreen()` and
+  `emitFlowSignal(signal)` — both read the interpreter singleton the same way `game/utils.ts`'s
+  `playBookEvent` does (`getFlowInterpreter()`), and are SAFE no-ops returning `false` when no
+  FlowDoc is active. The next agent's tap component imports these two functions and calls them on
+  click — `completeActiveScreen()` for the `complete`-edge path, `emitFlowSignal('<name>')` for the
+  `signal`-edge path. (Both, per the owner's "Both" decision.)
+
+**D — /flow editor — `signal` trigger option.**
+- `EdgeInspector.svelte` trigger picker gains a "Tap signal" option + a signal-name input
+  (consistent with the bookEvent/complete/condition UI). The `+page.svelte` edge-label switch gains
+  a `tap: <name>` case (kept the switch exhaustive for the new variant).
+
+**How it was verified headlessly + build-shipped**
+- `tools/flow-spike/tapToContinue.ts` (`pnpm --filter flow-spike run tap`) — 16/16 GREEN against the
+  REAL interpreter/HSM/normalize: (A) `emitSignal` matched fires + advances winPresentation→basegame
+  running exit-then-enter in order, non-matching name + un-listened signal are no-ops; (B)
+  `completeActiveScreen()` runs exit(bonusIntro)→enter(bonus) via a `complete` edge, no-op with no
+  edge; (C) inert (no FlowDoc) ⇒ both hooks return `false` (parity §7); (D) a `signal`-trigger doc
+  round-trips canonical + idempotent through `normalizeFlowDoc`, an invalid signal trigger is dropped
+  while the valid sibling survives.
+- `pnpm --filter engine-flow exec tsc --noEmit` GREEN; `pnpm --filter launcher-api build` GREEN (the
+  EdgeInspector + page ship); `pnpm --filter lines build` GREEN (after `pnpm --filter pixi-svelte
+  build` to clear the stale-engine-dist gotcha) with `completeActiveScreen`/`emitSignal`/`onSignal`
+  confirmed present in the minified client bundle (shipment). The Phase-0 `parity`, Phase-1 `pins`,
+  Phase-2/3 `roundtrip`, Phase-4 `phase4` (allowlist extended with `onSignal` — still a pure
+  observe/react surface, no platform-driving method), Phase-5 `phase5`, Phase-6 `phase6`, Phase-7
+  `phase7` spikes ALL still GREEN. (`vocab` was already failing on the base — a codegen-staleness
+  `--check`, unrelated to this change; no vocab files touched here.)
+
+**Still needs owner-verify live:** nothing for the runtime half — the next change (the tap-capturing
+component) is what makes a tap reach `completeActiveScreen()`/`emitFlowSignal()` in a real game; this
+slice proves the API + signal matching + round-trip headlessly. When the engine `signal`-trigger work
+must reach Book of Borut, bump its `engine` submodule (owner's mirror step) once a tap-enabled flow is
+authored.
+
+### Progress — tap-to-continue surface made transform-independent DONE (2026-07-02)
+
+Fixes the known `STILL-OWED: transform-independent tapToContinue dim` gap: on a flow-driven
+screen whose overlay `componentInstance` has `tapToContinue: true`, the full-CANVAS tap surface
+(dim `CanvasSizeRectangle` + `OnPressFullScreen` hit rect + `PressToContinue` prompt) was broken
+in PORTRAIT — the prompt was mis-sized and the full-screen tap area landed nowhere. Landscape was
+fine. Reported on the shipped Book of Borut loading screen.
+
+**Root cause.** `ComponentInstance.svelte` rendered `tapSurface` INSIDE its `rendered` snippet,
+which `LayoutNodeView.svelte`'s componentInstance branch wraps in
+`<Container x={posX} y={posY} scale={transform.scale} rotation …>`. So the "full-screen" tap
+surface inherited the instance's PER-LAYOUTTYPE transform. In portrait the editor stores an
+offset + downscale for that instance, so the `canvasSizes()`-sized rectangle was pushed off the
+visible canvas (clicks miss) and the `MainContainer`-anchored prompt was double-scaled. The
+free-spin gate (`FreeSpinIntroGate`) uses the SAME primitives correctly because it is mounted as
+a scene-root canvas bind — never positioned.
+
+**Fix (approach: hoist to a scene-root sibling, no matrix math).** `ComponentInstance` now
+EXPOSES its `tapSurface` snippet UP via a new bindable `tap?: Snippet` prop (assigned once,
+init-stable, to `tapComponent ? tapSurface : undefined`) and no longer renders it inside
+`rendered`. `LayoutNodeView`'s componentInstance branch binds it (`bind:tap={instanceTap}`) and
+renders it as a SIBLING of the transform wrapper `<Container>` — so the tap surface renders in the
+scene-root/canvas frame, exactly like the engine-owned free-spin gate, independent of the
+instance's authored placement/scale. Generic (no loading-screen/magic-id special-casing) — any
+overlay instance on any flow screen benefits. Chosen over a transform-neutralizing wrapper because
+it needs no matrix inversion and is correct even under a rotated/non-uniform instance transform.
+
+**Parity (§7).** Inert when `tapToContinue` is OFF (the default): `tap`/`instanceTap` stay
+`undefined`, the `{#if instanceTap}` renders nothing, and the non-tap `rendered` output is
+unchanged — byte-identical for every instance that hasn't enabled the capability. Existing
+`tapDimColor`/`tapDimAlpha`/`tapHidePrompt`/`tapSignal` behaviour is untouched (same props, same
+coded `TapToContinue`/`PressToContinue`).
+
+**Files.** `packages/engine-layout/src/lib/ComponentInstance.svelte` (Props gains `tap?: Snippet`;
+`$bindable()` destructure; `$effect` hands the `tapSurface` snippet up; removed the in-transform
+`{@render tapSurface()}`). `packages/engine-layout/src/lib/LayoutNodeView.svelte` (import `Snippet`;
+`instanceTap` `$state`; `bind:tap` on `<ComponentInstance>`; `{#if instanceTap}{@render}` sibling
+of the wrapper).
+
+**Verified headlessly.** New CPU scene-graph harness
+`packages/engine-layout/scripts/test-tap-transform-independence.mjs` builds BOTH candidate PIXI
+trees (transform math is CPU-only, no GPU/DOM) and asserts world bounds of the full-canvas rect:
+OLD (child of the instance transform) → portrait bounds `{x:240,y:620,w:669.6,h:1190.4}` do NOT
+cover the canvas (bug reproduced); NEW (hoisted sibling) → covers the full canvas in BOTH landscape
+`{0,0,1920,1080}` and portrait `{0,0,1080,1920}`, AND under a hostile rotated/non-uniform instance
+transform. `pnpm --filter engine-layout build` GREEN; `pnpm --filter lines... build` GREEN
+(confirms the bindable-snippet contract compiles across the package boundary). Prettier-clean.
+
+**Runtime bundle.** engine-layout `dist` is `svelte-package` source-copy, already regenerated; the
+online games run the SHARED runtime bundle, so this reaches Book of Borut ONLY via a runtime-bundle
+republish (`publish-runtime-bundle.mjs`) — NOT a submodule bump. Owner will handle the release after
+review. Not yet shipped.
+
+**Still needs owner-verify live:** confirm in a running Book of Borut (or apps/lines with a
+tap-enabled overlay authored on the loading screen) that in PORTRAIT the tap lands anywhere on the
+canvas and the prompt is correctly sized, and that landscape is unchanged.
+
+### Progress — FS-6 DONE headlessly (2026-07-03; PER-STEP ownership)
+
+**Corrected model (owner, 2026-07-03).** The initial FS-6 brief said "presentation-stripped
+choreographies (drop the `*Show` broadcasts)". Tracing the code showed that would BREAK the round:
+the kept round-gates (`FreeSpinIntroGate.svelte:28-34`, `FreeSpinOutroGate.svelte:38-47`) are ARMED
+by exactly those `*Show`/`*Update`/`*CountUp` broadcasts (they own the dim + the round-blocking
+`waitForResolve` + the outro count-up). Owner corrected: DO NOT strip — author the FULL Phase-5
+choreographies (byte-parity-proven 29/8/27 ops) and achieve no-double purely by mount-gating the
+coded VISUAL + COUNTER scenes off. So flow OWNS the free-spin visuals; the engine still owns the
+round-gates (FS-7 retires those).
+
+**PER-STEP ownership (owner correction, 2026-07-03 — SUPERSEDES the earlier whole-lifecycle boolean).**
+The first cut derived ONE `flowOwnsFreeSpins(flowDoc, scenes): boolean` that flipped the WHOLE
+free-spin lifecycle on/off atomically (all-four-scenes-authored AND all-edges-wired, else OFF). The
+owner then asked for PER-STEP ownership: each overlay step is owned INDEPENDENTLY, so a step can be
+authored on its own (and a flow-first game can simply omit a step). The boolean predicate + boolean
+gate NO LONGER EXIST; the module now exports the per-step API below.
+
+**The auto-derived PER-STEP ownership (`apps/lines/src/game/freeSpinOwnership.ts`, pure module).**
+`type FreeSpinStep = 'intro'|'counter'|'outro'`; `FREE_SPIN_STEPS` maps each step to its
+`{screen, event}` (`freeSpinIntro`/`freeSpinTrigger`, `freeSpinCounter`/`updateFreeSpin`,
+`freeSpinOutro`/`freeSpinEnd`). `resolveFreeSpinOwnership(flowDoc, scenes): FreeSpinOwnership` decides
+each step INDEPENDENTLY — a step is owned iff ALL THREE of ITS conditions hold, so no step can flip on
+wiring-alone or a stray node alone:
+- **(i) its overlay SCREEN is placed** in the active FlowDoc;
+- **(ii) its `bookEvent` LAYER edge is wired** in the active FlowDoc;
+- **(iii) its backing SCENE carries REAL authored content** — ≥1 author-placed node that is NOT a
+  coded engine bind-anchor (`FreeSpinIntroVisual`/`FreeSpinOutroVisual`) nor the coded
+  `freeSpinCounter` componentInstance, so the reference fallback can never satisfy (iii).
+`FreeSpinOwnership` exposes `owns(step)` / `ownsIntro` / `ownsCounter` / `ownsOutro` / `none` /
+`steps`. `freeSpinRetrigger` is the FS-4 seam — never a step yet; its screen/transitions are ALWAYS
+stripped (it joins the step set when FS-4 lands).
+
+**Atomic PER-STEP flip (single source of truth).** `resolveActiveFlowDoc` (in
+`flowRuntime.svelte.ts`) resolves the active doc ONCE; `createLinesFlow` runs
+`gateFreeSpinOwnership(resolvedDoc, resolveFreeSpinOwnership(resolvedDoc, editorDoc.scenes))` — the
+gate strips EACH un-owned step's event + overlay screen + transitions INDEPENDENTLY (so an un-owned
+step falls through to its coded handler ⇒ byte-identical to a doc that never wired it) while an OWNED
+step keeps its authored event + overlay. MIXED states are valid. `Game.svelte` reads the SAME per-step
+ownership via `resolveFlowOwnsFreeSpins(editorDoc)` (`$derived FreeSpinOwnership`) and gates the coded
+VISUAL + COUNTER scene mounts PER STEP (`{#if !freeSpinOwnership.ownsIntro}` /`!ownsCounter`
+/`!ownsOutro`). So per step, event-authoring and coded-mount-suppression flip TOGETHER off one value
+— no double-present, no empty-present, independently for intro/counter/outro. The load-bearing state
+runs regardless: each event runs EITHER its authored choreography OR its coded handler, each doing
+THAT step's own `gameType`/counter/sound state, so the cross-event chain (intro → `freegame`, outro →
+`basegame`) holds under any mix. The two `<...Gate>` round-holds STAY mounted (armed by whichever path
+broadcasts `*Show`/`*CountUp`; FS-7 retires them). NO plumbing deleted
+(`stateUi`/`registerComponentVisibility`/`bookEventHandlerMap` all intact + re-activatable).
+
+Suppressing a coded step WITHOUT an authored replacement (an owner deliberately hiding a step) remains
+**FS-7**: FS-6 only flips a step to the AUTHORED path when its scene has real content, so a suppressed
+step always has a replacement.
+
+**Files:** `apps/lines/src/game/freeSpinOwnership.ts` (`FreeSpinStep`/`FREE_SPIN_STEPS`/
+`FreeSpinOwnership`/`resolveFreeSpinOwnership`/`gateFreeSpinOwnership`),
+`apps/lines/src/game/flowDoc.ts` (`LINES_FLOW_FREESPIN_DOC` authors the free-spin events with the full
+Phase-5 choreographies), `apps/lines/src/game/flowRuntime.svelte.ts` (`resolveActiveFlowDoc` +
+`resolveFlowOwnsFreeSpins` + the per-step gate in `createLinesFlow`),
+`apps/lines/src/components/Game.svelte` (the `freeSpinOwnership` derived + the per-step
+`{#if !freeSpinOwnership.owns*}` coded-mount gates).
+
+**How verified headlessly + build-shipped.** `tools/flow-spike/fs6FreeSpinOwnership.ts` (`pnpm
+--filter flow-spike run fs6`) — ALL GREEN, turbo on/off, against the REAL per-step predicate + gate +
+interpreter over the REAL fixture: the per-step conjunction (each of (i) screen-placement, (ii)
+edge-wiring, (iii) scene-content independently gates its OWN step and only its own; no-doc ⇒ none);
+the per-step gate (keeps each owned step's screen+event+edges, strips each un-owned step's, always
+strips the FS-4 seam, base survives); and the interpreter over EACH of the six per-step combinations
+(intro-only, counter-only, outro-only, intro+outro, all-three, none) asserting per step: OWNED ⇒ event
+authored (coded skipped, no double) + overlay layers over the persistent base + load-bearing effects
+run + intro/outro still broadcast the round-gate arm; UN-OWNED ⇒ event falls through (coded ran) +
+overlay stripped (no layering); the load-bearing state runs on EXACTLY one path per step
+(authored-effect ⟺ owned; coded-handler ⟺ un-owned — never both, never neither = byte-identical to
+fully-coded); basegame never leaves the active set; and the per-step ATOMIC-FLIP
+(event-authoring ⟺ coded-mount-suppressed ⟺ `owns(step)`). The `none` combo = byte-identical to
+today. `fs1FreeSpins.ts` (raw fixture = ownership-ON, events authored) still GREEN. `engine-flow`
+typecheck clean; `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build` GREEN; all prior
+flow-spikes (`fs2`/`parity`/`pins`/`phase3`/`phase4`/`phase5`/`roundtrip`/`tap`) still GREEN.
+
+**Owner-side go-live steps (STOP-AND-REPORT — a step flipping ON for real, PER STEP).**
+1. Author a step's backing scene online with REAL content + its contract id (`freeSpinIntro` /
+   `freeSpinCounter` / `freeSpinOutro`) — the flip needs ≥1 author-placed node beyond the coded anchor
+   in THAT step's scene.
+2. Wire THAT step's overlay edge in `/flow` (its `bookEvent` LAYER edge + the `--complete--> basegame`
+   return) — conditions (i) + (ii).
+3. Each step flips ON independently once its (1) + (2) are baked into the shipped FlowDoc; an un-owned
+   step keeps running the coded lifecycle byte-identically. A flow-first game can author all three.
+4. Live WebGL verify (read `app.stage` / dynamic-import override, NOT `preview_screenshot`), turbo
+   on/off: the authored (owned) overlays present, the coded (un-owned) ones present as before, the
+   round still HOLDS at intro/outro (the kept gates), no double-present, `gameType`/counter/sounds
+   behave as coded.
+
+### Progress — FS-7 INTRO STEP DONE (build-verified, 2026-07-06; ⏳ live-verify)
+
+**Scope this pass:** the deferred FS-7 "move the round-blocking gate ownership into the authored
+screens", **INTRO STEP ONLY** (outro/counter FS-7 remain deferred). Gated entirely behind the
+existing per-step `freeSpinOwnership.ownsIntro` — un-owned intro (and cluster/scatter/ways/price, and
+any coded game) is **byte-identical to current `main`** (§7).
+
+**Root cause fixed.** The intro choreography broadcasts `freeSpinIntroShow` (flowDoc L119) then BLOCKS
+on `broadcastAwait('freeSpinIntroUpdate')` (L123), held by the engine `FreeSpinIntroGate`'s
+`waitForResolve` (its full-screen PressToContinue). The interpreter runs the event's choreography
+BEFORE the mount transition (`dispatchBookEvent`: `dispatch` then `machine.onBookEvent`), so the
+authored `freeSpinIntro` screen mounted only AFTER the player tapped the engine gate → spine appeared
+on tap, and the tap was consumed by the engine gate so the overlay never dismissed.
+
+**Mechanism.** Two responsibilities move off `FreeSpinIntroGate` into a new lines-side coordinator
+when (and only when) `ownsIntro`:
+1. **Early mount.** New generic interpreter method `activateForBookEvent(bookEvent)`
+   (`packages/engine-flow/src/interpreter.ts`) fires ONLY the macro `bookEvent` transition (no
+   presentation). The new `apps/lines/src/components/FreeSpinIntroFlowGate.svelte` subscribes to
+   `freeSpinIntroShow` and calls it with `FREE_SPIN_STEPS.intro.event` (`freeSpinTrigger`) → the
+   authored overlay activates on the `*Show` broadcast, BEFORE the L123 round-block. The dispatcher's
+   own later `onBookEvent('freeSpinTrigger')` no-ops (layer edge onto an already-active target, via
+   `presentation.ts` `changesActiveSet`). Generic — engine-flow learns NO game id; the id lives in the
+   lines step table.
+2. **Round-block transfer.** `FreeSpinIntroFlowGate` holds the `waitForResolve` on
+   `freeSpinIntroUpdate` and releases it when the `freeSpinIntro` screen leaves the interpreter's
+   active set (its Complete pin fired via `TapToContinue → completeActiveScreen()`), observed through
+   an `introScreenActive` prop + `$effect`. So a SINGLE tap on the authored screen resumes the
+   choreography past L123 AND dismisses the overlay via its `complete` edge. **Exactly-one-subscriber**
+   invariant held by SWAPPING at the mount site: `ownsIntro` ⇒ mount `FreeSpinIntroFlowGate`; else
+   mount `FreeSpinIntroGate` — never both, so never two holders on `freeSpinIntroUpdate`.
+
+The intro **choreography ops are unchanged** (FS-6 verbatim, byte-parity-proven) — only WHO holds the
+block + WHEN the screen mounts moved.
+
+**Files.** `packages/engine-flow/src/interpreter.ts` (new `activateForBookEvent` — generic early-mount
+hook, idempotent); `apps/lines/src/components/FreeSpinIntroFlowGate.svelte` (new — owned-only
+early-mount + round-block holder, script-only: mounts no visual, the authored screen provides it);
+`apps/lines/src/components/Game.svelte` (import `FREE_SPIN_STEPS`; `isFreeSpinIntroActive` derived; the
+per-step mount swap at the free-spin gate band).
+
+**Parity.** With `ownsIntro` false, `FreeSpinIntroFlowGate` is never mounted; the `{:else}` renders
+`FreeSpinIntroGate` verbatim with the same props as before; the new interpreter method is never called
+and returns `false` when inert. No coded plumbing removed. `ownsIntro` requires screen-placed +
+edge-wired + scene-authored (FS-6 predicate), so when true the `freeSpinTrigger` layer edge and the
+`freeSpinIntro --complete--> basegame` return both exist.
+
+**Verified.** `engine-flow` typecheck clean; `pnpm --filter lines build` GREEN (Svelte compiler
+transformed the new component). Prettier clean. **⏳ Live-verify owed** (read `app.stage`, turbo on/off,
+against a deterministic book feed): with intro owned, the authored spine appears ON TRIGGER (not on
+tap), the round HOLDS, and a single tap both resumes the round and dismisses the overlay; with intro
+un-owned, byte-identical to today. **NOT shipped** (no runtime-bundle publish / Borut submodule bump
+this pass — owner handles the deploy chain).
+
+### Progress — FS-1 DONE headlessly (2026-07-03)
+
+**Owner decisions this pass (2026-07-03).**
+- **DECISION 1 — "same basegame + overlays".** There is NO distinct `freeGame` screen node. The
+  `basegame` screen PERSISTS throughout free spins; the phase is expressed purely by intro / counter
+  / retrigger / outro screens LAYERED over the persistent base via the active-SET model. §14's
+  `intro --complete--> freeGame` is REINTERPRETED: each overlay dismisses ITSELF on its own Complete
+  pin (basegame remains active underneath). **No edge ever deactivates `basegame`.**
+- **DECISION 2 — owner authors the Scenes online; this pass ships the FlowDoc wiring + a headless
+  spike** against a documented scene-id contract.
+
+**The active-set edge semantics (worked out so `basegame` is never deactivated).**
+- `basegame --freeSpinTrigger (bookEvent, LAYER)--> freeSpinIntro` — a `bookEvent` edge activates
+  the target and LEAVES the source active, so the intro layers over the persistent base.
+- `freeSpinIntro --complete--> basegame` — the intro fires its OWN Complete pin: runs its `exit` +
+  deactivates ITSELF; `activate('basegame')` is an idempotent no-op (base already active
+  underneath), so the base stays in place. (Same return-to-base pattern as `LINES_FLOW_COND_DOC`'s
+  `freeGame → basegame`.)
+- `basegame --updateFreeSpin (LAYER)--> freeSpinCounter`, `--retrigger (LAYER)--> freeSpinRetrigger`,
+  `--freeSpinEnd (LAYER)--> freeSpinOutro`, each with a `<overlay> --complete--> basegame` return.
+- `basegame` has NO outgoing `complete` edge ⇒ it is PERSISTENT (the machine never deactivates it).
+- **The counter persists:** once `freeSpinCounter` is layered, a later `updateFreeSpin` is a
+  `changesActiveSet` no-op (target already active) — no re-`enter`, no re-`notify`, no flicker. Its
+  displayed NUMBER updates via the coded `updateFreeSpin` handler + the `freeSpins` value pin, NOT a
+  re-enter (the correct active-set behaviour — this settles the coordinator's "re-layer semantics"
+  question with the EXISTING engine design; no new code needed).
+
+**Scene-id contract (owner authors these four scenes online with these EXACT ids).**
+`freeSpinIntro`, `freeSpinCounter`, `freeSpinRetrigger`, `freeSpinOutro`. The first three-minus-one
+(`freeSpinIntro`/`freeSpinCounter`/`freeSpinOutro`) already exist as reference-layout scene ids;
+`freeSpinRetrigger` is NEW. Addressed by plain scene id (no `Scene.role` — that enum is
+`loading|basegame` only), exactly as `LINES_FLOW_WIN_DOC` references `bigWin`/`freeSpinIntro`.
+
+**The `retrigger` seam (FS-4 not yet built).** No `retrigger` book/emitter event exists yet, so the
+`basegame --retrigger--> freeSpinRetrigger` edge is INERT (an edge naming a never-arriving event
+never fires — parity-safe). It is authored NOW so the scene-id contract + graph shape are complete;
+the spike proves a SYNTHETIC `retrigger` layers it correctly, so the wiring is ready for FS-4.
+
+**Deliberate divergence from §14's "authored no-op events" (surfaced, not papered over).** §14 FS-1
+said "every authored free-spin event stays an authored no-op in `events[]`". That describes the
+FS-6 world where each flow screen's `enter` OWNS the presentation. Under FS-1 (ADDITIVE, coded gates
+intact), an authored event — even a no-op — SUPPRESSES the coded handler (`dispatch.ts`: authored
+wins), which would stop `stateUi` being flipped and leave the coded feed-driven overlays (the actual
+pixels today) never shown, with the still-empty flow screens presenting nothing. So this pass LEAVES
+the free-spin events UN-AUTHORED (they fall through to the coded handlers that own presentation); the
+transitions track the active-set LIFECYCLE in parallel. The events become authored no-ops only when
+FS-6 moves presentation into each screen's `enter`. This is the correct non-breaking FS-1.
+
+**How verified headlessly + build-shipped.** `tools/flow-spike/fs1FreeSpins.ts` (`pnpm --filter
+flow-spike run fs1`) — all assertions GREEN, turbo ON and OFF, against the REAL engine-flow
+interpreter over the REAL `LINES_FLOW_FREESPIN_DOC`: the canonical `freeSpinTrigger…updateFreeSpin…
+freeSpinEnd` stream layers intro→counter→outro with `basegame` active AT EVERY recorded set change
+(DECISION-1 invariant), each overlay returns on its Complete; the counter persists on a repeat
+`updateFreeSpin` (no re-enter/re-notify) while the coded handler STILL runs both times; the
+`retrigger` edge is inert on a normal stream but layers on a synthetic event; the free-spin events
+fall through to coded while `reveal`/`winInfo` stay authored; and the edge-shape parity (4 LAYER + 4
+HANDOFF, `basegame` persistent, the four scene-id targets, no free-spin events authored). `pnpm
+--filter engine-flow typecheck` clean; `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter "lines..." build`
+GREEN with the `__IE_FLOW_FREESPIN__` hook + beat names + `freeSpinRetrigger` confirmed in the
+minified client bundle (shipment). All prior flow-spikes (fs2/parity/pins/phase3/phase4/phase5/
+roundtrip) still GREEN; Prettier clean.
+
+**Still owed (owner will sequence).** (1) Owner authors the four backing Scenes online with the
+contract ids. (2) Owner live-verify in a running bundle (WebGL — read `app.stage`/dynamic-import
+override, not `preview_screenshot`) that the overlays layer/dismiss with the base persisting, turbo
+on/off. (3) FS-2 (book-event pins) is on `origin/main`; the `/flow` authoring of these edges is the
+online step. (4) The ship chain (bake `flow?` → register → `publish-runtime-bundle` → Borut submodule
+bump) is deferred to when the owner bakes an authored FlowDoc. NOT committed/pushed.
+
+## Invisible Flow (invisible-flow-v2.md) — design-doc progress log (archived 2026-07-15)
+
+(No standalone dated progress/done-log section to archive. `invisible-flow-v2.md` is a DRAFT/strawman consisting of architecture, the v2 node/pin/container/function model, the phased-build strawman, and resolved/open design DECISIONS — all retained as PLAN per the KEEP rule. Its dated "DECIDED / landed" markers in §5 (Collapse to Group) and §8 decisions 8-9 are inline decision-status woven into design-decision records, left in place as the decision rationale, not lifted out.)
+
+## Invisible Flow (flow-driven-game.md) — design-doc progress log (archived 2026-07-15)
+
+**Phases 1–4 BUILT (headless-green + build-shipped, 2026-06-30) — Phase 5+ remain.**
+This doc decomposes the gap analysis from the 2026-06-30 review into phases that mirror the
+Flow tool's own phase/parity-harness discipline. The review found the data model ~80%
+complete; the gaps are concentrated, not diffuse. See the progress notes in §1
+(loading→tap→basegame), §2 (win → bigWin/freeSpinIntro branch), §3 (engine-state `condition`
+guards), and §4 (the generic exclusive-screen takeover mount). All ride dev-hook fixtures
+behind a parity-inert default boot. **The runtime engine story is now complete** — every
+trigger kind (bookEvent / complete-tap / condition) is live and any authored screen mounts.
+The remaining work is Phase 5 (author real backing scenes + bake + ship a game — the owner's
+live/editor checkpoint) and the larger Phases 6–7 (universal per-instance exposure; behaviour
+layer). **Phase 6 slice 1 is also done** — the universal `action`/`visibleSource` bindings tray
+(any instance clickable / lifecycle-gated regardless of def); see the §6 progress note.
+
+### Progress — Phase 1 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. Engine-side only (`apps/lines` + `engine-flow` API already had the
+mounter/`completeActiveScreen`/`onActiveScreenChange` surface from prior Flow phases — no
+`engine-flow` change needed). No game submodule bump (that's Phase 5).
+
+**What landed:**
+- `apps/lines/src/components/Game.svelte` — the live seam. An `activeScreenId` `$state` rune
+  (pushed via the interpreter's `onActiveScreenChange` + seeded at boot) replaces the
+  non-reactive `flow.activeScreenId` read so the loading→basegame swap actually re-mounts.
+  `flowOwnsLoading = flow?.mounter.has('loading')` gates the new path: when the FlowDoc
+  authors `loading`, the splash shows while `activeScreenId === 'loading'` and dismisses via
+  `flow.completeActiveScreen()` (the tap's `complete` edge → `basegame`); otherwise the coded
+  `showLoadingScreen`/`onloaded` flag-flip runs **byte-identical** to `main`. `splashAuthoredScene`
+  prefers the interpreter-resolved `loading` scene when owned (shared `stripLoadingAnchor`
+  filter), else the coded `authoredLoadingScene`.
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `createLinesFlow` gained an optional
+  `onActiveScreenChange` passthrough; a new `window.__IE_FLOW_LOADING__` dev hook (checked
+  before `__IE_FLOW_LINES__`) sources the fixture. Default boot unchanged ⇒ inert.
+- `apps/lines/src/game/flowDoc.ts` — `LINES_FLOW_LOADING_DOC` fixture (`loading` initial +
+  `exit` beat → `complete` edge → `basegame` + `enter` beat, reusing `LINES_FLOW_DOC.events`),
+  kept **separate** from `LINES_FLOW_DOC` so the default doc stays parity-inert.
+- `tools/flow-spike/phase1Loading.ts` (+ `phase1` script) — the parity harness.
+
+**Verified:** `pnpm --filter flow-spike run phase1` = 14/14 GREEN (no-doc + basegame-only-doc ⇒
+`loading` NOT interpreter-owned, coded fall-through; loading-doc ⇒ starts on `loading`, tap
+fires `complete` → swap to `basegame` running loading `exit` then basegame `enter` in order).
+All existing harnesses GREEN (`parity`/`pins`/`roundtrip`/`phase4`/`phase5`/`phase6`/`phase7`/
+`tap`/`vocab`). `engine-flow` tsc exit 0; `engine-layout` + `lines` builds exit 0; the
+`__IE_FLOW_LOADING__`/`flowLoadingExit` literals confirmed in the minified client bundle
+(shipment, not just compile).
+
+**Parity invariant held by construction:** `flowOwnsLoading` is `false` whenever no FlowDoc
+authors a `loading` screen — every normal boot, AND the full `LINES_FLOW_DOC` (basegame-only)
+— so the coded loading path is untouched.
+
+**Deferred to Phase 4 (as scoped):** the swap is a focused loading↔basegame version — the
+above/below-reel z-order split stays `basegame`-specific; the fully-generic any-screen
+exclusive swap is Phase 4.
+
+### Update — coded loading path REMOVED, loading is now fully generic (2026-07-01)
+
+The parity-gated dual path above is retired for `apps/lines`/bookof (preproduction — a coded
+splash breakage is acceptable, boot must still work generically). **The coded
+`<LoadingScreen>` is gone**; loading now mounts ONLY through the flow/scene interpreter:
+
+- `apps/lines/src/components/Game.svelte` — deleted the `LoadingScreen` import, the
+  `flowOwnsLoading`/`showLoading`/`flowLoadingMount`/`dismissLoading`/`splashAuthoredScene`/
+  `stripLoadingAnchor`/`loadingTransform`/`loadingPos` deriveds, the `onMount`
+  `showLoadingScreen = true`, and the whole `{#if showLoading} … <LoadingScreen> … {/if}`
+  arm — the game body is now unconditional. The `loading` scene mounts through the GENERIC
+  active-screen takeover (the `activeScreenId === loadingScreenId` exclusion was removed);
+  `loading` stays in the reserved-scene set so it doesn't also mount as an overlay. `apps/lines/src/components/LoadingScreen.svelte` was DELETED (`TransitionAnimation` kept —
+  `Transition.svelte` uses it; `PressToContinue` kept — `TapToContinue`/gates use it).
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `createLinesFlow` now SYNTHESIZES a default
+  `loading → basegame` FlowDoc (`withDefaultLoadingLeg`) when no authored/baked doc includes
+  the role-resolved loading screen, so an un-authored game STILL boots generically (interpreter
+  always exists, starts on `loading`, advances on the loading bar's `completeOnLoaded` / a tap).
+  An authored doc that already includes loading WINS; an authored doc that omits it gets the
+  loading leg PREPENDED (its screens/transitions/events preserved). Synthetic `events: []` ⇒
+  book events still fall through to `bookEventHandlerMap`.
+- `packages/engine-layout/src/lib/referenceLayouts/{lines,bookof,engineSkeleton}.ts` — the
+  `loading` scene's inert `bind: { component: 'LoadingScreen' }` anchor is replaced with a real
+  `loadingBar` `componentInstance` (`LOADING_BAR_DEF.defaultInstanceParams` seeds
+  `completeOnLoaded: true`). `packages/engine-layout/scenes/bookof.json` regenerated (no more
+  `loading-screen`/`LoadingScreen`).
+- `tools/flow-spike/phase1Loading.ts` — section A relaxed: it now exercises the engine-flow
+  inert-interpreter primitive, noting the coded fall-through it once backed is gone (the game
+  synthesizes a default doc). `phase1` harness GREEN; `engine-layout` + `lines` builds exit 0.
+
+Other games (cluster/scatter/price/ways) + their `LoadingScreen.svelte` are UNTOUCHED; the
+shared `stateLayout.showLoadingScreen` field stays in state-shared/utils-layout for them.
+
+**Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
+`window.__IE_FLOW_LOADING__ = true` before boot, confirm the splash shows then a tap swaps to
+`basegame` (verify via the `app.stage` read / dynamic-import override, not `preview_screenshot`
+— it times out on WebGPU). Default boot (no hook) must render byte-identical.
+
+### Follow-up — screen identity by ROLE, not magic id (2026-07-01, branch `feat/flow-screen-identity`)
+
+The original Phase-1/4 code keyed the loading splash and the persistent base scene on the literal
+scene ids `'loading'`/`'basegame'` (`Game.svelte` `scenes.find(id==='loading')`,
+`mounter.has('loading')`, the takeover exclusion, `RESERVED_SCENE_IDS`). That coupled behaviour to a
+magic name — a template- or hand-authored loading scene with a different id (e.g. "Loading / logo")
+was not recognized, so the coded splash still ran and the authored scene leaked in as an overlay
+(double background, missing logo). **Fix:** an additive `Scene.role` (`'loading' | 'basegame'`,
+`engine-layout/src/lib/types.ts`) is the id-independent identity, resolved by
+`sceneByRole`/`loadingSceneId`/`basegameSceneId` (`engine-layout/src/lib/sceneRole.ts`) with a
+`role → legacy id` fallback. `Game.svelte` resolves loading/basegame + the takeover exclusion +
+`reservedSceneIds` through those helpers; a role-tagged custom-id scene is recognized as the splash
+AND reserved (no double-mount). The Scene Editor has a per-scene **role** dropdown; `missingScreens`
+matches by role-or-id; the lines/bookof reference layouts tag their loading/base scenes. A FlowDoc
+still "drives" the screen by authoring that same scene id (`mounter.has(loadingScreenId)`); the flow's
+`initial` node was deliberately NOT used as the loading id — the default lines flow's initial screen
+is `basegame`, so conflating `initial` with `loading` would misfire. **Parity (§7):** no role + a scene
+id'd `loading`/`basegame` ⇒ exactly today's selection (`?? id`), byte-identical. Harness:
+`tools/flow-spike/sceneRole.ts` (`scenerole`). Ships to a game via an `engine` submodule bump +
+tagging the game's loading scene's role.
+
+### Progress — Phase 2 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. `apps/lines` only — `engine-flow` already had the `bookEvent` /
+`complete` triggers + `$trigger.*` guards from prior Flow phases (no engine change needed). No
+game submodule bump (that's Phase 5).
+
+**Per-presentation decisions (the §2 "exclusive screen node vs feed-driven overlay" split):**
+- **`winInfo` — feed-driven overlay (NO transition).** It fires on every paying spin and never
+  takes over the screen (it is the per-line readout / board symbol highlight), so promoting it
+  would swap the screen on every win. It also carries **no `winLevel`** in its payload
+  (`typesBookEvent.ts` — only `setWin`/`freeSpinEnd` do), so it could not be win-tier-branched
+  anyway. Its event choreography runs in place.
+- **`setWin` — split by win tier.** SMALL/MEDIUM wins (`winLevel < 6`, `type:'small'|'medium'`
+  in `winLevelMap.ts`) are an idle readout ⇒ stay a **feed-driven overlay** (no swap). BIG wins
+  (`winLevel >= 6`, `type:'big'` — BIG/SUPER/MEGA/EPIC/MAX) are a screen-takeover celebration ⇒
+  promoted to the **`bigWin` exclusive screen node**, selected by a `$trigger.winLevel in [6..10]`
+  guard that resolves **today** off the book-event payload (no engine reader — that is Phase 3).
+- **`freeSpinTrigger` — exclusive screen node.** The free-spin intro is a full-screen takeover
+  (`uiHide` → `transition` → `freeSpinIntroShow`) ⇒ promoted to the **`freeSpinIntro` exclusive
+  screen node**.
+
+**What landed:**
+- `apps/lines/src/game/flowDoc.ts` — a SEPARATE `LINES_FLOW_WIN_DOC` fixture (NOT folded into
+  `LINES_FLOW_DOC`, which keeps `transitions: []` so the default boot stays parity-inert, §7). It
+  authors the `bigWin` + `freeSpinIntro` screen nodes (each `enter` = the coded `setWin` /
+  `freeSpinTrigger` presentation **lifted verbatim**), a guarded `basegame→bigWin` `bookEvent`
+  edge + an unguarded `basegame→freeSpinIntro` edge, and `complete` (tap) return edges. The crux
+  is the **no-double-fire discipline** (§6.1 — dispatch + transition are orthogonal): both win
+  events stay **authored** in `events[]` — `setWin` as a `winLevel`-branch (big ⇒ no-op, the
+  screen presents; small ⇒ the overlay choreography) and `freeSpinTrigger` as an **authored
+  no-op** (NOT dropped — a dropped event falls THROUGH to the coded `bookEventHandlerMap`
+  handler, which together with the screen swap's `enter` would double-present).
+- `apps/lines/src/game/flowRuntime.svelte.ts` — a `window.__IE_FLOW_WIN__` dev hook (checked
+  after `__IE_FLOW_LOADING__`, before `__IE_FLOW_LINES__`) sources the fixture. Default boot
+  unchanged ⇒ inert.
+- `tools/flow-spike/phase2WinTransitions.ts` (+ `phase2` script) — the parity harness. It drives
+  the REAL `createFlowInterpreter` over the REAL imported `LINES_FLOW_WIN_DOC` and reuses the
+  Phase-5 recording rig (same effect surface) so the `bigWin`/`freeSpinIntro` enter op log is
+  compared position-for-position to the coded `setWin`/`freeSpinTrigger` presentation. It wires
+  **coded-handler spies** so the no-double-present invariant is proven (the coded handler must
+  NOT fire when the event is authored).
+
+**Verified:** `pnpm --filter flow-spike run phase2` = GREEN (turbo on/off): big-win swaps to
+`bigWin` with the lifted presentation and the coded handler does NOT fire; small-win stays on
+`basegame` with the overlay in place; `freeSpinTrigger` swaps to `freeSpinIntro` (coded handler
+does NOT fire); taps return each screen → `basegame`; the `winLevel` tier boundary (5⇒small,
+6⇒big, 10⇒big) selects correctly; default `LINES_FLOW_DOC` authors zero transitions; the win doc
+`normalizeFlowDoc` round-trips idempotently. ALL existing harnesses GREEN (`parity`/`phase1`/
+`phase4`/`phase5`/`phase6`/`phase7`/`pins`/`roundtrip`/`tap`/`vocab`). `engine-flow` tsc exit 0;
+`lines` build exit 0; the `__IE_FLOW_WIN__` / `freeSpinIntro` / `basegame→bigWin` literals
+confirmed in the minified client bundle (shipment, not just compile).
+
+**Parity invariant held by construction:** the win-branch behaviour rides ONLY the
+`LINES_FLOW_WIN_DOC` fixture (reached only via `__IE_FLOW_WIN__`); the default `LINES_FLOW_DOC`
+keeps `transitions: []` and only the `basegame` screen — every normal boot is byte-identical to
+current `main`.
+
+**Owner-verify live (the one thing headless can't prove — WebGPU bundle):** set
+`window.__IE_FLOW_WIN__ = true` before boot; on a big win the screen swaps to the `bigWin`
+takeover and a tap returns to `basegame`, and a free-spin trigger swaps to `freeSpinIntro` (verify
+via the `app.stage` read / dynamic-import override, not `preview_screenshot`). A small win must
+NOT swap. Default boot (no hook) renders byte-identical. NB: `bigWin`/`freeSpinIntro` have no
+authored backing Scene in the lines LayoutDoc yet, so the mounter falls through for the takeover
+*scene* — the swap + lifted presentation choreography are what Phase 2 proves; authoring the real
+takeover scenes is a Phase-4/5 editor step.
+
+### Progress — Phase 3 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. `apps/lines` + one new harness only — no `engine-flow` change needed
+(the interpreter/presentation already threaded `engine` to the guard scope; the gap was purely
+that no app injected a reader or called `evaluate()`).
+
+**What landed:**
+- `apps/lines/src/game/flowRuntime.svelte.ts` — `linesEngineReader`, a CLOSED `(key)→value`
+  getter over live state (NOT an expression VM, §11.4): `balance`/`win`/`totalWin`/`bet` (the
+  numeric value feeds), `gameType`, `isFreeGame`, `freeSpinsRemaining`/`freeSpinsTotal` — each
+  sourced from the SAME state singletons the component registries read, so a guard sees exactly
+  what a bound readout/gate sees. Injected via `engine: linesEngineReader` into
+  `createFlowInterpreter`. Unknown keys ⇒ `undefined` (the bounded line). New `__IE_FLOW_COND__`
+  dev hook → `LINES_FLOW_COND_DOC`.
+- `apps/lines/src/components/Game.svelte` — an `$effect` that touches the reader's live values and
+  calls `flow?.evaluate()` on any change, so a `condition` edge actually re-checks. Inert when
+  `flow` is undefined (no-op `flow?.evaluate()`).
+- `apps/lines/src/game/flowDoc.ts` — `LINES_FLOW_COND_DOC` with two `condition` edges guarded on
+  `$engine.freeSpinsRemaining` (`gte 1` enter free game / `lt 1` end). The other fixtures unchanged.
+- `tools/flow-spike/phase3Condition.ts` (+ `phase3` script).
+
+**Verified:** `phase3` 36/36 GREEN turbo on/off (condition fires only after the reader crosses AND
+`evaluate()` is pinged; NO reader ⇒ never fires — the pre-Phase-3 dead state; boundary correctness;
+`evaluate()` no-op without a matching edge; bookEvent/complete unaffected; author-order precedence).
+ALL existing harnesses GREEN; `engine-flow` tsc exit 0; `lines` build ships
+(`__IE_FLOW_COND__`/`freeSpinsRemaining`/`flowFreeGameEnter` in the minified bundle).
+
+**Parity (§7):** no FlowDoc ⇒ `flow` undefined ⇒ the `$effect` is a no-op + the reader is never
+reached ⇒ byte-identical to `main`. Injecting the reader is harmless for the Phase-1/2/4 fixtures
+(they author no `condition` edge ⇒ `evaluate()` finds nothing).
+
+**Note:** branching on the win-event *payload* (`$trigger.winLevel`) already worked in Phase 2
+without this; Phase 3 adds branching on LIVE engine *state* (the `condition` trigger), the
+genuinely-new capability.
+
+### Progress — Phase 4 DONE headlessly + build-shipped (2026-06-30)
+
+Branch `flow/driven-game`. `apps/lines` + one new harness only — no `engine-flow`/`engine-layout`
+change needed (the mounter `resolve`/`has`/`authoredScreenIds` surface already existed).
+
+**What landed:**
+- `apps/lines/src/components/Game.svelte` — a single GENERIC derived `activeScreenTakeover`
+  (`:565`): resolves `flow?.mounter.resolve(activeScreenId)` and returns the scene ONLY when the
+  decision is `authored` AND the active id is NEITHER `basegame` (the persistent base, reel-split
+  mount) NOR `loading` (the Phase-1 splash). Template (`:1024`, in the `{:else}` game branch, just
+  after the `extraScenes` overlay block and before the free-spin gates): `{#if
+  activeScreenTakeover}<LayoutScene scene={activeScreenTakeover} />`. So a swap to any authored
+  non-base/non-loading screen (`bigWin`/`freeSpinIntro`/future ids) mounts that scene as a
+  TRANSIENT top-layer takeover OVER the persisting board (a celebration overlays the reels, not
+  replaces them); it unmounts on the swap back. `<LayoutScene>` self-wraps by `space` + honours
+  `visibleSource`. NOT per-id casing — one generic gate.
+- `tools/flow-spike/phase4Mount.ts` (+ `phase4mount` script; the prior `phase4`/`phase4Runtime.ts`
+  left untouched) — proves takeover mount+unmount on swap, base/loading excluded (no regression),
+  fall-through for unbacked/non-authored/no-doc ids, and the reservation from `extraMountScenes`.
+
+**Verified:** `phase4mount` GREEN + every existing harness (`parity`/`pins`/`roundtrip`/`phase1`/
+`phase2`/`phase4`/`phase5`/`phase6`/`phase7`/`tap`/`vocab`) GREEN; `engine-flow` tsc exit 0;
+`engine-layout` + `lines` builds exit 0; the minified gate `==="basegame"||…==="loading"` (the
+distinctive `activeScreenTakeover` signature) confirmed in the client bundle (shipment).
+
+**Parity (§7):** no FlowDoc ⇒ `flow` undefined ⇒ `resolve` undefined ⇒ nothing mounts. An
+authored-but-unbacked id (apps/lines has no `bigWin`/`freeSpinIntro` backing scene yet) resolves
+`fallThrough` ⇒ nothing mounts. Default boot byte-identical to `main`. The mechanism stays inert
+until an author adds those scenes (Phase 5/editor).
+
+**Stale-signal cleanup (the §4 "correct the stale signals" item):** updated the Scene Editor's
+`addEmptyScreen`/`addHudScreen` comments (`editor/+page.svelte`) — author-created custom-id
+screens DO ship now (generic overlay mounting, PR #67; exclusive Flow takeover, this phase), no
+per-id code wiring needed; and refreshed the `gotcha_author_hud_screens_unmounted` memory note.
+
+**Deferred:** authoring real lines `bigWin`/`freeSpinIntro` backing scenes (Phase 5 / editor).
+**Owner-verify live:** `window.__IE_FLOW_WIN__ = true`, trigger a big win / free-spin → the
+takeover scene mounts over the persisting board, a tap returns to `basegame` (verify via the
+`app.stage` read, not `preview_screenshot`).
+
+### Progress — Phase 6 slice 1 DONE (the universal `action`/`visibleSource` tray, 2026-06-30)
+
+Branch `flow/driven-game`. The two GENUINELY-universal bindings (the runtime already gates/clicks
+the WHOLE instance from these param keys regardless of def): an instance can be made **clickable**
+(`action`) or **lifecycle-gated** (`visibleSource`) without its def declaring the param.
+
+> **Update 2026-07-03 — per-instance `visibleSource` authoring RETIRED.** Owner rule: Invisible Flow
+> owns visibility for everything (screens AND instances), so the per-instance "Shows during" control
+> was removed from the editor (`ENGINE_BINDING_PARAMS` now carries only `action`). The runtime STILL
+> honors a baked `visibleSource` instance param (`ComponentInstance.svelte` gate + `VISIBLE_SOURCE_PARAM`)
+> for back-compat — only the authoring is gone. See `feedback_flow_owns_visibility` (memory) and the
+> STATUS entry. The prose below describes the original two-binding tray as first shipped.
+
+**What landed:**
+- `packages/engine-layout/src/lib/engineBindings.ts` (NEW, mirrors `tapToContinue.ts`) —
+  `ENGINE_BINDING_PARAMS` (shared instance params: `action` opts `ENGINE_ACTION_CATALOG`,
+  `visibleSource` opts `VISIBILITY_SOURCE_KEYS`) + `actionBindingOf`/`visibleSourceBindingOf`
+  readers. NOT added to any `ComponentDef.params` — they live only on the placed instance's
+  `params`. Re-exported from `index.ts`.
+- **No merge change needed:** `resolveComponentParams` already ends with `mergeDefined(out,
+  instanceParams)` which iterates EVERY instance param key (not just def-declared) — the same
+  passthrough `tapToContinue` relies on — and `ComponentInstance.svelte` reads
+  `staticParams['action']`/`['visibleSource']` directly. Verified, not assumed.
+- `apps/launcher-api/.../editor/EditorProperties.svelte` — an **"Engine bindings"** tray for a
+  selected `componentInstance`: an Action dropdown + a "Shows during" dropdown (labels from
+  `VISIBILITY_SOURCE_LABELS`, blank = always). **Suppressed** for any param the instance's def
+  ALREADY declares (a `button` declares `action`, a `freeSpinCounter` declares `visibleSource`),
+  so the universal control never double-surfaces. Writes through the existing `onSetInstanceParam`
+  → `node.params` path.
+
+**Verified:** `engine-layout` + `launcher-api` builds GREEN (the launcher build is the typecheck);
+a Node fixture against the built `dist` (11/11) proves an undeclared `action`/`visibleSource` passes
+through on a def declaring neither, an untouched instance carries no binding keys (parity), and a
+def-declared param still wins. **Parity (§7):** an unset binding produces no key ⇒ the runtime reads
+`undefined` ⇒ no hit surface / no visibility wrapper ⇒ byte-identical to today.
+
+### Progress — Phase 6 slice 2 DONE (the UI-vs-schema gaps, 2026-06-30)
+
+Branch `flow/driven-game`. THREE editor controls for schema fields that already existed AND were
+runtime-honored — purely additive authoring UI, no runtime/resolve change.
+
+- **`visibleFor`** — a "shows on layouts" row (desktop/tablet/landscape/portrait checkboxes) in the
+  Transform section, for any node (`EditorProperties.svelte` `setVisibleFor`/`visibleForOn`). Writes
+  the BASE node; all-ticked ⇒ `undefined` (sparse). Runtime gate already at `resolveTransform.ts:10`.
+- **`screenAnchor`** — x/y inputs (0..1) + left/centre/right + top/centre/bottom presets, shown ONLY
+  for a `space:'canvas'` scene (`setScreenAnchor`/`screenAnchorValue`; new `sceneSpace` prop fed by
+  the page). Respects the per-layout override path; clears at `{0,0}` (sparse). Runtime applies it at
+  `LayoutNodeView.svelte:65`.
+- **Custom-param `options`** — a comma-separated "options" input in the Component Editor's "Your
+  params" (`components/+page.svelte` `setParamOptions`) for `kind:'string'` author params; sets/clears
+  `param.options`. `paramField` ALREADY dropdown-renders a param with `options` (confirmed, no change),
+  so a placed instance gets a dropdown automatically.
+
+**Verified:** `pnpm --filter launcher-api build` GREEN (the typecheck). **Parity:** every writer is
+sparse — an untouched node/param never gains the key, so it serializes byte-identical and the
+runtime stays inert. engine-layout untouched.
+
+### Progress — Phase 6 slice 3 DONE (per-instance signal rebinding, 2026-06-30)
+
+Branch `flow/driven-game`. Lets a placed `componentInstance` override WHICH engine signal drives a
+spine cue — so two placements of one component can react to different signals (`win` vs `bigWin`).
+Mirrors the existing per-instance spine-override precedent (`spineRestOverrides`/
+`stateAnimationOverrides`, keyed by spine node id) exactly.
+
+- **Type** — `ComponentInstanceNode.cueSignalOverrides?: Record<string, Record<string, string>>`
+  (`types.ts:349`): outer key = spine node id in the resolved def `root`, inner = cue's original
+  signal → replacement engine-signal key.
+- **Runtime** — `ComponentInstance.svelte:229`: in the `signalToTargets` walk, each cue's signal is
+  remapped through `node.cueSignalOverrides?.[n.id]?.[cue.signal] || cue.signal` BEFORE the
+  subscription, so it listens on the override signal. No context plumbing needed (the cue
+  subscription is built where the instance `node` is already in scope). Absent ⇒ def signal verbatim.
+- **Editor** — `EditorProperties.svelte`: a per-cue "Driven by signal" dropdown (options
+  `ENGINE_SIGNAL_CATALOG`, blank = inherit the def signal) in the existing "Spine (this placement)"
+  panel; sparse writer in `editor/+page.svelte` (prunes empty maps → `undefined`).
+- **Round-trip** — no normalize change needed: `editorStorage.ts` `normalizeNode` is pass-through
+  (`return input as unknown as LayoutNode`), the same mechanism `spineRestOverrides` already rides.
+
+**Verified:** `engine-layout` + `launcher-api` builds GREEN; a headless fixture (guarded against
+drift from the shipped line) proves the override remaps only the listed cue, an un-overridden
+instance keeps the def signal (parity), and the field survives the `normalizeNode` round-trip.
+**Parity (§7):** absent override ⇒ `|| cue.signal` yields the def signal ⇒ subscriptions byte-identical.
+
+**Remaining for Phase 6:** `value`/`signal` universal binding (needs a def node to consume them) and
+the `def.slots` / component-`space` UI gaps.
+
+Shipped 2026-07-02 (Spin slice, engine `main`; flow-spike `phase8ActionIntent` 21/21; parity held).
+
+**STATUS 2026-07-02 — steps 1–5 SHIPPED to `main`** (PRs #84 engine-flow schema/derivation/interpreter; #85 runtime wiring + `/flow` editor). Remaining: owner live click-verify in the deployed `/flow`, and **step 6 (§11.8) — ship a baked value edge in a real game + Borut submodule bump**.
+
+## Invisible Flow (invisible-flow-v2-schema.md) — design-doc progress log (archived 2026-07-15)
+
+`tools/flow-spike/flowV2Runtime.ts` (`pnpm --filter flow-spike v2runtime`) runs `runFlowEvent` against
+a MOCK recording `FlowV2Env` over the book-of fixture: `event reveal(reels) → functionCall
+StaggerStop(reels, step=120) → fireCue specialBookReveal`, where `StaggerStop`'s body is
+`forEach reels → compute($index × step) → delay(that ms) → stopReel($item.index)`. With
+`reels=[{0},{1},{2}]`, `step=120` the recorded order is asserted to be
+`delay 0, stopReel(0), delay 120, stopReel(1), delay 240, stopReel(2), broadcast specialBookReveal`
+(function recursion + forEach + compute-driven dynamic delays + trailing cue). Extra asserts cover a
+`branch` (guard picks `then`/`else`, driving `show`/`hideContainer` at the container's `z`) and a
+`parallel` forEach (all iterations fire). **NO game integration yet** — that is Phase 4b.
+
+
+## Invisible Editor — design-doc progress log (archived from docs/design/invisible-editor.md 2026-07-15)
+
+
+----- [8.3 shared-save gating + promote-to-shared (removed manually)] -----
+**Shared-save gating (LANDED 2026-06-24).** `saveComponent`/`deleteComponent` already resolve a `scope:'shared'` def to the `_shared/editor-components/<id>.json` key; the plumbing is now wired end-to-end so the server can persist a shared component. Reads stay open under the `editor` tool gate, but a WRITE/DELETE to the SHARED library additionally requires the `componentPublish` capability (`COMPONENT_PUBLISH_CAPABILITY` in `roles.ts`, default-ON for `admin` only, in the role-override matrix alongside `fontPublish`/`blueprintPublish`). Project-scoped saves are unaffected (only the `editor` tool gate).
+
+**Promote-to-shared UI (LANDED 2026-06-24).** The Component Editor now exposes a **Promote to shared** button in the top bar (next to **Save component**, only while a component is open). It POSTs the open draft with `scope:'shared'` and NO `project`, routing the write to `_shared/editor-components/<id>.json`. The button is gated in the UI on the `componentPublish` capability (`canPublishShared` from `roleHasCapability` in `+page.server.ts`, mirroring the Font Maker's shared-save target) so it never dangles a 403 for users who lack the capability; the API still enforces it server-side. The promote is a **snapshot** — the open draft stays `scope:'project'`, and a project component of the same id keeps shadowing the shared copy everywhere it loads (a confirm states this).
+
+----- [8.9 versioning trailer] -----
+ ✅ **Spec'd + landed 2026-06-24:** the "update to latest" action + outdated flag live in the Properties panel "Component instance" section (details below).
+
+----- [8.9 nested LANDED block] -----
+
+  - ✅ **SAFE half LANDED 2026-06-24** (the conservative resolution + save-bump). Two pieces:
+    - **Safe resolution** — `engine-layout` `registerComponents.ts` now exposes `resolveComponent(id, pinnedVersion)` → `{ def, pinnedVersion, registeredVersion, versionMismatch }`. v1 is still a single-version store, so when an instance pins a version that ≠ the one registered, the renderer (`ComponentInstance.svelte`) renders the registered def (parity — it is the only def available) but **flags `versionMismatch`** and warns, rather than passing it off as the pinned version. The instance's pin is **never mutated** and the def is **never auto-upgraded**. `getComponent` is kept as a thin wrapper (still returns the registered def) so existing callers are byte-identical.
+    - **Save bump** — launcher `componentStorage.ts` `saveComponent` now reads the currently-stored def at the target scope/key and reconciles `version` (`reconcileVersion`): a CHANGED def bumps to `max(stored, posted)+1` (honouring an already-higher client version), a NO-OP re-save keeps the stored version (no spurious bump that would orphan every pin), and a brand-new component keeps its posted version (default 1). Comparison ignores the `version` field itself.
+    - **Outdated-flag + "update to latest" LANDED 2026-06-24** (the editor half — where the action lives + how a bump flags its instances). Both live in the shared `EditorProperties.svelte` "Component instance" section (the Properties panel — the §8.9-natural home), so the Scene Editor and the Component Editor (which reuses that component for nested instances) get them from ONE place:
+      - **Outdated flag.** An instance is *outdated* when its pinned `componentVersion` is **< the resolved def's `version`** — reusing the SAME version data `resolveComponent` compares, not a parallel check. When outdated, an amber inline note reads "Component vN available (instance pinned vM)" right under the pinned-version line, matching the editor's existing inline-warning style (no new warnings framework). An instance whose pin equals the def shows no flag and is byte-identical; the flag is scene-mode only (component-authoring mode shows the param-declaration UI, not a scene instance).
+      - **"Update to latest" action.** A button in the same note re-pins **only that one** instance's `componentVersion` to the def's current version (`onUpdateInstanceToLatest`, wired on the Scene Editor page) — explicit + per-instance, never bulk/auto. **Param reconciliation:** every author override whose param key still exists on the new def is kept; overrides for params the new version removed are dropped (the def's own defaults then fill any gap via `resolveComponentParams`). It persists through the normal scene save path (`markDirty()`).
+    - ✅ **v2 multi-version store LANDED 2026-06-24** (storage + resolution + bake). A pinned instance now resolves the EXACT def it was authored against:
+      - **Storage keeps history** — `componentStorage.ts` `saveComponent` writes the def to BOTH the `<id>.json` LATEST pointer (read by `loadComponent(id, projectKey)` with no version + `listComponents` — back-compat, byte-identical) AND an immutable `<id>.v<N>.json` SNAPSHOT, for both scopes (`projectComponentVersionKey` / `editorComponentVersionKey` in `projectPaths.ts`). Layout chosen = **versioned keys alongside a latest pointer** (not a versions-map blob): it leaves the existing single-doc readers untouched, keeps each version an independently-cacheable immutable object, and mirrors the repo's existing sibling-file conventions (Rigger `<id>.json` + `index.json`, symbols `symbols.json`/`defaults.json`). The library listings exclude `.v<N>.json` (a `(?<!\.v\d+)` lookbehind + a `VERSION_SNAPSHOT_KEY` filter) so history never shows as extra components; `deleteComponent` sweeps every `<id>.v<N>.json` too. Snapshot is written BEFORE the latest pointer so a failed snapshot write never advances latest past a version with no history. A pre-v2 `<id>.json` (no snapshots yet) keeps loading; its FIRST v2 save establishes history.
+      - **`loadComponent(id, projectKey?, version?)`** — a new optional `version` resolves the exact snapshot per scope (`readComponentAtScope`): prefer `<id>.v<N>.json`, else fall back to `<id>.json` ONLY when its version equals the request (a pre-v2 doc whose single stored version IS the pin, or a pin at latest), else fall through to the next scope. No version ⇒ latest pointer (back-compat). `GET /api/editor/component?…&version=<N>` exposes it.
+      - **Engine resolves by pin** — `registerComponents.ts` is now a true multi-version store: per id it keeps `{ latest, byVersion }`; `registerComponents` SETS `latest` and RETAINS the def in `byVersion[def.version]`. `resolveComponent(id, pinnedVersion)` returns the EXACT registered version when present (`versionMismatch:false` — the pin IS honoured) and falls back to `latest` + flags `versionMismatch` only when the pinned version isn't registered. `getComponent` back-compat preserved. `ComponentInstance.svelte` renders the pinned version's def.
+      - **Deploy chain ships every pinned version (rule 8)** — `collectComponentPins` (`collectComponentIds.ts`) gathers every `(componentId, componentVersion)` an instance EXPLICITLY pins; the bake's `resolveReferencedDefs` (in `/api/editor/doc` + `runtimeBundle.ts`) loads each pinned non-latest def via `loadComponent(id, projectKey, version)` and returns them as `componentVersions`. `bake-editor-doc.mjs` embeds them; the game's `registerBakedComponents` registers them (one at a time, so two pins of the same id at different versions both survive) BEFORE `componentDefs`, so latest still wins for unpinned instances. Empty/omitted for every game with no non-latest pin ⇒ bundle byte-identical (parity). **Scoped remainder (not blocking):** the bake walks only TOP-LEVEL scene pins, not a transitive nested-pin closure (a pin on a `componentInstance` NESTED inside another def's `root`) — v1 nesting is 1–2 levels and no game pins yet, so this is sufficient today; widen `collectComponentPins` to the def-root closure when a game first nests a pinned instance.
+      - ✅ **Version-browser UI LANDED 2026-06-24** (the last §8.9 UI item — purely additive launcher UI + one read-only list endpoint, no engine/game change, no submodule bump). **List endpoint:** `componentStorage.ts` gains `listComponentVersions(id, scope, projectKey?)` → `{ versions: number[], latest?: number }` — it R2-lists the scope prefix, keeps only THIS id's `<id>.v<N>.json` siblings, parses their version numbers, and reads the `<id>.json` latest pointer for the current version (a pre-v2 def returns `versions: []` + the latest's single version). Surfaced via the EXISTING `GET /api/editor/component?id=…&list=versions&scope=<shared|project>` under the same `editor` tool gate (no new auth pattern); it never mutates R2. **Browser:** in the Component Editor top bar (while a component is open), a `Version` dropdown lists every retained snapshot newest-first (latest marked) and an **Inspect** button loads the selected version READ-ONLY onto the canvas — it GETs the immutable `<id>.v<N>.json` snapshot, swaps it into the draft, sets an `inspecting` flag that blocks Save / Promote / Space / node spawn+delete, and shows an amber `Inspecting vN (read-only)` pill. **Back to latest** reloads the editable current def from the sidebar list. Inspection is **non-destructive by construction**: nothing is written while inspecting, the historical snapshot is discarded on return, and the inspected def can never become the next save. **No "restore this version" action** was added — restoring would be a normal save of the inspected def (which `reconcileVersion` bumps to a new version on top, never rewriting history), so it carries the full param/edit surface; deliberately left out to keep browsing purely read-only, a precise future-UX TODO if authors ask for it. Files: `apps/launcher-api/src/lib/server/componentStorage.ts`, `apps/launcher-api/src/routes/api/editor/component/+server.ts`, `apps/launcher-api/src/routes/(app)/components/+page.svelte`.
+
+----- [9.4 P0 tag] -----
+ ✅ LANDED 2026-06-06 (code-only).
+
+----- [9.4 P1 tag] -----
+ ✅ LANDED 2026-06-06 (code-only, not browser-verified).
+
+----- [9.4 P2 tag] -----
+ ✅ LANDED 2026-06-06 (code-only).
+
+----- [9.4 P4 tag] -----
+ ✅ ... LANDED 2026-06-06
+
+----- [9.4 P1 UPDATE blob] -----
+**UPDATE 2026-06-11 — unified text renderer:** `EditorTextLayer` is now the SINGLE renderer for EVERY `kind:'text'` node + HUD text bind anchor — top-level, nested in containers, AND inside `componentInstance` expansions (params threaded like `drawComponentInstance`). The old 2D-canvas `fillText` text path is DELETED. Nested world transforms compose through ONE shared path (`editorCanvas.helpers.ts` `composeWorldMatrix`/`matFromTransform`/`childLocalTransform`): the top-level node is framed by the canvas's `nodeTransform` (the editor equivalent of the single root `<MainContainer>`), every nested node composes in pure local space — so the 2D canvas (refactored to use `childLocalTransform` for nested nodes), the overlay, and the runtime's container tree land every nested node identically. A loading catalog font renders immediately as a system-fallback `<Text>` and swaps in on load (text never disappears).
+
+----- [9.4 P1 owner-verify] -----
+**Owner verify:** seed a project's `fonts.json` (`scripts/r2-sync-fonts.mjs`) then check `app.invisiblewall.org/editor`. 
+
+----- [10.3 s1 tag] -----
+ ✅ LANDED 2026-06-06.
+
+----- [10.3 s2 tag] -----
+ ✅ LANDED 2026-06-07.
+
+----- [10.3 s3 tag] -----
+ ✅ LANDED + owner-verified 2026-06-07 (`0f9304a`).
+
+----- [10.3 s3 owner tail] -----
+ Owner confirmed selection/drag/scale round-trip + full-bleed across layout tabs.
+
+----- [10.3 s4 tag] -----
+ ✅ LANDED 2026-06-08 (editor-only; owner verifies visually).
+
+----- [10.3 s5 tag] -----
+ ✅ ENGINE + pixi-svelte LANDED 2026-06-08 ...
+
+----- [10.3 s6 tag] -----
+ ✅ LANDED 2026-06-08 ...
+
+----- [11.2 P1 tag] -----
+ ✅ LANDED 2026-06-08 (code-only, not browser-verified).
+
+----- [11.2 P2 tag] -----
+ ✅ LANDED for engine + apps/lines ...
+
+----- [11.2 Borut mirror] -----
+  - **Borut mirror ✅ PUSHED (Book of Borut `e53012b` on origin/main, 2026-06-08, build-green; republish pending).** Engine submodule bumped `1e043dc → 9a37cf0`; the same 4 game-file edits mirrored. `pnpm build:engine` + `vite build` GREEN. Parity-safe (Borut's live doc has no `reelGrid` node yet → identical to today). **Only remaining owner step:** republish (Build&Deploy with the Portal project key) so editor board-edits reach the live game.
+
+----- [11.3 P1 tag] -----
+ ✅ LANDED 2026-06-12 (code-only, not browser-verified).
+
+----- [11.3 P2 tag] -----
+ ✅ LANDED for engine + apps/lines 2026-06-12 ...
+
+----- [11.3 P2 Borut mirror] -----
+  - **Borut mirror — ✅ DONE + PUSHED (Book of Borut `913f425`, 2026-06-12).** Engine submodule bumped `652a4fb → 3709aa7` (carries the `engine-layout` resolver + `utils-slots` `symbolHeight` getter); the `apps/lines` game-file edits mirrored character-identically into Borut's own `stateGame.svelte.ts` (`getSymbolX`/`boardGeometry`/`boardLayout` rowPadding), `ReelSymbol.svelte`, `utils.ts`. `pnpm build:engine` + `vite build` GREEN. Committed surgically (engine pointer + 3 src files; the owner's concurrent `static/assets`/`package.json`/`baked-editor-bundle` left untouched). Parity-safe (Borut's live doc has no `reelGrid` node ⇒ byte-identical board). **Only remaining owner step:** republish (Build & Deploy w/ Portal key) so editor board-edits reach the live game.
+
+----- [11.3 P3 tag] -----
+ ✅ LANDED for engine + apps/lines + Borut 2026-06-12 (runtime-verified).
+
+----- [11.3 P3 ship tail] -----
+ Engine `1550099`; Borut mirror `ade1d24` (submodule `3709aa7→1550099` + the `spinOptions` getter edit). Builds GREEN: engine-layout, lines, launcher, Borut. Owner step: Borut republish.
+
+----- [11.4 whole] -----
+### 11.4 Addendum — gap-aware board centring fix (2026-06-12)
+**Bug:** with the Phase-2 gap/non-square consumption landed, any non-zero `gapX`/`gapY` (or `cellWidth/cellHeight ≠ cellSize`) pushed the live board off-centre and made it asymmetric. The editor's `drawReelGrid` centres the FULL footprint (`reels·cellW+(reels−1)·gapX`) symmetrically on the node origin, but in-game `getSymbolX` grows the gap **cumulatively rightward** (`+ reelIndex·columnExtraLocal`) and the reel pitch grows it **cumulatively downward** (`symbolY = (symbolIndex−0.5)·rowPitchLocal`), while `boardLayout()`'s pivot stayed at the flush, gap-less centre (`BOARD_SIZES/2`). That half was never updated when the gap term was added, so the symbol cluster drifted off the container origin — lopsided on its own and disagreeing with the editor.
+
+**Fix (`apps/lines/game/stateGame.svelte.ts`, `boardLayout()`):** recentre the pivot on the gap-extended cluster so its true centre sits under the container origin (matching the editor's symmetric layout):
+- `pivot.x = BOARD_SIZES.width/2 + ((BOARD_DIMENSIONS.x − 1)/2)·columnExtraLocal`
+- `pivot.y = BOARD_SIZES.height/2 + (BOARD_DIMENSIONS.y/2)·(rowPitchLocal − SYMBOL_SIZE)`
+
+where `columnExtraLocal`/`rowPitchLocal` come from `boardGeometry()`.
+
+**Why the Y factor is `rows/2`, not `(rows−1)/2` (it does NOT literally mirror X):** X reel indices run `0..reels−1` (mean index `(reels−1)/2`), so the mean reel's extra is `(reels−1)/2·columnExtraLocal`. But the VISIBLE rows are `symbolIndex 1..rows` with a `−0.5` pitch lead (`symbolY=(symbolIndex−0.5)·pitch` in `createReelForSpinning`), so their mean centre lands at `(rows/2)·pitch` — the index base differs (the board is top-padded by one hidden row), hence `rows/2`.
+
+**Parity preserved (byte-identical, no override):** `boardGeometry()` returns `{columnExtraLocal:0, rowPitchLocal:SYMBOL_SIZE}` with no node, so both added terms evaluate to exactly `0` and the pivot is `{BOARD_SIZES.width/2, BOARD_SIZES.height/2}` — unchanged from today. The existing `REEL_PADDING` (0.53) flush lead is untouched; only the gap-induced correction is added.
+
+**Scope:** only `apps/lines` carries the override pattern in this repo (cluster/ways/scatter/price/number-picker do not). `BoardMask` is a `BoardContainer` child (board-local space) so it now centres on the cluster too — strictly better than today's drift; its flush `SYMBOL_SIZE` height (vs the gap-expanded pitch) is a separate, pre-existing limitation. `Anticipation` is rendered OUTSIDE `BoardContainer` from `boardLayout().x/width` and already ignores the gap + scale (a pre-existing limitation, unchanged by this fix). **Book of Borut's own repo carries a separate copy of `stateGame.svelte.ts` (engine vendored as a submodule, game code outside this working dir) and needs the identical `boardLayout()` pivot edit.**
+
+----- [11.5 whole] -----
+### 11.5 Addendum — Symbol size on the reel (2026-06-18)
+
+**Supersedes the Phase-2 "Symbol sizing unchanged" note above.** Symbol render size is now an
+authorable reel property — it moved here from the Symbols State Machine (size is a *layout*
+concern, beside `cellSize`/gaps/padding, not the symbol→asset binding). `ReelGridNode` gained
+optional `symbolSizeRatios?: { width, height }` — the symbol art's size as a fraction of one
+cell (`1` = fills the cell); absent ⇒ the game's coded per-symbol sizes (parity). It travels
+on the layout doc like every other reelGrid field — **no bake step** beyond the normal scene
+bake, no symbols-doc involvement.
+
+- **Editor:** the reel's Properties panel gained a **"Symbol size (× cell)"** Width/Height pair
+  (writes `node.symbolSizeRatios` sparsely) + a **Reset (use coded sizes)** button; the reel
+  preview draws the project's real static symbols at their resolved size, clipped to each cell.
+- **Engine render (per-game):** the size resolver applies, strongest→weakest, a baked per-cell
+  `SymbolCell.sizeRatios` (legacy, back-compat) > the reel `symbolSizeRatios` > the coded
+  `SYMBOL_INFO_MAP` size > `{1,1}`. The short-lived `SymbolsDoc.defaultSizeRatios` global was
+  removed; the Symbols State Machine no longer authors size at any level (see
+  [`invisible-symbols-state-machine.md`](./invisible-symbols-state-machine.md), "Symbol size
+  lives on the reel").
+- **Scope:** `apps/lines` carries the render path; cluster/ways/scatter/price are self-contained
+  and unaffected; Book of Borut takes it when it bumps the engine submodule.
+
+----- [12 mechanism tag] -----
+ (✅ LANDED 2026-06-08, parity-gated, code-only/not browser-verified)
+
+----- [12 shipped bullet] -----
+- **Shipped:** engine `3ae6d6d` (schema + editor) + `3b20be6` (consumption + chip), Borut submodule → `3b20be6` (`b958ba7`). `apps/lines` + launcher + Borut builds GREEN. **Owner step:** republish Borut to see label/button params in the live game.
+
+----- [13 status footer] -----
+B1+B2 SHIPPED (`b26bc3b`), B3 SHIPPED (`ff3fc78`). 
+
+----- [15 phase1..move3] -----
+**Phase 1 — LANDED 2026-06-08 (code-only; owner re-seed pending).** Make the **logo/loading screen a first-class scene** and bring every source into agreement (additive, parity-safe):
+1. `boundComponentCatalog.ts` — new `LoadingScreen` default (`space:'canvas'`, `placement:'centre'`, preview spine bundle `loader` = the `title_screen` logo) so the editor draws the splash.
+2. `templates/{bookof,lines}.ts` — now enumerate the **full screen set** (`loading`, `background`, basegame, [`freegame` bookOf only], `basegameOverlays`, `freeSpinIntro`, `freeSpinCounter`, `freeSpinOutro`). New mount slots are **not `required`** (the game still renders these from coded components → no validation noise). The HUD stays a universal layer appended via `hudScenes()`, not enumerated in the template.
+3. `referenceLayouts/bookof.ts` — added the `loading` scene + appended `...hudScenes()` so the reference doc is complete and matches the seed.
+4. `referenceLayouts/lines.ts` — added inert `loading` + `freeSpin*` scenes. **Deliberately NO `background` scene** (Game.svelte reads a `background`-scene `bg` node to drive the coded `<Background>` cover; its absence keeps `apps/lines` on its exact-cover default per §10.6 — unchanged).
+5. `scripts/seed-game-editor.mjs` — `buildDoc()` now emits the `loading` scene (bind `LoadingScreen`).
+
+**Parity:** every new scene is a `bind` anchor to a coded component NOT in `registerBoundComponents` (e.g. `LoadingScreen`), and the game looks scenes up by id (never iterates all), so the additions are **inert in-game** — the coded screens render exactly as today. Editor-only visibility. `pnpm --filter {engine-layout,launcher-api} build` + `apps/lines` `vite build` GREEN.
+
+**Owner step to see it (TWO ways):**
+- **In-app button (no console) — LANDED 2026-06-08.** The editor scene-bar now has an **"＋ Add missing screens (N)"** button next to "Add HUD layer". It diffs the project's doc against the game type's canonical full scene set (`engine-layout` `getFullSceneSet(gameType)` — covers `lines` + `bookOf`) and appends only the scenes the doc LACKS, **by id, non-destructively** (existing scenes + edits untouched); autosave persists it. Mirrors the existing `addHudLayer()` pattern. The button only shows when something's missing, and tooltips the screen names. Safe for `bookOf` because the merge adopts only ABSENT scenes — never `bookofReferenceLayout`'s board-frame nodes (a seeded project already has `basegame`). This is the §7.4 "reset/import to engine defaults" action, scoped to a non-destructive top-up.
+- **Re-seed (console, also rewrites the atlas manifest):** `node scripts/seed-game-editor.mjs --client borut --project bookofborut --tp … --page …` with R2 creds — needed only when the board atlas itself changes; for just picking up new screens, the button is enough.
+
+**Deliberately deferred / explained:**
+- **`freegame`** — template-declared but given NO placeholder doc content: its only distinct asset is a free-game background not yet available, and a basegame-clone scene would itself read as a fake "duplicate." Add real free-game art when it exists.
+- **intro/outro "duplicate"** — NOT a bug: Borut ships no dedicated `fsOutro` spine, so `FreeSpinOutro`'s catalog preview falls back to the `fsIntro` frame (and the game reuses the same frame in-game too). The editor is faithful. A distinct outro needs distinct art or a per-node `preview.art` override.
+
+**Move 2 — LANDED 2026-06-08 (single source via generated JSON + automation).** The seed (`.mjs`) and the TS `referenceLayouts` were two generators of the bookOf scene set that hand-mirrored each other (the seed even inlined a ~180-line copy of `hudScenes()`) — exactly what drifted. Unified per §7.2:
+- **Generator** `packages/engine-layout/scripts/gen-scene-sets.mjs` — uses **esbuild** (a build-time devDep, already in-tree via Vite; the monorepo has no runtime TS loader and consumes packages as raw `.ts`) to bundle the **pure-data** reference graph (no `.svelte` in it) and emit `packages/engine-layout/scenes/bookof.json` from `bookofReferenceLayout()`. Deterministic (fixed `updatedAt`). `--check` = structural drift guard.
+- **Reconciled the source first:** `bookofReferenceLayout()` had silent drift vs the seed — its `background`/`basegameOverlays`/`freeSpin*` scenes were missing `space:'canvas'`. Fixed (+ slotIds) so the JSON is correct; verified the JSON's non-basegame scenes are **byte-identical** to the seed's prior hand-written ones.
+- **Seed now reads the JSON:** `import bookofSceneSet from 'engine-layout/scenes/bookof.json' with { type: 'json' }` (new `./scenes/*` export). It composes the doc from the JSON, overriding ONLY `basegame` (the manifest-dependent region sprites). Deleted the inlined `hudScenes()` + the hand-written scene literals (~260 lines). HUD now comes from the authoritative `referenceLayouts/hud.ts`.
+- **Automation (can't be forgotten):** `gen:scenes` runs in `engine-layout`'s `build` (before `svelte-package`), AND the **pre-commit hook** runs `--check` whenever a reference/template/seed/scenes file is staged — a stale JSON blocks the commit with the fix command. Verified: stale → exit 1, fresh → pass.
+
+**Move 3 — make the game RENDER each screen from the doc (route B, §8.7), so the editor *owns* not just *previews* every screen.** The editor showed every screen (Moves 1–2), but `Game.svelte` only read the doc for a few scenes; the logo/loading splash + free-spins were hardcoded, so editing them did nothing in-game. Phases:
+- **Phase B — loading/logo splash (LANDED). `apps/lines` + Book of Borut.** `LoadingScreen` can't be a generic `bind` (required `onloaded` callback + it's an either/or with the game), so the coded mount is **wrapped in a doc-driven `<Container>`** built from the `loading` scene node's resolved transform (mirrors `LayoutNodeView`'s canvas-space `screenAnchor·canvasSize + (x,y)` formula). Dragging the logo in the editor now repositions/rescales the whole splash in-game. **Parity-safe:** default node (x:0,y:0,no-scale) → no-op container → byte-identical. No engine change (uses existing `resolveTransform` + pixi-svelte `Container`). `apps/lines` build GREEN (folded into engine commit `5143fd1` by a concurrent session); **Book of Borut** mirrored + built GREEN + pushed (`Book-of-Borut@9e3fa9c`) — republishes via its host. **Verification:** build-green + the game loads the `loading` scene at default (parity); pixel-level A/B was blocked by the WebGPU renderer (preview screenshot can't capture it) — confirm visually in-browser. **Owner step to SEE it on Borut:** in the editor, "Add missing screens" (or re-seed) so the live doc has the `loading` scene → drag the logo → Save → open Borut from the launcher (with `?k=`).
+- **Phase A — free-spin screens in `apps/lines` (LANDED).** `apps/lines` now registers `FreeSpinIntro/Counter/Outro` in `registerBoundComponents` and mounts them via `<LayoutScene>` (canvas-space bind anchors) instead of hardcoded tags — matching Borut, so the editor positions them. Parity by construction: the fallback ships those scenes at (0,0) → no-op container → byte-identical; the components keep their book-event self-show, the doc owns only placement. Background stays coded (`<Background cover>`) per §10.6 (no `background` scene in the lines fallback). `apps/lines` build GREEN.
+- **Phase D — later (deferred):** per-element transforms within a screen + driving show/hide + count-ups from the doc via the behavior/timeline layer (§8.5). The big "behavior as data" work route B parks.
+
+----- [16 status footer] -----
+Phase B6.1 STARTED ... branch feat/editor-button-component. 
+
+----- [17.6 versioning landed] -----
+ ✅ The action + outdated flag live in the Properties panel "Component instance" section (landed 2026-06-24); only the v2 multi-version store remains.
+
+----- [18.1+18.2 whole] -----
+### 18.1 What shipped (CODE BUILT 2026-06-10)
+1. **Engine text-localization resolver** (`engine-layout/registerTextResolver.ts`): the game registers
+   ONE resolver at boot; `LayoutNodeView` runs every text node's FINAL string (static `node.text` or a
+   string param bind) through it. Known catalog key → translation for the active language; unknown
+   string / no resolver → literal (parity). This implements the long-documented aspiration on
+   `TextNode.text` ("may be a localization key").
+2. **String value sources**: `ValueSource` widened to `number | string`; `<ComponentInstance>`'s live
+   feed carries either. Numbers keep the formatted/count-up readout path; strings render as text.
+3. **`TEXT_BOX_DEF` built-in** (`textBox`): one def, a single text node with `paramBindings`
+   (`text`/`fontFamily`/`fontSize`/`fill` → params). `text` param = literal OR localization key.
+   Optional `source` param (options = `TEXT_SOURCE_KEYS`, the full `ENGINE_PARAM_CATALOG`): when a
+   registered feed exists, `<ComponentInstance>` OVERRIDES the `text` param with the live value (the
+   §16.4 `label`-override precedent, applied only to defs that declare a `text` param — HudReadout/
+   Button untouched). Static caption, localized label, and live readout are all ONE component.
+4. **Localization delivery (tool → game)**: new token-gated `GET /api/localization/strings?project&k`
+   exports the Localization tool's doc as per-locale message maps — source language fully, target
+   languages REVIEWED-only. `bake-editor-doc.mjs` embeds it as `bundle.localization`; the game merges
+   it into its Lingui catalog LAST (project strings override code catalogs) via
+   `bakedLocalizationMessagesMap()` in `editor-scenes.ts`, and registers the resolver with
+   `registerEditorTextLocalization(messagesMap)` at boot (`Game.svelte`).
+
+### 18.2 Verified
+`engine-layout` + `launcher-api` + `apps/lines` builds GREEN; `apps/lines` dev parity verified in the
+browser (HUD readouts, game-name/clock, board, i18n test overlay — no console errors).
+
+----- [18.4-18.9 whole] -----
+### 18.4 Default hit surface for art-only components (owner bug 2026-06-10)
+A custom button authored in the Component Editor (background sprite + text — no coded `bind` part)
+published as a STATIC IMAGE: all button interactivity (hit area, cursor, `onpointerup`) lived in the
+coded `ButtonFrame` part, and plain sprite/text nodes carry no event handling. Fix in
+`<ComponentInstance>`: when the instance resolved an ACTION feed and the def's root contains NO
+`bind` node, the engine provides the default hit surface — the expansion wraps in an interactive
+`Container` (`eventMode static`, pointer/not-allowed cursor, press → `onpress` unless disabled), so
+the whole rendered art hit-tests. A def containing ANY bind part keeps the coded part as the sole
+press owner (no wrapper → no double-fire → parity for the built-in `button`).
+
+### 18.5 Free author art on HUD scenes (owner bug 2026-06-10)
+A plain sprite/text/container dropped on a HUD scene (`hudBar`/`hudCorners`) in the Scene Editor
+showed in the editor but NOT in the game. Cause: HUD scenes don't render through the generic
+`<LayoutScene>` node-walker — they're consumed by the bespoke `LayoutEditable` (`components-ui-pixi`),
+which only (a) positions the coded HUD snippets by KNOWN id (`hud-balance`, `hud-btn-*`, …) and
+(b) renders author-placed `componentInstance` nodes. Any other node was silently dropped. Fix:
+`LayoutEditable` now also renders every "free" node (not a reserved coded id, not a componentInstance)
+through the engine `<LayoutNodeView>` in the scene's own space — `hudBar` standard (inside the bottom-bar
+MainContainer), `hudCorners` canvas — BEFORE the coded snippets so a bar-background sits behind them
+(author `zIndex` still wins). The live seed carries no such nodes → byte-identical parity until art is
+added. So: NO special component needed — drop any sprite/text on a HUD screen and it ships.
+
+### 18.6 Ghost coded HUD buttons when replaced by from-scratch instances (owner bug 2026-06-10)
+After authoring custom button COMPONENTS onto the HUD bar, the old coded buttons (spin/turbo/±) still
+rendered as duplicates. Cause: `LayoutEditable`'s double-render guard `mounted(id)` only suppressed a
+coded snippet when a `componentInstance` had the snippet's RESERVED id (`hud-btn-bet`, …). A button the
+author places from scratch (or via the picker) gets a RANDOM id, so the guard missed it and the coded
+snippet kept drawing at its fallback position — a ghost of the old graphic. Fix: also suppress a coded
+element when a placed instance COVERS its action (buttons: `hud-btn-bet`→`spin`, `hud-btn-turbo`→`turbo`,
+…) or its value source (readouts: `hud-balance`→`balance`, …), read from the instance's own param,
+regardless of id. Stock seeds are unaffected (their instances already carry the reserved ids → same
+result). So an author can drop their own button component over a coded HUD slot and the coded one steps
+aside once the instance's `action` matches.
+
+### 18.7 Editor↔game HUD text fidelity (font + alignment) (owner bug 2026-06-10)
+The HUD readout caption/value looked different in the editor vs the game. Two causes, both editor-side
+(the game render is the reference): (1) FONT — the games load proxima-nova via a Typekit kit
+(`apps/lines/app.html`); the launcher didn't, so the editor fell back to sans-serif. Added the same
+Typekit `<link>` to `apps/launcher-api/src/app.html` (+ an `onMount document.fonts.ready` redraw in
+`EditorCanvas` so the first paint isn't the fallback). (2) ALIGNMENT/SIZE — `EditorCanvas.drawHudChip`
+drew the decomposed `style:'text'` chip (the coded `HudCaption`/`HudValue` parts) with a hardcoded
+`600 30px sans-serif`, vertically CENTRED; the coded parts render `<Text anchor={{x:0.5,y:0}}>` in the
+resolved `fontFamily` (proxima-nova) at the resolved `fontSize` (UiLabel base 45), normal weight,
+TOP-anchored at the node origin. Fixed the chip to use the resolved family/size + top baseline at the
+origin (and threaded `fontFamily` through the param-style). Now editor ≈ game. NOTE: the coded HUD parts
+are still an editor APPROXIMATION (the editor can't run them); for pixel-exact WYSIWYG, author the
+caption/value as `textBox`/text nodes (§18), which render through the identical engine `<Text>` path in
+both. Launcher-only change — no game republish.
+
+### 18.8 Data-driven PORTRAIT HUD — the fold-out drawer, author-positioned (2026-06-12)
+Phase 3 (§"Editable game HUD" in `docs/STATUS.md`) made the HUD data-driven for desktop/landscape/tablet
+but left **portrait coded** (`UIDefault.svelte` had `&& layoutType() !== 'portrait'`), because the coded
+`LayoutPortrait.svelte` is an animated fold-out DRAWER — behaviour, not static placement. So an author
+who positioned the HUD in the editor's portrait view still got the old hardcoded layout in-game. Closed by
+keeping the drawer behaviour while driving its element positions from the doc. Our fork-addition.
+- **Parity gate.** Deleting the guard unconditionally would render desktop coords in the 1080×1920 portrait
+  box for any doc lacking portrait authoring. Instead `UIDefault` routes portrait to `LayoutEditable` ONLY
+  when `hudHasPortrait(props.hud)` (new `hudPositions.ts` helper) is true — i.e. at least one bar/corners
+  node carries an `overrides.portrait` entry. No portrait authoring ⇒ the coded `LayoutPortrait` still
+  renders (parity for `apps/lines` + un-refreshed docs). The other three layoutTypes are untouched.
+- **Drawer reproduced in `LayoutEditable`.** A `{#if layoutType === 'portrait'}` branch reuses
+  `LayoutPortrait`'s `DRAWER_Y`/`DRAWER_BUTTON_Y` constants, `drawerTween`/`drawerButtonTween` (`cubicInOut`),
+  and `subscribeOnMount({drawerButtonShow/Hide, drawerUnfold/Fold})` wiring verbatim. The reserved bar ids
+  are classified into the same groups: DRAWER group (menu/buyBonus/autoSpin/bet/turbo/balance) wrapped in
+  `<Container y={drawerTween.current}>`; win follows `y={Math.min(tween,350)}`; always-visible decrease/
+  increase + the bet readout (swapped for `LabelFreeSpinCounter` on `stateUi.freeSpinCounterShow`); the
+  `ButtonDrawer` in a `FadeContainer` on `stateUi.drawerButtonShow` at `y={drawerButtonTween.current}`. The
+  tween y-offsets ride ON TOP of the AUTHORED positions — the author authors the UNFOLDED resting layout.
+  `mounted()` suppression, free-author-art, `componentInstance` expansion, and label/tint overrides all stay
+  live in portrait. The menu overlay gains a portrait branch mirroring `LayoutPortrait`'s cluster.
+- **Seeded resting positions** (`referenceLayouts/hud.ts`). Each bar node now emits a `portrait` override
+  COMPUTED from `LayoutPortrait`'s constants over the 1080×1920 box (scale 1): balance `(540,1650)`, win
+  `(540,1250)`, bet `(540,1790)`, menu `(100,1520)`, buyBonus `(980,1520)`, autoSpin `(360,1520)`, bet-btn
+  `(540,1520)`, turbo `(720,1520)`, decrease `(150,1835)`, increase `(930,1835)`. So a freshly-seeded /
+  "Refresh HUD layer" doc opts in and renders byte-for-byte like coded `LayoutPortrait`. Corners (canvas
+  space, `screenAnchor`) are layoutType-agnostic — no portrait override needed.
+- **Caveat / non-parity edges.** The drawer TOGGLE button has no `hud-btn-*` reserved id (it exists only in
+  portrait), so `LayoutEditable` resolves an optional `hud-btn-drawer` node, falling back to the coded coord
+  `(W*0.5+440, H-105)` from `STANDARD_MAIN_SIZES_MAP.portrait`. Byte-identical-to-coded holds ONLY against a
+  doc carrying the seeded portrait overrides; an author who MOVES the portrait layout gets that layout (the
+  intended outcome). Builds: `engine-layout` + `lines` GREEN; Prettier clean. Book of Borut picks this up on
+  the next engine submodule bump.
+
+### 18.9 Info bar (win/info toast) as an editor-native component (owner direction 2026-06-18)
+**Owner ask:** control the in-game info bar (the "Win $1.00 — 2 of a kind" banner) from the Scene Editor —
+position, size, font, font size, colour. The bar was the coded HTML `MessageToast` (`components-ui-html`,
+a CSS pill fed by `showMessage`/`stateMessage` in `state-shared`): a DOM overlay in a separate render layer,
+so the editor (which only owns PIXI `LayoutScene` nodes) couldn't touch it. Re-homed as an editor-native
+`componentInstance`, mirroring the §14.3 free-spin-counter decomposition exactly — the same shape of "coded
+overlay → placeable, restyleable, source-fed component" conversion. Our fork-addition.
+- **`INFO_BAR_DEF` built-in** (`infoBar`, `engine-layout/builtinComponents.ts`): a PLAIN-NODE def (like
+  `FREE_SPIN_COUNTER_DEF`, not the HUD's coded-parts path) — a local-space container with two centred
+  children: a `kind:'sprite'` **Background** whose `region`/`tint` bind to an author-picked `background`
+  IMAGE param (the pill/plaque atlas frame), and a `kind:'text'` **Message** bound (`text → value`) to the
+  engine-fed STRING source so it renders the toast text verbatim (a `string` value routes through the
+  `<Text>`/`<BitmapText>` path, never the numeric readout). Params: `source` (default `message`),
+  `visibleSource` (default `messageShow`), `background`, `tint`, `fill` (default gold `#ffe9a8`, the toast's
+  `.win` colour), `fontSize`, `fontFamily`, `value` (engineProvided string). Empty static `assetKey` + no
+  picked `background` ⇒ no texture resolves ⇒ the bar renders TEXT-ONLY (no crash) — the pill image is an
+  asset the project authors + ships (export→deploy→bake→pull→register, rule #8), not a blocker to start.
+- **Catalog wiring** (`componentCatalog.ts`): added a `message` string entry to `ENGINE_PARAM_CATALOG` (so it
+  appears in `TEXT_SOURCE_KEYS`) + to `COMPOSED_STRING_SOURCE_KEYS` (so it lists in `VALUE_SOURCE_KEYS`, the
+  `infoBar` `source` dropdown); added `messageShow` to `VISIBILITY_SOURCE_KEYS` (the editor renders it as a
+  dropdown — true while a `showMessage` toast is active, so the bar shows only when there's a message and
+  hides on the existing auto-clear timer — the engine equivalent of the toast's self-show/hide).
+- **Game registration** (`apps/lines` reference; verified via the `InfoBarComponentInstance` story): register
+  the def beside the others (`getComponent('infoBar')`), feed `message: textSource(() =>
+  stateMessage.current?.text ?? '')`, gate `messageShow: boolSource(() => stateMessage.current !== null)`.
+- **Builds:** `engine-layout` lib typechecks GREEN; Prettier clean.
+- **Borut mirror (next, after the engine submodule bump):** register `INFO_BAR_DEF` + the `message`/
+  `messageShow` sources in `Game.svelte`, seed an `infoBar` scene in `defaultLayout('bookOf')` (canvas space,
+  `screenAnchor {0.5, 0.06}` to mirror the toast's `top:6%` centre) + mount it like `fsCounterScene`, and
+  REMOVE `<MessageToast />`. Then author the pill background + reposition/restyle in the editor and rebake.
+  `showMessage(...)` in `bookEventHandlerMap.ts` stays — it now feeds the PIXI bar. Per-`kind` recolour
+  (info/win/warn) is a later follow-on (a `messageKind` feed); the bar uses one authored `fill` for now.
+
+----- [19.6-as-built whole] -----
+### 19.6-as-built — Project-aware filled import (BUILT 2026-06-13)
+The §19.6 deferral is closed. "Import composed reference" now offers the FILLED (art-bearing) kinds
+(`listImportableKinds()` = `lines` + `bookOf`; the engine-skeleton kinds have no art so import==scaffold and
+are omitted). `loadChosen()`'s `ref:` branch fetches `GET /api/editor/import?gameType=<kind>` instead of the
+client `getReferenceLayout`: the endpoint (gated `editor`, session active project) takes
+`getReferenceLayout(gameType)` (filled-only → 404s a skeleton kind) and **rewrites bare board-frame sprite
+names to the active project's atlas region** — for each `sprite` with a bare image `assetKey` + no `region`,
+it scans the project's atlas manifests (`listProjectAssets` + `editorRegions.loadRegionSet`) and, where a
+region of that name exists, sets `region = assetKey` + `assetKey = <that manifest key>` (identical to the
+seed's `frameNode()`; in-game unchanged, editor-renderable). Best-effort: an unmatched name is left bare
+(previews as a placeholder). So the frame renders for a project whose atlas has it (e.g. Borut's `reels_frame`)
+and degrades gracefully elsewhere. `adoptScenes` keeps the cross-type clobber guard; the imported doc is FILLED
+(no `engineOwnedOnly`). `getFullSceneSet`/`getReferenceLayout` folded onto one `FULL_SCENE_SOURCES` (`filled`
+flag); `listReferenceLayouts` removed (no callers).
+
+----- [20.1 BUILT block] -----
+#### 20.1 — Generic doc-driven scene mounting (BUILT 2026-06-29)
+
+The deferred step above is closed (the §25 `space:'background'` slice generalised to ALL author scenes). A
+brand-new author screen — a scene with a custom id (e.g. `hud_xxk3a9`), any non-background space — now mounts
+in the shipped game, in doc order, with **no FlowDoc required**. Mirrors §25 exactly (selection by a
+contract, not by id):
+
+- **New engine-layout contract** `packages/engine-layout/src/lib/genericMountScenes.ts` (exported from the
+  bare `engine-layout` barrel, so the editor + every game share it):
+  - `extraMountScenes(scenes, reservedIds)` → the scenes **in doc order** whose `id` is NOT in `reservedIds`
+    AND whose `space !== 'background'` (background scenes are already handled by `backgroundScenes`/§25). Pure
+    TS, Svelte-free, dependency-free.
+- **The runtime** (`apps/lines/Game.svelte`) builds a `reservedSceneIds` set = the hard-coded ids it already
+  mounts (`basegame`, `basegameOverlays`, `freeSpinIntro`, `freeSpinIntroVisual`, `freeSpinCounter`,
+  `freeSpinOutro`, `freeSpinOutroVisual`, `specialBook`, `hudBar`, `hudCorners`, `loading`, `background`)
+  **plus** any FlowDoc-authored screen ids, then renders `{#each extraMountScenes(editorDoc.scenes,
+  reservedSceneIds) as scene}` `<LayoutScene {scene} />` as a TOP overlay layer (rendered after the base game,
+  the overlays AND the HUD — so author screens currently sit ABOVE the HUD; whether an author "extra" screen
+  should sit above or below the HUD bar/corners is a deliberate **live-verify decision**, parity-safe to defer
+  since `apps/lines` ships none). `<LayoutScene>` already self-wraps by `scene.space`
+  and honours `scene.visibleSource`, so **no scaling/gating code was needed** — the gap was purely the runtime
+  *mounting* a custom-id scene.
+- **FlowDoc exclusion (no double-mount):** a Flow-mounted screen is owned by the interpreter (`<FlowMount>` /
+  the generic mounter), so it must NOT also mount here. `SceneMounter` gained an `authoredScreenIds()`
+  accessor (`packages/engine-flow/src/mounter.ts`); the runtime folds `flow?.mounter.authoredScreenIds()`
+  into `reservedSceneIds`. No FlowDoc ⇒ empty set ⇒ no effect (parity).
+- **Parity (non-negotiable):** `apps/lines` ships no extra scene and reserves all its current ids ⇒
+  `extraMountScenes(...)` returns `[]` ⇒ the `{#each}` renders nothing ⇒ byte-identical to `main` (same
+  discipline as §25).
+- **Headless spike** `tools/generic-mount-spike` (`pnpm --filter generic-mount-spike run select`) proves the
+  selection contract OFFLINE: (1) `defaultLayout('lines')` + the full reserved set → EMPTY (apps/lines
+  parity); (2) an authored extra scene (custom id, non-background space) IS selected; (3) a reserved id is
+  NOT selected; (4) a `space:'background'` scene is NOT selected (handled by §25); (5) doc order preserved
+  across multiple extras. 5/5 GREEN.
+- `engine-layout` + `lines` builds GREEN.
+
+----- [21.6 whole] -----
+### 21.6 New-project scaffold + admin from a custom kind (BUILT 2026-06-13)
+Originally deferred; shipped as a follow-on so a brand-new PROJECT can be created as a custom kind, not just
+composed in an open editor. As-built (parity-safe):
+- `projectGameType(key): Promise<string>` returns the stored `game_type` **verbatim when non-empty**, else
+  `'lines'` (dropped the `isGameKind`-only restriction — a custom kind id is now a valid stored value; the
+  admin is the gatekeeper). `createProject`/`setProjectGameType` widened `GameKind` → `string`.
+- `projectScaffold` resolves the reference doc `getFullSceneSet(gameType) ?? (await loadKind(gameType))?.doc`
+  (built-in registry first, then the R2 custom-kind store) → `engineOwnedOnly(...).scenes`. `objectExists`
+  guard unchanged (existing projects never re-seeded).
+- Admin: one server helper `selectableGameKinds()` = built-ins (`listFullSceneSets()`, id+name) + `listKinds()`
+  (custom), de-duped (built-ins win); the create + per-project kind `<select>`s render it, and both actions
+  validate the posted kind against the SAME union (offered set == accepted set, resolved server-side).
+Parity: `game_type = null` still → lines; built-in kinds unchanged; only a project explicitly set to a custom
+kind newly resolves via `loadKind`. Build-green gate (authed/R2 paths owner-verified online).
+
+----- [24 verify tail] -----
+ Verified: helper + param round-trip fixture
+  (`scripts/test-tap-to-continue.mjs`), `engine-layout`/`launcher-api`/`lines` builds GREEN, and the tap
+  wiring (`completeActiveScreen` + `emitSignal`, the overlay gate, the registered `TapToContinue`) all
+  present in the shipped `apps/lines` bundle.
+
+----- [25.4 whole] -----
+### 25.4 Parity (non-negotiable) + verification
+- **`apps/lines` is byte-identical to `main`.** `referenceLayouts/lines.ts` ships **no** `space:'background'`
+  scene on purpose (§10.6 note), so `backgroundScenes(...)` is empty and `suppressCodedBackground` is false
+  ⇒ the `{#each}` renders nothing and the coded `<Background>` still renders — the dev boot + baked path
+  (no `?runtime=1`) is unchanged.
+- **Headless spike** `tools/bg-scene-spike` (`pnpm --filter bg-scene-spike run select`) proves the selection
+  contract OFFLINE: (1) `defaultLayout('lines')` → empty + no suppression (apps/lines parity); (2) the
+  bookof `space:'canvas'` `background` anchor is NOT selected + does NOT suppress (coded cover path intact);
+  (3) an authored `space:'background'` sprite scene IS selected + suppresses; (4) multiple selected in doc
+  order; (5) an anchor-only background scene is selected but does NOT suppress. ALL GREEN.
+- `engine-layout` / `launcher-api` / `lines` builds GREEN.
+
+----- [GREEN a] -----
+(removed 2x) `pnpm --filter launcher-api build` GREEN. 
+
+
+===== PASS 2 =====
+
+----- [10.1 interim fix LANDED] -----
+ **Interim fix LANDED** (Book of Borut `Background.svelte` → `scale: 1`, full-bleed).
+
+----- [9.4 P0 green+owner] -----
+(removed 1x)  `pnpm --filter {launcher-api,engine-layout} build` GREEN. Owner step: run the sync with R2 creds to seed a project's catalog.
+
+----- [9.4 P4 green] -----
+(removed 1x)  `pnpm --filter launcher-api build` + `lines` svelte-check GREEN.
+
+----- [11 green a] -----
+(removed 3x)  `pnpm --filter {engine-layout,launcher-api} build` GREEN.
+
+----- [11 green b] -----
+(removed 1x)  `pnpm --filter {engine-layout,launcher-api} build` + `apps/lines` `vite build` GREEN.
+
+----- [11.2 owner-verify bullet] -----
+  - **Owner verify:** open `/editor` on the Borut project, Load the bookof game scene, select **Reel grid** in the Base game scene — confirm the grid draws over the board, is movable/scalable, and the Properties numbers change its shape.
+
+----- [11.3 verification bullet] -----
+  - **Verification:** `pnpm --filter {engine-layout,utils-slots(via lines),launcher-api,lines} build` GREEN. Ran `apps/lines` (play4fun mock): clean boot, zero runtime errors, and the Pixi scene-graph showed the board at **exactly** 120 px column + row pitch with the first column at `120·REEL_PADDING` — byte-identical lattice to baseline (parity). Gap on-screen pitch = `cellW+gapX` / `cellH+gapY` (reduces to parity at defaults), already visible in the Phase-1 editor preview. A live in-game gap screenshot wasn't captured (WebGPU `preview_screenshot` times out; the RGS reload flow is fragile for runtime injection) — best confirmed by the owner via the editor pipeline (a doc carrying a `reelGrid` node with gaps + the `?k=` token).
+
+----- [10.4 owner-verified tail] -----
+(removed 1x)  Owner-verified across layout tabs.
+
+
+===== PASS 3 =====
+
+----- [10.3 s6 verified-live] -----
+ (verified live: background fills the viewport edge-to-edge, was half-size)
+
+----- [21.5 build-green gate] -----
+ Build-green gate (authed pages owner-verified online).
+
+
+===== PASS 4 =====
+
+----- [11.3 P3 runtime-verified] -----
+ **Runtime-verified** (`apps/lines`): base = coded `(spinSpeed 3, delay 145)`; an injected `{normal:{reelSpinSpeed:99,reelSpinDelay:0}}` → getter returns `99`/`0` with other fields unchanged.
+
+## Invisible Rigger — design-doc phase log (archived from docs/design/invisible-rigger.md 2026-07-15)
+
+## 10. Phase 0 results (2026-06-13)
+
+Spike harness lives in `tools/rigger-spike/` (`spineModel.mjs` parse↔serialize,
+`roundtrip.mjs` single-file driver, `batch.mjs` corpus runner, `autoweights.mjs`,
+`inspect.mjs`). Arbiter = the official `@esotericsoftware/spine-core@4.2.74` loader
+(already in the tree via `spine-pixi-v8`). Corpus = the real game spines under
+`apps/{cluster,lines,ways,scatter}/static/assets/spines` (exported by Spine 4.1.23;
+the 4.2 loader reads them, so this also confirms 4.1→4.2 read-compat).
+
+### Spike 1 — serializer round-trip: ✅ PASS (unambiguous)
+
+`node tools/rigger-spike/batch.mjs` → **120 / 120 skeletons** re-serialize to JSON
+the official loader reads back **identically** (deep SkeletonData diff: bones,
+slots, skins, constraints, **weighted-mesh vertices**, animations all match).
+Coverage: 3,700 region, 440 mesh (**372 weighted, 36,920 bone influences
+decoded→re-encoded**), 720 linkedmesh, 20 clipping, 108 path. The weighted-mesh
+packed-vertex format — the weight-painting data contract — round-trips faithfully.
+- **Found + fixed:** Spine **4.2 sequence attachments** (`{sequence:{count,digits}}`,
+  region resolves to `name+index`) — our first model dropped the `sequence` field
+  (16 failures); adding it to region+mesh fixed all 16. Exactly the kind of
+  version-specific field Phase 0 exists to surface.
+- **Caveat (honest):** `boundingbox` and `point` attachment paths are written but
+  **untested** — none exist in this corpus. Animations are **pass-through** (parsed
+  raw, re-emitted), so their match is real-via-loader but not yet model-reconstructed
+  (that's Phase 5). Byte-minimisation (matching Esoteric's omit-defaults) is not
+  done — we emit explicitly; the loader doesn't care, but a future "diff vs original
+  bytes" pass is a nicety, not a blocker.
+
+**Verdict:** the no-official-exporter risk (§5.1) is **retired** for the rig
+structure + the weighted-mesh data contract. We can author Spine 4.2 JSON the
+runtime accepts and reads identically.
+
+### Spike 2 — auto-weights vs artist ground truth: ⚠️ OPEN (risk reframed, not settled)
+
+`node tools/rigger-spike/autoweights.mjs` → over **186 weighted meshes / 8,936
+vertices**, a cheap proximity algorithm (inverse-squared distance-to-bone-segment,
+top-4, normalised) vs the artists' real weights: **top-1 bone match 20.5%, cosine
+0.837, mean L1 0.579**.
+
+Root-caused via `inspect.mjs`: these assets are a **poor ground truth** for
+proximity weighting. Example — the `eyebrow_l` mesh: its two influencing bones
+(`handle`, `origin`) **both sit at world (0,0)**, far from the vertices, and the
+artist used **near-uniform** weights (0.35 / 0.65 across all 4 vertices). That's a
+"deform-handle" rig style (whole region bound to co-located control bones), not the
+anatomical falloff a distance algorithm models. A proximity heuristic *cannot*
+recover a 35/65 split from two co-located bones — hence high cosine but tie-flipping
+top-1. The corpus is slot symbols / UI; it has **no embedded-skeleton character
+mesh** (bones running along limbs), which is the case proximity auto-weights is
+actually for.
+
+**What this means (the reframe):**
+- The naive proximity algorithm is **not good enough as-is**, and the available data
+  can't fairly evaluate the real target case. The risk is **not closed**.
+- **But the bar is lower than "match the artist exactly":** in Spine itself,
+  auto-weights is a *starting point* artists then clean up with the brush. So the
+  product bar is "**a sane starting point + a reliable manual brush**," and the brush
+  (Phase 4) is the guaranteed-correct fallback regardless of auto-weight quality.
+- **To actually settle Spike 2 before committing to Phase 4 we need:** (a) a better
+  algorithm for embedded-bone rigs (geodesic/heat-diffusion, bone-length-aware —
+  note 5/24 bones here are zero-length, collapsing segments to points), (b) a
+  **representative character test mesh** as ground truth, and (c) treat the brush as
+  the safety net. This is the open item that gates Phase 4 — not Phases 1–3.
+
+**Net Phase 0 readout:** the format/serializer half (the thing most likely to be a
+silent dealbreaker) is proven. Phases 1–3 (viewer, rig editor, mesh geometry) are
+clear to proceed. Phase 4 (weights) stays gated on resolving the auto-weights
+question with proper test data — the brush makes the *tool* viable even if
+auto-weights only ever reaches "decent starting point."
+
+## 12. Phase 1 progress (2026-06-13)
+
+**Read-model + viewer landed (code; build GREEN; not browser-verified — authed
+launcher page needs Postgres/R2/auth).**
+
+- **Inspector read-model** (`tools/rigger-spike/inspectModel.mjs`, committed
+  `757b6d5`): pure `buildInspector(skeletonData)` → bone hierarchy tree, setup-pose
+  bone world transforms (origin→tip→rotation = the overlay geometry), slots in draw
+  order, skins (with weighted-mesh flags), animations, constraints. Verified
+  headlessly on the anticipation skeleton.
+- **`/rigger` launcher tool** — registered in `roles.ts` (tool + icon +
+  `TOOL_BAR_ORDER` + doc slug; granted to admin/developer/animator), gated redirect
+  `routes/(app)/rigger/+page.server.ts` mirroring `/spine`, and the static WebGL app
+  `static/rigger/view.html`. **Reuse, not rebuild:** forked the proven Spine Viewer
+  (rendering, pan/zoom, scrubber, anim/skin, debug overlay) and reuses its
+  `/spine/skeletons` + `/spine/file` endpoints + vendored `spine-webgl-4.2` (the
+  access gate `requireSpineAccess` was widened to accept `spineViewer` OR `rigger`).
+  The Rigger's **delta** is the structured **Inspector panel** (hierarchy / slots /
+  skins / animations / constraints), bone **selection** (tree highlight + detail +
+  a defensive world-space marker), and bones-overlay-on — the seed of Phase 2 edit.
+- Verified: `pnpm --filter launcher-api build` GREEN; both inline `<script>` blocks
+  pass `node --check`. **Owner-verify live at `/rigger`** (skeleton list loads, a
+  skeleton renders with bone overlay, inspector populates, bone click selects).
+- **Reuse finding (recorded):** the Spine Viewer already covers most *read-only*
+  viewing (render + debug bone/mesh overlay + scrubber). The Rigger's real value is
+  the inspector + (Phase 2+) editing, so it extends the viewer rather than cloning it.
+
+## 13. Phase 2 progress (2026-06-13)
+
+**Phase 2.1 — bone transform editing + `.irig` export landed** (code; build GREEN;
+edit→export contract verified headlessly; UI not browser-verified).
+
+The Rigger now *writes* skeletons. In `static/rigger/view.html`:
+- **Edit mode** (`✎ Edit` button) — pauses animation and holds the (editable) setup
+  pose; the frame loop skips `animState.apply` so edits stay visible.
+- **Editable source of truth = the parsed skeleton JSON** (`rawDoc`, from
+  `assetMgr.require`). Per-edit we mutate `rawDoc` **matched by bone name** (index
+  drift can't corrupt it) AND the live runtime `BoneData` (instant render via
+  `setToSetupPose`). The selected bone gets numeric editors (x/y/rotation/
+  scaleX/scaleY/length) in the inspector detail.
+- **Export `.irig`** (`⤓ .irig`) — `JSON.stringify(rawDoc)` downloaded as
+  `<stem>.irig`: byte-valid Spine 4.2 JSON under our extension. **Edit-existing uses
+  in-place mutation, NOT the Phase-0 normalized serializer** — strictly more
+  fidelity-safe (preserves animations + every untested field verbatim). The
+  serializer stays for synthesis/mesh paths (Phase 3+).
+- **Reset** restores bone transforms from the untouched original. JSON-only (binary
+  `.skel` is view-only in Phase 2).
+- **Verified:** `editexport.mjs` mutates a real bone → stringify → reload via the
+  official loader: edit present, loader accepts, every OTHER bone + all slots +
+  animations unchanged (drift=0), on anticipation (73 bones) and transition.
+  Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the UI live at
+  `/rigger` (Edit → tweak a bone → see it move → Export → reopen the `.irig`).
+
+**Phase 2.2 — canvas drag-to-move + bone reparent landed** (code; build GREEN;
+contracts verified headlessly; UI not browser-verified).
+- **Drag-to-move:** in edit mode, dragging the canvas moves the selected bone
+  (Shift+drag still pans). Screen delta → world delta (`×dpr×zoom`) → **parent-local
+  delta** via the inverse of the parent bone's world matrix `[a b; c d]`, added to
+  the bone's local x/y (mutates `rawDoc` by name + live `BoneData`).
+- **Reparent:** the inspector's selected-bone detail gains a **parent `<select>`**
+  (excludes self + descendants, so no cycles; `(root)` = no parent). Changing it is
+  STRUCTURAL → mutate `rawDoc.bones[i].parent`, **topo-sort** the bones array
+  (parents must precede children in Spine JSON), then `rebuildFromRawDoc` re-reads
+  the skeleton from the edited JSON (clone, so the loader never touches our source),
+  rebuilds the runtime + anim state, restores skin + selection by name.
+- **Reset** now restores the full original `rawDoc` and rebuilds (covers structural
+  edits too, not just transforms).
+- **Verified:** `reparent.mjs` — reparent a bone + topo-sort + reload via the
+  official loader: parent-precedes-child invariant holds (0 violations), loader
+  accepts, new parent applied, no bone lost, animations intact (anticipation +
+  transition). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the UI
+  live (drag a bone, reparent it, Export, reopen).
+
+**Phase 2.3 — save to R2 as a first-class `.irig` landed** (code; build GREEN; not
+browser-verified). Edits now persist server-side, not just download.
+- **`.irig` is a first-class skeleton.** Taught the shared `spineIndex.ts` about
+  `.irig` (added to `SPINE_ASSET_EXT` + `SPINE_CONTENT_TYPE=application/json`; the
+  JSON-skeleton detection + `detectVersion` now include `.irig`). So a saved `.irig`
+  is listed by `skeletons.json` and re-opens in the tool (and the Spine Viewer) —
+  it's just Spine JSON the extension-agnostic loader reads (proven in Phase 0).
+- **`POST /api/rigger/save`** (`routes/api/rigger/save/+server.ts`) — `rigger`-gated
+  via `gate()`, path-guarded, validates `bones[]`, writes `<bundle>/<stem>.irig`
+  with `putObjectText`, then rebuilds `skeletons.json` via `buildSkeletonsIndex`
+  (same final step as the editor's spine reindex). **Non-destructive:** the artist's
+  source `.json` is untouched; the edit is the sibling `.irig`.
+- **Viewer:** `💾 Save` button → POSTs `{dir, stem, skeleton: rawDoc}`, then
+  refreshes the list (the new `.irig` appears, tagged "irig · edited").
+- Verified: `pnpm --filter launcher-api build` GREEN; viewer `<script>` blocks pass
+  `node --check`. ⏳ owner-verify live (edit → 💾 Save → the `.irig` appears in the
+  list and re-opens with the edits).
+
+**Phase 2.4 — slot draw-order + region attachment placement landed** (code; build
+GREEN; contracts verified headlessly). Structural editing is now complete.
+- **Draw-order reorder:** slot rows get ↑/↓ in edit mode → swap in `rawDoc.slots`
+  (the array order IS the setup draw order) → `rebuildFromRawDoc`, keeping the slot
+  selected. Slots iterate `skeletonData.slots` (setup order = `rawDoc.slots`).
+- **Region attachment placement:** clicking a slot selects it; for a region
+  attachment its x/y/rotation/scaleX/scaleY get numeric editors. Edits mutate the
+  live `RegionAttachment` (+ `updateRegion()` to recompute geometry — no rebuild,
+  instant) and the `rawDoc` skin entry (found by skin→slot→attachment). Mesh
+  attachments show a "region-only (mesh = Phase 3)" note.
+- Edit toggle re-renders the inspector so the ↑/↓ controls appear/disappear; both
+  bone and slot selections survive rebuilds.
+- **Verified:** `tools/rigger-spike/slotedit.mjs` — swap slots[] + reload = order
+  changed, all present, loader accepts; mutate a region attachment's x/rotation +
+  reload = values present on the reloaded `RegionAttachment` (anticipation +
+  transition). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify live.
+
+**Phase 2 is complete** (transform edit, drag-move, reparent, slot order, attachment
+placement, `.irig` export + R2 save). Next — the real gate before **Phase 3/4 (mesh
+geometry + weight painting): resolve the open Spike-2 auto-weights question** — needs
+a representative embedded-skeleton character mesh as ground truth + a better
+algorithm (geodesic/heat, bone-length-aware). The manual weight brush remains the
+guaranteed fallback regardless.
+
+## 14. Phase 3 progress (2026-06-13)
+
+Phase 3 (mesh geometry) is unblocked — only Phase 4 (weights) is gated on the
+Spike-2 auto-weights question.
+
+**Phase 3.1 — mesh vertex editing landed** (code; build GREEN; the move math
+verified headlessly across weighted + unweighted meshes; overlay/drag UI not
+browser-verified).
+- Selecting a slot whose attachment is a **mesh** enters mesh-edit: the vertices are
+  drawn as handles on the canvas (world-space, via the runtime's shape API —
+  `renderer.circle`), and dragging a handle moves that vertex.
+- **Move math (the crux):** screen→world (`camera.screenToWorld`), then the vertex
+  snaps to the cursor. The world delta is pushed into the geometry differently per
+  format — **unweighted:** add `inv(slotBoneLinear)·delta` to the bone-local `[x,y]`;
+  **weighted:** for each influence, add `inv(boneLinear)·delta` to that influence's
+  bone-local `[x,y]` (so the weighted world sum shifts by exactly the delta). Both
+  the live `MeshAttachment.vertices` (instant render) and the `rawDoc` packed array
+  (export/save) are updated — note the **two layouts differ**: runtime splits
+  `bones[count,idx…]` + `vertices[x,y,weight]`; rawDoc is the combined packed
+  `[count,(idx,x,y,weight)…]`.
+- **Verified:** `tools/rigger-spike/meshedit.mjs` — move a vertex by a world delta
+  via the rawDoc packed edit, reload through the official loader, recompute setup
+  world verts: the vertex moved by *exactly* the delta and others were unchanged, on
+  weighted (anticipation `payframe`, symbols `t1_glow`) and unweighted (anticipation
+  `payframe_particles`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify
+  the drag UI live.
+
+**Phase 3.2 — add a mesh vertex landed** (code; build GREEN; math verified headlessly,
+weighted + unweighted). A `＋ Add vertex` toggle in the mesh detail; clicking inside
+the mesh inserts a vertex via **local triangle split** (no global re-triangulation):
+- Find the triangle containing the click (barycentric test over world verts), split
+  it into three fanned to the new vertex (`triangles` +6, hull untouched — the new
+  vertex is interior, appended last).
+- The new vertex's **UV** = barycentric blend of the triangle's corner UVs. For a
+  **weighted** mesh, its **bone influences** = barycentric blend of the corners'
+  influences (normalised), each influence's bone-local pos = `bone.worldToLocal(P)`.
+  Unweighted: append slot-bone-local `[x,y]`. Mutates `rawDoc`, then rebuilds.
+- **Verified:** `tools/rigger-spike/meshadd.mjs` — split a triangle at its centroid,
+  reload: vertex count +1, triangles +6, new vertex lands at the centroid (off by
+  0.000), mesh poses with all-finite verts, loader accepts — weighted (anticipation
+  `payframe`, symbols `t1_glow`) + unweighted (`payframe_particles`). The new vertex
+  is then draggable via 3.1. ⏳ owner-verify the UI live.
+
+**Phase 3.3 — remove a mesh vertex landed** (code; build GREEN; validity verified
+headlessly). A `－ Remove vertex` toggle; clicking an **interior** vertex removes it:
+- Collect the triangle fan around the vertex, chain its outer edges into the hole's
+  boundary ring, **ear-clip** the ring (using setup-pose world positions) to fill the
+  hole, drop the vertex from `uvs` + `vertices` (packed/unweighted), and **reindex**
+  every later triangle index. Hull vertices (index < `hull`) are refused (hull-edit =
+  3.4); the derived `edges` hint is dropped on the topology change.
+- **Verified:** `tools/rigger-spike/meshremove.mjs` — remove an interior vertex,
+  reload: vertex count −1, triangles a valid multiple of 3 with all indices in range,
+  mesh poses with all-finite verts, loader accepts (weighted anticipation `payframe`,
+  symbols `t1_glow`). Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify UI.
+
+**Phase 3.6 — global re-triangulation landed** (code; algorithm verified headlessly).
+The `＋ Add vertex` split is good for local refinement, but the artist's mental model
+(from Spine) is "drop interior *floating* points in the middle, then weave the mesh
+through them." A `⟁ Re-triangulate` button now does exactly that. Rewrites `triangles`
+only — `vertices`/`uvs`/weights are untouched, so existing weights survive; refreshes
+the slot detail + heatmap after.
+- **Dedup first:** two verts at the *same* position can't both sit in a non-degenerate
+  triangulation, so they're collapsed (relative EPS — genuinely close-but-distinct
+  points are kept) by removing the orphan from `uvs`/`vertices`/`hull`. (Without this
+  the dropped twin looked "merged.")
+- **Constrained Delaunay (CDT)**, NOT Delaunay + centroid-clip. The first attempt clipped
+  triangles by centroid-in-polygon; on a concave shape (cactus armpits = reflex hull
+  verts) that could clip away *every* triangle touching a reflex vert → it dropped/merged
+  a HULL vertex. CDT instead: **ear-clip the hull polygon** (every hull vert referenced,
+  boundary edges present by construction) → **insert interior points** by splitting the
+  containing triangle → **Delaunay flip pass** that never flips a hull boundary edge.
+  Cannot orphan a hull vert or jump a concavity.
+- **Verified:** `tools/rigger-spike/retriangulate-cdt.mjs` (cactus body + 2 arms + reflex
+  armpits, 0–20 interior pts): every vertex referenced, **all hull edges present**, exact
+  cover (Σtri == polygon area), no degenerate slivers. Plus `retriangulate-degenerate.mjs`
+  (dedup: exact/near-coincident/collinear/on-edge/cocircular) and the earlier
+  `retriangulate.mjs`. Viewer `<script>` blocks pass `node --check`; build GREEN.
+
+**Mesh topology editing is now add + move + remove + re-triangulate.**
+
+**Phase 3.4 — region→mesh conversion landed** (code; build GREEN; geometry verified
+headlessly). The practical "new mesh" entry point: a `▸ Convert to mesh` button on a
+region attachment's detail replaces it with an editable **quad mesh** covering the
+same image — 4 corner vertices (the region's bone-local corners from its computed
+`offset`, order BL/UL/UR/BR), unit-square UVs in matching order, 2 triangles, hull 4.
+Afterwards the 3.1–3.3 mesh tools apply (move/add/remove verts) → the full
+create-a-mesh workflow.
+- **Verified:** `tools/rigger-spike/convertmesh.mjs` — convert a region, reload: the
+  attachment is now a `MeshAttachment` with 4 verts whose world corners match the
+  region's original world corners **exactly** (max off 0.0000), loader accepts
+  (anticipation `radial1`, transition `dust1`). Viewer `<script>` blocks pass
+  `node --check`. ⏳ owner-verify the UI + texel mapping live (UV orientation for
+  rotated atlas regions is best-effort — confirm visually).
+
+**Mesh editing is now create (from a region) + topology (add/move/remove).**
+
+**Phase 3.5 — UV editing (numeric) + mesh visualization landed** (code; build GREEN;
+UV round-trip verified headlessly). Scoped to the *verifiable* half of a UV editor:
+- **Vertex selection:** clicking a mesh vertex selects it (`selMeshVert`); the
+  selected/dragged handle is highlighted.
+- **Numeric UV editor:** the selected vertex's region UV (u, v ∈ 0–1) gets numeric
+  inputs; editing updates `rawDoc.uvs` + the live `MeshAttachment.regionUVs` (+
+  `updateRegion()` to recompute page uvs).
+- **Triangulation wireframe:** the mesh's triangle edges now draw on the canvas (via
+  `renderer.line`) so the topology being edited is visible.
+- **Verified:** `tools/rigger-spike/uvedit.mjs` — change a vertex's u in rawDoc,
+  reload: the new u is present on the mesh's `regionUVs` and page uvs recompute
+  finite; loader accepts. Full mesh suite (edit/add/remove/convert) re-run = no
+  regression. Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify live.
+
+**Deferred to Phase 3.6 (a larger, inherently-visual build):** a **visual UV editor
+panel** (show the region's texture image, drag vertices in UV space) + **hull/edge
+editing**. These need real in-browser verification — best done after the live `/rigger`
+check.
+
+## 15. Phase 4 progress — weights (2026-06-13)
+
+**Phase 4.1 — manual per-vertex weight editing + bind-to-bone landed** (code; build
+GREEN; verified headlessly). The headline non-negotiable feature, in its precise
+(numeric) form. **Not gated on auto-weights** — manual weighting was always the
+guaranteed path; auto-weights (§5.2, Spike 2 OPEN) is only a convenience on top.
+- **Bind** — an unweighted mesh (e.g. a freshly-converted region-mesh, §3.4) gets a
+  *Bind to slot bone (make weighted)* button: every vertex bound 100% to the slot's
+  bone, reusing its existing bone-local `[x,y]` (exact, no move). This is the bridge
+  from a static quad into a deformable weighted mesh.
+- **Per-vertex weights** — selecting a vertex of a weighted mesh lists its bone
+  influences with weight inputs (auto-normalised: editing one scales the others to
+  fill 1−w), an `✕` to remove an influence (remaining renormalised), and a dropdown
+  to add a bone (its bone-local pos = `bone.worldToLocal(P)`, weight 0). The packed
+  `rawDoc` array is read/written via `rdVertexAt`/`rdSetVertexInfluences`; weight-only
+  edits update the live runtime weights in place (no rebuild), add/remove/bind rebuild.
+- **Key invariant (why it's safe):** in the setup pose every influence stores the
+  *same* world point P in its bone's local space, so the vertex sits at P for **any**
+  weights summing to 1 — weight edits change deformation behaviour, never the
+  setup-pose position. Verified: `tools/rigger-spike/weights.mjs` — set a weight to
+  0.7 → reload → weights sum to 1 and the vertex world pos is unchanged (0.0000);
+  bind an unweighted mesh → reload → now weighted, all world positions unchanged.
+  Full mesh suite re-run = no regression. Viewer `<script>` blocks pass `node --check`.
+  ⏳ owner-verify the UI live (and that a re-weighted vertex deforms correctly under
+  animation).
+
+**Phase 4.2 — visual weight brush landed** (code; build GREEN; dab math verified
+headlessly). Paint weights instead of typing them.
+- Toggle **🖊 Weight brush** on a weighted mesh → pick a target **bone**, **radius**
+  (screen-px → world via zoom), **strength**, and a **subtract** (erase) toggle.
+  Dragging on the mesh paints: every vertex within the brush radius gets its weight
+  toward the target bone pushed up (linear falloff), adding the bone where missing
+  (bone-local = `worldToLocal(P)`), then renormalising — same invariant as 4.1, so
+  vertices never move.
+- **Heatmap:** in brush mode the vertex handles are colour-mapped (blue→red) by their
+  weight toward the target bone, so the weight map is visible while painting.
+- Dabs are throttled (sample every ~0.4·radius of cursor travel) to bound the
+  per-dab `rebuildFromRawDoc`.
+- **Verified:** `tools/rigger-spike/brush.mjs` — apply a dab to the verts in a radius,
+  reload: every painted vertex carries the target bone with weight > 0, each vertex's
+  weights sum to 1, and no vertex moved. Full mesh+weights suite re-run = no
+  regression. Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the brush
+  UI live (cursor/heatmap, paint feel, per-dab rebuild perf on large skeletons).
+
+**Weight painting is complete: bind + manual per-vertex + visual brush.** The Rigger
+now covers the full headline set — **bones + mesh (create/topology/UV) + weights**.
+Remaining: **auto-weights** (Spike 2, OPEN — needs a representative character mesh +
+a better algorithm; manual + brush are the guaranteed fallback), the **Phase 3.6**
+visual texture-panel UV editor + hull editing, and **animation authoring (Phase 5)**.
+
+## 16. Authoring from scratch (new-rig workflow) — owner priority 2026-06-13
+
+Owner's top priority: **create a NEW rig — import images, create bones/skins — then
+save + reopen.** Honest status when raised: the tool was a deep *editor of existing*
+rigs; the from-scratch + image-import flow was mostly unbuilt. Owner decisions: image
+source = **both** (place from existing project atlases *and* raw upload later); build
+the authoring workflow next.
+
+**Entanglement found:** a new rig needs an **atlas** to be indexed (`buildSkeletonsIndex`
+skips atlas-less folders) and loaded (the viewer needs a `TextureAtlas`). So
+"import images" is on the critical path for "new rig", not optional. Sequence:
+**(A1) structural primitives → (A2) new-rig + attach images from an existing atlas
+(end-to-end) → (A3) raw image upload (creates the atlas).**
+
+**A1 — structural authoring primitives landed** (code; build GREEN; verified
+headlessly). In edit mode the inspector sections gain **＋ Add bone** (child of the
+selected bone/root), **＋ Add slot** (on the selected bone/root), **＋ Add skin** —
+all `rawDoc` mutations + rebuild + auto-unique names; the new bone/slot is selected
+and editable via the existing transform/drag/weight tools.
+- **Verified:** `tools/rigger-spike/authoring.mjs` — from a MINIMAL blank skeleton
+  (`root` + empty `default` skin), add bone→bone, slot, skin, serialize → the
+  official loader accepts it with the right hierarchy (bone2.parent=bone1, slot on
+  bone1, skins default+skin1). Viewer `<script>` blocks pass `node --check`.
+
+**A2 — new-rig + attach-images-from-existing-atlas landed** (code; build GREEN;
+parser + attach verified headlessly). The from-scratch loop now works via the
+existing-atlas path:
+- **`＋ New rig`** (sidebar) → name it + pick an existing project **atlas** → POSTs a
+  blank skeleton (`root` + `default` skin) to `/api/rigger/save` saved **into that
+  atlas's folder** (so it indexes + loads and that atlas's images are attachable) →
+  opens in edit mode. `GET /api/rigger/atlases` lists the project's atlases + region
+  names (`rigger`-gated; `atlasRegionNames` parses them — page lines are identified
+  *structurally*, since region names can have extensions like `heart_shadow.png`).
+- **Attach image** — a selected slot's detail shows an `image` picker of the loaded
+  atlas's regions; choosing one creates a region attachment in the active skin
+  (size from the atlas, position at the bone origin, then editable / convertible to
+  a mesh). This is the "import image" action.
+- **Verified:** `tools/rigger-spike/attach.mjs` — the parser matches the official
+  `TextureAtlas` regions exactly (0 missing/extra) across 3 atlases; attaching a
+  region to a slot on a blank skeleton → the loader resolves it to a
+  `RegionAttachment`. Build GREEN; viewer `<script>` blocks pass `node --check`.
+  ⏳ owner-verify the New-rig + attach UI live.
+
+**The from-scratch authoring loop exists end-to-end** (new rig → bones/slots/skins →
+attach images → save → reopen) using images already packed in the Atlas Maker.
+**A2 FIX (2026-06-13) — the atlas list was empty.** First cut scanned `spines/` for
+`.atlas` files and saved a new rig there; but the Atlas Maker writes **manifests**
+(`<project>/manifests/atlas_manifest_*.json`, pages preferring `deploy/`) — a fresh
+project has those but no spine bundles, so the picker showed nothing. Fixed:
+- `/api/rigger/atlases` now lists the project's **manifests** via the editor's
+  `loadRegionSet` (handles Invisible + TexturePacker shapes), returning each usable
+  atlas's `manifestKey` + region names.
+- **`POST /api/rigger/new`** assembles a self-contained spine bundle: synthesise a
+  Spine `.atlas` from the manifest's regions (`regionsToSpineAtlas` in `spine.ts`,
+  byte-format-compatible with the Atlas Maker's own `atlas_format.write_atlas` —
+  `bounds:`/`offsets:`/`rotate:90`), copy the packed page image, write a blank
+  `.irig`, all into `spines/<name>/`, then reindex. So a new rig is a normal spine
+  bundle that indexes + loads + has its images attachable. Works **post-compose** (no
+  deploy needed — `loadRegionSet` resolves the page from `deploy/` or the source).
+- **Verified:** `tools/rigger-spike/synth.mjs` — real atlas → regions → synthesise →
+  re-parse with the official `TextureAtlas`: region count + on-page rects + original
+  sizes round-trip with **0 mismatch incl. rotated regions** (15/10/8 rotated across
+  symbols/anticipation/transition). Build GREEN; viewer `node --check` OK. ⏳
+  owner-verify live (the `test1` project's atlas should now appear; New rig → it
+  loads with that atlas's images).
+
+**A-canvas (2026-06-13, owner ask) — direct canvas manipulation + draw-a-mesh.**
+- **Click a bone on the canvas to select + move it** (was inspector-tree-only):
+  `nearestBone(e)` hit-tests the setup-pose bone segment/origin (screen-scaled
+  threshold) → selects + starts the drag. Mesh-vertex select+move on canvas already
+  worked once a mesh slot is active; mousedown priority is now draw-point → mesh
+  vertex (if hit) → bone (if hit) → pan, so a missed mesh-vertex click falls through
+  to bone-pick instead of dead-ending.
+- **Create a mesh from scratch by drawing its outline:** on a slot with a region
+  attachment, **✎ Draw mesh** → click boundary points on the canvas (drawn as a live
+  polygon) → **Finish**. Each point becomes a bone-local vertex; its **UV** comes from
+  the **affine inverse of the region quad** (`affineUV` — exact for any
+  rotation/scale/shear since a region placement is affine); the polygon is
+  **ear-clipped** to triangles; the region is replaced by the mesh (then editable via
+  the 3.x tools).
+- **Verified:** `tools/rigger-spike/drawmesh.mjs` — affine UVs hit the exact corner
+  UVs ((0,0)/(1,0)/(0,1)) + centre (0.5,0.5); a mesh built from drawn points loads as
+  a `MeshAttachment` whose vertices land exactly where placed (0.0000 off) and
+  triangulates. Full mesh+weights+authoring suite (8 tests) re-run = no regression.
+  Viewer `<script>` blocks pass `node --check`. ⏳ owner-verify the canvas UI live.
+
+**A-usability (2026-06-13, owner ask) — rename + collapse.**
+- **Collapsible bone tree:** each bone with children gets a ▸/▾ toggle (`collapsedBones`
+  Set, persists across rebuilds, cleared on skeleton load); collapsed bones hide their
+  subtree. (The inspector *sections* — Slots/Skins/Animations/Constraints — were
+  already `<details>`.)
+- **Rename bones / slots / skins:** name fields in the bone + slot detail panels and a
+  ✎ on each skin row. Each rename **rewrites every reference** so the skeleton stays
+  valid — bone: child `parent`, slot `bone`, IK/transform/path constraint `bones`/
+  `target`/`bone`, animation `bones` keys; slot: skin attachment keys, animation
+  `slots`/`deform`/`drawOrder`; skin: linked-mesh `skin` refs — then rebuild.
+- **Verified:** `tools/rigger-spike/rename.mjs` — rename a bone (with children) + a
+  slot, reload through the official loader: it accepts (no dangling refs), new names
+  present / old gone, the child's `parent` + the renamed slot updated (anticipation,
+  transition, symbols). Full suite (9 tests) no regression; viewer `node --check` OK.
+- **Fix (owner-reported):** selecting a bone/slot only worked when you clicked the
+  small NAME span — the rest of the row (tag, ↑/↓ area) did nothing, so the detail
+  kept showing the last-selected item. Now the WHOLE row selects (`row.onclick`); the
+  ↑/↓ buttons + collapse toggle + skin ✎ `stopPropagation` so they don't double-fire.
+
+### A-delete — delete bones / slots / images / skins (owner: "delete any item?")
+
+Authoring was add+rename only; this adds removal with full reference cleanup so the
+skeleton stays valid (no dangling refs through the official loader).
+- **Delete bone** (`deleteBone`, "🗑 Delete bone" in the bone editor, disabled for
+  root): children + slots reparent to the bone's parent; ik/transform/path constraints
+  that reference it are cleaned (name pulled from `bones[]`) or dropped (lost their
+  target/`bone`/all bones); its animation track is removed. CRITICAL: weighted-mesh
+  vertices reference bones by INDEX, so removing one shifts every higher index — we
+  remap each influence BY NAME (`oldNames[idx]` → new index), drop the deleted bone's
+  influences, and **renormalise only the vertices that actually lost an influence** so
+  untouched vertices stay bit-identical (source weights aren't always exactly 1).
+- **Delete slot** (`deleteSlot`, "🗑 Delete slot"): removes the slot + its attachments
+  in every skin + animation slot/deform/drawOrder-offset refs.
+- **Delete image** (`deleteAttachment`, "✕" by the image picker): removes the
+  attachment from every skin and clears the slot's setup attachment if it pointed there.
+- **Delete skin** (`deleteSkin`, "🗑" on the skin row): removes a skin; the last
+  remaining skin can't be deleted.
+- **Verified:** `tools/rigger-spike/delete.mjs` on h1 / anticipation / loader / W —
+  delete a leaf bone referenced by a weighted mesh, reload: loader accepts, bone gone,
+  all weighted indices in range, every vertex keeps ≥1 influence summing to 1, and
+  vertices NOT influenced by the bone are UNCHANGED (0 moved, 0.00000 — caught + fixed
+  an over-renormalisation that nudged untouched verts ~0.009px). Slot delete clean.
+  Build GREEN; viewer `node --check` OK; full suite no regression. UI not browser-
+  verified (authed) — owner-verify live.
+
+### A-delete-rig — delete a whole rig from the list (owner: 2 same-name rigs, can't delete)
+
+Owner created two rigs that differed only by case (`Test1/` vs `test1/` — R2 keys are
+case-sensitive, so `/api/rigger/new`'s `objectExists` guard saw them as distinct) and
+had no way to remove either. Added per-row delete:
+- `🗑` on each skeleton-list row → `deleteRig` → `POST /api/rigger/delete
+  { dir, skeleton_file }` (`rigger`-gated, path-guarded). Deletes ONLY that skeleton
+  file, then — if `dir` is a named bundle sub-dir (never the spines root) and NO
+  skeleton (`.irig`/`.skel`/`.json`) remains in it — purges the now-orphaned support
+  files (`.atlas`, page images) in that exact dir. So a from-scratch rig folder is fully
+  removed, but an artist's source `.json` (or a second rig sharing the dir) is never
+  touched. Reindexes `skeletons.json`. Deleting the on-stage rig reloads the page (query
+  params persist) to clear the canvas.
+- **Verified:** the purge-decision predicate on 6 scenarios (from-scratch / edited-with-
+  source / shared-dir / TexturePacker-json / spines-root / empty) — purges ONLY when no
+  skeleton/source remains. Build GREEN; viewer `node --check` OK. (R2 I/O itself, like
+  save/new/upload, is owner-verified live.)
+
+### A-delete follow-ups — case-insensitive name guard + skin discoverability
+
+- **Case-insensitive new-rig guard** (`spineBundleNameTaken` in `spineIndex.ts`, used by
+  `/api/rigger/new` + `/api/rigger/upload`): R2 keys are case-sensitive, so the old
+  `objectExists` check let `Test1` and `test1` coexist as separate bundles (how the dupes
+  happened). Now New-rig / upload 409 if a bundle dir matches the name case-insensitively.
+  Verified the prefix-segment match logic on 6 cases.
+- **Skin discoverability:** the active skin is what shows a skin's images/meshes/weights,
+  but the only control was the easy-to-miss top-bar `Skin` dropdown. The inspector SKINS
+  rows are now CLICKABLE (`setActiveSkin`) with the active skin highlighted + an "active"
+  badge + a hint line; the top-bar dropdown routes through the same `setActiveSkin`, which
+  syncs both, re-renders the rows, and refreshes the open slot's mesh/weight UI under the
+  newly-active skin. (Model reminder: bones drive SLOTS, not skins; a skin is a per-slot
+  set of attachments — switch the active skin to inspect/paint that skin's meshes.)
+  Build GREEN; viewer `node --check` OK. UI owner-verify live.
+
+**A3 — raw image upload landed** (2026-06-13, owner ask "insert images"; code; build
+GREEN; packer + synth verified headlessly). Start a rig from **brand-new art** with no
+Atlas Maker step. In the New-rig panel, **or upload images** (file input, multi):
+- The **browser** loads the images, **shelf-packs** them onto one page (tallest-first,
+  wrap at 2048px, 2px pad), draws them to a `<canvas>`, and reads the region rects;
+  region names come from the filenames (deduped).
+- It POSTs the page PNG (data URL) + `{pageWidth,pageHeight,regions:[{name,x,y,w,h}]}`
+  to **`POST /api/rigger/upload`** (`rigger`-gated), which decodes the PNG, writes it +
+  a synthesised `.atlas` (`regionsToSpineAtlas`) + a blank `.irig` into
+  `spines/<name>/`, then reindexes. The new rig opens in edit mode; its uploaded
+  images are immediately attachable.
+- **Verified:** `tools/rigger-spike/upload.mjs` — the packer yields non-overlapping
+  rects within the page; the packed regions → synth `.atlas` → official `TextureAtlas`
+  re-parse with the region count + every rect round-tripping. Build GREEN; viewer
+  `node --check` OK; full 11-test suite no regression. ⏳ owner-verify the upload UI
+  live.
+
+**Image sourcing is now complete (the owner's "both"): attach from an existing atlas
+(A2) AND raw upload (A3).** The from-scratch authoring loop is end-to-end from either
+source: new rig → bones/slots/skins → attach/draw meshes → weights → save → reopen.
+
+Remaining (lower priority / larger): the **Phase 3.6** visual texture-panel UV editor
++ hull editing; **auto-weights** (Spike 2 — needs a character mesh + better algorithm;
+manual + brush are the fallback).
+
+## 17. Phase 5 — animation authoring (owner priority 2026-06-14)
+
+Owner direction: add the animation layer — animate with bones, support many animations
+per file (Spine allows this), and split the anim vs edit workflows clearly in the UI.
+
+**Mode model (the UI split).** One `Preview | Setup | Animate` segmented toggle replaces
+the ✎ Edit button. `editMode` stays the "setup" flag (every rig-editing guard keeps
+working); `animMode` is new. mode = "preview" | "setup" | "animate":
+- **Preview** — full `AnimationState` playback (honours bezier curves + mixing), read-only.
+- **Setup** — edit the rest pose (bones/meshes/weights/attachments) = the old edit mode.
+- **Animate** — author ONE animation at a playhead, posed over the setup pose.
+
+**Keyframe data model (verified `tools/rigger-spike/anim.mjs`).** Bone timelines:
+`rotate.value` + `translate.x/y` are OFFSETS from the setup pose; `scale.x/y` are
+MULTIPLIERS of setup (1 = setup). Confirmed against spine-core: authored keys load and
+play exactly as our own linear interpolation predicts (midpoint + endpoints). Animations
+live in the skeleton JSON, so the existing 💾 Save (`.irig`) persists them for free; the
+format natively holds many animations, so multi-anim is CRUD on `rawDoc.animations`.
+
+**5.0 + 5.1 LANDED (2026-06-14, `09da996`):**
+- Mode toggle + per-mode inspector/bottom-bar behaviour. Frame loop: animate mode does
+  `setToSetupPose()` then `poseAtTime(curAnim, animTime)` (our linear interp) each frame;
+  an in-progress bone drag overrides the posed value so it tracks the cursor.
+- Animation CRUD in the Animations section: ＋ New / ✎ rename / ⧉ duplicate / 🗑 delete.
+- Bone keyframing: the bone detail in animate mode shows the POSE at the playhead (the
+  animated local values); editing a field keys that channel. Canvas drag poses a bone
+  (keys translate on release). ◆ Key (bar + panel) keys rotate+translate+scale; |◀ / ▶|
+  prev/next key; ✕ Key deletes the key at the playhead. `animDuration` is derived from
+  the max key time; the scrub bar is the playhead.
+- Sync: entering Preview rebuilds the runtime from `rawDoc` (if anims edited) so playback
+  reflects authored keys + honours curves; `animsDirty` gates that rebuild.
+
+**5.2 LANDED (2026-06-14, `320ad02`) — dopesheet timeline** docked below the stage in
+Animate mode: a time ruler (auto-stepped ticks), one row per keyed bone (+ the selected
+bone) with diamond key dots, a draggable red playhead (click/drag ruler or track to
+scrub; tracks playback each frame). Drag a key dot to RETIME it — `retimeBoneKey` moves
+all of that bone's channel keys at that time together, drops a clashing key, re-sorts,
+and can extend past the old end (duration grows). Double-click a dot deletes the key;
+click a gutter/dot selects the bone. A dopesheet key = one time on a bone row (union of
+its rotate/translate/scale keys). `retimeBoneKey` verified headlessly.
+
+**5.3 LANDED (2026-06-14, `db198b0`) — keyframe curves.** Animate mode honours per-key
+interpolation: `sampleChannel` reads the FROM key's `curve` (linear default / "stepped" /
+bezier array; `bezierValue` solves the cubic X(s)=t → Y(s)), so the preview now matches
+the runtime for curved keys (incl. existing imported anims). The bone-animate panel shows
+easing buttons (Linear / Stepped / Ease In / Out / In-Out) for the key under the playhead —
+they set the OUTGOING interpolation across all the bone's channels; bezier presets bake
+ABSOLUTE control points from the segment (the last key stays linear). Dopesheet: stepped
+keys = upright squares, eased = teal. Verified vs spine-core (`tools/rigger-spike/curve.mjs`).
+Known limit (noted in-UI): a baked bezier uses absolute coords → re-apply easing after a
+large retime/re-pose. A draggable bezier graph editor can refine presets later.
+
+**5.4 LANDED (2026-06-14, `05bb7f4`) — slot animation (attachment swap + colour).** First
+half of the non-bone channels: `poseAtTime` also applies slot timelines — attachment swap
+(stepped, which image/mesh shows) + rgba colour (curve-aware fade via `sampleColor`). The
+Animate-mode slot panel keys the attachment ("shows" dropdown) + colour (swatch + alpha)
+at the playhead. The dopesheet generalised bone-only → TRACKS (bones + slots) with a kind
+tag (⦿/▤) and amber slot dots; retime/delete/seek/selection dispatch on kind. Verified vs
+spine-core (`tools/rigger-spike/slotanim.mjs`): `slots[slot].attachment=[{time,name}]`
+(stepped), `slots[slot].rgba=[{time,color:"rrggbbaa",curve?}]`.
+
+**5.4a (2026-06-18) — dedicated opacity control + slot-colour easing.** The slot Animate
+panel split the old combined colour-swatch+alpha row into a **colour** row (RGB tint only,
+preserving the current alpha) and a dedicated **opacity** row (0–100% slider + **◆ Key
+opacity @ t** button). Each commits through `keySlotColor` by re-reading the other channel
+from `slotColorAt` at the playhead, so retinting never drops opacity and vice-versa — still
+one `rgba` timeline (no conflicting standalone `alpha` channel, stays byte-valid Spine 4.2).
+Added per-key **easing** for the rgba/opacity key (`setSlotColorCurve` / `slotColorCurveType`,
+mirroring the bone `setKeyCurve`: linear drops the curve, stepped, or a per-channel bezier
+array baked from the segment). Verified headless: an Ease-In-Out 100→0% fade samples
+1.000 / 0.500 / 0.000 at t=0/0.5/1, monotonic, slow at both ends, 16-float curve;
+`stepped` holds the value through the segment.
+
+**Graph (curve) editor — Phase 5.3b, iteration 1 LANDED (`ece46c7`):** a separate view
+from the dopesheet (Dopesheet ⇄ Graph switch in the timeline legend; dopesheet code
+untouched). `renderGraphBody` plots the selected bone's channels (rotation/x/y/scaleX/
+scaleY) as SVG value-over-time curves sampled via `sampleChannel` (linear/stepped/bezier
+render true), auto-fit value axis, draggable keyframe handles (X = retime, Y = revalue;
+range frozen mid-drag, channel re-sorts live), channel show/hide toggles, click-to-seek.
+**Iter 2 LANDED (`e25d210`):** draggable bezier TANGENT handles — eased segments draw
+their two control points as square handles (dashed leaders to the anchor key); dragging
+clamps X within the segment and writes `curve[vi*4 + ctrl*2..]` per value index. Set a
+key's easing in the Properties panel, then fine-tune the handle in the graph.
+**Iter 3 LANDED (`88944f2`):** multi-select (shift-click + marquee box on empty graph;
+selected points = white fill + colour ring), move-selection-together (absolute-from-
+snapshot delta so a key backing multiple field-curves isn't double-moved), and a
+right-click easing menu (Linear/Stepped/Ease In/Out/In-Out → setKeyCurve). Plain click
+seeks + clears; selection clears on bone/anim change (per-bone). The graph editor now has
+the classic curve-editor set: value curves · draggable keys · bezier handles · multi-
+select · marquee · easing menu.
+**Iter 4 LANDED (`0810678`):** box-select scaling (≥2 keys → dashed bbox with 8
+edge/corner handles; L/R edges stretch timing, T/B edges scale values = the value-scale
+handle, corners both, scaling around the opposite edge) + snapping (⇥ toggle, on by
+default; key/box-edge times snap to playhead/grid/nearby keys via `graphSnapTime`). Also
+a **loading overlay** (`36cbbe7`) blocks input during new-rig / image-upload / skeleton
+load.
+
+**Dopesheet key easing LANDED (2026-06-29) — change curve interpolation IN the dopesheet.**
+Owner gap: easing was only settable from the bone Properties panel (the playhead key) or
+the graph editor's right-click, so in the **dopesheet** there was no way to change a key's
+interpolation. Now **right-clicking a dopesheet key** opens the SAME easing menu
+(Linear / Stepped / Ease In / Out / In-Out), dispatched by track kind — bone keys →
+`setKeyCurve` (all channels, matching the panel/graph), slot **colour** (`rgba`) keys →
+`setSlotColorCurve`; stepped-by-nature tracks (events / draw-order / attachment swaps) get
+no menu (`trackKeyEasable`). The graph + dopesheet now share ONE `openCurveMenu(x,y,apply,
+current)` (the active preset shows a ✓), and the dot tooltip advertises "right-click:
+easing". The dopesheet dot's `onmousedown` now ignores button 2 so the context menu fires
+instead of starting a drag. Reuses the existing verified `setKeyCurve`/`setSlotColorCurve`
+(`curve.mjs`/`slotanim.mjs`) — no model change. Inline JS syntax-checked + `launcher-api`
+build GREEN; ⏳ owner live-verify the right-click interaction in `/rigger`.
+
+## 18. Spine 4.2 parity — audit + build plan (2026-06-29)
+
+Owner direction: close the feature gap toward Spine 4.2 ("do them all"). Two audits were
+run — Spine 4.2's real feature set (grounded in the official `spine-runtimes` 4.2
+`SkeletonJson.ts` loader, NOT the stale 3.8-era JSON-format prose page) and the Rigger's
+actual code coverage (`view.html` + `tools/rigger-spike`). Result below. **Watch the 4.2
+data model:** separated `translatex/y`·`scalex/y`·`shearx/y`, slot colour is
+`rgba/rgb/alpha/rgba2/rgb2` (not 3.8 `color/twoColor`), `drawOrder` is camelCase, and
+physics + sequences are new.
+
+### Coverage today (have)
+Bones (transform/drag/reparent/draw-order/add/delete/rename); mesh create + topology +
+UV + retriangulate; weights (bind/per-vertex/brush/auto-to-chain); animation: bone
+rotate/translate/scale + slot attachment/rgba/alpha + events + draw-order, with a real
+bezier **graph/curve editor**, multi-select, marquee, copy-via-Alt-drag; skins
+(add/rename/delete/switch + per-skin attachments); `.irig` 4.2 round-trip.
+
+### Gaps (prioritized build order)
+1. **Mesh deform timelines** — ✅ **LANDED** (`rigger/mesh-deform-timelines`). Authorable now:
+   in **animate mode**, dragging a mesh vertex writes/updates a **deform key at the playhead**
+   (a delta from setup) instead of editing the setup mesh; `poseAtTime` applies the deform
+   timeline (curve-aware: linear / stepped / bezier) to the live `MeshAttachment` for preview,
+   and a **`deform` dopesheet track** shows the keys (retime / Alt-drag duplicate / dbl-click
+   delete / right-click easing — a deform key carries ONE curve so it is easable). Setup-mode
+   mesh editing is unchanged; a deform-less mesh/anim is byte-identical to before (no track,
+   no per-frame writes). **Format crux corrected vs this audit's guess** — deform is NOT a
+   top-level `deform.<skin>…` block; the 4.2 loader reads it under the per-attachment map:
+   `animations.<a>.attachments.<skin>.<slot>.<att>.deform = [{time, offset?, vertices:[…delta],
+   curve?}]`, pure per-component deltas (offset 0 + full length in v1). **Array length +
+   coordinate space (validated headless against spine-core@4.2.74 in `tools/rigger-spike/
+   deform.mjs`, both mesh types):**
+   - **unweighted:** length = `2*vertexCount`, interleaved `[dx,dy]` per vertex in mesh
+     (slot-bone) **local** space; the loader pre-adds setup at parse → runtime holds setup+delta.
+   - **weighted:** length = `2*totalInfluences` (NOT `2*vertexCount` — e.g. anticipation
+     `payframe` = 384 for 40 verts/192 influences), `[dx,dy]` per **influence** in
+     influence-walk order, each in that influence's **bone-local** space (added before the
+     weighted blend); pure deltas (loader does not pre-add setup).
+   Spike GREEN: a known world delta moves exactly the target vertex by that delta with all
+   others unchanged, on both meshes; linear midpoint == runtime sampling; bezier ease-in is
+   sub-linear and matches our evaluator. Graph editor ignores deform (too many verts) — dopesheet
+   only, per plan. ⏳ owner-verify the drag-to-deform + dopesheet UI live.
+2. **Bone shear keying** — PRESERVE-ONLY (data model + tracks already handle shear; `keyBone`
+   just has no shear branch). Cheap completeness win.
+3. **IK constraint authoring** (create/edit/delete + target + mix/softness/bend) **+ the IK
+   `ik` mix timeline** — ✅ **LANDED** (`rigger/ik-constraints`). The constraints panel was
+   display-only; IK rows are now clickable → an **IK editor** (target `<select>`, mix 0–1,
+   softness, bend+/compress/stretch toggles, chain-bones display, rename, delete). **＋ Add IK
+   constraint** creates a 2-bone chain on the selected bone (its parent + itself; falls back to
+   a 1-bone chain when the bone has no parent) reaching a target bone, defaults
+   mix=1/bendPositive=true/softness=0. Every edit mutates `rawDoc.ik[i]` + `rebuildFromRawDoc`.
+   transform/path stay display-only (items 6/7). Bone rename/delete already rewrote/dropped
+   `ik` bone+target refs; delete now ALSO clears a dropped constraint's `ik` timeline (else the
+   loader throws "IK Constraint not found"); constraint rename rekeys its `ik` timeline.
+   **Animation:** an **`ik` dopesheet track** per constraint with keys (+ the selected one as an
+   empty row to key into); **◆ Key IK mix @ t** (and `keyIk(name)`) upserts the live mix into
+   `animations.<a>.ik.<name>`; retime / Alt-drag duplicate / dbl-click delete / right-click
+   easing (one curve → the mix channel) via the shared `openCurveMenu`. `poseAtTime` sets the
+   live `IkConstraint.mix` (+ softness/bend if keyed) before `updateWorld`, so animate-mode
+   preview shows the runtime IK solve; Preview mode (AnimationState) already solves it.
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/ik.mjs`):**
+   - **Setup** = top-level `ik` array: `{name, order, bones:[parent,child]|[bone], target, mix,
+     bendPositive, softness, compress, stretch}`. `bendPositive` serialises as a **BOOLEAN**
+     (runtime → `bendDirection` ±1), NOT `bendDirection`. `order` defaults 0; 1-bone vs 2-bone
+     is purely `bones.length`.
+   - **Timeline** = `animations.<a>.ik.<name> = [{time, mix, softness, bendPositive, compress,
+     stretch, curve?}]` (an `IkConstraintTimeline`); mix + softness interpolate (linear/bezier),
+     bend/compress/stretch are stepped; `curve` (read off the current key) drives two bezier
+     channels (0=mix, 1=softness) — we author one ease for the mix channel.
+   Spike GREEN (18/18): loader builds the IkConstraint; **mix=1 SOLVES** toward the target (chain
+   tip reaches it), **mix=0 == setup/FK**, a mix-0→1 timeline blends FK→IK, linear mix@0.5==0.5
+   and a bezier ease-in mix-value@0.5 (0.318) matches our evaluator (0.315); 1-bone loads;
+   `bendPositive:false`→−1. **Parity:** no IK authored ⇒ no `ik` array / no `ik` track / no
+   behaviour change (SkeletonJson does not write back, so a no-IK doc round-trips unchanged).
+   Existing PRESERVE-ONLY IK constraints round-trip (whole `rawDoc` is saved verbatim) and are
+   now editable. **`◆ Key all` intentionally does NOT key IK mix** (mix is a constraint reveal,
+   not a per-bone pose — keying it everywhere would fight the FK→IK intent); key it explicitly
+   via the IK editor. The auto-picked default target excludes descendants of the chain bones (a
+   descendant target moves with the chain → degenerate solve). Makes the panel editable =
+   foundation for 4/6/7. ⏳ owner-verify the add/edit + IK dopesheet + solve preview live.
+4. **Slot dark colour (`rgba2`)** setup + timeline — extends the slot-colour path. **LANDED**
+   (see the §18.4 note below).
+5. **Blend-mode authoring** (slot `blend` dropdown) — setup-only. **LANDED** (see the §18.5 note
+   below).
+6. **Transform constraint** authoring + `transform` mix timeline — ✅ **LANDED**
+   (`rigger/transform-constraints`). Mirrors the IK path (3): the constraints panel's transform
+   rows are now clickable → a **transform editor** (target `<select>`, the six mix sliders
+   rotate/X/Y/scaleX/scaleY/shearY, the six offsets rotation/X/Y/scaleX/scaleY/shearY, relative +
+   local toggles, rename, delete). **＋ Add transform constraint** creates one on the selected
+   bone (full mixes, zero offsets) following an auto-picked target (excludes the bone + its
+   descendants → no circular/degenerate follow). Every edit mutates `rawDoc.transform[i]` +
+   `rebuildFromRawDoc`; `editTc` only writes the touched field (offsets that go to 0 are dropped)
+   so an untouched preserve-only constraint is never corrupted. The IK + transform editors share
+   one `#consDetail` box via `renderConstraintEditor` (selecting one kind clears the other); the
+   bone rename/delete constraint-ref cleanup already walked `["ik","transform","path"]`, so
+   transform refs (bones/target) were already rewritten/dropped — delete also clears a dropped
+   constraint's `transform` timeline, rename rekeys it. path stays display-only (item 7).
+   **Animation:** a **`transform` dopesheet track** per constraint with keys (+ the selected one
+   as an empty row); **◆ Key transform mix @ t** (`keyTransform(name)`) upserts the six live mixes
+   into `animations.<a>.transform.<name>`; retime / Alt-drag duplicate / dbl-click delete /
+   right-click easing via the shared dispatch (extends the same fns the `ik` kind uses — a
+   transform key carries ONE shared curve so it is easable). `poseAtTime` sets the live
+   `TransformConstraint`'s six mix fields before `updateWorld`, so animate-mode preview reflects
+   the constraint solve; Preview mode (AnimationState) already solves it.
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/transform.mjs`,
+   18/18):**
+   - **Setup** = top-level `transform` array: `{name, order, bones:[…constrained], target,
+     mixRotate, mixX, mixY, mixScaleX, mixScaleY, mixShearY, rotation, x, y, scaleX, scaleY,
+     shearY, relative, local}`. **All six MIXES default to 1**; absent `mixY` falls back to `mixX`
+     and absent `mixScaleY` to `mixScaleX` (loader fallbacks — the editor displays those resolved
+     defaults so the baseline never drifts). The **offset JSON keys are the SHORT names**
+     (`rotation/x/y/scaleX/scaleY/shearY`, all default 0) — the runtime stores them as
+     `data.offset{Rotation,X,Y,ScaleX,ScaleY,ShearY}`. `order` defaults 0; `relative`/`local`/
+     `skin` default false. Verified against real cluster rigs (`loader.json`, `mm_bg.json`) which
+     use exactly these keys with partial mixes.
+   - **Timeline** = `animations.<a>.transform.<name> = [{time, mixRotate, mixX, mixY, mixScaleX,
+     mixScaleY, mixShearY, curve?}]` (a `TransformConstraintTimeline`); all six mixes interpolate
+     (linear/bezier), there are NO stepped-only fields. **CRUX:** the shared `curve` drives SIX
+     bezier channels in order **0=mixRotate 1=mixX 2=mixY 3=mixScaleX 4=mixScaleY 5=mixShearY**;
+     `readCurve` indexes `curve[channel<<2]`, so a single `[cx1,cy1,cx2,cy2]` is NOT enough
+     (channels 1-5 read undefined → NaN). One shared ease must be BAKED across all six channels
+     (24 numbers, per-channel value handles in absolute value-space — same pattern as rgba/rgba2).
+   Spike GREEN (18/18): loader builds the TransformConstraintData with all-mixes-default-1;
+   **mixRotate=1 FOLLOWS** the target's world rotation, a rotation offset shifts it by exactly that
+   offset, **all-mixes=0 == setup/FK**, mixRotate=0.5 blends; a mix-0→1 timeline samples linear
+   mixRotate@0.5==0.5 and a baked bezier ease-in mix VALUE@0.5 (0.318) matches our evaluator
+   (0.315) across mixRotate AND mixScaleX (shared curve). **Parity:** no transform authored ⇒ no
+   `transform` array / no `transform` track / no per-frame writes (SkeletonJson does not write
+   back). Build GREEN (`pnpm --filter launcher-api build`); inline `<script>` passes a
+   `new Function` syntax check. ⏳ owner-verify the add/edit + transform dopesheet + solve preview
+   live (the vendored runtime is minified; the spike uses un-mangled core). Builds on (3) =
+   foundation extended toward (7/8).
+7. **Path attachment + path constraint authoring + `path` timeline** — LANDED.
+   **Attachment authoring:** a slot's detail panel gets **✎ Draw path** → click the canvas to
+   drop spline control points (mirrors the mesh draw machinery: click to add, drag to nudge,
+   Delete/Backspace drops a point, Enter/Esc commit/cancel), persisted into the active skin as
+   `{type:"path",…}` in the slot-bone LOCAL space. Selecting a path attachment opens an editor
+   (closed/constant-speed toggles, ＋ Add point / － Remove selected). Paths aren't textured, so
+   the Rigger draws the control hull + on-curve nodes itself on the canvas overlay
+   (`drawPathOverlay`, the runtime debug renderer's `drawPaths` is off).
+   **Constraint authoring:** the constraints panel's **path** rows are now editable (click → editor)
+   + **＋ Add path constraint** (mirrors IK/transform `addCons`): pick constrained bone(s) + a
+   target SLOT that holds a path attachment; `<select>`s for positionMode/spacingMode/rotateMode;
+   numeric position/spacing/rotation; three mix fields (mixRotate/X/Y). Select→edit, rename (rekeys
+   the `path` timeline), delete (prunes the timeline + **re-packs `order`** — see crux). Reuses the
+   shared `renderConstraintEditor` dispatch.
+   **Animation:** the dopesheet gets **`pathch`** tracks — ONE row per channel (`position`,
+   `spacing`, `mix`) so retime / Alt-drag duplicate / dbl-click delete / right-click easing reuse
+   the same per-channel dispatch as `bonech`/`slotch`. **◆ Key position / spacing / mix @ t** upsert
+   into `animations.<a>.path.<name>.<channel>`; `poseAtTime` sets the live `PathConstraint`'s
+   position/spacing/mixRotate/X/Y before `updateWorld`, so animate-mode preview reflects the path
+   solve (Preview mode already solves it via AnimationState).
+   **Format crux (validated headless vs spine-core@4.2.74 in `tools/rigger-spike/path.mjs`, 22/22,
+   cross-checked vs the real cluster `anticipation` rig which ships 12 path constraints + 2 path
+   attachments + 120 `position` sub-timelines):**
+   - **Path attachment** = `{type:"path", closed(false), constantSpeed(true), vertexCount,
+     vertices, lengths}`. `vertices` are the cubic-bezier **CONTROL POINTS** in the EXACT
+     `VertexAttachment` packed format (same as a mesh): UNWEIGHTED ⇒ flat `[x,y,…]` of length
+     `vertexCount*2`; WEIGHTED ⇒ `[boneCount, boneIdx,vx,vy,weight, …]`. #cubic curves =
+     `vertexCount/3` (control points run `[p0, c0a, c0b, p1, …]`; a closed path wraps its last
+     curve to p0). `lengths` is **REQUIRED**, one per-curve arc length ⇒ `lengths.length ==
+     vertexCount/3` (Fixed-scaled). We recompute `lengths` on every geometry edit.
+   - **Path constraint** = top-level `path` array: `{name, order, bones:[…constrained],
+     target:<SLOT name — NOT a bone>, positionMode, spacingMode, rotateMode, position, spacing,
+     rotation, mixRotate, mixX, mixY}`. **Enum strings are case-INSENSITIVE on the first letter**
+     (`enumValue()` does `name[0].toUpperCase()+slice(1)`), Spine exports lowercase
+     (`percent`/`length`/`tangent`/`chainScale`) — we author lower. Defaults: positionMode
+     **Percent**, spacingMode **Length**, rotateMode **Tangent**; `position`/`spacing`/`rotation` 0;
+     **mixRotate/mixX/mixY default 1** (absent `mixY`→`mixX`). ⚠ path has ONLY mixRotate/mixX/mixY
+     (NO mixScale*/mixShear* — unlike transform). **CRUX: `order` MUST be a contiguous index in
+     `[0, totalConstraintCount)`** — `Skeleton.updateCache` only sorts a constraint whose
+     `order == loopIndex`; an out-of-range order is never sorted → `active` stays false → NO solve
+     and NO timeline applies (this cost the spike a false-green until fixed). The editor assigns
+     `order = totalConstraintCount()` on add + **re-packs** all constraints on delete.
+   - **Path timeline** = `animations.<a>.path.<name>` with THREE INDEPENDENT sub-timelines:
+     `position:[{time,value,curve?}]` + `spacing:[{time,value,curve?}]` (each a `readTimeline1`
+     single channel, ONE `[cx1,cy1,cx2,cy2]` curve) + `mix:[{time,mixRotate,mixX,mixY,curve?}]`
+     (a `PathConstraintMixTimeline` whose shared `curve` drives THREE channels 0=mixRotate 1=mixX
+     2=mixY ⇒ a flat **12-number** curve; `"stepped"`/omit are the other options).
+   Spike GREEN (22/22): loader builds the PathAttachment + `computeWorldVertices` yields the control
+   points; the constraint loads with the right enum/mix defaults and **REPOSITIONS** the bone onto
+   the path (all-mix-0 == setup/FK); position@0.5==40 / spacing@0.5==50 / mix@0.5==0.5 linear, and a
+   baked ease-in bezier matches our evaluator on position (single curve) AND across all three mix
+   channels (shared 12-number curve). **Parity:** no path authored ⇒ no `path` array / no path
+   attachment / no `path` track / no per-frame writes; existing preserved path constraints
+   round-trip + become editable (verified: anticipation's 12 constraints + 120 position timelines
+   load + re-stringify deterministically). IK/transform + mesh authoring unchanged. Build GREEN
+   (`pnpm --filter launcher-api build`); inline `<script>` passes a `new Function` syntax check.
+   ⏳ owner-verify the draw/edit + constraint setup + path dopesheet + solve-preview live (the
+   vendored runtime is minified; the spike uses un-mangled core).
+8. **Physics constraint** authoring + `physics` timeline (NEW in 4.2: inertia/strength/
+   damping/mass/wind/gravity/mix/reset) — most complex; after IK/transform.
+9. **Attachments:** clipping (mask), bounding-box, point (locator — cheap + useful for FX),
+   linked-mesh authoring. ✅ **LANDED** (`tools/rigger-spike/attachments.mjs` GREEN vs
+   spine-core@4.2.74; UI in `static/rigger/view.html`). Validated JSON formats (empirical, off the
+   SkeletonJson loader — NOT memory):
+   - **point** `{type:"point", x, y, rotation, color?}` — x/y/rotation are SCALARS (NOT a vertex
+     list, despite extending VertexAttachment) · x/y * skeleton scale, rotation not scaled →
+     `PointAttachment` w/ `computeWorldPosition`/`computeWorldRotation`. UI: ＋ Point places a locator
+     (click-canvas x/y + a rotation field); overlay = a ring + centre dot + a rotation-tick ray.
+   - **boundingbox** `{type:"boundingbox", vertexCount, vertices, color?}` — `vertices` packed EXACTLY
+     like a mesh/path (`readVertices`, len `vertexCount*2` unweighted, or weighted packed) →
+     `BoundingBoxAttachment`; `computeWorldVertices` yields the polygon. UI: ✎ Bounding box reuses the
+     mesh/path draw-mode (click points, Enter/✓ commits, Esc cancels) + add/remove/drag points; green
+     outline overlay.
+   - **clipping** `{type:"clipping", end:<endSlotName>, vertexCount, vertices, color?}` — same packed
+     `vertices`; `end` → `skeletonData.findSlot(end)` → `attachment.endSlot` (the last slot the mask
+     clips, in draw order; omitted end → null, no throw) → `ClippingAttachment`. UI: ✎ Clipping = same
+     polygon draw + an `end` slot `<select>`; distinct red outline overlay.
+   - **linkedmesh** `{type:"linkedmesh", path:<atlasRegion>, parent:<sourceMeshName>, skin?:<srcSkin>,
+     timelines?:<bool>, width?, height?}` (also accepted as `"mesh"` + `parent`). ⚠ a linkedmesh STILL
+     resolves its OWN `path` (default = name) against the atlas via `newMeshAttachment` BEFORE the
+     deferred parent-resolve — so it MUST carry a `path` pointing at the parent's region (we copy the
+     parent's). `parent`/`skin` (default null → default skin) resolved post-load: `setParentMesh`
+     shares the parent's `vertices`/`triangles`/`regionUVs`/`worldVerticesLength`; `timelines`
+     (default TRUE → `inheritTimeline`: true ⇒ `timelineAttachment=parent`, false ⇒ self). Missing
+     parent throws "Parent mesh not found". UI: ＋ Linked mesh (offered when ≥1 source mesh exists);
+     editor = source picker (across skins) + an "inherit deform (timelines)" checkbox.
+   All four author into the ACTIVE skin's attachment map (like region/mesh/path), show in the
+   per-slot attachment picker with type labels, support per-attachment delete, and reuse the existing
+   mesh/path draw/drag machinery. Type checks use `instanceof SPINE.X` (minified-safe;
+   `isPointAtt`/`isBoundingBoxAtt`/`isClippingAtt`/`isLinkedMeshAtt`). **Parity:** no extra attachment
+   authored ⇒ byte-identical (the diff is purely additive; `rawDoc` is only mutated by the add
+   functions, gated behind user clicks). Build GREEN; inline `<script>` passes `new Function`;
+   `grep '^function …' | uniq -d` empty. ⏳ owner-verify the in-browser overlays + clipping mask live
+   (vendored runtime is minified; the spike uses un-mangled core).
+10. Lower priority: separated translatex/y·scalex/y·shearx/y channels, sequence attachment +
+    `sequence` timeline, skin placeholders, mixing/mix-times, `inherit` timeline.
+
+Each item travels the rule-8 chain only when a rig is placed/shipped; the deform/constraint
+data lives in the `.irig`, so the existing save/round-trip already carries it. Every feature
+gets a headless `tools/rigger-spike/*.mjs` verified against the official 4.2 loader before
+the UI is trusted (browser interaction stays ⏳ owner-verify — the vendored runtime is
+minified, the spikes use un-mangled spine-core).
+
+**Event channel LANDED (`286da28`):** always-on "⚡ events" dopesheet track + ＋ to name/
+add an event at the playhead (auto-defines `rawDoc.events[name]`); purple keys, retime/
+delete like others. Format `events:{name:{int,float,string}}` + `animations[a].events=
+[{time,name}]`, saved in the .irig; verified firing vs spine-core (`eventanim.mjs`).
+**Draw-order channel LANDED (`b04b9be`):** "▦ draw order" dopesheet track (cyan) + ✎ opens
+a reorder popover (slots in order-at-playhead, ↑/↓, reset, Key @ t). `keyDrawOrder`
+generates minimal Spine `offsets` (newDrawPos−setupIndex, moved-only); `poseAtTime`
+reconstructs via `reconstructDrawOrder` (mirrors SkeletonJson) for live preview. Offsets
+format verified vs spine-core (`draworder.mjs`, 5 random 68-slot perms exact).
+**§18.4 Slot dark colour (`rgba2`, two-color tinting / "tint black") LANDED.** Validated format
+(spike `tools/rigger-spike/darkcolor.mjs`, 18/18 vs spine-core@4.2.74's `SkeletonJson` +
+`RGBA2Timeline` + `Color.setFromString`):
+- **Setup:** per-slot `rawDoc.slots[i].dark = "rrggbb"` — RGB-only (6 hex, NO alpha; the loader's
+  `Color.fromString` sets a=1 for non-8-hex and the runtime never animates dark alpha). The
+  loader does `SlotData.darkColor = Color.fromString(dark)`. A slot has two-color tinting **iff**
+  `dark` is present (`SlotData.darkColor` non-null); with no `dark` it stays null.
+- **Timeline:** `animations.<a>.slots.<slot>.rgba2 = [{time, light:"rrggbbaa", dark:"rrggbb",
+  curve?}]` → `RGBA2Timeline`. On apply it sets `slot.color` from `light` (r,g,b,a) AND
+  `slot.darkColor` from `dark` (r,g,b; dark alpha untouched). A single shared key `curve` drives
+  SEVEN bezier channels (0=R 1=G 2=B 3=A 4=R2 5=G2 6=B2); bezier handle y-values are ABSOLUTE
+  value-space (not normalized). Linear + bezier both verified against the runtime's own sampling.
+  A slot WITHOUT a setup `dark` can't safely use rgba2 (its live `Slot.darkColor` is null →
+  applying rgba2 throws) — hence the rule below.
+- **rgba↔rgba2 reconciliation:** a slot with `dark` keys/reads colour through **`rgba2`** (light
+  carried from the existing colour/opacity controls + the dark); a slot without `dark` stays on
+  the plain **`rgba`** timeline exactly as before. `slotIsTwoColor()` is the single gate;
+  `slotColorAt`/`setSlotColorCurve`/`poseAtTime`/dopesheet all branch on it. `poseAtTime` sets
+  `slot.darkColor` from the sampled dark for the live preview.
+- **Setup UI** (`renderSlotDetail`): a "dark colour (two-tone tint)" swatch + ＋Enable / ✕Remove
+  (writes/removes `slots[i].dark`, `rebuildFromRawDoc`). **Animate UI** (`renderSlotAnimDetail`):
+  a "dark" swatch + "◆ Key dark colour @ t" shown only for two-color slots; the dopesheet shows
+  a `slotch` `rgba2` channel ("colour (2-tone)") with retime/delete/easing via the shared
+  dispatch (rgba2 keys are easable, single shared curve).
+- **Parity:** a slot with no `dark` is byte-identical to before — still `rgba`, no `rgba2`
+  anywhere; existing rgba colour/opacity animation untouched. Build GREEN
+  (`pnpm --filter launcher-api build`). ⏳ owner-verify the in-browser two-color RENDER (the
+  vendored runtime is minified; the spike uses un-mangled core).
+
+**§18.5 Slot blend mode (setup `blend`) LANDED.** Validated format (spike
+`tools/rigger-spike/blendmode.mjs`, 7/7 vs spine-core@4.2.74's `SkeletonJson` + `BlendMode` enum +
+`Utils.enumValue`):
+- **Setup-only:** Spine slot blend mode is a SETUP property (`SlotData.blendMode`) — there is **NO
+  blend timeline** (it is not animated). So no dopesheet/channel changes.
+- **Format:** per-slot `rawDoc.slots[i].blend = "additive"|"multiply"|"screen"` (a lowercase
+  string). The loader does `data.blendMode = Utils.enumValue(BlendMode, getValue(slotMap, "blend",
+  "normal"))`; `enumValue` capitalises the first letter and looks it up in the enum
+  `{Normal:0, Additive:1, Multiply:2, Screen:3}`. Absent `blend` defaults to `"normal"` → Normal.
+- **Setup UI** (`renderSlotDetail`): a "blend mode" `<select>` (Normal / Additive / Multiply /
+  Screen) placed below the dark-colour controls. Selecting Normal **removes** `slots[i].blend`
+  (Normal is the default — keeps parity); any other value writes the lowercase token. Either way it
+  `rebuildFromRawDoc`s so the spine-webgl preview re-renders with the blend mode.
+- **Parity:** a slot with no `blend` (or Normal) is byte-identical to before — no `blend` field
+  written, existing slots untouched. Build GREEN (`pnpm --filter launcher-api build`); inline
+  `<script>` passes a `new Function` syntax check. ⏳ owner-verify the in-browser blend RENDER (the
+  vendored runtime is minified; the spike uses un-mangled core).
+
+**Non-bone channels done: attachment · colour · dark colour (2-tone) · events · draw order · mesh deform.** The
+free-form mesh-deform timeline (the largest non-bone channel, §18 item 1) LANDED — see the
+item-1 note above for the validated format. Ship-from-Rigger (export rig →
+`deploy/` as `.json` + register) is the separate open gap. The mode switcher is a floating top-centre pill (`#modeBar`); Setup/Animate
+disable until an editable rig loads. Animation settings (working length / stretch / speed)
+landed alongside 5.3 (`83073da`). UI is owner-verified live.
+
+**Animate-mode UX pass (2026-06-14, owner live-testing):**
+- Timeline ZOOM (px/sec, － / ＋ / ⊡ fit + Ctrl/⌘-wheel, horizontal scroll, sticky name
+  gutter), grab-to-SCRUB the playhead, numeric TIME + SPEED inputs in the bar, Reset
+  button removed (`7008e24`).
+- **Key-recording fix (`94b6f3d`):** `keyBone` bailed with no current animation →
+  `ensureCurAnim()` auto-creates one on first key/pose, and keys always refresh the
+  dopesheet. `◆ Key` needs a selected bone/slot (else a hint); t=0 keys clamp clear of
+  the sticky gutter so they're visible.
+- **Transform gizmo (`096aec7`):** rotate ring + move-centre on the selected bone's
+  origin (Setup + Animate). Ring = rotate (world-angle delta → local rotation; the first
+  canvas rotation control), centre = translate. Animate holds via `posingBone` + keys on
+  release by `posingBone.mode` (rotate→rotate channel, move→translate).
+
+## Phase 5.6 — animation library / reuse (2026-06-18)
+
+Goal (owner-approved scope): **reuse an animation across rigs/projects**, via a shared
+R2 library PLUS an in-session copy/paste, with a **compatibility report + import-as-is**
+(no name-remap UI yet). Additive to Phase 5; no refactor of the anim CRUD.
+
+**Why a clip is portable.** An animation is the self-contained subtree
+`rawDoc.animations[<name>]` — `{ bones, slots, drawOrder, events, deform, ik/transform/
+path }` — keyed entirely **by name**. Importing it onto another rig is a deep-copy under a
+unique name (`uniqueAnimName`). It only *drives* a target rig where bone/slot/event names
+match; channels for names the target lacks import harmlessly but silently. So import is
+gated by a **compatibility report** that surfaces matched-vs-missing before committing.
+
+**R2 layout (global / project-agnostic, under `_shared/`)** — helpers in
+`projectPaths.ts`:
+- `sharedAnimationsPrefix = '_shared/animations'`
+- `sharedAnimationsIndexKey = '_shared/animations/index.json'`
+- `sharedAnimationKey(id) = '_shared/animations/<r2Slug(id)>.json'`
+
+The library is deliberately cross-project (the owner's requirement: reused between
+projects, nothing local).
+
+**Entry file** `_shared/animations/<id>.json`:
+```
+{ schemaVersion: 1, id, name, savedAt, source:{client,project,rig}, refs:{bones[],slots[],events[]}, duration, animation: <the rawDoc.animations[name] subtree, verbatim> }
+```
+**Index file** `_shared/animations/index.json`: `{ animations: [ <row> ] }` where a row is
+the entry MINUS the heavy `animation` body (so the list view is one GET). The id runs
+through `r2Slug` to match the launcher/Python normalization everywhere else; re-saving an
+id overwrites (the client confirms first).
+
+**Endpoints** (`src/routes/api/rigger/animations/…`, all `rigger`-gated via `gate()`):
+- `save/+server.ts` (POST) — body `{ id?, name, animation, refs?, duration?, sourceRig? }`;
+  derives `id = r2Slug(id||name)`, builds the entry (`savedAt = new Date().toISOString()`,
+  `source = {client, project, rig}` from the gate + body), `putObjectText` the entry, then
+  upsert the lightweight row into the index. Returns `{ ok, id }`.
+- `list/+server.ts` (GET) — reads the index, returns `{ animations }` sorted by name
+  (empty array if no index yet).
+- `get/+server.ts` (GET `?id=`) — returns the full entry; 404 if missing.
+- `delete/+server.ts` (POST `{ id }`) — deletes the entry object + removes its index row.
+
+**view.html** (`static/rigger/view.html`):
+- `animRefs(animation)` / `animCompatibility(animation)` — the by-name ref extraction +
+  matched/missing split vs the current rig's `rawDoc.bones`/`rawDoc.slots`.
+- `importAnimation(animation, desiredName)` — the shared insert path (compat report →
+  `Import anyway / Cancel`, then deep-copy under `uniqueAnimName`, `animsDirty`+`markDirty`,
+  `setMode('animate')`, `setCurAnim`, `renderAnimSection`). Used by both paste + library.
+- In-session **📋 Copy** (per row) → `animClipboard` (memory only) → **📥 Paste animation**
+  (top of the Animations section, shown when the clipboard is set + a rig is loaded).
+- R2 **📤 Save to library** (per row) + **🗂 Animation library** modal (list / filter /
+  Load / 🗑 delete), both reusing the Load-spine modal styling (`.rigModal`).
+
+**By-name approach (deferred work).** v1 reports compatibility and imports **as-is** — no
+channel stripping, no name remapping. A future iteration could add a remap UI (map a
+missing source bone/slot onto a target name) and/or an option to drop dead channels on
+import. Not wired to the game build pipeline: the library is tool-side authoring data; a
+reused clip ships through the existing `.irig` save→ship path, not as a new asset class.
+
+## Phase 5.7 — fresh-read / "↻ Refresh from R2" (2026-06-18)
+
+Owner hit a stale rig list after creating a rig — the tool was reading a cached
+`/spine/skeletons` response. Root cause: that endpoint reads `skeletons.json` fresh from
+R2 server-side (the editing tools rewrite it on every save/new/upload/delete), but the
+response carried **no cache headers**, so the browser cached the GET — and the old client
+fetch used a constant `?refresh=1` URL, which a heuristic cache could still serve stale.
+(The per-file fetch was already fine — `/spine/file` is `no-store` and the client adds
+`&v=Date.now()`.)
+
+Fix, three parts:
+- **`routes/(app)/spine/skeletons/+server.ts`** — every response now sets
+  `cache-control: no-store` (shared by the Spine Viewer too; only upside there).
+- **`view.html#loadSkeletons`** — always cache-busts: `fetch('/spine/skeletons?t='+Date.now()+…, { cache:'no-store' })`.
+- **`view.html` — sidebar `↻ Refresh from R2` button** (`refreshFromR2`): re-reads the rig
+  list and, if a rig is on stage, re-selects it (re-fetching its files cache-busted).
+  Unsaved edits are guarded by a `dirty` confirm.
+
+## Phase 5.8 — rig library / whole-rig reuse (2026-06-18)
+
+Goal (owner-approved scope): **reuse an ENTIRE rig across rigs/projects** — bones +
+slots + skins + constraints **and** animations — so a rig "can be moved to a different
+object" and re-skinned to new art. The library is the transfer medium; applying a saved
+rig gives the new object the bones + animations, then the user attaches the new art,
+makes a mesh, and weights it to the imported bones with the EXISTING mesh/weight tools.
+Mirrors the Phase 5.6 animation library exactly (R2 layout, endpoint shapes, modal
+style); additive, no refactor of the rig CRUD.
+
+**R2 layout (global / project-agnostic, under `_shared/`)** — helpers in
+`projectPaths.ts`:
+- `sharedRigsPrefix = '_shared/rigs'`
+- `sharedRigsIndexKey = '_shared/rigs/index.json'`
+- `sharedRigKey(id) = '_shared/rigs/<r2Slug(id)>.json'`
+
+**Entry file** `_shared/rigs/<id>.json`:
+```
+{ schemaVersion:1, id, name, savedAt, source:{client,project,rig}, stats:{bones,slots,skins,animations:string[]}, skeleton: <full skeleton doc: skeleton block + bones + slots + skins + ik/transform/path + animations> }
+```
+**Index file** `_shared/rigs/index.json`: `{ rigs: [ <row> ] }`, a row being the entry
+MINUS the heavy `skeleton` (list view = one GET). `stats` is computed server-side; the
+stored `skeleton.skeleton.spine` is forced to a valid version (default `4.2`). The id
+runs through `r2Slug`; re-saving an id overwrites (the client confirms first).
+
+**Endpoints** (`src/routes/api/rigger/rigs/…`, all `rigger`-gated via `gate()` — copied
+from the animation endpoints):
+- `save/+server.ts` (POST) — body `{ id?, name, skeleton, sourceRig? }`; validates
+  `name` non-empty + `skeleton` an object with `Array.isArray(skeleton.bones)`; derives
+  `id = r2Slug(id||name)`; computes `stats` from the skeleton; `putObjectText` the entry,
+  upsert the index row. Returns `{ ok, id }`.
+- `list/+server.ts` (GET) — `{ rigs }` from the index, sorted by name (empty if none).
+- `get/+server.ts` (GET `?id=`) — full entry; 404 if missing.
+- `delete/+server.ts` (POST `{ id }`) — deletes the entry object + removes its index row.
+
+**Apply-at-creation hook on `new` + `upload`.** Both creation endpoints take an OPTIONAL
+`rigId`. A shared helper `src/lib/server/riggerNewRig.ts#resolveRigSkeletonBody(rigId)`
+returns the `.irig` body to write: the blank skeleton when `rigId` is empty (unchanged
+behavior), else the saved rig's `entry.skeleton` deep-cloned with `skeleton.spine` forced
+to `4.2` (404 if the rig is missing). Everything else (synth `.atlas` from the chosen art,
+page copy, reindex, response) is identical. The applied skeleton's attachment region names
+are NOT remapped to the new atlas — they intentionally don't resolve until the user
+re-attaches the new object's art (the by-name caveat below); bones/animations/constraints
+come over intact.
+
+**Import into the open rig — the namespaced merge (`view.html#importRig`).** The riskiest
+path; made collision-safe by ALWAYS namespacing the imported rig:
+- `prefixRigNames(src, p)` — prefixes EVERY internal name and rewrites EVERY reference,
+  reusing the same ref-rewrite shape as the in-tool `renameBone`/`renameSlot`: bones
+  (name + parent), slots (name + bone), skins (name + attachment-slot keys + linkedmesh
+  `skin` refs), constraints (name + bone/target/bones), the animation map keys
+  themselves, and every per-animation reference — `bones`/`slots`/`ik`/`transform`/`path`
+  keys, the **legacy `deform`** (skin→slot) and the **Spine 4.2 `attachments`**
+  (skin→slot→attachment) channels, and `drawOrder` slot offsets. Weighted-mesh bone refs
+  are stored as **indices** (not names) so they need no rewrite — they stay valid because
+  the imported bones keep their relative order on append + topo-sort.
+- `mergeRigInto(dst, src, attachBone)` — drops the imported root bone, re-points every
+  reference to it onto `attachBone` (the selected bone, else the current root) so no
+  slot/constraint/anim key dangles, appends the (prefixed) bones then `topoSortBones` so
+  every parent precedes its children, appends slots/skins/constraints, and folds the
+  prefixed animations into `rawDoc.animations`.
+- `importRig(id)` — guards on `rawDoc` + a `dirty` confirm, derives a unique prefix
+  (`r2Slug(name)_`, bumped with a counter until no imported name collides against the
+  open rig), runs the transform, `markDirty()`, `rebuildFromRawDoc(...)`,
+  `renderAnimSection()`. Lossless; reversible by **↻ Refresh from R2** (reload discards
+  the in-tab merge); deletes nothing from the current rig.
+
+**view.html UI.** Sidebar **📦 Save rig to library** (enabled when `rawDoc` exists) →
+`/api/rigger/rigs/save { name, skeleton: rawDoc, sourceRig }`. Sidebar **🗂 Rig library**
+→ a `.rigModal` (same style as the animation library) listing rows with stats ("N bones ·
+M anims") and per-row **Use in new rig** (opens the New-rig panel with the rig preset in
+the new **Apply saved rig** dropdown), **Import into open rig** (`importRig`), **🗑**.
+The New-rig panel gains an **Apply saved rig (optional)** `<select>` populated from
+`/api/rigger/rigs/list`; `createNewRig` / `createRigFromImages` include `rigId` in the
+POST when set.
+
+**Spike** (`tools/rigger-spike/rigmerge.mjs`). Replicates the SAME `prefixRigNames` +
+`mergeRigInto` transform, takes two real corpus skeletons, runs the merge, loads the
+result through the official `spine-core@4.2.74` loader (with a combined dst+src atlas so
+every region name exists for the structural load), and asserts: loader accepts it;
+parent-precedes-child holds; no bone/slot/skin name collisions; every imported animation
+present (prefixed); weighted-mesh bone indices in range; the ORIGINAL rig's bones + anims
+unchanged; bone count grew by exactly the imported-bone count. PASS on multiple pairs
+(e.g. `mm_bigwin` ← `anticipation` with 16 anims; `loader` ← weighted symbol `h1` with 40
+weighted meshes).
+
+**By-name / re-skin caveat.** A saved rig's attachments reference atlas regions by name;
+applied/imported onto a different object they won't resolve against the new atlas — bones
+and animations come over intact, but the imported art is blank until the user re-attaches
+the new object's art and weights it to the imported bones. By design: the library moves
+the rig (skeleton + motion); re-skinning to the new mesh uses the normal Setup/weight
+tools. Not wired to the game build pipeline: tool-side authoring data; the result ships
+through the existing `.irig` save→ship path, not as a new asset class.
+
+## Phase 5.9 — re-sync atlas / source remembering (2026-06-18)
+
+Problem: each rig is a self-contained spine bundle (`spines/<rig>/`) holding its OWN
+**copy** of the atlas page image, snapshotted at New-rig time (see §16 — the page is
+`getObjectBytes(rs.pageKey)` → `putObjectBytes(<bundle>/<pageName>)`). When the owner
+recolours/edits that atlas in the Atlas Maker afterwards, the rig keeps showing the OLD
+image — the bundle copy is never auto-updated. Owner-approved fix: a **⟳ Re-sync atlas**
+button that re-pulls the latest page + re-synthesises the `.atlas` from the SOURCE atlas,
+keeping the `.irig` (bones + animations + attachments) intact. It **remembers the source**
+so re-syncs are one click.
+
+**`source.json` sidecar (written by `new`).** After the rig bundle is written, `new`
+also writes `<bundle>/source.json = { manifestKey, pageName }` — the manifest the rig was
+created from + the page filename in the bundle. This is what makes future re-syncs
+one-click. It's harmless: `buildSkeletonsIndex` only indexes skeleton/atlas files (so it's
+ignored), and it's a valid `/spine/file` name. `upload/+server.ts` does NOT write one —
+uploaded-image rigs have no project-atlas source, so a re-sync there falls through to the
+picker.
+
+**Endpoint `src/routes/api/rigger/resync-atlas/+server.ts` (POST, `rigger`-gated).**
+Body `{ dir, atlasFile, manifestKey? }`. Mirrors `new`'s page-copy + atlas-synth calls:
+1. `gate()` for `rigger` (same forbiddenMessage idiom).
+2. Decode `dir` (base64url) → bundle under `spines/`, reject `..`; validate `atlasFile`
+   is a non-empty string with no `..`/`/`; build `bundlePrefix` like `save`.
+3. Resolve `manifestKey`: body override, else read `<bundle>/source.json`
+   (`getObjectText` → JSON.parse). If still none → return `json({ ok:false,
+   needsAtlas:true })` at **HTTP 200** (not a 4xx) so the client knows to show the picker.
+4. `loadRegionSet(manifestKey, …)`; validate `regions.length`/`pageKey`/`pageWidth`/
+   `pageHeight` (mirror `new`'s 400s); `getObjectBytes(rs.pageKey)` (404 if missing);
+   `pageName = basename(rs.pageKey)`.
+5. Read the bundle's CURRENT atlas; the old page filename = first non-empty trimmed line.
+6. Write the new page (`putObjectBytes`), the re-synthesised atlas
+   (`regionsToSpineAtlas(pageName, …)` → `putObjectText(<bundle>/<atlasFile>)`), and a
+   refreshed `source.json` (so a PICKED source becomes remembered).
+7. **Old-page cleanup:** if `oldPageName` exists and `!== pageName`, `deleteObject` it —
+   but only AFTER the new page is written, so a failure can't leave the rig page-less.
+8. Returns `{ ok:true, pageName, regions }`. Does NOT reindex `skeletons.json` (the
+   skeleton list + atlas filename are unchanged).
+
+**Client flow (one-click-then-picker).** `view.html`:
+- Sidebar **⟳ Re-sync atlas** (next to ↻ Refresh from R2 / the rig-library buttons),
+  enabled only when a rig is loaded (set in `selectSkeleton`).
+- `resyncAtlas(manifestKey?)`: requires `selected`; on `dirty`, a confirm (re-sync
+  reloads from R2, discarding unsaved skeleton edits). `showLoading`, POST
+  `{ dir: selected.dir_b64, atlasFile: selected.atlas_file }` + `manifestKey` when given.
+  On `!r.ok` → `showErr`. On `{ needsAtlas:true }` → `openResyncModal()`. On success →
+  `await selectSkeleton(selected)` — re-selecting reloads `/spine/file` cache-busted
+  (`v=Date.now()`), so the recoloured page shows.
+- The sidebar button calls `resyncAtlas()` with **no** manifestKey → the server uses the
+  remembered sidecar (one click). Only rigs without a sidecar (older rigs / uploads) fall
+  through to the picker; after the first picker-driven re-sync the sidecar is written, so
+  it's one click thereafter.
+- Picker modal `#resyncModal` (a `.rigModal`, same style as the rig/animation libraries):
+  lists `GET /api/rigger/atlases` (`{atlases:[{manifestKey,label,regions}]}`) with a
+  filter; choosing one closes the modal and calls `resyncAtlas(manifestKey)`. Empty state:
+  "No atlases in this project — compose one in the Atlas Maker first."
+
+**By-name caveat (same as §16/5.8).** Re-sync is safe for a colour change because region
+names are preserved. If the atlas was re-packed with renamed/removed regions, the rig's
+attachments may no longer resolve and the user re-attaches by hand. Not a new pipeline
+asset class — it ships through the existing `.irig` save→ship path.
+
+## Phase 6 — isolated mesh edit ("detach the mesh to edit it") (2026-06-25)
+
+Owner ask: *"a way to detach the mesh from the sprite image so I can edit the mesh, to
+then reattach it again."* Clarified to the **isolated-edit** reading (Spine's "Edit Mesh"
+workflow), NOT a true unbind/re-project — the image stays bound the whole time, so
+"reattach" is just toggling the mode off. Zero data risk: `path`/`uvs` are never touched,
+nothing in the `.irig` format or the deploy/bake chain changes. Purely a render-filter +
+texture-opacity addition in `static/rigger/view.html`.
+
+Why it's cheap on our side: a `MeshAttachment` already separates **geometry** (`vertices`,
+`triangles`, `hull`) from **image binding** (`path` + `uvs`). Editing geometry never
+disturbs the binding — exactly why Spine separates mesh editing from posing. So "isolate"
+is a view state, not a data operation.
+
+**State (`view.html`).** `meshIsolate` (bool) + `meshTexView` (1 = full, 0.4 = dim,
+0 = wireframe only). Both reset on `selectSlot` (moving to another slot exits isolation)
+and in `setMode` when leaving setup (isolate is a **setup-mode-only** tool — geometry is
+edited against the setup pose, never a deformed/animated pose).
+
+**UI.** When a mesh attachment is selected, the slot-detail panel shows a **⛶ Isolate
+mesh** toggle and, while active, a **🖼 Texture: full / dim / off** cycle. Entering isolate
+calls `fitMesh()` to frame the camera on the mesh's world bounds.
+
+**Render hook (`frame()`).** When `editMode && meshIsolate && meshCtx`:
+- `drawSkeletonIsolated()` draws ONLY the selected mesh slot's attachment at
+  `meshTexView` opacity, with every other slot hidden. Non-destructive — it saves every
+  slot's `color.a`, zeroes them, sets the target to `saved × meshTexView`, draws once, then
+  restores all alphas in the same frame. `meshTexView === 0` skips the textured draw
+  entirely (wireframe only).
+- the global `showMesh` debug renderer (which would draw *every* mesh's hull) is suppressed
+  while isolating, so only the selected mesh's overlay (`drawMeshOverlay` — triangles +
+  draggable vertex handles) shows.
+
+All the existing geometry tools (move / add / remove vertex, re-triangulate, draw mesh, UV
+numeric edit, weight brush) work unchanged inside the isolated view — they operate on the
+same `meshCtx`. "Reattach" = toggle ⛶ off → drop back into the full posed/animated rig with
+the edited geometry live, no reprojection.
+
+**UV-locked vertex dragging (the real "don't distort the sprite" fix, 2026-06-25 follow-up).**
+First cut only hid the other slots; the owner pointed out that dragging a vertex still
+distorted the sprite. Root cause: `applyMeshVertexDelta` moves only the vertex **position**,
+never its **UV** — so the texture mapping stays pinned and the picture stretches (this is
+just how a mesh renders: the image is the texture warped from UV-space onto the positions).
+Spine's *Edit Mesh* avoids this by keeping `UV = affine(position)` for every vertex, so the
+mesh renders the texture as one undistorted flat image and reshaping the wireframe only
+re-cuts the outline / re-meshes the interior — it never warps the art.
+
+Implementation (isolate mode only; normal setup-mode dragging still deforms, as before):
+- On mousedown over a vertex (`tryStartMeshDrag`), `buildMeshUVFrame()` fits a fixed affine
+  **world rest-position → region UV** from the mesh's largest-area (most numerically stable)
+  vertex triangle — held for the duration of that one drag in `meshUVFrame`.
+- During the drag, after `applyMeshVertexDelta` moves the position, `applyIsolatedVertexUV`
+  re-pins the dragged vertex's UV = `frame(newWorldPos)` into `rd.uvs` + the live
+  `att.regionUVs` (+ `updateRegion()`). Every *other* vertex still satisfies
+  `UV = frame(pos)` (they didn't move), so the whole mesh stays globally affine in
+  position→UV → the texture renders flat and undistorted. Cleared on mouseup.
+- UV is **clamped to [0,1]** so dragging a hull vertex past the art's edge can't sample
+  neighbouring atlas regions (bleed). The affine + clamp were unit-tested in Node (frame
+  reproduces all original verts' UVs incl. one outside the fit; center→(0.5,0.5);
+  past-edge→clamped).
+
+**Not done here (the other reading, deferred):** a *true* unbind → edit free-floating →
+re-project-UVs-onto-a-different-region flow (re-skin / retopo+reproject). The data model
+supports it (recompute `uvs` via the affine fit `✎ Draw mesh` already uses), but it's a
+separate, larger feature; left for a future phase if the owner wants image-swap rebinding.
+
+## §18.8 — physics constraints (Spine 4.2's new sim constraint) — LANDED
+
+Authoring + the `physics` animation timeline for secondary motion (hair/cloth/jiggle).
+Mirrors the IK/transform/path constraint subsystem. **Setup** = top-level `physics` array,
+each `{name, order, bone (SINGLE), x,y,rotate,scaleX,shearX (0..1 amounts), limit, fps
+(→step=1/fps), inertia, strength, damping, mass (→massInverse=1/mass), wind, gravity, mix}`.
+**Timeline** = `animations.<a>.physics.<name>` = a per-channel map
+`{inertia|strength|damping|mass|wind|gravity|mix: [{time,value,curve?}], reset:[{time}]}`.
+UI: the constraints panel lists/counts physics + `＋ Add physics constraint`, a
+`renderPhysicsEditor` (bone + 5 driven amounts + limit/fps + 7 sim props), rename/delete;
+a `physics` dopesheet track keys the sim params + a `↺ reset` step; `poseAtTime` drives the
+live `PhysicsConstraint` and the preview steps the sim (`skeleton.update(delta)` gated on
+`hasPhysics()` so non-physics rigs stay byte-identical). Validated against spine-core@4.2.74
+(`tools/rigger-spike/physics.mjs`): the sim runs (finite, changes, differs from rigid),
+`mix=0` inert, `Physics.reset` re-inits, all channels animate, linear+bezier match the
+runtime. Re-integrated onto `main` alongside the path feature (renamed the physics
+identifiers that collided with path: `pcByName`→`physByName`, the add-button + `editPc`
+→`addPhys`/`editPhys`). ⏳ owner live-verify the sim in `/rigger`.
+
+**§18.9 extra attachments — ✅ LANDED** (the final Spine 4.2 parity item). point /
+bounding-box / clipping / linked-mesh authoring, formats validated in
+`tools/rigger-spike/attachments.mjs` (GREEN vs spine-core@4.2.74) and built into
+`static/rigger/view.html` (see §18 build-plan item 9 for the exact JSON formats + UI). Parity
+preserved (purely additive; `rawDoc` mutated only by the add functions). Build GREEN; inline
+`<script>` passes `new Function`; no duplicate top-level functions. ⏳ owner live-verify the
+in-browser overlays + clipping mask (vendored runtime minified; spike uses un-mangled core).
+
+
+## Invisible Symbols State Machine — design-doc progress log (archived 2026-07-15)
+
+Trimmed out of `docs/design/invisible-symbols-state-machine.md` to keep it plan-only. Only
+clearly-dated done-narrative + commit hashes were moved; all design/plan prose (including the
+"when added / moved out" provenance dates in section headers) was left in place.
+
+### From "Symbol size lives on the reel (moved out 2026-06-18)"
+Commit refs removed from the sentence "…the Symbols State Machine no longer **authors** size at
+any level (the size panel + per-cell size inputs were removed, `f555e8d`/`a2f3cef`)." — removed:
+
+    f555e8d`/`a2f3cef
+
+### From "Win-line overlay config" → "Renderer (shared engine)"
+Removed trailing dated done-sentence:
+
+    Ported from the standalone Book of Borut build 2026-07-14.
+
+### From "Build plan (ordered)" → "S6 — Global config (post-v1)"
+Removed the landed-status clause that preceded "Book of Borut needs the same mirror as a
+follow-up …":
+
+    The `apps/lines` render-side mirror has landed;
+
+
+## Invisible Font Maker — design-doc progress log (archived 2026-07-15)
+
+The following dated progress/done narrative (verification prose, "✅ LANDED", "Round N", build-GREEN confirmations) was trimmed out of `docs/design/invisible-font-maker.md` to leave that doc PLAN-ONLY. Captured here verbatim from Section 5 "Build order (phased)", Phases 2–4.
+
+---
+
+2. **Phase 2 — Import + Save. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+   Upload a BMFont (`.xml`/`.fnt`/`.json` + page image[s]) → client parses + live-previews
+   → save. Uploads use **presigned PUT** (BMFont page PNGs exceed adapter-node's 512 KB
+   `BODY_SIZE_LIMIT`): `POST /api/fonts/upload-urls` mints `presignPut` URLs for the
+   descriptor + each page (keys via `fontBundlePath`, `assertAllowed`); the browser PUTs
+   each file straight to R2; then `POST /api/fonts/save` is **authoritative** — re-reads
+   the uploaded descriptor from R2, re-derives `name` (`<info face>`) + `pageFiles` via
+   `lib/server/bmfont.ts` `parseBmfontDescriptor` (never trusts the client), verifies each
+   page `objectExists`, and upserts the `fonts.json` entry by `id===folder`. Client:
+   `FontImport.svelte` + `fonts.client.ts` `parseDescriptorClient`/`loadLocalBitmapFont`
+   (builds a `BitmapFont` from object-URL pages for the pre-save preview — a blob
+   descriptor can't go through pixi's `loadBitmapFont` because it mangles relative page
+   refs). Per-project writes only (shared = Phase 4). `pnpm --filter launcher-api build` GREEN.
+3. **Phase 3 — Generate. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+   `FontGenerate.svelte` + `fontBake.client.ts`: upload a TTF/OTF (`opentype.js`),
+   pick a charset (`charsets.client.ts`: digits/currency/alphanumeric/ASCII/custom) +
+   size + page width + **effects** (solid/gradient fill, outline, drop-shadow, each
+   toggleable), bake a glyph atlas + BMFont XML **in the browser** (opentype for
+   metrics/geometry → Canvas 2D `Path2D` fill/stroke/shadow → shelf packer → single
+   page PNG), live-preview via `loadLocalBitmapFont` + PIXI `BitmapText` (the same
+   game-load path = the metrics self-check), and save via the SAME Phase-2 flow. The
+   client upload→save sequence was extracted to `fonts.client.ts` `saveBitmapFont(...)`
+   and is now shared by Import + Generate. Metrics: `scale=fontSize/unitsPerEm`,
+   `base=round(ascent)`, `lineHeight=round(ascent+descent)`, per-glyph tile = ink box
+   (`Path.getBoundingBox()`) + effect-bleed `pad`, `xoffset/yoffset` relative to pen/
+   line-top, `xadvance=round(advanceWidth*scale)`. Deps: `opentype.js` + `@types`.
+   Deferred to Phase 4: kerning (`<kernings>`), multi-page atlases, shared-library save.
+   `pnpm --filter launcher-api build` GREEN.
+4. **Phase 4 — polish** (incremental).
+   - **Round 1 ✅ LANDED 2026-06-12 (code-only): Generate baker — kerning + multi-page.**
+     `fontBake.client.ts`: emits a `<kernings>` block from `font.getKerningValue` (toggle,
+     default on; capped at 256 chars); multi-page shelf packer (new **page max height**
+     control, default 2048) producing one PNG per page (`<base>.png` single, `<base>_i.png`
+     multi), `<common pages="N">` + per-`<char page>`; `BakeResult.pages: {file,blob,canvas}[]`.
+     Preview + `saveBitmapFont` already multi-page-capable (no server change; `loadLocalBitmapFont`
+     iterates `<page>`s). `pnpm --filter launcher-api build` GREEN.
+   - **Round 2 ✅ LANDED 2026-06-12 (code-only): delete + web-font import + shared target.**
+     (a) **Delete** — `POST /api/fonts/delete` removes the entry + its R2 files; View cards
+     get a confirm-Delete button (hidden for shared fonts unless the user can publish);
+     `/api/fonts/catalog` now returns `source: 'project'|'shared'`. (b) **Web-font import** —
+     `FontImport.svelte` accepts woff2/woff/ttf/otf → `kind:'web'` (user-supplied family
+     name + per-file weight/style, format from ext); `/api/fonts/save` gained a `web` branch
+     (no descriptor parse; validates each file exists + format token); `saveWebFont` client
+     helper. (c) **Shared library** — new admin-gated capability `fontPublish` (`roles.ts`,
+     default admin-only); a `target: 'project'|'shared'` on `upload-urls`/`save`/`delete`
+     routed through one `resolveFontTarget` helper (`lib/server/fonts.ts`) that enforces the
+     capability for shared — **the real write gate**, since `includeSharedFonts` only widens
+     the `assertAllowed` READ allow-list; the Save-target selector shows only to publishers
+     (`+page.server.ts` `canPublishShared`). `pnpm --filter launcher-api build` GREEN.
+     **Deferred: rename** (means moving R2 objects — its own task).
+
+
+## Invisible Game Maker — design-doc progress log (archived 2026-07-15)
+
+Extracted verbatim from `docs/design/invisible-game-maker.md` (dated done-narrative /
+verification prose trimmed to leave the doc plan-only). Current state lives in
+`docs/status/game-maker.md`; changelog in `docs/history.md`.
+
+### Phase 0 — Generic runtime spike (gate) — ✅ CLEARED (headless) 2026-06-16
+
+**Built:** `GET /api/editor/runtime` serves a project's full `BakedBundle` live
+(`runtimeBundle.ts`); `apps/lines` gains opt-in `?runtime=1` boot that registers
+assets from live `/api/deploy` URLs, parity-guaranteed when off.
+
+**Gate finding (the bug this gate existed to catch):** the first `assetBase` was a
+query-string URL (`/api/deploy?…&rel=…`). A Spine atlas page — and any spritesheet
+or bitmap-font sub-page — is named *inside* its parent file and loaded by the
+runtime **relative to the parent's URL**; relative resolution against a
+query-string URL drops the `rel`/token → 404. This is the exact issue STATUS
+open-item #6 predicted. **Fix:** serve `/api/deploy` via a **path-form** route
+`/api/deploy/f/<token>/<client>/<project>/<...rel>` (shared serving in
+`deployServe.ts`; query form kept for build CI) and emit a path-form `assetBase`,
+so the token + project survive as leading path segments and relative sub-file
+resolution works.
+
+**Gate result:** headless test against `test1` — runtime `200`, `basegame`
+present, all indexed assets AND the Spine page (resolved relative to the atlas URL
+exactly as spine-pixi does in the browser) load cross-origin. PASS. Remaining:
+on-screen Pixi render / boot-order timing = a live browser confirm; runtime-mode
+localization merge is a known deferred gap (i18n inits at module-eval, before the
+bundle fetch).
+
+

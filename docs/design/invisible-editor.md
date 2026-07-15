@@ -6,6 +6,8 @@
 > the missing-UI-vs-schema gaps (`visibleFor`/`screenAnchor`/custom-param `options`/
 > `def.slots`), and the missing `docs/tools/editor.md`.
 
+> Build status: see [docs/status/editor.md](../status/editor.md) + [component-editor.md](../status/component-editor.md); detailed done-log in [docs/history.md](../history.md).
+
 The missing layout step in the pipeline. Sheet Maker defines regions, Atlas Maker generates art, Spine packs animations. The editor places those assets across game **screens**, exporting a JSON layout the engine renders. Animation/book-event logic stays in code on top of the static layout.
 
 ## 1. What the engine looks like today
@@ -363,10 +365,6 @@ Symmetric with scenes (`editor/<projectKey>/scenes.json`) and templates (`_share
 
 `componentStorage.ts` (launcher) = `loadComponent(id, projectKey?)` (project shadows shared, exactly like `loadTemplate`'s R2-over-built-in precedence), `saveComponent`, `listComponents(scope)`. Launcher routes `GET/POST /api/editor/component` + `GET /api/editor/components`, all `toolScope.gate('editor')`.
 
-**Shared-save gating (LANDED 2026-06-24).** `saveComponent`/`deleteComponent` already resolve a `scope:'shared'` def to the `_shared/editor-components/<id>.json` key; the plumbing is now wired end-to-end so the server can persist a shared component. Reads stay open under the `editor` tool gate, but a WRITE/DELETE to the SHARED library additionally requires the `componentPublish` capability (`COMPONENT_PUBLISH_CAPABILITY` in `roles.ts`, default-ON for `admin` only, in the role-override matrix alongside `fontPublish`/`blueprintPublish`). Project-scoped saves are unaffected (only the `editor` tool gate).
-
-**Promote-to-shared UI (LANDED 2026-06-24).** The Component Editor now exposes a **Promote to shared** button in the top bar (next to **Save component**, only while a component is open). It POSTs the open draft with `scope:'shared'` and NO `project`, routing the write to `_shared/editor-components/<id>.json`. The button is gated in the UI on the `componentPublish` capability (`canPublishShared` from `roleHasCapability` in `+page.server.ts`, mirroring the Font Maker's shared-save target) so it never dangles a 403 for users who lack the capability; the API still enforces it server-side. The promote is a **snapshot** — the open draft stays `scope:'project'`, and a project component of the same id keeps shadowing the shared copy everywhere it loads (a confirm states this).
-
 ### 8.4 Authoring — a mode on the existing canvas
 
 Like Template mode (§7.5), component authoring is **not a new surface**: open/create a component on the same canvas, edit its `root` sub-tree with all the existing drag/transform/outliner/override machinery, save to R2. In scene mode, a **component picker** drops a `ComponentInstanceNode`; the Properties panel edits its `params` and per-layoutType transform. Editing a component and editing a scene are the same canvas in two modes (scene mode / template mode / component mode).
@@ -408,17 +406,6 @@ export interface TweenStep {
 
 The game wires book-event → signal + supplies params **once**, via a small registry mirroring `registerBoundComponents` (e.g. `registerComponentSignals({ baseGameOverlays: { win: emitter.on('winInfo', …) } })`). Editor declares signal *names*; engine owns the *wiring*.
 
-#### 8.6.1 Button-state-driven spine animations (added 2026-06-25)
-
-The per-state **image** cascade (`image`/`imageHover`/`imagePressed`/`imageSelected`/`imageDisabled`/`imageSpinning` — the "Button images" panel) lets an authored button swap a static frame per interaction state. Its **spine sibling** lets a button BE a spine whose *animation* is driven purely by its state — the owner's ask "only have spine animation driven by the states of a button."
-
-- **Schema:** `SpineNode.stateAnimations?: ButtonStateAnimations` — an optional `{ hover, pressed, selected, disabled, spinning }` map, each `{ animation, loop? }`. The resting state is the node's existing `defaultAnimation` (so `normal` needs no key, mirroring how the image cascade's resting is `image`). Additive; absent ⇒ byte-identical parity.
-- **One cascade, two flavours (DRY):** `buttonStateImage.ts` now exposes a generic `resolveButtonState<T>(get, flags)` that both `resolveButtonStateImage` (existing) and the new `resolveButtonStateAnimation` call — identical priority order (spinning → disabled → pressed→hover→selected → hover→selected → selected), so the two can't drift.
-- **Runtime:** `<ComponentInstance>` already tracks the interaction flags for the authored art-button path (`interactive` = an `action` feed + no coded `bind` part). It walks `def.root` once for spine nodes carrying `stateAnimations`, and a reactive `$effect` resolves the current state → `{ animation, loop }` into a new `componentStateAnimContext` map (the interaction sibling of `componentSignalContext`). `LayoutNodeView`'s spine block reads it and **prefers a state animation over a signal cue over `defaultAnimation`** — a button reacts immediately and returns to rest when the state clears. Signal-cue hand-off-to-idle is suppressed while a state animation is in effect.
-- **State-overlay (image at rest, spine on a state):** a spine that declares `stateAnimations` but has NO `defaultAnimation` is treated as a state-only overlay — `LayoutNodeView` keeps it HIDDEN at rest (`spine.visible=false`) and reveals it only while an override (a state animation or a signal cue) is active. So the author leaves the spine's default blank, keeps their button IMAGE as the resting look, and maps e.g. `spinning` → an animation: the image shows at rest and the spine appears during the spin. A spine WITH a default, or any spine without `stateAnimations` (every spine before this feature), is always visible — byte-identical parity. NB the cascade checks `spinning` FIRST and short-circuits, so "during the spin" must be mapped to **spinning**, not **disabled/downstate** (a spin sets both).
-- **Authoring:** Component Editor → select the spine node → "Plays on button state" (below "Plays on signal"): an animation dropdown (the bundle's real animations) + loop per state. Shown only when the component declares an `action` variable (i.e. is an interactive button); otherwise a hint points the author to add one. Unset states cascade exactly like images. A hint explains the blank-default overlay pattern + the spinning-vs-downstate rule.
-- **Pipeline:** no new wiring — `stateAnimations` is a `SpineNode` field, so it rides the existing component save (root tree not deep-normalized), the editor doc normalizer (forward-compatible fields preserved), and the bake (`runtimeBundle` only rewrites the spine `assetKey`). Animation names resolve against the loaded spine bundle in-game.
-
 ### 8.7 The `mount`/`bind` hatch is a scaffold, driven to zero (owner direction 2026-06-05)
 
 **Correction to the earlier "both coexist permanently" steer.** The owner does *not* want a permanent coded escape hatch. The end-goal is a **bidirectional translator between code and editor** so that *all* hand-coded work can be done visually. `mount`/`bind` is therefore a **migration scaffold**, not a fixture: it holds a concern until that concern has a real visual primitive, then it goes away. The target is **zero coded mounts** for the games we ship.
@@ -453,19 +440,7 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 
 ### 8.9 Open decisions (need owner input)
 
-- **Versioning / migration** — ✅ **DECIDED (owner 2026-06-05): version components, pin-by-default.** Instances pin `componentVersion`; editing a component bumps its version; an instance stays on its pinned version until an explicit per-instance "update to latest." Same model as template versioning (§7.5). ✅ **Spec'd + landed 2026-06-24:** the "update to latest" action + outdated flag live in the Properties panel "Component instance" section (details below).
-  - ✅ **SAFE half LANDED 2026-06-24** (the conservative resolution + save-bump). Two pieces:
-    - **Safe resolution** — `engine-layout` `registerComponents.ts` now exposes `resolveComponent(id, pinnedVersion)` → `{ def, pinnedVersion, registeredVersion, versionMismatch }`. v1 is still a single-version store, so when an instance pins a version that ≠ the one registered, the renderer (`ComponentInstance.svelte`) renders the registered def (parity — it is the only def available) but **flags `versionMismatch`** and warns, rather than passing it off as the pinned version. The instance's pin is **never mutated** and the def is **never auto-upgraded**. `getComponent` is kept as a thin wrapper (still returns the registered def) so existing callers are byte-identical.
-    - **Save bump** — launcher `componentStorage.ts` `saveComponent` now reads the currently-stored def at the target scope/key and reconciles `version` (`reconcileVersion`): a CHANGED def bumps to `max(stored, posted)+1` (honouring an already-higher client version), a NO-OP re-save keeps the stored version (no spurious bump that would orphan every pin), and a brand-new component keeps its posted version (default 1). Comparison ignores the `version` field itself.
-    - **Outdated-flag + "update to latest" LANDED 2026-06-24** (the editor half — where the action lives + how a bump flags its instances). Both live in the shared `EditorProperties.svelte` "Component instance" section (the Properties panel — the §8.9-natural home), so the Scene Editor and the Component Editor (which reuses that component for nested instances) get them from ONE place:
-      - **Outdated flag.** An instance is *outdated* when its pinned `componentVersion` is **< the resolved def's `version`** — reusing the SAME version data `resolveComponent` compares, not a parallel check. When outdated, an amber inline note reads "Component vN available (instance pinned vM)" right under the pinned-version line, matching the editor's existing inline-warning style (no new warnings framework). An instance whose pin equals the def shows no flag and is byte-identical; the flag is scene-mode only (component-authoring mode shows the param-declaration UI, not a scene instance).
-      - **"Update to latest" action.** A button in the same note re-pins **only that one** instance's `componentVersion` to the def's current version (`onUpdateInstanceToLatest`, wired on the Scene Editor page) — explicit + per-instance, never bulk/auto. **Param reconciliation:** every author override whose param key still exists on the new def is kept; overrides for params the new version removed are dropped (the def's own defaults then fill any gap via `resolveComponentParams`). It persists through the normal scene save path (`markDirty()`).
-    - ✅ **v2 multi-version store LANDED 2026-06-24** (storage + resolution + bake). A pinned instance now resolves the EXACT def it was authored against:
-      - **Storage keeps history** — `componentStorage.ts` `saveComponent` writes the def to BOTH the `<id>.json` LATEST pointer (read by `loadComponent(id, projectKey)` with no version + `listComponents` — back-compat, byte-identical) AND an immutable `<id>.v<N>.json` SNAPSHOT, for both scopes (`projectComponentVersionKey` / `editorComponentVersionKey` in `projectPaths.ts`). Layout chosen = **versioned keys alongside a latest pointer** (not a versions-map blob): it leaves the existing single-doc readers untouched, keeps each version an independently-cacheable immutable object, and mirrors the repo's existing sibling-file conventions (Rigger `<id>.json` + `index.json`, symbols `symbols.json`/`defaults.json`). The library listings exclude `.v<N>.json` (a `(?<!\.v\d+)` lookbehind + a `VERSION_SNAPSHOT_KEY` filter) so history never shows as extra components; `deleteComponent` sweeps every `<id>.v<N>.json` too. Snapshot is written BEFORE the latest pointer so a failed snapshot write never advances latest past a version with no history. A pre-v2 `<id>.json` (no snapshots yet) keeps loading; its FIRST v2 save establishes history.
-      - **`loadComponent(id, projectKey?, version?)`** — a new optional `version` resolves the exact snapshot per scope (`readComponentAtScope`): prefer `<id>.v<N>.json`, else fall back to `<id>.json` ONLY when its version equals the request (a pre-v2 doc whose single stored version IS the pin, or a pin at latest), else fall through to the next scope. No version ⇒ latest pointer (back-compat). `GET /api/editor/component?…&version=<N>` exposes it.
-      - **Engine resolves by pin** — `registerComponents.ts` is now a true multi-version store: per id it keeps `{ latest, byVersion }`; `registerComponents` SETS `latest` and RETAINS the def in `byVersion[def.version]`. `resolveComponent(id, pinnedVersion)` returns the EXACT registered version when present (`versionMismatch:false` — the pin IS honoured) and falls back to `latest` + flags `versionMismatch` only when the pinned version isn't registered. `getComponent` back-compat preserved. `ComponentInstance.svelte` renders the pinned version's def.
-      - **Deploy chain ships every pinned version (rule 8)** — `collectComponentPins` (`collectComponentIds.ts`) gathers every `(componentId, componentVersion)` an instance EXPLICITLY pins; the bake's `resolveReferencedDefs` (in `/api/editor/doc` + `runtimeBundle.ts`) loads each pinned non-latest def via `loadComponent(id, projectKey, version)` and returns them as `componentVersions`. `bake-editor-doc.mjs` embeds them; the game's `registerBakedComponents` registers them (one at a time, so two pins of the same id at different versions both survive) BEFORE `componentDefs`, so latest still wins for unpinned instances. Empty/omitted for every game with no non-latest pin ⇒ bundle byte-identical (parity). **Scoped remainder (not blocking):** the bake walks only TOP-LEVEL scene pins, not a transitive nested-pin closure (a pin on a `componentInstance` NESTED inside another def's `root`) — v1 nesting is 1–2 levels and no game pins yet, so this is sufficient today; widen `collectComponentPins` to the def-root closure when a game first nests a pinned instance.
-      - ✅ **Version-browser UI LANDED 2026-06-24** (the last §8.9 UI item — purely additive launcher UI + one read-only list endpoint, no engine/game change, no submodule bump). **List endpoint:** `componentStorage.ts` gains `listComponentVersions(id, scope, projectKey?)` → `{ versions: number[], latest?: number }` — it R2-lists the scope prefix, keeps only THIS id's `<id>.v<N>.json` siblings, parses their version numbers, and reads the `<id>.json` latest pointer for the current version (a pre-v2 def returns `versions: []` + the latest's single version). Surfaced via the EXISTING `GET /api/editor/component?id=…&list=versions&scope=<shared|project>` under the same `editor` tool gate (no new auth pattern); it never mutates R2. **Browser:** in the Component Editor top bar (while a component is open), a `Version` dropdown lists every retained snapshot newest-first (latest marked) and an **Inspect** button loads the selected version READ-ONLY onto the canvas — it GETs the immutable `<id>.v<N>.json` snapshot, swaps it into the draft, sets an `inspecting` flag that blocks Save / Promote / Space / node spawn+delete, and shows an amber `Inspecting vN (read-only)` pill. **Back to latest** reloads the editable current def from the sidebar list. Inspection is **non-destructive by construction**: nothing is written while inspecting, the historical snapshot is discarded on return, and the inspected def can never become the next save. **No "restore this version" action** was added — restoring would be a normal save of the inspected def (which `reconcileVersion` bumps to a new version on top, never rewriting history), so it carries the full param/edit surface; deliberately left out to keep browsing purely read-only, a precise future-UX TODO if authors ask for it. Files: `apps/launcher-api/src/lib/server/componentStorage.ts`, `apps/launcher-api/src/routes/api/editor/component/+server.ts`, `apps/launcher-api/src/routes/(app)/components/+page.svelte`.
+- **Versioning / migration** — ✅ **DECIDED (owner 2026-06-05): version components, pin-by-default.** Instances pin `componentVersion`; editing a component bumps its version; an instance stays on its pinned version until an explicit per-instance "update to latest." Same model as template versioning (§7.5).
 - **Layer-3 fork (the big one)** — ✅ **DECIDED (owner 2026-06-05): route B** (presentation-complete; logic core stays code behind one editor-configured contract) is the v1–v2 destination. Route A (visual-scripting/node-graph) is a later, separately-scoped initiative, not a v1–v2 goal. See §8.7. This anchors build order past step 7: keep extending presentation primitives + retiring mounts; do **not** start a logic node-graph.
 - **Nesting** — components inside components: recommend allow (1–2 levels v1) with a **hard cycle guard** (a component cannot instance itself transitively). Confirm depth.
 - **Behavior ceiling** — confirm the §8.5 line (timeline + spine + one count-up binding; everything stateful stays `mount`). This is the decision most likely to creep.
@@ -493,12 +468,12 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 - **Server pattern:** clone the spine endpoint — `GET /api/editor/fonts` (gated `gate({tool:'editor'})`, returns the catalog) + reuse `GET /api/editor/asset?key=…` to stream `.xml`/page bytes; resolver in `lib/server/fonts.ts`. Sync via `scripts/r2-sync-fonts.mjs` (clone of `r2-sync-spines.mjs`).
 
 ### 9.4 Build order (phased; editor-only first, engine contract last)
-1. **Phase 0 — contract + fonts into R2 (foundation). ✅ LANDED 2026-06-06 (code-only).** `engine-layout` `FontEntry`/`FontCatalog` in `fontCatalog.ts` (+ `findFont`/`isBitmapFont`); `fonts.json` written by `scripts/r2-sync-fonts.mjs` (BMFont `<info face>`+pages / web-by-ext; `--dry-run` verified on the `lines` fonts); `GET /api/editor/fonts` + `lib/server/fonts.ts` `resolveEditorFonts` (project→`_shared/fonts/` fallback, files via `/api/editor/asset`); `projectPaths` `SUB.fonts`/`fontCatalogKey`/`fontBundlePath`; `toolScope` `includeSharedFonts`. `pnpm --filter {launcher-api,engine-layout} build` GREEN. Owner step: run the sync with R2 creds to seed a project's catalog. Effort ~M, risk low (spine analogue).
-2. **Phase 1 — editor fidelity (read-only). ✅ LANDED 2026-06-06 (code-only, not browser-verified).** **WebGL/PIXI overlay (decided, §9.5).** `EditorTextLayer.svelte` — a transparent raw-PIXI `Application` over the 2D canvas (mirrors `EditorSpineLayer`), rendering each TOP-LEVEL text node as `PIXI.BitmapText` (catalog `kind:'bitmap'`) or `PIXI.Text` (web/system), positioned via the parent's `nodeTransform` → `world*zoom+pan` (one coord source, passed as `worldTransformOf`). `fonts.client.ts` loads bitmap fonts through PIXI `Assets.load` and web fonts via `FontFace`; the bitmap descriptor's relative `<page file>` refs are rewritten to absolute editor-gated URLs by `/api/editor/asset?font=1` (the relativity gotcha). Font loads fold into the existing "Loading assets…" overlay (`fontStarted/fontSettled` → `loadPending`); the overlay reports the node ids it owns (`onReadyIdsChange`) so the 2D canvas skips their `fillText` (no double-draw); "↻ Reload art" drops the catalog + bumps `fontReload`. `pixi.js@8.8.1` added as a launcher dep. `pnpm --filter launcher-api build` GREEN. **Caveats:** the overlay matches the GAME's pixi-text anchor, NOT the old `fillText` alphabetic baseline (intended); "Reload art" re-fetches the catalog but the per-font client caches don't reset, so a changed font PAGE needs a full reload. **UPDATE 2026-06-11 — unified text renderer:** `EditorTextLayer` is now the SINGLE renderer for EVERY `kind:'text'` node + HUD text bind anchor — top-level, nested in containers, AND inside `componentInstance` expansions (params threaded like `drawComponentInstance`). The old 2D-canvas `fillText` text path is DELETED. Nested world transforms compose through ONE shared path (`editorCanvas.helpers.ts` `composeWorldMatrix`/`matFromTransform`/`childLocalTransform`): the top-level node is framed by the canvas's `nodeTransform` (the editor equivalent of the single root `<MainContainer>`), every nested node composes in pure local space — so the 2D canvas (refactored to use `childLocalTransform` for nested nodes), the overlay, and the runtime's container tree land every nested node identically. A loading catalog font renders immediately as a system-fallback `<Text>` and swaps in on load (text never disappears). **Owner verify:** seed a project's `fonts.json` (`scripts/r2-sync-fonts.mjs`) then check `app.invisiblewall.org/editor`. Effort ~M–L, risk med (overlay sync + parity). *After this: you see the real fonts.*
-3. **Phase 2 — Properties: edit text + pick font. ✅ LANDED 2026-06-06 (code-only).** `EditorProperties.svelte`: the freeform `fontFamily` input is now a `<select>` populated from `/api/editor/fonts` (via the cached `fetchFontCatalog` in `fonts.client.ts`) — `(game default)` + each catalog font tagged `[bitmap]`/`[web]`, with the current off-catalog family preserved as a `(custom)` option so a pick never drops it; an empty-catalog hint points at the sync script. The `text` textarea (already bound to `node.text`) is kept. For a selected **bitmap** font: the `fill` control relabels to **tint** (the overlay maps `style.fill`→`BitmapText.tint`), a note explains "tint + size only (size scales the baked atlas), weight/style/stroke/shadow don't apply", and the **Stroke + Drop-shadow sections are gated off** (`{#if !isBitmapSelected}`). `pnpm --filter launcher-api build` GREEN. **Tradeoff:** replacing the freeform input means an arbitrary (non-cataloged) web family can no longer be typed in — sync it into the catalog first. Effort ~M, risk low.
+1. **Phase 0 — contract + fonts into R2 (foundation).** `engine-layout` `FontEntry`/`FontCatalog` in `fontCatalog.ts` (+ `findFont`/`isBitmapFont`); `fonts.json` written by `scripts/r2-sync-fonts.mjs` (BMFont `<info face>`+pages / web-by-ext; `--dry-run` verified on the `lines` fonts); `GET /api/editor/fonts` + `lib/server/fonts.ts` `resolveEditorFonts` (project→`_shared/fonts/` fallback, files via `/api/editor/asset`); `projectPaths` `SUB.fonts`/`fontCatalogKey`/`fontBundlePath`; `toolScope` `includeSharedFonts`. Effort ~M, risk low (spine analogue).
+2. **Phase 1 — editor fidelity (read-only).** **WebGL/PIXI overlay (decided, §9.5).** `EditorTextLayer.svelte` — a transparent raw-PIXI `Application` over the 2D canvas (mirrors `EditorSpineLayer`), rendering each TOP-LEVEL text node as `PIXI.BitmapText` (catalog `kind:'bitmap'`) or `PIXI.Text` (web/system), positioned via the parent's `nodeTransform` → `world*zoom+pan` (one coord source, passed as `worldTransformOf`). `fonts.client.ts` loads bitmap fonts through PIXI `Assets.load` and web fonts via `FontFace`; the bitmap descriptor's relative `<page file>` refs are rewritten to absolute editor-gated URLs by `/api/editor/asset?font=1` (the relativity gotcha). Font loads fold into the existing "Loading assets…" overlay (`fontStarted/fontSettled` → `loadPending`); the overlay reports the node ids it owns (`onReadyIdsChange`) so the 2D canvas skips their `fillText` (no double-draw); "↻ Reload art" drops the catalog + bumps `fontReload`. `pixi.js@8.8.1` added as a launcher dep. **Caveats:** the overlay matches the GAME's pixi-text anchor, NOT the old `fillText` alphabetic baseline (intended); "Reload art" re-fetches the catalog but the per-font client caches don't reset, so a changed font PAGE needs a full reload.  Effort ~M–L, risk med (overlay sync + parity). *After this: you see the real fonts.*
+3. **Phase 2 — Properties: edit text + pick font.** `EditorProperties.svelte`: the freeform `fontFamily` input is now a `<select>` populated from `/api/editor/fonts` (via the cached `fetchFontCatalog` in `fonts.client.ts`) — `(game default)` + each catalog font tagged `[bitmap]`/`[web]`, with the current off-catalog family preserved as a `(custom)` option so a pick never drops it; an empty-catalog hint points at the sync script. The `text` textarea (already bound to `node.text`) is kept. For a selected **bitmap** font: the `fill` control relabels to **tint** (the overlay maps `style.fill`→`BitmapText.tint`), a note explains "tint + size only (size scales the baked atlas), weight/style/stroke/shadow don't apply", and the **Stroke + Drop-shadow sections are gated off** (`{#if !isBitmapSelected}`). **Tradeoff:** replacing the freeform input means an arbitrary (non-cataloged) web family can no longer be typed in — sync it into the catalog first. Effort ~M, risk low.
 4. **Phase 3 — engine consumption (makes choices ship; touches the contract).** `LayoutNodeView` renders `<BitmapText>` when the catalog says `kind==='bitmap'`, else `<Text>`; game registers the catalog's fonts in its asset manifest at boot; parity fallback (no change → byte-identical). Parity-gated, per game (`apps/lines` + Book of Borut), same discipline as the reskin rollout. Effort ~M–L, risk med (engine contract change).
-5. **Phase 4 — optional.** Browser font upload (drag `.xml`+page → R2, cloud-native, no PowerShell); shared `_shared/fonts/` library; ~~editor-driven fonts for coded HUD text~~ **✅ HUD-text override LANDED 2026-06-06 (owner-chosen, engine+lines+editor)**; per-`layoutType` text style overrides.
-   - **HUD-text override (logo / game-name).** The coded HUD corners (`<UiGameName>`, the `logo` `<Text>`) now take an editor-authored **font + size + fill + label** override, so a project can restyle/rename them without touching game code. Contract: `engine-layout` `HudTextOverride { style?: Partial<TextStyle>; text? }` + `getHudTextOverride(node)` (read from the bind anchor's `bind.props`; persists via `normalizeNode` pass-through). Engine: `hudPositions.hudTextOverride()`; `<LayoutEditable>` passes it to the `gameName`/`logo` snippets (`Snippet<[HudTextOverride?]>` — a snippet that ignores the arg keeps parity, so opting in is per-game); `<UI>`/`<UIDefault>` forward the param; `<UiGameName>` + `apps/lines` snippets merge `{ ...base, ...override.style }` and `override.text ?? coded`. Editor: a **"HUD text"** Properties section (font dropdown + size + fill/tint + label) appears for a `container` bind anchor tagged `preview.style:'text'`, writing to `bind.props`; the **PIXI text overlay renders the anchor with the chosen font** (the 2D HUD chip steps aside once the overlay owns it). `pnpm --filter launcher-api build` + `lines` svelte-check GREEN. **To ship in-game:** a game must (a) bump its engine submodule and (b) apply the same `gameName`/`logo` snippet merge (lines = reference), then rebuild/republish — the editor preview works from the doc with no game change.
+5. **Phase 4 — optional.** Browser font upload (drag `.xml`+page → R2, cloud-native, no PowerShell); shared `_shared/fonts/` library; ~~editor-driven fonts for coded HUD text~~ **HUD-text override (owner-chosen, engine+lines+editor)**; per-`layoutType` text style overrides.
+   - **HUD-text override (logo / game-name).** The coded HUD corners (`<UiGameName>`, the `logo` `<Text>`) now take an editor-authored **font + size + fill + label** override, so a project can restyle/rename them without touching game code. Contract: `engine-layout` `HudTextOverride { style?: Partial<TextStyle>; text? }` + `getHudTextOverride(node)` (read from the bind anchor's `bind.props`; persists via `normalizeNode` pass-through). Engine: `hudPositions.hudTextOverride()`; `<LayoutEditable>` passes it to the `gameName`/`logo` snippets (`Snippet<[HudTextOverride?]>` — a snippet that ignores the arg keeps parity, so opting in is per-game); `<UI>`/`<UIDefault>` forward the param; `<UiGameName>` + `apps/lines` snippets merge `{ ...base, ...override.style }` and `override.text ?? coded`. Editor: a **"HUD text"** Properties section (font dropdown + size + fill/tint + label) appears for a `container` bind anchor tagged `preview.style:'text'`, writing to `bind.props`; the **PIXI text overlay renders the anchor with the chosen font** (the 2D HUD chip steps aside once the overlay owns it). **To ship in-game:** a game must (a) bump its engine submodule and (b) apply the same `gameName`/`logo` snippet merge (lines = reference), then rebuild/republish — the editor preview works from the doc with no game change.
 
 **Recommended:** land 0→1→2 (faithful, editable preview; editor-only, low risk) and verify online before Phase 3 (the only part that modifies the engine contract).
 
@@ -512,7 +487,7 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 
 ### 10.1 The two coupled bugs (measured, not guessed)
 Measured from a live game (`[bg-diag]`, window 1639×1301): the engine picked `layoutType: 'tablet'` (almost-square → main box 1000×1000, scale 1.301); the background spine `foregroundAnimation` is authored 3059.92×1501.3.
-1. **Background sized wrong in-game.** The coded `Background.svelte` called `normalBackgroundLayout({ scale: 0.5 })` → background at HALF the canvas. `scale: 1` is the exact cover. **Interim fix LANDED** (Book of Borut `Background.svelte` → `scale: 1`, full-bleed). The engine's `createBackgroundLayout` (utils-layout) IS the cover helper; the per-game `0.5` was just wrong for this art.
+1. **Background sized wrong in-game.** The coded `Background.svelte` called `normalBackgroundLayout({ scale: 0.5 })` → background at HALF the canvas. `scale: 1` is the exact cover. The engine's `createBackgroundLayout` (utils-layout) IS the cover helper; the per-game `0.5` was just wrong for this art.
 2. **Editor composites against the ACTIVE scene's frame, not a fixed window.** `+page.svelte` `frameSize` = `mainSizesMap[layoutType]` for `game`-space scenes but `STANDARD_MAIN_SIZES_MAP` for `canvas`/`standard` scenes. So switching the active screen resizes the whole composite (background small on "Base game", big on "Base game overlays"); only fixed game-coord nodes (the reels frame) stay put. This also makes the editor's background never match the full-bleed game.
 
 Root cause is shared: background sizing lives in **two implementations** (engine `createBackgroundLayout` for the game; `EditorSpineLayer.placeArt` cover-to-frame for the editor) AND the editor frames per-active-scene instead of per-viewport.
@@ -524,22 +499,22 @@ Root cause is shared: background sizing lives in **two implementations** (engine
 - **Doc-driven.** Background cover `scale` (default 1) + `fit: cover|contain` become node properties editable in Properties; persist via `normalizeNode` pass-through.
 
 ### 10.3 Build order
-1. **Interim game fix. ✅ LANDED 2026-06-06.** Book of Borut `Background.svelte` `scale: 0.5 → 1` (full-bleed via existing engine cover). Validates the cover; unblocks the game. (Per-game; the pipeline removes the hardcoding.)
-2. **Shared cover helper (engine). ✅ LANDED 2026-06-07.** `packages/engine-layout/src/lib/coverTransform.ts` — `coverTransform({artWidth,artHeight,targetWidth,targetHeight,coverScale=1,fit})` → `{scale,x,y}` (true cover from authored art dims, centred). Exported from `engine-layout`; used by `EditorCanvas.backgroundTransform` + `EditorSpineLayer` cover.
-3. **Editor fixed window-reference. ✅ LANDED + owner-verified 2026-06-07 (`0f9304a`).** `+page.svelte` `frameSize = STANDARD_MAIN_SIZES_MAP[layoutType]` for ALL scenes (the window — its per-type aspect matches the viewport that selects that layoutType + contains the main box). `EditorCanvas.nodeTransform` game-space maps main→window like `<MainContainer>` (origin `mainToWorld`, scale ×`mainScale`); `writeXY`/`writeScale` invert it so drags round-trip to raw main coords; `backgroundTransform` + `EditorSpineLayer` cover the window via `coverTransform` (`coverScale` default 1); the main box is drawn as a centred inner dashed guide. Switching the active screen no longer rescales the composite; background previews full-bleed per layout type. Editor-only (game unaffected). Owner confirmed selection/drag/scale round-trip + full-bleed across layout tabs.
-4. **Doc-driven cover props. ✅ LANDED 2026-06-08 (editor-only; owner verifies visually).** Cover **scale** + **fit** are now doc-driven + editable in the editor Properties. **Canonical fields:** cover scale = `node.scale.x` (uniform multiplier; `1` = exact edge-to-edge); cover fit = `'cover' | 'contain'` read from `node.preview.art.fit` for a `bind` preview-art anchor (the field those anchors already round-trip), else a NEW node-level `BaseNode.fit` for plain `background`-space sprite/spine nodes. Two `engine-layout` readers (`coverTransform.ts`) are the SINGLE source: `backgroundCoverScale(node)` + `backgroundFit(node)`. All THREE editor cover paths now read them — `EditorCanvas.backgroundTransform`, `EditorCanvas.placedArtTransform` (cover branch), `EditorSpineLayer` (`background`-space + `placeArt` cover) — no hardcoded `'cover'`/`1` left. Properties gains a **"Background"** section (cover-scale number input 0.1–4 step 0.05 → uniform `scale`; fit `<select>` → canonical fit field), shown when the page detects the selected node is a background cover node (mirrors `isBackgroundCover`: `background`-space sprite/spine OR a `cover`-placement bind anchor). Cover stays non-draggable; scale is edited via the control. Persistence: `editorStorage.normalizeNode` returns nodes verbatim, so `fit` passes through with no special handling. Step 5 wires the game (engine consumption) next.
-5. **Engine consumption + per-game rollout. ✅ ENGINE + pixi-svelte LANDED 2026-06-08 (engine side; owner verifies in-game + applies the per-game `Background.svelte`).** Background sizing is now doc-driven end-to-end through `LayoutNodeView`, reading the SAME `backgroundCoverScale`/`backgroundFit` canonical readers the editor uses — so editor == game for any authored scale/fit.
+1. **Interim game fix.** Book of Borut `Background.svelte` `scale: 0.5 → 1` (full-bleed via existing engine cover). Validates the cover; unblocks the game. (Per-game; the pipeline removes the hardcoding.)
+2. **Shared cover helper (engine).** `packages/engine-layout/src/lib/coverTransform.ts` — `coverTransform({artWidth,artHeight,targetWidth,targetHeight,coverScale=1,fit})` → `{scale,x,y}` (true cover from authored art dims, centred). Exported from `engine-layout`; used by `EditorCanvas.backgroundTransform` + `EditorSpineLayer` cover.
+3. **Editor fixed window-reference.** `+page.svelte` `frameSize = STANDARD_MAIN_SIZES_MAP[layoutType]` for ALL scenes (the window — its per-type aspect matches the viewport that selects that layoutType + contains the main box). `EditorCanvas.nodeTransform` game-space maps main→window like `<MainContainer>` (origin `mainToWorld`, scale ×`mainScale`); `writeXY`/`writeScale` invert it so drags round-trip to raw main coords; `backgroundTransform` + `EditorSpineLayer` cover the window via `coverTransform` (`coverScale` default 1); the main box is drawn as a centred inner dashed guide. Switching the active screen no longer rescales the composite; background previews full-bleed per layout type. Editor-only (game unaffected).
+4. **Doc-driven cover props.** Cover **scale** + **fit** are now doc-driven + editable in the editor Properties. **Canonical fields:** cover scale = `node.scale.x` (uniform multiplier; `1` = exact edge-to-edge); cover fit = `'cover' | 'contain'` read from `node.preview.art.fit` for a `bind` preview-art anchor (the field those anchors already round-trip), else a NEW node-level `BaseNode.fit` for plain `background`-space sprite/spine nodes. Two `engine-layout` readers (`coverTransform.ts`) are the SINGLE source: `backgroundCoverScale(node)` + `backgroundFit(node)`. All THREE editor cover paths now read them — `EditorCanvas.backgroundTransform`, `EditorCanvas.placedArtTransform` (cover branch), `EditorSpineLayer` (`background`-space + `placeArt` cover) — no hardcoded `'cover'`/`1` left. Properties gains a **"Background"** section (cover-scale number input 0.1–4 step 0.05 → uniform `scale`; fit `<select>` → canonical fit field), shown when the page detects the selected node is a background cover node (mirrors `isBackgroundCover`: `background`-space sprite/spine OR a `cover`-placement bind anchor). Cover stays non-draggable; scale is edited via the control. Persistence: `editorStorage.normalizeNode` returns nodes verbatim, so `fit` passes through with no special handling. Step 5 wires the game (engine consumption) next.
+5. **Engine consumption + per-game rollout.** Background sizing is now doc-driven end-to-end through `LayoutNodeView`, reading the SAME `backgroundCoverScale`/`backgroundFit` canonical readers the editor uses — so editor == game for any authored scale/fit.
    - **pixi-svelte (`utils.svelte.ts` `spineSizeScale` + `BaseSpineProvider.svelte`):** new additive `fit?: 'cover' | 'contain'`. When `fit` is set AND both `width`/`height` are given, the spine sizes by a UNIFORM cover (`max`) / contain (`min`) scale from `skeleton.data` dims instead of the per-axis stretch — true cover, no distortion. `fit` absent = prior behaviour (parity); non-background spines unaffected. `SpineProvider` forwards `fit` through `...baseSpineProps` unchanged.
    - **engine `LayoutNodeView.svelte`:** a `background`-space **bind** anchor (Borut's `bg`) now receives a `cover={{ scale: backgroundCoverScale(node), fit: backgroundFit(node) }}` prop on `<Bound>` (additive — a component that ignores `cover` renders exactly as today). A `background`-space **sprite/spine NODE** (non-bind) honours the same readers: the sprite `bg` path applies `backgroundFit` (cover sets the fill axis via `normalBackgroundLayout`, contain sets the opposite axis so the art fits INSIDE the canvas) with `backgroundCoverScale` as the multiplier; the spine path feeds the canvas box on both axes (× cover scale) + `fit` to `<SpineProvider>`, getting a true uniform cover from `skeleton.data` (matching `coverTransform`). Default cover scale is now `1` (`scale.x ?? 1`) — the old per-game `0.5` was the bug §10.1 measured.
    - **Per-game (NOT applied here — separate repo): Book of Borut `Background.svelte`** accepts the new `cover` prop and sizes each background `SpineProvider` to the canvas via the pixi-svelte `fit`; default (no `cover`) stays today's full-bleed `scale:1` cover. Exact before/after is reported with this change. Games bump the engine submodule + apply the snippet + rebuild; parity-gated per game (lines + Book of Borut).
 
-6. **Cover scale ↔ stretch decoupling + coded-Background consumption. ✅ LANDED 2026-06-08 (engine + editor + `apps/lines`; owner-verified full-bleed live in `apps/lines`).** Owner direction: cover scale must be a uniform zoom, and SCALE.X/SCALE.Y a FREE vertical-vs-horizontal stretch — previously they were the SAME field (`backgroundCoverScale = node.scale.x`, and `setCoverScale` wrote both `scale.x`+`scale.y`), so editing cover scale moved the Transform scale and there was no stretch.
+6. **Cover scale ↔ stretch decoupling + coded-Background consumption.** Owner direction: cover scale must be a uniform zoom, and SCALE.X/SCALE.Y a FREE vertical-vs-horizontal stretch — previously they were the SAME field (`backgroundCoverScale = node.scale.x`, and `setCoverScale` wrote both `scale.x`+`scale.y`), so editing cover scale moved the Transform scale and there was no stretch.
    - **Canonical fields changed:** cover scale = NEW dedicated **`BaseNode.coverScale`** (`coverScale ?? 1`, uniform); stretch = `node.scale` (free per-axis, default `{1,1}`) via new reader **`backgroundCoverStretch(node)`**. `coverTransform` now returns `{ scaleX, scaleY, x, y }` = `fitScale · coverScale · stretch{X,Y}`. Persists verbatim through `editorStorage.normalizeNode`. Migration-safe: docs are days old and default `scale` is `{1,1}`, so repurposing `scale` as stretch changes nothing existing.
    - **All cover paths updated** to consume `scaleX/scaleY` + stretch: editor `EditorCanvas.backgroundTransform`/`placedArtTransform`, `EditorSpineLayer`; engine `LayoutNodeView` (bound `cover` now carries `stretch`; sprite/spine bg fold stretch onto width/height + `scale`). pixi-svelte composes stretch with `fit`: `spine.scale.set(baseX·sizeScale.x, baseY·sizeScale.y)` (`BaseSpineProvider.svelte`) — uniform cover × free stretch, no wrapping container.
-   - **Coded background is now doc-driven (the real in-game fix).** `apps/lines/src/components/Background.svelte` dropped `normalBackgroundLayout({ scale: 0.5 })` (half-size, ratio-driven) for a true full-bleed cover via pixi-svelte `fit`, accepting a `cover={{ scale, fit, stretch }}` prop (default = exact edge-to-edge cover). `Game.svelte` derives the `background` scene's `bg` node and passes the canonical readers. **Note:** `apps/lines`' fallback doc has no `background` scene → `<Background>` runs its default full-bleed cover (verified live: background fills the viewport edge-to-edge, was half-size). **Borut mirror PENDING (separate repo):** apply the same `Background.svelte`/`Game.svelte` edits + bump the engine submodule + rebuild engine dist + republish.
+   - **Coded background is now doc-driven (the real in-game fix).** `apps/lines/src/components/Background.svelte` dropped `normalBackgroundLayout({ scale: 0.5 })` (half-size, ratio-driven) for a true full-bleed cover via pixi-svelte `fit`, accepting a `cover={{ scale, fit, stretch }}` prop (default = exact edge-to-edge cover). `Game.svelte` derives the `background` scene's `bg` node and passes the canonical readers. **Note:** `apps/lines`' fallback doc has no `background` scene → `<Background>` runs its default full-bleed cover. **Borut mirror PENDING (separate repo):** apply the same `Background.svelte`/`Game.svelte` edits + bump the engine submodule + rebuild engine dist + republish.
 
 ### 10.4 Open decisions (need owner input)
-- **Viewport reference per layoutType in the editor** — ✅ DECIDED 2026-06-07: use `STANDARD_MAIN_SIZES_MAP[layoutType]` (desktop 1920×1080, tablet 1920×1920, landscape 1920×1080, portrait 1080×1920). Its per-type aspect matches the viewport aspect that selects that layoutType, it contains the main box, and window==STANDARD makes the existing `standardToWorld` fit identity. Owner-verified across layout tabs.
+- **Viewport reference per layoutType in the editor** — ✅ DECIDED 2026-06-07: use `STANDARD_MAIN_SIZES_MAP[layoutType]` (desktop 1920×1080, tablet 1920×1920, landscape 1920×1080, portrait 1080×1920). Its per-type aspect matches the viewport aspect that selects that layoutType, it contains the main box, and window==STANDARD makes the existing `standardToWorld` fit identity.
 - **Contain vs cover default** — ✅ DECIDED 2026-06-08: default = **cover** (the `backgroundFit` reader falls back to `'cover'` when unset, so existing docs are unchanged + full-bleed). `contain` IS now available as an editable per-node choice in the Properties "Background" section for the rare background that should letterbox/fit-inside instead of crop — the author opts in; nothing defaults to it.
 
 ## 11. Addendum — Configurable grid primitive: expose the board's layout params (owner direction 2026-06-08)
@@ -552,19 +527,19 @@ Root cause is shared: background sizing lives in **two implementations** (engine
 Board layout is fully derived from a tiny constant set, **per game** (no shared `boardLayout()` package): `apps/lines/src/game/constants.ts` (`SYMBOL_SIZE=120`, `REEL_PADDING=0.53`, `BOARD_DIMENSIONS` inferred from `INITIAL_BOARD` shape → `{x:5,y:3}`), centred by `boardLayout()` in `stateGame.svelte.ts` (`mainLayout().w/h * 0.5`), stepped by `getSymbolX/Y` in `utils/utils.ts` + `utils-slots/createReelForSpinning`. Book of Borut is a byte-identical clone. The engine already DECLARES a `reelGrid` mount slot in `templates/{lines,bookof}.ts` but emits no node — the designated insertion point.
 
 ### 11.2 Build order (editor-first, engine contract last — parity-gated)
-- **Phase 1 — editor-only, zero game risk. ✅ LANDED 2026-06-08 (code-only, not browser-verified).**
+- **Phase 1 — editor-only, zero game risk.**
   - `engine-layout` new `ReelGridNode` (`kind:'reelGrid'`, fields `reels`/`rows`/`cellSize`/`reelPadding?` mirroring the constants) added to the `LayoutNode` union (`types.ts`). Additive.
   - The engine **ignores** the kind: `LayoutNodeView`'s `if/else` chain has no `reelGrid` branch → renders nothing, so a doc carrying it is byte-parity in-game (the coded `Board.svelte` still draws symbols). No engine render change in Phase 1.
   - `editorStorage.normalizeDoc` `NODE_KINDS` += `'reelGrid'` (round-trips the node + its params).
   - Seeded into `referenceLayouts/bookof.ts` "Base game" scene with the **real** values (5×3, cell 120, padding 0.53, centred + per-layoutType centre overrides) so the picker opens it non-empty.
-  - Editor: `editorCanvas.helpers.nodeBox` returns the `reels×rows×cellSize` footprint (selection/hit lines up); `EditorCanvas.drawNode` draws a static `reels×rows` cell grid placeholder (anchor-centred, drawn in the already-scaled node space); `EditorProperties` gets a "Reel grid" section (number fields: reels, rows, cell size, reel padding); `EditorOutline` glyph `⊞`. `pnpm --filter {engine-layout,launcher-api} build` GREEN.
+  - Editor: `editorCanvas.helpers.nodeBox` returns the `reels×rows×cellSize` footprint (selection/hit lines up); `EditorCanvas.drawNode` draws a static `reels×rows` cell grid placeholder (anchor-centred, drawn in the already-scaled node space); `EditorProperties` gets a "Reel grid" section (number fields: reels, rows, cell size, reel padding); `EditorOutline` glyph `⊞`.
   - **Caveats:** `reelPadding` is stored for the runtime (Phase 2's `getSymbolX`) but the placeholder draws cells anchor-centred without offsetting by it (avoids cells poking past the selection box; padding≈0.5 ⇒ negligible anyway). The grid only appears once a project loads the bookof reference (existing project docs in R2 won't have it until re-seeded / "Load a game scene"). The game's own `Book of Borut/src/game/defaultLayout.ts` is NOT updated yet (deferred to Phase 2 with engine consumption).
-  - **Owner verify:** open `/editor` on the Borut project, Load the bookof game scene, select **Reel grid** in the Base game scene — confirm the grid draws over the board, is movable/scalable, and the Properties numbers change its shape.
-- **Phase 2 — engine consumption, LAYOUT-ONLY (owner-chosen 2026-06-08). ✅ LANDED for engine + `apps/lines` (on `main` `9a37cf0`) + Borut mirror committed (code-only, not browser-verified).** **Scope decision:** the board is built at module load (`_.range(BOARD_DIMENSIONS.x)`, fixed `INITIAL_BOARD`) and **the RGS book delivers a fixed N×M result**, so `reels`/`rows` are RGS/data-coupled — driving them live is a math change, NOT presentation. Phase 2 therefore drives only **position + cell size + reel padding** (pure layout); `reels`/`rows` stay editor-descriptive with a save-time mismatch **warning**.
+
+- **Phase 2 — engine consumption, LAYOUT-ONLY (owner-chosen 2026-06-08).** **Scope decision:** the board is built at module load (`_.range(BOARD_DIMENSIONS.x)`, fixed `INITIAL_BOARD`) and **the RGS book delivers a fixed N×M result**, so `reels`/`rows` are RGS/data-coupled — driving them live is a math change, NOT presentation. Phase 2 therefore drives only **position + cell size + reel padding** (pure layout); `reels`/`rows` stay editor-descriptive with a save-time mismatch **warning**.
   - **Mechanism (board-container transform, not per-symbol math):** new shared readers in `engine-layout/reelGrid.ts` (`findReelGridNode`, `resolveReelGridFromNode`, `resolveReelGridLayout`) + `ReelGridNode` exported. The game bridges the loaded doc's node into `boardLayout()`: **position** = node's resolved (per-`layoutType`) x/y else `mainLayout()` centre; **scale** = `cellSize / SYMBOL_SIZE` (applied to `BoardContainer` + the coded `BoardFrame` glow so coded board pieces stay coherent); **reelPadding** = `(reelPadding − REEL_PADDING) · SYMBOL_SIZE · scale` x-offset. No per-symbol math / `getSymbolX-Y` / `createReelForSpinning` change. `Game.svelte` calls `setBoardOverride(findReelGridNode(doc) ?? null)` after the doc loads. **Parity:** no `reelGrid` node ⇒ `scale: 1`, centre position, zero offset ⇒ byte-identical to today (`setBoardOverride(null)`; `lines`' `defaultLayout` has no node).
-  - **Warning:** `GameTemplate.board {reels, rows}` (lines/bookOf = 5×3) is the truth; `reelGridWarnings(doc, template)` flags a diverging node, folded into the editor's existing non-blocking `warnings` channel (`editor/+page.server.ts`, load + save). `pnpm --filter {engine-layout,launcher-api} build` + `apps/lines` `vite build` GREEN.
-  - **Borut mirror ✅ PUSHED (Book of Borut `e53012b` on origin/main, 2026-06-08, build-green; republish pending).** Engine submodule bumped `1e043dc → 9a37cf0`; the same 4 game-file edits mirrored. `pnpm build:engine` + `vite build` GREEN. Parity-safe (Borut's live doc has no `reelGrid` node yet → identical to today). **Only remaining owner step:** republish (Build&Deploy with the Portal project key) so editor board-edits reach the live game.
-  - **Convert affordance (closes the "existing doc has no `reelGrid` node" gap, 2026-06-08).** An existing project doc holds the OLD `container` mount-anchor for the `reelGrid` slot (from the `1d443e5` mount-anchor feature), not a parametric node — so neither the Phase-1 placeholder nor the Phase-2 board-read engages. Added a **"⊞ Convert to parametric grid"** Properties button (`EditorProperties` `onConvertToReelGrid`; handler in editor `+page.svelte`) shown for a selected `container` filling the `reelGrid` slot (`slotId==='reelGrid'` or `bind.component==='ReelGrid'`). It replaces the node in-place (same id) with a `reelGrid` node seeded from `GameTemplate.board` (`reels`/`rows`/`cellSize`, now `5×3 @ 120` for lines/bookOf) at the board's **natural centre per layoutType** (NOT the anchor's offset rect) with `anchor {0.5,0.5}` — so the live board stays put (centre, `scale = cellSize/SYMBOL_SIZE = 1`, zero offset = parity); drops the no-op `bind`/`width`/`height`/`children`/`locked`. `bind:'ReelGrid'` was already unregistered in Borut (board renders from coded `Board.svelte`), so dropping it is a no-op. `pnpm --filter {engine-layout,launcher-api} build` GREEN.
+  - **Warning:** `GameTemplate.board {reels, rows}` (lines/bookOf = 5×3) is the truth; `reelGridWarnings(doc, template)` flags a diverging node, folded into the editor's existing non-blocking `warnings` channel (`editor/+page.server.ts`, load + save).
+
+  - **Convert affordance (closes the "existing doc has no `reelGrid` node" gap, 2026-06-08).** An existing project doc holds the OLD `container` mount-anchor for the `reelGrid` slot (from the `1d443e5` mount-anchor feature), not a parametric node — so neither the Phase-1 placeholder nor the Phase-2 board-read engages. Added a **"⊞ Convert to parametric grid"** Properties button (`EditorProperties` `onConvertToReelGrid`; handler in editor `+page.svelte`) shown for a selected `container` filling the `reelGrid` slot (`slotId==='reelGrid'` or `bind.component==='ReelGrid'`). It replaces the node in-place (same id) with a `reelGrid` node seeded from `GameTemplate.board` (`reels`/`rows`/`cellSize`, now `5×3 @ 120` for lines/bookOf) at the board's **natural centre per layoutType** (NOT the anchor's offset rect) with `anchor {0.5,0.5}` — so the live board stays put (centre, `scale = cellSize/SYMBOL_SIZE = 1`, zero offset = parity); drops the no-op `bind`/`width`/`height`/`children`/`locked`. `bind:'ReelGrid'` was already unregistered in Borut (board renders from coded `Board.svelte`), so dropping it is a no-op.
 - **Phase 3 — later.** `reels`/`rows` runtime-driving as a separate RGS/math-coupled effort (matching `INITIAL_BOARD` + the mock/real book shape); win-line geometry (next primitive); per-layoutType grid overrides; flip the `reelGrid` template slot `required` and retire the coded board mount.
 
 ### 11.3 Addendum — cell spacing + non-square cells (owner direction 2026-06-12)
@@ -572,57 +547,24 @@ Board layout is fully derived from a tiny constant set, **per game** (no shared 
 
 **Why it's a real engine change (not the Phase-2 mechanism):** Phase-2 drives the board via a UNIFORM board-container transform (`cellSize/SYMBOL_SIZE` scale). Gaps + non-square can't be a uniform transform — they need per-symbol math: `getSymbolX` (`apps/*/game/utils.ts`), the vertical pitch `symbolHeight` baked into `utils-slots/createReelForSpinning` (used for BOTH row pitch AND every spin distance), plus `SymbolWrap`/`BoardMask` framing.
 
-- **Phase 1 (gaps/non-square) — editor-only, additive, parity-safe in-game. ✅ LANDED 2026-06-12 (code-only, not browser-verified).**
+- **Phase 1 (gaps/non-square) — editor-only, additive, parity-safe in-game.**
   - `ReelGridNode` += optional `cellWidth`/`cellHeight` (non-square; absent ⇒ falls back to `cellSize`), `gapX`/`gapY` (inter-cell spacing; absent ⇒ 0 = flush), `rowPadding` (vertical inset; absent ⇒ 0.5). All optional ⇒ absent = today's square/flush grid, byte-parity. `normalizeNode` passes new fields through (no storage change).
-  - Editor: Properties "Reel grid" section gained cell width/height, gap X/Y, row padding fields (blank = square/0/0.5) + the stale "editor preview today" copy fixed (position/cellSize/reelPadding ARE live; reels/rows descriptive; new fields render in preview + feed the engine's next pass). `EditorCanvas.drawReelGrid` + `editorCanvas.helpers.nodeBox` use `pitchX=cellW+gapX`/`pitchY=cellH+gapY` footprint = `reels·cellW+(reels−1)·gapX` (tight, no trailing gap) so selection matches the draw. `pnpm --filter {engine-layout,launcher-api} build` GREEN.
+  - Editor: Properties "Reel grid" section gained cell width/height, gap X/Y, row padding fields (blank = square/0/0.5) + the stale "editor preview today" copy fixed (position/cellSize/reelPadding ARE live; reels/rows descriptive; new fields render in preview + feed the engine's next pass). `EditorCanvas.drawReelGrid` + `editorCanvas.helpers.nodeBox` use `pitchX=cellW+gapX`/`pitchY=cellH+gapY` footprint = `reels·cellW+(reels−1)·gapX` (tight, no trailing gap) so selection matches the draw.
   - **Symbol marker (owner ask 2026-06-12):** `drawReelGrid` also draws a warm inner SYMBOL square per cell, seated at the padding offset (`cellW·reelPadding`, `cellH·rowPadding` from each cell's top-left = the engine's `getSymbolX/Y` seat), side `min(cellW,cellH)`. So the author SEES padding (off-centre when ≠0.5), spacing (gaps between cell boxes), and the symbol's position inside the grid.
   - **Owner decision 2026-06-12: non-square keeps STAKE symbol sizing** (no stretch/fit). So `cellWidth/cellHeight` drive the CELL box + per-axis PITCH (row/column spacing), NOT the symbol draw size — symbols stay Stake-sized (`SYMBOL_SIZE·sizeRatios`), centred in the cell via padding. This simplifies Phase 2: no per-symbol sprite-aspect change, only positions/pitch.
   - The engine resolver (`resolveReelGridFromNode`) still reads only `cellSize`/`reelPadding` ⇒ live game unchanged for the NEW fields until Phase 2.
-- **Phase 2 (engine consumption) — ✅ LANDED for engine + `apps/lines` 2026-06-12 (parity browser-verified; Borut mirror pending).**
+- **Phase 2 (engine consumption).**
   - **Resolver:** `resolveReelGridFromNode` → `ReelGridLayout` extended with `cellWidth`/`cellHeight`/`gapX`/`gapY` (all fold the transform scale, default to `cellSize`/0) + `rowPadding` (default 0.5).
   - **Shared reel (`utils-slots`):** `symbolHeight` widened to `number | (() => number)`, resolved lazily via `getSymbolHeight()` in BOTH `createReelForSpinning` + `createReelForCascading` (a plain number is byte-identical). In the spinning reel the resting Y `defaultY` became `homeY()` (tracks the reactive pitch) and a SECOND, gated `$effect` re-homes a settled reel when the pitch changes (`isReactiveHeight && motion==='stopped' && reelY.current!==homeY()`) — inert for number inputs, so all other games are untouched. The original `readyToSpin` effect is unchanged.
   - **Decomposition (keeps parity):** per-index SLOPE (gaps + non-square pitch) → `getSymbolX` (now a reactive export of `stateGame`, honours `columnExtraLocal`) + the reel's `symbolHeight` getter (`rowPitchLocal`); uniform TRANSLATE (reel/row padding) → board-container x/y offset in `boardLayout()`. `boardGeometry()` (lines `stateGame`) resolves both locals in board-local space; `{0, SYMBOL_SIZE}` when no node ⇒ byte-parity. `getSymbolX`/`getSymbolY` removed from `apps/lines/game/utils.ts` (the reactive one lives in `stateGame`; `getSymbolY` was dead).
   - **Symbol sizing unchanged (owner decision):** art stays Stake-sized (uniform `cellSize/SYMBOL_SIZE` zoom); gaps/non-square only move the lattice, so square art never distorts in a non-square cell.
-  - **Verification:** `pnpm --filter {engine-layout,utils-slots(via lines),launcher-api,lines} build` GREEN. Ran `apps/lines` (play4fun mock): clean boot, zero runtime errors, and the Pixi scene-graph showed the board at **exactly** 120 px column + row pitch with the first column at `120·REEL_PADDING` — byte-identical lattice to baseline (parity). Gap on-screen pitch = `cellW+gapX` / `cellH+gapY` (reduces to parity at defaults), already visible in the Phase-1 editor preview. A live in-game gap screenshot wasn't captured (WebGPU `preview_screenshot` times out; the RGS reload flow is fragile for runtime injection) — best confirmed by the owner via the editor pipeline (a doc carrying a `reelGrid` node with gaps + the `?k=` token).
-  - **Borut mirror — ✅ DONE + PUSHED (Book of Borut `913f425`, 2026-06-12).** Engine submodule bumped `652a4fb → 3709aa7` (carries the `engine-layout` resolver + `utils-slots` `symbolHeight` getter); the `apps/lines` game-file edits mirrored character-identically into Borut's own `stateGame.svelte.ts` (`getSymbolX`/`boardGeometry`/`boardLayout` rowPadding), `ReelSymbol.svelte`, `utils.ts`. `pnpm build:engine` + `vite build` GREEN. Committed surgically (engine pointer + 3 src files; the owner's concurrent `static/assets`/`package.json`/`baked-editor-bundle` left untouched). Parity-safe (Borut's live doc has no `reelGrid` node ⇒ byte-identical board). **Only remaining owner step:** republish (Build & Deploy w/ Portal key) so editor board-edits reach the live game.
-- **Phase 3 (spin-feel params) — ✅ LANDED for engine + `apps/lines` + Borut 2026-06-12 (runtime-verified).** `ReelGridNode.spin?: ReelSpinTuning` (`normal`/`fast` profiles, each a `ReelSpinProfile` = partial override of the 8 `SpinningReelSpinOptions` fields); `resolveReelSpinProfile(node, which)` returns only the authored finite fields. The game's `spinOptions` getter merges the profile over the coded `SPIN_OPTIONS_DEFAULT`/`FAST` (`{ ...base, ...override }`); no node / no `spin` ⇒ coded constants (parity). Editor: a collapsible **"Spin tuning (advanced)"** section under Reel grid with Normal + Turbo sub-groups (8 fields each, blank = game default), authored to `node.spin`. **Motion blur intentionally NOT exposed** — `MOTION_BLUR_VELOCITY` has no consumer in the game (only its constant exists), so a control would be a no-op. **Runtime-verified** (`apps/lines`): base = coded `(spinSpeed 3, delay 145)`; an injected `{normal:{reelSpinSpeed:99,reelSpinDelay:0}}` → getter returns `99`/`0` with other fields unchanged. Engine `1550099`; Borut mirror `ade1d24` (submodule `3709aa7→1550099` + the `spinOptions` getter edit). Builds GREEN: engine-layout, lines, launcher, Borut. Owner step: Borut republish.
 
-### 11.4 Addendum — gap-aware board centring fix (2026-06-12)
-**Bug:** with the Phase-2 gap/non-square consumption landed, any non-zero `gapX`/`gapY` (or `cellWidth/cellHeight ≠ cellSize`) pushed the live board off-centre and made it asymmetric. The editor's `drawReelGrid` centres the FULL footprint (`reels·cellW+(reels−1)·gapX`) symmetrically on the node origin, but in-game `getSymbolX` grows the gap **cumulatively rightward** (`+ reelIndex·columnExtraLocal`) and the reel pitch grows it **cumulatively downward** (`symbolY = (symbolIndex−0.5)·rowPitchLocal`), while `boardLayout()`'s pivot stayed at the flush, gap-less centre (`BOARD_SIZES/2`). That half was never updated when the gap term was added, so the symbol cluster drifted off the container origin — lopsided on its own and disagreeing with the editor.
 
-**Fix (`apps/lines/game/stateGame.svelte.ts`, `boardLayout()`):** recentre the pivot on the gap-extended cluster so its true centre sits under the container origin (matching the editor's symmetric layout):
-- `pivot.x = BOARD_SIZES.width/2 + ((BOARD_DIMENSIONS.x − 1)/2)·columnExtraLocal`
-- `pivot.y = BOARD_SIZES.height/2 + (BOARD_DIMENSIONS.y/2)·(rowPitchLocal − SYMBOL_SIZE)`
+- **Phase 3 (spin-feel params).** `ReelGridNode.spin?: ReelSpinTuning` (`normal`/`fast` profiles, each a `ReelSpinProfile` = partial override of the 8 `SpinningReelSpinOptions` fields); `resolveReelSpinProfile(node, which)` returns only the authored finite fields. The game's `spinOptions` getter merges the profile over the coded `SPIN_OPTIONS_DEFAULT`/`FAST` (`{ ...base, ...override }`); no node / no `spin` ⇒ coded constants (parity). Editor: a collapsible **"Spin tuning (advanced)"** section under Reel grid with Normal + Turbo sub-groups (8 fields each, blank = game default), authored to `node.spin`. **Motion blur intentionally NOT exposed** — `MOTION_BLUR_VELOCITY` has no consumer in the game (only its constant exists), so a control would be a no-op.
 
-where `columnExtraLocal`/`rowPitchLocal` come from `boardGeometry()`.
 
-**Why the Y factor is `rows/2`, not `(rows−1)/2` (it does NOT literally mirror X):** X reel indices run `0..reels−1` (mean index `(reels−1)/2`), so the mean reel's extra is `(reels−1)/2·columnExtraLocal`. But the VISIBLE rows are `symbolIndex 1..rows` with a `−0.5` pitch lead (`symbolY=(symbolIndex−0.5)·pitch` in `createReelForSpinning`), so their mean centre lands at `(rows/2)·pitch` — the index base differs (the board is top-padded by one hidden row), hence `rows/2`.
 
-**Parity preserved (byte-identical, no override):** `boardGeometry()` returns `{columnExtraLocal:0, rowPitchLocal:SYMBOL_SIZE}` with no node, so both added terms evaluate to exactly `0` and the pivot is `{BOARD_SIZES.width/2, BOARD_SIZES.height/2}` — unchanged from today. The existing `REEL_PADDING` (0.53) flush lead is untouched; only the gap-induced correction is added.
 
-**Scope:** only `apps/lines` carries the override pattern in this repo (cluster/ways/scatter/price/number-picker do not). `BoardMask` is a `BoardContainer` child (board-local space) so it now centres on the cluster too — strictly better than today's drift; its flush `SYMBOL_SIZE` height (vs the gap-expanded pitch) is a separate, pre-existing limitation. `Anticipation` is rendered OUTSIDE `BoardContainer` from `boardLayout().x/width` and already ignores the gap + scale (a pre-existing limitation, unchanged by this fix). **Book of Borut's own repo carries a separate copy of `stateGame.svelte.ts` (engine vendored as a submodule, game code outside this working dir) and needs the identical `boardLayout()` pivot edit.**
-
-### 11.5 Addendum — Symbol size on the reel (2026-06-18)
-
-**Supersedes the Phase-2 "Symbol sizing unchanged" note above.** Symbol render size is now an
-authorable reel property — it moved here from the Symbols State Machine (size is a *layout*
-concern, beside `cellSize`/gaps/padding, not the symbol→asset binding). `ReelGridNode` gained
-optional `symbolSizeRatios?: { width, height }` — the symbol art's size as a fraction of one
-cell (`1` = fills the cell); absent ⇒ the game's coded per-symbol sizes (parity). It travels
-on the layout doc like every other reelGrid field — **no bake step** beyond the normal scene
-bake, no symbols-doc involvement.
-
-- **Editor:** the reel's Properties panel gained a **"Symbol size (× cell)"** Width/Height pair
-  (writes `node.symbolSizeRatios` sparsely) + a **Reset (use coded sizes)** button; the reel
-  preview draws the project's real static symbols at their resolved size, clipped to each cell.
-- **Engine render (per-game):** the size resolver applies, strongest→weakest, a baked per-cell
-  `SymbolCell.sizeRatios` (legacy, back-compat) > the reel `symbolSizeRatios` > the coded
-  `SYMBOL_INFO_MAP` size > `{1,1}`. The short-lived `SymbolsDoc.defaultSizeRatios` global was
-  removed; the Symbols State Machine no longer authors size at any level (see
-  [`invisible-symbols-state-machine.md`](./invisible-symbols-state-machine.md), "Symbol size
-  lives on the reel").
-- **Scope:** `apps/lines` carries the render path; cluster/ways/scatter/price are self-contained
-  and unaffected; Book of Borut takes it when it bumps the engine submodule.
 
 ## 12. Addendum — Universal bound-component params (owner direction 2026-06-08)
 
@@ -630,11 +572,11 @@ bake, no symbols-doc involvement.
 
 **Finding (what was already universal):** node **placement** (x/y/scale/rotation) and **visibility** (`visible`/`visibleFor`/override) are already editable for every node, HUD anchors included — the HUD's `LayoutEditable` already applies `hudPos().scaleX/scaleY` and gates each element `{#if visible}`. So "scale a button" and "hide an element" needed nothing. The genuinely-new surface was **author-set appearance params** (text font/size/colour/label, button tint).
 
-**Mechanism (✅ LANDED 2026-06-08, parity-gated, code-only/not browser-verified):** a declarative param schema per coded component, auto-rendered by the editor, flowing via the already-universal `bind.props`.
+**Mechanism:** a declarative param schema per coded component, auto-rendered by the editor, flowing via the already-universal `bind.props`.
 - **Schema (declare):** `EditableParam { key, kind: 'number'|'color'|'boolean'|'string'|'font', label, group?:'style', placeholder? }` + `BOUND_COMPONENT_PARAMS: Record<componentName, EditableParam[]>` + `getEditableParams()` in `engine-layout/boundComponentCatalog.ts`. `group:'style'` nests under `bind.props.style` (a `Partial<TextStyle>`, matching `HudTextOverride`); else top-level `bind.props`. Seeded for HUD: logo/game-name (text + font/size/fill), balance/win/bet labels (font/size/fill — live VALUE stays coded), buttons (tint).
 - **Editor (auto-render):** `EditorProperties` replaced the hardcoded "HUD text" section with a schema-driven loop (font dropdown / number / hex colour / checkbox / text), reading+writing `bind.props` generically (`readParam`/`writeParam`/`writeColorParam`). `EditorCanvas.drawHudChip` reflects a button's `tint` + a label's `style.fill`/`fontSize` so edits show in the editor without a republish.
 - **Game (consume, the per-component "implement" half):** the HUD `LayoutEditable` path (NOT `LayoutNodeView`) forwards each bar element's `bind.props` to its snippet; `hudPositions` gained `hudStyle`/`hudText`/`hudTint` readers; `UiLabel` merges `style` over caption+value (`{ ...baseStyle, ...props.style }`); `UiButton`/`ButtonBet`/`ButtonBuyBonus` wrap visuals in `<Container tint={tint ?? 0xffffff}>` (PIXI multiply). All in shared `components-ui-pixi`, so Book of Borut inherits it via an engine-submodule bump (no game-file edits). **Parity:** no `bind.props` ⇒ spreads of `undefined` / white tint ⇒ byte-identical render.
-- **Shipped:** engine `3ae6d6d` (schema + editor) + `3b20be6` (consumption + chip), Borut submodule → `3b20be6` (`b958ba7`). `apps/lines` + launcher + Borut builds GREEN. **Owner step:** republish Borut to see label/button params in the live game.
+
 - **To extend to ANY component:** add an entry to `BOUND_COMPONENT_PARAMS` + make the component read the prop. Placement/visibility need nothing (already universal).
 
 ## 13. Addendum — Parametric components with value binding ("Batch B": one component, instanced by param) (owner direction 2026-06-08)
@@ -678,7 +620,7 @@ New R2 key `editor/<projectKey>/component-defaults/<componentId>.json` = `{ para
 - **Value binding vs full track interpreter** — B2 leans a direct readout binding; confirm we don't block B2 on the full §8.5 GSAP track UI (a plain readout doesn't need a timeline).
 - **Does `HudReadout` subsume the `UiLabel` coded component, or wrap it?** — i.e. is the readout a `text` node the engine draws, or a `mount` of the existing coded `UiLabel` (keeps number-formatting/font-fallback code)? Recommend wrap-via-mount first (least re-implementation), revisit.
 
-> **Status:** B1+B2 SHIPPED (`b26bc3b`), B3 SHIPPED (`ff3fc78`). B4 scoped in §14. Steps 1–5 + §12 are the foundation; Batch B = build step 6 narrowed to the HUD readout, phased B1→B4 with parity gates.
+> **Status:** B4 scoped in §14. Steps 1–5 + §12 are the foundation; Batch B = build step 6 narrowed to the HUD readout, phased B1→B4 with parity gates.
 
 ## 14. Addendum — B4: migrate the HUD readouts to one parametric `HudReadout` (owner-chosen HYBRID, 2026-06-08)
 
@@ -721,33 +663,7 @@ The HUD bottom bar is a **bespoke `LayoutEditable` renderer**, fully decoupled f
 - `referenceLayouts/lines.ts` (`defaultLayout`) — basegame + overlays + HUD, **no loading/freeSpin**.
 - `scripts/seed-game-editor.mjs` (what writes the live R2 doc) — 8 scenes incl. HUD, **no loading, no freegame**.
 
-**Phase 1 — LANDED 2026-06-08 (code-only; owner re-seed pending).** Make the **logo/loading screen a first-class scene** and bring every source into agreement (additive, parity-safe):
-1. `boundComponentCatalog.ts` — new `LoadingScreen` default (`space:'canvas'`, `placement:'centre'`, preview spine bundle `loader` = the `title_screen` logo) so the editor draws the splash.
-2. `templates/{bookof,lines}.ts` — now enumerate the **full screen set** (`loading`, `background`, basegame, [`freegame` bookOf only], `basegameOverlays`, `freeSpinIntro`, `freeSpinCounter`, `freeSpinOutro`). New mount slots are **not `required`** (the game still renders these from coded components → no validation noise). The HUD stays a universal layer appended via `hudScenes()`, not enumerated in the template.
-3. `referenceLayouts/bookof.ts` — added the `loading` scene + appended `...hudScenes()` so the reference doc is complete and matches the seed.
-4. `referenceLayouts/lines.ts` — added inert `loading` + `freeSpin*` scenes. **Deliberately NO `background` scene** (Game.svelte reads a `background`-scene `bg` node to drive the coded `<Background>` cover; its absence keeps `apps/lines` on its exact-cover default per §10.6 — unchanged).
-5. `scripts/seed-game-editor.mjs` — `buildDoc()` now emits the `loading` scene (bind `LoadingScreen`).
 
-**Parity:** every new scene is a `bind` anchor to a coded component NOT in `registerBoundComponents` (e.g. `LoadingScreen`), and the game looks scenes up by id (never iterates all), so the additions are **inert in-game** — the coded screens render exactly as today. Editor-only visibility. `pnpm --filter {engine-layout,launcher-api} build` + `apps/lines` `vite build` GREEN.
-
-**Owner step to see it (TWO ways):**
-- **In-app button (no console) — LANDED 2026-06-08.** The editor scene-bar now has an **"＋ Add missing screens (N)"** button next to "Add HUD layer". It diffs the project's doc against the game type's canonical full scene set (`engine-layout` `getFullSceneSet(gameType)` — covers `lines` + `bookOf`) and appends only the scenes the doc LACKS, **by id, non-destructively** (existing scenes + edits untouched); autosave persists it. Mirrors the existing `addHudLayer()` pattern. The button only shows when something's missing, and tooltips the screen names. Safe for `bookOf` because the merge adopts only ABSENT scenes — never `bookofReferenceLayout`'s board-frame nodes (a seeded project already has `basegame`). This is the §7.4 "reset/import to engine defaults" action, scoped to a non-destructive top-up.
-- **Re-seed (console, also rewrites the atlas manifest):** `node scripts/seed-game-editor.mjs --client borut --project bookofborut --tp … --page …` with R2 creds — needed only when the board atlas itself changes; for just picking up new screens, the button is enough.
-
-**Deliberately deferred / explained:**
-- **`freegame`** — template-declared but given NO placeholder doc content: its only distinct asset is a free-game background not yet available, and a basegame-clone scene would itself read as a fake "duplicate." Add real free-game art when it exists.
-- **intro/outro "duplicate"** — NOT a bug: Borut ships no dedicated `fsOutro` spine, so `FreeSpinOutro`'s catalog preview falls back to the `fsIntro` frame (and the game reuses the same frame in-game too). The editor is faithful. A distinct outro needs distinct art or a per-node `preview.art` override.
-
-**Move 2 — LANDED 2026-06-08 (single source via generated JSON + automation).** The seed (`.mjs`) and the TS `referenceLayouts` were two generators of the bookOf scene set that hand-mirrored each other (the seed even inlined a ~180-line copy of `hudScenes()`) — exactly what drifted. Unified per §7.2:
-- **Generator** `packages/engine-layout/scripts/gen-scene-sets.mjs` — uses **esbuild** (a build-time devDep, already in-tree via Vite; the monorepo has no runtime TS loader and consumes packages as raw `.ts`) to bundle the **pure-data** reference graph (no `.svelte` in it) and emit `packages/engine-layout/scenes/bookof.json` from `bookofReferenceLayout()`. Deterministic (fixed `updatedAt`). `--check` = structural drift guard.
-- **Reconciled the source first:** `bookofReferenceLayout()` had silent drift vs the seed — its `background`/`basegameOverlays`/`freeSpin*` scenes were missing `space:'canvas'`. Fixed (+ slotIds) so the JSON is correct; verified the JSON's non-basegame scenes are **byte-identical** to the seed's prior hand-written ones.
-- **Seed now reads the JSON:** `import bookofSceneSet from 'engine-layout/scenes/bookof.json' with { type: 'json' }` (new `./scenes/*` export). It composes the doc from the JSON, overriding ONLY `basegame` (the manifest-dependent region sprites). Deleted the inlined `hudScenes()` + the hand-written scene literals (~260 lines). HUD now comes from the authoritative `referenceLayouts/hud.ts`.
-- **Automation (can't be forgotten):** `gen:scenes` runs in `engine-layout`'s `build` (before `svelte-package`), AND the **pre-commit hook** runs `--check` whenever a reference/template/seed/scenes file is staged — a stale JSON blocks the commit with the fix command. Verified: stale → exit 1, fresh → pass.
-
-**Move 3 — make the game RENDER each screen from the doc (route B, §8.7), so the editor *owns* not just *previews* every screen.** The editor showed every screen (Moves 1–2), but `Game.svelte` only read the doc for a few scenes; the logo/loading splash + free-spins were hardcoded, so editing them did nothing in-game. Phases:
-- **Phase B — loading/logo splash (LANDED). `apps/lines` + Book of Borut.** `LoadingScreen` can't be a generic `bind` (required `onloaded` callback + it's an either/or with the game), so the coded mount is **wrapped in a doc-driven `<Container>`** built from the `loading` scene node's resolved transform (mirrors `LayoutNodeView`'s canvas-space `screenAnchor·canvasSize + (x,y)` formula). Dragging the logo in the editor now repositions/rescales the whole splash in-game. **Parity-safe:** default node (x:0,y:0,no-scale) → no-op container → byte-identical. No engine change (uses existing `resolveTransform` + pixi-svelte `Container`). `apps/lines` build GREEN (folded into engine commit `5143fd1` by a concurrent session); **Book of Borut** mirrored + built GREEN + pushed (`Book-of-Borut@9e3fa9c`) — republishes via its host. **Verification:** build-green + the game loads the `loading` scene at default (parity); pixel-level A/B was blocked by the WebGPU renderer (preview screenshot can't capture it) — confirm visually in-browser. **Owner step to SEE it on Borut:** in the editor, "Add missing screens" (or re-seed) so the live doc has the `loading` scene → drag the logo → Save → open Borut from the launcher (with `?k=`).
-- **Phase A — free-spin screens in `apps/lines` (LANDED).** `apps/lines` now registers `FreeSpinIntro/Counter/Outro` in `registerBoundComponents` and mounts them via `<LayoutScene>` (canvas-space bind anchors) instead of hardcoded tags — matching Borut, so the editor positions them. Parity by construction: the fallback ships those scenes at (0,0) → no-op container → byte-identical; the components keep their book-event self-show, the doc owns only placement. Background stays coded (`<Background cover>`) per §10.6 (no `background` scene in the lines fallback). `apps/lines` build GREEN.
-- **Phase D — later (deferred):** per-element transforms within a screen + driving show/hide + count-ups from the doc via the behavior/timeline layer (§8.5). The big "behavior as data" work route B parks.
 
 ## 16. Addendum — B6: the HUD button cluster as one parametric `Button` component (owner direction 2026-06-09)
 
@@ -778,7 +694,7 @@ B5 (§14.3 "separate coded parts") is the reference: **one `ComponentDef`** (`HU
 - **`active` for toggles** — confirm turbo/auto-spin need the engineProvided `active` in v1 or can defer (they render an active border).
 - **Font path** — same caveat as §14.3: validate the label renders correctly through the bound part (bitmap/web font via the catalog) before retiring `UiButton`'s coded `Text`.
 
-> **Status:** SCOPED + Phase B6.1 STARTED (def + parts + registration, parity), branch `feat/editor-button-component`. Decisions locked: split coded parts; Borut HUD cluster only. Verify each phase online before the B6.4 flip; mirror to Borut only after `apps/lines` parity holds.
+> **Status:** SCOPED. Decisions locked: split coded parts; Borut HUD cluster only. Verify each phase online before the B6.4 flip; mirror to Borut only after `apps/lines` parity holds.
 
 ## 17. Addendum — Component behavior layer: signal-triggered timelines (the animated overlays) (owner direction 2026-06-09)
 
@@ -827,7 +743,7 @@ Tweens + spine playback + **one** count-up binding per the §8.5 ceiling. Anythi
 ### 17.6 Open sub-decisions (settle when build starts)
 - **Preset catalog (Tier 0)** — the exact fixed list (fade/slide/pop/spine-play/count-up) + their default durations/eases. Curated + code-owned (like `ENGINE_SIGNAL_CATALOG`).
 - **Signal vocabulary** — confirm the core set (`enter`/`exit`/`idle`/`win`/`bigWin`) + which Borut book events map to each. Per-game custom signals are code-wired for v1 (editor only declares names).
-- **Component versioning** — a behavior edit bumps the `ComponentDef` version; instances stay pinned until "update to latest" (§8.9). ✅ The action + outdated flag live in the Properties panel "Component instance" section (landed 2026-06-24); only the v2 multi-version store remains.
+- **Component versioning** — a behavior edit bumps the `ComponentDef` version; instances stay pinned until "update to latest" (§8.9).
 - **Where the timeline panel lives (Tier 1)** — a new Component-Editor panel vs. an expandable Properties section. Decide when Tier 1 starts.
 
 > **Status:** SCOPED (owner-chosen 2026-06-09: Tier 0 → Tier 1, shared interpreter; route A deferred). NOT started — parked behind the static-mount work (B6 + the placement-only sweep). The §8.5 schema already exists; remaining = engine interpreter + signal registry + the staged editor surface + per-overlay migration. Pick up at 17.4 step 1.
@@ -840,30 +756,7 @@ the engine through params — and **all text localizable**, end to end (Localiza
 This generalizes §13/§14's value-as-param architecture to text, and removes the limitation that forced
 B5's "separate coded parts" choice (a plain text node previously couldn't be localized or dynamic).
 
-### 18.1 What shipped (CODE BUILT 2026-06-10)
-1. **Engine text-localization resolver** (`engine-layout/registerTextResolver.ts`): the game registers
-   ONE resolver at boot; `LayoutNodeView` runs every text node's FINAL string (static `node.text` or a
-   string param bind) through it. Known catalog key → translation for the active language; unknown
-   string / no resolver → literal (parity). This implements the long-documented aspiration on
-   `TextNode.text` ("may be a localization key").
-2. **String value sources**: `ValueSource` widened to `number | string`; `<ComponentInstance>`'s live
-   feed carries either. Numbers keep the formatted/count-up readout path; strings render as text.
-3. **`TEXT_BOX_DEF` built-in** (`textBox`): one def, a single text node with `paramBindings`
-   (`text`/`fontFamily`/`fontSize`/`fill` → params). `text` param = literal OR localization key.
-   Optional `source` param (options = `TEXT_SOURCE_KEYS`, the full `ENGINE_PARAM_CATALOG`): when a
-   registered feed exists, `<ComponentInstance>` OVERRIDES the `text` param with the live value (the
-   §16.4 `label`-override precedent, applied only to defs that declare a `text` param — HudReadout/
-   Button untouched). Static caption, localized label, and live readout are all ONE component.
-4. **Localization delivery (tool → game)**: new token-gated `GET /api/localization/strings?project&k`
-   exports the Localization tool's doc as per-locale message maps — source language fully, target
-   languages REVIEWED-only. `bake-editor-doc.mjs` embeds it as `bundle.localization`; the game merges
-   it into its Lingui catalog LAST (project strings override code catalogs) via
-   `bakedLocalizationMessagesMap()` in `editor-scenes.ts`, and registers the resolver with
-   `registerEditorTextLocalization(messagesMap)` at boot (`Game.svelte`).
 
-### 18.2 Verified
-`engine-layout` + `launcher-api` + `apps/lines` builds GREEN; `apps/lines` dev parity verified in the
-browser (HUD readouts, game-name/clock, board, i18n test overlay — no console errors).
 
 ### 18.3 Next steps (not started)
 - **Borut mirror** (editor-scenes/messagesMap/Game.svelte + submodule bump) — same files as §14 B4.6.
@@ -874,121 +767,7 @@ browser (HUD readouts, game-name/clock, board, i18n test overlay — no console 
   (today the author types the key; unknown keys render literal).
 - Editor canvas preview stays source-language (authoring shows keys/source text — by design for now).
 
-### 18.4 Default hit surface for art-only components (owner bug 2026-06-10)
-A custom button authored in the Component Editor (background sprite + text — no coded `bind` part)
-published as a STATIC IMAGE: all button interactivity (hit area, cursor, `onpointerup`) lived in the
-coded `ButtonFrame` part, and plain sprite/text nodes carry no event handling. Fix in
-`<ComponentInstance>`: when the instance resolved an ACTION feed and the def's root contains NO
-`bind` node, the engine provides the default hit surface — the expansion wraps in an interactive
-`Container` (`eventMode static`, pointer/not-allowed cursor, press → `onpress` unless disabled), so
-the whole rendered art hit-tests. A def containing ANY bind part keeps the coded part as the sole
-press owner (no wrapper → no double-fire → parity for the built-in `button`).
 
-### 18.5 Free author art on HUD scenes (owner bug 2026-06-10)
-A plain sprite/text/container dropped on a HUD scene (`hudBar`/`hudCorners`) in the Scene Editor
-showed in the editor but NOT in the game. Cause: HUD scenes don't render through the generic
-`<LayoutScene>` node-walker — they're consumed by the bespoke `LayoutEditable` (`components-ui-pixi`),
-which only (a) positions the coded HUD snippets by KNOWN id (`hud-balance`, `hud-btn-*`, …) and
-(b) renders author-placed `componentInstance` nodes. Any other node was silently dropped. Fix:
-`LayoutEditable` now also renders every "free" node (not a reserved coded id, not a componentInstance)
-through the engine `<LayoutNodeView>` in the scene's own space — `hudBar` standard (inside the bottom-bar
-MainContainer), `hudCorners` canvas — BEFORE the coded snippets so a bar-background sits behind them
-(author `zIndex` still wins). The live seed carries no such nodes → byte-identical parity until art is
-added. So: NO special component needed — drop any sprite/text on a HUD screen and it ships.
-
-### 18.6 Ghost coded HUD buttons when replaced by from-scratch instances (owner bug 2026-06-10)
-After authoring custom button COMPONENTS onto the HUD bar, the old coded buttons (spin/turbo/±) still
-rendered as duplicates. Cause: `LayoutEditable`'s double-render guard `mounted(id)` only suppressed a
-coded snippet when a `componentInstance` had the snippet's RESERVED id (`hud-btn-bet`, …). A button the
-author places from scratch (or via the picker) gets a RANDOM id, so the guard missed it and the coded
-snippet kept drawing at its fallback position — a ghost of the old graphic. Fix: also suppress a coded
-element when a placed instance COVERS its action (buttons: `hud-btn-bet`→`spin`, `hud-btn-turbo`→`turbo`,
-…) or its value source (readouts: `hud-balance`→`balance`, …), read from the instance's own param,
-regardless of id. Stock seeds are unaffected (their instances already carry the reserved ids → same
-result). So an author can drop their own button component over a coded HUD slot and the coded one steps
-aside once the instance's `action` matches.
-
-### 18.7 Editor↔game HUD text fidelity (font + alignment) (owner bug 2026-06-10)
-The HUD readout caption/value looked different in the editor vs the game. Two causes, both editor-side
-(the game render is the reference): (1) FONT — the games load proxima-nova via a Typekit kit
-(`apps/lines/app.html`); the launcher didn't, so the editor fell back to sans-serif. Added the same
-Typekit `<link>` to `apps/launcher-api/src/app.html` (+ an `onMount document.fonts.ready` redraw in
-`EditorCanvas` so the first paint isn't the fallback). (2) ALIGNMENT/SIZE — `EditorCanvas.drawHudChip`
-drew the decomposed `style:'text'` chip (the coded `HudCaption`/`HudValue` parts) with a hardcoded
-`600 30px sans-serif`, vertically CENTRED; the coded parts render `<Text anchor={{x:0.5,y:0}}>` in the
-resolved `fontFamily` (proxima-nova) at the resolved `fontSize` (UiLabel base 45), normal weight,
-TOP-anchored at the node origin. Fixed the chip to use the resolved family/size + top baseline at the
-origin (and threaded `fontFamily` through the param-style). Now editor ≈ game. NOTE: the coded HUD parts
-are still an editor APPROXIMATION (the editor can't run them); for pixel-exact WYSIWYG, author the
-caption/value as `textBox`/text nodes (§18), which render through the identical engine `<Text>` path in
-both. Launcher-only change — no game republish.
-
-### 18.8 Data-driven PORTRAIT HUD — the fold-out drawer, author-positioned (2026-06-12)
-Phase 3 (§"Editable game HUD" in `docs/STATUS.md`) made the HUD data-driven for desktop/landscape/tablet
-but left **portrait coded** (`UIDefault.svelte` had `&& layoutType() !== 'portrait'`), because the coded
-`LayoutPortrait.svelte` is an animated fold-out DRAWER — behaviour, not static placement. So an author
-who positioned the HUD in the editor's portrait view still got the old hardcoded layout in-game. Closed by
-keeping the drawer behaviour while driving its element positions from the doc. Our fork-addition.
-- **Parity gate.** Deleting the guard unconditionally would render desktop coords in the 1080×1920 portrait
-  box for any doc lacking portrait authoring. Instead `UIDefault` routes portrait to `LayoutEditable` ONLY
-  when `hudHasPortrait(props.hud)` (new `hudPositions.ts` helper) is true — i.e. at least one bar/corners
-  node carries an `overrides.portrait` entry. No portrait authoring ⇒ the coded `LayoutPortrait` still
-  renders (parity for `apps/lines` + un-refreshed docs). The other three layoutTypes are untouched.
-- **Drawer reproduced in `LayoutEditable`.** A `{#if layoutType === 'portrait'}` branch reuses
-  `LayoutPortrait`'s `DRAWER_Y`/`DRAWER_BUTTON_Y` constants, `drawerTween`/`drawerButtonTween` (`cubicInOut`),
-  and `subscribeOnMount({drawerButtonShow/Hide, drawerUnfold/Fold})` wiring verbatim. The reserved bar ids
-  are classified into the same groups: DRAWER group (menu/buyBonus/autoSpin/bet/turbo/balance) wrapped in
-  `<Container y={drawerTween.current}>`; win follows `y={Math.min(tween,350)}`; always-visible decrease/
-  increase + the bet readout (swapped for `LabelFreeSpinCounter` on `stateUi.freeSpinCounterShow`); the
-  `ButtonDrawer` in a `FadeContainer` on `stateUi.drawerButtonShow` at `y={drawerButtonTween.current}`. The
-  tween y-offsets ride ON TOP of the AUTHORED positions — the author authors the UNFOLDED resting layout.
-  `mounted()` suppression, free-author-art, `componentInstance` expansion, and label/tint overrides all stay
-  live in portrait. The menu overlay gains a portrait branch mirroring `LayoutPortrait`'s cluster.
-- **Seeded resting positions** (`referenceLayouts/hud.ts`). Each bar node now emits a `portrait` override
-  COMPUTED from `LayoutPortrait`'s constants over the 1080×1920 box (scale 1): balance `(540,1650)`, win
-  `(540,1250)`, bet `(540,1790)`, menu `(100,1520)`, buyBonus `(980,1520)`, autoSpin `(360,1520)`, bet-btn
-  `(540,1520)`, turbo `(720,1520)`, decrease `(150,1835)`, increase `(930,1835)`. So a freshly-seeded /
-  "Refresh HUD layer" doc opts in and renders byte-for-byte like coded `LayoutPortrait`. Corners (canvas
-  space, `screenAnchor`) are layoutType-agnostic — no portrait override needed.
-- **Caveat / non-parity edges.** The drawer TOGGLE button has no `hud-btn-*` reserved id (it exists only in
-  portrait), so `LayoutEditable` resolves an optional `hud-btn-drawer` node, falling back to the coded coord
-  `(W*0.5+440, H-105)` from `STANDARD_MAIN_SIZES_MAP.portrait`. Byte-identical-to-coded holds ONLY against a
-  doc carrying the seeded portrait overrides; an author who MOVES the portrait layout gets that layout (the
-  intended outcome). Builds: `engine-layout` + `lines` GREEN; Prettier clean. Book of Borut picks this up on
-  the next engine submodule bump.
-
-### 18.9 Info bar (win/info toast) as an editor-native component (owner direction 2026-06-18)
-**Owner ask:** control the in-game info bar (the "Win $1.00 — 2 of a kind" banner) from the Scene Editor —
-position, size, font, font size, colour. The bar was the coded HTML `MessageToast` (`components-ui-html`,
-a CSS pill fed by `showMessage`/`stateMessage` in `state-shared`): a DOM overlay in a separate render layer,
-so the editor (which only owns PIXI `LayoutScene` nodes) couldn't touch it. Re-homed as an editor-native
-`componentInstance`, mirroring the §14.3 free-spin-counter decomposition exactly — the same shape of "coded
-overlay → placeable, restyleable, source-fed component" conversion. Our fork-addition.
-- **`INFO_BAR_DEF` built-in** (`infoBar`, `engine-layout/builtinComponents.ts`): a PLAIN-NODE def (like
-  `FREE_SPIN_COUNTER_DEF`, not the HUD's coded-parts path) — a local-space container with two centred
-  children: a `kind:'sprite'` **Background** whose `region`/`tint` bind to an author-picked `background`
-  IMAGE param (the pill/plaque atlas frame), and a `kind:'text'` **Message** bound (`text → value`) to the
-  engine-fed STRING source so it renders the toast text verbatim (a `string` value routes through the
-  `<Text>`/`<BitmapText>` path, never the numeric readout). Params: `source` (default `message`),
-  `visibleSource` (default `messageShow`), `background`, `tint`, `fill` (default gold `#ffe9a8`, the toast's
-  `.win` colour), `fontSize`, `fontFamily`, `value` (engineProvided string). Empty static `assetKey` + no
-  picked `background` ⇒ no texture resolves ⇒ the bar renders TEXT-ONLY (no crash) — the pill image is an
-  asset the project authors + ships (export→deploy→bake→pull→register, rule #8), not a blocker to start.
-- **Catalog wiring** (`componentCatalog.ts`): added a `message` string entry to `ENGINE_PARAM_CATALOG` (so it
-  appears in `TEXT_SOURCE_KEYS`) + to `COMPOSED_STRING_SOURCE_KEYS` (so it lists in `VALUE_SOURCE_KEYS`, the
-  `infoBar` `source` dropdown); added `messageShow` to `VISIBILITY_SOURCE_KEYS` (the editor renders it as a
-  dropdown — true while a `showMessage` toast is active, so the bar shows only when there's a message and
-  hides on the existing auto-clear timer — the engine equivalent of the toast's self-show/hide).
-- **Game registration** (`apps/lines` reference; verified via the `InfoBarComponentInstance` story): register
-  the def beside the others (`getComponent('infoBar')`), feed `message: textSource(() =>
-  stateMessage.current?.text ?? '')`, gate `messageShow: boolSource(() => stateMessage.current !== null)`.
-- **Builds:** `engine-layout` lib typechecks GREEN; Prettier clean.
-- **Borut mirror (next, after the engine submodule bump):** register `INFO_BAR_DEF` + the `message`/
-  `messageShow` sources in `Game.svelte`, seed an `infoBar` scene in `defaultLayout('bookOf')` (canvas space,
-  `screenAnchor {0.5, 0.06}` to mirror the toast's `top:6%` centre) + mount it like `fsCounterScene`, and
-  REMOVE `<MessageToast />`. Then author the pill background + reposition/restyle in the editor and rebake.
-  `showMessage(...)` in `bookEventHandlerMap.ts` stays — it now feeds the PIXI bar. Per-`kind` recolour
-  (info/win/warn) is a later follow-on (a `messageKind` feed); the bar uses one authored `fill` for now.
 
 ---
 
@@ -1192,41 +971,7 @@ step: make the runtime render doc scenes generically (by id-driven slots that re
 "reflects the position in the game", not just the editor. Scope this against the per-game special scenes
 (`loading`/`hudBar`/`hudCorners`/`basegame` split around the reel) before generalizing.
 
-#### 20.1 — Generic doc-driven scene mounting (BUILT 2026-06-29)
 
-The deferred step above is closed (the §25 `space:'background'` slice generalised to ALL author scenes). A
-brand-new author screen — a scene with a custom id (e.g. `hud_xxk3a9`), any non-background space — now mounts
-in the shipped game, in doc order, with **no FlowDoc required**. Mirrors §25 exactly (selection by a
-contract, not by id):
-
-- **New engine-layout contract** `packages/engine-layout/src/lib/genericMountScenes.ts` (exported from the
-  bare `engine-layout` barrel, so the editor + every game share it):
-  - `extraMountScenes(scenes, reservedIds)` → the scenes **in doc order** whose `id` is NOT in `reservedIds`
-    AND whose `space !== 'background'` (background scenes are already handled by `backgroundScenes`/§25). Pure
-    TS, Svelte-free, dependency-free.
-- **The runtime** (`apps/lines/Game.svelte`) builds a `reservedSceneIds` set = the hard-coded ids it already
-  mounts (`basegame`, `basegameOverlays`, `freeSpinIntro`, `freeSpinIntroVisual`, `freeSpinCounter`,
-  `freeSpinOutro`, `freeSpinOutroVisual`, `specialBook`, `hudBar`, `hudCorners`, `loading`, `background`)
-  **plus** any FlowDoc-authored screen ids, then renders `{#each extraMountScenes(editorDoc.scenes,
-  reservedSceneIds) as scene}` `<LayoutScene {scene} />` as a TOP overlay layer (rendered after the base game,
-  the overlays AND the HUD — so author screens currently sit ABOVE the HUD; whether an author "extra" screen
-  should sit above or below the HUD bar/corners is a deliberate **live-verify decision**, parity-safe to defer
-  since `apps/lines` ships none). `<LayoutScene>` already self-wraps by `scene.space`
-  and honours `scene.visibleSource`, so **no scaling/gating code was needed** — the gap was purely the runtime
-  *mounting* a custom-id scene.
-- **FlowDoc exclusion (no double-mount):** a Flow-mounted screen is owned by the interpreter (`<FlowMount>` /
-  the generic mounter), so it must NOT also mount here. `SceneMounter` gained an `authoredScreenIds()`
-  accessor (`packages/engine-flow/src/mounter.ts`); the runtime folds `flow?.mounter.authoredScreenIds()`
-  into `reservedSceneIds`. No FlowDoc ⇒ empty set ⇒ no effect (parity).
-- **Parity (non-negotiable):** `apps/lines` ships no extra scene and reserves all its current ids ⇒
-  `extraMountScenes(...)` returns `[]` ⇒ the `{#each}` renders nothing ⇒ byte-identical to `main` (same
-  discipline as §25).
-- **Headless spike** `tools/generic-mount-spike` (`pnpm --filter generic-mount-spike run select`) proves the
-  selection contract OFFLINE: (1) `defaultLayout('lines')` + the full reserved set → EMPTY (apps/lines
-  parity); (2) an authored extra scene (custom id, non-background space) IS selected; (3) a reserved id is
-  NOT selected; (4) a `space:'background'` scene is NOT selected (handled by §25); (5) doc order preserved
-  across multiple extras. 5/5 GREEN.
-- `engine-layout` + `lines` builds GREEN.
 
 ## 21. Addendum — Author a brand-new game KIND in the editor (owner direction 2026-06-13)
 
@@ -1266,37 +1011,11 @@ its doc (`GET /api/editor/kind?id=`), runs `engineOwnedOnly`, and `adoptScenes` 
 ### 21.5 Build order
 1. `kindStorage.ts` + the three endpoints (gated). 2. `+page.server.ts` load returns `customKinds`. 3. picker
 merges built-ins + customs; custom scaffold fetches doc → `engineOwnedOnly` → adopt. 4. "Save as new game
-kind…" action. Build-green gate (authed pages owner-verified online).
+kind…" action.
 
-### 19.6-as-built — Project-aware filled import (BUILT 2026-06-13)
-The §19.6 deferral is closed. "Import composed reference" now offers the FILLED (art-bearing) kinds
-(`listImportableKinds()` = `lines` + `bookOf`; the engine-skeleton kinds have no art so import==scaffold and
-are omitted). `loadChosen()`'s `ref:` branch fetches `GET /api/editor/import?gameType=<kind>` instead of the
-client `getReferenceLayout`: the endpoint (gated `editor`, session active project) takes
-`getReferenceLayout(gameType)` (filled-only → 404s a skeleton kind) and **rewrites bare board-frame sprite
-names to the active project's atlas region** — for each `sprite` with a bare image `assetKey` + no `region`,
-it scans the project's atlas manifests (`listProjectAssets` + `editorRegions.loadRegionSet`) and, where a
-region of that name exists, sets `region = assetKey` + `assetKey = <that manifest key>` (identical to the
-seed's `frameNode()`; in-game unchanged, editor-renderable). Best-effort: an unmatched name is left bare
-(previews as a placeholder). So the frame renders for a project whose atlas has it (e.g. Borut's `reels_frame`)
-and degrades gracefully elsewhere. `adoptScenes` keeps the cross-type clobber guard; the imported doc is FILLED
-(no `engineOwnedOnly`). `getFullSceneSet`/`getReferenceLayout` folded onto one `FULL_SCENE_SOURCES` (`filled`
-flag); `listReferenceLayouts` removed (no callers).
 
-### 21.6 New-project scaffold + admin from a custom kind (BUILT 2026-06-13)
-Originally deferred; shipped as a follow-on so a brand-new PROJECT can be created as a custom kind, not just
-composed in an open editor. As-built (parity-safe):
-- `projectGameType(key): Promise<string>` returns the stored `game_type` **verbatim when non-empty**, else
-  `'lines'` (dropped the `isGameKind`-only restriction — a custom kind id is now a valid stored value; the
-  admin is the gatekeeper). `createProject`/`setProjectGameType` widened `GameKind` → `string`.
-- `projectScaffold` resolves the reference doc `getFullSceneSet(gameType) ?? (await loadKind(gameType))?.doc`
-  (built-in registry first, then the R2 custom-kind store) → `engineOwnedOnly(...).scenes`. `objectExists`
-  guard unchanged (existing projects never re-seeded).
-- Admin: one server helper `selectableGameKinds()` = built-ins (`listFullSceneSets()`, id+name) + `listKinds()`
-  (custom), de-duped (built-ins win); the create + per-project kind `<select>`s render it, and both actions
-  validate the posted kind against the SAME union (offered set == accepted set, resolved server-side).
-Parity: `game_type = null` still → lines; built-in kinds unchanged; only a project explicitly set to a custom
-kind newly resolves via `loadKind`. Build-green gate (authed/R2 paths owner-verified online).
+
+
 
 ## 22. Addendum — Spin-button states + config-gated speed features (owner direction 2026-06-18)
 
@@ -1487,10 +1206,7 @@ shape is a **reusable per-instance toggle**, the cleanest fit for `declare ≠ i
   so Scene Editor AND Component Editor both inherit it. The two fields reuse the existing instance
   `paramField` snippet (checkbox + text), persisting through the normal `onSetInstanceParam` path.
 - **Parity (non-negotiable).** OFF by default ⇒ no extra child, no editor change to a non-overlay,
-  byte-identical bundles. No existing instance enables it. Verified: helper + param round-trip fixture
-  (`scripts/test-tap-to-continue.mjs`), `engine-layout`/`launcher-api`/`lines` builds GREEN, and the tap
-  wiring (`completeActiveScreen` + `emitSignal`, the overlay gate, the registered `TapToContinue`) all
-  present in the shipped `apps/lines` bundle.
+  byte-identical bundles. No existing instance enables it.
 
 ## 25. Addendum — A `space: 'background'` scene renders PERSISTENTLY behind the game (owner direction 2026-06-25)
 
@@ -1531,14 +1247,4 @@ the interpreter authors it). The persistent layer mounts unconditionally, so an 
 background scene OUT of the Flow graph (or expect two copies). A follow-up could exclude flow-owned screens
 from the persistent set; deferred until the owner confirms the desired authoring model.
 
-### 25.4 Parity (non-negotiable) + verification
-- **`apps/lines` is byte-identical to `main`.** `referenceLayouts/lines.ts` ships **no** `space:'background'`
-  scene on purpose (§10.6 note), so `backgroundScenes(...)` is empty and `suppressCodedBackground` is false
-  ⇒ the `{#each}` renders nothing and the coded `<Background>` still renders — the dev boot + baked path
-  (no `?runtime=1`) is unchanged.
-- **Headless spike** `tools/bg-scene-spike` (`pnpm --filter bg-scene-spike run select`) proves the selection
-  contract OFFLINE: (1) `defaultLayout('lines')` → empty + no suppression (apps/lines parity); (2) the
-  bookof `space:'canvas'` `background` anchor is NOT selected + does NOT suppress (coded cover path intact);
-  (3) an authored `space:'background'` sprite scene IS selected + suppresses; (4) multiple selected in doc
-  order; (5) an anchor-only background scene is selected but does NOT suppress. ALL GREEN.
-- `engine-layout` / `launcher-api` / `lines` builds GREEN.
+
