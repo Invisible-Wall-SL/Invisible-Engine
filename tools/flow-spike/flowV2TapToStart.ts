@@ -11,9 +11,9 @@
  *      and `flowOwnsSignal(doc, 'tapToStart')` MUST be true (so the app treats the flow as OWNING it).
  *
  *   2. ONCE-GUARD — the REAL `apps/lines` flow holder (`flowV2InterpreterHolder`, whose only imports
- *      are `import type`, so it runs standalone). With a v2 handle set, the FIRST tap-to-continue
- *      COMPLETE dispatches `tapToStart` exactly once; a SECOND complete does NOT re-fire it; and a
- *      fresh `setFlowV2` (a new session) re-arms the one-shot.
+ *      are `import type`, so it runs standalone). With a v2 handle set, the FIRST tap-to-continue TAP
+ *      (`fireTapToStartOnce`) dispatches `tapToStart` exactly once; a SECOND tap does NOT re-fire it; a
+ *      screen COMPLETE is decoupled (does not itself fire it); and a fresh `setFlowV2` re-arms the one-shot.
  *
  * A recording env logs every broadcast in order. Uses the REAL `book-of` vocabulary. Prints PASS/FAIL
  * per assertion + a final `V2 TAP-TO-START HARNESS: PASSED`.
@@ -40,6 +40,7 @@ import {
 
 import {
 	dispatchFlowV2Complete,
+	fireTapToStartOnce,
 	setFlowV2,
 } from '../../apps/lines/src/game/flowV2InterpreterHolder';
 
@@ -157,53 +158,56 @@ const main = async () => {
 		);
 	}
 
-	// --- 2. once-guard: first complete fires tapToStart once; second does not; new session re-arms ---
-	console.log('\n2. the holder fires tapToStart EXACTLY ONCE per session on the first complete:');
+	// --- 2. once-guard: first TAP fires tapToStart once; second does not; complete is decoupled ---
+	console.log('\n2. the holder fires tapToStart EXACTLY ONCE per session on the first tap:');
 	{
 		const { log, mount, handle, dispatchCount } = makeRuntime();
 		setFlowV2(handle as never);
-
-		// Show + hold the loading screen (a `showContainer{awaitComplete}` on a real flow) so the
-		// holder's complete path releases a hold and returns true.
 		mount.show('loading');
-		void (mount as ContainerMountModel).awaitComplete('loading');
 
-		const first = await dispatchFlowV2Complete();
+		// The FIRST genuine tap-to-continue tap fires tapToStart once (→ starts bgm_main). Fired from the
+		// TAP, so it does NOT depend on the loading screen being a held container.
+		fireTapToStartOnce();
 		await flush();
-		assert('1st complete returns true (owned)', first === true);
-		assert('1st complete → exactly one tapToStart dispatch', dispatchCount() === 1, `${dispatchCount()}`); // prettier-ignore
+		assert('1st tap → exactly one tapToStart dispatch', dispatchCount() === 1, `${dispatchCount()}`); // prettier-ignore
 		assert(
-			'1st complete → one soundMusic(bgm_main) broadcast',
+			'1st tap → one soundMusic(bgm_main) broadcast',
 			eq(log, ['broadcast soundMusic {"name":"bgm_main"}']),
 			log.join(' | '),
 		);
 
-		// A SECOND tap-to-continue (e.g. a free-spin intro gate) must NOT re-fire tapToStart.
-		void (mount as ContainerMountModel).awaitComplete('loading');
-		const second = await dispatchFlowV2Complete();
+		// A SECOND tap (e.g. a free-spin intro gate) must NOT re-fire tapToStart.
+		fireTapToStartOnce();
 		await flush();
-		assert('2nd complete returns true (owned)', second === true);
-		assert('2nd complete → still exactly one tapToStart dispatch', dispatchCount() === 1, `${dispatchCount()}`); // prettier-ignore
+		assert('2nd tap → still exactly one tapToStart dispatch', dispatchCount() === 1, `${dispatchCount()}`); // prettier-ignore
 		assert(
-			'2nd complete → no additional broadcast',
+			'2nd tap → no additional broadcast',
 			eq(log, ['broadcast soundMusic {"name":"bgm_main"}']),
 			log.join(' | '),
 		);
+
+		// DECOUPLING: a held-container COMPLETE returns true (releases the hold) but does NOT itself
+		// fire tapToStart — the tap already did (and `completeOnLoaded`, a non-tap, must never fire it).
+		void (mount as ContainerMountModel).awaitComplete('loading');
+		const completed = await dispatchFlowV2Complete();
+		await flush();
+		assert('complete returns true (held container released)', completed === true);
+		assert('complete does NOT re-fire tapToStart', dispatchCount() === 1, `${dispatchCount()}`); // prettier-ignore
 
 		// A fresh session (re-`setFlowV2`) re-arms the one-shot.
 		const next = makeRuntime();
 		setFlowV2(next.handle as never);
 		next.mount.show('loading');
-		void (next.mount as ContainerMountModel).awaitComplete('loading');
-		await dispatchFlowV2Complete();
+		fireTapToStartOnce();
 		await flush();
 		assert('new session re-arms → tapToStart fires again', next.dispatchCount() === 1, `${next.dispatchCount()}`); // prettier-ignore
 	}
 
-	// --- 3. parity: no v2 flow set ⇒ complete is a no-op (returns false, nothing dispatched) ---
-	console.log('\n3. with no v2 flow set, a complete is a parity-safe no-op:');
+	// --- 3. parity: no v2 flow set ⇒ tap + complete are no-ops (nothing dispatched, complete false) ---
+	console.log('\n3. with no v2 flow set, tap + complete are parity-safe no-ops:');
 	{
 		setFlowV2(undefined);
+		fireTapToStartOnce(); // guarded on `flowV2` — a no-op, must not throw or dispatch.
 		const owned = await dispatchFlowV2Complete();
 		assert('dispatchFlowV2Complete() returns false when no flow is set', owned === false);
 	}

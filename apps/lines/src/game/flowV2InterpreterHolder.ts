@@ -28,10 +28,10 @@ let flowV2: LinesFlowV2 | undefined;
 
 /**
  * One-shot latch for the `tapToStart` lifecycle signal. The runtime only ever dispatches `load` (at
- * boot), so the Game Signals `onTapToStart` pin would otherwise NEVER fire — we fire it from the first
- * tap-to-continue COMPLETE after load (`dispatchFlowV2Complete`). Reset per boot in `setFlowV2` so a
- * fresh session re-arms it, and guarded so later tap-to-continue gates (free-spin intro/outro) do NOT
- * re-fire it.
+ * boot), so the Game Signals `onTapToStart` pin would otherwise NEVER fire — `fireTapToStartOnce` fires
+ * it from the FIRST tap-to-continue TAP after load (`TapToContinue.svelte` → `onTap`). Reset per boot in
+ * `setFlowV2` so a fresh session re-arms it, and guarded so later tap-to-continue gates (free-spin
+ * intro/outro) do NOT re-fire it.
  */
 let tapToStartFired = false;
 
@@ -101,24 +101,26 @@ export const dispatchFlowV2Complete = async (): Promise<boolean> => {
 	const shown = h.ordered(); // z-ascending
 	for (let i = shown.length - 1; i >= 0; i--) {
 		const id = shown[i].id;
-		if (h.mount.complete(id)) return fireTapToStartOnce(true); // 1. a held container → tap resumes its chain.
-		if (await dispatchFlowV2Event(`complete:${id}`)) return fireTapToStartOnce(true); // 2. authored handoff.
+		if (h.mount.complete(id)) return true; // 1. a held container → the tap resumes its chain.
+		if (await dispatchFlowV2Event(`complete:${id}`)) return true; // 2. an authored complete handoff.
 	}
 	return false;
 };
 
 /**
- * Fire the `tapToStart` lifecycle event into the flow EXACTLY ONCE per session, then return `result`.
- * Called on the FIRST tap-to-continue that completes a v2 screen after `load`: under a flow that drives
- * the loading screen, that first complete IS the player's first interaction (dismissing the splash), so
- * it is the semantic "tap to start" — the moment to unlock audio (`onTapToStart → soundMusic`). Later
- * completes (free-spin intro/outro gates) find the latch spent and do NOT re-fire. Parity-safe: when no
- * v2 flow owns `tapToStart`, `dispatchFlowV2Event` is a no-op (returns `false`) — nothing else changes.
+ * Fire the `tapToStart` lifecycle event into the flow EXACTLY ONCE per session. Called from the genuine
+ * player TAP on a tap-to-continue overlay (`TapToContinue.svelte` → `onTap`) — the FIRST such tap after
+ * `load` IS the player's first interaction (dismissing the splash), i.e. the semantic "tap to start" and
+ * the moment to unlock audio (`onTapToStart → soundMusic`). Fired from the TAP, NOT from
+ * `dispatchFlowV2Complete`, for two reasons: (1) it must fire even when the loading screen is a plain
+ * (non-held) container that resolves no `complete`, so a flow that drives the start purely off the Game
+ * Signals `onTapToStart` pin still runs; (2) `completeActiveScreen` is ALSO invoked by the FEED-triggered
+ * `completeOnLoaded` (auto-advance, no tap), which is not a player interaction and must not fire it.
+ * Later tap-to-continue gates (free-spin intro/outro) find the latch spent and do NOT re-fire. No v2 flow
+ * (or one that doesn't own `tapToStart`) ⇒ `dispatchFlowV2Event` no-ops — safe.
  */
-const fireTapToStartOnce = (result: boolean): boolean => {
-	if (!tapToStartFired) {
-		tapToStartFired = true;
-		void dispatchFlowV2Event('tapToStart');
-	}
-	return result;
+export const fireTapToStartOnce = (): void => {
+	if (!flowV2 || tapToStartFired) return;
+	tapToStartFired = true;
+	void dispatchFlowV2Event('tapToStart');
 };
