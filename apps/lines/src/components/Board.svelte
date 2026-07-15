@@ -17,7 +17,6 @@
 <script lang="ts">
 	import { waitForResolve } from 'utils-shared/wait';
 	import { BoardContext } from 'components-shared';
-	import { FxPortalProvider } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
 	import BoardContainer from './BoardContainer.svelte';
@@ -50,17 +49,13 @@
 </script>
 
 {#if show}
-	<!-- MASKED layer (idle/static symbols, clipped to the reel window). Wrapped in the FX portal so
-		 a rig-timeline effect bound to a symbol's idle animation renders UNMASKED (full frame) while
-		 the symbol art stays clipped. Scoped here ONLY — the animate layer below is already unmasked. -->
-	<FxPortalProvider>
-		<BoardContext animate={false}>
-			<BoardContainer>
-				<BoardMask />
-				<BoardBase />
-			</BoardContainer>
-		</BoardContext>
-	</FxPortalProvider>
+	<!-- MASKED layer (idle/static symbols, clipped to the reel window). -->
+	<BoardContext animate={false}>
+		<BoardContainer>
+			<BoardMask />
+			<BoardBase />
+		</BoardContainer>
+	</BoardContext>
 
 	<BoardContext animate={true}>
 		<BoardContainer>
