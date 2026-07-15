@@ -7,7 +7,7 @@ import type {
 	SlotKind,
 	TemplateSlot,
 } from 'engine-layout';
-import { BUILTIN_COMPONENTS, pruneOrphanParamBindings } from 'engine-layout';
+import { BUILTIN_COMPONENTS, mergeBuiltinCodedParams, pruneOrphanParamBindings } from 'engine-layout';
 import {
 	editorComponentKey,
 	editorComponentVersionKey,
@@ -66,14 +66,14 @@ export async function loadComponent(
 			version !== undefined ? projectComponentVersionKey(projectKey, id, version) : undefined,
 			version,
 		);
-		if (project) return project;
+		if (project) return mergeBuiltinCodedParams(project);
 	}
 	const shared = await readComponentAtScope(
 		editorComponentKey(id),
 		version !== undefined ? editorComponentVersionKey(id, version) : undefined,
 		version,
 	);
-	if (shared) return shared;
+	if (shared) return mergeBuiltinCodedParams(shared);
 	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
 	if (!builtin) return undefined;
 	// A built-in has no historical store (it is engine code): an unmatched pin still
@@ -320,7 +320,7 @@ export async function listComponents(opts: ListComponentsOptions): Promise<Compo
 		}
 	}
 
-	let defs = [...byId.values()];
+	let defs = [...byId.values()].map(mergeBuiltinCodedParams);
 	if (opts.category) defs = defs.filter((d) => d.category === opts.category);
 	if (opts.scope) defs = defs.filter((d) => d.scope === opts.scope);
 	return defs;

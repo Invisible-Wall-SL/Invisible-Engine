@@ -1095,3 +1095,26 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	EXPANDING_SYMBOL_DEF,
 	FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 ];
+
+/**
+ * Union the code-defined ("built-in") params INTO a resolved def, ADDITIVELY — every
+ * built-in param whose key the def doesn't already declare is appended (order + the
+ * def's own params untouched). A saved component is a FROZEN snapshot of a coded
+ * component; when the engine later adds a coded param (e.g. HudReadout's per-text
+ * `caption*`/`value*` in v2), an old snapshot would otherwise hide it forever — the
+ * coded part reads the param, but the editor renders NO control because the schema is
+ * missing it, so the author can never set it. This keeps a coded component's param
+ * SCHEMA honest (code is the source of truth) without removing or overriding an
+ * author's own params, and without bumping the stored version (resolve-time only —
+ * never fed to the save path). A non-built-in id (a purely authored component) passes
+ * through untouched. Pure + Svelte-free so the launcher's storage layer can reuse it.
+ */
+export function mergeBuiltinCodedParams(def: ComponentDef): ComponentDef {
+	const builtin = BUILTIN_COMPONENTS.find((b) => b.id === def.id);
+	const builtinParams = builtin?.params;
+	if (!builtinParams?.length) return def;
+	const have = new Set((def.params ?? []).map((p) => p.key));
+	const missing = builtinParams.filter((p) => !have.has(p.key));
+	if (!missing.length) return def;
+	return { ...def, params: [...(def.params ?? []), ...missing] };
+}
