@@ -46,23 +46,64 @@
 	 */
 	import * as PIXI from 'pixi.js';
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
-	import { getContextSpine, createContextParent } from '../context.svelte';
+	import {
+		getContextApp,
+		getContextSpine,
+		getContextFxPortal,
+		createContextParent,
+	} from '../context.svelte';
 	import EffectPlayer from './EffectPlayer.svelte';
 	import SpineBoneAttach from './SpineBoneAttach.svelte';
 
 	const props: Props = $props();
+	const context = getContextApp();
 	const spine = getContextSpine();
 
-	// The effect subtree renders under this container, which we parent on the host spine so it
-	// inherits the rig's fit-scale/position/pivot (see doc note 2). Re-scope the child parent
-	// context to it, so `<EffectPlayer>` / `<SpineBoneAttach>` mount inside it.
+	// The effect subtree renders under this container. By default we parent it on the host spine so
+	// it inherits the rig's fit-scale/position/pivot (see doc note 2) and rides whatever layer the
+	// symbol is on.
+	//
+	// PORTAL MODE: when a game provides an FX-portal container (an UNMASKED layer — see
+	// `getContextFxPortal`), we parent `fxParent` there instead and per-frame MIRROR the host
+	// spine's world transform onto it. `setFromMatrix(portalWorld⁻¹ · spineWorld)` makes
+	// `fxParent.worldTransform === spine.worldTransform`, so the effect renders transform-identical
+	// to the spine-parented default (same fit-scale/position/pivot; `<SpineBoneAttach>`'s
+	// world→parent-local mapping and `<EffectPlayer>` both behave the same) — it is ONLY moved out
+	// from under the clipping mask. Used for an always-on idle-bound rig FX whose full frame would
+	// otherwise be clipped to the reel window (the symbol art stays masked on its own layer).
+	const portal = getContextFxPortal();
 	const fxParent = new PIXI.Container();
-	spine?.addChild(fxParent);
+	const usePortal = !!(portal && spine);
+	if (usePortal) {
+		portal!.addChild(fxParent);
+	} else {
+		spine?.addChild(fxParent);
+	}
 	createContextParent(fxParent);
 	onDestroy(() => {
 		if (!fxParent.destroyed) fxParent.destroy();
+	});
+
+	// Per-frame world-transform mirror for portal mode (see above). Reuses the app ticker like
+	// `<SpineBoneAttach>` so the 1-frame lag is consistent with the bone follow. No-op (and no
+	// ticker) when not portalled, so the spine-parented path is byte-identical to before.
+	onMount(() => {
+		if (!usePortal || !spine) return;
+		const ticker = context.stateApp.pixiApplication?.ticker;
+		const scratch = new PIXI.Matrix();
+		const mirror = () => {
+			if (fxParent.destroyed || spine.destroyed || portal!.destroyed) return;
+			scratch.copyFrom(portal!.worldTransform).invert().append(spine.worldTransform);
+			fxParent.setFromMatrix(scratch);
+		};
+		if (!ticker) {
+			mirror();
+			return;
+		}
+		ticker.add(mirror);
+		return () => ticker.remove(mirror);
 	});
 
 	// Bumped on every matching beat; drives the `{#key runId}` re-mount = a fresh one-shot from t=0.
