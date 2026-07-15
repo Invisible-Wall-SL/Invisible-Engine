@@ -28,6 +28,14 @@ const HUD_VALUE_FONT_SIZE = 45;
 const HUD_CAPTION_FONT_SIZE = 30;
 /** White (`constants-shared` `WHITE`), the coded label fill. */
 const HUD_FILL = 0xffffff;
+/**
+ * The readout's background TICKER width (`HudTicker` draws its `UiSprite` at
+ * `UI_BASE_FONT_SIZE * 3 * 326/73`). Used as the default `alignWidth` — the box the
+ * caption/value text aligns WITHIN — so `align: left`/`right` push the text to the
+ * background's edges out of the box. A readout with a wider/narrower custom background
+ * just overrides `alignWidth` to its own width.
+ */
+const HUD_ALIGN_WIDTH = Math.round(HUD_VALUE_FONT_SIZE * 3 * (326 / 73));
 
 /**
  * The single parametric HUD readout (§14.1) — one def instanced three ways
@@ -52,7 +60,7 @@ const HUD_FILL = 0xffffff;
 export const HUD_READOUT_DEF: ComponentDef = {
 	id: 'hudReadout',
 	name: 'HUD Readout',
-	version: 2,
+	version: 3,
 	scope: 'shared',
 	category: 'ui',
 	root: {
@@ -120,9 +128,29 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		{ key: 'captionFill', kind: 'color', group: 'Caption', label: 'fill' },
 		{ key: 'captionFontSize', kind: 'number', group: 'Caption', label: 'size' },
 		{ key: 'captionFontFamily', kind: 'string', group: 'Caption', label: 'font' },
+		{
+			key: 'captionAlign',
+			kind: 'string',
+			group: 'Caption',
+			label: 'align',
+			options: ['left', 'center', 'right'],
+		},
 		{ key: 'valueFill', kind: 'color', group: 'Value', label: 'fill' },
 		{ key: 'valueFontSize', kind: 'number', group: 'Value', label: 'size' },
 		{ key: 'valueFontFamily', kind: 'string', group: 'Value', label: 'font' },
+		{
+			key: 'valueAlign',
+			kind: 'string',
+			group: 'Value',
+			label: 'align',
+			options: ['left', 'center', 'right'],
+		},
+		// The box (px) the caption/value text aligns WITHIN — `align: left`/`right`
+		// push the text to this box's edges (centred on the readout origin), so it hugs
+		// the background with no manual positioning. Defaults to the coded ticker width;
+		// override to a custom background's width. `align` unset ⇒ inherit the node's
+		// manual transform anchor (back-compat), and `alignWidth` is ignored.
+		{ key: 'alignWidth', kind: 'number', default: HUD_ALIGN_WIDTH, label: 'align width (px)' },
 		{ key: 'value', kind: 'number', engineProvided: true },
 	],
 };

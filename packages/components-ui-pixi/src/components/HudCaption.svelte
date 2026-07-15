@@ -58,6 +58,18 @@
 		fontSize: numberParam('captionFontSize') ?? numberParam('fontSize') ?? UI_BASE_FONT_SIZE,
 		fill: numberParam('captionFill') ?? numberParam('fill') ?? WHITE,
 	});
+
+	// Per-instance horizontal ALIGN (v3): `captionAlign` left/centre/right drives the
+	// text anchor AND its offset within `alignWidth` (the readout's background box), so a
+	// dropdown left/right-aligns the caption to the background with NO manual positioning.
+	// Unset ⇒ inherit the node's manual transform anchor (back-compat). `anchor.y` (the
+	// vertical knob) is always honoured.
+	const align = $derived(stringParam('captionAlign'));
+	const halfW = $derived((numberParam('alignWidth') ?? 0) / 2);
+	const anchorX = $derived(
+		align === 'left' ? 0 : align === 'right' ? 1 : align === 'center' ? 0.5 : (transform?.anchor?.x ?? 0.5),
+	);
+	const offsetX = $derived(align === 'left' ? -halfW : align === 'right' ? halfW : 0);
 </script>
 
-<CatalogText anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={caption} {style} />
+<CatalogText x={offsetX} anchor={{ x: anchorX, y: transform?.anchor?.y ?? 0 }} text={caption} {style} />

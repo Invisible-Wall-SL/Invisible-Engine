@@ -67,6 +67,18 @@
 		fill: numberParam('valueFill') ?? numberParam('fill') ?? WHITE,
 	});
 
+	// Per-instance horizontal ALIGN (v3): `valueAlign` left/centre/right drives the text
+	// anchor AND its offset within `alignWidth` (the readout's background box), so a
+	// dropdown left/right-aligns the value to the background with NO manual positioning.
+	// Unset ⇒ inherit the node's manual transform anchor (back-compat); `anchor.y` honoured.
+	const align = $derived(stringParam('valueAlign'));
+	const halfW = $derived((numberParam('alignWidth') ?? 0) / 2);
+	const anchorX = $derived(
+		align === 'left' ? 0 : align === 'right' ? 1 : align === 'center' ? 0.5 : (transform?.anchor?.x ?? 0.5),
+	);
+	const offsetX = $derived(align === 'left' ? -halfW : align === 'right' ? halfW : 0);
+	const anchor = $derived({ x: anchorX, y: transform?.anchor?.y ?? 0 });
+
 	// `bet` reproduces tap-to-open-bet-menu (disabled mid-spin); other sources are
 	// non-interactive.
 	const isBet = $derived(source === 'bet');
@@ -80,8 +92,8 @@
 
 {#if isBet}
 	<Container eventMode="static" cursor={disabled ? 'not-allowed' : 'pointer'} onpointerup={onpress}>
-		<CatalogText anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
+		<CatalogText x={offsetX} {anchor} text={value} {style} />
 	</Container>
 {:else}
-	<CatalogText anchor={transform?.anchor ?? { x: 0.5, y: 0 }} text={value} {style} />
+	<CatalogText x={offsetX} {anchor} text={value} {style} />
 {/if}

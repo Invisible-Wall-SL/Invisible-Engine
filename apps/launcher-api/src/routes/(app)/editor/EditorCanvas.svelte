@@ -1667,6 +1667,30 @@
 		return String((typeof label === 'string' && label) || node.label || bindName);
 	}
 
+	/** Preview mirror of the coded readout ALIGN (HudReadout v3): the Caption
+	 * (`textParam:'label'`) reads `captionAlign`, the Value (`textParam:'value'`) reads
+	 * `valueAlign`; `left`/`right` drive the text anchor AND an x-offset of ±`alignWidth/2`
+	 * (the background box), matching `HudCaption`/`HudValue`. Unset ⇒ no override (the node's
+	 * own transform anchor stands). `anchorX` undefined = "don't touch the anchor". */
+	function readoutAlign(
+		node: LayoutNode,
+		params: Record<string, unknown> | undefined,
+	): { anchorX?: number; offsetX: number } {
+		const prefix =
+			node.preview?.textParam === 'label'
+				? 'caption'
+				: node.preview?.textParam === 'value'
+					? 'value'
+					: '';
+		if (!prefix) return { offsetX: 0 };
+		const align = params?.[prefix + 'Align'];
+		const halfW = (typeof params?.alignWidth === 'number' ? params.alignWidth : 0) / 2;
+		if (align === 'left') return { anchorX: 0, offsetX: -halfW };
+		if (align === 'right') return { anchorX: 1, offsetX: halfW };
+		if (align === 'center') return { anchorX: 0.5, offsetX: 0 };
+		return { offsetX: 0 };
+	}
+
 	function drawNode(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
@@ -1762,19 +1786,31 @@
 					const fillV = styleParam('fill');
 					const fontSizeV = styleParam('fontSize');
 					const fontFamilyV = styleParam('fontFamily');
-					drawHudChip(ctx, t, node.preview, chipCaption(node, instanceParams), undefined, {
+					const a = readoutAlign(node, instanceParams);
+					const ta =
+						a.anchorX !== undefined ? { ...t, anchor: { x: a.anchorX, y: t.anchor?.y ?? 0 } } : t;
+					ctx.save();
+					ctx.translate(a.offsetX, 0);
+					drawHudChip(ctx, ta, node.preview, chipCaption(node, instanceParams), undefined, {
 						fill: typeof fillV === 'number' ? fillV : undefined,
 						fontSize: typeof fontSizeV === 'number' ? fontSizeV : undefined,
 						fontFamily: typeof fontFamilyV === 'string' ? fontFamilyV : undefined,
 					});
+					ctx.restore();
 				} else {
+					const a = readoutAlign(node, componentParams);
+					const ta =
+						a.anchorX !== undefined ? { ...t, anchor: { x: a.anchorX, y: t.anchor?.y ?? 0 } } : t;
+					ctx.save();
+					ctx.translate(a.offsetX, 0);
 					drawHudChip(
 						ctx,
-						t,
+						ta,
 						node.preview,
 						chipCaption(node, componentParams),
 						node.bind.props as Record<string, unknown> | undefined,
 					);
+					ctx.restore();
 				}
 			} else if (!node.preview?.style) {
 				drawPlaceholder(
