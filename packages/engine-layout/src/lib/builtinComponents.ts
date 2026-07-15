@@ -52,7 +52,7 @@ const HUD_FILL = 0xffffff;
 export const HUD_READOUT_DEF: ComponentDef = {
 	id: 'hudReadout',
 	name: 'HUD Readout',
-	version: 1,
+	version: 2,
 	scope: 'shared',
 	category: 'ui',
 	root: {
@@ -105,10 +105,24 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		// sources (editor renders `options` as a dropdown), not typed by hand.
 		{ key: 'source', kind: 'string', options: VALUE_SOURCE_KEYS },
 		{ key: 'label', kind: 'string', default: 'BALANCE' },
+		// SHARED style — the base applied to BOTH the Caption and Value texts. Each text
+		// can override any of these independently through its own collapsible group below.
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: HUD_VALUE_FONT_SIZE },
 		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
 		{ key: 'countUp', kind: 'boolean', default: false },
+		// PER-TEXT overrides (v2) — the readout draws two texts (Caption + Value) as
+		// separate coded parts (`HudCaption`/`HudValue`); these let each be styled on its
+		// own. NO default so an unset field INHERITS the shared style above (the coded
+		// parts read `caption*`/`value*` ?? the shared key ?? the coded base). `group`
+		// renders each set as a collapsible section in the instance editor; `label:'font'`
+		// makes the family field a font dropdown (see `fontParamKeysOf`).
+		{ key: 'captionFill', kind: 'color', group: 'Caption', label: 'fill' },
+		{ key: 'captionFontSize', kind: 'number', group: 'Caption', label: 'size' },
+		{ key: 'captionFontFamily', kind: 'string', group: 'Caption', label: 'font' },
+		{ key: 'valueFill', kind: 'color', group: 'Value', label: 'fill' },
+		{ key: 'valueFontSize', kind: 'number', group: 'Value', label: 'size' },
+		{ key: 'valueFontFamily', kind: 'string', group: 'Value', label: 'font' },
 		{ key: 'value', kind: 'number', engineProvided: true },
 	],
 };

@@ -1502,6 +1502,13 @@
 		dirty = true;
 		loadedPreview = false; // a real edit commits the (possibly loaded) layout
 		lastError = '';
+		// Force the canvas to repaint after ANY property-panel edit. The canvas redraw
+		// effects track a field whitelist (node COUNT, scene space/align, author param
+		// defaults) + this nonce — they do NOT deep-track per-node `params`/`bind.props`/
+		// `transform`, so an instance-param / HUD-text / colour edit would otherwise never
+		// repaint. Bumping here (every edit routes through `markDirty`) makes every change
+		// visible live, matching drag/undo which already bump the nonce.
+		canvasRedrawNonce += 1;
 	}
 
 	// ---------- canvas size (MAIN box per layoutType) ----------
@@ -2560,7 +2567,6 @@
 									onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
 								>
 									<option value="">centre</option>
-									<option value="center">center</option>
 									<option value="bottom">bottom</option>
 								</select>
 							</label>
@@ -2571,7 +2577,6 @@
 									onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
 								>
 									<option value="">centre</option>
-									<option value="center">center</option>
 									<option value="left">left</option>
 									<option value="right">right</option>
 								</select>

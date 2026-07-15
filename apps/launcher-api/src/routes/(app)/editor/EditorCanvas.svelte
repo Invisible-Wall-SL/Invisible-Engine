@@ -340,7 +340,16 @@
 		const s = Math.min(frameWidth / (std.width || 1), frameHeight / (std.height || 1));
 		const drawW = std.width * s;
 		const drawH = std.height * s;
-		const offX = (frameWidth - drawW) / 2;
+		// Mirror `<MainContainer standard>`'s alignment: centred by default, hug an edge
+		// when the scene asks. `left`/`right` only visibly deviate when the standard box
+		// fits NARROWER than the frame (letterboxed sides), exactly as the runtime's
+		// `getX` shifts the HUD to the window edge.
+		const offX =
+			sceneCtx.align?.horizontal === 'left'
+				? 0
+				: sceneCtx.align?.horizontal === 'right'
+					? frameWidth - drawW
+					: (frameWidth - drawW) / 2;
 		const offY =
 			sceneCtx.align?.vertical === 'bottom' ? frameHeight - drawH : (frameHeight - drawH) / 2;
 		return {
@@ -1735,12 +1744,28 @@
 				// styling — so a placed `HudReadout` reads "BALANCE" (its label param), not the
 				// bare component name. Absent instanceParams ⇒ the prior bind.props path (parity).
 				if (instanceParams) {
+					// Per-text style preview (HudReadout v2): the Caption node (`textParam:'label'`)
+					// reads `caption*`, the Value node (`textParam:'value'`) reads `value*`; both
+					// fall back to the SHARED key so older instances preview identically.
+					const textPrefix =
+						node.preview?.textParam === 'label'
+							? 'caption'
+							: node.preview?.textParam === 'value'
+								? 'value'
+								: '';
+					const styleParam = (base: 'fill' | 'fontSize' | 'fontFamily'): unknown => {
+						const scoped = textPrefix
+							? instanceParams[textPrefix + base[0].toUpperCase() + base.slice(1)]
+							: undefined;
+						return scoped !== undefined ? scoped : instanceParams[base];
+					};
+					const fillV = styleParam('fill');
+					const fontSizeV = styleParam('fontSize');
+					const fontFamilyV = styleParam('fontFamily');
 					drawHudChip(ctx, t, node.preview, chipCaption(node, instanceParams), undefined, {
-						fill: typeof instanceParams.fill === 'number' ? instanceParams.fill : undefined,
-						fontSize:
-							typeof instanceParams.fontSize === 'number' ? instanceParams.fontSize : undefined,
-						fontFamily:
-							typeof instanceParams.fontFamily === 'string' ? instanceParams.fontFamily : undefined,
+						fill: typeof fillV === 'number' ? fillV : undefined,
+						fontSize: typeof fontSizeV === 'number' ? fontSizeV : undefined,
+						fontFamily: typeof fontFamilyV === 'string' ? fontFamilyV : undefined,
 					});
 				} else {
 					drawHudChip(

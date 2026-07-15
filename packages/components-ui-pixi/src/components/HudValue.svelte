@@ -58,10 +58,13 @@
 	});
 	const value = $derived(liveValue === undefined ? '' : formatValue(valueTween.current));
 
+	// Per-text `value*` keys (v2) win over the SHARED key, which wins over the coded
+	// base — so the value can be styled independently of the caption, while older
+	// instances (shared keys only) render unchanged.
 	const style = $derived({
-		fontFamily: stringParam('fontFamily') ?? 'proxima-nova',
-		fontSize: numberParam('fontSize') ?? UI_BASE_FONT_SIZE,
-		fill: numberParam('fill') ?? WHITE,
+		fontFamily: stringParam('valueFontFamily') ?? stringParam('fontFamily') ?? 'proxima-nova',
+		fontSize: numberParam('valueFontSize') ?? numberParam('fontSize') ?? UI_BASE_FONT_SIZE,
+		fill: numberParam('valueFill') ?? numberParam('fill') ?? WHITE,
 	});
 
 	// `bet` reproduces tap-to-open-bet-menu (disabled mid-spin); other sources are

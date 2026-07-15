@@ -50,11 +50,13 @@
 	const caption = $derived(labelOverride ?? codedCaption);
 
 	// Same base + override merge as `UiLabel` (font/size/fill); absent overrides leave
-	// the coded base untouched → parity.
+	// the coded base untouched → parity. Per-text `caption*` keys (v2) win over the
+	// SHARED key, which wins over the coded base — so a readout can style its caption
+	// independently of its value, while older instances (shared keys only) are unchanged.
 	const style = $derived({
-		fontFamily: stringParam('fontFamily') ?? 'proxima-nova',
-		fontSize: numberParam('fontSize') ?? UI_BASE_FONT_SIZE,
-		fill: numberParam('fill') ?? WHITE,
+		fontFamily: stringParam('captionFontFamily') ?? stringParam('fontFamily') ?? 'proxima-nova',
+		fontSize: numberParam('captionFontSize') ?? numberParam('fontSize') ?? UI_BASE_FONT_SIZE,
+		fill: numberParam('captionFill') ?? numberParam('fill') ?? WHITE,
 	});
 </script>
 
