@@ -49,7 +49,6 @@
 </script>
 
 {#if show}
-	<!-- MASKED layer (idle/static symbols, clipped to the reel window). -->
 	<BoardContext animate={false}>
 		<BoardContainer>
 			<BoardMask />
