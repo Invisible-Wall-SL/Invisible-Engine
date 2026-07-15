@@ -159,6 +159,30 @@
 		});
 	}
 
+	// --- FX diagnostic (opt-in via `?fxdiag=1` on the game URL) ----------------------------------
+	// Prints the live emitter's particle COUNT + its container's WORLD transform (scale + position),
+	// so the actual on-screen density / size / placement of an effect can be read straight from the
+	// browser console — the WebGPU canvas can't be screenshotted or reliably traversed remotely. Off
+	// by default (no URL param present) ⇒ zero cost / zero output. Temporary debugging aid.
+	if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('fxdiag')) {
+		const report = (t: string) => {
+			try {
+				const c = parentContext.parent;
+				const m = c.worldTransform;
+				const e = emitter as unknown as { particleCount?: number };
+				console.log(
+					`[fxdiag ${t}] key=…${props.key.slice(-26)} emit=${emitter.emit} ` +
+						`particles=${e.particleCount ?? '?'} containerKids=${c.children?.length ?? 0} ` +
+						`worldScale=${Math.hypot(m.a, m.b).toFixed(3)} worldPos=${m.tx.toFixed(0)},${m.ty.toFixed(0)}`,
+				);
+			} catch (err) {
+				console.log('[fxdiag] report failed', err);
+			}
+		};
+		setTimeout(() => report('1s'), 1000);
+		setTimeout(() => report('3s'), 3000);
+	}
+
 	onDestroy(() => {
 		emitter.emit = false;
 		// Free the pooled `Spine` instances (pool + live) before the emitter tears down — the
