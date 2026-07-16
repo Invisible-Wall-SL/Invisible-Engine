@@ -9,12 +9,21 @@ Scope is **selection-only**: keep R2 `<client>/<project>/deploy/` (and the
 committed project artifacts) as the single shared source of truth — do NOT fork
 manifests/assets per user, and do NOT add a publish step or edit-lock.
 
-### Accepted residual (owner decision)
+### Accepted residual — SUPERSEDED 2026-07-16
 Selection-only isolates *which file each person is in* and their job/progress —
 **not** a lock on identical edits. If two users open the **exact same** file
 (same manifest, or same-named sheet), they still write the same shared file and
-can overwrite each other. That trade-off is accepted for now; the upgrade path if
-it ever bites is the rejected "shared assets + edit-lock" option (see History).
+can overwrite each other.
+
+**That residual was accepted on 2026-06-06 and it bit.** The named upgrade path
+("shared assets + edit-lock") is now the active plan — see
+[multi-user-concurrency](multi-user-concurrency.md), which owns lost-update
+prevention pipeline-wide (doc lease + R2 `If-Match`). **This doc still owns
+per-user *selection* only.**
+
+Note the dependency direction: **Phase 1 below (thread a stable `user` id
+launcher → tools) is a hard prerequisite** for any concurrency work in the Python
+tools — they cannot hold a lease while they cannot tell two users apart.
 
 ## The problem (as observed)
 

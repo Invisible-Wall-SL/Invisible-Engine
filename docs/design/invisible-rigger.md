@@ -224,8 +224,13 @@ handoff in Phase 3, don't duplicate the packer.
   authoring format; `.skel` is an optional export.)
 - Final extension name (`.irig` working title) + whether the sidecar is one file or
   per-resource.
-- Collaboration model in R2 — last-write-wins + lock flag in the sidecar, or
-  something with optimistic concurrency.
+- ~~Collaboration model in R2 — last-write-wins + lock flag in the sidecar, or
+  something with optimistic concurrency.~~ **RESOLVED 2026-07-16: both, and the
+  lock does NOT live in the sidecar** — a soft lease in Postgres for coordination
+  plus R2 `If-Match` for correctness. A lock stored in the blob is clobberable by
+  the very race it exists to prevent. Owned by
+  [multi-user-concurrency](multi-user-concurrency.md); note its Phase 0 targets
+  the Rigger's global `_shared/rigs|animations/index.json` RMW races first.
 - Undo/redo architecture for the editable document (command stack) — decide before
   Phase 2 since every later phase depends on it.
 

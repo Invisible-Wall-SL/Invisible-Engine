@@ -1,0 +1,260 @@
+# Pipeline tools — multi-user concurrency (lost-update prevention)
+
+Status: **planned** (not yet implemented).
+
+Owner decision 2026-07-16: **lease now, CRDT later.** Two to three people share a
+`(client, project)`; many more work concurrently on *different* projects through
+the same pipeline. Today every authoring tool silently overwrites its neighbours.
+The fix is layered — a Postgres **soft lease** so two people don't collide in the
+first place, and R2 **conditional writes** (`If-Match`) underneath as the
+correctness floor for everything a lease can't cover. Real-time collaborative
+editing (CRDT/Yjs) is explicitly a **later, separate** project — it is not this
+doc, and it is gated on the whole-doc blobs going granular first.
+
+> Related: [atlas-per-user-session](atlas-per-user-session.md) (per-user *selection*;
+> its accepted overwrite residual is superseded here) ·
+> [unified-project-repo](unified-project-repo.md) (the R2 key layout) ·
+> [invisible-rigger](invisible-rigger.md) §"Open questions" (resolved here).
+
+## The problem (as observed)
+
+The owner reports: tools autosave, and when more than one user is in the same
+tool they overwrite each other's work.
+
+That is real, and it is worse than "autosave races". **There is zero concurrency
+control anywhere in the persistence layer.** Every save in every tool is an
+unconditional, last-writer-wins whole-blob `PutObject`. Every ETag in the repo is
+HTTP *read* caching (`If-None-Match` / 304); no write anywhere sends `If-Match`.
+
+## Root cause — three distinct bugs wearing one costume
+
+These have different blast radii and different fixes. Treating them as one
+"locking problem" is how this stays broken.
+
+### 1. Whole-doc blob clobber (the reported symptom)
+
+The Scene Editor, Flow v2, Symbols and Localization each serialize the **entire**
+client-side document and PUT it over the shared key. Both users loaded the doc at
+page load; the later writer erases not just the *conflicting* nodes but
+**everything the other person did**.
+
+- `editorStorage.ts:73` `saveDoc` stamps `next.updatedAt` at `:79` and **never
+  reads or compares it** — a write-only stamp. The client never sends a base
+  version, so the server could not check even if it wanted to.
+- Autosave makes the window tiny and constant: Scene Editor `AUTOSAVE_MS = 1200`
+  (`routes/(app)/editor/+page.svelte`), Flow v2 `AUTOSAVE_MS = 800`
+  (`routes/(app)/flow-v2/+page.svelte`), both resetting debounces armed by
+  ~35 `markDirty()` call sites.
+- Symbols, FX, Components and Localization are **manual-save**, so they are less
+  acute — but equally unguarded.
+
+### 2. Read-modify-write on GLOBAL indexes (the highest blast radius)
+
+`rigger/rigs/save/+server.ts:84-97` does `getObjectText(index)` → mutate array →
+`putObjectText(index)` with no guard. The same pattern rebuilds
+`_shared/animations/index.json` and `skeletons.json`.
+
+**`_shared/rigs/index.json` and `_shared/animations/index.json` are global across
+every client and project** (`projectPaths.ts:180-199`). So this races between two
+users **who share no project at all** — precisely the majority case for this team.
+A per-project lease would never catch it. Losing the index row silently orphans a
+rig whose `<id>.json` blob was written fine, so the corruption looks like "my rig
+vanished" rather than "a save failed".
+
+`componentStorage.ts` has a `version` field that *looks* like optimistic
+concurrency but is **pinning, not CAS**: two concurrent saves both read N, both
+compute N+1, both write the snapshot and the latest pointer. One is lost, and the
+`.v<N>.json` snapshot can be overwritten despite the "immutable history" comment
+at `projectPaths.ts:125-137`.
+
+### 3. Atlas / Sheet staging divergence
+
+Per [atlas-per-user-session](atlas-per-user-session.md), the Python tools hydrate
+their staging tree from R2 **at startup only**, then `_mirror()` back. Any R2
+change made by another user during the container's lifetime is invisible to the
+running process, and its next mirror pushes a blob derived from stale startup
+state. This one cannot be fixed by a lease yet — see the dependency in Phase 3.
+
+## Why `If-Match` alone is not the answer (and why we still need it)
+
+The obvious fix is conditional PUT: thread the ETag from load back to save, 412
+on mismatch. But with a 1.2 s autosave, two people editing means the second user
+eats a 412 every 1.2 s and then loses their session's work on reload anyway.
+**That converts silent data loss into loud data loss.** Necessary, not sufficient.
+
+So: the **lease** is what stops the collision happening; **`If-Match`** is what
+makes "no lost write" a guarantee rather than a hope, covering the cases a lease
+structurally cannot — a stale tab whose lease expired, a takeover mid-flight, the
+Python tools that hold no lease, and any future tool that forgets to.
+
+## The linchpin
+
+Every TypeScript write in the launcher funnels through **one module**:
+`src/lib/server/r2.ts` — `putObjectText:109`, `putObjectBytes:124`. Nothing
+hand-rolls its own S3 client. `PutObjectCommand` is constructed with only
+`Bucket/Key/Body/ContentType` (`:114-121`, `:128-136`), so no caller *can* pass a
+precondition today.
+
+Better still, the ETag is **already flowing and just gets dropped one layer too
+early**: `getObjectBytes:30` returns `etag` (`:38`) and `headObject:215` exposes
+one, but `getObjectText:104` — which every storage helper actually calls —
+discards it. Add the precondition to those two writers and an ETag-carrying read,
+and every tool inherits conditional writes without touching each endpoint.
+
+**R2 supports this.** Cloudflare's S3 API implements `If-Match`, `If-None-Match`,
+`If-Modified-Since` and `If-Unmodified-Since` on `PutObject`
+(<https://developers.cloudflare.com/r2/api/s3/api/>). We are on `@aws-sdk/client-s3`
+against the R2 S3 endpoint (`r2.ts:1-28`) in long-lived Railway Node containers —
+not Workers, not the R2 binding — so the header path is available to us. The
+Python twin (`services/_shared/iw_common/storage.py:59`, boto3) needs the same
+treatment.
+
+## Scope
+
+**In:** lost-update prevention for authored docs — Scene Editor, Flow v2, Rigger
+(skeletons + the shared rig/animation libraries), FX, Symbols, Components,
+Localization.
+
+**Out (explicitly):**
+- Real-time collaborative editing / CRDT. Later project, gated on granular docs.
+- Making the whole-doc blobs granular. It is the right long-term move and the
+  precondition for CRDT, but it is a per-tool refactor and not this plan.
+- Per-user *selection* isolation — that is [atlas-per-user-session](atlas-per-user-session.md).
+- The lease as a **security** boundary. It is a coordination hint, not authz;
+  `toolScope.gate()` remains the actual gate.
+
+## Build plan
+
+Ordered by **blast radius**, not by tool.
+
+### Phase 0 — Kill the cross-project index races
+The only bug actively corrupting data between users who have nothing to do with
+each other, and the one a lease can never fix. Smallest surface, highest value.
+
+- `_shared/rigs/index.json` and `_shared/animations/index.json` are **pure
+  metadata lists living in an object store for no good reason**. Move them to
+  Postgres rows (`sharedRig`, `sharedAnimation`) — the race disappears
+  *structurally* rather than being guarded. Drizzle + a migration; the `<id>.json`
+  blobs stay in R2 as the heavy payload.
+- Rewrite `rigger/rigs/save/+server.ts:83-97` and the animations twin to upsert a
+  row instead of RMW-ing a blob. Same for the `skeletons.json` rebuild in
+  `rigger/save/+server.ts:60-61`.
+- Keep the R2 index as a **derived, best-effort mirror** only if something outside
+  the launcher reads it — verify first; if nothing does, delete it rather than
+  maintain two sources of truth.
+- Backfill: one-shot import of the existing index blobs into the new tables.
+
+### Phase 1 — Conditional writes through the chokepoint
+The correctness floor. Contained because of the linchpin above.
+
+- `r2.ts`: add optional `ifMatch?: string` to `putObjectText` / `putObjectBytes`
+  → `PutObjectCommand({ …, IfMatch })`. Add `getObjectTextWithEtag()` (or return
+  `{ text, etag }`) so helpers stop discarding what `getObjectBytes` already has.
+- Map R2's 412 to a typed `ConflictError` next to `isNotFound:358`, so every
+  endpoint returns a consistent `409 { error: 'conflict', … }` — **`json({error})`,
+  never `error()`**, per the publish-502 lesson ([[gotcha_publish_502_flowv2_nodes_guard]]).
+- Storage helpers return the loaded ETag; save takes an expected ETag. Start with
+  `editorStorage.saveDoc` and `flowV2Storage`, then FX / Symbols / Components /
+  Localization.
+- Clients thread the ETag through load → autosave → response (each successful PUT
+  returns the new ETag, so the next autosave is guarded without a re-read).
+- **`fxStorage.ts` writes its doc + meta sidecar as two unconditional PUTs with no
+  atomicity even for a single user** — fix here (guard both, or fold the meta into
+  the doc).
+- Conflict UX floor for this phase: a non-destructive "someone else saved this —
+  reload" state that does **not** silently discard the local doc.
+
+### Phase 2 — Soft lease + presence
+What makes the tools usable for 2–3 people on a project.
+
+- Postgres table keyed `(toolId, clientKey, projectKey, docKey)`, holding
+  `holderUserId`, `holderSessionId`, `acquiredAt`, `heartbeatAt`, `expiresAt`.
+  Unique on the key tuple; acquire is a conditional upsert (expired lease is
+  takeable) so the DB adjudicates, not the app.
+- Endpoints: `acquire` / `heartbeat` / `release` / `takeover`. Heartbeat ~10 s,
+  expiry ~45 s. `release` on page unload (best-effort; expiry is the real
+  backstop).
+- Shared client helper + a read-only banner: "X is editing this — active 3 s ago"
+  + **Take over**. Takeover is explicit and always available — a lease must never
+  be able to permanently wedge a doc (a crashed tab must not lock a project until
+  someone SSHes into a database).
+- Per-tool read-only mode: suppress autosave, disable mutation affordances.
+- **Run the `reuse-check` skill before building the banner** — check
+  `docs/ui-inventory.md` for an existing surface rather than inventing one.
+
+### Phase 3 — Python tools (Atlas / Sheet)
+**Blocked on a prerequisite, sequence last.** Per
+[atlas-per-user-session](atlas-per-user-session.md)`:34-39`, those services
+"literally cannot tell two users apart" — the launcher `session` cookie is
+httpOnly and scoped to the launcher origin, so identity never crosses to their
+separate Railway origins. They cannot hold a lease until that doc's **Phase 1
+(thread a stable `user` id launcher → tools)** lands. Do not duplicate that work
+here.
+
+- Once `user` is available: acquire/heartbeat the same lease from the Python side.
+- Add `IfMatch` to `iw_common/storage.py:59` `put` (boto3 `put_object` takes the
+  same precondition) and give the staging mirror a precondition instead of a blind
+  overwrite — which also blunts the startup-hydration staleness in §3.
+
+### Phase 4 — Verify + document
+- Two-user test per tool (two browser profiles, same project): A and B both open
+  → B is read-only with A named; A goes idle 45 s → B can take over; A's stale tab
+  then saves → **409, and A's work is not silently destroyed**.
+- Cross-project test for Phase 0: A saves a rig in project X while B saves a rig
+  in project Y → **both rows survive** (this is the bug that has no lease).
+- Forced-conflict test: bypass the lease (curl a stale ETag) → 409, not a clobber.
+- Update `docs/status/<tool>.md` for each tool touched; log to `docs/history.md`.
+
+## Touch list
+- `apps/launcher-api/src/lib/server/r2.ts` — `ifMatch` on both writers, ETag-carrying
+  read, `isConflict` next to `isNotFound`
+- `apps/launcher-api/src/lib/server/db/schema.ts` + a migration — lease table,
+  `sharedRig` / `sharedAnimation` tables
+- `apps/launcher-api/src/lib/server/` — `editorStorage.ts`, `flowV2Storage.ts`,
+  `fxStorage.ts`, `symbolsStorage.ts`, `componentStorage.ts`, `localization.ts`,
+  `flowV2LibraryStorage.ts`, `componentDefaultsStorage.ts`
+- `apps/launcher-api/src/routes/api/rigger/{save,rigs/save,animations/save}/+server.ts`
+  — the inline `putObjectText` callers; route them through a storage module
+- `apps/launcher-api/src/routes/(app)/{editor,flow-v2,rigger,fx,symbols,components,localization}/`
+  — ETag threading, read-only mode, banner
+- `apps/launcher-api/src/lib/server/lease.ts` (new) + `src/routes/api/lease/*`
+- `services/_shared/iw_common/storage.py` — `IfMatch` on `put`
+- `docs/STATUS.md`, `docs/status/*.md`, `docs/design/atlas-per-user-session.md`,
+  `docs/design/invisible-rigger.md`
+
+## Risk / sequencing
+
+Phase 0 is independent of everything else and fixes the worst bug — do it first
+and ship it alone. Phase 1 is broad but shallow (one module, then mechanical
+helper-by-helper). Phase 2 carries the most product weight: the failure mode to
+design against is a lease that wedges a doc, so **takeover must always be
+reachable from the UI**. Phase 3 cannot start until the Atlas identity phase
+lands. Nothing here blocks the CRDT question, which stays open.
+
+## Open questions
+- Do the R2 `_shared/*/index.json` blobs have any reader outside the launcher
+  (desktop launcher, bake, a Python tool)? If yes, Phase 0 keeps a derived mirror;
+  if no, delete them. **Verify before writing the migration.**
+- Lease granularity: per-doc (`docKey`) or per-project? Per-doc is proposed —
+  two people on different scenes of one project shouldn't block each other — but
+  it only pays off once the Editor's whole-doc blob goes granular, since today a
+  scene save rewrites the entire project doc anyway. Per-project may be the honest
+  Phase 2 choice, with per-doc arriving alongside granular saves.
+- Should Components' `version` become a real CAS token (reusing the ETag) or be
+  retired in favour of the ETag alone?
+
+## History
+- 2026-07-16 — Owner: **lease now, CRDT later**; 2–3 users per project, many more
+  across different projects concurrently. That second fact is what promotes the
+  global-index race (§2) above the reported autosave symptom (§1).
+- Supersedes the "accepted residual" in [atlas-per-user-session](atlas-per-user-session.md)`:12-17`
+  (2026-06-06), which accepted same-file overwrites and named "shared assets +
+  edit-lock" as the upgrade path if it ever bit. It bit.
+- Resolves the open question at [invisible-rigger](invisible-rigger.md)`:227-228`
+  ("last-write-wins + lock flag in the sidecar, or something with optimistic
+  concurrency") — **both**: lease for coordination, `If-Match` for correctness.
+  The lock flag does **not** live in the `.irig` sidecar; a lease in Postgres
+  cannot be clobbered by the very race it exists to prevent.
+
+> Build status: see [docs/status/launcher.md](../status/launcher.md); per-tool progress in each
+> `docs/status/<tool>.md`; detailed log in [docs/history.md](../history.md).

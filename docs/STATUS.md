@@ -48,6 +48,7 @@ Tracked in [status/atlas-maker](status/atlas-maker.md). **Flow-driven game** is 
 of Invisible Flow, tracked in [status/flow](status/flow.md) — see [its design doc](design/flow-driven-game.md).
 
 Cross-cutting design docs (not tools — platform/pipeline plans):
+- [multi-user-concurrency](design/multi-user-concurrency.md) — **lost-update prevention**: doc leases + R2 conditional writes, so two users stop overwriting each other. Agent: `pipeline-concurrency`.
 - [invisible-blueprints](design/invisible-blueprints.md) — shareable ComfyUI workflows for the Atlas Maker (feature, not a tool).
 - [unified-project-repo](design/unified-project-repo.md) — **the live R2 folder layout**: one `<client>/<project>/` tree (by asset type) shared by all tools.
 - [r2-client-isolation-and-scaffold](design/r2-client-isolation-and-scaffold.md) — the earlier per-tool R2 layout the unified repo superseded + project scaffolding.
@@ -61,24 +62,29 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is no
-   export→deploy→bake→pull→register wiring, so a Rigger rig never reaches a game. *Recommended next.*
+1. **Multi-user concurrency — Phase 0** (`_shared/rigs|animations/index.json` RMW → Postgres).
+   *Recommended next — this is live data loss, not a missing feature.* Those indexes are **global
+   across every client and project**, so two users on unrelated projects silently drop each other's
+   rows today. Then Phase 1 (`If-Match` through `r2.ts`) + Phase 2 (doc lease + presence).
+   ([design/multi-user-concurrency](design/multi-user-concurrency.md))
+2. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is no
+   export→deploy→bake→pull→register wiring, so a Rigger rig never reaches a game.
    ([status/rigger](status/rigger.md))
-2. **Flow-driven-game Phase 5** — author real `bigWin`/`freeSpinIntro`/`loading` backing scenes,
+3. **Flow-driven-game Phase 5** — author real `bigWin`/`freeSpinIntro`/`loading` backing scenes,
    bake, and ship to a game so a shipped title actually runs an authored FlowDoc (the runtime +
    editor exist; no shipped game runs one yet). ([status/flow](status/flow.md))
-3. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
+4. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
-4. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
+5. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
    reference scene sets. ([status/editor](status/editor.md))
-5. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
-6. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-7. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
+6. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
+7. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
+8. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
    the parity gate (B1–B3 done). ([status/engine](status/engine.md), [status/component-editor](status/component-editor.md))
-8. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
+9. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-9. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
-   [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
+10. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
+    [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
 ## Blocked on owner / external (not code)
 
