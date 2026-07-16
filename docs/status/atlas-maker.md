@@ -13,6 +13,7 @@ Works today on `main` / live:
 - **FLUX builder complete** — txt2img proven live (2026-05-30, ~105s on the 8GB 4070).
 - **Blueprints** (an Atlas Maker feature, NOT a separate tool — [design](../design/invisible-blueprints.md)) — shareable ComfyUI workflows in a global `_shared/blueprints/` R2 library; pick one in the Atlas Maker to "generate with this network". **Code-complete (all 8 phases), owner live-verify owed.** Committed + publish-gated (`ATLAS_BLUEPRINT_SECRET`); Settings has the resolved-workflow (`/blueprintresolved`) export for debugging.
 - **Sheet-derived FX cells auto-derive** on load/Process from their base region (not AI-generated), keyed on `shine.fx_layer_info` + `mode in FX_PRESETS` — no wasted ComfyUI credits.
+- **FX layers register with their base through compose** — `fit_to_region` alpha-crops each region independently, which mis-scaled every FX layer (a glow's halo makes its alpha bbox bigger than its base's, so the glyph shrank to ~54% and drifted up to ~15px when the halo clipped a canvas edge). `batch_atlas.fx_registration_crop` now crops an FX layer to its BASE's bbox grown by the two slots' size ratio — same scale, concentric, halo kept to whatever the packed FX slot can carry. Guarded: an FX image whose canvas ≠ its base's (hand-made art) falls back to self-cropping.
 
 ## Open items / next
 1. **`.atlas` compose/slice (B10 / Part A) — live browser smoke-test owed** against live R2 (Part B = repoint the stale Windows-path `atlas.atlas_file`/`source_image` fields, owner + R2 creds).
@@ -26,6 +27,7 @@ Works today on `main` / live:
 - **FLUX ControlNet models** — not installed on the local GPU (only SDXL ControlNets are).
 
 ## Recent changes
+- 2026-07-16 — fixed FX layers composing offset + shrunk against their base (`fx_registration_crop`); needs an `atlas-tool` redeploy + a re-Create-Atlas to take effect on existing pages.
 - 2026-07-06 — sheet-derived FX cells now auto-derive on load/Process instead of being AI-generated ([detail in history](../history.md)).
 - 2026-05-30 — FLUX proven live (~105s txt2img); B10 `.atlas`/source upload + R2 ref picking landed ([detail in history](../history.md)).
 - 2026-05-29 — R2 seeded (1158 objects); tool hydrates + lists manifests ([detail in history](../history.md)).

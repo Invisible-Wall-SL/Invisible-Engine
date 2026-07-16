@@ -2274,13 +2274,20 @@ def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
 # PADDING_PCT and SHAPE_REF_FILL_PCT are loaded from atlas_config.json at top.
 
 
-def fit_to_region(img: Image.Image, region: dict) -> Image.Image:
+def fit_to_region(img: Image.Image, region: dict,
+                  crop_box: tuple[int, int, int, int] | None = None) -> Image.Image:
     """Place the regenerated element into its packed slot.
 
     The element is cropped to its ALPHA content (Spine only ever renders the
     alpha channel — using the RGBA bbox here wrongly kept the webp page's
     colored-but-transparent gutter, which then got letterbox-inset and made
     trimmed elements render small in-game).
+
+    `crop_box` overrides that self-derived alpha bbox. It exists for FX layers
+    (`<base>_glow`, ...), whose own alpha bbox is DELIBERATELY bigger than
+    their base's (the halo blooms past the glyph) — cropping them to it would
+    scale the glyph down relative to its base and break registration. See
+    fx_registration_crop, which builds the box from the BASE's bbox instead.
 
     For a Spine/.atlas slot the packed (w, h) IS the element's authored
     footprint (true for EVERY region, trimmed or not — `helmet` is untrimmed
@@ -2302,8 +2309,11 @@ def fit_to_region(img: Image.Image, region: dict) -> Image.Image:
     if img.mode != "RGBA":
         img = img.convert("RGBA")
 
-    # 1) Crop to actual visible content — ALPHA bbox, not RGBA.
-    alpha_bbox = img.getchannel("A").getbbox()
+    # 1) Crop to actual visible content — ALPHA bbox, not RGBA. An FX layer
+    #    passes its base-derived box instead (see above); PIL pads an
+    #    out-of-canvas box with transparent, which is what keeps the halo's
+    #    room symmetric rather than clamped.
+    alpha_bbox = crop_box or img.getchannel("A").getbbox()
     if alpha_bbox:
         img = img.crop(alpha_bbox)
 
@@ -2432,6 +2442,63 @@ def _pick_variant_png(batch_dir: Path, region: dict) -> Path | None:
                 if _seed_in_png(p) == locked:
                     return p
     return files[-1]
+
+
+def fx_registration_crop(img: Image.Image, region: dict,
+                         by_name: dict, batch_dir: Path
+                         ) -> tuple[int, int, int, int] | None:
+    """Crop box that keeps an FX layer registered with its base element.
+
+    An FX layer (`<base>_glow` / `_shadow` / ...) is built by shine.py from the
+    base's OWN source image onto a canvas of the SAME size with the glyph in
+    the SAME place. But its alpha bbox is deliberately larger (the halo blooms
+    into the margin), so letting fit_to_region crop it to that bbox scales the
+    glyph down and shifts it relative to the base — the FX renders offset and
+    resized under a rig that expects the two slots to line up.
+
+    Cropping the FX to the base's bare bbox would register but throw the halo
+    away. So we crop to the base's bbox GROWN about its centre by the ratio of
+    the two authored slots — the slot IS the element's footprint budget, so
+    this is the largest halo the packed rect can actually carry, and it lands
+    at exactly the base's scale (identical for `fill`, `contain` and `cover`,
+    since both boxes are scaled by the same factors). A same-size FX slot
+    degenerates to the base's bbox: the halo is then geometrically un-drawable,
+    not discarded by us.
+
+    Returns None — i.e. today's self-cropping behaviour — for a non-FX region,
+    an unresolvable base, or an FX image whose canvas does NOT match its base's
+    (hand-made or stale FX art isn't in the base's pixel space, so the box
+    would be meaningless).
+    """
+    info = shine.fx_layer_info(region.get("name", ""))
+    if info is None:
+        return None
+    base = by_name.get(info["base"])
+    if base is None:
+        return None
+    src = override_image_path(base) or _pick_variant_png(batch_dir, base)
+    if src is None:
+        return None
+    try:
+        with Image.open(src) as f:
+            base_img = f.convert("RGBA")
+    except (OSError, ValueError):
+        return None
+    if base_img.size != img.size:
+        return None
+    bb = base_img.getchannel("A").getbbox()
+    if not bb:
+        return None
+    _, _, base_w, base_h = region_box(base)
+    _, _, fx_w, fx_h = region_box(region)
+    if not (base_w and base_h and fx_w and fx_h):
+        return None
+    x0, y0, x1, y1 = bb
+    half_w = (x1 - x0) * (fx_w / base_w) / 2
+    half_h = (y1 - y0) * (fx_h / base_h) / 2
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    return (int(round(cx - half_w)), int(round(cy - half_h)),
+            int(round(cx + half_w)), int(round(cy + half_h)))
 
 
 def already_generated(batch_dir: Path, region: dict) -> Path | None:
@@ -2605,7 +2672,10 @@ def main() -> None:
     # classified against this set — else selecting only the FX cells (not their
     # bases) misreads them as plain "use my own image" overrides and wrongly
     # warns "nothing to generate — every region uses your own image".
-    all_region_names = {r["name"] for r in regions}
+    # Keyed by name too: compose resolves an FX layer's BASE through this, and
+    # the base can sit outside the current selection (same reason as above).
+    all_regions_by_name = {r["name"]: r for r in regions}
+    all_region_names = set(all_regions_by_name)
     if args.only:
         wanted = {s.strip() for s in args.only.split(",")}
         regions = [r for r in regions if r["name"] in wanted]
@@ -2626,7 +2696,8 @@ def main() -> None:
             ov = override_image_path(region)
             if ov is not None:
                 img = Image.open(ov).convert("RGBA")
-                img = fit_to_region(img, region)
+                img = fit_to_region(img, region, fx_registration_crop(
+                    img, region, all_regions_by_name, batch_dir))
                 rx, ry, _, _ = region_box(region)
                 canvas.paste(img, (rx, ry), img)
                 placed += 1
@@ -2642,7 +2713,8 @@ def main() -> None:
                 print(f"  skip {region['name']}: no generated variant found")
                 continue
             img = Image.open(src).convert("RGBA")
-            img = fit_to_region(img, region)
+            img = fit_to_region(img, region, fx_registration_crop(
+                img, region, all_regions_by_name, batch_dir))
             rx, ry, _, _ = region_box(region)
             canvas.paste(img, (rx, ry), img)
             placed += 1
