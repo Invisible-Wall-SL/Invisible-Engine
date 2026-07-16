@@ -2274,6 +2274,46 @@ def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
 # PADDING_PCT and SHAPE_REF_FILL_PCT are loaded from atlas_config.json at top.
 
 
+def _packer_compose_tile(img: Image.Image, rw: int, rh: int,
+                         rotated: bool) -> Image.Image:
+    """Byte-for-byte replica of sheet-tool `packer.compose`'s per-region paste.
+
+    A Sheet-Maker-authored cell is packed by packer.compose and the rig is
+    authored against THAT page, so a rebuild here must reproduce the placement
+    exactly — any divergence in scale, centring or rounding silently re-offsets
+    every attachment on republish. Keep the two in lockstep; if packer.compose
+    changes, change this with it.
+    """
+    nw, nh = img.width, img.height
+    if nw > 0 and nh > 0:
+        # The 1.0 clamp is packer's contract: art is never upscaled/stretched,
+        # a larger cell just gains transparent margin.
+        scale = min(rw / nw, rh / nh, 1.0)
+        iw = max(1, round(nw * scale))
+        ih = max(1, round(nh * scale))
+    else:
+        iw, ih = rw, rh
+    if (img.width, img.height) != (iw, ih):
+        img = img.resize((iw, ih), Image.LANCZOS)
+    if (rw, rh) != (iw, ih):
+        # Centre the VISIBLE art (its bounding box), not the image rectangle.
+        # Rotated cells fall back to rectangle centring (the bbox would be in
+        # pre-rotation space). crop() pads the window with transparent pixels.
+        bbox = None if rotated else img.getbbox()
+        if bbox:
+            cw, ch = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            ox = (rw - cw) // 2 - bbox[0]
+            oy = (rh - ch) // 2 - bbox[1]
+            img = img.crop((-ox, -oy, -ox + rw, -oy + rh))
+        else:
+            tile = Image.new("RGBA", (rw, rh), (0, 0, 0, 0))
+            tile.alpha_composite(img, ((rw - iw) // 2, (rh - ih) // 2))
+            img = tile
+    if rotated:
+        img = img.rotate(-90, expand=True)  # clockwise
+    return img
+
+
 def fit_to_region(img: Image.Image, region: dict,
                   crop_box: tuple[int, int, int, int] | None = None) -> Image.Image:
     """Place the regenerated element into its packed slot.
@@ -2297,6 +2337,14 @@ def fit_to_region(img: Image.Image, region: dict,
     aspect (that shrinks the element in-game). Only true legacy cell-grid
     projects (manifest regions with no bound `.atlas`, hence no orig_*
     geometry) keep the old aspect-pad behaviour so they don't regress.
+
+    An EXPLICIT `fit_mode: "contain"` (only the Sheet Maker writes it — see
+    atlas_writers.build_manifest) marks a cell that packer.compose packed and
+    the rig was authored against, so it takes a separate sheet-parity path that
+    replays packer.compose verbatim (no alpha-crop, no padding, never upscale,
+    centre the visible bbox). That is NOT the same `contain` the default
+    fallback picks for a legacy cell-grid region, which keeps its alpha-crop +
+    letterbox behaviour unchanged.
     """
     # target is the region's UNROTATED size (w, h). For a rotated region we
     # fit the upright art to (w, h) and rotate(+90) at the very end so it
@@ -2308,6 +2356,17 @@ def fit_to_region(img: Image.Image, region: dict,
 
     if img.mode != "RGBA":
         img = img.convert("RGBA")
+
+    # An EXPLICIT "contain" (the Sheet Maker stamps it on every cell it writes)
+    # is a placement CONTRACT, not a preference: replay packer.compose so a
+    # republish is a no-op for the rig. Must stay an explicit-only check — the
+    # default fallback below also resolves to "contain" for legacy cell-grid
+    # regions, which must keep their alpha-crop behaviour. `crop_box` is
+    # deliberately unused here: there is no alpha-crop to override, and packer
+    # centres the visible bbox for base and FX cells alike.
+    if str(region.get("fit_mode", "")).strip().lower() == "contain":
+        return _packer_compose_tile(img, target_w, target_h,
+                                    bool(region.get("rotated")))
 
     # 1) Crop to actual visible content — ALPHA bbox, not RGBA. An FX layer
     #    passes its base-derived box instead (see above); PIL pads an
