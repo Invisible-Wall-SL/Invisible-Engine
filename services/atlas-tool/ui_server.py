@@ -30,7 +30,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
@@ -2070,18 +2070,45 @@ IW_TOOLBAR_CSS = """
 # Region Overlay Inspector (`/atlasview`) — the "🖼 View atlas" target.
 #
 # WHY: two composers disagree on what a region rect MEANS, so the same
-# `bounds:` produces visibly different art depending on who wrote the page:
-#   * Sheet Maker (services/sheet-tool/packer.py `compose`) measures the FULL
-#     ART CANVAS, `scale = min(rw/nw, rh/nh, 1.0)` — the 1.0 clamp means it
-#     NEVER upscales — then centres the visible bbox in the rect. Rect bigger
-#     than the art => transparent margin. Signature: art bbox INSET in the rect.
-#   * Atlas Maker (batch_atlas.py `fit_to_region`) alpha-crops the art to its
-#     INK bbox, throws the canvas away, and scales THAT to the slot with NO 1.0
-#     clamp — so it upscales. Signature: art bbox FILLS the rect edge-to-edge
-#     (`fit_mode:"contain"` stops the distortion but NOT the upscale).
-# This page makes that difference visible: it re-measures each region's actual
-# alpha bbox from the COMPOSED PAGE PIXELS and reports fill-ratio + a verdict,
-# so a mixed FILL/INSET summary proves two producers wrote one page.
+# `bounds:` can produce visibly different art depending on who wrote the page.
+# The inspector answers that with three INDEPENDENT readings, deliberately kept
+# apart because they know different amounts:
+#
+# 1. INK COVERAGE (`FILLS` / `INSET n%`) — measured client-side from the
+#    composed page: how much of the rect the art's alpha bbox covers. This is a
+#    MEASUREMENT, NOT a provenance verdict, and must never be presented as one.
+#    An earlier revision of this page claimed FILLS => "written by a
+#    fill-the-slot composer" and a mixed page => "one page, two producers".
+#    That inference is UNSOUND and was removed; innocent causes of FILLS in the
+#    owner's own data:
+#      * `T_UI_Spin_Edge` INSET 88% vs `T_UI_Spin_Edge_glow` FILLS 100% — same
+#        art, same placement; shine.py's halo just blooms to the canvas edge.
+#        More ink, not a different producer.
+#      * `T_UI_Min`/`_Plus`/`_Turbo` FILLS with 0,0,0,0 margins — full-bleed
+#        icon art renders edge-to-edge under the SHEET packer too (its scale
+#        clamps at 1.0 and the canvas already equals the rect).
+#    And the converse: an atlas-composed `fit_mode:"contain"` region reads
+#    INSET despite having been upscaled. Coverage is still worth showing — it
+#    is how you SEE a region sitting small in its slot — it just cannot testify
+#    about who wrote it.
+#
+# 2. PLACEMENT MODE — which branch of `batch_atlas.fit_to_region` this region
+#    will take on the NEXT compose (see `_placement_mode`, which mirrors that
+#    dispatch). This is read from the manifest, not the pixels, and answers
+#    "will the sheet-parity path (912e8f5) do anything for this page?" — only
+#    an EXPLICIT `fit_mode:"contain"` reaches it, and only sheet-tool's
+#    `atlas_writers.build_manifest` writes that field. A manifest imported from
+#    a `.atlas` (`_tp_frame_to_region`) carries trim but no `fit_mode`, so its
+#    regions default to `fill` and the parity fix is a no-op for them.
+#
+# 3. SHEET PARITY (`MATCHES SHEET` / `DIFFERS` / `NO SOURCE`) — the decisive
+#    test and the headline. Server-side (`_parity_of`), per region: recompose
+#    the tile from the region's SOURCE ART through the real
+#    `_packer_compose_tile` and compare against the page's actual rect pixels.
+#    Unlike (1) this is evidence rather than inference, and it directly
+#    predicts whether re-running "Create Atlas" would move the region. Run
+#    on-demand from the page (one `/parityscan` pass) — it opens every source
+#    image, so it is not done eagerly on load.
 #
 # Reuse (docs/ui-inventory.md §5/§7): the alpha-bbox scan + cursor-anchored
 # wheel zoom are ported from the Sheet Maker's canvas idiom
@@ -2099,6 +2126,50 @@ def _js_json(value) -> str:
     return json.dumps(value).replace("<", "\\u003c")
 
 
+def _placement_mode(r: dict) -> dict:
+    """Which branch of `batch_atlas.fit_to_region` this region will take.
+
+    MIRRORS that function's dispatch exactly — keep the two in lockstep. The
+    order matters and is not re-derivable by eye:
+      1. an EXPLICIT `fit_mode == "contain"` short-circuits to the sheet-parity
+         path (`_packer_compose_tile`, a verbatim replay of packer.compose);
+      2. otherwise `mode = explicit or ("fill" if spine_slot else "contain")`,
+         where `spine_slot = "orig_w" in region and "orig_h" in region`;
+      3. that `mode` selects fill / cover / (else) the alpha-crop + letterbox
+         "contain" — so an UNKNOWN explicit value silently lands on letterbox,
+         which is why it gets its own label rather than being called "contain".
+
+    Only sheet-tool's `atlas_writers.build_manifest` stamps `fit_mode:"contain"`
+    on every cell it writes; the `.atlas`/TexturePacker import path
+    (`_tp_frame_to_region`) writes trim geometry but NO `fit_mode`. So this is
+    the field that decides whether the sheet-parity path is reachable at all
+    for a given manifest — hence the inspector reports it per region.
+
+    `key` is stable (for counting/CSS); `label` is prose for the UI.
+    Module-level + pure so it can be exercised offline."""
+    explicit = str(r.get("fit_mode", "")).strip().lower()
+    spine_slot = "orig_w" in r and "orig_h" in r
+    if explicit == "contain":
+        return {"key": "parity", "label": "contain (explicit) → sheet parity",
+                "note": "replays packer.compose verbatim — a Sheet-Maker cell "
+                        "recomposes byte-identically to its sheet"}
+    mode = explicit or ("fill" if spine_slot else "contain")
+    if mode == "fill":
+        return {"key": "fill",
+                "label": "fill (explicit)" if explicit
+                         else "fill (spine-slot default)",
+                "note": "crop to the alpha bbox, then stretch to the slot exactly"}
+    if mode == "cover":
+        return {"key": "cover", "label": "cover (explicit)",
+                "note": "crop to the alpha bbox, scale to cover the slot, "
+                        "crop the overflow"}
+    return {"key": "contain",
+            "label": ("contain (cell-grid default)" if not explicit
+                      else "contain (fallback from \"%s\")" % explicit),
+            "note": "crop to the alpha bbox, uniform-scale to fit, letterbox "
+                    "with transparent margin"}
+
+
 def _view_region(r: dict) -> dict | None:
     """Normalize ONE region for the Region Overlay Inspector's payload.
     Returns None for a region with no usable rect (nothing to outline).
@@ -2107,6 +2178,7 @@ def _view_region(r: dict) -> dict | None:
         w, h = int(r["w"]), int(r["h"])
     except (KeyError, TypeError, ValueError):
         return None
+    pm = _placement_mode(r)
     ox = int(r.get("off_x", 0) or 0)
     oy = int(r.get("off_y", 0) or 0)
     ow = int(r.get("orig_w", w) or w)
@@ -2122,7 +2194,99 @@ def _view_region(r: dict) -> dict | None:
         # drawing it would just double every outline. Mirrors the `offsets:`
         # emit condition in atlas_format.write_atlas.
         "trim": (ox, oy, ow, oh) != (0, 0, w, h),
+        "mode": pm["key"], "modeLabel": pm["label"], "modeNote": pm["note"],
     }
+
+
+# Max per-channel difference still called MATCHES SHEET. In principle the test
+# is EXACT: `_packer_compose_tile` is deterministic, PNG is lossless, and both
+# sides run the identical LANCZOS resize, so a genuinely sheet-composed region
+# recomposes byte-identically (measured: max delta 0 across a synthetic page —
+# see the offline proof). The tolerance exists only to absorb a page that made
+# a lossy round-trip somewhere (e.g. a WEBP-sourced re-import); it is far below
+# any real placement difference, which moves ink by whole pixels and shows up
+# as a delta of ~255 on the edges, not 2.
+PARITY_TOL = 2
+
+
+def _parity_source(region: dict) -> Path | None:
+    """The art `compose` would place for this region, resolved the SAME way
+    compose does (`override_image_path` first, else the picked/locked/latest
+    variant). Any divergence here would make the parity verdict a lie."""
+    p = batch_atlas.override_image_path(region)
+    if p is not None and p.exists():
+        return p
+    p = batch_atlas._pick_variant_png(BATCH_DIR, region)
+    return p if p is not None and p.exists() else None
+
+
+def _ink_bbox(im: Image.Image):
+    """Alpha bbox — the same ink test both composers apply."""
+    return im.getchannel("A").getbbox()
+
+
+def _parity_of(region: dict, page: Image.Image) -> dict:
+    """Does this region's page pixels match what `packer.compose` would produce
+    from its source art? THE discriminator — unlike the ink-fill ratio it is
+    evidence, not inference, and it directly predicts whether re-running
+    "Create Atlas" would move the region.
+
+    Recomposes the tile through the REAL `batch_atlas._packer_compose_tile`
+    (never a local copy — the parity fix is verified and must not be perturbed)
+    and replays compose's `canvas.paste(img, (rx, ry), img)` onto a transparent
+    canvas. That paste is NOT a no-op: PIL applies the mask to every band, so a
+    semi-transparent pixel lands as `src * a` (and alpha as `a * a / 255`).
+    Comparing the bare tile against the page would therefore differ on every
+    soft edge — the paste must be replayed for the comparison to mean anything.
+    """
+    src = _parity_source(region)
+    if src is None:
+        return {"verdict": "NO SOURCE", "delta": "",
+                "why": "no output_override and no generated variant — the art "
+                       "compose would place can't be resolved, so this "
+                       "region's pixels can't be predicted"}
+    rx, ry, tw, th = batch_atlas.region_box(region)
+    rotated = bool(region.get("rotated"))
+    try:
+        with Image.open(src) as raw:
+            img = raw.convert("RGBA")
+        tile = batch_atlas._packer_compose_tile(img, tw, th, rotated)
+    except (OSError, ValueError) as e:
+        return {"verdict": "NO SOURCE", "delta": "",
+                "why": f"source {src.name} could not be read: {e}"}
+    fw, fh = tile.size
+    expect = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
+    expect.paste(tile, (0, 0), tile)
+    actual = page.crop((rx, ry, rx + fw, ry + fh))
+
+    diff = ImageChops.difference(expect, actual)
+    max_delta = max((hi for _, hi in diff.getextrema()), default=0)
+    if max_delta <= PARITY_TOL:
+        return {"verdict": "MATCHES SHEET", "delta": f"max Δ {max_delta}",
+                "why": "the page pixels are what packer.compose produces from "
+                       "this art — re-running Create Atlas would not move it",
+                "src": src.name, "maxDelta": max_delta}
+
+    eb, ab = _ink_bbox(expect), _ink_bbox(actual)
+    bits = []
+    if eb and ab:
+        ew, eh = eb[2] - eb[0], eb[3] - eb[1]
+        aw, ah = ab[2] - ab[0], ab[3] - ab[1]
+        sw = (aw / ew) if ew else 0.0
+        sh = (ah / eh) if eh else 0.0
+        bits.append(f"{sw:.2f}x" if abs(sw - sh) < 0.02
+                    else f"{sw:.2f}x×{sh:.2f}x")
+        bits.append(f"origin ({eb[0]},{eb[1]})→({ab[0]},{ab[1]})")
+    elif ab and not eb:
+        bits.append("expected empty, page has ink")
+    elif eb and not ab:
+        bits.append("expected ink, page is empty")
+    bits.append(f"max Δ {max_delta}")
+    return {"verdict": "DIFFERS", "delta": ", ".join(bits),
+            "why": "the page pixels are NOT packer.compose's output for this "
+                   "art — some other placement wrote this rect, so a "
+                   "re-Create-Atlas would move it",
+            "src": src.name, "maxDelta": max_delta}
 
 
 ATLASVIEW = """<!doctype html><html><head><meta charset="utf-8">
@@ -2145,10 +2309,17 @@ __TOOLBAR_CSS__
    border:1px solid #2f2f37;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:13px}
  .sumbar .mix{background:#241f12;border:1px solid #7a5a1f;color:#ffc14d;
    border-radius:5px;padding:4px 9px;font-weight:600}
+ .sumbar .grp{display:flex;align-items:center;gap:6px}
+ .sumbar .sep{color:#4a4a55}
  .tag{display:inline-block;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700}
- .tag.fills{background:#4a1f1f;color:#ff8f8f;border:1px solid #7a2b2b}
+ .tag.fills{background:#3a2a12;color:#ffbf6d;border:1px solid #6a4a1f}
  .tag.inset{background:#241f12;color:#ffc14d;border:1px solid #7a5a1f}
  .tag.empty{background:#2a2a30;color:#8a8a95;border:1px solid #3a3a44}
+ .tag.parity{background:#14331f;color:#7fe0a0;border:1px solid #2f6b42}
+ .tag.differs{background:#4a1f1f;color:#ff8f8f;border:1px solid #7a2b2b}
+ .tag.nosrc{background:#2a2a30;color:#8a8a95;border:1px solid #3a3a44}
+ .tag.mode{background:#1c2c3d;color:#8ec8ff;border:1px solid #35566f;font-weight:600}
+ .tag.mode.m-parity{background:#14331f;color:#7fe0a0;border-color:#2f6b42}
  .rows{overflow:auto;flex:1 1 auto;min-height:0}
  .row{padding:6px 8px;border-radius:5px;cursor:pointer;border:1px solid transparent;font-size:12px}
  .row:hover{background:#2b2b33} .row.sel{background:#243447;border-color:#5db0ff}
@@ -2183,6 +2354,15 @@ __TOOLBAR__
     <button onclick="zoomBy(0.8)">&minus;</button>
    </div>
   </div>
+  <div class="panel">
+   <h3>Sheet parity</h3>
+   <div style="font-size:11px;color:#8a8a95;line-height:1.45;margin-bottom:8px">
+    Recomposes every region from its source art through the real
+    <code>packer.compose</code> replay and diffs it against the page pixels.
+    Reads every source image, so it runs on demand.</div>
+   <button id="pbtn" onclick="runParity()">&#9654; Run sheet-parity scan</button>
+   <div id="pstat" style="font-size:11px;color:#8a8a95;margin-top:6px"></div>
+  </div>
   <div class="panel" style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0">
    <h3>Regions (<span id="rcount">0</span>)</h3>
    <input type="text" id="filter" placeholder="filter by name…" oninput="renderList()">
@@ -2195,11 +2375,27 @@ __TOOLBAR__
 </div>
 <div class="sumbar" id="sumbar">measuring…</div>
 <div class="legend" style="padding-bottom:10px">
- <b>FILLS</b> = the art's alpha bbox reaches the rect edge on both axes (&ge;98%) — the Atlas Maker
- crops to ink and scales to the slot with no never-upscale clamp.
- <b>INSET n%</b> = the bbox covers only n% of the rect's smaller axis, centred with margin — the
- Sheet Maker's <code>min(rw/nw, rh/nh, 1.0)</code> against the full art canvas.
- Fill % and margins are reported in the region's <i>unrotated</i> (authored) axes.
+ <b>Sheet parity</b> (run the scan) recomposes the region from its source art with the real
+ <code>packer.compose</code> replay and diffs it against the page pixels.
+ <span class="tag parity">MATCHES SHEET</span> = identical within a tolerance of
+ <b>max &Delta;__TOL__</b> per channel &mdash; re-running <b>Create Atlas</b> would not move it.
+ <span class="tag differs">DIFFERS</span> = something else placed this rect; the delta reports how
+ far off (ink scale ratio + origin shift). <span class="tag nosrc">NO SOURCE</span> = the art
+ can't be resolved, so nothing can be predicted. This is the only reading here that is
+ <i>evidence</i> of how a region was placed.
+ <br>
+ <b>Placement mode</b> is read from the manifest: which branch of <code>fit_to_region</code> the
+ NEXT compose will take. Only an <b>explicit <code>fit_mode:"contain"</code></b> reaches the
+ sheet-parity path, and only the Sheet Maker writes that field &mdash; regions imported from a
+ <code>.atlas</code> carry trim but no <code>fit_mode</code> and default to <b>fill</b>.
+ <br>
+ <b>Ink coverage</b> is a measurement, <i>not</i> a verdict about who wrote the page.
+ <span class="tag fills">FILLS</span> = the alpha bbox reaches the rect edge on both axes
+ (&ge;__FILLT__%); <span class="tag inset">INSET n%</span> = it covers n% of the rect's smaller
+ axis. Both composers can produce either: full-bleed art FILLS under the sheet packer too, an FX
+ halo FILLS while its base is INSET, and a <code>contain</code> region reads INSET even when it was
+ upscaled. Use it to SEE an element sitting small in its slot &mdash; not to infer provenance.
+ Fill % and margins are in the region's <i>unrotated</i> (authored) axes.
  The untrimmed frame is drawn in the manifest's own TexturePacker Y-DOWN-from-top
  <code>off_y</code> convention (NOT Spine's Y-up) — as stored, uncorrected.
 </div>
@@ -2211,6 +2407,8 @@ var HAS_PAGE = __HAS_PAGE__;
 
 var C_RECT = "#5db0ff", C_ART = "#ffc14d", C_TRIM = "#7ee0c0", C_SEL = "#ffffff";
 var FILL_T = 0.98;            // >= this on BOTH axes (unrotated) => FILLS
+var PARITY = {};              // name -> /parityscan verdict (empty until run)
+var PARITY_RUN = false;
 
 var cv = document.getElementById("view");
 var ctx = cv.getContext("2d");
@@ -2269,13 +2467,16 @@ function bboxIn(f){
   return {x:x0 + bx0, y:y0 + by0, w:bx1 - bx0, h:by1 - by0};
 }
 
-/* Measure one region: alpha bbox + fill ratio + verdict. Fill/margins are
-   reported in the region's UNROTATED axes so they line up with its w x h
-   label (a rotated region's page-space bbox has its axes swapped). */
+/* Measure one region's INK COVERAGE: alpha bbox + how much of the rect it
+   covers. `cov` is a description of the pixels, NOT a claim about which
+   composer wrote them (full-bleed art fills the rect under either one) — see
+   the ATLASVIEW header. Fill/margins are reported in the region's UNROTATED
+   axes so they line up with its w x h label (a rotated region's page-space
+   bbox has its axes swapped). */
 function measure(r){
   var f = footprint(r);
   var bb = bboxIn(f);
-  if(!bb) return {verdict:"EMPTY", bbox:null, fillW:0, fillH:0, fill:0,
+  if(!bb) return {cov:"EMPTY", bbox:null, fillW:0, fillH:0, fill:0,
                   ml:0, mt:0, mr:0, mb:0};
   var lx = bb.x - f.x, ly = bb.y - f.y;                 // bbox origin in the rect
   var bw = bb.w, bh = bb.h, ol = lx, ot = ly;
@@ -2285,12 +2486,19 @@ function measure(r){
     ot = f.w - (lx + bb.w);                             // upright v = h - page-local x
   }
   var fw = r.w ? bw / r.w : 0, fh = r.h ? bh / r.h : 0;
-  var verdict = (fw >= FILL_T && fh >= FILL_T) ? "FILLS" : "INSET";
-  return {verdict:verdict, bbox:bb, fillW:fw, fillH:fh, fill:Math.min(fw, fh),
+  var cov = (fw >= FILL_T && fh >= FILL_T) ? "FILLS" : "INSET";
+  return {cov:cov, bbox:bb, fillW:fw, fillH:fh, fill:Math.min(fw, fh),
           ml:ol, mt:ot, mr:r.w - (ol + bw), mb:r.h - (ot + bh)};
 }
 
 function pct(v){ return Math.round(v * 100) + "%"; }
+function covLabel(m){ return m.cov === "INSET" ? "INSET " + pct(m.fill) : (m.cov || "?"); }
+function covClass(m){
+  return m.cov === "FILLS" ? "fills" : m.cov === "EMPTY" ? "empty" : "inset";
+}
+function parityClass(v){
+  return v === "MATCHES SHEET" ? "parity" : v === "DIFFERS" ? "differs" : "nosrc";
+}
 
 /* ---------- view transform ---------- */
 function fitView(){
@@ -2371,15 +2579,19 @@ function draw(){
     if(showArt && r._m && r._m.bbox) box(r._m.bbox, isSel ? C_SEL : C_ART, [2, 2]);
     if(showLbl && (zoom > 0.22 || isSel)){
       var lbl = r.name + "  " + r.w + "\\u00d7" + r.h + (r.rotated ? " \\u21bb" : "");
-      var vd = r._m ? (r._m.verdict === "INSET" ? "INSET " + pct(r._m.fill) : r._m.verdict) : "?";
-      var text = lbl + "  [" + vd + "]";
+      /* Parity is the headline once scanned — it is evidence; coverage is only
+         a description of the ink, so it steps down to the trailing slot. */
+      var p = PARITY[r.name];
+      var text = lbl + (p ? "  [" + p.verdict + "]" : "") +
+                 (r._m ? "  " + covLabel(r._m) : "");
       var tw = ctx.measureText(text).width;
       var lx = Math.round(sxOf(f.x)), ly = Math.round(syOf(f.y));
       ctx.fillStyle = "rgba(15,15,18,.82)";
       ctx.fillRect(lx, ly - 14, tw + 8, 14);
       ctx.fillStyle = isSel ? C_SEL
-        : (r._m && r._m.verdict === "FILLS") ? "#ff8f8f"
-        : (r._m && r._m.verdict === "EMPTY") ? "#8a8a95" : "#ffc14d";
+        : p ? (p.verdict === "MATCHES SHEET" ? "#7fe0a0"
+               : p.verdict === "DIFFERS" ? "#ff8f8f" : "#8a8a95")
+        : (r._m && r._m.cov === "EMPTY") ? "#8a8a95" : "#ffc14d";
       ctx.fillText(text, lx + 4, ly - 3);
     }
   });
@@ -2400,10 +2612,19 @@ function renderList(){
     var m = r._m || {};
     var d = document.createElement("div");
     d.className = "row" + (r.name === sel ? " sel" : "");
-    var cls = m.verdict === "FILLS" ? "fills" : m.verdict === "EMPTY" ? "empty" : "inset";
-    var vd = m.verdict === "INSET" ? "INSET " + pct(m.fill) : (m.verdict || "?");
-    d.innerHTML = "<div class=\\"nm\\">" + esc(r.name) +
-      " <span class=\\"tag " + cls + "\\">" + vd + "</span></div>" +
+    var p = PARITY[r.name];
+    /* Order = confidence: parity (evidence) first, then the mode the next
+       compose will use, then ink coverage (a description, not a verdict). */
+    var head = "<div class=\\"nm\\">" + esc(r.name) +
+      (p ? " <span class=\\"tag " + parityClass(p.verdict) + "\\" title=\\"" +
+           esc(p.why || "") + "\\">" + esc(p.verdict) + "</span>" : "") +
+      " <span class=\\"tag " + covClass(m) + "\\">" + covLabel(m) + "</span></div>";
+    var mode = "<div class=\\"sub\\"><span class=\\"tag mode m-" + esc(r.mode) +
+      "\\" title=\\"" + esc(r.modeNote || "") + "\\">" + esc(r.modeLabel) + "</span></div>";
+    var delta = (p && p.delta)
+      ? "<div class=\\"sub\\">" + esc(p.delta) + (p.src ? " \\u00b7 " + esc(p.src) : "") + "</div>"
+      : (p ? "<div class=\\"sub\\">" + esc(p.why || "") + "</div>" : "");
+    d.innerHTML = head + mode + delta +
       "<div class=\\"sub\\">" + r.x + "," + r.y + " " + r.w + "\\u00d7" + r.h +
       (r.rotated ? " rot" : "") + (r.trim ? " trim" : "") +
       (m.bbox ? " \\u00b7 fill " + pct(m.fillW) + "\\u00d7" + pct(m.fillH) +
@@ -2416,25 +2637,76 @@ function renderList(){
 }
 function esc(s){ var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
+/* Summary. Three separate readings, never blended into one "verdict":
+   parity (evidence) > placement mode (what the next compose will do) > ink
+   coverage (a measurement). Deliberately makes NO claim about who wrote the
+   page — a FILLS/INSET mix does not imply two producers. */
+var MODE_ORDER = ["parity", "fill", "contain", "cover"];
 function summarize(){
-  var fills = 0, inset = 0, empty = 0;
+  var cov = {FILLS:0, INSET:0, EMPTY:0};
+  var modes = {}, modeLabel = {};
   REGIONS.forEach(function(r){
-    if(!r._m) return;
-    if(r._m.verdict === "FILLS") fills++;
-    else if(r._m.verdict === "EMPTY") empty++;
-    else inset++;
+    if(r._m && cov[r._m.cov] !== undefined) cov[r._m.cov]++;
+    modes[r.mode] = (modes[r.mode] || 0) + 1;
+    modeLabel[r.mode] = r.modeLabel;
   });
-  var s = "<b>" + REGIONS.length + "</b> regions on <code>" + esc(MANIFEST) + "</code> &middot; " +
-    "<span class=\\"tag fills\\">FILLS</span> " + fills + " &middot; " +
-    "<span class=\\"tag inset\\">INSET</span> " + inset;
-  if(empty) s += " &middot; <span class=\\"tag empty\\">EMPTY</span> " + empty;
-  if(fills > 0 && inset > 0){
-    s += " <span class=\\"mix\\">\\u26a0 MIXED \\u2014 both conventions are on this page: " +
-      fills + " region(s) were written by a fill-the-slot composer (Atlas Maker: crop to ink, " +
-      "scale up to the rect) and " + inset + " by a never-upscale composer (Sheet Maker: fit the " +
-      "whole canvas, clamp at 1.0, centre). One page, two producers.</span>";
+  var s = "<span class=\\"grp\\"><b>" + REGIONS.length + "</b> regions on <code>" +
+    esc(MANIFEST) + "</code></span>";
+
+  /* Headline: the recompose verdict, once it has been run. */
+  if(PARITY_RUN){
+    var pc = {"MATCHES SHEET":0, "DIFFERS":0, "NO SOURCE":0};
+    REGIONS.forEach(function(r){
+      var p = PARITY[r.name];
+      if(p && pc[p.verdict] !== undefined) pc[p.verdict]++;
+    });
+    s += "<span class=\\"sep\\">|</span><span class=\\"grp\\"><b>Sheet parity:</b> " +
+      "<span class=\\"tag parity\\">MATCHES SHEET</span> " + pc["MATCHES SHEET"] +
+      " <span class=\\"tag differs\\">DIFFERS</span> " + pc["DIFFERS"] +
+      " <span class=\\"tag nosrc\\">NO SOURCE</span> " + pc["NO SOURCE"] + "</span>";
   }
+
+  /* Does the sheet-parity path apply to this page at all? */
+  var mbits = [];
+  MODE_ORDER.concat(Object.keys(modes)).forEach(function(k){
+    if(!modes[k] || mbits.indexOf(k) >= 0) return;
+    mbits.push(k);
+  });
+  var mtxt = mbits.map(function(k){
+    return "<span class=\\"tag mode m-" + esc(k) + "\\">" + esc(modeLabel[k]) +
+           "</span> " + modes[k];
+  }).join(" ");
+  s += "<span class=\\"sep\\">|</span><span class=\\"grp\\"><b>Placement:</b> " + mtxt + "</span>";
+  if(!modes.parity){
+    s += " <span class=\\"mix\\">\\u26a0 No region on this page carries an explicit " +
+      "fit_mode:\\"contain\\", so the sheet-parity compose path is unreachable here \\u2014 " +
+      "this manifest was not written by the Sheet Maker.</span>";
+  }
+
+  s += "<span class=\\"sep\\">|</span><span class=\\"grp\\"><b>Ink coverage:</b> " +
+    "<span class=\\"tag fills\\">FILLS</span> " + cov.FILLS + " " +
+    "<span class=\\"tag inset\\">INSET</span> " + cov.INSET +
+    (cov.EMPTY ? " <span class=\\"tag empty\\">EMPTY</span> " + cov.EMPTY : "") +
+    "</span>";
   $("sumbar").innerHTML = s;
+}
+
+/* On-demand: one server pass recomposes every region through the real
+   packer.compose replay and diffs it against the page. */
+function runParity(){
+  var b = $("pbtn");
+  b.disabled = true;
+  $("pstat").textContent = "recomposing " + REGIONS.length + " regions\\u2026";
+  fetch("/parityscan?t=" + Date.now()).then(function(res){ return res.json(); })
+   .then(function(j){
+     b.disabled = false;
+     if(j.error){ $("pstat").textContent = "failed: " + j.error; return; }
+     PARITY = j.regions || {};
+     PARITY_RUN = true;
+     $("pstat").textContent = "done in " + j.ms + " ms \\u00b7 tolerance max \\u0394 " + j.tol;
+     summarize(); renderList(); draw();
+   })
+   .catch(function(e){ b.disabled = false; $("pstat").textContent = "failed: " + e; });
 }
 
 /* ---------- interaction ---------- */
@@ -4267,6 +4539,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/atlasview":
             self._send(200, "text/html; charset=utf-8",
                        self._atlasview().encode("utf-8"))
+        elif path == "/parityscan":
+            self._send(200, "application/json", self._parityscan())
         elif path.startswith("/variants/"):
             name = path.rsplit("/", 1)[-1]
             items = [{"id": variant_id(p), "seed": seed_of(p)}
@@ -4447,7 +4721,39 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("__REGIONS__", _js_json(regions))
                 .replace("__PAGE_URL__", _js_json(img_url))
                 .replace("__MANIFEST__", _js_json(manifest_path().name))
+                .replace("__TOL__", str(PARITY_TOL))
+                .replace("__FILLT__", "98")
                 .replace("__HAS_PAGE__", "true" if af.exists() else "false"))
+
+    def _parityscan(self) -> bytes:
+        """Sheet-parity verdict for every region (see `_parity_of`).
+
+        One pass: the composed page is opened ONCE and each region's source is
+        recomposed against it. Called on demand from the inspector (a button),
+        not on load — it reads every source PNG off staging."""
+        af = atlas_file()
+        if not af.exists():
+            return json.dumps({"error": "no composed atlas yet"}).encode()
+        project_paths.ensure_lazy("batch/")  # variant pile hydrates on demand
+        out = {}
+        t0 = time.time()
+        try:
+            with Image.open(af) as raw:
+                page = raw.convert("RGBA")
+        except (OSError, ValueError) as e:
+            return json.dumps({"error": f"page unreadable: {e}"}).encode()
+        for r in all_regions(load_manifest()):
+            name = str(r.get("name", ""))
+            if not name:
+                continue
+            try:
+                out[name] = _parity_of(r, page)
+            except Exception as e:  # noqa: BLE001 — one bad region must not
+                # sink the whole scan; report it in place of a verdict.
+                out[name] = {"verdict": "NO SOURCE", "delta": "",
+                             "why": f"parity check failed: {e}"}
+        return json.dumps({"regions": out, "tol": PARITY_TOL,
+                           "ms": int((time.time() - t0) * 1000)}).encode()
 
     def _regionadv(self, name: str) -> bytes:
         m = load_manifest()

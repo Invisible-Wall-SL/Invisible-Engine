@@ -88,34 +88,81 @@ Per region it draws three layers (each toggleable), all in page pixels:
 | **Art alpha bbox** | amber | the art's **actual** opaque bounds, re-measured client-side from the composed page's pixels (`getImageData`, alpha > 0 — the same test PIL's `getbbox()` applies) |
 | **Untrimmed frame** | mint | only for regions carrying `off_x/off_y/orig_w/orig_h`. Drawn in the manifest's own **TexturePacker Y-DOWN-from-top** convention (*not* Spine's Y-up) — as stored, uncorrected |
 
-### Reading the verdict
+The inspector gives three **separate** readings per region, deliberately not
+blended — they know different amounts. Read them in this order.
 
-The art bbox vs the rect is the diagnostic. Each region gets a fill ratio and a
-verdict, reported in its **unrotated (authored)** axes:
+### 1. Sheet parity — the decisive test
 
-- **FILLS** — the bbox reaches the rect edge on both axes (≥98%). The art was
-  cropped to its ink, the canvas discarded, and the ink scaled to the slot with
-  no never-upscale clamp.
-- **INSET n%** — the bbox covers only n% of the rect's smaller axis, centred
-  with a margin. The art was fitted **whole-canvas** and clamped so it could
-  never upscale.
+Press **▶ Run sheet-parity scan**. For every region the server re-composes the
+tile from the region's **source art** (the same `output_override` → picked
+variant resolution `Create Atlas` uses) through the real `packer.compose` replay
+(`_packer_compose_tile`) and diffs it against the page's actual rect pixels:
+
+- **MATCHES SHEET** — the page pixels *are* `packer.compose`'s output for this
+  art. Re-running **Create Atlas** would not move the region.
+- **DIFFERS** — something else placed this rect. The delta reports how far off:
+  ink-bbox scale ratio + origin shift, e.g. `2.73x, origin (38,38)→(0,0)`.
+- **NO SOURCE** — no committed image and no generated variant, so the region's
+  pixels can't be predicted (not a fault; just no evidence).
+
+This is the only reading here that is **evidence** of how a region was placed,
+and the only one that predicts what a rebuild will do. The tolerance is `max Δ 2`
+per channel, and it is pure slack: the test is deterministic (same LANCZOS
+resize, lossless PNG), so a genuinely sheet-composed region recomposes
+**byte-identically** — measured `max Δ 0`. A real placement difference moves ink
+by whole pixels and reads `max Δ 255`. The scan opens every source image, so it
+runs on demand rather than on load.
+
+### 2. Placement mode — will the parity fix do anything here?
+
+Read from the manifest (not the pixels): which branch of `fit_to_region` the
+**next** compose will take.
+
+| Mode | Meaning |
+|---|---|
+| **contain (explicit) → sheet parity** | replays `packer.compose` verbatim — a Sheet-Maker cell recomposes byte-identically to its sheet |
+| **fill (spine-slot default)** | crop to the alpha bbox, stretch to the slot exactly |
+| **contain (cell-grid default)** | crop to the alpha bbox, uniform-scale to fit, letterbox |
+| **cover (explicit)** / **fill (explicit)** | as set on the region's ⚙ Advanced panel |
+
+Only an **explicit `fit_mode:"contain"`** reaches the sheet-parity path, and
+only the **Sheet Maker** writes that field (on every cell it emits). A manifest
+built by importing a `.atlas`/TexturePacker JSON into the Atlas Maker carries
+trim geometry but **no `fit_mode`**, so its regions default to `fill` and the
+parity path is unreachable — the summary says so outright. That single line
+answers "is this page a Sheet-Maker page or not?".
+
+### 3. Ink coverage — a measurement, not a verdict
+
+How much of the rect the art's alpha bbox covers, in the region's **unrotated
+(authored)** axes:
+
+- **FILLS** — the bbox reaches the rect edge on both axes (≥98%).
+- **INSET n%** — the bbox covers n% of the rect's smaller axis.
 - **EMPTY** — no opaque pixel in the rect; nothing was composed there.
 
-The summary line counts each. **A page with both FILLS and INSET regions was
-written by two composers with different rect conventions** — that alone is the
-finding. (See `docs/status/atlas-maker.md` for the current known instance:
-`sheet-tool/packer.py` `compose` uses `min(rw/nw, rh/nh, 1.0)` against the full
-art canvas; `atlas-tool/batch_atlas.py` `fit_to_region` alpha-crops to ink and
-fills the rect with no clamp. Same `bounds:`, art up to ~2.5× bigger and its
-origin shifted from the centred inset to the rect's corner. `fit_mode:"contain"`
-stops the distortion but not the upscale — those regions read as INSET with one
-axis pinned at 100%, which the per-axis `fill W%×H%` readout shows.)
+⚠️ **Coverage does not identify the producer.** An earlier version of this page
+claimed FILLS ⇒ "written by a fill-the-slot composer" and a mixed page ⇒ "one
+page, two producers". That inference is unsound and has been removed. Both
+composers can produce either reading:
 
-Two caveats when reading the numbers:
+- Full-bleed icon art (`T_UI_Min`/`_Plus`/`_Turbo`, margins `0,0,0,0`) renders
+  edge-to-edge under the **sheet** packer too — its scale clamps at 1.0 and the
+  canvas already equals the rect. FILLS, sheet-composed.
+- An FX halo blooms to its canvas edge: `T_UI_Spin_Edge` reads INSET 88% while
+  `T_UI_Spin_Edge_glow` reads FILLS 100% — **same art, same placement**, just
+  more ink.
+- Conversely an atlas-composed `fit_mode:"contain"` region reads INSET even
+  though it was upscaled.
+
+Coverage is still worth showing: it is how you *see* an element sitting small in
+its slot. Use **sheet parity** for provenance.
+
+Two caveats when reading the coverage numbers:
 
 - The bbox is the **rendered** one, so LANCZOS resampling rings the alpha out
   ~3px each side (+6px total, scale-independent). Small rects therefore read a
-  few points above their geometric fill. It never flips a verdict in practice.
+  few points above their geometric fill.
 - **Rotated** regions occupy an `(h × w)` footprint on the page (both composers
   `rotate(-90, expand=True)` after fitting upright). The inspector reads the
   page in that footprint and reports fill/margins back in the unrotated axes, so
@@ -123,7 +170,8 @@ Two caveats when reading the numbers:
 
 **Controls:** wheel = zoom to cursor · drag = pan · **Fit** resets to the whole
 page · click a region (canvas or sidebar) to select it · the sidebar filters by
-name and lists each region's rect, fill %, and margins.
+name and lists each region's parity verdict, placement mode, rect, fill %, and
+margins.
 
 ## Blueprints: resolved-workflow export (debugging)
 
