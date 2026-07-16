@@ -10,6 +10,7 @@
 	import {
 		STATE_LABELS,
 		visibleStatesFor,
+		clearBoardGlow,
 		clearHighlight,
 		clearOverride,
 		clearWinLineStyle,
@@ -17,12 +18,14 @@
 		effectiveCell,
 		effectiveHighlight,
 		saveSymbolsDoc,
+		setBoardGlow,
 		setHighlight,
 		setOverride,
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
 		winLineEnabled,
+		type BoardGlowConfig,
 		type SymbolCell,
 		type SymbolState,
 		type SymbolsDoc,
@@ -197,7 +200,6 @@
 		closeCell();
 	}
 
-
 	function resetCell(symbol: string, state: SymbolState): void {
 		doc = clearOverride(doc, symbol, state);
 		if (focus && focus.symbol === symbol && focus.state === state) closeCell();
@@ -300,6 +302,86 @@
 	function resetHighlight(): void {
 		doc = clearHighlight(doc);
 		closeHighlight();
+	}
+
+	// ── Free-spin board glow ──────────────────────────────────────────────────
+	// The reel-house backdrop spine BEHIND the reels during free spins. The game's built-in
+	// default is the coded `reelhouse` glow (BoardFrame.svelte), which plays a fixed
+	// start→idle→exit chain. That key ships as a LOCAL game asset, so — exactly like the
+	// highlight's payframe — we can only preview it when a matching R2 bundle happens to exist.
+	// An override swaps the ART (any R2 spine bundle, Rigger `.irig` rigs included) and may
+	// rename the three tracks; the ENGINE still owns the chaining.
+	const BUILTIN_GLOW = {
+		assetKey: 'reelhouse',
+		animations: {
+			start: 'reelhouse_glow_start',
+			idle: 'reelhouse_glow_idle',
+			exit: 'reelhouse_glow_exit',
+		},
+	};
+	const GLOW_TRACKS = [
+		{ track: 'start', label: 'Start animation' },
+		{ track: 'idle', label: 'Idle (loop)' },
+		{ track: 'exit', label: 'Exit animation' },
+	] as const;
+	const defaultGlowBundle = $derived(
+		doc.boardGlow
+			? undefined
+			: spineBundles.find(
+					(b) =>
+						b.name === BUILTIN_GLOW.assetKey ||
+						b.key === BUILTIN_GLOW.assetKey ||
+						b.key.split('/').includes(BUILTIN_GLOW.assetKey),
+				),
+	);
+	let glowEditing = $state(false);
+	let glowDraft = $state<BoardGlowConfig | null>(null);
+	let glowAnimations = $state<string[]>([]);
+
+	function openGlow(): void {
+		// `$state.snapshot` (NOT `structuredClone`) — `doc.boardGlow` is a `$state` proxy and
+		// `structuredClone` throws `DataCloneError` on one (same trap as `openCell`/`openHighlight`).
+		glowDraft = doc.boardGlow
+			? ($state.snapshot(doc.boardGlow) as BoardGlowConfig)
+			: { type: 'spine', assetKey: '', animations: {} };
+		glowAnimations = [];
+		glowEditing = true;
+	}
+
+	function closeGlow(): void {
+		glowEditing = false;
+		glowDraft = null;
+		glowAnimations = [];
+	}
+
+	/** Keep the doc SPARSE: only write a track the author actually named, and drop `animations`
+	 *  entirely when none are set, so an art-only swap ships `{ type, assetKey }` and every
+	 *  animation still falls through to its coded `reelhouse_glow_*` name. */
+	function applyGlow(): void {
+		if (!glowDraft || !glowDraft.assetKey) return;
+		const animations: NonNullable<BoardGlowConfig['animations']> = {};
+		if (glowDraft.animations?.start) animations.start = glowDraft.animations.start;
+		if (glowDraft.animations?.idle) animations.idle = glowDraft.animations.idle;
+		if (glowDraft.animations?.exit) animations.exit = glowDraft.animations.exit;
+		const glow: BoardGlowConfig = { type: 'spine', assetKey: glowDraft.assetKey };
+		if (Object.keys(animations).length) glow.animations = animations;
+		const sr = glowDraft.sizeRatios;
+		if (sr && Number(sr.width) > 0 && Number(sr.height) > 0) {
+			glow.sizeRatios = { width: Number(sr.width), height: Number(sr.height) };
+		}
+		doc = setBoardGlow(doc, glow);
+		closeGlow();
+	}
+
+	function resetGlow(): void {
+		doc = clearBoardGlow(doc);
+		closeGlow();
+	}
+
+	/** Set one sparse animation track on the draft. */
+	function setGlowTrack(track: 'start' | 'idle' | 'exit', value: string): void {
+		if (!glowDraft) return;
+		glowDraft.animations = { ...(glowDraft.animations ?? {}), [track]: value };
 	}
 
 	// ── Global win-line overlay (on/off + style) ──────────────────────────────
@@ -521,6 +603,148 @@
 					</div>
 				</section>
 
+				<section class="highlight" class:editing={glowEditing}>
+					<div class="hl-head">
+						<div class="hl-title">
+							<h2>Free-spin board glow</h2>
+							<p class="hl-sub">
+								The glow behind the reels during free spins. Swap the art for any R2 spine bundle (a
+								Rigger rig included); the game still plays it start → idle → exit.
+							</p>
+						</div>
+						<div class="hl-actions">
+							{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
+							{#if glowEditing}
+								<button type="button" class="ghost" onclick={closeGlow}>Cancel</button>
+							{:else}
+								<button type="button" class="hl-change" onclick={openGlow}>Change</button>
+								{#if doc.boardGlow}
+									<button type="button" class="ghost" onclick={resetGlow}>Reset to default</button>
+								{/if}
+							{/if}
+						</div>
+					</div>
+
+					<div class="hl-body">
+						<div class="hl-current">
+							{#if doc.boardGlow}
+								<div class="hl-preview">
+									<SymbolSpinePreview
+										assetKey={doc.boardGlow.assetKey}
+										animationName={doc.boardGlow.animations?.idle ??
+											doc.boardGlow.animations?.start}
+										size={96}
+										{reloadToken}
+									/>
+								</div>
+								<div class="hl-meta">
+									<span class="hl-label">Override</span>
+									<span class="hl-chip">
+										{doc.boardGlow.assetKey.split('/').filter(Boolean).pop()}
+									</span>
+									{#if doc.boardGlow.animations?.idle}
+										<span class="hl-anim">{doc.boardGlow.animations.idle}</span>
+									{/if}
+								</div>
+							{:else if defaultGlowBundle}
+								<div class="hl-preview">
+									<SymbolSpinePreview
+										assetKey={defaultGlowBundle.key}
+										animationName={BUILTIN_GLOW.animations.idle}
+										size={96}
+										{reloadToken}
+									/>
+								</div>
+								<div class="hl-meta">
+									<span class="hl-label">Default (reelhouse)</span>
+									<span class="hl-chip">{defaultGlowBundle.name}</span>
+									<span class="hl-anim">{BUILTIN_GLOW.animations.idle}</span>
+								</div>
+							{:else}
+								<div class="hl-preview default">
+									<span class="hl-default-mark">reelhouse</span>
+								</div>
+								<div class="hl-meta">
+									<span class="hl-label">Default (reelhouse)</span>
+									<span class="hl-note">
+										Built-in local spine — not in R2, so it can't be previewed here. Pick an R2
+										spine to override it.
+									</span>
+								</div>
+							{/if}
+						</div>
+
+						{#if glowEditing && glowDraft}
+							<div class="hl-editor">
+								<div class="field">
+									<span class="label">Spine bundle</span>
+									<select
+										value={glowDraft.assetKey}
+										onchange={(e) => {
+											if (!glowDraft) return;
+											glowDraft.assetKey = e.currentTarget.value;
+											glowDraft.animations = {};
+											glowAnimations = [];
+										}}
+									>
+										<option value="">Pick a bundle…</option>
+										{#each spineBundles as b (b.key)}
+											<option value={b.key}>{b.name}</option>
+										{/each}
+									</select>
+								</div>
+								{#if glowDraft.assetKey}
+									<!-- Three sparse tracks — each left blank keeps its coded `reelhouse_glow_*`
+											 name, so a rig that only renames its loop needs one field. -->
+									{#each GLOW_TRACKS as row (row.track)}
+										<div class="field">
+											<span class="label">{row.label}</span>
+											{#if glowAnimations.length}
+												<select
+													value={glowDraft.animations?.[row.track] ?? ''}
+													onchange={(e) => setGlowTrack(row.track, e.currentTarget.value)}
+												>
+													<option value="">(coded default)</option>
+													{#each glowAnimations as anim (anim)}
+														<option value={anim}>{anim}</option>
+													{/each}
+												</select>
+											{:else}
+												<input
+													type="text"
+													placeholder={BUILTIN_GLOW.animations[row.track]}
+													value={glowDraft.animations?.[row.track] ?? ''}
+													oninput={(e) => setGlowTrack(row.track, e.currentTarget.value)}
+												/>
+											{/if}
+										</div>
+									{/each}
+									<div class="field">
+										<span class="label">Preview</span>
+										<div class="hl-preview">
+											<SymbolSpinePreview
+												assetKey={glowDraft.assetKey}
+												animationName={glowDraft.animations?.idle ?? glowDraft.animations?.start}
+												size={96}
+												{reloadToken}
+												onAnimations={(names) => (glowAnimations = names)}
+											/>
+										</div>
+									</div>
+								{/if}
+								<button
+									type="button"
+									class="apply"
+									disabled={!glowDraft.assetKey}
+									onclick={applyGlow}
+								>
+									Apply board glow
+								</button>
+							</div>
+						{/if}
+					</div>
+				</section>
+
 				<section class="winline" class:expanded={winLineOn}>
 					<div class="wl-head">
 						<div class="wl-text">
@@ -556,7 +780,9 @@
 										/>
 									</label>
 									<label class="field">
-										<span class="label">Thickness {(wlLine.width ?? WL_DEFAULTS.width).toFixed(3)}</span>
+										<span class="label"
+											>Thickness {(wlLine.width ?? WL_DEFAULTS.width).toFixed(3)}</span
+										>
 										<input
 											type="range"
 											min="0.005"
@@ -575,7 +801,9 @@
 												onchange={(e) => patchWinLineLine({ glow: e.currentTarget.checked })}
 											/>
 											<span class="track"><span class="knob"></span></span>
-											<span class="switch-label">{(wlLine.glow ?? WL_DEFAULTS.glow) ? 'On' : 'Off'}</span>
+											<span class="switch-label"
+												>{(wlLine.glow ?? WL_DEFAULTS.glow) ? 'On' : 'Off'}</span
+											>
 										</label>
 									</div>
 									<label class="field" class:disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}>
@@ -602,7 +830,9 @@
 										</label>
 									</div>
 									<label class="field" class:disabled={!(wlLine.animated ?? WL_DEFAULTS.animated)}>
-										<span class="label">Speed ×{(wlLine.speed ?? WL_DEFAULTS.speed).toFixed(2)}</span>
+										<span class="label"
+											>Speed ×{(wlLine.speed ?? WL_DEFAULTS.speed).toFixed(2)}</span
+										>
 										<input
 											type="range"
 											min="0.25"
@@ -651,9 +881,9 @@
 									</label>
 								</div>
 								<p class="wl-note">
-									The amount uses a bitmap font, so the colour tints it — clean on a light font,
-									but tinting an already-coloured font (e.g. gold) just darkens it. To recolour
-									cleanly, pick a differently-coloured font.
+									The amount uses a bitmap font, so the colour tints it — clean on a light font, but
+									tinting an already-coloured font (e.g. gold) just darkens it. To recolour cleanly,
+									pick a differently-coloured font.
 								</p>
 							</div>
 

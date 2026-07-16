@@ -111,6 +111,10 @@ export interface SymbolExportResult {
 	index: SymbolExportIndex;
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
+	/** The authored free-spin board glow (absent → game uses its coded `reelhouse` spine).
+	 *  Passed through VERBATIM: its bundle rides `index.spines` under the same `assetKey`, so
+	 *  the engine can load it with no rewriting — exactly like `highlight`. */
+	boardGlow?: SymbolsDoc['boardGlow'];
 	/** The global win-line config (on/off + line + text style), passed through VERBATIM
 	 *  (no asset work — the chosen text font travels via the font pipeline). Absent → the
 	 *  game keeps all its coded defaults. */
@@ -141,6 +145,11 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	// spine cell so its `index.spines` entry (keyed by the same `assetKey`) ships.
 	if (doc.highlight?.type === 'spine' && doc.highlight.assetKey) {
 		refs.spineKeys.add(doc.highlight.assetKey);
+	}
+	// So is the free-spin board glow — same reason. Without this the picker would show the rig in
+	// the tool while the game shipped nothing to load under that key (repo rule 8).
+	if (doc.boardGlow?.type === 'spine' && doc.boardGlow.assetKey) {
+		refs.spineKeys.add(doc.boardGlow.assetKey);
 	}
 	return refs;
 }
@@ -370,10 +379,16 @@ export async function exportEditorSymbols(
 	// all its coded defaults.
 	const winLine = doc.winLine;
 
+	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
+	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
+	// animation/size overrides, forwarded verbatim.
+	const boardGlow = doc.boardGlow;
+
 	return {
 		map: doc.symbols,
 		index,
 		...(highlight ? { highlight } : {}),
+		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),
 	};
 }

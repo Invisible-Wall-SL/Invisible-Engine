@@ -66,6 +66,36 @@ const highlightCellSchema = z
 	})
 	.strict();
 
+/**
+ * Global free-spin BOARD-GLOW override — the reel-house backdrop spine behind the reels. Optional +
+ * spine-only, mirroring {@link highlightCellSchema}: absent means the game keeps its coded
+ * `reelhouse` glow, so an untouched project ships no `boardGlow` and renders byte-identical.
+ *
+ * `animations` names the coded start→idle→exit chain's three tracks (the engine still OWNS the
+ * chaining; this only renames the animations it plays), each sparse — an unset one falls through to
+ * its coded `reelhouse_glow_*` name, so a rig that only renames the loop needs one field.
+ *
+ * `sizeRatios` is the asset's OWN fit ratio against the board box (the coded spine's 0.62×0.66),
+ * optional here — NOT a doc-level layout global. The doc-level `defaultSizeRatios` was deliberately
+ * removed from this schema (design §S1) because reel LAYOUT belongs in the Scene Editor; this is the
+ * per-asset ratio a swapped rig needs to fit the same box, the same thing `highlight.sizeRatios` is.
+ */
+const boardGlowSchema = z
+	.object({
+		type: z.literal('spine'),
+		assetKey: z.string().min(1),
+		animations: z
+			.object({
+				start: z.string().min(1).optional(),
+				idle: z.string().min(1).optional(),
+				exit: z.string().min(1).optional(),
+			})
+			.strict()
+			.optional(),
+		sizeRatios: sizeRatiosSchema.optional(),
+	})
+	.strict();
+
 /** Win-line overlay config (Invisible Symbols State Machine). All fields optional and
  *  sparse — anything unset falls through to the game's coded defaults, so an untouched
  *  project ships no `winLine` and renders byte-identical. `enabled` absent means ON;
@@ -105,6 +135,7 @@ export const symbolsDocSchema = z
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
 		highlight: highlightCellSchema.optional(),
+		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
@@ -143,6 +174,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	}
 	const next: SymbolsDoc = { version: 1, symbols };
 	if (doc.highlight) next.highlight = doc.highlight;
+	// Copied explicitly — this rebuild is a whitelist, so a field that passes Zod but isn't listed
+	// here is still dropped on save (the silent round-trip trap).
+	if (doc.boardGlow) next.boardGlow = doc.boardGlow;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;
 	return next;
@@ -152,10 +186,7 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
  * Load a project's symbols doc, falling back to an empty valid doc when the R2
  * object is missing or unparseable (parity with `loadDoc`).
  */
-export async function loadSymbolsDoc(
-	clientKey: string,
-	projectKey: string,
-): Promise<SymbolsDoc> {
+export async function loadSymbolsDoc(clientKey: string, projectKey: string): Promise<SymbolsDoc> {
 	const raw = await getObjectText(symbolsDocKey(clientKey, projectKey));
 	if (!raw) return emptySymbolsDoc();
 	try {

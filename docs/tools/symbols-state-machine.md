@@ -114,9 +114,40 @@ chosen spine bundle travels the same chain as a per-symbol spine cell (its bundl
 copied into `deploy/editor-symbols/` and registered), and the bundle records the
 highlight pointer so the game loads the authored win frame by `assetKey`.
 
+### Free-spin board glow
+
+Below the highlight is the **Free-spin board glow** section. The board glow is the
+single, **global** spine that lights up *behind the reels* for the duration of a
+free-spin session — the pink "reelhouse" backdrop in a stock game. Like the highlight, the
+built-in default (spine key `reelhouse`) lives in the game's own repo, NOT in R2, so it
+shows as a **Default (reelhouse)** placeholder unless the project happens to have a
+matching R2 bundle.
+
+- **Change** opens an inline editor: pick a **Spine bundle** from the project's (and
+  shared) R2 bundles — **including a rig exported from the Invisible Rigger**, which ships
+  correctly here because the exporter renames a `.irig` skeleton to `.json` on the way out.
+- The glow plays a three-step chain — **Start animation → Idle (loop) → Exit animation**.
+  Each is optional: leave one blank and it keeps its coded `reelhouse_glow_*` name, so a rig
+  that only renames its loop needs one field. The **Preview** plays the idle animation.
+- **Apply board glow** records the override; **Reset to default** removes it.
+
+The override is one optional top-level field:
+`boardGlow: { type: 'spine', assetKey, animations?: { start?, idle?, exit? }, sizeRatios? }`.
+Nothing is written unless you set it, so an untouched project is byte-identical. The chosen
+bundle travels the same export/bake chain as a per-symbol spine cell.
+
+**What this section does and doesn't control.** It owns the glow's **art** — the engine
+still owns the *sequence* (start → idle → exit) and the *timing*. Timing is authored in
+**Invisible Flow** (`/flow-v2`): the coded free-spin handlers fire the glow on
+`freeSpinTrigger` / `freeSpinEnd`, and a flow that OWNS those events drives it with the
+`boardFrameGlowShow` / `boardFrameGlowHide` **Fire Cue** nodes. If you want to replace the
+glow *entirely* — your own layered art, not one spine — use the **Board glow (free spins)**
+screen in the Scene Editor instead; real content there suppresses the coded glow (and with
+it this section's override).
+
 ### Win lines
 
-Below the highlight is the **Win lines** section: a single **global** on/off toggle plus
+Below the board glow is the **Win lines** section: a single **global** on/off toggle plus
 the style of the in-game winning-payline overlay — the line traced across each winning
 payline, with the win amount stamped under its end. It is pure config (no asset, no
 preview). The toggle is **On by default**; flip it off to hide the overlay for the whole

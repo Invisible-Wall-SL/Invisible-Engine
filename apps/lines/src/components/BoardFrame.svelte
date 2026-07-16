@@ -8,23 +8,32 @@
 	import { SpineProvider, SpineTrack } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
+	import { bakedBoardGlow } from '../editor-scenes';
 
 	const context = getContext();
-	const SPINE_SCALE = { width: 0.62, height: 0.66 };
 	const POSITION_ADJUSTMENT = 1.01;
 
-	type AnimationName = 'reelhouse_glow_start' | 'reelhouse_glow_idle' | 'reelhouse_glow_exit';
+	// The free-spin glow, authored in the Invisible Symbols State Machine (art / `.irig` rig +
+	// renamed animations + fit ratio). Every field is a SPARSE override: unset falls through to the
+	// coded `reelhouse` constants below, so an un-authored game renders byte-identically. The engine
+	// still OWNS the start→idle→exit chaining — the author swaps WHAT plays, not the sequence.
+	const glow = bakedBoardGlow();
+	const SPINE_KEY = glow?.assetKey ?? 'reelhouse';
+	const START = glow?.animations?.start ?? 'reelhouse_glow_start';
+	const IDLE = glow?.animations?.idle ?? 'reelhouse_glow_idle';
+	const EXIT = glow?.animations?.exit ?? 'reelhouse_glow_exit';
+	const SPINE_SCALE = glow?.sizeRatios ?? { width: 0.62, height: 0.66 };
 
-	let animationName = $state<AnimationName | undefined>(undefined);
+	let animationName = $state<string | undefined>(undefined);
 	let loop = $state(false);
 
 	context.eventEmitter.subscribeOnMount({
 		boardFrameGlowShow: () => {
-			animationName = 'reelhouse_glow_start';
+			animationName = START;
 			loop = false;
 		},
 		boardFrameGlowHide: () => {
-			if (animationName) animationName = 'reelhouse_glow_exit';
+			if (animationName) animationName = EXIT;
 		},
 	});
 </script>
@@ -32,7 +41,7 @@
 {#if animationName}
 	<SpineProvider
 		zIndex={-1}
-		key="reelhouse"
+		key={SPINE_KEY}
 		x={context.stateGameDerived.boardLayout().x * POSITION_ADJUSTMENT}
 		y={context.stateGameDerived.boardLayout().y * POSITION_ADJUSTMENT}
 		width={context.stateGameDerived.boardLayout().width *
@@ -49,12 +58,12 @@
 			listener={{
 				complete: (entry) => {
 					if (entry.animation) {
-						if (entry.animation.name === 'reelhouse_glow_start') {
-							animationName = 'reelhouse_glow_idle';
+						if (entry.animation.name === START) {
+							animationName = IDLE;
 							loop = true;
 						}
 
-						if (entry.animation.name === 'reelhouse_glow_exit') {
+						if (entry.animation.name === EXIT) {
 							animationName = undefined;
 							loop = false;
 						}

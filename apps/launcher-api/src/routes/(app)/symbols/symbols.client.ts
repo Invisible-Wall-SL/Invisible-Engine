@@ -97,6 +97,16 @@ export interface WinLineConfig {
 	text?: WinLineTextStyle;
 }
 
+/** The free-spin board-glow override. Mirrors the server `boardGlowSchema`. */
+export interface BoardGlowConfig {
+	type: 'spine';
+	assetKey: string;
+	/** Sparse — an unset track keeps its coded `reelhouse_glow_*` name. */
+	animations?: { start?: string; idle?: string; exit?: string };
+	/** The asset's own fit ratio against the board box; unset = the coded 0.62 × 0.66. */
+	sizeRatios?: { width: number; height: number };
+}
+
 export interface SymbolsDoc {
 	version: 1;
 	symbols: Record<string, SymbolStateMap>;
@@ -104,6 +114,12 @@ export interface SymbolsDoc {
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
 	 *  it with an R2 spine bundle; never written for the default. */
 	highlight?: SymbolCell;
+	/** Global free-spin board-glow spine — the reel-house backdrop behind the reels. Absent =
+	 *  the game's coded `reelhouse` glow. Set ONLY when the user swaps in an R2 spine bundle
+	 *  (a Rigger `.irig` rig included); never written for the default. `animations` renames the
+	 *  coded start/idle/exit tracks (the engine still owns the chaining); `sizeRatios` is the
+	 *  swapped asset's own fit ratio against the board box. */
+	boardGlow?: BoardGlowConfig;
 	/** Global win-line overlay config (on/off + line + text style). A pure-config field,
 	 *  no asset. Absent = the game defaults (overlay ON, gold line). The effective on/off
 	 *  is `doc.winLine?.enabled ?? true`; every style field falls through to coded
@@ -182,6 +198,19 @@ export function clearHighlight(doc: SymbolsDoc): SymbolsDoc {
 	if (!doc.highlight) return doc;
 	const next = { ...doc };
 	delete next.highlight;
+	return next;
+}
+
+/** Set the global board-glow override, returning a NEW doc (immutable update). */
+export function setBoardGlow(doc: SymbolsDoc, glow: BoardGlowConfig): SymbolsDoc {
+	return { ...doc, boardGlow: glow };
+}
+
+/** Clear the board-glow override (reset to the coded `reelhouse` glow). New doc. */
+export function clearBoardGlow(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.boardGlow) return doc;
+	const next = { ...doc };
+	delete next.boardGlow;
 	return next;
 }
 
@@ -284,7 +313,16 @@ export function docSignature(doc: SymbolsDoc): string {
 				text: sortKeys(doc.winLine.text),
 			}
 		: null;
-	return JSON.stringify({ symbols, highlight, winLine });
+	// Listed here or an edit never marks the page dirty and Save stays disabled.
+	const boardGlow = doc.boardGlow
+		? {
+				type: doc.boardGlow.type,
+				assetKey: doc.boardGlow.assetKey,
+				animations: sortKeys(doc.boardGlow.animations),
+				sizeRatios: sortKeys(doc.boardGlow.sizeRatios),
+			}
+		: null;
+	return JSON.stringify({ symbols, highlight, boardGlow, winLine });
 }
 
 /** Persist the doc to R2 via the S2 endpoint; returns the stamped doc. */
@@ -296,6 +334,7 @@ export async function saveSymbolsDoc(project: string, doc: SymbolsDoc): Promise<
 			version: 1,
 			symbols: doc.symbols,
 			...(doc.highlight ? { highlight: doc.highlight } : {}),
+			...(doc.boardGlow ? { boardGlow: doc.boardGlow } : {}),
 			...(doc.winLine ? { winLine: doc.winLine } : {}),
 		}),
 	});

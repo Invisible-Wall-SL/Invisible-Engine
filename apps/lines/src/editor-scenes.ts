@@ -1,13 +1,7 @@
 import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
-import type {
-	ComponentDef,
-	FontCatalog,
-	LayoutDoc,
-	LayoutNode,
-	RigFxBinding,
-} from 'engine-layout';
+import type { ComponentDef, FontCatalog, LayoutDoc, LayoutNode, RigFxBinding } from 'engine-layout';
 import {
 	editorArtNamespace,
 	registerComponentDefaults,
@@ -113,6 +107,18 @@ type BakedBundle = {
 		 * per-symbol spine cells, so it is already loadable under its `assetKey`. Absent →
 		 * `SymbolSpine.svelte` keeps the coded `anticipation`/`payframe` frame. */
 		highlight?: { assetKey: string; animationName: string };
+		/** Free-spin BOARD GLOW (Invisible Symbols State Machine output) — the reel-house
+		 * backdrop spine behind the reels. `assetKey` is the engine spine-asset key the bundle
+		 * registers: like `highlight`, its bundle is exported to `deploy/editor-symbols/` and
+		 * registered via `index.spines`, so it is already loadable (a Rigger `.irig` skeleton
+		 * ships renamed to `.json` by `exportSpineBundle`, so rigs work here). `animations` and
+		 * `sizeRatios` are sparse — each unset field falls through to the coded constant in
+		 * `BoardFrame.svelte`. Absent → `BoardFrame` keeps the coded `reelhouse` glow. */
+		boardGlow?: {
+			assetKey: string;
+			animations?: { start?: string; idle?: string; exit?: string };
+			sizeRatios?: { width: number; height: number };
+		};
 		/** Global win-line overlay config (Invisible Symbols State Machine output): on/off
 		 * plus line + win-amount-text style. Pure config, no asset (the chosen `text.font`
 		 * travels via the font pipeline). Sparse — every field falls through to the coded
@@ -393,6 +399,20 @@ export function bakedHighlight(): { assetKey: string; animationName: string } | 
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.highlight;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.highlight;
+}
+
+/**
+ * The free-spin BOARD GLOW authored in the Invisible Symbols State Machine — the reel-house spine
+ * behind the reels. When set, `BoardFrame.svelte` plays this spine (and any renamed
+ * start/idle/exit animations + fit ratio) instead of the coded `reelhouse` glow. Its bundle rides
+ * `symbols.index.spines` (registered like a per-symbol spine cell), so the `assetKey` is already
+ * loadable. Mirrors `bakedHighlight`'s runtime→baked→undefined resolution; undefined → the coded
+ * glow, byte-identical to an un-authored game.
+ */
+export function bakedBoardGlow(): BakedBundle['symbols']['boardGlow'] {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.boardGlow;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.boardGlow;
 }
 
 /**

@@ -296,6 +296,7 @@ async function main() {
 		map: {},
 		index: { sheets: [], images: [], spines: [], collisions: [] },
 		highlight: undefined,
+		boardGlow: undefined,
 		winLine: undefined,
 	};
 	const symbolsUrl =
@@ -320,6 +321,27 @@ async function main() {
 							assetKey: s.highlight.assetKey,
 							...(typeof s.highlight.animationName === 'string'
 								? { animationName: s.highlight.animationName }
+								: {}),
+						}
+					: undefined;
+			// The free-spin board glow (absent → game keeps its coded `reelhouse` spine). Like
+			// `highlight`, `assetKey` is the full R2 spine-bundle prefix already in `index.spines`.
+			// `animations`/`sizeRatios` are sparse overrides — carried through only when present, so
+			// an untouched project ships no `boardGlow` and renders byte-identical.
+			const boardGlow =
+				s?.boardGlow && typeof s.boardGlow === 'object' && typeof s.boardGlow.assetKey === 'string'
+					? {
+							assetKey: s.boardGlow.assetKey,
+							...(s.boardGlow.animations &&
+							typeof s.boardGlow.animations === 'object' &&
+							Object.keys(s.boardGlow.animations).length
+								? { animations: s.boardGlow.animations }
+								: {}),
+							...(s.boardGlow.sizeRatios &&
+							typeof s.boardGlow.sizeRatios === 'object' &&
+							typeof s.boardGlow.sizeRatios.width === 'number' &&
+							typeof s.boardGlow.sizeRatios.height === 'number'
+								? { sizeRatios: s.boardGlow.sizeRatios }
 								: {}),
 						}
 					: undefined;
@@ -348,6 +370,7 @@ async function main() {
 					missing: Array.isArray(s?.index?.missing) ? s.index.missing : [],
 				},
 				highlight,
+				boardGlow,
 				winLine,
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
