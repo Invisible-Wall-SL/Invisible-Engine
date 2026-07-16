@@ -9,6 +9,7 @@ import type {
 } from 'engine-layout';
 import {
 	BUILTIN_COMPONENTS,
+	COMPONENT_PARAM_KINDS,
 	mergeBuiltinCodedParams,
 	pruneOrphanParamBindings,
 } from 'engine-layout';
@@ -44,21 +45,15 @@ export class ComponentValidationError extends Error {
 const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
 /**
- * The full `ComponentParam.kind` set (`engine-layout` `types.ts`). MUST stay in sync
- * with that union: the built-in FS-intro/outro defs declare `spine`/`spineAnimation`/
- * `spineSlot` params, so an earlier 5-kind allowlist silently stripped them (and the
- * `spineParam` link) on any save of a forked copy — latent data loss.
+ * The full `ComponentParam.kind` set, taken straight from `engine-layout` rather than
+ * re-listed here. A kind missing from this set is silently STRIPPED (with its `spineParam`
+ * link) on any save of a forked copy — latent data loss that has bitten twice: an early
+ * 5-kind allowlist dropped the FS-intro/outro defs' `spine`/`spineAnimation`/`spineSlot`,
+ * then `spineBone` was never added when the book-reveal def introduced it, so forking
+ * `freeSpinIntroSymbolReveal` lost its `symbolBone`. Importing the source array is what
+ * makes a third occurrence impossible.
  */
-const PARAM_KINDS = new Set<ComponentParam['kind']>([
-	'number',
-	'string',
-	'color',
-	'boolean',
-	'image',
-	'spine',
-	'spineAnimation',
-	'spineSlot',
-]);
+const PARAM_KINDS = new Set<ComponentParam['kind']>(COMPONENT_PARAM_KINDS);
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2

@@ -7,35 +7,25 @@
  * the structural types are re-declared here for the browser bundle.
  */
 
-export const SYMBOL_STATES = [
-	'static',
-	'spin',
-	'land',
-	'win',
-	'postWinStatic',
-	'explosion',
-	'bookIntro',
-	'bookIdle',
-] as const;
-export type SymbolState = (typeof SYMBOL_STATES)[number];
+import {
+	BOOK_SYMBOL_STATES,
+	SYMBOL_STATE_LABELS,
+	SYMBOL_STATES,
+	type SymbolStateName,
+} from 'engine-layout';
+
+export { SYMBOL_STATES };
+export type SymbolState = SymbolStateName;
 
 /** The book-only states. They mirror new engine states and are valid in the doc for
  *  every game (the schema accepts them), but the grid only SHOWS their columns for a
  *  book game — see {@link visibleStatesFor}. */
-export const BOOK_STATES = ['bookIntro', 'bookIdle'] as const;
+export const BOOK_STATES = BOOK_SYMBOL_STATES;
 const BOOK_STATE_SET = new Set<SymbolState>(BOOK_STATES);
 
-/** Human labels for the column headers. */
-export const STATE_LABELS: Record<SymbolState, string> = {
-	static: 'Static',
-	spin: 'Spin',
-	land: 'Land',
-	win: 'Win',
-	postWinStatic: 'Post-win',
-	explosion: 'Explosion',
-	bookIntro: 'Book reveal',
-	bookIdle: 'Book idle',
-};
+/** Human labels for the column headers — shared with the Scene Editor's `symbolState`
+ *  dropdown so a state reads the same in both tools. */
+export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 
 /** The columns the grid renders for a given project game type: always the base
  *  states, plus the two book states ONLY for a book game (`gameType === 'bookOf'`).

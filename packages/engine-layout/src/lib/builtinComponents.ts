@@ -1093,13 +1093,18 @@ export const FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF: ComponentDef = {
 		},
 		{ key: 'offsetX', kind: 'number', default: 0, label: 'symbol offset X' },
 		{ key: 'offsetY', kind: 'number', default: 0, label: 'symbol offset Y' },
-		{ key: 'followRotation', kind: 'boolean', default: true, label: 'symbol follows bone rotation' },
+		{
+			key: 'followRotation',
+			kind: 'boolean',
+			default: true,
+			label: 'symbol follows bone rotation',
+		},
 		{ key: 'followScale', kind: 'boolean', default: true, label: 'symbol follows bone scale' },
 		{ key: 'symbolScale', kind: 'number', default: 1, label: 'symbol scale' },
 		// The symbol STATE the `<Symbol>` state machine renders on the bone (e.g. `bookIdle` to
 		// loop the idle spine, `static` for the resting frame). The RIG animation provides the
 		// motion; the symbol provides the identity.
-		{ key: 'symbolState', kind: 'string', default: 'bookIdle', label: 'symbol state' },
+		{ key: 'symbolState', kind: 'symbolState', default: 'bookIdle', label: 'symbol state' },
 		// EDITOR-PREVIEW ONLY: point the Scene Editor's bone-ridden stand-in at a real symbol
 		// atlas region so the author sees the actual art track the bone (instead of a labelled
 		// box). The game ignores this — at runtime the ridden symbol is the chosen book symbol.

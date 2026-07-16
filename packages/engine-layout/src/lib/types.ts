@@ -771,35 +771,48 @@ export interface ComponentDef {
 }
 
 /**
+ * Every `ComponentParam.kind`, as a VALUE — the one list, which {@link ComponentParam.kind}
+ * derives its type from.
+ *
+ * It is a value and not just a union because the launcher's saved-def validator
+ * (`componentStorage.ts`) needs to check kinds at runtime, and a hand-copied allowlist there
+ * has silently STRIPPED author data twice: once dropping the FS-intro/outro defs'
+ * `spine`/`spineAnimation`/`spineSlot`, and again for `spineBone` (so forking the book-reveal
+ * def lost its `symbolBone`). A copy can't drift if there's nothing to copy — the validator
+ * imports this array. Note the launcher has NO type-check step (`build` is a bare
+ * `vite build`, no `svelte-check`), so a compile-time-only guard would not have caught either.
+ *
+ * All kinds are STRING values at runtime except `number`/`boolean`/`color`; the extra kinds are
+ * EDITOR INPUT HINTS, so existing readers can ignore them:
+ * - `image` — an atlas frame/region name, rendered with a region picker.
+ * - `spine` — lists the project's spine bundles.
+ * - `spineAnimation` / `spineSlot` / `spineBone` — list the animations / slots / bones of the
+ *   bundle selected by a sibling `spine`-kind param (named in {@link ComponentParam.spineParam}).
+ * - `symbolState` — the fixed `SYMBOL_STATES` set (./symbolStates) the Invisible Symbols State
+ *   Machine authors as its grid columns.
+ */
+export const COMPONENT_PARAM_KINDS = [
+	'number',
+	'string',
+	'color',
+	'boolean',
+	'image',
+	'spine',
+	'spineAnimation',
+	'spineSlot',
+	'spineBone',
+	'symbolState',
+] as const;
+
+/**
  * A typed input on a {@link ComponentDef}. `engineProvided` declares (without
  * implementing) that the engine supplies the value at runtime — the
  * `declare ≠ implement` bridge (§8.5).
  */
 export interface ComponentParam {
 	key: string;
-	/**
-	 * `image` is a STRING value (an atlas frame/region name) the editor renders with
-	 * a region picker instead of a free-text box — bind a sprite's atlas-frame to it
-	 * to swap art per instance. The engine resolves it exactly like a `string` region
-	 * bind, so no runtime branch is needed; it's an editor input hint.
-	 *
-	 * `spine` / `spineAnimation` / `spineSlot` / `spineBone` are likewise STRING values the
-	 * editor renders as DROPDOWNS instead of free-text: `spine` lists the project's spine
-	 * bundles; `spineAnimation` / `spineSlot` / `spineBone` list the animations / slots / bones
-	 * of the bundle selected by a sibling `spine`-kind param (named in
-	 * {@link ComponentParam.spineParam}). The engine resolves all of them as plain strings —
-	 * they're editor input hints, so existing readers ignore the new kinds.
-	 */
-	kind:
-		| 'number'
-		| 'string'
-		| 'color'
-		| 'boolean'
-		| 'image'
-		| 'spine'
-		| 'spineAnimation'
-		| 'spineSlot'
-		| 'spineBone';
+	/** See {@link COMPONENT_PARAM_KINDS} for what each kind renders as. */
+	kind: (typeof COMPONENT_PARAM_KINDS)[number];
 	default?: unknown;
 	engineProvided?: boolean;
 	/**

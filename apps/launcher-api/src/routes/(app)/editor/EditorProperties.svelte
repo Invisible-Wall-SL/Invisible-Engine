@@ -13,6 +13,8 @@
 		getEditableParams,
 		isHudButtonBind,
 		resolveTransform,
+		SYMBOL_STATE_LABELS,
+		SYMBOL_STATES,
 		TAP_TO_CONTINUE_PARAMS,
 		COMPLETE_ON_LOADED_PARAMS,
 		type ComponentDef,
@@ -327,13 +329,15 @@
 
 	/** assetKeys the selected node's spine panels need names for: a selected spine node, every
 	 * spine inside a selected component instance, and each spine its `spineAnimation`/
-	 * `spineSlot` params resolve to. */
+	 * `spineSlot`/`spineBone` params resolve to. `spineBone` belongs here for the same reason
+	 * as its siblings: without the manifest prefetch a bone dropdown has no names unless the
+	 * canvas happens to publish LIVE meta, and it silently degrades to a free-text box. */
 	const neededSpineKeys = $derived.by<string[]>(() => {
 		const keys = new Set<string>();
 		if (node?.kind === 'spine' && node.assetKey) keys.add(node.assetKey);
 		for (const sp of instanceSpineNodes) if (sp.assetKey) keys.add(sp.assetKey);
 		for (const p of componentParams) {
-			if (p.kind === 'spineAnimation' || p.kind === 'spineSlot') {
+			if (p.kind === 'spineAnimation' || p.kind === 'spineSlot' || p.kind === 'spineBone') {
 				const k = resolveSpineAssetKey(effectiveSpineBundle(p));
 				if (k) keys.add(k);
 			}
@@ -1755,6 +1759,24 @@
 									>
 								{/if}
 							{/if}
+						{:else if p.kind === 'symbolState'}
+							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							<select
+								value={cur}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value=""
+									>{typeof p.default === 'string' && p.default
+										? `(default: ${p.default})`
+										: '(inherit default)'}</option
+								>
+								{#each SYMBOL_STATES as s (s)}
+									<option value={s}>{SYMBOL_STATE_LABELS[s]}</option>
+								{/each}
+								{#if cur && !SYMBOL_STATES.some((s) => s === cur)}
+									<option value={cur}>{cur} (custom)</option>
+								{/if}
+							</select>
 						{:else if p.kind === 'string' && instanceFontParamKeys.has(p.key)}
 							{@const cur = (node.params?.[p.key] as string) ?? ''}
 							<select
@@ -1969,9 +1991,9 @@
 					<details class="param-group" open={Boolean(node.params?.action)}>
 						<summary>Engine bindings</summary>
 						<p class="muted small">
-							Make this instance clickable (Action), regardless of what its component declares.
-							The game registers the matching handler; an unregistered name simply does nothing.
-							Blank by default.
+							Make this instance clickable (Action), regardless of what its component declares. The
+							game registers the matching handler; an unregistered name simply does nothing. Blank
+							by default.
 						</p>
 						{#each engineBindingParams as p (p.key)}
 							<div class="row">{@render paramField(p)}</div>
@@ -3500,8 +3522,8 @@
 			<p class="muted small">
 				Leave <strong>free</strong> for scene placement (the effect plays at this node's position).
 				Or attach it to a placed <strong>Spine rig</strong> in this scene: the effect then rides
-				that rig — a <em>bone</em>-placed layer (set in Invisible FX) follows the rig's bone, and the
-				rig's timeline events (authored in the Rigger) fire the effect on the beat.
+				that rig — a <em>bone</em>-placed layer (set in Invisible FX) follows the rig's bone, and
+				the rig's timeline events (authored in the Rigger) fire the effect on the beat.
 			</p>
 		</section>
 	{/if}
