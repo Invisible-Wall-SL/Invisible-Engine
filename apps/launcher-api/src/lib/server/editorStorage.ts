@@ -176,6 +176,11 @@ function normalizeScene(input: unknown): Scene | null {
 	// and whether to hide the default prompt. Omit the object entirely if none set.
 	const gate = normalizeGate(input.gate);
 	if (gate) scene.gate = gate;
+	// Preserve the "Always on top" tick (`Scene.alwaysOnTop`) — the author's opt-OUT of
+	// screen-list layering, pinning the screen at the fixed top band instead. Without this
+	// whitelist entry the field is silently dropped on save (see `role` above — same bug).
+	// Sparse: stored only when true, so an untouched screen serializes exactly as before.
+	if (input.alwaysOnTop === true) scene.alwaysOnTop = true;
 	return scene;
 }
 

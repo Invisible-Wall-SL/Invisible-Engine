@@ -62,6 +62,21 @@ Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`
 (positioned against the window edges), or `background` (cover-fit, full-bleed).
 
+### Layer order and "Always on top"
+
+A screen's position in the Screens list **is** its layer order in the game —
+higher in the list draws further back, lower draws in front. Drag the grip to
+re-stack it; there is no separate layer number to keep in sync.
+
+Properties also carries an **Always on top** tick. Leave it off (the default) and
+the screen layers by its list position — the readout under the tick tells you
+which layer it currently is. Turn it on and the screen is **pinned above every
+other screen**, so its list position stops mattering; rows pinned this way show a
+`TOP` badge in the Screens list. Use it for something transient that must never
+be buried — a loading splash, a big-win celebration — and leave it off for
+anything persistent you want to stack normally (a progress bar, an overlay).
+Round-blocking engine gates always draw above both.
+
 To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from

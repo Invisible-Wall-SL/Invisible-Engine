@@ -26,7 +26,7 @@
  */
 
 import type { LayoutDoc, Scene } from 'engine-layout';
-import { docLayerZIndex } from 'engine-layout';
+import { sceneLayerZIndex } from 'engine-layout';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
 	createContainerMountModel,
@@ -254,11 +254,13 @@ export const createLinesFlowV2 = (
 	// (`translate.ts`: `i * 10` over the v1 SCREEN order) and can DIVERGE from the current scene
 	// order — e.g. a `hudBar` placed above the `hud_*` readouts ends up UNDER them in-game though
 	// the editor shows it on top. Re-stamp each container's z from the scene order so flow-v2
-	// stacking matches the editor and a screen-list reorder re-layers the game. Fall back to the
-	// doc's own z when a container's scene isn't in the doc (parity).
+	// stacking matches the editor and a screen-list reorder re-layers the game. `sceneLayerZIndex`
+	// also honours the screen's "Always on top" tick (`Scene.alwaysOnTop`), so a screen pinned to
+	// the top band layers the same under v2 as on the coded path. Fall back to the doc's own z
+	// when a container's scene isn't in the doc (parity).
 	const layeredContainers = doc.containers.map((container) => ({
 		...container,
-		z: docLayerZIndex(editorDoc.scenes, container.sceneId) ?? container.z,
+		z: sceneLayerZIndex(editorDoc.scenes, container.sceneId) ?? container.z,
 	}));
 	const rawMount = createContainerMountModel(layeredContainers, onContainersChange);
 	// When tracing, wrap the mount so show/hide/HOLD/RELEASE/complete are visible + ordered in the log.

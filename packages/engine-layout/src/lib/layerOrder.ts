@@ -53,3 +53,29 @@ export const docLayerZIndex = (
 	const index = scenes.findIndex((scene) => scene.id === sceneId);
 	return index < 0 ? undefined : LAYER_BAND_BASE + index;
 };
+
+/**
+ * The zIndex a screen mounts at, honouring its authored `alwaysOnTop` tick.
+ *
+ * This is the SINGLE resolver every mount path should use, so one screen has one z no
+ * matter which path renders it (the coded overlay mount, the HUD layer, the flow's
+ * active-screen takeover, or a v2 flow container). Previously the takeover path pinned
+ * its screen at a hard-coded {@link LAYER_BAND_TAKEOVER} while every other path read the
+ * doc order — so the SAME screen layered differently depending on how it happened to be
+ * mounted, and reordering a flow-active screen in the editor did nothing.
+ *
+ * - `alwaysOnTop` set ⇒ {@link LAYER_BAND_TAKEOVER} (above every doc-ordered screen,
+ *   below the engine-owned top band). The author opted out of list ordering.
+ * - otherwise ⇒ {@link docLayerZIndex} — the screen-list position drives the stacking.
+ *
+ * Returns `undefined` when the id isn't in the doc (no override — the caller keeps its
+ * own default), same contract as {@link docLayerZIndex}.
+ */
+export const sceneLayerZIndex = (
+	scenes: Scene[],
+	sceneId: string | undefined,
+): number | undefined => {
+	const scene = scenes.find((s) => s.id === sceneId);
+	if (scene?.alwaysOnTop) return LAYER_BAND_TAKEOVER;
+	return docLayerZIndex(scenes, sceneId);
+};

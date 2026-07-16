@@ -858,6 +858,19 @@
 		markDirty();
 	}
 
+	/** Pin the active screen ABOVE every doc-ordered layer, or hand it back to the screen-list
+	 * order (engine `Scene.alwaysOnTop`). Ticked ⇒ the screen mounts at the fixed top band, so
+	 * dragging it in the Screens list no longer moves it — for a transient overlay that must
+	 * never be buried (splash / big-win). Sparse: cleared rather than stored false. */
+	function setSceneAlwaysOnTop(value: boolean): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value) sc.alwaysOnTop = true;
+		else delete sc.alwaysOnTop;
+		scenes = [...scenes];
+		markDirty();
+	}
+
 	/** Set an alignment axis on a `'standard'` scene; `''` clears that axis (and
 	 * the whole `align` object once both axes are unset). */
 	function setSceneAlign(axis: 'vertical' | 'horizontal', value: string): void {
@@ -1132,7 +1145,13 @@
 		const id = 'hud_' + Math.random().toString(36).slice(2, 10);
 		scenes = [
 			...scenes,
-			{ id, name: nextScreenName('HUD'), space: 'standard', align: { vertical: 'bottom' }, nodes: [] },
+			{
+				id,
+				name: nextScreenName('HUD'),
+				space: 'standard',
+				align: { vertical: 'bottom' },
+				nodes: [],
+			},
 		];
 		activeSceneIdx = scenes.length - 1;
 		clearSelection();
@@ -2212,6 +2231,13 @@
 								ondblclick={() => startRenameScene(i)}
 							>
 								<span class="screen-name">{s.name || s.id}</span>
+								{#if s.alwaysOnTop}
+									<span
+										class="screen-ontop"
+										title="Always on top — this screen is pinned above every other screen, so its position in this list is ignored. Untick it in Properties to layer it here."
+										aria-label="Always on top">TOP</span
+									>
+								{/if}
 								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
 							</button>
 						{/if}
@@ -2557,6 +2583,22 @@
 							<option value="loading">loading (splash)</option>
 							<option value="basegame">base game</option>
 						</select>
+					</label>
+					<label
+						class="ontop-field"
+						title="Layering: normally a screen stacks by its position in the Screens list above — drag it there to re-layer it in-game. Tick this to pin it ABOVE every other screen instead (for a splash or a big-win celebration that must never be buried); its list position is then ignored. Round-blocking engine gates still draw above it."
+					>
+						<input
+							type="checkbox"
+							checked={activeScene.alwaysOnTop === true}
+							onchange={(e) => setSceneAlwaysOnTop(e.currentTarget.checked)}
+						/>
+						<span>Always on top</span>
+						<span class="ontop-note">
+							{activeScene.alwaysOnTop
+								? 'pinned above all screens — list order ignored'
+								: `layer ${activeSceneIdx + 1} of ${sceneCount} — set by the Screens list`}
+						</span>
 					</label>
 					{#if activeScene.space === 'standard'}
 						<div class="space-aligns">
@@ -3226,6 +3268,37 @@
 		background: #0d0d12;
 		border-radius: 999px;
 		padding: 1px 7px;
+	}
+	/* "Always on top" marker — this screen opted OUT of the list's layer order. */
+	.screen-ontop {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		color: #c8a45c;
+		background: #2a2113;
+		border: 1px solid #4a3a1c;
+		border-radius: 3px;
+		padding: 0 4px;
+		flex: none;
+	}
+	.ontop-field {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		margin-top: 8px;
+		font-size: 11px;
+		color: #999;
+		cursor: pointer;
+	}
+	.ontop-field input {
+		accent-color: #c8a45c;
+		margin: 0;
+	}
+	.ontop-note {
+		width: 100%;
+		font-size: 10px;
+		color: #565666;
 	}
 	.gametype {
 		display: inline-flex;

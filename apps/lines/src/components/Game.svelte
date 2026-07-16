@@ -86,7 +86,7 @@
 		fullReplaceHudScenes,
 		CODED_HUD_SCENE_IDS,
 		hasAuthoredHud,
-		docLayerZIndex,
+		sceneLayerZIndex,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
 		sceneByRole,
@@ -920,7 +920,7 @@
 	// Cross-screen z-order (design doc §11.5 follow-up C). The LAYERABLE scenes — the HUD
 	// chrome, the base-game overlays, the special-book bonus, custom author overlays, and the
 	// flow takeover — now paint in the editor's screen-LIST order (their position in
-	// `editorDoc.scenes`) rather than this component's fixed markup sequence. `docLayerZIndex`
+	// `editorDoc.scenes`) rather than this component's fixed markup sequence. `sceneLayerZIndex`
 	// maps each scene's doc index into a band ABOVE the base game and BELOW the engine-owned top
 	// band (`LAYER_BAND_TOP`, where the full-screen free-spin gates + loading + info overlay
 	// live, so a reorder can never bury a blocking gate). The reel board (`<MainContainer>`) is
@@ -931,17 +931,23 @@
 	// takes the lower of its two scene ids' z so the whole chrome sits at one layer.
 	const hudZIndex = $derived(
 		Math.min(
-			docLayerZIndex(editorDoc.scenes, 'hudBar') ?? Number.MAX_SAFE_INTEGER,
-			docLayerZIndex(editorDoc.scenes, 'hudCorners') ?? Number.MAX_SAFE_INTEGER,
+			sceneLayerZIndex(editorDoc.scenes, 'hudBar') ?? Number.MAX_SAFE_INTEGER,
+			sceneLayerZIndex(editorDoc.scenes, 'hudCorners') ?? Number.MAX_SAFE_INTEGER,
 		),
 	);
-	const basegameOverlaysZIndex = $derived(docLayerZIndex(editorDoc.scenes, 'basegameOverlays'));
-	const specialBookZIndex = $derived(docLayerZIndex(editorDoc.scenes, 'specialBook'));
-	// The takeover (loading splash at boot + transient celebrations) is NOT a doc-ordered
-	// persistent layer — it sits at the fixed TAKEOVER band ABOVE every layerable scene (so the
-	// boot splash is never painted under `basegameOverlays`/`specialBook`, matching the old markup
-	// where the takeover mounted OVER the base + HUD + overlays) and below the engine top band.
-	const activeScreenTakeoverZIndex = LAYER_BAND_TAKEOVER;
+	const basegameOverlaysZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'basegameOverlays'));
+	const specialBookZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'specialBook'));
+	// The active-screen TAKEOVER layers like every other screen: by its position in the editor's
+	// screen list, unless the author ticked "Always on top" (`Scene.alwaysOnTop` ⇒ the fixed
+	// TAKEOVER band, above every layerable scene and below the engine top band — for a transient
+	// overlay that must never be buried, e.g. a boot splash or a big-win celebration).
+	// This used to be the hard-coded `LAYER_BAND_TAKEOVER` for EVERY takeover, which silently
+	// pinned a PERSISTENT flow-active screen (e.g. an authored progress bar) above everything with
+	// no way to re-layer it from the editor and no clue why. A screen not in the doc keeps the
+	// fixed band (parity for a fallback/un-authored boot).
+	const activeScreenTakeoverZIndex = $derived(
+		sceneLayerZIndex(editorDoc.scenes, activeScreenId) ?? LAYER_BAND_TAKEOVER,
+	);
 
 	// Component signal feed (§8.5) — the EVENT sibling of the value/action feeds
 	// above. Maps the game's win presentation events → signal NAMES from the
@@ -1578,7 +1584,7 @@
 			§16 — author REPLACEMENT HUD screens (the FULL-REPLACE contract). Each `hud_`-prefixed
 			author scene renders as the top HUD layer via `<LayoutScene>` (a `space:'standard'` +
 			`align.vertical:'bottom'` scene bottom-frames exactly like the coded bar), painted at its
-			editor screen-list position (`docLayerZIndex`, the §11.5-C layerable contract) so a
+			editor screen-list position (`sceneLayerZIndex`, the §11.5-C layerable contract) so a
 			reorder re-layers it. Excluded from `extraScenes` above (no double-mount). Empty for any
 			game that authors no `hud_*` screen ⇒ renders nothing (parity, byte-identical to `main`).
 		-->
@@ -1598,7 +1604,7 @@
 					.authoredScreenIds()
 					.has(scene.id) || activeScreenIds.includes(scene.id))}
 			<!-- Suppressed under a v2 flow — `<FlowV2Mount>` renders the hud_* container instead. -->
-			<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
+			<Container zIndex={sceneLayerZIndex(editorDoc.scenes, scene.id)}>
 				<LayoutScene {scene} />
 			</Container>
 		{/if}
@@ -1620,7 +1626,7 @@
 			 containers), so mounting them here too would double them. -->
 	{#if !flowV2DrivesScreens}
 		{#each extraScenes as scene (scene.id)}
-			<Container zIndex={docLayerZIndex(editorDoc.scenes, scene.id)}>
+			<Container zIndex={sceneLayerZIndex(editorDoc.scenes, scene.id)}>
 				<LayoutScene {scene} />
 			</Container>
 		{/each}

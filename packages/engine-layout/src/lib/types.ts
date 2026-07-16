@@ -608,6 +608,23 @@ export interface Scene {
 		dimAlpha?: number;
 		hidePrompt?: boolean;
 	};
+	/**
+	 * Pin this screen ABOVE every doc-ordered layer instead of reading its z from the
+	 * screen-list position ({@link docLayerZIndex}). The editor exposes it as the
+	 * "Always on top" tick in a screen's Properties.
+	 *
+	 * Absent (the default) ⇒ the screen layers by its position in the doc `scenes[]`
+	 * array, so dragging it in the Screens list re-stacks it in-game. Set ⇒ it mounts at
+	 * the fixed `LAYER_BAND_TAKEOVER` band, above every layerable screen and below the
+	 * engine-owned top band (the round-blocking gates), and its list position no longer
+	 * affects it — for a transient overlay that must never be buried (a boot splash, a
+	 * big-win celebration).
+	 *
+	 * This replaces the old hard-coded rule that EVERY flow-active "takeover" screen
+	 * mounted at the fixed band, which made a persistent authored screen (e.g. a progress
+	 * bar) impossible to re-layer from the editor and gave no clue why.
+	 */
+	alwaysOnTop?: boolean;
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed
