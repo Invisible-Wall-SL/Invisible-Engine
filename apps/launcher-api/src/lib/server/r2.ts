@@ -106,34 +106,156 @@ export async function getObjectText(key: string): Promise<string | null> {
 	return obj ? new TextDecoder().decode(obj.body) : null;
 }
 
+/**
+ * Read an object's text WITH its ETag — the read half of an optimistic-concurrency
+ * (compare-and-swap) round trip. Returns null when the object is absent.
+ *
+ * `getObjectText` throws the ETag away even though `getObjectBytes` already carries
+ * it, which is why every storage helper historically had nothing to compare against
+ * on save. Prefer this one for any AUTHORED doc.
+ *
+ * A caller MUST distinguish this returning `null` (genuinely absent → create with
+ * `ifNoneMatch: '*'`) from the text failing to parse (present but corrupt → overwrite
+ * deliberately with `ifMatch: etag`). Collapsing the two — the shape every loader had
+ * before Phase 1 — makes a corrupt doc permanently unsaveable, because the create
+ * precondition can never succeed against an object that exists.
+ */
+export async function getObjectTextWithEtag(
+	key: string,
+): Promise<{ text: string; etag: string | null } | null> {
+	const obj = await getObjectBytes(key);
+	if (!obj) return null;
+	return { text: new TextDecoder().decode(obj.body), etag: obj.etag };
+}
+
+/**
+ * Precondition for a conditional write. Omit for an unconditional last-writer-wins
+ * PUT — correct for re-derivable build output (bake/export/deploy), wrong for a doc
+ * two people can edit.
+ */
+export interface PutPrecondition {
+	/** Write only if the object's current ETag matches — the CAS update. */
+	ifMatch?: string;
+	/** Write only if the object does NOT exist. Pass `'*'`. Use for create. */
+	ifNoneMatch?: string;
+}
+
+/**
+ * Map a storage caller's base ETag to a write precondition — the one place the
+ * convention is defined, so every tool spells CAS the same way:
+ * - a string → `ifMatch`: the CAS update; fails if anyone saved since it was read.
+ * - `null` → `ifNoneMatch: '*'`: "this doc does not exist yet"; fails if it now does.
+ * - `undefined` → no precondition: an UNCONDITIONAL last-writer-wins write.
+ *
+ * `undefined` is for callers that legitimately own the whole object (scaffolding,
+ * import, re-derived build output). It is never the way to silence a 409.
+ */
+export function precondition(baseEtag: string | null | undefined): PutPrecondition | undefined {
+	if (baseEtag === undefined) return undefined;
+	return baseEtag === null ? { ifNoneMatch: '*' } : { ifMatch: baseEtag };
+}
+
+/**
+ * Thrown when a conditional write loses — the object changed (or appeared) since the
+ * caller read it. Endpoints MUST translate this to a 409 via `json({ error })`, never
+ * `error()`, which would surface as an opaque 502 and hide the cause
+ * ([[gotcha_publish_502_flowv2_nodes_guard]]).
+ */
+export class ConflictError extends Error {
+	constructor(readonly key: string) {
+		super(`Conditional write failed for ${key}: it changed since it was read`);
+		this.name = 'ConflictError';
+	}
+}
+
+/** Returns the new ETag. Throws {@link ConflictError} when a precondition fails. */
 export async function putObjectText(
 	key: string,
 	text: string,
 	contentType = 'application/octet-stream',
-): Promise<void> {
-	await s3().send(
-		new PutObjectCommand({
-			Bucket: ENV.R2_BUCKET,
-			Key: key,
-			Body: text,
-			ContentType: contentType,
-		}),
-	);
+	cond?: PutPrecondition,
+): Promise<string | null> {
+	return sendPut(key, text, contentType, cond);
 }
 
+/** Returns the new ETag. Throws {@link ConflictError} when a precondition fails. */
 export async function putObjectBytes(
 	key: string,
 	body: Uint8Array,
 	contentType = 'application/octet-stream',
-): Promise<void> {
-	await s3().send(
-		new PutObjectCommand({
-			Bucket: ENV.R2_BUCKET,
-			Key: key,
-			Body: body,
-			ContentType: contentType,
-		}),
-	);
+	cond?: PutPrecondition,
+): Promise<string | null> {
+	return sendPut(key, body, contentType, cond);
+}
+
+async function sendPut(
+	key: string,
+	body: string | Uint8Array,
+	contentType: string,
+	cond?: PutPrecondition,
+): Promise<string | null> {
+	try {
+		const res = await s3().send(
+			new PutObjectCommand({
+				Bucket: ENV.R2_BUCKET,
+				Key: key,
+				Body: body,
+				ContentType: contentType,
+				...(cond?.ifMatch ? { IfMatch: cond.ifMatch } : {}),
+				...(cond?.ifNoneMatch ? { IfNoneMatch: cond.ifNoneMatch } : {}),
+			}),
+		);
+		return res.ETag ?? null;
+	} catch (e) {
+		// Only a request that CARRIED a precondition can have failed one. Without this
+		// guard an unconditional write that happened to get a 409/412 would surface as
+		// "someone else saved this" on a doc nobody touched.
+		if (cond && isPreconditionFailed(e)) throw new ConflictError(key);
+		throw e;
+	}
+}
+
+/**
+ * A failed write precondition: R2 answers 412 `PreconditionFailed` for both a stale
+ * `If-Match` and an `If-None-Match: *` against an object that now exists.
+ *
+ * 409 `ConditionalRequestConflict` is deliberately NOT treated as a lost CAS. The S3
+ * contract defines it as two conditional writes racing — i.e. transient, retry — not
+ * as "you lost to another author". Mapping it here would wedge the tab in a sticky
+ * conflict state that only "reload" or "overwrite" can clear, pushing the author
+ * toward a destructive button over a blip. It surfaces as an ordinary save error, and
+ * the next autosave retries.
+ */
+function isPreconditionFailed(e: unknown): boolean {
+	const meta = (e as { $metadata?: { httpStatusCode?: number }; name?: string }) ?? {};
+	return meta.$metadata?.httpStatusCode === 412 || meta.name === 'PreconditionFailed';
+}
+
+/**
+ * Read a client-supplied base ETag off a JSON body into the {@link precondition}
+ * convention. `null` (JSON carries it natively) = "no doc existed when I loaded";
+ * a string = CAS against it; anything else (an absent field — e.g. a tab still
+ * running a pre-Phase-1 bundle) = `undefined`, an unguarded write.
+ *
+ * Failing OPEN here is deliberate but TEMPORARY: rejecting would strand the work in
+ * an open tab across a deploy. See the dated decision in
+ * `docs/design/multi-user-concurrency.md` Phase 1 — this must become required once no
+ * pre-Phase-1 tabs remain, or it is a permanent hole through which any new tool
+ * silently writes unguarded.
+ */
+export function jsonBaseEtag(v: unknown): string | null | undefined {
+	if (v === null) return null;
+	return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * {@link jsonBaseEtag} for a FormData field. FormData has no null, so the EMPTY STRING
+ * encodes "no doc existed" and an absent field means "not sent" — the two must stay
+ * distinct, which is why absence alone cannot carry the create case.
+ */
+export function formBaseEtag(v: FormDataEntryValue | null): string | null | undefined {
+	if (typeof v !== 'string') return undefined;
+	return v === '' ? null : v;
 }
 
 export async function deleteObject(key: string): Promise<void> {

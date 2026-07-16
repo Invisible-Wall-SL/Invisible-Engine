@@ -8,7 +8,7 @@ import {
 	type Scene,
 } from 'engine-layout';
 import { editorDocKey } from './projectPaths';
-import { getObjectText, putObjectText } from './r2';
+import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 /** Sensible base sizes per layoutType; mirrors `utils-layout`'s `mainSizesMap`. */
 const DEFAULT_MAIN_SIZES: Record<LayoutType, { width: number; height: number }> = {
@@ -46,12 +46,32 @@ export async function loadDoc(
 	projectKey: string,
 	gameType?: string,
 ): Promise<LayoutDoc> {
-	const raw = await getObjectText(editorDocKey(clientKey, projectKey));
-	if (!raw) return seedFreshDoc(projectKey, gameType);
+	return (await loadDocWithEtag(clientKey, projectKey, gameType)).doc;
+}
+
+/**
+ * Load a project's editor doc together with the ETag its next save must match — the
+ * read half of the compare-and-swap that stops two authors clobbering each other.
+ *
+ * `etag` is carried straight off the READ and is deliberately independent of whether
+ * the body PARSED. That split is the point: `loadDoc` returns a fresh doc for both an
+ * absent object and a corrupt one, so if the save path inferred "create" from "no doc
+ * came back", a corrupt-but-present doc would save with `ifNoneMatch: '*'` and 412
+ * FOREVER, with no way out of the UI. Here a corrupt doc still reports its etag, so it
+ * gets `ifMatch` and is overwritten deliberately. `etag === null` means — and only
+ * means — the object was absent. See `docs/design/multi-user-concurrency.md` Phase 1.
+ */
+export async function loadDocWithEtag(
+	clientKey: string,
+	projectKey: string,
+	gameType?: string,
+): Promise<{ doc: LayoutDoc; etag: string | null }> {
+	const obj = await getObjectTextWithEtag(editorDocKey(clientKey, projectKey));
+	if (!obj) return { doc: seedFreshDoc(projectKey, gameType), etag: null };
 	try {
-		return normalizeDoc(JSON.parse(raw), projectKey);
+		return { doc: normalizeDoc(JSON.parse(obj.text), projectKey), etag: obj.etag };
 	} catch {
-		return normalizeDoc(undefined, projectKey);
+		return { doc: normalizeDoc(undefined, projectKey), etag: obj.etag };
 	}
 }
 
@@ -69,20 +89,37 @@ function seedFreshDoc(projectKey: string, gameType?: string): LayoutDoc {
 	return normalizeDoc(undefined, projectKey);
 }
 
-/** Persist a project's editor document to R2 (stamps `updatedAt`). */
+/**
+ * Persist a project's editor document to R2 (stamps `updatedAt`), guarded against a
+ * concurrent author.
+ *
+ * `baseEtag` is the ETag the caller loaded — pass it and the write only lands if
+ * nobody else saved in between; otherwise this throws {@link ConflictError} and the
+ * endpoint must answer 409 rather than destroying the other author's work. Pass
+ * `null` to mean "I believe this project has no doc yet", which is enforced with
+ * `ifNoneMatch: '*'` and so also conflicts if someone created it first.
+ *
+ * `baseEtag: undefined` writes UNCONDITIONALLY — last-writer-wins, the pre-Phase-1
+ * behaviour. It exists only for server-side callers that legitimately own the whole
+ * doc (scaffold/import). Never reach for it to make a 409 go away: the 409 IS the
+ * feature. Returns the stored doc and its new ETag, so an autosaving client can keep
+ * saving without re-reading.
+ */
 export async function saveDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: LayoutDoc,
-): Promise<LayoutDoc> {
+	baseEtag?: string | null,
+): Promise<{ doc: LayoutDoc; etag: string | null }> {
 	const next = normalizeDoc(doc, projectKey);
 	next.updatedAt = new Date().toISOString();
-	await putObjectText(
+	const etag = await putObjectText(
 		editorDocKey(clientKey, projectKey),
 		JSON.stringify(next, null, 2),
 		'application/json',
+		precondition(baseEtag),
 	);
-	return next;
+	return { doc: next, etag };
 }
 
 /**

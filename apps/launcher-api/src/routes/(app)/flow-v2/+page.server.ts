@@ -1,8 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
-import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
-import { loadFlowV2Library } from '$lib/server/flowV2LibraryStorage';
+import { loadFlowV2DocWithEtag } from '$lib/server/flowV2Storage';
+import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { actionBindingOf } from 'engine-layout';
@@ -46,8 +46,12 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const doc = await loadFlowV2Doc(clientKey, projectKey);
-	const library = await loadFlowV2Library();
+	// The ETags go to the client so its saves can CAS against them. Note the container
+	// sync below MUTATES `doc`, so the client doc deliberately differs from the stored
+	// bytes — the etag guards the stored OBJECT, and must not be re-derived from the
+	// payload.
+	const { doc, etag: docEtag } = await loadFlowV2DocWithEtag(clientKey, projectKey);
+	const { lib: library, etag: libraryEtag } = await loadFlowV2LibraryWithEtag();
 	// The Scene Editor's friendly screen NAMES, keyed by scene id — so the container nodes
 	// (show/hideContainer) can label themselves "HUD - Bottom BAR" instead of the raw id
 	// (`hud_kv04zk3j`). Best-effort: an unsaved / standalone project just yields an empty map.
@@ -100,5 +104,5 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		containerEvents[container.id] = deriveContainerEvents(configured);
 	}
 
-	return { clientKey, projectKey, doc, library, sceneNames, containerEvents };
+	return { clientKey, projectKey, doc, docEtag, library, libraryEtag, sceneNames, containerEvents };
 };

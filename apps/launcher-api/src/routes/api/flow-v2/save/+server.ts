@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { isFlowV2Doc, saveFlowV2Doc } from '$lib/server/flowV2Storage';
+import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -12,7 +13,11 @@ import type { RequestHandler } from './$types';
  * auth/scope/R2. The body is shape-checked as a v2 `FlowDoc` server-side so a malformed body
  * can never corrupt the stored doc.
  *
- * Body: `{ doc: <FlowDoc v2> }`.
+ * Guarded by the caller's `baseEtag` (Phase 1 of `docs/design/multi-user-concurrency.md`):
+ * a stale one answers **409** rather than overwriting whoever saved first. `force: true`
+ * is the author's explicit "overwrite theirs" from the conflict banner.
+ *
+ * Body: `{ doc: <FlowDoc v2>, baseEtag?: string | null, force?: boolean }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -23,6 +28,47 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || !isFlowV2Doc(body.doc)) throw error(400, 'missing or malformed v2 doc');
 
-	await saveFlowV2Doc(clientKey, projectKey, body.doc);
-	return json({ ok: true, updatedAt: new Date().toISOString() });
+	// SCOPE GUARD — this endpoint resolves the project from the SESSION, but the page
+	// that loaded the doc resolved it from `?project=` (which `resolveToolScope` syncs
+	// INTO the session). So switching project in another tab leaves this tab holding
+	// project X's doc while its save now targets Y. Unguarded that is a silent
+	// cross-project clobber; with `If-Match` it would masquerade as an ordinary
+	// conflict and invite the author to "overwrite" — destroying an unrelated project.
+	// Refuse instead, and note `force` deliberately does NOT bypass this: overwriting
+	// YOUR doc is a choice, overwriting SOMEONE ELSE'S project never is.
+	if (typeof body.projectKey === 'string' && body.projectKey !== projectKey) {
+		return json(
+			{
+				ok: false,
+				error: 'scope-mismatch',
+				message:
+					`This tab is editing "${body.projectKey}" but your active project is now ` +
+					`"${projectKey}". Reload to continue — saving here would write to the wrong project.`,
+			},
+			{ status: 409 },
+		);
+	}
+
+	const baseEtag = body.force === true ? undefined : jsonBaseEtag(body.baseEtag);
+
+	try {
+		const { etag } = await saveFlowV2Doc(clientKey, projectKey, body.doc, baseEtag);
+		return json({ ok: true, updatedAt: new Date().toISOString(), etag });
+	} catch (e) {
+		if (e instanceof ConflictError) {
+			// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and
+			// hides the cause ([[gotcha_publish_502_flowv2_nodes_guard]]).
+			return json(
+				{
+					ok: false,
+					error: 'conflict',
+					message:
+						'Someone else saved this flow while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+				},
+				{ status: 409 },
+			);
+		}
+		throw e;
+	}
 };

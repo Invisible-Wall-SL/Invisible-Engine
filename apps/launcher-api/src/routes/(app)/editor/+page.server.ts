@@ -8,15 +8,13 @@ import {
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
-import { loadDoc, saveDoc } from '$lib/server/editorStorage';
+import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
+import { ConflictError, formBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import {
-	loadPublishedSymbolDefaults,
-	symbolDefaultsFor,
-} from '$lib/server/symbolDefaults';
+import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { loadTemplate } from '$lib/server/templateStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -68,9 +66,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// canvas-box seed (a never-saved project gets the game's REAL main box) and the
 	// template/symbol-default resolution below (the doc's own `gameType` wins when set).
 	const resolvedProjectGameType = await projectGameType(projectKey);
-	const [doc, assets, components, customKinds, symbolsDoc, publishedSymbolDefaults] =
+	const [loaded, assets, components, customKinds, symbolsDoc, publishedSymbolDefaults] =
 		await Promise.all([
-			loadDoc(clientKey, projectKey, resolvedProjectGameType),
+			loadDocWithEtag(clientKey, projectKey, resolvedProjectGameType),
 			listProjectAssets(clientKey, projectKey),
 			// Components the project can use (shared + project, project shadowing shared,
 			// §8.3). Drives the scene-mode component picker AND the editor canvas's
@@ -87,6 +85,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			loadSymbolsDoc(clientKey, projectKey),
 			loadPublishedSymbolDefaults(clientKey, projectKey),
 		]);
+	// `docEtag` is what the client must send back on save so a concurrent author can't
+	// be clobbered; `null` means the doc does not exist yet (a create). It is carried
+	// separately from `doc` because a corrupt-but-present doc still HAS an etag — see
+	// `loadDocWithEtag`.
+	const { doc, etag: docEtag } = loaded;
 	// Template + initial slot warnings, so the UI shows slot state on first load
 	// (§7.1) — not only after a save round-trip. Resolve from the doc's persisted
 	// `gameType` first (the author's choice sticks across sessions), falling back
@@ -115,6 +118,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clientKey,
 		projectKey,
 		doc,
+		docEtag,
 		assets,
 		template,
 		warnings,
@@ -130,7 +134,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 export const actions: Actions = {
 	save: async ({ request, locals, cookies, url }) => {
 		const { clientKey, projectKey } = await gate(locals, cookies, url);
-		const raw = (await request.formData()).get('doc');
+		const form = await request.formData();
+		const raw = form.get('doc');
 		if (typeof raw !== 'string') {
 			return fail(400, { action: 'save' as const, error: 'Missing doc payload.' });
 		}
@@ -140,9 +145,34 @@ export const actions: Actions = {
 		} catch {
 			return fail(400, { action: 'save' as const, error: 'Invalid doc.' });
 		}
-		// `saveDoc` normalizes + stamps `updatedAt`, so the wire payload is the
-		// only validation barrier we need.
-		const saved = await saveDoc(clientKey, projectKey, parsed as LayoutDoc);
+		// `force` is the author answering the conflict banner with "overwrite theirs" —
+		// the ONLY legitimate way to reach an unconditional write from a browser. It is
+		// deliberately a separate field rather than an omitted etag, so an unguarded
+		// write is always an explicit choice in the payload, never an accident.
+		const baseEtag = form.get('force') === '1' ? undefined : formBaseEtag(form.get('baseEtag'));
+
+		let saved: LayoutDoc;
+		let etag: string | null;
+		try {
+			// `saveDoc` normalizes + stamps `updatedAt`, so the wire payload is the
+			// only validation barrier we need.
+			({ doc: saved, etag } = await saveDoc(clientKey, projectKey, parsed as LayoutDoc, baseEtag));
+		} catch (e) {
+			if (e instanceof ConflictError) {
+				// Someone else saved this project since this tab loaded it. Refuse rather
+				// than overwrite their work — and return `fail`, NOT `error()`, so the
+				// client's envelope parser can read the reason. The client keeps its local
+				// doc and stays dirty; nothing here may discard it.
+				return fail(409, {
+					action: 'save' as const,
+					error:
+						'Someone else saved this project while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+					conflict: true as const,
+				});
+			}
+			throw e;
+		}
 		// Non-blocking template validation (§7.1): flag any required slot the
 		// saved doc leaves unfilled, surfaced to the editor without rejecting.
 		const template = await loadTemplate(saved.gameType ?? (await projectGameType(projectKey)));
@@ -153,6 +183,7 @@ export const actions: Actions = {
 			action: 'save' as const,
 			saved: true,
 			updatedAt: saved.updatedAt,
+			etag,
 			warnings,
 		};
 	},

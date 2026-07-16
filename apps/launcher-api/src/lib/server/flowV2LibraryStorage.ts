@@ -1,6 +1,6 @@
 import type { FunctionLibraryDoc } from 'engine-flow-v2';
 import { FLOW_V2_LIBRARY_KEY } from './projectPaths';
-import { getObjectText, putObjectText } from './r2';
+import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 /**
  * R2 load/save for the Invisible Flow **v2** shared FUNCTION LIBRARY — the reusable
@@ -25,19 +25,49 @@ export function isFlowV2Library(value: unknown): value is FunctionLibraryDoc {
 
 /** Load the shared v2 function library; `null` when absent or malformed (caller falls back to a sample). */
 export async function loadFlowV2Library(): Promise<FunctionLibraryDoc | null> {
-	const raw = await getObjectText(FLOW_V2_LIBRARY_KEY);
-	if (!raw) return null;
+	return (await loadFlowV2LibraryWithEtag()).lib;
+}
+
+/**
+ * Load the shared library with the ETag its next save must match.
+ *
+ * This matters more here than anywhere else in the tool. The key is GLOBAL, so a
+ * project lease can never protect it — Phase 2 does nothing for this file, and the
+ * ETag is the WHOLE fix rather than a floor. Worse, the read happens at page load and
+ * the write at an 800 ms autosave, so the read-modify-write window is the entire
+ * editing session: before Phase 1, two authors on unrelated projects who each added a
+ * function would have the second save erase the first's outright.
+ * See `docs/design/multi-user-concurrency.md` Phase 1.
+ */
+export async function loadFlowV2LibraryWithEtag(): Promise<{
+	lib: FunctionLibraryDoc | null;
+	etag: string | null;
+}> {
+	const obj = await getObjectTextWithEtag(FLOW_V2_LIBRARY_KEY);
+	if (!obj) return { lib: null, etag: null };
 	try {
-		const parsed = JSON.parse(raw) as unknown;
-		return isFlowV2Library(parsed) ? parsed : null;
+		const parsed = JSON.parse(obj.text) as unknown;
+		return { lib: isFlowV2Library(parsed) ? parsed : null, etag: obj.etag };
 	} catch {
-		return null;
+		return { lib: null, etag: obj.etag };
 	}
 }
 
-/** Persist the shared v2 function library to R2; rejects a body that is not a v2 `FunctionLibraryDoc`. */
-export async function saveFlowV2Library(lib: unknown): Promise<FunctionLibraryDoc> {
+/**
+ * Persist the shared v2 function library; rejects a body that is not a v2
+ * `FunctionLibraryDoc`. Guarded by `baseEtag` — throws {@link ConflictError} when
+ * another author (on ANY project) saved the library first.
+ */
+export async function saveFlowV2Library(
+	lib: unknown,
+	baseEtag?: string | null,
+): Promise<{ lib: FunctionLibraryDoc; etag: string | null }> {
 	if (!isFlowV2Library(lib)) throw new Error('not a v2 FunctionLibraryDoc');
-	await putObjectText(FLOW_V2_LIBRARY_KEY, JSON.stringify(lib, null, 2), 'application/json');
-	return lib;
+	const etag = await putObjectText(
+		FLOW_V2_LIBRARY_KEY,
+		JSON.stringify(lib, null, 2),
+		'application/json',
+		precondition(baseEtag),
+	);
+	return { lib, etag };
 }

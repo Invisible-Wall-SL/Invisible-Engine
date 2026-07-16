@@ -91,10 +91,11 @@ Python tools that hold no lease, and any future tool that forgets to.
 
 Every TypeScript write in the launcher **app** funnels through **one module**:
 `src/lib/server/r2.ts` — `putObjectText:109`, `putObjectBytes:124`. Nothing in
-`src/` hand-rolls its own S3 client. (One footnote so Phase 1 isn't over-claimed:
-`apps/launcher-api/scripts/r2-sync-spines.mjs:181` writes `skeletons.json` with
-its **own** `@aws-sdk` client, bypassing `r2.ts`. It is a manual dev/ops sync, not
-a runtime path — the chokepoint claim holds for the *app*, not for
+`src/` hand-rolls its own S3 client. (Two footnotes so Phase 1 isn't over-claimed:
+`apps/launcher-api/scripts/r2-sync-spines.mjs:181` writes `skeletons.json`, and
+`scripts/seed-game-editor.mjs:215` writes `editorDocKey` — **both with their own
+`@aws-sdk` client, bypassing `r2.ts` entirely**. They are manual dev/ops scripts, not
+runtime paths, so the chokepoint claim holds for the *app*, not for
 `apps/launcher-api/scripts/*`.) `PutObjectCommand` is constructed with only
 `Bucket/Key/Body/ContentType` (`:114-121`, `:128-136`), so no caller *can* pass a
 precondition today.
@@ -194,22 +195,117 @@ backfill is their last consumer). Don't leave them to rot.
 ### Phase 1 — Conditional writes through the chokepoint
 The correctness floor. Contained because of the linchpin above.
 
-- `r2.ts`: add optional `ifMatch?: string` to `putObjectText` / `putObjectBytes`
-  → `PutObjectCommand({ …, IfMatch })`. Add `getObjectTextWithEtag()` (or return
-  `{ text, etag }`) so helpers stop discarding what `getObjectBytes` already has.
-- Map R2's 412 to a typed `ConflictError` next to `isNotFound:358`, so every
-  endpoint returns a consistent `409 { error: 'conflict', … }` — **`json({error})`,
+- `r2.ts`: optional `PutPrecondition` (`ifMatch` / `ifNoneMatch`) on `putObjectText` /
+  `putObjectBytes`, which now RETURN the new ETag (`PutObjectOutput.ETag`) so a client
+  can keep autosaving without a re-read. Plus `getObjectTextWithEtag()` — the ETag was
+  always there on `getObjectBytes`, just dropped by `getObjectText`, which is the one
+  every storage helper calls. A failed precondition → a typed `ConflictError`.
+  **Only 412 counts as a lost CAS** — S3's 409 `ConditionalRequestConflict` means "two
+  conditional writes raced, retry", i.e. transient; mapping it to the sticky conflict
+  state would wedge the tab over a blip and push the author toward the destructive
+  button. And only a request that CARRIED a precondition can fail one, so the
+  translation is gated on that — otherwise an unconditional write that happens to 412
+  would report "someone else saved this" about a doc nobody touched.
+- Every endpoint returns a consistent `409 { error: 'conflict', … }` — **`json({error})`,
   never `error()`**, per the publish-502 lesson ([[gotcha_publish_502_flowv2_nodes_guard]]).
-- Storage helpers return the loaded ETag; save takes an expected ETag. Start with
-  `editorStorage.saveDoc` and `flowV2Storage`, then FX / Symbols / Components /
-  Localization.
-- Clients thread the ETag through load → autosave → response (each successful PUT
-  returns the new ETag, so the next autosave is guarded without a re-read).
-- **`fxStorage.ts` writes its doc + meta sidecar as two unconditional PUTs with no
-  atomicity even for a single user** — fix here (guard both, or fold the meta into
-  the doc).
+  ⚠ `routes/api/editor/symbols/+server.ts` has a catch-all `throw error(502)` that will
+  swallow a `ConflictError` into an opaque 502 the moment `If-Match` lands — the
+  `isConflict` branch must come FIRST.
+- Storage helpers return the loaded ETag; save takes an expected ETag. Order:
+  `editorStorage` + `flowV2Storage` (the two autosavers = the reported bug), then the
+  **global** keys, then the manual-save tools.
+- Clients thread the ETag through load → save → response. There is **no shared
+  client save/dirty helper** — seven pages hand-roll it (five different `dirty`
+  implementations; `postAction` is duplicated verbatim between editor and
+  localization). That is seven chances to forget the ETag, and the next tool inherits
+  nothing. A shared rune module (`$lib/saveState.svelte.ts` — **must** be `.svelte.ts`,
+  [[gotcha_runes_in_plain_ts]]) is the lever that also makes Phase 2's read-only mode
+  and takeover banner a one-place change. Deferred to Phase 2, noted here as its
+  prerequisite.
+
+**Dated decision — a missing `baseEtag` FAILS OPEN (2026-07-16).** An absent field means
+an unconditional write, not a rejection, so a tab still running a pre-Phase-1 bundle can
+still save across the deploy instead of having its work stranded. This is **temporary and
+must be closed**: nothing bounds it today, so any future endpoint that forgets `baseEtag`
+gets a silently unguarded write and a green build — exactly the "new tool ships another
+unguarded `putObjectText`" regression the review gate exists to stop. **Trigger to remove:
+once no pre-Phase-1 tabs can remain (a day after the Phase 1 deploy), make `baseEtag`
+required at the endpoint layer and 400 without it.** The shared client helper below is what
+makes that safe to enforce.
+
+**A `force` write must never cross a project boundary.** `toolScope.gate()` resolves the
+project from the SESSION, while the tool pages resolve it from `?project=` (and sync it
+back). So a tab can hold project X's doc while its save targets Y — a pre-existing silent
+wrong-project clobber that `If-Match` turns into a *worse* failure: X's etag vs Y's object
+→ 412 → a "someone else saved this, Overwrite?" banner that invites the author to destroy
+an unrelated project. Any save whose client can't name its project must therefore send
+`projectKey` and be REFUSED on mismatch (`409 scope-mismatch`, distinct from a conflict,
+**not** forceable). Done for flow-v2; the editor was already safe because its `postAction`
+re-appends `?project=`. Check this for every tool Phase 1 touches.
+
+**The create path — `absent` vs `malformed` (do this first, it is structural).**
+Every loader today catches a parse error and returns the SAME value as the not-found
+path (`editorStorage:50` vs `:53-55`, `flowV2Storage:39` vs `:43-45`, `symbolsStorage`,
+`localization`, `fxStorage`, `flowV2LibraryStorage`). So "the client has no ETag" does
+NOT imply "no object". Sending `ifNoneMatch: '*'` on that assumption makes a
+**corrupt-but-present doc permanently unsaveable** — 412 forever, no UI path out.
+Helpers must report `existed` from the READ, not from parse success:
+`!existed` → `ifNoneMatch: '*'`; `existed && malformed` → `ifMatch: <etag>` (overwrite
+the corruption deliberately); `existed && parsed` → `ifMatch: <etag>`.
+
+**Touch list corrections** *(from the Phase 1 survey, 2026-07-16 — the original list
+missed these)*:
+- **`_shared/flow-v2/functions.json` (`flowV2LibraryStorage.ts`) — the worst one, and
+  it is not in Phase 0.** A GLOBAL key with a whole-doc PUT whose read-modify-write
+  window is **the entire editing session** (read at page load, written at 800 ms
+  autosave), not the ~ms of a single request. Two people on unrelated projects each
+  editing a function: the second write erases the first's outright. A lease cannot
+  cover a global key, so here `If-Match` is the WHOLE fix, not the floor. Do it first.
+- **`kindStorage.ts:113`** (`_shared/editor-kinds/<id>.json`) and
+  **`templateStorage.ts:56`** (`_shared/editor-templates/<gameType>.json`) — global
+  authored docs, create-if-absent, written from the editor. Unguarded today; without
+  `ifNoneMatch` one author's kind silently replaces another's of the same id.
+- **`componentStorage.saveComponent` returns `void`** — the client cannot learn its
+  reconciled version, let alone an ETag. Signature has to change.
+- **`readComponent:108-123` swallows EVERY read failure** and returns `undefined`, so
+  a transient R2 blip makes `saveComponent:157` believe the def is new, keep the posted
+  version, and overwrite the stored def *and* its snapshot at the same version. The
+  Phase 0 fail-safe-vs-fail-loud lesson, reproduced: the save path must fail LOUD.
+- **FX create-path clobber:** a never-saved effect derives its id from its NAME
+  (`fx/+page.svelte:97-98` → `fxStorage:137` slugs it), so "Save" on a new effect
+  sharing a colleague's name silently overwrites it — and no ETag helps, because the
+  client has none. Only `ifNoneMatch: '*'` → 409 "an effect named X already exists"
+  fixes this.
+- **`fxStorage.ts` writes doc + meta sidecar as two unconditional PUTs** — no atomicity
+  even single-user. Two *conditional* PUTs cannot be made atomic either (the meta can
+  412 after the doc succeeded, leaving one etag stale and one fresh). **Fold `FxMeta`
+  into the doc** rather than guarding two objects; `normalizeEffectDoc` already enforces
+  the §4 purity the sidecar exists for, at the export boundary.
+- **Do NOT add `If-Match` to build output** — `editorArtExport`, `effectExport`,
+  `flowExport`, `flowV2Export`, `fontExport`, `symbolExport`, `spine.ts:602` all write
+  under `deploy/` and are re-derived wholesale on every export; a precondition would
+  only make a re-run fail. Same for the `skeletons.json` rebuilds (derived by LIST).
+- `projectScaffold.ts:91` seeds behind an `objectExists` check — a TOCTOU race whose
+  seeds are idempotent, so impact is nil. Cheap win: `ifNoneMatch: '*'` + swallow the
+  409, which also deletes a round trip.
+
 - Conflict UX floor for this phase: a non-destructive "someone else saved this —
-  reload" state that does **not** silently discard the local doc.
+  reload" state that does **not** silently discard the local doc. **This is already the
+  status quo** — every client clears `dirty` only on success and none reloads on
+  failure. The requirement is therefore *don't regress it*: do not add an
+  `invalidateAll()` to the conflict path. What's missing is only a visible state
+  instead of flow-v2's silent `saveStatus = 'error'`.
+
+### Phase 0 — newly-found scope (NOT yet shipped)
+The Phase 0 survey covered the rigger indexes and missed two more RMW-on-a-global-key
+sites with the same blast radius — same bug, same "a lease can never catch it", same
+"it's a metadata list living in an object store for no good reason" fix:
+- **`testServerManifest.ts:56`** (`test_server/games.json`) — one global manifest for
+  every game, get→mutate→put, called from `publishGame.ts:114`. Two users publishing
+  **different games on different projects** silently drop each other's entry.
+- **`routes/api/fonts/{save:90,delete:99}`** — the fonts catalog (`_shared/fonts/fonts.json`
+  when shared-scope) is explicitly RMW. Note its existing 409 id-collision guard
+  ([[bug_font_maker_id_collision]]) is a *within-request* check that this race defeats.
 
 ### Phase 2 — Soft lease + presence
 What makes the tools usable for 2–3 people on a project.

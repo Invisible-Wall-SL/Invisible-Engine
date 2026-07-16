@@ -1,6 +1,6 @@
 import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import { flowV2DocKey } from './projectPaths';
-import { getObjectText, putObjectText } from './r2';
+import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 /**
  * R2 load/save for the Invisible Flow **v2** document — the node-graph event flow authored
@@ -35,27 +35,51 @@ export async function loadFlowV2Doc(
 	clientKey: string,
 	projectKey: string,
 ): Promise<FlowDocV2 | null> {
-	const raw = await getObjectText(flowV2DocKey(clientKey, projectKey));
-	if (!raw) return null;
+	return (await loadFlowV2DocWithEtag(clientKey, projectKey)).doc;
+}
+
+/**
+ * Load a project's v2 FlowDoc with the ETag its next save must match.
+ *
+ * `doc: null` still means "absent OR malformed" (the caller falls back to its sample),
+ * but `etag` distinguishes them — it is read off the object, not inferred from a
+ * successful parse. A malformed doc is an object that EXISTS, so it must be
+ * overwritten with `ifMatch: <etag>`, never created with `ifNoneMatch: '*'` (which
+ * would 412 forever). `etag === null` means the object was genuinely absent.
+ * See `docs/design/multi-user-concurrency.md` Phase 1.
+ */
+export async function loadFlowV2DocWithEtag(
+	clientKey: string,
+	projectKey: string,
+): Promise<{ doc: FlowDocV2 | null; etag: string | null }> {
+	const obj = await getObjectTextWithEtag(flowV2DocKey(clientKey, projectKey));
+	if (!obj) return { doc: null, etag: null };
 	try {
-		const parsed = JSON.parse(raw) as unknown;
-		return isFlowV2Doc(parsed) ? parsed : null;
+		const parsed = JSON.parse(obj.text) as unknown;
+		return { doc: isFlowV2Doc(parsed) ? parsed : null, etag: obj.etag };
 	} catch {
-		return null;
+		return { doc: null, etag: obj.etag };
 	}
 }
 
-/** Persist a project's v2 FlowDoc to R2; rejects a body that is not shaped like a v2 `FlowDoc`. */
+/**
+ * Persist a project's v2 FlowDoc to R2; rejects a body that is not shaped like a v2
+ * `FlowDoc`. Guarded by `baseEtag` — see {@link precondition} for the convention, and
+ * `editorStorage.saveDoc` for why `undefined` is not an escape hatch. Throws
+ * {@link ConflictError} when another author saved first; returns the new ETag.
+ */
 export async function saveFlowV2Doc(
 	clientKey: string,
 	projectKey: string,
 	doc: unknown,
-): Promise<FlowDocV2> {
+	baseEtag?: string | null,
+): Promise<{ doc: FlowDocV2; etag: string | null }> {
 	if (!isFlowV2Doc(doc)) throw new Error('not a v2 FlowDoc');
-	await putObjectText(
+	const etag = await putObjectText(
 		flowV2DocKey(clientKey, projectKey),
 		JSON.stringify(doc, null, 2),
 		'application/json',
+		precondition(baseEtag),
 	);
-	return doc;
+	return { doc, etag };
 }

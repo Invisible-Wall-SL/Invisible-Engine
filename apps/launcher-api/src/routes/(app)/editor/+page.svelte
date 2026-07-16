@@ -481,7 +481,15 @@
 		if (componentBusy) return;
 		componentBusy = true;
 		componentStatus = null;
-		if (dirty && !crossTypeLoaded) await save();
+		// Bail BEFORE creating the def if the scene can't be persisted (e.g. another
+		// author saved first): pressing on would create a component in R2, fail to
+		// persist the scene's link to it, then navigate away — orphaning the def and
+		// losing the conversion. The save pill explains why nothing happened.
+		if (dirty && !crossTypeLoaded && !(await save())) {
+			componentStatus = { kind: 'error', message: 'Save the scene first — see the save status.' };
+			componentBusy = false;
+			return;
+		}
 		const name = container.label || 'Component';
 		const existing = components.find((c) => c.scope === 'project' && c.name === name);
 		try {
@@ -524,7 +532,16 @@
 			const linked = linkContainerToComponentInstance(container, def);
 			if (linked) {
 				markDirty();
-				if (!crossTypeLoaded) await save();
+				// Refuse to navigate if the link didn't persist — the def now exists, so
+				// leaving here would strand it unreferenced and drop the conversion.
+				if (!crossTypeLoaded && !(await save())) {
+					componentStatus = {
+						kind: 'error',
+						message:
+							'Component created, but the scene link could not be saved — see the save status.',
+					};
+					return;
+				}
 			}
 			componentStatus = {
 				kind: 'ok',
@@ -646,7 +663,9 @@
 	 * in-app remount between them leaves the canvas broken (the "← Editor" link
 	 * stopped working). Same window/tab, fresh document. */
 	async function openComponentEditor(id?: string): Promise<void> {
-		if (dirty && !crossTypeLoaded) await save();
+		// Never navigate away from a doc that failed to flush — this is a full page
+		// load, so unsaved work would be gone with no way back.
+		if (dirty && !crossTypeLoaded && !(await save())) return;
 		const params = new URLSearchParams();
 		if (id) params.set('id', id);
 		params.set('project', data.projectKey);
@@ -1413,6 +1432,13 @@
 	let crossTypeFrom = $state('');
 	let lastError = $state('');
 	let lastSavedAt = $state(data.doc.updatedAt || '');
+	/** The ETag this tab loaded — sent on every save so a concurrent author can't be
+	 * clobbered, and re-adopted from each save's response. `null` = no stored doc yet. */
+	let docEtag = $state<string | null>(data.docEtag);
+	/** Set when a save lost to another author. Suppresses autosave until resolved —
+	 * without this the 1.2s debounce would re-fire and 409 forever. Local edits are
+	 * KEPT; `dirty` deliberately stays true. */
+	let conflict = $state(false);
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
 	let nowTick = $state(Date.now());
 
@@ -1520,7 +1546,11 @@
 		recordEdit();
 		dirty = true;
 		loadedPreview = false; // a real edit commits the (possibly loaded) layout
-		lastError = '';
+		// Editing clears a stale save error — but NOT a conflict, whose message is the
+		// banner's only explanation and whose state must survive until the author
+		// resolves it. Blanking it here would leave "⚠ Someone else saved this" with an
+		// empty tooltip on the very next keystroke.
+		if (!conflict) lastError = '';
 		// Force the canvas to repaint after ANY property-panel edit. The canvas redraw
 		// effects track a field whitelist (node COUNT, scene space/align, author param
 		// defaults) + this nonce — they do NOT deep-track per-node `params`/`bind.props`/
@@ -1611,29 +1641,55 @@
 	}
 
 	let pendingSave = false;
-	async function save(): Promise<void> {
+	/**
+	 * Persist the doc, guarded by the ETag this tab loaded. Resolves TRUE only when the
+	 * doc actually reached R2 — callers that navigate away on a flush (the component
+	 * editor hops) MUST check it, or a refused save silently discards the author's work.
+	 *
+	 * `force` drops the guard — an explicit, informed "overwrite their version with
+	 * mine", only ever reachable from the conflict banner. Without an escape hatch a
+	 * conflicted tab would hold work it can never save; the point of Phase 1 is that
+	 * losing someone's edits becomes a DECISION, not a silent accident.
+	 */
+	async function save(force = false): Promise<boolean> {
+		if (conflict && !force) return false;
 		if (busy) {
 			// Coalesce: the in-flight save's `finally` will re-trigger.
 			pendingSave = true;
-			return;
+			return false;
 		}
 		busy = true;
+		let saved = false;
 		try {
 			const payload = JSON.stringify(buildDocPayload());
-			const out = (await postAction('save', { doc: payload })) as {
+			// '' encodes "no doc existed when I loaded" (FormData has no null), which the
+			// action turns into a create precondition. Omitted entirely when forcing.
+			const fields: Record<string, string> = { doc: payload };
+			if (force) fields.force = '1';
+			else fields.baseEtag = docEtag ?? '';
+			const out = (await postAction('save', fields)) as {
 				saved?: boolean;
 				updatedAt?: string;
+				etag?: string | null;
 				error?: string;
+				conflict?: boolean;
 			};
-			if (out.error) {
+			if (out.conflict) {
+				// Keep the local doc and stay dirty — never discard the author's work here.
+				conflict = true;
+				lastError = out.error ?? 'Someone else saved this project while you were editing.';
+			} else if (out.error) {
 				lastError = out.error;
 			} else {
 				lastSavedAt = out.updatedAt ?? new Date().toISOString();
+				docEtag = out.etag ?? null;
 				lastError = '';
+				conflict = false;
 				dirty = false;
 				loadedPreview = false;
 				crossTypeLoaded = false;
 				crossTypeFrom = '';
+				saved = true;
 			}
 		} catch (e) {
 			lastError = e instanceof Error ? e.message : 'Save failed.';
@@ -1641,9 +1697,10 @@
 			busy = false;
 			if (pendingSave) {
 				pendingSave = false;
-				if (dirty) void save();
+				if (dirty && !conflict) void save();
 			}
 		}
+		return saved;
 	}
 
 	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1653,6 +1710,10 @@
 	function restartAutosave(): void {
 		// A cross-type load must never autosave — only an explicit Save persists it.
 		if (crossTypeLoaded) return;
+		// A conflicted doc must never autosave: the write can only lose again, so this
+		// would 409 every AUTOSAVE_MS until the author resolves it. Resolution is
+		// explicit (reload theirs, or overwrite with mine).
+		if (conflict) return;
 		if (autosaveTimer) clearTimeout(autosaveTimer);
 		autosaveTimer = setTimeout(() => {
 			autosaveTimer = null;
@@ -2025,6 +2086,24 @@
 			<span class="dot-sep">·</span>
 			{#if busy}
 				<span class="save-pill busy">Saving…</span>
+			{:else if conflict}
+				<span class="save-pill error" title={lastError}>⚠ Someone else saved this</span>
+				<button
+					class="save-btn"
+					type="button"
+					title="Discard YOUR changes and load their version."
+					onclick={() => location.reload()}
+				>
+					Reload theirs
+				</button>
+				<button
+					class="save-btn"
+					type="button"
+					title="Overwrite THEIR version with yours. Their changes since you loaded will be lost."
+					onclick={() => void save(true)}
+				>
+					Overwrite with mine
+				</button>
 			{:else if lastError}
 				<span class="save-pill error" title={lastError}>Save failed</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Retry</button>

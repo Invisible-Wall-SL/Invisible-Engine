@@ -408,9 +408,13 @@
 	// project persists — the standalone dev sample (server sent `doc: null`) is never saved.
 	const AUTOSAVE_MS = 800;
 	const hasProject = data.doc !== null;
-	type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+	type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict' | 'scope-mismatch';
 	let saveStatus = $state<SaveStatus>('idle');
 	let dirty = $state(false);
+	/** ETag of the stored doc — sent on save, re-adopted from each response. */
+	let docEtag = $state<string | null>(data.docEtag);
+	/** Server-supplied explanation for a conflict / scope-mismatch banner. */
+	let saveMessage = $state('');
 
 	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -419,6 +423,9 @@
 	function markDirty(): void {
 		if (!hasProject) return; // standalone sample — never persist.
 		dirty = true;
+		// A conflicted (or wrong-project) doc must not re-arm: the write can only lose
+		// again, so this would 409 every 800ms until the author resolves it. Edits kept.
+		if (saveStatus === 'conflict' || saveStatus === 'scope-mismatch') return;
 		if (autosaveTimer) clearTimeout(autosaveTimer);
 		autosaveTimer = setTimeout(() => {
 			autosaveTimer = null;
@@ -427,7 +434,11 @@
 	}
 
 	let pendingSave = false;
-	async function saveDoc(): Promise<void> {
+	/** `force` = the author's explicit "overwrite theirs" from the conflict banner. */
+	async function saveDoc(force = false): Promise<void> {
+		// `scope-mismatch` is never forceable — see the server's scope guard.
+		if (saveStatus === 'scope-mismatch') return;
+		if (saveStatus === 'conflict' && !force) return;
 		if (saveStatus === 'saving') {
 			// Coalesce: the in-flight save's `finally` re-triggers if still dirty.
 			pendingSave = true;
@@ -438,9 +449,25 @@
 			const res = await fetch('/api/flow-v2/save', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ doc }),
+				// `projectKey` names the project THIS tab loaded, so the server can refuse
+				// rather than write to whatever project the session has since moved to.
+				body: JSON.stringify({
+					doc,
+					projectKey: data.projectKey,
+					...(force ? { force: true } : { baseEtag: docEtag }),
+				}),
 			});
+			if (res.status === 409) {
+				const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+				// Keep the local doc and stay dirty — never discard the author's work, and
+				// never reload it out from under them.
+				saveStatus = out.error === 'scope-mismatch' ? 'scope-mismatch' : 'conflict';
+				saveMessage = out.message ?? '';
+				return;
+			}
 			if (!res.ok) throw new Error(`save failed (${res.status})`);
+			const out = (await res.json()) as { etag?: string | null };
+			docEtag = out.etag ?? null;
 			dirty = false;
 			saveStatus = 'saved';
 		} catch {
@@ -448,7 +475,7 @@
 		} finally {
 			if (pendingSave) {
 				pendingSave = false;
-				if (dirty) void saveDoc();
+				if (dirty && saveStatus !== 'conflict' && saveStatus !== 'scope-mismatch') void saveDoc();
 			}
 		}
 	}
@@ -461,10 +488,14 @@
 	let librarySaveStatus = $state<SaveStatus>('idle');
 	let libraryDirty = $state(false);
 	let libraryAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+	/** ETag of the GLOBAL library object. The only guard against an author on another
+	 * project erasing these functions — a project lease cannot cover a shared key. */
+	let libraryEtag = $state<string | null>(data.libraryEtag);
 
 	function markLibraryDirty(): void {
 		if (!hasProject) return; // standalone sample — never persist the shared library.
 		libraryDirty = true;
+		if (librarySaveStatus === 'conflict') return;
 		if (libraryAutosaveTimer) clearTimeout(libraryAutosaveTimer);
 		libraryAutosaveTimer = setTimeout(() => {
 			libraryAutosaveTimer = null;
@@ -473,7 +504,8 @@
 	}
 
 	let pendingLibrarySave = false;
-	async function saveLibrary(): Promise<void> {
+	async function saveLibrary(force = false): Promise<void> {
+		if (librarySaveStatus === 'conflict' && !force) return;
 		if (librarySaveStatus === 'saving') {
 			pendingLibrarySave = true;
 			return;
@@ -483,9 +515,15 @@
 			const res = await fetch('/api/flow-v2/library/save', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ library }),
+				body: JSON.stringify(force ? { library, force: true } : { library, baseEtag: libraryEtag }),
 			});
+			if (res.status === 409) {
+				librarySaveStatus = 'conflict';
+				return;
+			}
 			if (!res.ok) throw new Error(`library save failed (${res.status})`);
+			const out = (await res.json()) as { etag?: string | null };
+			libraryEtag = out.etag ?? null;
 			libraryDirty = false;
 			librarySaveStatus = 'saved';
 		} catch {
@@ -493,7 +531,7 @@
 		} finally {
 			if (pendingLibrarySave) {
 				pendingLibrarySave = false;
-				if (libraryDirty) void saveLibrary();
+				if (libraryDirty && librarySaveStatus !== 'conflict') void saveLibrary();
 			}
 		}
 	}
@@ -1219,6 +1257,35 @@
 		{#if hasProject}
 			{#if saveStatus === 'saving'}
 				<span class="save-pill busy">Saving…</span>
+			{:else if saveStatus === 'scope-mismatch'}
+				<!-- Deliberately NO "overwrite" here: the target is a DIFFERENT project's
+				     flow doc, and overwriting that is never the author's to choose. -->
+				<span class="save-pill error" title={saveMessage}>⚠ Wrong project — not saved</span>
+				<button
+					class="save-pill"
+					type="button"
+					title="Reload this tab against your current active project."
+					onclick={() => location.reload()}>Reload</button
+				>
+			{:else if saveStatus === 'conflict'}
+				<span
+					class="save-pill error"
+					title={saveMessage ||
+						'Someone else saved this flow while you were editing. Your changes are still here and autosave is paused.'}
+					>⚠ Someone else saved this</span
+				>
+				<button
+					class="save-pill"
+					type="button"
+					title="Discard YOUR changes and load their version."
+					onclick={() => location.reload()}>Reload theirs</button
+				>
+				<button
+					class="save-pill"
+					type="button"
+					title="Overwrite THEIR version with yours. Their changes since you loaded will be lost."
+					onclick={() => void saveDoc(true)}>Overwrite with mine</button
+				>
 			{:else if saveStatus === 'error'}
 				<button class="save-pill error" type="button" onclick={() => void saveDoc()}
 					>Save failed — retry</button
@@ -1236,6 +1303,24 @@
 		{#if hasProject && librarySaveStatus !== 'idle'}
 			{#if librarySaveStatus === 'saving'}
 				<span class="save-pill busy" title="Shared function library">Library…</span>
+			{:else if librarySaveStatus === 'conflict'}
+				<span
+					class="save-pill error"
+					title="Someone else changed the shared function library — possibly from another project, since the library is global. Your changes are still here and autosave is paused."
+					>⚠ Library changed elsewhere</span
+				>
+				<button
+					class="save-pill"
+					type="button"
+					title="Discard YOUR library changes and load theirs."
+					onclick={() => location.reload()}>Reload theirs</button
+				>
+				<button
+					class="save-pill"
+					type="button"
+					title="Overwrite THEIR library with yours. Their functions added since you loaded will be lost."
+					onclick={() => void saveLibrary(true)}>Overwrite with mine</button
+				>
 			{:else if librarySaveStatus === 'error'}
 				<button class="save-pill error" type="button" onclick={() => void saveLibrary()}
 					>Library save failed — retry</button
