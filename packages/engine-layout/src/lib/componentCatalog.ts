@@ -176,6 +176,7 @@ export const ENGINE_ACTION_CATALOG: string[] = [
 	'autoSpin',
 	'turbo',
 	'menu',
+	'menuClose',
 	'payTable',
 	'gameRules',
 	'settings',
@@ -195,6 +196,7 @@ export const ENGINE_ACTION_CATALOG: string[] = [
  */
 export const ENGINE_ACTION_LABELS: Record<string, string> = {
 	menu: 'submenu (popup)',
+	menuClose: 'submenu close',
 	payTable: 'paytable',
 	gameRules: 'game rules',
 	settings: 'settings',

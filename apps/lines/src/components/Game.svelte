@@ -1046,6 +1046,9 @@
 	const doOpenMenu = (): void => {
 		stateUi.menuOpen = true;
 	};
+	const doCloseMenu = (): void => {
+		stateUi.menuOpen = false;
+	};
 	const doOpenGameRules = (): void => {
 		stateUi.menuOpen = false;
 		stateModal.modal = { name: 'gameRules' };
@@ -1074,6 +1077,7 @@
 		else if (intent === 'decrease') doDecreaseBet();
 		else if (intent === 'turbo') doToggleTurbo();
 		else if (intent === 'menu') doOpenMenu();
+		else if (intent === 'menuClose') doCloseMenu();
 		else if (intent === 'buyBonus') stateModal.modal = { name: 'buyBonus' };
 		else if (intent === 'gameRules') doOpenGameRules();
 		else if (intent === 'settings') doOpenSettings();
@@ -1109,6 +1113,16 @@
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('menu', doOpenMenu);
+			},
+		},
+		// ButtonMenuClose — close the menu overlay. Mirrors `menu` so an authored
+		// submenu's close button projects an `onMenuClose` pin: wired into a
+		// `hideContainer` the flow closes the authored screen and the coded
+		// `stateUi.menuOpen` body never runs; unwired it closes the coded drawer.
+		menuClose: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				routeActionThroughFlow('menuClose', doCloseMenu);
 			},
 		},
 		// The four buttons that live INSIDE the menu overlay, lifted so each can be
