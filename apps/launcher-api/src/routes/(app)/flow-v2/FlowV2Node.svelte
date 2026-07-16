@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { derivePins, type Node as FlowNode, type Pin, type PinContext } from 'engine-flow-v2';
+	import {
+		derivePins,
+		type Node as FlowNode,
+		type Pin,
+		type PinContext,
+		type PinScope,
+	} from 'engine-flow-v2';
 	import { typeColor, typeLabel } from './palette';
 
 	// A v2 graph node. Its pins are DERIVED (§2 anti-drift rule) — never hand-stored — by
@@ -11,6 +17,9 @@
 	type Data = {
 		node: FlowNode;
 		ctx: PinContext;
+		/** The node's graph-resolved scope (`deriveGraphPins`) — the enclosing loop's element type +
+		 *  the types of its edge-fed data-ins, neither of which is readable from the node alone. */
+		scope?: PinScope;
 		title: string;
 		/** Group nodes only — commit an inline header rename (double-click the title). */
 		onRename?: (label: string) => void;
@@ -62,8 +71,8 @@
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
 
-	// Derive the node's pins from its stored reference + the vocabulary/library.
-	const pins = $derived<Pin[]>(derivePins(d.node, d.ctx));
+	// Derive the node's pins from its stored reference + the vocabulary/library + its graph scope.
+	const pins = $derived<Pin[]>(derivePins(d.node, d.ctx, d.scope));
 
 	const inputs = $derived(pins.filter((p) => p.dir === 'in'));
 	const outputs = $derived(pins.filter((p) => p.dir === 'out'));

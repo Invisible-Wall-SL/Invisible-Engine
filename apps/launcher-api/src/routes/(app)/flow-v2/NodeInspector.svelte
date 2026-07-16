@@ -17,6 +17,7 @@
 		type Node as V2Node,
 		type Pin,
 		type PinContext,
+		type PinScope,
 		type TypeRef,
 	} from 'engine-flow-v2';
 	import {
@@ -37,11 +38,15 @@
 		doc,
 		node,
 		ctx,
+		scope,
 		onchange,
 	}: {
 		doc: FlowDoc;
 		node: V2Node;
 		ctx: PinContext;
+		/** The node's graph-resolved scope (`deriveGraphPins`) — so a `forEach.item` fed by wire reads
+		 *  its real element type here too, not an untyped pin. */
+		scope?: PinScope;
 		onchange: (next: FlowDoc) => void;
 	} = $props();
 
@@ -56,7 +61,7 @@
 	);
 
 	// The node's derived pins — the summary + the DATA-IN editor list both read from these.
-	const pins = $derived<Pin[]>(derivePins(node, ctx));
+	const pins = $derived<Pin[]>(derivePins(node, ctx, scope));
 	// Entry/result data-ins are the function's declared outputs (fed by the body via wires), never
 	// literal/accessor-authored here — so the editable Inputs list is empty for signature nodes.
 	const dataIns = $derived(

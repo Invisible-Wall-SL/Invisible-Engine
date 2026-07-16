@@ -7,6 +7,7 @@
 		dedupeGroupBodyIds,
 		expandGroup,
 		derivePins,
+		deriveGraphPins,
 		templateVocabulary,
 		validateFlowDoc,
 		validateFunctionDef,
@@ -277,11 +278,13 @@
 			: validateFlowDoc(doc, vocab, library, containerEvents),
 	);
 
-	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE
-	// pin's `TypeRef` (the wire reads the same color as the dot it leaves). Over the active graph.
-	const pinsByNode = $derived(
-		new Map<string, Pin[]>(activeGraph.nodes.map((n) => [n.id, derivePins(n, ctx)])),
-	);
+	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE pin's
+	// `TypeRef` (the wire reads the same color as the dot it leaves), by the canvas nodes, and by the
+	// connect gate. `deriveGraphPins` (not a bare `derivePins` map) so a pin whose type depends on the
+	// GRAPH — a `forEach.item` whose list arrives by wire — is typed here exactly as the validator
+	// types it: ONE typing path for the drag gate and the panel.
+	const graphPins = $derived(deriveGraphPins(activeGraph, ctx));
+	const pinsByNode = $derived(graphPins.pins);
 
 	// xyflow owns these arrays for live drag/selection; we rebuild them from the doc on
 	// structural changes (selection, doc replace). Reading the `$derived` at top-level init
@@ -307,6 +310,9 @@
 			data: {
 				node: n,
 				ctx,
+				// The node's resolved graph scope — without it the node would re-derive a `forEach.item`
+				// fed by wire as UNTYPED (grey dot) while the connect gate types it (§ `deriveGraphPins`).
+				scope: graphPins.scopes.get(n.id),
 				title: nodeTitle(n),
 				// Group nodes are renamable inline (double-click the header) — commit via the same
 				// `setGroupLabel` + `applyGraphEdit` path the inspector uses, so the canvas + save stay in sync.
@@ -559,12 +565,11 @@
 	// `graphOps` op, then `syncCanvas()` re-seeds the xyflow arrays. `derivePins` +
 	// the `$derived` `validateFlowDoc` react for free — the panel updates live.
 
-	// The pins of a node, memoized per gesture (the `$derived` `pinsByNode` is for edge
-	// coloring; connect/validate need a fresh lookup that also disambiguates exec by dir).
-	// Reads the ACTIVE graph so wiring works identically inside a function body.
+	// The pins of a node — the SAME scope-aware derivation the validator + canvas use, so the connect
+	// gate rejects exactly what the panel would flag. Reads the ACTIVE graph so wiring works
+	// identically inside a function body.
 	function pinsOf(nodeId: string): Pin[] {
-		const node = activeGraph.nodes.find((n) => n.id === nodeId);
-		return node ? derivePins(node, ctx) : [];
+		return graphPins.pins.get(nodeId) ?? [];
 	}
 
 	// A node's exec-in and exec-out share the id `exec`; a lookup must disambiguate by
@@ -1263,7 +1268,13 @@
 						>✕</button
 					>
 				</div>
-				<NodeInspector doc={inspectorDoc} node={selectedNode} {ctx} onchange={applyDocEdit} />
+				<NodeInspector
+					doc={inspectorDoc}
+					node={selectedNode}
+					{ctx}
+					scope={graphPins.scopes.get(selectedNode.id)}
+					onchange={applyDocEdit}
+				/>
 			{:else if view.kind === 'function' && activeFn}
 				<h3>Function body</h3>
 				<p class="hint">

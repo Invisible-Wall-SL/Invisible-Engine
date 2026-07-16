@@ -28,6 +28,7 @@
 		'edge-endpoint': '⊘',
 		'type-mismatch': '≠',
 		'unfilled-data-in': '○',
+		'data-in-shadowed': '⊗',
 		'literal-type': '≠',
 		'accessor-unresolved': '✗',
 		'fn-requires': '⚠',

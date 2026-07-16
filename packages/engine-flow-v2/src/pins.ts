@@ -171,11 +171,26 @@ const guardPins = (guard: Guard): Pin[] => {
 };
 
 // ---------------------------------------------------------------------------
-// `derivePins` — the one entry point. `scopeItem` is the element type of the enclosing
-// forEach when the node sits inside a loop body (needed to type a forEach-nested reference).
+// `derivePins` — the one entry point. `scope` carries the two facts a node's pins can
+// depend on that are NOT readable from the node itself (`deriveGraphPins`, `scope.ts`,
+// resolves both from the graph and threads them in).
 // ---------------------------------------------------------------------------
 
-export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pin[] => {
+/**
+ * The graph-derived facts a node's pin types may depend on. A node stores only its own ref +
+ * `inputs`, so a deriver can see neither the loop it sits in nor the edges feeding it; the graph
+ * pass (`deriveGraphPins`) resolves both and passes them here. An empty scope is always safe: a
+ * pin whose type needs it is simply emitted untyped (the pre-scope behaviour).
+ */
+export interface PinScope {
+	/** The element type of the enclosing forEach, when the node sits inside a loop body. */
+	item?: TypeRef;
+	/** The resolved types of the node's data-ins that are fed by a data EDGE, keyed by pin id.
+	 *  Only `forEach.in` consumes one today (to type `item` when the list arrives by wire). */
+	wiredIns?: Record<string, TypeRef>;
+}
+
+export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): Pin[] => {
 	switch (node.kind) {
 		case 'event': {
 			const decl = ctx.vocab.events.find((e) => e.name === node.ref);
@@ -214,10 +229,13 @@ export const derivePins = (node: Node, ctx: PinContext, scopeItem?: TypeRef): Pi
 		case 'branch':
 			return [EXEC_IN, execOut('then'), execOut('else'), ...guardPins(node.guard)];
 		case 'forEach': {
-			// The iterated collection's element type: taken from the wired `in` source when it is a
-			// literal/accessor list; otherwise `item`/`index` fall back to untyped `item` + int.
+			// The iterated collection's element type. An incoming data EDGE on `in` WINS over the node's
+			// own `inputs.in` — that is the runtime's precedence (`resolveDataIn` reads the edge first),
+			// so the pin must be typed by the same rule. No edge ⇒ type the node's own literal/accessor
+			// source. Neither resolvable ⇒ `item`/`in` fall back to untyped.
 			const inSource = node.inputs?.in;
-			const listType = inSource ? dataSourceType(ctx, inSource, scopeItem) : undefined;
+			const listType =
+				scope.wiredIns?.in ?? (inSource ? dataSourceType(ctx, inSource, scope.item) : undefined);
 			const elem = listType?.t === 'list' ? listType.of : undefined;
 			const item: Pin = elem
 				? dataOut('item', elem, 'item')

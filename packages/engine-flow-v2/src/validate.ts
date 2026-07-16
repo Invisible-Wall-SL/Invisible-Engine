@@ -11,6 +11,9 @@
  *  - `edge-endpoint`       — an edge names a node/pin that doesn't exist, or wrong kind/dir.
  *  - `type-mismatch`       — a data edge whose source type isn't `assignable` to the target (§1).
  *  - `unfilled-data-in`    — a data-in with neither an incoming edge nor a valid `DataSource`.
+ *  - `data-in-shadowed`    — a data-in fed by BOTH an edge and a literal/accessor source. The edge
+ *                            wins at runtime (`resolveDataIn` reads it first), so the stored source
+ *                            is silently dead — a warning, not an error (the graph still runs).
  *  - `literal-type`        — a `literal` DataSource whose value doesn't match the pin type.
  *  - `accessor-unresolved` — an `accessor` DataSource that doesn't resolve in scope.
  *  - `fn-requires`         — a `functionCall` whose target's `requires` isn't satisfied by the
@@ -30,7 +33,8 @@
  */
 
 import { flattenGroups } from './collapse';
-import { derivePins, type PinContext } from './pins';
+import { dataSourceType, type PinContext } from './pins';
+import { deriveGraphPins } from './scope';
 import { assignable } from './types-check';
 import type {
 	ContainerEventDecl,
@@ -59,6 +63,7 @@ export type FlowIssueCode =
 	| 'edge-endpoint'
 	| 'type-mismatch'
 	| 'unfilled-data-in'
+	| 'data-in-shadowed'
 	| 'literal-type'
 	| 'accessor-unresolved'
 	| 'fn-requires'
@@ -279,7 +284,10 @@ const validateGraph = (
 	const { containerIds } = opts;
 
 	const nodeById = new Map<string, Node>(nodes.map((n) => [n.id, n]));
-	const pinsById = new Map<string, Pin[]>(nodes.map((n) => [n.id, derivePins(n, ctx)]));
+	// Pins come from the GRAPH pass, not from bare `derivePins`: a node alone cannot tell which
+	// forEach body it sits in (so what `$item` is) nor what an incoming data edge carries (so what a
+	// `forEach.in` fed by wire iterates). Both are what the two checks below need.
+	const { pins: pinsById, scopeItem } = deriveGraphPins(graph, ctx);
 
 	// --- (a) every node `ref` resolves; container refs resolve against the doc's containers ---
 	for (const node of nodes) {
@@ -416,7 +424,21 @@ const validateGraph = (
 		const wired = wiredDataIns(node.id, data);
 		for (const pin of pins) {
 			if (pin.dir !== 'in' || pin.kind !== 'data') continue;
-			if (wired.has(pin.id)) continue; // fed by an edge — fine.
+			if (wired.has(pin.id)) {
+				// The edge WINS at runtime (`resolveDataIn` reads it before the node's own `inputs`), so a
+				// literal/accessor left on the same pin is dead — and silently so, which reads as "my
+				// accessor is being ignored". A `wire` source is the sanctioned "use the edge" marker.
+				const shadowed = node.inputs?.[pin.id];
+				if (shadowed && shadowed.kind !== 'wire') {
+					issues.push({
+						code: 'data-in-shadowed',
+						severity: 'warning',
+						message: `data-in ${node.id}.${pin.id} is fed by BOTH an incoming data edge and a stored ${shadowed.kind} source — the edge wins at runtime, so the ${shadowed.kind} is ignored`,
+						at: { on: 'pin', node: node.id, pin: pin.id },
+					});
+				}
+				continue;
+			}
 			const src = node.inputs?.[pin.id];
 			if (!src) {
 				issues.push({
@@ -427,7 +449,7 @@ const validateGraph = (
 				});
 				continue;
 			}
-			validateDataSource(node, pin, src, ctx, issues);
+			validateDataSource(node, pin, src, ctx, scopeItem.get(node.id), issues);
 		}
 	}
 
@@ -458,6 +480,8 @@ const validateDataSource = (
 	pin: Pin,
 	src: DataSource,
 	ctx: PinContext,
+	/** The enclosing forEach's element type (`deriveGraphPins`), when derivable. */
+	scopeItem: TypeRef | undefined,
 	issues: FlowIssue[],
 ): void => {
 	if (src.kind === 'wire') {
@@ -490,15 +514,56 @@ const validateDataSource = (
 		}
 		return;
 	}
-	// accessor — must resolve against the vocab/scope. `$engine.<key>` must be a known
-	// collection; `$item`/`$index`/`$input` are only meaningful inside a loop/function body,
-	// which the top-level pass can't confirm, so it accepts them structurally.
+	// accessor — must resolve against the vocab/scope. `$engine.<key>` must be a known collection;
+	// `$item.<member>` must be a real field of the loop's element struct. The rule for scope-dependent
+	// accessors is NEVER GUESS: they are only checked where the graph pass actually resolved the
+	// enclosing scope (an unresolved `$trigger`/`$input`/orphan-chain scope is accepted structurally).
 	const acc = src.path;
 	if (acc.on === 'engine' && !ctx.vocab.collections.some((c) => c.name === acc.key)) {
 		issues.push({
 			code: 'accessor-unresolved',
 			severity: 'error',
 			message: `accessor $engine.${acc.key} on ${node.id}.${pin.id} is not a known collection`,
+			at: { on: 'pin', node: node.id, pin: pin.id },
+		});
+		return;
+	}
+	if (acc.on === 'item' && acc.member !== undefined && scopeItem) {
+		if (scopeItem.t !== 'struct') {
+			issues.push({
+				code: 'accessor-unresolved',
+				severity: 'error',
+				message: `accessor $item.${acc.member} on ${node.id}.${pin.id} reads a member of ${typeName(
+					scopeItem,
+				)}, which has no members`,
+				at: { on: 'pin', node: node.id, pin: pin.id },
+			});
+			return;
+		}
+		// An undeclared struct is a vocabulary gap, not an authoring error — don't guess its fields.
+		const struct = ctx.vocab.structs.find((s) => s.name === scopeItem.name);
+		if (struct && !struct.fields.some((f) => f.name === acc.member)) {
+			issues.push({
+				code: 'accessor-unresolved',
+				severity: 'error',
+				message: `accessor $item.${acc.member} on ${node.id}.${pin.id} is not a field of struct ${
+					scopeItem.name
+				} (${struct.fields.map((f) => f.name).join(', ')})`,
+				at: { on: 'pin', node: node.id, pin: pin.id },
+			});
+			return;
+		}
+	}
+	// The accessor RESOLVES — now check it carries the pin's type (the accessor twin of the data-edge
+	// type check). Only fires when BOTH types are known.
+	const accType = dataSourceType(ctx, src, scopeItem);
+	if (accType && pin.dataType && !assignable(accType, pin.dataType)) {
+		issues.push({
+			code: 'type-mismatch',
+			severity: 'error',
+			message: `accessor on ${node.id}.${pin.id} is ${typeName(accType)} but the pin is ${typeName(
+				pin.dataType,
+			)}`,
 			at: { on: 'pin', node: node.id, pin: pin.id },
 		});
 	}
