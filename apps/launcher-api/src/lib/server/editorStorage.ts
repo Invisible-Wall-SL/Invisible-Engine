@@ -85,6 +85,47 @@ export async function saveDoc(
 	return next;
 }
 
+/**
+ * Current `LayoutDoc.version`.
+ * - `1` — no `Scene.alwaysOnTop`; the engine pinned EVERY flow-active "takeover" screen at a
+ *   hard-coded top band, so a doc could not express "this screen is pinned".
+ * - `2` — `alwaysOnTop` is authored per screen and drives the z. A v1 doc is backfilled on
+ *   read (see {@link backfillAlwaysOnTop}) so its transient screens keep the old stacking.
+ */
+const DOC_VERSION = 2;
+
+/**
+ * The screens the engine used to mount at the fixed top band via the active-screen takeover:
+ * the boot splash and the round-celebration overlays. Under v1 they had no way to say so — the
+ * takeover pinned them implicitly — so a v1 doc read under v2 rules would drop them to their
+ * list position and bury them (the splash lands under the HUD). Matched by engine ROLE where
+ * one exists (`loading`, id-independent), else by the legacy engine id.
+ *
+ * An author's OWN screens are deliberately NOT here: a persistent authored screen that merely
+ * happened to be flow-active (a progress bar) is exactly what the takeover wrongly pinned, and
+ * it SHOULD now layer from the Screens list. That is the bug this whole change fixes.
+ */
+const LEGACY_PINNED_SCENE_IDS = ['loading', 'freeSpinIntro', 'freeSpinOutro', 'bigWin'];
+
+/**
+ * One-time, idempotent parity backfill for a pre-`alwaysOnTop` (v1) doc: tick the screens the
+ * engine used to pin implicitly, so an existing game's splash/celebrations keep today's
+ * stacking once the z is authored. Runs on READ, so it applies before the doc is served and
+ * persists on the next save (which writes {@link DOC_VERSION}). A v2+ doc is left alone — by
+ * then a missing `alwaysOnTop` is a real author choice, not an absent field.
+ */
+function backfillAlwaysOnTop(scenes: Scene[], version: number): void {
+	if (version >= DOC_VERSION) return;
+	for (const scene of scenes) {
+		// Match on role OR id — NOT "id when role is absent". Real docs carry `role: 'basegame'`
+		// on nearly every scene as noise, which an `!scene.role` guard would read as "not the
+		// legacy splash/celebration" and leave the free-spin outro to be buried.
+		if (scene.role === 'loading' || LEGACY_PINNED_SCENE_IDS.includes(scene.id)) {
+			scene.alwaysOnTop = true;
+		}
+	}
+}
+
 /** Coerce arbitrary parsed/posted data into a valid `LayoutDoc` shape. */
 export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc {
 	const obj = isRecord(input) ? input : {};
@@ -98,7 +139,8 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 		: [];
 	const settings = normalizeGameSettings(obj.settings);
 	const updatedAt = typeof obj.updatedAt === 'string' ? obj.updatedAt : '';
-	const doc: LayoutDoc = { version: 1, projectKey, mainSizesMap, scenes, updatedAt };
+	backfillAlwaysOnTop(scenes, typeof obj.version === 'number' ? obj.version : 1);
+	const doc: LayoutDoc = { version: DOC_VERSION, projectKey, mainSizesMap, scenes, updatedAt };
 	if (gameType) doc.gameType = gameType;
 	if (settings) doc.settings = settings;
 	return doc;

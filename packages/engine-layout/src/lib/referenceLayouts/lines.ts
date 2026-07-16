@@ -335,7 +335,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 			// The HUD layer (logo/name corners + bottom bar) as editor scenes, placed HERE —
 			// right after `basegame`, BEFORE `basegameOverlays`/`specialBook` — so the doc's
 			// screen-list order matches the coded markup paint order (HUD below the win/bonus
-			// overlays). `docLayerZIndex` (layerOrder.ts) turns this position into the HUD's
+			// overlays). `sceneLayerZIndex` (layerOrder.ts) turns this position into the HUD's
 			// zIndex, so an author can move the HUD up/down the list to re-stack it; leaving it
 			// here reproduces today's z (parity). The game still renders `<UI>` from these scenes.
 			//

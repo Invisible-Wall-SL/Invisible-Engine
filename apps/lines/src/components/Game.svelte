@@ -87,6 +87,7 @@
 		CODED_HUD_SCENE_IDS,
 		hasAuthoredHud,
 		sceneLayerZIndex,
+		isSceneLayerPinned,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
 		sceneByRole,
@@ -922,19 +923,25 @@
 	// flow takeover — now paint in the editor's screen-LIST order (their position in
 	// `editorDoc.scenes`) rather than this component's fixed markup sequence. `sceneLayerZIndex`
 	// maps each scene's doc index into a band ABOVE the base game and BELOW the engine-owned top
-	// band (`LAYER_BAND_TOP`, where the full-screen free-spin gates + loading + info overlay
-	// live, so a reorder can never bury a blocking gate). The reel board (`<MainContainer>`) is
-	// NOT layerable — it stays between the below/above-reel slices, unmoved. PARITY: the
-	// reference layout lists these scenes in the same relative order as the old markup (HUD →
-	// basegameOverlays → specialBook), so an un-reordered / flow-less boot assigns z that
-	// reproduces today's stacking (`undefined` ⇒ no override, default insertion order). The HUD
-	// takes the lower of its two scene ids' z so the whole chrome sits at one layer.
-	const hudZIndex = $derived(
-		Math.min(
-			sceneLayerZIndex(editorDoc.scenes, 'hudBar') ?? Number.MAX_SAFE_INTEGER,
-			sceneLayerZIndex(editorDoc.scenes, 'hudCorners') ?? Number.MAX_SAFE_INTEGER,
-		),
-	);
+	// band (`LAYER_BAND_TOP`, where the full-screen free-spin gates + info overlay live, so a
+	// reorder can never bury a blocking gate) — or into the PINNED band when the author ticked
+	// "Always on top". The reel board (`<MainContainer>`) is NOT layerable — it stays between the
+	// below/above-reel slices, unmoved. PARITY: the reference layout lists these scenes in the
+	// same relative order as the old markup (HUD → basegameOverlays → specialBook), so an
+	// un-reordered / flow-less boot assigns z that reproduces today's stacking (`undefined` ⇒ no
+	// override, default insertion order).
+	// The coded HUD is ONE chrome drawn from TWO scenes, so it needs a single z: it takes the
+	// LOWER of the pair (leaving the reference layout's placement reproduces today's stacking).
+	// But if either scene is PINNED ("Always on top"), the lower one would silently win and the
+	// editor's TOP badge would do nothing — so a pinned half pins the whole chrome.
+	const hudZIndex = $derived.by(() => {
+		const bar = sceneLayerZIndex(editorDoc.scenes, 'hudBar');
+		const corners = sceneLayerZIndex(editorDoc.scenes, 'hudCorners');
+		if (isSceneLayerPinned(bar) || isSceneLayerPinned(corners)) {
+			return Math.max(bar ?? LAYER_BAND_TAKEOVER, corners ?? LAYER_BAND_TAKEOVER);
+		}
+		return Math.min(bar ?? Number.MAX_SAFE_INTEGER, corners ?? Number.MAX_SAFE_INTEGER);
+	});
 	const basegameOverlaysZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'basegameOverlays'));
 	const specialBookZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'specialBook'));
 	// The active-screen TAKEOVER layers like every other screen: by its position in the editor's
@@ -1632,14 +1639,16 @@
 		{/each}
 	{/if}
 	<!--
-			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen TAKEOVER
-			layer. When the interpreter swaps the active exclusive screen to an authored id that is
-			NOT `basegame`/`loading` (a `bigWin`/`freeSpinIntro`/future celebration), it mounts here
-			as a TRANSIENT layer OVER the base game + HUD — at the z-position the coded win/free-spin
-			celebration overlays occupy (this sits just above `extraScenes` + the base/HUD and beside
-			the free-spin gates/visuals below). The base board PERSISTS behind it (the reel is
-			engine-owned, not a flow screen), so a celebration overlays the reels rather than
-			replacing them. `<LayoutScene>` self-wraps by `scene.space` + honours `visibleSource` (no
+			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen mount. When the
+			interpreter swaps the active exclusive screen to an authored id that is NOT `basegame`
+			(the boot `loading` splash, a `bigWin`/`freeSpinIntro` celebration, or an author's own
+			screen), it mounts here. Its z is `sceneLayerZIndex` like every other screen — the
+			Screens-list position, or the PINNED band when the author ticked "Always on top" (what a
+			transient celebration/splash wants, and what a v1 doc's splash is backfilled to). This
+			used to be a hard-coded top band for EVERY active screen, which pinned a persistent
+			authored screen (a progress bar) above everything with no way to re-layer it. The base
+			board PERSISTS behind it (the reel is engine-owned, not a flow screen), so a celebration
+			overlays the reels rather than replacing them. `<LayoutScene>` self-wraps by `scene.space` + honours `visibleSource` (no
 			double-wrap); it unmounts on the swap back to `basegame` (gated on `activeScreenId`).
 			`undefined` ⇒ nothing renders: no FlowDoc, a fall-through/unbacked active screen, or the
 			base/loading screens (their own paths) — byte-identical to current `main` (§7).

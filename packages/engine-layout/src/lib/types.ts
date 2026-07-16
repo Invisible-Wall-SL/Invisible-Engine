@@ -610,7 +610,7 @@ export interface Scene {
 	};
 	/**
 	 * Pin this screen ABOVE every doc-ordered layer instead of reading its z from the
-	 * screen-list position ({@link docLayerZIndex}). The editor exposes it as the
+	 * screen-list position ({@link sceneLayerZIndex}). The editor exposes it as the
 	 * "Always on top" tick in a screen's Properties.
 	 *
 	 * Absent (the default) ⇒ the screen layers by its position in the doc `scenes[]`
