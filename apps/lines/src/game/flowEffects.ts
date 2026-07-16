@@ -33,7 +33,12 @@ import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
-import { formatWinText, resolveToastTemplate, resolveWinLineMessage } from 'engine-layout';
+import {
+	formatWinText,
+	resolveToastTemplate,
+	resolveWinLineMessage,
+	symbolDrawsWinLine,
+} from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
@@ -96,12 +101,16 @@ export const winningPositionsOf = (win: { positions: Position[]; kind: number })
 	[...win.positions].sort((a, b) => a.reel - b.reel).slice(0, win.kind);
 
 /**
- * Whether a win draws the traced line + stamped amount: scatter ('S') pays "anywhere" — not a
- * line — so it's skipped, and the whole overlay is gated by the Symbol-State-Machine toggle
- * (defaults on, so an un-baked game keeps drawing it).
+ * Whether a win draws the traced line + stamped amount + authored message: scatter pays
+ * "anywhere" — not a line — so it's skipped, and the whole overlay is gated by the
+ * Symbol-State-Machine toggle (defaults on, so an un-baked game keeps drawing it).
+ *
+ * The excluded-symbol rule lives in `engine-layout` (`symbolDrawsWinLine`) rather than as a
+ * literal here, because the `/win-text` grid needs the SAME answer to avoid offering a cell that
+ * can never render. One fact, one home.
  */
 export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
-	win.symbol !== 'S' && bakedWinLineEnabled();
+	symbolDrawsWinLine(win.symbol) && bakedWinLineEnabled();
 
 /**
  * The board-local centre points the line traces: `getSymbolX(reel)` + the live symbol centre Y.

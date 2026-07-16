@@ -1,6 +1,11 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
-	import { resolveWinText, resolveWinLineMessage, winTextCellKey } from 'engine-layout';
+	import {
+		resolveWinText,
+		resolveWinLineMessage,
+		symbolDrawsWinLine,
+		winTextCellKey,
+	} from 'engine-layout';
 	import type { WinTextDoc } from 'engine-layout';
 	import type { PageData } from './$types';
 
@@ -44,6 +49,15 @@
 	const WIN_LEVEL_ALIASES = ['big', 'superwin', 'mega', 'epic', 'max'];
 
 	const TOKEN_HELP = '{count} {amount} {symbol} {line}';
+
+	/**
+	 * The symbols that can actually carry a win-line message. A scatter pays "anywhere" rather
+	 * than along a payline, so the engine draws no line for it and never asks for its text — a row
+	 * here would be a control that silently does nothing. The rule comes from `engine-layout`
+	 * (the same predicate the engine gates on), never a literal `'S'` copied into this page.
+	 */
+	const lineSymbols = $derived(data.symbols.filter(symbolDrawsWinLine));
+	const excludedSymbols = $derived(data.symbols.filter((s) => !symbolDrawsWinLine(s)));
 
 	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
 	 *  override falls back through the chain instead of persisting an empty string. */
@@ -170,6 +184,14 @@
 				is filled in: an exact symbol × count beats <em>Any count</em>, which beats
 				<em>Any symbol</em>, which beats the default in the corner. Leave a cell blank to inherit —
 				the grey text shows what it will inherit.
+				{#if excludedSymbols.length}
+					<br />
+					<strong>{excludedSymbols.join(', ')}</strong> {excludedSymbols.length === 1
+						? 'is not listed'
+						: 'are not listed'}: a scatter pays anywhere rather than along a line, so the game draws
+					no win line for it and this message would never appear. Use the
+					<em>Info-bar message</em> below for those wins.
+				{/if}
 			</p>
 
 			<div class="grid-wrap">
@@ -205,7 +227,7 @@
 							</td>
 						</tr>
 
-						{#each data.symbols as symbol (symbol)}
+						{#each lineSymbols as symbol (symbol)}
 							<tr>
 								<th class="row-head">{symbol}</th>
 								{#each COUNTS as count (count)}

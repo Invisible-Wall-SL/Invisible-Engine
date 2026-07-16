@@ -105,6 +105,22 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 /** The key a `byCell` override is stored under. */
 export const winTextCellKey = (symbol: string, count: number): string => `${symbol}:${count}`;
 
+/**
+ * Symbols that never draw a win line, so a win-line message authored for them could never
+ * render. Scatter pays "anywhere" rather than along a payline — there is no line to trace and no
+ * end to stamp text against — so the engine skips the whole overlay for it.
+ *
+ * Lives here because BOTH sides need the same answer: the engine gates the overlay on it
+ * (`winLineEnabledForWin`), and the `/win-text` grid must not offer a cell that can't do
+ * anything. It was hardcoded in the engine gate alone, so the tool had no way to know and
+ * happily rendered a dead row.
+ */
+export const WIN_LINE_EXCLUDED_SYMBOLS: readonly string[] = ['S'];
+
+/** Whether a win on `symbol` draws a win line at all — see {@link WIN_LINE_EXCLUDED_SYMBOLS}. */
+export const symbolDrawsWinLine = (symbol: string): boolean =>
+	!WIN_LINE_EXCLUDED_SYMBOLS.includes(symbol);
+
 /** Apply the coded defaults over a sparse doc. Runtime → baked → undefined all funnel here. */
 export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 	return {

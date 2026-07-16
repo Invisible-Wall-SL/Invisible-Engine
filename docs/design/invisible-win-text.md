@@ -127,9 +127,25 @@ For a win of `(symbol, count)`, the line message resolves **most-specific first*
 byCell["H1:5"]  →  bySymbol["H1"]  →  byCount["5"]  →  default
 ```
 
-Symbol beats count deliberately: `S → "SCATTER"` must win over `2 → "PAIR!"`, because a scatter
-pays "anywhere" and is not a count-shaped statement. Every level is optional; `default` is the
-only guaranteed hit.
+Symbol beats count deliberately: a statement about a specific symbol (`W → "WILD LINE!"`) is more
+specific than one about a count (`5 → "FIVE!"`). Every level is optional; `default` is the only
+guaranteed hit.
+
+> An earlier draft justified this with `S → "SCATTER"` beating `2 → "PAIR!"`. That example is
+> **impossible**: `winLineEnabledForWin` skips the whole overlay for a scatter, so its win-line
+> message can never render (§3.2). The precedence stands; the example was wrong.
+
+### 3.2 Symbols that can't carry a win-line message
+
+A scatter pays "anywhere" rather than along a payline, so there's no line to trace and no end to
+stamp text against — the engine skips the overlay entirely. A win-line message authored for it
+could never appear, so the grid must not offer the row at all.
+
+The rule therefore lives in `engine-layout` (`WIN_LINE_EXCLUDED_SYMBOLS` / `symbolDrawsWinLine`),
+NOT as a literal `'S'`: it was hardcoded inside the engine's gate alone, which is precisely why the
+tool couldn't know and shipped a dead row. `winLineEnabledForWin` now reads the same predicate the
+page filters on. Scatter copy belongs in the **toast** instead — which has no per-symbol axis, so
+there is currently no way to author scatter-specific text (open item).
 
 The tool's grid shows the **effective** template in every cell plus which level produced it,
 with a per-cell reset (↺) and an edited badge — the same override-or-default model the
