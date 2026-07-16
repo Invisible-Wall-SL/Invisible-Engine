@@ -13,7 +13,7 @@
 
 	import { getContext } from '../game/context';
 	import BoardContainer from './BoardContainer.svelte';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE, BOARD_DIMENSIONS } from '../game/constants';
 	import { bakedWinLineConfig } from '../editor-scenes';
 
 	type DrawGraphics = Parameters<GraphicsProps['draw']>[0];
@@ -71,15 +71,51 @@
 		},
 	});
 
-	// Stamp the pay amount just below where the line ends (the last paying symbol).
-	const label = $derived(
-		points.length
-			? {
-					x: points[points.length - 1].x,
-					y: points[points.length - 1].y + SYMBOL_SIZE * 0.55,
-				}
-			: undefined,
+	// The reel WINDOW in board-local space — the SAME rect `BoardMask` clips the reels to, resolved
+	// from the live geometry, so the amount tracks an authored reel-grid override rather than a
+	// hardcoded board size. `WinLine` mounts OUTSIDE the mask (a sibling of `Board`), so nothing
+	// clips the amount for us: staying inside is this component's job.
+	const windowHeight = $derived(
+		BOARD_DIMENSIONS.y * context.stateGameDerived.boardGeometry().rowPitchLocal,
 	);
+	const windowWidth = $derived(
+		context.stateGameDerived.boardLayout().width +
+			(BOARD_DIMENSIONS.x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
+	);
+
+	/** The amount's RENDERED box, reported by `ResponsiveBitmapText` (its `maxWidth` is only the cap,
+	 *  not the drawn width). Until it has measured, a font-size estimate keeps the FIRST frame close
+	 *  so the amount doesn't visibly jump once the real size arrives. */
+	let labelSize = $state({ width: 0, height: 0 });
+	const labelBox = $derived({
+		width: labelSize.width || SYMBOL_SIZE * text.size * 2,
+		height: labelSize.height || SYMBOL_SIZE * text.size,
+	});
+
+	/** Gap between the line's end and the stamped amount. */
+	const LABEL_GAP = SYMBOL_SIZE * 0.55;
+
+	const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+	/**
+	 * Stamp the pay amount at the line's end (the last paying symbol) but ALWAYS INSIDE the reel
+	 * window: preferred BELOW the end, FLIPPED ABOVE when below would overflow the bottom edge — a win
+	 * landing on the bottom row otherwise stamped the amount off the board, behind the HUD. Both axes
+	 * are then clamped as a safety net (a short board or large font can overflow either way, and a
+	 * line ending on the last reel can push the text past the right edge). The text anchors top-centre,
+	 * so its box spans `x ± width/2` by `y … y + height`.
+	 */
+	const label = $derived.by(() => {
+		if (!points.length) return undefined;
+		const last = points[points.length - 1];
+		const { width, height } = labelBox;
+		let y = last.y + LABEL_GAP;
+		if (y + height > windowHeight) y = last.y - LABEL_GAP - height;
+		return {
+			x: clamp(last.x, width / 2, Math.max(width / 2, windowWidth - width / 2)),
+			y: clamp(y, 0, Math.max(0, windowHeight - height)),
+		};
+	});
 
 	/** Trace the polyline into the graphics path, but only up to `p` (0→1) of its total
 	 *  length — interpolating the final partial segment so the head advances smoothly. */
@@ -155,6 +191,7 @@
 				<ResponsiveBitmapText
 					anchor={{ x: 0.5, y: 0 }}
 					maxWidth={SYMBOL_SIZE * 3}
+					onresize={(sizes) => (labelSize = sizes)}
 					text={amount}
 					style={{
 						fontFamily: text.font,
