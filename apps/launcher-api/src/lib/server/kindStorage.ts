@@ -91,8 +91,20 @@ export async function loadKind(id: string): Promise<CustomKind | undefined> {
  * - `id` does NOT collide with a built-in kind (`lines|ways|cluster|scatter|bookOf`);
  * - `name` is non-empty;
  * - `doc` normalizes to a valid `LayoutDoc` with at least one scene.
+ *
+ * CREATE-GUARDED (Phase 1 of `docs/design/multi-user-concurrency.md`). The key is
+ * GLOBAL, so no project lease can protect it, and the id is derived from the author's
+ * chosen NAME — meaning two authors who pick the same name silently replaced each
+ * other's kind. `overwrite` is the author confirming they meant it; without it the
+ * write carries `ifNoneMatch: '*'` and throws {@link ConflictError} when the id is
+ * taken. Unlike the font catalog's in-request id check
+ * ([[bug_font_maker_id_collision]]), this is enforced by R2 and so cannot be lost to
+ * a race between the check and the write.
  */
-export async function saveKind(input: CustomKind): Promise<CustomKind> {
+export async function saveKind(
+	input: CustomKind,
+	opts: { overwrite?: boolean } = {},
+): Promise<CustomKind> {
 	if (!isRecord(input)) throw new Error('Kind must be an object.');
 	const id = typeof input.id === 'string' ? input.id.trim() : '';
 	if (!KIND_ID_RE.test(id)) {
@@ -110,7 +122,12 @@ export async function saveKind(input: CustomKind): Promise<CustomKind> {
 		throw new Error('Kind doc must have at least one scene.');
 	}
 	const kind: CustomKind = { id, name, doc };
-	await putObjectText(editorKindKey(id), JSON.stringify(kind, null, 2), 'application/json');
+	await putObjectText(
+		editorKindKey(id),
+		JSON.stringify(kind, null, 2),
+		'application/json',
+		opts.overwrite ? undefined : { ifNoneMatch: '*' },
+	);
 	return kind;
 }
 

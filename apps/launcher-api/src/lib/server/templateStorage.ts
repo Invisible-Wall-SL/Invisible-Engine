@@ -6,7 +6,7 @@ import {
 	type TemplateSlot,
 } from 'engine-layout';
 import { editorTemplateKey } from './projectPaths';
-import { getObjectText, putObjectText } from './r2';
+import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
 
@@ -17,29 +17,52 @@ const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
  * `undefined` only when neither source has a template for `gameType`.
  */
 export async function loadTemplate(gameType: string): Promise<GameTemplate | undefined> {
+	return (await loadTemplateWithEtag(gameType)).template;
+}
+
+/**
+ * {@link loadTemplate} plus the ETag its next save must match.
+ *
+ * `etag === null` means there is NO R2 override — the returned template is then the
+ * built-in code fallback, and saving becomes a create (`ifNoneMatch: '*'`). Note the
+ * asymmetry that makes this subtle: an R2 override that is present but MALFORMED also
+ * returns the built-in fallback, yet it carries an etag, so its save correctly
+ * overwrites the corruption instead of trying (and forever failing) to create.
+ * See `docs/design/multi-user-concurrency.md` Phase 1.
+ */
+export async function loadTemplateWithEtag(
+	gameType: string,
+): Promise<{ template: GameTemplate | undefined; etag: string | null }> {
 	const fallback = getTemplate(gameType);
-	let raw: string | null;
+	let obj: { text: string; etag: string | null } | null;
 	try {
-		raw = await getObjectText(editorTemplateKey(gameType));
+		obj = await getObjectTextWithEtag(editorTemplateKey(gameType));
 	} catch {
-		return fallback;
+		return { template: fallback, etag: null };
 	}
-	if (!raw) return fallback;
+	if (!obj) return { template: fallback, etag: null };
 	try {
-		const parsed = JSON.parse(raw);
-		if (isTemplateShape(parsed)) return normalizeTemplate(parsed);
+		const parsed = JSON.parse(obj.text);
+		if (isTemplateShape(parsed)) return { template: normalizeTemplate(parsed), etag: obj.etag };
 	} catch {
-		return fallback;
+		return { template: fallback, etag: obj.etag };
 	}
-	return fallback;
+	return { template: fallback, etag: obj.etag };
 }
 
 /**
  * Persist an authored template to its shared R2 key (§7.5). Validates the
  * minimum contract first and throws a descriptive Error on a bad payload, so the
  * write only ever happens for a well-formed template.
+ *
+ * Guarded by `baseEtag` — the key is GLOBAL (one object per game type, shared by every
+ * project), so a lease can't cover it and a stale etag throws `ConflictError` rather
+ * than discarding another author's slot edits. Returns the new ETag.
  */
-export async function saveTemplate(template: GameTemplate): Promise<void> {
+export async function saveTemplate(
+	template: GameTemplate,
+	baseEtag?: string | null,
+): Promise<{ template: GameTemplate; etag: string | null }> {
 	if (typeof template !== 'object' || template === null) {
 		throw new Error('Template must be an object.');
 	}
@@ -53,11 +76,13 @@ export async function saveTemplate(template: GameTemplate): Promise<void> {
 		throw new Error('Template scenes must be an array.');
 	}
 	const normalized = normalizeTemplate(template);
-	await putObjectText(
+	const etag = await putObjectText(
 		editorTemplateKey(normalized.gameType),
 		JSON.stringify(normalized, null, 2),
 		'application/json',
+		precondition(baseEtag),
 	);
+	return { template: normalized, etag };
 }
 
 /** Coerce parsed/posted data into a clean `GameTemplate`, dropping bad slots/scenes. */

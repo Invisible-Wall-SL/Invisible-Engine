@@ -34,6 +34,15 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 - 2026-07-16 — **"Behind the reels" tick — an overlay screen can finally mount UNDER the board** (owner-reported: "background_left/background_right are overlay screens, placed under the reel in the Scene Editor, but they render on top in the game"). This was the REAL bug behind the layering report (the takeover fix below is a separate, latent one — `bookofborutremake` is v2-driven, so its takeover never mounts). The whole list-ordered band starts at `LAYER_BAND_BASE = 100` and the reel board is engine-owned at the **implicit z 0**, so EVERY list-ordered screen sat above the reels: no list position could express "behind the board", and the `basegame` row was inert for layering. Dragging an overlay above it looked right and did nothing. Fix: sparse `Scene.behindReels?: boolean` + a new `LAYER_BAND_BEHIND = -500` band (doc-index-ordered, so under-reel screens keep their list order). Making room meant re-banding the backdrop: authored `space:'background'` scenes -10 → `LAYER_BAND_BACKGROUND = -1000`, and the coded `<Background>` (which emitted its own `-3..-1` children straight into the root) is now WRAPPED at `LAYER_BAND_BACKGROUND_CODED = -900` — relative order unchanged, so it's parity for every game, but it opens a real gap between the backdrop and the board. Editor: a "Behind the reels" tick in Properties (mutually exclusive with "Always on top" — ticking one clears the other) + an `UNDER` badge on the row; whitelisted in `normalizeScene`. Full map, low→high: authored bg (-1000) → coded bg (-900) → behind-reels (-500+i) → **board (0)** → list band (100+i) → pinned (9000+i) → engine gates (10000). Verified against the live doc: Background 2 / BackgroundRight land at -499/-498 — under the board, in front of the backdrop, list order preserved. ⏳ Needs a runtime publish.
+- 2026-07-16 — **Custom kinds + game-type templates are conflict-guarded too** (Phase 1 cont.).
+  Both live on GLOBAL `_shared/` keys, so no project lease can ever cover them. A **kind's id is
+  derived from the author's chosen NAME**, so two authors picking the same name silently replaced
+  each other's kind — now `ifNoneMatch` → 409 → "already exists, overwrite?" (the Font Maker's
+  id-collision contract, but enforced by R2 rather than an in-request check that a race defeats,
+  cf. [[bug_font_maker_id_collision]]). Templates are re-saved rather than created, so they CAS on
+  an ETag; `/api/editor/template` GET now returns `{ template, etag }`, and switching game type
+  re-adopts the new object's etag — a save must guard the object it's about to write, not the one
+  the page happened to load with.
 - 2026-07-16 — **Autosave no longer clobbers a concurrent author** (Phase 1 of
   [multi-user-concurrency](../design/multi-user-concurrency.md)). The editor serialized the WHOLE
   doc and PUT it unconditionally every 1.2 s, so of two people on a project the later writer erased

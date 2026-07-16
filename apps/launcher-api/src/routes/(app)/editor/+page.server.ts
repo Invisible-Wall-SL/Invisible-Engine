@@ -16,7 +16,7 @@ import { ConflictError, formBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
-import { loadTemplate } from '$lib/server/templateStorage';
+import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
@@ -95,7 +95,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// `gameType` first (the author's choice sticks across sessions), falling back
 	// to the project's resolved game type when the doc predates that field.
 	const resolvedGameType = doc.gameType ?? resolvedProjectGameType;
-	const template = await loadTemplate(resolvedGameType);
+	// `templateEtag` guards the GLOBAL `_shared/editor-templates/<gameType>.json`;
+	// null = no R2 override yet (the built-in fallback), so a save creates.
+	const { template, etag: templateEtag } = await loadTemplateWithEtag(resolvedGameType);
 	const warnings = template
 		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, template)]
 		: [];
@@ -121,6 +123,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		docEtag,
 		assets,
 		template,
+		templateEtag,
 		warnings,
 		gameName,
 		components,
