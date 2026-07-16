@@ -14,7 +14,17 @@ The Studio portal at `app.invisiblewall.org` (Railway project `Invisible launche
 - Svelte 5 runes; SvelteKit file conventions; TypeScript, no `any`; Prettier (tabs, single quotes, 100 cols).
 
 ## Validate / ship
-- `pnpm --filter launcher-api build` before committing (this is also the type-check — there's no separate `check` script, and repo `eslint` is currently misconfigured).
+- `pnpm --filter launcher-api build` before committing — but **it is NOT a type-check**. `build` is a bare
+  `vite build`: Vite *transpiles* TS and strips types without checking them, there's no `check` script,
+  `svelte-check` isn't even a dep, and repo `eslint` is currently misconfigured. **A type error compiles
+  and ships green** (verified 2026-07-17 by deleting a required key from a `Record<Union, true>` and
+  watching the build pass). So the build proves "it bundles", never "it's correct".
+- **Therefore: don't rely on a compile-time guard here.** Prefer designs a missing type can't break —
+  derive a runtime list from ONE exported value rather than hand-copying it behind a type
+  (`COMPONENT_PARAM_KINDS` in `engine-layout` is the worked example: a copied `ComponentParam.kind`
+  allowlist in `componentStorage.ts` silently stripped author params *twice* before it was made an
+  import). Verify contracts offline in a Node fixture over the real modules; note the built `dist/`
+  is not directly runnable (extensionless imports), so bundle with esbuild first.
 - DB: `pnpm --filter launcher-api db:generate` / `db:migrate` / `db:push` / `db:seed`.
 - Deploy = push to `main` (auto-deploy). Use the `/deploy` skill. After pushing, verify the live URL picked it up (auth routes 303→/login; new public routes 404→200).
 
