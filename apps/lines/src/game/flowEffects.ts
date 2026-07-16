@@ -36,10 +36,11 @@ import type { FlowEffect } from 'engine-flow';
 
 import { eventEmitter } from './eventEmitter';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
-import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
+import { bakedWinLineEnabled } from '../editor-scenes';
 
 // ---------------------------------------------------------------------------
 // Shared leaves — the SAME helpers the coded handlers use. The coded
@@ -79,6 +80,37 @@ export const animateSymbols = async ({ positions }: { positions: Position[] }) =
 		symbolPositions: positions,
 	});
 };
+
+/**
+ * The single source of truth for the `winInfo` WIN-LINE leaf — shared by the coded
+ * `bookEventHandlerMap.winInfo` handler (win line + symbol animation) AND the `showWinLine` /
+ * `hideWinLine` flow effects, so both draw byte-identically (parity by construction).
+ *
+ * The server reports the FULL payline path in `positions`, but only the leftmost `kind` symbols
+ * form the paying combination (a left-to-right line starts on reel 1 and stops at the first
+ * non-matching reel). Trace just those — sorting by reel + slicing is a harmless no-op for a
+ * scatter win (its `positions.length === kind`).
+ */
+export const winningPositionsOf = (win: { positions: Position[]; kind: number }): Position[] =>
+	[...win.positions].sort((a, b) => a.reel - b.reel).slice(0, win.kind);
+
+/**
+ * Whether a win draws the traced line + stamped amount: scatter ('S') pays "anywhere" — not a
+ * line — so it's skipped, and the whole overlay is gated by the Symbol-State-Machine toggle
+ * (defaults on, so an un-baked game keeps drawing it).
+ */
+export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
+	win.symbol !== 'S' && bakedWinLineEnabled();
+
+/**
+ * The board-local centre points the line traces: `getSymbolX(reel)` + the live symbol centre Y.
+ * Mounted inside WinLine's <BoardContainer> so these align with the rendered reels.
+ */
+export const winLinePointsFor = (positions: Position[]) =>
+	positions.map((position) => ({
+		x: getSymbolX(position.reel),
+		y: stateGame.board[position.reel].reelState.symbols[position.row].symbolY(),
+	}));
 
 const winLevelDataOf = (winLevel: number): WinLevelData => winLevelMap[winLevel as WinLevel];
 
@@ -306,6 +338,38 @@ const effects: Record<string, FlowEffect> = {
 			kind: (payload.messageKind as GameMessageKind) ?? 'info',
 			durationMs: payload.durationMs as number | undefined,
 		});
+	},
+
+	/**
+	 * `winInfo` WIN-LINE leaf (show) — trace the line through ONLY the paying symbols and stamp the
+	 * pay amount below its end. Fed a single win's fields from the `winInfo` forEach (`positions`,
+	 * `kind`, `symbol`, `amount` = the win's `win`). Awaited: when the line is configured to animate,
+	 * WinLine.svelte resolves the broadcast only after the line has drawn first→last and the amount is
+	 * revealed (mirroring the coded `await`); non-animated draws resolve immediately. Scatter wins /
+	 * a disabled overlay are a no-op via the shared gate.
+	 */
+	showWinLine: async (payload) => {
+		const win = {
+			positions: payload.positions as Position[],
+			kind: payload.kind as number,
+			symbol: payload.symbol as SymbolName,
+		};
+		if (!winLineEnabledForWin(win)) return;
+		await eventEmitter.broadcastAsync({
+			type: 'winLineShow',
+			points: winLinePointsFor(winningPositionsOf(win)),
+			amount: bookEventAmountToCurrencyString(payload.amount as number),
+		});
+	},
+
+	/**
+	 * `winInfo` WIN-LINE leaf (hide) — clear the traced line + stamped amount after the win's symbol
+	 * animation. Gated by the same scatter / overlay-enabled check as the show, so a no-op show has a
+	 * no-op hide.
+	 */
+	hideWinLine: (payload) => {
+		if (!winLineEnabledForWin({ symbol: payload.symbol as SymbolName })) return;
+		eventEmitter.broadcast({ type: 'winLineHide' });
 	},
 
 	/**

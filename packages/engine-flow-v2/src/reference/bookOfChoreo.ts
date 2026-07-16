@@ -167,9 +167,10 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 		{ k: 'cue', ref: 'soundScatterCounterClear' },
 	],
 
-	// `winInfo` — a win-level sfx, then a serial forEach over `$trigger.wins`, each animating its
-	// cells and showing a transient "Win $X — N of a kind" toast for that win (the generic
-	// `showMessage` effect; text assembled game-side from the win's `win`/`kind`).
+	// `winInfo` — a win-level sfx, then a serial forEach over `$trigger.wins`. Per win: show the
+	// board, trace the win line + stamp its amount (awaited so an animated line finishes first),
+	// animate the winning cells, show a transient "Win $X — N of a kind" toast, then hide the line.
+	// The win line (`showWinLine`/`hideWinLine`) and the toast (`showMessage`) are BOTH kept.
 	winInfo: [
 		{
 			k: 'cue',
@@ -183,6 +184,16 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 			body: [
 				{ k: 'cue', ref: 'boardShow' },
 				{
+					k: 'action',
+					ref: 'showWinLine',
+					inputs: {
+						positions: itemA('positions'),
+						kind: itemA('kind'),
+						symbol: itemA('symbol'),
+						amount: itemA('win'),
+					},
+				},
+				{
 					k: 'cue',
 					ref: 'boardWithAnimateSymbols',
 					wait: true,
@@ -193,6 +204,7 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 					ref: 'showMessage',
 					inputs: { amount: itemA('win'), kind: itemA('kind'), messageKind: str('win') },
 				},
+				{ k: 'action', ref: 'hideWinLine', inputs: { symbol: itemA('symbol') } },
 			],
 		},
 	],

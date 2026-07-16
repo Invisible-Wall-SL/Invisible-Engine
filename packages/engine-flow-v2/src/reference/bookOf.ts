@@ -361,6 +361,49 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			],
 			category: 'effect',
 		},
+		// Win line — trace the paying combination + stamp its amount. `showWinLine` draws the line
+		// through the leftmost `kind` symbols of a win and reveals the amount below its end (awaited:
+		// an animated draw completes before the next step); `hideWinLine` clears it. Both no-op for a
+		// scatter win / a disabled Symbol-State-Machine overlay. Fed one win's fields from the
+		// `winInfo` forEach — pair a Show with a matching Hide around the symbol animation.
+		{
+			name: 'showWinLine',
+			params: [
+				{
+					name: 'positions',
+					type: list(POSITION),
+					description:
+						"The win's board positions. Only the leftmost `kind` paying symbols are traced (a left-to-right line); wire the current win's `positions`.",
+				},
+				{
+					name: 'kind',
+					type: INT,
+					description: 'How many symbols form the paying combination — the line stops after these.',
+				},
+				{
+					name: 'symbol',
+					type: SYMBOL,
+					description: "The win's symbol. A scatter ('S') pays anywhere, so it draws no line (no-op).",
+				},
+				{
+					name: 'amount',
+					type: FLOAT,
+					description: "The win's amount, stamped below the line end (formatted as game currency).",
+				},
+			],
+			category: 'effect',
+		},
+		{
+			name: 'hideWinLine',
+			params: [
+				{
+					name: 'symbol',
+					type: SYMBOL,
+					description: "The win's symbol — matches the Show's gate so a no-op Show has a no-op Hide.",
+				},
+			],
+			category: 'effect',
+		},
 		// --- mechanic commands ---
 		// `revealBoard` is the board SPIN — it consumes the WHOLE reveal event + the surrounding
 		// book-event list (the bonus-game check), so it takes no clean typed params: the flow feeds it
