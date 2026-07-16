@@ -325,8 +325,28 @@ export function docSignature(doc: SymbolsDoc): string {
 	return JSON.stringify({ symbols, highlight, boardGlow, winLine });
 }
 
-/** Persist the doc to R2 via the S2 endpoint; returns the stamped doc. */
-export async function saveSymbolsDoc(project: string, doc: SymbolsDoc): Promise<SymbolsDoc> {
+/** Raised when a save lost to a concurrent author, so the page can offer a choice
+ * instead of surfacing a generic failure. See `docs/design/multi-user-concurrency.md`. */
+export class SymbolsConflictError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'SymbolsConflictError';
+	}
+}
+
+/**
+ * Persist the doc to R2 via the S2 endpoint; returns the stamped doc + its new ETag.
+ *
+ * `baseEtag` is the ETag the page loaded — a stale one throws
+ * {@link SymbolsConflictError} rather than overwriting a concurrent author. `force`
+ * is the author's explicit "overwrite theirs".
+ */
+export async function saveSymbolsDoc(
+	project: string,
+	doc: SymbolsDoc,
+	baseEtag: string | null,
+	force = false,
+): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const res = await fetch(`/api/editor/symbols?project=${encodeURIComponent(project)}`, {
 		method: 'PUT',
 		headers: { 'content-type': 'application/json' },
@@ -336,12 +356,19 @@ export async function saveSymbolsDoc(project: string, doc: SymbolsDoc): Promise<
 			...(doc.highlight ? { highlight: doc.highlight } : {}),
 			...(doc.boardGlow ? { boardGlow: doc.boardGlow } : {}),
 			...(doc.winLine ? { winLine: doc.winLine } : {}),
+			...(force ? { force: true } : { baseEtag }),
 		}),
 	});
+	if (res.status === 409) {
+		const body = (await res.json().catch(() => ({}))) as { message?: string };
+		throw new SymbolsConflictError(
+			body.message ?? 'Someone else saved these symbols while you were editing.',
+		);
+	}
 	if (!res.ok) {
 		const msg = await res.text().catch(() => '');
 		throw new Error(msg || `Save failed (${res.status})`);
 	}
-	const body = (await res.json()) as { doc: SymbolsDoc };
-	return body.doc;
+	const body = (await res.json()) as { doc: SymbolsDoc; etag: string | null };
+	return { doc: body.doc, etag: body.etag };
 }

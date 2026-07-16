@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { symbolsDocKey } from './projectPaths';
-import { getObjectText, putObjectText } from './r2';
+import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 /**
  * Invisible Symbols State Machine doc — the per-project symbol→state→asset
@@ -187,27 +187,48 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
  * object is missing or unparseable (parity with `loadDoc`).
  */
 export async function loadSymbolsDoc(clientKey: string, projectKey: string): Promise<SymbolsDoc> {
-	const raw = await getObjectText(symbolsDocKey(clientKey, projectKey));
-	if (!raw) return emptySymbolsDoc();
+	return (await loadSymbolsDocWithEtag(clientKey, projectKey)).doc;
+}
+
+/**
+ * {@link loadSymbolsDoc} plus the ETag its next save must match.
+ *
+ * `etag` comes off the READ, independent of whether the body parsed — a corrupt doc
+ * also falls back to `emptySymbolsDoc()`, so inferring "create" from "empty doc" would
+ * make it 412 forever. `etag === null` means, and only means, no object.
+ * See `docs/design/multi-user-concurrency.md` Phase 1.
+ */
+export async function loadSymbolsDocWithEtag(
+	clientKey: string,
+	projectKey: string,
+): Promise<{ doc: SymbolsDoc; etag: string | null }> {
+	const obj = await getObjectTextWithEtag(symbolsDocKey(clientKey, projectKey));
+	if (!obj) return { doc: emptySymbolsDoc(), etag: null };
 	try {
-		return normalizeSymbolsDoc(JSON.parse(raw));
+		return { doc: normalizeSymbolsDoc(JSON.parse(obj.text)), etag: obj.etag };
 	} catch {
-		return emptySymbolsDoc();
+		return { doc: emptySymbolsDoc(), etag: obj.etag };
 	}
 }
 
-/** Persist a project's symbols doc to R2 (validates + stamps `updatedAt`). */
+/**
+ * Persist a project's symbols doc to R2 (validates + stamps `updatedAt`), guarded by
+ * `baseEtag` — see `r2.precondition` for the convention. Throws `ConflictError` when
+ * another author saved first; returns the new ETag.
+ */
 export async function saveSymbolsDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: unknown,
-): Promise<SymbolsDoc> {
+	baseEtag?: string | null,
+): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc);
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
-	await putObjectText(
+	const etag = await putObjectText(
 		symbolsDocKey(clientKey, projectKey),
 		JSON.stringify(stamped, null, 2),
 		'application/json',
+		precondition(baseEtag),
 	);
-	return stamped;
+	return { doc: stamped, etag };
 }

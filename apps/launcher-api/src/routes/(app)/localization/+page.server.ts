@@ -3,13 +3,14 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadComponent } from '$lib/server/componentStorage';
 import { loadDoc as loadEditorDoc } from '$lib/server/editorStorage';
-import { loadDoc, normalizeDoc, saveDoc } from '$lib/server/localization';
+import { loadDocWithEtag, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
 import {
 	harvestSceneText,
 	harvestWinText,
 	reconcileWithEditor,
 } from '$lib/server/localizationHarvest';
+import { ConflictError, formBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { TranslateError, translateBatch } from '$lib/server/translate';
@@ -58,30 +59,35 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// tool that authored them: the Scene Editor's text nodes (grouped by scene) and Invisible Win
 	// Text's templates (one "Win text" section). A missing doc on either side harvests nothing —
 	// the tool behaves exactly as before.
-	const [doc, editorDoc, winTextDoc] = await Promise.all([
-		loadDoc(clientKey, projectKey),
+	const [loaded, editorDoc, winTextDoc] = await Promise.all([
+		loadDocWithEtag(clientKey, projectKey),
 		loadEditorDoc(clientKey, projectKey),
 		loadWinTextDoc(clientKey, projectKey),
 	]);
+	// The client doc deliberately differs from the stored bytes (auto-collected entries
+	// are folded in below), so the etag guards the stored OBJECT and must not be
+	// re-derived from the payload.
+	const { doc, etag: docEtag } = loaded;
 	const sections = [
-		...(await harvestSceneText(editorDoc, (id, version) =>
-			loadComponent(id, projectKey, version),
-		)),
+		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestWinText(winTextDoc),
 	];
 	const { entries, display } = reconcileWithEditor(doc, sections);
-	return { projectKey, doc: { ...doc, entries }, sections: display };
+	return { projectKey, doc: { ...doc, entries }, docEtag, sections: display };
 };
 
 export const actions: Actions = {
 	save: async ({ request, locals, cookies, url }) => {
 		const { clientKey, projectKey } = await gate(locals, cookies, url);
+		const form = await request.formData();
 		let doc: LocalizationDoc;
 		try {
-			doc = parseDocField((await request.formData()).get('doc'));
+			doc = parseDocField(form.get('doc'));
 		} catch {
 			return fail(400, { error: 'Invalid document.' });
 		}
+		// `force` = the author answering the conflict banner with "overwrite theirs".
+		const baseEtag = form.get('force') === '1' ? undefined : formBaseEtag(form.get('baseEtag'));
 		// Don't persist untranslated AUTO-collected entries (`editor` scene text, `winText`
 		// templates) — they're re-derived from their owning tool on every load, so storing the bare
 		// source strings would just bloat the doc and leave stale rows when text is removed. Keep
@@ -91,8 +97,22 @@ export const actions: Actions = {
 		doc.entries = doc.entries.filter(
 			(e) => e.origin === 'manual' || Object.values(e.translations).some((t) => t.text.trim()),
 		);
-		const saved = await saveDoc(clientKey, projectKey, doc);
-		return { saved: true, updatedAt: saved.updatedAt };
+		try {
+			const { doc: saved, etag } = await saveDoc(clientKey, projectKey, doc, baseEtag);
+			return { saved: true, updatedAt: saved.updatedAt, etag };
+		} catch (e) {
+			if (e instanceof ConflictError) {
+				// `fail`, not `error()` — the client's envelope parser reads `out.error`.
+				// The local doc stays on screen; nothing here may discard a reviewer's work.
+				return fail(409, {
+					error:
+						'Someone else saved these strings while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+					conflict: true as const,
+				});
+			}
+			throw e;
+		}
 	},
 
 	translate: async ({ request, locals, cookies, url }) => {

@@ -6,7 +6,7 @@ import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
-import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
+import { loadSymbolsDocWithEtag } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
@@ -37,8 +37,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [doc, assets, gameType, published, fonts] = await Promise.all([
-		loadSymbolsDoc(clientKey, projectKey),
+	const [loaded, assets, gameType, published, fonts] = await Promise.all([
+		loadSymbolsDocWithEtag(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
 		projectGameType(projectKey),
 		loadPublishedSymbolDefaults(clientKey, projectKey),
@@ -57,10 +57,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// Book of Borut shows its symbols; fall back to the committed coded set for an
 	// un-published project (or `apps/lines` dev) resolved by game type.
 	const defaults = published ?? symbolDefaultsFor(gameType);
+	// `docEtag` guards the save against a concurrent author; null = never authored.
+	const { doc, etag: docEtag } = loaded;
 
 	return {
 		clientKey,
 		projectKey,
+		docEtag,
 		projectName: await projectName(projectKey),
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
 		// this — they show only for a book game (`gameType === 'bookOf'`).

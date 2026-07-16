@@ -18,6 +18,7 @@
 		effectiveCell,
 		effectiveHighlight,
 		saveSymbolsDoc,
+		SymbolsConflictError,
 		setBoardGlow,
 		setHighlight,
 		setOverride,
@@ -117,6 +118,9 @@
 	let saving = $state(false);
 	let saveError = $state<string | null>(null);
 	let savedAt = $state<string | null>(data.doc.updatedAt ?? null);
+	/** ETag of the stored symbols doc — sent on save, re-adopted from the response.
+	 * `null` = never authored, so the save creates. */
+	let docEtag = $state<string | null>(data.docEtag);
 
 	// "Reload from R2": after re-exporting/replacing a spine in R2 (e.g. from the
 	// Rigger), the previews + picker would otherwise keep the cached bundle — the
@@ -205,17 +209,35 @@
 		if (focus && focus.symbol === symbol && focus.state === state) closeCell();
 	}
 
-	async function save(): Promise<void> {
-		if (!dirty || saving) return;
+	/**
+	 * Persist the overrides. `force` is the author answering the conflict prompt with
+	 * "overwrite theirs" — the only way past the guard, and always a deliberate choice.
+	 */
+	async function save(force = false): Promise<void> {
+		if ((!dirty && !force) || saving) return;
 		saving = true;
 		saveError = null;
 		try {
-			const stamped = await saveSymbolsDoc(data.projectKey, doc);
-			doc = structuredClone(stamped);
+			const out = await saveSymbolsDoc(data.projectKey, doc, docEtag, force);
+			// Adopt the doc + its new etag together, so the next save CASes against what
+			// we just wrote rather than what the page loaded with.
+			doc = structuredClone(out.doc);
+			docEtag = out.etag;
 			savedSig.value = docSignature(doc);
-			savedAt = stamped.updatedAt ?? new Date().toISOString();
+			savedAt = out.doc.updatedAt ?? new Date().toISOString();
 		} catch (e) {
-			saveError = e instanceof Error ? e.message : String(e);
+			if (e instanceof SymbolsConflictError) {
+				// Never discard the local doc — ask. Declining leaves the edits on screen
+				// and `dirty` true, so nothing is lost by saying no.
+				if (confirm(`${e.message}\n\nOverwrite their version with yours?`)) {
+					saving = false;
+					await save(true);
+					return;
+				}
+				saveError = e.message;
+			} else {
+				saveError = e instanceof Error ? e.message : String(e);
+			}
 		} finally {
 			saving = false;
 		}

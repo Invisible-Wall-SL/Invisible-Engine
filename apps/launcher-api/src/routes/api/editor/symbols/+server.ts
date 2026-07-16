@@ -3,8 +3,9 @@ import { ZodError } from 'zod';
 import { roleHasTool } from '$lib/roles';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { loadSymbolsDoc, saveSymbolsDoc } from '$lib/server/symbolsStorage';
+import { loadSymbolsDocWithEtag, saveSymbolsDoc } from '$lib/server/symbolsStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
@@ -27,25 +28,33 @@ async function gate(locals: App.Locals): Promise<void> {
 	}
 }
 
-async function resolveScope(project: string | null): Promise<{ clientKey: string; projectKey: string }> {
+async function resolveScope(
+	project: string | null,
+): Promise<{ clientKey: string; projectKey: string }> {
 	const projectKey = project || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	return { clientKey, projectKey };
 }
 
-/** Read a project's symbols doc (empty valid doc when never authored). */
+/** Read a project's symbols doc (empty valid doc when never authored) + its ETag. */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	await gate(locals);
 	const { clientKey, projectKey } = await resolveScope(url.searchParams.get('project'));
 	try {
-		const doc = await loadSymbolsDoc(clientKey, projectKey);
-		return json({ clientKey, projectKey, doc });
+		const { doc, etag } = await loadSymbolsDocWithEtag(clientKey, projectKey);
+		return json({ clientKey, projectKey, doc, etag });
 	} catch {
 		throw error(502, 'Failed to load the symbols document.');
 	}
 };
 
-/** Validate + persist a project's symbols doc to R2. */
+/**
+ * Validate + persist a project's symbols doc to R2, guarded by `baseEtag`: a stale one
+ * answers **409** rather than discarding a concurrent author's overrides. `force: true`
+ * is the author's explicit "overwrite theirs".
+ *
+ * Body: the doc fields, plus `baseEtag?: string | null` and `force?: boolean`.
+ */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	await gate(locals);
 	const { clientKey, projectKey } = await resolveScope(url.searchParams.get('project'));
@@ -55,11 +64,34 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
+	const baseEtag =
+		isRecord(body) && body.force === true
+			? undefined
+			: jsonBaseEtag(isRecord(body) ? body.baseEtag : undefined);
 	try {
-		const doc = await saveSymbolsDoc(clientKey, projectKey, body);
-		return json({ clientKey, projectKey, doc });
+		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, body, baseEtag);
+		return json({ clientKey, projectKey, doc, etag });
 	} catch (e) {
+		// ORDER IS LOAD-BEARING: this branch must precede the catch-all 502 below, which
+		// would otherwise swallow a lost CAS into an opaque "Failed to save" with the
+		// cause hidden — the exact shape of [[gotcha_publish_502_flowv2_nodes_guard]].
+		// `json({error})`, never `error()`.
+		if (e instanceof ConflictError) {
+			return json(
+				{
+					error: 'conflict',
+					message:
+						'Someone else saved these symbols while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+				},
+				{ status: 409 },
+			);
+		}
 		if (e instanceof ZodError) throw error(400, 'Invalid symbols document.');
 		throw error(502, 'Failed to save the symbols document.');
 	}
 };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+	return typeof v === 'object' && v !== null && !Array.isArray(v);
+}

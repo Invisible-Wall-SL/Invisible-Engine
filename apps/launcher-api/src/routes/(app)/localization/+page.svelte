@@ -40,6 +40,9 @@
 	let status = $state('');
 	let busy = $state(false);
 	let dirty = $state(false);
+	/** ETag of the stored strings doc — sent on save, re-adopted from the response.
+	 * `null` = never saved, so the save creates. */
+	let docEtag = $state<string | null>(data.docEtag);
 
 	function markDirty() {
 		dirty = true;
@@ -148,17 +151,33 @@
 		return out;
 	}
 
-	async function save() {
+	/** `force` = the author confirming "overwrite theirs" after a conflict. */
+	async function save(force = false) {
 		busy = true;
 		status = 'Saving…';
 		try {
-			const out = (await postAction('save', { doc: JSON.stringify(docPayload) })) as {
+			const fields: Record<string, string> = { doc: JSON.stringify(docPayload) };
+			// '' encodes "no doc existed when I loaded" — FormData has no null.
+			if (force) fields.force = '1';
+			else fields.baseEtag = docEtag ?? '';
+			const out = (await postAction('save', fields)) as {
 				saved?: boolean;
+				etag?: string | null;
 				error?: string;
+				conflict?: boolean;
 			};
+			if (out.conflict) {
+				// Local edits stay on screen and `dirty` stays true — declining loses nothing.
+				const msg = out.error ?? 'Someone else saved these strings while you were editing.';
+				status = msg;
+				busy = false;
+				if (confirm(`${msg}\n\nOverwrite their version with yours?`)) await save(true);
+				return;
+			}
 			if (out.error) {
 				status = out.error;
 			} else {
+				docEtag = out.etag ?? null;
 				dirty = false;
 				status = 'Saved.';
 			}

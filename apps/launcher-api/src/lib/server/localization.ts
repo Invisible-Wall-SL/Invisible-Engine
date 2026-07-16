@@ -1,5 +1,5 @@
 import { localizationDocKey } from './projectPaths';
-import { getObjectText, putObjectText } from './r2';
+import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 /** One translated value for a target language; `reviewed` gates it for export. */
 export interface LocalizationTranslation {
@@ -44,29 +44,50 @@ function emptyDoc(): LocalizationDoc {
 
 /** Load a project's document, or a sensible empty default when none exists. */
 export async function loadDoc(clientKey: string, projectKey: string): Promise<LocalizationDoc> {
-	const raw = await getObjectText(localizationDocKey(clientKey, projectKey));
-	if (!raw) return emptyDoc();
+	return (await loadDocWithEtag(clientKey, projectKey)).doc;
+}
+
+/**
+ * {@link loadDoc} plus the ETag its next save must match. `etag` is read off the
+ * object, NOT inferred from a successful parse — a corrupt doc also returns
+ * `emptyDoc()`, so treating "empty" as "absent" would send a create precondition and
+ * 412 forever. `etag === null` means, and only means, no object.
+ * See `docs/design/multi-user-concurrency.md` Phase 1.
+ */
+export async function loadDocWithEtag(
+	clientKey: string,
+	projectKey: string,
+): Promise<{ doc: LocalizationDoc; etag: string | null }> {
+	const obj = await getObjectTextWithEtag(localizationDocKey(clientKey, projectKey));
+	if (!obj) return { doc: emptyDoc(), etag: null };
 	try {
-		return normalizeDoc(JSON.parse(raw));
+		return { doc: normalizeDoc(JSON.parse(obj.text)), etag: obj.etag };
 	} catch {
-		return emptyDoc();
+		return { doc: emptyDoc(), etag: obj.etag };
 	}
 }
 
-/** Persist a project's document to R2 (stamps `updatedAt`). */
+/**
+ * Persist a project's document to R2 (stamps `updatedAt`), guarded by `baseEtag` —
+ * see `r2.precondition`. Throws `ConflictError` when another author saved first, so
+ * a reviewer's approvals are never silently discarded by a stale tab. Returns the new
+ * ETag.
+ */
 export async function saveDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: LocalizationDoc,
-): Promise<LocalizationDoc> {
+	baseEtag?: string | null,
+): Promise<{ doc: LocalizationDoc; etag: string | null }> {
 	const next = normalizeDoc(doc);
 	next.updatedAt = new Date().toISOString();
-	await putObjectText(
+	const etag = await putObjectText(
 		localizationDocKey(clientKey, projectKey),
 		JSON.stringify(next, null, 2),
 		'application/json',
+		precondition(baseEtag),
 	);
-	return next;
+	return { doc: next, etag };
 }
 
 /** Coerce arbitrary parsed/posted data into a valid document shape. */
