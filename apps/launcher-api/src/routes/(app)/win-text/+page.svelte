@@ -1,0 +1,526 @@
+<script lang="ts">
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { resolveWinText, resolveWinLineMessage, winTextCellKey } from 'engine-layout';
+	import type { WinTextDoc } from 'engine-layout';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
+	/**
+	 * The live doc. Seeded from the server's sparse doc and PUT back verbatim — the resolution
+	 * chain + defaults come from `engine-layout/winText.ts`, the SAME module the game resolves
+	 * with, so what this grid shows is what the game will draw.
+	 */
+	let doc = $state<WinTextDoc>(structuredClone(data.doc));
+	let saving = $state(false);
+	let savedAt = $state<string | null>(null);
+	let saveError = $state<string | null>(null);
+	/** The ETag this page loaded — the save's precondition, so a second author editing the same
+	 *  project can't silently erase this one's whole doc. `null` = there was no doc on load. */
+	let docEtag = $state<string | null>(data.etag);
+	/** Set when the server rejected a save because the doc changed underneath us. The local edits
+	 *  are deliberately KEPT (never reloaded or discarded) — the author chooses. */
+	let conflict = $state<string | null>(null);
+
+	/** Compared against the doc to drive the dirty pill. `$state.snapshot` because a raw
+	 *  `structuredClone` of a `$state` proxy throws `DataCloneError`. */
+	let baseline = $state(JSON.stringify(data.doc));
+	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
+
+	const resolved = $derived(resolveWinText($state.snapshot(doc)));
+
+	/**
+	 * The match counts the grid offers. Every current game template is a 5-reel board, so a line
+	 * pays on 2–5 of a kind. The DOC accepts any count key, so a future wider board only needs
+	 * this list widened — nothing downstream is bounded by it.
+	 */
+	const COUNTS = [2, 3, 4, 5];
+
+	/**
+	 * The win-level aliases offered. These mirror the `big`-type tiers in every app's coded
+	 * `winLevelMap`; unlike the symbol list they are NOT published to R2, so there is no live
+	 * source to read them from. The doc accepts any alias key.
+	 */
+	const WIN_LEVEL_ALIASES = ['big', 'superwin', 'mega', 'epic', 'max'];
+
+	const TOKEN_HELP = '{count} {amount} {symbol} {line}';
+
+	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
+	 *  override falls back through the chain instead of persisting an empty string. */
+	function setLineMessage(bucket: 'byCount' | 'bySymbol' | 'byCell', key: string, value: string) {
+		const lm = (doc.lineMessage ??= {});
+		const map = (lm[bucket] ??= {});
+		if (value.trim()) map[key] = value;
+		else delete map[key];
+	}
+
+	function setDefault(value: string) {
+		const lm = (doc.lineMessage ??= {});
+		if (value.trim()) lm.default = value;
+		else delete lm.default;
+	}
+
+	function setWinLevel(alias: string, value: string) {
+		const levels = (doc.winLevels ??= {});
+		if (value.trim()) levels[alias] = value;
+		else delete levels[alias];
+	}
+
+	function setToast(branch: 'full' | 'amountOnly' | 'countOnly', value: string) {
+		const toast = (doc.toast ??= {});
+		if (value.trim()) toast[branch] = value;
+		else delete toast[branch];
+	}
+
+	function setAmountFormat(value: string) {
+		if (value.trim()) doc.amountFormat = value;
+		else delete doc.amountFormat;
+	}
+
+	/** What a `(symbol, count)` win will actually say, and which level of the chain said it —
+	 *  the same call the game makes, so the badge can't drift from behaviour. */
+	function effective(symbol: string, count: number) {
+		return resolveWinLineMessage(resolved, symbol, count);
+	}
+
+	/**
+	 * Persist the doc, conditional on the ETag we loaded.
+	 *
+	 * `force` drops the precondition — the explicit "overwrite with mine" after a conflict. On a
+	 * conflict this NEVER reloads or discards the local doc: the author's unsaved work is the one
+	 * thing that isn't recoverable, so it stays put and they choose.
+	 */
+	async function save(force = false) {
+		saving = true;
+		saveError = null;
+		try {
+			const res = await fetch(`/api/win-text?project=${encodeURIComponent(data.projectKey)}`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ doc: $state.snapshot(doc), baseEtag: docEtag, force }),
+			});
+			if (res.status === 409) {
+				const c = (await res.json()) as { message?: string };
+				conflict = c.message ?? 'Someone else saved this win text while you were editing.';
+				return;
+			}
+			if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+			const saved = (await res.json()) as { doc: WinTextDoc; etag: string | null };
+			// Adopt the SERVER's normalized doc: it prunes blanks, so the baseline must be what
+			// actually persisted or the page would read dirty immediately after a clean save.
+			doc = structuredClone(saved.doc);
+			baseline = JSON.stringify(saved.doc);
+			docEtag = saved.etag;
+			conflict = null;
+			savedAt = new Date().toLocaleTimeString();
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : 'Save failed.';
+		} finally {
+			saving = false;
+		}
+	}
+</script>
+
+<svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
+
+<div class="page">
+	<ToolTopBar
+		current="winText"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	>
+		{#snippet meta()}
+			{#if saveError}<span class="err">{saveError}</span>{/if}
+			{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
+					>Saved {savedAt}</span
+				>{/if}
+			<button class="save" onclick={() => save()} disabled={saving || !dirty}>
+				{saving ? 'Saving…' : 'Save'}
+			</button>
+		{/snippet}
+	</ToolTopBar>
+
+	<div class="body">
+		{#if conflict}
+			<div class="conflict">
+				<p>{conflict}</p>
+				<p class="conflict-sub">
+					Your edits are still on this page — nothing has been lost. Reload to take their version
+					(your unsaved edits go), or overwrite with yours.
+				</p>
+				<div class="conflict-actions">
+					<button onclick={() => location.reload()}>Reload theirs</button>
+					<button class="danger" onclick={() => save(true)}>Overwrite with mine</button>
+				</div>
+			</div>
+		{/if}
+		<p class="intro">
+			What the game <em>says</em> about a win. Every field is a <strong>template</strong> — write
+			<code>{TOKEN_HELP}</code>
+			and the game fills them in. Templates are translated in
+			<a href="/localization">Invisible Localization</a>; the currency in
+			<code>{'{amount}'}</code> follows the player's own locale automatically.
+		</p>
+
+		<section>
+			<h2>Win-line message</h2>
+			<p class="hint">
+				The message drawn with the win line. A win uses the <strong>most specific</strong> cell that
+				is filled in: an exact symbol × count beats <em>Any count</em>, which beats
+				<em>Any symbol</em>, which beats the default in the corner. Leave a cell blank to inherit —
+				the grey text shows what it will inherit.
+			</p>
+
+			<div class="grid-wrap">
+				<table class="grid">
+					<thead>
+						<tr>
+							<th class="corner-head">Symbol</th>
+							{#each COUNTS as count (count)}
+								<th>{count} of a kind</th>
+							{/each}
+							<th class="any">Any count</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr class="any-row">
+							<th class="row-head any">Any symbol</th>
+							{#each COUNTS as count (count)}
+								<td>
+									<input
+										value={doc.lineMessage?.byCount?.[String(count)] ?? ''}
+										placeholder={resolved.lineMessage.default || '—'}
+										oninput={(e) => setLineMessage('byCount', String(count), e.currentTarget.value)}
+									/>
+								</td>
+							{/each}
+							<td class="corner">
+								<input
+									class="default-input"
+									value={doc.lineMessage?.default ?? ''}
+									placeholder="Default — e.g. {'{count}'} OF A KIND"
+									oninput={(e) => setDefault(e.currentTarget.value)}
+								/>
+							</td>
+						</tr>
+
+						{#each data.symbols as symbol (symbol)}
+							<tr>
+								<th class="row-head">{symbol}</th>
+								{#each COUNTS as count (count)}
+									{@const eff = effective(symbol, count)}
+									<td>
+										<input
+											value={doc.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
+											placeholder={eff.template || '—'}
+											title={eff.source === 'cell'
+												? 'Set here'
+												: `Inherited from ${eff.source === 'default' ? 'the default' : eff.source}`}
+											oninput={(e) =>
+												setLineMessage('byCell', winTextCellKey(symbol, count), e.currentTarget.value)}
+										/>
+									</td>
+								{/each}
+								<td class="any-col">
+									<input
+										value={doc.lineMessage?.bySymbol?.[symbol] ?? ''}
+										placeholder={resolved.lineMessage.default || '—'}
+										oninput={(e) => setLineMessage('bySymbol', symbol, e.currentTarget.value)}
+									/>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section>
+			<h2>Win amount</h2>
+			<p class="hint">
+				How the pay amount is stamped on the win line. <code>{'{amount}'}</code> is already formatted
+				in the player's currency.
+			</p>
+			<label class="single">
+				<span>Amount format</span>
+				<input
+					value={doc.amountFormat ?? ''}
+					placeholder={'{amount}'}
+					oninput={(e) => setAmountFormat(e.currentTarget.value)}
+				/>
+			</label>
+		</section>
+
+		<section>
+			<h2>Info-bar message</h2>
+			<p class="hint">
+				The transient message shown when a win pays. Three separate lines because the game shows
+				whichever fits what it knows — a win with no match count can't say “of a kind”.
+			</p>
+			<label class="single">
+				<span>Amount + count</span>
+				<input
+					value={doc.toast?.full ?? ''}
+					placeholder={'Win {amount} — {count} of a kind'}
+					oninput={(e) => setToast('full', e.currentTarget.value)}
+				/>
+			</label>
+			<label class="single">
+				<span>Amount only</span>
+				<input
+					value={doc.toast?.amountOnly ?? ''}
+					placeholder={'Win {amount}'}
+					oninput={(e) => setToast('amountOnly', e.currentTarget.value)}
+				/>
+			</label>
+			<label class="single">
+				<span>Count only</span>
+				<input
+					value={doc.toast?.countOnly ?? ''}
+					placeholder={'{count} of a kind'}
+					oninput={(e) => setToast('countOnly', e.currentTarget.value)}
+				/>
+			</label>
+		</section>
+
+		<section>
+			<h2>Win-level captions</h2>
+			<p class="warn">
+				<strong>Usually leave these blank.</strong> In most games the tier words are painted into the
+				big-win artwork, and the game draws only the amount — so filling one in adds a
+				<em>second</em> caption on top of art that already says it. Fill these in only for a game whose
+				big-win art carries no words (which is also what lets the tier be translated without re-cutting
+				the art per language).
+			</p>
+			{#each WIN_LEVEL_ALIASES as alias (alias)}
+				<label class="single">
+					<span>{alias}</span>
+					<input
+						value={doc.winLevels?.[alias] ?? ''}
+						placeholder="not drawn"
+						oninput={(e) => setWinLevel(alias, e.currentTarget.value)}
+					/>
+				</label>
+			{/each}
+		</section>
+	</div>
+</div>
+
+<style>
+	.page {
+		display: flex;
+		flex-direction: column;
+		height: 100vh;
+		background: #0b0b0f;
+		color: #e8e8ee;
+	}
+	.body {
+		flex: 1;
+		overflow: auto;
+		padding: 24px;
+		max-width: 1400px;
+		width: 100%;
+		margin: 0 auto;
+	}
+	.intro {
+		margin: 0 0 24px;
+		font-size: 13px;
+		color: #b9b9c4;
+		line-height: 1.6;
+	}
+	.intro a {
+		color: #7ee0c0;
+	}
+	section {
+		margin-bottom: 34px;
+	}
+	h2 {
+		margin: 0 0 6px;
+		font-size: 13px;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: #7ee0c0;
+	}
+	.hint,
+	.warn {
+		margin: 0 0 12px;
+		font-size: 12px;
+		color: #8b8b98;
+		line-height: 1.6;
+		max-width: 900px;
+	}
+	.warn {
+		padding: 10px 12px;
+		border: 1px solid #5a4520;
+		border-radius: 8px;
+		background: #1e1810;
+		color: #d3b483;
+	}
+	code {
+		font-family: ui-monospace, monospace;
+		background: #16161d;
+		padding: 1px 5px;
+		border-radius: 4px;
+		color: #c8a3ff;
+	}
+	.grid-wrap {
+		overflow-x: auto;
+		border: 1px solid #1c1c24;
+		border-radius: 10px;
+	}
+	.grid {
+		border-collapse: collapse;
+		width: 100%;
+		min-width: 900px;
+	}
+	.grid th {
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: #8b8b98;
+		padding: 9px 10px;
+		text-align: left;
+		background: #101017;
+		border-bottom: 1px solid #1c1c24;
+		white-space: nowrap;
+	}
+	.grid th.any,
+	.grid td.any-col,
+	.grid td.corner {
+		background: #121019;
+	}
+	.row-head {
+		font-family: ui-monospace, monospace;
+		color: #c8a3ff;
+		background: #101017;
+		border-right: 1px solid #1c1c24;
+	}
+	.any-row td {
+		background: #121019;
+	}
+	.grid td {
+		padding: 4px;
+		border-bottom: 1px solid #16161d;
+	}
+	.grid input {
+		width: 100%;
+		min-width: 150px;
+		padding: 6px 8px;
+		border-radius: 6px;
+		border: 1px solid #24242e;
+		background: #0e0e13;
+		color: #e8e8ee;
+		font-size: 12px;
+	}
+	.grid input::placeholder {
+		color: #4d4d5a;
+		font-style: italic;
+	}
+	.grid input:focus {
+		outline: none;
+		border-color: #7ee0c0;
+	}
+	.default-input {
+		border-color: #3a3358 !important;
+	}
+	.single {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 8px;
+		max-width: 720px;
+	}
+	.single span {
+		flex: none;
+		width: 130px;
+		font-size: 12px;
+		color: #8b8b98;
+		font-family: ui-monospace, monospace;
+	}
+	.single input {
+		flex: 1;
+		padding: 7px 9px;
+		border-radius: 6px;
+		border: 1px solid #24242e;
+		background: #0e0e13;
+		color: #e8e8ee;
+		font-size: 12px;
+	}
+	.single input::placeholder {
+		color: #4d4d5a;
+		font-style: italic;
+	}
+	.single input:focus {
+		outline: none;
+		border-color: #7ee0c0;
+	}
+	.save {
+		padding: 6px 14px;
+		border-radius: 8px;
+		border: 1px solid #2b6f5a;
+		background: #14241d;
+		color: #7ee0c0;
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.save:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.pill {
+		padding: 3px 9px;
+		border-radius: 999px;
+		background: #16161d;
+		font-size: 11px;
+		color: #8b8b98;
+	}
+	.pill.dirty {
+		background: #2a2113;
+		color: #d3b483;
+	}
+	.err {
+		color: #ff9b9b;
+		font-size: 11px;
+		max-width: 320px;
+	}
+	.conflict {
+		margin-bottom: 20px;
+		padding: 14px 16px;
+		border: 1px solid #6b3030;
+		border-radius: 10px;
+		background: #221214;
+	}
+	.conflict p {
+		margin: 0 0 6px;
+		font-size: 13px;
+		color: #ffbdbd;
+	}
+	.conflict-sub {
+		font-size: 12px !important;
+		color: #b98d8d !important;
+	}
+	.conflict-actions {
+		display: flex;
+		gap: 8px;
+		margin-top: 10px;
+	}
+	.conflict-actions button {
+		padding: 6px 12px;
+		border-radius: 8px;
+		border: 1px solid #3a3a48;
+		background: #16161d;
+		color: #e8e8ee;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.conflict-actions .danger {
+		border-color: #6b3030;
+		background: #2c1618;
+		color: #ffbdbd;
+	}
+</style>

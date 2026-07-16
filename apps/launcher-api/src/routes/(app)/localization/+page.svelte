@@ -17,16 +17,19 @@
 	let context = $state(data.doc.context);
 	let entries = $state<LocalizationEntry[]>(structuredClone(data.doc.entries));
 
-	// Scene Editor text, auto-collected and grouped by screen (read-only sources).
+	// Auto-collected text (Scene Editor screens + the Win Text templates), grouped into sections
+	// with read-only sources — the tool that authored each string owns it.
 	const sections = $derived<DisplaySection[]>(data.sections ?? []);
 	const byKey = $derived(new Map(entries.map((e) => [e.key, e])));
 	const harvestedKeys = $derived(new Set(sections.flatMap((s) => s.keys)));
-	// Hand-authored rows live in their own section.
-	const manualEntries = $derived(entries.filter((e) => e.origin !== 'editor'));
-	// Auto-collected rows whose text no longer exists in any scene, but that carry
-	// saved translations worth keeping (and letting the user delete).
+	// Hand-authored rows live in their own section. Tests `=== 'manual'` rather than `!== 'editor'`
+	// so a non-editor auto origin (e.g. `winText`) isn't mistaken for a hand-authored row and
+	// rendered with an editable source.
+	const manualEntries = $derived(entries.filter((e) => e.origin === 'manual'));
+	// Auto-collected rows whose source no longer exists in its owning tool, but that carry saved
+	// translations worth keeping (and letting the user delete).
 	const orphanEntries = $derived(
-		entries.filter((e) => e.origin === 'editor' && !harvestedKeys.has(e.key)),
+		entries.filter((e) => e.origin !== 'manual' && !harvestedKeys.has(e.key)),
 	);
 
 	function sectionEntries(section: DisplaySection): LocalizationEntry[] {
@@ -374,9 +377,9 @@
 		{#if orphanEntries.length}
 			<div class="block">
 				<div class="block-head">
-					<h3>No longer in scenes</h3>
+					<h3>No longer in use</h3>
 					<span class="count muted"
-						>{orphanEntries.length} removed from the editor — delete if unused</span
+						>{orphanEntries.length} removed from the Scene Editor or Win Text — delete if unused</span
 					>
 				</div>
 				{@render autoTable(orphanEntries, true)}

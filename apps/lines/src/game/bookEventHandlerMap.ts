@@ -19,6 +19,7 @@ import {
 	winningPositionsOf,
 	winLineEnabledForWin,
 	winLinePointsFor,
+	winLineTextFor,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
@@ -57,7 +58,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				await eventEmitter.broadcastAsync({
 					type: 'winLineShow',
 					points: winLinePointsFor(winningPositions),
-					amount: bookEventAmountToCurrencyString(win.win),
+					...winLineTextFor({
+						symbol: win.symbol,
+						kind: win.kind,
+						amount: win.win,
+						line: win.meta?.lineIndex,
+					}),
 				});
 			}
 

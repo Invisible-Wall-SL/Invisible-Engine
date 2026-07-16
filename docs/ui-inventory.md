@@ -30,8 +30,9 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 |---|---|---|---|
 | Localization grid (rows = strings, cols = languages, editable cells) | A | `(app)/localization/+page.svelte` | bespoke |
 | Admin tables ×7 (users, roles matrix, projects, clients, games, sessions) | A | `(app)/admin/+page.svelte` (1279 lines) | bespoke, monolithic |
+| Win Text grid (rows = symbols, cols = match counts, editable cells; placeholder shows the inherited value) | A | `(app)/win-text/+page.svelte` | bespoke — 3rd instance; **extract next** |
 
-→ **Target:** a small `<DataTable>` (columns def + rows + per-row actions) in `components-shared`. Would simplify admin (health-eval #3) and localization.
+→ **Target:** a small `<DataTable>` (columns def + rows + per-row actions) in `components-shared`. Would simplify admin (health-eval #3), localization, and win-text. The win-text grid adds a requirement the other two don't have: a cell's **placeholder** renders its inherited/effective value, so the extraction needs a per-cell "fallback display" hook.
 
 ### 3. Page layout
 | Impl | Domain | File(s) | Status |

@@ -28,6 +28,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Spine Viewer** | `/spine` | admin · developer · animator | [spine-viewer.md](spine-viewer.md) |
 | **Invisible Rigger** | `/rigger` | admin · developer · animator | [rigger.md](rigger.md) |
 | **Invisible Font Maker** | `/fonts` | admin · developer · artist | [font-maker.md](font-maker.md) |
+| **Invisible Win Text** | `/win-text` | admin · developer · artist | [win-text.md](win-text.md) |
 | **Invisible Localization** | `/localization` | admin · developer · artist | [localization.md](localization.md) |
 | **Invisible FTP Browser** | `/files` | admin · developer | [ftp-browser.md](ftp-browser.md) |
 

@@ -132,6 +132,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/>' +
 			'<path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
 	),
+	// speech bubble over a coin (what the game SAYS about a win)
+	winText: I(
+		'<path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2z"/>' +
+			'<line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="11.5" x2="13" y2="11.5"/>',
+	),
 	// game controller / play (create + publish a playable game)
 	gameMaker: I(
 		'<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/>' +
@@ -215,6 +220,14 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/localization',
 		icon: TOOL_ICONS.localization,
+	},
+	winText: {
+		id: 'winText',
+		name: 'Invisible Win Text',
+		description: 'Author what the game says about a win — per symbol and match count.',
+		kind: 'online',
+		url: '/win-text',
+		icon: TOOL_ICONS.winText,
 	},
 	editor: {
 		id: 'editor',
@@ -317,6 +330,7 @@ export const TOOL_BAR_ORDER: string[] = [
 	'spineViewer',
 	'rigger',
 	'fontMaker',
+	'winText',
 	'localization',
 	'ftpBrowser',
 ];
@@ -344,6 +358,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'rigger',
 		'invisibleLauncher',
 		'localization',
+		'winText',
 		'editor',
 		'flow',
 		'fx',
@@ -358,6 +373,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'invisibleLauncher',
 		'sheetMaker',
 		'localization',
+		'winText',
 		'editor',
 		'flow',
 		'fx',
@@ -529,6 +545,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	spine: 'spine-editor',
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',
+	winText: 'win-text',
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
 	componentEditor: 'component-editor',

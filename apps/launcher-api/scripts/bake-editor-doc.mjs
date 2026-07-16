@@ -573,6 +573,38 @@ async function main() {
 		}
 	}
 
+	// Invisible Win Text templates (what the game says about a win). Pure config, no assets — so
+	// like `symbols.winLine` it travels verbatim with no export/pull step. The doc holds SOURCE
+	// templates; their translations ride `localization.messages` above (a template IS its catalog
+	// key), and the engine resolves template → translation → interpolation at render.
+	// Absent/unauthored is normal and stays `undefined` so the bundle is byte-identical for every
+	// project with no win-text work (`bakedWinText()` then yields the coded defaults — parity).
+	let winText;
+	if (!dryRun) {
+		try {
+			const wtRes = await fetchRetry(
+				`${base}/api/win-text/doc?project=${encodeURIComponent(project)}` +
+					`&k=${encodeURIComponent(token)}`,
+				undefined,
+				'win-text fetch',
+			);
+			if (wtRes.ok) {
+				const wt = await wtRes.json();
+				// Only ship a doc that actually authors something: the endpoint returns `{version:1}`
+				// for a never-authored project, which would otherwise add a no-op key to the bundle.
+				const authored =
+					wt?.doc && Object.keys(wt.doc).some((k) => k !== 'version' && k !== 'updatedAt');
+				if (authored) winText = wt.doc;
+			} else {
+				console.warn(`⚠ bake-doc: win-text fetch HTTP ${wtRes.status} — baking without win text.`);
+			}
+		} catch (err) {
+			console.warn(
+				`⚠ bake-doc: win-text fetch failed (${err instanceof Error ? err.message : err}) — baking without win text.`,
+			);
+		}
+	}
+
 	// Ship only REACHABLE effects — an orphan/scratch effect that nothing mounts must not reach the
 	// game. Keep in sync with apps/launcher-api/src/lib/server/effectReachability.ts
 	// (`pruneUnreachableEffects`, the runtime-bundle path) and the render-time guardrail in
@@ -634,6 +666,10 @@ async function main() {
 		fonts,
 		localization,
 		symbols,
+		// The authored win-text templates (Invisible Win Text). Omitted unless the project
+		// authored something, keeping the bundle byte-identical for every game with no win-text
+		// work — `bakedWinText()` applies the coded defaults when absent (parity).
+		...(winText ? { winText } : {}),
 		// The authored presentation graph (Invisible Flow). Omitted unless the project
 		// authored a non-empty flow, keeping the bundle byte-identical for every game
 		// with no flow work — the §7 fall-through (absent ⇒ interpreter inert).

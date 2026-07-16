@@ -40,6 +40,7 @@ export * from './registerFlowPress';
 export * from './registerComponentSignals';
 export * from './registerComponentDefaults';
 export * from './registerTextResolver';
+export * from './winText';
 export * from './builtinComponents';
 export * from './boundComponentCatalog';
 export * from './componentCatalog';

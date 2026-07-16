@@ -1,4 +1,5 @@
-import type { ComponentDef, ComponentParam, LayoutDoc, LayoutNode } from 'engine-layout';
+import type { ComponentDef, ComponentParam, LayoutDoc, LayoutNode, WinTextDoc } from 'engine-layout';
+import { collectWinTextTemplates } from 'engine-layout';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
 
 /**
@@ -27,6 +28,9 @@ export interface HarvestSection {
 	sceneId: string;
 	sceneName: string;
 	items: HarvestedItem[];
+	/** Which tool owns these sources — stamped onto every entry the section reconciles.
+	 *  Defaults to `'editor'` (the original, and only, collector). */
+	origin?: 'editor' | 'winText';
 }
 
 /** Display grouping handed to the page: a section is a list of entry keys, in order. */
@@ -174,6 +178,29 @@ export async function harvestSceneText(
 	return out;
 }
 
+/** The synthetic section id the win-text templates are grouped under. Not a real scene — the
+ *  page keys sections by this, and it must not collide with a scene id. */
+export const WIN_TEXT_SECTION_ID = '__winText';
+
+/**
+ * Collect Invisible Win Text's authored TEMPLATES as one translatable section.
+ *
+ * This is what makes win copy localizable at all. The game used to compose its win strings
+ * post-format ("Win $1.00 — 2 of a kind"), which is unique per amount and so could never be a
+ * catalog key. A template ("{count} OF A KIND") is finite and stable, so it CAN be — and the
+ * engine resolves the template through the catalog before interpolating the numbers back in.
+ *
+ * Source-as-key + exact/untrimmed, matching {@link harvestSceneText}. The Win Text tool owns
+ * these sources, so they're read-only here (`origin: 'winText'`).
+ */
+export function harvestWinText(doc: WinTextDoc | undefined): HarvestSection[] {
+	const items = collectWinTextTemplates(doc).filter((i) => isLocalizableText(i.source));
+	if (items.length === 0) return [];
+	return [
+		{ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' },
+	];
+}
+
 function newId(): string {
 	return crypto.randomUUID();
 }
@@ -202,20 +229,21 @@ export function reconcileWithEditor(
 
 	const display: DisplaySection[] = [];
 	for (const section of sections) {
+		const origin = section.origin ?? 'editor';
 		const keys: string[] = [];
 		for (const item of section.items) {
 			let entry = byKey.get(item.key);
 			if (entry) {
-				// The editor owns the source text; refresh it and tag the origin.
+				// The collecting tool owns the source text; refresh it and tag the origin.
 				entry.source = item.source;
-				entry.origin = 'editor';
+				entry.origin = origin;
 			} else {
 				entry = {
 					id: newId(),
 					key: item.key,
 					source: item.source,
 					translations: {},
-					origin: 'editor',
+					origin,
 				};
 				byKey.set(entry.key, entry);
 				entries.push(entry);

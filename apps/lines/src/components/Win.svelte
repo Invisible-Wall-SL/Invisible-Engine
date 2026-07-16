@@ -15,17 +15,38 @@
 	import { CanvasSizeRectangle, MainContainer } from 'components-layout';
 	import { OnMount } from 'components-shared';
 
+	import { formatWinText } from 'engine-layout';
+
 	import WinCoins from './WinCoins.svelte';
 	import WinAnimation from './WinAnimation.svelte';
 	import PressToContinue from './PressToContinue.svelte';
 	import { SYMBOL_SIZE } from '../game/constants';
 	import { getContext } from '../game/context';
+	import { bakedWinText } from '../editor-scenes';
 
 	const context = getContext();
 
 	let show = $state(false);
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData>();
+
+	/**
+	 * The authored win-level caption (Invisible Win Text) for this tier, e.g. `big` → "BIG WIN",
+	 * localized + interpolated by `formatWinText`.
+	 *
+	 * OPT-IN: empty unless authored, and nothing is drawn when empty. The tier words a player sees
+	 * today are painted into the big-win SPINE ART, not drawn as text (`winLevelMap`'s `text` field
+	 * is dead data nothing reads), so defaulting this to the coded literals would double the
+	 * caption on every existing game. Author it only for a game whose art carries no words — which
+	 * is also what lets a tier be translated without re-cutting art per language.
+	 */
+	const levelCaption = $derived(
+		winLevelData?.alias
+			? formatWinText(bakedWinText().winLevels[winLevelData.alias] ?? '', {
+					amount: bookEventAmountToCurrencyString(amount),
+				})
+			: '',
+	);
 	let oncomplete = $state(() => {});
 	let onCountUpComplete = $state(() => {});
 
@@ -65,6 +86,22 @@
 					>
 						{#if winLevelData?.animation}
 							<WinAnimation animationMap={winLevelData.animation}>
+								{#if levelCaption}
+									<Container y={-SYMBOL_SIZE * 2.6}>
+										<ResponsiveBitmapText
+											anchor={0.5}
+											maxWidth={2130}
+											text={levelCaption}
+											style={{
+												fontFamily: 'gold',
+												fontSize: SYMBOL_SIZE * 1.8,
+												align: 'center',
+												fontWeight: 'bold',
+												letterSpacing: 0,
+											}}
+										/>
+									</Container>
+								{/if}
 								<ResponsiveBitmapText
 									anchor={0.5}
 									maxWidth={2130}

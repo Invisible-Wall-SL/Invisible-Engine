@@ -2,7 +2,7 @@
 	export type WinLinePoint = { x: number; y: number };
 
 	export type EmitterEventWinLine =
-		| { type: 'winLineShow'; points: WinLinePoint[]; amount: string }
+		| { type: 'winLineShow'; points: WinLinePoint[]; amount: string; message: string }
 		| { type: 'winLineHide' };
 </script>
 
@@ -28,6 +28,10 @@
 
 	let points = $state<WinLinePoint[]>([]);
 	let amount = $state('');
+	/** The authored per-win message (Invisible Win Text), already localized + interpolated by
+	 *  `winLineTextFor`. Empty unless authored — that is the parity default, since the win line
+	 *  had no message layer before the tool existed. */
+	let message = $state('');
 	// The amount is stamped only AFTER the line finishes drawing (immediately when the
 	// draw isn't animated). Gated so an animated line reveals first → last → amount.
 	let revealed = $state(true);
@@ -47,6 +51,7 @@
 		winLineShow: async (emitterEvent) => {
 			points = emitterEvent.points;
 			amount = emitterEvent.amount;
+			message = emitterEvent.message;
 			if (line.animated && emitterEvent.points.length >= 2) {
 				revealed = false;
 				progress.set(0, { duration: 0 });
@@ -66,6 +71,7 @@
 		winLineHide: () => {
 			points = [];
 			amount = '';
+			message = '';
 			revealed = true;
 			progress.set(1, { duration: 0 });
 		},
@@ -94,6 +100,14 @@
 
 	/** Gap between the line's end and the stamped amount. */
 	const LABEL_GAP = SYMBOL_SIZE * 0.55;
+
+	/**
+	 * What the line stamps: the authored message ABOVE the amount, as ONE text block rather than
+	 * two nodes — so the measured `labelBox` covers both lines and the in-window placement below
+	 * (flip + clamp) keeps governing the whole stamp. Unauthored ⇒ `message` is empty ⇒ this is
+	 * exactly the amount, byte-identical to before.
+	 */
+	const labelText = $derived(message ? `${message}\n${amount}` : amount);
 
 	const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -192,7 +206,7 @@
 					anchor={{ x: 0.5, y: 0 }}
 					maxWidth={SYMBOL_SIZE * 3}
 					onresize={(sizes) => (labelSize = sizes)}
-					text={amount}
+					text={labelText}
 					style={{
 						fontFamily: text.font,
 						fontSize: SYMBOL_SIZE * text.size,

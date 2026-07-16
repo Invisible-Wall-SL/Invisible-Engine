@@ -49,6 +49,7 @@ export const SUB = {
 	editor: (c: string, p: string) => `${projectPrefix(c, p)}/editor`,
 	fonts: (c: string, p: string) => `${projectPrefix(c, p)}/fonts`,
 	symbols: (c: string, p: string) => `${projectPrefix(c, p)}/symbols`,
+	winText: (c: string, p: string) => `${projectPrefix(c, p)}/win-text`,
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
 } as const;
 
@@ -205,6 +206,18 @@ export function localizationDocKey(client: string, project: string): string {
 
 export function editorDocKey(client: string, project: string): string {
 	return `${SUB.editor(client, project)}/scenes.json`;
+}
+
+/**
+ * `<client>/<project>/win-text/win-text.json` — the Invisible Win Text doc: the
+ * TEMPLATES the game says about a win (win-line message, amount format, win-level
+ * tiers, toast). Pure config, no assets, so it travels verbatim like
+ * `symbols.winLine` and needs no `deploy/` export step. Same client/project
+ * slug-underscore convention as `editorDocKey`.
+ * See `docs/design/invisible-win-text.md`.
+ */
+export function winTextDocKey(client: string, project: string): string {
+	return `${SUB.winText(client, project)}/win-text.json`;
 }
 
 /**

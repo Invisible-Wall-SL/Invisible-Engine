@@ -5,11 +5,16 @@ import { loadComponent } from '$lib/server/componentStorage';
 import { loadDoc as loadEditorDoc } from '$lib/server/editorStorage';
 import { loadDoc, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
-import { harvestSceneText, reconcileWithEditor } from '$lib/server/localizationHarvest';
+import {
+	harvestSceneText,
+	harvestWinText,
+	reconcileWithEditor,
+} from '$lib/server/localizationHarvest';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { TranslateError, translateBatch } from '$lib/server/translate';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { loadWinTextDoc } from '$lib/server/winTextStorage';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -49,16 +54,21 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	// Auto-collect the project's Scene Editor text and fold it into the doc as
-	// read-only `editor` entries, grouped by scene (sections). A missing editor doc
-	// (never authored) harvests nothing — the tool behaves exactly as before.
-	const [doc, editorDoc] = await Promise.all([
+	// Auto-collect the project's text and fold it into the doc as read-only entries owned by the
+	// tool that authored them: the Scene Editor's text nodes (grouped by scene) and Invisible Win
+	// Text's templates (one "Win text" section). A missing doc on either side harvests nothing —
+	// the tool behaves exactly as before.
+	const [doc, editorDoc, winTextDoc] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		loadEditorDoc(clientKey, projectKey),
+		loadWinTextDoc(clientKey, projectKey),
 	]);
-	const sections = await harvestSceneText(editorDoc, (id, version) =>
-		loadComponent(id, projectKey, version),
-	);
+	const sections = [
+		...(await harvestSceneText(editorDoc, (id, version) =>
+			loadComponent(id, projectKey, version),
+		)),
+		...harvestWinText(winTextDoc),
+	];
 	const { entries, display } = reconcileWithEditor(doc, sections);
 	return { projectKey, doc: { ...doc, entries }, sections: display };
 };
@@ -72,13 +82,14 @@ export const actions: Actions = {
 		} catch {
 			return fail(400, { error: 'Invalid document.' });
 		}
-		// Don't persist untranslated auto-collected (`editor`) entries — they're
-		// re-derived from the Scene Editor on every load, so storing the bare source
-		// strings would just bloat the doc and leave stale rows when text is removed.
-		// Keep any `editor` entry that has at least one translation (work to preserve)
-		// and every `manual` entry as-is.
+		// Don't persist untranslated AUTO-collected entries (`editor` scene text, `winText`
+		// templates) — they're re-derived from their owning tool on every load, so storing the bare
+		// source strings would just bloat the doc and leave stale rows when text is removed. Keep
+		// any auto entry that has at least one translation (work to preserve) and every `manual`
+		// entry as-is. Tests `=== 'manual'` rather than listing auto origins, so a future collector
+		// can't silently start persisting bare sources.
 		doc.entries = doc.entries.filter(
-			(e) => e.origin !== 'editor' || Object.values(e.translations).some((t) => t.text.trim()),
+			(e) => e.origin === 'manual' || Object.values(e.translations).some((t) => t.text.trim()),
 		);
 		const saved = await saveDoc(clientKey, projectKey, doc);
 		return { saved: true, updatedAt: saved.updatedAt };

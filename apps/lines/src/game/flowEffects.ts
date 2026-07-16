@@ -33,6 +33,7 @@ import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
+import { formatWinText, resolveToastTemplate, resolveWinLineMessage } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
@@ -40,7 +41,7 @@ import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
-import { bakedWinLineEnabled } from '../editor-scenes';
+import { bakedWinLineEnabled, bakedWinText } from '../editor-scenes';
 
 // ---------------------------------------------------------------------------
 // Shared leaves — the SAME helpers the coded handlers use. The coded
@@ -111,6 +112,44 @@ export const winLinePointsFor = (positions: Position[]) =>
 		x: getSymbolX(position.reel),
 		y: stateGame.board[position.reel].reelState.symbols[position.row].symbolY(),
 	}));
+
+/**
+ * The single source of truth for the win line's TEXT — the `amount` stamp plus the authored
+ * per-win `message` (Invisible Win Text). Shared by the coded `bookEventHandlerMap.winInfo`
+ * handler and the `showWinLine` flow effect, exactly like `winLinePointsFor`, so both stamp
+ * byte-identically (parity by construction).
+ *
+ * Both strings are AUTHORED templates resolved through `formatWinText`, which localizes the
+ * template BEFORE interpolating — the order that makes them translatable (the composed string
+ * never becomes the catalog key). `{amount}` interpolates the game's own currency formatter, so
+ * it follows the URL's currency.
+ *
+ * Unauthored: `amountFormat` defaults to `'{amount}'` (the bare currency string this stamped
+ * before) and the message defaults to empty ⇒ nothing drawn. Byte-identical to today.
+ */
+export const winLineTextFor = ({
+	symbol,
+	kind,
+	amount,
+	line,
+}: {
+	symbol: SymbolName;
+	kind: number;
+	amount: number;
+	line?: number;
+}): { amount: string; message: string } => {
+	const winText = bakedWinText();
+	const vars = {
+		count: kind,
+		symbol,
+		line,
+		amount: bookEventAmountToCurrencyString(amount),
+	};
+	return {
+		amount: formatWinText(winText.amountFormat, vars),
+		message: formatWinText(resolveWinLineMessage(winText, symbol, kind).template, vars),
+	};
+};
 
 const winLevelDataOf = (winLevel: number): WinLevelData => winLevelMap[winLevel as WinLevel];
 
@@ -317,22 +356,29 @@ const effects: Record<string, FlowEffect> = {
 	 * gate read (Game.svelte). Any FlowDoc can invoke it; it is NOT winInfo-specific.
 	 *
 	 * The bounded accessor model can't template a string (§11.4), so the TEXT is assembled HERE
-	 * from the structured payload: an `amount` (a book-event amount, e.g. a `winInfo` win's `win`)
-	 * formats through the SAME currency formatter the win-meter uses (`bookEventAmountToCurrencyString`,
-	 * so it matches the game's formatting), and a `kind` appends the "N of a kind" tail. So a
-	 * `winInfo` win renders "Win $1.00 — 2 of a kind"; with only `amount` it shows "Win $1.00".
-	 * Auto-clears via the state timer (`messageKind` selects the toast style, default `info`;
-	 * `durationMs` overrides the default hold).
+	 * from the structured payload — but from an AUTHORED template (Invisible Win Text), not an
+	 * English literal. `resolveToastTemplate` picks the branch matching the payload it actually
+	 * got (both ⇒ `full`, amount only ⇒ `amountOnly`, count only ⇒ `countOnly`, neither ⇒ no
+	 * message), and `formatWinText` localizes that template BEFORE interpolating `{amount}` /
+	 * `{count}` — the order that makes it translatable at all (see `engine-layout/winText.ts`).
+	 * `{amount}` interpolates the SAME currency formatter the win-meter uses, so it matches the
+	 * game's formatting and follows the URL's currency.
+	 *
+	 * Unauthored, the defaults reproduce the previous literals exactly: a `winInfo` win renders
+	 * "Win $1.00 — 2 of a kind"; with only `amount`, "Win $1.00". Auto-clears via the state timer
+	 * (`messageKind` selects the toast style, default `info`; `durationMs` overrides the hold).
 	 */
 	showMessage: (payload) => {
-		const parts: string[] = [];
-		if (typeof payload.amount === 'number') {
-			parts.push(`Win ${bookEventAmountToCurrencyString(payload.amount)}`);
-		}
-		if (typeof payload.kind === 'number') {
-			parts.push(`${payload.kind} of a kind`);
-		}
-		const text = parts.join(' — ');
+		const vars = {
+			amount:
+				typeof payload.amount === 'number'
+					? bookEventAmountToCurrencyString(payload.amount)
+					: undefined,
+			count: typeof payload.kind === 'number' ? payload.kind : undefined,
+		};
+		const template = resolveToastTemplate(bakedWinText(), vars);
+		if (!template) return;
+		const text = formatWinText(template, vars);
 		if (!text) return;
 		showGameMessage(text, {
 			kind: (payload.messageKind as GameMessageKind) ?? 'info',
@@ -376,7 +422,12 @@ const effects: Record<string, FlowEffect> = {
 		await eventEmitter.broadcastAsync({
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),
-			amount: bookEventAmountToCurrencyString(payload.amount as number),
+			...winLineTextFor({
+				symbol: win.symbol,
+				kind: win.kind,
+				amount: payload.amount as number,
+				line: payload.line as number | undefined,
+			}),
 		});
 	},
 

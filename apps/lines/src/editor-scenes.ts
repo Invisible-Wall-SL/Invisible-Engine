@@ -1,13 +1,22 @@
 import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
-import type { ComponentDef, FontCatalog, LayoutDoc, LayoutNode, RigFxBinding } from 'engine-layout';
+import type {
+	ComponentDef,
+	FontCatalog,
+	LayoutDoc,
+	LayoutNode,
+	ResolvedWinText,
+	RigFxBinding,
+	WinTextDoc,
+} from 'engine-layout';
 import {
 	editorArtNamespace,
 	registerComponentDefaults,
 	registerComponents,
 	registerRigFx,
 	registerTextResolver,
+	resolveWinText,
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import type { MessagesMap } from 'utils-shared/i18n';
@@ -138,6 +147,14 @@ type BakedBundle = {
 			text?: { font?: string; size?: number; color?: string };
 		};
 	};
+	/** The authored win-text TEMPLATES (Invisible Win Text output), fetched from
+	 * `/api/win-text/doc` at bake and embedded verbatim. Pure config, no assets — so like
+	 * `symbols.winLine` there is no export/pull step. SPARSE: every field falls through to
+	 * `WIN_TEXT_DEFAULTS` (which reproduce the engine's prior literals), so an absent doc
+	 * renders byte-identically. The templates are localization KEYS — their translations ride
+	 * `localization.messages`, and `formatWinText` resolves template → translation →
+	 * interpolation at render. See `docs/design/invisible-win-text.md`. */
+	winText?: WinTextDoc;
 	/** The authored presentation graph (Invisible Flow output), exported to
 	 * `deploy/flow.json` and embedded by `bake-editor-doc.mjs`. When present the
 	 * runtime interpreter (engine-flow) mounts authored screens + runs authored
@@ -464,6 +481,21 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			color: w?.text?.color ?? '#ffffff',
 		},
 	};
+}
+
+/**
+ * The win-text TEMPLATES authored in Invisible Win Text, fully RESOLVED — every field the
+ * baked doc omits is filled with the coded default (`WIN_TEXT_DEFAULTS`, which reproduce the
+ * literals the engine hardcoded before the tool existed), so an un-baked/unauthored project
+ * renders byte-identically. Mirrors `bakedWinLineConfig`'s runtime→baked→undefined resolution.
+ *
+ * The returned strings are still TEMPLATES holding `{tokens}` and are still un-localized —
+ * `formatWinText` resolves each through the catalog and interpolates, in that order. Sibling of
+ * `bakedWinLineConfig` by design: that owns the win line's STYLE, this owns its TEXT.
+ */
+export function bakedWinText(): ResolvedWinText {
+	if (hasRuntimeBundle()) return resolveWinText(runtimeBundle!.winText);
+	return resolveWinText(bakedBundle.winText);
 }
 
 /**

@@ -36,6 +36,7 @@ import {
 	type FontCatalog,
 	type LayoutDoc,
 	type RigFxBinding,
+	type WinTextDoc,
 } from 'engine-layout';
 import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
@@ -50,6 +51,7 @@ import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
+import { loadWinTextDoc } from './winTextStorage';
 import { bundleFromAssetKey } from './spine';
 import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
 
@@ -85,6 +87,11 @@ export interface RuntimeBundle {
 	 * runtime assetKey. Omitted unless a rig has ≥1 bound event — absent ⇒ `bakedRigFx()` returns {}
 	 * (parity). Mirrors the offline bake (`scripts/bake-editor-doc.mjs`). */
 	rigFx?: Record<string, RigFxBinding[]>;
+	/** The authored win-text templates (Invisible Win Text). Pure config, no assets, so it is read
+	 * straight from R2 with no export step — the live twin of the offline bake's
+	 * `/api/win-text/doc` fetch. Omitted when un-authored ⇒ `bakedWinText()` yields the coded
+	 * defaults (parity). See `docs/design/invisible-win-text.md`. */
+	winText?: WinTextDoc;
 }
 
 /**
@@ -235,12 +242,20 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		localization,
 		effectIndex,
 		rigFx,
+		winTextDoc,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey),
 		loadLocalizationMessages(clientKey, projectKey),
 		exportEffects(clientKey, projectKey),
 		exportRigFx(clientKey, projectKey),
+		loadWinTextDoc(clientKey, projectKey),
 	]);
+	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
+	// never-authored project, which would otherwise add a no-op key to the bundle. Mirrors the
+	// offline bake's `authored` check so the two paths agree.
+	const winText = Object.keys(winTextDoc).some((k) => k !== 'version' && k !== 'updatedAt')
+		? winTextDoc
+		: undefined;
 	// Ship only REACHABLE effects (placed / rig-bound / event-triggered) — an orphan/scratch effect
 	// that nothing mounts must not reach the game (it would otherwise ride the bundle dead weight).
 	// The editor still reads ALL effects straight from R2, so authors keep managing orphans in the FX
@@ -278,6 +293,9 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		// offline bake does (`bake-editor-doc.mjs` ~575/579): absent ⇒ bakedEffects()/bakedRigFx() [].
 		...(effects.length ? { effects } : {}),
 		...(Object.keys(rigFx).length ? { rigFx } : {}),
+		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
+		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
+		...(winText ? { winText } : {}),
 	};
 }
 
