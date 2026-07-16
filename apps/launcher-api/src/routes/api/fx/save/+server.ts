@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { saveEffect } from '$lib/server/fxStorage';
+import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -13,7 +14,12 @@ import type { RequestHandler } from './$types';
  * the editor-only `<id>.fx.meta.json` sidecar — running `normalizeEffectDoc` as the
  * gatekeeper so editor-only state can never leak into the shipped doc (§4).
  *
- * Body: `{ doc: <EffectDoc>, meta?: <FxMeta> }`.
+ * Guarded by `baseEtag` (Phase 1 of `docs/design/multi-user-concurrency.md`): a stale one
+ * answers **409** rather than replacing a concurrent author's effect. `baseEtag: null`
+ * (a never-saved effect) asserts the id is free — which is what stops the CREATE clobber,
+ * since a new effect's id is slugged from its NAME.
+ *
+ * Body: `{ doc: <EffectDoc>, meta?: <FxMeta>, projectKey?, baseEtag?: string | null, force? }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -24,6 +30,53 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || typeof body.doc !== 'object' || body.doc === null) throw error(400, 'missing doc');
 
-	const { id, doc } = await saveEffect(clientKey, projectKey, body.doc, body.meta);
-	return json({ ok: true, id, name: doc.name, layers: doc.layers.length });
+	// SCOPE GUARD — this endpoint resolves the project from the SESSION while the /fx page
+	// resolves it from `?project=`, so a tab can hold project X's effect while its save
+	// targets Y. Refuse rather than write to the wrong project; `force` does not bypass
+	// this (overwriting your own effect is a choice, another project's never is).
+	if (typeof body.projectKey === 'string' && body.projectKey !== projectKey) {
+		return json(
+			{
+				ok: false,
+				error: 'scope-mismatch',
+				message:
+					`This tab is editing "${body.projectKey}" but your active project is now ` +
+					`"${projectKey}". Reload to continue — saving here would write to the wrong project.`,
+			},
+			{ status: 409 },
+		);
+	}
+
+	const baseEtag = body.force === true ? undefined : jsonBaseEtag(body.baseEtag);
+
+	try {
+		const { id, doc, etag } = await saveEffect(
+			clientKey,
+			projectKey,
+			body.doc,
+			body.meta,
+			baseEtag,
+		);
+		return json({ ok: true, id, name: doc.name, layers: doc.layers.length, etag });
+	} catch (e) {
+		if (e instanceof ConflictError) {
+			// A never-saved effect (baseEtag null) conflicts because the NAME is taken —
+			// say that, rather than "someone saved while you were editing", which would be
+			// baffling for an effect the author just created.
+			const isCreate = baseEtag === null;
+			return json(
+				{
+					ok: false,
+					error: 'conflict',
+					message: isCreate
+						? 'An effect with that name already exists in this project. ' +
+							'Rename yours, or overwrite theirs.'
+						: 'Someone else saved this effect while you were editing. ' +
+							'Your changes are still here — reload to get their version first.',
+				},
+				{ status: 409 },
+			);
+		}
+		throw e;
+	}
 };

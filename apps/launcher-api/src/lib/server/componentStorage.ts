@@ -7,7 +7,11 @@ import type {
 	SlotKind,
 	TemplateSlot,
 } from 'engine-layout';
-import { BUILTIN_COMPONENTS, mergeBuiltinCodedParams, pruneOrphanParamBindings } from 'engine-layout';
+import {
+	BUILTIN_COMPONENTS,
+	mergeBuiltinCodedParams,
+	pruneOrphanParamBindings,
+} from 'engine-layout';
 import {
 	editorComponentKey,
 	editorComponentVersionKey,
@@ -16,7 +20,26 @@ import {
 	projectComponentsPrefix,
 	sharedComponentsPrefix,
 } from './projectPaths';
-import { deleteObject, getObjectText, listAllKeys, putObjectText } from './r2';
+import {
+	deleteObject,
+	getObjectText,
+	getObjectTextWithEtag,
+	listAllKeys,
+	precondition,
+	putObjectText,
+} from './r2';
+
+/**
+ * A bad component PAYLOAD — distinct from a storage failure so the route can map the
+ * two differently (400 vs 5xx). Without the distinction an R2 blip renders in the
+ * editor as "Invalid component", pointing the author at the wrong problem.
+ */
+export class ComponentValidationError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ComponentValidationError';
+	}
+}
 
 const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
 const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
@@ -123,6 +146,34 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
 }
 
 /**
+ * Read + normalize one component key for the SAVE path, with its ETag.
+ *
+ * Deliberately does NOT swallow a read error, unlike {@link readComponent} (whose
+ * swallow is right for a read path that should degrade rather than fail). On the save
+ * path that swallow is a data-loss bug: a transient R2 blip makes the stored def look
+ * ABSENT, so `reconcileVersion` treats the save as brand-new, keeps the posted
+ * version, and overwrites both the stored def and its "immutable" `.v<N>.json`
+ * snapshot at the same version. Fail loud instead — the caller can retry.
+ *
+ * `etag === null` means the object is absent (a create). A present-but-malformed
+ * object yields `def: undefined` WITH an etag, so it is deliberately overwritten
+ * rather than mistaken for a create that can never succeed.
+ */
+async function readComponentForWrite(
+	key: string,
+): Promise<{ def: ComponentDef | undefined; etag: string | null }> {
+	const obj = await getObjectTextWithEtag(key);
+	if (!obj) return { def: undefined, etag: null };
+	try {
+		const parsed: unknown = JSON.parse(obj.text);
+		if (isComponentShape(parsed)) return { def: normalizeComponent(parsed), etag: obj.etag };
+	} catch {
+		return { def: undefined, etag: obj.etag };
+	}
+	return { def: undefined, etag: obj.etag };
+}
+
+/**
  * Persist an authored component to its scope's R2 key (§8.3). Validates the
  * minimum contract first and throws a descriptive Error on a bad payload, so the
  * write only ever happens for a well-formed def. A `scope: 'shared'` def (or one
@@ -141,20 +192,66 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  * back-compat preserved) AND the immutable `<id>.v<N>.json` snapshot, so a pinned
  * instance can later resolve the EXACT version it was authored against. The latest
  * write is LAST: if the snapshot write fails, the latest pointer is unchanged.
+ *
+ * CONCURRENCY (Phase 1 of `docs/design/multi-user-concurrency.md`). `version` looks
+ * like optimistic concurrency but is NOT: it is a *pin* mechanism, and two concurrent
+ * saves both read N, both compute N+1, and both write `<id>.v<N+1>.json` — one edit
+ * lost, and the "immutable" snapshot silently rewritten. Two guards:
+ *
+ * - The SNAPSHOT is written with `ifNoneMatch: '*'` whenever the version is new, so
+ *   "immutable history" is enforced by R2 rather than asserted in a comment.
+ * - The LATEST pointer is a compare-and-swap on `baseEtag`.
+ *
+ * ⚠ BE PRECISE ABOUT WHAT IS AND IS NOT PROTECTED TODAY. **No caller passes
+ * `baseEtag` yet** — `loadComponent`/`listComponents` return no ETag, so the Component
+ * Editor has none to send. With `baseEtag: undefined` we fall back to the ETag of the
+ * read THIS function just did, which closes only the in-request read→write window
+ * (tens of ms). The window Phase 1 is actually about — A and B both open the def, A
+ * saves, B saves five minutes later — is NOT closed for components: B's save re-reads,
+ * bumps to N+2, and succeeds. Nothing 409s. What limits the damage is the version
+ * bump: A's work survives as `<id>.v<N+1>.json` rather than being destroyed. That is
+ * recoverable-by-hand, NOT unlost.
+ *
+ * To make the prose above true, `listComponents`/`loadComponent` must carry the ETag
+ * to the client and the editor must send it back. Until then, treat components as
+ * "last-writer-wins on the latest pointer, with history".
+ *
+ * `scope: 'shared'` defs live on a GLOBAL key, so no project lease could ever cover
+ * them — a real CAS is the only possible protection there, which makes the threading
+ * above the priority for that scope.
  */
-export async function saveComponent(component: ComponentDef, projectKey?: string): Promise<void> {
-	const normalized = validateComponent(component);
+export async function saveComponent(
+	component: ComponentDef,
+	projectKey?: string,
+	baseEtag?: string | null,
+): Promise<{ version: number; etag: string | null }> {
+	let normalized: ComponentDef;
+	try {
+		normalized = validateComponent(component);
+	} catch (e) {
+		// Typed, so the route can answer 400 for a bad PAYLOAD without also answering 400
+		// for an R2 outage — which would tell the author to go fix a component that was
+		// never broken, and leak the SDK's message into the UI.
+		throw new ComponentValidationError(e instanceof Error ? e.message : 'Invalid component.');
+	}
 	// A `scope:'project'` def MUST be saved with a projectKey — never silently
 	// downgrade it to the shared library (that would publish a project-local
 	// component repo-wide).
 	if (normalized.scope === 'project' && !projectKey) {
-		throw new Error('A project-scoped component requires a projectKey.');
+		throw new ComponentValidationError('A project-scoped component requires a projectKey.');
 	}
 	const isProject = normalized.scope === 'project';
 	const key = isProject
 		? projectComponentKey(projectKey as string, normalized.id)
 		: editorComponentKey(normalized.id);
-	const existing = await readComponent(key);
+	const { def: existing, etag: existingEtag } = await readComponentForWrite(key);
+	// CHECK BEFORE WRITING ANYTHING. The snapshot is written first and is immutable, so
+	// discovering a lost CAS at the LATEST pointer (the second write) would already have
+	// left an orphan `<id>.v<N+1>.json` behind — and every later save would then compute
+	// that same N+1, collide with the orphan, and 409 FOREVER with no way out of the UI.
+	// An in-process compare makes the ordinary conflict path write nothing at all.
+	if (baseEtag !== undefined && baseEtag !== existingEtag) throw new ConflictError(key);
+
 	const toWrite = reconcileVersion(normalized, existing);
 	const body = JSON.stringify(toWrite, null, 2);
 	// Snapshot first (immutable history), latest pointer last — so a failed snapshot
@@ -162,8 +259,45 @@ export async function saveComponent(component: ComponentDef, projectKey?: string
 	const versionKey = isProject
 		? projectComponentVersionKey(projectKey as string, normalized.id, toWrite.version)
 		: editorComponentVersionKey(normalized.id, toWrite.version);
-	await putObjectText(versionKey, body, 'application/json');
-	await putObjectText(key, body, 'application/json');
+	// A NEW version must not already exist. `etag === null` (absent) rather than
+	// `!existing` (which is ALSO true for a present-but-malformed latest) — conflating
+	// those is the trap `getObjectTextWithEtag` exists to avoid.
+	const isNewVersion = existingEtag === null || !existing || toWrite.version !== existing.version;
+	await writeSnapshot(versionKey, body, isNewVersion);
+	const etag = await putObjectText(
+		key,
+		body,
+		'application/json',
+		precondition(baseEtag === undefined ? existingEtag : baseEtag),
+	);
+	return { version: toWrite.version, etag };
+}
+
+/**
+ * Write the immutable `<id>.v<N>.json` snapshot.
+ *
+ * `guard` asks R2 to enforce the immutability the comments have always claimed. A 412
+ * means the version already exists — which is NOT automatically a conflict: the same
+ * save retried after a transient failure of the latest-pointer write would land here
+ * with byte-identical content, and rejecting that would strand the component. So
+ * compare: identical bytes = an idempotent retry, carry on; different bytes = someone
+ * else genuinely authored this version, and overwriting it would rewrite history a
+ * pinned instance may already resolve.
+ */
+async function writeSnapshot(versionKey: string, body: string, guard: boolean): Promise<void> {
+	if (!guard) {
+		// Same version, same content — rewriting identical bytes, which also heals a
+		// snapshot missing from a pre-v2 def.
+		await putObjectText(versionKey, body, 'application/json');
+		return;
+	}
+	try {
+		await putObjectText(versionKey, body, 'application/json', { ifNoneMatch: '*' });
+	} catch (e) {
+		if (!(e instanceof ConflictError)) throw e;
+		const existingSnapshot = await getObjectText(versionKey);
+		if (existingSnapshot !== body) throw e;
+	}
 }
 
 /**
@@ -192,7 +326,8 @@ function reconcileVersion(next: ComponentDef, existing: ComponentDef | undefined
 
 /** Structural equality of two defs IGNORING `version` (the bump decision input). */
 function componentContentEqual(a: ComponentDef, b: ComponentDef): boolean {
-	const strip = ({ version: _version, ...rest }: ComponentDef): Omit<ComponentDef, 'version'> => rest;
+	const strip = ({ version: _version, ...rest }: ComponentDef): Omit<ComponentDef, 'version'> =>
+		rest;
 	return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 }
 
@@ -216,9 +351,7 @@ export async function deleteComponent(
 	const key =
 		scope === 'project' ? projectComponentKey(projectKey as string, id) : editorComponentKey(id);
 	const prefix =
-		scope === 'project'
-			? projectComponentsPrefix(projectKey as string)
-			: sharedComponentsPrefix;
+		scope === 'project' ? projectComponentsPrefix(projectKey as string) : sharedComponentsPrefix;
 	const snapshotPrefix = key.replace(/\.json$/, '.v');
 	let snapshotKeys: string[];
 	try {

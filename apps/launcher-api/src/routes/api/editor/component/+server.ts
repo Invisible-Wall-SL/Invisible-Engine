@@ -2,11 +2,13 @@ import { error, json } from '@sveltejs/kit';
 import type { ComponentDef } from 'engine-layout';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
+	ComponentValidationError,
 	deleteComponent,
 	listComponentVersions,
 	loadComponent,
 	saveComponent,
 } from '$lib/server/componentStorage';
+import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
@@ -45,7 +47,17 @@ async function gateSharedWrite(locals: App.Locals): Promise<void> {
 	}
 }
 
-/** Persist an authored component to its scope's R2 key (§8.3). */
+/**
+ * Persist an authored component to its scope's R2 key (§8.3).
+ *
+ * Guarded: a stale `baseEtag` answers **409** instead of discarding a concurrent
+ * author's def (and silently rewriting the `.v<N>.json` snapshot an instance may have
+ * pinned). `force: true` is the author's explicit "overwrite theirs". Returns the
+ * RECONCILED `version` + the new `etag` — the old `{ok:true}` told the client nothing,
+ * so it could not even learn what version its own save produced.
+ *
+ * Body: the `ComponentDef`, plus `project?`, `baseEtag?: string | null`, `force?`.
+ */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	await gate(locals);
 	let body: unknown;
@@ -54,20 +66,48 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const projectKey =
-		isRecord(body) && typeof body.project === 'string' ? body.project : undefined;
+	const projectKey = isRecord(body) && typeof body.project === 'string' ? body.project : undefined;
 	// A `scope:'shared'` def writes the repo-wide `_shared/editor-components/` key —
 	// gate it on `componentPublish` before persisting. A `scope:'project'` save (the
 	// common case) needs only the `editor` tool gate already applied above.
 	if (isRecord(body) && body.scope === 'shared') {
 		await gateSharedWrite(locals);
 	}
+	// `force` = the author answering the conflict with "overwrite theirs". Note what
+	// that does here, because it is NOT the unconditional write it is elsewhere:
+	// dropping the client's stale etag makes `saveComponent` fall back to the ETag of
+	// its own read, i.e. CAS against the CURRENT object. That is strictly safer — it
+	// still refuses if a third save lands mid-request — and it is the honest meaning of
+	// "overwrite what's there now". An omitted `baseEtag` (a pre-Phase-1 client) lands
+	// on the same path, which is exactly the old last-writer-wins behaviour.
+	const baseEtag =
+		isRecord(body) && body.force !== true && 'baseEtag' in body
+			? jsonBaseEtag(body.baseEtag)
+			: undefined;
 	try {
-		await saveComponent(body as ComponentDef, projectKey);
+		const { version, etag } = await saveComponent(body as ComponentDef, projectKey, baseEtag);
+		return json({ ok: true, version, etag });
 	} catch (e) {
-		throw error(400, e instanceof Error ? e.message : 'Invalid component.');
+		// Conflict before the generic 400 — a lost CAS is not a malformed component.
+		if (e instanceof ConflictError) {
+			return json(
+				{
+					ok: false,
+					error: 'conflict',
+					message:
+						'Someone else saved this component while you were editing it. ' +
+						'Your changes are still here — reload to get their version first.',
+				},
+				{ status: 409 },
+			);
+		}
+		// Only a bad PAYLOAD is a 400. A storage failure reaching here used to answer 400
+		// "Invalid component" with the SDK's message — a client-error status for a
+		// server-side outage, telling the author to fix a component that was never broken.
+		if (e instanceof ComponentValidationError) throw error(400, e.message);
+		console.error('[component] save failed:', e);
+		throw error(502, 'Could not save the component — storage is unavailable. Please retry.');
 	}
-	return json({ ok: true });
 };
 
 /**

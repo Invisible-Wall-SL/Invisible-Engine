@@ -79,10 +79,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const openId = url.searchParams.get('effect')?.trim() ?? '';
 	let openedDoc: EffectDoc | null = null;
 	let openedMeta: FxMeta | null = null;
+	// ETag of the OPENED effect's doc, for the save's CAS. `null` = nothing opened (the
+	// author is composing a new effect), which the save asserts with `ifNoneMatch`.
+	let openedEtag: string | null = null;
 	if (openId) {
-		const { doc, meta } = await loadEffect(clientKey, projectKey, openId);
+		const { doc, meta, docEtag } = await loadEffect(clientKey, projectKey, openId);
 		openedDoc = doc;
 		openedMeta = meta;
+		openedEtag = docEtag;
 	}
 
 	// The trigger picker's suggestions are the SHARED name vocabulary a layer's `trigger.eventType`
@@ -102,9 +106,19 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	for (const node of flowV2?.graph?.nodes ?? []) {
 		if (node.kind === 'fireCue' && typeof node.ref === 'string' && node.ref) v2Cues.push(node.ref);
 	}
-	const eventTypes = Array.from(
-		new Set([...vocab.events.map((e) => e.type), ...v2Cues]),
-	).sort((a, b) => a.localeCompare(b));
+	const eventTypes = Array.from(new Set([...vocab.events.map((e) => e.type), ...v2Cues])).sort(
+		(a, b) => a.localeCompare(b),
+	);
 
-	return { clientKey, projectKey, tools, atlases, effects, openedDoc, openedMeta, eventTypes };
+	return {
+		clientKey,
+		projectKey,
+		tools,
+		atlases,
+		effects,
+		openedDoc,
+		openedMeta,
+		openedEtag,
+		eventTypes,
+	};
 };

@@ -267,6 +267,24 @@ missed these)*:
   `ifNoneMatch` one author's kind silently replaces another's of the same id.
 - **`componentStorage.saveComponent` returns `void`** — the client cannot learn its
   reconciled version, let alone an ETag. Signature has to change.
+- **⚠ Components are NOT finished, despite the guards being in.** *(2026-07-16 — read
+  this before assuming otherwise.)* `listComponents`/`loadComponent` still return no
+  ETag, so the Component Editor has none to send, so `saveComponent` falls back to the
+  ETag of its own read. That closes only the **in-request** read→write window (tens of
+  ms); the window this whole phase is about — A and B both open the def, A saves, B
+  saves five minutes later — is still **last-writer-wins on the latest pointer**. What
+  limits the damage is the version bump: A's work survives as `<id>.v<N+1>.json`, i.e.
+  *recoverable by a human who knows to open the version browser*, NOT un-lost.
+  **To finish: carry the ETag through `listComponents`/`loadComponent` → the editor →
+  back on save.** That matters most for `scope: 'shared'` defs, which live on a GLOBAL
+  key no lease can cover.
+- **Landmine to remember if the snapshot guard is ever revisited:** writing the
+  immutable `<id>.v<N>.json` BEFORE the latest pointer means a lost CAS on the pointer
+  leaves an orphan snapshot at N+1 — and then every later save recomputes N+1, collides
+  with the orphan, and 409s **forever**, unforceably. Fixed by comparing `baseEtag`
+  in-process before ANY write, plus tolerating an `ifNoneMatch` 412 whose stored bytes
+  are identical (an idempotent retry after a transient failure of the second write).
+  Do not reorder these writes without re-deriving that.
 - **`readComponent:108-123` swallows EVERY read failure** and returns `undefined`, so
   a transient R2 blip makes `saveComponent:157` believe the def is new, keep the posted
   version, and overwrite the stored def *and* its snapshot at the same version. The
@@ -276,11 +294,16 @@ missed these)*:
   sharing a colleague's name silently overwrites it — and no ETag helps, because the
   client has none. Only `ifNoneMatch: '*'` → 409 "an effect named X already exists"
   fixes this.
-- **`fxStorage.ts` writes doc + meta sidecar as two unconditional PUTs** — no atomicity
-  even single-user. Two *conditional* PUTs cannot be made atomic either (the meta can
-  412 after the doc succeeded, leaving one etag stale and one fresh). **Fold `FxMeta`
-  into the doc** rather than guarding two objects; `normalizeEffectDoc` already enforces
-  the §4 purity the sidecar exists for, at the export boundary.
+- **`fxStorage.ts` writes doc + meta sidecar as two unconditional PUTs.** ~~Fold `FxMeta`
+  into the doc~~ — **superseded 2026-07-16, on contact with the code.** The premise
+  (two conditional PUTs can't be atomic, so collapse them into one object) was right but
+  the conclusion was wrong: `FxMeta` holds nothing but editor VIEW state — camera
+  pan/zoom and the last-selected layer (`fxStorage.ts:25`). It is not authored content,
+  so it does not need a precondition at all. **Guard the doc; leave the sidecar
+  unguarded and write it after.** Losing a race on the sidecar costs a scroll position,
+  not work — whereas folding editor state into the shipped artifact would be a real
+  architecture change to buy atomicity nobody needs. Two objects, one guard, no lost
+  work.
 - **Do NOT add `If-Match` to build output** — `editorArtExport`, `effectExport`,
   `flowExport`, `flowV2Export`, `fontExport`, `symbolExport`, `spine.ts:602` all write
   under `deploy/` and are re-derived wholesale on every export; a precondition would

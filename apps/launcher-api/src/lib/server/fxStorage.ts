@@ -7,7 +7,14 @@ import {
 	projectPrefix,
 	r2Slug,
 } from './projectPaths';
-import { deleteObject, getObjectText, listObjects, putObjectText } from './r2';
+import {
+	deleteObject,
+	getObjectText,
+	getObjectTextWithEtag,
+	listObjects,
+	precondition,
+	putObjectText,
+} from './r2';
 
 /**
  * R2 load/save for Invisible FX effects (design doc `invisible-fx.md` §4 / §6 / §8),
@@ -91,23 +98,31 @@ export async function listEffects(clientKey: string, projectKey: string): Promis
 	return rows;
 }
 
-/** Load one effect + its sidecar; a missing/invalid doc returns an empty effect under `id`. */
+/**
+ * Load one effect + its sidecar; a missing/invalid doc returns an empty effect under `id`.
+ *
+ * `docEtag` is the ETag of the AUTHORED doc, for the save's compare-and-swap. It comes
+ * off the read, so `null` means the effect does not exist yet (a create) and is NOT
+ * confused with a corrupt doc, which also normalizes to an empty effect but carries an
+ * etag. The sidecar has no etag on purpose — see {@link saveEffect}.
+ */
 export async function loadEffect(
 	clientKey: string,
 	projectKey: string,
 	id: string,
-): Promise<{ doc: EffectDoc; meta: FxMeta }> {
-	const rawDoc = await getObjectText(fxDocKey(clientKey, projectKey, id));
+): Promise<{ doc: EffectDoc; meta: FxMeta; docEtag: string | null }> {
+	const obj = await getObjectTextWithEtag(fxDocKey(clientKey, projectKey, id));
 	let doc: EffectDoc;
-	if (!rawDoc) {
+	if (!obj) {
 		doc = normalizeEffectDoc(undefined, id);
 	} else {
 		try {
-			doc = normalizeEffectDoc(JSON.parse(rawDoc), id);
+			doc = normalizeEffectDoc(JSON.parse(obj.text), id);
 		} catch {
 			doc = normalizeEffectDoc(undefined, id);
 		}
 	}
+	const docEtag = obj?.etag ?? null;
 	const rawMeta = await getObjectText(fxMetaKey(clientKey, projectKey, id));
 	let meta: FxMeta = {};
 	if (rawMeta) {
@@ -117,7 +132,7 @@ export async function loadEffect(
 			meta = {};
 		}
 	}
-	return { doc, meta };
+	return { doc, meta, docEtag };
 }
 
 /**
@@ -125,32 +140,49 @@ export async function loadEffect(
  * sidecar to `<id>.fx.meta.json` — as TWO separate objects (§4). `normalizeEffectDoc` is
  * the gatekeeper: it strips editor-only state from the doc before it ever reaches R2, so
  * the shipped artifact stays pure. Returns the normalized doc (the id is the slug used for
- * the keys, so the caller learns the canonical id).
+ * the keys, so the caller learns the canonical id) and the doc's new ETag.
+ *
+ * CONCURRENCY (Phase 1 of `docs/design/multi-user-concurrency.md`). Only the DOC is
+ * guarded by `baseEtag`; the sidecar is written unconditionally, after. That asymmetry
+ * is deliberate and supersedes this doc's earlier suggestion to fold `FxMeta` into the
+ * doc so the pair could be atomic: the sidecar holds nothing but editor VIEW state
+ * (camera pan/zoom, last-selected layer), so losing a race on it costs a scroll
+ * position, not authored work — while folding editor state into the shipped artifact
+ * would be a real architecture change to buy atomicity nobody needs. Two objects, one
+ * guard, no lost work.
+ *
+ * `baseEtag: null` asserts the effect does not exist yet, which is what stops the
+ * CREATE clobber: a new effect's id is slugged from its NAME, so without the guard
+ * "Save" on an effect sharing a colleague's name silently replaced theirs.
  */
 export async function saveEffect(
 	clientKey: string,
 	projectKey: string,
 	rawDoc: unknown,
 	rawMeta: unknown,
-): Promise<{ id: string; doc: EffectDoc }> {
+	baseEtag?: string | null,
+): Promise<{ id: string; doc: EffectDoc; etag: string | null }> {
 	const requestedId = isObject(rawDoc) && typeof rawDoc.id === 'string' ? rawDoc.id : 'effect';
 	const id = r2Slug(requestedId);
 	const doc = normalizeEffectDoc(rawDoc, id);
 	// The slugged id is authoritative for the file stem AND the doc's own id, so a reopened
 	// effect's id round-trips to the same keys.
 	doc.id = id;
-	await putObjectText(
+	const etag = await putObjectText(
 		fxDocKey(clientKey, projectKey, id),
 		JSON.stringify(doc, null, 2),
 		'application/json',
+		precondition(baseEtag),
 	);
+	// Only reached when the doc write WON, so the sidecar can never describe an effect
+	// this save didn't store.
 	const meta = normalizeFxMeta(rawMeta);
 	await putObjectText(
 		fxMetaKey(clientKey, projectKey, id),
 		JSON.stringify(meta, null, 2),
 		'application/json',
 	);
-	return { id, doc };
+	return { id, doc, etag };
 }
 
 /**

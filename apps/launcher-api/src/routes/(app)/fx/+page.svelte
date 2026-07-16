@@ -73,6 +73,9 @@
 	// --- save / open state ------------------------------------------------------
 	let saving = $state(false);
 	let saveError = $state<string>('');
+	/** ETag of the OPENED effect's doc — sent on save, re-adopted from the response.
+	 * `null` when composing a new effect, which makes the save assert the name is free. */
+	let docEtag = $state<string | null>(data.openedEtag);
 	let savedNote = $state<string>('');
 	let pickerId = $state<string>(data.openedDoc?.id ?? '');
 	// A LOCAL, reactive copy of the saved-effect index so the picker reflects a save WITHOUT a
@@ -85,7 +88,19 @@
 		effects = [...rest, row].sort((a, b) => a.name.localeCompare(b.name));
 	}
 
-	async function saveEffect(): Promise<void> {
+	/**
+	 * Persist the effect.
+	 *
+	 * `force` is the author confirming after a conflict, and here it is genuinely
+	 * DESTRUCTIVE — unlike components, effects have no version history and no snapshots,
+	 * so the other author's effect is simply gone with no recovery surface anywhere in
+	 * the product. The prompt has to say that plainly rather than ask a breezy
+	 * "overwrite?"; the point of Phase 1 is that this is a decision, not an accident.
+	 *
+	 * Resolves TRUE only when the effect actually reached R2 — `saveEffectAs` relies on
+	 * that to restore the doc it repointed, so a declined overwrite doesn't strand the tab.
+	 */
+	async function saveEffect(force = false): Promise<boolean> {
 		saving = true;
 		saveError = '';
 		savedNote = '';
@@ -103,21 +118,52 @@
 					doc: { ...$state.snapshot(doc), id: outgoingId },
 					// Editor-only sidecar — NEVER folded into the EffectDoc (out-of-band, §4).
 					meta: { selectedLayer: selectedKey },
+					// Names the project THIS tab loaded, so the server refuses rather than
+					// writing to whatever project the session has since switched to.
+					projectKey: data.projectKey,
+					// Keying an unsaved effect off its name means the id may already be
+					// SOMEONE ELSE'S — `null` asserts it's free and 409s if it isn't.
+					...(force ? { force: true } : { baseEtag: isUnsaved ? null : docEtag }),
 				}),
 			});
+			if (res.status === 409) {
+				const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+				const msg = out.message ?? 'This effect changed since you opened it.';
+				saveError = msg;
+				// A wrong-project save is never forceable — reloading is the only fix.
+				if (out.error === 'scope-mismatch') return false;
+				saving = false;
+				// Spell out that this DESTROYS the other effect. Effects have no history, so
+				// "overwrite" here is permanent — cancelling and renaming is the safe way out,
+				// and the wording has to make that the obvious read.
+				const ok = confirm(
+					`${msg}\n\nOverwrite it with yours?\n\n` +
+						'This permanently REPLACES the stored effect. It has no version history, ' +
+						'so their work cannot be recovered. Cancel to rename yours instead.',
+				);
+				return ok ? await saveEffect(true) : false;
+			}
 			if (!res.ok) {
 				saveError = `Save failed (HTTP ${res.status}).`;
-				return;
+				return false;
 			}
-			const out = (await res.json()) as { id: string; name: string; layers: number };
+			const out = (await res.json()) as {
+				id: string;
+				name: string;
+				layers: number;
+				etag: string | null;
+			};
 			// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
 			doc = { ...doc, id: out.id };
+			docEtag = out.etag;
 			pickerId = out.id;
 			// Reflect the save in the picker immediately (add a new effect, or relabel a renamed one).
 			upsertEffect({ id: out.id, name: out.name });
 			savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
+			return true;
 		} catch {
 			saveError = 'Save failed (network error).';
+			return false;
 		} finally {
 			saving = false;
 		}
@@ -134,8 +180,19 @@
 		if (name === null) return; // cancelled
 		const clean = name.trim();
 		if (!clean) return;
+		// Remember what we were editing: the save can now be REFUSED (the new name may
+		// already be someone else's effect), and this function has already repointed the
+		// doc at the untitled sentinel. Without a restore, declining the overwrite would
+		// strand the tab holding a sentinel id + the copy's name — detached from the
+		// original, with every retry hitting the same 409.
+		const previous = { id: doc.id, name: doc.name };
+		const previousEtag = docEtag;
 		doc = { ...doc, id: UNTITLED_EFFECT_ID, name: clean };
-		await saveEffect();
+		docEtag = null;
+		if (!(await saveEffect())) {
+			doc = { ...doc, id: previous.id, name: previous.name };
+			docEtag = previousEtag;
+		}
 	}
 
 	/**
@@ -794,7 +851,11 @@
 													value={mixWeights[i] ?? 0}
 													oninput={(e) =>
 														updateSelected((l) =>
-															setFrameWeight(l, fname, Number((e.currentTarget as HTMLInputElement).value)),
+															setFrameWeight(
+																l,
+																fname,
+																Number((e.currentTarget as HTMLInputElement).value),
+															),
 														)}
 												/>
 												<span class="pct">{Math.round(mixPercents[i] ?? 0)}%</span>
@@ -917,9 +978,9 @@
 							</datalist>
 						{/if}
 						<p class="hint">
-							Fires when a Flow <strong>Broadcast</strong> / <strong>fireCue</strong> (or any game
-							event) of this exact name is emitted. Pick a known event, or type a custom cue name —
-							it must match the name used in Flow.
+							Fires when a Flow <strong>Broadcast</strong> / <strong>fireCue</strong> (or any game event)
+							of this exact name is emitted. Pick a known event, or type a custom cue name — it must
+							match the name used in Flow.
 						</p>
 						<label class="row">
 							<span>Stop event</span>
@@ -936,8 +997,8 @@
 						</label>
 						<p class="hint">
 							Optional — fire on <strong>Event</strong>, keep emitting, then <strong>stop</strong>
-							when a Flow Broadcast / fireCue of this name is emitted (for a continuous effect).
-							Blank ⇒ it stops by Duration / <code>emitterLifetime</code> instead.
+							when a Flow Broadcast / fireCue of this name is emitted (for a continuous effect). Blank
+							⇒ it stops by Duration / <code>emitterLifetime</code> instead.
 						</p>
 						<label class="row">
 							<span>Duration (ms)</span>

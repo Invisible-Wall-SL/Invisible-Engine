@@ -459,27 +459,56 @@
 		walk(componentDraft.root.children);
 	}
 
-	/** Save the open draft via POST (§8.3); refresh the local list on success. */
-	async function saveComponent(): Promise<void> {
+	/**
+	 * Save the open draft via POST (§8.3); refresh the local list on success.
+	 *
+	 * `force` retries after a conflict. This is NOT destructive the way the other tools'
+	 * "overwrite" is: components are VERSIONED, so re-saving on top of the other author's
+	 * v(N+1) lands as v(N+2) and theirs survives as its own immutable snapshot. Be precise
+	 * about what that buys, though — the LATEST pointer is what the canvas, the picker and
+	 * `loadComponent` all resolve, so their work is RECOVERABLE (via the version browser,
+	 * by a human who knows to look), not un-lost. Hence "stack on top", not "overwrite".
+	 */
+	async function saveComponent(force = false): Promise<void> {
 		// Inspecting a historical version is read-only — a save here would re-pin/overwrite
 		// the latest with an old snapshot, defeating the non-destructive guarantee.
 		if (!componentDraft || saveBusy || isInspecting) return;
 		saveBusy = true;
 		saveStatus = null;
 		try {
-			const body =
-				componentDraft.scope === 'project'
+			const body = {
+				...(componentDraft.scope === 'project'
 					? { ...componentDraft, project: data.projectKey }
-					: componentDraft;
+					: componentDraft),
+				...(force ? { force: true } : {}),
+			};
 			const res = await fetch('/api/editor/component', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(body),
 			});
+			if (res.status === 409) {
+				const b = (await res.json().catch(() => ({}))) as { message?: string };
+				const msg = b.message ?? 'Someone else saved this component while you were editing it.';
+				saveStatus = { kind: 'error', message: msg };
+				saveBusy = false;
+				if (confirm(`${msg}\n\nSave yours as a NEW version on top of theirs?`)) {
+					await saveComponent(true);
+				}
+				return;
+			}
 			if (res.ok) {
+				const out = (await res.json().catch(() => ({}))) as { version?: number };
 				saveStatus = { kind: 'ok', message: 'Component saved' };
 				// Snapshot (not structuredClone): componentDraft is a reactive proxy.
+				// Adopt the SERVER's reconciled version — it may have bumped past the posted
+				// one, and recording the local version here would leave the draft (and the
+				// dirty check) describing a version that was never stored.
 				const saved = $state.snapshot(componentDraft) as ComponentDef;
+				if (typeof out.version === 'number') {
+					saved.version = out.version;
+					componentDraft.version = out.version;
+				}
 				savedSnapshot = JSON.stringify(saved);
 				const i = components.findIndex((c) => c.id === saved.id);
 				if (i === -1) components = [...components, saved];
@@ -533,11 +562,23 @@
 			// A shared write carries no `project` and a `scope:'shared'` def, so the API
 			// routes it to `_shared/editor-components/` behind the `componentPublish` gate.
 			const body = { ...$state.snapshot(componentDraft), scope: 'shared' };
-			const res = await fetch('/api/editor/component', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(body),
-			});
+			const post = (extra: Record<string, unknown> = {}) =>
+				fetch('/api/editor/component', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ ...body, ...extra }),
+				});
+			let res = await post();
+			if (res.status === 409) {
+				// This is the GLOBAL `_shared/` key — no project lease could ever cover it, so
+				// this refusal is the only thing standing between two authors. Offer the same
+				// stack-on-top choice the normal save does, rather than dead-ending.
+				const b = (await res.json().catch(() => ({}))) as { message?: string };
+				const msg = b.message ?? 'Someone else changed this shared component.';
+				saveStatus = { kind: 'error', message: msg };
+				if (!confirm(`${msg}\n\nPromote yours as a NEW version on top of theirs?`)) return;
+				res = await post({ force: true });
+			}
 			if (res.ok) {
 				saveStatus = { kind: 'ok', message: 'Promoted to shared library' };
 			} else {
@@ -873,11 +914,7 @@
 						title="Browse this component's saved version history. Loading an older version shows it READ-ONLY on the canvas — it never overwrites the saved latest and never becomes the next save (§8.9)."
 					>
 						Version
-						<select
-							bind:value={pickVersion}
-							disabled={versionBusy}
-							aria-label="Version history"
-						>
+						<select bind:value={pickVersion} disabled={versionBusy} aria-label="Version history">
 							<option value="">history…</option>
 							{#each historyVersions as v (v)}
 								<option value={v}>
