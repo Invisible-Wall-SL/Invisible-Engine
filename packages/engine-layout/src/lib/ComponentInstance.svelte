@@ -154,10 +154,11 @@
 	const tapEnabled = allowed && def?.category === 'overlay' && isTapToContinueEnabled(staticParams);
 	const tapComponent = tapEnabled ? getBoundComponent(TAP_TO_CONTINUE_COMPONENT) : undefined;
 	const tapSignal = tapEnabled ? tapSignalOf(staticParams) : '';
-	// Per-instance dim/prompt styling for the tap surface (mirrors `Scene.gate`'s
-	// dim+prompt look). `tapDimAlpha` defaults to 0 ⇒ a transparent backdrop ⇒ an
-	// existing tap overlay (no dim params) is byte-identical to today; the author opts
-	// into a dim by setting opacity > 0. Read off the same static params as `tapSignal`.
+	// Per-instance dim/prompt styling for the tap surface — the SINGLE home of the gate
+	// look now that the parallel, UI-less `Scene.gate` copy is retired. `tapDimAlpha`
+	// defaults to 0 ⇒ a transparent backdrop ⇒ an existing tap overlay (no dim params) is
+	// byte-identical to today; the author opts into a dim by setting opacity > 0. Read off
+	// the same static params as `tapSignal`.
 	const tapDimColor = tapEnabled ? tapDimColorOf(staticParams) : 0x000000;
 	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
 	// The coded press surface takes `hidePrompt`; the instance param is now the INVERSE

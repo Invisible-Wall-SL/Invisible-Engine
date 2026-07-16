@@ -22,9 +22,21 @@
 	import PressToContinue from './PressToContinue.svelte';
 	import { SYMBOL_SIZE } from '../game/constants';
 	import { getContext } from '../game/context';
+	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
 	import { bakedWinText } from '../editor-scenes';
 
 	const context = getContext();
+
+	// Under a v2 flow that DRIVES the screens, the authored container's `tapToContinue` overlay is
+	// the SOLE tap surface (a `showContainer{awaitComplete}` node owns any round-block hold), so
+	// this coded full-screen press steps aside exactly as the free-spin gates do in `Game.svelte`
+	// — otherwise a v2 game carries a second, un-authored `OnPressFullScreen` + `MM_pressanywhere`
+	// prompt the author never asked for and cannot see in either editor. The count-up still
+	// self-resolves via `OnMount` below (the tap only ever SKIPPED it), so dropping the press
+	// cannot hang the round. Read through the canonical doc-level predicate — the same one
+	// `Sound.svelte` gates the boot music on, resolved synchronously from the doc so it is valid
+	// at first render. No v2 doc / a book-events-only flow ⇒ `false` ⇒ byte-identical to today.
+	const codedPressOwned = !flowV2DrivesScreens();
 
 	let show = $state(false);
 	let amount = $state(0);
@@ -135,7 +147,9 @@
 
 				<WinCoins emit={!countUpCompleted} levelAlias={winLevelData?.alias} />
 
-				<PressToContinue onpress={() => (countUpCompleted ? oncomplete() : finishCountUp())} />
+				{#if codedPressOwned}
+					<PressToContinue onpress={() => (countUpCompleted ? oncomplete() : finishCountUp())} />
+				{/if}
 			{/snippet}
 		</WinCountUpProvider>
 	{/if}

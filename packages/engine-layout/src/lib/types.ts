@@ -593,22 +593,6 @@ export interface Scene {
 	 */
 	visibleSource?: string;
 	/**
-	 * Author overrides for the engine-owned press-to-continue GATE that holds a blocking
-	 * lifecycle moment (the free-spin intro/outro). The engine always owns the HOLD + the
-	 * full-screen tap-catcher; these only restyle its dim + default prompt so the gate's
-	 * LOOK is custom per game. Read by the game from the screen gated to the matching
-	 * blocking `visibleSource`. All optional:
-	 * - `dimColor` — full-window dim colour (hex int, default `0x000000`).
-	 * - `dimAlpha` — dim opacity 0–1 (default `0.5`; `0` = no dim, draw your own in-screen).
-	 * - `hidePrompt` — hide the default "press anywhere to continue" prompt so an authored
-	 *   continue graphic in the screen stands in (the tap still resolves anywhere).
-	 */
-	gate?: {
-		dimColor?: number;
-		dimAlpha?: number;
-		hidePrompt?: boolean;
-	};
-	/**
 	 * Pin this screen ABOVE every doc-ordered layer instead of reading its z from the
 	 * screen-list position ({@link sceneLayerZIndex}). The editor exposes it as the
 	 * "Always on top" tick in a screen's Properties.

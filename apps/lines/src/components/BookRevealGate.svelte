@@ -15,16 +15,6 @@
 	// choice, per choreography). Mounted as a `canvas`-space bind anchor, never positioned.
 	const context = getContext();
 
-	// Author overrides for the engine-owned gate LOOK (Scene.gate). The HOLD + full-screen tap
-	// stay engine-owned; only the dim + default prompt restyle. Defaults reproduce the free-spin
-	// intro gate default exactly (0x000000 / 0.5 / prompt shown).
-	type Props = {
-		dimColor?: number;
-		dimAlpha?: number;
-		hidePrompt?: boolean;
-	};
-	const props: Props = $props();
-
 	let show = $state(false);
 	let oncomplete = $state(() => {});
 
@@ -38,9 +28,6 @@
 </script>
 
 <FadeContainer {show}>
-	<CanvasSizeRectangle
-		backgroundColor={props.dimColor ?? 0x000000}
-		backgroundAlpha={props.dimAlpha ?? 0.5}
-	/>
-	<PressToContinue onpress={() => oncomplete()} hidePrompt={props.hidePrompt} />
+	<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
+	<PressToContinue onpress={() => oncomplete()} />
 </FadeContainer>

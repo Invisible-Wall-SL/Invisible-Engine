@@ -602,25 +602,6 @@
 				}
 			: rawSpecialBookScene,
 	);
-	// §17 Phase 3 — author-overridable GATE look. The engine still owns exactly one
-	// full-screen intro/outro gate (mounted below) with the round-blocking hold + tap;
-	// only its dim + default prompt restyle. Read the `gate` config off the authored
-	// SCREEN gated to the matching blocking lifecycle (`Scene.visibleSource`), so a game
-	// styles the gate from the same scene it draws its custom intro/outro in. No such
-	// scene / no `gate` ⇒ `undefined` ⇒ the gates fall back to their defaults (today's
-	// behaviour, byte-identical).
-	const fsIntroGate = $derived(
-		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinIntroShow')?.gate,
-	);
-	const fsOutroGate = $derived(
-		editorDoc.scenes.find((scene) => scene.visibleSource === 'freeSpinOutroShow')?.gate,
-	);
-	// Phase 3 — the OPTIONAL book-reveal gate look, read the SAME way (off the authored SCREEN
-	// gated to `bookRevealGateShow`). Absent scene / no `gate` ⇒ `undefined` ⇒ the free-spin
-	// intro gate default dim + prompt.
-	const bookRevealGate = $derived(
-		editorDoc.scenes.find((scene) => scene.visibleSource === 'bookRevealGateShow')?.gate,
-	);
 	// FS-6 (design doc §14) — the AUTO-DERIVED, PER-STEP free-spin ownership. Each overlay step
 	// (intro/counter/outro) is owned INDEPENDENTLY — a step is flow-owned only when its screen is
 	// placed AND its bookEvent edge is wired AND its backing scene carries real authored content
@@ -1715,30 +1696,26 @@
 				introScreenActive={isFreeSpinIntroActive}
 			/>
 		{:else if !flowV2DrivesScreens}
-			<FreeSpinIntroGate
-				dimColor={fsIntroGate?.dimColor}
-				dimAlpha={fsIntroGate?.dimAlpha}
-				hidePrompt={fsIntroGate?.hidePrompt}
-			/>
+			<FreeSpinIntroGate />
 		{/if}
 		{#if !flowV2DrivesScreens}
-			<FreeSpinOutroGate
-				dimColor={fsOutroGate?.dimColor}
-				dimAlpha={fsOutroGate?.dimAlpha}
-				hidePrompt={fsOutroGate?.hidePrompt}
-			/>
+			<FreeSpinOutroGate />
 		{/if}
 		<!--
 				Phase 3 — the OPTIONAL book-reveal press-to-continue GATE, mounted alongside the
 				free-spin gates at the fixed TOP z-band so an author reordering overlays can never bury
-				it. Always mounted; only shows while a `broadcastAwait('bookRevealGateShow')` holds. Idle
-				(never armed) when the choreography uses the auto-play `delay` pacing instead.
+				it. Only shows while a `broadcastAwait('bookRevealGateShow')` holds; idle (never armed)
+				when the choreography uses the auto-play `delay` pacing instead.
+
+				Suppressed under a v2 flow that DRIVES screens, like the free-spin gates above: there the
+				authored container's `tapToContinue` overlay owns the dim + prompt + tap and a
+				`showContainer{awaitComplete}` node owns the hold, so a second engine-owned full-screen
+				tap surface has no owner and nothing to arm it (`bookRevealGateShow` is not in the v2
+				`book-of` cue vocabulary).
 			-->
-		<BookRevealGate
-			dimColor={bookRevealGate?.dimColor}
-			dimAlpha={bookRevealGate?.dimAlpha}
-			hidePrompt={bookRevealGate?.hidePrompt}
-		/>
+		{#if !flowV2DrivesScreens}
+			<BookRevealGate />
+		{/if}
 		<!--
 				FS-6 (design doc §14) — the coded VISUAL + COUNTER scene mounts (surfaces #2/#3), gated
 				PER STEP. Each coded scene is suppressed ONLY when ITS step is flow-owned (the authored

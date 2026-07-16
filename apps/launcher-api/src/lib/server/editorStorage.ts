@@ -250,11 +250,6 @@ function normalizeScene(input: unknown): Scene | null {
 	if (typeof input.visibleSource === 'string' && input.visibleSource) {
 		scene.visibleSource = input.visibleSource;
 	}
-	// Preserve the author overrides for the engine-owned press-to-continue gate
-	// (`Scene.gate`) on a blocking-lifecycle screen: full-window dim colour/opacity
-	// and whether to hide the default prompt. Omit the object entirely if none set.
-	const gate = normalizeGate(input.gate);
-	if (gate) scene.gate = gate;
 	// Preserve the "Always on top" tick (`Scene.alwaysOnTop`) — the author's opt-OUT of
 	// screen-list layering, pinning the screen at the fixed top band instead. Without this
 	// whitelist entry the field is silently dropped on save (see `role` above — same bug).
@@ -265,20 +260,6 @@ function normalizeScene(input: unknown): Scene | null {
 	// dropped on save. Sparse: stored only when true.
 	if (input.behindReels === true) scene.behindReels = true;
 	return scene;
-}
-
-/** Preserve a blocking screen's gate-style overrides, dropping unknown/empty values. */
-function normalizeGate(input: unknown): Scene['gate'] | undefined {
-	if (!isRecord(input)) return undefined;
-	const out: NonNullable<Scene['gate']> = {};
-	if (typeof input.dimColor === 'number' && Number.isFinite(input.dimColor)) {
-		out.dimColor = input.dimColor;
-	}
-	if (typeof input.dimAlpha === 'number' && Number.isFinite(input.dimAlpha)) {
-		out.dimAlpha = input.dimAlpha;
-	}
-	if (typeof input.hidePrompt === 'boolean') out.hidePrompt = input.hidePrompt;
-	return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Preserve a `standard` scene's alignment, dropping unknown/empty values. */
