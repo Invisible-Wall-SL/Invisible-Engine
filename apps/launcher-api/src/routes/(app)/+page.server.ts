@@ -1,9 +1,8 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
-import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
+import { DEFAULT_PROJECT_KEY, canAccessProject, getOrMintReadToken } from '$lib/server/projects';
 import { listGamesForProject } from '$lib/server/games';
-import { getDeployToken } from '$lib/server/appSettings';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -16,10 +15,11 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	return {
 		installPaths: await getInstallPaths(locals.user.id),
 		games: await listGamesForProject(activeProjectKey),
-		// Shared read token for the layout-doc endpoint; ridden along on game
-		// URLs (`&k=`) so the game can fetch its scenes. Empty when unconfigured.
-		// Resolves the admin-managed DB value first, else the env bootstrap.
-		editorDocSecret: (await getDeployToken()) ?? '',
+		// The ACTIVE PROJECT's public read token, ridden along on game URLs (`&k=`)
+		// so the game can fetch its scenes. Never the shared build/deploy token —
+		// that grants read on every project, and this value reaches the page source
+		// of every signed-in user regardless of role. Empty for an unknown project.
+		gameReadToken: (await getOrMintReadToken(activeProjectKey)) ?? '',
 	};
 };
 

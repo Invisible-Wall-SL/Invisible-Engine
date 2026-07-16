@@ -36,8 +36,8 @@
 	const gameUrl = (url: string) => {
 		const sep = url.includes('?') ? '&' : '?';
 		let out = `${url}${sep}project=${encodeURIComponent(projectKey)}`;
-		// Layout-doc read token, so the game can fetch its editor scenes at boot.
-		if (data.editorDocSecret) out += `&k=${encodeURIComponent(data.editorDocSecret)}`;
+		// This project's public read token, so the game can fetch its editor scenes at boot.
+		if (data.gameReadToken) out += `&k=${encodeURIComponent(data.gameReadToken)}`;
 		return out;
 	};
 
