@@ -47,6 +47,15 @@ export interface EditorRegionSet {
 	regions: EditorRegion[];
 }
 
+/**
+ * A manifest region as written by either producer. Trim geometry arrives in TWO
+ * spellings and both are load-bearing: the Atlas Maker writes **snake_case**
+ * (`off_x`/`orig_w` — see `batch_atlas.py` + `atlas_format.py`, the convention
+ * `atlasManifestCheck.ts` documents), while `texturePackerToInvisible` below
+ * normalizes to **camelCase**. Reading only camelCase silently dropped the trim on
+ * every Atlas-Maker-imported `.atlas`, which then packs into the synthesised atlas as
+ * `originalWidth == width, offsetX == 0` and misplaces every attachment built on it.
+ */
 interface RawRegion {
 	name?: unknown;
 	x?: unknown;
@@ -58,6 +67,10 @@ interface RawRegion {
 	offY?: unknown;
 	origW?: unknown;
 	origH?: unknown;
+	off_x?: unknown;
+	off_y?: unknown;
+	orig_w?: unknown;
+	orig_h?: unknown;
 }
 
 interface RawManifest {
@@ -242,10 +255,10 @@ function parseRegions(raw: unknown): EditorRegion[] {
 		}
 		const region: EditorRegion = { name, x, y, w, h };
 		if (r.rotated === true) region.rotated = true;
-		const offX = num(r.offX);
-		const offY = num(r.offY);
-		const origW = num(r.origW);
-		const origH = num(r.origH);
+		const offX = num(r.offX) ?? num(r.off_x);
+		const offY = num(r.offY) ?? num(r.off_y);
+		const origW = num(r.origW) ?? num(r.orig_w);
+		const origH = num(r.origH) ?? num(r.orig_h);
 		if (offX !== undefined) region.offX = offX;
 		if (offY !== undefined) region.offY = offY;
 		if (origW !== undefined) region.origW = origW;

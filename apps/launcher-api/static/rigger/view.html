@@ -3127,13 +3127,29 @@ function setActiveSkin(name){
   if (selSlot) selectSlot(selSlot); // refresh the slot's mesh/weight UI for this skin
 }
 
+// Is this RAW-doc attachment def a mesh? Mirrors the test in listMeshDefs — a mesh is
+// either explicitly typed or carries mesh geometry. (The skeleton-side twins are
+// isMeshAtt/isLinkedMeshAtt; those need a built attachment, this reads rawDoc.)
+function isRawMeshDef(d){
+  return !!d && (d.type === "mesh" || d.type === "linkedmesh" || (Array.isArray(d.uvs) && Array.isArray(d.triangles)));
+}
+
 // Attach a packed image (atlas region) to the selected slot in the active skin —
-// the "import image" action. Creates a region attachment (size from the atlas;
-// position defaults to the bone origin, then editable / convertible to a mesh).
+// the "import image" action. Creates a region attachment, sized from the atlas.
+//
+// Placement is INHERITED from the slot's current setup attachment when it has one. An
+// attachment's x/y is in BONE space, so seeding a fresh one at 0,0 drops it on the bone's
+// ORIGIN — i.e. wherever the bone has since been animated to, not on top of the art it is
+// meant to sit with. That was the "duplicate slot -> load the _glow -> it lands offset and
+// resized" bug: duplicateSlotCore copies the placement faithfully, then this threw it away.
+// Size is inherited as a RATIO against the source's own region rather than as an absolute
+// box, so an authored resize carries over while a variant on a bigger canvas (a glow's
+// halo) still comes in proportionally right.
 function attachRegion(regionName){
   if (!rawDoc || selSlot == null || !regionName) return;
   const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
-  const region = atlas && atlas.findRegion ? atlas.findRegion(regionName) : null;
+  const findRegion = (n) => (atlas && atlas.findRegion && n ? atlas.findRegion(n) : null);
+  const region = findRegion(regionName);
   const w = region ? region.originalWidth || region.width || 0 : 0;
   const h = region ? region.originalHeight || region.height || 0 : 0;
   const skinName = $("#skin").value || (skeletonData.skins[0] && skeletonData.skins[0].name) || "default";
@@ -3142,8 +3158,29 @@ function attachRegion(regionName){
   if (!sk){ sk = { name: skinName, attachments: {} }; rawDoc.skins.push(sk); }
   sk.attachments = sk.attachments || {};
   sk.attachments[selSlot] = sk.attachments[selSlot] || {};
-  sk.attachments[selSlot][regionName] = { width: w, height: h }; // type defaults to region; path defaults to name
   const slot = rawDoc.slots.find((s) => s.name === selSlot);
+  const src = slot && slot.attachment ? sk.attachments[selSlot][slot.attachment] : null;
+  const def = { width: w, height: h };
+  if (isRawMeshDef(src)){
+    // A mesh's placement lives in its (bone-space, possibly weighted) vertices, not in
+    // x/y — a flat region attachment cannot reproduce it, so there is nothing to inherit
+    // and no way to make the two line up. Point at the tool that does work here.
+    if (!confirm('"' + selSlot + '" currently shows a MESH.\n\nAdding an image here builds a flat region '
+      + 'attachment at the bone origin — it will NOT line up with the mesh.\n\nTo put this image on the '
+      + 'existing mesh (keeping its UVs, weights and deform), cancel and use "replace image (keep mesh)…".'
+      + '\n\nAdd it as a separate region attachment anyway?')) return;
+  } else if (src){
+    // region -> region: inherit the setup placement verbatim (all bone-space).
+    for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) if (src[k] !== undefined) def[k] = src[k];
+    const srcRegion = findRegion(src.path || slot.attachment);
+    const srcW = srcRegion ? srcRegion.originalWidth || srcRegion.width || 0 : 0;
+    const srcH = srcRegion ? srcRegion.originalHeight || srcRegion.height || 0 : 0;
+    // src.width/height default to its own region's original size; anything else is an
+    // authored resize, which we carry over as a ratio.
+    if (srcW && src.width) def.width = w * (src.width / srcW);
+    if (srcH && src.height) def.height = h * (src.height / srcH);
+  }
+  sk.attachments[selSlot][regionName] = def; // type defaults to region; path defaults to name
   if (slot) slot.attachment = regionName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -3165,7 +3202,28 @@ function replaceAttachmentImage(attName, regionName){
   if (!holder){ alert("Couldn't find that attachment to replace its image."); return; }
   const def = holder.attachments[selSlot][attName];
   if (def.type === "linkedmesh"){ alert("This is a linked mesh — change the image on its parent mesh instead."); return; }
+  const oldPath = def.path || attName;
   def.path = regionName; // keep name + geometry; only the sampled region changes
+  // A REGION attachment's width/height are its display size in the region's ORIGINAL
+  // (untrimmed) units — RegionAttachment.updateRegion() scales the art by
+  // width/originalWidth, so leaving a stale box squashes the new art into the old one's
+  // size whenever the two regions' original sizes differ. Re-derive from the new region,
+  // preserving any authored resize as a ratio. Meshes are untouched: their size lives in
+  // uvs/vertices, and not touching it is the whole point of "keep mesh".
+  if (!isRawMeshDef(def)){
+    const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+    const findRegion = (n) => (atlas && atlas.findRegion && n ? atlas.findRegion(n) : null);
+    const oldRegion = findRegion(oldPath);
+    const newRegion = findRegion(regionName);
+    if (newRegion){
+      const oldW = oldRegion ? oldRegion.originalWidth || oldRegion.width || 0 : 0;
+      const oldH = oldRegion ? oldRegion.originalHeight || oldRegion.height || 0 : 0;
+      const newW = newRegion.originalWidth || newRegion.width || 0;
+      const newH = newRegion.originalHeight || newRegion.height || 0;
+      if (newW) def.width = newW * (oldW && def.width ? def.width / oldW : 1);
+      if (newH) def.height = newH * (oldH && def.height ? def.height / oldH : 1);
+    }
+  }
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   if (selSlot) selectSlot(selSlot);
   markDirty();
