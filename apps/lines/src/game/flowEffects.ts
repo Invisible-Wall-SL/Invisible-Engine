@@ -391,6 +391,22 @@ const effects: Record<string, FlowEffect> = {
 	},
 
 	/**
+	 * Free-spin BOARD-GLOW leaves — the reel-house backdrop behind the board. Lifted verbatim from the
+	 * coded `freeSpinTrigger` / `freeSpinEnd` handlers, which broadcast these around the gameType flip.
+	 * A flow that owns those book events replaces the whole handler, so without these the glow would
+	 * never show or hide (the `showWinLine` problem). `BoardFrame` owns the start→idle→exit chain, so
+	 * these are plain fire-and-forget signals — the exit animation is not awaited, matching the coded
+	 * broadcast (a `hideBoardGlow` returns immediately and the exit plays out over the next steps).
+	 */
+	showBoardGlow: () => {
+		eventEmitter.broadcast({ type: 'boardFrameGlowShow' });
+	},
+
+	hideBoardGlow: () => {
+		eventEmitter.broadcast({ type: 'boardFrameGlowHide' });
+	},
+
+	/**
 	 * Flow v2 `stopReel(index)` command — settle one reel by index. The reference book-of board
 	 * spins whole-board (via `revealBoard`), so per-reel stop is exposed as a real `reelStop` emitter
 	 * broadcast: a reel component binds it to land that column (the hook the `StaggerStop` function

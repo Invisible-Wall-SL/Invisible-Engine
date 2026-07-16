@@ -426,6 +426,12 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			],
 			category: 'effect',
 		},
+		// Board glow — the free-spin reel-house backdrop behind the board. `showBoardGlow` plays the
+		// glow's enter animation and holds its idle loop; `hideBoardGlow` plays the exit and clears it.
+		// The coded handlers fire these on `freeSpinTrigger` / `freeSpinEnd`, so a flow that OWNS those
+		// events must author the pair itself or the glow never appears (the `showWinLine` situation).
+		{ name: 'showBoardGlow', params: [], category: 'effect' },
+		{ name: 'hideBoardGlow', params: [], category: 'effect' },
 		// --- mechanic commands ---
 		// `revealBoard` is the board SPIN — it consumes the WHOLE reveal event + the surrounding
 		// book-event list (the bonus-game check), so it takes no clean typed params: the flow feeds it
