@@ -1,4 +1,13 @@
-import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+	boolean,
+	doublePrecision,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+} from 'drizzle-orm/pg-core';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -204,6 +213,64 @@ export const appSettings = pgTable('app_settings', {
 	updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
 });
 
+/**
+ * Catalog of the CROSS-PROJECT rig library — the replacement for the old
+ * `_shared/rigs/index.json` blob. One row per rig; the heavy `skeleton` body stays
+ * in R2 at `sharedRigKey(id)`.
+ *
+ * This is a table and not an object because the blob was read-modify-written by
+ * `rigs/{save,delete}` with no guard, and it is GLOBAL across every client and
+ * project — so it raced between users who share no project at all, silently
+ * dropping each other's rows. A row upsert removes that race structurally rather
+ * than guarding it. See `docs/design/multi-user-concurrency.md` Phase 0.
+ *
+ * `id` is the `r2Slug`-normalized id and is also the R2 object key stem, so the
+ * row and its blob are addressed by the same value.
+ */
+export const sharedRigs = pgTable('shared_rigs', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	savedAt: timestamp('saved_at', { withTimezone: true }).notNull().defaultNow(),
+	/** Where the rig was authored — display provenance only, NOT an access scope. */
+	sourceClient: text('source_client').notNull().default(''),
+	sourceProject: text('source_project').notNull().default(''),
+	sourceRig: text('source_rig'),
+	/** `{ bones, slots, skins, animations: string[] }` — opaque display counts. */
+	stats: jsonb('stats').$type<SharedRigStats>().notNull(),
+});
+
+/**
+ * Catalog of the CROSS-PROJECT animation library — replaces
+ * `_shared/animations/index.json`. Same rationale, same race, same fix as
+ * {@link sharedRigs}; the heavy `animation` subtree stays in R2 at
+ * `sharedAnimationKey(id)`.
+ */
+export const sharedAnimations = pgTable('shared_animations', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	savedAt: timestamp('saved_at', { withTimezone: true }).notNull().defaultNow(),
+	sourceClient: text('source_client').notNull().default(''),
+	sourceProject: text('source_project').notNull().default(''),
+	sourceRig: text('source_rig'),
+	/** `{ bones, slots, events }` — the names this clip animates, for rig-match UX. */
+	refs: jsonb('refs').$type<SharedAnimationRefs>().notNull(),
+	/** Clip length in seconds (float). */
+	duration: doublePrecision('duration').notNull().default(0),
+});
+
+export interface SharedRigStats {
+	bones: number;
+	slots: number;
+	skins: number;
+	animations: string[];
+}
+
+export interface SharedAnimationRefs {
+	bones: string[];
+	slots: string[];
+	events: string[];
+}
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -216,3 +283,5 @@ export type UserClientAccess = typeof userClientAccess.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
+export type SharedRig = typeof sharedRigs.$inferSelect;
+export type SharedAnimation = typeof sharedAnimations.$inferSelect;

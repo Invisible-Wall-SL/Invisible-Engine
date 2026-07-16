@@ -89,9 +89,13 @@ Python tools that hold no lease, and any future tool that forgets to.
 
 ## The linchpin
 
-Every TypeScript write in the launcher funnels through **one module**:
-`src/lib/server/r2.ts` — `putObjectText:109`, `putObjectBytes:124`. Nothing
-hand-rolls its own S3 client. `PutObjectCommand` is constructed with only
+Every TypeScript write in the launcher **app** funnels through **one module**:
+`src/lib/server/r2.ts` — `putObjectText:109`, `putObjectBytes:124`. Nothing in
+`src/` hand-rolls its own S3 client. (One footnote so Phase 1 isn't over-claimed:
+`apps/launcher-api/scripts/r2-sync-spines.mjs:181` writes `skeletons.json` with
+its **own** `@aws-sdk` client, bypassing `r2.ts`. It is a manual dev/ops sync, not
+a runtime path — the chokepoint claim holds for the *app*, not for
+`apps/launcher-api/scripts/*`.) `PutObjectCommand` is constructed with only
 `Bucket/Key/Body/ContentType` (`:114-121`, `:128-136`), so no caller *can* pass a
 precondition today.
 
@@ -136,13 +140,56 @@ each other, and the one a lease can never fix. Smallest surface, highest value.
   Postgres rows (`sharedRig`, `sharedAnimation`) — the race disappears
   *structurally* rather than being guarded. Drizzle + a migration; the `<id>.json`
   blobs stay in R2 as the heavy payload.
-- Rewrite `rigger/rigs/save/+server.ts:83-97` and the animations twin to upsert a
-  row instead of RMW-ing a blob. Same for the `skeletons.json` rebuild in
-  `rigger/save/+server.ts:60-61`.
-- Keep the R2 index as a **derived, best-effort mirror** only if something outside
-  the launcher reads it — verify first; if nothing does, delete it rather than
-  maintain two sources of truth.
-- Backfill: one-shot import of the existing index blobs into the new tables.
+- **Four endpoints RMW these indexes, not two** — `rigs/{save,delete}` and
+  `animations/{save,delete}`. The `delete` twins are *worse* than the saves:
+  `rigs/delete/+server.ts:38-40` swallows a parse failure and leaves the row while
+  the blob is already gone, so the save race orphans a blob (invisible) and the
+  delete race dangles a row (a 404 in the user's face). Both silent today.
+  `rigs/list` + `animations/list` are the only readers; both are launcher-internal.
+- **Ordering hazard the migration inherits:** blob and row are two non-atomic
+  operations either way. Write the row **after** the blob on save, and **before**
+  the blob delete on delete, so the failure mode stays "orphaned blob"
+  (invisible, garbage-collectable) rather than "dangling row" (a user-visible 404).
+- **Do not mirror the index blobs.** *(Open question resolved 2026-07-16 by an
+  exhaustive survey: the only readers are six launcher TS routes, all behind
+  `rigs/list` / `animations/list`. Nothing in `services/`, `scripts/`, `packages/`,
+  the bake/export chain, or the desktop launcher touches them.)* They are **left in
+  place, unmaintained**, rather than deleted with the migration: they are the only
+  record of what the catalog held at cut-over. Note honestly what that is and isn't
+  — the blobs FREEZE at migration time and are never written again, so a rollback
+  recovers the catalog **as of cut-over**, missing everything saved since. That is a
+  partial-recovery net, not a rollback story.
+- Backfill: **lazy** one-shot import on first list after deploy (not a manual
+  script), so the library is never briefly empty while someone remembers to run it.
+  Gated on an `app_settings` marker, **not** on the tables being empty — an
+  empty-table check resurrects every deleted rig the moment a user deletes the last
+  one. Runs in one transaction behind an advisory lock that the delete paths also
+  take, so an import cannot slip between a delete and re-create the row.
+- **The list path must fail SAFE if R2 errors, and the delete path must fail LOUD.**
+  `getObjectText` rethrows everything but a 404, and `static/rigger/view.html`
+  renders a failed list as "No saved rigs yet" — so an unhandled throw in the
+  backfill makes a transient R2 blip reproduce the exact "my rig vanished" symptom
+  this phase removes, on a catalog that no longer lives in R2. Delete is the
+  opposite: deleting before the import has run deletes nothing, and the later import
+  resurrects the row as a dangling pointer to a deleted blob — so a delete that
+  cannot confirm the backfill must fail rather than proceed.
+
+### Phase 0 — follow-up (retire the legacy path)
+Once the backfill is confirmed live and the blobs are no longer wanted as a net,
+delete **together**: the two index blobs, `backfillOnce` + its marker, and the now-dead
+`sharedRigsIndexKey` / `sharedAnimationsIndexKey` exports in `projectPaths.ts` (the
+backfill is their last consumer). Don't leave them to rot.
+- **NOT in this phase: `skeletons.json`.** *(Scope corrected 2026-07-16 — an
+  earlier draft of this doc lumped it in here; that was a category error.)* It is
+  **derived by LIST**, not RMW (`spineIndex.ts:136` `buildSkeletonsIndex` →
+  `listAllKeys:141`), so two concurrent saves each re-derive from current bucket
+  state and the RMW race does not exist. It is **per-project**
+  (`<client>/<project>/spines/skeletons.json`), so the Phase 2 lease covers it for
+  free. And it has live readers on the **export→deploy path**
+  (`editorArtExport.ts:402`, `symbolExport.ts:303`), so making Postgres its source
+  of truth would carry asset-shipping blast radius for a race Phase 2 handles
+  anyway. Its residual is a narrow LIST-races-an-in-flight-upload window — a
+  different bug with a different fix.
 
 ### Phase 1 — Conditional writes through the chokepoint
 The correctness floor. Contained because of the linchpin above.
@@ -213,8 +260,8 @@ here.
 - `apps/launcher-api/src/lib/server/` — `editorStorage.ts`, `flowV2Storage.ts`,
   `fxStorage.ts`, `symbolsStorage.ts`, `componentStorage.ts`, `localization.ts`,
   `flowV2LibraryStorage.ts`, `componentDefaultsStorage.ts`
-- `apps/launcher-api/src/routes/api/rigger/{save,rigs/save,animations/save}/+server.ts`
-  — the inline `putObjectText` callers; route them through a storage module
+- `apps/launcher-api/src/routes/api/rigger/{rigs,animations}/{save,delete,list}/+server.ts`
+  — the inline `putObjectText` RMW callers; route them through a storage module
 - `apps/launcher-api/src/routes/(app)/{editor,flow-v2,rigger,fx,symbols,components,localization}/`
   — ETag threading, read-only mode, banner
 - `apps/launcher-api/src/lib/server/lease.ts` (new) + `src/routes/api/lease/*`
@@ -232,9 +279,8 @@ reachable from the UI**. Phase 3 cannot start until the Atlas identity phase
 lands. Nothing here blocks the CRDT question, which stays open.
 
 ## Open questions
-- Do the R2 `_shared/*/index.json` blobs have any reader outside the launcher
-  (desktop launcher, bake, a Python tool)? If yes, Phase 0 keeps a derived mirror;
-  if no, delete them. **Verify before writing the migration.**
+- ~~Do the R2 `_shared/*/index.json` blobs have any reader outside the launcher?~~
+  **RESOLVED 2026-07-16: no.** Delete them, don't mirror. See Phase 0.
 - Lease granularity: per-doc (`docKey`) or per-project? Per-doc is proposed —
   two people on different scenes of one project shouldn't block each other — but
   it only pays off once the Editor's whole-doc blob goes granular, since today a

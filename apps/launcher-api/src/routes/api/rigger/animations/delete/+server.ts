@@ -1,19 +1,15 @@
 import { error, json } from '@sveltejs/kit';
-import { r2Slug, sharedAnimationKey, sharedAnimationsIndexKey } from '$lib/server/projectPaths';
-import { deleteObject, getObjectText, putObjectText } from '$lib/server/r2';
+import { r2Slug, sharedAnimationKey } from '$lib/server/projectPaths';
+import { deleteObject } from '$lib/server/r2';
+import { deleteAnimation } from '$lib/server/riggerLibrary';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
- * Remove one animation-library entry: delete `_shared/animations/<id>.json` and drop
- * its row from the catalog `index.json`. Gated by `rigger`; id path-guarded via
- * `r2Slug`. Body: `{ id }`.
+ * Remove one animation-library entry: drop its Postgres catalog row and delete
+ * `_shared/animations/<id>.json`. Gated by `rigger`; id path-guarded via `r2Slug`.
+ * Body: `{ id }`.
  */
-interface AnimRow {
-	id: string;
-	[k: string]: unknown;
-}
-
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	await gate(locals, cookies, {
 		tool: 'rigger',
@@ -25,20 +21,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const id = r2Slug(typeof body.id === 'string' ? body.id : '');
 	if (!id || id.includes('..') || id.includes('/')) throw error(400, 'bad id');
 
+	// Row BEFORE blob — see the ordering note in `riggerLibrary.ts`.
+	await deleteAnimation(id);
 	await deleteObject(sharedAnimationKey(id));
-
-	const raw = await getObjectText(sharedAnimationsIndexKey);
-	if (raw) {
-		try {
-			const parsed = JSON.parse(raw) as { animations?: AnimRow[] };
-			if (parsed && Array.isArray(parsed.animations)) {
-				parsed.animations = parsed.animations.filter((a) => a.id !== id);
-				await putObjectText(sharedAnimationsIndexKey, JSON.stringify(parsed), 'application/json');
-			}
-		} catch {
-			// A corrupt index is left untouched; the object delete above already succeeded.
-		}
-	}
 
 	return json({ ok: true });
 };

@@ -24,10 +24,24 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 4. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
 
 ## Blocked (owner / external)
+- **⏳ Rig/animation library catalogs moved to Postgres — live-verify owed.** The build is
+  green and the migration is additive, but the two-user test has NOT run: there are no R2
+  credentials in a local checkout and the only reachable `DATABASE_URL` is production, so
+  neither the concurrent-save test nor the backfill could be exercised offline. **After the
+  next deploy, confirm `/rigger` still lists every rig + animation** (the first list call
+  backfills the legacy index blobs) — auto-migrate is fail-soft, so a failed `0013` shows up
+  as an empty library / 500s, not as a failed deploy. See
+  [design/multi-user-concurrency](../design/multi-user-concurrency.md) Phase 0.
 - **Whole-tool live-verify** is the standing gap and is owner-driven — the minified vendored runtime has already surfaced browser-only bugs (e.g. `constructor.name` type checks, a double-flipped canvas Y) that headless spikes missed. Verify each action live before relying on it.
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-07-16 — **Rig + animation library catalogs are Postgres rows, not R2 blobs.** The
+  `_shared/{rigs,animations}/index.json` blobs were read-modify-written by four endpoints with
+  no guard, and are GLOBAL (not project-scoped) — so two users on *unrelated* projects silently
+  dropped each other's rows, surfacing as "my rig vanished" (the `<id>.json` body wrote fine;
+  only the catalog entry was lost). Row upserts remove the race structurally. Blob/row ordering
+  now fails toward an orphaned blob, never a dangling row ([detail in history](../history.md)).
 - 2026-07-16 — "＋ add image…" now inherits the slot's setup placement instead of seeding a fresh attachment at the bone origin, and warns before flattening a mesh slot; "replace image (keep mesh)…" re-derives `width`/`height` from the new region; manifest trim geometry is read in both spellings ([detail in history](../history.md)).
 - 2026-07-14 — Rigger FX overlay redrawn with the full bone transform so it matches the in-game renderer at any scale ([detail in history](../history.md)).
 - 2026-07-14 — `/rigger` `view.html` + vendored bundles cache-bust via `?v=BUILD_ID` so a redeploy is fetched fresh ([detail in history](../history.md)).
