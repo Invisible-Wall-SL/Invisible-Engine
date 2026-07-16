@@ -580,8 +580,11 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
  * basegame (`docs/design/invisible-editor.md` §7.2) — so it round-trips cleanly
  * through `normalizeDoc` and stays in lock-step with `BoardFrame.svelte`.
  *
- * The animated reelhouse glow spine stays coded in `BoardFrame.svelte` (animated
- * loops are out of editor v1 scope, design doc §3). The `basegame` scene draws
+ * The animated reelhouse glow spine stays coded in `BoardFrame.svelte` by DEFAULT — the
+ * `boardGlow` scene ships only its bind anchor, so an un-authored game keeps the coded
+ * start→idle→exit chain. Put real art in that scene and the coded spine steps aside
+ * (`hasAuthoredBoardGlow`); its enter/exit then rides the `boardGlowShow`/`boardGlowHide`
+ * component signals. The `basegame` scene draws
  * INSIDE `<MainContainer>`; `basegameOverlays` (the coded `Win` / `Transition`
  * `mount` slots) draws OUTSIDE it, since those components self-position in
  * canvas coords.

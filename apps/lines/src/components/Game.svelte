@@ -79,6 +79,8 @@
 		backgroundScenes,
 		hasAuthoredBackground,
 		hasAuthoredBookReveal,
+		boardGlowScene,
+		hasAuthoredBoardGlow,
 		extraMountScenes,
 		authoredHudScenes,
 		fullReplaceHudScenes,
@@ -687,6 +689,17 @@
 	const bgScenes = $derived(backgroundScenes(editorDoc.scenes));
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
 
+	// Authored free-spin BOARD GLOW (the reel-house backdrop behind the reels). Mirrors the
+	// background/book-reveal gates: the `boardGlow` scene ships only the coded `BoardFrame` bind
+	// anchor, so `hasAuthoredBoardGlow` is false and the coded pink glow renders unchanged
+	// (parity). Drop real art in the scene ⇒ the coded spine steps aside and the authored scene
+	// mounts in its place, in the BELOW-reel slot (the anchor's own `zIndex:-1` position).
+	// TIMING is unchanged either way: both react to `boardFrameGlowShow`/`boardFrameGlowHide`
+	// (declared cues ⇒ a flow `fireCue` drives them; the coded free-spin handlers fire them when
+	// the events are un-owned), so an authored glow needs no new flow wiring.
+	const glowScene = $derived(boardGlowScene(editorDoc.scenes));
+	const suppressCodedBoardGlow = $derived(hasAuthoredBoardGlow(editorDoc.scenes));
+
 	// Authored REPLACEMENT HUD screens (§16 HUD generalization, FULL-REPLACE contract). The Scene
 	// Editor's "New HUD screen" mints `hud_`-prefixed scenes carrying the author's own HUD chrome
 	// (buttons / bottom bar / readouts). `hasAuthoredHud` is true when at least one `hud_*` scene has
@@ -876,6 +889,11 @@
 		'hudCorners',
 		'loading',
 		'background',
+		// The board glow is mounted by its own BELOW-reel path (behind the board). Listed here so
+		// it never ALSO mounts as a generic overlay — that would draw it ON TOP of the reels, and
+		// (since the stock scene carries the coded `BoardFrame` anchor) would mount the coded glow
+		// a second time on an un-authored game.
+		'boardGlow',
 	] as const;
 	const reservedSceneIds = $derived(
 		new Set<string>([
@@ -962,6 +980,17 @@
 		),
 		specialBookHide: eventSignal((run) =>
 			context.eventEmitter.subscribe({ specialBookHide: () => run() }),
+		),
+		// The free-spin board-glow lifecycle — so an authored glow component's spine cues play the
+		// enter/exit the coded `BoardFrame` hard-codes as `reelhouse_glow_start`→`_idle`→`_exit`.
+		// These ride the EXISTING `boardFrameGlow*` emitter events (no new event), which are both
+		// declared cues AND fired by the coded `freeSpinTrigger`/`freeSpinEnd` handlers — so an
+		// authored glow gets the same timing whether the flow owns those events or not.
+		boardGlowShow: eventSignal((run) =>
+			context.eventEmitter.subscribe({ boardFrameGlowShow: () => run() }),
+		),
+		boardGlowHide: eventSignal((run) =>
+			context.eventEmitter.subscribe({ boardFrameGlowHide: () => run() }),
 		),
 	});
 
@@ -1469,8 +1498,19 @@
 			</FlowMount>
 		{/if}
 
+		<!-- Authored free-spin board glow — the BELOW-reel slot, so it draws behind the reels
+				 exactly where the coded `<BoardFrame>`'s `zIndex:-1` spine does. `game` space ⇒
+				 <LayoutScene> self-wraps in its own MainContainer, so do NOT wrap it again here
+				 (that double-scales it). Only mounts when the author put real content in the scene;
+				 that same condition suppresses the coded spine below, so the two never both draw. -->
+		{#if suppressCodedBoardGlow && glowScene}
+			<LayoutScene scene={glowScene} />
+		{/if}
+
 		<MainContainer>
-			<BoardFrame />
+			{#if !suppressCodedBoardGlow}
+				<BoardFrame />
+			{/if}
 			<Board />
 			<WinLine />
 			<Anticipations />

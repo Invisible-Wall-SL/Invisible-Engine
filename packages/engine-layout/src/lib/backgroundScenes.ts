@@ -42,3 +42,28 @@ export const hasAuthoredBookReveal = (scenes: Scene[]): boolean =>
 	scenes
 		.filter((scene) => scene.id === 'specialBook')
 		.some((scene) => scene.nodes.some((node) => node.bind?.component !== 'SpecialBook'));
+
+/** The scene an authored free-spin board glow lives in — `game` space, so `<LayoutScene>` self-wraps
+ *  in its own `<MainContainer>` and the art lands in the same box as the reels. The game mounts it in
+ *  the BELOW-reel slot (before the board's MainContainer), which is where the coded `<BoardFrame>`
+ *  draws at `zIndex:-1`. Absent ⇒ `undefined` ⇒ nothing mounts (parity). */
+export const boardGlowScene = (scenes: Scene[]): Scene | undefined =>
+	scenes.find((scene) => scene.id === 'boardGlow');
+
+/**
+ * Whether an authored board glow should SUPPRESS the coded bundled `<BoardFrame>` — the pink
+ * `reelhouse` glow spine behind the reels. True only when the `boardGlow` scene carries REAL
+ * renderable content, i.e. at least one node that isn't the coded `BoardFrame` bind anchor (counting
+ * the anchor would suppress the very spine it positions). No `boardGlow` scene / anchor-only scenes ⇒
+ * `false` ⇒ the coded `<BoardFrame>` renders unchanged (parity for un-authored docs and for a game —
+ * e.g. `apps/lines` dev — whose fallback ships only the coded anchor). Mirrors
+ * {@link hasAuthoredBookReveal} for the board's free-spin backdrop.
+ *
+ * The glow's TIMING stays with the flow either way: the coded `BoardFrame` and an authored component
+ * both react to the `boardFrameGlowShow`/`boardFrameGlowHide` signals (declared cues, so a `fireCue`
+ * node drives them; the coded `freeSpinTrigger`/`freeSpinEnd` handlers fire them when un-owned).
+ */
+export const hasAuthoredBoardGlow = (scenes: Scene[]): boolean =>
+	scenes
+		.filter((scene) => scene.id === 'boardGlow')
+		.some((scene) => scene.nodes.some((node) => node.bind?.component !== 'BoardFrame'));

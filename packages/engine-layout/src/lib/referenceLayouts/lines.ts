@@ -415,6 +415,28 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				nodes: fsOutroNode ? [fsOutroNode] : [],
 			},
 			{
+				// Free-spin board glow: the reel-house backdrop BEHIND the reels. A `game`-space
+				// bind anchor — the coded `BoardFrame` self-shows/animates off the
+				// `boardFrameGlowShow`/`boardFrameGlowHide` signals and sizes itself off the board
+				// layout; the editor only positions it. Drop real art in this scene (a spine
+				// component whose cues ride `boardGlowShow`/`boardGlowHide`) and the coded glow
+				// steps aside (`hasAuthoredBoardGlow`).
+				id: 'boardGlow',
+				name: sceneName('boardGlow'),
+				nodes: [
+					{
+						id: 'board-glow',
+						slotId: 'boardGlow',
+						label: 'Board Glow',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						bind: { component: 'BoardFrame' },
+						children: [],
+					},
+				],
+			},
+			{
 				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →
 				// idle). A board-centred `canvas`-space bind anchor; the coded `SpecialBook`
 				// self-shows/animates off the `specialBookReveal`/`specialBookHide` book

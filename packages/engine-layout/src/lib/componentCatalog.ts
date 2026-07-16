@@ -264,4 +264,14 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 		label: 'Book hide',
 		note: 'The book expanding-symbol reveal dismisses.',
 	},
+	{
+		key: 'boardGlowShow',
+		label: 'Board glow show',
+		note: 'The free-spin board glow lights up (free spins begin).',
+	},
+	{
+		key: 'boardGlowHide',
+		label: 'Board glow hide',
+		note: 'The free-spin board glow fades out (free spins finish).',
+	},
 ];

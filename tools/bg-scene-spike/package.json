@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"select": "tsx select.ts"
+		"select": "tsx select.ts",
+		"boardglow": "tsx boardGlow.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
