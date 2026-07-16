@@ -54,7 +54,17 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
 | Editor `RegionThumb.svelte` (9-arg drawImage crop, trim offsets) | A | `apps/launcher-api/src/lib/.../RegionThumb.svelte` | reference A impl |
-| Sheet Maker region rendering | B | `services/sheet-tool/ui.html` (canvas) | |
+| Sheet Maker region rendering | B | `services/sheet-tool/ui.html` (canvas) | **reference B impl** — `computeBbox` (alpha-bbox scan) + the `#viewport` cursor-anchored wheel zoom |
+| Atlas Maker **Region Overlay Inspector** (`/atlasview`) — rect + measured art alpha bbox + trim frame over a composed page, zoom/pan, FILLS/INSET verdict | B | `services/atlas-tool/ui_server.py` (`ATLASVIEW`, `_view_region`, `_atlasview`) | ported from the Sheet Maker's idiom above; the only atlas-side region renderer |
+
+→ **Backlog (domain B, not done here):** the two B impls now both carry an
+alpha-bbox scan + a cursor-anchored wheel zoom, and `ATLASVIEW`/`ui.html` each
+duplicate the `.iw-toolbar` chrome. Extraction into `services/_shared/iw_common`
+(alongside `banner`/`context`/`imgcache`/`storage`) is the obvious next step —
+an `iw_common.regionview` (bbox scan + footprint/trim geometry for
+rotated/trimmed frames) and an `iw_common.chrome` (tool-bar HTML+CSS). Deferred:
+the inspector was scoped as a diagnostic. Within `ui_server.py` the tool-bar CSS
+is at least now single-sourced (`IW_TOOLBAR_CSS`, shared by `PAGE` + `ATLASVIEW`).
 
 ### 6. Client/project selector (header)
 | Impl | Domain | File(s) | Status |

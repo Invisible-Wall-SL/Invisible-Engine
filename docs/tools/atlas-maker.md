@@ -69,7 +69,61 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
 4. **Curate** — review variants, pick the best, lock its seed.
 5. **Compose / slice** — assemble the atlas page / slice a source page into
    refs (needs the `.atlas` geometry + source image in R2, see limitations).
-6. **Deploy** — `/deployatlas` copies the finished result to R2.
+6. **🖼 View atlas** — check the composed page in the **Region Overlay
+   Inspector** (below) before you deploy it.
+7. **Deploy** — `/deployatlas` copies the finished result to R2.
+
+## 🖼 View atlas — the Region Overlay Inspector
+
+`🖼 View atlas` opens `/atlasview`: the composed page with its region geometry
+drawn on top. It exists to answer *"the region looked right in the card, so why
+does it look different in the atlas?"* — and to make that answer
+screenshottable.
+
+Per region it draws three layers (each toggleable), all in page pixels:
+
+| Layer | Colour | What it is |
+|---|---|---|
+| **Region rect** | blue | the `bounds:` x/y/w/h from the **current** manifest (the `.atlas`-merged geometry the cards use), labelled `name w×h` |
+| **Art alpha bbox** | amber | the art's **actual** opaque bounds, re-measured client-side from the composed page's pixels (`getImageData`, alpha > 0 — the same test PIL's `getbbox()` applies) |
+| **Untrimmed frame** | mint | only for regions carrying `off_x/off_y/orig_w/orig_h`. Drawn in the manifest's own **TexturePacker Y-DOWN-from-top** convention (*not* Spine's Y-up) — as stored, uncorrected |
+
+### Reading the verdict
+
+The art bbox vs the rect is the diagnostic. Each region gets a fill ratio and a
+verdict, reported in its **unrotated (authored)** axes:
+
+- **FILLS** — the bbox reaches the rect edge on both axes (≥98%). The art was
+  cropped to its ink, the canvas discarded, and the ink scaled to the slot with
+  no never-upscale clamp.
+- **INSET n%** — the bbox covers only n% of the rect's smaller axis, centred
+  with a margin. The art was fitted **whole-canvas** and clamped so it could
+  never upscale.
+- **EMPTY** — no opaque pixel in the rect; nothing was composed there.
+
+The summary line counts each. **A page with both FILLS and INSET regions was
+written by two composers with different rect conventions** — that alone is the
+finding. (See `docs/status/atlas-maker.md` for the current known instance:
+`sheet-tool/packer.py` `compose` uses `min(rw/nw, rh/nh, 1.0)` against the full
+art canvas; `atlas-tool/batch_atlas.py` `fit_to_region` alpha-crops to ink and
+fills the rect with no clamp. Same `bounds:`, art up to ~2.5× bigger and its
+origin shifted from the centred inset to the rect's corner. `fit_mode:"contain"`
+stops the distortion but not the upscale — those regions read as INSET with one
+axis pinned at 100%, which the per-axis `fill W%×H%` readout shows.)
+
+Two caveats when reading the numbers:
+
+- The bbox is the **rendered** one, so LANCZOS resampling rings the alpha out
+  ~3px each side (+6px total, scale-independent). Small rects therefore read a
+  few points above their geometric fill. It never flips a verdict in practice.
+- **Rotated** regions occupy an `(h × w)` footprint on the page (both composers
+  `rotate(-90, expand=True)` after fitting upright). The inspector reads the
+  page in that footprint and reports fill/margins back in the unrotated axes, so
+  the numbers line up with the `w×h` label.
+
+**Controls:** wheel = zoom to cursor · drag = pan · **Fit** resets to the whole
+page · click a region (canvas or sidebar) to select it · the sidebar filters by
+name and lists each region's rect, fill %, and margins.
 
 ## Blueprints: resolved-workflow export (debugging)
 

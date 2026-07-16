@@ -290,8 +290,18 @@ your manual override automatically.</div>
 <tr><td><b>✂ Slice source → refs</b></td><td>Cuts the configured atlas source
  image into per-region crops and saves them as each region's IPAdapter / Redux
  style reference. Existing prompts &amp; seeds are kept.</td></tr>
-<tr><td><b>🖼 View atlas</b></td><td>Opens the most recently composed atlas
- file in a new tab.</td></tr>
+<tr><td><b>🖼 View atlas</b></td><td>Opens the <b>Region Overlay Inspector</b>
+ for the most recently composed atlas in a new tab: the page pixels with every
+ manifest rect outlined (blue) and, over it, each region's <i>actual</i> art
+ alpha bbox re-measured from those pixels (amber). Per region it reports the
+ <b>fill ratio</b> and a verdict — <b>FILLS</b> (art reaches the rect edge on
+ both axes) or <b>INSET n%</b> (art centred with a margin) — plus a summary
+ counting each. Use it when the art looks different in the atlas than it did in
+ the card: FILLS and INSET on one page means two composers with different rect
+ conventions wrote it. Trimmed regions also show their untrimmed frame (mint,
+ in the manifest's own Y-down convention). Wheel = zoom to cursor, drag = pan,
+ <b>Fit</b> resets, the sidebar filters/jumps to a region and toggles each
+ overlay layer.</td></tr>
 <tr><td><b>💾 Save changes</b></td><td>Persists every card's prompt / seed /
  lock / negatives / replace-flags to the manifest. Generation auto-saves what
  it needs — use this for prompt edits etc.</td></tr>

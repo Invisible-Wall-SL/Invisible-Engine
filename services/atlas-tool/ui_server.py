@@ -2046,23 +2046,467 @@ IW_TOOLBAR = """<header class="iw-toolbar">
 </script>
 """
 
+# The `.iw-toolbar` chrome's CSS. Like IW_TOOLBAR above this is a SEPARATE
+# non-`.format()` string (single braces) so both PAGE (via the {iw_toolbar_css}
+# slot) and the Region Overlay Inspector (ATLASVIEW, which is .replace()-based)
+# render byte-identical tool-bar chrome from ONE definition.
+IW_TOOLBAR_CSS = """
+ /* unified tool bar — visual twin of the launcher $lib/ToolTopBar.svelte */
+ .iw-toolbar{display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:1px solid #333}
+ .iw-brand{display:flex;align-items:center;gap:9px;flex:none;font-weight:700;
+   letter-spacing:.14em;text-transform:uppercase;color:#7ee0c0;font-size:14px;
+   text-decoration:none;white-space:nowrap}
+ .iw-switcher{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto;overflow:hidden}
+ .iw-tool{display:inline-flex;align-items:center;gap:6px;flex:none;padding:5px 9px;
+   border-radius:8px;border:1px solid transparent;color:#b9b9c4;text-decoration:none;
+   font-size:12px;font-weight:600;white-space:nowrap}
+ .iw-tool:hover{background:#23232a;border-color:#2f2f37;color:#fff}
+ .iw-tool .ic{display:inline-flex;width:16px;height:16px}
+ .iw-tool .ic svg{width:16px;height:16px;display:block}
+ @media (max-width:1100px){.iw-tool .label{display:none} .iw-tool{padding:6px}}
+"""
+
+# ---------------------------------------------------------------------------
+# Region Overlay Inspector (`/atlasview`) — the "🖼 View atlas" target.
+#
+# WHY: two composers disagree on what a region rect MEANS, so the same
+# `bounds:` produces visibly different art depending on who wrote the page:
+#   * Sheet Maker (services/sheet-tool/packer.py `compose`) measures the FULL
+#     ART CANVAS, `scale = min(rw/nw, rh/nh, 1.0)` — the 1.0 clamp means it
+#     NEVER upscales — then centres the visible bbox in the rect. Rect bigger
+#     than the art => transparent margin. Signature: art bbox INSET in the rect.
+#   * Atlas Maker (batch_atlas.py `fit_to_region`) alpha-crops the art to its
+#     INK bbox, throws the canvas away, and scales THAT to the slot with NO 1.0
+#     clamp — so it upscales. Signature: art bbox FILLS the rect edge-to-edge
+#     (`fit_mode:"contain"` stops the distortion but NOT the upscale).
+# This page makes that difference visible: it re-measures each region's actual
+# alpha bbox from the COMPOSED PAGE PIXELS and reports fill-ratio + a verdict,
+# so a mixed FILL/INSET summary proves two producers wrote one page.
+#
+# Reuse (docs/ui-inventory.md §5/§7): the alpha-bbox scan + cursor-anchored
+# wheel zoom are ported from the Sheet Maker's canvas idiom
+# (services/sheet-tool/ui.html `computeBbox` / `#viewport` wheel handler) — the
+# named domain-B reference impl. Chrome comes from IW_TOOLBAR/IW_TOOLBAR_CSS.
+#
+# Built with `.replace()` on __TOKEN__ placeholders, NOT `.format()`, so the
+# inline JS/CSS keeps its literal braces. Inline JS uses DOUBLE quotes inside
+# single-quoted attributes (see gotcha_atlas_inline_js_quote_collision).
+# ---------------------------------------------------------------------------
+def _js_json(value) -> str:
+    """JSON for embedding in an inline `<script>`. Escapes `<` so a region name
+    containing `</script>` can't break out of the block (json.dumps alone does
+    not escape it) — region names come from a manifest we don't author."""
+    return json.dumps(value).replace("<", "\\u003c")
+
+
+def _view_region(r: dict) -> dict | None:
+    """Normalize ONE region for the Region Overlay Inspector's payload.
+    Returns None for a region with no usable rect (nothing to outline).
+    Module-level + pure so the overlay math can be exercised offline."""
+    try:
+        w, h = int(r["w"]), int(r["h"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    ox = int(r.get("off_x", 0) or 0)
+    oy = int(r.get("off_y", 0) or 0)
+    ow = int(r.get("orig_w", w) or w)
+    oh = int(r.get("orig_h", h) or h)
+    return {
+        "name": str(r.get("name", "")),
+        "x": int(r.get("x", 0) or 0),
+        "y": int(r.get("y", 0) or 0),
+        "w": w, "h": h,
+        "rotated": bool(r.get("rotated")),
+        "off_x": ox, "off_y": oy, "orig_w": ow, "orig_h": oh,
+        # Only flag REAL trim — an untrimmed region's "frame" IS its rect, so
+        # drawing it would just double every outline. Mirrors the `offsets:`
+        # emit condition in atlas_format.write_atlas.
+        "trim": (ox, oy, ow, oh) != (0, 0, w, h),
+    }
+
+
+ATLASVIEW = """<!doctype html><html><head><meta charset="utf-8">
+<title>Region overlay — Invisible Atlas Maker</title>
+<style>
+ body{font-family:system-ui,Arial;background:#1d1d22;color:#e8e8ea;margin:0;
+   padding:0 20px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column}
+__TOOLBAR_CSS__
+ .wrap{flex:1 1 auto;display:flex;gap:12px;min-height:0;padding:10px 0 12px}
+ .side{width:290px;flex:none;display:flex;flex-direction:column;gap:8px;min-height:0}
+ .panel{background:#23232a;border:1px solid #2f2f37;border-radius:8px;padding:10px}
+ .panel h3{margin:0 0 8px;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#8a8a95}
+ #viewport{flex:1 1 auto;position:relative;background:#141417;border:1px solid #2f2f37;
+   border-radius:8px;overflow:hidden;min-width:0;cursor:grab}
+ #viewport.drag{cursor:grabbing}
+ #view{display:block;width:100%;height:100%}
+ .hud{position:absolute;left:10px;bottom:10px;background:rgba(20,20,23,.86);
+   border:1px solid #34343d;border-radius:6px;padding:6px 10px;font-size:12px;color:#b9b9c4}
+ .sumbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#23232a;
+   border:1px solid #2f2f37;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:13px}
+ .sumbar .mix{background:#241f12;border:1px solid #7a5a1f;color:#ffc14d;
+   border-radius:5px;padding:4px 9px;font-weight:600}
+ .tag{display:inline-block;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700}
+ .tag.fills{background:#4a1f1f;color:#ff8f8f;border:1px solid #7a2b2b}
+ .tag.inset{background:#241f12;color:#ffc14d;border:1px solid #7a5a1f}
+ .tag.empty{background:#2a2a30;color:#8a8a95;border:1px solid #3a3a44}
+ .rows{overflow:auto;flex:1 1 auto;min-height:0}
+ .row{padding:6px 8px;border-radius:5px;cursor:pointer;border:1px solid transparent;font-size:12px}
+ .row:hover{background:#2b2b33} .row.sel{background:#243447;border-color:#5db0ff}
+ .row .nm{color:#e8e8ea;font-weight:600;word-break:break-all}
+ .row .sub{color:#8a8a95;font-size:11px;margin-top:2px;font-family:ui-monospace,Consolas,monospace}
+ input[type=text]{width:100%;box-sizing:border-box;background:#1a1a1e;color:#ddd;
+   border:1px solid #333;border-radius:4px;padding:6px 8px;font-size:13px}
+ label.tog{display:flex;align-items:center;gap:7px;font-size:12px;color:#c7c7cf;padding:3px 0;cursor:pointer}
+ .sw{width:11px;height:11px;border-radius:2px;flex:none}
+ button{background:#444;color:#fff;border:0;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+ button:hover{background:#555}
+ .err{margin:40px auto;max-width:560px;background:#241616;border:1px solid #7a2b2b;
+   border-radius:8px;padding:18px;color:#ffd5d5}
+ .legend{font-size:11px;color:#8a8a95;line-height:1.5;margin-top:8px}
+</style></head><body>
+__TOOLBAR__
+<div class="wrap">
+ <div class="side">
+  <div class="panel">
+   <h3>Overlays</h3>
+   <label class="tog"><input type="checkbox" id="tRect" checked>
+    <span class="sw" style="background:#5db0ff"></span>Region rect (manifest bounds)</label>
+   <label class="tog"><input type="checkbox" id="tArt" checked>
+    <span class="sw" style="background:#ffc14d"></span>Art alpha bbox (measured)</label>
+   <label class="tog"><input type="checkbox" id="tTrim" checked>
+    <span class="sw" style="background:#7ee0c0"></span>Untrimmed frame (Y-down)</label>
+   <label class="tog"><input type="checkbox" id="tLbl" checked>
+    <span class="sw" style="background:#8a8a95"></span>Labels</label>
+   <div style="display:flex;gap:6px;margin-top:8px">
+    <button onclick="fitView()">Fit</button>
+    <button onclick="zoomBy(1.25)">+</button>
+    <button onclick="zoomBy(0.8)">&minus;</button>
+   </div>
+  </div>
+  <div class="panel" style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0">
+   <h3>Regions (<span id="rcount">0</span>)</h3>
+   <input type="text" id="filter" placeholder="filter by name…" oninput="renderList()">
+   <div class="rows" id="rows"></div>
+  </div>
+ </div>
+ <div id="viewport"><canvas id="view"></canvas>
+  <div class="hud" id="hud">loading…</div>
+ </div>
+</div>
+<div class="sumbar" id="sumbar">measuring…</div>
+<div class="legend" style="padding-bottom:10px">
+ <b>FILLS</b> = the art's alpha bbox reaches the rect edge on both axes (&ge;98%) — the Atlas Maker
+ crops to ink and scales to the slot with no never-upscale clamp.
+ <b>INSET n%</b> = the bbox covers only n% of the rect's smaller axis, centred with margin — the
+ Sheet Maker's <code>min(rw/nw, rh/nh, 1.0)</code> against the full art canvas.
+ Fill % and margins are reported in the region's <i>unrotated</i> (authored) axes.
+ The untrimmed frame is drawn in the manifest's own TexturePacker Y-DOWN-from-top
+ <code>off_y</code> convention (NOT Spine's Y-up) — as stored, uncorrected.
+</div>
+<script>
+var REGIONS = __REGIONS__;
+var PAGE_URL = __PAGE_URL__;
+var MANIFEST = __MANIFEST__;
+var HAS_PAGE = __HAS_PAGE__;
+
+var C_RECT = "#5db0ff", C_ART = "#ffc14d", C_TRIM = "#7ee0c0", C_SEL = "#ffffff";
+var FILL_T = 0.98;            // >= this on BOTH axes (unrotated) => FILLS
+
+var cv = document.getElementById("view");
+var ctx = cv.getContext("2d");
+var vp = document.getElementById("viewport");
+var pageImg = null, pageW = 0, pageH = 0;
+var pctx = null;              // offscreen 2d ctx holding the page pixels
+var zoom = 1, panX = 0, panY = 0, sel = "";
+
+function $(id){ return document.getElementById(id); }
+
+/* A rotated region's PACKED FOOTPRINT on the page is (h x w): both composers
+   fit the art upright to (w, h) and then PIL rotate(-90, expand) it. So w/h in
+   the manifest are the UNROTATED size and must be swapped to read the page. */
+function footprint(r){
+  return r.rotated ? {x:r.x, y:r.y, w:r.h, h:r.w} : {x:r.x, y:r.y, w:r.w, h:r.h};
+}
+
+/* Untrimmed frame in PAGE space, in the manifest's own Y-down convention.
+   Unrotated: the trimmed rect sits at (off_x, off_y) inside (orig_w, orig_h).
+   Rotated: rotate(-90) maps upright (u, v) -> page-local (h - v, u), so the
+   upright frame [-off_x, -off_x+orig_w] x [-off_y, -off_y+orig_h] becomes
+   x: h + off_y - orig_h .. h + off_y   (width orig_h)
+   y: -off_x .. -off_x + orig_w         (height orig_w)
+   Sanity: an untrimmed rotated region (off=0, orig=w/h) gives back (x, y, h, w). */
+function trimFrame(r){
+  if(!r.trim) return null;
+  if(r.rotated) return {x:r.x + r.h + r.off_y - r.orig_h, y:r.y - r.off_x,
+                        w:r.orig_h, h:r.orig_w};
+  return {x:r.x - r.off_x, y:r.y - r.off_y, w:r.orig_w, h:r.orig_h};
+}
+
+/* Opaque bounding box of the page pixels under a rect (page space).
+   Ported from the Sheet Maker's computeBbox (services/sheet-tool/ui.html):
+   alpha > 0, which is exactly what PIL's getchannel("A").getbbox() — the test
+   BOTH composers apply — considers ink. Same-origin /atlasimg, so no taint. */
+function bboxIn(f){
+  var x0 = Math.max(0, f.x), y0 = Math.max(0, f.y);
+  var x1 = Math.min(pageW, f.x + f.w), y1 = Math.min(pageH, f.y + f.h);
+  if(x1 <= x0 || y1 <= y0) return null;
+  var w = x1 - x0, h = y1 - y0;
+  var d = pctx.getImageData(x0, y0, w, h).data;
+  var bx0 = w, by0 = h, bx1 = 0, by1 = 0, found = false;
+  for(var y = 0; y < h; y++){
+    var row = y * w;
+    for(var x = 0; x < w; x++){
+      if(d[(row + x) * 4 + 3] > 0){
+        found = true;
+        if(x < bx0) bx0 = x;
+        if(x >= bx1) bx1 = x + 1;
+        if(y < by0) by0 = y;
+        if(y >= by1) by1 = y + 1;
+      }
+    }
+  }
+  if(!found) return null;
+  return {x:x0 + bx0, y:y0 + by0, w:bx1 - bx0, h:by1 - by0};
+}
+
+/* Measure one region: alpha bbox + fill ratio + verdict. Fill/margins are
+   reported in the region's UNROTATED axes so they line up with its w x h
+   label (a rotated region's page-space bbox has its axes swapped). */
+function measure(r){
+  var f = footprint(r);
+  var bb = bboxIn(f);
+  if(!bb) return {verdict:"EMPTY", bbox:null, fillW:0, fillH:0, fill:0,
+                  ml:0, mt:0, mr:0, mb:0};
+  var lx = bb.x - f.x, ly = bb.y - f.y;                 // bbox origin in the rect
+  var bw = bb.w, bh = bb.h, ol = lx, ot = ly;
+  if(r.rotated){                                        // page axes -> upright axes
+    bw = bb.h; bh = bb.w;
+    ol = ly;                                            // upright u = page-local y
+    ot = f.w - (lx + bb.w);                             // upright v = h - page-local x
+  }
+  var fw = r.w ? bw / r.w : 0, fh = r.h ? bh / r.h : 0;
+  var verdict = (fw >= FILL_T && fh >= FILL_T) ? "FILLS" : "INSET";
+  return {verdict:verdict, bbox:bb, fillW:fw, fillH:fh, fill:Math.min(fw, fh),
+          ml:ol, mt:ot, mr:r.w - (ol + bw), mb:r.h - (ot + bh)};
+}
+
+function pct(v){ return Math.round(v * 100) + "%"; }
+
+/* ---------- view transform ---------- */
+function fitView(){
+  var availW = vp.clientWidth - 40, availH = vp.clientHeight - 40;
+  zoom = Math.min(availW / pageW, availH / pageH, 4);
+  if(!isFinite(zoom) || zoom <= 0) zoom = 1;
+  panX = (vp.clientWidth - pageW * zoom) / 2;
+  panY = (vp.clientHeight - pageH * zoom) / 2;
+  draw();
+}
+function zoomBy(f){ zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, f); }
+/* cursor-anchored zoom — the Sheet Maker's #viewport wheel idiom, expressed as
+   a pan offset (this canvas transforms, it doesn't scroll). */
+function zoomAt(sx, sy, f){
+  var nz = Math.max(0.02, Math.min(32, zoom * f));
+  if(nz === zoom) return;
+  panX = sx - (sx - panX) * (nz / zoom);
+  panY = sy - (sy - panY) * (nz / zoom);
+  zoom = nz;
+  draw();
+}
+function focusRegion(name){
+  var r = REGIONS.filter(function(q){ return q.name === name; })[0];
+  if(!r) return;
+  sel = name;
+  var f = footprint(r);
+  zoom = Math.max(0.02, Math.min(32,
+    Math.min((vp.clientWidth - 80) / f.w, (vp.clientHeight - 80) / f.h, 8)));
+  panX = vp.clientWidth / 2 - (f.x + f.w / 2) * zoom;
+  panY = vp.clientHeight / 2 - (f.y + f.h / 2) * zoom;
+  draw();
+  renderList();
+}
+
+/* ---------- draw ---------- */
+function sxOf(x){ return x * zoom + panX; }
+function syOf(y){ return y * zoom + panY; }
+
+function box(f, col, dash){
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1;
+  ctx.setLineDash(dash || []);
+  ctx.strokeRect(Math.round(sxOf(f.x)) + 0.5, Math.round(syOf(f.y)) + 0.5,
+                 Math.round(f.w * zoom), Math.round(f.h * zoom));
+  ctx.setLineDash([]);
+}
+
+function draw(){
+  var W = vp.clientWidth, H = vp.clientHeight;
+  var dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if(!pageImg) return;
+  // checkerboard so transparent margin reads as transparent, not as black
+  var t = 8;
+  ctx.fillStyle = "#26262c"; ctx.fillRect(sxOf(0), syOf(0), pageW * zoom, pageH * zoom);
+  ctx.fillStyle = "#1e1e23";
+  ctx.save();
+  ctx.beginPath(); ctx.rect(sxOf(0), syOf(0), pageW * zoom, pageH * zoom); ctx.clip();
+  for(var yy = 0; yy < Math.ceil(pageH * zoom / t) + 1; yy++)
+    for(var xx = (yy % 2); xx < Math.ceil(pageW * zoom / t) + 1; xx += 2)
+      ctx.fillRect(sxOf(0) + xx * t, syOf(0) + yy * t, t, t);
+  ctx.restore();
+  ctx.imageSmoothingEnabled = zoom < 3;
+  ctx.drawImage(pageImg, sxOf(0), syOf(0), pageW * zoom, pageH * zoom);
+  box({x:0, y:0, w:pageW, h:pageH}, "#3a3a44");
+
+  var showRect = $("tRect").checked, showArt = $("tArt").checked;
+  var showTrim = $("tTrim").checked, showLbl = $("tLbl").checked;
+  ctx.font = "11px ui-monospace,Consolas,monospace";
+  ctx.textBaseline = "alphabetic";
+  REGIONS.forEach(function(r){
+    var f = footprint(r);
+    var isSel = r.name === sel;
+    if(showTrim){ var tf = trimFrame(r); if(tf) box(tf, C_TRIM, [3, 3]); }
+    if(showRect) box(f, isSel ? C_SEL : C_RECT);
+    if(showArt && r._m && r._m.bbox) box(r._m.bbox, isSel ? C_SEL : C_ART, [2, 2]);
+    if(showLbl && (zoom > 0.22 || isSel)){
+      var lbl = r.name + "  " + r.w + "\\u00d7" + r.h + (r.rotated ? " \\u21bb" : "");
+      var vd = r._m ? (r._m.verdict === "INSET" ? "INSET " + pct(r._m.fill) : r._m.verdict) : "?";
+      var text = lbl + "  [" + vd + "]";
+      var tw = ctx.measureText(text).width;
+      var lx = Math.round(sxOf(f.x)), ly = Math.round(syOf(f.y));
+      ctx.fillStyle = "rgba(15,15,18,.82)";
+      ctx.fillRect(lx, ly - 14, tw + 8, 14);
+      ctx.fillStyle = isSel ? C_SEL
+        : (r._m && r._m.verdict === "FILLS") ? "#ff8f8f"
+        : (r._m && r._m.verdict === "EMPTY") ? "#8a8a95" : "#ffc14d";
+      ctx.fillText(text, lx + 4, ly - 3);
+    }
+  });
+  $("hud").textContent = pageW + " \\u00d7 " + pageH + " px \\u00b7 " +
+    Math.round(zoom * 100) + "% \\u00b7 " + REGIONS.length + " regions" +
+    (sel ? " \\u00b7 " + sel : "");
+}
+
+/* ---------- list + summary ---------- */
+function renderList(){
+  var q = ($("filter").value || "").toLowerCase();
+  var rows = $("rows");
+  rows.innerHTML = "";
+  var shown = 0;
+  REGIONS.forEach(function(r){
+    if(q && r.name.toLowerCase().indexOf(q) < 0) return;
+    shown++;
+    var m = r._m || {};
+    var d = document.createElement("div");
+    d.className = "row" + (r.name === sel ? " sel" : "");
+    var cls = m.verdict === "FILLS" ? "fills" : m.verdict === "EMPTY" ? "empty" : "inset";
+    var vd = m.verdict === "INSET" ? "INSET " + pct(m.fill) : (m.verdict || "?");
+    d.innerHTML = "<div class=\\"nm\\">" + esc(r.name) +
+      " <span class=\\"tag " + cls + "\\">" + vd + "</span></div>" +
+      "<div class=\\"sub\\">" + r.x + "," + r.y + " " + r.w + "\\u00d7" + r.h +
+      (r.rotated ? " rot" : "") + (r.trim ? " trim" : "") +
+      (m.bbox ? " \\u00b7 fill " + pct(m.fillW) + "\\u00d7" + pct(m.fillH) +
+        " \\u00b7 m " + m.ml + "," + m.mt + "," + m.mr + "," + m.mb : "") +
+      "</div>";
+    d.addEventListener("click", function(){ focusRegion(r.name); });
+    rows.appendChild(d);
+  });
+  $("rcount").textContent = shown + (shown === REGIONS.length ? "" : " / " + REGIONS.length);
+}
+function esc(s){ var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+function summarize(){
+  var fills = 0, inset = 0, empty = 0;
+  REGIONS.forEach(function(r){
+    if(!r._m) return;
+    if(r._m.verdict === "FILLS") fills++;
+    else if(r._m.verdict === "EMPTY") empty++;
+    else inset++;
+  });
+  var s = "<b>" + REGIONS.length + "</b> regions on <code>" + esc(MANIFEST) + "</code> &middot; " +
+    "<span class=\\"tag fills\\">FILLS</span> " + fills + " &middot; " +
+    "<span class=\\"tag inset\\">INSET</span> " + inset;
+  if(empty) s += " &middot; <span class=\\"tag empty\\">EMPTY</span> " + empty;
+  if(fills > 0 && inset > 0){
+    s += " <span class=\\"mix\\">\\u26a0 MIXED \\u2014 both conventions are on this page: " +
+      fills + " region(s) were written by a fill-the-slot composer (Atlas Maker: crop to ink, " +
+      "scale up to the rect) and " + inset + " by a never-upscale composer (Sheet Maker: fit the " +
+      "whole canvas, clamp at 1.0, centre). One page, two producers.</span>";
+  }
+  $("sumbar").innerHTML = s;
+}
+
+/* ---------- interaction ---------- */
+vp.addEventListener("wheel", function(e){
+  e.preventDefault();
+  var rb = vp.getBoundingClientRect();
+  zoomAt(e.clientX - rb.left, e.clientY - rb.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+}, {passive:false});
+
+var drag = null;
+vp.addEventListener("mousedown", function(e){
+  drag = {x:e.clientX, y:e.clientY, px:panX, py:panY, moved:false};
+  vp.classList.add("drag");
+});
+window.addEventListener("mousemove", function(e){
+  if(!drag) return;
+  var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if(Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true;
+  panX = drag.px + dx; panY = drag.py + dy;
+  draw();
+});
+window.addEventListener("mouseup", function(e){
+  if(drag && !drag.moved){
+    var rb = vp.getBoundingClientRect();
+    var px = (e.clientX - rb.left - panX) / zoom, py = (e.clientY - rb.top - panY) / zoom;
+    var hit = "";
+    REGIONS.forEach(function(r){
+      var f = footprint(r);
+      if(px >= f.x && px < f.x + f.w && py >= f.y && py < f.y + f.h) hit = r.name;
+    });
+    sel = hit;
+    draw();
+    renderList();
+  }
+  drag = null;
+  vp.classList.remove("drag");
+});
+["tRect", "tArt", "tTrim", "tLbl"].forEach(function(id){
+  $(id).addEventListener("change", draw);
+});
+window.addEventListener("resize", draw);
+
+/* ---------- boot ---------- */
+if(!HAS_PAGE){
+  document.body.innerHTML = "<div class=\\"err\\"><b>No composed atlas yet.</b><br>" +
+    "Build one with <b>\\ud83e\\udde9 Create Atlas</b> in the Atlas Maker, then re-open this view." +
+    "</div>";
+} else {
+  var im = new Image();
+  im.onload = function(){
+    pageImg = im; pageW = im.naturalWidth; pageH = im.naturalHeight;
+    var off = document.createElement("canvas");
+    off.width = pageW; off.height = pageH;
+    pctx = off.getContext("2d", {willReadFrequently:true});
+    pctx.drawImage(im, 0, 0);
+    REGIONS.forEach(function(r){ r._m = measure(r); });
+    summarize();
+    renderList();
+    fitView();
+  };
+  im.onerror = function(){ $("hud").textContent = "failed to load the composed page"; };
+  im.src = PAGE_URL;
+}
+</script>
+</body></html>
+"""
+
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
 <style>
  body{{font-family:system-ui,Arial;background:#1d1d22;color:#e8e8ea;margin:0;padding:0 20px 40px}}
- /* unified tool bar — visual twin of the launcher $lib/ToolTopBar.svelte */
- .iw-toolbar{{display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:1px solid #333}}
- .iw-brand{{display:flex;align-items:center;gap:9px;flex:none;font-weight:700;
-   letter-spacing:.14em;text-transform:uppercase;color:#7ee0c0;font-size:14px;
-   text-decoration:none;white-space:nowrap}}
- .iw-switcher{{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto;overflow:hidden}}
- .iw-tool{{display:inline-flex;align-items:center;gap:6px;flex:none;padding:5px 9px;
-   border-radius:8px;border:1px solid transparent;color:#b9b9c4;text-decoration:none;
-   font-size:12px;font-weight:600;white-space:nowrap}}
- .iw-tool:hover{{background:#23232a;border-color:#2f2f37;color:#fff}}
- .iw-tool .ic{{display:inline-flex;width:16px;height:16px}}
- .iw-tool .ic svg{{width:16px;height:16px;display:block}}
- @media (max-width:1100px){{.iw-tool .label{{display:none}} .iw-tool{{padding:6px}}}}
+{iw_toolbar_css}
  .credits{{float:right;font-size:13px;font-weight:600;color:#cfeede;background:#2e6b3e;border:1px solid #3f8a52;border-radius:6px;padding:6px 12px;text-decoration:none;white-space:nowrap}}
  .credits.low{{background:#7a4a1f;border-color:#a4702f;color:#ffe2bd}}
  .credits.err{{background:#7a2f2f;border-color:#a44;color:#ffd5d5}}
@@ -2218,7 +2662,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <div class="bargrp" title="Atlas-level actions: compose, view, deploy">
   <span class="glbl">Atlas</span>
   <button onclick="createAtlas()" id="abtn" style="background:#629432">🧩 Create Atlas</button>
-  <button onclick="viewAtlas()" id="vbtn" class="alt">🖼 View atlas</button>
+  <button onclick="viewAtlas()" id="vbtn" class="alt" title="Open the Region Overlay Inspector: the composed page with every manifest rect outlined, plus each region's ACTUAL art alpha bbox re-measured from the pixels — shows whether the art fills its rect or sits inset in it.">🖼 View atlas</button>
   <button onclick="deployAtlas()" id="dbtn" class="alt" title="Copy the built atlas (.png/.webp) to this manifest's Deploy folder, overwriting <stem>.png/.webp there. Set the folder in Atlas settings.">📦 Deploy atlas</button>
   {spine_link}
  </div>
@@ -3300,7 +3744,16 @@ async function createAtlas(){{
  await fetch('/createatlas',{{method:'POST',body:'{{}}'}});
  poll();
 }}
-function viewAtlas(){{window.open('/atlasimg?t='+Date.now(),'_blank');flashDone(document.getElementById('vbtn'));}}
+// Opens the Region Overlay Inspector (not the bare page bytes): it draws each
+// manifest rect over the composed pixels and re-measures the art's real alpha
+// bbox, so a rect/pixel mismatch is visible + screenshottable. location.search
+// rides along so the tool bar's ?home/?tools switcher renders in the new tab
+// (and ?k= re-arms the gate cookie if this tab was the one that carried it).
+function viewAtlas(){{
+  var q=location.search||'';
+  window.open('/atlasview'+q+(q?'&':'?')+'t='+Date.now(),'_blank');
+  flashDone(document.getElementById('vbtn'));
+}}
 async function deployAtlas(){{
  let t=document.getElementById('toast');
  t.style.display='inline-block'; t.textContent='📦 Deploying…';
@@ -3811,6 +4264,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "image/png", af.read_bytes())
             else:
                 self._send(404, "text/plain", b"No atlas built yet. Use 'Build final atlas'.")
+        elif path == "/atlasview":
+            self._send(200, "text/html; charset=utf-8",
+                       self._atlasview().encode("utf-8"))
         elif path.startswith("/variants/"):
             name = path.rsplit("/", 1)[-1]
             items = [{"id": variant_id(p), "seed": seed_of(p)}
@@ -3970,6 +4426,28 @@ class Handler(BaseHTTPRequestHandler):
                f'<rect width="220" height="160" fill="#1a1a1e"/><text x="110" y="84" '
                f'fill="#666" font-size="13" text-anchor="middle">{label}</text></svg>')
         self._send(200, "image/svg+xml", svg.encode())
+
+    def _atlasview(self) -> str:
+        """Region Overlay Inspector page (`/atlasview`) — see ATLASVIEW.
+
+        Serves the manifest's CURRENT region geometry (the same
+        `all_regions()` merge the cards use, so `.atlas`-bound manifests get
+        the authoritative `bounds:`/`offsets:` from the `.atlas`) alongside the
+        composed page. The page bytes come from the existing `/atlasimg` route
+        — this page never re-serves them."""
+        m = load_manifest()
+        regions = [v for v in (_view_region(r) for r in all_regions(m)) if v]
+        af = atlas_file()
+        # Cache-bust the page bytes: "Create Atlas" rewrites the same filename,
+        # so a re-opened inspector must not measure the previous compose.
+        img_url = "/atlasimg?t=" + str(int(time.time() * 1000))
+        return (ATLASVIEW
+                .replace("__TOOLBAR_CSS__", IW_TOOLBAR_CSS)
+                .replace("__TOOLBAR__", IW_TOOLBAR)
+                .replace("__REGIONS__", _js_json(regions))
+                .replace("__PAGE_URL__", _js_json(img_url))
+                .replace("__MANIFEST__", _js_json(manifest_path().name))
+                .replace("__HAS_PAGE__", "true" if af.exists() else "false"))
 
     def _regionadv(self, name: str) -> bytes:
         m = load_manifest()
@@ -5355,6 +5833,7 @@ class Handler(BaseHTTPRequestHandler):
             bp_param_values = {}
         return PAGE.format(
             iw_toolbar=IW_TOOLBAR,
+            iw_toolbar_css=IW_TOOLBAR_CSS,
             cards="".join(cards),
             blueprint_grp=blueprint_grp,
             bp_params_panel=_BP_PARAMS_PANEL_HTML,
