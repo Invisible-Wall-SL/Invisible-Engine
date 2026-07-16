@@ -27,6 +27,7 @@
 		setGroupLabel,
 		setNodeInput,
 		setNodeRef,
+		setFireCueAwait,
 		setShowContainerAwaitComplete,
 	} from './graphOps';
 	import { typeLabel } from './palette';
@@ -116,6 +117,11 @@
 	// --- showContainer round-block hold ----------------------------------------
 	function onAwaitCompleteChange(value: boolean): void {
 		onchange(setShowContainerAwaitComplete(doc, node.id, value));
+	}
+
+	// --- fireCue await ---------------------------------------------------------
+	function onFireCueAwaitChange(value: boolean): void {
+		onchange(setFireCueAwait(doc, node.id, value));
 	}
 
 	// --- forEach ---------------------------------------------------------------
@@ -308,6 +314,23 @@
 			<p class="hint">
 				Pauses the round after mounting until the overlay's <strong>Tap to continue</strong> fires its
 				<code>complete</code> — the generic free-spin/intro/outro hold.
+			</p>
+		{/if}
+
+		{#if node.kind === 'fireCue'}
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={node.await === true}
+					onchange={(e) => onFireCueAwaitChange(e.currentTarget.checked)}
+				/>
+				<span class="flabel">Wait for this cue to finish</span>
+			</label>
+			<p class="hint">
+				Pauses the chain until the cue's listeners finish, instead of firing it and running straight
+				on. Turn this ON when a LATER node undoes what the cue starts — e.g.
+				<code>boardWithAnimateSymbols</code> must be awaited or the
+				<code>hideWinLine</code> after it erases the win line before the symbols finish animating.
 			</p>
 		{/if}
 

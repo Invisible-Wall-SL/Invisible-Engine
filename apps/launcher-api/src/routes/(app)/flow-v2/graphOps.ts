@@ -278,6 +278,22 @@ export const setShowContainerAwaitComplete = (
 		return { ...n, awaitComplete: true };
 	});
 
+/** Toggle a `fireCue` node's `await`: when on, the exec chain blocks until the cue's subscribers
+ *  finish (the interpreter awaits the broadcast), matching a coded handler's `broadcastAsync`; when
+ *  off the cue is fire-and-forget (`broadcast`) and the chain runs straight on. Authoring this
+ *  matters whenever a LATER node undoes what the cue starts — e.g. `boardWithAnimateSymbols` must be
+ *  awaited or the `hideWinLine` after it erases the win line before the symbols finish. Omit the
+ *  field when off so a fire-and-forget cue stays byte-identical. */
+export const setFireCueAwait = (doc: FlowDoc, nodeId: string, await_: boolean): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		if (n.kind !== 'fireCue') return n;
+		if (!await_) {
+			const { await: _drop, ...rest } = n;
+			return rest as V2Node;
+		}
+		return { ...n, await: true };
+	});
+
 /** Set a `forEach` node's iteration `mode` (sequence | parallel). */
 export const setForEachMode = (
 	doc: FlowDoc,
