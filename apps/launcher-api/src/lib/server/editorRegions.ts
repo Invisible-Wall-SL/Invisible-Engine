@@ -48,13 +48,29 @@ export interface EditorRegionSet {
 }
 
 /**
- * A manifest region as written by either producer. Trim geometry arrives in TWO
- * spellings and both are load-bearing: the Atlas Maker writes **snake_case**
- * (`off_x`/`orig_w` — see `batch_atlas.py` + `atlas_format.py`, the convention
- * `atlasManifestCheck.ts` documents), while `texturePackerToInvisible` below
- * normalizes to **camelCase**. Reading only camelCase silently dropped the trim on
- * every Atlas-Maker-imported `.atlas`, which then packs into the synthesised atlas as
- * `originalWidth == width, offsetX == 0` and misplaces every attachment built on it.
+ * A manifest region as written by either producer.
+ *
+ * **Deliberately camelCase-only.** The Atlas Maker also writes trim in snake_case
+ * (`off_x`/`orig_w` — `batch_atlas.py` `merge_atlas_regions`, `ui_server.py`
+ * `_tp_frame_to_region`), and reading it here looks like an obvious bug fix. It is
+ * not — it was tried (660c424) and reverted (see below). Do NOT "fix" it without
+ * doing the two things that fix actually needs:
+ *
+ * 1. **Convert `off_y`.** `_tp_frame_to_region` copies TexturePacker's
+ *    `spriteSourceSize.y` raw, which is Y-DOWN from the frame's top. Spine's
+ *    `offsets` offY is Y-UP from the bottom — `spine-webgl-4.2.js` does
+ *    `v -= (originalHeight - offsetY - height) / textureHeight`. The correct value is
+ *    `orig_h - h - sss.y`. Reading the raw field applies a wrong vertical offset.
+ * 2. **Migrate existing rigs.** Emitting `offsets:` (see `regionsToSpineAtlas`)
+ *    re-bases the atlas coordinate space. Every `.irig` bakes geometry in the space
+ *    it was authored in — a region attachment's `width`/`height` (`view.html`
+ *    `attachRegion`) and a mesh's `uvs` are both relative to `originalWidth`. Turning
+ *    trim on under frozen geometry shrinks the art by `w/orig_w` and anchors it to a
+ *    corner. `⟳ Re-sync atlas` rewrites the `.atlas` but deliberately never touches
+ *    the `.irig`, so it is the trigger, not the cure.
+ *
+ * Dropping the trim is wrong-but-consistent, and every existing rig is authored
+ * against it. Fixing it is a versioned migration, not a parser tweak.
  */
 interface RawRegion {
 	name?: unknown;
@@ -67,10 +83,6 @@ interface RawRegion {
 	offY?: unknown;
 	origW?: unknown;
 	origH?: unknown;
-	off_x?: unknown;
-	off_y?: unknown;
-	orig_w?: unknown;
-	orig_h?: unknown;
 }
 
 interface RawManifest {
@@ -255,10 +267,10 @@ function parseRegions(raw: unknown): EditorRegion[] {
 		}
 		const region: EditorRegion = { name, x, y, w, h };
 		if (r.rotated === true) region.rotated = true;
-		const offX = num(r.offX) ?? num(r.off_x);
-		const offY = num(r.offY) ?? num(r.off_y);
-		const origW = num(r.origW) ?? num(r.orig_w);
-		const origH = num(r.origH) ?? num(r.orig_h);
+		const offX = num(r.offX);
+		const offY = num(r.offY);
+		const origW = num(r.origW);
+		const origH = num(r.origH);
 		if (offX !== undefined) region.offX = offX;
 		if (offY !== undefined) region.offY = offY;
 		if (origW !== undefined) region.origW = origW;

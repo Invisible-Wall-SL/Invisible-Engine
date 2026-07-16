@@ -42,7 +42,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   dropped each other's rows, surfacing as "my rig vanished" (the `<id>.json` body wrote fine;
   only the catalog entry was lost). Row upserts remove the race structurally. Blob/row ordering
   now fails toward an orphaned blob, never a dangling row ([detail in history](../history.md)).
-- 2026-07-16 — "＋ add image…" now inherits the slot's setup placement instead of seeding a fresh attachment at the bone origin, and warns before flattening a mesh slot; "replace image (keep mesh)…" re-derives `width`/`height` from the new region; manifest trim geometry is read in both spellings ([detail in history](../history.md)).
+- 2026-07-16 — **reverted** the same day's `parseRegions` snake_case trim read: it re-based the atlas coordinate space under every rig's frozen geometry (art shrinks by `w/orig_w` and corner-anchors on the next `⟳ Re-sync atlas`), and the `off_y` it switched on is TexturePacker's Y-down where Spine wants Y-up. `parseRegions` is deliberately camelCase-only now — read the landmine comment on `RawRegion` before "fixing" it again ([detail in history](../history.md)).
+- 2026-07-16 — "＋ add image…" now inherits the slot's setup placement instead of seeding a fresh attachment at the bone origin, and warns before flattening a mesh slot; "replace image (keep mesh)…" re-derives `width`/`height` from the new region ([detail in history](../history.md)).
 - 2026-07-14 — Rigger FX overlay redrawn with the full bone transform so it matches the in-game renderer at any scale ([detail in history](../history.md)).
 - 2026-07-14 — `/rigger` `view.html` + vendored bundles cache-bust via `?v=BUILD_ID` so a redeploy is fetched fresh ([detail in history](../history.md)).
 - 2026-07-10 — Live rig-bound FX preview on the stage + docked event-key inspector (pick an effect directly on a keyframe) ([detail in history](../history.md)).
