@@ -1,0 +1,84 @@
+# Runtime release — build the shared engine bundle and publish it to `_runtime/<id>`.
+#
+# WHY THIS EXISTS: online games do NOT run their own build; they run the SHARED engine bundle at
+# `test_server/_runtime/<id>/` (Game Maker's Publish only POINTS a game at it — it never rebuilds
+# it). So an engine change reaches a live game ONLY through this release. It used to require the
+# R2 keys on a developer's machine; running it here means the keys live in GitHub's encrypted
+# secrets and a release is a button, not a local shell.
+#
+# Deliberately MANUAL (`workflow_dispatch`) — a runtime release re-points every online game at new
+# engine code, so it is an explicit act, not a side effect of merging to `main`.
+#
+# One-time setup — add these under Settings → Secrets and variables → Actions:
+#   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (Railway → Invisible launcher
+#   → production → Variables), plus TEST_SERVER_SECRET only if the test server sets one.
+
+name: Runtime release
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: 'Runtime id to publish (built from apps/<id>)'
+        type: string
+        default: 'lines'
+        required: true
+      refresh:
+        description: 'POST /refresh so the test server re-hydrates immediately'
+        type: boolean
+        default: true
+
+concurrency:
+  group: runtime-release-${{ inputs.runtime }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
+      # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
+      - name: Build workspace packages
+        run: pnpm --filter "${{ inputs.runtime }}^..." build
+
+      # PUBLIC_RGS_TRANSPORT=play4fun is REQUIRED: the test server's mock RGS speaks Play4Fun, and a
+      # bundle built without it never completes the handshake and hangs on a blank loading screen.
+      - name: Build the ${{ inputs.runtime }} runtime
+        env:
+          PUBLIC_RGS_TRANSPORT: play4fun
+        run: pnpm --filter ${{ inputs.runtime }} build
+
+      - name: Publish to _runtime/${{ inputs.runtime }}
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
+            "${{ inputs.runtime }}" "apps/${{ inputs.runtime }}/build"
+
+      # The test server hydrates every bundle from R2 on boot; without this the new engine only goes
+      # live on its next redeploy. It answers 202 immediately and hydrates in the background.
+      - name: Refresh the test server
+        if: ${{ inputs.refresh }}
+        env:
+          TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
+        run: |
+          url="https://games.invisiblewall.org/refresh"
+          if [ -n "$TEST_SERVER_SECRET" ]; then url="$url?secret=$TEST_SERVER_SECRET"; fi
+          code=$(curl -sS -o /dev/stderr -w '%{http_code}' -X POST "$url")
+          echo "refresh → HTTP $code"
+          case "$code" in 200|202) ;; *) echo "refresh failed"; exit 1 ;; esac
