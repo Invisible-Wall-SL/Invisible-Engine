@@ -53,6 +53,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The precondition the page sends back on save, so a second author can't silently clobber
 		// the whole doc. `null` = "there was no doc when I loaded".
 		etag,
-		symbols: Object.keys(defaults),
+		// `defaults.symbols` — NOT `defaults`, which is the wrapper doc (`version`/`gameType`/
+		// `symbols`/`highlight`) and would label the grid's rows with those keys. `Object.keys` on
+		// the wrapper type-checks fine, so only the rendered grid shows the mistake.
+		symbols: Object.keys(defaults.symbols),
 	};
 };
