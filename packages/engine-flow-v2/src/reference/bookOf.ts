@@ -449,6 +449,11 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'openSettings', params: [], category: 'command' },
 		{ name: 'toggleSound', params: [], category: 'command' },
 		{ name: 'autoSpin', params: [], category: 'command' },
+		// Fullscreen must run INSIDE the press's call stack (browsers reject `requestFullscreen`
+		// outside a user gesture). The interpreter reaches `env.effect` synchronously from the
+		// press, so wire this DIRECTLY off the button's `onFullscreen` pin — putting a `delay`
+		// (or any awaiting node) ahead of it spends the gesture and the request is refused.
+		{ name: 'toggleFullscreen', params: [], category: 'command' },
 		{
 			name: 'expandBookColumns',
 			params: [

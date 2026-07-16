@@ -206,6 +206,7 @@ const INTENT_COMMANDS: Record<string, string> = {
 	increaseBet: 'increase',
 	decreaseBet: 'decrease',
 	toggleTurbo: 'turbo',
+	toggleFullscreen: 'fullscreen',
 	openGameRules: 'gameRules',
 	openSettings: 'settings',
 	toggleSound: 'soundToggle',

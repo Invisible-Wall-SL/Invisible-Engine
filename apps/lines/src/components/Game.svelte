@@ -13,6 +13,9 @@
 		stateModal,
 		stateSound,
 		stateUi,
+		stateFullscreen,
+		toggleFullscreen,
+		isFullscreenSupported,
 		setUiFeatures,
 		UI_FEATURES_UK,
 	} from 'state-shared';
@@ -1049,6 +1052,12 @@
 	const doCloseMenu = (): void => {
 		stateUi.menuOpen = false;
 	};
+	// Runs INSIDE the press's call stack (both the coded path and the flow's
+	// `toggleFullscreen` intent command reach it synchronously) — the browser refuses
+	// `requestFullscreen` outside a user gesture, so nothing may await ahead of it.
+	const doToggleFullscreen = (): void => {
+		toggleFullscreen();
+	};
 	const doOpenGameRules = (): void => {
 		stateUi.menuOpen = false;
 		stateModal.modal = { name: 'gameRules' };
@@ -1083,6 +1092,7 @@
 		else if (intent === 'settings') doOpenSettings();
 		else if (intent === 'soundToggle') doToggleSound();
 		else if (intent === 'autoSpin') doAutoSpin();
+		else if (intent === 'fullscreen') doToggleFullscreen();
 	};
 
 	// Functional action pin routing (design doc §8.5): if an author wired this button's `pin`
@@ -1114,6 +1124,20 @@
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('menu', doOpenMenu);
 			},
+		},
+		// Fullscreen toggle. `active` mirrors the REAL browser state (the `fullscreenchange`
+		// listener in `stateFullscreen`), not a local flip — the player can leave via Esc
+		// without pressing this, and the icon must follow. Disabled where the API is absent
+		// (iPhone Safari has no Fullscreen API; iPad does) or the jurisdiction forbids it.
+		fullscreen: {
+			onpress: () => {
+				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				routeActionThroughFlow('fullscreen', doToggleFullscreen);
+			},
+			active: boolSource(() => stateFullscreen.active),
+			disabled: boolSource(
+				() => !isFullscreenSupported() || stateConfig.jurisdiction.disabledFullscreen,
+			),
 		},
 		// ButtonMenuClose — close the menu overlay. Mirrors `menu` so an authored
 		// submenu's close button projects an `onMenuClose` pin: wired into a

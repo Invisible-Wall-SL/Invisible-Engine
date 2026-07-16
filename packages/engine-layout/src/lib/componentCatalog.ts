@@ -182,6 +182,7 @@ export const ENGINE_ACTION_CATALOG: string[] = [
 	'settings',
 	'soundToggle',
 	'buyBonus',
+	'fullscreen',
 ];
 
 /**
@@ -203,6 +204,7 @@ export const ENGINE_ACTION_LABELS: Record<string, string> = {
 	soundToggle: 'sound on/off',
 	buyBonus: 'buy bonus',
 	autoSpin: 'auto spin',
+	fullscreen: 'fullscreen on/off',
 };
 
 /**
