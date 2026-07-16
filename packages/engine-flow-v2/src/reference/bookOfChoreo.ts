@@ -193,11 +193,14 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 						amount: itemA('win'),
 					},
 				},
+				// `animateWinSymbols`, NOT the raw `boardWithAnimateSymbols` cue: `positions` is the FULL
+				// payline path, so the cue would light the non-paying tail; this slices to the leftmost
+				// `kind` (as `showWinLine` does) so the lit cells match the traced line. Awaited as an
+				// action, so `hideWinLine` clears the line only once the symbols finish.
 				{
-					k: 'cue',
-					ref: 'boardWithAnimateSymbols',
-					wait: true,
-					inputs: { symbolPositions: itemA('positions') },
+					k: 'action',
+					ref: 'animateWinSymbols',
+					inputs: { positions: itemA('positions'), kind: itemA('kind') },
 				},
 				{
 					k: 'action',

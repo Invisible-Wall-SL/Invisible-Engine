@@ -348,6 +348,24 @@ const effects: Record<string, FlowEffect> = {
 	 * revealed (mirroring the coded `await`); non-animated draws resolve immediately. Scatter wins /
 	 * a disabled overlay are a no-op via the shared gate.
 	 */
+	/**
+	 * `winInfo` SYMBOL-ANIMATION leaf — light ONLY the symbols that actually pay. The server reports
+	 * the FULL payline path in a win's `positions`, but a left-to-right line pays just the leftmost
+	 * `kind` symbols and stops at the first non-matching reel, so feeding the raw `positions` to the
+	 * `boardWithAnimateSymbols` cue lights the non-paying tail (and any scatter the line crosses) too.
+	 * Slices with the SAME `winningPositionsOf` the coded handler + `showWinLine` use, so the lit cells
+	 * always match the traced line. Awaited: the chain blocks until the spines finish, so a following
+	 * `hideWinLine` clears the line only after the symbols are done.
+	 */
+	animateWinSymbols: async (payload) => {
+		await animateSymbols({
+			positions: winningPositionsOf({
+				positions: payload.positions as Position[],
+				kind: payload.kind as number,
+			}),
+		});
+	},
+
 	showWinLine: async (payload) => {
 		const win = {
 			positions: payload.positions as Position[],

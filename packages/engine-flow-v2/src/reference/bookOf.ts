@@ -361,6 +361,28 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			],
 			category: 'effect',
 		},
+		// Light ONLY the paying symbols of a win. Prefer this over the raw `boardWithAnimateSymbols`
+		// cue inside a `winInfo` forEach: a win's `positions` is the FULL payline path, but a
+		// left-to-right line pays only its leftmost `kind` symbols, so feeding the cue the raw
+		// `positions` lights the non-paying tail too. Slices exactly like `showWinLine`, so the lit
+		// cells always match the traced line.
+		{
+			name: 'animateWinSymbols',
+			params: [
+				{
+					name: 'positions',
+					type: list(POSITION),
+					description:
+						"The win's board positions (the FULL payline path) — only the leftmost `kind` are lit.",
+				},
+				{
+					name: 'kind',
+					type: INT,
+					description: 'How many symbols form the paying combination — the tail is not lit.',
+				},
+			],
+			category: 'effect',
+		},
 		// Win line — trace the paying combination + stamp its amount. `showWinLine` draws the line
 		// through the leftmost `kind` symbols of a win and reveals the amount below its end (awaited:
 		// an animated draw completes before the next step); `hideWinLine` clears it. Both no-op for a
