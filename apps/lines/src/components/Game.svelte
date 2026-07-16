@@ -88,6 +88,8 @@
 		hasAuthoredHud,
 		sceneLayerZIndex,
 		isSceneLayerPinned,
+		LAYER_BAND_BACKGROUND,
+		LAYER_BAND_BACKGROUND_CODED,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
 		sceneByRole,
@@ -1433,13 +1435,20 @@
 		REPLACES the reference background; absent ⇒ the coded `<Background>` renders as today.
 	-->
 	{#each bgScenes as scene (scene.id)}
-		<Container zIndex={-10}>
+		<Container zIndex={LAYER_BAND_BACKGROUND}>
 			<LayoutScene {scene} />
 		</Container>
 	{/each}
 
+	<!-- The coded background is WRAPPED at its own band rather than emitting its `-3..-1`
+			 children straight into the root: that keeps its internal order while leaving room for
+			 the BEHIND-the-reels band above it, so a screen ticked "Behind the reels" paints in
+			 front of the background and under the reels. Relative order is unchanged (authored
+			 background scenes stay behind the coded one), so this is parity for every game. -->
 	{#if !suppressCodedBackground}
-		<Background cover={backgroundCover} />
+		<Container zIndex={LAYER_BAND_BACKGROUND_CODED}>
+			<Background cover={backgroundCover} />
+		</Container>
 	{/if}
 
 	<ResumeBet />

@@ -260,6 +260,10 @@ function normalizeScene(input: unknown): Scene | null {
 	// whitelist entry the field is silently dropped on save (see `role` above — same bug).
 	// Sparse: stored only when true, so an untouched screen serializes exactly as before.
 	if (input.alwaysOnTop === true) scene.alwaysOnTop = true;
+	// Preserve the "Behind the reels" tick (`Scene.behindReels`) — the author's opt-in to the
+	// under-reel band. Same whitelist rule as `alwaysOnTop`/`role` above: unlisted ⇒ silently
+	// dropped on save. Sparse: stored only when true.
+	if (input.behindReels === true) scene.behindReels = true;
 	return scene;
 }
 

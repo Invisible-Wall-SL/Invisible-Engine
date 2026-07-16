@@ -68,6 +68,12 @@ A screen's position in the Screens list **is** its layer order in the game —
 higher in the list draws further back, lower draws in front. Drag the grip to
 re-stack it; there is no separate layer number to keep in sync.
 
+The list orders screens **above the reels**. The reel board is engine-owned and is
+not itself a screen, so dragging a screen above the **Base game** row does *not*
+put it behind the reels — for that, tick **Behind the reels** in Properties. That
+mounts the screen under the board and in front of the background; screens behind
+the reels still order against each other by their list position.
+
 Properties also carries an **Always on top** tick. Leave it off (the default) and
 the screen layers by its list position — the readout under the tick tells you
 which layer it currently is. Turn it on and the screen is **pinned above every
@@ -75,7 +81,12 @@ other screen**, so its list position stops mattering; rows pinned this way show 
 `TOP` badge in the Screens list. Use it for something transient that must never
 be buried — a loading splash, a big-win celebration — and leave it off for
 anything persistent you want to stack normally (a progress bar, an overlay).
-Round-blocking engine gates always draw above both.
+Round-blocking engine gates always draw above both. A screen ticked **Behind the
+reels** shows an `UNDER` badge instead; the two ticks are mutually exclusive.
+
+Bottom to top, the game draws: background screens → the coded background →
+**Behind the reels** screens → the reel board → the Screens list → **Always on
+top** screens → engine gates.
 
 To start from something:
 

@@ -884,8 +884,24 @@
 	function setSceneAlwaysOnTop(value: boolean): void {
 		const sc = scenes[activeSceneIdx];
 		if (!sc) return;
-		if (value) sc.alwaysOnTop = true;
-		else delete sc.alwaysOnTop;
+		if (value) {
+			sc.alwaysOnTop = true;
+			delete sc.behindReels; // contradictory — a screen can't be both pinned on top and under the reels.
+		} else delete sc.alwaysOnTop;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Mount the active screen BEHIND the reel board (engine `Scene.behindReels`). The list band
+	 * sits entirely above the board, so list position alone can never express this. Mutually
+	 * exclusive with `alwaysOnTop`. Sparse: cleared rather than stored false. */
+	function setSceneBehindReels(value: boolean): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value) {
+			sc.behindReels = true;
+			delete sc.alwaysOnTop;
+		} else delete sc.behindReels;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -1006,6 +1022,14 @@
 	 * code change. Prompts for a name, derives a slug, POSTs, then refreshes the
 	 * picker list in place. The server re-validates (slug + non-collision); its 400
 	 * message is surfaced. */
+	function postKind(body: Record<string, unknown>): Promise<Response> {
+		return fetch('/api/editor/kind', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+	}
+
 	async function saveAsNewKind(): Promise<void> {
 		const name = prompt('Name this new game kind (e.g. "Crash"):')?.trim();
 		if (!name) return;
@@ -1023,11 +1047,16 @@
 			updatedAt: '',
 		};
 		try {
-			const res = await fetch('/api/editor/kind', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ id, name, doc }),
-			});
+			let res = await postKind({ id, name, doc });
+			if (res.status === 409) {
+				// The id is taken — kinds are GLOBAL and the id comes from the name, so this
+				// is very likely someone ELSE's kind. Confirm before replacing it; the old
+				// code would have overwritten it silently.
+				const body = (await res.json().catch(() => ({}))) as { message?: string };
+				const msg = body.message ?? `A game kind "${id}" already exists.`;
+				if (!confirm(`${msg}\n\nOverwrite it?`)) return;
+				res = await postKind({ id, name, doc, overwrite: true });
+			}
 			if (!res.ok) {
 				let msg = `Save failed (${res.status}).`;
 				try {
@@ -1439,6 +1468,9 @@
 	 * without this the 1.2s debounce would re-fire and 409 forever. Local edits are
 	 * KEPT; `dirty` deliberately stays true. */
 	let conflict = $state(false);
+	/** ETag of the GLOBAL `_shared/editor-templates/<gameType>.json`. Re-adopted on
+	 * every template load/save, since switching game type switches the object. */
+	let templateEtag = $state<string | null>(data.templateEtag);
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
 	let nowTick = $state(Date.now());
 
@@ -1782,9 +1814,19 @@
 	async function loadTemplateFor(gameType: string): Promise<void> {
 		try {
 			const res = await fetch(`/api/editor/template?gameType=${encodeURIComponent(gameType)}`);
-			activeTemplate = res.ok ? ((await res.json()) as GameTemplate) : undefined;
+			if (res.ok) {
+				const out = (await res.json()) as { template: GameTemplate; etag: string | null };
+				activeTemplate = out.template;
+				// Adopt the new game type's etag — a save must CAS against the object it is
+				// actually about to write, not the one the page happened to load with.
+				templateEtag = out.etag;
+			} else {
+				activeTemplate = undefined;
+				templateEtag = null;
+			}
 		} catch {
 			activeTemplate = undefined;
+			templateEtag = null;
 		}
 		slotMeta = seedSlotMeta(activeTemplate);
 	}
@@ -1829,17 +1871,36 @@
 		};
 	}
 
+	function postTemplate(extra: Record<string, unknown>): Promise<Response> {
+		return fetch('/api/editor/template', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ...buildTemplate(), ...extra }),
+		});
+	}
+
 	async function saveTemplate(): Promise<void> {
 		if (templateBusy) return;
 		templateBusy = true;
 		templateStatus = null;
 		try {
-			const res = await fetch('/api/editor/template', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(buildTemplate()),
-			});
+			let res = await postTemplate({ baseEtag: templateEtag });
+			if (res.status === 409) {
+				// The template key is GLOBAL (one per game type, every project shares it), so
+				// the other author may be on a different project entirely. Confirm before
+				// discarding their slot edits — silently replacing them is what Phase 1 exists
+				// to stop.
+				const body = (await res.json().catch(() => ({}))) as { message?: string };
+				const msg = body.message ?? 'Someone else changed this template.';
+				if (!confirm(`${msg}\n\nOverwrite their version with yours?`)) {
+					templateStatus = { kind: 'error', message: msg };
+					return;
+				}
+				res = await postTemplate({ force: true });
+			}
 			if (res.ok) {
+				const body = (await res.json().catch(() => ({}))) as { etag?: string | null };
+				templateEtag = body.etag ?? null;
 				templateStatus = { kind: 'ok', message: 'Template saved' };
 			} else {
 				// API routes return `{ message }` for thrown `error(...)`; fall back to text.
@@ -2316,6 +2377,12 @@
 										title="Always on top — this screen is pinned above every other screen, so its position in this list is ignored. Untick it in Properties to layer it here."
 										aria-label="Always on top">TOP</span
 									>
+								{:else if s.behindReels}
+									<span
+										class="screen-behind"
+										title="Behind the reels — this screen mounts under the reel board, in front of the background. It still orders against other behind-the-reels screens by its position here."
+										aria-label="Behind the reels">UNDER</span
+									>
 								{/if}
 								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
 							</button>
@@ -2677,6 +2744,22 @@
 							{activeScene.alwaysOnTop
 								? 'pinned above all screens — list order ignored'
 								: `layer ${activeSceneIdx + 1} of ${sceneCount} — set by the Screens list`}
+						</span>
+					</label>
+					<label
+						class="ontop-field"
+						title="Mount this screen BEHIND the reels — in front of the background, under the reel board. The Screens list only orders screens ABOVE the reels (the board is engine-owned), so dragging a screen above the base game row cannot express this on its own. Screens behind the reels still order among themselves by list position."
+					>
+						<input
+							type="checkbox"
+							checked={activeScene.behindReels === true}
+							onchange={(e) => setSceneBehindReels(e.currentTarget.checked)}
+						/>
+						<span>Behind the reels</span>
+						<span class="ontop-note">
+							{activeScene.behindReels
+								? 'under the reel board, in front of the background'
+								: 'above the reels — tick to move it under the board'}
 						</span>
 					</label>
 					{#if activeScene.space === 'standard'}
@@ -3369,6 +3452,18 @@
 		font-size: 11px;
 		color: #999;
 		cursor: pointer;
+	}
+	/* "Behind the reels" marker — this screen mounts under the board. */
+	.screen-behind {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		color: #6ea8c8;
+		background: #13212a;
+		border: 1px solid #1c3a4a;
+		border-radius: 3px;
+		padding: 0 4px;
+		flex: none;
 	}
 	.ontop-field input {
 		accent-color: #c8a45c;

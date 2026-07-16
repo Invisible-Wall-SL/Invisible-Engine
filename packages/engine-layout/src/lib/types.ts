@@ -625,6 +625,20 @@ export interface Scene {
 	 * bar) impossible to re-layer from the editor and gave no clue why.
 	 */
 	alwaysOnTop?: boolean;
+	/**
+	 * Mount this screen BEHIND the engine's reel board — in front of the background, under the
+	 * reels. The editor exposes it as the "Behind the reels" tick in a screen's Properties.
+	 *
+	 * The list-ordered band sits entirely ABOVE the board (which is engine-owned at the implicit
+	 * z 0 and is NOT itself layerable), so a screen's list position alone can never put it under
+	 * the reels — dragging an overlay above the `basegame` row looks like it should, and does
+	 * nothing. This tick is the only way to express it. Screens in the under-reel band still
+	 * order among themselves by list position.
+	 *
+	 * Ignored when {@link Scene.alwaysOnTop} is also set (contradictory; the editor keeps the two
+	 * mutually exclusive). Absent (the default) ⇒ the screen layers above the board as before.
+	 */
+	behindReels?: boolean;
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed

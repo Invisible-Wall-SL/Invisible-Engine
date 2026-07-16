@@ -30,6 +30,20 @@ import type { Scene } from './types';
  * Only an author who REORDERS these scenes in the editor changes the result.
  */
 
+/** Authored `space:'background'` scenes — the persistent full-bleed backdrop, behind
+ *  everything including the coded background. */
+export const LAYER_BAND_BACKGROUND = -1_000;
+/** The coded bundled `<Background>` — behind every authored screen, in front of an authored
+ *  background scene. It emits its own `-3..-1` children, so it is wrapped at this band to keep
+ *  that internal order while leaving room for {@link LAYER_BAND_BEHIND} above it. */
+export const LAYER_BAND_BACKGROUND_CODED = -900;
+/** Base zIndex of the BEHIND-THE-REELS band — where a screen the author ticked "Behind the
+ *  reels" ({@link Scene.behindReels}) mounts: in front of the background, BEHIND the engine's
+ *  reel board (which sits at the implicit 0). Ordered by doc index like the main band, so
+ *  under-reel screens keep their Screens-list order among themselves. Without this band every
+ *  list-ordered screen sat at `LAYER_BAND_BASE`+ — i.e. ABOVE the board — so no list position
+ *  could put an overlay behind the reels at all. */
+export const LAYER_BAND_BEHIND = -500;
 /** Base zIndex of the layerable band — above the base game (0), below the pinned band. */
 export const LAYER_BAND_BASE = 100;
 /** Base zIndex of the PINNED band — where a screen the author ticked "Always on top"
@@ -52,7 +66,14 @@ export const LAYER_BAND_TOP = 10_000;
  *
  * - ticked "Always on top" ⇒ `LAYER_BAND_TAKEOVER + docIndex` (author opted OUT of list
  *   ordering; still ordered against other pinned screens).
+ * - ticked "Behind the reels" ⇒ `LAYER_BAND_BEHIND + docIndex` — in front of the background,
+ *   BEHIND the engine's reel board. The list band sits entirely above the board, so this tick
+ *   is the ONLY way to author an under-reel overlay.
  * - otherwise ⇒ `LAYER_BAND_BASE + docIndex` — the screen-list position drives the stacking.
+ *
+ * "Always on top" WINS over "Behind the reels" — they are contradictory, and the editor keeps
+ * them mutually exclusive, so this only decides a hand-edited doc rather than silently picking
+ * the band an author never sees.
  *
  * Returns `undefined` when the id isn't in the doc (no override — the mount keeps its
  * default z / markup insertion order), so a game with an un-authored scene is unaffected.
@@ -64,7 +85,9 @@ export const sceneLayerZIndex = (
 	if (sceneId === undefined) return undefined;
 	const index = scenes.findIndex((scene) => scene.id === sceneId);
 	if (index < 0) return undefined;
-	return (scenes[index].alwaysOnTop ? LAYER_BAND_TAKEOVER : LAYER_BAND_BASE) + index;
+	const scene = scenes[index];
+	if (scene.alwaysOnTop) return LAYER_BAND_TAKEOVER + index;
+	return (scene.behindReels ? LAYER_BAND_BEHIND : LAYER_BAND_BASE) + index;
 };
 
 /** True when the screen is pinned above the list-ordered band ({@link sceneLayerZIndex}). */
