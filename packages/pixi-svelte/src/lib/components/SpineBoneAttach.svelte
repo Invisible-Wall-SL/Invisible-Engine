@@ -69,6 +69,27 @@
 		return bone;
 	}
 
+	/**
+	 * The scale of `from` expressed in `parent`'s frame — i.e. how much of `from`'s world scale this
+	 * container does NOT already inherit through its own parent chain.
+	 *
+	 * Magnitudes (`hypot` of each basis vector), never signed components: a rig may carry a negative
+	 * axis for a y-flip or a mirrored skin, and a signed ratio would silently mirror the attachment
+	 * instead of sizing it. A zero/absent parent scale degrades to 1 rather than dividing by zero.
+	 */
+	function worldScaleRatio(
+		from: PIXI.Matrix,
+		parent: PIXI.Container | null,
+	): { x: number; y: number } {
+		const fx = Math.hypot(from.a, from.b);
+		const fy = Math.hypot(from.c, from.d);
+		if (!parent) return { x: fx, y: fy };
+		const p = parent.worldTransform;
+		const px = Math.hypot(p.a, p.b);
+		const py = Math.hypot(p.c, p.d);
+		return { x: px ? fx / px : 1, y: py ? fy / py : 1 };
+	}
+
 	function follow(): void {
 		const offset = props.offset ?? { x: 0, y: 0 };
 		// Resolve the bone BEFORE asking for its position. `getBonePosition` returns the `outPos` we
@@ -103,7 +124,23 @@
 					container.rotation = -b.getWorldRotationX() * DEG_TO_RAD;
 				}
 				if (props.followScale) {
-					container.scale.set(b.getWorldScaleX(), b.getWorldScaleY());
+					// The bone's scale is SKELETON-space (~1), so it excludes whatever scale the rig
+					// itself is drawn at — and this container is NOT reliably a child of the rig, so it
+					// cannot inherit it either: `BaseSpineProvider` adds the spine to the parent but
+					// never `createContextParent(spine)`, which leaves us a SIBLING of the spine in the
+					// `<SpineProvider>` host. A rig fitted to `width`/`height` therefore drew its
+					// attachment at ~1 while the rig drew at its fit scale, so the attached thing
+					// rendered several times oversized and mostly off-frame.
+					//
+					// Fix it the way the position math above already works: take the bone's scale into
+					// WORLD space via the rig's own transform, then map it back into this container's
+					// parent frame. Where the container IS a rig descendant the two transforms cancel to
+					// 1, so that host is unchanged.
+					const rigToParent = worldScaleRatio(spine.worldTransform, container.parent);
+					container.scale.set(
+						b.getWorldScaleX() * rigToParent.x,
+						b.getWorldScaleY() * rigToParent.y,
+					);
 				}
 			}
 		}
