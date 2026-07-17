@@ -7,6 +7,7 @@
 
 	import Symbol from './Symbol.svelte';
 	import { getContext } from '../game/context';
+	import { stateGame } from '../game/stateGame.svelte';
 	import type { SymbolName, SymbolState } from '../game/types';
 
 	// The chosen book expanding symbol MERGED into an authored intro Spine RIG (the reusable
@@ -70,7 +71,9 @@
 	const followRotation = $derived(booleanParam('followRotation') ?? followRotationProp);
 	const followScale = $derived(booleanParam('followScale') ?? followScaleProp);
 	const symbolScale = $derived(numberParam('symbolScale') ?? symbolScaleProp);
-	const symbolState = $derived((stringParam('symbolState') as SymbolState | undefined) ?? symbolStateProp);
+	const symbolState = $derived(
+		(stringParam('symbolState') as SymbolState | undefined) ?? symbolStateProp,
+	);
 
 	type Phase = 'hidden' | 'intro' | 'idle';
 
@@ -103,6 +106,20 @@
 			phase = 'intro';
 		});
 
+	/**
+	 * The symbol to ride on the bone. The `specialBookReveal` cue payload wins when it carries one
+	 * (a game that flips through symbols before landing drives it that way), but it FALLS BACK to
+	 * `stateGame.specialSymbol` — the chosen expanding symbol, the SAME field the counter's
+	 * `ExpandingSymbol` reads and the `setSpecialSymbol` effect writes.
+	 *
+	 * The fallback exists because the two are separate delivery paths: the cue only TRIGGERS the
+	 * reveal (it can fire with no symbol, which still plays the rig animation), whereas the symbol
+	 * IDENTITY has a single source of truth in state. Sourcing it here means a valid chosen symbol
+	 * always renders on the bone even when the cue arrives empty — the symbol can't show in the
+	 * counter but go missing on the cage.
+	 */
+	const shownName = $derived(displayName ?? (stateGame.specialSymbol as SymbolName | null));
+
 	context.eventEmitter.subscribeOnMount({
 		specialBookReveal: ({ symbol }) => play(symbol),
 		specialBookHide: () => hide(),
@@ -128,11 +145,11 @@
 					},
 				}}
 			/>
-			{#if displayName && symbolBone}
+			{#if shownName && symbolBone}
 				<SpineBoneAttach boneName={symbolBone} {offset} {followRotation} {followScale}>
 					<Container scale={symbolScale}>
 						<Symbol
-							rawSymbol={{ name: displayName }}
+							rawSymbol={{ name: shownName }}
 							state={symbolState}
 							loop={symbolState === 'bookIdle'}
 						/>
