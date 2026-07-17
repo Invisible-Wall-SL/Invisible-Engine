@@ -29,6 +29,7 @@ import type {
 	FunctionLibraryDoc,
 	Guard,
 	Node,
+	ParamDecl,
 	Pin,
 	TemplateVocabulary,
 	TypeRef,
@@ -51,13 +52,26 @@ export interface PinContext {
 const EXEC_IN: Pin = { id: 'exec', dir: 'in', kind: 'exec' };
 const EXEC_OUT: Pin = { id: 'exec', dir: 'out', kind: 'exec' };
 
-const dataIn = (id: string, dataType: TypeRef, label?: string): Pin => ({
+const dataIn = (
+	id: string,
+	dataType: TypeRef,
+	label?: string,
+	doc?: string,
+	optional?: boolean,
+): Pin => ({
 	id,
 	dir: 'in',
 	kind: 'data',
 	dataType,
 	label,
+	doc,
+	optional,
 });
+
+/** A vocab param (an action's/cue's declared field) → its data-in pin. Carries the decl's
+ *  `description` and `optional` through, so the editor tooltip + the validator's required-ness both
+ *  follow the vocabulary rather than being re-stated per node (§2, anti-drift). */
+const paramIn = (p: ParamDecl): Pin => dataIn(p.name, p.type, p.name, p.description, p.optional);
 
 const dataOut = (id: string, dataType: TypeRef, label?: string, doc?: string): Pin => ({
 	id,
@@ -216,12 +230,12 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 		}
 		case 'action': {
 			const decl = ctx.vocab.actions.find((a) => a.name === node.ref);
-			const ins = (decl?.params ?? []).map((p) => dataIn(p.name, p.type, p.name));
+			const ins = (decl?.params ?? []).map(paramIn);
 			return [EXEC_IN, EXEC_OUT, ...ins];
 		}
 		case 'fireCue': {
 			const decl = ctx.vocab.cues.find((c) => c.name === node.ref);
-			const ins = (decl?.payload ?? []).map((p) => dataIn(p.name, p.type, p.name));
+			const ins = (decl?.payload ?? []).map(paramIn);
 			return [EXEC_IN, EXEC_OUT, ...ins];
 		}
 		case 'delay':

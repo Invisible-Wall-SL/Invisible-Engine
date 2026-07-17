@@ -61,6 +61,10 @@ export interface Pin {
 	 *  editor tooltip; derived from the vocabulary's `description` (an event/param's doc), never
 	 *  authored on the node. Absent ⇒ no rich tooltip (the pin just shows its label). */
 	doc?: string;
+	/** Data-ins only: this pin may be left with NO edge and NO stored source, because the effect
+	 *  behind it supplies its own default. Derived from the vocabulary's `ParamDecl.optional`, never
+	 *  authored on the node. Absent ⇒ required ⇒ `unfilled-data-in` when nothing feeds it. */
+	optional?: boolean;
 }
 
 /** A reference to a specific pin on a specific node. */
@@ -424,6 +428,17 @@ export interface ParamDecl {
 	/** Optional human help for this data field — what value it carries. Surfaced as the pin's
 	 *  editor tooltip (via the derived `Pin.doc`). */
 	description?: string;
+	/**
+	 * This param may be left UNFED — the implementing effect supplies its own default when the
+	 * payload field is absent. Absent ⇒ required ⇒ the validator reports `unfilled-data-in` on a
+	 * pin with no edge and no stored source.
+	 *
+	 * Declare it wherever the effect documents an "unset ⇒ …" default, or authoring the node
+	 * reports an error for doing exactly what the docs invite (`cameraEffect.durationMs`,
+	 * `enableSequentialReelStop.gaps`). It says nothing about the runtime — the effect's own
+	 * fallback is what makes it true; this only stops the validator claiming otherwise.
+	 */
+	optional?: boolean;
 }
 
 /**

@@ -56,9 +56,7 @@
 	// inspector renders them READ-ONLY here: no ref/field/data-source editing (that would alter the
 	// signature). Wiring TO/FROM their pins on the canvas is still allowed. (Adding/removing a
 	// function's inputs/outputs — which would change these — is a LATER feature.)
-	const isSignatureNode = $derived(
-		node.kind === 'functionEntry' || node.kind === 'functionResult',
-	);
+	const isSignatureNode = $derived(node.kind === 'functionEntry' || node.kind === 'functionResult');
 
 	// The node's derived pins — the summary + the DATA-IN editor list both read from these.
 	const pins = $derived<Pin[]>(derivePins(node, ctx, scope));
@@ -79,6 +77,17 @@
 		const stored = node.inputs?.[pin.id];
 		if (stored && stored.kind !== 'wire') return stored;
 		return defaultLiteral(pin.dataType);
+	};
+
+	// Whether that DataSource is the PHANTOM default rather than something the doc actually stores.
+	// The editor renders the default so a fresh pin isn't blank, but only `onchange` commits it — so
+	// accepting the default stores NOTHING and the pin stays unfilled. That bites hardest where the
+	// default IS the wanted value (an enum's first member, `false`): re-picking the value already
+	// shown fires no change event, so there is no interaction that would save it. The editors below
+	// render an unset pin honestly instead of showing a value the doc doesn't have.
+	const isUnset = (pin: Pin): boolean => {
+		const stored = node.inputs?.[pin.id];
+		return !stored || stored.kind === 'wire';
 	};
 
 	// --- ref-carrying editors --------------------------------------------------
@@ -289,9 +298,9 @@
 	<div class="fields">
 		{#if isSignatureNode}
 			<p class="ro-note">
-				This is the function's {node.kind === 'functionEntry' ? 'Entry' : 'Result'} node — it
-				carries the function's fixed signature. Wire to/from its pins to author the body; the
-				signature itself isn't editable here.
+				This is the function's {node.kind === 'functionEntry' ? 'Entry' : 'Result'} node — it carries
+				the function's fixed signature. Wire to/from its pins to author the body; the signature itself
+				isn't editable here.
 			</p>
 		{/if}
 
@@ -317,7 +326,8 @@
 				<span class="flabel">Hold until this screen completes (tap)</span>
 			</label>
 			<p class="hint">
-				Pauses the round after mounting until the overlay's <strong>Tap to continue</strong> fires its
+				Pauses the round after mounting until the overlay's <strong>Tap to continue</strong> fires
+				its
 				<code>complete</code> — the generic free-spin/intro/outro hold.
 			</p>
 		{/if}
@@ -486,16 +496,18 @@
 						</div>
 					{:else}
 						<div class="field">
-							<span class="pinname"
+							<span class="pinname" title={pin.doc ?? ''}
 								>{pin.label ?? pin.id}{#if pin.dataType}<span class="ptype"
 										>{typeLabel(pin.dataType)}</span
-									>{/if}</span
+									>{/if}{#if pin.optional}<span class="popt">optional</span>{/if}</span
 							>
 							{@render dataSourceEditor(
 								sourceFor(pin),
 								pin.dataType,
 								(s) => onInputChange(pin.id, s),
 								true,
+								isUnset(pin),
+								pin.optional === true,
 							)}
 						</div>
 					{/if}
@@ -510,6 +522,11 @@
 	type: TypeRef | undefined,
 	commit: (s: DataSource) => void,
 	allowWire: boolean,
+	/** `src` is the phantom default, not a stored value — render "nothing chosen", not a value the
+	 *  doc doesn't have. Only the node data-in list passes this; operand editors always store. */
+	unset = false,
+	/** The pin may legitimately stay unset (the effect defaults it) — say so instead of demanding. */
+	optional = false,
 )}
 	{@const mode = src.kind}
 	<div class="dse">
@@ -544,9 +561,14 @@
 				/>
 			{:else if lt.t === 'enum'}
 				<select
-					value={String(src.value ?? '')}
+					value={unset ? '' : String(src.value ?? '')}
 					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.value })}
 				>
+					{#if unset}
+						<!-- Without this, the select shows the first member as though it were chosen, and
+						     picking that member fires no change event — so it can never be stored. -->
+						<option value="" disabled>{optional ? '— default —' : '— choose —'}</option>
+					{/if}
 					{#each vocab.enums.find((en) => en.name === lt.name)?.values ?? [] as v (v)}
 						<option value={v}>{v}</option>
 					{/each}
@@ -558,14 +580,19 @@
 					placeholder="e.g. 2, 3, 4, 5, 6 — one per reel"
 					value={formatListLiteral(src.value)}
 					onchange={(e) =>
-						commit({ kind: 'literal', type: lt, value: parseListLiteral(e.currentTarget.value, lt.of) })}
+						commit({
+							kind: 'literal',
+							type: lt,
+							value: parseListLiteral(e.currentTarget.value, lt.of),
+						})}
 				/>
 			{:else if lt.t === 'struct' || lt.t === 'list'}
 				<span class="note">{typeLabel(lt)} must be wired</span>
 			{:else}
 				<input
 					type="number"
-					value={Number(src.value ?? 0)}
+					value={unset ? '' : Number(src.value ?? 0)}
+					placeholder={unset ? (optional ? 'default' : 'required') : ''}
 					step={lt.t === 'float' ? 'any' : '1'}
 					onchange={(e) =>
 						commit({ kind: 'literal', type: lt, value: Number(e.currentTarget.value) })}
@@ -705,6 +732,12 @@
 		font-size: 9px;
 		color: #fbbf24;
 		margin-left: 4px;
+	}
+	.popt {
+		font-size: 9px;
+		color: #64748b;
+		margin-left: 4px;
+		font-style: italic;
 	}
 	.fields {
 		display: flex;

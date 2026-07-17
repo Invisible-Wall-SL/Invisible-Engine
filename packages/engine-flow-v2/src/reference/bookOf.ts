@@ -304,18 +304,21 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{
 					name: 'durationMs',
 					type: MS,
+					optional: true,
 					description:
 						"How long the effect runs. Leave unset for the kind's own default (shake 400ms, flash 220ms, zoom punch 320ms, chromatic wobble 500ms).",
 				},
 				{
 					name: 'intensity',
 					type: FLOAT,
+					optional: true,
 					description:
 						"How hard it hits, as a multiplier of the effect's reference strength — not pixels. Unset ⇒ 1 (the reference). 0.5 = half as strong, 2 = twice. Capped at 4.",
 				},
 				{
 					name: 'blocking',
 					type: BOOL,
+					optional: true,
 					description:
 						'Whether the flow WAITS for the effect to finish before running the next node. Unset ⇒ false: the effect plays underneath the rest of the chain, which is almost always what a flourish wants. Set it true to hold the beat (e.g. flash, THEN reveal).',
 				},
@@ -339,8 +342,8 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{
 			name: 'enableSequentialReelStop',
 			params: [
-				{ name: 'gaps', type: { t: 'list', of: FLOAT } },
-				{ name: 'speeds', type: { t: 'list', of: FLOAT } },
+				{ name: 'gaps', type: { t: 'list', of: FLOAT }, optional: true },
+				{ name: 'speeds', type: { t: 'list', of: FLOAT }, optional: true },
 			],
 			category: 'effect',
 		},

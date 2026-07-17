@@ -1,12 +1,18 @@
 {
 	"name": "constants-shared",
 	"version": "0.0.0",
+	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
 	"license": "MIT",
 	"scripts": {
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint *.ts*"
+	},
+	"exports": {
+		".": "./index.ts",
+		"./particleConfig": "./particleConfig/index.ts",
+		"./*": "./*.ts"
 	},
 	"devDependencies": {
 		"eslint": "9.21.0",

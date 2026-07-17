@@ -441,6 +441,10 @@ const validateGraph = (
 			}
 			const src = node.inputs?.[pin.id];
 			if (!src) {
+				// An OPTIONAL param (`ParamDecl.optional`) is meant to be leavable — the effect behind it
+				// defaults the absent field. Erroring on it would flag the author for doing exactly what
+				// the param's own help invites ("unset ⇒ the kind's default").
+				if (pin.optional) continue;
 				issues.push({
 					code: 'unfilled-data-in',
 					severity: 'error',
