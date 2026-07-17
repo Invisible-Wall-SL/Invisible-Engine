@@ -311,6 +311,27 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 	let scatterTriggerPositions: { reel: number; row: number }[] = [];
 	let specialRaw: string | undefined; // the free-spin expanding symbol (raw Play4Fun name)
 
+	// A free-spin response carries its per-spin counter (`playedBonusSpin`) AFTER the board
+	// reveal (`playedSpin`). Translated in that order, the counter TICKS A BEAT LATE: it shows
+	// the PREVIOUS spin's number for the whole of the current spin's board (which is awaited, ~1s),
+	// then flicks forward as the board settles — so a 10-spin bonus visibly plays its last board
+	// reading "9 OF 10" and only reaches "10 OF 10" as the outro hides it. Capture the counter up
+	// front and emit its `updateFreeSpin` BEFORE the reveal instead, so "N OF total" is on screen
+	// while spin N actually plays. `played`/`left` are read from `playedBonusSpin`, so any
+	// retrigger that already grew `left` this response is reflected in the total. Non-free-spin
+	// responses (no `playedBonusSpin`) leave `bonusSpin` undefined ⇒ nothing changes.
+	const bonusSpin = events.find((e) => e.event === 'playedBonusSpin')?.context as
+		| { played?: number; left?: number }
+		| undefined;
+	let bonusCounterEmitted = false;
+	const emitBonusCounter = () => {
+		if (bonusCounterEmitted || !bonusSpin) return;
+		bonusCounterEmitted = true;
+		const played = bonusSpin.played ?? 0;
+		const left = bonusSpin.left ?? 0;
+		push({ type: 'updateFreeSpin', amount: Math.max(0, played - 1), total: played + left });
+	};
+
 	const flushWins = () => {
 		for (const c of pendingWins) {
 			const winAmount = toBookEventAmount(c.pay ?? 0, betBaseCents);
@@ -380,6 +401,9 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				// reels STOP on the NATURAL board — the special symbol sits in its
 				// own single positions, NOT pre-filled columns. The reveal therefore
 				// always carries the natural board (base game and free spins alike).
+				// Tick the free-spin counter to THIS spin's number FIRST (see `bonusSpin`
+				// above), so it leads the board rather than trailing it by a spin.
+				emitBonusCounter();
 				push({
 					type: 'reveal',
 					board: reels.map((reel) =>
@@ -455,9 +479,10 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				break;
 			}
 			case 'playedBonusSpin': {
-				const played = (e.context as { played?: number })?.played ?? 0;
-				const left = (e.context as { left?: number })?.left ?? 0;
-				push({ type: 'updateFreeSpin', amount: Math.max(0, played - 1), total: played + left });
+				// Normally the reveal above already emitted this spin's counter (leading the board).
+				// This is the fallback for a malformed response that carries the counter but no
+				// `playedSpin` — emit it here so the count is never simply dropped.
+				emitBonusCounter();
 				break;
 			}
 			case 'playedBonusSpins':
