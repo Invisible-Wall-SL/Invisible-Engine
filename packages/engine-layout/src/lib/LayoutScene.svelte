@@ -8,7 +8,7 @@
 	import { MainContainer } from 'components-layout';
 	import { Container } from 'pixi-svelte';
 
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import type { EffectNode } from './types';
@@ -29,14 +29,19 @@
 	// free-spin gate. Keyed by instance id (replace, not duplicate). Empty ⇒ nothing extra
 	// renders (parity — a scene with no tap-enabled overlay is byte-identical to before).
 	let tapSurfaces = $state<{ id: string; snippet: Snippet }[]>([]);
+	// register/unregister are imperative portal ops called from a descendant
+	// `ComponentInstance`'s `$effect`. Reading `tapSurfaces` here would make that read a
+	// dependency of the CALLER's effect, and the reassignment on the next line would then
+	// re-invalidate it — a self-referential effect loop (`effect_update_depth_exceeded`).
+	// `untrack` the reads so the mutation never leaks a dependency back into the caller.
 	setTapPortal({
 		register: (id, snippet) => {
-			const next = tapSurfaces.filter((t) => t.id !== id);
+			const next = untrack(() => tapSurfaces).filter((t) => t.id !== id);
 			next.push({ id, snippet });
 			tapSurfaces = next;
 		},
 		unregister: (id) => {
-			tapSurfaces = tapSurfaces.filter((t) => t.id !== id);
+			tapSurfaces = untrack(() => tapSurfaces).filter((t) => t.id !== id);
 		},
 	});
 
