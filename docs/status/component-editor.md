@@ -28,7 +28,8 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
-- 2026-07-14 — Tap-to-continue engine "press anywhere" prompt is now opt-IN per instance (`tapShowPrompt`, default hidden), via `ComponentInstance.svelte` + `tapToContinue.ts` ([detail in history](../history.md)).
+- 2026-07-17 — Tap-to-continue fixes: (a) the full-screen dim/hit surface now renders in true CANVAS space via a scene-scoped portal (`tapPortalContext` → `LayoutScene` renders it OUTSIDE `MainContainer`), so an overlay authored on a `game`/`standard`-space screen dims the whole window instead of a scaled band over the logo; (b) the engine "press anywhere" prompt is default-SHOWN again (`tapShowPrompt` reverted from the 2026-07-14 opt-in — a shipped loading gate lost its text), an author turns it OFF to draw their own ([detail in history](../history.md)).
+- 2026-07-14 — Tap-to-continue engine "press anywhere" prompt was made opt-IN per instance (`tapShowPrompt`, default hidden) — SUPERSEDED by the 2026-07-17 revert above.
 - 2026-06-30 — Flow-driven-game Phase 6: universal `action`/`visibleSource` tray, `visibleFor`/`screenAnchor`/custom-`options` UI, and per-instance spine-cue signal rebinding (`cueSignalOverrides`) ([detail in history](../history.md)).
 - 2026-06-25 — Button-state-driven spine animations (`SpineNode.stateAnimations`) + blank-default state-overlay pattern ([detail in history](../history.md)).
 - 2026-06-24 — Multi-version store + version browser (Inspect / Back to latest); Promote-to-shared button gated on `componentPublish` ([detail in history](../history.md)).

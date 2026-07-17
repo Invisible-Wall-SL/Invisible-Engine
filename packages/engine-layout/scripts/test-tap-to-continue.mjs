@@ -24,6 +24,7 @@ const bundled = await esbuild.build({
 			TAP_TO_CONTINUE_PARAMS,
 			isTapToContinueEnabled,
 			tapSignalOf,
+			tapShowPromptOf,
 			resolveComponentParams,
 		} from '../src/lib/index.ts';`,
 		resolveDir: HERE,
@@ -95,8 +96,14 @@ assert(
 );
 const showPrompt = mod.TAP_TO_CONTINUE_PARAMS.find((p) => p.key === mod.TAP_SHOW_PROMPT_PARAM);
 assert(
-	showPrompt?.kind === 'boolean' && showPrompt.default === false,
-	'engine-prompt param is boolean, default false (prompt hidden ⇒ opt-in)',
+	showPrompt?.kind === 'boolean' && showPrompt.default === true,
+	'engine-prompt param is boolean, default true (prompt shown unless turned off)',
+);
+// An unset param means SHOWN (default-shown); only an explicit `false` hides the prompt.
+assert(mod.tapShowPromptOf({}) === true, 'no param ⇒ engine prompt shown (default)');
+assert(
+	mod.tapShowPromptOf({ [mod.TAP_SHOW_PROMPT_PARAM]: false }) === false,
+	'explicit false ⇒ engine prompt hidden',
 );
 const toggle = mod.TAP_TO_CONTINUE_PARAMS.find((p) => p.key === mod.TAP_TO_CONTINUE_PARAM);
 assert(toggle?.kind === 'boolean' && toggle.default === false, 'toggle is boolean, default false');

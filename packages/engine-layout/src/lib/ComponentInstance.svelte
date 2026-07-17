@@ -64,6 +64,7 @@
 	} from './tapToContinue';
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
+	import { getTapPortal } from './tapPortalContext';
 
 	let { node, space, tap = $bindable() }: Props = $props();
 
@@ -161,10 +162,10 @@
 	// the same static params as `tapSignal`.
 	const tapDimColor = tapEnabled ? tapDimColorOf(staticParams) : 0x000000;
 	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
-	// The coded press surface takes `hidePrompt`; the instance param is now the INVERSE
-	// opt-in `tapShowPrompt` (default off ⇒ prompt hidden). So hide unless the author
-	// explicitly turned the engine prompt on. Flow-authored overlays draw their own prompt,
-	// so a freshly-enabled tap surface no longer stacks the built-in `MM_pressanywhere`.
+	// The coded press surface takes `hidePrompt`; the instance param is the INVERSE
+	// `tapShowPrompt` (default TRUE ⇒ prompt shown). So hide only when the author explicitly
+	// turned the engine prompt OFF (they draw their own continue graphic). A freshly-enabled
+	// tap surface shows the built-in `MM_pressanywhere` prompt by default.
 	const tapHidePrompt = tapEnabled ? !tapShowPromptOf(staticParams) : false;
 
 	// Complete-on-loaded (flow-driven-game §1): the FEED-TRIGGERED sibling of
@@ -623,14 +624,29 @@
 		firePress();
 	};
 
-	// Hoist the tap-to-continue surface out of this instance's transform: hand the
-	// `tapSurface` snippet UP to the caller (`LayoutNodeView`) via the bindable `tap` prop
-	// so it renders as a SIBLING of the transform wrapper (canvas/scene-root frame), not a
-	// transformed child. OFF (no tap) ⇒ `tap` stays undefined ⇒ nothing is hoisted and the
-	// componentInstance branch renders byte-identically. Init-stable (like the other tap
-	// reads), assigned once. `tapSurface` is a markup snippet, referenced here as a value.
+	// Hoist the tap-to-continue surface to the CANVAS frame. The surface is conceptually
+	// full-window (dim + hit area + prompt), so it must escape BOTH this instance's
+	// transform AND its host scene's `MainContainer` (which scales `game`/`standard`-space
+	// scenes to the design box — rendering a "full-canvas" dim there shrinks it to a band
+	// over the logo). Preferred path: register with the scene's tap PORTAL
+	// (`tapPortalContext`), which `LayoutScene` renders at its own top level, outside the
+	// `MainContainer`, in true canvas space (parity with the engine-owned free-spin gate).
+	// When registered we leave the bindable `tap` UNDEFINED so `LayoutNodeView` does NOT
+	// also render it inline (no double). FALLBACK: no scene portal in scope (an instance
+	// used outside any `LayoutScene`) ⇒ hand `tapSurface` up via `tap` for the legacy
+	// sibling hoist. OFF (no tap) ⇒ nothing registered and `tap` undefined ⇒ byte-identical.
+	const tapPortal = getTapPortal();
 	$effect(() => {
-		tap = tapComponent ? tapSurface : undefined;
+		if (!tapComponent) {
+			tap = undefined;
+			return;
+		}
+		if (tapPortal) {
+			tap = undefined;
+			tapPortal.register(node.id, tapSurface);
+			return () => tapPortal.unregister(node.id);
+		}
+		tap = tapSurface;
 	});
 </script>
 

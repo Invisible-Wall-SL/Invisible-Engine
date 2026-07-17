@@ -8,14 +8,37 @@
 	import { MainContainer } from 'components-layout';
 	import { Container } from 'pixi-svelte';
 
+	import type { Snippet } from 'svelte';
+
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
+	import { setTapPortal } from './tapPortalContext';
 
 	const { scene }: Props = $props();
 
 	const space = $derived(scene.space ?? 'game');
+
+	// Canvas-frame tap PORTAL (tapPortalContext): an overlay instance's full-screen tap
+	// surface (dim + hit area + prompt) must cover the real window, NOT the design box —
+	// so it can't render inside this scene's `MainContainer` (which re-centres + scales
+	// its children for `game`/`standard` space). Descendant `ComponentInstance`s register
+	// their tap surface here; we render each one at the scene's OWN top level, OUTSIDE the
+	// `MainContainer` wrapper, so it sits in true canvas space exactly like the engine-owned
+	// free-spin gate. Keyed by instance id (replace, not duplicate). Empty ⇒ nothing extra
+	// renders (parity — a scene with no tap-enabled overlay is byte-identical to before).
+	let tapSurfaces = $state<{ id: string; snippet: Snippet }[]>([]);
+	setTapPortal({
+		register: (id, snippet) => {
+			const next = tapSurfaces.filter((t) => t.id !== id);
+			next.push({ id, snippet });
+			tapSurfaces = next;
+		},
+		unregister: (id) => {
+			tapSurfaces = tapSurfaces.filter((t) => t.id !== id);
+		},
+	});
 
 	// Per-rig bone hosting: an `effect` node with a `hostSpineId` that names a placed spine in THIS
 	// scene is mounted INSIDE that rig's `<SpineProvider>` (so a bone layer rides the rig's bone + the
@@ -95,10 +118,25 @@
 	{/if}
 {/snippet}
 
+{#snippet body()}
+	{@render framed()}
+	<!--
+		Hoisted tap-to-continue surfaces (tapPortalContext): rendered at the SCENE's top
+		level — a sibling of `framed()`, OUTSIDE its `MainContainer` — so a full-screen
+		dim/hit surface authored on a `game`/`standard`-space screen covers the true canvas
+		instead of the scaled design box (the "dim doesn't fit / darkens the logo" bug).
+		Drawn AFTER the scene content so the gate paints on top, and inside the same
+		visibility gate so it follows the screen's own `visibleSource`. Empty ⇒ parity.
+	-->
+	{#each tapSurfaces as tap (tap.id)}
+		{@render tap.snippet()}
+	{/each}
+{/snippet}
+
 {#if visibilitySource}
 	<Container visible={liveVisible}>
-		{@render framed()}
+		{@render body()}
 	</Container>
 {:else}
-	{@render framed()}
+	{@render body()}
 {/if}

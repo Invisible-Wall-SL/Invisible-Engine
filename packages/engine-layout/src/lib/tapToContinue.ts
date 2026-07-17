@@ -34,10 +34,12 @@ export const TAP_DIM_COLOR_PARAM = 'tapDimColor';
 export const TAP_DIM_ALPHA_PARAM = 'tapDimAlpha';
 
 /** Param key: SHOW the engine's default press-to-continue prompt graphic over the tap
- * surface (`boolean`, default false — prompt HIDDEN). Flipped 2026-07-14 (owner decision):
- * a flow-authored overlay draws its OWN continue prompt, so the engine's `MM_pressanywhere`
- * sprite is opt-IN now — an author turns this on only when they want the built-in graphic.
- * The full-screen tap / Space still works regardless (the prompt is purely cosmetic). */
+ * surface (`boolean`, default true — prompt SHOWN). History: made opt-in (default false)
+ * on 2026-07-14 on the theory a flow-authored overlay always draws its own prompt; reverted
+ * to default-SHOWN on 2026-07-17 (owner decision) after a shipped loading gate lost its
+ * "tap to continue" text — the built-in graphic is the sensible default, an author who
+ * draws their own prompt turns this OFF. The full-screen tap / Space work regardless (the
+ * prompt is purely cosmetic). */
 export const TAP_SHOW_PROMPT_PARAM = 'tapShowPrompt';
 
 /**
@@ -62,7 +64,7 @@ export const TAP_TO_CONTINUE_PARAMS: ComponentParam[] = [
 	{ key: TAP_SIGNAL_PARAM, kind: 'string', label: 'Tap signal' },
 	{ key: TAP_DIM_COLOR_PARAM, kind: 'color', label: 'Dim colour' },
 	{ key: TAP_DIM_ALPHA_PARAM, kind: 'number', label: 'Dim opacity (0–1)' },
-	{ key: TAP_SHOW_PROMPT_PARAM, kind: 'boolean', default: false, label: 'Show engine prompt' },
+	{ key: TAP_SHOW_PROMPT_PARAM, kind: 'boolean', default: true, label: 'Show engine prompt' },
 ];
 
 /** Read whether an instance's resolved params switched the tap surface on. */
@@ -93,7 +95,8 @@ export function tapDimAlphaOf(params: Record<string, unknown>): number {
 }
 
 /** Read whether the tap surface should SHOW the engine's default prompt graphic. Default
- * false ⇒ the prompt is HIDDEN unless the author explicitly opts in (flipped 2026-07-14). */
+ * TRUE ⇒ the prompt is SHOWN unless the author explicitly turns it OFF (`=== false`); an
+ * absent/unset param means shown (reverted to default-shown 2026-07-17). */
 export function tapShowPromptOf(params: Record<string, unknown>): boolean {
-	return params[TAP_SHOW_PROMPT_PARAM] === true;
+	return params[TAP_SHOW_PROMPT_PARAM] !== false;
 }
