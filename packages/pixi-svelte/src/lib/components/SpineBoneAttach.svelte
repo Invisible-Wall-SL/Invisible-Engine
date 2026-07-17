@@ -71,7 +71,12 @@
 
 	function follow(): void {
 		const offset = props.offset ?? { x: 0, y: 0 };
-		const pos = spine?.getBonePosition(props.boneName, bonePoint);
+		// Resolve the bone BEFORE asking for its position. `getBonePosition` returns the `outPos` we
+		// hand it UNCHANGED on a missing bone (it only logs), so probing `pos` for truthiness can
+		// never detect one — it would read back last frame's leftover `bonePoint` and re-apply the
+		// world transform to it every tick, compounding a drift instead of taking the fallback below.
+		const b = resolveBone();
+		const pos = b ? spine?.getBonePosition(props.boneName, bonePoint) : undefined;
 		if (pos) {
 			// `pos` (== bonePoint) is in skeleton space. Lift it to Pixi WORLD coords (offset applied
 			// in the same world frame, matching the authoring stage), then map it back into THIS
@@ -93,7 +98,6 @@
 		// flipping page, a rising glow). Skeleton space is CCW / y-up, Pixi is CW / y-down, so
 		// world rotation is negated — same inversion `<SpineBone>` applies to y.
 		if (props.followRotation || props.followScale) {
-			const b = resolveBone();
 			if (b) {
 				if (props.followRotation) {
 					container.rotation = -b.getWorldRotationX() * DEG_TO_RAD;

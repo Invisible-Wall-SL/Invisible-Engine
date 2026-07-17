@@ -122,7 +122,11 @@
 		resolveFlowV2Press,
 	} from '../game/flowV2InterpreterHolder';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
-	import { freeSpinsCurrent, freeSpinsRemaining } from '../game/freeSpinCounterValues';
+	import {
+		freeSpinsCurrent,
+		freeSpinsRemaining,
+		freeSpinsTotal,
+	} from '../game/freeSpinCounterValues';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
@@ -441,9 +445,12 @@
 		// old coded overlay read (set in bookEventHandlerMap). A string source, so it
 		// renders verbatim through the text path. The `freeSpinCounter` scene's
 		// componentInstance binds its value node to this via `params.source: 'freeSpins'`.
-		freeSpins: textSource(
-			() => `${stateUi.freeSpinCounterCurrent} OF ${stateUi.freeSpinCounterTotal}`,
-		),
+		// Composed through the SAME finite-guarded readers as `freeSpinsCurrent`/`freeSpinsRemaining`
+		// above rather than off `stateUi` raw. This string was the one readout that could still render
+		// a non-number at the player: a mis-authored flow pin writes `undefined`, `updateFreeSpinCounter`
+		// turns that into `NaN` via `amount + 1`, and the gold BMFont has no letter glyphs — so "NaN OF 10"
+		// dropped to a blank where the count belongs, which reads as a layout bug rather than a wiring one.
+		freeSpins: textSource(() => `${freeSpinsCurrent()} OF ${freeSpinsTotal()}`),
 		// The name of the chosen book expanding symbol (empty until one is picked). A string
 		// source so an authored readout renders it verbatim; the LANDED symbol's ART is rendered
 		// by the `expandingSymbol` builtin (which reads `stateGame.specialSymbol` directly through

@@ -293,9 +293,19 @@ const effects: Record<string, FlowEffect> = {
 		}
 	},
 
-	/** Set the awarded free-spin total (`freeSpinTrigger`) — before the intro shows. */
+	/**
+	 * Set the awarded free-spin total (`freeSpinTrigger`) — before the intro shows.
+	 *
+	 * Also SEEDS `current` to 1, because nothing else can: `current` is only ever written by
+	 * `updateFreeSpinCounter`, which runs on `updateFreeSpin` — and that event does not arrive
+	 * until the first free spin has already RESOLVED. Without the seed the counter is shown by
+	 * `freeSpinCounterShow` reading a `current` nobody wrote (0 on a first session, or the last
+	 * session's final count on a repeat, since `exitFreeSpinOutro` used to leave it set), so spin
+	 * one rendered "10 OF 10" and only spin two onward counted correctly.
+	 */
 	setFreeSpinCounterTotal: (payload) => {
 		stateUi.freeSpinCounterTotal = payload.total as number;
+		stateUi.freeSpinCounterCurrent = 1;
 	},
 
 	/** Show the free-spin intro flag (`freeSpinTrigger`). */
@@ -318,9 +328,11 @@ const effects: Record<string, FlowEffect> = {
 		stateUi.freeSpinCounterShow = true;
 	},
 
-	/** Track the free-spin counter total (`freeSpinTrigger`). */
+	/** Track the free-spin counter total (`freeSpinTrigger`). Seeds `current` for the same reason
+	 *  {@link setFreeSpinCounterTotal} does — the two differ only in which chain authors them. */
 	setFreeSpinCounterTotalOnly: (payload) => {
 		stateUi.freeSpinCounterTotal = payload.total as number;
+		stateUi.freeSpinCounterCurrent = 1;
 	},
 
 	/** Broadcast the live free-spin counter update (`updateFreeSpin`) — `current = amount + 1`
@@ -364,11 +376,14 @@ const effects: Record<string, FlowEffect> = {
 		});
 	},
 
-	/** Clear the outro/counter flags + special symbol at the end of free spins (`freeSpinEnd`). */
+	/** Clear the outro/counter flags + special symbol at the end of free spins (`freeSpinEnd`).
+	 *  `current` is reset too, so the NEXT session's counter cannot briefly show this session's
+	 *  final count before its first `updateFreeSpin` lands. */
 	exitFreeSpinOutro: () => {
 		stateUi.freeSpinOutroShow = false;
 		stateGame.specialSymbol = null;
 		stateUi.freeSpinCounterShow = false;
+		stateUi.freeSpinCounterCurrent = 0;
 	},
 
 	/** Show the win presentation flags (`setWin`). */

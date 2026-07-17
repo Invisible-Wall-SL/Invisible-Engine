@@ -49,12 +49,25 @@
 		animationName = outroAnimation;
 	});
 
+	/**
+	 * Re-arm the outro animation each time the visual is shown.
+	 *
+	 * The track's `complete` listener parks on `idleAnimation`, and nothing put it back: the
+	 * `$effect` above only refires when `outroAnimation` CHANGES, which it never does across
+	 * sessions. So the first outro played `intro` → `idle`, and every outro after it opened
+	 * already parked on `idle` — the authored animation ran exactly once per page load.
+	 */
+	const armOutroAnimation = () => {
+		animationName = outroAnimation;
+		show = true;
+	};
+
 	const winLevelData = $derived(freeSpinOutroState.winLevelData);
 	const isBigWin = $derived(winLevelData?.type === 'big');
 	const countUpAmount = $derived(freeSpinOutroState.countUpAmount);
 
 	context.eventEmitter.subscribeOnMount({
-		freeSpinOutroShow: () => (show = true),
+		freeSpinOutroShow: () => armOutroAnimation(),
 		freeSpinOutroHide: () => (show = false),
 	});
 </script>
