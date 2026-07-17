@@ -90,7 +90,10 @@ const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfi
 
 /** Capture the boot config (first one wins). Returns the captured config so
  *  callers can immediately run the cross-check on the same data. */
-const captureConfig = (sid: string, events: Play4FunBookEvent[] | undefined): Play4FunConfigContext | null => {
+const captureConfig = (
+	sid: string,
+	events: Play4FunBookEvent[] | undefined,
+): Play4FunConfigContext | null => {
 	if (capturedConfig.has(sid)) return capturedConfig.get(sid)!;
 	const cfg = findConfigEvent(events);
 	if (!cfg) return null;
@@ -127,9 +130,13 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 	lines.push(`[stake-facade] config cross-check for sid=${sid}`);
 	lines.push(`  grid: ${gridReels}×${gridRows}${gridOk ? ' ✓' : ' ✗ (expected 5×3)'}`);
 	lines.push(`  paylines: ${cfg.paylines?.length ?? '?'} declared`);
-	lines.push(`  wilds: ${wildCount === 0 ? 'none ✓ (no wild substitution active)' : cfg.wildSymbols!.join(', ')}`);
-	if (unmapped.length) lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
-	if (orphaned.length) lines.push(`  mapping entries the server never declared: ${orphaned.join(', ')}`);
+	lines.push(
+		`  wilds: ${wildCount === 0 ? 'none ✓ (no wild substitution active)' : cfg.wildSymbols!.join(', ')}`,
+	);
+	if (unmapped.length)
+		lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
+	if (orphaned.length)
+		lines.push(`  mapping entries the server never declared: ${orphaned.join(', ')}`);
 
 	console.warn(lines.join('\n'));
 };
@@ -144,7 +151,9 @@ const isKnownSymbol = (sid: string, name: string): boolean => {
 	const key = `${sid}:${name}`;
 	if (!warnedUnknownSymbols.has(key)) {
 		warnedUnknownSymbols.add(key);
-		console.warn(`[stake-facade] reveal contained symbol "${name}" not declared in server config — passing through`);
+		console.warn(
+			`[stake-facade] reveal contained symbol "${name}" not declared in server config — passing through`,
+		);
 	}
 	return false;
 };
@@ -208,7 +217,10 @@ const computeWinLevel = (winCents: number, betCents: number): number => {
  *  in Node) to see the cents-↔-bookEvent conversion in the browser console.
  *  Useful when win amounts on screen don't match the expected dollar value. */
 const debugEnabled = (): boolean => {
-	const g = globalThis as { IE_DEBUG?: unknown; localStorage?: { getItem?: (k: string) => string | null } };
+	const g = globalThis as {
+		IE_DEBUG?: unknown;
+		localStorage?: { getItem?: (k: string) => string | null };
+	};
 	if (g.IE_DEBUG) return true;
 	try {
 		return g.localStorage?.getItem?.('IE_DEBUG') === '1';
@@ -238,7 +250,12 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
 		return 0;
 	}
 	const result = Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
-	ieLog('toBookEventAmount', { winCents, betCents, result, displayMultiplier: result / BOOK_AMOUNT_MULTIPLIER });
+	ieLog('toBookEventAmount', {
+		winCents,
+		betCents,
+		result,
+		displayMultiplier: result / BOOK_AMOUNT_MULTIPLIER,
+	});
 	return result;
 };
 
@@ -251,14 +268,8 @@ const padReel = (reel: string[]): string[] => {
 /** Normalise a spinWin's position payload into {reel,row} pairs shifted by the
  *  1-row top padding the reveal adds. Line wins carry `context.payline` (one
  *  row per reel); scatter/expanding wins carry an array of {reel,row}. */
-const winPositions = (c: {
-	mode?: string;
-	context?: unknown;
-}): { reel: number; row: number }[] => {
-	const ctx = c.context as
-		| { payline?: number[] }
-		| { reel: number; row: number }[]
-		| undefined;
+const winPositions = (c: { mode?: string; context?: unknown }): { reel: number; row: number }[] => {
+	const ctx = c.context as { payline?: number[] } | { reel: number; row: number }[] | undefined;
 	if (Array.isArray(ctx)) return ctx.map((p) => ({ reel: p.reel, row: p.row + 1 }));
 	const payline = (ctx as { payline?: number[] })?.payline;
 	if (payline) return payline.map((row, reel) => ({ reel, row: row + 1 }));
@@ -287,7 +298,13 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 	// win display by that premium factor (a $12.50 line win reads $0.25; small base
 	// wins collapse toward $0.01). Set from the `bet` event below.
 	let betBaseCents = 0;
-	let pendingWins: { what: string; occurs: number; mode?: string; pay: number; context?: unknown }[] = [];
+	let pendingWins: {
+		what: string;
+		occurs: number;
+		mode?: string;
+		pay: number;
+		context?: unknown;
+	}[] = [];
 	let runningTotal = 0;
 	let gameType: 'basegame' | 'freegame' = 'basegame';
 	let totalFs = 0;
@@ -337,7 +354,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				const betPerLine = typeof ctx.betPerLine === 'number' ? ctx.betPerLine : 0;
 				const numLines = Array.isArray(ctx.paylines) ? ctx.paylines.length : 0;
 				const baseBet = betPerLine * numLines;
-				betBaseCents = baseBet > 0 ? baseBet : ctx.total ?? 0;
+				betBaseCents = baseBet > 0 ? baseBet : (ctx.total ?? 0);
 				break;
 			}
 			case 'spinWin': {
@@ -348,7 +365,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 			}
 			case 'spinTrigger': {
 				const spins = (e.context as { spins?: { spins?: number }[] | number })?.spins;
-				totalFs = Array.isArray(spins) ? spins[0]?.spins ?? 0 : spins ?? 0;
+				totalFs = Array.isArray(spins) ? (spins[0]?.spins ?? 0) : (spins ?? 0);
 				break;
 			}
 			case 'playedSpin': {
@@ -365,7 +382,9 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				// always carries the natural board (base game and free spins alike).
 				push({
 					type: 'reveal',
-					board: reels.map((reel) => padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) }))),
+					board: reels.map((reel) =>
+						padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) })),
+					),
 					paddingPositions: reels.map(() => 0),
 					anticipation: reels.map(() => 0),
 					gameType,
@@ -378,18 +397,16 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				// 3 specials: emit nothing — natural board, normal line pays.
 				if (gameType === 'freegame' && specialRaw) {
 					const specialReels: number[] = [];
-					let specialCount = 0;
 					reels.forEach((reel, reelIndex) => {
-						let hit = false;
-						for (const name of reel) {
-							if (name === specialRaw) {
-								specialCount += 1;
-								hit = true;
-							}
-						}
-						if (hit) specialReels.push(reelIndex);
+						if (reel.some((name) => name === specialRaw)) specialReels.push(reelIndex);
 					});
-					if (specialCount >= 3 && specialReels.length > 0) {
+					// The special expands, and pays, on the COUNT OF REELS it covers —
+					// not the raw symbol count. PIC1 (the top symbol) expands from 2
+					// reels, everything else from 3. This gate MUST match the RGS gate
+					// (`specialExpandsAt` in mock-rgs-server-book.mjs) so the reels that
+					// morph are exactly the reels that pay.
+					const minReels = specialRaw === 'PIC1' ? 2 : 3;
+					if (specialReels.length >= minReels) {
 						push({
 							type: 'expandBookColumns',
 							reels: specialReels,
@@ -461,7 +478,10 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				break;
 			}
 			case 'gameRoundOver':
-				push({ type: 'finalWin', amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betBaseCents) });
+				push({
+					type: 'finalWin',
+					amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betBaseCents),
+				});
 				break;
 			default:
 				push({ type: `_${e.event}`, raw: (e as { context?: unknown }).context });
@@ -552,12 +572,12 @@ export const requestAuthenticate = async (options: {
 		// Synthesised config so the bet UI boots. Levels in Stake API units.
 		config: {
 			betLevels: [
-				100_000,    // $0.10
-				200_000,    // $0.20
-				500_000,    // $0.50
-				1_000_000,  // $1.00
-				2_000_000,  // $2.00
-				5_000_000,  // $5.00
+				100_000, // $0.10
+				200_000, // $0.20
+				500_000, // $0.50
+				1_000_000, // $1.00
+				2_000_000, // $2.00
+				5_000_000, // $5.00
 				10_000_000, // $10.00
 				50_000_000, // $50.00
 				100_000_000, // $100.00
@@ -613,7 +633,10 @@ export const requestBet = async (options: {
 	const betBody: ReturnType<typeof buildBetActions> =
 		activeMapping === bookMapping
 			? [
-					{ action: 'bet', context: [isBuy ? 1 : 0, Math.max(1, Math.round(play4FunAmount / BOOK_NUM_LINES))] },
+					{
+						action: 'bet',
+						context: [isBuy ? 1 : 0, Math.max(1, Math.round(play4FunAmount / BOOK_NUM_LINES))],
+					},
 					{ action: 'play', context: '' },
 				]
 			: buildBetActions({
@@ -660,7 +683,7 @@ export const requestBet = async (options: {
 	// requests, so when a bet enters the bonus we drive the remaining spins +
 	// the closing `collect` here and concatenate every event.
 	const allEvents: Play4FunBookEvent[] = [
-		...(((first.response as { events?: Play4FunBookEvent[] } | undefined)?.events) ?? []),
+		...((first.response as { events?: Play4FunBookEvent[] } | undefined)?.events ?? []),
 	];
 	let lastResponse: Play4FunResponse | null = first.response;
 
@@ -674,7 +697,9 @@ export const requestBet = async (options: {
 			if (evs.some((e) => e.event === 'gameEnd')) break;
 		}
 		const collect = await fetcher.post({ body: buildCollectAction() });
-		allEvents.push(...(((collect.response as { events?: Play4FunBookEvent[] } | undefined)?.events) ?? []));
+		allEvents.push(
+			...((collect.response as { events?: Play4FunBookEvent[] } | undefined)?.events ?? []),
+		);
 		lastResponse = collect.response ?? lastResponse;
 	}
 
@@ -686,9 +711,11 @@ export const requestBet = async (options: {
 
 	// Two-step balance: interim (bet debited, win NOT yet credited) now; final
 	// stashed for requestEndRound to return after the count-up animation.
-	const finalCents = (lastResponse as { platform?: { balance?: number } } | null)?.platform?.balance ?? 0;
+	const finalCents =
+		(lastResponse as { platform?: { balance?: number } } | null)?.platform?.balance ?? 0;
 	const winCents =
-		(allEvents.find((e) => e.event === 'gameEnd')?.context as { win?: number } | undefined)?.win ?? 0;
+		(allEvents.find((e) => e.event === 'gameEnd')?.context as { win?: number } | undefined)?.win ??
+		0;
 	const interimCents = finalCents - winCents;
 	pendingFinalBalance.set(options.sessionID, finalCents);
 
@@ -764,10 +791,7 @@ export const requestReplay = async (options: {
 	rgsUrl: string;
 }): Promise<never> => {
 	void options;
-	throw new Error(
-		'rgs-translator-eagaming: replay not implemented for Play4Fun protocol yet',
-	);
+	throw new Error('rgs-translator-eagaming: replay not implemented for Play4Fun protocol yet');
 };
 
-export const getSessionState = (sid: string): Play4FunSessionState | undefined =>
-	sessions.get(sid);
+export const getSessionState = (sid: string): Play4FunSessionState | undefined => sessions.get(sid);

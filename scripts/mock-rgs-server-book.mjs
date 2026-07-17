@@ -69,8 +69,15 @@ const SCATTER_PAY = { 3: 2, 4: 20, 5: 200 }; // SCAT (the Book), × total stake
 
 /** pickRandomly probabilities for the special symbol, from the capture. */
 const SPECIAL_WEIGHTS = {
-	PIC1: 0.09, PIC2: 0.09, PIC3: 0.09, PIC4: 0.095,
-	ACE: 0.095, KING: 0.095, QUEEN: 0.11, JACK: 0.14, TEN: 0.195,
+	PIC1: 0.09,
+	PIC2: 0.09,
+	PIC3: 0.09,
+	PIC4: 0.095,
+	ACE: 0.095,
+	KING: 0.095,
+	QUEEN: 0.11,
+	JACK: 0.14,
+	TEN: 0.195,
 };
 const TOTAL_FS = 10;
 /** Extra free spins awarded when 3+ SCAT land during a free spin (retrigger). */
@@ -97,14 +104,26 @@ const buildConfigContext = () => ({
 	maxWinMp: [10000],
 	paytable: {
 		line: PAY_SYMBOLS.map((of) => {
-			const counts = Object.keys(PAY_TABLE_LINE[of]).map(Number).sort((a, b) => a - b);
-			return { on: { occurs: counts, of, mode: 'line' }, pay: counts.map((c) => PAY_TABLE_LINE[of][c]) };
+			const counts = Object.keys(PAY_TABLE_LINE[of])
+				.map(Number)
+				.sort((a, b) => a - b);
+			return {
+				on: { occurs: counts, of, mode: 'line' },
+				pay: counts.map((c) => PAY_TABLE_LINE[of][c]),
+			};
 		}),
 		scatter: [
-			{ on: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter' }, pay: [2, 20, 200], trigger: 'feature' },
+			{
+				on: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter' },
+				pay: [2, 20, 200],
+				trigger: 'feature',
+			},
 		],
 	},
-	symbolsPay: { line: ['PIC1', 'SCAT', ...PAY_SYMBOLS.filter((s) => s !== 'PIC1')], scatter: ['SCAT'] },
+	symbolsPay: {
+		line: ['PIC1', 'SCAT', ...PAY_SYMBOLS.filter((s) => s !== 'PIC1')],
+		scatter: ['SCAT'],
+	},
 	wildSymbols: ['SCAT'],
 	window: { reels: 5, rows: 3 },
 });
@@ -120,7 +139,8 @@ const evaluatePaylines = (reels, betPerLine) => {
 		if (!PAY_TABLE_LINE[first]) continue;
 		let count = 1;
 		for (let i = 1; i < seq.length; i++) {
-			if (seq[i] === first || seq[i] === 'SCAT') count++; // SCAT is wild
+			if (seq[i] === first || seq[i] === 'SCAT')
+				count++; // SCAT is wild
 			else break;
 		}
 		const mult = PAY_TABLE_LINE[first][count];
@@ -193,32 +213,58 @@ const evaluateScatterTrigger = (reels, totalStake) => {
 	};
 };
 
-/** Free-spin expanding special (Book mechanic): when the chosen special lands on
- *  3+ reels it expands to FILL each of those reels, then the board pays ONLY on
- *  the normal paylines (left-to-right from reel 1) — never scatter-style. This
- *  returns the EXPANDED board to feed straight into `evaluatePaylines`; below 3
- *  it returns the board unchanged. The 3+ gate and the set of expanded reels are
- *  identical to the client-side column morph (`expandBookColumns`, synthesised in
- *  the facade), so the cells that light a payline are exactly the cells that
- *  visibly morph. A special on NON-adjacent reels forms no left-aligned run and
- *  therefore pays nothing — only adjacent coverage from reel 1 makes a line. */
-const expandSpecialBoard = (reels, special) => {
-	const reelsWith = [];
-	let symbolCount = 0;
+/** The reels on which the chosen special symbol appears (its expansion set). */
+const reelsCovering = (reels, special) => {
+	const out = [];
 	for (let reel = 0; reel < reels.length; reel++) {
-		let hit = false;
-		for (let row = 0; row < reels[reel].length; row++) {
-			if (reels[reel][row] === special) {
-				symbolCount += 1;
-				hit = true;
-			}
-		}
-		if (hit) reelsWith.push(reel);
+		if (reels[reel].some((s) => s === special)) out.push(reel);
 	}
-	if (symbolCount < 3) return reels;
+	return out;
+};
+
+/** The minimum reel coverage that makes the special expand and pay. Mirrors the
+ *  paytable: royals and PIC2–4 pay from 3-of-a-kind, so they need 3 reels; PIC1
+ *  (the top symbol) pays from 2-of-a-kind, so it expands from 2 — the Book-of-Ra
+ *  deluxe rule. This gate MUST match the client morph gate in `stakeFacade.ts`
+ *  so the reels that visibly expand are exactly the reels that pay. */
+const specialExpandsAt = (special, reelCount) => reelCount >= (special === 'PIC1' ? 2 : 3);
+
+/** Free-spin expanding special (Book mechanic): when the chosen special covers
+ *  enough reels (see `specialExpandsAt`) it expands to FILL each of those reels.
+ *  This returns the EXPANDED board so the OTHER symbols can pay their normal
+ *  line wins on it; the special's OWN payout is handled scatter-style by
+ *  `evaluateExpandingSpecial`, not by the paylines. Callers only invoke this
+ *  when the special qualifies, so the expansion set is unconditional here. */
+const expandSpecialBoard = (reels, special) => {
+	const reelsWith = reelsCovering(reels, special);
 	return reels.map((reel, reelIndex) =>
 		reelsWith.includes(reelIndex) ? reel.map(() => special) : reel,
 	);
+};
+
+/** The expanding special pays like a scatter: on the COUNT OF REELS it covers
+ *  (adjacency-independent — a fully expanded reel puts the symbol on every
+ *  payline), at its line-paytable value × TOTAL stake. `mult × totalStake`
+ *  equals `mult × betPerLine × NUM_LINES` — the symbol paying that N-of-a-kind
+ *  on all ten lines at once. Positions are every cell of every covered reel
+ *  (post-expansion the whole reel). Returns null below the expand gate. */
+const evaluateExpandingSpecial = (reels, special, totalStake) => {
+	const reelsWith = reelsCovering(reels, special);
+	if (!specialExpandsAt(special, reelsWith.length)) return null;
+	const mult = PAY_TABLE_LINE[special]?.[reelsWith.length];
+	if (!mult) return null;
+	const positions = [];
+	for (const reel of reelsWith)
+		for (let row = 0; row < reels[reel].length; row++) positions.push({ reel, row });
+	return {
+		what: special,
+		occurs: reelsWith.length,
+		mode: 'scatter',
+		pay: mult * totalStake,
+		mpInfo: { mp: 1, replacements: 0 },
+		mpBonusInfo: null,
+		context: positions,
+	};
 };
 
 // ---------- bonus state snapshot helpers (faithful to capture shape) ----------
@@ -231,10 +277,20 @@ const bonusSnapshot = (round, extra = {}) => ({
 	left: round.bonus.left,
 	multiplier: {},
 	bonusTriggers: { feature: 1 },
-	bonusPlayed: { feature: { count: round.bonus.played, base: { count: 0, multiplierCount: 0 }, states: {} } },
-	spins: round.bonus.left > 0
-		? [{ spins: round.bonus.left, bonus: 'feature', trigger: { occurs: [4], of: 'SCAT', mode: 'scatter', from: '' }, state: round.bonus.special }]
-		: [],
+	bonusPlayed: {
+		feature: { count: round.bonus.played, base: { count: 0, multiplierCount: 0 }, states: {} },
+	},
+	spins:
+		round.bonus.left > 0
+			? [
+					{
+						spins: round.bonus.left,
+						bonus: 'feature',
+						trigger: { occurs: [4], of: 'SCAT', mode: 'scatter', from: '' },
+						state: round.bonus.special,
+					},
+				]
+			: [],
 	playing: 'feature',
 	state: round.bonus.special,
 	trigger: { occurs: [4], of: 'SCAT', mode: 'scatter', from: '' },
@@ -280,7 +336,11 @@ const corsHeaders = (req) => {
 };
 const sendJson = (req, res, status, body) => {
 	const text = JSON.stringify(body);
-	res.writeHead(status, { 'Content-Type': 'application/json', ...corsHeaders(req), 'Content-Length': Buffer.byteLength(text) });
+	res.writeHead(status, {
+		'Content-Type': 'application/json',
+		...corsHeaders(req),
+		'Content-Length': Buffer.byteLength(text),
+	});
 	res.end(text);
 };
 const sendCorsPreflight = (req, res) => {
@@ -325,7 +385,8 @@ export function createMockRgs(opts = {}) {
 
 	const sessions = new Map();
 	const getSession = (sid) => {
-		if (!sessions.has(sid)) sessions.set(sid, { balance: startBalance, round: null, configSent: false });
+		if (!sessions.has(sid))
+			sessions.set(sid, { balance: startBalance, round: null, configSent: false });
 		return sessions.get(sid);
 	};
 
@@ -363,7 +424,8 @@ export function createMockRgs(opts = {}) {
 		const sid = url.searchParams.get('sid');
 		const seq = Number(url.searchParams.get('seq') ?? 0);
 		const gid = url.searchParams.get('gid');
-		if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
+		if (!sid)
+			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
 
 		const session = getSession(sid);
 		const bodyText = await readBody(req);
@@ -371,11 +433,18 @@ export function createMockRgs(opts = {}) {
 		try {
 			actions = bodyText ? JSON.parse(bodyText) : [];
 		} catch {
-			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
+			return sendJson(req, res, 400, {
+				error: { code: 'ERR_VAL', message: 'body must be JSON array' },
+			});
 		}
-		if (!Array.isArray(actions)) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
+		if (!Array.isArray(actions))
+			return sendJson(req, res, 400, {
+				error: { code: 'ERR_VAL', message: 'body must be an array' },
+			});
 
-		console.log(`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
+		console.log(
+			`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`,
+		);
 
 		const events = [];
 		// Send the boot `config` on the first call AND on every heartbeat (empty
@@ -401,29 +470,66 @@ export function createMockRgs(opts = {}) {
 					const betPerLine = Number(ctx[1]) || 1;
 					const total = betPerLine * NUM_LINES * (isBuy ? 100 : 1);
 					if (session.balance < total) {
-						return sendJson(req, res, 200, { result: 0, error: 'insufficient balance', errorCode: 200, platform: { balance: session.balance } });
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'insufficient balance',
+							errorCode: 200,
+							platform: { balance: session.balance },
+						});
 					}
 					session.balance -= total;
-					round = { id: makeRoundId(), betPerLine, total, baseBet: betPerLine * NUM_LINES, isBuy, win: 0, bonus: null, closed: false };
+					round = {
+						id: makeRoundId(),
+						betPerLine,
+						total,
+						baseBet: betPerLine * NUM_LINES,
+						isBuy,
+						win: 0,
+						bonus: null,
+						closed: false,
+					};
 					events.push({ event: 'bet', context: { total, betPerLine, paylines: PAYLINES } });
 					events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
 					break;
 				}
 				case 'play': {
 					if (!round) {
-						return sendJson(req, res, 200, { result: 0, error: 'play without bet', errorCode: 110, platform: {} });
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'play without bet',
+							errorCode: 110,
+							platform: {},
+						});
 					}
 
 					// ----- FREE SPIN (round already in bonus) -----
 					if (round.bonus?.active) {
 						const reels = spinReels();
 						events.push(spinStartEvent(round));
-						// The special expands its reels (Book mechanic); the EXPANDED board
-						// pays strictly on the normal paylines — no scatter-style column pay.
-						const paidBoard = expandSpecialBoard(reels, round.bonus.special);
-						const wins = evaluatePaylines(paidBoard, round.betPerLine);
+						// Book mechanic: the chosen special is an expanding symbol. If it
+						// covers enough reels it pays scatter-style (on the reel count, ×
+						// total stake — adjacency-independent), THEN expands and lets the
+						// OTHER symbols pay their normal line wins on the expanded board.
+						// The special itself is excluded from the line pass so it is never
+						// paid twice. Below the gate it is a plain symbol: normal line
+						// evaluation on the natural board.
+						const special = round.bonus.special;
+						const specialWin = evaluateExpandingSpecial(reels, special, round.total);
+						let wins;
+						if (specialWin) {
+							const paidBoard = expandSpecialBoard(reels, special);
+							const lineWins = evaluatePaylines(paidBoard, round.betPerLine).filter(
+								(w) => w.what !== special,
+							);
+							wins = [specialWin, ...lineWins];
+						} else {
+							wins = evaluatePaylines(reels, round.betPerLine);
+						}
 						for (const w of wins) {
-							events.push({ event: 'bonusWin', context: { bonus: 'feature', pay: w.pay, isSpinWin: true } });
+							events.push({
+								event: 'bonusWin',
+								context: { bonus: 'feature', pay: w.pay, isSpinWin: true },
+							});
 							events.push({ event: 'spinWin', context: w });
 							round.win += w.pay;
 						}
@@ -491,10 +597,18 @@ export function createMockRgs(opts = {}) {
 						round.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS, special };
 						events.push({
 							event: 'spinTrigger',
-							context: { spins: [{ prob: 1, spins: TOTAL_FS }], occurs: scat?.count ?? 4, bonus: 'feature', trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' } },
+							context: {
+								spins: [{ prob: 1, spins: TOTAL_FS }],
+								occurs: scat?.count ?? 4,
+								bonus: 'feature',
+								trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
+							},
 						});
 						events.push({ event: 'playedSpin', context: reels });
-						events.push({ event: 'enterBonus', context: bonusSnapshot(round, { played: 0, left: TOTAL_FS }) });
+						events.push({
+							event: 'enterBonus',
+							context: bonusSnapshot(round, { played: 0, left: TOTAL_FS }),
+						});
 						events.push({
 							event: 'pickRandomly',
 							context: {
@@ -521,7 +635,12 @@ export function createMockRgs(opts = {}) {
 				}
 				case 'collect': {
 					if (!round || round.id !== gid) {
-						return sendJson(req, res, 200, { result: 0, error: 'unexpected action: collect', errorCode: 110, platform: {} });
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'unexpected action: collect',
+							errorCode: 110,
+							platform: {},
+						});
 					}
 					if (!round.closed) {
 						session.balance += round.win;
@@ -531,7 +650,12 @@ export function createMockRgs(opts = {}) {
 					break;
 				}
 				default:
-					return sendJson(req, res, 200, { result: 0, error: `unknown action: ${a.action}`, errorCode: 110, platform: {} });
+					return sendJson(req, res, 200, {
+						result: 0,
+						error: `unknown action: ${a.action}`,
+						errorCode: 110,
+						platform: {},
+					});
 			}
 		}
 
@@ -549,7 +673,8 @@ export function createMockRgs(opts = {}) {
 	/** Path-agnostic dispatcher. `url` is a parsed URL; routes match by suffix. */
 	const handle = async (req, res, url) => {
 		if (req.method === 'OPTIONS') return sendCorsPreflight(req, res);
-		if (req.method === 'GET' && pathEndsWith(url.pathname, '/healthz')) return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
+		if (req.method === 'GET' && pathEndsWith(url.pathname, '/healthz'))
+			return sendJson(req, res, 200, { ok: true, sessions: sessions.size });
 		if (req.method === 'GET' && pathEndsWith(url.pathname, '/state')) {
 			const sid = url.searchParams.get('sid');
 			if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
@@ -581,16 +706,20 @@ if (isMainModule) {
 		return mock.handle(req, res, url);
 	});
 	server.listen(PORT, () => {
-		console.log([
-			'',
-			'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-			'   ┃   I N V I S I B L E   W A L L   S L',
-			'   ┃   ────────────────────────────────────────',
-			'   ┃   MOCK RGS   ·   Play4Fun   ·   BOOK-OF',
-			'   ┃',
-			`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
-			'',
-		].join('\n'));
-		console.log(`[mock-book] listening on http://localhost:${PORT}  balance=${mock.startBalance} seed=${mock.seed ?? '(time)'} forceTrigger=${mock.forceTrigger}`);
+		console.log(
+			[
+				'',
+				'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+				'   ┃   I N V I S I B L E   W A L L   S L',
+				'   ┃   ────────────────────────────────────────',
+				'   ┃   MOCK RGS   ·   Play4Fun   ·   BOOK-OF',
+				'   ┃',
+				`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
+				'',
+			].join('\n'),
+		);
+		console.log(
+			`[mock-book] listening on http://localhost:${PORT}  balance=${mock.startBalance} seed=${mock.seed ?? '(time)'} forceTrigger=${mock.forceTrigger}`,
+		);
 	});
 }
