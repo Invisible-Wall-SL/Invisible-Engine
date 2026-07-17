@@ -1,4 +1,32 @@
-import type { LayoutNode, LayoutType, NodeOverride, ResolvedTransform } from './types';
+import type { LayoutNode, LayoutType, NodeOverride, ResolvedTransform, Scene } from './types';
+
+/**
+ * A node's effective position — `screenAnchor` folded into x/y for a `canvas`-space scene,
+ * raw x/y everywhere else. THE one implementation: the runtime (`<LayoutNodeView>`) and the
+ * editor (`editorCanvas.helpers.ts` — canvas draw, overlays, hit-testing) both call this, so
+ * "where does this node sit" cannot mean two different things in the two surfaces.
+ *
+ * It exists because they DID mean two different things. `screenAnchor` is defined only for
+ * `canvas`-space scenes ({@link BaseNode.screenAnchor}); the editor honoured that, the runtime
+ * applied the anchor in every space. A stray `screenAnchor` on a node in a `game` scene
+ * therefore rendered at `canvasWidth + x` — off-screen — while the editor drew it exactly
+ * where it was placed. The node was simply gone from the game, with no error and no warning.
+ * Keep this shared: two copies of this rule is precisely how that shipped.
+ */
+export function anchoredPosition(
+	transform: Pick<ResolvedTransform, 'x' | 'y' | 'screenAnchor'>,
+	space: Scene['space'],
+	canvasWidth: number,
+	canvasHeight: number,
+): { x: number; y: number } {
+	if (space === 'canvas' && transform.screenAnchor) {
+		return {
+			x: transform.screenAnchor.x * canvasWidth + transform.x,
+			y: transform.screenAnchor.y * canvasHeight + transform.y,
+		};
+	}
+	return { x: transform.x, y: transform.y };
+}
 
 /**
  * Merge base node transform with per-layoutType override. Override fields

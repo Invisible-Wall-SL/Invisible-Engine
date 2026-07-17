@@ -13,6 +13,7 @@
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
+		anchoredPosition,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
 		type ComponentDef,
@@ -295,19 +296,13 @@
 			// Canvas space = RAW window coords — the game renders these scenes with NO
 			// `<MainContainer>` (see `LayoutScene`), so x/y are window pixels, never the
 			// main→window mapping. A `screenAnchor` pins to a window edge; without one the
-			// x/y are used verbatim — matching the game's `LayoutNodeView`
-			// (`posX = screenAnchor ? screenAnchor·canvas + x : x`) and the spine render's
-			// canvas branch. Previously a canvas node WITHOUT a screenAnchor fell through to
-			// the game-space mapping below, so the editor placed it (and its selection box) at
-			// a DIFFERENT spot + scale than the game ships — every component dropped into a
-			// canvas-space scene mismatched. Returning here keeps editor == game.
-			return t.screenAnchor
-				? {
-						...t,
-						x: t.screenAnchor.x * frameWidth + t.x,
-						y: t.screenAnchor.y * frameHeight + t.y,
-					}
-				: t;
+			// x/y are used verbatim — via the SAME shared `anchoredPosition` the game's
+			// `LayoutNodeView` uses, so the two cannot drift. Previously a canvas node WITHOUT
+			// a screenAnchor fell through to the game-space mapping below, so the editor placed
+			// it (and its selection box) at a DIFFERENT spot + scale than the game ships —
+			// every component dropped into a canvas-space scene mismatched. Returning here
+			// keeps editor == game.
+			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
 		if (
 			space === 'background' &&
@@ -2405,11 +2400,14 @@
 		for (const [, r] of boneRiders) drawRiderSymbol(ctx, r, base);
 	}
 
-
 	/** Draw one stand-in symbol at its published world transform: the real preview atlas region
 	 * when set + resolvable, else a labelled symbol-sized box. `base` is the symbol size in world
 	 * px; the published `scaleX`/`scaleY` (symbolScale × the bone's world scale) size the box. */
-	function drawRiderSymbol(ctx: CanvasRenderingContext2D, r: BoneRiderTransform, base: number): void {
+	function drawRiderSymbol(
+		ctx: CanvasRenderingContext2D,
+		r: BoneRiderTransform,
+		base: number,
+	): void {
 		ctx.save();
 		ctx.translate(r.x, r.y);
 		if (r.rotation) ctx.rotate(r.rotation);
@@ -2436,7 +2434,12 @@
 
 	/** Draw the `previewImage` atlas region centred in a `w×h` box (already translated/rotated by
 	 * the caller). Returns false (→ labelled box) when the ref is unset or not yet resolvable. */
-	function drawRiderRegion(ctx: CanvasRenderingContext2D, ref: string, w: number, h: number): boolean {
+	function drawRiderRegion(
+		ctx: CanvasRenderingContext2D,
+		ref: string,
+		w: number,
+		h: number,
+	): boolean {
 		const scoped = parseScopedFrameRef(ref);
 		const region = scoped.region;
 		if (!region) return false;

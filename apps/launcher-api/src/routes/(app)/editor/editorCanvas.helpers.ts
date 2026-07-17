@@ -1,5 +1,6 @@
 import {
 	MAX_COMPONENT_DEPTH,
+	anchoredPosition,
 	resolveTransform,
 	type BoneRiderBinding,
 	type ComponentDef,
@@ -76,14 +77,7 @@ export function childLocalTransform(
 	frameHeight: number,
 ): ResolvedTransform {
 	const t = resolveTransform(node, layoutType);
-	if (space === 'canvas' && t.screenAnchor) {
-		return {
-			...t,
-			x: t.screenAnchor.x * frameWidth + t.x,
-			y: t.screenAnchor.y * frameHeight + t.y,
-		};
-	}
-	return t;
+	return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 }
 
 /**

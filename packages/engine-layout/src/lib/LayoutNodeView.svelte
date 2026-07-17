@@ -27,7 +27,7 @@
 	import { getContextLayout } from 'utils-layout';
 
 	import CatalogText from './CatalogText.svelte';
-	import { resolveTransform } from './resolveTransform';
+	import { anchoredPosition, resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
 	import {
@@ -75,16 +75,15 @@
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
 
-	// `canvas`-space nodes pin to a window edge: effective position is
-	// `screenAnchor * canvasSize + (x, y)` (x/y act as an offset from that edge).
-	// Absent screenAnchor → x/y are used verbatim (game/standard scenes).
+	// Effective position — `screenAnchor` pins a `canvas`-space node to a window edge (x/y
+	// then act as an offset from that edge); every other space uses x/y verbatim. Shared with
+	// the editor via `anchoredPosition` so the two surfaces cannot disagree about where a node
+	// sits — they did, and a `game`-space node carrying a `screenAnchor` silently rendered
+	// off-screen in the game while the editor drew it in place.
 	const canvas = $derived(layoutContext.stateLayoutDerived.canvasSizes());
-	const posX = $derived(
-		transform.screenAnchor ? transform.screenAnchor.x * canvas.width + transform.x : transform.x,
-	);
-	const posY = $derived(
-		transform.screenAnchor ? transform.screenAnchor.y * canvas.height + transform.y : transform.y,
-	);
+	const pos = $derived(anchoredPosition(transform, space, canvas.width, canvas.height));
+	const posX = $derived(pos.x);
+	const posY = $derived(pos.y);
 
 	// `background`-space sprites/spine cover- or contain-fit the canvas, driven by the
 	// SAME canonical doc readers the editor preview uses (`backgroundCoverScale` =
