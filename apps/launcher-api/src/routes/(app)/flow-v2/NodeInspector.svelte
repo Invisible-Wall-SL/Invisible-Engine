@@ -615,12 +615,16 @@
 				if (on === 'item') commit({ on: 'item' });
 				else if (on === 'index') commit({ on: 'index' });
 				else if (on === 'engine') commit({ on: 'engine', key: collections[0]?.name ?? '' });
+				else if (on === 'trigger') commit({ on: 'trigger' });
+				else if (on === 'context') commit({ on: 'context' });
 				else commit({ on: 'input', name: '' });
 			}}
 		>
+			<option value="trigger">$trigger</option>
 			<option value="item">$item</option>
 			<option value="index">$index</option>
 			<option value="engine">$engine</option>
+			<option value="context">$context</option>
 			<option value="input">$input</option>
 		</select>
 
@@ -633,6 +637,31 @@
 				onchange={(e) => {
 					const m = e.currentTarget.value.trim();
 					commit(m ? { on: 'item', member: m } : { on: 'item' });
+				}}
+			/>
+		{:else if acc.on === 'trigger'}
+			<!-- The field of the payload of whichever event's chain this node is on. Empty = the WHOLE
+					 payload (what an opaque mechanic effect like `revealBoard` consumes). A field that the
+					 owning event doesn't declare is caught by the validator's `accessor-unresolved`. -->
+			<input
+				class="acc-detail"
+				type="text"
+				placeholder="payload field (empty = whole event)"
+				value={acc.member ?? ''}
+				onchange={(e) => {
+					const m = e.currentTarget.value.trim();
+					commit(m ? { on: 'trigger', member: m } : { on: 'trigger' });
+				}}
+			/>
+		{:else if acc.on === 'context'}
+			<input
+				class="acc-detail"
+				type="text"
+				placeholder="context field (e.g. bookEvents)"
+				value={acc.member ?? ''}
+				onchange={(e) => {
+					const m = e.currentTarget.value.trim();
+					commit(m ? { on: 'context', member: m } : { on: 'context' });
 				}}
 			/>
 		{:else if acc.on === 'engine'}

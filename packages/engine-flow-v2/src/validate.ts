@@ -14,6 +14,12 @@
  *  - `data-in-shadowed`    — a data-in fed by BOTH an edge and a literal/accessor source. The edge
  *                            wins at runtime (`resolveDataIn` reads it first), so the stored source
  *                            is silently dead — a warning, not an error (the graph still runs).
+ *  - `signal-cross-event`  — a `gameSignals` data-out wired into a node that never runs on THAT
+ *                            event's exec chain. `resolveDataOut` reads a signal pin as
+ *                            `scope.trigger[<field>]` — the FIRING event's payload, whatever pin the
+ *                            wire was dragged from — so it resolves to `undefined` on every dispatch
+ *                            that reaches the target. Only the graph knows which chain a node sits
+ *                            on, so the runtime cannot catch this.
  *  - `literal-type`        — a `literal` DataSource whose value doesn't match the pin type.
  *  - `accessor-unresolved` — an `accessor` DataSource that doesn't resolve in scope.
  *  - `fn-requires`         — a `functionCall` whose target's `requires` isn't satisfied by the
@@ -64,6 +70,7 @@ export type FlowIssueCode =
 	| 'type-mismatch'
 	| 'unfilled-data-in'
 	| 'data-in-shadowed'
+	| 'signal-cross-event'
 	| 'literal-type'
 	| 'accessor-unresolved'
 	| 'fn-requires'
@@ -168,6 +175,70 @@ const collectIdCounts = (
 		if (n.kind === 'group') collectIdCounts(n.body, counts);
 	}
 	return counts;
+};
+
+/**
+ * A `showContainer`'s FUSED container-event exec-out (§6.1, pin id `<componentId>.on<Event>`) — as
+ * opposed to its plain `exec` continuation. These are their OWN entry roots, not part of the chain
+ * that mounted the container: `runContainerEvent` starts a FRESH run at the edge's target and seeds
+ * `trigger` with the COMPONENT EVENT's payload, not the event that led to the `showContainer`.
+ */
+const isContainerEventPin = (node: Node | undefined, pin: string): boolean =>
+	node?.kind === 'showContainer' && pin !== 'exec';
+
+/**
+ * Which dispatches can reach each node — its exec-chain owner set.
+ *
+ * `runEvent` seeds exactly ONE `scope.trigger` per dispatch (the firing event's payload), and the
+ * `gameSignals` node surfaces EVERY event's pins at once. So a signal's data-out is only meaningful
+ * on the chain of the event it belongs to: `resolveDataOut` reads it as `scope.trigger[<field>]`
+ * regardless of which pin it was dragged from. That fact is a property of the GRAPH (which entry
+ * reaches this node), not of any single node — hence this pass.
+ *
+ * Walks the exec edges from every entry, each carrying its own trigger identity:
+ *  - an `event` node → its `ref`;
+ *  - a wired `gameSignals` exec-out → the pin id (which IS the event name);
+ *  - a wired `showContainer` CONTAINER-EVENT pin → that pin's decl id (`<componentId>.on<Event>`),
+ *    deliberately NOT a vocab event name: its payload is the component event's, which the template
+ *    vocabulary does not declare, so `$trigger.<member>` on such a chain stays unjudged (never
+ *    guess) while a cross-event `gameSignals` WIRE into it is still correctly caught.
+ *
+ * Keyed by (node × trigger) so a cyclic graph is bounded. A node no entry reaches (an orphan chain)
+ * is ABSENT from the map — NEVER GUESS: callers leave it unchecked, matching how the scope pass
+ * treats an unresolvable scope. KNOWN under-reports, both deliberate and conservative: a node
+ * reachable from two chains is accepted if EITHER matches (it still resolves `undefined` on the
+ * other), and `runEvent` prefers a dedicated `event` node over a same-named `gameSignals` chain, so
+ * a shadowed signal chain is attributed an owner it never actually runs under.
+ */
+const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
+	const owners = new Map<string, Set<string>>();
+	const seen = new Set<string>();
+	const nodeById = new Map<string, Node>(graph.nodes.map((n) => [n.id, n]));
+
+	const walk = (nodeId: string, trigger: string): void => {
+		const stackKey = `${nodeId}|${trigger}`;
+		if (seen.has(stackKey)) return;
+		seen.add(stackKey);
+		let set = owners.get(nodeId);
+		if (!set) owners.set(nodeId, (set = new Set<string>()));
+		set.add(trigger);
+		for (const e of graph.exec) {
+			if (e.from.node !== nodeId) continue;
+			// A container-event pin re-roots below under its OWN trigger — it does not continue this one.
+			if (isContainerEventPin(nodeById.get(nodeId), e.from.pin)) continue;
+			walk(e.to.node, trigger);
+		}
+	};
+
+	for (const node of graph.nodes) {
+		for (const e of graph.exec) {
+			if (e.from.node !== node.id) continue;
+			if (node.kind === 'event') walk(e.to.node, node.ref);
+			else if (node.kind === 'gameSignals') walk(e.to.node, e.from.pin);
+			else if (isContainerEventPin(node, e.from.pin)) walk(e.to.node, e.from.pin);
+		}
+	}
+	return owners;
 };
 
 /**
@@ -288,6 +359,9 @@ const validateGraph = (
 	// forEach body it sits in (so what `$item` is) nor what an incoming data edge carries (so what a
 	// `forEach.in` fed by wire iterates). Both are what the two checks below need.
 	const { pins: pinsById, scopeItem } = deriveGraphPins(graph, ctx);
+	// Which event chain(s) reach each node — what makes a `gameSignals` wire / a `$trigger` accessor
+	// judgeable. Empty for a function body (no event/gameSignals entries there) ⇒ both checks skip.
+	const owners = eventOwners(graph);
 
 	// --- (a) every node `ref` resolves; container refs resolve against the doc's containers ---
 	for (const node of nodes) {
@@ -418,6 +492,33 @@ const validateGraph = (
 		}
 	}
 
+	// --- (d2) a `gameSignals` data-out only resolves on ITS OWN event's exec chain ---
+	// The signals node shows every event's pins at once, so a wire across chains LOOKS authored but
+	// reads `scope.trigger[<field>]` off the firing event's payload — i.e. `undefined`, which then
+	// becomes `NaN` inside any effect that does arithmetic on it. Silent at runtime by design (the
+	// interpreter never throws on an unresolved pin), so this is where it must be caught.
+	for (const edge of data) {
+		if (nodeById.get(edge.from.node)?.kind !== 'gameSignals') continue;
+		const dot = edge.from.pin.indexOf('.');
+		if (dot === -1) continue;
+		const event = edge.from.pin.slice(0, dot);
+		const reached = owners.get(edge.to.node);
+		// Absent ⇒ no entry reaches the target (an orphan chain) ⇒ never guess.
+		if (!reached || reached.has(event)) continue;
+		// Sorted so the message is deterministic. An owner may be a container-event chain rather than a
+		// vocab event, so the fix is phrased without naming a pin to re-source from (there may be none).
+		const on = [...reached]
+			.sort()
+			.map((e) => `'${e}'`)
+			.join(', ');
+		issues.push({
+			code: 'signal-cross-event',
+			severity: 'error',
+			message: `data edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin}: this pin carries the '${event}' payload, but ${edge.to.node} runs on ${on} — it resolves to undefined every dispatch. Move the node onto the '${event}' chain, or feed this pin from the event whose chain it is already on.`,
+			at: { on: 'dataEdge', from: edge.from, to: edge.to },
+		});
+	}
+
 	// --- (e) every non-wired data-in has a valid DataSource (literal type / accessor scope) ---
 	for (const node of nodes) {
 		const pins = pinsById.get(node.id)!;
@@ -453,7 +554,7 @@ const validateGraph = (
 				});
 				continue;
 			}
-			validateDataSource(node, pin, src, ctx, scopeItem.get(node.id), issues);
+			validateDataSource(node, pin, src, ctx, scopeItem.get(node.id), owners.get(node.id), issues);
 		}
 	}
 
@@ -486,6 +587,8 @@ const validateDataSource = (
 	ctx: PinContext,
 	/** The enclosing forEach's element type (`deriveGraphPins`), when derivable. */
 	scopeItem: TypeRef | undefined,
+	/** The event chain(s) that reach this node (`eventOwners`) — what types `$trigger`. */
+	triggerEvents: Set<string> | undefined,
 	issues: FlowIssue[],
 ): void => {
 	if (src.kind === 'wire') {
@@ -519,10 +622,50 @@ const validateDataSource = (
 		return;
 	}
 	// accessor — must resolve against the vocab/scope. `$engine.<key>` must be a known collection;
-	// `$item.<member>` must be a real field of the loop's element struct. The rule for scope-dependent
-	// accessors is NEVER GUESS: they are only checked where the graph pass actually resolved the
-	// enclosing scope (an unresolved `$trigger`/`$input`/orphan-chain scope is accepted structurally).
+	// `$item.<member>` must be a real field of the loop's element struct; `$trigger.<member>` must be
+	// a field of the event whose chain the node is on. The rule for scope-dependent accessors is
+	// NEVER GUESS: they are only checked where the graph pass actually resolved the enclosing scope
+	// (an unresolved `$input`/orphan-chain scope is accepted structurally).
 	const acc = src.path;
+	// `$trigger.<member>` is the accessor twin of the `signal-cross-event` wire check: both read the
+	// FIRING event's payload, so a member the owning event doesn't declare is `undefined` at runtime.
+	// (`accessorType` cannot type a `$trigger` read — it sees one node, not which chain it is on — so
+	// the general type check at the bottom is dead for it; the single-owner case is typed here.)
+	if (acc.on === 'trigger' && acc.member !== undefined && triggerEvents?.size) {
+		const decls = [...triggerEvents]
+			.map((name) => ctx.vocab.events.find((e) => e.name === name))
+			.filter((e) => e !== undefined);
+		// Judge ONLY when every owning trigger is a declared vocab event — a container-event chain
+		// (`<componentId>.on<Event>`) or a `complete:<screen>` entry has no declared payload to check.
+		if (decls.length === triggerEvents.size) {
+			const field = decls.flatMap((e) => e.payload).find((p) => p.name === acc.member);
+			if (!field) {
+				const fields = decls.flatMap((e) => e.payload.map((p) => p.name));
+				issues.push({
+					code: 'accessor-unresolved',
+					severity: 'error',
+					message: `accessor $trigger.${acc.member} on ${node.id}.${pin.id} is not a field of ${decls
+						.map((e) => `'${e.name}'`)
+						.join('/')} (${fields.length ? fields.join(', ') : 'no payload fields'})`,
+					at: { on: 'pin', node: node.id, pin: pin.id },
+				});
+				return;
+			}
+			// It resolves — now type it, but only from an UNAMBIGUOUS single owner: two owning events
+			// could declare the same field name at different types, and we never guess.
+			if (decls.length === 1 && pin.dataType && !assignable(field.type, pin.dataType)) {
+				issues.push({
+					code: 'type-mismatch',
+					severity: 'error',
+					message: `accessor $trigger.${acc.member} on ${node.id}.${pin.id} is ${typeName(
+						field.type,
+					)} but the pin is ${typeName(pin.dataType)}`,
+					at: { on: 'pin', node: node.id, pin: pin.id },
+				});
+				return;
+			}
+		}
+	}
 	if (acc.on === 'engine' && !ctx.vocab.collections.some((c) => c.name === acc.key)) {
 		issues.push({
 			code: 'accessor-unresolved',

@@ -42,7 +42,8 @@ import {
 	type FreeSpinOwnership,
 } from './freeSpinOwnership';
 import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
-import { stateBet, stateBetDerived, stateUi } from 'state-shared';
+import { freeSpinsRemaining, freeSpinsTotal } from './freeSpinCounterValues';
+import { stateBet, stateBetDerived } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { bakedFlowDoc } from '../editor-scenes';
@@ -162,9 +163,9 @@ export const linesEngineReader = (key: string): unknown => {
 		case 'isFreeGame':
 			return stateGame.gameType === 'freegame';
 		case 'freeSpinsRemaining':
-			return Math.max(stateUi.freeSpinCounterTotal - stateUi.freeSpinCounterCurrent, 0);
+			return freeSpinsRemaining();
 		case 'freeSpinsTotal':
-			return stateUi.freeSpinCounterTotal;
+			return freeSpinsTotal();
 		case 'reels': {
 			// The `reels` collection: one `{ index }` per board reel. Prefer the live board length
 			// (post-spin), else the static reel count (BOARD_DIMENSIONS.x) so `$engine.reels` is a

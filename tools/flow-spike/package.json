@@ -36,6 +36,7 @@
 		"v2containerevents": "tsx flowV2ContainerEvents.ts",
 		"v2containerfire": "tsx flowV2ContainerFire.ts",
 		"v2gamesignals": "tsx flowV2GameSignals.ts",
+		"v2signalscope": "tsx flowV2SignalScope.ts",
 		"v2preview": "tsx flowV2Preview.ts",
 		"v2lifecycle": "tsx flowV2Lifecycle.ts",
 		"v2translate": "tsx flowV2Translate.ts",

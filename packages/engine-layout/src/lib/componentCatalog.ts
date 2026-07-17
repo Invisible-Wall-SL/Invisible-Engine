@@ -46,6 +46,18 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'Total free spins awarded — the intro headline count (available during the intro).',
 	},
 	{
+		key: 'freeSpinsRemaining',
+		kind: 'number',
+		label: 'Free Spins Remaining',
+		note: 'Free spins still to play — counts DOWN to 0. Bind this for a descending counter (the `freeSpins` string always ascends).',
+	},
+	{
+		key: 'freeSpinsCurrent',
+		kind: 'number',
+		label: 'Free Spins Current',
+		note: 'The free spin being played — counts UP from 1. The ascending half of `freeSpins`, on its own.',
+	},
+	{
 		key: 'message',
 		kind: 'string',
 		label: 'Message',

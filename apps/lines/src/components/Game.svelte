@@ -122,6 +122,7 @@
 		resolveFlowV2Press,
 	} from '../game/flowV2InterpreterHolder';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
+	import { freeSpinsCurrent, freeSpinsRemaining } from '../game/freeSpinCounterValues';
 	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
@@ -429,6 +430,12 @@
 		// `freeSpinTrigger` handler (before the intro shows) so it's populated while the intro
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
+		// The two HALVES of the `freeSpins` string as bindable numbers, so an authored counter can
+		// choose its own direction + layout instead of inheriting the composed "current OF total".
+		// Both read `freeSpinCounterValues` — the same module the flow's `$engine.freeSpinsRemaining`
+		// read uses — so a readout and a flow branch cannot disagree about how many spins are left.
+		freeSpinsRemaining: valueSource(() => freeSpinsRemaining()),
+		freeSpinsCurrent: valueSource(() => freeSpinsCurrent()),
 		// Composed-string feed for the `freeSpinCounter` def's `value` param — the live
 		// "current OF total" the counter shows, sourced from the SAME `stateUi` fields the
 		// old coded overlay read (set in bookEventHandlerMap). A string source, so it

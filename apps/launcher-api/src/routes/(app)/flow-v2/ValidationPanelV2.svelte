@@ -29,6 +29,7 @@
 		'type-mismatch': '≠',
 		'unfilled-data-in': '○',
 		'data-in-shadowed': '⊗',
+		'signal-cross-event': '⤫',
 		'literal-type': '≠',
 		'accessor-unresolved': '✗',
 		'fn-requires': '⚠',
