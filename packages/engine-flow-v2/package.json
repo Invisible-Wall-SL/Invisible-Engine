@@ -6,6 +6,9 @@
 	"main": "./index.ts",
 	"types": "./index.ts",
 	"type": "module",
+	"dependencies": {
+		"constants-shared": "workspace:*"
+	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"format": "prettier --write --ignore-path=../../.prettierignore .",

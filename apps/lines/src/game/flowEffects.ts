@@ -22,6 +22,8 @@
  * helpers below, so there is one source of truth for each leaf.
  */
 
+import { runCameraEffect } from 'pixi-svelte';
+import { isCameraEffectKind } from 'constants-shared/camera';
 import { recordBookEvent, checkIsMultipleRevealEvents } from 'utils-book';
 import {
 	stateBet,
@@ -41,6 +43,7 @@ import {
 } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
+import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
@@ -162,6 +165,12 @@ export const winLineTextFor = ({
 
 const winLevelDataOf = (winLevel: number): WinLevelData => winLevelMap[winLevel as WinLevel];
 
+/** A flow payload field as a real number, or `undefined` so the callee's own default applies. The
+ *  payload is `Record<string, unknown>` fed from an authored doc, so a bare `as number` cast is an
+ *  assumption, not a check — an unwired pin arrives `undefined` and a bad literal arrives a string. */
+const numberOrUndefined = (value: unknown): number | undefined =>
+	typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
 /**
  * Coerce a sequential-stop knob payload into a PER-REEL override array (or null). A `list<float>`
  * from the Flow node is used as-is (indexed by reel); a lone number is broadcast to every reel; a
@@ -180,6 +189,31 @@ const toReelOverrides = (value: unknown): number[] | null => {
 // ---------------------------------------------------------------------------
 
 const effects: Record<string, FlowEffect> = {
+	/**
+	 * Full-screen camera effect (`cameraEffect`) — shake / flash / zoom punch / chromatic wobble,
+	 * played over the whole game. The kinds are engine-generic (`pixi-svelte`'s `cameraEffects`
+	 * drives the `Application.stage`); this effect is only the flow→engine bridge, so every game
+	 * that mounts `<App>` gets the same four by declaring the same action.
+	 *
+	 * `blocking` picks the return: a promise (the interpreter awaits it, holding the beat) versus
+	 * nothing (the flourish plays under the following nodes). Non-blocking is the default because a
+	 * shake that stalls the chain would delay the very reveal it is punctuating.
+	 *
+	 * An unknown/unset `kind` is a no-op rather than a throw — a mis-authored flourish must not take
+	 * a round down with it. The editor's dropdown makes that unreachable in practice; this guards a
+	 * doc authored against an older vocabulary.
+	 */
+	cameraEffect: (payload) => {
+		const kind = payload.kind;
+		if (!isCameraEffectKind(kind)) return;
+		const playing = runCameraEffect(stateApp.pixiApplication, {
+			kind,
+			durationMs: numberOrUndefined(payload.durationMs),
+			intensity: numberOrUndefined(payload.intensity),
+		});
+		return payload.blocking ? playing : undefined;
+	},
+
 	/**
 	 * `reveal` leaf — the bonus-game record + the awaited board spin. Mirrors the coded
 	 * `reveal` handler exactly: the bonus-game branch records the event (for resume) +

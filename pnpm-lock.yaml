@@ -1358,6 +1358,10 @@ importers:
         version: 5.8.3
 
   packages/engine-flow-v2:
+    dependencies:
+      constants-shared:
+        specifier: workspace:*
+        version: link:../constants-shared
     devDependencies:
       config-ts:
         specifier: workspace:*
@@ -1537,6 +1541,9 @@ importers:
       '@types/webfontloader':
         specifier: 1.6.28
         version: 1.6.28
+      constants-shared:
+        specifier: workspace:*
+        version: link:../constants-shared
       engine-fx:
         specifier: workspace:*
         version: link:../engine-fx

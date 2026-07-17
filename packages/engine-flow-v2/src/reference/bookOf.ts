@@ -25,6 +25,8 @@
  * the board-spin event so the whole game is flow-driven (event ownership, `game/utils.ts`).
  */
 
+import { CAMERA_EFFECT_KINDS } from 'constants-shared/camera';
+
 import type { TemplateVocabulary, TypeRef } from '../types';
 import { MUSIC_NAMES, SOUND_EFFECT_NAMES, SOUND_NAMES } from './soundEnums.generated';
 
@@ -39,6 +41,9 @@ const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
 // Sound-cue name enums — a dropdown of the game's REAL sound names in the inspector (vs a free-text
 // literal). Their members are codegen'd from `apps/lines/src/game/sound.ts` into `soundEnums.generated`
 // (`node scripts/gen-flow-v2-sound-enums.mjs`), so adding a sound updates the dropdown automatically.
+const CAMERA_EFFECT: TypeRef = { t: 'enum', name: 'CameraEffectKind' };
+const BOOL: TypeRef = { t: 'bool' };
+const MS: TypeRef = { t: 'ms' };
 const MUSIC: TypeRef = { t: 'enum', name: 'MusicName' };
 const SOUND_EFFECT: TypeRef = { t: 'enum', name: 'SoundEffectName' };
 const SOUND: TypeRef = { t: 'enum', name: 'SoundName' };
@@ -82,6 +87,10 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			values: ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'L5', 'S', 'W'],
 		},
 		{ name: 'GameType', values: ['basegame', 'freegame'] },
+		// The full-screen camera effects the engine implements. Shared verbatim with the runtime
+		// (`constants-shared/camera` → `pixi-svelte`'s `cameraEffects`), so the dropdown can never
+		// offer a kind the game would silently no-op.
+		{ name: 'CameraEffectKind', values: [...CAMERA_EFFECT_KINDS] },
 		// Sound-name enums — codegen'd from `sound.ts` (see the `MUSIC`/`SOUND` TypeRefs above).
 		{ name: 'MusicName', values: MUSIC_NAMES },
 		{ name: 'SoundEffectName', values: SOUND_EFFECT_NAMES },
@@ -277,6 +286,42 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 	// Actions — the `flowEffect` registry keys the game implements. `effect` = a state mutation /
 	// awaited op; `command` = a mechanic op. Every name here MUST resolve in `flowEffects.ts`.
 	actions: [
+		// --- full-screen camera effects ---
+		// ONE action for every kind rather than one action per effect: the kinds share a payload
+		// (how long, how hard) and differ only in how the engine draws them, so a `kind` dropdown
+		// keeps the palette from growing an entry per flourish. Kinds come from
+		// `constants-shared/camera`; `pixi-svelte`'s `cameraEffects` implements them against the
+		// stage — the one transform above the board, the HUD and every overlay.
+		{
+			name: 'cameraEffect',
+			params: [
+				{
+					name: 'kind',
+					type: CAMERA_EFFECT,
+					description:
+						'Which full-screen effect to play. Shake = a decaying rattle of the whole game; Flash = a white bloom over everything; Zoom punch = a quick push in and settle; Chromatic wobble = an oscillating RGB split.',
+				},
+				{
+					name: 'durationMs',
+					type: MS,
+					description:
+						"How long the effect runs. Leave unset for the kind's own default (shake 400ms, flash 220ms, zoom punch 320ms, chromatic wobble 500ms).",
+				},
+				{
+					name: 'intensity',
+					type: FLOAT,
+					description:
+						"How hard it hits, as a multiplier of the effect's reference strength — not pixels. Unset ⇒ 1 (the reference). 0.5 = half as strong, 2 = twice. Capped at 4.",
+				},
+				{
+					name: 'blocking',
+					type: BOOL,
+					description:
+						'Whether the flow WAITS for the effect to finish before running the next node. Unset ⇒ false: the effect plays underneath the rest of the chain, which is almost always what a flourish wants. Set it true to hold the beat (e.g. flash, THEN reveal).',
+				},
+			],
+			category: 'effect',
+		},
 		// --- state / presentation effects ---
 		{ name: 'setSpecialSymbol', params: [{ name: 'symbol', type: SYMBOL }], category: 'effect' },
 		{
@@ -405,7 +450,8 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{
 					name: 'symbol',
 					type: SYMBOL,
-					description: "The win's symbol. A scatter ('S') pays anywhere, so it draws no line (no-op).",
+					description:
+						"The win's symbol. A scatter ('S') pays anywhere, so it draws no line (no-op).",
 				},
 				{
 					name: 'amount',
@@ -421,7 +467,8 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				{
 					name: 'symbol',
 					type: SYMBOL,
-					description: "The win's symbol — matches the Show's gate so a no-op Show has a no-op Hide.",
+					description:
+						"The win's symbol — matches the Show's gate so a no-op Show has a no-op Hide.",
 				},
 			],
 			category: 'effect',

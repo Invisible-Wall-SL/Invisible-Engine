@@ -8,3 +8,6 @@ export * from './sanitizeBitmapText';
 // (the SAME pool `<EffectLayer>` mounts), so the authoring stage and the game render identically.
 export * from './spineParticleBehavior';
 export * from './spineBacking';
+// Full-screen camera effects (shake / flash / zoom punch / chromatic wobble) — they drive the
+// `Application.stage`, the one transform above every layer band, so they live with the app itself.
+export * from './cameraEffects';

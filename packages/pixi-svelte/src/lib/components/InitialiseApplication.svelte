@@ -4,6 +4,7 @@
 	import { devicePixelRatio } from 'svelte/reactivity/window';
 
 	import { getContextApp } from '../context.svelte';
+	import { disposeCameraEffects } from '../cameraEffects';
 	import { preloadFont } from '../utils.svelte';
 
 	type Props = { children: Snippet };
@@ -50,6 +51,9 @@
 
 	onDestroy(() => {
 		if (context.stateApp.pixiApplication) {
+			// Before `destroy()`: it kills the ticker first, so a camera effect can never observe the
+			// teardown itself and would leave an awaiting flow chain hanging forever.
+			disposeCameraEffects(context.stateApp.pixiApplication);
 			context.stateApp.pixiApplication.destroy();
 		}
 	});
