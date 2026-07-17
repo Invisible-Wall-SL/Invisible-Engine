@@ -96,6 +96,11 @@
 		}
 	}
 
+	/** The author's own "Play" link: same published URL plus the authoring flag, so a game that
+	 *  falls back to stale baked data says so on screen instead of looking healthy. Deliberately
+	 *  NOT applied to the copied/displayed URL — that one is for players. */
+	const playUrl = (url: string) => `${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`;
+
 	async function copyUrl(url: string, projectKey: string) {
 		try {
 			await navigator.clipboard.writeText(url);
@@ -237,7 +242,7 @@
 									{/if}
 								</button>
 								{#if p.published && p.url}
-									<a class="play" href={p.url} target="_blank" rel="noopener noreferrer">
+									<a class="play" href={playUrl(p.url)} target="_blank" rel="noopener noreferrer">
 										Play ↗
 									</a>
 									<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>

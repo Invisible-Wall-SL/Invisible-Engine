@@ -21,6 +21,7 @@ import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
 import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
+import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { upsertTestServerGame, type MockProtocol } from './testServerManifest';
 
 export interface PublishResult {
@@ -87,6 +88,9 @@ export async function publishGame(projectKey: string, launcherOrigin: string): P
 
 	// 2. Freshen deploy/ so the live runtime serves the current art/fonts/symbols.
 	await ensureDeployExports(projectKey, clientKey);
+	// A bundle assembled moments before this publish landed would keep being served for the
+	// rest of its TTL, so a publish-then-reload could still show pre-publish data. Drop it.
+	invalidateRuntimeBundle(projectKey);
 
 	// 3. The public read-only token (gates /api/editor/runtime + /api/deploy/f/...).
 	const readToken = await getOrMintReadToken(projectKey);

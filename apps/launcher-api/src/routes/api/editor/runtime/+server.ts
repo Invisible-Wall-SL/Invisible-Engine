@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { getDeployToken } from '$lib/server/appSettings';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectAllowsRead, projectClientKey } from '$lib/server/projects';
-import { buildRuntimeBundle } from '$lib/server/runtimeBundle';
+import { getRuntimeBundle } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -49,7 +49,10 @@ export const GET: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const bundle = await buildRuntimeBundle(projectKey);
+		// Single-flighted + briefly cached: assembling this re-runs every exporter (17-19s in
+		// production), so a per-request assemble made concurrent boots pile up and 502 — and a
+		// 502 silently drops the game onto stale baked data. See `runtimeBundleCache`.
+		const bundle = await getRuntimeBundle(projectKey);
 
 		// Absolute PATH prefix the runtime prepends to every deploy-relative asset
 		// path (`json`/`file`/`atlas`/`skeleton` below). MUST be the path form

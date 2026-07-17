@@ -203,26 +203,79 @@ async function loadLocalizationMessages(
 }
 
 /**
+ * Time one assembly step into `into`, so a slow/502-ing runtime boot can be pinned on the
+ * exporter actually responsible instead of guessed at. Every step is measured — a total
+ * without a breakdown is what made the 17-19s assemble opaque in the first place.
+ */
+async function step<T>(
+	label: string,
+	into: Record<string, number>,
+	run: () => Promise<T>,
+): Promise<T> {
+	const t0 = Date.now();
+	try {
+		return await run();
+	} finally {
+		into[label] = Date.now() - t0;
+	}
+}
+
+/** `a=120 b=90` — the per-step breakdown, slowest first (that's the one to fix). */
+function formatTimings(timings: Record<string, number>): string {
+	return Object.entries(timings)
+		.sort(([, a], [, b]) => b - a)
+		.map(([k, ms]) => `${k}=${ms}`)
+		.join(' ');
+}
+
+/**
  * Build the full runtime bundle for a project. Runs the art/font/symbol exports
  * FRESH (so the `deploy/` indices match the current doc), then reads each returned
  * index. Reuse this from both this endpoint and a future server-side Publish so the
  * two never diverge.
  *
+ * NOTE this is EXPENSIVE — seven exporters that list, re-serialize and write back to R2
+ * (17-19s in production for a real project). Game boots must go through
+ * `runtimeBundleCache.getRuntimeBundle`, which single-flights and briefly caches it;
+ * calling this directly per-request is what made `/api/editor/runtime` 502 intermittently
+ * and silently drop games onto stale baked data.
+ *
  * @param projectKey  the BARE launcher project key (the client is DB-resolved),
  *                    matching `/api/editor/doc` — NOT `<client>/<project>`.
  */
 export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBundle> {
+	const timings: Record<string, number> = {};
+	try {
+		return await assembleRuntimeBundle(projectKey, timings);
+	} finally {
+		// In a `finally` because the 502/slow case is the ONLY reason these timings exist — a
+		// breakdown that only prints on success can't tell you which exporter blew the budget.
+		// Steps that never started are simply absent from the line.
+		console.info(`[runtime] assembled "${projectKey}" — ${formatTimings(timings)}`);
+	}
+}
+
+async function assembleRuntimeBundle(
+	projectKey: string,
+	timings: Record<string, number>,
+): Promise<RuntimeBundle> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	// 1. Doc — same assembly as /api/editor/doc?components=1 (HUD name default +
 	//    spine-key rewrite + referenced defs + per-project component defaults).
-	const doc = (await loadEditorDoc(clientKey, projectKey)) as LayoutDoc;
-	applyHudGameNameDefault(doc, await projectName(projectKey));
-	resolveSpineKeysForGame(doc, clientKey, projectKey);
-	const componentDefaults = await listComponentDefaults(projectKey);
-	const { defs: componentDefs, versions: componentVersions } = await resolveReferencedDefs(
-		doc,
-		projectKey,
+	const doc = await step('doc', timings, async () => {
+		const loaded = (await loadEditorDoc(clientKey, projectKey)) as LayoutDoc;
+		applyHudGameNameDefault(loaded, await projectName(projectKey));
+		resolveSpineKeysForGame(loaded, clientKey, projectKey);
+		return loaded;
+	});
+	const componentDefaults = await step('componentDefaults', timings, () =>
+		listComponentDefaults(projectKey),
+	);
+	const { defs: componentDefs, versions: componentVersions } = await step(
+		'componentDefs',
+		timings,
+		() => resolveReferencedDefs(doc, projectKey),
 	);
 	// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
 	// scene tree, or their spines never load in the built game (key mismatch).
@@ -244,11 +297,11 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 		rigFx,
 		winTextDoc,
 	] = await Promise.all([
-		ensureDeployExports(projectKey, clientKey),
-		loadLocalizationMessages(clientKey, projectKey),
-		exportEffects(clientKey, projectKey),
-		exportRigFx(clientKey, projectKey),
-		loadWinTextDoc(clientKey, projectKey),
+		ensureDeployExports(projectKey, clientKey, timings),
+		step('localization', timings, () => loadLocalizationMessages(clientKey, projectKey)),
+		step('effects', timings, () => exportEffects(clientKey, projectKey)),
+		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
+		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
 	]);
 	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
 	// never-authored project, which would otherwise add a no-op key to the bundle. Mirrors the
@@ -306,10 +359,13 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
  * and a live fetch see the SAME exported assets — there is exactly one export path.
  *
  * @param clientKey  optional; DB-resolved from the project when omitted.
+ * @param timings    optional per-step collector (see `buildRuntimeBundle`); Publish passes
+ *                   nothing and just gets the exports.
  */
 export async function ensureDeployExports(
 	projectKey: string,
 	clientKey?: string,
+	timings: Record<string, number> = {},
 ): Promise<{
 	editorArt: EditorArtIndex;
 	fonts: { catalog: FontCatalog };
@@ -322,11 +378,11 @@ export async function ensureDeployExports(
 }> {
 	const client = clientKey ?? (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index] = await Promise.all([
-		exportEditorArt(client, projectKey),
-		exportEditorFonts(client, projectKey),
-		exportEditorSymbols(client, projectKey),
-		exportEditorFlow(client, projectKey),
-		exportEditorFlowV2(client, projectKey),
+		step('art', timings, () => exportEditorArt(client, projectKey)),
+		step('fonts', timings, () => exportEditorFonts(client, projectKey)),
+		step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
+		step('flow', timings, () => exportEditorFlow(client, projectKey)),
+		step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
 	]);
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
 	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`

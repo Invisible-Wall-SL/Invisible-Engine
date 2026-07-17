@@ -38,6 +38,11 @@
 		let out = `${url}${sep}project=${encodeURIComponent(projectKey)}`;
 		// This project's public read token, so the game can fetch its editor scenes at boot.
 		if (data.gameReadToken) out += `&k=${encodeURIComponent(data.gameReadToken)}`;
+		// Mark this as an AUTHORING boot: if the game can't reach its live authoring data and
+		// falls back to the last baked snapshot, say so on screen instead of silently rendering
+		// a stale game that looks fine. Only launcher links carry this — the published URL a
+		// player loads does not, so players keep getting the silent (working) fallback.
+		out += '&ie_authoring=1';
 		return out;
 	};
 

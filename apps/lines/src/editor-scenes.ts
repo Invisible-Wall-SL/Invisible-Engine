@@ -666,6 +666,140 @@ export function bakedFontSrcBase(): string {
 }
 
 /**
+ * URL flag the LAUNCHER adds to its own "launch game" links. It marks a boot as an
+ * AUTHORING boot, which is the only case that gets the on-screen stale-data banner —
+ * the same published URL is what players load, and a player who hits a transient launcher
+ * hiccup should get the (working) stale game, not a red developer warning. The console
+ * error + `window.__IE_RUNTIME_STALE__` below are set for everyone regardless.
+ */
+const AUTHORING_PARAM = 'ie_authoring';
+
+declare global {
+	/** Set on any boot that renders something OTHER than the project's live authoring —
+	 *  readable from the console / debug menu to tell "the tool didn't save it" apart from
+	 *  "the game never received it". Undefined on a healthy boot. */
+	// eslint-disable-next-line no-var
+	var __IE_RUNTIME_STALE__: { reason: string; at: string } | undefined;
+}
+
+/** Backoff before each retry. See {@link fetchRuntimeWithRetry} for why retrying pays. */
+const RUNTIME_RETRY_DELAYS_MS = [1_000, 3_000];
+
+/**
+ * Per-attempt cap. Must comfortably exceed a cold assemble (~17-19s) or we would abort runs
+ * that were about to succeed, but must exist at all: boot AWAITS this fetch, so a hung
+ * request with no timeout is an indefinitely black screen.
+ */
+const RUNTIME_ATTEMPT_TIMEOUT_MS = 30_000;
+
+/**
+ * Total budget across all attempts. Bounds the worst case for a PLAYER: on a hard launcher
+ * outage they wait this long at most before getting the (working) baked game, instead of
+ * three full attempt timeouts stacked back to back.
+ */
+const RUNTIME_FETCH_BUDGET_MS = 45_000;
+
+/**
+ * GET the runtime bundle, retrying a FAILED response (5xx / network error) a couple of
+ * times before giving up and letting the caller fall back to stale baked data.
+ *
+ * Retrying is worth it because of how the launcher assembles this: a bundle costs ~17-19s
+ * (it re-runs every exporter), and the endpoint single-flights + briefly caches the result
+ * (`runtimeBundleCache.ts`). So when the gateway 502s a slow assemble, the server is usually
+ * still finishing it — a retry JOINS that same run (or hits the warm cache) instead of
+ * starting another cold one. Without the server-side single-flight this retry would just
+ * pile on more load and lose the same race, so the two changes only work as a pair.
+ *
+ * A 4xx is NOT retried: a bad/expired `?k=` token will fail identically every time, and
+ * retrying only delays the (correct, loud) console error.
+ */
+async function fetchRuntimeWithRetry(url: string): Promise<Response> {
+	const deadline = Date.now() + RUNTIME_FETCH_BUDGET_MS;
+	for (let attempt = 0; ; attempt++) {
+		const last = attempt >= RUNTIME_RETRY_DELAYS_MS.length;
+		let failure: string;
+		try {
+			const res = await fetch(url, { signal: AbortSignal.timeout(RUNTIME_ATTEMPT_TIMEOUT_MS) });
+			// Client errors are deterministic — fail fast rather than retry a bad token.
+			if (res.ok || (res.status >= 400 && res.status < 500)) return res;
+			// On the last attempt return the response itself, so the caller reports the REAL status.
+			if (last) return res;
+			failure = `${res.status} ${res.statusText}`;
+		} catch (err) {
+			// A network failure on the last attempt must surface as a throw, so the caller logs the
+			// real message rather than a synthesized response.
+			if (last) throw err;
+			failure = err instanceof Error ? err.message : String(err);
+		}
+		const delay = RUNTIME_RETRY_DELAYS_MS[attempt];
+		if (Date.now() + delay >= deadline) {
+			throw new Error(
+				`live data fetch gave up after ${RUNTIME_FETCH_BUDGET_MS}ms — last: ${failure}`,
+			);
+		}
+		console.warn(
+			`[runtime] live data fetch failed (${failure}) — ` +
+				`retry ${attempt + 1}/${RUNTIME_RETRY_DELAYS_MS.length} in ${delay}ms`,
+		);
+		await new Promise((resolve) => setTimeout(resolve, delay));
+	}
+}
+
+/** Why the live-runtime fetch failed this boot, if it did — the REASON reported if we then
+ *  end up on stale data. Recorded rather than acted on, because a failed runtime fetch does
+ *  NOT by itself mean stale: boot falls through to the live `/api/editor/doc` path, which
+ *  often succeeds with the author's real data. Only {@link loadEditorScenes} knows which
+ *  source actually won, so only it decides whether to call {@link markRuntimeStale}. */
+let runtimeFetchFailure: string | undefined;
+
+const STALE_BANNER_ID = 'ie-stale-data-banner';
+
+/**
+ * Record that this boot is rendering data that is NOT the project's live authoring, and —
+ * for an authoring boot only — say so on screen.
+ *
+ * This exists because the silent version of this fallback is genuinely expensive: a game
+ * that quietly renders a pre-edit snapshot looks completely healthy, so the missing edit
+ * gets blamed on the tool that authored it. (A duplicated FX node was debugged as an
+ * "editor publishing bug" for an hour; it had saved and published correctly — the game had
+ * simply never received the live doc.) The global flag is always set so a console probe or
+ * the debug menu can read it.
+ *
+ * Call this ONLY once the losing data source is known — never on a fetch failure alone.
+ */
+function markRuntimeStale(reason: string): void {
+	if (typeof window === 'undefined') return;
+	// First reason wins: it is the proximate cause (e.g. the 502), whereas a later call
+	// reports only the downstream consequence (e.g. "bundled fallback").
+	if (window.__IE_RUNTIME_STALE__) return;
+	window.__IE_RUNTIME_STALE__ = { reason, at: new Date().toISOString() };
+
+	const params = new URLSearchParams(window.location.search);
+	if (params.get(AUTHORING_PARAM) !== '1') return;
+
+	const show = () => {
+		if (document.getElementById(STALE_BANNER_ID)) return;
+		const banner = document.createElement('div');
+		banner.id = STALE_BANNER_ID;
+		banner.textContent =
+			`⚠ STALE DATA — this game is NOT showing your live authoring, so recent edits are ` +
+			`missing. Reason: ${reason}. Reload to retry.`;
+		banner.setAttribute(
+			'style',
+			'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b3261e;color:#fff;' +
+				'font:600 13px/1.4 system-ui,sans-serif;padding:10px 40px 10px 14px;cursor:pointer;' +
+				'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+		);
+		banner.title = 'Click to dismiss';
+		banner.onclick = () => banner.remove();
+		document.body.appendChild(banner);
+	};
+	// This can run from `load()`, which may resolve before <body> exists.
+	if (document.body) show();
+	else window.addEventListener('DOMContentLoaded', show, { once: true });
+}
+
+/**
  * Fetch the live runtime bundle (Invisible Game Maker, Phase 0) ONCE, before
  * `createApp` registers assets, and stash it module-level so every `baked*` function
  * above reads from it. OPT-IN: a no-op unless `?runtime=1` is in the game URL. On any
@@ -686,12 +820,13 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 		const token = params.get('k');
 		if (!token) {
 			console.warn('[runtime] ?runtime=1 but no ?k= token — falling back to live doc fetch');
+			runtimeFetchFailure = 'no ?k= token in the game URL';
 			return false;
 		}
 		const url =
 			`${base}/api/editor/runtime?project=${encodeURIComponent(project)}` +
 			`&k=${encodeURIComponent(token)}`;
-		const res = await fetch(url);
+		const res = await fetchRuntimeWithRetry(url);
 		if (!res.ok) {
 			console.error(
 				`[runtime] LIVE DATA FETCH FAILED — ${res.status} ${res.statusText}. The game is now ` +
@@ -702,6 +837,7 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 						: '') +
 					` (${url})`,
 			);
+			runtimeFetchFailure = `${res.status} ${res.statusText} from /api/editor/runtime`;
 			return false;
 		}
 		const data = (await res.json()) as Partial<RuntimeBundle>;
@@ -713,6 +849,7 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 			doc.scenes.some((scene) => scene.id === 'basegame');
 		if (!valid) {
 			console.warn('[runtime] bundle shape invalid (no assetBase / basegame scene) — falling back');
+			runtimeFetchFailure = 'runtime bundle shape invalid (no assetBase / basegame scene)';
 			return false;
 		}
 		runtimeBundle = data as RuntimeBundle;
@@ -721,11 +858,15 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 		);
 		return true;
 	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
 		console.error(
-			`[runtime] LIVE DATA FETCH THREW: ${err instanceof Error ? err.message : String(err)}. The ` +
+			`[runtime] LIVE DATA FETCH THREW: ${message}. The ` +
 				`game is showing STALE BAKED assets, NOT your live authoring. A "Failed to fetch" here is ` +
-				`often a CORS-masked 401 from a wrong ?k= token — reopen the game from the launcher.`,
+				`often a CORS-masked 401 or 502 — the browser reports the missing CORS header, not the real ` +
+				`status, because an error response from the edge carries no CORS headers. Check the Network ` +
+				`tab for the actual status before believing "CORS".`,
 		);
+		runtimeFetchFailure = message;
 		return false;
 	}
 }
@@ -744,6 +885,9 @@ function fellBack(reason: string): LayoutDoc {
 	console.warn(
 		`[editor] using bundled fallback layout — editor edits will NOT show. Reason: ${reason}`,
 	);
+	// The bundled layout is nobody's authoring, so this is always stale. Prefer the runtime
+	// fetch's reason when there was one — it's the proximate cause; `reason` is its consequence.
+	markRuntimeStale(runtimeFetchFailure ?? `bundled fallback layout — ${reason}`);
 	return fallbackEditorScenes;
 }
 
@@ -760,6 +904,12 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 	// bundle, so production renders it instantly with no fetch + no launcher
 	// dependency. `registerBakedComponents()` (boot) has already registered its defs.
 	if (hasBakedDoc()) {
+		// A baked doc is the INTENDED source for a normal build (frozen at build time, no fetch).
+		// But when `?runtime=1` asked for live authoring and the fetch failed, this same branch is
+		// the silent stale fallback — the game renders a pre-edit snapshot and looks healthy. That
+		// is the exact failure this reports; it is decided HERE, not at fetch-failure time, because
+		// a failed runtime fetch alone can still end on live data via `/api/editor/doc` below.
+		if (runtimeFetchFailure) markRuntimeStale(runtimeFetchFailure);
 		console.info('[editor] using baked layout doc (frozen at build) — live fetch skipped');
 		return bakedBundle.doc as LayoutDoc;
 	}
