@@ -1658,9 +1658,15 @@
 								{/each}
 							</select>
 						{:else if p.kind === 'boolean'}
+							<!-- An UNSET param shows its DEFAULT, like every other kind in this panel
+							     (selects show "(default: x)", texts placeholder it). Reading the raw value
+							     drew a default-TRUE param unchecked while the runtime used true
+							     (`booleanParam(k) ?? prop`) — the panel stating the opposite of the game. -->
 							<input
 								type="checkbox"
-								checked={Boolean(node.params?.[p.key])}
+								checked={node.params?.[p.key] !== undefined
+									? Boolean(node.params[p.key])
+									: p.default === true}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.checked)}
 							/>
 						{:else if p.kind === 'number'}
