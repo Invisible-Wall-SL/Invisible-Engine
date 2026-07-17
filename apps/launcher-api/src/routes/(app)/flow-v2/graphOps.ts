@@ -65,14 +65,31 @@ export const addExecEdgeIn = (
 	return { ...graph, exec: [...graph.exec, edge] };
 };
 
-/** Append a data edge (source data-out → target data-in) to a graph. */
+/**
+ * Append a data edge (source data-out → target data-in) to a graph, and mark the target pin `wire`.
+ *
+ * The edge WINS at runtime (`resolveDataIn` reads it before the node's own `inputs`), so any
+ * literal/accessor already stored on that pin becomes silently dead — the `data-in-shadowed`
+ * warning. Re-stamping the pin as `wire` (the sanctioned "use the edge" marker) makes the shadow
+ * unreachable by construction: dragging a wire onto a pin that already had a literal is the ONE way
+ * an author creates it, and the inspector hides the source editor for a wired pin, so they could
+ * never clear it afterwards.
+ */
 export const addDataEdgeIn = (
 	graph: Graph,
 	from: { node: string; pin: string },
 	to: { node: string; pin: string },
 ): Graph => {
 	const edge: DataEdge = { from, to };
-	return { ...graph, data: [...graph.data, edge] };
+	return {
+		...graph,
+		data: [...graph.data, edge],
+		nodes: graph.nodes.map((n) =>
+			n.id === to.node && n.inputs?.[to.pin] && n.inputs[to.pin].kind !== 'wire'
+				? { ...n, inputs: { ...n.inputs, [to.pin]: { kind: 'wire' } } }
+				: n,
+		),
+	};
 };
 
 /** Write a node's new canvas position back into a graph (move on drag-stop). */
@@ -123,8 +140,7 @@ export const deleteFromGraphIn = (
 // ---------------------------------------------------------------------------
 
 /** A fresh, collision-free node id keyed by kind, scoped to the doc's graph. */
-export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string =>
-	freshNodeIdIn(doc.graph, kind);
+export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string => freshNodeIdIn(doc.graph, kind);
 
 /** Append an exec edge (source exec-out → target exec-in). */
 export const addExecEdge = (

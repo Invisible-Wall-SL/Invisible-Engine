@@ -79,6 +79,15 @@
 		return defaultLiteral(pin.dataType);
 	};
 
+	// A literal/accessor stored on a pin that is ALSO wired. The edge wins at runtime, so it is dead
+	// (the `data-in-shadowed` warning) — and since the wired row below renders no source editor, it
+	// was otherwise UNCLEARABLE: the panel reported a problem the UI gave no way to fix. New wires
+	// re-stamp the pin `wire` on connect (`addDataEdgeIn`); this clears the ones already in a doc.
+	const shadowedSource = (pinId: string): DataSource | undefined => {
+		const stored = node.inputs?.[pinId];
+		return stored && stored.kind !== 'wire' ? stored : undefined;
+	};
+
 	// Whether that DataSource is the PHANTOM default rather than something the doc actually stores.
 	// The editor renders the default so a fresh pin isn't blank, but only `onchange` commits it — so
 	// accepting the default stores NOTHING and the pin stays unfilled. That bites hardest where the
@@ -490,9 +499,20 @@
 				<span class="flabel">Inputs</span>
 				{#each dataIns as pin (pin.id)}
 					{#if wiredIn(pin.id)}
+						{@const shadowed = shadowedSource(pin.id)}
 						<div class="field wired">
 							<span class="pinname">{pin.label ?? pin.id}</span>
 							<span class="wiredtag">wired</span>
+							{#if shadowed}
+								<button
+									class="mini"
+									type="button"
+									title="The incoming wire wins at runtime, so this stored {shadowed.kind} is dead. Clearing it changes nothing the game does — it only clears the warning."
+									onclick={() => onInputChange(pin.id, { kind: 'wire' })}
+								>
+									Clear dead {shadowed.kind}
+								</button>
+							{/if}
 						</div>
 					{:else}
 						<div class="field">
