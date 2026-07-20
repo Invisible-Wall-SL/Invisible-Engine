@@ -10,6 +10,7 @@
 	import { Tween } from 'svelte/motion';
 	import { Container, Graphics, type GraphicsProps } from 'pixi-svelte';
 	import { ResponsiveBitmapText } from 'components-pixi';
+	import { roundSkip } from 'utils-shared/skipToken';
 
 	import { getContext } from '../game/context';
 	import BoardContainer from './BoardContainer.svelte';
@@ -52,7 +53,8 @@
 			points = emitterEvent.points;
 			amount = emitterEvent.amount;
 			message = emitterEvent.message;
-			if (line.animated && emitterEvent.points.length >= 2) {
+			// A slammed round draws the line COMPLETE at once (final state, not a dropped line).
+			if (line.animated && !roundSkip.isSkipped() && emitterEvent.points.length >= 2) {
 				revealed = false;
 				progress.set(0, { duration: 0 });
 				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.

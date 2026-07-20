@@ -3,11 +3,14 @@
 	import { type Snippet } from 'svelte';
 
 	import { createInterruptible } from 'utils-shared/interruptible';
+	import { roundSkip } from 'utils-shared/skipToken';
 
 	type Props = {
 		amount: number;
 		duration: number;
-		oncomplete: () => void;
+		/** Optional: the count-up's completion is observable through the snippet's
+		 *  `countUpCompleted`, so a consumer that only renders from that needs no callback. */
+		oncomplete?: () => void;
 		children: Snippet<
 			[
 				{
@@ -26,16 +29,23 @@
 
 	let countUpCompleted = $state(false);
 
-	const countUp = () => countUpAmount.set(props.amount, { duration: props.duration });
+	const countUp = () =>
+		countUpAmount.set(props.amount, { duration: roundSkip.isSkipped() ? 0 : props.duration });
 	const resetCountUp = () => countUpAmount.set(props.amount, { duration: 0 });
 	const finishCountUp = () => interruptible.interrupt();
 	const startCountUp = async () => {
 		await interruptible.add(countUp);
 		resetCountUp();
 		countUpCompleted = true;
-		props.oncomplete();
+		props.oncomplete?.();
 		interruptible.clear();
 	};
+
+	// Slam stop = exactly what the press-to-continue does, without the press: cut the tween and
+	// land on the FINAL total (`resetCountUp` in `startCountUp` stamps `props.amount`), never drop
+	// it. A slam that lands BEFORE this provider mounts is covered by `countUp`'s duration above,
+	// so a count-up that starts on an already-slammed round is instant rather than un-skippable.
+	$effect(() => roundSkip.onSkip(finishCountUp));
 </script>
 
 {@render props.children({

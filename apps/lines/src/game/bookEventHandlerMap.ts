@@ -3,7 +3,8 @@ import _ from 'lodash';
 import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
-import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
+import { waitForResolve } from 'utils-shared/wait';
+import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 
@@ -54,17 +55,21 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				// Awaited: when the line is configured to animate, WinLine.svelte resolves this
 				// only after the line has drawn first→last and the amount is revealed, so the
 				// symbol glow follows. Non-animated draws resolve immediately, keeping the
-				// original timing (line + amount instant, symbols animate alongside).
-				await eventEmitter.broadcastAsync({
-					type: 'winLineShow',
-					points: winLinePointsFor(winningPositions),
-					...winLineTextFor({
-						symbol: win.symbol,
-						kind: win.kind,
-						amount: win.win,
-						line: win.meta?.lineIndex,
+				// original timing (line + amount instant, symbols animate alongside). Raced against
+				// the slam token: a slammed round shows the line COMPLETE (WinLine skips its draw
+				// tween) instead of waiting for it to trace.
+				await roundSkip.race(
+					eventEmitter.broadcastAsync({
+						type: 'winLineShow',
+						points: winLinePointsFor(winningPositions),
+						...winLineTextFor({
+							symbol: win.symbol,
+							kind: win.kind,
+							amount: win.win,
+							line: win.meta?.lineIndex,
+						}),
 					}),
-				});
+				);
 			}
 
 			await animateSymbols({ positions: winningPositions });
@@ -80,7 +85,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// Await the reveal (shuffle → land → intro spine) so the next book event — the first
 		// free-spin `reveal` — only fires once the book symbol has been chosen AND revealed,
 		// instead of racing the reveal animation.
-		await eventEmitter.broadcastAsync({ type: 'specialBookReveal', symbol: bookEvent.symbol });
+		await roundSkip.race(
+			eventEmitter.broadcastAsync({ type: 'specialBookReveal', symbol: bookEvent.symbol }),
+		);
 	},
 	expandBookColumns: async (bookEvent: BookEventOfType<'expandBookColumns'>) => {
 		// Book-of mechanic (Book of Thermopylae): the natural free-spin board has
@@ -104,14 +111,16 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			for (let row = 1; row <= BOARD_DIMENSIONS.y && row < symbols.length - 1; row++) {
 				const reelSymbol = symbols[row];
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
-				// 1. Explode the existing symbol and wait for the spine to finish.
+				// 1. Explode the existing symbol and wait for the spine to finish. A slammed round
+				//    stops waiting for the spine — the swap below still runs for EVERY cell, so the
+				//    expanded board still lands at its final state, just instantly.
 				eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_wild_explode' });
 				reelSymbol.symbolState = 'explosion';
-				await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
+				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
 				// 2. Swap to the special and play its land spine in the cleared cell.
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
-				await waitForTimeout(0.12 * SECOND);
+				await roundSkip.wait(0.12 * SECOND);
 			}
 		}
 	},
@@ -137,8 +146,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			await animateSymbols({ positions: bookEvent.positions });
 			// show free spin intro
 			eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_superfreespin' });
-			await eventEmitter.broadcastAsync({ type: 'uiHide' });
-			await eventEmitter.broadcastAsync({ type: 'transition' });
+			await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiHide' }));
+			await roundSkip.race(eventEmitter.broadcastAsync({ type: 'transition' }));
 		}
 		// Set the awarded-count BEFORE the intro shows, so a `freeSpinsWon`-bound readout in
 		// an authored intro screen has the total while the intro is on screen (the counter
@@ -153,10 +162,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// intro), so it switches whether or not the coded intro celebration runs.
 		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
 		if (presentIntro) {
-			await eventEmitter.broadcastAsync({
-				type: 'freeSpinIntroUpdate',
-				totalFreeSpins: bookEvent.totalFs,
-			});
+			await roundSkip.race(
+				eventEmitter.broadcastAsync({
+					type: 'freeSpinIntroUpdate',
+					totalFreeSpins: bookEvent.totalFs,
+				}),
+			);
 		}
 		stateGame.gameType = 'freegame';
 		if (presentIntro) {
@@ -173,9 +184,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
 		if (presentIntro) {
-			await eventEmitter.broadcastAsync({ type: 'uiShow' });
+			await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiShow' }));
 		}
-		await eventEmitter.broadcastAsync({ type: 'drawerButtonShow' });
+		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'drawerButtonShow' }));
 		eventEmitter.broadcast({ type: 'drawerFold' });
 	},
 	updateFreeSpin: async (bookEvent: BookEventOfType<'updateFreeSpin'>) => {
@@ -192,18 +203,23 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	freeSpinEnd: async (bookEvent: BookEventOfType<'freeSpinEnd'>) => {
 		const winLevelData = winLevelMap[bookEvent.winLevel as WinLevel];
 
-		await eventEmitter.broadcastAsync({ type: 'uiHide' });
+		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiHide' }));
 		stateGame.gameType = 'basegame';
 		eventEmitter.broadcast({ type: 'boardFrameGlowHide' });
 		eventEmitter.broadcast({ type: 'freeSpinOutroShow' });
 		stateUi.freeSpinOutroShow = true;
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_youwon_panel' });
 		winLevelSoundsPlay({ winLevelData });
-		await eventEmitter.broadcastAsync({
-			type: 'freeSpinOutroCountUp',
-			amount: bookEvent.amount,
-			winLevelData,
-		});
+		// The outro gate is PLAYER-GATED (it only resolves on a press-to-continue), so the race is
+		// what releases the round on a slam; the count-up itself has already jumped to the final
+		// total via `WinCountUpProvider`'s own skip hook, so nothing is lost.
+		await roundSkip.race(
+			eventEmitter.broadcastAsync({
+				type: 'freeSpinOutroCountUp',
+				amount: bookEvent.amount,
+				winLevelData,
+			}),
+		);
 		winLevelSoundsStop();
 		eventEmitter.broadcast({ type: 'freeSpinOutroHide' });
 		stateUi.freeSpinOutroShow = false;
@@ -211,9 +227,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		eventEmitter.broadcast({ type: 'specialBookHide' });
 		stateGame.specialSymbol = null;
 		stateUi.freeSpinCounterShow = false;
-		await eventEmitter.broadcastAsync({ type: 'transition' });
-		await eventEmitter.broadcastAsync({ type: 'uiShow' });
-		await eventEmitter.broadcastAsync({ type: 'drawerUnfold' });
+		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'transition' }));
+		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiShow' }));
+		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'drawerUnfold' }));
 		eventEmitter.broadcast({ type: 'drawerButtonHide' });
 	},
 	setWin: async (bookEvent: BookEventOfType<'setWin'>) => {
@@ -223,11 +239,13 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';
 		winLevelSoundsPlay({ winLevelData });
-		await eventEmitter.broadcastAsync({
-			type: 'winUpdate',
-			amount: bookEvent.amount,
-			winLevelData,
-		});
+		await roundSkip.race(
+			eventEmitter.broadcastAsync({
+				type: 'winUpdate',
+				amount: bookEvent.amount,
+				winLevelData,
+			}),
+		);
 		winLevelSoundsStop();
 		eventEmitter.broadcast({ type: 'winHide' });
 		stateUi.winShow = false;

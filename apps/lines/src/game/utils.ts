@@ -3,6 +3,7 @@ import { stateBet } from 'state-shared';
 import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
 import { sequence } from 'utils-shared/sequence';
+import { roundSkip } from 'utils-shared/skipToken';
 
 import { BOARD_DIMENSIONS } from './constants';
 import { getActiveSymbolInfoMap, resolveSymbolSizeRatios } from './symbolMap';
@@ -71,9 +72,21 @@ export const playBookEvents = async (
 };
 
 export const playBet = async (bet: Bet) => {
+	// The slam token is scoped to the ROUND — re-armed here and nowhere else (owner direction). A
+	// bonus book is ONE round, so a single press fast-forwards every remaining free spin in it
+	// straight to the final total, rather than costing the player a press per spin.
+	roundSkip.reset();
 	stateBet.winBookEventAmount = 0;
-	await playBookEvents(bet.state);
-	eventEmitter.broadcast({ type: 'stopButtonEnable' });
+	try {
+		await playBookEvents(bet.state);
+	} finally {
+		// ALWAYS re-enable, even if a handler threw: `stopButtonEnable` is what clears the
+		// non-persistent turbo `stopButtonClick` set (`ButtonTurbo`). Leaving it unsent on the
+		// error path stuck turbo on for the rest of the session. The token is cleared here too so
+		// an aborted round cannot leave the board's slam checks reading a stale trip.
+		roundSkip.reset();
+		eventEmitter.broadcast({ type: 'stopButtonEnable' });
+	}
 };
 
 // resume bet

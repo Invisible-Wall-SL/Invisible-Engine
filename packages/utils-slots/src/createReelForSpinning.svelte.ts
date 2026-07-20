@@ -5,6 +5,7 @@ import { sineOut, backIn, linear } from 'svelte/easing';
 import { stateBet } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 import { createInterruptible } from 'utils-shared/interruptible';
+import { roundSkip } from 'utils-shared/skipToken';
 
 import type { SpinningReelCreateOptions, SpinningReelSpinOptions, SpinType } from './types';
 
@@ -252,10 +253,20 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		}
 
 		// Q: When to skip the slideDown?
-		// A: When it's preSpinning(isSpinning) and stop button is clicked(isTurbo) and is noStop is false
-		if (noStop) {
-			await slideDown();
-		} else if (stateBet.isTurbo && isSpinning) {
+		// A: (a) the round was SLAMMED — this reel is to land at once even if it has not started
+		//    rolling yet, which `interruptible` alone cannot do (it only cuts an IN-FLIGHT wait), and
+		//    which `noStop` must NOT veto: an explicit slam overrides anticipation.
+		//    (b) turbo took over mid pre-spin (`isTurbo && isSpinning`) — an anticipated/sequential
+		//    reel (`noStop`) still plays its slide there, as before.
+		// Otherwise the slide runs INSIDE `interruptible`, so a slam that arrives while it is
+		// rolling cuts it short — including for a `noStop` reel, which previously awaited outside
+		// the interrupt and so could not be stopped at all.
+		//
+		// The (a) branch reads the token rather than an event, so it does NOT depend on emitter
+		// subscriber order: `runSpinOrSlamStop` trips `roundSkip` synchronously BEFORE broadcasting
+		// `stopButtonClick`, so by the time any subscriber (including the board's `stop()`) runs,
+		// and for every reel that starts rolling afterwards, `isSkipped()` is already true.
+		if (roundSkip.isSkipped() || (!noStop && stateBet.isTurbo && isSpinning)) {
 			// skip
 		} else {
 			await interruptible.add(slideDown);
@@ -390,6 +401,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	};
 
 	const stop = () => {
+		// A slammed reel must not keep (or start) its anticipation presentation — the glow/SFX
+		// belong to a build-up the player just cancelled.
+		reelState.anticipating = false;
 		interruptible.interrupt();
 	};
 

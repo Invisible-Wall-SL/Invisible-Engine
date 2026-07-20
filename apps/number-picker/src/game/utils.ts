@@ -2,6 +2,7 @@ import _ from 'lodash';
 import { stateBet } from 'state-shared';
 import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
+import { roundSkip } from 'utils-shared/skipToken';
 
 import { SYMBOL_SIZE, REEL_PADDING, SYMBOL_INFO_MAP, BOARD_DIMENSIONS } from './constants';
 import { eventEmitter } from './eventEmitter';
@@ -13,9 +14,19 @@ import type { RawSymbol, SymbolState } from './types';
 export const { getEmptyBoard } = createGetEmptyPaddedBoard({ reelsDimensions: BOARD_DIMENSIONS });
 export const { playBookEvent, playBookEvents } = createPlayBookUtils({ bookEventHandlerMap });
 export const playBet = async (bet: Bet) => {
+	// The slam token is scoped to the ROUND. Re-arming it here is REQUIRED, not optional: it is a
+	// process-wide singleton, so without this a single slam would stay tripped for the rest of the
+	// session (no anticipation would ever arm again and every count-up would be instant).
+	roundSkip.reset();
 	stateBet.winBookEventAmount = 0;
-	await playBookEvents(bet.state);
-	eventEmitter.broadcast({ type: 'stopButtonEnable' });
+	try {
+		await playBookEvents(bet.state);
+	} finally {
+		// ALWAYS re-enable, even if a handler threw — `stopButtonEnable` clears the non-persistent
+		// turbo that `stopButtonClick` set (`ButtonTurbo`).
+		roundSkip.reset();
+		eventEmitter.broadcast({ type: 'stopButtonEnable' });
+	}
 };
 
 // resume bet

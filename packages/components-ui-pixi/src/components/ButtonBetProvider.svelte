@@ -1,11 +1,12 @@
 <script lang="ts" module>
-	export type ButtonBetKey = 'spin_default' | 'spin_disabled' | 'stop_default' | 'stop_disabled';
+	export type { SpinButtonKey as ButtonBetKey } from 'utils-shared/spinStop';
 </script>
 
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
-	import { stateBet, stateBetDerived } from 'state-shared';
+	import { hasContinuePress, stateBetDerived } from 'state-shared';
+	import { getSpinButtonKey, runSpinOrSlamStop, type SpinButtonKey } from 'utils-shared/spinStop';
 
 	import { getContext } from '../context';
 
@@ -13,10 +14,11 @@
 		children: Snippet<
 			[
 				{
-					key: ButtonBetKey;
+					key: SpinButtonKey;
 					onpress: () => void;
 					disabled: boolean;
 					spinning: boolean;
+					hotkeyDisabled: boolean;
 				},
 			]
 		>;
@@ -25,61 +27,29 @@
 	const props: Props = $props();
 	const context = getContext();
 
-	let stopDisabled = $state(false);
-
-	const bet = () => {
-		if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
-		context.eventEmitter.broadcast({ type: 'bet' });
-	};
-
-	const stop = () => {
-		if (!stopDisabled) {
-			if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
-			context.eventEmitter.broadcast({ type: 'stopButtonClick' });
-		}
-	};
-
 	const onpress = () => {
 		context.eventEmitter.broadcast({ type: 'soundPressBet' });
-
-		if (context.stateXstateDerived.isIdle()) {
-			bet();
-		} else {
-			stop();
-		}
+		runSpinOrSlamStop({
+			isIdle: context.stateXstateDerived.isIdle(),
+			broadcast: context.eventEmitter.broadcast,
+		});
 	};
 
-	// Autoplay-only STOP model: a single bet's roll finishes in ~1s and has nothing
-	// to stop, so the button is INERT while one spin rolls (and, with authored art,
-	// shows the rotating `imageSpinning` frame). The STOP only exists to cancel an
-	// AUTOPLAY sequence (`hasAutoBetCounter`).
-	const getKey = (): ButtonBetKey => {
-		if (context.stateXstateDerived.isIdle()) {
-			if (!stateBetDerived.isBetCostAvailable()) return 'spin_disabled';
-			return 'spin_default';
-		}
-
-		// A round is in progress.
-		if (stateBetDerived.hasAutoBetCounter()) {
-			// Autoplay running → the button stops the sequence.
-			return stopDisabled ? 'stop_disabled' : 'stop_default';
-		}
-
-		// A single bet is rolling → nothing to stop, the button is inert.
-		return 'spin_disabled';
-	};
-
-	const key = $derived.by(getKey);
-	const disabled = $derived(['spin_disabled', 'stop_disabled'].includes(key));
+	// Slam stop is ALWAYS ON: while a round rolls the button is a live STOP that snaps the reels
+	// to the already-resolved result and fast-forwards the win presentation (`roundSkip`). The
+	// key/press decision lives in `utils-shared/spinStop` so this provider and the flow-driven
+	// spin action in the game can't drift.
+	const key = $derived(getSpinButtonKey({ isIdle: context.stateXstateDerived.isIdle() }));
+	const disabled = $derived(key === 'spin_disabled');
 	// Reels rolling on a plain bet (NOT an autoplay sequence) → the spin frame spins.
 	const spinning = $derived(
 		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter(),
 	);
-
-	context.eventEmitter.subscribeOnMount({
-		stopButtonClick: () => (stopDisabled = true),
-		stopButtonEnable: () => (stopDisabled = false),
-	});
+	// The BUTTON stays live during a press-to-continue (the overlay covers it, so a click lands on
+	// whichever is on top and both fast-forward the presentation — one click, one action either
+	// way). Only the Space HOTKEY has to stand down, because it is a second global subscriber that
+	// would otherwise fire alongside the overlay's own.
+	const hotkeyDisabled = $derived(disabled || hasContinuePress());
 </script>
 
-{@render props.children({ key, onpress, disabled, spinning })}
+{@render props.children({ key, onpress, disabled, spinning, hotkeyDisabled })}

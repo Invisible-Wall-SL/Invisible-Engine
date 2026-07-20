@@ -17,9 +17,11 @@
 		toggleFullscreen,
 		isFullscreenSupported,
 		setUiFeatures,
+		hasContinuePress,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
+	import { getSpinButtonKey, runSpinOrSlamStop, type SpinButtonKey } from 'utils-shared/spinStop';
 
 	import {
 		UI,
@@ -1004,34 +1006,26 @@
 		),
 	});
 
-	// §16.4 B6.4 — the spin/stop state machine, lifted VERBATIM from
-	// `ButtonBetProvider.svelte` so the parametric `spin` action behaves identically
-	// to the coded `ButtonBet`. `stopDisabled` is the internal latch the coded
-	// provider keeps: a `stopButtonClick` arms it (stop is then a no-op until the game
-	// re-enables it via `stopButtonEnable`), so a double-tap can't fire two stops.
-	// `getSpinKey()` is `ButtonBetProvider.getKey` byte-for-byte; the action's
-	// `disabled`/`label` sources below derive from it, exactly as `ButtonBet`'s
-	// `UiSprite` grey + `Text` caption derive from the coded `key`.
-	let stopDisabled = $state(false);
+	// The board glow is a STATE — lit for the whole free-spin feature — but it arrives as one-shot
+	// `boardFrameGlow*` cues. `<BoardFrame>` renders it from INSIDE the base-game block below, which
+	// unmounts whenever the base-game screen leaves the active set; a flow that hides `basegame` for a
+	// transition (the book-reveal chain does exactly that, across a delay) therefore tears down its
+	// subscription, so a cue fired in that window reached NOBODY and the glow never came back for the
+	// rest of the feature. Tracking it HERE — on the always-mounted `<Game>` — makes it survive that
+	// unmount, and `<BoardFrame>` re-arms off the flag on mount. Un-owned cues fire this identically,
+	// so a coded/v1 game is unchanged.
+	let boardGlowActive = $state(false);
 	context.eventEmitter.subscribeOnMount({
-		stopButtonClick: () => (stopDisabled = true),
-		stopButtonEnable: () => (stopDisabled = false),
+		boardFrameGlowShow: () => (boardGlowActive = true),
+		boardFrameGlowHide: () => (boardGlowActive = false),
 	});
-	const getSpinKey = (): 'spin_default' | 'spin_disabled' | 'stop_default' | 'stop_disabled' => {
-		if (context.stateXstateDerived.isIdle()) {
-			if (!stateBetDerived.isBetCostAvailable()) return 'spin_disabled';
-			return 'spin_default';
-		}
 
-		// A round is in progress. Autoplay-only STOP (mirrors `ButtonBetProvider`): the
-		// button only acts as STOP to cancel an autoplay sequence; a single bet's roll
-		// is inert (and shows the rotating `imageSpinning` frame when one is authored).
-		if (stateBetDerived.hasAutoBetCounter()) {
-			return stopDisabled ? 'stop_disabled' : 'stop_default';
-		}
-
-		return 'spin_disabled';
-	};
+	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
+	// `utils-shared/spinStop`, shared with `ButtonBetProvider.svelte`, so the parametric
+	// `spin` action and the coded `ButtonBet` cannot drift (they were duplicated verbatim
+	// and did). Slam stop is always on: a rolling round shows a live STOP.
+	const getSpinKey = (): SpinButtonKey =>
+		getSpinButtonKey({ isIdle: context.stateXstateDerived.isIdle() });
 	// Reels rolling on a plain bet (NOT an autoplay sequence) → spin the frame.
 	const isSpinning = () =>
 		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter();
@@ -1044,23 +1038,14 @@
 	// identically to its coded counterpart. `boolSource` replays each live derived as
 	// the registry's `BoolSource`. Nothing mounts a button instance yet (B6.3/B6.4),
 	// so this is pure registration plumbing — no render change.
-	// The idle→bet / else→stop decision, byte-for-byte `ButtonBetProvider.onpress`' body (minus
-	// the leading `soundPressBet`). Extracted so the coded spin `onpress` AND the flow `invokeIntent`
-	// share ONE source of truth for the decision — an authored Spin pin runs the EXACT same bet/stop
-	// as the hard-coded button (design doc §8.2/§8.5). Not the sound (that stays on the button press).
-	const doSpinBetOrStop = (): void => {
-		if (context.stateXstateDerived.isIdle()) {
-			// bet()
-			if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
-			context.eventEmitter.broadcast({ type: 'bet' });
-		} else {
-			// stop() — the `stopDisabled` latch makes a second tap a no-op.
-			if (!stopDisabled) {
-				if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
-				context.eventEmitter.broadcast({ type: 'stopButtonClick' });
-			}
-		}
-	};
+	// The idle→bet / else→slam-stop decision — the SAME `runSpinOrSlamStop` the coded
+	// `ButtonBetProvider` presses, so an authored Spin pin runs exactly what the hard-coded button
+	// does (design doc §8.2/§8.5). Not the sound (that stays on the button press).
+	const doSpinBetOrStop = (): void =>
+		runSpinOrSlamStop({
+			isIdle: context.stateXstateDerived.isIdle(),
+			broadcast: context.eventEmitter.broadcast,
+		});
 
 	// Shared coded bodies for the HUD action intents (design doc §8.5). Each is the exact
 	// press behaviour of the matching coded button, extracted so ONE source of truth serves
@@ -1290,15 +1275,14 @@
 			),
 		},
 		// ButtonBetProvider + ButtonBet — spin/stop, now a FAITHFUL replication (B6.4).
-		// `onpress` is `ButtonBetProvider.onpress` byte-for-byte: sound, then idle →
-		// `bet()` (reset an armed buy-mode to BASE, broadcast `bet`), else → `stop()`
-		// (gated on `!stopDisabled`, reset an auto-bet counter, broadcast
-		// `stopButtonClick`). `disabled`/`label` derive from `getSpinKey()` (=
-		// `ButtonBetProvider.getKey`) exactly as `ButtonBet`'s coded `UiSprite` grey +
-		// `Text` caption do: the button greys on the `*_disabled` keys, and the caption
-		// is `bet()` on the `spin_*` keys else `stop()`. `boolSource`/`textSource` replay
-		// those live deriveds to the bound `button` instance. The Space hotkey the coded
-		// `ButtonBet` mounts is replaced in the markup below, gated on the same flag.
+		// `onpress` is `ButtonBetProvider.onpress`: sound, then the shared
+		// `runSpinOrSlamStop` (idle → bet, else → slam the round). `disabled`/`label`
+		// derive from the shared `getSpinButtonKey` exactly as `ButtonBet`'s coded
+		// `UiSprite` grey + `Text` caption do: the button greys on the `*_disabled` keys,
+		// and the caption is `bet()` on the `spin_*` keys else `stop()`.
+		// `boolSource`/`textSource` replay those live deriveds to the bound `button`
+		// instance. The Space hotkey the coded `ButtonBet` mounts is replaced in the
+		// markup below, gated on the same flag.
 		spin: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressBet' });
@@ -1307,7 +1291,7 @@
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
 				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
-			disabled: boolSource(() => ['spin_disabled', 'stop_disabled'].includes(getSpinKey())),
+			disabled: boolSource(() => getSpinKey() === 'spin_disabled'),
 			spinning: boolSource(isSpinning),
 			label: textSource(() =>
 				getSpinKey().startsWith('spin_') ? i18nDerived.bet() : i18nDerived.stop(),
@@ -1318,22 +1302,17 @@
 	// §16.4 B6.4 — replacement Space hotkey for the spin button. Once the cluster is
 	// flipped to `componentInstance(button)` nodes (`HUD_BUTTON_INSTANCES`), the coded
 	// `ButtonBet` (and its own `<OnHotkey hotkey="Space">`) is no longer mounted, so
-	// Space would stop working. This mirrors `ButtonBet`'s binding — `disabled` tracks
-	// the spin key (inert during a single roll, enabled only to cancel autoplay), so
-	// Space can't re-fire mid-roll; `onpress` = the SAME spin handler the action
-	// registers (re-derived here so it reads the same `stopDisabled`/state). GATED on
-	// the flag so it never double-fires alongside the coded button's own hotkey while
-	// the cluster is still coded (parity when OFF).
-	const spinHotkeyDisabled = $derived(['spin_disabled', 'stop_disabled'].includes(getSpinKey()));
+	// Space would stop working. This mirrors `ButtonBet`'s binding exactly — same
+	// `getSpinKey()` disabled rule (so Space is a live SLAM mid-round, like the button)
+	// and the same shared press body. GATED on the flag so it never double-fires
+	// alongside the coded button's own hotkey while the cluster is still coded.
+	// `hasContinuePress()` mirrors `ButtonBetProvider`'s `hotkeyDisabled`: while a
+	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
+	// runs the continue-press only.
+	const spinHotkeyDisabled = $derived(getSpinKey() === 'spin_disabled' || hasContinuePress());
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast({ type: 'soundPressBet' });
-		if (context.stateXstateDerived.isIdle()) {
-			if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
-			context.eventEmitter.broadcast({ type: 'bet' });
-		} else if (!stopDisabled) {
-			if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
-			context.eventEmitter.broadcast({ type: 'stopButtonClick' });
-		}
+		doSpinBetOrStop();
 	};
 
 	onMount(() => {
@@ -1526,7 +1505,7 @@
 
 		<MainContainer>
 			{#if !suppressCodedBoardGlow}
-				<BoardFrame />
+				<BoardFrame active={boardGlowActive} />
 			{/if}
 			<Board />
 			<WinLine />

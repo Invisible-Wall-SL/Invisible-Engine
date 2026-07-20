@@ -14,8 +14,8 @@
 </script>
 
 <ButtonBetProvider>
-	{#snippet children({ key, onpress, disabled })}
-		<OnHotkey hotkey="Space" {disabled} {onpress} />
+	{#snippet children({ key, onpress, disabled, hotkeyDisabled })}
+		<OnHotkey hotkey="Space" disabled={hotkeyDisabled} {onpress} />
 		<Button {...props} {sizes} {onpress} {disabled}>
 			{#snippet children({ center, hovered })}
 				<Container {...center} tint={tint ?? 0xffffff}>
@@ -24,11 +24,7 @@
 						width={sizes.width}
 						height={sizes.height}
 						anchor={0.5}
-						{...disabled || ['spin_disabled', 'stop_disabled'].includes(key)
-							? {
-									backgroundColor: 0xaaaaaa,
-								}
-							: {}}
+						{...disabled ? { backgroundColor: 0xaaaaaa } : {}}
 					/>
 					<Text
 						anchor={0.5}

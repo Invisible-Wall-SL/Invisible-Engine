@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+
 	import { MainContainer, OnPressFullScreen } from 'components-layout';
 	import { OnHotkey } from 'components-shared';
-	import { stateUrlDerived } from 'state-shared';
+	import { stateUi, stateUrlDerived } from 'state-shared';
 	import { Sprite } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
@@ -16,6 +18,14 @@
 
 	const props: Props = $props();
 	const context = getContext();
+
+	// Claim the press for as long as this overlay is up. The full-screen rect below already owns
+	// the POINTER (it covers the canvas), and this makes the KEYBOARD follow the same owner: the
+	// spin button's Space hotkey reads `hasContinuePress()` and stands down, so one keypress runs
+	// the continue-press only — not the continue-press AND a slam (with `soundPressBet` over the
+	// outro music). Counted, because two gates can overlap across a fade-out/fade-in.
+	stateUi.continuePressCount += 1;
+	onDestroy(() => (stateUi.continuePressCount -= 1));
 </script>
 
 {#if !props.hidePrompt}

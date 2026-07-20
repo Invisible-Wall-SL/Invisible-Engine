@@ -7,11 +7,14 @@
  */
 
 /** The emitter contract, structurally identical to `createEventEmitter`'s return.
- *  `broadcast` is synchronous fire-and-return; `broadcastAsync` returns the `Promise.all`
- *  of subscriber results (design doc §8 — emitter semantics). */
+ *  `broadcast` is synchronous fire-and-return; `broadcastAsync` returns a promise that settles
+ *  once the subscribers have (design doc §8 — emitter semantics). */
 export type FlowEmitter = {
 	broadcast: (emitterEvent: { type: string } & Record<string, unknown>) => void;
-	broadcastAsync: (emitterEvent: { type: string } & Record<string, unknown>) => Promise<unknown[]>;
+	/** The executor only ever AWAITS this (or drops it) — the subscriber results are never read —
+	 *  so the return is deliberately opaque, letting the game wrap it (e.g. race it against the
+	 *  round's slam token) without having to fabricate a results array. */
+	broadcastAsync: (emitterEvent: { type: string } & Record<string, unknown>) => Promise<unknown>;
 };
 
 /**

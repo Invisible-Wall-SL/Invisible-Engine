@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+
 	import { MainContainer, OnPressFullScreen } from 'components-layout';
 	import { OnHotkey } from 'components-shared';
-	import { stateUrlDerived } from 'state-shared';
+	import { stateUi, stateUrlDerived } from 'state-shared';
 	import { Sprite } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
@@ -12,6 +14,11 @@
 
 	const props: Props = $props();
 	const context = getContext();
+
+	// Claim the press while this overlay is up, so the spin button's Space hotkey stands down and
+	// one keypress runs the continue-press only (see `stateUi.continuePressCount`).
+	stateUi.continuePressCount += 1;
+	onDestroy(() => (stateUi.continuePressCount -= 1));
 </script>
 
 <MainContainer alignVertical="bottom">

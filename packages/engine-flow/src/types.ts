@@ -87,8 +87,8 @@ export type ChoreographyNode =
 	/** Run children concurrently, await all — mirrors `Promise.all`. */
 	| { kind: 'parallel'; children: ChoreographyNode[] }
 	/**
-	 * Emit one emitter event. `await: true` ⇒ `broadcastAsync` and the executor awaits
-	 * the returned `Promise.all` of subscriber results (a `broadcastAsync` the coded
+	 * Emit one emitter event. `await: true` ⇒ `broadcastAsync` and the executor awaits the
+	 * returned promise, which settles once the subscribers have (a `broadcastAsync` the coded
 	 * handler `await`s). `await: false` ⇒ either `broadcast` (sync, fire-and-return) or a
 	 * fire-and-forget `broadcastAsync` whose promise is NOT awaited — distinguished by
 	 * `async`. This three-way split is the crux of timing parity (design doc §11.1).

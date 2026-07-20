@@ -31,7 +31,8 @@ import {
 	showMessage as showGameMessage,
 	type GameMessageKind,
 } from 'state-shared';
-import { waitForTimeout, waitForResolve } from 'utils-shared/wait';
+import { waitForResolve } from 'utils-shared/wait';
+import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
@@ -81,10 +82,28 @@ export const winLevelSoundsStop = () => {
 	eventEmitter.broadcastAsync({ type: 'uiShow' });
 };
 
+/**
+ * An awaited PRESENTATION broadcast, raced against the round's slam token. EVERY awaited
+ * `broadcastAsync` in this file must go through here: several of these holds are resolved ONLY by
+ * a player tap (`PressToContinue`), so an un-raced one does not merely run slow on a slam — it
+ * stalls the round outright until the player taps.
+ *
+ * The race lives here, per broadcast, and NOT around the whole effect registry
+ * (`flowRuntime`/`flowV2Runtime` hand `flowEffect` to the interpreter directly). Racing the
+ * registry would look like a tidier catch-all but would DETACH board-driving effects: on a
+ * whole-feature skip `revealBoard` resolves instantly for all ten free spins, so ten reveals would
+ * run concurrently on the same reels and the board would land on whichever finished last. Effects
+ * that own the board must stay fully awaited; only presentation may be cut short.
+ */
+const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcastAsync>[0]) =>
+	roundSkip.race(eventEmitter.broadcastAsync(emitterEvent));
+
 /** The awaited symbol-spine animation — the `winInfo` / `freeSpinTrigger` leaf. */
 export const animateSymbols = async ({ positions }: { positions: Position[] }) => {
 	eventEmitter.broadcast({ type: 'boardShow' });
-	await eventEmitter.broadcastAsync({
+	// The symbols are only PRESENTATION — the win amount is carried by `setTotalWin` / `setWin`,
+	// which still run — so releasing early cannot drop a win.
+	await awaitPresentation({
 		type: 'boardWithAnimateSymbols',
 		symbolPositions: positions,
 	});
@@ -270,8 +289,8 @@ const effects: Record<string, FlowEffect> = {
 
 	/**
 	 * Book-of column morph (`expandBookColumns`) — the per-cell explode→swap→land sequence,
-	 * lifted verbatim. It awaits each symbol's `oncomplete` spine + a staggered `waitForTimeout`,
-	 * so the whole effect blocks until the columns finish (the wins only animate after).
+	 * lifted verbatim. It awaits each symbol's `oncomplete` spine + a staggered wait, so the whole
+	 * effect blocks until the columns finish (the wins only animate after) — both skippable.
 	 */
 	expandBookColumns: async (payload) => {
 		const special = payload.symbol as SymbolName;
@@ -285,10 +304,10 @@ const effects: Record<string, FlowEffect> = {
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
 				eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_wild_explode' });
 				reelSymbol.symbolState = 'explosion';
-				await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
+				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
-				await waitForTimeout(0.12 * SECOND);
+				await roundSkip.wait(0.12 * SECOND);
 			}
 		}
 	},
@@ -367,9 +386,11 @@ const effects: Record<string, FlowEffect> = {
 		winLevelSoundsStop();
 	},
 
-	/** Awaited free-spin outro count-up (`freeSpinEnd`). Carries the win-level data the gate reads. */
+	/** Awaited free-spin outro count-up (`freeSpinEnd`). Carries the win-level data the gate reads.
+	 *  The gate's hold is released ONLY by a player tap, so this MUST be raced (see
+	 *  `awaitPresentation`) or a slammed round stalls here waiting for one. */
 	freeSpinOutroCountUp: async (payload) => {
-		await eventEmitter.broadcastAsync({
+		await awaitPresentation({
 			type: 'freeSpinOutroCountUp',
 			amount: payload.amount as number,
 			winLevelData: winLevelDataOf(payload.winLevel as number),
@@ -395,7 +416,7 @@ const effects: Record<string, FlowEffect> = {
 
 	/** Awaited win count-up (`setWin`). Carries the win-level data the win panel reads. */
 	winUpdate: async (payload) => {
-		await eventEmitter.broadcastAsync({
+		await awaitPresentation({
 			type: 'winUpdate',
 			amount: payload.amount as number,
 			winLevelData: winLevelDataOf(payload.winLevel as number),
@@ -477,7 +498,7 @@ const effects: Record<string, FlowEffect> = {
 			symbol: payload.symbol as SymbolName,
 		};
 		if (!winLineEnabledForWin(win)) return;
-		await eventEmitter.broadcastAsync({
+		await awaitPresentation({
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),
 			...winLineTextFor({

@@ -44,7 +44,7 @@ import {
 	type TemplateVocabulary,
 } from 'engine-flow-v2';
 import { stateBetDerived } from 'state-shared';
-import { waitForTimeout } from 'utils-shared/wait';
+import { roundSkip } from 'utils-shared/skipToken';
 
 import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
@@ -316,9 +316,12 @@ export const createLinesFlowV2 = (
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
 		broadcast: (cue, payload) => {
 			trace('cue', cue);
-			return eventEmitter.broadcastAsync({ type: cue, ...payload } as never).then(() => {});
+			return roundSkip.race(eventEmitter.broadcastAsync({ type: cue, ...payload } as never));
 		},
-		waitForTimeout,
+		// Slam-aware delay: every authored Delay node collapses when the player slams the round, so
+		// a v2-driven presentation fast-forwards exactly like the coded one. Un-slammed ⇒ identical
+		// to `waitForTimeout`.
+		waitForTimeout: roundSkip.wait,
 		// The LIVE turbo scalar — the same `stateBetDerived.timeScale()` the coded delays read, so a
 		// turbo toggle mid-round scales the v2 interpreter's delays identically.
 		timeScale: stateBetDerived.timeScale,

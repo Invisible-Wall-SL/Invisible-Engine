@@ -23,7 +23,6 @@
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData>();
 	let oncomplete = $state(() => {});
-	let onCountUpComplete = $state(() => {});
 
 	context.eventEmitter.subscribeOnMount({
 		freeSpinOutroShow: () => (show = true),
@@ -40,7 +39,7 @@
 <FadeContainer {show}>
 	{#if winLevelData}
 		{@const duration = winLevelData.presentDuration}
-		<WinCountUpProvider {amount} {duration} oncomplete={() => onCountUpComplete()}>
+		<WinCountUpProvider {amount} {duration}>
 			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
 				<OnMount onmount={() => startCountUp()} />
 

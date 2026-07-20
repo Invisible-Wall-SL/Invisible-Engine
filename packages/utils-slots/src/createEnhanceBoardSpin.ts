@@ -1,5 +1,6 @@
 import { stateBet } from 'state-shared';
 import { waitForResolve } from 'utils-shared/wait';
+import { roundSkip } from 'utils-shared/skipToken';
 
 import { stateSlots } from './stateSlots.svelte';
 import type { Reel, GetRawSymbolFromReel } from './types';
@@ -80,7 +81,11 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 					reel.onReelStopping();
 					const nextReelIndex = reelIndex + 1;
 					const isNextReelAnticipated = (revealEvent.anticipation?.[nextReelIndex] || 0) > 0;
-					if (isNextReelAnticipated) board[nextReelIndex].reelState.anticipating = true;
+					// A slammed round must not ARM a new anticipation on the reel that is about to
+					// land — `reel.stop()` can only clear the flags that already exist.
+					if (isNextReelAnticipated && !roundSkip.isSkipped()) {
+						board[nextReelIndex].reelState.anticipating = true;
+					}
 				},
 			});
 

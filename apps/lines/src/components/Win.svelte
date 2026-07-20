@@ -10,7 +10,8 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { FadeContainer, WinCountUpProvider, ResponsiveBitmapText } from 'components-pixi';
-	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
+	import { waitForResolve } from 'utils-shared/wait';
+	import { roundSkip } from 'utils-shared/skipToken';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import { CanvasSizeRectangle, MainContainer } from 'components-layout';
 	import { OnMount } from 'components-shared';
@@ -60,7 +61,6 @@
 			: '',
 	);
 	let oncomplete = $state(() => {});
-	let onCountUpComplete = $state(() => {});
 
 	context.eventEmitter.subscribeOnMount({
 		winShow: () => (show = true),
@@ -77,7 +77,7 @@
 	{#if winLevelData}
 		{@const isBigWin = winLevelData.type === 'big'}
 		{@const duration = winLevelData.presentDuration}
-		<WinCountUpProvider {amount} {duration} oncomplete={() => onCountUpComplete()}>
+		<WinCountUpProvider {amount} {duration}>
 			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
 				{#if isBigWin}
 					<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
@@ -86,7 +86,7 @@
 				<OnMount
 					onmount={async () => {
 						await startCountUp();
-						await waitForTimeout(300);
+						await roundSkip.wait(300);
 						oncomplete();
 					}}
 				/>

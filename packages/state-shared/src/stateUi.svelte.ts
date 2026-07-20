@@ -59,9 +59,12 @@ export type UIConfigMode = 'default' | 'replay';
  * Player-led SPEED features, each independently toggleable per game/jurisdiction
  * (the "defang via config, never gut" rule — the machinery stays, config hides the
  * entry points). `turbo` = the turbo toggle button; `autoplay` = the autospin button
- * + its modal; `spaceHold` = hold-Space continuous betting. Note slam-stop is NOT a
- * flag here — the autoplay-only stop model already removed player-led single-spin
- * stopping by design.
+ * + its modal; `spaceHold` = hold-Space continuous betting.
+ *
+ * SLAM STOP is deliberately NOT a flag: it is always on (owner direction), so a press
+ * mid-round snaps the reels and fast-forwards the win presentation. That makes
+ * `UI_FEATURES_UK` below an INCOMPLETE UK profile — a UK build also has to suppress the
+ * slam, which needs a flag adding here and a gate in `utils-shared/spinStop`.
  */
 export type UIFeatureFlags = {
 	turbo: boolean;
@@ -79,7 +82,8 @@ export const UI_FEATURES_DEFAULT: UIFeatureFlags = {
 /**
  * UK Gambling Commission profile: licensed UK slots PROHIBIT autoplay, turbo/quick
  * spin and player-led spin-stop, so all speed features are off. Apply with
- * `setUiFeatures(UI_FEATURES_UK)` for a UK build.
+ * `setUiFeatures(UI_FEATURES_UK)` for a UK build. INCOMPLETE — see the slam-stop note
+ * on `UIFeatureFlags`.
  */
 export const UI_FEATURES_UK: UIFeatureFlags = {
 	turbo: false,
@@ -106,11 +110,23 @@ export const stateUi = $state({
 	menuOpen: false,
 	drawerFold: false,
 	drawerButtonShow: false,
+	/**
+	 * How many press-to-continue overlays are mounted. Non-zero ⇒ that overlay OWNS the press: it
+	 * covers the canvas with a full-screen hit rect AND binds Space itself, so the spin button's
+	 * Space hotkey must stand down or one keypress would run both the slam and the
+	 * press-to-continue (plus the bet sound over the outro music). Maintained by each game's
+	 * `PressToContinue`; read via `hasContinuePress()`.
+	 */
+	continuePressCount: 0,
 	config: {
 		mode: 'default' as UIConfigMode,
 		features: { ...UI_FEATURES_DEFAULT } as UIFeatureFlags,
 	},
 });
+
+/** Whether a press-to-continue overlay currently owns the press (see
+ *  `stateUi.continuePressCount`). */
+export const hasContinuePress = () => stateUi.continuePressCount > 0;
 
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */
