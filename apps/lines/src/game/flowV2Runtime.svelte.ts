@@ -50,6 +50,7 @@ import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
+import { awaitCue, waitPresentation } from './unskippablePresentation';
 import { LINES_FLOW_V2_DOC, LINES_FLOW_V2_LIBRARY } from './flowV2Doc';
 
 declare global {
@@ -275,6 +276,11 @@ export const createLinesFlowV2 = (
 	// Completing the hold is EXACTLY what the tap does — `complete` releases it and the SAME exec
 	// chain resumes linearly (show → hide → next) — so no beat, state write or win is dropped; only
 	// the wait for a press the player has already implicitly given.
+	//
+	// This release stays in force INSIDE an unskippable presentation too (`unskippablePresentation.ts`
+	// leaves player-gated holds raced, for the same reason). It cannot strand a rig playing under the
+	// next spin the way a raced cue could: the resumed chain runs the authored `hideContainer`, so the
+	// screen the hold belonged to is taken down rather than left running detached.
 	const slamAwareMount: ContainerMountModel = {
 		...rawMount,
 		awaitComplete: (id) => {
@@ -344,12 +350,13 @@ export const createLinesFlowV2 = (
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
 		broadcast: (cue, payload) => {
 			trace('cue', cue);
-			return roundSkip.race(eventEmitter.broadcastAsync({ type: cue, ...payload } as never));
+			return awaitCue(cue, eventEmitter.broadcastAsync({ type: cue, ...payload } as never));
 		},
 		// Slam-aware delay: every authored Delay node collapses when the player slams the round, so
-		// a v2-driven presentation fast-forwards exactly like the coded one. Un-slammed ⇒ identical
-		// to `waitForTimeout`.
-		waitForTimeout: roundSkip.wait,
+		// a v2-driven presentation fast-forwards exactly like the coded one — except inside an
+		// unskippable presentation (the book reveal / free-spin intro), where a Delay paces a rig
+		// nothing cancels and so stays a real wait. Un-slammed ⇒ identical to `waitForTimeout`.
+		waitForTimeout: waitPresentation,
 		// The LIVE turbo scalar — the same `stateBetDerived.timeScale()` the coded delays read, so a
 		// turbo toggle mid-round scales the v2 interpreter's delays identically.
 		timeScale: stateBetDerived.timeScale,

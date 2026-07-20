@@ -10,6 +10,7 @@ import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { awaitCue } from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
@@ -83,9 +84,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	setExpandingSymbol: async (bookEvent: BookEventOfType<'setExpandingSymbol'>) => {
 		stateGame.specialSymbol = bookEvent.symbol;
 		// Await the reveal (shuffle → land → intro spine) so the next book event — the first
-		// free-spin `reveal` — only fires once the book symbol has been chosen AND revealed,
-		// instead of racing the reveal animation.
-		await roundSkip.race(
+		// free-spin `reveal` — only fires once the book symbol has been chosen AND revealed.
+		// UNSKIPPABLE (`unskippablePresentation.ts`): a slam used to release this while the reveal
+		// rig kept playing, so the free spins started underneath a reveal still on screen.
+		await awaitCue(
+			'specialBookReveal',
 			eventEmitter.broadcastAsync({ type: 'specialBookReveal', symbol: bookEvent.symbol }),
 		);
 	},
@@ -146,8 +149,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			await animateSymbols({ positions: bookEvent.positions });
 			// show free spin intro
 			eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_superfreespin' });
-			await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiHide' }));
-			await roundSkip.race(eventEmitter.broadcastAsync({ type: 'transition' }));
+			await awaitCue('uiHide', eventEmitter.broadcastAsync({ type: 'uiHide' }));
+			await awaitCue('transition', eventEmitter.broadcastAsync({ type: 'transition' }));
 		}
 		// Set the awarded-count BEFORE the intro shows, so a `freeSpinsWon`-bound readout in
 		// an authored intro screen has the total while the intro is on screen (the counter
@@ -162,7 +165,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// intro), so it switches whether or not the coded intro celebration runs.
 		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
 		if (presentIntro) {
-			await roundSkip.race(
+			// PLAYER-GATED (`PLAYER_GATED_CUES`): `FreeSpinIntroGate` holds this until a
+			// press-to-continue, so it stays released-on-skip even though the intro is otherwise
+			// unskippable — after a slam the spin button is inert and swallows that very tap.
+			await awaitCue(
+				'freeSpinIntroUpdate',
 				eventEmitter.broadcastAsync({
 					type: 'freeSpinIntroUpdate',
 					totalFreeSpins: bookEvent.totalFs,
@@ -184,9 +191,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
 		if (presentIntro) {
-			await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiShow' }));
+			await awaitCue('uiShow', eventEmitter.broadcastAsync({ type: 'uiShow' }));
 		}
-		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'drawerButtonShow' }));
+		await awaitCue('drawerButtonShow', eventEmitter.broadcastAsync({ type: 'drawerButtonShow' }));
 		eventEmitter.broadcast({ type: 'drawerFold' });
 	},
 	updateFreeSpin: async (bookEvent: BookEventOfType<'updateFreeSpin'>) => {

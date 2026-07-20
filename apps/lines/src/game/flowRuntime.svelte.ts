@@ -44,7 +44,8 @@ import {
 import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
 import { freeSpinsRemaining, freeSpinsTotal } from './freeSpinCounterValues';
 import { stateBet, stateBetDerived } from 'state-shared';
-import { roundSkip } from 'utils-shared/skipToken';
+
+import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
 import { BOARD_DIMENSIONS } from './constants';
@@ -403,7 +404,7 @@ export const createLinesFlow = (
 		runtime: {
 			emitter: {
 				broadcast: (e) => eventEmitter.broadcast(e as never),
-				broadcastAsync: (e) => roundSkip.race(eventEmitter.broadcastAsync(e as never)),
+				broadcastAsync: (e) => awaitCue(e.type, eventEmitter.broadcastAsync(e as never)),
 			},
 			// The LIVE turbo scalar — the same `stateBetDerived.timeScale()` the coded
 			// `waitForTimeout(ms / timeScale())` call sites read, so a turbo toggle mid-round
@@ -411,8 +412,10 @@ export const createLinesFlow = (
 			timeScale: stateBetDerived.timeScale,
 			// Slam-aware delay: every authored Delay node and awaited Broadcast collapses when the
 			// player slams the round, so a flow-driven presentation fast-forwards exactly like the
-			// coded one. Un-slammed ⇒ identical to `waitForTimeout`.
-			waitForTimeout: roundSkip.wait,
+			// coded one — except inside an unskippable presentation (the book reveal / free-spin
+			// intro), where a Delay paces a rig nothing cancels and so stays a real wait.
+			// Un-slammed ⇒ identical to `waitForTimeout`.
+			waitForTimeout: waitPresentation,
 			// The game-side EFFECT registry — the `declare ≠ implement` bridge for the
 			// non-emitter leaves (state mutations, board ops, win-level sound clusters). The
 			// effect bodies are lifted VERBATIM from the coded handlers (`flowEffects.ts`), so

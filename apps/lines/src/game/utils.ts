@@ -12,6 +12,7 @@ import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { runBookEventPresentation } from './unskippablePresentation';
 import type { RawSymbol, SymbolState } from './types';
 
 // general utils
@@ -25,7 +26,16 @@ const coded = createPlayBookUtils({ bookEventHandlerMap });
  * transition (design doc §6.1, §7). ABSENT interpreter (no FlowDoc — the default) ⇒ the coded
  * `playBookEvent` runs unchanged, byte-identical to current `main`.
  */
-export const playBookEvent = async (
+export const playBookEvent = (
+	bookEvent: BookEvent,
+	context: { bookEvents: BookEvent[] },
+): Promise<void> =>
+	// The UNSKIPPABLE carve-out is opened HERE, around the whole dispatch, so it covers whichever of
+	// the three paths below drives the event (coded / v1 flow / v2 flow) — the book reveal and the
+	// free-spin intro run to completion under a slam on all of them.
+	runBookEventPresentation(bookEvent.type, () => dispatchBookEvent(bookEvent, context));
+
+const dispatchBookEvent = async (
 	bookEvent: BookEvent,
 	context: { bookEvents: BookEvent[] },
 ): Promise<void> => {

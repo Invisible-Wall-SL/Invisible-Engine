@@ -47,6 +47,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
+import { awaitCue } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
@@ -94,9 +95,13 @@ export const winLevelSoundsStop = () => {
  * whole-feature skip `revealBoard` resolves instantly for all ten free spins, so ten reveals would
  * run concurrently on the same reels and the board would land on whichever finished last. Effects
  * that own the board must stay fully awaited; only presentation may be cut short.
+ *
+ * `awaitCue` applies the UNSKIPPABLE carve-out on top (`unskippablePresentation.ts`): inside the
+ * book reveal / free-spin intro the wait is not raced at all, so a rig timeline can never be left
+ * playing detached over the next spin. Player-gated cues keep racing there too.
  */
 const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcastAsync>[0]) =>
-	roundSkip.race(eventEmitter.broadcastAsync(emitterEvent));
+	awaitCue(emitterEvent.type, eventEmitter.broadcastAsync(emitterEvent));
 
 /** The awaited symbol-spine animation — the `winInfo` / `freeSpinTrigger` leaf. */
 export const animateSymbols = async ({ positions }: { positions: Position[] }) => {
