@@ -11,7 +11,7 @@
 	 * a still-frame flipbook would buy nothing.
 	 */
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
-	import { DEFAULT_FLIPBOOK_FPS, type FlipbookClip } from 'engine-flipbook';
+	import { DEFAULT_FLIPBOOK_FPS, detectSequences, type FlipbookClip } from 'engine-flipbook';
 	import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import type { PageData } from './$types';
@@ -244,6 +244,42 @@
 	};
 
 	const removeFrame = (i: number): void => setFrames(clip.frames.filter((_, n) => n !== i));
+
+	// --- detected sequences -----------------------------------------------------
+	// A sheet states its animations in its region names. Rebuilding a 49-frame run by clicking
+	// 49 thumbnails is the wrong default, so offer each consecutively-numbered run as one click.
+	// Detected from the region NAMES rather than read from the manifest's `sequences` hint, so an
+	// authored sheet gets the same offer as one imported verbatim from a .plist — the hint stays
+	// provenance. `detectSequences` is held to parity with the Sheet Maker's Python twin by
+	// `tools/flipbook-spike/sequences.ts`.
+	const sequences = $derived(detectSequences((regionSet?.regions ?? []).map((r) => r.name)));
+	/** Runs not already exactly loaded — a run the author just applied stops being an offer. */
+	const sequenceOffers = $derived(
+		sequences.filter((s) => s.frames.join(' ') !== clip.frames.join(' ')),
+	);
+
+	/** Replace (not append) the frame list with a detected run. Appending would silently produce
+	 * a double-length clip when clicked twice, and the run IS the animation — so it is the list. */
+	function useSequence(seq: { stem: string; frames: string[] }): void {
+		if (
+			clip.frames.length > 0 &&
+			!confirm(
+				`Replace the ${clip.frames.length} frame(s) in this clip with the ${seq.frames.length}-frame ` +
+					`sequence "${seq.stem}"?`,
+			)
+		) {
+			return;
+		}
+		clip = {
+			...clip,
+			assetKey: sheetKey,
+			// Only name the clip after the run when it is still unnamed/untitled — never clobber
+			// a name the author chose.
+			name: clip.name && clip.id !== UNTITLED_CLIP_ID ? clip.name : seq.stem,
+			frames: [...seq.frames],
+		};
+		frameIndex = 0;
+	}
 
 	/** Duplicating is a first-class edit, not a convenience: a repeated frame IS a hold, and the
 	 * normalizer deliberately keeps duplicates for exactly this reason. */
@@ -513,6 +549,21 @@
 					<option value="">No atlases in this project</option>
 				{/each}
 			</select>
+			{#if sequenceOffers.length > 0}
+				<div class="seqs">
+					<h4>Detected animation{sequenceOffers.length === 1 ? '' : 's'}</h4>
+					<p class="seqhint">
+						These regions are numbered consecutively, so they are probably one animation.
+					</p>
+					{#each sequenceOffers as seq (seq.stem)}
+						<button class="seq" onclick={() => useSequence(seq)}>
+							<span class="sqn">{seq.stem}</span>
+							<span class="sqc">{seq.frames.length} frames</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
+
 			<input class="filter" placeholder="Filter regions…" bind:value={regionFilter} />
 
 			<div class="grid">
@@ -837,6 +888,58 @@
 		background: #0e131a;
 		color: #e2e8f0;
 		font-size: 12px;
+	}
+	.seqs {
+		flex: none;
+		margin-bottom: 10px;
+		padding: 8px;
+		border: 1px solid #24405c;
+		border-radius: 6px;
+		background: #0d1722;
+	}
+	.seqs h4 {
+		margin: 0 0 2px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #7dd3fc;
+	}
+	.seqhint {
+		margin: 0 0 7px;
+		font-size: 11px;
+		line-height: 1.35;
+		color: #7c8798;
+	}
+	.seq {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+		width: 100%;
+		margin-top: 4px;
+		padding: 5px 8px;
+		border-radius: 5px;
+		border: 1px solid #2a3f55;
+		background: #111d29;
+		color: #cfe3f5;
+		font-size: 12px;
+		cursor: pointer;
+		text-align: left;
+	}
+	.seq:hover {
+		border-color: #3f6f9c;
+		background: #16283a;
+	}
+	.sqn {
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.sqc {
+		flex: none;
+		color: #8aa0b6;
+		font-size: 11px;
 	}
 	.grid {
 		flex: 1;
