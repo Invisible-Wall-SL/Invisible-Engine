@@ -29,6 +29,7 @@ export const SOUND_EFFECT_NAMES: string[] = [
 	'sfx_bigwin_coinloop',
 	'sfx_btn_general',
 	'sfx_btn_spin',
+	'sfx_btn_stop',
 	'sfx_fs_respins',
 	'sfx_multiplier_combine_a',
 	'sfx_multiplier_combine_b',

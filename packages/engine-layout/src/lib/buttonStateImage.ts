@@ -7,17 +7,20 @@
  *   the `image` param with the resolved state image (the def's bg sprite binds
  *   `region` → `image`).
  *
- * Cascade: spinning (`imageSpinning`, the round-in-progress frame the engine
- * rotates) → disabled (`imageDisabled`, the downstate) → pressed (`imagePressed`,
- * falls back to hover, then to selected while active) → hovered (`imageHover`,
- * falls back to selected while active) → active (`imageSelected`). Returns
- * `undefined` when the current state has no authored image — the caller keeps
- * its resting look (`image` param / tile). Empty strings normalize to unset so
- * a cleared editor field behaves like an absent param.
+ * Cascade: an AUTHORED pressed frame → spinning (`imageSpinning`, the
+ * round-in-progress frame the engine rotates) → disabled (`imageDisabled`, the
+ * downstate) → pressed fallback (hover, then selected while active) → hovered
+ * (`imageHover`, falls back to selected while active) → active
+ * (`imageSelected`). Returns `undefined` when the current state has no authored
+ * image — the caller keeps its resting look (`image` param / tile). Empty
+ * strings normalize to unset so a cleared editor field behaves like an absent
+ * param.
  *
- * `spinning` is checked FIRST because a single bet's roll sets BOTH `spinning`
- * and `disabled` (the button is inert while one spin rolls — there is nothing to
- * stop) and the rotating spin frame must win over the downstate grey.
+ * `spinning` outranks `disabled` because a single bet's roll can set BOTH (the
+ * rotating spin frame must win over the downstate grey), but an authored
+ * `imagePressed` outranks `spinning`: with slam stop always on, the spin button
+ * is a live STOP mid-roll and its press needs a visible downstate. Only when
+ * authored — a button with no pressed frame resolves exactly as before.
  */
 
 import type { ButtonStateAnimations, SpineStateAnimation } from './types';
@@ -38,23 +41,32 @@ export type ButtonVisualState = 'spinning' | 'disabled' | 'pressed' | 'hover' | 
  * The shared button-state cascade, parameterised over the looked-up value type so
  * BOTH state flavours (per-state IMAGE and per-state spine ANIMATION) resolve through
  * ONE function and can't drift. `get(state)` returns the authored value for a state
- * (or `undefined` when that state is unmapped). Cascade: spinning → disabled →
- * pressed (→hover→selected) → hovered (→selected) → active(selected). Returns
- * `undefined` when the current state has nothing authored — the caller keeps its
- * resting value.
+ * (or `undefined` when that state is unmapped). Cascade: authored pressed →
+ * spinning → disabled → pressed fallback (hover→selected) → hovered (→selected) →
+ * active(selected). Returns `undefined` when the current state has nothing authored
+ * — the caller keeps its resting value.
  *
- * `spinning` is checked FIRST because a single bet's roll sets BOTH `spinning` and
- * `disabled` (the button is inert while one spin rolls) and the spinning visual must
- * win over the downstate.
+ * `spinning` outranks `disabled` because a single bet's roll can set BOTH and the
+ * spinning visual must win over the downstate. An AUTHORED pressed value outranks
+ * `spinning` in turn: since slam stop is always on the spin button is a live STOP
+ * while the reels roll, and without this the spin frame swallows the press so the
+ * slam has no visual feedback and `imagePressed` is unreachable mid-round. Gated on
+ * the value actually being authored, so a button with no pressed value keeps the
+ * previous resolution exactly. `disabled` still suppresses it — a downstate button
+ * must never look pressed (both callers already clear `pressed` when disabled).
  */
 export function resolveButtonState<T>(
 	get: (state: ButtonVisualState) => T | undefined,
 	state: ButtonStateFlags,
 ): T | undefined {
+	if (state.pressed && !state.disabled) {
+		const pressed = get('pressed');
+		if (pressed !== undefined) return pressed;
+	}
 	if (state.spinning) return get('spinning');
 	if (state.disabled) return get('disabled');
 	const selected = state.active ? get('selected') : undefined;
-	if (state.pressed) return get('pressed') ?? get('hover') ?? selected;
+	if (state.pressed) return get('hover') ?? selected;
 	if (state.hovered) return get('hover') ?? selected;
 	return selected;
 }

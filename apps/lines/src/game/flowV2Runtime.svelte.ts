@@ -200,7 +200,9 @@ export type LinesFlowV2 = {
  */
 const INTENT_COMMANDS: Record<string, string> = {
 	startSpin: 'spin',
-	stopSpin: 'spin', // the spin button is bet-or-stop; the coded body decides by state.
+	// `stop` and `spin` bridge to the SAME coded bet-or-slam body (it decides by state); two names so
+	// a `stop` event chain can invoke the mechanic under the name it was authored with.
+	stopSpin: 'stop',
 	confirmBuyBonus: 'buyBonus',
 	// The standard HUD buttons — each routes to the game intent `invokeHostIntent` already bridges.
 	increaseBet: 'increase',

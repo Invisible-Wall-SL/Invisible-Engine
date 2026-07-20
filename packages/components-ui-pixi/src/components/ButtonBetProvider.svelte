@@ -6,7 +6,12 @@
 	import type { Snippet } from 'svelte';
 
 	import { hasContinuePress, stateBetDerived } from 'state-shared';
-	import { getSpinButtonKey, runSpinOrSlamStop, type SpinButtonKey } from 'utils-shared/spinStop';
+	import {
+		getSpinButtonKey,
+		getSpinPressSound,
+		runSpinOrSlamStop,
+		type SpinButtonKey,
+	} from 'utils-shared/spinStop';
 
 	import { getContext } from '../context';
 
@@ -27,12 +32,12 @@
 	const props: Props = $props();
 	const context = getContext();
 
+	// The sound is chosen from the SAME `isIdle` read the press body decides on, so a slam can never
+	// announce itself with the bet whoosh (it did — the sound was broadcast before the decision).
 	const onpress = () => {
-		context.eventEmitter.broadcast({ type: 'soundPressBet' });
-		runSpinOrSlamStop({
-			isIdle: context.stateXstateDerived.isIdle(),
-			broadcast: context.eventEmitter.broadcast,
-		});
+		const isIdle = context.stateXstateDerived.isIdle();
+		context.eventEmitter.broadcast(getSpinPressSound({ isIdle }));
+		runSpinOrSlamStop({ isIdle, broadcast: context.eventEmitter.broadcast });
 	};
 
 	// Slam stop is ALWAYS ON: while a round rolls the button is a live STOP that snaps the reels

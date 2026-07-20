@@ -62,6 +62,14 @@ function createSound<TSoundName extends string>() {
 		};
 	};
 
+	/**
+	 * Whether the loaded audiosprite actually carries a region for `soundName`. Lets a caller ask
+	 * before playing a cue that a game's manifest may predate: howler silently declines to play an
+	 * unknown sprite key, so without this a missing region is an inaudible non-failure. Also false
+	 * before `load()`.
+	 */
+	const hasSound = (soundName: TSoundName) => Boolean(loadedAudio?.sprite?.[soundName]);
+
 	const stop = (stopOptions: StopOptions<TSoundName>) => {
 		if (players) {
 			players.music.stop(stopOptions);
@@ -145,6 +153,7 @@ function createSound<TSoundName extends string>() {
 
 	return {
 		load,
+		hasSound,
 		stop,
 		fade,
 		rate,

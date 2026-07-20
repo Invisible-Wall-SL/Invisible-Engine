@@ -17,6 +17,20 @@ export const getSpinButtonKey = ({ isIdle }: { isIdle: boolean }): SpinButtonKey
 	return 'stop_default';
 };
 
+export type SpinPressSound = { type: 'soundPressBet' } | { type: 'soundPressStop' };
+
+/**
+ * The press SOUND for the spin button. A mid-round press is a SLAM, not a bet, so it gets a cue of
+ * its own — the press sound was previously broadcast BEFORE `runSpinOrSlamStop` decided, so a slam
+ * played the identical spin whoosh and gave the player no audible confirmation.
+ *
+ * Kept OUT of `runSpinOrSlamStop` (which stays sound-free, so an intent-invoked action can't double
+ * the sound the button already made) but beside it, so the coded button, the parametric `spin`
+ * action and the Space hotkey share one decision instead of re-deriving it three times.
+ */
+export const getSpinPressSound = ({ isIdle }: { isIdle: boolean }): SpinPressSound =>
+	isIdle ? { type: 'soundPressBet' } : { type: 'soundPressStop' };
+
 /**
  * The press body shared by the coded `ButtonBetProvider`, the Space hotkey and the flow's `spin`
  * action — ONE source of truth for the idle→bet / rolling→slam decision.
