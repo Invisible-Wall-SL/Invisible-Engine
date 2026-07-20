@@ -106,8 +106,13 @@ export const createSkipToken = (): SkipToken => {
 /**
  * THE round token. One per running game (a browser runs one game), so any package — the reels
  * (`utils-slots`), the count-up providers (`components-pixi`), the book-event handlers — can ask
- * whether the player has slammed the current round without threading a parameter through every
- * layer. Tripped by the spin/stop press (`spinStop.ts`), re-armed at the start of each bet and on
- * every `stopButtonEnable` (which already means "a new skippable segment begins").
+ * whether the player has slammed the current SKIPPABLE SEGMENT without threading a parameter
+ * through every layer. Tripped by the spin/stop press (`spinStop.ts`) and re-armed at the start of
+ * each bet (every app's `playBet`).
+ *
+ * How big a segment is, is the GAME's call — `reset()` is the knob. A game that re-arms only per bet
+ * lets one press fast-forward a whole bonus feature; `apps/lines` also re-arms at the start of each
+ * spin of a bonus book (`rearmSlamForSpin`), so a press slams just the spin that is rolling. Both
+ * are correct uses of the same primitive; nothing here assumes either.
  */
 export const roundSkip = createSkipToken();

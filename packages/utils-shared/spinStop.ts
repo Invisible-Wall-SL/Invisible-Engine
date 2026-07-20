@@ -25,10 +25,16 @@ export const getSpinButtonKey = ({ isIdle }: { isIdle: boolean }): SpinButtonKey
  * board (`enhancedBoard.stop()`) and the turbo button hang off. The reels land on the resolved
  * result and the whole post-reveal presentation fast-forwards to its final state.
  *
- * Rolling, press 2 (autoplay only): CANCEL the remaining sequence. The round is already slammed,
- * so there is nothing left to fast-forward; zeroing `autoSpinsCounter` is the only useful thing a
- * second press can do. Autoplay therefore always remains cancellable — it just costs two presses,
- * which is what lets press 1 mean "hurry this spin up" instead of "stop everything".
+ * Rolling, press 2 (autoplay only): CANCEL the remaining sequence. The segment in front of the
+ * player is already slammed, so there is nothing left to fast-forward; zeroing `autoSpinsCounter`
+ * is the only useful thing a second press can do. Autoplay therefore always remains cancellable —
+ * it just costs two presses, which is what lets press 1 mean "hurry this spin up" instead of
+ * "stop everything".
+ *
+ * "Already slammed" is read from the token, so it follows whatever the game scopes a segment to. In
+ * `apps/lines` a bonus book re-arms per free spin, so the two presses must land in the SAME spin to
+ * cancel — press once per spin and each press slams that spin instead. That is the intended
+ * trade-off: a cancel is always one extra press away, in whichever spin is playing.
  *
  * `roundSkip.skip()` runs BEFORE the broadcast, synchronously, so the token is already tripped for
  * every subscriber regardless of subscription order (see the reel note in `createReelForSpinning`).

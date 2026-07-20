@@ -47,7 +47,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
-import { awaitCue } from './unskippablePresentation';
+import { awaitCue, rearmSlamForSpin } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
@@ -249,6 +249,8 @@ const effects: Record<string, FlowEffect> = {
 		const bookEvents = payload.bookEvents as BookEvent[];
 		const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
 		if (isBonusGame) {
+			// Per-spin slam re-arm — the coded `reveal` handler's twin (parity by construction).
+			rearmSlamForSpin();
 			eventEmitter.broadcast({ type: 'stopButtonEnable' });
 			recordBookEvent({ bookEvent });
 		}

@@ -1,9 +1,11 @@
 /**
- * UNSKIPPABLE PRESENTATIONS — the slam-stop carve-out (`roundSkip`, `utils-shared/skipToken`).
+ * SLAM-STOP SCOPING for apps/lines — the two places the raw `roundSkip` token
+ * (`utils-shared/skipToken`) is deliberately narrowed: the UNSKIPPABLE presentation carve-out, and
+ * the PER-SPIN re-arm.
  *
- * A slam fast-forwards the round by RACING each presentation wait against the sticky round token.
- * That is right for a wait whose visual is a value the skip lands at its final state (a count-up, a
- * win line, a reel snap): the race ends the wait and the picture is already correct.
+ * A slam fast-forwards the round by RACING each presentation wait against the skip token. That is
+ * right for a wait whose visual is a value the skip lands at its final state (a count-up, a win
+ * line, a reel snap): the race ends the wait and the picture is already correct.
  *
  * It is WRONG for a presentation whose visual is a TIMELINE nobody cancels — the book / expanding
  * symbol reveal (a spine/`.irig` rig animation) and the free-spin intro. Racing those releases the
@@ -21,6 +23,12 @@
  * stay raced: after a slam the spin button is inert and is drawn above the overlay, so it swallows
  * the very tap that would release the hold and the round never completes (the bug fixed in 350b473).
  * {@link PLAYER_GATED_CUES} is that exemption, and it applies INSIDE the scope.
+ *
+ * THE SPIN IS THE SKIPPABLE UNIT, not the round (owner direction 2026-07-20, reversing the original
+ * whole-feature choice). One press used to fast-forward every remaining free spin, because the token
+ * is sticky and was re-armed only per bet. It is now re-armed at the START of each spin of a bonus
+ * book ({@link rearmSlamForSpin}), so a press slams the spin that is rolling and the feature resumes
+ * at full pace — normal roll, normal anticipation, normal count-up — until the next press.
  */
 
 import { roundSkip } from 'utils-shared/skipToken';
@@ -88,3 +96,24 @@ export const awaitCue = (cue: string, subscribers: Promise<unknown>): Promise<vo
  *  paces a rig that nothing cancels), collapsed by the slam token everywhere else. */
 export const waitPresentation = (time: number): Promise<void> =>
 	inUnskippablePresentation() ? waitForTimeout(time) : roundSkip.wait(time);
+
+/**
+ * Re-arm the slam token for the spin that is ABOUT to roll — the per-spin unit of skippability.
+ * Called at the top of the `reveal` leaf (coded handler + `revealBoard` effect) when the book holds
+ * MORE THAN ONE reveal, i.e. this is a bonus book and each reveal is one free spin. A single-reveal
+ * base-game book never calls it, so the base game keeps exactly the round-scoped behaviour the owner
+ * approved.
+ *
+ * It is a DELIBERATE call at the site that owns the spin lifecycle, rather than a subscription to
+ * the `stopButtonEnable` broadcast that used to carry it: that made the re-arm an invisible side
+ * effect of a UI-enable event which ALSO fires from `playBet`'s `finally` (round end), where
+ * re-arming means nothing.
+ *
+ * Re-arming can only ever return the token to the state an un-slammed round is already in, so it
+ * cannot strand a wait: every hold reached after it behaves exactly as it does when nobody pressed.
+ * It also cannot race the unskippable carve-out — the scope is opened and closed inside a SINGLE
+ * book-event dispatch, book events are strictly serial, and `reveal` is a different dispatch from
+ * the `setExpandingSymbol` / `freeSpinTrigger` that own the reveal and intro. The carve-out drops
+ * the race outright rather than reading the token, so its behaviour does not depend on this at all.
+ */
+export const rearmSlamForSpin = (): void => roundSkip.reset();

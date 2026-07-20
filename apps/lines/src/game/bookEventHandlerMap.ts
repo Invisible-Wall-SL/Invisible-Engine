@@ -10,7 +10,7 @@ import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
-import { awaitCue } from './unskippablePresentation';
+import { awaitCue, rearmSlamForSpin } from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
@@ -30,6 +30,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
 		const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
 		if (isBonusGame) {
+			// The SPIN is the skippable unit: re-arm before this free spin rolls so a press slams
+			// only the one that is playing and the rest of the feature keeps its full pacing —
+			// roll, anticipation and count-up — until the player presses again.
+			rearmSlamForSpin();
 			eventEmitter.broadcast({ type: 'stopButtonEnable' });
 			recordBookEvent({ bookEvent });
 		}
