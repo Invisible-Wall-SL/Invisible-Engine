@@ -297,7 +297,19 @@ export async function exportEditorArt(
 			const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
 			for (const layer of effectDoc.layers) {
 				const assetKey = layer.art?.assetKey;
-				if (assetKey && isManifestAssetKey(assetKey)) refs.manifestKeys.add(assetKey);
+				if (!assetKey || !isManifestAssetKey(assetKey)) continue;
+				refs.manifestKeys.add(assetKey);
+				// Count this layer's FRAME names as used regions too, so a frame that no atlas packs
+				// any more shows up in `index.missing` like a dangling sprite region. Without this the
+				// dangling guard below is structurally blind to FX art: a renamed/deleted frame is
+				// reported NOWHERE (not export, bake, or boot) and degrades silently at runtime —
+				// `EffectLayer` drops missing frames from the array, and if ALL are gone
+				// `ParticleEmitter` falls back to binding the WHOLE sheet, spraying wrong textures.
+				// Guarded on a MANIFEST assetKey: that's what queues the sheet for export above, so a
+				// non-manifest layer's frames would otherwise report dangling spuriously.
+				for (const frame of layer.art?.frames ?? []) {
+					if (frame) refs.usedRegions.add(frame);
+				}
 			}
 		}
 	} catch {
