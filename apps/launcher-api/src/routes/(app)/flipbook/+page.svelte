@@ -13,8 +13,10 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
+		animationToClip,
 		clipSheetKeys,
 		detectSequencesAcross,
+		parseAnimationPlist,
 		parseFrameRef,
 		type FlipbookClip,
 	} from 'engine-flipbook';
@@ -177,6 +179,69 @@
 	const newClip = (): void => void (window.location.href = '/flipbook');
 	const openClip = (id: string): void =>
 		void (window.location.href = `/flipbook?clip=${encodeURIComponent(id)}`);
+
+	// --- animation plist import / export ----------------------------------------
+	// The cocos2d ANIMATION plist is the file that actually STATES an animation — an ordered
+	// frame list plus timing — so it can HOLD a frame and run frames out of numeric order,
+	// neither of which filename detection can express. Importing one replaces a guess with the
+	// authored truth.
+	//
+	// Done client-side because everything needed is already here: the parser is pure, and
+	// `data.atlases` carries each sheet's regions, which is what pins every frame to the page
+	// that packs it. Saving reuses `/api/flipbook/save`, so an imported clip gets exactly the
+	// same normalisation and the same guards as a hand-authored one.
+	let importing = $state(false);
+	let importNote = $state('');
+
+	async function importAnimationPlist(file: File): Promise<void> {
+		importing = true;
+		importNote = '';
+		saveError = '';
+		try {
+			const doc = parseAnimationPlist(await file.text());
+			if (doc.animations.length === 0) {
+				saveError = 'That plist has no animations in it.';
+				return;
+			}
+			const sheets = data.atlases.map((a) => ({ assetKey: a.manifestKey, regions: a.regions }));
+			const incoming = doc.animations.map((a) => animationToClip(a, sheets));
+			const lines = incoming.map(
+				(c) => `  • ${c.name} — ${c.frames.length} frames @ ${c.fps ?? DEFAULT_FLIPBOOK_FPS}fps`,
+			);
+			// An import OVERWRITES a clip of the same id, and clips have no version history — so
+			// name the ones that will be replaced instead of burying it in a generic warning.
+			const clash = incoming.filter((c) => clips.some((row) => row.id === c.id));
+			const warning = clash.length
+				? ['', `${clash.length} of these already exist and will be REPLACED:`]
+						.concat(clash.map((c) => `  • ${c.name}`))
+						.join(String.fromCharCode(10))
+				: '';
+			const prompt = [`Import ${incoming.length} animation(s)?`, '']
+				.concat(lines)
+				.join(String.fromCharCode(10));
+			if (!window.confirm(prompt + warning)) return;
+
+			let ok = 0;
+			for (const c of incoming) {
+				const res = await fetch('/api/flipbook/save', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ clip: c, projectKey: data.projectKey, force: true }),
+				});
+				if (!res.ok) continue;
+				const out = (await res.json()) as { id: string; name: string; frames: number };
+				upsertClip({ id: out.id, name: out.name, frames: out.frames });
+				ok++;
+			}
+			importNote = `Imported ${ok} of ${incoming.length} animation(s).`;
+			if (ok < incoming.length) saveError = 'Some animations could not be saved.';
+		} catch (e) {
+			saveError =
+				e instanceof Error ? e.message : 'That file could not be read as an animation plist.';
+		} finally {
+			importing = false;
+		}
+	}
 
 	// --- source sheets + regions ------------------------------------------------
 	// A clip may span SEVERAL sheets: a multipacked export routinely interleaves one animation
@@ -432,6 +497,32 @@
 			<div class="head">
 				<h3>Clips</h3>
 				<button class="add" onclick={newClip}>+ New</button>
+			</div>
+
+			<!-- The animation plist is authored elsewhere (a cocos project, an exporter) and states
+			     the sequence outright — holds, order and rate — so it beats anything inferred from
+			     filenames. It travels both ways because we ship the format, not just read it. -->
+			<div class="plistbox">
+				<h4>Animation plist</h4>
+				<label class="ppick">
+					<span>{importing ? 'Importing…' : 'Import .plist…'}</span>
+					<input
+						type="file"
+						accept=".plist"
+						disabled={importing}
+						onchange={(e) => {
+							const f = e.currentTarget.files?.[0];
+							e.currentTarget.value = '';
+							if (f) void importAnimationPlist(f);
+						}}
+					/>
+				</label>
+				<a class="pexport" href="/api/flipbook/animations" download>⤓ Export all clips</a>
+				<p class="phint">
+					An <b>animation</b> plist (ordered frames + timing), not a sprite-sheet plist — those go in
+					the Sheet Maker.
+				</p>
+				{#if importNote}<p class="pnote">{importNote}</p>{/if}
 			</div>
 			<ul class="cliplist">
 				{#each clips as row (row.id)}
@@ -947,6 +1038,66 @@
 		background: #0e131a;
 		color: #e2e8f0;
 		font-size: 12px;
+	}
+	.plistbox {
+		flex: none;
+		margin: 0 0 10px;
+		padding: 8px;
+		border: 1px solid #2a323d;
+		border-radius: 6px;
+		background: #0e131a;
+	}
+	.plistbox h4 {
+		margin: 0 0 6px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #93a4b8;
+	}
+	.ppick {
+		display: block;
+		margin-bottom: 5px;
+		padding: 5px 8px;
+		border-radius: 5px;
+		border: 1px solid #2f4459;
+		background: #14202c;
+		color: #cfe3f5;
+		font-size: 12px;
+		text-align: center;
+		cursor: pointer;
+	}
+	.ppick:hover {
+		border-color: #3f6f9c;
+	}
+	/* The native control is unlabelled and ugly; the wrapping label carries the text. */
+	.ppick input {
+		display: none;
+	}
+	.pexport {
+		display: block;
+		padding: 5px 8px;
+		border-radius: 5px;
+		border: 1px solid #2a323d;
+		background: #131820;
+		color: #b9c6d4;
+		font-size: 12px;
+		text-align: center;
+		text-decoration: none;
+	}
+	.pexport:hover {
+		border-color: #3f6f9c;
+		color: #e2e8f0;
+	}
+	.phint {
+		margin: 6px 0 0;
+		font-size: 11px;
+		line-height: 1.35;
+		color: #7c8798;
+	}
+	.pnote {
+		margin: 5px 0 0;
+		font-size: 11px;
+		color: #7dd3fc;
 	}
 	.seqs {
 		flex: none;
